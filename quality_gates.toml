@@ -1,0 +1,51 @@
+# FrankenSymPy Quality Gates Configuration
+# Coverage/Flake Budgets + Reliability Gates
+#
+# SLO definitions for test quality, coverage, and reliability.
+# Used by the quality_monitor module in fsym-conformance.
+
+[coverage]
+# Minimum line coverage percentage per crate.
+default_line_coverage = 80
+default_branch_coverage = 60
+
+[coverage.per_crate]
+fsym-runtime = { line = 85, branch = 70 }
+fsym-core = { line = 85, branch = 70 }
+fsym-polys = { line = 80, branch = 60 }
+fsym-simplify = { line = 80, branch = 60 }
+fsym-calculus = { line = 80, branch = 60 }
+fsym-solvers = { line = 80, branch = 60 }
+fsym-matrices = { line = 80, branch = 60 }
+fsym-functions = { line = 80, branch = 60 }
+fsym-logic = { line = 80, branch = 60 }
+fsym-ntheory = { line = 85, branch = 70 }
+fsym-sets = { line = 80, branch = 60 }
+fsym-geometry = { line = 80, branch = 60 }
+fsym-tensor = { line = 75, branch = 55 }
+fsym-assumptions = { line = 80, branch = 60 }
+fsym-printing = { line = 80, branch = 60 }
+fsym-conformance = { line = 70, branch = 50 }
+
+[flake]
+# Maximum flake rate: fraction of test runs that produce non-deterministic failures.
+max_flake_rate = 0.001
+# Number of re-runs to classify a failure as flaky vs real.
+rerun_count = 3
+
+[runtime]
+# Maximum wall-clock time budgets per test suite tier (in seconds).
+unit_suite_max_seconds = 120
+e2e_suite_max_seconds = 600
+benchmark_suite_max_seconds = 300
+per_test_timeout_seconds = 30
+
+[runtime.per_crate]
+fsym-conformance = { unit_max_seconds = 180, e2e_max_seconds = 600 }
+
+[severity]
+coverage_violation = "warn"
+flake_violation = "warn"
+runtime_violation = "fail"
+critical_coverage_floor = 50
+critical_runtime_multiplier = 3.0

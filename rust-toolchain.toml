@@ -1,0 +1,4 @@
+[toolchain]
+# Pinned nightly toolchain matching Franken* ecosystem standards.
+channel = "nightly-2026-07-05"
+components = ["rustfmt", "clippy"]

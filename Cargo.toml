@@ -1,0 +1,16 @@
+[package]
+name = "frankensympy"
+version = "0.1.0"
+edition = "2024"
+license-file = "LICENSE"
+repository = "https://github.com/Dicklesworthstone/frankensympy"
+homepage = "https://github.com/Dicklesworthstone/frankensympy"
+readme = "README.md"
+description = "Clean-room, memory-safe Rust reimplementation of SymPy with differential oracle conformance"
+keywords = ["sympy", "cas", "symbolic", "mathematics", "computer-algebra"]
+categories = ["science", "mathematics", "data-structures", "algorithms"]
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]

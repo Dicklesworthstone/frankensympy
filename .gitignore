@@ -1,0 +1,163 @@
+# /target          — default cargo build output at workspace root
+# target_*/        — per-agent rch target dirs
+/target
+target_*/
+**/*.rs.bk
+/crates/
+
+
+# bv (beads viewer) local config and caches
+.bv/
+
+# Python virtualenvs and caches
+.venv/
+.venv-*/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Editor/OS noise
+.DS_Store
+._*
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Ephemeral agent/runtime artifacts
+storage.sqlite3
+storage.sqlite3-*
+rustc-ice-*.txt
+a.out
+--graph-format.svg
+target-codex*/
+
+# Agent session tool outputs
+.ntm/
+clippy_*.txt
+deep_clippy.txt
+rust-bug-scan.txt
+ubs_out.txt
+*.actual
+
+# Root-level compiled test binaries and scratch test source files
+/patch_oracle
+/test_*
+
+# Root-level agent scratch / one-off fix scripts
+/apply_fixes.py
+/fix_*.py
+/get_context.py
+/patch_oracle.rs
+
+# Local logs and profiling artifacts
+*.log
+*.profraw
+*.profdata
+perf.data
+artifacts/logs/
+
+# Ephemeral files (agent-generated, build artifacts, test detritus)
+ci-artifacts/
+proptest-regressions/
+test_meminfo
+
+# Cargo-fuzz auto-generated corpus entries (hash-named).
+# Curated edge-case seeds are committed under fuzz/corpus/<target>/seed_*.
+fuzz/corpus/*/*
+!fuzz/corpus/*/seed_*
+!fuzz/corpus/*/README*
+!fuzz/corpus/*/.gitkeep
+
+# Agent session ephemeral files
+SESSION_TODO.md
+SESSION_REPORT.md
+SESSION_*.md
+verify_*.sh
+newfile.txt
+repro_*.rs
+
+# Nested crate build artifacts
+crates/*/target/
+
+# FastEmbed model caches
+.fastembed_cache/
+
+# Agent coordination config
+.agent-mail.yaml
+
+# Beads history snapshots
+.beads/.br_history/
+.beads_recovery_*/
+
+# Claude local settings
+.claude/settings.local.json
+
+# ACFS ephemeral patterns (auto-generated agent artifacts)
+core
+core.*
+cline.mcp.json
+codex.mcp.json
+cursor.mcp.json
+gemini.mcp.json
+opencode.json
+windsurf.mcp.json
+*.mcp.json.*.bak
+.opencode.json.*.bak
+.windsurf.mcp.json.*.bak
+.agent-mail-project-id
+*.sqlite3.bak
+*.sqlite3.corrupt*
+storage.sqlite3.corrupt-*
+storage.sqlite3-shm.corrupt-*
+storage.sqlite3-wal.corrupt-*
+.beads/*.corrupt*
+.beads/*.pre_repair_*
+.beads/*.pre_reindex_*
+.beads/*.repair_candidate_*
+.beads/*.rebuild_*
+.beads/*.bak-corrupt
+.beads/*.bad_*
+.beads/.beads.db.schema-migration-*
+.beads/recovery/
+.beads/recovery_*/
+.beads_snapshot_*/
+
+# Root-level agent-generated scripts and scratch output
+/*.txt
+/*.out
+/*.json
+!package.json
+/*.sh
+/*.py
+/*.c
+nohup.out
+
+# Local agent runtime state — recurring untracked noise across rounds
+.claude/
+.rch-target/
+/.rch-target-*/
+.rch-bench-replay/
+**/fuzz/artifacts/
+**/fuzz/corpus/*/[0-9a-f][0-9a-f]*
+**/*.bak/
+.env
+
+# Ephemeral agent/skill scratch
+.skill-loop-progress.md
+.skill-loop-progress-*.md
+*.mcp.json
+.probe/
+
+# Beads recovery scratch directory
+.beads/.br_recovery/
+*.perf.data
+*.perf.data.old
+
+# Ephemeral build & scratch artifacts
+*.rlib
+rust_out
+**/local-target/
+.doctor/
