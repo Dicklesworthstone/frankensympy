@@ -1,0 +1,108 @@
+schema_version = 1
+registry_status = "planning"
+
+# Evidence classes describe what has actually been checked. They are not a
+# scalar confidence ranking. A verifier may grant only the class named in its
+# registry contract for the exact typed claim it checked.
+
+[[evidence_classes]]
+id = "kernel_proved"
+terminal = true
+mathematical = true
+requires_verifier = "proof_kernel"
+can_discharge_exact_equality = true
+can_discharge_numeric_enclosure = false
+can_certify_compatibility = false
+
+[[evidence_classes]]
+id = "certificate_verified"
+terminal = true
+mathematical = true
+requires_verifier = "claim_specific"
+can_discharge_exact_equality = "claim_dependent"
+can_discharge_numeric_enclosure = "claim_dependent"
+can_certify_compatibility = false
+
+[[evidence_classes]]
+id = "exact_cross_checked"
+terminal = true
+mathematical = true
+requires_verifier = "independence_and_invariant_checker"
+can_discharge_exact_equality = "policy_dependent"
+can_discharge_numeric_enclosure = false
+can_certify_compatibility = false
+
+[[evidence_classes]]
+id = "certified_numeric"
+terminal = true
+mathematical = true
+requires_verifier = "directed_rounding_and_claim_specific"
+can_discharge_exact_equality = false
+can_discharge_numeric_enclosure = true
+can_certify_compatibility = false
+
+[[evidence_classes]]
+id = "oracle_conformant"
+terminal = true
+mathematical = false
+requires_verifier = "profile_comparator"
+can_discharge_exact_equality = false
+can_discharge_numeric_enclosure = false
+can_certify_compatibility = true
+
+[[evidence_classes]]
+id = "user_asserted"
+terminal = true
+mathematical = false
+requires_verifier = "context_policy"
+can_discharge_exact_equality = "inside_declared_context_only"
+can_discharge_numeric_enclosure = false
+can_certify_compatibility = false
+
+[[evidence_classes]]
+id = "heuristic_candidate"
+terminal = false
+mathematical = false
+requires_verifier = "none"
+can_discharge_exact_equality = false
+can_discharge_numeric_enclosure = false
+can_certify_compatibility = false
+
+[[non_evidence_outcomes]]
+id = "conditional"
+[[non_evidence_outcomes]]
+id = "inconclusive"
+[[non_evidence_outcomes]]
+id = "refused"
+[[non_evidence_outcomes]]
+id = "cancelled"
+[[non_evidence_outcomes]]
+id = "timed_out"
+[[non_evidence_outcomes]]
+id = "resource_exhausted"
+[[non_evidence_outcomes]]
+id = "unsupported"
+[[non_evidence_outcomes]]
+id = "internal_fault"
+
+[prohibited_promotions]
+e_process_to_mathematical_proof = true
+conformal_score_to_mathematical_proof = true
+selector_posterior_to_certificate = true
+raptorq_decode_to_integrity = true
+raptorq_decode_to_mathematical_proof = true
+oracle_conformance_to_mathematical_proof = true
+sampled_numeric_agreement_to_exact_identity = true
+search_trace_to_verified_proof = true
+absence_of_counterexample_to_theorem = true
+timeout_to_false = true
+unsupported_to_false = true
+stored_verified_flag_without_replay = true
+
+[policy]
+unknown_class_fails_closed = true
+claim_schema_must_match = true
+context_and_domain_must_match = true
+verifier_version_must_match = true
+unverified_candidates_use_separate_cache_namespace = true
+stronger_evidence_query_rejects_weaker_entry = true
