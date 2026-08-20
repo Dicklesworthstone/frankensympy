@@ -269,8 +269,10 @@ required_workstreams = ["WS14", "WS15", "WS16"]
 id = "M6"
 title = "SymPy 1.14 compatibility expansion"
 status = "planned"
-required_workstreams = ["WS21"]
-profile_scope = "expansion checkpoint; not certification"
+required_workstreams = []
+required_checkpoints = ["gate://ws21-sympy-1.14-expansion-checkpoint"]
+checkpoint_workstreams = ["WS21"]
+profile_scope = "expansion checkpoint; not workstream closure or certification"
 
 [[milestones]]
 id = "M7"
