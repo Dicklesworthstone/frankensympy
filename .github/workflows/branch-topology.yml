@@ -1,0 +1,61 @@
+name: Enforce Branch Topology
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: branch-topology
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  mirror-and-prune:
+    name: "Mirror main to master and prune other branches"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Mirror current remote main to master
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          main_sha="$(git rev-parse refs/remotes/origin/main)"
+          git push --force origin "${main_sha}:refs/heads/master"
+
+      - name: Delete every branch except main and master
+        shell: bash
+        run: |
+          set -euo pipefail
+          while read -r _ ref; do
+            branch="${ref#refs/heads/}"
+            case "${branch}" in
+              main|master) ;;
+              *) git push origin --delete "${branch}" ;;
+            esac
+          done < <(git ls-remote --heads origin)
+
+      - name: Verify canonical branch topology
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t branches < <(
+            git ls-remote --heads origin |
+              awk '{sub("refs/heads/", "", $2); print $2}' |
+              sort
+          )
+          expected=$'main\nmaster'
+          actual="$(printf '%s\n' "${branches[@]}")"
+          test "${actual}" = "${expected}"
+
+          main_sha="$(git ls-remote --heads origin refs/heads/main | awk '{print $1}')"
+          master_sha="$(git ls-remote --heads origin refs/heads/master | awk '{print $1}')"
+          test -n "${main_sha}"
+          test "${main_sha}" = "${master_sha}"
