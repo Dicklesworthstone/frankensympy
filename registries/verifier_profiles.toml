@@ -1,0 +1,210 @@
+schema_version = 1
+registry_status = "planning"
+registry_authority = "registries/verifier_profiles.toml"
+normative_contract = "docs/EMBEDDABLE_VERIFIER_CONTRACT.md"
+
+[policy]
+independent_embeddability_is_public_promise = true
+generator_dependency_forbidden = true
+planner_dependency_forbidden = true
+python_dependency_forbidden = true
+async_runtime_dependency_forbidden = true
+persistence_dependency_forbidden = true
+network_dependency_forbidden = true
+ambient_time_forbidden = true
+ambient_entropy_forbidden = true
+unknown_schema_fails_closed = true
+resource_exhaustion_is_rejection = false
+signatures_grant_mathematical_evidence = false
+stored_verified_flags_are_authoritative = false
+external_minimal_consumer_gate_required = true
+frankensympy_source_unsafe_forbidden = true
+
+[[profiles]]
+id = "portable-no-std-alloc-v1"
+status = "planned"
+rust_std = false
+alloc = true
+async_runtime = false
+filesystem = false
+network = false
+clock = false
+entropy = false
+threads = false
+python = false
+persistence = false
+wasm_target = true
+deterministic = true
+allowed_dependency_roles = [
+  "core",
+  "alloc",
+  "fsym_canonical",
+  "fsym_term_codec",
+  "fsym_domain_codec",
+  "fsym_claim",
+  "fsym_exact_arithmetic_verify",
+  "fsym_family_verifier",
+  "admitted_fundamental_pure_rust"
+]
+required_gates = [
+  "no_default_features_build",
+  "no_std_alloc_build",
+  "wasm_build",
+  "forbidden_dependency_scan",
+  "unsafe_source_scan",
+  "bounded_decoder_fuzz",
+  "mutation_suite",
+  "external_minimal_consumer"
+]
+
+[[profiles]]
+id = "hosted-offline-v1"
+status = "planned"
+rust_std = true
+alloc = true
+async_runtime = false
+filesystem = true
+network = false
+clock = false
+entropy = false
+threads = "optional_deterministic_parallelism"
+python = false
+persistence = false
+wasm_target = false
+deterministic = true
+allowed_dependency_roles = [
+  "portable_verifier_profile",
+  "bounded_file_stream_adapter",
+  "human_diagnostics",
+  "signature_origin_adapter"
+]
+required_gates = [
+  "portable_core_equivalence",
+  "offline_operation",
+  "forbidden_dependency_scan",
+  "mutation_suite",
+  "external_minimal_consumer"
+]
+
+[[families]]
+id = "poly_identity"
+crate = "fsym-cert-poly-identity"
+status = "planned"
+target_profile = "portable-no-std-alloc-v1"
+claim_schema = "fsym.claim.poly_identity.v1"
+certificate_schema = "fsym.cert.poly_identity.v1"
+generator_crates = ["fsym-poly", "fsym-rewrite", "fsym-simplify"]
+independent_reference_checker_required = true
+
+[[families]]
+id = "factorization"
+crate = "fsym-cert-factor"
+status = "planned"
+target_profile = "portable-no-std-alloc-v1"
+claim_schema = "fsym.claim.factorization.v1"
+certificate_schema = "fsym.cert.factorization.v1"
+generator_crates = ["fsym-factor", "fsym-plan", "fsym-portfolio"]
+independent_reference_checker_required = true
+minimum_checked_claim = "exact decomposition with normalization and multiplicity"
+stronger_claims_require_subcertificates = [
+  "square_free",
+  "irreducible",
+  "absolute_irreducible",
+  "complete_over_extension"
+]
+
+[[families]]
+id = "gcd"
+crate = "fsym-cert-gcd"
+status = "planned"
+target_profile = "portable-no-std-alloc-v1"
+claim_schema = "fsym.claim.gcd.v1"
+certificate_schema = "fsym.cert.gcd.v1"
+generator_crates = ["fsym-gcd", "fsym-plan", "fsym-portfolio"]
+independent_reference_checker_required = true
+
+[[families]]
+id = "groebner"
+crate = "fsym-cert-groebner"
+status = "planned"
+target_profile = "portable-no-std-alloc-v1"
+claim_schema = "fsym.claim.groebner_basis.v1"
+certificate_schema = "fsym.cert.groebner_basis.v1"
+generator_crates = ["fsym-groebner", "fsym-exact-linear", "fsym-portfolio"]
+independent_reference_checker_required = true
+
+[[families]]
+id = "exact_linear"
+crate = "fsym-cert-linear"
+status = "planned"
+target_profile = "portable-no-std-alloc-v1"
+claim_schema = "fsym.claim.exact_linear.v1"
+certificate_schema = "fsym.cert.exact_linear.v1"
+generator_crates = ["fsym-exact-linear", "fsym-plan", "fsym-portfolio"]
+independent_reference_checker_required = true
+
+[[families]]
+id = "roots"
+crate = "fsym-cert-roots"
+status = "planned"
+target_profile = "portable-no-std-alloc-v1"
+claim_schema = "fsym.claim.root_set.v1"
+certificate_schema = "fsym.cert.root_set.v1"
+generator_crates = ["fsym-solve-algebraic", "fsym-algebraic", "fsym-portfolio"]
+independent_reference_checker_required = true
+
+[[families]]
+id = "calculus"
+crate = "fsym-cert-calculus"
+status = "planned"
+target_profile = "hosted-offline-v1"
+claim_schema = "fsym.claim.calculus.v1"
+certificate_schema = "fsym.cert.calculus.v1"
+generator_crates = ["fsym-diff", "fsym-integrate", "fsym-limit", "fsym-series"]
+independent_reference_checker_required = true
+notes = "Individual subfamilies may graduate to portable-no-std-alloc after exact build and mutation gates."
+
+[[families]]
+id = "certified_numeric"
+crate = "fsym-cert-numeric"
+status = "planned"
+target_profile = "portable-no-std-alloc-v1"
+claim_schema = "fsym.claim.numeric_enclosure.v1"
+certificate_schema = "fsym.cert.numeric_enclosure.v1"
+generator_crates = ["fsym-ball", "fsym-numeric-plan", "fsym-portfolio"]
+independent_reference_checker_required = true
+
+[[families]]
+id = "sat"
+crate = "fsym-cert-sat"
+status = "planned"
+target_profile = "portable-no-std-alloc-v1"
+claim_schema = "fsym.claim.sat.v1"
+certificate_schema = "fsym.cert.sat.v1"
+generator_crates = ["fsym-logic", "fsym-sat", "fsym-portfolio"]
+independent_reference_checker_required = true
+
+[forbidden_dependency_roles]
+roles = [
+  "generator",
+  "planner",
+  "selector",
+  "portfolio",
+  "benchmark",
+  "telemetry",
+  "python",
+  "async_runtime",
+  "persistence",
+  "graph_index",
+  "remote",
+  "network",
+  "transfer",
+  "repair",
+  "raptorq",
+  "service",
+  "cli",
+  "logging",
+  "tracing",
+  "process_execution",
+  "upstream_sympy"
+]
