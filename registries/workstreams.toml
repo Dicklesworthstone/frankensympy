@@ -1,0 +1,285 @@
+schema_version = 1
+registry_status = "planning"
+registry_authority = "registries/workstreams.toml"
+prose_companion = "docs/WORKSTREAM_GRAPH.md"
+
+[policy]
+dependencies_must_be_acyclic = true
+unknown_workstream_fails_closed = true
+closure_requires_all_dependencies_closed = true
+closure_requires_gate_bundle = true
+closure_requires_claim_and_discrepancy_updates = true
+closure_by_prose_assertion_allowed = false
+retired_ids_must_be_tombstoned = true
+structural_changes_single_writer = true
+
+[[workstreams]]
+id = "WS00"
+title = "Governance, registries, and claim discipline"
+status = "planned"
+milestone = "M0"
+dependencies = []
+closure_gate = "gate://ws00-governance"
+independent_gate_owner_required = true
+
+[[workstreams]]
+id = "WS01"
+title = "Conformance laboratory foundation"
+status = "planned"
+milestone = "M2"
+dependencies = ["WS00"]
+closure_gate = "gate://ws01-conformance-lab"
+independent_gate_owner_required = true
+
+[[workstreams]]
+id = "WS02"
+title = "Foundation types, schemas, budgets, and Cx"
+status = "planned"
+milestone = "M1"
+dependencies = ["WS00"]
+closure_gate = "gate://ws02-foundation"
+independent_gate_owner_required = true
+
+[[workstreams]]
+id = "WS03"
+title = "Exact arithmetic substrate"
+status = "planned"
+milestone = "M1"
+dependencies = ["WS02"]
+closure_gate = "gate://ws03-exact-arithmetic"
+independent_gate_owner_required = true
+
+[[workstreams]]
+id = "WS04"
+title = "Terms, domains, assumptions, and bindings"
+status = "planned"
+milestone = "M1"
+dependencies = ["WS02", "WS03"]
+closure_gate = "gate://ws04-semantic-universe"
+independent_gate_owner_required = true
+
+[[workstreams]]
+id = "WS05"
+title = "Python compatibility shell vertical slice"
+status = "planned"
+milestone = "M2"
+dependencies = ["WS01", "WS02", "WS04"]
+closure_gate = "gate://ws05-python-object-model"
+independent_gate_owner_required = true
+
+[[workstreams]]
+id = "WS06"
+title = "Proof kernel and evidence system"
+status = "planned"
+milestone = "M1"
+dependencies = ["WS02", "WS03", "WS04"]
+closure_gate = "gate://ws06-proof-kernel"
+independent_gate_owner_required = true
+
+[[workstreams]]
+id = "WS07"
+title = "Verified rewriting and simplification"
+status = "planned"
+milestone = "M4"
+dependencies = ["WS04", "WS06"]
+closure_gate = "gate://ws07-rewrite"
+independent_gate_owner_required = true
+
+[[workstreams]]
+id = "WS08"
+title = "Polynomial representations and arithmetic"
+status = "planned"
+milestone = "M3"
+dependencies = ["WS03", "WS04", "WS06"]
+closure_gate = "gate://ws08-polynomial"
+independent_gate_owner_required = true
+
+[[workstreams]]
+id = "WS09"
+title = "GCD, factorization, and certificates"
+status = "planned"
+milestone = "M3"
+dependencies = ["WS06", "WS08", "WS13"]
+closure_gate = "gate://ws09-factorization"
+independent_gate_owner_required = true
+
+[[workstreams]]
+id = "WS10"
+title = "Exact linear algebra"
+status = "planned"
+milestone = "M4"
+dependencies = ["WS03", "WS04", "WS06", "WS08", "WS13"]
+closure_gate = "gate://ws10-exact-linear"
+independent_gate_owner_required = true
+
+[[workstreams]]
+id = "WS11"
+title = "Certified numerics and algebraic numbers"
+status = "planned"
+milestone = "M4"
+dependencies = ["WS03", "WS04", "WS06"]
+closure_gate = "gate://ws11-certified-numeric"
+independent_gate_owner_required = true
+
+[[workstreams]]
+id = "WS12"
+title = "Differentiation and symbolic compilation"
+status = "planned"
+milestone = "M4"
+dependencies = ["WS04", "WS05", "WS06", "WS07", "WS08", "WS10", "WS11", "WS13"]
+closure_gate = "gate://ws12-certified-jacobian"
+independent_gate_owner_required = true
+
+[[workstreams]]
+id = "WS13"
+title = "Structured portfolios, cancellation, and replay"
+status = "planned"
+milestone = "M3"
+dependencies = ["WS02", "WS04", "WS06"]
+closure_gate = "gate://ws13-portfolio-runtime"
+independent_gate_owner_required = true
+
+[[workstreams]]
+id = "WS14"
+title = "Agent protocol and semantic workspaces"
+status = "planned"
+milestone = "M5"
+dependencies = ["WS00", "WS02", "WS04", "WS06", "WS13"]
+closure_gate = "gate://ws14-agent-protocol"
+independent_gate_owner_required = true
+
+[[workstreams]]
+id = "WS15"
+title = "Persistence, checkpoints, and RaptorQ repair"
+status = "planned"
+milestone = "M5"
+dependencies = ["WS02", "WS04", "WS06", "WS13"]
+closure_gate = "gate://ws15-persistence-repair"
+independent_gate_owner_required = true
+
+[[workstreams]]
+id = "WS16"
+title = "Remote workers and graph indexing"
+status = "planned"
+milestone = "M5"
+dependencies = ["WS06", "WS13", "WS14", "WS15"]
+closure_gate = "gate://ws16-distribution-index"
+independent_gate_owner_required = true
+
+[[workstreams]]
+id = "WS17"
+title = "Groebner bases and ideal algebra"
+status = "planned"
+milestone = "M7"
+dependencies = ["WS06", "WS08", "WS10", "WS13"]
+closure_gate = "gate://ws17-groebner"
+independent_gate_owner_required = true
+
+[[workstreams]]
+id = "WS18"
+title = "Integration, limits, series, and transforms"
+status = "planned"
+milestone = "M7"
+dependencies = ["WS04", "WS06", "WS07", "WS08", "WS11", "WS13", "WS17"]
+closure_gate = "gate://ws18-analytic-calculus"
+independent_gate_owner_required = true
+
+[[workstreams]]
+id = "WS19"
+title = "Solvers, sets, logic, ODE, and PDE"
+status = "planned"
+milestone = "M7"
+dependencies = ["WS04", "WS06", "WS08", "WS10", "WS11", "WS13", "WS17", "WS18"]
+closure_gate = "gate://ws19-solvers"
+independent_gate_owner_required = true
+
+[[workstreams]]
+id = "WS20"
+title = "Structured mathematics domains"
+status = "planned"
+milestone = "M7"
+dependencies = ["WS04", "WS06", "WS07", "WS10", "WS11", "WS13", "WS19"]
+closure_gate = "gate://ws20-structured-domains"
+independent_gate_owner_required = true
+
+[[workstreams]]
+id = "WS21"
+title = "Compatibility and ecosystem closure"
+status = "planned"
+milestone = "M7"
+dependencies = ["WS01", "WS05", "WS07", "WS08", "WS09", "WS10", "WS11", "WS12", "WS14", "WS17", "WS18", "WS19", "WS20"]
+closure_gate = "gate://ws21-profile-closure"
+independent_gate_owner_required = true
+
+[[workstreams]]
+id = "WS22"
+title = "Performance and architecture optimization"
+status = "planned"
+milestone = "M7"
+dependencies = ["WS03", "WS04", "WS05", "WS06", "WS08", "WS09", "WS10", "WS11", "WS12", "WS13", "WS17", "WS18", "WS19", "WS20"]
+closure_gate = "gate://ws22-performance"
+independent_gate_owner_required = true
+
+[[workstreams]]
+id = "WS23"
+title = "Packaging, release, and 1.0 certification"
+status = "planned"
+milestone = "M8"
+dependencies = ["WS00", "WS15", "WS16", "WS21", "WS22"]
+closure_gate = "gate://ws23-release"
+independent_gate_owner_required = true
+
+[[milestones]]
+id = "M0"
+title = "Planning substrate and claim discipline"
+status = "planned"
+required_workstreams = ["WS00"]
+
+[[milestones]]
+id = "M1"
+title = "Native semantic nucleus"
+status = "planned"
+required_workstreams = ["WS02", "WS03", "WS04", "WS06"]
+
+[[milestones]]
+id = "M2"
+title = "Python object-model vertical slice"
+status = "planned"
+required_workstreams = ["WS01", "WS05"]
+
+[[milestones]]
+id = "M3"
+title = "First proof-carrying algebra portfolio"
+status = "planned"
+required_workstreams = ["WS08", "WS09", "WS13"]
+
+[[milestones]]
+id = "M4"
+title = "Certified Jacobian hero pipeline"
+status = "planned"
+required_workstreams = ["WS07", "WS10", "WS11", "WS12"]
+
+[[milestones]]
+id = "M5"
+title = "Durable and agent-native execution fabric"
+status = "planned"
+required_workstreams = ["WS14", "WS15", "WS16"]
+
+[[milestones]]
+id = "M6"
+title = "SymPy 1.14 compatibility expansion"
+status = "planned"
+required_workstreams = ["WS21"]
+profile_scope = "expansion checkpoint; not certification"
+
+[[milestones]]
+id = "M7"
+title = "Breadth, optimization, and ecosystem closure"
+status = "planned"
+required_workstreams = ["WS17", "WS18", "WS19", "WS20", "WS21", "WS22"]
+
+[[milestones]]
+id = "M8"
+title = "Certified drop-in 1.0"
+status = "planned"
+required_workstreams = ["WS23"]
