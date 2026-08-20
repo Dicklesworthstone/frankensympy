@@ -1,0 +1,93 @@
+schema_version = 1
+registry_status = "planning"
+
+# A registry row describes a target or observation profile. It is not evidence
+# that FrankenSymPy currently satisfies that profile. Certification status may
+# become "certified" only when the referenced gate bundle exists on the same
+# release commit and all mandatory fields are content-addressed.
+
+[[profiles]]
+profile_id = "sympy-1.14.0-cpython"
+kind = "certification_target"
+status = "planned"
+upstream_repository = "https://github.com/sympy/sympy"
+upstream_release = "1.14.0"
+upstream_commit = "16fa855354eb7bcabd3fe10993841e03b1382692"
+python_implementation = "CPython"
+python_versions = []
+abi_tags = []
+platform_tags = []
+optional_feature_sets = []
+source_tree_digest = "UNSET"
+test_tree_digest = "UNSET"
+public_surface_manifest = "UNSET"
+class_manifest = "UNSET"
+signature_manifest = "UNSET"
+behavior_manifest = "UNSET"
+assumptions_manifest = "UNSET"
+printer_manifest = "UNSET"
+serialization_manifest = "UNSET"
+test_inventory_manifest = "UNSET"
+comparator_registry = "UNSET"
+discrepancy_ledger_digest = "UNSET"
+rule_registry_digest = "UNSET"
+algorithm_registry_digest = "UNSET"
+verifier_registry_digest = "UNSET"
+lowering_schema_version = 0
+result_schema_version = 0
+gate_bundle = "UNSET"
+certified_at_commit = "UNSET"
+
+[[profiles]]
+profile_id = "sympy-moving-head-observation-2026-08-19"
+kind = "drift_observation"
+status = "non_certifying"
+upstream_repository = "https://github.com/sympy/sympy"
+upstream_release = "development-head"
+upstream_commit = "81b519fabdbbc8e82db154dd271100ec7fb7ef32"
+python_implementation = "CPython"
+python_versions = []
+abi_tags = []
+platform_tags = []
+optional_feature_sets = []
+source_tree_digest = "UNSET"
+test_tree_digest = "UNSET"
+public_surface_manifest = "UNSET"
+class_manifest = "UNSET"
+signature_manifest = "UNSET"
+behavior_manifest = "UNSET"
+assumptions_manifest = "UNSET"
+printer_manifest = "UNSET"
+serialization_manifest = "UNSET"
+test_inventory_manifest = "UNSET"
+comparator_registry = "UNSET"
+discrepancy_ledger_digest = "UNSET"
+rule_registry_digest = "UNSET"
+algorithm_registry_digest = "UNSET"
+verifier_registry_digest = "UNSET"
+lowering_schema_version = 0
+result_schema_version = 0
+gate_bundle = "NOT_APPLICABLE"
+certified_at_commit = "NEVER"
+
+[policy]
+certification_requires_immutable_upstream = true
+moving_head_can_certify = false
+upstream_runtime_fallback_allowed = false
+profile_blending_allowed = false
+unknown_fields_fail_closed = true
+all_unset_fields_block_certification = true
+
+[required_gates]
+inventory_closure = true
+object_model_closure = true
+upstream_suite = true
+generated_differential = true
+metamorphic = true
+ecosystem_corpus = true
+concurrency_replay = true
+security_resource = true
+persistence_repair_if_shipped = true
+parity_gated_performance = true
+no_oracle_runtime = true
+claim_closure = true
