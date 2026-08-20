@@ -1,0 +1,323 @@
+schema_version = 1
+registry_status = "planning"
+registry_authority = "registries/workspace_transactions.toml"
+normative_contract = "docs/SYMBOLIC_WORKSPACE_MVCC_AND_LEDGER.md"
+
+[policy]
+authoritative_publication_default = "serializable"
+content_insertion_grants_authority = false
+negative_reads_must_be_witnessed = true
+predicate_reads_must_be_witnessed = true
+unknown_witness_overlap_is_conflict = true
+refinement_may_remove_false_positive = true
+refinement_may_create_false_negative = false
+missing_validation_history_is_conflict = true
+last_writer_wins_allowed = false
+textual_merge_allowed = false
+byte_merge_allowed = false
+effectful_replay_allowed = false
+replay_resets_budget = false
+merge_requires_certificate = true
+merge_verifier_independently_embeddable = true
+derived_index_authoritative = false
+database_row_identity_authoritative = false
+historical_snapshot_read_only = true
+approximate_gc_can_free = false
+multi_participant_commit_only_when_unavoidable = true
+
+[[transaction_modes]]
+id = "read_only"
+may_publish_candidates = false
+may_publish_authoritative = false
+requires_serializable_validation = false
+
+[[transaction_modes]]
+id = "candidate"
+may_publish_candidates = true
+may_publish_authoritative = false
+requires_serializable_validation = false
+
+[[transaction_modes]]
+id = "serializable_publish"
+may_publish_candidates = true
+may_publish_authoritative = true
+requires_serializable_validation = true
+
+[[transaction_modes]]
+id = "registry_admin"
+may_publish_candidates = true
+may_publish_authoritative = true
+requires_serializable_validation = true
+requires_capability = "registry_admin"
+creates_new_universe = true
+
+[[transaction_modes]]
+id = "release_publish"
+may_publish_candidates = false
+may_publish_authoritative = true
+requires_serializable_validation = true
+requires_capability = "release_publish"
+requires_local_gate_bundle = true
+
+[[states]]
+id = "idle"
+terminal = false
+[[states]]
+id = "drafting"
+terminal = false
+[[states]]
+id = "validating"
+terminal = false
+[[states]]
+id = "verified"
+terminal = false
+[[states]]
+id = "prepared"
+terminal = false
+[[states]]
+id = "publishing"
+terminal = false
+[[states]]
+id = "committed"
+terminal = true
+[[states]]
+id = "aborted"
+terminal = true
+
+[[transitions]]
+from = "idle"
+to = "drafting"
+[[transitions]]
+from = "drafting"
+to = "validating"
+[[transitions]]
+from = "validating"
+to = "verified"
+[[transitions]]
+from = "verified"
+to = "prepared"
+[[transitions]]
+from = "prepared"
+to = "publishing"
+[[transitions]]
+from = "publishing"
+to = "committed"
+[[transitions]]
+from = "drafting"
+to = "aborted"
+[[transitions]]
+from = "validating"
+to = "aborted"
+[[transitions]]
+from = "verified"
+to = "aborted"
+[[transitions]]
+from = "prepared"
+to = "aborted"
+[[transitions]]
+from = "publishing"
+to = "aborted"
+
+[[witness_levels]]
+level = 0
+id = "universe"
+[[witness_levels]]
+level = 1
+id = "registry_or_profile"
+[[witness_levels]]
+level = 2
+id = "namespace_or_semantic_region"
+[[witness_levels]]
+level = 3
+id = "exact_object_rule_fact_or_extension"
+
+[[witness_kinds]]
+id = "universe"
+may_be_negative = false
+may_be_predicate = false
+[[witness_kinds]]
+id = "registry"
+may_be_negative = false
+may_be_predicate = true
+[[witness_kinds]]
+id = "namespace"
+may_be_negative = true
+may_be_predicate = true
+[[witness_kinds]]
+id = "object"
+may_be_negative = true
+may_be_predicate = false
+[[witness_kinds]]
+id = "claim"
+may_be_negative = true
+may_be_predicate = false
+[[witness_kinds]]
+id = "context_fact"
+may_be_negative = true
+may_be_predicate = true
+[[witness_kinds]]
+id = "rule_applicability"
+may_be_negative = true
+may_be_predicate = true
+[[witness_kinds]]
+id = "profile_surface"
+may_be_negative = true
+may_be_predicate = true
+[[witness_kinds]]
+id = "extension_world"
+may_be_negative = true
+may_be_predicate = true
+[[witness_kinds]]
+id = "branch_events"
+may_be_negative = false
+may_be_predicate = true
+[[witness_kinds]]
+id = "mutable_cell"
+may_be_negative = false
+may_be_predicate = false
+[[witness_kinds]]
+id = "custom"
+may_be_negative = true
+may_be_predicate = true
+
+[[effect_classes]]
+id = "pure_declarative"
+automatic_replay = true
+automatic_merge = true
+[[effect_classes]]
+id = "pure_opaque"
+automatic_replay = "exact_private_result_comparison_only"
+automatic_merge = false
+[[effect_classes]]
+id = "effectful"
+automatic_replay = false
+automatic_merge = false
+[[effect_classes]]
+id = "unknown_effect"
+automatic_replay = false
+automatic_merge = false
+
+[[merge_ladder]]
+order = 1
+id = "content_deduplication"
+requires_certificate = false
+[[merge_ladder]]
+order = 2
+id = "disjoint_append"
+requires_certificate = true
+[[merge_ladder]]
+order = 3
+id = "certified_commutative_join"
+requires_certificate = true
+[[merge_ladder]]
+order = 4
+id = "deterministic_semantic_replay"
+requires_certificate = true
+[[merge_ladder]]
+order = 5
+id = "explicit_conflict_or_branch"
+requires_certificate = false
+
+[[conflict_classes]]
+id = "direct_write_write"
+[[conflict_classes]]
+id = "stale_object_read"
+[[conflict_classes]]
+id = "namespace_phantom"
+[[conflict_classes]]
+id = "predicate_phantom"
+[[conflict_classes]]
+id = "assumptions_contradiction"
+[[conflict_classes]]
+id = "profile_conflict"
+[[conflict_classes]]
+id = "extension_world_conflict"
+[[conflict_classes]]
+id = "rule_registry_conflict"
+[[conflict_classes]]
+id = "verifier_registry_conflict"
+[[conflict_classes]]
+id = "schema_conflict"
+[[conflict_classes]]
+id = "evidence_downgrade"
+[[conflict_classes]]
+id = "branch_preference_conflict"
+[[conflict_classes]]
+id = "mutable_generation_conflict"
+[[conflict_classes]]
+id = "replay_result_mismatch"
+[[conflict_classes]]
+id = "merge_certificate_rejected"
+[[conflict_classes]]
+id = "validation_history_unavailable"
+[[conflict_classes]]
+id = "capability_denied"
+[[conflict_classes]]
+id = "retention_conflict"
+[[conflict_classes]]
+id = "multi_participant_prepare_conflict"
+
+[[invariants]]
+id = "WTX-001"
+statement = "Transaction state transitions are legal."
+blocking = true
+[[invariants]]
+id = "WTX-002"
+statement = "Every snapshot is one coherent universe."
+blocking = true
+[[invariants]]
+id = "WTX-003"
+statement = "Branch commit sequences are monotone and unique within a lineage."
+blocking = true
+[[invariants]]
+id = "WTX-004"
+statement = "Accepted namespaces contain only independently verified objects."
+blocking = true
+[[invariants]]
+id = "WTX-005"
+statement = "No publication uses a stale profile, context, registry, or extension world."
+blocking = true
+[[invariants]]
+id = "WTX-006"
+statement = "The registered generated adversary corpus exposes no witness false negative."
+blocking = true
+[[invariants]]
+id = "WTX-007"
+statement = "Validation history is complete or the transaction refuses."
+blocking = true
+[[invariants]]
+id = "WTX-008"
+statement = "Authoritative branch history satisfies the declared serializability policy."
+blocking = true
+[[invariants]]
+id = "WTX-009"
+statement = "Deterministic replay preserves the promised result and evidence digest."
+blocking = true
+[[invariants]]
+id = "WTX-010"
+statement = "Every automatic semantic merge has a valid embeddable certificate."
+blocking = true
+[[invariants]]
+id = "WTX-011"
+statement = "Publication never downgrades required evidence."
+blocking = true
+[[invariants]]
+id = "WTX-012"
+statement = "Every committed branch head resolves to a closed FMAP manifest."
+blocking = true
+[[invariants]]
+id = "WTX-013"
+statement = "Historical snapshots are read-only."
+blocking = true
+[[invariants]]
+id = "WTX-014"
+statement = "Garbage collection preserves every exact retention root."
+blocking = true
+[[invariants]]
+id = "WTX-015"
+statement = "Derived indexes rebuild equivalently from authoritative objects and events."
+blocking = true
+[[invariants]]
+id = "WTX-016"
+statement = "Crash recovery yields either the exact pre-commit or exact committed state."
+blocking = true
