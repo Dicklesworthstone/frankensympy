@@ -1,0 +1,339 @@
+schema_version = 1
+registry_status = "planning"
+
+[status_semantics]
+documented = "The referenced planning/documentation artifact exists; no runtime capability is implied."
+planned = "Target architecture or capability with no implementation claim."
+implemented_uncertified = "Reachable implementation exists, but required claim gates are incomplete."
+validated = "Scoped technical gates pass, but full release/profile certification is not claimed."
+certified = "All immutable claim/profile release gates pass on the same commit."
+blocked = "A known issue prevents the claim."
+retired = "Claim ID is preserved but no longer pursued or advertised."
+
+[policy]
+unknown_claim_fails_closed = true
+present_tense_capability_requires_non_planned_status = true
+implemented_status_requires_artifact = true
+validated_status_requires_gate_bundle = true
+certified_status_requires_same_commit_gate_bundle = true
+performance_claim_requires_live_incumbent = true
+performance_claim_requires_semantic_admission = true
+mathematical_claim_requires_typed_claim_and_verifier = true
+compatibility_claim_requires_immutable_profile = true
+repair_claim_requires_decode_digest_schema_and_semantic_checks = true
+monitoring_claim_cannot_grant_mathematical_evidence = true
+retired_claim_ids_must_remain = true
+
+[[claims]]
+id = "PLAN-001"
+kind = "documentation"
+statement = "FrankenSymPy has a public, source-pinned architecture and implementation-planning package."
+status = "documented"
+present_tense_allowed = true
+minimum_evidence = "documentation_artifact"
+workstreams = ["WS00"]
+gate = "gate://planning-package"
+evidence_artifacts = [
+  "docs/SOURCE_PROJECT_AUDIT.md",
+  "docs/COMPATIBILITY_CONTRACT.md",
+  "docs/OBJECT_MODEL_AND_IR.md",
+  "docs/EVIDENCE_PROOFS_AND_REWRITES.md",
+  "docs/WORKSTREAM_GRAPH.md",
+  "docs/FIRST_IMPLEMENTATION_CAMPAIGN.md"
+]
+notes = "This claim covers documentation only and must not be rendered as implementation status."
+
+[[claims]]
+id = "COMPAT-001"
+kind = "compatibility"
+statement = "The frankensympy-dropin distribution is a drop-in replacement for the named SymPy compatibility profile."
+status = "planned"
+present_tense_allowed = false
+minimum_evidence = "oracle_conformant"
+workstreams = ["WS01", "WS05", "WS21", "WS23"]
+gate = "gate://ws23-release"
+evidence_artifacts = ["UNSET"]
+profile_id = "sympy-1.14.0-cpython"
+
+[[claims]]
+id = "COMPAT-002"
+kind = "compatibility"
+statement = "The Python shell preserves arbitrary supported Basic, Expr, Atom, and Function subclass behavior within the named profile."
+status = "planned"
+present_tense_allowed = false
+minimum_evidence = "oracle_conformant"
+workstreams = ["WS01", "WS05", "WS21"]
+gate = "gate://ws05-python-object-model"
+evidence_artifacts = ["UNSET"]
+profile_id = "sympy-1.14.0-cpython"
+
+[[claims]]
+id = "COMPAT-003"
+kind = "compatibility"
+statement = "Evaluated and deliberately held surface forms preserve profile-visible args, func, hashing, sorting, printing, copying, and serialization behavior."
+status = "planned"
+present_tense_allowed = false
+minimum_evidence = "oracle_conformant"
+workstreams = ["WS05", "WS21"]
+gate = "gate://ws05-python-object-model"
+evidence_artifacts = ["UNSET"]
+profile_id = "sympy-1.14.0-cpython"
+
+[[claims]]
+id = "COMPAT-004"
+kind = "compatibility"
+statement = "Certified product paths contain no hidden runtime import or fallback to upstream SymPy."
+status = "planned"
+present_tense_allowed = false
+minimum_evidence = "release_inspection"
+workstreams = ["WS05", "WS21", "WS23"]
+gate = "gate://no-oracle-runtime"
+evidence_artifacts = ["UNSET"]
+
+[[claims]]
+id = "SEMANTIC-001"
+kind = "semantic"
+statement = "Native semantic terms have deterministic content identity independent of Python hashes, process-local handles, persistence rows, and task scheduling."
+status = "planned"
+present_tense_allowed = false
+minimum_evidence = "validated"
+workstreams = ["WS02", "WS03", "WS04"]
+gate = "gate://deterministic-term-identity"
+evidence_artifacts = ["UNSET"]
+
+[[claims]]
+id = "SEMANTIC-002"
+kind = "semantic"
+statement = "Surface objects, semantic terms, and derivation evidence are represented separately without silently erasing profile-visible form."
+status = "planned"
+present_tense_allowed = false
+minimum_evidence = "validated"
+workstreams = ["WS04", "WS05", "WS06"]
+gate = "gate://three-graph-vertical-slice"
+evidence_artifacts = ["UNSET"]
+
+[[claims]]
+id = "MATH-001"
+kind = "mathematical"
+statement = "Native accepted exact transformations expose kernel-checked proofs or claim-specific independently verified certificates."
+status = "planned"
+present_tense_allowed = false
+minimum_evidence = "kernel_proved_or_certificate_verified"
+workstreams = ["WS06", "WS07", "WS08", "WS09", "WS10", "WS12", "WS17", "WS18", "WS19"]
+gate = "gate://proof-producing-transformations"
+evidence_artifacts = ["UNSET"]
+notes = "This claim never implies that every API result has the same evidence class."
+
+[[claims]]
+id = "MATH-002"
+kind = "mathematical"
+statement = "Requested polynomial factorization claims are independently certificate-verified for the declared domain, normalization, multiplicity, and irreducibility level."
+status = "planned"
+present_tense_allowed = false
+minimum_evidence = "certificate_verified"
+workstreams = ["WS06", "WS08", "WS09"]
+gate = "gate://ws09-factorization"
+evidence_artifacts = ["UNSET"]
+
+[[claims]]
+id = "MATH-003"
+kind = "mathematical"
+statement = "Certified numeric results use directed-rounding enclosures with claim-specific verification."
+status = "planned"
+present_tense_allowed = false
+minimum_evidence = "certified_numeric"
+workstreams = ["WS03", "WS04", "WS06", "WS11"]
+gate = "gate://ws11-certified-numeric"
+evidence_artifacts = ["UNSET"]
+
+[[claims]]
+id = "MATH-004"
+kind = "mathematical"
+statement = "Generated residual, Jacobian, and Hessian programs retain verified symbolic provenance and agree with exact or certified reference lanes."
+status = "planned"
+present_tense_allowed = false
+minimum_evidence = "kernel_proved_or_certificate_verified"
+workstreams = ["WS06", "WS07", "WS10", "WS11", "WS12"]
+gate = "gate://ws12-certified-jacobian"
+evidence_artifacts = ["UNSET"]
+
+[[claims]]
+id = "RUNTIME-001"
+kind = "operational"
+statement = "Controlled FrankenSymPy work is region-owned, cancellation drains children, and no controlled orphan work survives return."
+status = "planned"
+present_tense_allowed = false
+minimum_evidence = "validated"
+workstreams = ["WS02", "WS13"]
+gate = "gate://no-orphan-work"
+evidence_artifacts = ["UNSET"]
+notes = "Arbitrary non-cooperative Python or foreign callbacks are outside any universal cancellation-latency claim."
+
+[[claims]]
+id = "RUNTIME-002"
+kind = "operational"
+statement = "Speculative candidates cannot publish as accepted results or verified cache entries before independent verification."
+status = "planned"
+present_tense_allowed = false
+minimum_evidence = "validated"
+workstreams = ["WS06", "WS13", "WS15"]
+gate = "gate://two-phase-verified-publication"
+evidence_artifacts = ["UNSET"]
+
+[[claims]]
+id = "RUNTIME-003"
+kind = "operational"
+statement = "Declared deterministic and replay modes reproduce their scoped semantic or byte-level terminal contracts."
+status = "planned"
+present_tense_allowed = false
+minimum_evidence = "validated"
+workstreams = ["WS02", "WS13", "WS14", "WS15"]
+gate = "gate://deterministic-replay"
+evidence_artifacts = ["UNSET"]
+
+[[claims]]
+id = "DURABILITY-001"
+kind = "durability"
+statement = "Selected valuable checkpoints and replay/proof bundles can recover from the declared symbol-loss envelope and resume after digest, schema, dependency, and evidence validation."
+status = "planned"
+present_tense_allowed = false
+minimum_evidence = "repair_and_reverification_bundle"
+workstreams = ["WS15"]
+gate = "gate://ws15-persistence-repair"
+evidence_artifacts = ["UNSET"]
+notes = "RaptorQ restores candidate bytes; it does not establish integrity, authenticity, schema validity, or mathematical truth."
+
+[[claims]]
+id = "DISTRIBUTION-001"
+kind = "distributed_execution"
+statement = "Untrusted remote workers can generate candidates without authority to publish verified mathematical state."
+status = "planned"
+present_tense_allowed = false
+minimum_evidence = "validated"
+workstreams = ["WS06", "WS13", "WS16"]
+gate = "gate://ws16-distribution-index"
+evidence_artifacts = ["UNSET"]
+
+[[claims]]
+id = "AGENT-001"
+kind = "agent_interface"
+statement = "Agents can manipulate structured terms, claims, evidence, semantic patches, branches, and replay bundles without relying on printed strings as authoritative state."
+status = "planned"
+present_tense_allowed = false
+minimum_evidence = "validated"
+workstreams = ["WS14"]
+gate = "gate://ws14-agent-protocol"
+evidence_artifacts = ["UNSET"]
+
+[[claims]]
+id = "AGENT-002"
+kind = "agent_interface"
+statement = "Collaborative branch merges preserve universe identity and import accepted derivations only after verification."
+status = "planned"
+present_tense_allowed = false
+minimum_evidence = "validated"
+workstreams = ["WS06", "WS14", "WS16"]
+gate = "gate://semantic-merge"
+evidence_artifacts = ["UNSET"]
+
+[[claims]]
+id = "INTEGRATION-001"
+kind = "integration"
+statement = "FrankenSQLite can serve as an optional computation ledger, verified cache, and checkpoint substrate without entering mathematical identity or the in-memory algebraic hot path."
+status = "planned"
+present_tense_allowed = false
+minimum_evidence = "validated"
+workstreams = ["WS15"]
+gate = "gate://frankensqlite-adapter"
+evidence_artifacts = ["UNSET"]
+
+[[claims]]
+id = "INTEGRATION-002"
+kind = "integration"
+statement = "FrankenGraphDB can index derivation and dependency projections while remaining rebuildable and non-authoritative for term equality and proof validity."
+status = "planned"
+present_tense_allowed = false
+minimum_evidence = "validated"
+workstreams = ["WS16"]
+gate = "gate://frankengraphdb-adapter"
+evidence_artifacts = ["UNSET"]
+
+[[claims]]
+id = "INTEGRATION-003"
+kind = "integration"
+statement = "FrankenNumPy and FrankenSciPy can consume verified symbolic residual, Jacobian, Hessian, sparsity, guard, and reference artifacts."
+status = "planned"
+present_tense_allowed = false
+minimum_evidence = "validated"
+workstreams = ["WS12"]
+gate = "gate://franken-numeric-adapters"
+evidence_artifacts = ["UNSET"]
+
+[[claims]]
+id = "MONITOR-001"
+kind = "monitoring"
+statement = "Anytime-valid e-process or conformal monitors can detect scoped compatibility, performance, selector, cache, and worker drift and trigger operational controls."
+status = "planned"
+present_tense_allowed = false
+minimum_evidence = "monitor_validation"
+workstreams = ["WS13", "WS21", "WS22"]
+gate = "gate://operational-monitoring"
+evidence_artifacts = ["UNSET"]
+notes = "Monitor output cannot certify or refute an individual mathematical claim."
+
+[[claims]]
+id = "SECURITY-001"
+kind = "security"
+statement = "Ordinary native FrankenSymPy crates are memory-safe Rust and prohibit C/C++ CAS or arbitrary-precision FFI."
+status = "planned"
+present_tense_allowed = false
+minimum_evidence = "source_and_dependency_audit"
+workstreams = ["WS00", "WS02", "WS03", "WS23"]
+gate = "gate://memory-safe-native-core"
+evidence_artifacts = ["UNSET"]
+notes = "This claim does not cover CPython itself or arbitrary third-party Python/C extensions."
+
+[[claims]]
+id = "SECURITY-002"
+kind = "security"
+statement = "Native/protocol decoders preflight untrusted sizes and fail closed on unknown proof, identity, capability, and resource schemas."
+status = "planned"
+present_tense_allowed = false
+minimum_evidence = "fuzz_and_adversarial_validation"
+workstreams = ["WS02", "WS04", "WS06", "WS14", "WS15"]
+gate = "gate://bounded-decoders"
+evidence_artifacts = ["UNSET"]
+
+[[claims]]
+id = "PLATFORM-001"
+kind = "platform"
+statement = "A declared native subset builds and verifies in WebAssembly without changing term, claim, or proof semantics."
+status = "planned"
+present_tense_allowed = false
+minimum_evidence = "validated"
+workstreams = ["WS02", "WS03", "WS04", "WS06", "WS23"]
+gate = "gate://wasm-subset"
+evidence_artifacts = ["UNSET"]
+
+[[claims]]
+id = "PERF-001"
+kind = "performance"
+statement = "FrankenSymPy materially outperforms upstream SymPy on named, semantically admitted large or batched symbolic workloads."
+status = "planned"
+present_tense_allowed = false
+minimum_evidence = "parity_gated_paired_benchmark"
+workstreams = ["WS21", "WS22", "WS23"]
+gate = "gate://ws22-performance"
+evidence_artifacts = ["UNSET"]
+notes = "No universal speedup and no numeric speedup value is claimed by the plan."
+
+[[claims]]
+id = "RELEASE-001"
+kind = "release"
+statement = "FrankenSymPy 1.0 is an independently implemented, certified drop-in replacement for at least one immutable SymPy profile and supported platform matrix."
+status = "planned"
+present_tense_allowed = false
+minimum_evidence = "certified_release_bundle"
+workstreams = ["WS21", "WS22", "WS23"]
+gate = "gate://ws23-release"
+evidence_artifacts = ["UNSET"]
