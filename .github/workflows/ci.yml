@@ -21,9 +21,22 @@ env:
   RUST_TOOLCHAIN: nightly-2026-07-05
 
 jobs:
+  # ── G0: Planning Integrity ─────────────────────────────────────────
+  g0-planning-integrity:
+    name: "G0: planning integrity"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python tools/validate_planning.py
+
   # ── G1: Formatting + Linting ──────────────────────────────────────
   g1-fmt-lint:
     name: "G1: fmt + clippy"
+    needs: g0-planning-integrity
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -37,7 +50,7 @@ jobs:
       - run: cargo check --all-targets
       - run: cargo clippy --all-targets -- -D warnings
 
-  # ── G2: Unit Tests ───────────────────────────────────────────────
+  # ── G2: Unit Tests ────────────────────────────────────────────────
   g2-unit-tests:
     name: "G2: unit tests"
     needs: g1-fmt-lint
