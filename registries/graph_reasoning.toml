@@ -1,0 +1,141 @@
+schema_version = 1
+registry_status = "planning"
+registry_authority = "registries/graph_reasoning.toml"
+normative_contract = "docs/GRAPH_REASONING_SUBSTRATE.md"
+
+[defaults]
+portable_verifier_profile = "portable-std"
+unknown_critical_field = "refuse"
+resource_exhaustion = "inconclusive"
+negative_claim_requires_complete_snapshot = true
+derived_projection_authoritative = false
+project_authored_unsafe = "forbid"
+
+[[tie_break_policy]]
+id = "content_id_ascending_v1"
+version = 1
+primary_key = "object_kind_then_content_id"
+secondary_key = "edge_kind_then_position"
+uses_insertion_order = false
+uses_seed = false
+profiles = ["native_deterministic"]
+
+[[tie_break_policy]]
+id = "profile_insertion_order_v1"
+version = 1
+primary_key = "snapshot_insertion_ordinal"
+secondary_key = "content_id"
+uses_insertion_order = true
+uses_seed = false
+profiles = ["sympy_strict"]
+
+[[tie_break_policy]]
+id = "cost_then_content_id_v1"
+version = 1
+primary_key = "exact_registered_cost"
+secondary_key = "content_id"
+uses_insertion_order = false
+uses_seed = false
+profiles = ["native_deterministic", "certified"]
+
+[[tie_break_policy]]
+id = "seeded_content_permutation_v1"
+version = 1
+primary_key = "domain_separated_hash(seed_lineage, content_id)"
+secondary_key = "content_id"
+uses_insertion_order = false
+uses_seed = true
+profiles = ["research", "replayable_search"]
+
+[[graph_family]]
+id = "term_dag"
+node_kinds = ["term", "binder", "operator"]
+edge_kinds = ["ordered_child", "depends_on"]
+requires_dag = true
+requires_complete_negative_basis = true
+initial_algorithms = ["topological_order", "cycle_witness", "reachability", "dependency_slice"]
+
+[[graph_family]]
+id = "proof_dag"
+node_kinds = ["claim", "proof_node", "certificate", "axiom", "lemma"]
+edge_kinds = ["depends_on", "proves", "uses_rule", "uses_assumption", "alternative_derivation"]
+requires_dag = true
+requires_complete_negative_basis = true
+initial_algorithms = ["dependency_closure", "dominators", "unresolved_leaves", "provenance_slice"]
+
+[[graph_family]]
+id = "assumption_invalidation"
+node_kinds = ["context", "fact", "predicate", "term", "registry_generation"]
+edge_kinds = ["depends_on", "implies", "contradicts", "refines", "invalidates"]
+requires_dag = false
+requires_complete_negative_basis = true
+initial_algorithms = ["reverse_reachability", "scc", "contradiction_path", "invalidation_frontier"]
+
+[[graph_family]]
+id = "rule_critical_pair"
+node_kinds = ["rewrite_rule", "pattern_region", "proof_obligation"]
+edge_kinds = ["may_overlap", "must_precede", "generated_from", "depends_on"]
+requires_dag = false
+requires_complete_negative_basis = false
+initial_algorithms = ["scc", "condensation", "cycle_witness", "bounded_overlap_components"]
+
+[[graph_family]]
+id = "domain_coercion"
+node_kinds = ["domain", "extension_world"]
+edge_kinds = ["coerces_to", "depends_on", "contradicts"]
+requires_dag = false
+requires_complete_negative_basis = true
+initial_algorithms = ["reachability", "shortest_exact_path", "ambiguity_detection", "scc"]
+
+[[graph_family]]
+id = "workstream_dag"
+node_kinds = ["workstream", "gate", "artifact", "claim"]
+edge_kinds = ["depends_on", "must_precede", "proves", "artifact_contains"]
+requires_dag = true
+requires_complete_negative_basis = true
+initial_algorithms = ["topological_order", "cycle_witness", "critical_path", "ready_frontier"]
+
+[[certificate_family]]
+id = "topological_order_v1"
+claim = "every node occurs once and every selected edge advances in the order"
+portable = true
+generator_required_by_verifier = false
+mutation_suite_required = true
+
+[[certificate_family]]
+id = "cycle_witness_v1"
+claim = "the supplied directed edge sequence forms a valid closed cycle"
+portable = true
+generator_required_by_verifier = false
+mutation_suite_required = true
+
+[[certificate_family]]
+id = "reachability_path_v1"
+claim = "the supplied path connects the bound endpoints through declared edges"
+portable = true
+generator_required_by_verifier = false
+mutation_suite_required = true
+
+[[certificate_family]]
+id = "scc_partition_v1"
+claim = "the supplied partition and reachability evidence satisfy the SCC contract"
+portable = true
+generator_required_by_verifier = false
+mutation_suite_required = true
+
+[[certificate_family]]
+id = "invalidation_slice_v1"
+claim = "every marked object is reverse-reachable from a changed root under selected edge kinds"
+portable = true
+generator_required_by_verifier = false
+mutation_suite_required = true
+
+[[projection_adapter]]
+id = "frankengraphdb_v1"
+status = "optional"
+authoritative_identity = false
+may_emit_candidates = true
+may_admit_claims = false
+requires_source_manifest_root = true
+requires_ingestion_watermark = true
+negative_results = "not_observed_unless_completeness_certificate"

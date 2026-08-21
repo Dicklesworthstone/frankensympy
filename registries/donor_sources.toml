@@ -1,0 +1,75 @@
+schema_version = 1
+registry_status = "planning"
+registry_authority = "registries/donor_sources.toml"
+audit_policy = "pin_exact_commit_and_classify_each_inherited_mechanism"
+
+[[source]]
+id = "asupersync"
+repository = "Dicklesworthstone/asupersync"
+commit = "3cb2dc6d0540a961345e61bc9f89b4e930cbb8cf"
+audit = "docs/DONOR_DEEP_DIVE_ASUPERSYNC.md"
+roles = ["structured_concurrency", "capabilities", "lab_runtime", "artifact_transfer", "raptorq", "eprocess"]
+default_disposition = "adapt"
+
+[[source]]
+id = "frankensqlite"
+repository = "Dicklesworthstone/frankensqlite"
+commit = "abdc4dc89714e8816202fd0bf2e9cd969f6d493f"
+audit = "docs/DONOR_DEEP_DIVE_FRANKENSQLITE.md"
+roles = ["mvcc", "ssi_witnesses", "semantic_merge", "history", "publication", "provenance"]
+default_disposition = "adapt"
+
+[[source]]
+id = "frankengraphdb"
+repository = "Dicklesworthstone/frankengraphdb"
+commit = "df733010a46ac2a725df141204d7940b4e37d4b7"
+audit = "docs/DONOR_DEEP_DIVE_GRAPH_STACK.md"
+roles = ["content_addressed_history", "branches", "claim_lattice", "purpose_contexts", "graph_projection"]
+default_disposition = "adapt"
+
+[[source]]
+id = "franken_networkx"
+repository = "Dicklesworthstone/franken_networkx"
+commit = "972814b1b4649c20b6f2acdd7456e3580cefdbeb"
+audit = "docs/DONOR_DEEP_DIVE_GRAPH_STACK.md"
+roles = ["graph_algorithms", "canonical_tiebreak", "complexity_witness", "differential_conformance"]
+default_disposition = "selective_adopt"
+
+[[source]]
+id = "franken_lean"
+repository = "Dicklesworthstone/franken_lean"
+commit = "7df7a3170045882f3ab1f13bfee72338e524d174"
+audit = "docs/DONOR_DEEP_DIVE_FRANKENLEAN.md"
+roles = ["small_checker", "certificates", "foreign_checker", "merkle_environment", "proof_state_snapshots"]
+default_disposition = "adapt"
+
+[[source]]
+id = "franken_numpy"
+repository = "Dicklesworthstone/franken_numpy"
+commit = "d328412082de80d7eb08addd4eddcec002f001ed"
+audit = "docs/DONOR_DEEP_DIVE_NUMERIC_STACK.md"
+roles = ["compatibility_inventory", "semantic_calculus", "strict_hardened_modes", "differential_oracle"]
+default_disposition = "adapt"
+
+[[source]]
+id = "frankenscipy"
+repository = "Dicklesworthstone/frankenscipy"
+commit = "216906fda2dc442361cec63195136ba8dcca1499"
+audit = "docs/DONOR_DEEP_DIVE_NUMERIC_STACK.md"
+roles = ["condition_aware_portfolio", "expected_loss", "fallback_graph", "stability_gates"]
+default_disposition = "adapt"
+
+[disposition]
+adopt = "reuse a mechanism or narrowly reviewed implementation with unchanged trust semantics"
+selective_adopt = "reuse only named crates or algorithms after dependency and conformance review"
+adapt = "reuse the architectural idea after changing boundaries, identities, or authority"
+research = "optional experiment with registered corpus, baseline, and stop rule"
+reject = "explicitly prohibited shortcut or unsuitable inheritance"
+
+[requirements]
+exact_commit_pin = true
+source_surface_inventory = true
+trust_boundary_review = true
+dependency_review_before_code_reuse = true
+no_automatic_admission_for_same_owner = true
+review_freshness_required_for_release = true
