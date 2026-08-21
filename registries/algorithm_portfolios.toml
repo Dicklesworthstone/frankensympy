@@ -1,0 +1,121 @@
+schema_version = 1
+registry_status = "planning"
+registry_authority = "registries/algorithm_portfolios.toml"
+normative_contract = "docs/COMPATIBILITY_AND_ALGORITHM_PORTFOLIOS.md"
+
+[defaults]
+selection_can_admit_claim = false
+verification_required_for_certified = true
+verifier_budget_reserved_before_generation = true
+fallback_may_weaken_evidence = false
+unknown_diagnostic = "conservative_baseline_or_refuse"
+monitor_reset = "new_generation_preserve_history"
+
+[[mode]]
+id = "sympy_strict"
+compatibility_profile_required = true
+canonical_policy = "profile_defined"
+unknown_behavior = "refuse_or_registered_delegate"
+certificate_required = false
+
+[[mode]]
+id = "hardened_compat"
+compatibility_profile_required = true
+canonical_policy = "profile_defined"
+unknown_behavior = "full_validate_or_refuse"
+certificate_required = false
+
+[[mode]]
+id = "native_deterministic"
+compatibility_profile_required = false
+canonical_policy = "frankensympy_registered"
+unknown_behavior = "refuse"
+certificate_required = false
+
+[[mode]]
+id = "certified"
+compatibility_profile_required = false
+canonical_policy = "frankensympy_registered"
+unknown_behavior = "refuse"
+certificate_required = true
+
+[[portfolio]]
+id = "univariate_factorization_v1"
+status = "planned"
+state_dimensions = ["coefficient_domain", "degree", "coefficient_height", "sparsity", "square_free_shape", "modular_factor_pattern", "proof_budget"]
+strategies = ["deterministic_baseline", "modular_hensel", "lattice_reconstruction", "sparse_interpolation", "registered_delegate"]
+reference_verifier = "fsym-cert-factor"
+required_certificate = "factorization_v1"
+protected_verifier_reserve = true
+fallback_limit = 8
+
+[[portfolio]]
+id = "polynomial_gcd_v1"
+status = "planned"
+state_dimensions = ["coefficient_domain", "degree_pair", "height", "sparsity", "subresultant_growth", "modular_images"]
+strategies = ["euclidean_baseline", "subresultant_prs", "modular_reconstruction", "half_gcd"]
+reference_verifier = "fsym-cert-factor"
+required_certificate = "gcd_bezout_v1"
+protected_verifier_reserve = true
+fallback_limit = 6
+
+[[portfolio]]
+id = "exact_linear_solve_v1"
+status = "planned"
+state_dimensions = ["scalar_domain", "rows", "cols", "sparsity", "rank_hint", "structure", "coefficient_height"]
+strategies = ["fraction_free_baseline", "modular_crt", "structured_solver", "sparse_elimination"]
+reference_verifier = "fsym-cert-linear"
+required_certificate = "linear_solve_v1"
+protected_verifier_reserve = true
+fallback_limit = 6
+
+[[portfolio]]
+id = "simplify_v1"
+status = "research"
+state_dimensions = ["operator_inventory", "term_dag_size", "assumption_complexity", "branch_policy", "rewrite_branching", "python_effect_class"]
+strategies = ["deterministic_rule_baseline", "egraph_bounded", "domain_specific_pipeline", "upstream_strict_delegate"]
+reference_verifier = "fsym-cert-rewrite"
+required_certificate = "rewrite_trace_v1"
+protected_verifier_reserve = true
+fallback_limit = 10
+
+[[loss_dimension]]
+id = "cpu_time"
+evidence = "benchmark_or_online_telemetry"
+may_affect_acceptance = false
+
+[[loss_dimension]]
+id = "peak_memory"
+evidence = "benchmark_or_runtime_budget"
+may_affect_acceptance = false
+
+[[loss_dimension]]
+id = "certificate_bytes"
+evidence = "exact_or_estimated"
+may_affect_acceptance = false
+
+[[loss_dimension]]
+id = "verifier_cost"
+evidence = "exact_bound_or_benchmark"
+may_affect_acceptance = false
+
+[[loss_dimension]]
+id = "compatibility_risk"
+evidence = "profile_observations"
+may_affect_acceptance = false
+
+[[loss_dimension]]
+id = "generator_failure_loss"
+evidence = "historical_outcomes"
+may_affect_acceptance = false
+
+[release_gates]
+hard_eligibility_tested = true
+fallback_acyclic = true
+fallback_transition_bound = true
+decision_receipt_complete = true
+selection_acceptance_separation = true
+holdout_routing_corpus = true
+same_invocation_benchmarks = true
+cancellation_drain = true
+quarantine_and_rollback = true
