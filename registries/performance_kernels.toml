@@ -1,0 +1,119 @@
+schema_version = 1
+registry_status = "planning"
+registry_authority = "registries/performance_kernels.toml"
+normative_contract = "docs/PERFORMANCE_ARCHITECTURE_AND_KERNEL_PROGRAM.md"
+
+[defaults]
+project_authored_unsafe = "forbid"
+semantic_gate_before_timing = true
+same_invocation_preferred = true
+aa_control = true
+noise_can_refuse_claim = true
+full_operation_required = true
+verifier_cost_included_when_public_contract_requires = true
+rollback_key_required = true
+
+[[kernel]]
+id = "bigint_mul_v1"
+status = "planned"
+operation = "exact_integer_multiplication"
+reference = "schoolbook_scalar"
+optimized = ["specialized_square", "karatsuba", "toom", "ntt_crt"]
+regimes = ["limbs", "operand_balance", "square", "architecture"]
+correctness = ["reference_exact", "modular_cross_checks", "reconstruction_bounds"]
+architectures = ["apple_silicon", "x86_64_avx2", "portable_scalar"]
+
+[[kernel]]
+id = "bigint_gcd_v1"
+status = "planned"
+operation = "exact_integer_gcd"
+reference = "euclidean_scalar"
+optimized = ["binary", "lehmer", "half_gcd"]
+regimes = ["limbs", "operand_balance", "common_factor_size"]
+correctness = ["divides_both", "bezout_optional", "reference_exact"]
+architectures = ["apple_silicon", "x86_64_avx2", "portable_scalar"]
+
+[[kernel]]
+id = "dense_poly_mul_v1"
+status = "planned"
+operation = "dense_univariate_polynomial_multiplication"
+reference = "schoolbook_dense"
+optimized = ["karatsuba", "toom", "kronecker", "ntt_crt"]
+regimes = ["degree", "coefficient_height", "domain", "sparsity_break_even"]
+correctness = ["reference_exact", "evaluation_points", "product_certificate"]
+architectures = ["apple_silicon", "x86_64_avx2", "portable_scalar"]
+
+[[kernel]]
+id = "sparse_poly_mul_v1"
+status = "planned"
+operation = "sparse_multivariate_polynomial_multiplication"
+reference = "ordered_pair_accumulation"
+optimized = ["heap_merge", "partitioned_accumulation", "evaluation_interpolation"]
+regimes = ["variables", "terms", "collision_rate", "monomial_order"]
+correctness = ["reference_exact", "product_certificate"]
+architectures = ["apple_silicon", "high_core_amd", "portable_scalar"]
+
+[[kernel]]
+id = "factorization_portfolio_v1"
+status = "planned"
+operation = "univariate_factorization"
+reference = "deterministic_baseline"
+optimized = ["modular_hensel", "lattice_reconstruction", "sparse_route"]
+regimes = ["domain", "degree", "height", "sparsity", "factor_pattern"]
+correctness = ["fsym-cert-factor", "mutation_corpus"]
+architectures = ["apple_silicon", "high_core_amd", "x86_64_avx2"]
+
+[[kernel]]
+id = "exact_linear_solve_v1"
+status = "planned"
+operation = "exact_matrix_solve"
+reference = "fraction_free_scalar"
+optimized = ["modular_crt", "sparse_elimination", "structured_solver"]
+regimes = ["rows", "cols", "sparsity", "height", "rank", "structure"]
+correctness = ["fsym-cert-linear", "residual_identity", "mutation_corpus"]
+architectures = ["apple_silicon", "high_core_amd", "x86_64_avx2"]
+
+[[kernel]]
+id = "term_dag_traversal_v1"
+status = "planned"
+operation = "term_dependency_traversal"
+reference = "deterministic_scalar_adjacency"
+optimized = ["compact_frozen_adjacency", "frontier_parallel"]
+regimes = ["nodes", "edges", "depth", "sharing", "arity"]
+correctness = ["reference_order", "graph_certificate", "schedule_replay"]
+architectures = ["apple_silicon", "high_core_amd", "portable_scalar"]
+
+[[kernel]]
+id = "pattern_match_v1"
+status = "research"
+operation = "binder_aware_symbolic_pattern_matching"
+reference = "recursive_reference_matcher"
+optimized = ["compiled_pattern_program", "discrimination_net", "bounded_ac_match"]
+regimes = ["pattern_size", "term_size", "wildcards", "associativity", "commutativity", "binder_depth"]
+correctness = ["reference_match_set", "substitution_replay", "adversarial_corpus"]
+architectures = ["apple_silicon", "high_core_amd", "portable_scalar"]
+
+[[kernel]]
+id = "python_roundtrip_v1"
+status = "planned"
+operation = "python_to_native_to_python_public_call"
+reference = "upstream_or_strict_shell"
+optimized = ["batched_conversion", "wrapper_interning_profiled", "compact_handles"]
+regimes = ["object_count", "term_size", "cache_state", "interpreter_profile"]
+correctness = ["compatibility_observation_bundle", "identity_alias_checks"]
+architectures = ["apple_silicon", "x86_64_avx2"]
+
+[required_receipts]
+source_tree = true
+toolchain = true
+machine_class = true
+corpus_root = true
+route_ids = true
+semantic_gate = true
+raw_samples = true
+allocations = true
+peak_memory = true
+tails = true
+host_telemetry = true
+aa_control = true
+noise_decision = true
