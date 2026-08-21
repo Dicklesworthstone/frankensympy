@@ -26,6 +26,13 @@ if sys.version_info < (3, 11):
 PY
 }
 
+tooling_self_check() {
+  require_python
+  run "$PYTHON_BIN" -m py_compile "$ROOT"/tools/*.py
+  run bash -n "$ROOT/scripts/check.sh"
+  ok "validator and shell syntax"
+}
+
 source_clean() {
   command -v git >/dev/null 2>&1 || fail "git is required"
   local status
@@ -35,7 +42,7 @@ source_clean() {
 }
 
 registries() {
-  require_python
+  tooling_self_check
   run "$PYTHON_BIN" "$ROOT/tools/verify_cross_cutting.py" --root "$ROOT" --no-write
   run "$PYTHON_BIN" "$ROOT/tools/verify_registry_bundle.py" --root "$ROOT" --no-write
   run "$PYTHON_BIN" "$ROOT/tools/audit_donor_sources.py" --root "$ROOT" --no-write

@@ -21,6 +21,21 @@ def run(root: Path) -> dict:
     architecture = parsed.get("registries/architecture_documents.toml") or load_registry(root, "registries/architecture_documents.toml", audit)
     documents = table_rows(architecture, "document", audit)
     document_ids = audit.unique_ids(documents, "document")
+    required_document_ids = {
+        "constitution", "comprehensive_plan", "architecture_revision_2026_08_20",
+        "agent_native_protocol", "assumptions_domains_numeric_tower",
+        "compatibility_contract", "conformance_and_benchmarking",
+        "crate_architecture_and_dependencies", "evidence_proofs_and_rewrites",
+        "first_implementation_campaign", "object_model_and_ir",
+        "persistence_distribution_and_repair", "runtime_budgets_and_determinism",
+        "security_and_resource_governance", "workstream_graph",
+        "portable_verifier", "artifact_protocol", "workspace", "graph", "formal",
+        "portfolios_revision", "python_effects", "packaging", "safety", "release",
+        "evidence_lattice", "monitoring", "performance", "cross_cutting",
+        "architecture_review_round_3",
+    }
+    for required_id in sorted(required_document_ids - document_ids):
+        audit.error(f"architecture document registry missing required id {required_id!r}")
     document_paths: set[str] = set()
     for index, row in enumerate(documents):
         prefix = f"document[{index}]"

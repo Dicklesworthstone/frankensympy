@@ -3,6 +3,7 @@ registry_status = "planning"
 registry_authority = "registries/architecture_documents.toml"
 index = "ARCHITECTURE_INDEX.md"
 revision = "docs/ARCHITECTURE_REVISION_2026_08_20.md"
+review = "docs/ARCHITECTURE_REVIEW_ROUND_3.md"
 
 [[document]]
 id = "constitution"
@@ -21,6 +22,102 @@ id = "architecture_revision_2026_08_20"
 path = "docs/ARCHITECTURE_REVISION_2026_08_20.md"
 kind = "normative_addendum"
 status = "landed"
+
+[[document]]
+id = "agent_native_protocol"
+path = "docs/AGENT_NATIVE_PROTOCOL.md"
+kind = "normative_contract"
+status = "landed"
+
+[[document]]
+id = "algorithm_portfolios_initial"
+path = "docs/ALGORITHM_PORTFOLIOS.md"
+kind = "normative_contract"
+status = "landed"
+registry = "registries/algorithm_portfolios.toml"
+
+[[document]]
+id = "assumptions_domains_numeric_tower"
+path = "docs/ASSUMPTIONS_DOMAINS_AND_NUMERIC_TOWER.md"
+kind = "normative_contract"
+status = "landed"
+
+[[document]]
+id = "compatibility_contract"
+path = "docs/COMPATIBILITY_CONTRACT.md"
+kind = "normative_contract"
+status = "landed"
+registry = "registries/compatibility_profiles.toml"
+
+[[document]]
+id = "conformance_and_benchmarking"
+path = "docs/CONFORMANCE_AND_BENCHMARKING.md"
+kind = "normative_contract"
+status = "landed"
+
+[[document]]
+id = "crate_architecture_and_dependencies"
+path = "docs/CRATE_ARCHITECTURE_AND_DEPENDENCIES.md"
+kind = "normative_contract"
+status = "landed"
+registry = "registries/dependencies.toml"
+
+[[document]]
+id = "evidence_proofs_and_rewrites"
+path = "docs/EVIDENCE_PROOFS_AND_REWRITES.md"
+kind = "normative_contract"
+status = "landed"
+registry = "registries/evidence_classes.toml"
+
+[[document]]
+id = "first_implementation_campaign"
+path = "docs/FIRST_IMPLEMENTATION_CAMPAIGN.md"
+kind = "implementation_plan"
+status = "landed"
+
+[[document]]
+id = "object_model_and_ir"
+path = "docs/OBJECT_MODEL_AND_IR.md"
+kind = "normative_contract"
+status = "landed"
+
+[[document]]
+id = "persistence_distribution_and_repair"
+path = "docs/PERSISTENCE_DISTRIBUTION_AND_REPAIR.md"
+kind = "normative_contract"
+status = "landed"
+
+[[document]]
+id = "risk_register_and_research_agenda"
+path = "docs/RISK_REGISTER_AND_RESEARCH_AGENDA.md"
+kind = "risk_register"
+status = "landed"
+
+[[document]]
+id = "runtime_budgets_and_determinism"
+path = "docs/RUNTIME_BUDGETS_AND_DETERMINISM.md"
+kind = "normative_contract"
+status = "landed"
+
+[[document]]
+id = "security_and_resource_governance"
+path = "docs/SECURITY_AND_RESOURCE_GOVERNANCE.md"
+kind = "normative_contract"
+status = "landed"
+
+[[document]]
+id = "source_project_audit"
+path = "docs/SOURCE_PROJECT_AUDIT.md"
+kind = "audit"
+status = "landed"
+registry = "registries/donor_sources.toml"
+
+[[document]]
+id = "workstream_graph"
+path = "docs/WORKSTREAM_GRAPH.md"
+kind = "implementation_plan"
+status = "landed"
+registry = "registries/workstreams.toml"
 
 [[document]]
 id = "portable_verifier"
@@ -57,7 +154,7 @@ status = "landed"
 registry = "registries/formal_proof_profiles.toml"
 
 [[document]]
-id = "portfolios"
+id = "portfolios_revision"
 path = "docs/COMPATIBILITY_AND_ALGORITHM_PORTFOLIOS.md"
 kind = "normative_contract"
 status = "landed"
@@ -118,3 +215,44 @@ path = "docs/CROSS_CUTTING_OBLIGATIONS.md"
 kind = "normative_contract"
 status = "landed"
 registry = "registries/cross_cutting_obligations.toml"
+
+[[document]]
+id = "donor_asupersync"
+path = "docs/DONOR_DEEP_DIVE_ASUPERSYNC.md"
+kind = "donor_audit"
+status = "landed"
+registry = "registries/donor_sources.toml"
+
+[[document]]
+id = "donor_frankensqlite"
+path = "docs/DONOR_DEEP_DIVE_FRANKENSQLITE.md"
+kind = "donor_audit"
+status = "landed"
+registry = "registries/donor_sources.toml"
+
+[[document]]
+id = "donor_graph_stack"
+path = "docs/DONOR_DEEP_DIVE_GRAPH_STACK.md"
+kind = "donor_audit"
+status = "landed"
+registry = "registries/donor_sources.toml"
+
+[[document]]
+id = "donor_frankenlean"
+path = "docs/DONOR_DEEP_DIVE_FRANKENLEAN.md"
+kind = "donor_audit"
+status = "landed"
+registry = "registries/donor_sources.toml"
+
+[[document]]
+id = "donor_numeric_stack"
+path = "docs/DONOR_DEEP_DIVE_NUMERIC_STACK.md"
+kind = "donor_audit"
+status = "landed"
+registry = "registries/donor_sources.toml"
+
+[[document]]
+id = "architecture_review_round_3"
+path = "docs/ARCHITECTURE_REVIEW_ROUND_3.md"
+kind = "audit"
+status = "landed"

@@ -90,10 +90,33 @@ Donor ideas are classified adopt/adapt/research/reject. Same ownership is not au
 
 ## Local validation
 
-Current executable architecture gate:
+Current executable planning gates:
 
 ```bash
-python tools/verify_cross_cutting.py --no-write
+./scripts/check.sh all
+./scripts/check.sh audit
 ```
 
-The repository’s release contract reserves `scripts/check.sh` as the single local/Doodlestein entry point. Additional validators are added as their registries become executable.
+The single local/Doodlestein entry point compiles the Python validators, syntax-checks itself, and validates cross-cutting obligations, document/registry closure, donor pins, dependency/safety policy, verifier profiles, and performance kernels. Implementation and release profiles that lack evidence exit with an explicit refusal rather than a false pass.
+
+## Original normative corpus retained by this revision
+
+- [Agent-native protocol](docs/AGENT_NATIVE_PROTOCOL.md)
+- [Initial algorithm portfolios](docs/ALGORITHM_PORTFOLIOS.md)
+- [Assumptions, domains, and numeric tower](docs/ASSUMPTIONS_DOMAINS_AND_NUMERIC_TOWER.md)
+- [Conformance and benchmarking](docs/CONFORMANCE_AND_BENCHMARKING.md)
+- [Crate architecture and dependencies](docs/CRATE_ARCHITECTURE_AND_DEPENDENCIES.md)
+- [Evidence, proofs, and rewrites](docs/EVIDENCE_PROOFS_AND_REWRITES.md)
+- [First implementation campaign](docs/FIRST_IMPLEMENTATION_CAMPAIGN.md)
+- [Object model and IR](docs/OBJECT_MODEL_AND_IR.md)
+- [Persistence, distribution, and repair](docs/PERSISTENCE_DISTRIBUTION_AND_REPAIR.md)
+- [Risk register and research agenda](docs/RISK_REGISTER_AND_RESEARCH_AGENDA.md)
+- [Runtime budgets and determinism](docs/RUNTIME_BUDGETS_AND_DETERMINISM.md)
+- [Security and resource governance](docs/SECURITY_AND_RESOURCE_GOVERNANCE.md)
+- [Source-project audit](docs/SOURCE_PROJECT_AUDIT.md)
+- [Workstream graph](docs/WORKSTREAM_GRAPH.md)
+
+## Closure review
+
+- [Architecture review — round 3](docs/ARCHITECTURE_REVIEW_ROUND_3.md)
+- [Machine-readable review artifact](artifacts/audit/architecture_review_round_3.json)
