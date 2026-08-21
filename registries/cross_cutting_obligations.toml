@@ -1,0 +1,138 @@
+schema_version = 1
+registry_status = "planning"
+registry_authority = "registries/cross_cutting_obligations.toml"
+normative_contract = "docs/CROSS_CUTTING_OBLIGATIONS.md"
+
+[status]
+allowed = ["planning", "implementing", "evidenced", "landed", "quarantined"]
+complete = ["evidenced", "landed"]
+
+[[obligation]]
+id = "O-SAFETY"
+document = "docs/DEPENDENCY_SAFETY_AND_TOOLCHAIN.md"
+owner = "foundation-safety"
+depends_on = []
+gates = ["dependency_audit", "unsafe_lint", "toolchain_pin"]
+artifacts = ["dependency_audit.json", "verifier_dependency_closure.json", "toolchain.json"]
+release_blocking = true
+status = "planning"
+
+[[obligation]]
+id = "O-EVIDENCE"
+document = "docs/CLAIM_AND_EVIDENCE_LATTICE.md"
+owner = "evidence-governance"
+depends_on = ["O-SAFETY"]
+gates = ["claim_lattice_lint", "wording_lint"]
+artifacts = ["claim_lattice_audit.json", "claim_wording_audit.json"]
+release_blocking = true
+status = "planning"
+
+[[obligation]]
+id = "O-VERIFIER"
+document = "docs/EMBEDDABLE_VERIFIER_CONTRACT.md"
+owner = "portable-verifiers"
+depends_on = ["O-SAFETY", "O-EVIDENCE"]
+gates = ["minimal_consumer", "dependency_closure", "certificate_mutation"]
+artifacts = ["minimal_consumer_report.json", "verifier_dependency_closure.json", "certificate_mutation_report.json"]
+release_blocking = true
+status = "planning"
+
+[[obligation]]
+id = "O-ARTIFACT"
+document = "docs/PORTABLE_CLAIM_CERTIFICATE_AND_ARTIFACT_PROTOCOL.md"
+owner = "artifact-plane"
+depends_on = ["O-VERIFIER"]
+gates = ["canonical_roundtrip", "streaming_limits", "repair_hash_check"]
+artifacts = ["artifact_protocol_report.json", "decoder_adversarial_report.json"]
+release_blocking = true
+status = "planning"
+
+[[obligation]]
+id = "O-WORKSPACE"
+document = "docs/SYMBOLIC_WORKSPACE_MVCC_AND_LEDGER.md"
+owner = "workspace-ledger"
+depends_on = ["O-ARTIFACT", "O-EVIDENCE"]
+gates = ["serializability_scenarios", "semantic_merge_certificates", "recovery"]
+artifacts = ["workspace_scenario_report.json", "merge_certificate_report.json", "recovery_report.json"]
+release_blocking = true
+status = "planning"
+
+[[obligation]]
+id = "O-GRAPH"
+document = "docs/GRAPH_REASONING_SUBSTRATE.md"
+owner = "graph-substrate"
+depends_on = ["O-VERIFIER", "O-WORKSPACE"]
+gates = ["graph_reference_differential", "graph_certificate_mutation", "projection_rebuild"]
+artifacts = ["graph_conformance.json", "graph_certificate_report.json", "projection_rebuild.json"]
+release_blocking = true
+status = "planning"
+
+[[obligation]]
+id = "O-FORMAL"
+document = "docs/FORMAL_PROOF_INTEROPERABILITY.md"
+owner = "formal-interop"
+depends_on = ["O-VERIFIER", "O-ARTIFACT", "O-EVIDENCE"]
+gates = ["projection_field_coverage", "foreign_checker_rejection", "formal_e2e"]
+artifacts = ["projection_coverage.json", "foreign_checker_report.json", "formal_e2e.json"]
+release_blocking = false
+status = "planning"
+
+[[obligation]]
+id = "O-PYTHON"
+document = "docs/PYTHON_RUNTIME_AND_EFFECT_BOUNDARY.md"
+owner = "python-shell"
+depends_on = ["O-SAFETY", "O-EVIDENCE"]
+gates = ["exactly_once_callbacks", "interpreter_matrix", "gc_identity"]
+artifacts = ["python_effect_trace.json", "interpreter_matrix.json", "python_identity_gc.json"]
+release_blocking = true
+status = "planning"
+
+[[obligation]]
+id = "O-MONITORS"
+document = "docs/ADAPTIVE_SELECTION_AND_ANYTIME_MONITORING.md"
+owner = "adaptive-governance"
+depends_on = ["O-EVIDENCE"]
+gates = ["monitor_formula_review", "optional_stopping_adversarial", "monitor_replay"]
+artifacts = ["monitor_formula_audit.json", "monitor_simulation.json", "monitor_replay.json"]
+release_blocking = true
+status = "planning"
+
+[[obligation]]
+id = "O-PORTFOLIO"
+document = "docs/COMPATIBILITY_AND_ALGORITHM_PORTFOLIOS.md"
+owner = "algorithm-portfolios"
+depends_on = ["O-VERIFIER", "O-PYTHON", "O-MONITORS"]
+gates = ["eligibility_matrix", "fallback_dag", "selection_acceptance_separation"]
+artifacts = ["portfolio_eligibility.json", "fallback_graph.json", "portfolio_boundary_report.json"]
+release_blocking = true
+status = "planning"
+
+[[obligation]]
+id = "O-PACKAGING"
+document = "docs/PACKAGING_AND_DROPIN_DEPLOYMENT.md"
+owner = "python-packaging"
+depends_on = ["O-PYTHON"]
+gates = ["resolver_matrix", "wheel_matrix", "upgrade_rollback"]
+artifacts = ["resolver_matrix.json", "wheel_matrix.json", "upgrade_rollback.json"]
+release_blocking = true
+status = "planning"
+
+[[obligation]]
+id = "O-PERFORMANCE"
+document = "docs/PERFORMANCE_ARCHITECTURE_AND_KERNEL_PROGRAM.md"
+owner = "performance-kernels"
+depends_on = ["O-SAFETY", "O-VERIFIER", "O-GRAPH", "O-PORTFOLIO"]
+gates = ["kernel_registry", "semantic_before_timing", "machine_regime_matrix"]
+artifacts = ["performance_kernel_audit.json", "benchmark_semantic_gates.json", "machine_regime_results.json"]
+release_blocking = true
+status = "planning"
+
+[[obligation]]
+id = "O-RELEASE"
+document = "docs/LOCAL_FIRST_RELEASE_AND_VALIDATION.md"
+owner = "local-release"
+depends_on = ["O-SAFETY", "O-WORKSPACE", "O-PACKAGING", "O-PERFORMANCE"]
+gates = ["local_gate_matrix", "reproducibility", "signing_publication_recovery"]
+artifacts = ["machine_matrix.json", "reproducibility_comparison.json", "signed_release_manifest.json"]
+release_blocking = true
+status = "planning"
