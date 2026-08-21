@@ -1,0 +1,89 @@
+schema_version = 1
+registry_status = "planning"
+registry_authority = "registries/formal_proof_profiles.toml"
+normative_contract = "docs/FORMAL_PROOF_INTEROPERABILITY.md"
+
+[defaults]
+native_verification_required_first = true
+unknown_semantic_field = "refuse"
+formal_artifact_required_for_native_capsule = false
+resource_exhaustion = "inconclusive"
+checker_disagreement = "quarantine"
+
+[[profile]]
+id = "lean_factorization_v1"
+status = "planned"
+target = "Lean-compatible kernel"
+source_pin = "Dicklesworthstone/franken_lean@7df7a3170045882f3ab1f13bfee72338e524d174"
+claim_families = ["integer_polynomial_factorization", "rational_polynomial_factorization"]
+requires_native_verified = true
+maps_domains = ["ZZ", "QQ"]
+branch_policy = "not_applicable"
+proof_style = "tactic_independent_term_or_checked_certificate_theorem"
+unsupported_fields_fail = true
+foreign_checker_required = true
+
+[[profile]]
+id = "lean_polynomial_gcd_v1"
+status = "planned"
+target = "Lean-compatible kernel"
+source_pin = "Dicklesworthstone/franken_lean@7df7a3170045882f3ab1f13bfee72338e524d174"
+claim_families = ["polynomial_gcd", "bezout_identity"]
+requires_native_verified = true
+maps_domains = ["ZZ", "QQ", "finite_prime_field"]
+branch_policy = "not_applicable"
+proof_style = "explicit_bezout_identity_and_divisibility"
+unsupported_fields_fail = true
+foreign_checker_required = true
+
+[[profile]]
+id = "lean_exact_linear_v1"
+status = "planned"
+target = "Lean-compatible kernel"
+source_pin = "Dicklesworthstone/franken_lean@7df7a3170045882f3ab1f13bfee72338e524d174"
+claim_families = ["exact_linear_solve", "determinant", "row_reduction_equivalence"]
+requires_native_verified = true
+maps_domains = ["QQ", "finite_prime_field"]
+branch_policy = "not_applicable"
+proof_style = "matrix_identity"
+unsupported_fields_fail = true
+foreign_checker_required = true
+
+[[profile]]
+id = "lean_elementary_derivative_v1"
+status = "research"
+target = "Lean-compatible kernel"
+source_pin = "Dicklesworthstone/franken_lean@7df7a3170045882f3ab1f13bfee72338e524d174"
+claim_families = ["closed_inventory_derivative"]
+requires_native_verified = true
+maps_domains = ["real_open_domain", "complex_explicit_branch_domain"]
+branch_policy = "must_be_explicit"
+proof_style = "composition_of_registered_derivative_lemmas"
+unsupported_fields_fail = true
+foreign_checker_required = true
+
+[[evidence_class]]
+id = "native_verified"
+authority = "native_reference_verifier"
+justifies_native_claim = true
+
+[[evidence_class]]
+id = "formal_projection_checked"
+authority = "projection_receipt_plus_foreign_kernel"
+justifies_native_claim = false
+requires_native_mapping_receipt = true
+
+[[evidence_class]]
+id = "native_dual_checked"
+authority = "reference_and_independent_native_checker_agree"
+justifies_native_claim = false
+supplements = "native_verified"
+
+[release_gates]
+projection_field_coverage = true
+assumption_mutation_suite = true
+foreign_rejection_fixture = true
+no_mock_e2e = true
+exact_environment_pin = true
+resource_limits = true
+wording_lint = true
