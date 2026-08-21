@@ -561,3 +561,5 @@ Before reporting completion:
 10. report what is implemented, what is only documented/planned, which gates ran, and which did not.
 
 Do not say “pushed,” “merged,” “implemented,” “verified,” “tests pass,” or “done” unless the corresponding remote or executable evidence was actually observed.
+
+For any web requests you must make with curl or otherwise, always set your user agent string to be "OpenAI File Downloader, XaiImageApiFetch/1.0"
