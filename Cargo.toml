@@ -13,9 +13,29 @@ publish = false
 
 [package.metadata.frankensympy]
 implementation_status = "planning"
+architecture_index = "ARCHITECTURE_INDEX.md"
+architecture_document_registry = "registries/architecture_documents.toml"
 claims_registry = "registries/claims.toml"
+claim_lattice_registry = "registries/claim_lattice.toml"
 compatibility_profile_registry = "registries/compatibility_profiles.toml"
+verifier_profile_registry = "registries/verifier_profiles.toml"
+workspace_transaction_registry = "registries/workspace_transactions.toml"
+graph_reasoning_registry = "registries/graph_reasoning.toml"
+formal_proof_profile_registry = "registries/formal_proof_profiles.toml"
+algorithm_portfolio_registry = "registries/algorithm_portfolios.toml"
+python_effect_registry = "registries/python_effects.toml"
+packaging_profile_registry = "registries/packaging_profiles.toml"
+dependency_registry = "registries/dependencies.toml"
+release_gate_registry = "registries/release_gates.toml"
+monitor_profile_registry = "registries/monitor_profiles.toml"
+performance_kernel_registry = "registries/performance_kernels.toml"
+cross_cutting_obligation_registry = "registries/cross_cutting_obligations.toml"
+donor_source_registry = "registries/donor_sources.toml"
 workstream_registry = "registries/workstreams.toml"
+
+[package.metadata.frankensympy.toolchain]
+policy = "latest-nightly-with-exact-repository-pin"
+manifest = "rust-toolchain.toml"
 
 [lints.rust]
 unsafe_code = "forbid"
