@@ -1,0 +1,116 @@
+schema_version = 1
+registry_status = "planning"
+registry_authority = "registries/dependencies.toml"
+normative_contract = "docs/DEPENDENCY_SAFETY_AND_TOOLCHAIN.md"
+
+[policy]
+project_authored_unsafe = "forbid"
+native_algorithm_dependencies = "forbid"
+floating_git_release_dependencies = "forbid"
+unknown_dependency_field = "block"
+same_owner_auto_admission = false
+portable_verifier_ffi = false
+network_build_scripts = false
+
+[[allowed_source]]
+id = "rust_std"
+class = "toolchain"
+pin = "nightly-2026-08-20"
+uses = ["core", "alloc", "std"]
+
+[[allowed_source]]
+id = "asupersync"
+class = "frankensuite"
+repository = "Dicklesworthstone/asupersync"
+commit = "3cb2dc6d0540a961345e61bc9f89b4e930cbb8cf"
+status = "planned_selective"
+portable_verifier_allowed = false
+
+[[allowed_source]]
+id = "franken_networkx"
+class = "frankensuite"
+repository = "Dicklesworthstone/franken_networkx"
+commit = "972814b1b4649c20b6f2acdd7456e3580cefdbeb"
+status = "planned_selective"
+portable_verifier_allowed = "only_reviewed_pure_graph_primitives"
+
+[[allowed_source]]
+id = "frankensqlite"
+class = "frankensuite"
+repository = "Dicklesworthstone/frankensqlite"
+commit = "abdc4dc89714e8816202fd0bf2e9cd969f6d493f"
+status = "optional_adapter"
+portable_verifier_allowed = false
+
+[[allowed_source]]
+id = "frankengraphdb"
+class = "frankensuite"
+repository = "Dicklesworthstone/frankengraphdb"
+commit = "df733010a46ac2a725df141204d7940b4e37d4b7"
+status = "optional_projection"
+portable_verifier_allowed = false
+
+[[allowed_source]]
+id = "franken_lean"
+class = "frankensuite"
+repository = "Dicklesworthstone/franken_lean"
+commit = "7df7a3170045882f3ab1f13bfee72338e524d174"
+status = "optional_formal_adapter"
+portable_verifier_allowed = false
+
+[[fundamental_category]]
+id = "serialization_scaffold"
+examples = ["serde"]
+default_features = "off_until_reviewed"
+algorithmic_use = false
+admission_required = true
+
+[[fundamental_category]]
+id = "cryptographic_hash"
+examples = []
+default_features = "off_until_reviewed"
+algorithmic_use = false
+admission_required = true
+
+[[fundamental_category]]
+id = "safe_cpython_binding"
+examples = []
+default_features = "off_until_reviewed"
+algorithmic_use = false
+admission_required = true
+portable_verifier_allowed = false
+
+[[forbidden_family]]
+id = "native_math_backends"
+patterns = ["gmp", "flint", "arb", "singular", "blas", "lapack", "openblas", "mkl", "cuda"]
+reason = "pure Rust mathematical engine"
+
+[[forbidden_family]]
+id = "alternate_async_runtimes"
+patterns = ["tokio", "async-std", "smol"]
+reason = "asupersync is the sole runtime substrate"
+
+[[forbidden_family]]
+id = "unreviewed_algorithm_crates"
+patterns = ["generic CAS, graph, solver, storage, or numerical implementation"]
+reason = "algorithmic functionality must be owned or selectively admitted from FrankenSuite"
+
+[required_review_fields]
+purpose = true
+alternatives = true
+features = true
+transitive_lock_digest = true
+build_scripts = true
+proc_macros = true
+unsafe = true
+ffi = true
+effects = true
+determinism = true
+serialization = true
+wasm_no_std = true
+license = true
+advisories = true
+containment = true
+exit_plan = true
+reviewer = true
+freshness = true

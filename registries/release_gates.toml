@@ -1,0 +1,94 @@
+schema_version = 1
+registry_status = "planning"
+registry_authority = "registries/release_gates.toml"
+normative_contract = "docs/LOCAL_FIRST_RELEASE_AND_VALIDATION.md"
+canonical_orchestrator = "Dicklesworthstone/doodlestein_self_releaser"
+github_hosted_execution_authoritative = false
+
+[[gate]]
+id = "source_clean"
+command = "scripts/check.sh source-clean"
+required_for = ["release-candidate"]
+artifacts = ["source_state.json"]
+
+[[gate]]
+id = "toolchain_dependency"
+command = "scripts/check.sh metadata"
+required_for = ["release-candidate"]
+artifacts = ["toolchain.json", "dependency_audit.json", "sbom.json"]
+
+[[gate]]
+id = "registries"
+command = "scripts/check.sh registries"
+required_for = ["release-candidate"]
+artifacts = ["registry_audit.json", "workstream_dag.json"]
+
+[[gate]]
+id = "portable_verifiers"
+command = "scripts/check.sh portable-verifiers"
+required_for = ["release-candidate"]
+artifacts = ["verifier_dependency_closure.json", "certificate_mutation_report.json"]
+
+[[gate]]
+id = "unit_conformance"
+command = "scripts/check.sh conformance"
+required_for = ["release-candidate"]
+artifacts = ["unit_report.json", "conformance_matrix.json", "divergence_ledger.json"]
+
+[[gate]]
+id = "deterministic_lab"
+command = "scripts/check.sh lab"
+required_for = ["release-candidate"]
+artifacts = ["lab_seed_matrix.json", "replay_bundles.json"]
+
+[[gate]]
+id = "machine_matrix"
+command = "scripts/check.sh matrix"
+required_for = ["release-candidate"]
+artifacts = ["machine_matrix.json"]
+
+[[gate]]
+id = "reproducibility"
+command = "scripts/check.sh reproducibility"
+required_for = ["release-candidate"]
+artifacts = ["reproducibility_comparison.json"]
+
+[[gate]]
+id = "package"
+command = "scripts/check.sh package"
+required_for = ["release-candidate"]
+artifacts = ["package_manifest.json", "resolver_matrix.json"]
+
+[[gate]]
+id = "sign"
+command = "scripts/check.sh sign"
+required_for = ["published"]
+artifacts = ["signed_release_manifest.json", "provenance.json"]
+
+[[machine_class]]
+id = "apple_silicon_macos"
+required = true
+claims = ["correctness", "native_performance"]
+
+[[machine_class]]
+id = "x86_64_linux_avx2"
+required = true
+claims = ["correctness", "portable_x86_performance"]
+
+[[machine_class]]
+id = "high_core_amd_linux"
+required = true
+claims = ["correctness", "parallel_performance"]
+
+[[machine_class]]
+id = "wasm32"
+required = true
+claims = ["portable_verifier_compatibility"]
+
+[publication]
+immutable_artifacts_first = true
+atomic_channel_pointer = true
+resume_idempotent = true
+signatures_attest_truth = false
+rollback_uses_prior_manifest = true
+revocation_append_only = true

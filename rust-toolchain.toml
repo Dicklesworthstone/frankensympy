@@ -1,4 +1,5 @@
 [toolchain]
-# Pinned nightly toolchain matching Franken* ecosystem standards.
-channel = "nightly-2026-07-05"
-components = ["rustfmt", "clippy"]
+channel = "nightly-2026-08-20"
+profile = "minimal"
+components = ["cargo", "clippy", "rustfmt", "rust-src"]
+targets = ["wasm32-unknown-unknown"]
