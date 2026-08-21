@@ -1,0 +1,93 @@
+schema_version = 1
+registry_status = "planning"
+registry_authority = "registries/python_effects.toml"
+normative_contract = "docs/PYTHON_RUNTIME_AND_EFFECT_BOUNDARY.md"
+
+[defaults]
+unknown_effect = "execute_exactly_once"
+opaque_declared_pure_speculation = false
+callback_interruption_retry = false
+portable_certificate_python_objects = false
+cross_interpreter_raw_objects = false
+
+[[effect_class]]
+id = "closed_pure"
+duplicable = true
+remotable = true
+cacheable = true
+portable_verifier_allowed = true
+requires_classification_fingerprint = true
+
+[[effect_class]]
+id = "declared_pure_opaque"
+duplicable = false
+remotable = false
+cacheable = "explicit_opt_in_only"
+portable_verifier_allowed = false
+requires_classification_fingerprint = true
+
+[[effect_class]]
+id = "effectful"
+duplicable = false
+remotable = "isolated_effect_protocol_only"
+cacheable = false
+portable_verifier_allowed = false
+requires_classification_fingerprint = true
+
+[[effect_class]]
+id = "unknown_effect"
+duplicable = false
+remotable = false
+cacheable = false
+portable_verifier_allowed = false
+requires_classification_fingerprint = false
+
+[[interpreter_profile]]
+id = "cpython_classic_main_v1"
+status = "planned"
+gil = "classic"
+subinterpreter = false
+free_threaded = false
+wrapper_cache = "interpreter_local"
+
+[[interpreter_profile]]
+id = "cpython_classic_subinterpreter_v1"
+status = "planned"
+gil = "classic"
+subinterpreter = true
+free_threaded = false
+wrapper_cache = "interpreter_local"
+
+[[interpreter_profile]]
+id = "cpython_free_threaded_main_v1"
+status = "research"
+gil = "none"
+subinterpreter = false
+free_threaded = true
+wrapper_cache = "explicitly_synchronized_interpreter_local"
+
+[[callback_boundary]]
+id = "in_process_cooperative"
+cancellation = "cooperative_checkpoint"
+unknown_outcome_after_interrupt = false
+
+[[callback_boundary]]
+id = "in_process_non_cooperative"
+cancellation = "cannot_guarantee_prompt_stop"
+unknown_outcome_after_interrupt = true
+
+[[callback_boundary]]
+id = "isolated_process"
+cancellation = "kill_process_and_recover_protocol"
+unknown_outcome_after_interrupt = "depends_on_durable_effect_marker"
+
+[release_gates]
+exactly_once_trace = true
+reentrancy = true
+identity_alias = true
+gc_weakref_finalizer = true
+exception_warning = true
+shutdown_reload = true
+free_threaded_profile_specific = true
+subinterpreter_profile_specific = true
+no_python_in_verifier_closure = true

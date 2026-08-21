@@ -1,0 +1,91 @@
+schema_version = 1
+registry_status = "planning"
+registry_authority = "registries/packaging_profiles.toml"
+normative_contract = "docs/PACKAGING_AND_DROPIN_DEPLOYMENT.md"
+
+[defaults]
+exclusive_sympy_path_owner = true
+coinstall_upstream = false
+pth_hijack = false
+runtime_binary_download = false
+resolver_claim_requires_matrix = true
+behavior_claim_requires_profile = true
+
+[[profile]]
+id = "development_import_only"
+status = "planned"
+distribution_name = "frankensympy"
+imports_as = "sympy"
+satisfies_requires_dist_sympy = false
+channel = "local_development"
+claim = "import_only"
+
+[[profile]]
+id = "private_index_replacement_v1"
+status = "planned"
+distribution_name = "sympy"
+imports_as = "sympy"
+satisfies_requires_dist_sympy = true
+channel = "private_index"
+exclusive_path_owner = true
+resolver_matrix_required = true
+upgrade_rollback_required = true
+signed_release_required = true
+
+[[profile]]
+id = "lockfile_source_override_v1"
+status = "planned"
+distribution_name = "sympy"
+imports_as = "sympy"
+satisfies_requires_dist_sympy = true
+channel = "lockfile_or_environment_manager_override"
+exclusive_path_owner = true
+resolver_matrix_required = true
+upgrade_rollback_required = true
+signed_release_required = true
+
+[[profile]]
+id = "hermetic_bundle_v1"
+status = "planned"
+distribution_name = "sympy"
+imports_as = "sympy"
+satisfies_requires_dist_sympy = true
+channel = "container_or_vendored_environment"
+exclusive_path_owner = true
+resolver_matrix_required = true
+upgrade_rollback_required = true
+signed_release_required = true
+
+[[evidence_state]]
+id = "import_only"
+requires = ["import_matrix"]
+
+[[evidence_state]]
+id = "resolver_verified"
+requires = ["import_matrix", "resolver_matrix"]
+
+[[evidence_state]]
+id = "behavior_profile_verified"
+requires = ["compatibility_profile", "conformance_corpus"]
+
+[[evidence_state]]
+id = "wheel_matrix_verified"
+requires = ["abi_platform_matrix", "clean_install", "metadata_audit"]
+
+[[evidence_state]]
+id = "upgrade_rollback_verified"
+requires = ["upstream_to_franken", "franken_to_prior", "uninstall_reinstall"]
+
+[[evidence_state]]
+id = "ecosystem_certified"
+requires = ["named_downstream_corpus", "resolver_matrix", "behavior_profile", "upgrade_rollback"]
+
+[resolver_cases]
+exact_pin = true
+bounded_range = true
+unbounded_minimum = true
+extras = true
+lock_generation = true
+offline_install = true
+conflicting_request = true
+editable_install = true
