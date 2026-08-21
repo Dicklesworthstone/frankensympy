@@ -1,0 +1,83 @@
+schema_version = 1
+registry_status = "planning"
+registry_authority = "registries/monitor_profiles.toml"
+normative_contract = "docs/ADAPTIVE_SELECTION_AND_ANYTIME_MONITORING.md"
+
+[defaults]
+missing_specification = "telemetry_only"
+reset_preserves_history = true
+failures_are_observations = true
+monitor_can_admit_claim = false
+numeric_overflow = "fault_and_safe_fallback"
+
+[[monitor]]
+id = "portfolio_outcome_regression_v1"
+status = "planned"
+validity = "heuristic_until_registered_eprocess_proof"
+population = "completed_and_inconclusive_portfolio_attempts"
+actions = ["warn", "quarantine_route", "baseline_fallback", "recalibrate"]
+safe_fallback = "deterministic_baseline"
+includes_timeouts = true
+includes_cancellations = true
+includes_resource_exhaustion = true
+
+[[monitor]]
+id = "compatibility_drift_v1"
+status = "planned"
+validity = "descriptive_and_prioritization"
+population = "all_profile_differential_observations"
+actions = ["open_discrepancy", "block_profile_promotion", "increase_sampling"]
+safe_fallback = "retain_previous_certified_profile"
+includes_timeouts = true
+includes_cancellations = true
+includes_resource_exhaustion = true
+
+[[monitor]]
+id = "verifier_disagreement_v1"
+status = "planned"
+validity = "exact_fault_trigger"
+population = "dual_checked_certificates"
+actions = ["immediate_quarantine", "block_publication", "preserve_repro_bundle"]
+safe_fallback = "reference_checker_only_after_investigation"
+includes_timeouts = true
+includes_cancellations = true
+includes_resource_exhaustion = true
+
+[[monitor]]
+id = "obligation_leak_v1"
+status = "research"
+validity = "anytime_valid_only_after_null_and_filtration_proof"
+population = "all_acquired_runtime_obligations"
+actions = ["warn", "cancel_region", "block_release"]
+safe_fallback = "exact_balance_invariant_and_conservative_shutdown"
+includes_timeouts = true
+includes_cancellations = true
+includes_resource_exhaustion = true
+
+[[monitor]]
+id = "performance_regression_v1"
+status = "planned"
+validity = "registered_benchmark_method"
+population = "pinned_route_corpus_machine_observations"
+actions = ["warn", "quarantine_optimized_route", "revert_default"]
+safe_fallback = "last_certified_route"
+includes_timeouts = true
+includes_cancellations = true
+includes_resource_exhaustion = true
+
+[required_fields]
+population = true
+sampling_rule = true
+filtration = true
+null_or_target = true
+construction = true
+validity_scope = true
+optional_stopping = true
+minimum_samples = true
+censoring = true
+subgroups_multiplicity = true
+reset_policy = true
+numerical_stability = true
+persistence_replay = true
+actions = true
+safe_fallback = true

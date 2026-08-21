@@ -1,0 +1,112 @@
+schema_version = 1
+registry_status = "planning"
+registry_authority = "registries/claim_lattice.toml"
+normative_contract = "docs/CLAIM_AND_EVIDENCE_LATTICE.md"
+
+[[class]]
+id = "invariant"
+rank = 90
+route = "invariants"
+
+[[class]]
+id = "formal_theorem"
+rank = 80
+route = "evidence"
+
+[[class]]
+id = "exact_certificate"
+rank = 75
+route = "evidence"
+
+[[class]]
+id = "bounded_model"
+rank = 60
+route = "evidence"
+
+[[class]]
+id = "compatibility"
+rank = 50
+route = "compatibility"
+
+[[class]]
+id = "statistical"
+rank = 40
+route = "evidence"
+
+[[class]]
+id = "configuration_model"
+rank = 35
+route = "evidence"
+
+[[class]]
+id = "slo"
+rank = 20
+route = "slo"
+
+[[class]]
+id = "benchmark"
+rank = 10
+route = "benchmarks"
+
+[[class]]
+id = "research_hypothesis"
+rank = 0
+route = "research"
+
+[[justification]]
+evidence = "invariant"
+claim = "invariant"
+requires_scope_match = true
+
+[[justification]]
+evidence = "formal_theorem"
+claim = "formal_theorem"
+requires_scope_match = true
+
+[[justification]]
+evidence = "exact_certificate"
+claim = "exact_certificate"
+requires_scope_match = true
+
+[[justification]]
+evidence = "bounded_model"
+claim = "bounded_model"
+requires_scope_match = true
+
+[[justification]]
+evidence = "compatibility"
+claim = "compatibility"
+requires_scope_match = true
+
+[[justification]]
+evidence = "statistical"
+claim = "statistical"
+requires_scope_match = true
+
+[[justification]]
+evidence = "configuration_model"
+claim = "configuration_model"
+requires_scope_match = true
+
+[[justification]]
+evidence = "slo"
+claim = "slo"
+requires_scope_match = true
+
+[[justification]]
+evidence = "benchmark"
+claim = "benchmark"
+requires_scope_match = true
+
+[[justification]]
+evidence = "research_hypothesis"
+claim = "research_hypothesis"
+requires_scope_match = true
+
+[composition]
+transitive_by_default = false
+majority_vote_upgrades = false
+signatures_upgrade_truth = false
+monitor_output_mints_verified_claim = false
+silent_downgrade = false
+contradictions_append_only = true
