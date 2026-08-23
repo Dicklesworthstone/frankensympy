@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FrankenSymPy conformance discrepancy record",
+  "description": "One blocking or recorded mismatch between an oracle observation envelope and a candidate observation envelope. Shape follows docs/FIRST_IMPLEMENTATION_CAMPAIGN.md section 19 (discrepancy policy) and docs/CONFORMANCE_AND_BENCHMARKING.md section 7.3. Unknown fields are rejected by consumers (fail closed).",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "discrepancy_id",
+    "status",
+    "severity",
+    "profile_id",
+    "fixture_id",
+    "comparator",
+    "differences"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "discrepancy_id": {
+      "type": "string",
+      "pattern": "^disc-[a-z0-9-]+$",
+      "description": "Stable id; derived content hash when auto-minimized."
+    },
+    "status": {
+      "enum": ["open", "blocked", "fix_landed_unverified", "closed_verified"],
+      "description": "'will fix later' is deliberately NOT representable; closure requires gate evidence."
+    },
+    "severity": {
+      "enum": ["object", "mathematical", "runtime", "security"],
+      "description": "Severity classes per campaign section 19."
+    },
+    "profile_id": {"type": "string"},
+    "fixture_id": {"type": "string"},
+    "comparator": {
+      "type": "string",
+      "description": "Registry id of the comparator that produced this discrepancy."
+    },
+    "outcome_classes": {
+      "type": "object",
+      "properties": {
+        "oracle": {"type": "string"},
+        "candidate": {"type": "string"}
+      },
+      "description": "Present when returned/raised classification itself differs."
+    },
+    "differences": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["path", "oracle", "candidate"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "pattern": "^(observations(\\.[A-Za-z0-9_\\[\\]]+)+|environment(\\.[A-Za-z0-9_]+)+|outcome_class|fixture_id|profile_id)$",
+            "description": "Dotted path inside the observation envelope, minimized to the first differing component boundary."
+          },
+          "oracle": {},
+          "candidate": {}
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "description": "Oracle environment fingerprint copied verbatim from the envelopes."
+    },
+    "affected_stage": {"type": "string"},
+    "affected_claim": {"type": "string"},
+    "closure_test": {
+      "type": "string",
+      "description": "Command or fixture id whose green run closes this discrepancy."
+    },
+    "owner": {"type": "string"},
+    "created_at_utc": {"type": "string"}
+  }
+}

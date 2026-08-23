@@ -36,6 +36,9 @@ import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from comparators import REGISTRY, diff_envelopes  # noqa: E402
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ARTIFACT_ROOT = REPO_ROOT / "artifacts" / "conformance"
 
@@ -163,13 +166,26 @@ def write_goldens(profile: dict, captured: dict[str, list[dict]]) -> Path:
 
 
 def compare(left: list[dict], right: list[dict]) -> list[str]:
-    """Exact-surface comparator over normalized envelopes."""
+    """Exact-surface comparison over normalized envelope lists."""
     if len(left) != len(right):
         return ["envelope count differs"]
     return [
         lo.get("fixture_id", "?")
         for lo, ro in zip(left, right)
-        if lo != ro
+        if diff_envelopes(lo, ro, "exact_surface")
+    ]
+
+
+def compare_construction_only(
+    left: list[dict], right: list[dict]
+) -> list[str]:
+    """Construction-contract comparison: identity/structure fields only."""
+    if len(left) != len(right):
+        return ["envelope count differs"]
+    return [
+        lo.get("fixture_id", "?")
+        for lo, ro in zip(left, right)
+        if diff_envelopes(lo, ro, "construction_only")
     ]
 
 
@@ -255,7 +271,6 @@ def weakened_variants(envelopes: list[dict]) -> dict[str, list[dict]]:
 
     return variants
 
-
 def cmd_self_test(profile: dict, py: str) -> int:
     base = Path(__file__).resolve().parent
     goldens = load_goldens(profile)
@@ -267,6 +282,38 @@ def cmd_self_test(profile: dict, py: str) -> int:
     diffs = compare(golden_first, fresh)
     if diffs:
         return fail(f"fresh capture does not match goldens before mutation: {diffs}")
+
+    # Isolation/determinism: a second independent oracle subprocess must
+    # produce byte-identical envelopes (no shared interpreter state).
+    fresh_again = capture_file(profile, base / first_rel, py)
+    if json.dumps(fresh, sort_keys=True) != json.dumps(fresh_again, sort_keys=True):
+        return fail("two isolated oracle subprocesses disagreed: nondeterminism")
+
+    # Comparator registry behavior: construction_only must ACCEPT pure
+    # surface drift that exact_surface REJECTS (printers changed), and both
+    # must reject identity drift.
+    drifted = copy.deepcopy(fresh)
+    for envelope in drifted:
+        printers = envelope.get("observations", {}).get("printers")
+        if printers:
+            printers["latex"] += "\\;"
+            break
+    if not compare(golden_first, drifted):
+        return fail("exact_surface accepted printer drift")
+    if compare_construction_only(golden_first, drifted):
+        return fail("construction_only rejected pure printer drift")
+    identity_drift = copy.deepcopy(drifted)
+    identity_drift[0]["observations"]["type"] = "WrongType"
+    if not compare_construction_only(golden_first, identity_drift):
+        return fail("construction_only accepted type identity drift")
+
+    # Registry ids in code must stay aligned with the profile manifest.
+    with open(Path(__file__).parent / "profiles" / f"{profile['profile_id']}.toml", "rb") as fh:
+        import tomllib as _tomllib
+
+        declared = set(_tomllib.load(fh)["comparators"].keys())
+    if declared != set(REGISTRY):
+        return fail(f"comparator registry drift: manifest={sorted(declared)} code={sorted(REGISTRY)}")
 
     # Gate: every weakened variant must be REJECTED by the exact comparator.
     rejected = 0
@@ -284,9 +331,11 @@ def cmd_self_test(profile: dict, py: str) -> int:
             {
                 "self_test": "passed",
                 "fresh_matches_golden": True,
+                "determinism_two_subprocesses": True,
+                "registry_matches_profile_manifest": True,
+                "construction_only_semantics": "accepts printer drift, rejects identity drift",
                 "mutants_checked": checked_files,
                 "mutants_rejected": rejected,
-                "note": "comparator rejects printer/hash weakening, dropped fields, count shrink",
             },
             indent=2,
         )
