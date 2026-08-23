@@ -5,7 +5,7 @@
 
 #![forbid(unsafe_code)]
 
-use num_bigint::BigInt;
+use num_bigint::{BigInt, BigUint};
 use num_rational::BigRational;
 use num_traits::{One, Zero};
 use serde::{Deserialize, Serialize};
@@ -143,8 +143,18 @@ impl Expr {
             Expr::Integer(n) => Expr::Integer(n.clone()),
             Expr::Rational(r) => Expr::Rational(r.clone()),
             Expr::Const(c) => Expr::Const(*c),
-            Expr::Add(terms) => Expr::Add(terms.iter().map(|t| t.subs(map)).collect()),
-            Expr::Mul(factors) => Expr::Mul(factors.iter().map(|f| f.subs(map)).collect()),
+            // Re-fold through the arithmetic operators so fully numeric
+            // combinations canonicalize (e.g. x + 10 with x -> 3 gives 13).
+            Expr::Add(terms) => terms
+                .iter()
+                .map(|t| t.subs(map))
+                .reduce(|a, b| a + b)
+                .unwrap_or(Expr::from_i64(0)),
+            Expr::Mul(factors) => factors
+                .iter()
+                .map(|f| f.subs(map))
+                .reduce(|a, b| a * b)
+                .unwrap_or(Expr::from_i64(1)),
             Expr::Pow(b, e) => Expr::Pow(Arc::new(b.subs(map)), Arc::new(e.subs(map))),
             Expr::Function(name, args) => {
                 Expr::Function(name.clone(), args.iter().map(|a| a.subs(map)).collect())
@@ -177,13 +187,34 @@ impl Expr {
         }
     }
 }
+impl Expr {
+    /// Value of a fully constant integer subexpression, including integer
+    /// powers with bounded non-negative exponents. `None` if symbolic or
+    /// the exponent is too large to fold safely.
+    pub fn const_integer_value(&self) -> Option<BigInt> {
+        match self {
+            Expr::Integer(n) => Some(n.clone()),
+            Expr::Pow(b, e) => match (b.as_ref(), e.as_ref()) {
+                (Expr::Integer(base), Expr::Integer(exp)) if exp.bits() <= 10 => {
+                    let exp_u = BigUint::try_from(exp.clone()).ok()?;
+                    let exp_n = usize::try_from(exp_u).ok()?;
+                    Some(num_traits::pow(base.clone(), exp_n))
+                }
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+}
 
 impl std::ops::Add for Expr {
     type Output = Expr;
 
     fn add(self, other: Expr) -> Expr {
+        if let (Some(x), Some(y)) = (self.const_integer_value(), other.const_integer_value()) {
+            return Expr::Integer(x + y);
+        }
         match (self, other) {
-            (Expr::Integer(a), Expr::Integer(b)) => Expr::Integer(a + b),
             (Expr::Add(mut terms_a), Expr::Add(terms_b)) => {
                 terms_a.extend(terms_b);
                 Expr::Add(terms_a)

@@ -69,6 +69,14 @@ pub fn simplify(expr: &Expr) -> Expr {
                 Expr::from_i64(1)
             } else if e.is_one() {
                 b
+            } else if let (Some(bv), Some(ev)) = (b.const_integer_value(), e.const_integer_value())
+            {
+                // Bounded constant-power fold: exponent must be a
+                // non-negative small integer.
+                match usize::try_from(ev) {
+                    Ok(n) => Expr::Integer(num_traits::pow::pow(bv, n)),
+                    Err(_) => Expr::Pow(std::sync::Arc::new(b), std::sync::Arc::new(e)),
+                }
             } else {
                 Expr::Pow(std::sync::Arc::new(b), std::sync::Arc::new(e))
             }
