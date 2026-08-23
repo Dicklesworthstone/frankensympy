@@ -80,6 +80,50 @@ macro_rules! define_id {
             pub fn preimage_domain(self) -> &'static str {
                 Self::KIND
             }
+
+            /// Canonical self-describing binary form: little-endian
+            /// length-prefixed kind tag, then the little-endian payload.
+            /// Identical across processes and architectures.
+            pub fn to_binary(self) -> Vec<u8> {
+                let mut out = Vec::with_capacity(Self::KIND.len() + 17);
+                out.extend_from_slice(&(Self::KIND.len() as u64).to_le_bytes());
+                out.extend_from_slice(Self::KIND.as_bytes());
+                out.extend_from_slice(&self.0.to_le_bytes());
+                out
+            }
+
+            /// Decodes the canonical binary form, failing closed on any
+            /// other kind, truncated layout, or reserved payload.
+            pub fn from_binary(bytes: &[u8]) -> Result<Self, IdError> {
+                let malformed = |len: usize| IdError::MalformedPayload {
+                    found: format!("<binary:{} bytes>", len),
+                };
+                let Some(tag_len_bytes) = bytes.get(..8) else {
+                    return Err(malformed(bytes.len()));
+                };
+                let Ok(tag_len_arr) = <[u8; 8]>::try_from(tag_len_bytes) else {
+                    return Err(malformed(bytes.len()));
+                };
+                let Ok(kind_len) = usize::try_from(u64::from_le_bytes(tag_len_arr)) else {
+                    return Err(malformed(bytes.len()));
+                };
+                let Some(rest) = bytes.get(8..) else {
+                    return Err(malformed(bytes.len()));
+                };
+                if rest.len() != kind_len + 8 {
+                    return Err(malformed(bytes.len()));
+                }
+                let (kind, payload) = rest.split_at(kind_len);
+                if kind != Self::KIND.as_bytes() {
+                    return Err(IdError::UnknownKind {
+                        found: String::from_utf8_lossy(kind).into_owned(),
+                    });
+                }
+                let Ok(payload_arr) = <[u8; 8]>::try_from(payload) else {
+                    return Err(malformed(bytes.len()));
+                };
+                Self::new(u64::from_le_bytes(payload_arr))
+            }
         }
 
         impl fmt::Display for $name {
@@ -327,5 +371,38 @@ mod tests {
         assert_eq!(&f[13..21], &8u64.to_le_bytes());
         assert_eq!(&f[21..29], &0u64.to_le_bytes());
         assert_eq!(f.len(), 29);
+    }
+
+    #[test]
+    fn binary_form_roundtrips_and_is_self_describing() {
+        let id = TermId::new(0xDEAD_BEEF).unwrap();
+        let bytes = id.to_binary();
+        // Kind tag is framed, so the blob names its own kind.
+        assert_eq!(&bytes[..8], &4u64.to_le_bytes());
+        assert_eq!(&bytes[8..12], b"term");
+        assert_eq!(bytes.len(), 12 + 8);
+        let decoded = TermId::from_binary(&bytes).unwrap();
+        assert_eq!(decoded, id);
+    }
+
+    #[test]
+    fn binary_form_rejects_foreign_kind_and_truncation() {
+        let bytes = ContextId::new(9).unwrap().to_binary();
+        let err = TermId::from_binary(&bytes).unwrap_err();
+        assert_eq!(
+            err,
+            IdError::UnknownKind {
+                found: "context".to_string()
+            }
+        );
+        // Every truncation must fail closed, not decode partially.
+        let full = TermId::new(7).unwrap().to_binary();
+        for cut in 0..full.len() {
+            assert!(TermId::from_binary(&full[..cut]).is_err());
+        }
+        // Trailing garbage is a malformed layout, not extra data.
+        let mut padded = full.clone();
+        padded.push(0);
+        assert!(TermId::from_binary(&padded).is_err());
     }
 }
