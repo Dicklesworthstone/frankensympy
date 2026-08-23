@@ -1,0 +1,15 @@
+[package]
+name = "fsym-budget"
+version = "0.1.0"
+edition = "2024"
+license-file = "../../LICENSE"
+repository = "https://github.com/Dicklesworthstone/frankensympy"
+homepage = "https://github.com/Dicklesworthstone/frankensympy"
+readme = "../../README.md"
+description = "Multidimensional budgets, reservations, charging, and receipts for FrankenSymPy (L0)"
+keywords = ["sympy", "cas", "symbolic", "budgets"]
+categories = ["science", "data-structures"]
+publish = false
+
+[lints.rust]
+unsafe_code = "forbid"

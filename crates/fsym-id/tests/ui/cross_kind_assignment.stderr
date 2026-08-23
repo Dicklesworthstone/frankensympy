@@ -1,0 +1,7 @@
+error[E0308]: mismatched types
+ --> tests/ui/cross_kind_assignment.rs:6:24
+  |
+6 |     let term: TermId = ContextId::new(7).unwrap();
+  |               ------   ^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `TermId`, found `ContextId`
+  |               |
+  |               expected due to this

@@ -1,0 +1,18 @@
+[package]
+name = "fsym-id"
+version = "0.1.0"
+edition = "2024"
+license-file = "../../LICENSE"
+repository = "https://github.com/Dicklesworthstone/frankensympy"
+homepage = "https://github.com/Dicklesworthstone/frankensympy"
+readme = "../../README.md"
+description = "Typed, non-interchangeable identifiers and canonical digest preimage domains for FrankenSymPy (L0)"
+keywords = ["sympy", "cas", "symbolic", "identifiers"]
+categories = ["science", "data-structures"]
+publish = false
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dev-dependencies]
+trybuild = "1"
