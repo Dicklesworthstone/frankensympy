@@ -653,6 +653,153 @@ def validate_status_language() -> None:
             error(f"README.md: uncertified badge marker remains: {forbidden}")
 
 
+def _self_test_policy() -> dict:
+    return {
+        "unknown_claim_fails_closed": True,
+        "present_tense_capability_requires_non_planned_status": True,
+        "implemented_status_requires_artifact": True,
+        "validated_status_requires_gate_bundle": True,
+        "certified_status_requires_same_commit_gate_bundle": True,
+        "performance_claim_requires_live_incumbent": True,
+        "performance_claim_requires_semantic_admission": True,
+        "mathematical_claim_requires_typed_claim_and_verifier": True,
+        "compatibility_claim_requires_immutable_profile": True,
+        "repair_claim_requires_decode_digest_schema_and_semantic_checks": True,
+        "monitoring_claim_cannot_grant_mathematical_evidence": True,
+        "retired_claim_ids_must_remain": True,
+    }
+
+
+def _self_test_status_semantics() -> dict:
+    return {
+        "planned": "not yet true",
+        "documented": "specified but not built",
+        "implemented_uncertified": "built without certification",
+        "validated": "gate bundle passed",
+        "certified": "certified on same commit",
+    }
+
+
+def run_self_test() -> int:
+    """Negative-fixture harness: deliberately false claims MUST be rejected.
+
+    Satisfies the WS00 acceptance item "a deliberate false claim fixture
+    fails CI". Each fixture resets the error ledger, runs the real claims
+    validator, and asserts both the rejection (negative cases) and the
+    acceptance of an honest control claim.
+    """
+    failures: list[str] = []
+
+    def run_fixture(name: str, claims: list[dict]) -> list[str]:
+        global ERRORS, WARNINGS
+        ERRORS = []
+        WARNINGS = []
+        data = {
+            "status_semantics": _self_test_status_semantics(),
+            "policy": _self_test_policy(),
+            "claims": claims,
+        }
+        validate_claims(data, {"WS00"}, set())
+        return list(ERRORS)
+
+    # Control: an honest planned claim must produce zero errors. Guards
+    # against a linter that merely rejects everything.
+    control_errors = run_fixture(
+        "control-honest-planned",
+        [
+            {
+                "id": "CL-SELFTEST-CONTROL",
+                "kind": "capability",
+                "statement": "The workstream graph is defined in the registry.",
+                "status": "planned",
+                "minimum_evidence": "gate://ws00-governance",
+                "gate": "gate://ws00-governance",
+                "present_tense_allowed": False,
+                "workstreams": ["WS00"],
+                "evidence_artifacts": [],
+            }
+        ],
+    )
+    if control_errors:
+        failures.append(f"honest control claim was rejected: {control_errors}")
+
+    # Fixture 1: deliberate false claim - planned status asserting a
+    # present-tense capability. This is exactly the lie the discipline
+    # forbids; it must be rejected.
+    false_claim_errors = run_fixture(
+        "false-present-tense",
+        [
+            {
+                "id": "CL-SELFTEST-FALSE",
+                "kind": "capability",
+                "statement": "FrankenSymPy certifiably outperforms SymPy today.",
+                "status": "planned",
+                "minimum_evidence": "gate://unmet",
+                "gate": "gate://unmet",
+                "present_tense_allowed": True,
+                "workstreams": ["WS00"],
+                "evidence_artifacts": [],
+            }
+        ],
+    )
+    if not any("present-tense" in message for message in false_claim_errors):
+        failures.append(
+            f"deliberate false present-tense claim was not rejected: {false_claim_errors}"
+        )
+
+    # Fixture 2: implemented-style status without evidence artifacts.
+    uncertified_errors = run_fixture(
+        "uncertified-without-artifacts",
+        [
+            {
+                "id": "CL-SELFTEST-NOCERT",
+                "kind": "capability",
+                "statement": "The exact arithmetic substrate exists.",
+                "status": "implemented_uncertified",
+                "minimum_evidence": "gate://ws03-exact-arithmetic",
+                "gate": "gate://ws03-exact-arithmetic",
+                "present_tense_allowed": False,
+                "workstreams": ["WS00"],
+                "evidence_artifacts": [],
+            }
+        ],
+    )
+    if not any("artifact" in message for message in uncertified_errors):
+        failures.append(
+            f"claim without required artifacts was not rejected: {uncertified_errors}"
+        )
+
+    # Fixture 3: unknown workstream reference fails closed.
+    unknown_ws_errors = run_fixture(
+        "unknown-workstream",
+        [
+            {
+                "id": "CL-SELFTEST-BADWS",
+                "kind": "capability",
+                "statement": "Planned work against a nonexistent workstream.",
+                "status": "planned",
+                "minimum_evidence": "gate://ws99-never",
+                "gate": "gate://ws99-never",
+                "present_tense_allowed": False,
+                "workstreams": ["WS99"],
+                "evidence_artifacts": [],
+            }
+        ],
+    )
+    if not any("unknown workstream" in message for message in unknown_ws_errors):
+        failures.append(
+            f"unknown workstream reference was not rejected: {unknown_ws_errors}"
+        )
+
+    if failures:
+        print("claims-linter self-test FAILED:", file=sys.stderr)
+        for failure in failures:
+            print(f"  - {failure}", file=sys.stderr)
+        return 1
+    print("claims-linter self-test passed (false claims rejected, control accepted)")
+    return 0
+
+
 def main() -> int:
     validate_required_files()
     workstream_data = load_toml("registries/workstreams.toml")
@@ -696,6 +843,7 @@ def main() -> int:
     print(f"  topological order: {' -> '.join(topological_order)}")
     return 0
 
-
 if __name__ == "__main__":
+    if "--self-test" in sys.argv[1:]:
+        raise SystemExit(run_self_test())
     raise SystemExit(main())

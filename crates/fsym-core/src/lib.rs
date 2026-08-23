@@ -1,0 +1,284 @@
+//! # fsym-core
+//!
+//! Core symbolic expression AST, canonicalization primitives, and symbol registry
+//! for FrankenSymPy.
+
+#![forbid(unsafe_code)]
+
+use num_bigint::BigInt;
+use num_rational::BigRational;
+use num_traits::{One, Zero};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::fmt;
+use std::sync::Arc;
+use thiserror::Error;
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum CoreError {
+    #[error("Division by zero in symbolic expression")]
+    DivisionByZero,
+    #[error("Invalid operation on symbolic expression: {0}")]
+    InvalidOperation(String),
+    #[error("Symbol not found: {0}")]
+    SymbolNotFound(String),
+}
+
+/// Fundamental symbol definition with name and assumptions metadata.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct Symbol {
+    pub name: String,
+}
+
+impl Symbol {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self { name: name.into() }
+    }
+}
+
+impl fmt::Display for Symbol {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.name)
+    }
+}
+
+/// Core symbolic expression enum.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum Expr {
+    /// Symbolic atomic variable.
+    Sym(Symbol),
+    /// Arbitrary-precision integer literal.
+    Integer(BigInt),
+    /// Exact rational number.
+    Rational(BigRational),
+    /// Named mathematical constants: e.g., Pi, E, I, Infinity, NegativeInfinity.
+    Const(Constant),
+    /// N-ary addition of expressions: Σ a_i.
+    Add(Vec<Expr>),
+    /// N-ary multiplication of expressions: Π a_i.
+    Mul(Vec<Expr>),
+    /// Power expression: base ^ exp.
+    Pow(Arc<Expr>, Arc<Expr>),
+    /// Named function application: name(args...).
+    Function(String, Vec<Expr>),
+}
+
+/// Mathematical constants.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum Constant {
+    Pi,
+    E,
+    I, // Imaginary unit
+    Infinity,
+    NegativeInfinity,
+    ComplexInfinity,
+    NaN,
+}
+
+impl fmt::Display for Constant {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Constant::Pi => write!(f, "pi"),
+            Constant::E => write!(f, "E"),
+            Constant::I => write!(f, "I"),
+            Constant::Infinity => write!(f, "oo"),
+            Constant::NegativeInfinity => write!(f, "-oo"),
+            Constant::ComplexInfinity => write!(f, "zoo"),
+            Constant::NaN => write!(f, "nan"),
+        }
+    }
+}
+
+impl Expr {
+    /// Create a symbol expression.
+    pub fn symbol(name: impl Into<String>) -> Self {
+        Expr::Sym(Symbol::new(name))
+    }
+
+    /// Create an integer expression from i64.
+    pub fn from_i64(n: i64) -> Self {
+        Expr::Integer(BigInt::from(n))
+    }
+
+    /// Create a rational expression from numer/denom.
+    pub fn rational(numer: i64, denom: i64) -> Result<Self, CoreError> {
+        if denom == 0 {
+            return Err(CoreError::DivisionByZero);
+        }
+        let r = BigRational::new(BigInt::from(numer), BigInt::from(denom));
+        if r.is_integer() {
+            Ok(Expr::Integer(r.to_integer()))
+        } else {
+            Ok(Expr::Rational(r))
+        }
+    }
+
+    /// Power expression.
+    pub fn pow(self, exp: Expr) -> Self {
+        Expr::Pow(Arc::new(self), Arc::new(exp))
+    }
+
+    /// Check if expression is zero.
+    pub fn is_zero(&self) -> bool {
+        match self {
+            Expr::Integer(n) => n.is_zero(),
+            Expr::Rational(r) => r.is_zero(),
+            _ => false,
+        }
+    }
+
+    /// Check if expression is one.
+    pub fn is_one(&self) -> bool {
+        match self {
+            Expr::Integer(n) => n.is_one(),
+            Expr::Rational(r) => r.is_one(),
+            _ => false,
+        }
+    }
+
+    /// Substitute symbol mappings in expression.
+    pub fn subs(&self, map: &HashMap<Symbol, Expr>) -> Expr {
+        match self {
+            Expr::Sym(s) => map.get(s).cloned().unwrap_or_else(|| Expr::Sym(s.clone())),
+            Expr::Integer(n) => Expr::Integer(n.clone()),
+            Expr::Rational(r) => Expr::Rational(r.clone()),
+            Expr::Const(c) => Expr::Const(*c),
+            Expr::Add(terms) => Expr::Add(terms.iter().map(|t| t.subs(map)).collect()),
+            Expr::Mul(factors) => Expr::Mul(factors.iter().map(|f| f.subs(map)).collect()),
+            Expr::Pow(b, e) => Expr::Pow(Arc::new(b.subs(map)), Arc::new(e.subs(map))),
+            Expr::Function(name, args) => {
+                Expr::Function(name.clone(), args.iter().map(|a| a.subs(map)).collect())
+            }
+        }
+    }
+
+    /// Collect all free symbols in this expression.
+    pub fn free_symbols(&self) -> Vec<Symbol> {
+        let mut symbols = Vec::new();
+        self.collect_symbols(&mut symbols);
+        symbols.sort();
+        symbols.dedup();
+        symbols
+    }
+
+    fn collect_symbols(&self, acc: &mut Vec<Symbol>) {
+        match self {
+            Expr::Sym(s) => acc.push(s.clone()),
+            Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_) => {}
+            Expr::Add(terms) | Expr::Mul(terms) | Expr::Function(_, terms) => {
+                for t in terms {
+                    t.collect_symbols(acc);
+                }
+            }
+            Expr::Pow(b, e) => {
+                b.collect_symbols(acc);
+                e.collect_symbols(acc);
+            }
+        }
+    }
+}
+
+impl std::ops::Add for Expr {
+    type Output = Expr;
+
+    fn add(self, other: Expr) -> Expr {
+        match (self, other) {
+            (Expr::Integer(a), Expr::Integer(b)) => Expr::Integer(a + b),
+            (Expr::Add(mut terms_a), Expr::Add(terms_b)) => {
+                terms_a.extend(terms_b);
+                Expr::Add(terms_a)
+            }
+            (Expr::Add(mut terms), single) | (single, Expr::Add(mut terms)) => {
+                terms.push(single);
+                Expr::Add(terms)
+            }
+            (a, b) => Expr::Add(vec![a, b]),
+        }
+    }
+}
+
+impl std::ops::Mul for Expr {
+    type Output = Expr;
+
+    fn mul(self, other: Expr) -> Expr {
+        match (self, other) {
+            (Expr::Integer(a), Expr::Integer(b)) => Expr::Integer(a * b),
+            (Expr::Mul(mut factors_a), Expr::Mul(factors_b)) => {
+                factors_a.extend(factors_b);
+                Expr::Mul(factors_a)
+            }
+            (Expr::Mul(mut factors), single) | (single, Expr::Mul(mut factors)) => {
+                factors.push(single);
+                Expr::Mul(factors)
+            }
+            (a, b) => Expr::Mul(vec![a, b]),
+        }
+    }
+}
+
+impl fmt::Display for Expr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Expr::Sym(s) => write!(f, "{}", s),
+            Expr::Integer(n) => write!(f, "{}", n),
+            Expr::Rational(r) => write!(f, "{}", r),
+            Expr::Const(c) => write!(f, "{}", c),
+            Expr::Add(terms) => {
+                let s = terms
+                    .iter()
+                    .map(|t| format!("{}", t))
+                    .collect::<Vec<_>>()
+                    .join(" + ");
+                write!(f, "({})", s)
+            }
+            Expr::Mul(factors) => {
+                let s = factors
+                    .iter()
+                    .map(|fac| format!("{}", fac))
+                    .collect::<Vec<_>>()
+                    .join("*");
+                write!(f, "{}", s)
+            }
+            Expr::Pow(b, e) => write!(f, "({}**{})", b, e),
+            Expr::Function(name, args) => {
+                let arg_strs = args
+                    .iter()
+                    .map(|a| format!("{}", a))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "{}({})", name, arg_strs)
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_symbol_creation() {
+        let x = Expr::symbol("x");
+        assert_eq!(format!("{}", x), "x");
+    }
+
+    #[test]
+    fn test_addition_and_multiplication() {
+        let x = Expr::symbol("x");
+        let two = Expr::from_i64(2);
+        let expr = x.clone() * two + Expr::from_i64(5);
+        let free = expr.free_symbols();
+        assert_eq!(free.len(), 1);
+        assert_eq!(free[0].name, "x");
+    }
+
+    #[test]
+    fn test_substitution() {
+        let x = Symbol::new("x");
+        let expr = Expr::symbol("x") + Expr::from_i64(10);
+        let mut map = HashMap::new();
+        map.insert(x, Expr::from_i64(3));
+        let res = expr.subs(&map);
+        assert_eq!(res, Expr::from_i64(3) + Expr::from_i64(10));
+    }
+}

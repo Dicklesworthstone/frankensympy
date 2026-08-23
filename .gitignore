@@ -3,7 +3,6 @@
 /target
 target_*/
 **/*.rs.bk
-/crates/
 
 
 # bv (beads viewer) local config and caches

@@ -6,7 +6,7 @@ license-file = "LICENSE"
 repository = "https://github.com/Dicklesworthstone/frankensympy"
 homepage = "https://github.com/Dicklesworthstone/frankensympy"
 readme = "README.md"
-description = "Planning-stage architecture for an independently implemented, memory-safe SymPy replacement"
+description = "Planning-stage clean-room, memory-safe Rust reimplementation of SymPy with differential oracle conformance"
 keywords = ["sympy", "cas", "symbolic", "mathematics", "computer-algebra"]
 categories = ["science", "mathematics", "data-structures", "algorithms"]
 publish = false
@@ -35,9 +35,55 @@ cross_cutting_obligation_registry = "registries/cross_cutting_obligations.toml"
 donor_source_registry = "registries/donor_sources.toml"
 workstream_registry = "registries/workstreams.toml"
 
-[package.metadata.frankensympy.toolchain]
-policy = "latest-nightly-with-exact-repository-pin"
-manifest = "rust-toolchain.toml"
+[workspace]
+members = ["crates/*"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license-file = "LICENSE"
+repository = "https://github.com/Dicklesworthstone/frankensympy"
+homepage = "https://github.com/Dicklesworthstone/frankensympy"
+readme = "README.md"
+keywords = ["sympy", "cas", "symbolic", "mathematics", "computer-algebra"]
+categories = ["science", "mathematics", "data-structures", "algorithms"]
+
+[workspace.dependencies]
+fsym-id = { path = "crates/fsym-id" }
+fsym-core = { path = "crates/fsym-core" }
+fsym-polys = { path = "crates/fsym-polys" }
+fsym-simplify = { path = "crates/fsym-simplify" }
+fsym-calculus = { path = "crates/fsym-calculus" }
+fsym-solvers = { path = "crates/fsym-solvers" }
+fsym-matrices = { path = "crates/fsym-matrices" }
+fsym-functions = { path = "crates/fsym-functions" }
+fsym-logic = { path = "crates/fsym-logic" }
+fsym-ntheory = { path = "crates/fsym-ntheory" }
+fsym-sets = { path = "crates/fsym-sets" }
+fsym-geometry = { path = "crates/fsym-geometry" }
+fsym-tensor = { path = "crates/fsym-tensor" }
+fsym-assumptions = { path = "crates/fsym-assumptions" }
+fsym-printing = { path = "crates/fsym-printing" }
+fsym-runtime = { path = "crates/fsym-runtime" }
+fsym-conformance = { path = "crates/fsym-conformance" }
+asupersync = { path = "../asupersync" }
+num-bigint = { version = "0.4", features = ["serde"] }
+num-rational = { version = "0.4", features = ["serde"] }
+num-traits = "0.2"
+num-complex = "0.4"
+num-integer = "0.1"
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
+thiserror = "2"
+blake3 = "1"
+pyo3 = "0.27"
+
+[workspace.dependencies.proptest]
+version = "1"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
 
 [lints.rust]
 unsafe_code = "forbid"

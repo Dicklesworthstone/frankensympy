@@ -1,0 +1,39 @@
+[package]
+name = "fsym-python"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lib]
+name = "fsym_python"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+extension-module = ["pyo3/extension-module"]
+
+[dependencies]
+fsym-core.workspace = true
+fsym-polys.workspace = true
+fsym-simplify.workspace = true
+fsym-calculus.workspace = true
+fsym-solvers.workspace = true
+fsym-matrices.workspace = true
+fsym-functions.workspace = true
+fsym-logic.workspace = true
+fsym-ntheory.workspace = true
+fsym-sets.workspace = true
+fsym-geometry.workspace = true
+fsym-tensor.workspace = true
+fsym-assumptions.workspace = true
+fsym-printing.workspace = true
+fsym-runtime.workspace = true
+pyo3.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

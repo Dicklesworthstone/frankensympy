@@ -32,6 +32,7 @@ jobs:
         with:
           python-version: "3.13"
       - run: python tools/validate_planning.py
+      - run: python tools/validate_planning.py --self-test
 
   # ── G1: Formatting + Linting ──────────────────────────────────────
   g1-fmt-lint:

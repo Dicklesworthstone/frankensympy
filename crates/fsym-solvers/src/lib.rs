@@ -1,0 +1,347 @@
+//! # fsym-solvers
+//!
+//! Algebraic equation solvers (`solve`, `solveset`), linear systems, polynomial systems,
+//! and differential equations (`dsolve`).
+
+#![forbid(unsafe_code)]
+
+use fsym_core::{Expr, Symbol};
+use fsym_polys::UnivariatePoly;
+use num_rational::BigRational;
+use num_traits::identities::{One, Zero};
+use std::ops::{Add, Mul};
+use thiserror::Error;
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum SolverError {
+    #[error("No solution found for equation")]
+    NoSolution,
+    #[error("Infinite solutions for underdetermined system")]
+    InfiniteSolutions,
+    #[error("Non-linear equation degree {0} not supported by exact solver")]
+    UnsupportedDegree(usize),
+    #[error("Expression is non-linear in the target variable")]
+    NonLinear,
+}
+
+/// Solve a univariate polynomial equation `poly(x) = 0`.
+pub fn solve_poly(poly: &UnivariatePoly) -> Result<Vec<Expr>, SolverError> {
+    if poly.is_zero() {
+        return Err(SolverError::InfiniteSolutions);
+    }
+    match poly.degree() {
+        None => Err(SolverError::InfiniteSolutions),
+        Some(0) => Err(SolverError::NoSolution), // c = 0 with c != 0
+        Some(1) => {
+            // c0 + c1 * x = 0 => x = -c0 / c1
+            let c0 = &poly.coeffs[0];
+            let c1 = &poly.coeffs[1];
+            let root = -c0 / c1;
+            let expr = if root.is_integer() {
+                Expr::Integer(root.to_integer())
+            } else {
+                Expr::Rational(root)
+            };
+            Ok(vec![expr])
+        }
+        Some(2) => {
+            // Quadratic equation: c0 + c1*x + c2*x^2 = 0
+            // x = (-c1 ± sqrt(c1^2 - 4*c0*c2)) / (2*c2)
+            let c0 = &poly.coeffs[0];
+            let c1 = &poly.coeffs[1];
+            let c2 = &poly.coeffs[2];
+            let disc = c1 * c1 - BigRational::from_integer(4.into()) * c0 * c2;
+            let neg_b = Expr::Rational(-c1.clone());
+            let two_a = Expr::Rational(c2 * BigRational::from_integer(2.into()));
+            let disc_expr = Expr::Rational(disc);
+            let sqrt_disc = Expr::Pow(
+                std::sync::Arc::new(disc_expr),
+                std::sync::Arc::new(Expr::Rational(BigRational::new(1.into(), 2.into()))),
+            );
+            let r1 = Expr::Mul(vec![
+                Expr::Add(vec![neg_b.clone(), sqrt_disc.clone()]),
+                Expr::Pow(
+                    std::sync::Arc::new(two_a.clone()),
+                    std::sync::Arc::new(Expr::from_i64(-1)),
+                ),
+            ]);
+            let r2 = Expr::Mul(vec![
+                Expr::Add(vec![neg_b, Expr::Mul(vec![Expr::from_i64(-1), sqrt_disc])]),
+                Expr::Pow(
+                    std::sync::Arc::new(two_a),
+                    std::sync::Arc::new(Expr::from_i64(-1)),
+                ),
+            ]);
+            Ok(vec![r1, r2])
+        }
+        Some(d) => Err(SolverError::UnsupportedDegree(d)),
+    }
+}
+
+/// Interpret `expr` as a polynomial of degree <= 1 in `var`, returning `(a, b)`
+/// with `expr = a*var + b`. Numeric leaves are folded eagerly so common cases
+/// stay canonical.
+fn linear_coeffs(expr: &Expr, var: &Symbol) -> Result<(Expr, Expr), SolverError> {
+    fn as_rational(e: &Expr) -> Option<BigRational> {
+        match e {
+            Expr::Integer(n) => Some(BigRational::from_integer(n.clone())),
+            Expr::Rational(r) => Some(r.clone()),
+            _ => None,
+        }
+    }
+
+    fn fold(e: Expr) -> Expr {
+        if let Some(r) = as_rational(&e) {
+            if r.is_integer() {
+                return Expr::Integer(r.to_integer());
+            }
+            return Expr::Rational(r);
+        }
+        e
+    }
+
+    /// Add two expressions, folding numeric pairs and dropping zero identities.
+    fn add(x: Expr, y: Expr) -> Expr {
+        match (as_rational(&x), as_rational(&y)) {
+            (Some(a), Some(b)) => fold(Expr::Rational(a + b)),
+            (Some(a), None) => {
+                if a.is_zero() {
+                    fold(y)
+                } else {
+                    x.add(y)
+                }
+            }
+            (None, Some(b)) => {
+                if b.is_zero() {
+                    fold(x)
+                } else {
+                    x.add(y)
+                }
+            }
+            (None, None) => x.add(y),
+        }
+    }
+
+    /// Multiply two expressions, folding numeric pairs and absorbing zero/one identities.
+    fn mul(x: Expr, y: Expr) -> Expr {
+        match (as_rational(&x), as_rational(&y)) {
+            (Some(a), Some(b)) => fold(Expr::Rational(a * b)),
+            (Some(a), None) => {
+                if a.is_zero() {
+                    Expr::from_i64(0)
+                } else if a.is_one() {
+                    fold(y)
+                } else {
+                    x.mul(y)
+                }
+            }
+            (None, Some(b)) => {
+                if b.is_zero() {
+                    Expr::from_i64(0)
+                } else if b.is_one() {
+                    fold(x)
+                } else {
+                    x.mul(y)
+                }
+            }
+            (None, None) => x.mul(y),
+        }
+    }
+
+    let contains_var = |e: &Expr| e.free_symbols().iter().any(|s| s == var);
+
+    match expr {
+        Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_) => {
+            Ok((Expr::from_i64(0), expr.clone()))
+        }
+        Expr::Sym(s) if s == var => Ok((Expr::from_i64(1), Expr::from_i64(0))),
+        Expr::Sym(_) => Ok((Expr::from_i64(0), expr.clone())),
+        Expr::Add(terms) => {
+            let mut acc = (Expr::from_i64(0), Expr::from_i64(0));
+            for t in terms {
+                let (a, b) = linear_coeffs(t, var)?;
+                acc.0 = add(acc.0, a);
+                acc.1 = add(acc.1, b);
+            }
+            Ok(acc)
+        }
+        Expr::Mul(factors) => {
+            // At most one factor may contain `var`; the rest form a constant multiplier.
+            let mut var_part: Option<(Expr, Expr)> = None;
+            let mut constants: Vec<Expr> = Vec::new();
+            for f in factors {
+                if !contains_var(f) {
+                    constants.push(f.clone());
+                    continue;
+                }
+                if var_part.is_some() {
+                    return Err(SolverError::NonLinear);
+                }
+                var_part = Some(linear_coeffs(f, var)?);
+            }
+            let k = constants
+                .into_iter()
+                .reduce(mul)
+                .unwrap_or_else(|| Expr::from_i64(1));
+            match var_part {
+                None => Ok((Expr::from_i64(0), expr.clone())),
+                Some((a, b)) => Ok((mul(k.clone(), a), mul(k, b))),
+            }
+        }
+        Expr::Pow(base, exp) => {
+            if contains_var(base) {
+                // Linear only through an exponent-1 passthrough: (expr)^1.
+                if exp.as_ref() == &Expr::from_i64(1) {
+                    return linear_coeffs(base, var);
+                }
+                return Err(SolverError::NonLinear);
+            }
+            Ok((Expr::from_i64(0), expr.clone()))
+        }
+        Expr::Function(_, args) => {
+            if args.iter().any(contains_var) {
+                return Err(SolverError::NonLinear);
+            }
+            Ok((Expr::from_i64(0), expr.clone()))
+        }
+    }
+}
+
+/// Solve `expr = 0` for `var`, where `expr` must be linear (`a*var + b`) in `var`.
+///
+/// Returns `x = -b/a`: folded to an exact `Integer`/`Rational` when both
+/// coefficients are numeric, otherwise left structural (`(-1) * b * a^-1`).
+pub fn solve_linear(expr: &Expr, var: &Symbol) -> Result<Expr, SolverError> {
+    let free = expr.free_symbols();
+    if !free.contains(var) {
+        if expr.is_zero() {
+            return Err(SolverError::InfiniteSolutions);
+        } else {
+            return Err(SolverError::NoSolution);
+        }
+    }
+    let (a, b) = linear_coeffs(expr, var)?;
+    if a.is_zero() {
+        return if b.is_zero() {
+            Err(SolverError::InfiniteSolutions)
+        } else {
+            Err(SolverError::NoSolution)
+        };
+    }
+    // Zero constant term: root is exactly 0 regardless of the coefficient's shape.
+    if b.is_zero() {
+        return Ok(Expr::from_i64(0));
+    }
+    // Fold when both coefficients are numeric.
+    fn as_rational(e: &Expr) -> Option<BigRational> {
+        match e {
+            Expr::Integer(n) => Some(BigRational::from_integer(n.clone())),
+            Expr::Rational(r) => Some(r.clone()),
+            _ => None,
+        }
+    }
+    if let (Some(ra), Some(rb)) = (as_rational(&a), as_rational(&b)) {
+        let root = -rb / ra;
+        return Ok(if root.is_integer() {
+            Expr::Integer(root.to_integer())
+        } else {
+            Expr::Rational(root)
+        });
+    }
+    Ok(Expr::Mul(vec![
+        Expr::from_i64(-1),
+        b,
+        a.pow(Expr::from_i64(-1)),
+    ]))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use num_bigint::BigInt;
+
+    #[test]
+    fn test_solve_linear_poly() {
+        let x = Symbol::new("x");
+        // 2x - 6 = 0 => x = 3
+        let p = UnivariatePoly::new(
+            x,
+            vec![
+                BigRational::from_integer(BigInt::from(-6)),
+                BigRational::from_integer(BigInt::from(2)),
+            ],
+        );
+        let roots = solve_poly(&p).unwrap();
+        assert_eq!(roots.len(), 1);
+        assert_eq!(roots[0], Expr::from_i64(3));
+    }
+
+    #[test]
+    fn test_solve_linear_numeric() {
+        let x = Symbol::new("x");
+        // 3*x - 12 = 0 => x = 4
+        let e = Expr::Add(vec![
+            Expr::Mul(vec![Expr::from_i64(3), Expr::Sym(x.clone())]),
+            Expr::from_i64(-12),
+        ]);
+        assert_eq!(solve_linear(&e, &x).unwrap(), Expr::from_i64(4));
+    }
+
+    #[test]
+    fn test_solve_linear_rational_coefficient() {
+        let x = Symbol::new("x");
+        // x/2 + 1/2 = 0 => x = -1
+        let half_x = Expr::Mul(vec![
+            Expr::Rational(BigRational::new(BigInt::from(1), BigInt::from(2))),
+            Expr::Sym(x.clone()),
+        ]);
+        let e = Expr::Add(vec![
+            half_x,
+            Expr::Rational(BigRational::new(BigInt::from(1), BigInt::from(2))),
+        ]);
+        assert_eq!(solve_linear(&e, &x).unwrap(), Expr::from_i64(-1));
+    }
+
+    #[test]
+    fn test_solve_linear_symbolic_constant() {
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+        // 2*x + y = 0 => x = -y * 2^-1 (structural)
+        let e = Expr::Add(vec![
+            Expr::Mul(vec![Expr::from_i64(2), Expr::Sym(x.clone())]),
+            Expr::Sym(y.clone()),
+        ]);
+        assert_eq!(
+            solve_linear(&e, &x).unwrap(),
+            Expr::Mul(vec![
+                Expr::from_i64(-1),
+                Expr::Sym(y),
+                Expr::Pow(
+                    std::sync::Arc::new(Expr::from_i64(2)),
+                    std::sync::Arc::new(Expr::from_i64(-1))
+                ),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_solve_linear_rejects_nonlinear() {
+        let x = Symbol::new("x");
+        // x^2 - 1: quadratic in the linear solver
+        let e = Expr::Add(vec![
+            Expr::Pow(
+                std::sync::Arc::new(Expr::Sym(x.clone())),
+                std::sync::Arc::new(Expr::from_i64(2)),
+            ),
+            Expr::from_i64(-1),
+        ]);
+        assert_eq!(solve_linear(&e, &x), Err(SolverError::NonLinear));
+        // sin(x): transcendental, not linear
+        let s = Expr::Function("sin".to_string(), vec![Expr::Sym(x.clone())]);
+        assert_eq!(solve_linear(&s, &x), Err(SolverError::NonLinear));
+        // x*y: linear in x with symbolic coefficient y (sympy: solve(x*y, x) == [0])
+        let y2 = Symbol::new("y");
+        let p = Expr::Mul(vec![Expr::Sym(x.clone()), Expr::Sym(y2)]);
+        assert_eq!(solve_linear(&p, &x), Ok(Expr::from_i64(0)));
+    }
+}

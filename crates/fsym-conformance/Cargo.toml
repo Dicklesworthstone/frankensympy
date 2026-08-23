@@ -1,0 +1,34 @@
+[package]
+name = "fsym-conformance"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+fsym-core.workspace = true
+fsym-polys.workspace = true
+fsym-simplify.workspace = true
+fsym-calculus.workspace = true
+fsym-solvers.workspace = true
+fsym-matrices.workspace = true
+fsym-functions.workspace = true
+fsym-logic.workspace = true
+fsym-ntheory.workspace = true
+fsym-sets.workspace = true
+fsym-geometry.workspace = true
+fsym-tensor.workspace = true
+fsym-assumptions.workspace = true
+fsym-printing.workspace = true
+fsym-runtime.workspace = true
+blake3.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
