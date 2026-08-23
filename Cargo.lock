@@ -692,7 +692,9 @@ name = "fsym-matrices"
 version = "0.1.0"
 dependencies = [
  "fsym-core",
+ "fsym-polys",
  "fsym-simplify",
+ "fsym-solvers",
  "num-bigint",
  "num-rational",
  "num-traits",
@@ -769,8 +771,10 @@ version = "0.1.0"
 dependencies = [
  "asupersync",
  "blake3",
+ "fsym-budget",
  "fsym-core",
  "fsym-id",
+ "fsym-outcome",
  "proptest",
  "serde",
  "serde_json",

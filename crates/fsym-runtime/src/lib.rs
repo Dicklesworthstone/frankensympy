@@ -5,15 +5,12 @@
 
 #![forbid(unsafe_code)]
 
-pub mod budget;
-pub mod outcome;
+// Canonical budget/outcome types live in the fsym-budget and fsym-outcome
+// crates (registry-aligned evidence classes, single-issuance verifier lease).
 pub mod rng;
 
-pub use budget::{
-    BudgetDimension, BudgetExhausted, BudgetLimits, ChargeLedger, DIMENSIONS, GeneratorBudget,
-    VerifierReservation,
-};
-pub use outcome::{ChargeSummary, ExecutionOutcome, MathOutcome, UnevaluatedReason};
+pub use fsym_budget::{Budget, BudgetLimits, ChargeReceipt, Dimension};
+pub use fsym_outcome::{ExecutionOutcome, MathOutcome};
 
 use serde::{Deserialize, Serialize};
 use std::time::Duration;

@@ -23,7 +23,6 @@ compatibility_profile_registry = "registries/compatibility_profiles.toml"
 verifier_profile_registry = "registries/verifier_profiles.toml"
 workspace_transaction_registry = "registries/workspace_transactions.toml"
 graph_reasoning_registry = "registries/graph_reasoning.toml"
-formal_proof_profile_registry = "registries/formal_proof_profiles.toml"
 algorithm_portfolio_registry = "registries/algorithm_portfolios.toml"
 python_effect_registry = "registries/python_effects.toml"
 packaging_profile_registry = "registries/packaging_profiles.toml"
@@ -51,6 +50,8 @@ categories = ["science", "mathematics", "data-structures", "algorithms"]
 
 [workspace.dependencies]
 fsym-id = { path = "crates/fsym-id" }
+fsym-budget = { path = "crates/fsym-budget" }
+fsym-outcome = { path = "crates/fsym-outcome" }
 fsym-core = { path = "crates/fsym-core" }
 fsym-polys = { path = "crates/fsym-polys" }
 fsym-simplify = { path = "crates/fsym-simplify" }

@@ -12,6 +12,8 @@ categories.workspace = true
 [dependencies]
 fsym-core.workspace = true
 fsym-id.workspace = true
+fsym-budget.workspace = true
+fsym-outcome.workspace = true
 asupersync.workspace = true
 blake3.workspace = true
 serde.workspace = true
