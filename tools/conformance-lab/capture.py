@@ -289,6 +289,20 @@ def cmd_self_test(profile: dict, py: str) -> int:
     if json.dumps(fresh, sort_keys=True) != json.dumps(fresh_again, sort_keys=True):
         return fail("two isolated oracle subprocesses disagreed: nondeterminism")
 
+    # Environment pinning is enforced, not decorative: an oracle subprocess
+    # launched with an unpinned hash seed must refuse to observe (exit 2).
+    unpinned = subprocess.run(
+        [py, str(runner_path()), str(base / first_rel), profile["profile_id"]],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    if unpinned.returncode != 2 or '"error_class": "harness_misuse"' not in unpinned.stdout:
+        return fail(
+            "oracle runner accepted an unpinned PYTHONHASHSEED; "
+            "hash observations would be irreproducible"
+        )
     # Comparator registry behavior: construction_only must ACCEPT pure
     # surface drift that exact_surface REJECTS (printers changed), and both
     # must reject identity drift.
