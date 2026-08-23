@@ -47,6 +47,12 @@ def main() -> int:
         choices=["object", "mathematical", "runtime", "security"],
     )
     parser.add_argument("--profile-id", default="sympy-1.14.0-cpython")
+    parser.add_argument(
+        "--ledger-dir",
+        type=Path,
+        default=None,
+        help="persist records as <dir>/<disc-id>.json + append to index.ndjson",
+    )
     args = parser.parse_args()
 
     oracle_envs = load_envelopes(args.oracle)
@@ -112,6 +118,44 @@ def main() -> int:
         print(f"wrote {len(records)} discrepancy record(s) to {args.out}")
     else:
         sys.stdout.write(payload)
+
+    if args.ledger_dir:
+        ledger = args.ledger_dir
+        ledger.mkdir(parents=True, exist_ok=True)
+        for record in records:
+            record_path = ledger / f"{record['discrepancy_id']}.json"
+            # Content-addressed: rewriting an identical record is a no-op,
+            if record_path.exists():
+                existing = json.loads(record_path.read_text(encoding="utf-8"))
+                # created_at_utc is intentionally volatile; identity is the
+                # discrepancy content itself.
+                volatile = ("created_at_utc",)
+                strip = lambda r: {k: v for k, v in r.items() if k not in volatile}
+                if strip(existing) != strip(record):
+                    print(
+                        f"FAIL: ledger collision on {record['discrepancy_id']} "
+                        "with different content; refusing to overwrite",
+                        file=sys.stderr,
+                    )
+                    return 2
+            record_path.write_text(
+                json.dumps(record, sort_keys=True, indent=2) + "\n", encoding="utf-8"
+            )
+            with open(ledger / "index.ndjson", "a", encoding="utf-8") as fh:
+                fh.write(
+                    json.dumps(
+                        {
+                            "discrepancy_id": record["discrepancy_id"],
+                            "fixture_id": record["fixture_id"],
+                            "comparator": record["comparator"],
+                            "severity": record["severity"],
+                            "status": record["status"],
+                        },
+                        sort_keys=True,
+                    )
+                    + "\n"
+                )
+        print(f"ledger: {len(records)} record(s) under {ledger}")
 
     print(f"compared {pair_count} envelope pair(s); {len(records)} discrepancy(ies)")
     return 1 if records else 0

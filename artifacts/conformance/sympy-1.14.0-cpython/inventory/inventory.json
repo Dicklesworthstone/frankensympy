@@ -1,0 +1,2731 @@
+{
+  "content_sha256": "9a51995f9ef0fb5871a9fadbc34ab97c333a679a8ead025efbfbc3267b9e438f",
+  "environment": {
+    "env": {
+      "PYTHONDONTWRITEBYTECODE": "1",
+      "PYTHONHASHSEED": "0"
+    },
+    "implementation": "CPython",
+    "platform": "Linux-7.0.0-15-generic-x86_64-with-glibc2.43",
+    "python": "3.14.4",
+    "sympy_path": "/home/ubuntu/.venvs/fsym-oracle-sympy-1.14.0/lib/python3.14/site-packages/sympy/__init__.py",
+    "sympy_version": "1.14.0"
+  },
+  "identity": {
+    "identity_relations": {
+      "Integer_1_is_S_One": true,
+      "S.One_times_SOne_is_SOne": true
+    },
+    "singletons": {
+      "E": "E",
+      "S": "S",
+      "pi": "pi"
+    }
+  },
+  "kind": "reflection_inventory",
+  "modules": {
+    "sympy": {
+      "all_exports_count": 921,
+      "slice_classes": {
+        "Add": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.add",
+          "mro": [
+            "sympy.core.add.Add",
+            "sympy.core.expr.Expr",
+            "sympy.core.operations.AssocOp",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Atom": {
+          "declared_hooks": [
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.basic",
+          "mro": [
+            "sympy.core.basic.Atom",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Basic": {
+          "declared_hooks": [
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.basic",
+          "mro": [
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "builtins.object"
+          ],
+          "slots": [
+            "_args",
+            "_assumptions",
+            "_mhash"
+          ]
+        },
+        "Derivative": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.function",
+          "mro": [
+            "sympy.core.function.Derivative",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Dummy": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.symbol",
+          "mro": [
+            "sympy.core.symbol.Dummy",
+            "sympy.core.symbol.Symbol",
+            "sympy.core.expr.AtomicExpr",
+            "sympy.core.basic.Atom",
+            "sympy.core.expr.Expr",
+            "sympy.logic.boolalg.Boolean",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": [
+            "dummy_index"
+          ]
+        },
+        "Expr": {
+          "declared_hooks": [
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.expr",
+          "mro": [
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Float": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.numbers",
+          "mro": [
+            "sympy.core.numbers.Float",
+            "sympy.core.numbers.Number",
+            "sympy.core.expr.AtomicExpr",
+            "sympy.core.basic.Atom",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": [
+            "_mpf_",
+            "_prec"
+          ]
+        },
+        "Function": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs",
+            "eval",
+            "fdiff"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.function",
+          "mro": [
+            "sympy.core.function.Function",
+            "sympy.core.function.Application",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Integer": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.numbers",
+          "mro": [
+            "sympy.core.numbers.Integer",
+            "sympy.core.numbers.Rational",
+            "sympy.core.numbers.Number",
+            "sympy.core.expr.AtomicExpr",
+            "sympy.core.basic.Atom",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Lambda": {
+          "declared_hooks": [
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs",
+            "nargs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.function",
+          "mro": [
+            "sympy.core.function.Lambda",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Mul": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.mul",
+          "mro": [
+            "sympy.core.mul.Mul",
+            "sympy.core.expr.Expr",
+            "sympy.core.operations.AssocOp",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Pow": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.power",
+          "mro": [
+            "sympy.core.power.Pow",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": [
+            "is_commutative"
+          ]
+        },
+        "Rational": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.numbers",
+          "mro": [
+            "sympy.core.numbers.Rational",
+            "sympy.core.numbers.Number",
+            "sympy.core.expr.AtomicExpr",
+            "sympy.core.basic.Atom",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": [
+            "p",
+            "q"
+          ]
+        },
+        "Symbol": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.symbol",
+          "mro": [
+            "sympy.core.symbol.Symbol",
+            "sympy.core.expr.AtomicExpr",
+            "sympy.core.basic.Atom",
+            "sympy.core.expr.Expr",
+            "sympy.logic.boolalg.Boolean",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": [
+            "_assumptions0",
+            "_assumptions_orig",
+            "name"
+          ]
+        }
+      },
+      "slice_functions": {
+        "symbols": {
+          "params": [
+            "names",
+            "clskw=?",
+            "args**"
+          ]
+        },
+        "sympify": {
+          "params": [
+            "a",
+            "locals=?",
+            "convert_xor=?",
+            "strict=?",
+            "rational=?",
+            "evaluate=?"
+          ]
+        }
+      }
+    },
+    "sympy.assumptions": {
+      "all_exports_count": 12,
+      "slice_classes": {},
+      "slice_functions": {}
+    },
+    "sympy.core": {
+      "all_exports_count": 101,
+      "slice_classes": {
+        "Add": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.add",
+          "mro": [
+            "sympy.core.add.Add",
+            "sympy.core.expr.Expr",
+            "sympy.core.operations.AssocOp",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Atom": {
+          "declared_hooks": [
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.basic",
+          "mro": [
+            "sympy.core.basic.Atom",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Basic": {
+          "declared_hooks": [
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.basic",
+          "mro": [
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "builtins.object"
+          ],
+          "slots": [
+            "_args",
+            "_assumptions",
+            "_mhash"
+          ]
+        },
+        "Derivative": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.function",
+          "mro": [
+            "sympy.core.function.Derivative",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Dummy": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.symbol",
+          "mro": [
+            "sympy.core.symbol.Dummy",
+            "sympy.core.symbol.Symbol",
+            "sympy.core.expr.AtomicExpr",
+            "sympy.core.basic.Atom",
+            "sympy.core.expr.Expr",
+            "sympy.logic.boolalg.Boolean",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": [
+            "dummy_index"
+          ]
+        },
+        "Expr": {
+          "declared_hooks": [
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.expr",
+          "mro": [
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Float": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.numbers",
+          "mro": [
+            "sympy.core.numbers.Float",
+            "sympy.core.numbers.Number",
+            "sympy.core.expr.AtomicExpr",
+            "sympy.core.basic.Atom",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": [
+            "_mpf_",
+            "_prec"
+          ]
+        },
+        "Function": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs",
+            "eval",
+            "fdiff"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.function",
+          "mro": [
+            "sympy.core.function.Function",
+            "sympy.core.function.Application",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Integer": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.numbers",
+          "mro": [
+            "sympy.core.numbers.Integer",
+            "sympy.core.numbers.Rational",
+            "sympy.core.numbers.Number",
+            "sympy.core.expr.AtomicExpr",
+            "sympy.core.basic.Atom",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Lambda": {
+          "declared_hooks": [
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs",
+            "nargs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.function",
+          "mro": [
+            "sympy.core.function.Lambda",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Mul": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.mul",
+          "mro": [
+            "sympy.core.mul.Mul",
+            "sympy.core.expr.Expr",
+            "sympy.core.operations.AssocOp",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Pow": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.power",
+          "mro": [
+            "sympy.core.power.Pow",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": [
+            "is_commutative"
+          ]
+        },
+        "Rational": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.numbers",
+          "mro": [
+            "sympy.core.numbers.Rational",
+            "sympy.core.numbers.Number",
+            "sympy.core.expr.AtomicExpr",
+            "sympy.core.basic.Atom",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": [
+            "p",
+            "q"
+          ]
+        },
+        "Symbol": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.symbol",
+          "mro": [
+            "sympy.core.symbol.Symbol",
+            "sympy.core.expr.AtomicExpr",
+            "sympy.core.basic.Atom",
+            "sympy.core.expr.Expr",
+            "sympy.logic.boolalg.Boolean",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": [
+            "_assumptions0",
+            "_assumptions_orig",
+            "name"
+          ]
+        }
+      },
+      "slice_functions": {
+        "symbols": {
+          "params": [
+            "names",
+            "clskw=?",
+            "args**"
+          ]
+        },
+        "sympify": {
+          "params": [
+            "a",
+            "locals=?",
+            "convert_xor=?",
+            "strict=?",
+            "rational=?",
+            "evaluate=?"
+          ]
+        }
+      }
+    },
+    "sympy.core.add": {
+      "all_exports_count": 0,
+      "slice_classes": {
+        "Add": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.add",
+          "mro": [
+            "sympy.core.add.Add",
+            "sympy.core.expr.Expr",
+            "sympy.core.operations.AssocOp",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Expr": {
+          "declared_hooks": [
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.expr",
+          "mro": [
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Mul": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.mul",
+          "mro": [
+            "sympy.core.mul.Mul",
+            "sympy.core.expr.Expr",
+            "sympy.core.operations.AssocOp",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Rational": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.numbers",
+          "mro": [
+            "sympy.core.numbers.Rational",
+            "sympy.core.numbers.Number",
+            "sympy.core.expr.AtomicExpr",
+            "sympy.core.basic.Atom",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": [
+            "p",
+            "q"
+          ]
+        }
+      },
+      "slice_functions": {}
+    },
+    "sympy.core.basic": {
+      "all_exports_count": 0,
+      "slice_classes": {
+        "Atom": {
+          "declared_hooks": [
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.basic",
+          "mro": [
+            "sympy.core.basic.Atom",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Basic": {
+          "declared_hooks": [
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.basic",
+          "mro": [
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "builtins.object"
+          ],
+          "slots": [
+            "_args",
+            "_assumptions",
+            "_mhash"
+          ]
+        }
+      },
+      "slice_functions": {
+        "sympify": {
+          "params": [
+            "a",
+            "locals=?",
+            "convert_xor=?",
+            "strict=?",
+            "rational=?",
+            "evaluate=?"
+          ]
+        }
+      }
+    },
+    "sympy.core.expr": {
+      "all_exports_count": 0,
+      "slice_classes": {
+        "Add": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.add",
+          "mro": [
+            "sympy.core.add.Add",
+            "sympy.core.expr.Expr",
+            "sympy.core.operations.AssocOp",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Atom": {
+          "declared_hooks": [
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.basic",
+          "mro": [
+            "sympy.core.basic.Atom",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Basic": {
+          "declared_hooks": [
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.basic",
+          "mro": [
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "builtins.object"
+          ],
+          "slots": [
+            "_args",
+            "_assumptions",
+            "_mhash"
+          ]
+        },
+        "Expr": {
+          "declared_hooks": [
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.expr",
+          "mro": [
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Float": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.numbers",
+          "mro": [
+            "sympy.core.numbers.Float",
+            "sympy.core.numbers.Number",
+            "sympy.core.expr.AtomicExpr",
+            "sympy.core.basic.Atom",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": [
+            "_mpf_",
+            "_prec"
+          ]
+        },
+        "Function": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs",
+            "eval",
+            "fdiff"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.function",
+          "mro": [
+            "sympy.core.function.Function",
+            "sympy.core.function.Application",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Integer": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.numbers",
+          "mro": [
+            "sympy.core.numbers.Integer",
+            "sympy.core.numbers.Rational",
+            "sympy.core.numbers.Number",
+            "sympy.core.expr.AtomicExpr",
+            "sympy.core.basic.Atom",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Mul": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.mul",
+          "mro": [
+            "sympy.core.mul.Mul",
+            "sympy.core.expr.Expr",
+            "sympy.core.operations.AssocOp",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Pow": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.power",
+          "mro": [
+            "sympy.core.power.Pow",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": [
+            "is_commutative"
+          ]
+        },
+        "Rational": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.numbers",
+          "mro": [
+            "sympy.core.numbers.Rational",
+            "sympy.core.numbers.Number",
+            "sympy.core.expr.AtomicExpr",
+            "sympy.core.basic.Atom",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": [
+            "p",
+            "q"
+          ]
+        }
+      },
+      "slice_functions": {
+        "sympify": {
+          "params": [
+            "a",
+            "locals=?",
+            "convert_xor=?",
+            "strict=?",
+            "rational=?",
+            "evaluate=?"
+          ]
+        }
+      }
+    },
+    "sympy.core.function": {
+      "all_exports_count": 0,
+      "slice_classes": {
+        "Add": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.add",
+          "mro": [
+            "sympy.core.add.Add",
+            "sympy.core.expr.Expr",
+            "sympy.core.operations.AssocOp",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Basic": {
+          "declared_hooks": [
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.basic",
+          "mro": [
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "builtins.object"
+          ],
+          "slots": [
+            "_args",
+            "_assumptions",
+            "_mhash"
+          ]
+        },
+        "Derivative": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.function",
+          "mro": [
+            "sympy.core.function.Derivative",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Dummy": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.symbol",
+          "mro": [
+            "sympy.core.symbol.Dummy",
+            "sympy.core.symbol.Symbol",
+            "sympy.core.expr.AtomicExpr",
+            "sympy.core.basic.Atom",
+            "sympy.core.expr.Expr",
+            "sympy.logic.boolalg.Boolean",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": [
+            "dummy_index"
+          ]
+        },
+        "Expr": {
+          "declared_hooks": [
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.expr",
+          "mro": [
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Float": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.numbers",
+          "mro": [
+            "sympy.core.numbers.Float",
+            "sympy.core.numbers.Number",
+            "sympy.core.expr.AtomicExpr",
+            "sympy.core.basic.Atom",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": [
+            "_mpf_",
+            "_prec"
+          ]
+        },
+        "Function": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs",
+            "eval",
+            "fdiff"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.function",
+          "mro": [
+            "sympy.core.function.Function",
+            "sympy.core.function.Application",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Integer": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.numbers",
+          "mro": [
+            "sympy.core.numbers.Integer",
+            "sympy.core.numbers.Rational",
+            "sympy.core.numbers.Number",
+            "sympy.core.expr.AtomicExpr",
+            "sympy.core.basic.Atom",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Lambda": {
+          "declared_hooks": [
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs",
+            "nargs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.function",
+          "mro": [
+            "sympy.core.function.Lambda",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Mul": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.mul",
+          "mro": [
+            "sympy.core.mul.Mul",
+            "sympy.core.expr.Expr",
+            "sympy.core.operations.AssocOp",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Rational": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.numbers",
+          "mro": [
+            "sympy.core.numbers.Rational",
+            "sympy.core.numbers.Number",
+            "sympy.core.expr.AtomicExpr",
+            "sympy.core.basic.Atom",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": [
+            "p",
+            "q"
+          ]
+        },
+        "Symbol": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.symbol",
+          "mro": [
+            "sympy.core.symbol.Symbol",
+            "sympy.core.expr.AtomicExpr",
+            "sympy.core.basic.Atom",
+            "sympy.core.expr.Expr",
+            "sympy.logic.boolalg.Boolean",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": [
+            "_assumptions0",
+            "_assumptions_orig",
+            "name"
+          ]
+        }
+      },
+      "slice_functions": {
+        "sympify": {
+          "params": [
+            "a",
+            "locals=?",
+            "convert_xor=?",
+            "strict=?",
+            "rational=?",
+            "evaluate=?"
+          ]
+        }
+      }
+    },
+    "sympy.core.mul": {
+      "all_exports_count": 0,
+      "slice_classes": {
+        "Add": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.add",
+          "mro": [
+            "sympy.core.add.Add",
+            "sympy.core.expr.Expr",
+            "sympy.core.operations.AssocOp",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Basic": {
+          "declared_hooks": [
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.basic",
+          "mro": [
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "builtins.object"
+          ],
+          "slots": [
+            "_args",
+            "_assumptions",
+            "_mhash"
+          ]
+        },
+        "Expr": {
+          "declared_hooks": [
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.expr",
+          "mro": [
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Mul": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.mul",
+          "mro": [
+            "sympy.core.mul.Mul",
+            "sympy.core.expr.Expr",
+            "sympy.core.operations.AssocOp",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Pow": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.power",
+          "mro": [
+            "sympy.core.power.Pow",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": [
+            "is_commutative"
+          ]
+        },
+        "Rational": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.numbers",
+          "mro": [
+            "sympy.core.numbers.Rational",
+            "sympy.core.numbers.Number",
+            "sympy.core.expr.AtomicExpr",
+            "sympy.core.basic.Atom",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": [
+            "p",
+            "q"
+          ]
+        }
+      },
+      "slice_functions": {
+        "sympify": {
+          "params": [
+            "a",
+            "locals=?",
+            "convert_xor=?",
+            "strict=?",
+            "rational=?",
+            "evaluate=?"
+          ]
+        }
+      }
+    },
+    "sympy.core.numbers": {
+      "all_exports_count": 0,
+      "slice_classes": {
+        "Add": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.add",
+          "mro": [
+            "sympy.core.add.Add",
+            "sympy.core.expr.Expr",
+            "sympy.core.operations.AssocOp",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Basic": {
+          "declared_hooks": [
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.basic",
+          "mro": [
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "builtins.object"
+          ],
+          "slots": [
+            "_args",
+            "_assumptions",
+            "_mhash"
+          ]
+        },
+        "Expr": {
+          "declared_hooks": [
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.expr",
+          "mro": [
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Float": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.numbers",
+          "mro": [
+            "sympy.core.numbers.Float",
+            "sympy.core.numbers.Number",
+            "sympy.core.expr.AtomicExpr",
+            "sympy.core.basic.Atom",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": [
+            "_mpf_",
+            "_prec"
+          ]
+        },
+        "Integer": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.numbers",
+          "mro": [
+            "sympy.core.numbers.Integer",
+            "sympy.core.numbers.Rational",
+            "sympy.core.numbers.Number",
+            "sympy.core.expr.AtomicExpr",
+            "sympy.core.basic.Atom",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Mul": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.mul",
+          "mro": [
+            "sympy.core.mul.Mul",
+            "sympy.core.expr.Expr",
+            "sympy.core.operations.AssocOp",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Pow": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.power",
+          "mro": [
+            "sympy.core.power.Pow",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": [
+            "is_commutative"
+          ]
+        },
+        "Rational": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.numbers",
+          "mro": [
+            "sympy.core.numbers.Rational",
+            "sympy.core.numbers.Number",
+            "sympy.core.expr.AtomicExpr",
+            "sympy.core.basic.Atom",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": [
+            "p",
+            "q"
+          ]
+        }
+      },
+      "slice_functions": {
+        "sympify": {
+          "params": [
+            "a",
+            "locals=?",
+            "convert_xor=?",
+            "strict=?",
+            "rational=?",
+            "evaluate=?"
+          ]
+        }
+      }
+    },
+    "sympy.core.power": {
+      "all_exports_count": 0,
+      "slice_classes": {
+        "Add": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.add",
+          "mro": [
+            "sympy.core.add.Add",
+            "sympy.core.expr.Expr",
+            "sympy.core.operations.AssocOp",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Dummy": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.symbol",
+          "mro": [
+            "sympy.core.symbol.Dummy",
+            "sympy.core.symbol.Symbol",
+            "sympy.core.expr.AtomicExpr",
+            "sympy.core.basic.Atom",
+            "sympy.core.expr.Expr",
+            "sympy.logic.boolalg.Boolean",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": [
+            "dummy_index"
+          ]
+        },
+        "Expr": {
+          "declared_hooks": [
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.expr",
+          "mro": [
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Integer": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.numbers",
+          "mro": [
+            "sympy.core.numbers.Integer",
+            "sympy.core.numbers.Rational",
+            "sympy.core.numbers.Number",
+            "sympy.core.expr.AtomicExpr",
+            "sympy.core.basic.Atom",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Mul": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.mul",
+          "mro": [
+            "sympy.core.mul.Mul",
+            "sympy.core.expr.Expr",
+            "sympy.core.operations.AssocOp",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Pow": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.power",
+          "mro": [
+            "sympy.core.power.Pow",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": [
+            "is_commutative"
+          ]
+        },
+        "Rational": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.numbers",
+          "mro": [
+            "sympy.core.numbers.Rational",
+            "sympy.core.numbers.Number",
+            "sympy.core.expr.AtomicExpr",
+            "sympy.core.basic.Atom",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": [
+            "p",
+            "q"
+          ]
+        },
+        "Symbol": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.symbol",
+          "mro": [
+            "sympy.core.symbol.Symbol",
+            "sympy.core.expr.AtomicExpr",
+            "sympy.core.basic.Atom",
+            "sympy.core.expr.Expr",
+            "sympy.logic.boolalg.Boolean",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": [
+            "_assumptions0",
+            "_assumptions_orig",
+            "name"
+          ]
+        }
+      },
+      "slice_functions": {
+        "symbols": {
+          "params": [
+            "names",
+            "clskw=?",
+            "args**"
+          ]
+        }
+      }
+    },
+    "sympy.core.relational": {
+      "all_exports_count": 14,
+      "slice_classes": {
+        "Atom": {
+          "declared_hooks": [
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.basic",
+          "mro": [
+            "sympy.core.basic.Atom",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Basic": {
+          "declared_hooks": [
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.basic",
+          "mro": [
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "builtins.object"
+          ],
+          "slots": [
+            "_args",
+            "_assumptions",
+            "_mhash"
+          ]
+        },
+        "Expr": {
+          "declared_hooks": [
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.expr",
+          "mro": [
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Symbol": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.symbol",
+          "mro": [
+            "sympy.core.symbol.Symbol",
+            "sympy.core.expr.AtomicExpr",
+            "sympy.core.basic.Atom",
+            "sympy.core.expr.Expr",
+            "sympy.logic.boolalg.Boolean",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": [
+            "_assumptions0",
+            "_assumptions_orig",
+            "name"
+          ]
+        }
+      },
+      "slice_functions": {}
+    },
+    "sympy.core.symbol": {
+      "all_exports_count": 0,
+      "slice_classes": {
+        "Atom": {
+          "declared_hooks": [
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.basic",
+          "mro": [
+            "sympy.core.basic.Atom",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Basic": {
+          "declared_hooks": [
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.basic",
+          "mro": [
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "builtins.object"
+          ],
+          "slots": [
+            "_args",
+            "_assumptions",
+            "_mhash"
+          ]
+        },
+        "Dummy": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.symbol",
+          "mro": [
+            "sympy.core.symbol.Dummy",
+            "sympy.core.symbol.Symbol",
+            "sympy.core.expr.AtomicExpr",
+            "sympy.core.basic.Atom",
+            "sympy.core.expr.Expr",
+            "sympy.logic.boolalg.Boolean",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": [
+            "dummy_index"
+          ]
+        },
+        "Expr": {
+          "declared_hooks": [
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.expr",
+          "mro": [
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Symbol": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.symbol",
+          "mro": [
+            "sympy.core.symbol.Symbol",
+            "sympy.core.expr.AtomicExpr",
+            "sympy.core.basic.Atom",
+            "sympy.core.expr.Expr",
+            "sympy.logic.boolalg.Boolean",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": [
+            "_assumptions0",
+            "_assumptions_orig",
+            "name"
+          ]
+        }
+      },
+      "slice_functions": {
+        "symbols": {
+          "params": [
+            "names",
+            "clskw=?",
+            "args**"
+          ]
+        },
+        "sympify": {
+          "params": [
+            "a",
+            "locals=?",
+            "convert_xor=?",
+            "strict=?",
+            "rational=?",
+            "evaluate=?"
+          ]
+        }
+      }
+    },
+    "sympy.printing": {
+      "all_exports_count": 41,
+      "slice_classes": {},
+      "slice_functions": {}
+    },
+    "sympy.printing.latex": {
+      "all_exports_count": 0,
+      "slice_classes": {
+        "Add": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.add",
+          "mro": [
+            "sympy.core.add.Add",
+            "sympy.core.expr.Expr",
+            "sympy.core.operations.AssocOp",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Derivative": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.function",
+          "mro": [
+            "sympy.core.function.Derivative",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Expr": {
+          "declared_hooks": [
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.expr",
+          "mro": [
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Float": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.numbers",
+          "mro": [
+            "sympy.core.numbers.Float",
+            "sympy.core.numbers.Number",
+            "sympy.core.expr.AtomicExpr",
+            "sympy.core.basic.Atom",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": [
+            "_mpf_",
+            "_prec"
+          ]
+        },
+        "Function": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs",
+            "eval",
+            "fdiff"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.function",
+          "mro": [
+            "sympy.core.function.Function",
+            "sympy.core.function.Application",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Mul": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.mul",
+          "mro": [
+            "sympy.core.mul.Mul",
+            "sympy.core.expr.Expr",
+            "sympy.core.operations.AssocOp",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Pow": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.power",
+          "mro": [
+            "sympy.core.power.Pow",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": [
+            "is_commutative"
+          ]
+        },
+        "Symbol": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.symbol",
+          "mro": [
+            "sympy.core.symbol.Symbol",
+            "sympy.core.expr.AtomicExpr",
+            "sympy.core.basic.Atom",
+            "sympy.core.expr.Expr",
+            "sympy.logic.boolalg.Boolean",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": [
+            "_assumptions0",
+            "_assumptions_orig",
+            "name"
+          ]
+        }
+      },
+      "slice_functions": {}
+    },
+    "sympy.printing.pretty": {
+      "all_exports_count": 6,
+      "slice_classes": {},
+      "slice_functions": {}
+    },
+    "sympy.printing.str": {
+      "all_exports_count": 0,
+      "slice_classes": {
+        "Basic": {
+          "declared_hooks": [
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.basic",
+          "mro": [
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "builtins.object"
+          ],
+          "slots": [
+            "_args",
+            "_assumptions",
+            "_mhash"
+          ]
+        },
+        "Integer": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.numbers",
+          "mro": [
+            "sympy.core.numbers.Integer",
+            "sympy.core.numbers.Rational",
+            "sympy.core.numbers.Number",
+            "sympy.core.expr.AtomicExpr",
+            "sympy.core.basic.Atom",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Mul": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.mul",
+          "mro": [
+            "sympy.core.mul.Mul",
+            "sympy.core.expr.Expr",
+            "sympy.core.operations.AssocOp",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": []
+        },
+        "Pow": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.power",
+          "mro": [
+            "sympy.core.power.Pow",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": [
+            "is_commutative"
+          ]
+        },
+        "Rational": {
+          "declared_hooks": [
+            "_eval_derivative",
+            "_eval_evalf",
+            "_eval_rewrite",
+            "_eval_subs"
+          ],
+          "init_params": [
+            "self/",
+            "args*",
+            "kwargs**"
+          ],
+          "module": "sympy.core.numbers",
+          "mro": [
+            "sympy.core.numbers.Rational",
+            "sympy.core.numbers.Number",
+            "sympy.core.expr.AtomicExpr",
+            "sympy.core.basic.Atom",
+            "sympy.core.expr.Expr",
+            "sympy.core.basic.Basic",
+            "sympy.printing.defaults.Printable",
+            "sympy.core.evalf.EvalfMixin",
+            "builtins.object"
+          ],
+          "slots": [
+            "p",
+            "q"
+          ]
+        }
+      },
+      "slice_functions": {}
+    }
+  },
+  "profile_id": "sympy-1.14.0-cpython",
+  "schema_version": 1
+}

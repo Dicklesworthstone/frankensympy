@@ -357,6 +357,70 @@ def cmd_self_test(profile: dict, py: str) -> int:
     return 0
 
 
+INVENTORY_REQUIRED_KEYS = {
+    "schema_version",
+    "kind",
+    "profile_id",
+    "environment",
+    "modules",
+    "identity",
+    "content_sha256",
+}
+
+
+def cmd_inventory(profile: dict, py: str) -> int:
+    """Generates the C1 reflection/source inventory as a digest-pinned artifact."""
+    runner = Path(__file__).resolve().parent / "inventory_runner.py"
+    env = dict(os.environ)
+    env.update(profile["environment"]["env_overrides"])
+    proc = subprocess.run(
+        [py, str(runner), profile["profile_id"]],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=180,
+        check=False,
+    )
+    if proc.returncode != 0:
+        return fail(f"inventory runner exited {proc.returncode}: {proc.stderr[-300:]}")
+    inventory = json.loads(proc.stdout)
+    missing = INVENTORY_REQUIRED_KEYS - inventory.keys()
+    if missing:
+        return fail(f"inventory missing keys: {sorted(missing)}")
+
+    out_dir = ARTIFACT_ROOT / profile["profile_id"] / "inventory"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    target = out_dir / "inventory.json"
+    with open(target, "w", encoding="utf-8") as fh:
+        fh.write(proc.stdout if proc.stdout.endswith("\n") else proc.stdout + "\n")
+
+    # Determinism proof: regenerate in a second isolated process; digests must agree.
+    proc2 = subprocess.run(
+        [py, str(runner), profile["profile_id"]],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=180,
+        check=False,
+    )
+    second = json.loads(proc2.stdout) if proc2.returncode == 0 else {}
+    if second.get("content_sha256") != inventory["content_sha256"]:
+        return fail("reflection inventory is nondeterministic across subprocesses")
+
+    print(
+        json.dumps(
+            {
+                "inventory": str(target.relative_to(REPO_ROOT)),
+                "content_sha256": inventory["content_sha256"],
+                "modules_inventoried": len(inventory["modules"]),
+                "deterministic": True,
+            },
+            indent=2,
+        )
+    )
+    return 0
+
+
 def main() -> int:
     args = sys.argv[1:]
     if len(args) < 2:
@@ -373,6 +437,8 @@ def main() -> int:
         return cmd_capture(profile, interpreter)
     if mode == "self-test":
         return cmd_self_test(profile, interpreter)
+    if mode == "inventory":
+        return cmd_inventory(profile, interpreter)
     print(f"unknown mode: {mode}")
     return 2
 
