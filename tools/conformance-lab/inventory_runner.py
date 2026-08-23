@@ -28,6 +28,7 @@ import json
 import os
 import platform
 import sys
+from pathlib import Path
 
 import sympy
 
@@ -145,6 +146,24 @@ def main() -> int:
             "slice_functions": functions,
         }
 
+    # Upstream test-tree manifest: paths + digests of the oracle's own test
+    # assets (CONFORMANCE_AND_BENCHMARKING.md section 6). This records WHAT
+    # exists and its exact bytes; it does not claim any port or run status.
+    test_root = Path(sympy.__file__).resolve().parent
+    tests = []
+    for path in sorted(test_root.rglob("*.py")):
+        rel = path.relative_to(test_root).as_posix()
+        if "/tests/" not in f"/{rel}" or path.name.startswith("_"):
+            continue
+        blob = path.read_bytes()
+        tests.append(
+            {
+                "path": rel,
+                "bytes": len(blob),
+                "sha256": hashlib.sha256(blob).hexdigest(),
+            }
+        )
+
     identity = {
         "singletons": {
             name: repr(getattr(sympy, name))
@@ -169,6 +188,13 @@ def main() -> int:
             "env": {k: os.environ.get(k) for k in PROFILE_ENV},
         },
         "modules": modules,
+        "upstream_test_tree": {
+            "root": str(test_root),
+            "file_count": len(tests),
+            "total_bytes": sum(t["bytes"] for t in tests),
+            "files": tests,
+            "status_note": "inventory only; no port/run status is claimed here",
+        },
         "identity": identity,
     }
     # Digest over canonical bytes so downstream gates can pin this artifact.
