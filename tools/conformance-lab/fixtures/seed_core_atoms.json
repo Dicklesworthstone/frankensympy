@@ -1,0 +1,11 @@
+[
+  {"id": "core/integer/42", "kind": "integer", "args": [42]},
+  {"id": "core/rational/22_7", "kind": "rational", "args": [22, 7]},
+  {"id": "core/symbol/x_positive", "kind": "symbol", "args": ["x"], "kwargs": {"positive": true}},
+  {"id": "core/add/x_plus_y", "kind": "add", "args": [{"sym": "x"}, {"sym": "y"}]},
+  {"id": "core/mul/three_x_sq", "kind": "mul", "args": [3, {"sym": "x"}, {"sym": "x"}]},
+  {"id": "core/pow/x_three", "kind": "pow", "args": [{"sym": "x"}, 3]},
+  {"id": "core/add/collapse_duplicates", "kind": "add", "args": [{"sym": "a"}, {"sym": "a"}, {"sym": "b"}]},
+  {"id": "adversarial/integer/from_float_string", "kind": "integer", "args": ["1.5"]},
+  {"id": "adversarial/pow/zero_neg_zero_base", "kind": "pow", "args": [0, -1]}
+]

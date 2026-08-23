@@ -1,0 +1,18 @@
+[
+  {
+    "id": "held/add_ax2_minus_ax2_bxy",
+    "kind": "held_add",
+    "args": [{"sym": "a"}, {"sym": "x"}],
+    "note": "Campaign hero-shape held subexpression; canonical collapse must not occur at construction. Observed via args/func/printers/pickle."
+  },
+  {
+    "id": "held/mul_two_k",
+    "kind": "held_mul",
+    "args": [2, {"sym": "k"}]
+  },
+  {
+    "id": "held/add_noncanonical_order",
+    "kind": "held_add",
+    "args": [{"sym": "y"}, {"sym": "x"}]
+  }
+]

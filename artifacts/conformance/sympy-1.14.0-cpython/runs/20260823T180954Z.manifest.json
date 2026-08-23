@@ -1,0 +1,14 @@
+{
+  "captured_at_utc": "2026-08-23T18:09:54.446878+00:00",
+  "envelopes": 14,
+  "fixture_files": 3,
+  "golden_digests": {
+    "seed_core_atoms.ndjson": "38a5e143264f2a92889a91ad07dd4e7a892c1e0168020963978ba5af931cc168",
+    "seed_function_subclass.ndjson": "5af8edae5027bc2e3392bc2855cf961c5a586e87eee38ecc3e2fa327e2a990c1",
+    "seed_held_forms.ndjson": "4688f2bcefce2ff4518471848b4c0d5b7733ab590d96c9f5fd13760f30c9bd04"
+  },
+  "golden_dir": "artifacts/conformance/sympy-1.14.0-cpython/goldens",
+  "profile_id": "sympy-1.14.0-cpython",
+  "raised_outcomes": 3,
+  "upstream_commit": "16fa855354eb7bcabd3fe10993841e03b1382692"
+}

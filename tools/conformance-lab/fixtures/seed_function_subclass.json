@@ -1,0 +1,24 @@
+[
+  {
+    "id": "subclass/ConstitutiveLaw_applied",
+    "kind": "function_subclass",
+    "subclass": {
+      "name": "ConstitutiveLaw",
+      "nargs": [2],
+      "eval_zero_collapse": true
+    },
+    "call_args": [{"sym": "x"}, {"sym": "k"}],
+    "note": "Custom Function with classmethod eval collapsing on literal-zero first arg and custom fdiff returning 1/argindex."
+  },
+  {
+    "id": "subclass/ConstitutiveLawZero_zero_collapse",
+    "kind": "function_subclass",
+    "subclass": {
+      "name": "ConstitutiveLawZero",
+      "nargs": [2],
+      "eval_zero_collapse": true
+    },
+    "call_args": [0, {"sym": "k"}],
+    "note": "eval collapses to S.Zero when the first argument is literal zero."
+  }
+]
