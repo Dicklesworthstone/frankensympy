@@ -30,6 +30,7 @@ tooling_self_check() {
   require_python
   run "$PYTHON_BIN" -m py_compile "$ROOT"/tools/*.py
   run "$PYTHON_BIN" "$ROOT/tools/validate_planning.py" --self-test
+  run "$PYTHON_BIN" "$ROOT/tools/validate_planning.py"
   run bash -n "$ROOT/scripts/check.sh"
   ok "validator and shell syntax"
 }
@@ -67,12 +68,17 @@ metadata() {
   ok "metadata, source pins, safety policy, and kernel registry passed"
 }
 
+format() {
+  run cargo fmt --check
+  run cargo clippy --workspace --all-targets -- -D warnings
+  ok "formatting and clippy passed across workspace"
+}
+
 release_readiness() {
   require_python
   "$PYTHON_BIN" - "$ROOT" <<'PY'
 import json
 from pathlib import Path
-import subprocess
 import sys
 import tomllib
 
@@ -86,17 +92,23 @@ def load_toml(relative_path):
 
 
 quality = load_toml("quality_gates.toml")
-if quality.get("registry_status") == "planning" or not quality.get("enforced", False):
+if quality.get("registry_status") != "implemented" or not quality.get("enforced", False):
     blockers.append("quality_gates.toml is not enforced")
 for section in ("coverage", "flake", "runtime"):
     if quality.get(section, {}).get("measurement_status") != "implemented":
         blockers.append(f"quality gate measurement '{section}' is not implemented")
-activation = quality.get("activation_requirements", {})
-for field, value in activation.items():
-    if field in {"schema_version", "registry_status"}:
-        continue
-    if value is not True:
-        blockers.append(f"quality gate activation '{field}' is not satisfied")
+activation = quality.get("activation_requirements")
+if not isinstance(activation, dict):
+    blockers.append("quality gate activation requirements are missing or malformed")
+else:
+    for field in (
+        "monitor_implementation_exists",
+        "measurement_schema_frozen",
+        "representative_test_inventory_exists",
+        "claims_registry_update_required",
+    ):
+        if activation.get(field) is not True:
+            blockers.append(f"quality gate activation '{field}' is not satisfied")
 
 compatibility = load_toml("registries/compatibility_profiles.toml")
 targets = [
@@ -105,6 +117,13 @@ targets = [
     if profile.get("kind") == "certification_target"
 ]
 certified_targets = [profile for profile in targets if profile.get("status") == "certified"]
+known_compatibility_statuses = {"planned", "certified"}
+for profile in targets:
+    if profile.get("status") not in known_compatibility_statuses:
+        blockers.append(
+            f"profile '{profile.get('profile_id', '<unknown>')}' has unknown status "
+            f"'{profile.get('status')}'"
+        )
 if not certified_targets:
     blockers.append("no immutable compatibility target is certified")
 else:
@@ -127,12 +146,6 @@ else:
         "gate_bundle",
         "certified_at_commit",
     )
-    current_commit = subprocess.run(
-        ["git", "-C", str(root), "rev-parse", "HEAD"],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
     for profile in certified_targets:
         profile_id = profile.get("profile_id", "<unknown>")
         for field in required_profile_fields:
@@ -144,10 +157,12 @@ else:
         for field in ("lowering_schema_version", "result_schema_version"):
             if not isinstance(profile.get(field), int) or profile[field] <= 0:
                 blockers.append(f"profile '{profile_id}' has no active '{field}'")
-        if profile.get("certified_at_commit") != current_commit:
-            blockers.append(
-                f"profile '{profile_id}' is not certified at current commit {current_commit}"
-            )
+        # A tracked registry cannot contain the SHA of its own enclosing commit.
+        # Same-commit source/tree and artifact digests must instead be established
+        # by an external canonical gate receipt. That validator has not landed.
+        blockers.append(
+            f"profile '{profile_id}' cannot certify until external same-commit gate receipt validation is implemented"
+        )
 
 claims = load_toml("registries/claims.toml")
 release_claims = [claim for claim in claims.get("claims", []) if claim.get("kind") == "release"]
@@ -164,12 +179,18 @@ resolver_profiles = [
     for profile in packaging.get("profile", [])
     if profile.get("satisfies_requires_dist_sympy") is True
 ]
+for profile in packaging.get("profile", []):
+    if profile.get("status") not in {"planned", "certified"}:
+        blockers.append(
+            f"packaging profile '{profile.get('id', '<unknown>')}' has unknown status "
+            f"'{profile.get('status')}'"
+        )
 if not any(profile.get("status") == "certified" for profile in resolver_profiles):
     blockers.append("no resolver-transparent replacement packaging profile is certified")
 
 release_gates = load_toml("registries/release_gates.toml")
-if release_gates.get("registry_status") == "planning":
-    blockers.append("release gate registry is still planning-only")
+if release_gates.get("registry_status") != "implemented":
+    blockers.append("release gate registry is not implemented")
 
 cross_cutting = subprocess.run(
     [
@@ -191,8 +212,18 @@ else:
     except json.JSONDecodeError:
         blockers.append("cross-cutting release audit did not emit valid JSON")
     else:
-        for obligation in cross_cutting_report.get("release_blockers", []):
-            blockers.append(f"cross-cutting obligation '{obligation}' remains a release blocker")
+        incomplete = cross_cutting_report.get("incomplete_release_blockers")
+        if (
+            cross_cutting_report.get("schema_version") != 1
+            or not isinstance(incomplete, list)
+            or not all(isinstance(obligation, str) for obligation in incomplete)
+        ):
+            blockers.append("cross-cutting release audit emitted an unsupported schema")
+        else:
+            for obligation in incomplete:
+                blockers.append(
+                    f"cross-cutting obligation '{obligation}' remains a release blocker"
+                )
 
 if blockers:
     print("release readiness blockers:", file=sys.stderr)
@@ -245,9 +276,10 @@ package() { unimplemented_release_profile package; }
 sign() { unimplemented_release_profile sign; }
 
 release_candidate() {
-  release_readiness || refuse "release readiness preconditions are not satisfied"
   source_clean
+  release_readiness || refuse "release readiness preconditions are not satisfied"
   registries
+  format
   unit
   conformance
   portable_verifiers
@@ -258,12 +290,12 @@ release_candidate() {
   reproducibility
   package
   write_audits
-  sign
   ok "release candidate locally validated against every required implemented gate"
 }
 
 case "$PROFILE" in
   source-clean) source_clean ;;
+  format) format ;;
   architecture) architecture ;;
   registries) registries ;;
   metadata) metadata ;;
@@ -281,7 +313,7 @@ case "$PROFILE" in
   release-candidate) release_candidate ;;
   all) release_candidate ;;
   *)
-    printf 'usage: %s {source-clean|architecture|registries|metadata|audit|unit|conformance|portable-verifiers|bench-smoke|lab|fuzz-smoke|matrix|reproducibility|package|sign|release-candidate|all}\n' "$0" >&2
+    printf 'usage: %s {source-clean|format|architecture|registries|metadata|audit|unit|conformance|portable-verifiers|bench-smoke|lab|fuzz-smoke|matrix|reproducibility|package|sign|release-candidate|all}\n' "$0" >&2
     exit 2
     ;;
 esac
