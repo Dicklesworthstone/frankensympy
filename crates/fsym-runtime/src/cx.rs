@@ -104,7 +104,7 @@ mod tests {
     fn cancellation_delegates_to_the_wrapped_context() {
         let cx = Cx::detached_cancel_context();
         let limits = BudgetLimits::uniform(100, 10);
-        let mut region = FsymCx::new(&cx, Budget::new(limits), limits);
+        let region = FsymCx::new(&cx, Budget::new(limits), limits);
 
         assert!(!region.check_cancelled());
         assert!(region.checkpoint().is_ok());
@@ -121,7 +121,7 @@ mod tests {
         let limits = BudgetLimits::uniform(50, 10);
         let mut region = FsymCx::new(&cx, Budget::new(limits), limits);
 
-        let receipt = region.charge(Dimension::ComputeSteps, 30).unwrap();
+        let _receipt = region.charge(Dimension::ComputeSteps, 30).unwrap();
         assert_eq!(region.remaining(Dimension::ComputeSteps), 20);
 
         let err = region
@@ -131,7 +131,6 @@ mod tests {
         // Failed charge left prior consumption intact; the receipt stays
         // an opaque token (fields are crate-private by design).
         assert_eq!(region.remaining(Dimension::ComputeSteps), 20);
-        drop(receipt);
     }
 
     #[test]
