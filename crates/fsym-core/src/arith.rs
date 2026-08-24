@@ -301,13 +301,16 @@ pub fn metered_gcd<M: BudgetMeter>(
     meter: &mut M,
 ) -> Result<BigInt, MeterError> {
     meter.checkpoint()?;
-    meter.charge(
-        Dimension::MemoryBytes,
-        a.limb_count()
-            .saturating_add(b.limb_count())
-            .saturating_mul(8),
-    )?;
-    meter.charge(Dimension::AllocationCount, 2)?;
+    meter.charge_batch(&[
+        (
+            Dimension::MemoryBytes,
+            a.limb_count()
+                .max(1)
+                .saturating_add(b.limb_count().max(1))
+                .saturating_mul(8),
+        ),
+        (Dimension::AllocationCount, 2),
+    ])?;
     let mut a = a.clone();
     let mut b = b.clone();
     while let Some(divisor) = NonZeroBigInt::new(&b) {
@@ -327,14 +330,16 @@ pub fn metered_extended_gcd<M: BudgetMeter>(
     meter: &mut M,
 ) -> Result<(BigInt, BigInt, BigInt), MeterError> {
     meter.checkpoint()?;
-    meter.charge(
-        Dimension::MemoryBytes,
-        a.limb_count()
-            .saturating_add(b.limb_count())
-            .saturating_add(4)
-            .saturating_mul(8),
-    )?;
-    meter.charge(Dimension::AllocationCount, 6)?;
+    meter.charge_batch(&[
+        (
+            Dimension::MemoryBytes,
+            a.limb_count()
+                .saturating_add(b.limb_count())
+                .saturating_add(4)
+                .saturating_mul(8),
+        ),
+        (Dimension::AllocationCount, 6),
+    ])?;
     let (mut old_r, mut r) = (a.clone(), b.clone());
     let (mut old_s, mut s) = (BigInt::one(), BigInt::zero());
     let (mut old_t, mut t) = (BigInt::zero(), BigInt::one());
@@ -367,9 +372,11 @@ fn metered_subtract<M: BudgetMeter>(
 ) -> Result<BigInt, MeterError> {
     meter.checkpoint()?;
     let output_limbs = lhs.limb_count().max(rhs.limb_count()).saturating_add(1);
-    meter.charge(Dimension::ComputeSteps, output_limbs.max(1))?;
-    meter.charge(Dimension::MemoryBytes, output_limbs.saturating_mul(8))?;
-    meter.charge(Dimension::AllocationCount, 1)?;
+    meter.charge_batch(&[
+        (Dimension::ComputeSteps, output_limbs.max(1)),
+        (Dimension::MemoryBytes, output_limbs.saturating_mul(8)),
+        (Dimension::AllocationCount, 1),
+    ])?;
     Ok(lhs - rhs)
 }
 
@@ -593,5 +600,12 @@ mod tests {
         let mut budget = Budget::new(limits);
         let err = metered_gcd(&a, &b, &mut budget).unwrap_err();
         assert!(matches!(err, MeterError::Budget(_)));
+
+        let limits = BudgetLimits::uniform(100, 0);
+        let mut budget = Budget::new(limits);
+        assert_eq!(
+            metered_gcd(&BigInt::zero(), &BigInt::zero(), &mut budget),
+            Ok(BigInt::zero())
+        );
     }
 }

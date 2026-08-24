@@ -11,8 +11,9 @@
 //!   only through a [`VerifierLease`] issued once per budget. Generator code
 //!   holding a plain [`Budget`] has no API path into the pool
 //!   ("generators cannot consume verifier-reserved budget").
-//! - **Atomic refusal.** A failed charge leaves every counter untouched and
-//!   reports what was requested versus what remained.
+//! - **Atomic refusal.** A failed charge leaves every counter untouched.
+//!   Ordinary exhaustion reports what was requested versus what remained;
+//!   unrepresentable aggregate requests report overflow explicitly.
 //! - **No hidden resets.** There is deliberately no method that inflates any
 //!   remaining value beyond its original limit; accounting only moves between
 //!   a parent and explicitly reserved children, or back via refunds.
@@ -85,6 +86,8 @@ pub enum BudgetError {
         requested: u64,
         remaining: u64,
     },
+    /// Duplicate charges in one batch overflowed the representable aggregate.
+    ChargeOverflow { dimension: Dimension },
     /// A zero-amount charge is rejected so receipts stay meaningful.
     ZeroCharge,
     /// The verifier pool was addressed without an active lease.
@@ -109,6 +112,9 @@ impl fmt::Display for BudgetError {
                     f,
                     "budget exhausted for {dimension}: requested {requested}, remaining {remaining}"
                 )
+            }
+            BudgetError::ChargeOverflow { dimension } => {
+                write!(f, "aggregate charge overflow for {dimension}")
             }
             BudgetError::ZeroCharge => write!(f, "zero-amount charge rejected"),
             BudgetError::VerifierPoolAccessDenied => {
@@ -167,6 +173,13 @@ pub trait BudgetMeter {
     /// Charges `amount` of `dimension`; `Err` refuses the work unit.
     fn charge(&mut self, dimension: Dimension, amount: u64) -> Result<(), MeterError>;
 
+    /// Charges one logical work unit across multiple dimensions atomically.
+    ///
+    /// Implementations must either consume every requested amount or leave every counter
+    /// unchanged. Algorithms use this before work that couples memory and allocation costs so
+    /// exhaustion cannot burn one dimension while refusing another.
+    fn charge_batch(&mut self, charges: &[(Dimension, u64)]) -> Result<(), MeterError>;
+
     /// Safe-point check; `Err(MeterError::Cancelled)` stops the evaluation.
     /// Must be cheap enough to call at every recursion node.
     fn checkpoint(&mut self) -> Result<(), MeterError>;
@@ -184,6 +197,10 @@ impl BudgetMeter for Unbounded {
         Ok(())
     }
 
+    fn charge_batch(&mut self, _charges: &[(Dimension, u64)]) -> Result<(), MeterError> {
+        Ok(())
+    }
+
     fn checkpoint(&mut self) -> Result<(), MeterError> {
         Ok(())
     }
@@ -194,6 +211,10 @@ impl BudgetMeter for Budget {
         self.try_charge(dimension, amount)
             .map(|_| ())
             .map_err(Into::into)
+    }
+
+    fn charge_batch(&mut self, charges: &[(Dimension, u64)]) -> Result<(), MeterError> {
+        self.try_charge_batch(charges).map_err(Into::into)
     }
 
     fn checkpoint(&mut self) -> Result<(), MeterError> {
@@ -351,6 +372,43 @@ impl Budget {
         })
     }
 
+    /// Atomically charges one logical work unit across several dimensions.
+    ///
+    /// Duplicate dimensions are summed before admission. A zero amount, aggregate overflow, or
+    /// exhausted dimension refuses the whole batch without changing counters or sequence. An
+    /// empty batch is a no-op.
+    pub fn try_charge_batch(&mut self, charges: &[(Dimension, u64)]) -> Result<(), BudgetError> {
+        let mut requested = [0u64; DIMENSION_COUNT];
+        for &(dimension, amount) in charges {
+            if amount == 0 {
+                return Err(BudgetError::ZeroCharge);
+            }
+            let index = dimension.index();
+            requested[index] = requested[index]
+                .checked_add(amount)
+                .ok_or(BudgetError::ChargeOverflow { dimension })?;
+        }
+        for dimension in Dimension::ALL {
+            let index = dimension.index();
+            if requested[index] > self.remaining[index] {
+                return Err(BudgetError::Exhausted {
+                    dimension,
+                    requested: requested[index],
+                    remaining: self.remaining[index],
+                });
+            }
+        }
+        if charges.is_empty() {
+            return Ok(());
+        }
+        for dimension in Dimension::ALL {
+            let index = dimension.index();
+            self.remaining[index] -= requested[index];
+        }
+        self.sequence += 1;
+        Ok(())
+    }
+
     /// Charges the protected verifier pool. Requires the lease issued by
     /// [`Budget::verifier_lease`].
     pub fn try_charge_verifier(
@@ -482,6 +540,79 @@ mod tests {
 
         budget.refund(receipt).expect("matching receipt");
         assert_eq!(budget.remaining(Dimension::ComputeSteps), 10);
+    }
+
+    #[test]
+    fn batch_charges_aggregate_duplicates_and_commit_once() {
+        let mut budget = Budget::new(BudgetLimits::uniform(20, 0));
+        budget
+            .try_charge_batch(&[
+                (Dimension::ComputeSteps, 3),
+                (Dimension::MemoryBytes, 7),
+                (Dimension::ComputeSteps, 2),
+                (Dimension::AllocationCount, 1),
+            ])
+            .expect("whole batch fits");
+
+        assert_eq!(budget.remaining(Dimension::ComputeSteps), 15);
+        assert_eq!(budget.remaining(Dimension::MemoryBytes), 13);
+        assert_eq!(budget.remaining(Dimension::AllocationCount), 19);
+        assert_eq!(budget.snapshot().sequence, 1);
+    }
+
+    #[test]
+    fn refused_batch_preserves_every_dimension_and_sequence() {
+        let mut budget = Budget::new(BudgetLimits::uniform(10, 0));
+        let before = budget.snapshot();
+        assert_eq!(
+            budget
+                .try_charge_batch(&[
+                    (Dimension::ComputeSteps, 4),
+                    (Dimension::MemoryBytes, 11),
+                    (Dimension::AllocationCount, 2),
+                ])
+                .unwrap_err(),
+            BudgetError::Exhausted {
+                dimension: Dimension::MemoryBytes,
+                requested: 11,
+                remaining: 10,
+            }
+        );
+        assert_eq!(budget.snapshot(), before);
+
+        assert_eq!(
+            budget
+                .try_charge_batch(&[
+                    (Dimension::ComputeSteps, 4),
+                    (Dimension::AllocationCount, 0),
+                ])
+                .unwrap_err(),
+            BudgetError::ZeroCharge
+        );
+        assert_eq!(budget.snapshot(), before);
+
+        let mut unlimited = Budget::new(BudgetLimits::uniform(u64::MAX, 0));
+        let before = unlimited.snapshot();
+        assert_eq!(
+            unlimited
+                .try_charge_batch(&[
+                    (Dimension::ComputeSteps, u64::MAX),
+                    (Dimension::ComputeSteps, 1),
+                ])
+                .unwrap_err(),
+            BudgetError::ChargeOverflow {
+                dimension: Dimension::ComputeSteps,
+            }
+        );
+        assert_eq!(unlimited.snapshot(), before);
+    }
+
+    #[test]
+    fn empty_batch_is_an_exact_no_op() {
+        let mut budget = Budget::new(BudgetLimits::uniform(10, 0));
+        let before = budget.snapshot();
+        budget.try_charge_batch(&[]).expect("empty batch is valid");
+        assert_eq!(budget.snapshot(), before);
     }
 
     #[test]

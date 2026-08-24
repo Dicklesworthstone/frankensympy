@@ -59,6 +59,11 @@ impl<'a, Caps> FsymCx<'a, Caps> {
         self.budget.try_charge(dimension, amount)
     }
 
+    /// Atomically charges a coupled multi-dimension work unit.
+    pub fn charge_batch(&mut self, charges: &[(Dimension, u64)]) -> Result<(), BudgetError> {
+        self.budget.try_charge_batch(charges)
+    }
+
     /// Issues the region's single verifier lease. The second call returns
     /// `None`: one protected pool, one key.
     pub fn verifier_lease(&mut self) -> Option<VerifierLease> {
@@ -110,6 +115,12 @@ impl<Caps> BudgetMeter for FsymCx<'_, Caps> {
         self.budget
             .try_charge(dimension, amount)
             .map(|_| ())
+            .map_err(MeterError::Budget)
+    }
+
+    fn charge_batch(&mut self, charges: &[(Dimension, u64)]) -> Result<(), MeterError> {
+        self.budget
+            .try_charge_batch(charges)
             .map_err(MeterError::Budget)
     }
 
@@ -207,6 +218,21 @@ mod tests {
         let cx = Cx::detached_cancel_context();
         let limits = BudgetLimits::uniform(3, 0);
         let mut region = FsymCx::new(&cx, Budget::new(limits), limits);
+
+        let refused_batch = BudgetMeter::charge_batch(
+            &mut region,
+            &[(Dimension::ComputeSteps, 1), (Dimension::MemoryBytes, 4)],
+        );
+        assert_eq!(
+            refused_batch,
+            Err(MeterError::Budget(BudgetError::Exhausted {
+                dimension: Dimension::MemoryBytes,
+                requested: 4,
+                remaining: 3,
+            }))
+        );
+        assert_eq!(region.remaining(Dimension::ComputeSteps), 3);
+        assert_eq!(region.remaining(Dimension::MemoryBytes), 3);
 
         // Generic meter use: exhaustion surfaces as MeterError::Budget.
         fn drain<M: BudgetMeter>(m: &mut M) -> Result<(), MeterError> {

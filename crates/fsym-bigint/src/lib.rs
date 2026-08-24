@@ -1096,13 +1096,15 @@ pub fn metered_multiply<M: BudgetMeter>(
     let b_len = b.0.iter_u32_digits().len();
     let output_len = a_len.saturating_add(b_len);
     let transient_digits = a_len.saturating_add(b_len).saturating_add(output_len);
-    meter.charge(
-        Dimension::MemoryBytes,
-        u64::try_from(transient_digits)
-            .unwrap_or(u64::MAX)
-            .saturating_mul(4),
-    )?;
-    meter.charge(Dimension::AllocationCount, 3)?;
+    meter.charge_batch(&[
+        (
+            Dimension::MemoryBytes,
+            u64::try_from(transient_digits)
+                .unwrap_or(u64::MAX)
+                .saturating_mul(4),
+        ),
+        (Dimension::AllocationCount, 3),
+    ])?;
 
     let mut a_digits = Vec::with_capacity(a_len);
     for digit in a.0.iter_u32_digits() {
@@ -1190,11 +1192,13 @@ pub fn metered_div_rem_nonzero<M: BudgetMeter>(
         return Ok((BigInt::zero(), BigInt::zero()));
     }
     if dividend.bits() < divisor.bits() {
-        meter.charge(
-            Dimension::MemoryBytes,
-            dividend.limb_count().saturating_mul(8),
-        )?;
-        meter.charge(Dimension::AllocationCount, 1)?;
+        meter.charge_batch(&[
+            (
+                Dimension::MemoryBytes,
+                dividend.limb_count().saturating_mul(8),
+            ),
+            (Dimension::AllocationCount, 1),
+        ])?;
         meter.checkpoint()?;
         return Ok((BigInt::zero(), dividend.clone()));
     }
@@ -1206,13 +1210,15 @@ pub fn metered_div_rem_nonzero<M: BudgetMeter>(
         .saturating_mul(2)
         .saturating_add(divisor_len)
         .saturating_add(remainder_capacity);
-    meter.charge(
-        Dimension::MemoryBytes,
-        u64::try_from(transient_digits)
-            .unwrap_or(u64::MAX)
-            .saturating_mul(4),
-    )?;
-    meter.charge(Dimension::AllocationCount, 4)?;
+    meter.charge_batch(&[
+        (
+            Dimension::MemoryBytes,
+            u64::try_from(transient_digits)
+                .unwrap_or(u64::MAX)
+                .saturating_mul(4),
+        ),
+        (Dimension::AllocationCount, 4),
+    ])?;
 
     let dividend_digits = copy_u32_digits(&dividend.0, dividend_len, meter)?;
     let divisor_digits = copy_u32_digits(&divisor.0, divisor_len, meter)?;
@@ -1414,7 +1420,7 @@ fn karatsuba_mag_internal(a: &BigUint, b: &BigUint) -> BigUint {
 mod tests {
     use super::Strategy;
     use super::*;
-    use fsym_budget::Unbounded;
+    use fsym_budget::{Budget, BudgetLimits, Unbounded};
     use proptest::prelude::*;
 
     #[derive(Debug)]
@@ -1428,6 +1434,15 @@ mod tests {
         fn charge(&mut self, dimension: Dimension, amount: u64) -> Result<(), MeterError> {
             if dimension == Dimension::ComputeSteps {
                 self.compute_steps = self.compute_steps.saturating_add(amount);
+            }
+            Ok(())
+        }
+
+        fn charge_batch(&mut self, charges: &[(Dimension, u64)]) -> Result<(), MeterError> {
+            for &(dimension, amount) in charges {
+                if dimension == Dimension::ComputeSteps {
+                    self.compute_steps = self.compute_steps.saturating_add(amount);
+                }
             }
             Ok(())
         }
@@ -1517,6 +1532,26 @@ mod tests {
         let metered = metered_multiply(&a, &b, &mut meter).unwrap();
         let native = multiply_with_strategy(&a, &b, Strategy::NativeSubstrate);
         assert_eq!(metered, native);
+    }
+
+    #[test]
+    fn refused_arithmetic_batch_does_not_burn_memory_allowance() {
+        let mut limits = BudgetLimits::uniform(1_000_000, 0);
+        limits.dimensions[Dimension::AllocationCount.index()] = 2;
+        let mut budget = Budget::new(limits);
+        let before = budget.snapshot();
+        let a = (BigInt::one() << 1_024) + 17i64;
+        let b = (BigInt::one() << 1_024) + 29i64;
+
+        assert_eq!(
+            metered_multiply(&a, &b, &mut budget),
+            Err(MeterError::Budget(fsym_budget::BudgetError::Exhausted {
+                dimension: Dimension::AllocationCount,
+                requested: 3,
+                remaining: 2,
+            }))
+        );
+        assert_eq!(budget.snapshot(), before);
     }
 
     #[test]
