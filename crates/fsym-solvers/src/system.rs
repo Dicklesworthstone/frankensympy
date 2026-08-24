@@ -54,7 +54,7 @@ pub fn solve_2var_poly_system(
     }
     let expected_generators = [x.clone(), y.clone()];
     for equation in eqs {
-        if equation.generators.as_slice() != expected_generators {
+        if equation.generators.as_slice() != expected_generators.as_slice() {
             return Err(SolverError::InvalidSystem(format!(
                 "every equation must use generators [{}, {}] in that exact order",
                 x.name, y.name
@@ -111,6 +111,7 @@ pub fn solve_2var_poly_system(
 
     for y_root in y_roots {
         let mut candidate = None;
+        let mut root_is_impossible = false;
         for x_poly in &x_polys {
             let x_uni_coeffs = evaluate_as_univariate_in_x(x_poly, &y_root);
             let c0 = &x_uni_coeffs[0];
@@ -119,7 +120,7 @@ pub fn solve_2var_poly_system(
                 if c0.is_zero() {
                     continue;
                 }
-                candidate = None;
+                root_is_impossible = true;
                 break;
             }
             let x_root = if c1 == &Expr::from_i64(1) {
@@ -136,6 +137,10 @@ pub fn solve_2var_poly_system(
             };
             candidate = Some(x_root);
             break;
+        }
+
+        if root_is_impossible {
+            continue;
         }
 
         let Some(x_root) = candidate else {
@@ -166,7 +171,11 @@ pub fn solve_2var_poly_system(
         solutions.push(solution);
     }
 
-    Ok(solutions)
+    if solutions.is_empty() {
+        Err(SolverError::NoSolution)
+    } else {
+        Ok(solutions)
+    }
 }
 
 /// Independent verifier checking that candidate solution satisfies all equations in the polynomial system.
