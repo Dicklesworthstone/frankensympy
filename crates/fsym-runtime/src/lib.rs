@@ -9,16 +9,20 @@ pub mod checkpoint;
 pub mod cx;
 pub mod ledger;
 pub mod portfolio;
+pub mod protocol;
 pub mod repair;
 pub mod replay;
 pub mod rng;
+pub mod workspace;
 
 pub use checkpoint::*;
 pub use cx::FsymCx;
 pub use ledger::*;
 pub use portfolio::*;
+pub use protocol::*;
 pub use repair::*;
 pub use replay::*;
+pub use workspace::*;
 
 pub use fsym_budget::{Budget, BudgetLimits, ChargeReceipt, Dimension};
 pub use fsym_outcome::{ExecutionOutcome, MathOutcome};
@@ -103,7 +107,7 @@ mod tests {
     use asupersync::Cx;
     use fsym_assumptions::ImmutableAssumptionsSnapshot;
     use fsym_budget::Unbounded;
-    use fsym_core::Expr;
+    use fsym_core::{Expr, Symbol};
     use fsym_proof_kernel::ProofKernel;
     use std::collections::BTreeMap;
     use std::sync::Arc;
@@ -296,5 +300,59 @@ mod tests {
             !ledger.verify_chain(),
             "Tampered ledger record must fail verification"
         );
+    }
+
+    #[test]
+    fn test_workspace_fork_and_clean_merge() {
+        let mut base = SemanticWorkspace::new("main");
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+
+        base.bind(x.clone(), Expr::from_i64(10));
+
+        let mut branch = base.fork("feature_a");
+        branch.bind(y.clone(), Expr::from_i64(20));
+
+        let receipt = base.merge(&branch).unwrap();
+        assert_eq!(receipt.merged_bindings_count, 2);
+        assert_eq!(base.eval(&Expr::Sym(x)), Expr::from_i64(10));
+        assert_eq!(base.eval(&Expr::Sym(y)), Expr::from_i64(20));
+    }
+
+    #[test]
+    fn test_negative_corpus_semantic_conflict_merge_rejected() {
+        let mut base = SemanticWorkspace::new("main");
+        let x = Symbol::new("x");
+        base.bind(x.clone(), Expr::from_i64(10));
+
+        let mut conflicting_branch = base.fork("conflict_branch");
+        // Conflicting binding on same symbol x
+        conflicting_branch.bind(x.clone(), Expr::from_i64(999));
+
+        let merge_res = base.merge(&conflicting_branch);
+        assert!(matches!(
+            merge_res,
+            Err(WorkspaceError::BindingConflict(name, e1, e2)) if name == "x" && e1 == "10" && e2 == "999"
+        ));
+    }
+
+    #[test]
+    fn test_ndjson_protocol_dispatch() {
+        let mut ws = SemanticWorkspace::new("agent_session");
+
+        // 1. Bind x = 5
+        let req1 = r#"{"type":"Bind","payload":{"symbol":"x","expr":"5"}}"#;
+        let resp1 = handle_agent_ndjson(req1, &mut ws);
+        assert!(resp1.contains(r#""status":"Success""#));
+
+        // 2. Evaluate x + 3
+        let req2 = r#"{"type":"Eval","payload":{"expr":"x + 3"}}"#;
+        let resp2 = handle_agent_ndjson(req2, &mut ws);
+        assert!(resp2.contains(r#""result":"8""#));
+
+        // 3. Diff x^2 with respect to x
+        let req3 = r#"{"type":"Diff","payload":{"expr":"x^2","var":"x"}}"#;
+        let resp3 = handle_agent_ndjson(req3, &mut ws);
+        assert!(resp3.contains(r#"2*x"#) || resp3.contains(r#"2 * x"#));
     }
 }
