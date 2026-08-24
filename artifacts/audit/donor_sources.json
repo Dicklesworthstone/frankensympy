@@ -1,0 +1,20 @@
+{
+  "audit": "donor_sources",
+  "errors": [],
+  "facts": {
+    "dependency_pins_compared": 5,
+    "source_count": 7,
+    "source_ids": [
+      "asupersync",
+      "franken_lean",
+      "franken_networkx",
+      "franken_numpy",
+      "frankengraphdb",
+      "frankenscipy",
+      "frankensqlite"
+    ]
+  },
+  "ok": true,
+  "schema_version": 1,
+  "warnings": []
+}

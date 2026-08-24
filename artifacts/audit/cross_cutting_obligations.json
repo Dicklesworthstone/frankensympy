@@ -1,0 +1,51 @@
+{
+  "errors": [],
+  "incomplete_release_blockers": [
+    "O-ARTIFACT",
+    "O-EVIDENCE",
+    "O-GRAPH",
+    "O-MONITORS",
+    "O-PACKAGING",
+    "O-PERFORMANCE",
+    "O-PORTFOLIO",
+    "O-PYTHON",
+    "O-RELEASE",
+    "O-SAFETY",
+    "O-VERIFIER",
+    "O-WORKSPACE"
+  ],
+  "obligation_count": 13,
+  "ok": true,
+  "registry": "registries/cross_cutting_obligations.toml",
+  "release_blockers": [
+    "O-ARTIFACT",
+    "O-EVIDENCE",
+    "O-GRAPH",
+    "O-MONITORS",
+    "O-PACKAGING",
+    "O-PERFORMANCE",
+    "O-PORTFOLIO",
+    "O-PYTHON",
+    "O-RELEASE",
+    "O-SAFETY",
+    "O-VERIFIER",
+    "O-WORKSPACE"
+  ],
+  "schema_version": 1,
+  "topological_order": [
+    "O-SAFETY",
+    "O-EVIDENCE",
+    "O-VERIFIER",
+    "O-ARTIFACT",
+    "O-FORMAL",
+    "O-WORKSPACE",
+    "O-GRAPH",
+    "O-MONITORS",
+    "O-PYTHON",
+    "O-PACKAGING",
+    "O-PORTFOLIO",
+    "O-PERFORMANCE",
+    "O-RELEASE"
+  ],
+  "warnings": []
+}

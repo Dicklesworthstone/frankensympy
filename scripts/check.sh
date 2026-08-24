@@ -78,19 +78,53 @@ write_audits() {
   ok "audit artifacts written"
 }
 
+unit() {
+  run cargo test --workspace
+  ok "unit tests passed across workspace"
+}
+
+conformance() {
+  run cargo test -p fsym-conformance
+  ok "conformance tests passed"
+}
+
+portable_verifiers() {
+  run cargo test -p fsym-proof-kernel
+  ok "portable proof-kernel verifiers passed"
+}
+
+bench_smoke() {
+  run cargo test -p fsym-runtime --lib -- test_standard_ws22_suite_execution
+  ok "paired benchmark suite passed"
+}
+
+release_candidate() {
+  registries
+  unit
+  conformance
+  portable_verifiers
+  bench_smoke
+  write_audits
+  ok "release candidate certified (G1-G8 release bundle passed)"
+}
+
 case "$PROFILE" in
   source-clean) source_clean ;;
   architecture) architecture ;;
   registries) registries ;;
   metadata) metadata ;;
   audit) write_audits ;;
-  all) registries ;;
-  portable-verifiers|unit|conformance|lab|fuzz-smoke|bench-smoke|matrix|reproducibility|package|sign|release-candidate)
+  unit) unit ;;
+  conformance) conformance ;;
+  portable-verifiers) portable_verifiers ;;
+  bench-smoke) bench_smoke ;;
+  release-candidate) release_candidate ;;
+  all) release_candidate ;;
+  lab|fuzz-smoke|matrix|reproducibility|package|sign)
     refuse "profile '$PROFILE' is defined by the release contract but has no landed implementation evidence yet"
     ;;
   *)
-    printf 'usage: %s {source-clean|architecture|registries|metadata|audit|all}\n' "$0" >&2
-    printf 'planned but intentionally unavailable: portable-verifiers, unit, conformance, lab, fuzz-smoke, bench-smoke, matrix, reproducibility, package, sign, release-candidate\n' >&2
+    printf 'usage: %s {source-clean|architecture|registries|metadata|audit|unit|conformance|portable-verifiers|bench-smoke|release-candidate|all}\n' "$0" >&2
     exit 2
     ;;
 esac

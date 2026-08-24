@@ -1,0 +1,31 @@
+{
+  "audit": "performance_kernels",
+  "errors": [],
+  "facts": {
+    "architectures": [
+      "apple_silicon",
+      "high_core_amd",
+      "portable_scalar",
+      "x86_64_avx2"
+    ],
+    "kernel_count": 9,
+    "kernel_ids": [
+      "bigint_gcd_v1",
+      "bigint_mul_v1",
+      "dense_poly_mul_v1",
+      "exact_linear_solve_v1",
+      "factorization_portfolio_v1",
+      "pattern_match_v1",
+      "python_roundtrip_v1",
+      "sparse_poly_mul_v1",
+      "term_dag_traversal_v1"
+    ],
+    "statuses": {
+      "planned": 8,
+      "research": 1
+    }
+  },
+  "ok": true,
+  "schema_version": 1,
+  "warnings": []
+}
