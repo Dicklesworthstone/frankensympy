@@ -121,6 +121,73 @@ impl fmt::Display for BudgetError {
 
 impl std::error::Error for BudgetError {}
 
+/// Why a metered evaluation stopped before completion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MeterError {
+    /// A budget operation refused (exhaustion, zero charge, pool access).
+    Budget(BudgetError),
+    /// The owning region was cancelled at a safe point.
+    Cancelled,
+}
+
+impl fmt::Display for MeterError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            MeterError::Budget(e) => write!(f, "{e}"),
+            MeterError::Cancelled => write!(f, "region cancelled"),
+        }
+    }
+}
+
+impl std::error::Error for MeterError {}
+
+impl From<BudgetError> for MeterError {
+    fn from(e: BudgetError) -> Self {
+        MeterError::Budget(e)
+    }
+}
+
+/// Narrow charging and safe-point interface consumed by evaluation code.
+///
+/// This is the L0 seam between mathematical recursion and the execution
+/// region that owns it: algorithm crates depend only on this trait, while
+/// region runtimes adapt their context onto it (see `fsym_runtime::FsymCx`).
+pub trait BudgetMeter {
+    /// Charges `amount` of `dimension`; `Err` refuses the work unit.
+    fn charge(&mut self, dimension: Dimension, amount: u64) -> Result<(), MeterError>;
+
+    /// Safe-point check; `Err(MeterError::Cancelled)` stops the evaluation.
+    /// Must be cheap enough to call at every recursion node.
+    fn checkpoint(&mut self) -> Result<(), MeterError>;
+}
+
+/// The unbounded meter: never refuses, never cancels.
+///
+/// Explicit caller opt-out for callers that have not entered a region;
+/// nothing silently downgrades a budgeted call to this.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Unbounded;
+
+impl BudgetMeter for Unbounded {
+    fn charge(&mut self, _dimension: Dimension, _amount: u64) -> Result<(), MeterError> {
+        Ok(())
+    }
+
+    fn checkpoint(&mut self) -> Result<(), MeterError> {
+        Ok(())
+    }
+}
+
+impl BudgetMeter for Budget {
+    fn charge(&mut self, dimension: Dimension, amount: u64) -> Result<(), MeterError> {
+        self.try_charge(dimension, amount).map(|_| ()).map_err(Into::into)
+    }
+
+    fn checkpoint(&mut self) -> Result<(), MeterError> {
+        Ok(()) // pure accounting ledger: no cancellation source
+    }
+}
+
 /// Initial limits for each dimension plus the protected verifier pool.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BudgetLimits {

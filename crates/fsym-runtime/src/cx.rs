@@ -10,7 +10,7 @@
 //! [`Cx::detached_cancel_context`]).
 
 use asupersync::Cx;
-use fsym_budget::{BudgetError, BudgetLimits, VerifierLease};
+use fsym_budget::{BudgetError, BudgetLimits, BudgetMeter, MeterError, VerifierLease};
 
 use crate::{Budget, ChargeReceipt, Dimension};
 
@@ -87,6 +87,21 @@ impl<'a, Caps> FsymCx<'a, Caps> {
     /// Limits this region was constructed with.
     pub fn limits(&self) -> BudgetLimits {
         self.limits
+    }
+}
+
+impl<Caps> BudgetMeter for FsymCx<'_, Caps> {
+    fn charge(&mut self, dimension: Dimension, amount: u64) -> Result<(), MeterError> {
+        self.budget.try_charge(dimension, amount).map(|_| ()).map_err(MeterError::Budget)
+    }
+
+    fn checkpoint(&mut self) -> Result<(), MeterError> {
+        // The asupersync cancel source is the authority; one atomic load.
+        if self.cx.is_cancel_requested() {
+            Err(MeterError::Cancelled)
+        } else {
+            Ok(())
+        }
     }
 }
 
