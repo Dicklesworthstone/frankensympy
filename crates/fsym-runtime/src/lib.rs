@@ -254,7 +254,7 @@ mod tests {
         let payload =
             b"FrankenSymPy certified mathematical payload with exact proofs and receipts.".to_vec();
         let symbol_size = 16;
-        let sidecar = RepairSidecar::encode(&payload, symbol_size, 2);
+        let sidecar = RepairSidecar::encode(&payload, symbol_size, 4).unwrap();
 
         // Simulate 5 source symbols
         let mut source_symbols = Vec::new();
@@ -278,10 +278,10 @@ mod tests {
         // Test corruption detection: tamper a bit in a source symbol
         source_symbols[0].as_mut().unwrap()[0] ^= 0xFF;
         let corrupted_res = sidecar.reconstruct(&source_symbols, &sidecar.repair_symbols);
-        assert!(matches!(
+        assert_eq!(
             corrupted_res,
-            Err(RepairError::DigestMismatch(_, _))
-        ));
+            Err(RepairError::SourceSymbolDigestMismatch(0))
+        );
     }
 
     #[test]
