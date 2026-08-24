@@ -302,16 +302,6 @@ impl Literal {
     pub fn is_positive(&self) -> bool {
         matches!(self, Literal::Pos(_))
     }
-    fn evaluate(&self, env: &HashMap<Symbol, bool>) -> Result<bool, LogicError> {
-        let v = env
-            .get(self.variable())
-            .copied()
-            .ok_or_else(|| LogicError::UnassignedVariable(self.variable().name.clone()))?;
-        Ok(match self {
-            Literal::Pos(_) => v,
-            Literal::Neg(_) => !v,
-        })
-    }
 }
 
 impl fmt::Display for Literal {
