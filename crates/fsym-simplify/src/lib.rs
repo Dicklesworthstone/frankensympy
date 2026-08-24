@@ -5,6 +5,7 @@
 #![forbid(unsafe_code)]
 
 use fsym_core::Expr;
+use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::{One, Zero};
 use std::collections::BTreeMap;
@@ -122,7 +123,16 @@ pub fn simplify(expr: &Expr) -> Expr {
                     None => rest.push(f),
                 }
             }
-            if coeff.is_zero() {
+            // 0 * f is 0 only when f is defined; a negative-power factor may
+            // be an undefined reciprocal (0^-1), so keep the structure for
+            // the limit engine to classify.
+            let has_neg_power = rest.iter().any(|f| {
+                matches!(
+                    f,
+                    Expr::Pow(_, e) if matches!(e.as_ref(), Expr::Integer(n) if *n < BigInt::from(0))
+                )
+            });
+            if coeff.is_zero() && !has_neg_power {
                 return Expr::from_i64(0);
             }
             if rest.is_empty() {
@@ -173,6 +183,24 @@ pub fn simplify(expr: &Expr) -> Expr {
             } else {
                 Expr::Pow(Arc::new(b), Arc::new(e))
             }
+        }
+        Expr::Function(name, args) => {
+            let simplified: Vec<Expr> = args.iter().map(simplify).collect();
+            // Exact values at rational points fold to rationals.
+            if simplified.len() == 1
+                && let Some(v) = numeric_of(&simplified[0])
+            {
+                let folded = match name.as_str() {
+                    "sin" | "tan" if v.is_zero() => Some(BigRational::zero()),
+                    "cos" | "exp" if v.is_zero() => Some(BigRational::one()),
+                    "log" | "ln" if v == BigRational::one() => Some(BigRational::zero()),
+                    _ => None,
+                };
+                if let Some(r) = folded {
+                    return rational_expr(r);
+                }
+            }
+            Expr::Function(name.clone(), simplified)
         }
         other => other.clone(),
     }
