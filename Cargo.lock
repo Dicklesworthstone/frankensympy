@@ -712,6 +712,8 @@ dependencies = [
 name = "fsym-matrices"
 version = "0.1.0"
 dependencies = [
+ "fsym-budget",
+ "fsym-calculus",
  "fsym-core",
  "fsym-polys",
  "fsym-simplify",

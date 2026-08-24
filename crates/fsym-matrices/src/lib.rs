@@ -4,7 +4,10 @@
 
 #![forbid(unsafe_code)]
 
-use fsym_core::{BigInt, BigRational, Expr};
+pub mod sparse;
+pub use sparse::*;
+
+use fsym_core::{BigInt, BigRational, Expr, Symbol};
 use fsym_polys::UnivariatePoly;
 use fsym_simplify::simplify;
 use fsym_solvers::{SolverError, solve_poly};
@@ -331,7 +334,7 @@ impl Matrix {
     }
 
     /// Exact `a * b`, folding to a number when both sides are numeric.
-    fn exact_mul(a: &Expr, b: &Expr) -> Expr {
+    pub(crate) fn exact_mul(a: &Expr, b: &Expr) -> Expr {
         match (Self::numeric(a), Self::numeric(b)) {
             (Some(x), Some(y)) => from_rational(x * y),
             _ => simplify(&Expr::Mul(vec![a.clone(), b.clone()])),
@@ -339,7 +342,7 @@ impl Matrix {
     }
 
     /// Exact `a - b`, folding to a number when both sides are numeric.
-    fn exact_sub(a: &Expr, b: &Expr) -> Expr {
+    pub(crate) fn exact_sub(a: &Expr, b: &Expr) -> Expr {
         match (Self::numeric(a), Self::numeric(b)) {
             (Some(x), Some(y)) => from_rational(x - y),
             _ => simplify(&Expr::Add(vec![a.clone(), Expr::from_i64(-1), b.clone()])),
@@ -348,7 +351,7 @@ impl Matrix {
 
     /// Exact `a / b` as an expression; symbolic divisors stay as
     /// multiplication by an inverse power.
-    fn exact_div(a: &Expr, b: &Expr) -> Expr {
+    pub(crate) fn exact_div(a: &Expr, b: &Expr) -> Expr {
         match (Self::numeric(a), Self::numeric(b)) {
             (Some(x), Some(y)) if !y.is_zero() => from_rational(x / y),
             (_, Some(y)) if y.is_zero() => panic!("exact_div by zero"),
@@ -363,7 +366,7 @@ impl Matrix {
     }
 
     /// Exact `a + b`, folding to a number when both sides are numeric.
-    fn exact_add(a: &Expr, b: &Expr) -> Expr {
+    pub(crate) fn exact_add(a: &Expr, b: &Expr) -> Expr {
         match (Self::numeric(a), Self::numeric(b)) {
             (Some(x), Some(y)) => from_rational(x + y),
             _ => simplify(&Expr::Add(vec![a.clone(), b.clone()])),
@@ -518,6 +521,144 @@ impl Matrix {
                 Ok(roots.iter().map(exact_fold).collect())
             }
         }
+    }
+    /// Computes the Reduced Row Echelon Form (RREF) and returns `(rref_matrix, pivot_columns)`.
+    pub fn rref(&self) -> (Matrix, Vec<usize>) {
+        let mut work = self.data.clone();
+        let (rows, cols) = (self.rows, self.cols);
+        let at = |r: usize, c: usize| r * cols + c;
+        let mut pivot_row = 0;
+        let mut pivot_cols = Vec::new();
+
+        for col in 0..cols {
+            if pivot_row >= rows {
+                break;
+            }
+            let mut pivot = None;
+            for r in pivot_row..rows {
+                if !work[at(r, col)].is_zero() {
+                    pivot = Some(r);
+                    break;
+                }
+            }
+            let Some(pivot) = pivot else {
+                continue;
+            };
+            if pivot != pivot_row {
+                for c in 0..cols {
+                    work.swap(at(pivot_row, c), at(pivot, c));
+                }
+            }
+            // Scale pivot row so pivot element is 1
+            let pivot_val = work[at(pivot_row, col)].clone();
+            for c in 0..cols {
+                work[at(pivot_row, c)] = Self::exact_div(&work[at(pivot_row, c)], &pivot_val);
+            }
+
+            // Eliminate all other rows in this column (both above and below)
+            for r in 0..rows {
+                if r == pivot_row || work[at(r, col)].is_zero() {
+                    continue;
+                }
+                let factor = work[at(r, col)].clone();
+                for c in 0..cols {
+                    let term = Self::exact_mul(&factor, &work[at(pivot_row, c)]);
+                    work[at(r, c)] = Self::exact_sub(&work[at(r, c)], &term);
+                }
+            }
+
+            pivot_cols.push(col);
+            pivot_row += 1;
+        }
+
+        (
+            Matrix::new(rows, cols, work).expect("valid shape"),
+            pivot_cols,
+        )
+    }
+
+    /// Computes basis vectors spanning the nullspace (kernel) of this matrix: $A \cdot v = 0$.
+    pub fn nullspace(&self) -> Vec<Matrix> {
+        let (rref_mat, pivot_cols) = self.rref();
+        let n_cols = self.cols;
+        let pivot_set: std::collections::HashSet<usize> = pivot_cols.iter().cloned().collect();
+        let free_cols: Vec<usize> = (0..n_cols).filter(|c| !pivot_set.contains(c)).collect();
+
+        let mut basis = Vec::new();
+        for &free_col in &free_cols {
+            let mut vec_data = vec![Expr::from_i64(0); n_cols];
+            vec_data[free_col] = Expr::from_i64(1);
+            for (pivot_row_idx, &pivot_col) in pivot_cols.iter().enumerate() {
+                let entry = rref_mat.get(pivot_row_idx, free_col).unwrap();
+                let neg_entry = Self::exact_mul(&Expr::from_i64(-1), entry);
+                vec_data[pivot_col] = neg_entry;
+            }
+            basis.push(Matrix::new(n_cols, 1, vec_data).expect("valid column vector"));
+        }
+        basis
+    }
+
+    /// Computes the exact Jacobian matrix for a system of expressions: $J_{i, j} = \frac{\partial f_i}{\partial x_j}$.
+    pub fn jacobian(exprs: &[Expr], vars: &[Symbol]) -> Matrix {
+        let rows = exprs.len();
+        let cols = vars.len();
+        let mut data = Vec::with_capacity(rows * cols);
+        for expr in exprs {
+            for var in vars {
+                let d = fsym_calculus::diff(expr, var);
+                data.push(simplify(&d));
+            }
+        }
+        Matrix::new(rows, cols, data).expect("valid jacobian shape")
+    }
+
+    /// Convert dense matrix to sparse matrix representation.
+    pub fn to_sparse(&self) -> SparseMatrix {
+        let mut entries = std::collections::BTreeMap::new();
+        for r in 0..self.rows {
+            for c in 0..self.cols {
+                let elem = &self.data[r * self.cols + c];
+                if !elem.is_zero() {
+                    entries.insert((r, c), elem.clone());
+                }
+            }
+        }
+        SparseMatrix::new(self.rows, self.cols, entries)
+    }
+
+    /// Metered matrix multiplication with cancellation checkpoint and step charging.
+    pub fn metered_matmul<M: fsym_budget::BudgetMeter>(
+        &self,
+        other: &Self,
+        meter: &mut M,
+    ) -> Result<Self, MatrixError> {
+        meter
+            .checkpoint()
+            .map_err(|e| MatrixError::Solver(e.to_string()))?;
+        let ops = (self.rows as u64)
+            .saturating_mul(self.cols as u64)
+            .saturating_mul(other.cols as u64);
+        meter
+            .charge(fsym_budget::Dimension::ComputeSteps, ops)
+            .map_err(|e| MatrixError::Solver(e.to_string()))?;
+        self.matmul(other)
+    }
+
+    /// Metered RREF computation with cancellation checkpoint and step charging.
+    pub fn metered_rref<M: fsym_budget::BudgetMeter>(
+        &self,
+        meter: &mut M,
+    ) -> Result<(Self, Vec<usize>), MatrixError> {
+        meter
+            .checkpoint()
+            .map_err(|e| MatrixError::Solver(e.to_string()))?;
+        let ops = (self.rows as u64)
+            .saturating_mul(self.cols as u64)
+            .saturating_mul(self.cols as u64);
+        meter
+            .charge(fsym_budget::Dimension::ComputeSteps, ops)
+            .map_err(|e| MatrixError::Solver(e.to_string()))?;
+        Ok(self.rref())
     }
 }
 
@@ -713,5 +854,115 @@ mod tests {
         // The polynomial itself remains available symbolically.
         let coeffs = m.char_poly().unwrap();
         assert_eq!(coeffs.len(), 3);
+    }
+
+    #[test]
+    fn test_rref_and_nullspace_computation() {
+        // A = [ [1, 2, 1],
+        //       [2, 4, 2],
+        //       [3, 6, 4] ]
+        let m = Matrix::new(
+            3,
+            3,
+            vec![
+                num(1),
+                num(2),
+                num(1),
+                num(2),
+                num(4),
+                num(2),
+                num(3),
+                num(6),
+                num(4),
+            ],
+        )
+        .unwrap();
+
+        let (rref_mat, pivots) = m.rref();
+        assert_eq!(pivots, vec![0, 2]); // Pivots at col 0 and col 2
+        // RREF should be:
+        // [ [1, 2, 0],
+        //   [0, 0, 1],
+        //   [0, 0, 0] ]
+        assert_eq!(rref_mat.get(0, 0).unwrap(), &num(1));
+        assert_eq!(rref_mat.get(0, 1).unwrap(), &num(2));
+        assert_eq!(rref_mat.get(0, 2).unwrap(), &num(0));
+        assert_eq!(rref_mat.get(1, 1).unwrap(), &num(0));
+        assert_eq!(rref_mat.get(1, 2).unwrap(), &num(1));
+
+        let ns = m.nullspace();
+        assert_eq!(ns.len(), 1); // 1 free variable (col 1)
+        // Nullspace vector: [-2, 1, 0]^T
+        let v = &ns[0];
+        assert_eq!(v.get(0, 0).unwrap(), &num(-2));
+        assert_eq!(v.get(1, 0).unwrap(), &num(1));
+        assert_eq!(v.get(2, 0).unwrap(), &num(0));
+
+        // Check A * v = 0
+        let av = m.matmul(v).unwrap();
+        for r in 0..3 {
+            assert!(av.get(r, 0).unwrap().is_zero());
+        }
+    }
+
+    #[test]
+    fn test_jacobian_computation() {
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+        let vars = vec![x.clone(), y.clone()];
+
+        // f1 = x^2 * y
+        // f2 = x + 3*y
+        let f1 = Expr::Mul(vec![
+            Expr::Pow(
+                std::sync::Arc::new(Expr::Sym(x.clone())),
+                std::sync::Arc::new(Expr::from_i64(2)),
+            ),
+            Expr::Sym(y.clone()),
+        ]);
+        let f2 = Expr::Add(vec![
+            Expr::Sym(x.clone()),
+            Expr::Mul(vec![Expr::from_i64(3), Expr::Sym(y.clone())]),
+        ]);
+
+        let j = Matrix::jacobian(&[f1, f2], &vars);
+        assert_eq!(j.rows, 2);
+        assert_eq!(j.cols, 2);
+
+        // J[0, 0] = 2*x*y
+        // J[0, 1] = x^2
+        // J[1, 0] = 1
+        // J[1, 1] = 3
+        assert_eq!(j.get(1, 0).unwrap(), &num(1));
+        assert_eq!(j.get(1, 1).unwrap(), &num(3));
+    }
+
+    #[test]
+    fn test_sparse_dense_roundtrip_and_matmul() {
+        let m = Matrix::new(
+            3,
+            3,
+            vec![
+                num(0),
+                num(2),
+                num(0),
+                num(0),
+                num(0),
+                num(3),
+                num(4),
+                num(0),
+                num(0),
+            ],
+        )
+        .unwrap();
+
+        let s = m.to_sparse();
+        assert_eq!(s.entries.len(), 3);
+        let m_roundtrip = s.to_dense();
+        assert_eq!(m, m_roundtrip);
+
+        let s_eye = SparseMatrix::eye(3);
+        let s_prod = s.matmul(&s_eye).unwrap();
+        assert_eq!(s_prod.to_dense(), m);
     }
 }
