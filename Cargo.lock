@@ -720,6 +720,7 @@ dependencies = [
  "num-traits",
  "proptest",
  "serde",
+ "serde_json",
  "thiserror",
 ]
 

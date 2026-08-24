@@ -12,9 +12,17 @@ use fsym_polys::UnivariatePoly;
 use fsym_simplify::simplify;
 use fsym_solvers::{SolverError, solve_poly};
 use num_traits::{One, Zero};
-use serde::{Deserialize, Serialize};
+use serde::de::{IgnoredAny, SeqAccess, Visitor};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 use thiserror::Error;
+
+const MATRIX_SCHEMA_VERSION: u32 = 1;
+const MAX_MATRIX_ENTRIES: usize = 262_144;
+const MAX_DETERMINANT_DIMENSION: usize = 8;
+const MAX_CHARACTERISTIC_POLYNOMIAL_DIMENSION: usize = 32;
+const MAX_MATRIX_MULTIPLICATION_OPS: u128 = 10_000_000;
+const MAX_RREF_OPS: u128 = 10_000_000;
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum MatrixError {
@@ -34,6 +42,18 @@ pub enum MatrixError {
     EigenvaluesUnsupportedDegree(usize),
     #[error("Underlying solver failure: {0}")]
     Solver(String),
+    #[error("Matrix shape {0}x{1} overflows the addressable element count")]
+    ShapeOverflow(usize, usize),
+    #[error("Matrix shape {0}x{1} requires {2} entries, but storage contains {3}")]
+    InvalidStorageLength(usize, usize, usize, usize),
+    #[error("Matrix has {0} entries, exceeding the limit of {MAX_MATRIX_ENTRIES}")]
+    EntryLimitExceeded(usize),
+    #[error("Matrix operation exceeds a supported resource bound: {0}")]
+    ResourceLimit(String),
+    #[error("A symbolic pivot or determinant may be zero; an unconditional result is unsafe")]
+    SymbolicZeroUndetermined,
+    #[error("Exact matrix division by zero")]
+    DivisionByZero,
 }
 
 /// Numeric value of an expression when it is fully constant.
@@ -160,25 +180,194 @@ fn exact_fold(expr: &Expr) -> Expr {
 }
 
 /// 2D Symbolic Matrix.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Matrix {
-    pub rows: usize,
-    pub cols: usize,
-    pub data: Vec<Expr>,
+    rows: usize,
+    cols: usize,
+    data: Vec<Expr>,
+}
+
+#[derive(Serialize)]
+struct MatrixWireRef<'a> {
+    schema_version: u32,
+    rows: usize,
+    cols: usize,
+    data: &'a [Expr],
+}
+
+struct BoundedExprVec(Vec<Expr>);
+
+impl<'de> Deserialize<'de> for BoundedExprVec {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct BoundedExprVecVisitor;
+
+        impl<'de> Visitor<'de> for BoundedExprVecVisitor {
+            type Value = BoundedExprVec;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(
+                    formatter,
+                    "an expression sequence with at most {MAX_MATRIX_ENTRIES} entries"
+                )
+            }
+
+            fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                let hinted = sequence.size_hint().unwrap_or(0);
+                if hinted > MAX_MATRIX_ENTRIES {
+                    return Err(serde::de::Error::custom(format!(
+                        "matrix data exceeds the entry limit of {MAX_MATRIX_ENTRIES}"
+                    )));
+                }
+                let mut data = Vec::with_capacity(hinted.min(MAX_MATRIX_ENTRIES));
+                loop {
+                    if data.len() == MAX_MATRIX_ENTRIES {
+                        if sequence.next_element::<IgnoredAny>()?.is_some() {
+                            return Err(serde::de::Error::custom(format!(
+                                "matrix data exceeds the entry limit of {MAX_MATRIX_ENTRIES}"
+                            )));
+                        }
+                        break;
+                    }
+                    let Some(entry) = sequence.next_element()? else {
+                        break;
+                    };
+                    data.push(entry);
+                }
+                Ok(BoundedExprVec(data))
+            }
+        }
+
+        deserializer.deserialize_seq(BoundedExprVecVisitor)
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MatrixWire {
+    schema_version: u32,
+    rows: usize,
+    cols: usize,
+    data: BoundedExprVec,
+}
+
+impl Serialize for Matrix {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.validate_shape().map_err(serde::ser::Error::custom)?;
+        MatrixWireRef {
+            schema_version: MATRIX_SCHEMA_VERSION,
+            rows: self.rows,
+            cols: self.cols,
+            data: &self.data,
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Matrix {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = MatrixWire::deserialize(deserializer)?;
+        if wire.schema_version != MATRIX_SCHEMA_VERSION {
+            return Err(serde::de::Error::custom(format!(
+                "unsupported matrix schema version {}",
+                wire.schema_version
+            )));
+        }
+        Self::new(wire.rows, wire.cols, wire.data.0).map_err(serde::de::Error::custom)
+    }
 }
 
 impl Matrix {
+    fn checked_element_count(rows: usize, cols: usize) -> Result<usize, MatrixError> {
+        let entries = rows
+            .checked_mul(cols)
+            .ok_or(MatrixError::ShapeOverflow(rows, cols))?;
+        if entries > MAX_MATRIX_ENTRIES {
+            return Err(MatrixError::EntryLimitExceeded(entries));
+        }
+        Ok(entries)
+    }
+
+    fn validate_shape(&self) -> Result<(), MatrixError> {
+        let expected = Self::checked_element_count(self.rows, self.cols)?;
+        if self.data.len() != expected {
+            return Err(MatrixError::InvalidStorageLength(
+                self.rows,
+                self.cols,
+                expected,
+                self.data.len(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn charge_matrix_storage<M: fsym_budget::BudgetMeter>(
+        meter: &mut M,
+        entries: usize,
+    ) -> Result<(), MatrixError> {
+        if entries == 0 {
+            return Ok(());
+        }
+        let bytes = entries
+            .checked_mul(std::mem::size_of::<Expr>())
+            .and_then(|value| u64::try_from(value).ok())
+            .ok_or_else(|| {
+                MatrixError::ResourceLimit(
+                    "matrix storage charge exceeds the supported u64 range".to_string(),
+                )
+            })?;
+        meter
+            .charge_batch(&[
+                (fsym_budget::Dimension::MemoryBytes, bytes),
+                (fsym_budget::Dimension::AllocationCount, 1),
+            ])
+            .map_err(|error| MatrixError::ResourceLimit(error.to_string()))
+    }
+
+    /// Number of rows.
+    pub fn rows(&self) -> usize {
+        self.rows
+    }
+
+    /// Number of columns.
+    pub fn cols(&self) -> usize {
+        self.cols
+    }
+
+    /// Flat row-major entries.
+    pub fn data(&self) -> &[Expr] {
+        &self.data
+    }
+
     /// Create a new matrix with shape `(rows, cols)` and flat elements.
     pub fn new(rows: usize, cols: usize, data: Vec<Expr>) -> Result<Self, MatrixError> {
-        if data.len() != rows * cols {
-            return Err(MatrixError::ShapeMismatch(rows, cols, 0, data.len()));
+        let expected = Self::checked_element_count(rows, cols)?;
+        if data.len() != expected {
+            return Err(MatrixError::InvalidStorageLength(
+                rows,
+                cols,
+                expected,
+                data.len(),
+            ));
         }
         Ok(Self { rows, cols, data })
     }
 
     /// Create an identity matrix of size N x N.
-    pub fn eye(n: usize) -> Self {
-        let mut data = Vec::with_capacity(n * n);
+    pub fn eye(n: usize) -> Result<Self, MatrixError> {
+        let entries = Self::checked_element_count(n, n)?;
+        let mut data = Vec::with_capacity(entries);
         for r in 0..n {
             for c in 0..n {
                 if r == c {
@@ -188,20 +377,13 @@ impl Matrix {
                 }
             }
         }
-        Self {
-            rows: n,
-            cols: n,
-            data,
-        }
+        Self::new(n, n, data)
     }
 
     /// Create a zero matrix of size `rows x cols`.
-    pub fn zeros(rows: usize, cols: usize) -> Self {
-        Self {
-            rows,
-            cols,
-            data: vec![Expr::from_i64(0); rows * cols],
-        }
+    pub fn zeros(rows: usize, cols: usize) -> Result<Self, MatrixError> {
+        let entries = Self::checked_element_count(rows, cols)?;
+        Self::new(rows, cols, vec![Expr::from_i64(0); entries])
     }
 
     /// Get element at (row, col).
@@ -241,14 +423,60 @@ impl Matrix {
 
     /// Matrix multiplication: self * other.
     pub fn matmul(&self, other: &Self) -> Result<Self, MatrixError> {
+        let mut meter = fsym_budget::Unbounded;
+        self.matmul_with_meter(other, &mut meter)
+    }
+
+    fn matmul_with_meter<M: fsym_budget::BudgetMeter>(
+        &self,
+        other: &Self,
+        meter: &mut M,
+    ) -> Result<Self, MatrixError> {
+        self.validate_shape()?;
+        other.validate_shape()?;
         if self.cols != other.rows {
             return Err(MatrixError::ShapeMismatch(
                 self.rows, self.cols, other.rows, other.cols,
             ));
         }
-        let mut result_data = Vec::with_capacity(self.rows * other.cols);
+        let result_entries = Self::checked_element_count(self.rows, other.cols)?;
+        let operation_count = (self.rows as u128)
+            .checked_mul(self.cols as u128)
+            .and_then(|value| value.checked_mul(other.cols as u128))
+            .and_then(|value| value.checked_mul(2))
+            .ok_or_else(|| {
+                MatrixError::ResourceLimit(
+                    "matrix multiplication operation count overflowed".to_string(),
+                )
+            })?;
+        if operation_count > MAX_MATRIX_MULTIPLICATION_OPS {
+            return Err(MatrixError::ResourceLimit(format!(
+                "matrix multiplication exceeds the operation limit of {MAX_MATRIX_MULTIPLICATION_OPS}"
+            )));
+        }
+        meter
+            .checkpoint()
+            .map_err(|error| MatrixError::ResourceLimit(error.to_string()))?;
+        Self::charge_matrix_storage(meter, result_entries)?;
+        let per_entry_work = u64::try_from(self.cols)
+            .ok()
+            .and_then(|inner| inner.checked_mul(2))
+            .ok_or_else(|| {
+                MatrixError::ResourceLimit(
+                    "matrix per-entry operation count exceeds u64".to_string(),
+                )
+            })?;
+        let mut result_data = Vec::with_capacity(result_entries);
         for r in 0..self.rows {
+            meter
+                .checkpoint()
+                .map_err(|error| MatrixError::ResourceLimit(error.to_string()))?;
             for c in 0..other.cols {
+                if per_entry_work != 0 {
+                    meter
+                        .charge(fsym_budget::Dimension::ComputeSteps, per_entry_work)
+                        .map_err(|error| MatrixError::ResourceLimit(error.to_string()))?;
+                }
                 let mut acc = Expr::from_i64(0);
                 for k in 0..self.cols {
                     let a = &self.data[r * self.cols + k];
@@ -267,10 +495,17 @@ impl Matrix {
 
     /// Determinant computation for square matrix.
     pub fn det(&self) -> Result<Expr, MatrixError> {
+        self.validate_shape()?;
         if self.rows != self.cols {
             return Err(MatrixError::NotSquare(self.rows, self.cols));
         }
+        if self.rows > MAX_DETERMINANT_DIMENSION {
+            return Err(MatrixError::ResourceLimit(format!(
+                "Laplace determinant expansion supports dimensions up to {MAX_DETERMINANT_DIMENSION}"
+            )));
+        }
         match self.rows {
+            0 => Ok(Expr::from_i64(1)),
             1 => Ok(self.data[0].clone()),
             2 => {
                 // ad - bc
@@ -352,19 +587,19 @@ impl Matrix {
         }
     }
 
-    /// Exact `a / b` as an expression; symbolic divisors stay as
-    /// multiplication by an inverse power.
-    pub(crate) fn exact_div(a: &Expr, b: &Expr) -> Expr {
+    /// Exact `a / b` when the divisor is provably nonzero.
+    pub(crate) fn exact_div(a: &Expr, b: &Expr) -> Result<Expr, MatrixError> {
         match (Self::numeric(a), Self::numeric(b)) {
-            (Some(x), Some(y)) if !y.is_zero() => from_rational(x / y),
-            (_, Some(y)) if y.is_zero() => panic!("exact_div by zero"),
-            _ => simplify(&Expr::Mul(vec![
+            (Some(x), Some(y)) if !y.is_zero() => Ok(from_rational(x / y)),
+            (_, Some(y)) if y.is_zero() => Err(MatrixError::DivisionByZero),
+            (_, Some(_)) => Ok(simplify(&Expr::Mul(vec![
                 a.clone(),
                 Expr::Pow(
                     std::sync::Arc::new(b.clone()),
                     std::sync::Arc::new(Expr::from_i64(-1)),
                 ),
-            ])),
+            ]))),
+            (_, None) => Err(MatrixError::SymbolicZeroUndetermined),
         }
     }
 
@@ -390,22 +625,24 @@ impl Matrix {
 
     /// Multiplicative inverse via the adjugate: `A^-1 = adj(A) / det(A)`.
     ///
-    /// Singularity is decided exactly when `det` folds to a number; a
-    /// symbolic determinant is treated as nonzero and carried through the
-    /// entries as an exact expression identity.
+    /// Singularity must be decided exactly. Symbolic determinants are
+    /// refused because an unconditional inverse would be invalid when the
+    /// determinant specializes to zero.
     pub fn inverse(&self) -> Result<Self, MatrixError> {
         if self.rows != self.cols {
             return Err(MatrixError::NotSquare(self.rows, self.cols));
         }
         let det = self.det()?;
-        if det.is_zero() {
-            return Err(MatrixError::SingularMatrix);
+        match Self::numeric(&det) {
+            Some(value) if value.is_zero() => return Err(MatrixError::SingularMatrix),
+            Some(_) => {}
+            None => return Err(MatrixError::SymbolicZeroUndetermined),
         }
-        let mut data = Vec::with_capacity(self.rows * self.cols);
+        let mut data = Vec::with_capacity(Self::checked_element_count(self.rows, self.cols)?);
         for r in 0..self.rows {
             for c in 0..self.cols {
                 // Adjugate is the transpose of the cofactor matrix.
-                data.push(Self::exact_div(&self.cofactor(c, r)?, &det));
+                data.push(Self::exact_div(&self.cofactor(c, r)?, &det)?);
             }
         }
         Ok(Self {
@@ -415,72 +652,40 @@ impl Matrix {
         })
     }
 
-    /// Rank via Gaussian elimination.
-    ///
-    /// Exact for matrices whose entries decide `is_zero()` numerically.
-    /// Symbolic entries are conservatively counted as nonzero pivots, so
-    /// the result is an upper bound on rank deficiency in that case —
-    /// never an invented collapse of symbolic rows to zero.
-    pub fn rank(&self) -> usize {
-        let mut work = self.data.clone();
-        let (rows, cols) = (self.rows, self.cols);
-        let at = |r: usize, c: usize| r * cols + c;
-        let mut pivot_row = 0;
-        for col in 0..cols {
-            if pivot_row >= rows {
-                break;
-            }
-            // Find a row with a provably nonzero entry in this column.
-            let mut pivot = None;
-            for r in pivot_row..rows {
-                if !work[at(r, col)].is_zero() {
-                    pivot = Some(r);
-                    break;
-                }
-            }
-            let Some(pivot) = pivot else {
-                continue;
-            };
-            if pivot != pivot_row {
-                for c in 0..cols {
-                    work.swap(at(pivot_row, c), at(pivot, c));
-                }
-            }
-            let pivot_val = work[at(pivot_row, col)].clone();
-            for r in (pivot_row + 1)..rows {
-                if work[at(r, col)].is_zero() {
-                    continue;
-                }
-                let factor = Self::exact_div(&work[at(r, col)], &pivot_val);
-                for c in 0..cols {
-                    let product = Self::exact_mul(&factor, &work[at(pivot_row, c)]);
-                    work[at(r, c)] = Self::exact_sub(&work[at(r, c)], &product);
-                }
-            }
-            pivot_row += 1;
-        }
-        pivot_row
+    /// Rank via exact row reduction. A pivot whose zero status depends on a
+    /// symbolic specialization is refused rather than guessed nonzero.
+    pub fn rank(&self) -> Result<usize, MatrixError> {
+        Ok(self.rref()?.1.len())
     }
 
-    /// Coefficients of `det(λI − A)` in ascending powers of `λ`.
+    /// Coefficients of `det(λI − A)` in descending powers of `λ`.
     ///
     /// Uses Faddeev–LeVerrier: exact for numeric entries and valid as
     /// symbolic expressions otherwise; division by the loop index stays
     /// inside exact rationals.
     pub fn char_poly(&self) -> Result<Vec<Expr>, MatrixError> {
+        self.validate_shape()?;
         if self.rows != self.cols {
             return Err(MatrixError::NotSquare(self.rows, self.cols));
         }
         let n = self.rows;
+        if n > MAX_CHARACTERISTIC_POLYNOMIAL_DIMENSION {
+            return Err(MatrixError::ResourceLimit(format!(
+                "characteristic polynomial supports dimensions up to {MAX_CHARACTERISTIC_POLYNOMIAL_DIMENSION}"
+            )));
+        }
         // M starts as the identity; coefficients collected descending
         // (c_n first), reversed by callers that need ascending order.
-        let mut m = Matrix::eye(n);
+        let mut m = Matrix::eye(n)?;
         let mut coeffs: Vec<Expr> = vec![Expr::from_i64(1)]; // c_n = 1
         for k in 1..=n {
             m = self.matmul(&m)?;
             let trace = m.trace()?;
-            let k_expr = Expr::from_i64(k as i64);
-            let c_k = Self::exact_mul(&Expr::from_i64(-1), &Self::exact_div(&trace, &k_expr));
+            let signed_k = i64::try_from(k).map_err(|_| {
+                MatrixError::ResourceLimit("matrix dimension exceeds i64".to_string())
+            })?;
+            let k_expr = Expr::from_i64(signed_k);
+            let c_k = Self::exact_mul(&Expr::from_i64(-1), &Self::exact_div(&trace, &k_expr)?);
             coeffs.push(c_k.clone());
             // M += c_k * I
             for i in 0..n {
@@ -497,6 +702,15 @@ impl Matrix {
     /// degrees up to 2. Larger degrees and symbolic characteristic
     /// coefficients are refused rather than answered incompletely.
     pub fn eigenvalues(&self) -> Result<Vec<Expr>, MatrixError> {
+        if self.rows != self.cols {
+            return Err(MatrixError::NotSquare(self.rows, self.cols));
+        }
+        if self.rows == 0 {
+            return Ok(Vec::new());
+        }
+        if self.rows > 2 {
+            return Err(MatrixError::EigenvaluesUnsupportedDegree(self.rows));
+        }
         let coeffs = self.char_poly()?;
         // char_poly yields descending powers (c_n first); UnivariatePoly
         // wants ascending, including the leading unit coefficient.
@@ -524,8 +738,57 @@ impl Matrix {
             }
         }
     }
+    fn select_numeric_pivot(
+        work: &[Expr],
+        rows: usize,
+        cols: usize,
+        first_row: usize,
+        col: usize,
+    ) -> Result<Option<usize>, MatrixError> {
+        let mut saw_symbolic_candidate = false;
+        for row in first_row..rows {
+            let entry = &work[row * cols + col];
+            match Self::numeric(entry) {
+                Some(value) if !value.is_zero() => return Ok(Some(row)),
+                Some(_) => {}
+                None if entry.is_zero() => {}
+                None => saw_symbolic_candidate = true,
+            }
+        }
+        if saw_symbolic_candidate {
+            Err(MatrixError::SymbolicZeroUndetermined)
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Computes the Reduced Row Echelon Form (RREF) and returns `(rref_matrix, pivot_columns)`.
-    pub fn rref(&self) -> (Matrix, Vec<usize>) {
+    pub fn rref(&self) -> Result<(Matrix, Vec<usize>), MatrixError> {
+        let mut meter = fsym_budget::Unbounded;
+        self.rref_with_meter(&mut meter)
+    }
+
+    fn rref_with_meter<M: fsym_budget::BudgetMeter>(
+        &self,
+        meter: &mut M,
+    ) -> Result<(Matrix, Vec<usize>), MatrixError> {
+        self.validate_shape()?;
+        let operation_bound = (self.rows as u128)
+            .checked_mul(self.cols as u128)
+            .and_then(|value| value.checked_mul(self.cols as u128))
+            .and_then(|value| value.checked_mul(2))
+            .ok_or_else(|| {
+                MatrixError::ResourceLimit("RREF operation bound overflowed".to_string())
+            })?;
+        if operation_bound > MAX_RREF_OPS {
+            return Err(MatrixError::ResourceLimit(format!(
+                "RREF exceeds the operation limit of {MAX_RREF_OPS}"
+            )));
+        }
+        meter
+            .checkpoint()
+            .map_err(|error| MatrixError::ResourceLimit(error.to_string()))?;
+        Self::charge_matrix_storage(meter, self.data.len())?;
         let mut work = self.data.clone();
         let (rows, cols) = (self.rows, self.cols);
         let at = |r: usize, c: usize| r * cols + c;
@@ -533,34 +796,66 @@ impl Matrix {
         let mut pivot_cols = Vec::new();
 
         for col in 0..cols {
+            meter
+                .checkpoint()
+                .map_err(|error| MatrixError::ResourceLimit(error.to_string()))?;
             if pivot_row >= rows {
                 break;
             }
-            let mut pivot = None;
-            for r in pivot_row..rows {
-                if !work[at(r, col)].is_zero() {
-                    pivot = Some(r);
-                    break;
-                }
+            let search_work = u64::try_from(rows - pivot_row).map_err(|_| {
+                MatrixError::ResourceLimit("matrix row count exceeds u64".to_string())
+            })?;
+            if search_work != 0 {
+                meter
+                    .charge(fsym_budget::Dimension::ComputeSteps, search_work)
+                    .map_err(|error| MatrixError::ResourceLimit(error.to_string()))?;
             }
+            let pivot = Self::select_numeric_pivot(&work, rows, cols, pivot_row, col)?;
             let Some(pivot) = pivot else {
                 continue;
             };
             if pivot != pivot_row {
+                let swap_work = u64::try_from(cols).map_err(|_| {
+                    MatrixError::ResourceLimit("matrix column count exceeds u64".to_string())
+                })?;
+                if swap_work != 0 {
+                    meter
+                        .charge(fsym_budget::Dimension::ComputeSteps, swap_work)
+                        .map_err(|error| MatrixError::ResourceLimit(error.to_string()))?;
+                }
                 for c in 0..cols {
                     work.swap(at(pivot_row, c), at(pivot, c));
                 }
             }
             // Scale pivot row so pivot element is 1
             let pivot_val = work[at(pivot_row, col)].clone();
+            let row_work = u64::try_from(cols).map_err(|_| {
+                MatrixError::ResourceLimit("matrix column count exceeds u64".to_string())
+            })?;
+            let elimination_work = row_work.checked_mul(2).ok_or_else(|| {
+                MatrixError::ResourceLimit("RREF row operation count exceeds u64".to_string())
+            })?;
+            if row_work != 0 {
+                meter
+                    .charge(fsym_budget::Dimension::ComputeSteps, row_work)
+                    .map_err(|error| MatrixError::ResourceLimit(error.to_string()))?;
+            }
             for c in 0..cols {
-                work[at(pivot_row, c)] = Self::exact_div(&work[at(pivot_row, c)], &pivot_val);
+                work[at(pivot_row, c)] = Self::exact_div(&work[at(pivot_row, c)], &pivot_val)?;
             }
 
             // Eliminate all other rows in this column (both above and below)
             for r in 0..rows {
                 if r == pivot_row || work[at(r, col)].is_zero() {
                     continue;
+                }
+                meter
+                    .checkpoint()
+                    .map_err(|error| MatrixError::ResourceLimit(error.to_string()))?;
+                if elimination_work != 0 {
+                    meter
+                        .charge(fsym_budget::Dimension::ComputeSteps, elimination_work)
+                        .map_err(|error| MatrixError::ResourceLimit(error.to_string()))?;
                 }
                 let factor = work[at(r, col)].clone();
                 for c in 0..cols {
@@ -573,15 +868,12 @@ impl Matrix {
             pivot_row += 1;
         }
 
-        (
-            Matrix::new(rows, cols, work).expect("valid shape"),
-            pivot_cols,
-        )
+        Ok((Matrix::new(rows, cols, work)?, pivot_cols))
     }
 
     /// Computes basis vectors spanning the nullspace (kernel) of this matrix: $A \cdot v = 0$.
-    pub fn nullspace(&self) -> Vec<Matrix> {
-        let (rref_mat, pivot_cols) = self.rref();
+    pub fn nullspace(&self) -> Result<Vec<Matrix>, MatrixError> {
+        let (rref_mat, pivot_cols) = self.rref()?;
         let n_cols = self.cols;
         let pivot_set: std::collections::HashSet<usize> = pivot_cols.iter().cloned().collect();
         let free_cols: Vec<usize> = (0..n_cols).filter(|c| !pivot_set.contains(c)).collect();
@@ -591,31 +883,32 @@ impl Matrix {
             let mut vec_data = vec![Expr::from_i64(0); n_cols];
             vec_data[free_col] = Expr::from_i64(1);
             for (pivot_row_idx, &pivot_col) in pivot_cols.iter().enumerate() {
-                let entry = rref_mat.get(pivot_row_idx, free_col).unwrap();
+                let entry = rref_mat.get(pivot_row_idx, free_col)?;
                 let neg_entry = Self::exact_mul(&Expr::from_i64(-1), entry);
                 vec_data[pivot_col] = neg_entry;
             }
-            basis.push(Matrix::new(n_cols, 1, vec_data).expect("valid column vector"));
+            basis.push(Matrix::new(n_cols, 1, vec_data)?);
         }
-        basis
+        Ok(basis)
     }
 
     /// Computes the exact Jacobian matrix for a system of expressions: $J_{i, j} = \frac{\partial f_i}{\partial x_j}$.
-    pub fn jacobian(exprs: &[Expr], vars: &[Symbol]) -> Matrix {
+    pub fn jacobian(exprs: &[Expr], vars: &[Symbol]) -> Result<Matrix, MatrixError> {
         let rows = exprs.len();
         let cols = vars.len();
-        let mut data = Vec::with_capacity(rows * cols);
+        let mut data = Vec::with_capacity(Self::checked_element_count(rows, cols)?);
         for expr in exprs {
             for var in vars {
                 let d = fsym_calculus::diff(expr, var);
                 data.push(simplify(&d));
             }
         }
-        Matrix::new(rows, cols, data).expect("valid jacobian shape")
+        Matrix::new(rows, cols, data)
     }
 
     /// Convert dense matrix to sparse matrix representation.
-    pub fn to_sparse(&self) -> SparseMatrix {
+    pub fn to_sparse(&self) -> Result<SparseMatrix, MatrixError> {
+        self.validate_shape()?;
         let mut entries = std::collections::BTreeMap::new();
         for r in 0..self.rows {
             for c in 0..self.cols {
@@ -634,16 +927,7 @@ impl Matrix {
         other: &Self,
         meter: &mut M,
     ) -> Result<Self, MatrixError> {
-        meter
-            .checkpoint()
-            .map_err(|e| MatrixError::Solver(e.to_string()))?;
-        let ops = (self.rows as u64)
-            .saturating_mul(self.cols as u64)
-            .saturating_mul(other.cols as u64);
-        meter
-            .charge(fsym_budget::Dimension::ComputeSteps, ops)
-            .map_err(|e| MatrixError::Solver(e.to_string()))?;
-        self.matmul(other)
+        self.matmul_with_meter(other, meter)
     }
 
     /// Metered RREF computation with cancellation checkpoint and step charging.
@@ -651,16 +935,7 @@ impl Matrix {
         &self,
         meter: &mut M,
     ) -> Result<(Self, Vec<usize>), MatrixError> {
-        meter
-            .checkpoint()
-            .map_err(|e| MatrixError::Solver(e.to_string()))?;
-        let ops = (self.rows as u64)
-            .saturating_mul(self.cols as u64)
-            .saturating_mul(self.cols as u64);
-        meter
-            .charge(fsym_budget::Dimension::ComputeSteps, ops)
-            .map_err(|e| MatrixError::Solver(e.to_string()))?;
-        Ok(self.rref())
+        self.rref_with_meter(meter)
     }
 }
 
@@ -705,7 +980,7 @@ mod tests {
 
     #[test]
     fn test_matrix_eye_matmul() {
-        let eye = Matrix::eye(3);
+        let eye = Matrix::eye(3).unwrap();
         let m = Matrix::new(
             3,
             3,
@@ -767,8 +1042,8 @@ mod tests {
 
     #[test]
     fn rank_matches_independent_row_count() {
-        assert_eq!(Matrix::eye(4).rank(), 4);
-        assert_eq!(Matrix::zeros(2, 3).rank(), 0);
+        assert_eq!(Matrix::eye(4).unwrap().rank().unwrap(), 4);
+        assert_eq!(Matrix::zeros(2, 3).unwrap().rank().unwrap(), 0);
 
         // Third row = row1 + row2 => rank 2.
         let m = Matrix::new(
@@ -787,7 +1062,7 @@ mod tests {
             ],
         )
         .unwrap();
-        assert_eq!(m.rank(), 2);
+        assert_eq!(m.rank().unwrap(), 2);
     }
 
     #[test]
@@ -834,7 +1109,7 @@ mod tests {
 
     #[test]
     fn eigenvalues_beyond_quadratic_degree_refused() {
-        let m = Matrix::eye(3);
+        let m = Matrix::eye(3).unwrap();
         assert_eq!(
             m.eigenvalues().unwrap_err(),
             MatrixError::EigenvaluesUnsupportedDegree(3)
@@ -880,7 +1155,7 @@ mod tests {
         )
         .unwrap();
 
-        let (rref_mat, pivots) = m.rref();
+        let (rref_mat, pivots) = m.rref().unwrap();
         assert_eq!(pivots, vec![0, 2]); // Pivots at col 0 and col 2
         // RREF should be:
         // [ [1, 2, 0],
@@ -892,7 +1167,7 @@ mod tests {
         assert_eq!(rref_mat.get(1, 1).unwrap(), &num(0));
         assert_eq!(rref_mat.get(1, 2).unwrap(), &num(1));
 
-        let ns = m.nullspace();
+        let ns = m.nullspace().unwrap();
         assert_eq!(ns.len(), 1); // 1 free variable (col 1)
         // Nullspace vector: [-2, 1, 0]^T
         let v = &ns[0];
@@ -927,7 +1202,7 @@ mod tests {
             Expr::Mul(vec![Expr::from_i64(3), Expr::Sym(y.clone())]),
         ]);
 
-        let j = Matrix::jacobian(&[f1, f2], &vars);
+        let j = Matrix::jacobian(&[f1, f2], &vars).unwrap();
         assert_eq!(j.rows, 2);
         assert_eq!(j.cols, 2);
 
@@ -958,13 +1233,81 @@ mod tests {
         )
         .unwrap();
 
-        let s = m.to_sparse();
-        assert_eq!(s.entries.len(), 3);
-        let m_roundtrip = s.to_dense();
+        let s = m.to_sparse().unwrap();
+        assert_eq!(s.entries().len(), 3);
+        let m_roundtrip = s.to_dense().unwrap();
         assert_eq!(m, m_roundtrip);
 
-        let s_eye = SparseMatrix::eye(3);
+        let s_eye = SparseMatrix::eye(3).unwrap();
         let s_prod = s.matmul(&s_eye).unwrap();
-        assert_eq!(s_prod.to_dense(), m);
+        assert_eq!(s_prod.to_dense().unwrap(), m);
+    }
+
+    #[test]
+    fn matrix_construction_and_wire_decode_reject_invalid_shapes() {
+        assert_eq!(
+            Matrix::new(usize::MAX, 2, Vec::new()).unwrap_err(),
+            MatrixError::ShapeOverflow(usize::MAX, 2)
+        );
+        assert!(matches!(
+            Matrix::new(MAX_MATRIX_ENTRIES + 1, 1, Vec::new()),
+            Err(MatrixError::EntryLimitExceeded(_))
+        ));
+
+        let valid = Matrix::new(1, 1, vec![num(1)]).unwrap();
+        let mut wire = serde_json::to_value(valid).unwrap();
+        wire["rows"] = serde_json::json!(2);
+        wire["cols"] = serde_json::json!(2);
+        assert!(serde_json::from_value::<Matrix>(wire).is_err());
+    }
+
+    #[test]
+    fn empty_and_scalar_matrix_algebra_is_exact() {
+        let empty = Matrix::new(0, 0, Vec::new()).unwrap();
+        assert_eq!(empty.det().unwrap(), num(1));
+        assert!(empty.eigenvalues().unwrap().is_empty());
+
+        let scalar = Matrix::new(1, 1, vec![num(4)]).unwrap();
+        assert_eq!(
+            scalar.inverse().unwrap().get(0, 0).unwrap(),
+            &Expr::Rational(BigRational::new(1.into(), 4.into()))
+        );
+    }
+
+    #[test]
+    fn symbolic_zero_decisions_are_refused() {
+        let symbolic = Matrix::new(1, 1, vec![Expr::symbol("x")]).unwrap();
+        assert_eq!(
+            symbolic.inverse().unwrap_err(),
+            MatrixError::SymbolicZeroUndetermined
+        );
+        assert_eq!(
+            symbolic.rank().unwrap_err(),
+            MatrixError::SymbolicZeroUndetermined
+        );
+        assert_eq!(
+            symbolic.rref().unwrap_err(),
+            MatrixError::SymbolicZeroUndetermined
+        );
+    }
+
+    #[test]
+    fn sparse_wire_rejects_out_of_bounds_entries() {
+        let mut entries = std::collections::BTreeMap::new();
+        entries.insert((0, 0), num(1));
+        let sparse = SparseMatrix::new(1, 1, entries).unwrap();
+        let mut wire = serde_json::to_value(sparse).unwrap();
+        wire["entries"][0]["row"] = serde_json::json!(1);
+        assert!(serde_json::from_value::<SparseMatrix>(wire).is_err());
+    }
+
+    #[test]
+    fn zero_dimension_metered_operations_do_not_issue_zero_charges() {
+        let empty = Matrix::new(0, 0, Vec::new()).unwrap();
+        let mut budget = fsym_budget::Budget::new(fsym_budget::BudgetLimits::uniform(1, 0));
+        assert_eq!(empty.metered_matmul(&empty, &mut budget).unwrap(), empty);
+        let (reduced, pivots) = empty.metered_rref(&mut budget).unwrap();
+        assert_eq!(reduced, empty);
+        assert!(pivots.is_empty());
     }
 }
