@@ -153,7 +153,11 @@ fn latex_prec(expr: &Expr, parent_prec: u8) -> String {
             let b = wrap_latex(base, PREC_POW);
             match exp.as_ref() {
                 Expr::Integer(n) if *n < zero() => {
-                    format!("\\frac{{1}}{{{}^{{{}}}}}", b, -n)
+                    if *n == -one() {
+                        format!("\\frac{{1}}{{{}}}", b)
+                    } else {
+                        format!("\\frac{{1}}{{{}^{{{}}}}}", b, -n)
+                    }
                 }
                 Expr::Rational(r) => rational_power_latex(&b, r.numer(), r.denom()),
                 e => format!("{}^{{{}}}", b, latex_prec(e, PREC_ADD)),
@@ -383,7 +387,9 @@ mod tests {
     #[test]
     fn test_latex_negative_exponent_is_reciprocal() {
         let e = pow(sym("x"), Expr::from_i64(-1));
-        assert_eq!(latex(&e), "\\frac{1}{x^{1}}");
+        assert_eq!(latex(&e), "\\frac{1}{x}");
+        let e2 = pow(sym("x"), Expr::from_i64(-2));
+        assert_eq!(latex(&e2), "\\frac{1}{x^{2}}");
     }
 
     #[test]

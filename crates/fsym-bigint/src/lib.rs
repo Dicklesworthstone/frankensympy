@@ -22,8 +22,9 @@
 //! # Limb accounting and cooperative cancellation
 //!
 //! [`BigInt::limb_count`] exposes u64-limb height (`LIMB_BITS = 64`) so callers can charge
-//! budget per unit of work. [`metered_multiply`] and [`metered_div_rem`] use deliberately
-//! simple base-$2^{32}$ reference algorithms with safe points inside their limb loops.
+//! budget per unit of work. [`metered_add`], [`metered_subtract`], [`metered_multiply`], and
+//! [`metered_div_rem`] use deliberately simple base-$2^{32}$ reference algorithms with safe points
+//! inside their limb loops.
 
 #![forbid(unsafe_code)]
 
@@ -1147,21 +1148,120 @@ fn metered_finish<T, M: BudgetMeter>(value: T, meter: &mut M) -> Result<T, Meter
     Ok(value)
 }
 
-fn metered_subtract<M: BudgetMeter>(
+/// Cancellation-first signed addition with safe points inside the base-$2^{32}$ limb loop.
+pub fn metered_add<M: BudgetMeter>(
     lhs: &BigInt,
     rhs: &BigInt,
     meter: &mut M,
 ) -> Result<BigInt, MeterError> {
+    metered_signed_sum(lhs, rhs, false, meter)
+}
+
+/// Cancellation-first signed subtraction with safe points inside the base-$2^{32}$ limb loop.
+pub fn metered_subtract<M: BudgetMeter>(
+    lhs: &BigInt,
+    rhs: &BigInt,
+    meter: &mut M,
+) -> Result<BigInt, MeterError> {
+    metered_signed_sum(lhs, rhs, true, meter)
+}
+
+fn metered_signed_sum<M: BudgetMeter>(
+    lhs: &BigInt,
+    rhs: &BigInt,
+    subtract: bool,
+    meter: &mut M,
+) -> Result<BigInt, MeterError> {
     meter.checkpoint()?;
-    let output_limbs = lhs.limb_count().max(rhs.limb_count()).saturating_add(1);
+    if lhs.is_zero() && rhs.is_zero() {
+        return metered_finish(BigInt::zero(), meter);
+    }
+
+    let lhs_len = lhs.0.iter_u32_digits().len();
+    let rhs_len = rhs.0.iter_u32_digits().len();
+    let output_capacity = lhs_len.max(rhs_len).saturating_add(1);
+    let transient_digits = lhs_len
+        .saturating_add(rhs_len)
+        .saturating_add(output_capacity);
     meter.charge_batch(&[
-        (Dimension::ComputeSteps, output_limbs.max(1)),
-        (Dimension::MemoryBytes, output_limbs.saturating_mul(8)),
-        (Dimension::AllocationCount, 1),
+        (
+            Dimension::MemoryBytes,
+            u64::try_from(transient_digits)
+                .unwrap_or(u64::MAX)
+                .saturating_mul(4),
+        ),
+        (Dimension::AllocationCount, 3),
     ])?;
-    let result = lhs - rhs;
+
+    let mut lhs_digits = copy_u32_digits(&lhs.0, lhs_len, meter)?;
+    let mut rhs_digits = copy_u32_digits(&rhs.0, rhs_len, meter)?;
+    let lhs_sign = lhs.0.sign();
+    let rhs_sign = if subtract {
+        opposite_sign(rhs.0.sign())
+    } else {
+        rhs.0.sign()
+    };
+
+    let (digits, sign) = if lhs_sign == rhs_sign {
+        (
+            add_digits(&lhs_digits, &rhs_digits, output_capacity, meter)?,
+            lhs_sign,
+        )
+    } else {
+        match compare_digits(&lhs_digits, &rhs_digits, meter)? {
+            std::cmp::Ordering::Greater => {
+                subtract_digits(&mut lhs_digits, &rhs_digits, meter)?;
+                (lhs_digits, lhs_sign)
+            }
+            std::cmp::Ordering::Less => {
+                subtract_digits(&mut rhs_digits, &lhs_digits, meter)?;
+                (rhs_digits, rhs_sign)
+            }
+            std::cmp::Ordering::Equal => (Vec::new(), Sign::NoSign),
+        }
+    };
+
     meter.checkpoint()?;
-    Ok(result)
+    let magnitude = BigUint::new(digits);
+    let sign = if magnitude.is_zero() {
+        Sign::NoSign
+    } else {
+        sign
+    };
+    metered_finish(BigInt(Substrate::from_biguint(sign, magnitude)), meter)
+}
+
+fn opposite_sign(sign: Sign) -> Sign {
+    match sign {
+        Sign::Minus => Sign::Plus,
+        Sign::NoSign => Sign::NoSign,
+        Sign::Plus => Sign::Minus,
+    }
+}
+
+fn add_digits<M: BudgetMeter>(
+    lhs: &[u32],
+    rhs: &[u32],
+    capacity: usize,
+    meter: &mut M,
+) -> Result<Vec<u32>, MeterError> {
+    let mut output = Vec::with_capacity(capacity);
+    let mut carry = 0u64;
+    for index in 0..lhs.len().max(rhs.len()) {
+        meter.checkpoint()?;
+        meter.charge(Dimension::ComputeSteps, 1)?;
+        let sum = u64::from(lhs.get(index).copied().unwrap_or(0))
+            + u64::from(rhs.get(index).copied().unwrap_or(0))
+            + carry;
+        output.push(sum as u32);
+        carry = sum >> 32;
+    }
+    if carry != 0 {
+        meter.checkpoint()?;
+        meter.charge(Dimension::ComputeSteps, 1)?;
+        output.push(carry as u32);
+    }
+    Ok(output)
 }
 
 fn copy_u32_digits<M: BudgetMeter>(
@@ -1414,6 +1514,61 @@ mod tests {
     }
 
     #[test]
+    fn metered_addition_and_subtraction_match_signed_native_lanes() {
+        let values = [
+            BigInt::zero(),
+            BigInt::one(),
+            BigInt::from(-1),
+            (BigInt::one() << 257) + 65_537i64,
+            -((BigInt::one() << 263) + 17i64),
+        ];
+        for lhs in &values {
+            for rhs in &values {
+                let mut meter = Unbounded;
+                assert_eq!(metered_add(lhs, rhs, &mut meter).unwrap(), lhs + rhs);
+                let mut meter = Unbounded;
+                assert_eq!(metered_subtract(lhs, rhs, &mut meter).unwrap(), lhs - rhs);
+            }
+        }
+    }
+
+    #[test]
+    fn metered_addition_cancels_inside_limb_work_and_before_publication() {
+        let lhs = (BigInt::one() << 32_768) - 1i64;
+        let rhs = (BigInt::one() << 32_767) + 65_537i64;
+        let mut baseline = CancelAfter {
+            cancel_at_checkpoint: usize::MAX,
+            checkpoints: 0,
+            compute_steps: 0,
+        };
+        assert_eq!(metered_add(&lhs, &rhs, &mut baseline).unwrap(), &lhs + &rhs);
+        assert!(baseline.checkpoints > 2_000);
+
+        let cancel_at_checkpoint = baseline.checkpoints * 3 / 4;
+        let mut meter = CancelAfter {
+            cancel_at_checkpoint,
+            checkpoints: 0,
+            compute_steps: 0,
+        };
+        assert_eq!(
+            metered_add(&lhs, &rhs, &mut meter),
+            Err(MeterError::Cancelled)
+        );
+        assert_eq!(meter.checkpoints, cancel_at_checkpoint);
+        assert!(meter.compute_steps < baseline.compute_steps);
+
+        let mut meter = CancelAfter {
+            cancel_at_checkpoint: baseline.checkpoints,
+            checkpoints: 0,
+            compute_steps: 0,
+        };
+        assert_eq!(
+            metered_add(&lhs, &rhs, &mut meter),
+            Err(MeterError::Cancelled)
+        );
+    }
+
+    #[test]
     fn refused_arithmetic_batch_does_not_burn_memory_allowance() {
         let mut limits = BudgetLimits::uniform(1_000_000, 0);
         limits.dimensions[Dimension::AllocationCount.index()] = 2;
@@ -1567,6 +1722,19 @@ mod tests {
             prop_assert_eq!(&reference, &native);
             prop_assert_eq!(&reference, &metered);
             prop_assert_eq!(&a * &b, native);
+        }
+
+        #[test]
+        fn metered_add_sub_match_broad_signed_operands(
+            a_bytes in proptest::collection::vec(any::<u8>(), 0..257),
+            b_bytes in proptest::collection::vec(any::<u8>(), 0..257),
+        ) {
+            let a = BigInt::from_signed_bytes_be(&a_bytes);
+            let b = BigInt::from_signed_bytes_be(&b_bytes);
+            let mut meter = Unbounded;
+            prop_assert_eq!(metered_add(&a, &b, &mut meter).unwrap(), &a + &b);
+            let mut meter = Unbounded;
+            prop_assert_eq!(metered_subtract(&a, &b, &mut meter).unwrap(), &a - &b);
         }
 
 

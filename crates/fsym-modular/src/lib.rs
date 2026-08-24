@@ -1249,10 +1249,10 @@ mod tests {
         assert_terminal_checkpoint(None, 51, |meter| {
             metered_exact_div(&BigInt::from(35), &BigInt::from(6), meter)
         });
-        assert_terminal_checkpoint(None, 126, |meter| {
+        assert_terminal_checkpoint(None, 142, |meter| {
             metered_mod_inverse(&BigInt::from(6), &BigInt::from(9), meter)
         });
-        assert_terminal_checkpoint(Some(BigInt::from(6)), 194, |meter| {
+        assert_terminal_checkpoint(Some(BigInt::from(6)), 218, |meter| {
             metered_mod_inverse(&BigInt::from(17), &BigInt::from(101), meter)
         });
         assert_terminal_checkpoint(None, 51, |meter| {

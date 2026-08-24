@@ -153,11 +153,11 @@ pub fn standard_rules() -> Vec<RewriteRule> {
         },
         RewriteRule {
             name: "trig_zero_eval",
-            description: "sin(0) => 0, cos(0) => 1, tan(0) => 0",
+            description: "sin(0) => 0, cos(0) => 1, tan(0) => 0, exp(0) => 1, sinh(0) => 0, cosh(0) => 1, tanh(0) => 0",
             transform: |expr, _ctx| match expr {
                 Expr::Function(name, args) if args.len() == 1 && args[0].is_zero() => {
                     match name.as_str() {
-                        "sin" | "tan" => {
+                        "sin" | "tan" | "sinh" | "tanh" => {
                             let out = Expr::from_i64(0);
                             Some((
                                 out.clone(),
@@ -168,7 +168,7 @@ pub fn standard_rules() -> Vec<RewriteRule> {
                                 },
                             ))
                         }
-                        "cos" => {
+                        "cos" | "cosh" | "exp" => {
                             let out = Expr::from_i64(1);
                             Some((
                                 out.clone(),

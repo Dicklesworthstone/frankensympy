@@ -1035,58 +1035,72 @@ fn check_definitional_reduction(
                 }),
             }
         }
-        "constant_eval_add" => match (lhs, rhs) {
-            (Expr::Add(terms), Expr::Integer(res)) => {
-                let mut sum = fsym_core::BigInt::zero();
+        "constant_eval_add" => match lhs {
+            Expr::Add(terms) => {
+                let mut sum = BigRational::from_integer(BigInt::from(0));
                 for t in terms {
-                    if let Expr::Integer(n) = t {
-                        sum = &sum + n;
-                    } else {
-                        return Err(KernelError::InvalidDefinitionalReduction {
-                            rule_name: rule_name.to_string(),
-                            reason: "All Add terms must be integer literals".to_string(),
-                        });
+                    match t {
+                        Expr::Integer(n) => sum += BigRational::from_integer(n.clone()),
+                        Expr::Rational(r) => sum += r.clone(),
+                        _ => {
+                            return Err(KernelError::InvalidDefinitionalReduction {
+                                rule_name: rule_name.to_string(),
+                                reason: "All Add terms must be numeric literals".to_string(),
+                            });
+                        }
                     }
                 }
-                if &sum == res {
+                let matches_rhs = match rhs {
+                    Expr::Integer(res) => sum.is_integer() && &sum.to_integer() == res,
+                    Expr::Rational(res) => &sum == res,
+                    _ => false,
+                };
+                if matches_rhs {
                     Ok(Claim::equality(lhs.clone(), rhs.clone()))
                 } else {
                     Err(KernelError::InvalidDefinitionalReduction {
                         rule_name: rule_name.to_string(),
-                        reason: format!("Sum computed {sum} != RHS {res}"),
+                        reason: format!("Sum computed {sum} != RHS {rhs}"),
                     })
                 }
             }
             _ => Err(KernelError::InvalidDefinitionalReduction {
                 rule_name: rule_name.to_string(),
-                reason: "constant_eval_add requires Add of integers to Integer".to_string(),
+                reason: "constant_eval_add requires Add of numbers to number".to_string(),
             }),
         },
-        "constant_eval_mul" => match (lhs, rhs) {
-            (Expr::Mul(terms), Expr::Integer(res)) => {
-                let mut prod = fsym_core::BigInt::one();
+        "constant_eval_mul" => match lhs {
+            Expr::Mul(terms) => {
+                let mut prod = BigRational::from_integer(BigInt::from(1));
                 for t in terms {
-                    if let Expr::Integer(n) = t {
-                        prod = &prod * n;
-                    } else {
-                        return Err(KernelError::InvalidDefinitionalReduction {
-                            rule_name: rule_name.to_string(),
-                            reason: "All Mul terms must be integer literals".to_string(),
-                        });
+                    match t {
+                        Expr::Integer(n) => prod *= BigRational::from_integer(n.clone()),
+                        Expr::Rational(r) => prod *= r.clone(),
+                        _ => {
+                            return Err(KernelError::InvalidDefinitionalReduction {
+                                rule_name: rule_name.to_string(),
+                                reason: "All Mul terms must be numeric literals".to_string(),
+                            });
+                        }
                     }
                 }
-                if &prod == res {
+                let matches_rhs = match rhs {
+                    Expr::Integer(res) => prod.is_integer() && &prod.to_integer() == res,
+                    Expr::Rational(res) => &prod == res,
+                    _ => false,
+                };
+                if matches_rhs {
                     Ok(Claim::equality(lhs.clone(), rhs.clone()))
                 } else {
                     Err(KernelError::InvalidDefinitionalReduction {
                         rule_name: rule_name.to_string(),
-                        reason: format!("Product computed {prod} != RHS {res}"),
+                        reason: format!("Product computed {prod} != RHS {rhs}"),
                     })
                 }
             }
             _ => Err(KernelError::InvalidDefinitionalReduction {
                 rule_name: rule_name.to_string(),
-                reason: "constant_eval_mul requires Mul of integers to Integer".to_string(),
+                reason: "constant_eval_mul requires Mul of numbers to number".to_string(),
             }),
         },
         "pow_zero_identity" => match lhs {
@@ -1107,11 +1121,15 @@ fn check_definitional_reduction(
                 reason: "pow_one_identity requires Pow(base, 1) -> base".to_string(),
             }),
         },
-        "trig_zero_eval" => match lhs {
+        "trig_zero_eval" | "elementary_zero_eval" => match lhs {
             Expr::Function(name, args) if args.len() == 1 && args[0].is_zero() => {
                 match name.as_str() {
-                    "sin" | "tan" if rhs.is_zero() => Ok(Claim::equality(lhs.clone(), rhs.clone())),
-                    "cos" if rhs.is_one() => Ok(Claim::equality(lhs.clone(), rhs.clone())),
+                    "sin" | "tan" | "sinh" | "tanh" if rhs.is_zero() => {
+                        Ok(Claim::equality(lhs.clone(), rhs.clone()))
+                    }
+                    "cos" | "cosh" | "exp" if rhs.is_one() => {
+                        Ok(Claim::equality(lhs.clone(), rhs.clone()))
+                    }
                     _ => Err(KernelError::InvalidDefinitionalReduction {
                         rule_name: rule_name.to_string(),
                         reason: "trig_zero_eval target value mismatch".to_string(),
@@ -1120,7 +1138,7 @@ fn check_definitional_reduction(
             }
             _ => Err(KernelError::InvalidDefinitionalReduction {
                 rule_name: rule_name.to_string(),
-                reason: "trig_zero_eval requires trig function of 0".to_string(),
+                reason: "trig_zero_eval requires function of 0".to_string(),
             }),
         },
         "simplify_normal_form" => check_polynomial_normal_form(lhs, rhs, rule_name)

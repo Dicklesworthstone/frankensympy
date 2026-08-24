@@ -132,7 +132,21 @@ impl SymSet {
         match self {
             SymSet::EmptySet => Some(false),
             SymSet::UniversalSet => Some(true),
-            SymSet::FiniteSet(elems) => Some(elems.contains(elem)),
+            SymSet::FiniteSet(elems) => {
+                if elems.contains(elem) {
+                    return Some(true);
+                }
+                if let Some(el_num) = numeric_value(elem) {
+                    for e in elems {
+                        if let Some(e_num) = numeric_value(e)
+                            && el_num == e_num
+                        {
+                            return Some(true);
+                        }
+                    }
+                }
+                Some(false)
+            }
             SymSet::Interval {
                 start,
                 end,

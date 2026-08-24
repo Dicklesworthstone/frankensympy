@@ -12,7 +12,8 @@
 #![forbid(unsafe_code)]
 
 use fsym_bigint::{
-    BigInt, NonZeroBigInt, gcd, metered_div_rem_nonzero, metered_gcd, metered_multiply,
+    BigInt, NonZeroBigInt, gcd, metered_add as metered_bigint_add, metered_div_rem_nonzero,
+    metered_gcd, metered_multiply, metered_subtract as metered_bigint_subtract,
 };
 use fsym_budget::{BudgetMeter, Dimension, MeterError};
 use num_traits::{Num, One, Signed, ToPrimitive, Zero};
@@ -449,8 +450,8 @@ impl BigRational {
                 metered_div_rem_nonzero(&numerator, divisor, meter)?;
             if remainder.is_negative() {
                 let one = metered_one(meter)?;
-                quotient = metered_subtract(&quotient, &one, meter)?;
-                remainder = metered_add(&remainder, &denominator, meter)?;
+                quotient = metered_bigint_subtract(&quotient, &one, meter)?;
+                remainder = metered_bigint_add(&remainder, &denominator, meter)?;
             }
             charge_persisted_coefficient(&quotient, meter)?;
             debug_assert!(coefficients.len() < coefficient_capacity);
@@ -504,7 +505,7 @@ impl BigRational {
                 return metered_finish(None, meter);
             }
             let product = metered_multiply(coefficient, &numerator, meter)?;
-            let next_numerator = metered_add(&product, &denominator, meter)?;
+            let next_numerator = metered_bigint_add(&product, &denominator, meter)?;
             denominator = numerator;
             numerator = next_numerator;
         }
@@ -557,9 +558,9 @@ fn metered_sum<M: BudgetMeter>(
     let left_scaled = metered_multiply(lhs.numer(), &right_denominator, meter)?;
     let right_scaled = metered_multiply(rhs.numer(), &left_denominator, meter)?;
     let combined = if subtract {
-        metered_subtract(&left_scaled, &right_scaled, meter)?
+        metered_bigint_subtract(&left_scaled, &right_scaled, meter)?
     } else {
-        metered_add(&left_scaled, &right_scaled, meter)?
+        metered_bigint_add(&left_scaled, &right_scaled, meter)?
     };
     let reduction = metered_gcd(&combined, &denominator_gcd, meter)?;
     let numerator =
@@ -645,40 +646,6 @@ fn charge_persisted_coefficient<M: BudgetMeter>(
         value.limb_count().max(1).saturating_mul(8),
     )?;
     meter.checkpoint()
-}
-
-fn metered_add<M: BudgetMeter>(
-    lhs: &BigInt,
-    rhs: &BigInt,
-    meter: &mut M,
-) -> Result<BigInt, MeterError> {
-    meter.checkpoint()?;
-    let output_limbs = lhs.limb_count().max(rhs.limb_count()).saturating_add(1);
-    meter.charge_batch(&[
-        (Dimension::ComputeSteps, output_limbs.max(1)),
-        (Dimension::MemoryBytes, output_limbs.saturating_mul(8)),
-        (Dimension::AllocationCount, 1),
-    ])?;
-    let result = lhs + rhs;
-    meter.checkpoint()?;
-    Ok(result)
-}
-
-fn metered_subtract<M: BudgetMeter>(
-    lhs: &BigInt,
-    rhs: &BigInt,
-    meter: &mut M,
-) -> Result<BigInt, MeterError> {
-    meter.checkpoint()?;
-    let output_limbs = lhs.limb_count().max(rhs.limb_count()).saturating_add(1);
-    meter.charge_batch(&[
-        (Dimension::ComputeSteps, output_limbs.max(1)),
-        (Dimension::MemoryBytes, output_limbs.saturating_mul(8)),
-        (Dimension::AllocationCount, 1),
-    ])?;
-    let result = lhs - rhs;
-    meter.checkpoint()?;
-    Ok(result)
 }
 
 fn metered_negate<M: BudgetMeter>(value: BigInt, meter: &mut M) -> Result<BigInt, MeterError> {
@@ -945,6 +912,27 @@ mod tests {
             lhs.cross_cancelled_rem(&rhs),
             BigRational::new(BigInt::from(-14), BigInt::from(15))
         );
+
+        let shared_denominator = BigInt::from(15);
+        let reduction_lhs = BigRational::new(BigInt::one(), shared_denominator.clone());
+        let add_rhs = BigRational::new(BigInt::from(13), &shared_denominator * 2i64);
+        let sub_rhs = BigRational::new(BigInt::from(-13), &shared_denominator * 2i64);
+        assert_eq!(
+            reduction_lhs.cross_cancelled_add(&add_rhs),
+            BigRational::new(BigInt::one(), BigInt::from(2))
+        );
+        assert_eq!(
+            reduction_lhs.cross_cancelled_sub(&sub_rhs),
+            BigRational::new(BigInt::one(), BigInt::from(2))
+        );
+        let negative_divisor = BigRational::new(BigInt::from(-4), BigInt::from(5));
+        let signed_quotient = BigRational::new(BigInt::from(2), BigInt::from(3))
+            .cross_cancelled_div(&negative_divisor);
+        assert_eq!(
+            signed_quotient,
+            BigRational::new(BigInt::from(-5), BigInt::from(6))
+        );
+        assert!(signed_quotient.denom().is_positive());
 
         assert_eq!(&lhs + &rhs, lhs.cross_cancelled_add(&rhs));
         assert_eq!(&lhs - &rhs, lhs.cross_cancelled_sub(&rhs));

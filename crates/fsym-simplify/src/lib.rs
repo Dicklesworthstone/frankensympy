@@ -292,18 +292,16 @@ fn simplify_at<M: BudgetMeter>(
         }
         Expr::Function(name, args) => {
             check_fanout(args.len())?;
-            if name == "sin" && args.len() == 1 && args[0].is_zero() {
-                return Ok(Expr::from_i64(0));
-            }
-            if name == "cos" && args.len() == 1 && args[0].is_zero() {
-                return Ok(Expr::from_i64(1));
-            }
-            if name == "tan" && args.len() == 1 && args[0].is_zero() {
-                return Ok(Expr::from_i64(0));
-            }
             let mut simplified_args = Vec::with_capacity(args.len());
             for a in args {
                 simplified_args.push(simplify_at(a, depth + 1, m)?);
+            }
+            if simplified_args.len() == 1 && simplified_args[0].is_zero() {
+                match name.as_str() {
+                    "sin" | "tan" | "sinh" | "tanh" => return Ok(Expr::from_i64(0)),
+                    "cos" | "cosh" | "exp" => return Ok(Expr::from_i64(1)),
+                    _ => {}
+                }
             }
             Ok(Expr::Function(name.clone(), simplified_args))
         }

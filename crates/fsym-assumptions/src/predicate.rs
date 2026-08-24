@@ -174,6 +174,19 @@ pub fn inherent_facts(expr: &Expr) -> Option<BTreeSet<Predicate>> {
                 } else {
                     Predicate::Negative.closure()
                 });
+                if r.is_integer() {
+                    facts.extend(Predicate::Integer.closure());
+                    let two = fsym_core::BigInt::from(2i64);
+                    let even = (r.to_integer() % &two).is_zero();
+                    facts.extend(
+                        if even {
+                            Predicate::Even
+                        } else {
+                            Predicate::Odd
+                        }
+                        .closure(),
+                    );
+                }
             }
             Some(facts)
         }
