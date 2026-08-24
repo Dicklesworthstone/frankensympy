@@ -73,8 +73,241 @@ pub fn select_strategy(max_magnitude_bits: u64) -> Strategy {
 #[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct BigInt(Substrate);
 
-/// Exact rational number parameterized over [`BigInt`].
-pub type BigRational = num_rational::Ratio<BigInt>;
+/// Owned, canonical arbitrary-precision rational.
+///
+/// The provisional `num-rational` substrate is deliberately private so replacing it cannot
+/// change higher-layer term or domain schemas.
+#[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct BigRational(num_rational::Ratio<BigInt>);
+
+impl BigRational {
+    /// Constructs a reduced rational with a positive denominator.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `denom` is zero.
+    pub fn new(numer: BigInt, denom: BigInt) -> Self {
+        Self(num_rational::Ratio::new(numer, denom))
+    }
+
+    /// Constructs a rational whose denominator is one.
+    pub fn from_integer(value: BigInt) -> Self {
+        Self(num_rational::Ratio::from_integer(value))
+    }
+
+    /// Returns the canonical numerator.
+    pub fn numer(&self) -> &BigInt {
+        self.0.numer()
+    }
+
+    /// Returns the positive canonical denominator.
+    pub fn denom(&self) -> &BigInt {
+        self.0.denom()
+    }
+
+    /// Returns whether the denominator is one.
+    pub fn is_integer(&self) -> bool {
+        self.0.is_integer()
+    }
+
+    /// Truncates toward zero.
+    pub fn to_integer(&self) -> BigInt {
+        self.0.to_integer()
+    }
+
+    /// Returns the reciprocal.
+    ///
+    /// # Panics
+    ///
+    /// Panics when this rational is zero.
+    pub fn recip(&self) -> Self {
+        Self(self.0.recip())
+    }
+
+    /// Raises this rational to a signed integer power.
+    pub fn pow(&self, exponent: i32) -> Self {
+        Self(num_rational::Ratio::<BigInt>::pow(&self.0, exponent))
+    }
+}
+
+impl fmt::Debug for BigRational {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&self.0, f)
+    }
+}
+
+impl fmt::Display for BigRational {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&self.0, f)
+    }
+}
+
+impl From<BigInt> for BigRational {
+    fn from(value: BigInt) -> Self {
+        Self::from_integer(value)
+    }
+}
+
+impl From<i64> for BigRational {
+    fn from(value: i64) -> Self {
+        Self::from_integer(BigInt::from(value))
+    }
+}
+
+impl Zero for BigRational {
+    fn zero() -> Self {
+        Self(num_rational::Ratio::zero())
+    }
+
+    fn is_zero(&self) -> bool {
+        self.0.is_zero()
+    }
+}
+
+impl One for BigRational {
+    fn one() -> Self {
+        Self(num_rational::Ratio::one())
+    }
+
+    fn is_one(&self) -> bool {
+        self.0.is_one()
+    }
+}
+
+macro_rules! impl_rational_binary_op {
+    ($trait:ident, $method:ident, $operator:tt) => {
+        impl $trait for BigRational {
+            type Output = BigRational;
+
+            fn $method(self, rhs: BigRational) -> Self::Output {
+                BigRational(self.0 $operator rhs.0)
+            }
+        }
+
+        impl $trait<&BigRational> for BigRational {
+            type Output = BigRational;
+
+            fn $method(self, rhs: &BigRational) -> Self::Output {
+                BigRational(self.0 $operator &rhs.0)
+            }
+        }
+
+        impl $trait<BigRational> for &BigRational {
+            type Output = BigRational;
+
+            fn $method(self, rhs: BigRational) -> Self::Output {
+                BigRational(&self.0 $operator rhs.0)
+            }
+        }
+
+        impl $trait<&BigRational> for &BigRational {
+            type Output = BigRational;
+
+            fn $method(self, rhs: &BigRational) -> Self::Output {
+                BigRational(&self.0 $operator &rhs.0)
+            }
+        }
+    };
+}
+
+impl_rational_binary_op!(Add, add, +);
+impl_rational_binary_op!(Sub, sub, -);
+impl_rational_binary_op!(Mul, mul, *);
+impl_rational_binary_op!(Div, div, /);
+impl_rational_binary_op!(Rem, rem, %);
+
+macro_rules! impl_rational_assign_op {
+    ($trait:ident, $method:ident, $operator:tt) => {
+        impl $trait for BigRational {
+            fn $method(&mut self, rhs: BigRational) {
+                self.0 $operator rhs.0;
+            }
+        }
+
+        impl $trait<&BigRational> for BigRational {
+            fn $method(&mut self, rhs: &BigRational) {
+                self.0 $operator &rhs.0;
+            }
+        }
+    };
+}
+
+impl_rational_assign_op!(AddAssign, add_assign, +=);
+impl_rational_assign_op!(SubAssign, sub_assign, -=);
+impl_rational_assign_op!(MulAssign, mul_assign, *=);
+impl_rational_assign_op!(DivAssign, div_assign, /=);
+impl_rational_assign_op!(RemAssign, rem_assign, %=);
+
+impl Neg for BigRational {
+    type Output = BigRational;
+
+    fn neg(self) -> Self::Output {
+        BigRational(-self.0)
+    }
+}
+
+impl Neg for &BigRational {
+    type Output = BigRational;
+
+    fn neg(self) -> Self::Output {
+        BigRational(-&self.0)
+    }
+}
+
+impl Num for BigRational {
+    type FromStrRadixErr = String;
+
+    fn from_str_radix(src: &str, radix: u32) -> Result<Self, Self::FromStrRadixErr> {
+        num_rational::Ratio::from_str_radix(src, radix)
+            .map(Self)
+            .map_err(|error| error.to_string())
+    }
+}
+
+impl FromStr for BigRational {
+    type Err = String;
+
+    fn from_str(src: &str) -> Result<Self, Self::Err> {
+        Self::from_str_radix(src, 10)
+    }
+}
+
+impl Signed for BigRational {
+    fn abs(&self) -> Self {
+        Self(self.0.abs())
+    }
+
+    fn abs_sub(&self, other: &Self) -> Self {
+        Self(self.0.abs_sub(&other.0))
+    }
+
+    fn signum(&self) -> Self {
+        Self(self.0.signum())
+    }
+
+    fn is_positive(&self) -> bool {
+        self.0.is_positive()
+    }
+
+    fn is_negative(&self) -> bool {
+        self.0.is_negative()
+    }
+}
+
+impl ToPrimitive for BigRational {
+    fn to_i64(&self) -> Option<i64> {
+        self.to_integer().to_i64()
+    }
+
+    fn to_u64(&self) -> Option<u64> {
+        self.to_integer().to_u64()
+    }
+
+    fn to_f64(&self) -> Option<f64> {
+        Some(self.numer().to_f64()? / self.denom().to_f64()?)
+    }
+}
 
 impl BigInt {
     pub fn zero() -> Self {
@@ -547,60 +780,60 @@ impl SubAssign<i64> for BigInt {
 impl Mul for BigInt {
     type Output = BigInt;
     fn mul(self, other: BigInt) -> BigInt {
-        BigInt(self.0 * other.0)
+        multiply(&self, &other)
     }
 }
 
 impl Mul<&BigInt> for BigInt {
     type Output = BigInt;
     fn mul(self, other: &BigInt) -> BigInt {
-        BigInt(self.0 * &other.0)
+        multiply(&self, other)
     }
 }
 
 impl Mul<BigInt> for &BigInt {
     type Output = BigInt;
     fn mul(self, other: BigInt) -> BigInt {
-        BigInt(&self.0 * other.0)
+        multiply(self, &other)
     }
 }
 
 impl Mul<&BigInt> for &BigInt {
     type Output = BigInt;
     fn mul(self, other: &BigInt) -> BigInt {
-        BigInt(&self.0 * &other.0)
+        multiply(self, other)
     }
 }
 
 impl Mul<i64> for BigInt {
     type Output = BigInt;
     fn mul(self, other: i64) -> BigInt {
-        BigInt(self.0 * Substrate::from(other))
+        multiply(&self, &BigInt::from(other))
     }
 }
 
 impl Mul<i64> for &BigInt {
     type Output = BigInt;
     fn mul(self, other: i64) -> BigInt {
-        BigInt(&self.0 * Substrate::from(other))
+        multiply(self, &BigInt::from(other))
     }
 }
 
 impl MulAssign for BigInt {
     fn mul_assign(&mut self, rhs: BigInt) {
-        self.0 *= rhs.0;
+        *self = multiply(self, &rhs);
     }
 }
 
 impl MulAssign<&BigInt> for BigInt {
     fn mul_assign(&mut self, rhs: &BigInt) {
-        self.0 *= &rhs.0;
+        *self = multiply(self, rhs);
     }
 }
 
 impl MulAssign<i64> for BigInt {
     fn mul_assign(&mut self, rhs: i64) {
-        self.0 *= Substrate::from(rhs);
+        *self = multiply(self, &BigInt::from(rhs));
     }
 }
 
@@ -818,23 +1051,84 @@ pub fn multiply(a: &BigInt, b: &BigInt) -> BigInt {
     multiply_with_strategy(a, b, strategy)
 }
 
-/// Metered multiplication with safe-point checkpoints and resource charging.
+/// Metered multiplication with safe points inside the limb-product loop.
+///
+/// This cancellation-first lane deliberately uses a simple base-$2^{32}$ reference algorithm.
+/// Each input-copy and limb-product unit is charged and preceded by a checkpoint, so cancellation
+/// latency does not depend on an opaque substrate multiplication call.
 pub fn metered_multiply<M: BudgetMeter>(
     a: &BigInt,
     b: &BigInt,
     meter: &mut M,
 ) -> Result<BigInt, MeterError> {
     meter.checkpoint()?;
-    let a_limbs = a.limb_count().max(1);
-    let b_limbs = b.limb_count().max(1);
-    meter.charge(Dimension::ComputeSteps, a_limbs.saturating_mul(b_limbs))?;
+
+    if a.is_zero() || b.is_zero() {
+        return Ok(BigInt::zero());
+    }
+
+    let a_len = a.0.iter_u32_digits().len();
+    let b_len = b.0.iter_u32_digits().len();
+    let output_len = a_len.saturating_add(b_len);
+    let transient_digits = a_len.saturating_add(b_len).saturating_add(output_len);
     meter.charge(
         Dimension::MemoryBytes,
-        (a_limbs + b_limbs).saturating_mul(8),
+        u64::try_from(transient_digits)
+            .unwrap_or(u64::MAX)
+            .saturating_mul(4),
     )?;
-    meter.charge(Dimension::AllocationCount, 1)?;
+    meter.charge(Dimension::AllocationCount, 3)?;
+
+    let mut a_digits = Vec::with_capacity(a_len);
+    for digit in a.0.iter_u32_digits() {
+        meter.checkpoint()?;
+        meter.charge(Dimension::ComputeSteps, 1)?;
+        a_digits.push(digit);
+    }
+
+    let mut b_digits = Vec::with_capacity(b_len);
+    for digit in b.0.iter_u32_digits() {
+        meter.checkpoint()?;
+        meter.charge(Dimension::ComputeSteps, 1)?;
+        b_digits.push(digit);
+    }
+
+    let mut product = vec![0u32; output_len];
+    for (i, &a_digit) in a_digits.iter().enumerate() {
+        let mut carry = 0u64;
+        for (j, &b_digit) in b_digits.iter().enumerate() {
+            meter.checkpoint()?;
+            meter.charge(Dimension::ComputeSteps, 1)?;
+
+            let index = i + j;
+            let value = u64::from(product[index]) + u64::from(a_digit) * u64::from(b_digit) + carry;
+            product[index] = value as u32;
+            carry = value >> 32;
+        }
+
+        let mut index = i + b_digits.len();
+        while carry != 0 {
+            meter.checkpoint()?;
+            meter.charge(Dimension::ComputeSteps, 1)?;
+
+            let value = u64::from(product[index]) + carry;
+            product[index] = value as u32;
+            carry = value >> 32;
+            index += 1;
+        }
+    }
+
     meter.checkpoint()?;
-    Ok(multiply(a, b))
+    while product.last() == Some(&0) {
+        product.pop();
+    }
+    let magnitude = BigUint::new(product);
+    let sign = if a.0.sign() == b.0.sign() {
+        Sign::Plus
+    } else {
+        Sign::Minus
+    };
+    Ok(BigInt(Substrate::from_biguint(sign, magnitude)))
 }
 
 fn schoolbook_reference(a: &Substrate, b: &Substrate) -> BigInt {
@@ -900,7 +1194,33 @@ fn karatsuba_mag_internal(a: &BigUint, b: &BigUint) -> BigUint {
 mod tests {
     use super::Strategy;
     use super::*;
+    use fsym_budget::Unbounded;
     use proptest::prelude::*;
+
+    #[derive(Debug)]
+    struct CancelAfter {
+        cancel_at_checkpoint: usize,
+        checkpoints: usize,
+        compute_steps: u64,
+    }
+
+    impl BudgetMeter for CancelAfter {
+        fn charge(&mut self, dimension: Dimension, amount: u64) -> Result<(), MeterError> {
+            if dimension == Dimension::ComputeSteps {
+                self.compute_steps = self.compute_steps.saturating_add(amount);
+            }
+            Ok(())
+        }
+
+        fn checkpoint(&mut self) -> Result<(), MeterError> {
+            self.checkpoints += 1;
+            if self.checkpoints >= self.cancel_at_checkpoint {
+                Err(MeterError::Cancelled)
+            } else {
+                Ok(())
+            }
+        }
+    }
 
     #[test]
     fn select_strategy_switches_at_the_documented_threshold() {
@@ -932,6 +1252,53 @@ mod tests {
         }
     }
 
+    #[test]
+    fn owned_rational_is_canonical_and_supports_arithmetic() {
+        let value = BigRational::new(BigInt::from(-6), BigInt::from(-8));
+        assert_eq!(value.numer(), &BigInt::from(3));
+        assert_eq!(value.denom(), &BigInt::from(4));
+        assert_eq!(
+            &value + &BigRational::new(BigInt::from(1), BigInt::from(4)),
+            BigRational::one()
+        );
+        assert_eq!(value.recip(), BigRational::new(4.into(), 3.into()));
+        assert_eq!(value.pow(-2), BigRational::new(16.into(), 9.into()));
+    }
+
+    #[test]
+    fn metered_multiplication_cancels_inside_limb_products() {
+        let a = (BigInt::one() << 1_024) + 123_456_789i64;
+        let b = (BigInt::one() << 1_024) + 987_654_321i64;
+        let mut meter = CancelAfter {
+            cancel_at_checkpoint: 80,
+            checkpoints: 0,
+            compute_steps: 0,
+        };
+
+        assert_eq!(
+            metered_multiply(&a, &b, &mut meter),
+            Err(MeterError::Cancelled)
+        );
+        assert!(
+            meter.compute_steps > 64,
+            "input limbs must have been copied"
+        );
+        assert!(
+            meter.compute_steps < 32 * 32 + 64,
+            "cancellation must stop before the full product"
+        );
+    }
+
+    #[test]
+    fn metered_balanced_multiplication_matches_native_lane() {
+        let a = (BigInt::one() << 2_047) + (BigInt::one() << 1_023) + 17i64;
+        let b = -((BigInt::one() << 2_031) + (BigInt::one() << 997) + 29i64);
+        let mut meter = Unbounded;
+        let metered = metered_multiply(&a, &b, &mut meter).unwrap();
+        let native = multiply_with_strategy(&a, &b, Strategy::NativeSubstrate);
+        assert_eq!(metered, native);
+    }
+
     proptest! {
         #[test]
         fn strategies_agree_across_the_threshold_boundary(
@@ -957,6 +1324,24 @@ mod tests {
                     prop_assert_eq!(&ref_res, &nat_res);
                 }
             }
+        }
+
+        #[test]
+        fn all_lanes_agree_for_broad_balanced_operands(
+            a_bytes in proptest::collection::vec(any::<u8>(), 0..129),
+            b_bytes in proptest::collection::vec(any::<u8>(), 0..129),
+        ) {
+            let a = BigInt::from_signed_bytes_be(&a_bytes);
+            let b = BigInt::from_signed_bytes_be(&b_bytes);
+            let reference = multiply_with_strategy(&a, &b, Strategy::SchoolbookReference);
+            let karatsuba = multiply_with_strategy(&a, &b, Strategy::Karatsuba);
+            let native = multiply_with_strategy(&a, &b, Strategy::NativeSubstrate);
+            let mut meter = Unbounded;
+            let metered = metered_multiply(&a, &b, &mut meter).unwrap();
+            prop_assert_eq!(&reference, &karatsuba);
+            prop_assert_eq!(&reference, &native);
+            prop_assert_eq!(&reference, &metered);
+            prop_assert_eq!(&a * &b, native);
         }
     }
 }

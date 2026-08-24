@@ -24,6 +24,28 @@ def manifest_dependencies(manifest: dict) -> set[str]:
     return names
 
 
+def manifest_dependency_packages(manifest: dict) -> set[str]:
+    """Return resolved package names, including dependencies renamed in Cargo.toml."""
+    packages: set[str] = set()
+
+    def collect(section: object) -> None:
+        if not isinstance(section, dict):
+            return
+        for declared_name, specification in section.items():
+            package_name = specification.get("package") if isinstance(specification, dict) else None
+            packages.add(str(package_name or declared_name))
+
+    for section_name in ("dependencies", "dev-dependencies", "build-dependencies"):
+        collect(manifest.get(section_name, {}))
+    target = manifest.get("target", {})
+    if isinstance(target, dict):
+        for target_table in target.values():
+            if isinstance(target_table, dict):
+                for section_name in ("dependencies", "dev-dependencies", "build-dependencies"):
+                    collect(target_table.get(section_name, {}))
+    return packages
+
+
 def run(root: Path) -> dict:
     audit = Audit("dependency_and_safety", root)
     cargo_path = audit.require_file("Cargo.toml")
@@ -72,6 +94,8 @@ def run(root: Path) -> dict:
 
     manifests = sorted(root.rglob("Cargo.toml"))
     actual_dependencies: set[str] = set()
+    substrate_declarations: dict[str, list[str]] = {"num-bigint": [], "num-rational": []}
+    substrate_allowed_manifests = {"Cargo.toml", "crates/fsym-bigint/Cargo.toml"}
     build_scripts: list[str] = []
     for manifest_path in manifests:
         try:
@@ -80,6 +104,18 @@ def run(root: Path) -> dict:
             audit.error(f"{manifest_path.relative_to(root)}: {exc}")
             continue
         actual_dependencies.update(manifest_dependencies(manifest))
+        manifest_relative = manifest_path.relative_to(root).as_posix()
+        resolved_packages = {
+            dependency.lower().replace("_", "-")
+            for dependency in manifest_dependency_packages(manifest)
+        }
+        for substrate in substrate_declarations:
+            if substrate in resolved_packages:
+                substrate_declarations[substrate].append(manifest_relative)
+                audit.require(
+                    manifest_relative in substrate_allowed_manifests,
+                    f"{manifest_relative}: provisional substrate {substrate} must be contained by crates/fsym-bigint",
+                )
         package = manifest.get("package", {})
         if isinstance(package, dict) and package.get("build"):
             build_scripts.append(str(manifest_path.relative_to(root)))
@@ -112,6 +148,9 @@ def run(root: Path) -> dict:
         "allowed_source_ids": sorted(source_ids),
         "cargo_manifest_count": len(manifests),
         "declared_dependency_names": sorted(actual_dependencies),
+        "provisional_substrate_declarations": {
+            dependency: sorted(paths) for dependency, paths in substrate_declarations.items()
+        },
         "project_build_scripts": sorted(set(build_scripts)),
         "portable_verifier_profile_count": len(profiles),
     })

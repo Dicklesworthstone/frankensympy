@@ -16,7 +16,6 @@ fsym-budget.workspace = true
 fsym-outcome.workspace = true
 fsym-core.workspace = true
 fsym-assumptions.workspace = true
-num-bigint.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true

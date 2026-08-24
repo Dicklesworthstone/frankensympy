@@ -160,7 +160,7 @@ fn integral_term(f: &Expr, var: &Symbol) -> Result<Expr, CalculusError> {
                     return Ok(Expr::Function("log".to_string(), vec![x]));
                 }
                 Ok(Expr::Mul(vec![
-                    Expr::Rational(BigRational::from(np1.recip())),
+                    Expr::Rational(np1.recip()),
                     Expr::Pow(Arc::new(x.clone()), Arc::new(Expr::Rational(np1))),
                 ]))
             }
