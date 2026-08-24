@@ -286,13 +286,18 @@ pub fn verified_simplify<M: BudgetMeter>(
             .prove_reflexivity(expr.clone(), meter)
             .map_err(|e| SimplifyError::ProofFailed(e.to_string()))?
     } else {
+        let rule_name = match expr {
+            Expr::Function(name, args)
+                if args.len() == 1
+                    && args[0].is_zero()
+                    && matches!(name.as_str(), "sin" | "cos" | "tan") =>
+            {
+                "trig_zero_eval"
+            }
+            _ => "simplify_normal_form",
+        };
         kernel
-            .prove_definitional_reduction(
-                expr.clone(),
-                simplified.clone(),
-                "simplify_normal_form",
-                meter,
-            )
+            .prove_definitional_reduction(expr.clone(), simplified.clone(), rule_name, meter)
             .map_err(|e| SimplifyError::ProofFailed(e.to_string()))?
     };
 
@@ -451,6 +456,27 @@ mod tests {
         assert!(
             verify_derivation_independent(envelope.derivation.as_ref().unwrap(), &context).is_ok()
         );
+    }
+
+    #[test]
+    fn verified_simplify_uses_the_dedicated_trig_zero_rule() {
+        let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
+
+        for (name, expected) in [
+            ("sin", Expr::from_i64(0)),
+            ("cos", Expr::from_i64(1)),
+            ("tan", Expr::from_i64(0)),
+        ] {
+            let expr = Expr::Function(name.to_string(), vec![Expr::from_i64(0)]);
+            let (simplified, envelope) =
+                verified_simplify(&expr, &context, &mut Unbounded).unwrap();
+
+            assert_eq!(simplified, expected);
+            assert!(
+                verify_derivation_independent(envelope.derivation.as_ref().unwrap(), &context)
+                    .is_ok()
+            );
+        }
     }
 
     #[test]
