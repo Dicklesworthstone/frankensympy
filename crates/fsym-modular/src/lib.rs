@@ -986,7 +986,7 @@ impl ModularRingElement {
         meter: &mut M,
     ) -> Result<Option<Self>, MeterError> {
         meter.checkpoint()?;
-        if self.ring != other.ring {
+        if !metered_equal(&self.ring.modulus, &other.ring.modulus, meter)? {
             return metered_finish(None, meter);
         }
         let sum = metered_add(&self.value, &other.value, meter)?;
@@ -1007,7 +1007,7 @@ impl ModularRingElement {
         meter: &mut M,
     ) -> Result<Option<Self>, MeterError> {
         meter.checkpoint()?;
-        if self.ring != other.ring {
+        if !metered_equal(&self.ring.modulus, &other.ring.modulus, meter)? {
             return metered_finish(None, meter);
         }
         let difference = metered_subtract(&self.value, &other.value, meter)?;
@@ -1028,7 +1028,7 @@ impl ModularRingElement {
         meter: &mut M,
     ) -> Result<Option<Self>, MeterError> {
         meter.checkpoint()?;
-        if self.ring != other.ring {
+        if !metered_equal(&self.ring.modulus, &other.ring.modulus, meter)? {
             return metered_finish(None, meter);
         }
         let product = metered_mul(&self.value, &other.value, meter)?;
@@ -1060,7 +1060,7 @@ impl ModularRingElement {
         meter: &mut M,
     ) -> Result<Option<Self>, MeterError> {
         meter.checkpoint()?;
-        if self.ring != other.ring {
+        if !metered_equal(&self.ring.modulus, &other.ring.modulus, meter)? {
             return metered_finish(None, meter);
         }
         let Some(inverse) = other.metered_inv(meter)? else {
@@ -1305,7 +1305,11 @@ impl FiniteFieldElement {
         meter: &mut M,
     ) -> Result<Option<Self>, MeterError> {
         meter.checkpoint()?;
-        if self.field != other.field {
+        if !metered_equal(
+            &self.field.characteristic,
+            &other.field.characteristic,
+            meter,
+        )? {
             return metered_finish(None, meter);
         }
         let sum = metered_add(&self.value, &other.value, meter)?;
@@ -1325,7 +1329,11 @@ impl FiniteFieldElement {
         meter: &mut M,
     ) -> Result<Option<Self>, MeterError> {
         meter.checkpoint()?;
-        if self.field != other.field {
+        if !metered_equal(
+            &self.field.characteristic,
+            &other.field.characteristic,
+            meter,
+        )? {
             return metered_finish(None, meter);
         }
         let difference = metered_subtract(&self.value, &other.value, meter)?;
@@ -1345,7 +1353,11 @@ impl FiniteFieldElement {
         meter: &mut M,
     ) -> Result<Option<Self>, MeterError> {
         meter.checkpoint()?;
-        if self.field != other.field {
+        if !metered_equal(
+            &self.field.characteristic,
+            &other.field.characteristic,
+            meter,
+        )? {
             return metered_finish(None, meter);
         }
         let product = metered_mul(&self.value, &other.value, meter)?;
@@ -1381,7 +1393,12 @@ impl FiniteFieldElement {
         meter: &mut M,
     ) -> Result<Option<Self>, MeterError> {
         meter.checkpoint()?;
-        if self.field != other.field || other.value.is_zero() {
+        if !metered_equal(
+            &self.field.characteristic,
+            &other.field.characteristic,
+            meter,
+        )? || other.value.is_zero()
+        {
             return metered_finish(None, meter);
         }
         let Some(inverse) = other.metered_inv(meter)? else {
@@ -1530,7 +1547,7 @@ impl MontgomeryReducer {
         meter: &mut M,
     ) -> Result<Option<BigInt>, MeterError> {
         meter.checkpoint()?;
-        if !is_canonical_residue(value, &self.modulus) {
+        if value.is_negative() || metered_greater_or_equal(value, &self.modulus, meter)? {
             return metered_finish(None, meter);
         }
         self.metered_reduce(value, meter)
@@ -1598,7 +1615,11 @@ impl MontgomeryReducer {
         meter: &mut M,
     ) -> Result<Option<BigInt>, MeterError> {
         meter.checkpoint()?;
-        if !is_canonical_residue(lhs, &self.modulus) || !is_canonical_residue(rhs, &self.modulus) {
+        if lhs.is_negative()
+            || rhs.is_negative()
+            || metered_greater_or_equal(lhs, &self.modulus, meter)?
+            || metered_greater_or_equal(rhs, &self.modulus, meter)?
+        {
             return metered_finish(None, meter);
         }
         let product = metered_mul(lhs, rhs, meter)?;
@@ -2585,6 +2606,41 @@ mod tests {
 
     #[test]
     fn new_metered_types_check_cancellation_before_terminal_publication() {
+        let ring = ModularRing::new(BigInt::from(97)).unwrap();
+        let lhs = ring.element(BigInt::from(35));
+        let rhs = ring.element(BigInt::from(42));
+        let mut measured = CheckpointMeter::default();
+        assert!(lhs.metered_mul(&rhs, &mut measured).unwrap().is_some());
+        let mut cancelled = CheckpointMeter::cancelling_at(measured.checkpoints);
+        assert_eq!(
+            lhs.metered_mul(&rhs, &mut cancelled),
+            Err(MeterError::Cancelled)
+        );
+        let other_ring = ModularRing::new(BigInt::from(101)).unwrap();
+        let mut measured = CheckpointMeter::default();
+        assert_eq!(
+            lhs.metered_add(&other_ring.one(), &mut measured).unwrap(),
+            None
+        );
+        let mut cancelled = CheckpointMeter::cancelling_at(measured.checkpoints);
+        assert_eq!(
+            lhs.metered_add(&other_ring.one(), &mut cancelled),
+            Err(MeterError::Cancelled)
+        );
+
+        let field = FiniteField::new(BigInt::from(97)).unwrap();
+        let value = field.element(BigInt::from(35));
+        let mut measured = CheckpointMeter::default();
+        assert_eq!(
+            value.metered_pow(&BigInt::from(-1), &mut measured).unwrap(),
+            None
+        );
+        let mut cancelled = CheckpointMeter::cancelling_at(measured.checkpoints);
+        assert_eq!(
+            value.metered_pow(&BigInt::from(-1), &mut cancelled),
+            Err(MeterError::Cancelled)
+        );
+
         let mut measured = CheckpointMeter::default();
         let reducer = MontgomeryReducer::metered_new(BigInt::from(97), &mut measured)
             .unwrap()
@@ -2621,6 +2677,17 @@ mod tests {
             metered_check_lucky_prime(&BigInt::from(5), &coefficients, &mut cancelled),
             Err(MeterError::Cancelled)
         );
+
+        let mut budget = Budget::new(BudgetLimits::uniform(1, 0));
+        assert!(matches!(
+            MontgomeryReducer::metered_new(BigInt::from(97), &mut budget),
+            Err(MeterError::Budget(_))
+        ));
+        let mut budget = Budget::new(BudgetLimits::uniform(1, 0));
+        assert!(matches!(
+            BarrettReducer::metered_new(BigInt::from(97), &mut budget),
+            Err(MeterError::Budget(_))
+        ));
     }
 
     proptest! {
