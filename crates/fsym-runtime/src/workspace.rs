@@ -116,6 +116,13 @@ impl SemanticWorkspace {
             }
         }
 
+        // Check and independently verify incoming derivations
+        for deriv in &incoming.derivations {
+            if fsym_proof_kernel::verify_derivation_independent(deriv, &self.assumptions).is_err() {
+                return Err(WorkspaceError::DerivationVerificationFailed);
+            }
+        }
+
         // Apply incoming bindings
         for (sym, expr) in &incoming.bindings {
             self.bindings.insert(sym.clone(), expr.clone());

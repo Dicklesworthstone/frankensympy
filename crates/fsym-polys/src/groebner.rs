@@ -226,9 +226,12 @@ pub fn groebner_basis(
     // Remove redundant elements whose leading monomial is divisible by another
     let mut minimal = Vec::new();
     for (i, p) in reduced.iter().enumerate() {
+        if p.is_zero() {
+            continue;
+        }
         let lm_p = p.leading_monomial(order).unwrap();
         let is_redundant = reduced.iter().enumerate().any(|(j, other)| {
-            if i == j {
+            if i == j || other.is_zero() {
                 return false;
             }
             let lm_other = other.leading_monomial(order).unwrap();

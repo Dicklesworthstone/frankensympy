@@ -136,6 +136,10 @@ impl Line2D {
 fn expr_div(num: Expr, den: Expr) -> Expr {
     match (&num, &den) {
         (Expr::Integer(a), Expr::Integer(b)) => {
+            if b.is_zero() {
+                let inv = Expr::Pow(Arc::new(den), Arc::new(Expr::from_i64(-1)));
+                return simplify(&Expr::Mul(vec![num, inv]));
+            }
             let r = BigRational::new(a.clone(), b.clone());
             if r.is_integer() {
                 Expr::Integer(r.to_integer())
@@ -144,6 +148,10 @@ fn expr_div(num: Expr, den: Expr) -> Expr {
             }
         }
         (Expr::Rational(a), Expr::Rational(b)) => {
+            if b.numer().is_zero() {
+                let inv = Expr::Pow(Arc::new(den), Arc::new(Expr::from_i64(-1)));
+                return simplify(&Expr::Mul(vec![num, inv]));
+            }
             let r = a / b;
             if r.is_integer() {
                 Expr::Integer(r.to_integer())
