@@ -7,9 +7,11 @@
 
 pub mod checkpoint;
 pub mod cx;
+pub mod graph_index;
 pub mod ledger;
 pub mod portfolio;
 pub mod protocol;
+pub mod remote_worker;
 pub mod repair;
 pub mod replay;
 pub mod rng;
@@ -17,9 +19,11 @@ pub mod workspace;
 
 pub use checkpoint::*;
 pub use cx::FsymCx;
+pub use graph_index::*;
 pub use ledger::*;
 pub use portfolio::*;
 pub use protocol::*;
+pub use remote_worker::*;
 pub use repair::*;
 pub use replay::*;
 pub use workspace::*;
@@ -354,5 +358,67 @@ mod tests {
         let req3 = r#"{"type":"Diff","payload":{"expr":"x^2","var":"x"}}"#;
         let resp3 = handle_agent_ndjson(req3, &mut ws);
         assert!(resp3.contains(r#"2*x"#) || resp3.contains(r#"2 * x"#));
+    }
+
+    #[test]
+    fn test_remote_worker_candidate_verification_and_adversarial_rejection() {
+        let context = ImmutableAssumptionsSnapshot::empty();
+        let coordinator = CoordinatorVerifier::new(context);
+
+        let x = Expr::symbol("x");
+        let mut kernel = ProofKernel::new((*ImmutableAssumptionsSnapshot::empty()).clone());
+        let step = kernel.prove_reflexivity(x.clone(), &mut Unbounded).unwrap();
+        let derivation = kernel.export_derivation(step).unwrap();
+        let claim = fsym_proof_kernel::Claim::equality(x.clone(), x.clone());
+
+        let valid_candidate = RemoteCandidate {
+            worker_id: "worker_node_42".to_string(),
+            task_id: 101,
+            result: x.clone(),
+            claim: claim.clone(),
+            derivation: derivation.clone(),
+            worker_signature: vec![0xDE, 0xAD, 0xBE, 0xEF],
+        };
+
+        // Valid candidate verified and accepted
+        let verified = coordinator
+            .verify_remote_candidate(&valid_candidate)
+            .unwrap();
+        assert_eq!(verified.task_id, 101);
+
+        // Adversarial test: Worker signs a forged claim (x = 999) with non-matching derivation
+        let forged_candidate = RemoteCandidate {
+            worker_id: "malicious_worker".to_string(),
+            task_id: 102,
+            result: Expr::from_i64(999),
+            claim: fsym_proof_kernel::Claim::equality(x.clone(), Expr::from_i64(999)),
+            derivation,
+            worker_signature: vec![0xCA, 0xFE, 0xBA, 0xBE],
+        };
+
+        let reject_res = coordinator.verify_remote_candidate(&forged_candidate);
+        assert!(matches!(reject_res, Err(RemoteWorkerError::ClaimForgery)));
+    }
+
+    #[test]
+    fn test_semantic_graph_indexing_and_cycle_detection() {
+        let mut graph = SemanticGraphIndex::new();
+        graph.add_node("ws_main", NodeKind::Workspace);
+        graph.add_node("ws_algebra", NodeKind::Workspace);
+        graph.add_node("ws_calculus", NodeKind::Workspace);
+        graph.add_node("thm_pythagoras", NodeKind::Theorem);
+
+        graph.add_edge("ws_main", "ws_algebra");
+        graph.add_edge("ws_algebra", "thm_pythagoras");
+
+        assert!(!graph.has_cycle());
+
+        let deps = graph.transitive_dependencies("ws_main");
+        assert!(deps.contains("ws_algebra"));
+        assert!(deps.contains("thm_pythagoras"));
+
+        // Add a cycle: thm_pythagoras -> ws_main
+        graph.add_edge("thm_pythagoras", "ws_main");
+        assert!(graph.has_cycle(), "Cycle must be detected in graph index");
     }
 }
