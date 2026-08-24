@@ -10,11 +10,12 @@
 mod tests {
     use crate::claim::Claim;
     use crate::kernel::{
-        DerivationStep, DerivationTree, KernelError, ProofKernel, verify_derivation_independent,
+        DerivationStep, DerivationTree, KernelError, MAX_DERIVATION_STEPS, ProofKernel,
+        derivation_verification_units, verify_derivation_independent,
     };
     use crate::rule::{ProofRule, StepId};
     use fsym_assumptions::{AssumptionsContext, Predicate};
-    use fsym_budget::Unbounded;
+    use fsym_budget::{Budget, BudgetLimits, Dimension, Unbounded};
     use fsym_core::{Constant, Expr, Symbol};
 
     fn empty_context() -> fsym_assumptions::ImmutableAssumptionsSnapshot {
@@ -277,6 +278,70 @@ mod tests {
             error,
             KernelError::InvalidDefinitionalReduction { .. }
         ));
+    }
+
+    #[test]
+    fn mutant_deep_reflexivity_derivation_is_refused_before_replay() {
+        let ctx = empty_context();
+        let mut deep = Expr::symbol("x");
+        for _ in 0..300 {
+            deep = Expr::Add(vec![deep]);
+        }
+        let claim = Claim::equality(deep.clone(), deep.clone());
+        let derivation = DerivationTree {
+            steps: vec![DerivationStep {
+                id: StepId(0),
+                rule: ProofRule::Reflexivity(deep),
+                claim,
+            }],
+            root: StepId(0),
+        };
+
+        assert!(matches!(
+            verify_derivation_independent(&derivation, &ctx),
+            Err(KernelError::DerivationLimitExceeded {
+                resource: "expression depth",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn mutant_derivation_step_flood_is_refused() {
+        let x = Expr::symbol("x");
+        let claim = Claim::equality(x.clone(), x.clone());
+        let step = DerivationStep {
+            id: StepId(0),
+            rule: ProofRule::Reflexivity(x),
+            claim,
+        };
+        let derivation = DerivationTree {
+            steps: vec![step; MAX_DERIVATION_STEPS + 1],
+            root: StepId(0),
+        };
+
+        assert!(matches!(
+            derivation_verification_units(&derivation),
+            Err(KernelError::DerivationLimitExceeded {
+                resource: "steps",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn online_step_charge_is_atomic_across_coupled_dimensions() {
+        let mut limits = BudgetLimits::uniform(1, 0);
+        limits.dimensions[Dimension::AllocationCount.index()] = 0;
+        let mut meter = Budget::new(limits);
+        let mut kernel = ProofKernel::new(empty_context());
+
+        assert!(kernel
+            .prove_reflexivity(Expr::symbol("x"), &mut meter)
+            .is_err());
+        assert_eq!(meter.remaining(Dimension::ComputeSteps), 1);
+        assert_eq!(meter.remaining(Dimension::AllocationCount), 0);
+        assert_eq!(kernel.step_count(), 0);
     }
 
     #[test]

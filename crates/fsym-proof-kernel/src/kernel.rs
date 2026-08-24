@@ -57,6 +57,13 @@ pub enum KernelError {
     },
     #[error("Certificate lemma family `{family}` has no trusted certificate-dispatch verifier")]
     UnverifiedCertificateLemma { family: String },
+    #[error("Derivation exceeds the trusted `{resource}` limit of {limit}")]
+    DerivationLimitExceeded {
+        resource: &'static str,
+        limit: u64,
+    },
+    #[error("Proof kernel step identifier space is exhausted")]
+    StepIdExhausted,
     #[error("Budget error: {0}")]
     Budget(String),
 }
@@ -92,6 +99,17 @@ pub struct DerivationStep {
     pub rule: ProofRule,
     pub claim: Claim,
 }
+
+/// Hard trust-boundary limits for one independently checked derivation.
+///
+/// These caps bound verifier traversal after a derivation has been materialized. Wire decoders
+/// must additionally bound allocation while parsing untrusted bytes.
+pub const MAX_DERIVATION_STEPS: usize = 16_384;
+const MAX_DERIVATION_EXPR_NODES: u64 = 262_144;
+const MAX_DERIVATION_EXPR_DEPTH: usize = 256;
+const MAX_DERIVATION_REFERENCES: u64 = 262_144;
+const MAX_DERIVATION_TEXT_BYTES: u64 = 1_048_576;
+const MAX_DERIVATION_NUMERIC_LIMBS: u64 = 262_144;
 
 /// Small trusted proof kernel maintaining verified proof steps.
 #[derive(Debug, Clone)]
@@ -133,14 +151,27 @@ impl ProofKernel {
         meter: &mut impl BudgetMeter,
     ) -> Result<StepId, KernelError> {
         meter.checkpoint()?;
-        meter.charge(Dimension::ComputeSteps, 1)?;
-        meter.charge(Dimension::AllocationCount, 1)?;
+        meter.charge_batch(&[
+            (Dimension::ComputeSteps, 1),
+            (Dimension::AllocationCount, 1),
+        ])?;
 
-        let current_index = self.steps.len() as u32;
+        if self.steps.len() >= MAX_DERIVATION_STEPS {
+            return Err(KernelError::DerivationLimitExceeded {
+                resource: "steps",
+                limit: MAX_DERIVATION_STEPS as u64,
+            });
+        }
+        let mut preflight = DerivationPreflight::default();
+        preflight.visit_rule(&rule)?;
+
+        let current_index =
+            u32::try_from(self.steps.len()).map_err(|_| KernelError::StepIdExhausted)?;
         let id = StepId(current_index);
 
         // Validate the rule against all prior verified steps
         let claim = check_rule_application(&rule, id, &self.claims, &self.context)?;
+        preflight.visit_claim(&claim)?;
 
         let step = DerivationStep {
             id,
@@ -345,11 +376,20 @@ pub fn verify_derivation_independent(
     derivation: &DerivationTree,
     context: &ImmutableAssumptionsSnapshot,
 ) -> Result<Claim, KernelError> {
+    derivation_verification_units(derivation)?;
+    if usize::try_from(derivation.root.0)
+        .ok()
+        .is_none_or(|root| root >= derivation.steps.len())
+    {
+        return Err(KernelError::UnknownStep(derivation.root));
+    }
+
     let mut verified_claims: HashMap<StepId, Claim> =
         HashMap::with_capacity(derivation.steps.len());
 
     for (expected_idx, step) in derivation.steps.iter().enumerate() {
-        if step.id.0 != expected_idx as u32 {
+        let expected_id = u32::try_from(expected_idx).map_err(|_| KernelError::StepIdExhausted)?;
+        if step.id.0 != expected_id {
             return Err(KernelError::InvalidStepReference(step.id));
         }
 
@@ -370,6 +410,238 @@ pub fn verify_derivation_independent(
         .get(&derivation.root)
         .cloned()
         .ok_or(KernelError::UnknownStep(derivation.root))
+}
+
+/// Preflight a derivation and return deterministic verifier work units.
+///
+/// Portfolio coordinators use this value to reserve protected verifier budget before replay.
+/// The independent verifier repeats this bounded preflight so callers cannot bypass the limits.
+pub fn derivation_verification_units(
+    derivation: &DerivationTree,
+) -> Result<u64, KernelError> {
+    if derivation.steps.len() > MAX_DERIVATION_STEPS {
+        return Err(KernelError::DerivationLimitExceeded {
+            resource: "steps",
+            limit: MAX_DERIVATION_STEPS as u64,
+        });
+    }
+
+    let mut preflight = DerivationPreflight::default();
+    for step in &derivation.steps {
+        preflight.add_work(1)?;
+        preflight.visit_rule(&step.rule)?;
+        preflight.visit_claim(&step.claim)?;
+    }
+    Ok(preflight.work_units.div_ceil(64).max(1))
+}
+
+#[derive(Default)]
+struct DerivationPreflight {
+    work_units: u64,
+    expression_nodes: u64,
+    references: u64,
+    text_bytes: u64,
+    numeric_limbs: u64,
+}
+
+impl DerivationPreflight {
+    fn add_bounded(
+        value: &mut u64,
+        amount: u64,
+        limit: u64,
+        resource: &'static str,
+    ) -> Result<(), KernelError> {
+        *value = value.checked_add(amount).ok_or(
+            KernelError::DerivationLimitExceeded { resource, limit },
+        )?;
+        if *value > limit {
+            return Err(KernelError::DerivationLimitExceeded { resource, limit });
+        }
+        Ok(())
+    }
+
+    fn add_work(&mut self, amount: u64) -> Result<(), KernelError> {
+        self.work_units = self.work_units.checked_add(amount).ok_or(
+            KernelError::DerivationLimitExceeded {
+                resource: "verification work units",
+                limit: u64::MAX,
+            },
+        )?;
+        Ok(())
+    }
+
+    fn add_text(&mut self, value: &str) -> Result<(), KernelError> {
+        let bytes = u64::try_from(value.len()).map_err(|_| {
+            KernelError::DerivationLimitExceeded {
+                resource: "text bytes",
+                limit: MAX_DERIVATION_TEXT_BYTES,
+            }
+        })?;
+        Self::add_bounded(
+            &mut self.text_bytes,
+            bytes,
+            MAX_DERIVATION_TEXT_BYTES,
+            "text bytes",
+        )?;
+        self.add_work(bytes.div_ceil(64).max(1))
+    }
+
+    fn add_references(&mut self, count: usize) -> Result<(), KernelError> {
+        let count = u64::try_from(count).map_err(|_| {
+            KernelError::DerivationLimitExceeded {
+                resource: "step references",
+                limit: MAX_DERIVATION_REFERENCES,
+            }
+        })?;
+        Self::add_bounded(
+            &mut self.references,
+            count,
+            MAX_DERIVATION_REFERENCES,
+            "step references",
+        )?;
+        self.add_work(count)
+    }
+
+    fn visit_expr(&mut self, expr: &Expr) -> Result<(), KernelError> {
+        let mut stack = vec![(expr, 0usize)];
+        while let Some((current, depth)) = stack.pop() {
+            if depth > MAX_DERIVATION_EXPR_DEPTH {
+                return Err(KernelError::DerivationLimitExceeded {
+                    resource: "expression depth",
+                    limit: MAX_DERIVATION_EXPR_DEPTH as u64,
+                });
+            }
+            Self::add_bounded(
+                &mut self.expression_nodes,
+                1,
+                MAX_DERIVATION_EXPR_NODES,
+                "expression nodes",
+            )?;
+            self.add_work(1)?;
+
+            match current {
+                Expr::Sym(symbol) => self.add_text(&symbol.name)?,
+                Expr::Integer(value) => self.add_numeric_limbs(value.limb_count())?,
+                Expr::Rational(value) => {
+                    self.add_numeric_limbs(value.numer().limb_count())?;
+                    self.add_numeric_limbs(value.denom().limb_count())?;
+                }
+                Expr::Const(_) => {}
+                Expr::Add(terms) | Expr::Mul(terms) => {
+                    let child_depth = depth + 1;
+                    stack.extend(terms.iter().rev().map(|term| (term, child_depth)));
+                }
+                Expr::Pow(base, exponent) => {
+                    let child_depth = depth + 1;
+                    stack.push((exponent, child_depth));
+                    stack.push((base, child_depth));
+                }
+                Expr::Function(name, args) => {
+                    self.add_text(name)?;
+                    let child_depth = depth + 1;
+                    stack.extend(args.iter().rev().map(|arg| (arg, child_depth)));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn add_numeric_limbs(&mut self, limbs: u64) -> Result<(), KernelError> {
+        Self::add_bounded(
+            &mut self.numeric_limbs,
+            limbs,
+            MAX_DERIVATION_NUMERIC_LIMBS,
+            "numeric limbs",
+        )?;
+        self.add_work(limbs.max(1))
+    }
+
+    fn visit_domain(&mut self, domain: &Domain) -> Result<(), KernelError> {
+        let mut stack = vec![(domain, 0usize)];
+        while let Some((current, depth)) = stack.pop() {
+            if depth > MAX_DERIVATION_EXPR_DEPTH {
+                return Err(KernelError::DerivationLimitExceeded {
+                    resource: "domain depth",
+                    limit: MAX_DERIVATION_EXPR_DEPTH as u64,
+                });
+            }
+            self.add_work(1)?;
+            match current {
+                Domain::PolyRing { base, generators }
+                | Domain::FractionField { base, generators } => {
+                    for generator in generators {
+                        self.add_text(&generator.name)?;
+                    }
+                    stack.push((base, depth + 1));
+                }
+                Domain::ZZ
+                | Domain::QQ
+                | Domain::RR
+                | Domain::CC
+                | Domain::FiniteField { .. }
+                | Domain::ExpressionDomain => {}
+            }
+        }
+        Ok(())
+    }
+
+    fn visit_claim(&mut self, claim: &Claim) -> Result<(), KernelError> {
+        match claim {
+            Claim::Equality { lhs, rhs } | Claim::AlgebraicIdentity { lhs, rhs } => {
+                self.visit_expr(lhs)?;
+                self.visit_expr(rhs)
+            }
+            Claim::PredicateHold { expr, .. } | Claim::NonZero(expr) => self.visit_expr(expr),
+            Claim::DomainMembership { expr, domain } => {
+                self.visit_expr(expr)?;
+                self.visit_domain(domain)
+            }
+        }
+    }
+
+    fn visit_rule(&mut self, rule: &ProofRule) -> Result<(), KernelError> {
+        match rule {
+            ProofRule::Reflexivity(expr) => self.visit_expr(expr),
+            ProofRule::Symmetry(_) => self.add_references(1),
+            ProofRule::Transitivity(_, _) | ProofRule::CongruencePow { .. } => {
+                self.add_references(2)
+            }
+            ProofRule::CongruenceAdd(steps) | ProofRule::CongruenceMul(steps) => {
+                self.add_references(steps.len())
+            }
+            ProofRule::CongruenceFunction { name, args } => {
+                self.add_text(name)?;
+                self.add_references(args.len())
+            }
+            ProofRule::ContextPredicate { expr, .. } => self.visit_expr(expr),
+            ProofRule::ContextDomain { expr, domain } => {
+                self.visit_expr(expr)?;
+                self.visit_domain(domain)
+            }
+            ProofRule::Substitution {
+                template,
+                var,
+                step: _,
+            } => {
+                self.visit_expr(template)?;
+                self.add_text(&var.name)?;
+                self.add_references(1)
+            }
+            ProofRule::DefinitionalReduction {
+                lhs,
+                rhs,
+                rule_name,
+            } => {
+                self.visit_expr(lhs)?;
+                self.visit_expr(rhs)?;
+                self.add_text(rule_name)
+            }
+            ProofRule::CertificateLemma { family, claim, .. } => {
+                self.add_text(family)?;
+                self.visit_claim(claim)
+            }
+        }
+    }
 }
 
 /// Core single-rule verification logic shared by online kernel and independent checker.

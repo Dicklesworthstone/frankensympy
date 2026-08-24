@@ -137,21 +137,36 @@ mod tests {
     fn test_typed_checkpoint_integrity() {
         let mut budget = BTreeMap::new();
         budget.insert(Dimension::ComputeSteps, 500);
-        let checkpoint = TypedCheckpoint::new(1, "state_snapshot_42".to_string(), budget, 10);
+        let checkpoint = TypedCheckpoint::new(
+            "fsym.runtime.test-state.v1",
+            1,
+            "state_snapshot_42".to_string(),
+            budget,
+            10,
+        )
+        .unwrap();
         assert!(checkpoint.verify_integrity());
     }
 
     #[test]
     fn test_replay_log_reproduces_digest_bit_for_bit() {
-        let mut log1 = ReplayLog::new(12345, "karatsuba_mul");
-        log1.record_event("mul_step_1", vec![(Dimension::ComputeSteps, 10)], b"a*b");
-        log1.record_event("mul_step_2", vec![(Dimension::ComputeSteps, 5)], b"res");
-        let d1 = log1.finalize();
+        let mut log1 = ReplayLog::new(12345, "karatsuba_mul").unwrap();
+        log1
+            .record_event("mul_step_1", vec![(Dimension::ComputeSteps, 10)], b"a*b")
+            .unwrap();
+        log1
+            .record_event("mul_step_2", vec![(Dimension::ComputeSteps, 5)], b"res")
+            .unwrap();
+        let d1 = log1.finalize().unwrap();
 
-        let mut log2 = ReplayLog::new(12345, "karatsuba_mul");
-        log2.record_event("mul_step_1", vec![(Dimension::ComputeSteps, 10)], b"a*b");
-        log2.record_event("mul_step_2", vec![(Dimension::ComputeSteps, 5)], b"res");
-        let d2 = log2.finalize();
+        let mut log2 = ReplayLog::new(12345, "karatsuba_mul").unwrap();
+        log2
+            .record_event("mul_step_1", vec![(Dimension::ComputeSteps, 10)], b"a*b")
+            .unwrap();
+        log2
+            .record_event("mul_step_2", vec![(Dimension::ComputeSteps, 5)], b"res")
+            .unwrap();
+        let d2 = log2.finalize().unwrap();
 
         assert_eq!(d1, d2);
         assert!(log1.verify_replay_match(&log2));
@@ -295,7 +310,14 @@ mod tests {
 
         let mut budget = BTreeMap::new();
         budget.insert(Dimension::ComputeSteps, 500);
-        let cp = TypedCheckpoint::new(0, "mathematical_checkpoint_payload".to_string(), budget, 50);
+        let cp = TypedCheckpoint::new(
+            "fsym.runtime.test-math-state.v1",
+            0,
+            "mathematical_checkpoint_payload".to_string(),
+            budget,
+            50,
+        )
+        .unwrap();
 
         let seq0 = ledger.append_checkpoint(&cp).unwrap();
         assert_eq!(seq0, 0);
@@ -407,7 +429,7 @@ mod tests {
         };
 
         let reject_res = coordinator.verify_remote_candidate(&forged_candidate);
-        assert!(matches!(reject_res, Err(RemoteWorkerError::ClaimForgery)));
+        assert!(matches!(reject_res, Err(RemoteWorkerError::TaskMismatch)));
     }
 
     #[test]

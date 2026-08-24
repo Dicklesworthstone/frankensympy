@@ -21,6 +21,7 @@ pub mod rule;
 
 pub use claim::{Claim, ClaimKind};
 pub use kernel::{
-    DerivationStep, DerivationTree, KernelError, ProofKernel, verify_derivation_independent,
+    DerivationStep, DerivationTree, KernelError, MAX_DERIVATION_STEPS, ProofKernel,
+    derivation_verification_units, verify_derivation_independent,
 };
 pub use rule::{ProofRule, StepId};

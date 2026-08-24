@@ -22,12 +22,19 @@ pub struct FsymCx<'a, Caps = asupersync::cx::cap::All> {
     cx: &'a Cx<Caps>,
     budget: Budget,
     limits: BudgetLimits,
+    verifier_lease: Option<VerifierLease>,
 }
 
 impl<'a, Caps> FsymCx<'a, Caps> {
     /// Wraps a runtime-supplied context around a domain budget.
-    pub fn new(cx: &'a Cx<Caps>, budget: Budget, limits: BudgetLimits) -> Self {
-        Self { cx, budget, limits }
+    pub fn new(cx: &'a Cx<Caps>, mut budget: Budget, limits: BudgetLimits) -> Self {
+        let verifier_lease = budget.verifier_lease();
+        Self {
+            cx,
+            budget,
+            limits,
+            verifier_lease,
+        }
     }
 
     /// The wrapped asupersync context, for effects this wrapper does not
@@ -64,18 +71,19 @@ impl<'a, Caps> FsymCx<'a, Caps> {
         self.budget.try_charge_batch(charges)
     }
 
-    /// Issues the region's single verifier lease. The second call returns
-    /// `None`: one protected pool, one key.
-    pub fn verifier_lease(&mut self) -> Option<VerifierLease> {
-        self.budget.verifier_lease()
+    /// Whether this region owns the protected verifier capability.
+    pub fn has_verifier_authority(&self) -> bool {
+        self.verifier_lease.is_some()
     }
 
-    /// Charges the protected verifier pool; requires the lease.
-    pub fn charge_verifier(
-        &mut self,
-        lease: &VerifierLease,
-        amount: u64,
-    ) -> Result<ChargeReceipt, BudgetError> {
+    /// Charges the protected verifier pool through the capability retained for the region's
+    /// lifetime. Keeping the sole lease here prevents one portfolio call from dropping it and
+    /// making later verification in the same owning region impossible.
+    pub fn charge_verifier(&mut self, amount: u64) -> Result<ChargeReceipt, BudgetError> {
+        let lease = self
+            .verifier_lease
+            .as_ref()
+            .ok_or(BudgetError::VerifierPoolAccessDenied)?;
         self.budget.try_charge_verifier(lease, amount)
     }
 
@@ -183,18 +191,17 @@ mod tests {
         let limits = BudgetLimits::uniform(200, 40);
         let mut region = FsymCx::new(&cx, Budget::new(limits), limits);
 
-        let lease = region.verifier_lease().expect("first lease");
-        assert!(
-            region.verifier_lease().is_none(),
-            "second lease must be refused"
-        );
+        assert!(region.has_verifier_authority());
 
         // Shared-dimension charges never touch the protected pool.
         region.charge(Dimension::ComputeSteps, 150).unwrap();
         assert_eq!(region.verifier_remaining(), 40);
 
-        region.charge_verifier(&lease, 15).unwrap();
+        region.charge_verifier(15).unwrap();
         assert_eq!(region.verifier_remaining(), 25);
+
+        region.charge_verifier(5).unwrap();
+        assert_eq!(region.verifier_remaining(), 20);
     }
 
     #[test]

@@ -1,8 +1,8 @@
-//! Cryptographic verification receipts for FrankenSymPy (WS06).
+//! Structural verification receipt records for FrankenSymPy (WS06).
 //!
 //! Layer: L2 (evidence and receipts).
-//! A receipt is an unforgeable witness that an independent verifier checked a specific
-//! mathematical claim under a specific context.
+//! Receipt digests bind fields for integrity and comparison; they are not authentication or
+//! verifier authority. Accepted-state boundaries independently replay the attached evidence.
 
 #![forbid(unsafe_code)]
 
@@ -26,6 +26,7 @@ pub struct VerificationReceipt {
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ReceiptWire {
     receipt_id: u64,
     claim_digest: [u8; 32],

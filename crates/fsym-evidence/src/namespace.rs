@@ -12,7 +12,7 @@ use crate::receipt::VerificationReceipt;
 use fsym_assumptions::ImmutableAssumptionsSnapshot;
 use fsym_outcome::EvidenceClass;
 use fsym_proof_kernel::{Claim, verify_derivation_independent};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
 use thiserror::Error;
 
@@ -29,9 +29,56 @@ pub enum NamespaceError {
 }
 
 /// Unverified candidate term/claim namespace.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default)]
 pub struct CandidateNamespace {
     candidates: HashMap<[u8; 32], Claim>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CandidateNamespaceWire {
+    schema_version: u32,
+    candidates: Vec<Claim>,
+}
+
+impl Serialize for CandidateNamespace {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut candidates: Vec<Claim> = self.candidates.values().cloned().collect();
+        candidates.sort_by_key(Claim::digest);
+        CandidateNamespaceWire {
+            schema_version: 1,
+            candidates,
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for CandidateNamespace {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = CandidateNamespaceWire::deserialize(deserializer)?;
+        if wire.schema_version != 1 {
+            return Err(serde::de::Error::custom(format!(
+                "unsupported candidate namespace schema version {}",
+                wire.schema_version
+            )));
+        }
+        let mut candidates = HashMap::with_capacity(wire.candidates.len());
+        for claim in wire.candidates {
+            let digest = claim.digest();
+            if candidates.insert(digest, claim).is_some() {
+                return Err(serde::de::Error::custom(
+                    "duplicate candidate claim in namespace",
+                ));
+            }
+        }
+        Ok(Self { candidates })
+    }
 }
 
 impl CandidateNamespace {
@@ -69,9 +116,30 @@ pub struct VerifiedEvidence {
 /// This type intentionally does not implement `Deserialize`: imported envelopes must
 /// cross [`Self::insert_verified`] with an explicit assumptions snapshot instead of
 /// materializing accepted state around the verifier.
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default)]
 pub struct VerifiedNamespace {
     verified: HashMap<[u8; 32], VerifiedEvidence>,
+}
+
+#[derive(Serialize)]
+struct VerifiedNamespaceWire<'a> {
+    schema_version: u32,
+    verified: Vec<&'a VerifiedEvidence>,
+}
+
+impl Serialize for VerifiedNamespace {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut verified: Vec<&VerifiedEvidence> = self.verified.values().collect();
+        verified.sort_by_key(|evidence| evidence.envelope.claim.digest());
+        VerifiedNamespaceWire {
+            schema_version: 1,
+            verified,
+        }
+        .serialize(serializer)
+    }
 }
 
 impl VerifiedNamespace {
@@ -335,5 +403,79 @@ mod tests {
             NamespaceError::IndependentVerificationFailed(_)
         ));
         assert_eq!(verified.count(), 0);
+    }
+
+    #[test]
+    fn candidate_namespace_has_deterministic_json_roundtrip() {
+        let mut first = CandidateNamespace::new();
+        first.register_candidate(Claim::equality(
+            Expr::symbol("z"),
+            Expr::symbol("z"),
+        ));
+        first.register_candidate(Claim::equality(
+            Expr::symbol("a"),
+            Expr::symbol("a"),
+        ));
+
+        let json = serde_json::to_string(&first).expect("namespace has a JSON wire format");
+        let restored: CandidateNamespace =
+            serde_json::from_str(&json).expect("canonical namespace roundtrips");
+
+        assert_eq!(restored.count(), first.count());
+        assert_eq!(
+            serde_json::to_string(&restored).unwrap(),
+            json,
+            "digest-index reconstruction must not perturb canonical ordering"
+        );
+    }
+
+    #[test]
+    fn candidate_namespace_rejects_duplicate_claims_on_import() {
+        let claim = Claim::equality(Expr::symbol("x"), Expr::symbol("x"));
+        let wire = serde_json::json!({
+            "schema_version": 1,
+            "candidates": [claim.clone(), claim],
+        });
+
+        assert!(serde_json::from_value::<CandidateNamespace>(wire).is_err());
+    }
+
+    #[test]
+    fn verified_namespace_serializes_without_non_string_map_keys() {
+        let mut verified = VerifiedNamespace::new();
+        let ctx = ImmutableAssumptionsSnapshot::empty();
+        let x = Expr::symbol("x");
+        let claim = Claim::equality(x.clone(), x.clone());
+        let derivation = DerivationTree {
+            steps: vec![DerivationStep {
+                id: StepId(0),
+                rule: ProofRule::Reflexivity(x),
+                claim: claim.clone(),
+            }],
+            root: StepId(0),
+        };
+        let receipt = VerificationReceipt::issue(
+            ReceiptId::new(6).unwrap(),
+            &claim,
+            EvidenceClass::KernelProved,
+            "test-verifier",
+            105,
+            Some(derivation.digest()),
+        );
+        verified
+            .insert_verified(
+                EvidenceEnvelope::new(
+                    claim,
+                    EvidenceClass::KernelProved,
+                    receipt,
+                    Some(derivation),
+                ),
+                &ctx,
+            )
+            .unwrap();
+
+        let json = serde_json::to_string(&verified).expect("verified namespace is JSON encodable");
+        assert!(json.contains("\"schema_version\":1"));
+        assert!(json.contains("\"verified\":["));
     }
 }

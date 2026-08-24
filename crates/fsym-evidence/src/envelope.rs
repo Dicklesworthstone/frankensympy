@@ -19,6 +19,7 @@ pub struct EvidenceEnvelope {
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct EnvelopeWire {
     claim: Claim,
     evidence_class: String,

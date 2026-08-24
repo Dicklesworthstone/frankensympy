@@ -12,7 +12,9 @@ use crate::cx::FsymCx;
 use fsym_assumptions::ImmutableAssumptionsSnapshot;
 use fsym_budget::{BudgetLimits, Dimension};
 use fsym_evidence::EvidenceEnvelope;
-use fsym_proof_kernel::{Claim, DerivationTree, verify_derivation_independent};
+use fsym_proof_kernel::{
+    Claim, DerivationTree, derivation_verification_units, verify_derivation_independent,
+};
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -68,7 +70,9 @@ pub fn run_portfolio_race<Caps>(
 ) -> Result<VerifiedPortfolioOutcome, PortfolioError> {
     cx.checkpoint().map_err(|_| PortfolioError::Cancelled)?;
 
-    let lease = cx.verifier_lease().ok_or(PortfolioError::NoVerifierLease)?;
+    if !cx.has_verifier_authority() {
+        return Err(PortfolioError::NoVerifierLease);
+    }
     let initial_compute_remaining = cx.remaining(Dimension::ComputeSteps);
     let mut failure_reasons: Vec<String> = Vec::new();
     let mut verification_attempted = false;
@@ -96,12 +100,26 @@ pub fn run_portfolio_race<Caps>(
         };
         verification_attempted = true;
 
-        let verifier_units = u64::try_from(winner.derivation.steps.len())
-            .unwrap_or(u64::MAX)
-            .max(1);
-        let verifier_charge = cx
-            .charge_verifier(&lease, verifier_units)
+        // Charge the preflight itself before inspecting an untrusted candidate. A structurally
+        // oversized derivation is therefore a paid rejection rather than a free verifier DoS.
+        let mut verifier_charge = cx
+            .charge_verifier(1)
             .map_err(|e| PortfolioError::BudgetExhausted(e.to_string()))?;
+        let verifier_units = match derivation_verification_units(&winner.derivation) {
+            Ok(units) => units,
+            Err(error) => {
+                failure_reasons.push(format!(
+                    "{name}: verifier preflight rejected candidate from `{}`: {error}",
+                    winner.strategy_name
+                ));
+                continue;
+            }
+        };
+        if verifier_units > 1 {
+            verifier_charge = cx
+                .charge_verifier(verifier_units - 1)
+                .map_err(|e| PortfolioError::BudgetExhausted(e.to_string()))?;
+        }
         cx.checkpoint().map_err(|_| PortfolioError::Cancelled)?;
 
         let verified_claim = match verify_derivation_independent(&winner.derivation, context) {
@@ -413,5 +431,41 @@ mod tests {
             Err(PortfolioError::WinnerVerificationFailed(message))
                 if message.contains("does not answer requested claim")
         ));
+    }
+
+    #[test]
+    fn repeated_portfolios_reuse_the_regions_single_verifier_capability() {
+        let cx_raw = Cx::detached_cancel_context();
+        let limits = BudgetLimits::uniform(100, 10);
+        let mut fsym_cx = FsymCx::new(&cx_raw, Budget::new(limits), limits);
+        let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
+        let x = Expr::symbol("x");
+        let requested = Claim::equality(x.clone(), x.clone());
+
+        for iteration in 0..2 {
+            let candidate_x = x.clone();
+            let strategy = Box::new(move |_cx: &mut FsymCx<'_, _>| {
+                let mut kernel =
+                    ProofKernel::new((*ImmutableAssumptionsSnapshot::empty()).clone());
+                let root = kernel
+                    .prove_reflexivity(candidate_x.clone(), &mut Unbounded)
+                    .unwrap();
+                Ok(PortfolioCandidate {
+                    strategy_name: format!("iteration-{iteration}"),
+                    result: candidate_x.clone(),
+                    claim: Claim::equality(candidate_x.clone(), candidate_x.clone()),
+                    derivation: kernel.export_derivation(root).unwrap(),
+                })
+            });
+
+            run_portfolio_race(
+                &mut fsym_cx,
+                &context,
+                &requested,
+                vec![("repeat", strategy)],
+            )
+            .expect("the verifier capability remains owned by the region");
+        }
+        assert_eq!(fsym_cx.verifier_remaining(), 8);
     }
 }
