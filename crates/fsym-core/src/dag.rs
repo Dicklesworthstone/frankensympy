@@ -192,6 +192,22 @@ impl TermDag {
                 self.insert_node(TermNode::Pow(b_id, e_id)).unwrap()
             }
             Expr::Function(name, args) => {
+                if name == "Lambda" && args.len() >= 2 {
+                    let mut params = Vec::new();
+                    let mut all_syms = true;
+                    for p in &args[0..args.len() - 1] {
+                        if let Expr::Sym(s) = p {
+                            params.push(s.clone());
+                        } else {
+                            all_syms = false;
+                            break;
+                        }
+                    }
+                    if all_syms {
+                        let body_id = self.insert_expr(&args[args.len() - 1]);
+                        return self.insert_node(TermNode::Lambda(params, body_id)).unwrap();
+                    }
+                }
                 let ids = args.iter().map(|a| self.insert_expr(a)).collect();
                 self.insert_node(TermNode::Function(name.clone(), ids))
                     .unwrap()
@@ -316,9 +332,15 @@ impl TermDag {
                 }
                 Ok(Expr::Function(name.clone(), args))
             }
-            TermNode::Lambda(_params, body) => {
-                // Return body expression for unextended surface syntax
-                self.to_expr_internal(*body, visited, current_depth + 1, max_depth)
+            TermNode::Lambda(params, body) => {
+                let mut args = params
+                    .iter()
+                    .map(|p| Expr::Sym(p.clone()))
+                    .collect::<Vec<_>>();
+                let body_expr =
+                    self.to_expr_internal(*body, visited, current_depth + 1, max_depth)?;
+                args.push(body_expr);
+                Ok(Expr::Function("Lambda".to_string(), args))
             }
         };
 

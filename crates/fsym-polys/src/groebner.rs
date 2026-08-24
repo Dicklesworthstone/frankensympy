@@ -9,30 +9,25 @@ use num_traits::{One, Zero};
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
+const MAX_GROEBNER_BASIS_POLYNOMIALS: usize = 1_024;
+const MAX_GROEBNER_PENDING_PAIRS: usize = 1_000_000;
+
 impl TermOrder {
     /// Compares two exponent vectors according to the term ordering.
     pub fn compare_monomials(&self, a: &[u32], b: &[u32]) -> Ordering {
         match self {
-            TermOrder::Lex => {
-                for (x, y) in a.iter().zip(b.iter()) {
-                    match x.cmp(y) {
-                        Ordering::Equal => continue,
-                        other => return other,
-                    }
-                }
-                Ordering::Equal
-            }
+            TermOrder::Lex => a.cmp(b),
             TermOrder::DegLex => {
-                let sum_a: u32 = a.iter().sum();
-                let sum_b: u32 = b.iter().sum();
+                let sum_a: u128 = a.iter().map(|&value| u128::from(value)).sum();
+                let sum_b: u128 = b.iter().map(|&value| u128::from(value)).sum();
                 match sum_a.cmp(&sum_b) {
                     Ordering::Equal => TermOrder::Lex.compare_monomials(a, b),
                     other => other,
                 }
             }
             TermOrder::DegRevLex => {
-                let sum_a: u32 = a.iter().sum();
-                let sum_b: u32 = b.iter().sum();
+                let sum_a: u128 = a.iter().map(|&value| u128::from(value)).sum();
+                let sum_b: u128 = b.iter().map(|&value| u128::from(value)).sum();
                 match sum_a.cmp(&sum_b) {
                     Ordering::Equal => {
                         for (x, y) in a.iter().rev().zip(b.iter().rev()) {
@@ -41,7 +36,7 @@ impl TermOrder {
                                 other => return other,
                             }
                         }
-                        Ordering::Equal
+                        a.len().cmp(&b.len())
                     }
                     other => other,
                 }
@@ -73,7 +68,15 @@ impl MultivariatePoly {
         &self,
         divisors: &[MultivariatePoly],
         order: TermOrder,
-    ) -> (Vec<MultivariatePoly>, MultivariatePoly) {
+    ) -> Result<(Vec<MultivariatePoly>, MultivariatePoly), PolyError> {
+        self.validate_shape()?;
+        for divisor in divisors {
+            divisor.validate_shape()?;
+            if divisor.generators != self.generators {
+                return Err(incompatible_rings(&self.generators, &divisor.generators));
+            }
+        }
+
         let n_divs = divisors.len();
         let mut quotients = vec![MultivariatePoly::zero(self.generators.clone()); n_divs];
         let mut remainder_terms = BTreeMap::new();
@@ -90,7 +93,9 @@ impl MultivariatePoly {
                 if g.is_zero() {
                     continue;
                 }
-                let (g_lt_exp, g_lt_coeff) = g.leading_term(order).unwrap();
+                let Some((g_lt_exp, g_lt_coeff)) = g.leading_term(order) else {
+                    continue;
+                };
 
                 // Check if g's leading monomial divides p's leading monomial: g_lt_exp <= lt_exp component-wise
                 if divides(g_lt_exp, &lt_exp) {
@@ -102,11 +107,11 @@ impl MultivariatePoly {
                     term_map.insert(diff_exp.clone(), q_coeff.clone());
                     let term_poly = MultivariatePoly::new(self.generators.clone(), term_map);
 
-                    quotients[i] = quotients[i].add(&term_poly).expect("same generators");
+                    quotients[i] = quotients[i].add(&term_poly)?;
 
                     // p = p - term_poly * g
-                    let prod = term_poly.mul(g).expect("same generators");
-                    p = p.sub(&prod).expect("same generators");
+                    let prod = term_poly.mul(g)?;
+                    p = p.sub(&prod)?;
 
                     divided = true;
                     break;
@@ -123,29 +128,50 @@ impl MultivariatePoly {
             }
         }
 
-        (
+        Ok((
             quotients,
             MultivariatePoly::new(self.generators.clone(), remainder_terms),
-        )
+        ))
     }
 
     /// Makes the polynomial monic (leading coefficient = 1).
-    pub fn to_monic(&self, order: TermOrder) -> Self {
+    pub fn to_monic(&self, order: TermOrder) -> Result<Self, PolyError> {
+        self.validate_shape()?;
         if self.is_zero() {
-            return self.clone();
+            return Ok(self.clone());
         }
-        let lc = self.leading_coeff(order).unwrap();
+        let lc = self.leading_coeff(order).ok_or_else(|| {
+            PolyError::General("non-zero polynomial has no leading coefficient".to_string())
+        })?;
         let mut monic_terms = BTreeMap::new();
         for (exp, coeff) in &self.terms {
             monic_terms.insert(exp.clone(), coeff / &lc);
         }
-        Self::new(self.generators.clone(), monic_terms)
+        Ok(Self::new(self.generators.clone(), monic_terms))
     }
+}
+
+fn incompatible_rings(expected: &[Symbol], actual: &[Symbol]) -> PolyError {
+    PolyError::IncompatibleGenerators(format!("{expected:?}"), format!("{actual:?}"))
+}
+
+fn validate_common_ring(polys: &[MultivariatePoly]) -> Result<(), PolyError> {
+    let Some(first) = polys.first() else {
+        return Ok(());
+    };
+    first.validate_shape()?;
+    for poly in &polys[1..] {
+        poly.validate_shape()?;
+        if poly.generators != first.generators {
+            return Err(incompatible_rings(&first.generators, &poly.generators));
+        }
+    }
+    Ok(())
 }
 
 /// Helper checking if monomial `a` divides monomial `b`.
 fn divides(a: &[u32], b: &[u32]) -> bool {
-    a.iter().zip(b.iter()).all(|(x, y)| x <= y)
+    a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| x <= y)
 }
 
 /// Subtracts monomial `b` from `a` assuming `b <= a`.
@@ -164,6 +190,11 @@ pub fn s_polynomial(
     g: &MultivariatePoly,
     order: TermOrder,
 ) -> Result<MultivariatePoly, PolyError> {
+    f.validate_shape()?;
+    g.validate_shape()?;
+    if f.generators != g.generators {
+        return Err(incompatible_rings(&f.generators, &g.generators));
+    }
     if f.is_zero() || g.is_zero() {
         return Ok(MultivariatePoly::zero(f.generators.clone()));
     }
@@ -192,8 +223,14 @@ pub fn groebner_basis(
     initial_basis: &[MultivariatePoly],
     order: TermOrder,
 ) -> Result<Vec<MultivariatePoly>, PolyError> {
+    validate_common_ring(initial_basis)?;
     if initial_basis.is_empty() {
         return Ok(Vec::new());
+    }
+    if initial_basis.len() > MAX_GROEBNER_BASIS_POLYNOMIALS {
+        return Err(PolyError::General(format!(
+            "Groebner basis input exceeds the polynomial limit of {MAX_GROEBNER_BASIS_POLYNOMIALS}"
+        )));
     }
     let mut g: Vec<MultivariatePoly> = initial_basis
         .iter()
@@ -204,16 +241,31 @@ pub fn groebner_basis(
     let mut pairs = Vec::new();
     for i in 0..g.len() {
         for j in (i + 1)..g.len() {
+            if pairs.len() == MAX_GROEBNER_PENDING_PAIRS {
+                return Err(PolyError::General(format!(
+                    "Groebner computation exceeds the pending-pair limit of {MAX_GROEBNER_PENDING_PAIRS}"
+                )));
+            }
             pairs.push((i, j));
         }
     }
 
     while let Some((i, j)) = pairs.pop() {
         let s = s_polynomial(&g[i], &g[j], order)?;
-        let (_, rem) = s.div_rem(&g, order);
+        let (_, rem) = s.div_rem(&g, order)?;
         if !rem.is_zero() {
+            if g.len() == MAX_GROEBNER_BASIS_POLYNOMIALS {
+                return Err(PolyError::General(format!(
+                    "Groebner computation exceeds the basis limit of {MAX_GROEBNER_BASIS_POLYNOMIALS}"
+                )));
+            }
             let new_idx = g.len();
             for k in 0..g.len() {
+                if pairs.len() == MAX_GROEBNER_PENDING_PAIRS {
+                    return Err(PolyError::General(format!(
+                        "Groebner computation exceeds the pending-pair limit of {MAX_GROEBNER_PENDING_PAIRS}"
+                    )));
+                }
                 pairs.push((k, new_idx));
             }
             g.push(rem);
@@ -221,7 +273,10 @@ pub fn groebner_basis(
     }
 
     // Auto-reduction: make monic and reduce each element against all others
-    let reduced: Vec<MultivariatePoly> = g.into_iter().map(|p| p.to_monic(order)).collect();
+    let reduced: Vec<MultivariatePoly> = g
+        .into_iter()
+        .map(|p| p.to_monic(order))
+        .collect::<Result<_, _>>()?;
 
     // Remove redundant elements whose leading monomial is divisible by another
     let mut minimal = Vec::new();
@@ -256,9 +311,9 @@ pub fn groebner_basis(
             .filter(|(j, _)| *j != i)
             .map(|(_, q)| q.clone())
             .collect();
-        let (_, rem) = p.div_rem(&other_divisors, order);
+        let (_, rem) = p.div_rem(&other_divisors, order)?;
         if !rem.is_zero() {
-            fully_reduced.push(rem.to_monic(order));
+            fully_reduced.push(rem.to_monic(order)?);
         }
     }
 
@@ -270,9 +325,9 @@ pub fn ideal_membership(
     poly: &MultivariatePoly,
     groebner_basis: &[MultivariatePoly],
     order: TermOrder,
-) -> bool {
-    let (_, rem) = poly.div_rem(groebner_basis, order);
-    rem.is_zero()
+) -> Result<bool, PolyError> {
+    let (_, rem) = poly.div_rem(groebner_basis, order)?;
+    Ok(rem.is_zero())
 }
 
 /// Variable elimination via Lexicographic Groebner basis.
@@ -290,8 +345,15 @@ pub fn eliminate(
 
     let elim_indices: Vec<usize> = eliminated_vars
         .iter()
-        .filter_map(|s| gens.iter().position(|g| g == s))
-        .collect();
+        .map(|symbol| {
+            gens.iter().position(|generator| generator == symbol).ok_or_else(|| {
+                PolyError::IncompatibleGenerators(
+                    format!("elimination variable {}", symbol.name),
+                    "missing from polynomial generators".to_string(),
+                )
+            })
+        })
+        .collect::<Result<_, _>>()?;
 
     let eliminated_basis = gb
         .into_iter()

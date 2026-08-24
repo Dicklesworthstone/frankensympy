@@ -96,13 +96,21 @@ impl ImmutableAssumptionsSnapshot {
         hasher.update(b"fsym.context.v1:");
         hasher.update(&self.digest);
         hasher.update(prov.as_bytes());
-        for (sym, preds) in &additional_facts {
+        let mut sorted_facts: Vec<(&Symbol, &Vec<Predicate>)> = additional_facts.iter().collect();
+        sorted_facts.sort_by_key(|(s, _)| &s.name);
+        for (sym, preds) in sorted_facts {
+            hasher.update(b"fact:");
             hasher.update(sym.name.as_bytes());
-            for p in preds {
+            let mut sorted_preds = preds.clone();
+            sorted_preds.sort();
+            for p in &sorted_preds {
                 hasher.update(format!("{p:?}").as_bytes());
             }
         }
-        for (sym, dom) in &additional_domains {
+        let mut sorted_domains: Vec<(&Symbol, &Domain)> = additional_domains.iter().collect();
+        sorted_domains.sort_by_key(|(s, _)| &s.name);
+        for (sym, dom) in sorted_domains {
+            hasher.update(b"dom:");
             hasher.update(sym.name.as_bytes());
             hasher.update(dom.to_string().as_bytes());
         }

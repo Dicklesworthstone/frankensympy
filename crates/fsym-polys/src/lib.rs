@@ -379,8 +379,8 @@ mod tests {
         assert!(!gb.is_empty());
 
         // Check ideal membership of original generators
-        assert!(ideal_membership(&f1, &gb, TermOrder::Lex));
-        assert!(ideal_membership(&f2, &gb, TermOrder::Lex));
+        assert!(ideal_membership(&f1, &gb, TermOrder::Lex).unwrap());
+        assert!(ideal_membership(&f2, &gb, TermOrder::Lex).unwrap());
 
         // Check non-member polynomial is correctly rejected
         // g = y + 5
@@ -388,7 +388,7 @@ mod tests {
         tg.insert(vec![0, 1], BigRational::one());
         tg.insert(vec![0, 0], BigRational::from_integer(BigInt::from(5)));
         let g = MultivariatePoly::new(gens.clone(), tg);
-        assert!(!ideal_membership(&g, &gb, TermOrder::Lex));
+        assert!(!ideal_membership(&g, &gb, TermOrder::Lex).unwrap());
     }
 
     #[test]
@@ -420,5 +420,50 @@ mod tests {
         for p in &elim {
             assert_eq!(p.degree_in(0), 0);
         }
+    }
+
+    #[test]
+    fn multivariate_division_refuses_incompatible_rings() {
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+        let dividend = MultivariatePoly::one(vec![x.clone()]);
+        let divisor = MultivariatePoly::one(vec![y]);
+
+        assert!(matches!(
+            dividend.div_rem(&[divisor], TermOrder::Lex),
+            Err(PolyError::IncompatibleGenerators(_, _))
+        ));
+        assert!(matches!(
+            groebner_basis(
+                &[dividend, MultivariatePoly::one(vec![x, Symbol::new("z")])],
+                TermOrder::Lex,
+            ),
+            Err(PolyError::IncompatibleGenerators(_, _))
+        ));
+    }
+
+    #[test]
+    fn graded_orders_do_not_overflow_total_degree() {
+        let large = [u32::MAX, u32::MAX];
+        let smaller = [u32::MAX, u32::MAX - 1];
+        assert_eq!(
+            TermOrder::DegLex.compare_monomials(&large, &smaller),
+            std::cmp::Ordering::Greater
+        );
+        assert_eq!(
+            TermOrder::DegRevLex.compare_monomials(&large, &smaller),
+            std::cmp::Ordering::Greater
+        );
+    }
+
+    #[test]
+    fn elimination_refuses_unknown_variables() {
+        let x = Symbol::new("x");
+        let poly = MultivariatePoly::one(vec![x]);
+        let missing = Symbol::new("missing");
+        assert!(matches!(
+            eliminate(&[poly], &[missing]),
+            Err(PolyError::IncompatibleGenerators(_, _))
+        ));
     }
 }
