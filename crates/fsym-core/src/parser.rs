@@ -221,10 +221,13 @@ impl<'a> Parser<'a> {
             Some(Tok::Ident(name)) => {
                 if matches!(self.peek(), Some(Tok::LParen)) && constant_named(&name).is_none() {
                     self.bump();
-                    let mut args = vec![self.expr()?];
-                    while matches!(self.peek(), Some(Tok::Comma)) {
-                        self.bump();
+                    let mut args = Vec::new();
+                    if !matches!(self.peek(), Some(Tok::RParen)) {
                         args.push(self.expr()?);
+                        while matches!(self.peek(), Some(Tok::Comma)) {
+                            self.bump();
+                            args.push(self.expr()?);
+                        }
                     }
                     self.expect(&Tok::RParen)?;
                     Ok(Expr::Function(name, args))
@@ -255,19 +258,54 @@ fn neg(e: Expr) -> Expr {
     }
 }
 
-/// Exact division: integer over integer folds to a rational; anything else
+/// Exact division: numeric literals fold to an exact integer or rational; anything else
 /// becomes multiplication by the reciprocal.
 fn divide(a: Expr, b: Expr) -> Result<Expr, CoreError> {
-    if matches!(&b, Expr::Integer(n) if n.is_zero()) {
-        return Err(CoreError::DivisionByZero);
+    match &b {
+        Expr::Integer(n) if n.is_zero() => return Err(CoreError::DivisionByZero),
+        Expr::Rational(r) if r.numer().is_zero() => return Err(CoreError::DivisionByZero),
+        _ => {}
     }
-    if let (Expr::Integer(an), Expr::Integer(bn)) = (&a, &b) {
-        return Ok(Expr::Rational(BigRational::new(an.clone(), bn.clone())));
+    match (&a, &b) {
+        (Expr::Integer(an), Expr::Integer(bn)) => {
+            let r = BigRational::new(an.clone(), bn.clone());
+            if r.is_integer() {
+                Ok(Expr::Integer(r.to_integer()))
+            } else {
+                Ok(Expr::Rational(r))
+            }
+        }
+        (Expr::Integer(an), Expr::Rational(bn)) => {
+            let an_r = BigRational::from_integer(an.clone());
+            let r = an_r / bn;
+            if r.is_integer() {
+                Ok(Expr::Integer(r.to_integer()))
+            } else {
+                Ok(Expr::Rational(r))
+            }
+        }
+        (Expr::Rational(an), Expr::Integer(bn)) => {
+            let bn_r = BigRational::from_integer(bn.clone());
+            let r = an / bn_r;
+            if r.is_integer() {
+                Ok(Expr::Integer(r.to_integer()))
+            } else {
+                Ok(Expr::Rational(r))
+            }
+        }
+        (Expr::Rational(an), Expr::Rational(bn)) => {
+            let r = an / bn;
+            if r.is_integer() {
+                Ok(Expr::Integer(r.to_integer()))
+            } else {
+                Ok(Expr::Rational(r))
+            }
+        }
+        _ => Ok(Expr::Mul(vec![
+            a,
+            Expr::Pow(Arc::new(b), Arc::new(Expr::from_i64(-1))),
+        ])),
     }
-    Ok(Expr::Mul(vec![
-        a,
-        Expr::Pow(Arc::new(b), Arc::new(Expr::from_i64(-1))),
-    ]))
 }
 
 /// Decimal literal as an exact rational: `"3.14"` → `157/50`.
@@ -351,6 +389,10 @@ mod tests {
             parse("1/2").unwrap(),
             Expr::Rational(BigRational::new(BigInt::from(1), BigInt::from(2)))
         );
+        assert_eq!(
+            parse("0.5/2").unwrap(),
+            Expr::Rational(BigRational::new(BigInt::from(1), BigInt::from(4)))
+        );
         // Symbolic denominators stay structural.
         assert_eq!(
             parse("x/2").unwrap(),
@@ -360,6 +402,7 @@ mod tests {
             ])
         );
         assert_eq!(parse("1/0"), Err(CoreError::DivisionByZero));
+        assert_eq!(parse("1/0.0"), Err(CoreError::DivisionByZero));
     }
 
     #[test]
