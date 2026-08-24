@@ -18,7 +18,7 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
   RUSTFLAGS: "-D warnings"
-  RUST_TOOLCHAIN: nightly-2026-07-05
+  RUST_TOOLCHAIN: nightly-2026-08-20
 
 jobs:
   # ── G0: Planning Integrity ─────────────────────────────────────────
@@ -48,8 +48,8 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --check
-      - run: cargo check --all-targets
-      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo check --workspace --all-targets
+      - run: cargo clippy --workspace --all-targets -- -D warnings
 
   # ── G2: Unit Tests ────────────────────────────────────────────────
   g2-unit-tests:
@@ -64,4 +64,4 @@ jobs:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test -- --nocapture
+      - run: cargo test --workspace -- --nocapture

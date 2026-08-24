@@ -1,169 +1,43 @@
 //! # fsym-assumptions
 //!
-//! Deductive predicate and assumptions engine for symbolic reasoning:
-//! real, positive, negative, integer, rational, prime, complex, zero.
+//! Deductive predicate and assumptions engine for symbolic reasoning (WS04):
+//! - Multi-valued truth model ([`TruthValue`]: EntailedTrue, EntailedFalse, Unknown, Contradictory);
+//! - Mathematical domains ([`Domain`]: $\mathbb{Z}$, $\mathbb{Q}$, $\mathbb{R}$, $\mathbb{C}$, $D[x]$, $D(x)$, $\mathbb{F}_p$) with explicit coercion graph;
+//! - Capture-avoiding substitution and alpha-equivalence ([`bindings`]);
+//! - Deductive predicate hierarchy ([`Predicate`]) and assumption context ([`AssumptionsContext`]).
 
 #![forbid(unsafe_code)]
 
+pub mod bindings;
+pub mod domain;
+pub mod predicate;
+pub mod truth;
+
+pub use bindings::*;
+pub use domain::*;
+pub use predicate::*;
+pub use truth::*;
+
 use fsym_core::{Expr, Symbol};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use thiserror::Error;
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum AssumptionError {
     #[error("Contradictory assumptions inferred")]
     Contradiction,
+    #[error("Domain conflict for symbol {0}: {1} vs {2}")]
+    DomainConflict(String, String, String),
+    #[error("Unknown symbol: {0}")]
+    UnknownSymbol(String),
 }
 
-/// Mathematical predicates.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub enum Predicate {
-    Real,
-    Complex,
-    Integer,
-    Rational,
-    Positive,
-    Negative,
-    NonNegative,
-    NonPositive,
-    Zero,
-    NonZero,
-    Prime,
-    Even,
-    Odd,
-}
-
-/// Assumptions context holding facts about symbols.
+/// Assumptions context holding mathematical facts and domain assignments for symbols.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AssumptionsContext {
     pub facts: HashMap<Symbol, Vec<Predicate>>,
-}
-
-impl Predicate {
-    /// Direct consequences under the standard numeric-tower lattice.
-    ///
-    /// Deliberately excludes `Prime => Odd` (2 is prime and even) and
-    /// makes no claim the lattice cannot justify.
-    fn direct_consequences(self) -> &'static [Predicate] {
-        use Predicate::*;
-        match self {
-            Complex => &[],
-            Real => &[Complex],
-            Rational => &[Real, Complex],
-            Integer => &[Rational, Real, Complex],
-            Even | Odd => &[Integer, Rational, Real, Complex],
-            Prime => &[
-                Integer,
-                Positive,
-                NonNegative,
-                NonZero,
-                Rational,
-                Real,
-                Complex,
-            ],
-            Positive => &[NonNegative, NonZero, Rational, Real, Complex],
-            Negative => &[NonPositive, NonZero, Rational, Real, Complex],
-            NonNegative => &[Real, Complex],
-            Zero => &[NonNegative, NonPositive, Rational, Real, Complex],
-            NonPositive => &[Real, Complex],
-            NonZero => &[Real, Complex],
-        }
-    }
-
-    /// Full transitive closure of consequences of `self`.
-    pub fn closure(self) -> std::collections::BTreeSet<Predicate> {
-        let mut seen = std::collections::BTreeSet::from([self]);
-        let mut queue = vec![self];
-        while let Some(current) = queue.pop() {
-            for next in current.direct_consequences() {
-                if seen.insert(*next) {
-                    queue.push(*next);
-                }
-            }
-        }
-        seen
-    }
-
-    /// Whether `a` entails `b` in the assumption lattice.
-    pub fn entails(a: Predicate, b: Predicate) -> bool {
-        a.closure().contains(&b)
-    }
-
-    /// Predicates directly contradicted by `self`.
-    fn contradictions(self) -> &'static [Predicate] {
-        use Predicate::*;
-        match self {
-            Zero => &[NonZero, Positive, Negative],
-            NonZero => &[Zero],
-            Positive => &[Negative, Zero, NonPositive],
-            Negative => &[Positive, Zero, NonNegative],
-            Even => &[Odd],
-            Odd => &[Even],
-            _ => &[],
-        }
-    }
-}
-
-/// Predicates that hold for a literal expression on its face, without
-/// consulting any context.
-fn inherent_facts(expr: &Expr) -> Option<std::collections::BTreeSet<Predicate>> {
-    use num_traits::{Signed, Zero};
-    match expr {
-        Expr::Integer(n) => {
-            let mut facts: std::collections::BTreeSet<Predicate> = Predicate::Integer.closure();
-            if n.is_zero() {
-                facts.extend(Predicate::Zero.closure());
-            } else {
-                facts.extend(Predicate::NonZero.closure());
-                facts.extend(if n > &num_bigint::BigInt::from(0) {
-                    Predicate::Positive.closure()
-                } else {
-                    Predicate::Negative.closure()
-                });
-                let two = num_bigint::BigInt::from(2);
-                let even = (n % &two).is_zero();
-                facts.extend(
-                    if even {
-                        Predicate::Even
-                    } else {
-                        Predicate::Odd
-                    }
-                    .closure(),
-                );
-            }
-            Some(facts)
-        }
-        Expr::Rational(r) => {
-            let mut facts: std::collections::BTreeSet<Predicate> = Predicate::Rational.closure();
-            if r.is_zero() {
-                facts.extend(Predicate::Zero.closure());
-            } else {
-                facts.extend(Predicate::NonZero.closure());
-                facts.extend(if r.is_positive() {
-                    Predicate::Positive.closure()
-                } else {
-                    Predicate::Negative.closure()
-                });
-            }
-            Some(facts)
-        }
-        _ => None,
-    }
-}
-
-/// Three-valued decision against a known-fact set: entailed, contradicted,
-/// or unknown. Absence from `known` is never evidence of falsity.
-fn decide(known: &std::collections::BTreeSet<Predicate>, pred: Predicate) -> Option<bool> {
-    if known.contains(&pred) {
-        return Some(true);
-    }
-    for fact in known {
-        if fact.contradictions().contains(&pred) {
-            return Some(false);
-        }
-    }
-    None
+    pub domains: HashMap<Symbol, Domain>,
 }
 
 impl AssumptionsContext {
@@ -171,47 +45,85 @@ impl AssumptionsContext {
         Self::default()
     }
 
+    /// Records a predicate assumption for a symbol.
     pub fn assume(&mut self, sym: Symbol, pred: Predicate) {
         self.facts.entry(sym).or_default().push(pred);
     }
 
-    /// Deduced predicate set for one symbol: stated facts plus every
-    /// consequence the lattice licenses.
-    pub fn deductions(&self, sym: &Symbol) -> std::collections::BTreeSet<Predicate> {
-        let mut out = std::collections::BTreeSet::new();
+    /// Records an exact domain assignment for a symbol.
+    pub fn assume_domain(&mut self, sym: Symbol, domain: Domain) {
+        self.domains.insert(sym, domain);
+    }
+
+    /// Retrieves the domain assigned to a symbol, if any.
+    pub fn domain_of(&self, sym: &Symbol) -> Option<&Domain> {
+        self.domains.get(sym)
+    }
+
+    /// Deduced predicate set for one symbol: stated facts plus every consequence
+    /// the lattice licenses, as well as facts implied by domain assignments.
+    pub fn deductions(&self, sym: &Symbol) -> BTreeSet<Predicate> {
+        let mut out = BTreeSet::new();
         if let Some(preds) = self.facts.get(sym) {
             for p in preds {
                 out.extend(p.closure());
             }
         }
+        if let Some(dom) = self.domains.get(sym) {
+            match dom {
+                Domain::ZZ => out.extend(Predicate::Integer.closure()),
+                Domain::QQ => out.extend(Predicate::Rational.closure()),
+                Domain::RR => out.extend(Predicate::Real.closure()),
+                Domain::CC => out.extend(Predicate::Complex.closure()),
+                _ => {}
+            }
+        }
         out
     }
 
-    /// Check if predicate holds for an expression.
-    ///
-    /// Returns `Some(true)` only when derivable, `Some(false)` when
-    /// refutable from known facts or literal structure, and `None` when
-    /// genuinely unknown — unknown never becomes true or false.
-    pub fn is_true(&self, expr: &Expr, pred: Predicate) -> Option<bool> {
+    /// Evaluates a predicate query against an expression in 4-valued logic.
+    pub fn query(&self, expr: &Expr, pred: Predicate) -> TruthValue {
         let known = inherent_facts(expr)
             .or_else(|| match expr {
                 Expr::Sym(s) => Some(self.deductions(s)),
                 _ => None,
             })
             .unwrap_or_default();
-        decide(&known, pred)
+
+        if known.contains(&pred) {
+            TruthValue::EntailedTrue
+        } else if known.iter().any(|fact| Predicate::contradicts(*fact, pred)) {
+            TruthValue::EntailedFalse
+        } else {
+            TruthValue::Unknown
+        }
+    }
+
+    /// Check if predicate holds for an expression (backward-compatible 3-valued query).
+    ///
+    /// Returns `Some(true)` only when derivable, `Some(false)` when
+    /// refutable from known facts or literal structure, and `None` when
+    /// genuinely unknown.
+    pub fn is_true(&self, expr: &Expr, pred: Predicate) -> Option<bool> {
+        self.query(expr, pred).to_option_bool()
+    }
+
+    /// Check if predicate is refutable for an expression.
+    pub fn is_false(&self, expr: &Expr, pred: Predicate) -> Option<bool> {
+        match self.query(expr, pred) {
+            TruthValue::EntailedFalse => Some(true),
+            TruthValue::EntailedTrue => Some(false),
+            TruthValue::Unknown | TruthValue::Contradictory => None,
+        }
     }
 
     /// Reports [`AssumptionError::Contradiction`] if any symbol carries
-    /// mutually exclusive facts. Contradictions are surfaced explicitly;
-    /// they never cause unrelated queries to answer vacuously.
+    /// mutually exclusive facts or conflicting domain assertions.
     pub fn check_consistency(&self) -> Result<(), AssumptionError> {
         for preds in self.facts.values() {
             for (i, a) in preds.iter().enumerate() {
                 for b in &preds[i + 1..] {
-                    if Predicate::contradictions(*a).contains(b)
-                        || Predicate::contradictions(*b).contains(a)
-                    {
+                    if Predicate::contradicts(*a, *b) {
                         return Err(AssumptionError::Contradiction);
                     }
                 }
@@ -245,6 +157,21 @@ mod tests {
     }
 
     #[test]
+    fn test_domain_assignments_imply_predicates() {
+        let mut ctx = AssumptionsContext::new();
+        let n = Symbol::new("n");
+        ctx.assume_domain(n.clone(), Domain::ZZ);
+        assert_eq!(
+            ctx.query(&Expr::Sym(n.clone()), Predicate::Integer),
+            TruthValue::EntailedTrue
+        );
+        assert_eq!(
+            ctx.query(&Expr::Sym(n), Predicate::Real),
+            TruthValue::EntailedTrue
+        );
+    }
+
+    #[test]
     fn lattice_entailment_is_transitive_and_honest() {
         use Predicate::*;
         assert!(Predicate::entails(Integer, Real));
@@ -264,15 +191,19 @@ mod tests {
             Some(true)
         );
         assert_eq!(
-            ctx.is_true(&Expr::Sym(x.clone()), Predicate::Rational),
+            ctx.is_true(&Expr::Sym(x.clone()), Predicate::Real),
             Some(true)
+        );
+        assert_eq!(
+            ctx.is_true(&Expr::Sym(x.clone()), Predicate::Rational),
+            None
         );
         assert_eq!(
             ctx.is_true(&Expr::Sym(x.clone()), Predicate::Negative),
             Some(false)
         );
         // Undecidable stays undecidable.
-        assert_eq!(ctx.is_true(&Expr::Sym(x.clone()), Predicate::Even), None);
+        assert_eq!(ctx.is_true(&Expr::Sym(x), Predicate::Even), None);
     }
 
     #[test]
@@ -283,7 +214,7 @@ mod tests {
             assert_eq!(ctx.is_true(&neg_four, pred), Some(true));
         }
         assert_eq!(ctx.is_true(&neg_four, Predicate::Odd), Some(false));
-        assert_eq!(ctx.is_true(&neg_four, Predicate::Prime), None);
+        assert_eq!(ctx.is_true(&neg_four, Predicate::Prime), Some(false));
     }
 
     #[test]
