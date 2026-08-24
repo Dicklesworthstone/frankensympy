@@ -99,6 +99,26 @@ impl<'a> NonZeroBigInt<'a> {
     }
 }
 
+/// Greatest common divisor; always non-negative. `gcd(0, 0) == 0`.
+pub fn gcd(a: &BigInt, b: &BigInt) -> BigInt {
+    a.gcd(b)
+}
+
+/// Extended gcd: returns `(g, x, y)` with `a·x + b·y == g` and
+/// `g == gcd(a, b)` (non-negative).
+pub fn extended_gcd(a: &BigInt, b: &BigInt) -> (BigInt, BigInt, BigInt) {
+    a.extended_gcd(b)
+}
+
+/// Divides `a` by `b` when the division is exact; `None` otherwise.
+pub fn exact_div(a: &BigInt, b: &BigInt) -> Option<BigInt> {
+    if b.is_zero() {
+        return None;
+    }
+    let (quotient, remainder) = a.div_rem(b);
+    remainder.is_zero().then_some(quotient)
+}
+
 impl BigInt {
     pub fn zero() -> Self {
         Self(Substrate::zero())
@@ -1037,6 +1057,113 @@ pub fn metered_div_rem_nonzero<M: BudgetMeter>(
     ))
 }
 
+/// Cancellation-first exact division using the metered scalar division lane.
+pub fn metered_exact_div<M: BudgetMeter>(
+    a: &BigInt,
+    b: &BigInt,
+    meter: &mut M,
+) -> Result<Option<BigInt>, MeterError> {
+    let Some((quotient, remainder)) = metered_div_rem(a, b, meter)? else {
+        return Ok(None);
+    };
+    let result = remainder.is_zero().then_some(quotient);
+    metered_finish(result, meter)
+}
+
+/// Metered greatest common divisor with step accounting and cancellation checkpoints.
+pub fn metered_gcd<M: BudgetMeter>(
+    a: &BigInt,
+    b: &BigInt,
+    meter: &mut M,
+) -> Result<BigInt, MeterError> {
+    meter.checkpoint()?;
+    meter.charge_batch(&[
+        (
+            Dimension::MemoryBytes,
+            a.limb_count()
+                .max(1)
+                .saturating_add(b.limb_count().max(1))
+                .saturating_mul(8),
+        ),
+        (Dimension::AllocationCount, 2),
+    ])?;
+    let mut a = a.clone();
+    let mut b = b.clone();
+    while let Some(divisor) = NonZeroBigInt::new(&b) {
+        meter.checkpoint()?;
+        let (_, remainder) = metered_div_rem_nonzero(&a, divisor, meter)?;
+        a = b;
+        b = remainder;
+    }
+    meter.checkpoint()?;
+    let result = if a.is_negative() { -a } else { a };
+    metered_finish(result, meter)
+}
+
+/// Metered extended gcd with step accounting and cancellation checkpoints.
+pub fn metered_extended_gcd<M: BudgetMeter>(
+    a: &BigInt,
+    b: &BigInt,
+    meter: &mut M,
+) -> Result<(BigInt, BigInt, BigInt), MeterError> {
+    meter.checkpoint()?;
+    meter.charge_batch(&[
+        (
+            Dimension::MemoryBytes,
+            a.limb_count()
+                .saturating_add(b.limb_count())
+                .saturating_add(4)
+                .saturating_mul(8),
+        ),
+        (Dimension::AllocationCount, 6),
+    ])?;
+    let (mut old_r, mut r) = (a.clone(), b.clone());
+    let (mut old_s, mut s) = (BigInt::one(), BigInt::zero());
+    let (mut old_t, mut t) = (BigInt::zero(), BigInt::one());
+    while let Some(divisor) = NonZeroBigInt::new(&r) {
+        meter.checkpoint()?;
+        let (quotient, remainder) = metered_div_rem_nonzero(&old_r, divisor, meter)?;
+        old_r = r;
+        r = remainder;
+        let quotient_times_s = metered_multiply(&quotient, &s, meter)?;
+        let next_s = metered_subtract(&old_s, &quotient_times_s, meter)?;
+        old_s = s;
+        s = next_s;
+        let quotient_times_t = metered_multiply(&quotient, &t, meter)?;
+        let next_t = metered_subtract(&old_t, &quotient_times_t, meter)?;
+        old_t = t;
+        t = next_t;
+    }
+    let result = if old_r.is_negative() {
+        (-old_r, -old_s, -old_t)
+    } else {
+        (old_r, old_s, old_t)
+    };
+    metered_finish(result, meter)
+}
+
+fn metered_finish<T, M: BudgetMeter>(value: T, meter: &mut M) -> Result<T, MeterError> {
+    meter.checkpoint()?;
+    Ok(value)
+}
+
+fn metered_subtract<M: BudgetMeter>(
+    lhs: &BigInt,
+    rhs: &BigInt,
+    meter: &mut M,
+) -> Result<BigInt, MeterError> {
+    meter.checkpoint()?;
+    let output_limbs = lhs.limb_count().max(rhs.limb_count()).saturating_add(1);
+    meter.charge_batch(&[
+        (Dimension::ComputeSteps, output_limbs.max(1)),
+        (Dimension::MemoryBytes, output_limbs.saturating_mul(8)),
+        (Dimension::AllocationCount, 1),
+    ])?;
+    let result = lhs - rhs;
+    meter.checkpoint()?;
+    Ok(result)
+}
+
 fn copy_u32_digits<M: BudgetMeter>(
     value: &Substrate,
     capacity: usize,
@@ -1329,6 +1456,45 @@ mod tests {
     }
 
     #[test]
+    fn exact_division_and_gcd_apis_cover_signs_and_zero_boundaries() {
+        assert_eq!(gcd(&BigInt::from(-54), &BigInt::from(24)), BigInt::from(6));
+        assert_eq!(gcd(&BigInt::zero(), &BigInt::zero()), BigInt::zero());
+
+        let a = BigInt::from(-54);
+        let b = BigInt::from(24);
+        let (g, x, y) = extended_gcd(&a, &b);
+        assert_eq!(g, BigInt::from(6));
+        assert_eq!(&a * x + &b * y, g);
+
+        assert_eq!(
+            exact_div(&BigInt::from(-42), &BigInt::from(7)),
+            Some(BigInt::from(-6))
+        );
+        assert_eq!(exact_div(&BigInt::from(42), &BigInt::from(8)), None);
+        assert_eq!(exact_div(&BigInt::from(42), &BigInt::zero()), None);
+    }
+
+    #[test]
+    fn metered_exact_division_and_gcd_match_unmetered_apis() {
+        let a = (BigInt::one() << 257) - 1i64;
+        let b = (BigInt::one() << 129) - 1i64;
+
+        let mut meter = Unbounded;
+        assert_eq!(
+            metered_exact_div(&a, &b, &mut meter).unwrap(),
+            exact_div(&a, &b)
+        );
+
+        let mut meter = Unbounded;
+        assert_eq!(metered_gcd(&a, &b, &mut meter).unwrap(), gcd(&a, &b));
+
+        let mut meter = Unbounded;
+        let (metered_g, x, y) = metered_extended_gcd(&a, &b, &mut meter).unwrap();
+        assert_eq!(metered_g, gcd(&a, &b));
+        assert_eq!(&a * x + &b * y, metered_g);
+    }
+
+    #[test]
     fn metered_division_cancels_inside_digit_batches() {
         let dividend = (BigInt::one() << 4_096) - 1i64;
         let divisor = (BigInt::one() << 2_047) + 65_537i64;
@@ -1422,6 +1588,23 @@ mod tests {
             prop_assert_eq!(&quotient, &native_quotient);
             prop_assert_eq!(&remainder, &native_remainder);
             prop_assert_eq!(&quotient * &divisor + &remainder, dividend);
+        }
+
+        #[test]
+        fn owned_gcd_lanes_agree_for_broad_signed_operands(
+            a_bytes in proptest::collection::vec(any::<u8>(), 0..97),
+            b_bytes in proptest::collection::vec(any::<u8>(), 0..97),
+        ) {
+            let a = BigInt::from_signed_bytes_be(&a_bytes);
+            let b = BigInt::from_signed_bytes_be(&b_bytes);
+
+            let mut meter = Unbounded;
+            prop_assert_eq!(metered_gcd(&a, &b, &mut meter).unwrap(), gcd(&a, &b));
+
+            let mut meter = Unbounded;
+            let (metered_g, x, y) = metered_extended_gcd(&a, &b, &mut meter).unwrap();
+            prop_assert_eq!(&metered_g, &gcd(&a, &b));
+            prop_assert_eq!(&a * x + &b * y, metered_g);
         }
     }
 }

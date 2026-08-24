@@ -16,47 +16,11 @@
 
 pub use fsym_bigint::{
     BigInt, DEFAULT_STRATEGY_THRESHOLD_BITS, LIMB_BITS, NonZeroBigInt, Strategy as MulStrategy,
-    limb_count_u64, metered_div_rem, metered_div_rem_nonzero, metered_multiply as metered_mul,
+    exact_div, extended_gcd, gcd, limb_count_u64, metered_div_rem, metered_div_rem_nonzero,
+    metered_exact_div, metered_extended_gcd, metered_gcd, metered_multiply as metered_mul,
     multiply, multiply_with_strategy as mul_with_strategy, select_strategy,
 };
 use fsym_budget::{BudgetMeter, Dimension, MeterError};
-
-/// Greatest common divisor; always non-negative. `gcd(0, 0) == 0`.
-pub fn gcd(a: &BigInt, b: &BigInt) -> BigInt {
-    a.gcd(b)
-}
-
-/// Extended gcd: returns `(g, x, y)` with `a·x + b·y == g` and
-/// `g == gcd(a, b)` (non-negative).
-pub fn extended_gcd(a: &BigInt, b: &BigInt) -> (BigInt, BigInt, BigInt) {
-    a.extended_gcd(b)
-}
-
-/// Divides `a` by `b` when the division is exact; `None` otherwise.
-pub fn exact_div(a: &BigInt, b: &BigInt) -> Option<BigInt> {
-    if b.is_zero() {
-        return None;
-    }
-    let (q, r) = a.div_rem(b);
-    if r.is_zero() { Some(q) } else { None }
-}
-
-/// Cancellation-first exact division using the metered scalar division lane.
-pub fn metered_exact_div<M: BudgetMeter>(
-    a: &BigInt,
-    b: &BigInt,
-    meter: &mut M,
-) -> Result<Option<BigInt>, MeterError> {
-    let Some((quotient, remainder)) = metered_div_rem(a, b, meter)? else {
-        return Ok(None);
-    };
-    let result = if remainder.is_zero() {
-        Some(quotient)
-    } else {
-        None
-    };
-    metered_finish(result, meter)
-}
 
 /// Multiplicative inverse of `a` modulo `m` (`m > 0`); `None` when
 /// `gcd(a, m) != 1`.
@@ -688,78 +652,6 @@ fn metered_sqrt_floor<M: BudgetMeter>(n: &BigInt, meter: &mut M) -> Result<BigIn
         }
         x = next;
     }
-}
-
-/// Metered greatest common divisor with step accounting and cancellation checkpoints.
-pub fn metered_gcd<M: BudgetMeter>(
-    a: &BigInt,
-    b: &BigInt,
-    meter: &mut M,
-) -> Result<BigInt, MeterError> {
-    meter.checkpoint()?;
-    meter.charge_batch(&[
-        (
-            Dimension::MemoryBytes,
-            a.limb_count()
-                .max(1)
-                .saturating_add(b.limb_count().max(1))
-                .saturating_mul(8),
-        ),
-        (Dimension::AllocationCount, 2),
-    ])?;
-    let mut a = a.clone();
-    let mut b = b.clone();
-    while let Some(divisor) = NonZeroBigInt::new(&b) {
-        meter.checkpoint()?;
-        let (_, r) = metered_div_rem_nonzero(&a, divisor, meter)?;
-        a = b;
-        b = r;
-    }
-    meter.checkpoint()?;
-    let result = if a.is_negative() { -a } else { a };
-    metered_finish(result, meter)
-}
-
-/// Metered extended gcd with step accounting and cancellation checkpoints.
-pub fn metered_extended_gcd<M: BudgetMeter>(
-    a: &BigInt,
-    b: &BigInt,
-    meter: &mut M,
-) -> Result<(BigInt, BigInt, BigInt), MeterError> {
-    meter.checkpoint()?;
-    meter.charge_batch(&[
-        (
-            Dimension::MemoryBytes,
-            a.limb_count()
-                .saturating_add(b.limb_count())
-                .saturating_add(4)
-                .saturating_mul(8),
-        ),
-        (Dimension::AllocationCount, 6),
-    ])?;
-    let (mut old_r, mut r) = (a.clone(), b.clone());
-    let (mut old_s, mut s) = (BigInt::one(), BigInt::zero());
-    let (mut old_t, mut t) = (BigInt::zero(), BigInt::one());
-    while let Some(divisor) = NonZeroBigInt::new(&r) {
-        meter.checkpoint()?;
-        let (q, tmp_r) = metered_div_rem_nonzero(&old_r, divisor, meter)?;
-        old_r = r;
-        r = tmp_r;
-        let q_times_s = metered_mul(&q, &s, meter)?;
-        let tmp_s = metered_subtract(&old_s, &q_times_s, meter)?;
-        old_s = s;
-        s = tmp_s;
-        let q_times_t = metered_mul(&q, &t, meter)?;
-        let tmp_t = metered_subtract(&old_t, &q_times_t, meter)?;
-        old_t = t;
-        t = tmp_t;
-    }
-    let result = if old_r.is_negative() {
-        (-old_r, -old_s, -old_t)
-    } else {
-        (old_r, old_s, old_t)
-    };
-    metered_finish(result, meter)
 }
 
 fn metered_normalized_remainder<M: BudgetMeter>(
