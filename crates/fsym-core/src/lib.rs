@@ -16,8 +16,10 @@ use thiserror::Error;
 
 pub mod arith;
 pub mod canonical;
+pub mod dag;
 mod parser;
 
+pub use dag::*;
 pub use parser::parse;
 
 #[derive(Debug, Error, PartialEq, Eq)]

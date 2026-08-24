@@ -21,6 +21,7 @@ pub use truth::*;
 use fsym_core::{Expr, Symbol};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, HashMap};
+use std::sync::Arc;
 use thiserror::Error;
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -36,8 +37,31 @@ pub enum AssumptionError {
 /// Assumptions context holding mathematical facts and domain assignments for symbols.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AssumptionsContext {
-    pub facts: HashMap<Symbol, Vec<Predicate>>,
-    pub domains: HashMap<Symbol, Domain>,
+    facts: HashMap<Symbol, Vec<Predicate>>,
+    domains: HashMap<Symbol, Domain>,
+}
+
+/// An immutable, thread-safe snapshot of an [`AssumptionsContext`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImmutableAssumptionsSnapshot {
+    inner: Arc<AssumptionsContext>,
+}
+
+impl ImmutableAssumptionsSnapshot {
+    /// Evaluates a predicate query against the immutable snapshot in 4-valued logic.
+    pub fn query(&self, expr: &Expr, pred: Predicate) -> TruthValue {
+        self.inner.query(expr, pred)
+    }
+
+    /// Check if predicate holds for an expression under the immutable snapshot.
+    pub fn is_true(&self, expr: &Expr, pred: Predicate) -> Option<bool> {
+        self.inner.is_true(expr, pred)
+    }
+
+    /// Retrieves the domain assigned to a symbol under this snapshot.
+    pub fn domain_of(&self, sym: &Symbol) -> Option<&Domain> {
+        self.inner.domain_of(sym)
+    }
 }
 
 impl AssumptionsContext {
@@ -45,14 +69,45 @@ impl AssumptionsContext {
         Self::default()
     }
 
+    /// Creates an immutable, thread-safe snapshot of this context.
+    pub fn snapshot(&self) -> ImmutableAssumptionsSnapshot {
+        ImmutableAssumptionsSnapshot {
+            inner: Arc::new(self.clone()),
+        }
+    }
+
     /// Records a predicate assumption for a symbol.
     pub fn assume(&mut self, sym: Symbol, pred: Predicate) {
         self.facts.entry(sym).or_default().push(pred);
     }
 
-    /// Records an exact domain assignment for a symbol.
-    pub fn assume_domain(&mut self, sym: Symbol, domain: Domain) {
-        self.domains.insert(sym, domain);
+    /// Records an exact domain assignment for a symbol, emitting [`AssumptionError::DomainConflict`]
+    /// if an incompatible domain is already registered.
+    pub fn assume_domain(&mut self, sym: Symbol, domain: Domain) -> Result<(), AssumptionError> {
+        if let Some(existing) = self.domains.get(&sym) {
+            if existing != &domain {
+                if let Some(common) = common_domain(existing, &domain) {
+                    if common == Domain::ExpressionDomain && *existing != Domain::ExpressionDomain {
+                        return Err(AssumptionError::DomainConflict(
+                            sym.name,
+                            existing.to_string(),
+                            domain.to_string(),
+                        ));
+                    }
+                    self.domains.insert(sym, common);
+                    return Ok(());
+                } else {
+                    return Err(AssumptionError::DomainConflict(
+                        sym.name,
+                        existing.to_string(),
+                        domain.to_string(),
+                    ));
+                }
+            }
+        } else {
+            self.domains.insert(sym, domain);
+        }
+        Ok(())
     }
 
     /// Retrieves the domain assigned to a symbol, if any.
@@ -83,6 +138,18 @@ impl AssumptionsContext {
 
     /// Evaluates a predicate query against an expression in 4-valued logic.
     pub fn query(&self, expr: &Expr, pred: Predicate) -> TruthValue {
+        if let Expr::Sym(s) = expr
+            && let Some(preds) = self.facts.get(s)
+        {
+            for (i, a) in preds.iter().enumerate() {
+                for b in &preds[i + 1..] {
+                    if Predicate::contradicts(*a, *b) {
+                        return TruthValue::Contradictory;
+                    }
+                }
+            }
+        }
+
         let known = inherent_facts(expr)
             .or_else(|| match expr {
                 Expr::Sym(s) => Some(self.deductions(s)),
@@ -90,9 +157,14 @@ impl AssumptionsContext {
             })
             .unwrap_or_default();
 
-        if known.contains(&pred) {
+        let has_pred = known.contains(&pred);
+        let has_contradiction = known.iter().any(|fact| Predicate::contradicts(*fact, pred));
+
+        if has_pred && has_contradiction {
+            TruthValue::Contradictory
+        } else if has_pred {
             TruthValue::EntailedTrue
-        } else if known.iter().any(|fact| Predicate::contradicts(*fact, pred)) {
+        } else if has_contradiction {
             TruthValue::EntailedFalse
         } else {
             TruthValue::Unknown
@@ -160,7 +232,7 @@ mod tests {
     fn test_domain_assignments_imply_predicates() {
         let mut ctx = AssumptionsContext::new();
         let n = Symbol::new("n");
-        ctx.assume_domain(n.clone(), Domain::ZZ);
+        ctx.assume_domain(n.clone(), Domain::ZZ).unwrap();
         assert_eq!(
             ctx.query(&Expr::Sym(n.clone()), Predicate::Integer),
             TruthValue::EntailedTrue
@@ -169,6 +241,16 @@ mod tests {
             ctx.query(&Expr::Sym(n), Predicate::Real),
             TruthValue::EntailedTrue
         );
+    }
+
+    #[test]
+    fn test_domain_conflict_detection() {
+        let mut ctx = AssumptionsContext::new();
+        let x = Symbol::new("x");
+        ctx.assume_domain(x.clone(), Domain::FiniteField { characteristic: 5 })
+            .unwrap();
+        let conflict = ctx.assume_domain(x.clone(), Domain::ZZ);
+        assert!(matches!(conflict, Err(AssumptionError::DomainConflict(..))));
     }
 
     #[test]
@@ -245,12 +327,35 @@ mod tests {
         ctx.assume(x.clone(), Predicate::Negative);
         assert_eq!(ctx.check_consistency(), Err(AssumptionError::Contradiction));
 
+        // 4-way query reports Contradictory
+        assert_eq!(
+            ctx.query(&Expr::Sym(x.clone()), Predicate::Positive),
+            TruthValue::Contradictory
+        );
+
         let mut zero_ctx = AssumptionsContext::new();
         zero_ctx.assume(x.clone(), Predicate::Zero);
-        zero_ctx.assume(x, Predicate::NonZero);
+        zero_ctx.assume(x.clone(), Predicate::NonZero);
         assert_eq!(
             zero_ctx.check_consistency(),
             Err(AssumptionError::Contradiction)
+        );
+        assert_eq!(
+            zero_ctx.query(&Expr::Sym(x), Predicate::Zero),
+            TruthValue::Contradictory
+        );
+    }
+
+    #[test]
+    fn immutable_snapshot_preserves_query_behavior() {
+        let mut ctx = AssumptionsContext::new();
+        let x = Symbol::new("x");
+        ctx.assume(x.clone(), Predicate::Positive);
+
+        let snap = ctx.snapshot();
+        assert_eq!(
+            snap.query(&Expr::Sym(x), Predicate::Positive),
+            TruthValue::EntailedTrue
         );
     }
 
