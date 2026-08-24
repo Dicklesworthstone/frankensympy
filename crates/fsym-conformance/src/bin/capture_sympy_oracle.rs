@@ -11,7 +11,9 @@ use std::process::ExitCode;
 fn usage() {
     println!(
         "usage: capture_sympy_oracle [--python PATH] [--output PATH]\n\
-         Runs the fixed scalar corpus against live SymPy 1.14.0 and writes NDJSON evidence."
+         Runs the fixed scalar corpus against live SymPy 1.14.0 and writes NDJSON evidence.\n\
+         Exit 0 means every outcome matched the corpus expectation; typed expected refusals\n\
+         remain nonconformant capability gaps and are reported separately."
     );
 }
 

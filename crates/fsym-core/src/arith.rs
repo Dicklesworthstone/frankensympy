@@ -361,6 +361,62 @@ fn karatsuba_mag(a: &BigUint, b: &BigUint) -> BigUint {
     (z2 << (2 * m)) + (z1 << m) + z0
 }
 
+/// Cooperatively metered recursive Karatsuba multiplication with safe-point checkpoints.
+pub fn metered_karatsuba<M: BudgetMeter>(
+    a: &BigInt,
+    b: &BigInt,
+    meter: &mut M,
+) -> Result<BigInt, MeterError> {
+    meter.checkpoint()?;
+    let is_neg = (a.sign() == Sign::Minus) ^ (b.sign() == Sign::Minus);
+    let a_mag = a.magnitude();
+    let b_mag = b.magnitude();
+    let res_mag = karatsuba_mag_metered(a_mag, b_mag, meter)?;
+    meter.checkpoint()?;
+    if is_neg && !res_mag.is_zero() {
+        Ok(-BigInt::from(res_mag))
+    } else {
+        Ok(BigInt::from(res_mag))
+    }
+}
+
+fn karatsuba_mag_metered<M: BudgetMeter>(
+    a: &BigUint,
+    b: &BigUint,
+    meter: &mut M,
+) -> Result<BigUint, MeterError> {
+    meter.checkpoint()?;
+    let max_bits = std::cmp::max(a.bits(), b.bits());
+    if max_bits <= 128 {
+        let a_limbs = a.bits().max(1).div_ceil(64);
+        let b_limbs = b.bits().max(1).div_ceil(64);
+        meter.charge(Dimension::ComputeSteps, a_limbs.saturating_mul(b_limbs))?;
+        meter.charge(
+            Dimension::MemoryBytes,
+            (a_limbs + b_limbs).saturating_mul(8),
+        )?;
+        meter.charge(Dimension::AllocationCount, 1)?;
+        return Ok(a * b);
+    }
+
+    let m = max_bits / 2;
+    let mask = (BigUint::one() << m) - 1u32;
+    let a0 = a & &mask;
+    let a1 = a >> m;
+    let b0 = b & &mask;
+    let b1 = b >> m;
+
+    let z0 = karatsuba_mag_metered(&a0, &b0, meter)?;
+    let z2 = karatsuba_mag_metered(&a1, &b1, meter)?;
+    let sum_a = &a0 + &a1;
+    let sum_b = &b0 + &b1;
+    let z1_raw = karatsuba_mag_metered(&sum_a, &sum_b, meter)?;
+    let z1 = z1_raw - &z0 - &z2;
+
+    meter.checkpoint()?;
+    Ok((z2 << (2 * m)) + (z1 << m) + z0)
+}
+
 /// Multiplies two large integers using the specified [`MulStrategy`].
 pub fn mul_with_strategy(a: &BigInt, b: &BigInt, strategy: MulStrategy) -> BigInt {
     match strategy {
@@ -376,27 +432,85 @@ pub fn mul_with_strategy(a: &BigInt, b: &BigInt, strategy: MulStrategy) -> BigIn
     }
 }
 
-/// Metered multiplication with explicit limb-step accounting and resource charging.
-///
-/// Charges `ComputeSteps` proportional to $L_a \times L_b$, `MemoryBytes` for the
-/// output magnitude allocation, and `AllocationCount` of 1.
+/// Metered multiplication with explicit limb-step accounting and recursive safe-point checkpoints.
 pub fn metered_mul<M: BudgetMeter>(
     a: &BigInt,
     b: &BigInt,
     meter: &mut M,
 ) -> Result<BigInt, MeterError> {
-    meter.checkpoint()?;
-    let a_limbs = a.magnitude().bits().max(1).div_ceil(64);
-    let b_limbs = b.magnitude().bits().max(1).div_ceil(64);
-    let compute_steps = a_limbs.saturating_mul(b_limbs);
-    let memory_bytes = (a_limbs + b_limbs).saturating_mul(8);
+    let max_bits = std::cmp::max(a.magnitude().bits(), b.magnitude().bits());
+    if max_bits > 256 {
+        metered_karatsuba(a, b, meter)
+    } else {
+        meter.checkpoint()?;
+        let a_limbs = a.magnitude().bits().max(1).div_ceil(64);
+        let b_limbs = b.magnitude().bits().max(1).div_ceil(64);
+        let compute_steps = a_limbs.saturating_mul(b_limbs);
+        let memory_bytes = (a_limbs + b_limbs).saturating_mul(8);
 
-    meter.charge(Dimension::ComputeSteps, compute_steps)?;
-    meter.charge(Dimension::MemoryBytes, memory_bytes)?;
-    meter.charge(Dimension::AllocationCount, 1)?;
-    meter.checkpoint()?;
+        meter.charge(Dimension::ComputeSteps, compute_steps)?;
+        meter.charge(Dimension::MemoryBytes, memory_bytes)?;
+        meter.charge(Dimension::AllocationCount, 1)?;
+        meter.checkpoint()?;
+        Ok(a * b)
+    }
+}
 
-    Ok(a * b)
+/// Metered greatest common divisor with step accounting and cancellation checkpoints.
+pub fn metered_gcd<M: BudgetMeter>(
+    a: &BigInt,
+    b: &BigInt,
+    meter: &mut M,
+) -> Result<BigInt, MeterError> {
+    meter.checkpoint()?;
+    let mut a = a.clone();
+    let mut b = b.clone();
+    while !b.is_zero() {
+        meter.checkpoint()?;
+        let b_limbs = b.magnitude().bits().max(1).div_ceil(64);
+        meter.charge(Dimension::ComputeSteps, b_limbs)?;
+        let r = &a % &b;
+        a = b;
+        b = r;
+    }
+    meter.checkpoint()?;
+    Ok(match a.sign() {
+        Sign::Minus => -a,
+        _ => a,
+    })
+}
+
+/// Metered extended gcd with step accounting and cancellation checkpoints.
+pub fn metered_extended_gcd<M: BudgetMeter>(
+    a: &BigInt,
+    b: &BigInt,
+    meter: &mut M,
+) -> Result<(BigInt, BigInt, BigInt), MeterError> {
+    meter.checkpoint()?;
+    let (mut old_r, mut r) = (a.clone(), b.clone());
+    let (mut old_s, mut s) = (BigInt::one(), BigInt::zero());
+    let (mut old_t, mut t) = (BigInt::zero(), BigInt::one());
+    while !r.is_zero() {
+        meter.checkpoint()?;
+        let r_limbs = r.magnitude().bits().max(1).div_ceil(64);
+        meter.charge(Dimension::ComputeSteps, r_limbs)?;
+        let q = &old_r / &r;
+        let tmp_r = &old_r - &q * &r;
+        old_r = r;
+        r = tmp_r;
+        let tmp_s = &old_s - &q * &s;
+        old_s = s;
+        s = tmp_s;
+        let tmp_t = &old_t - &q * &t;
+        old_t = t;
+        t = tmp_t;
+    }
+    meter.checkpoint()?;
+    if old_r.sign() == Sign::Minus {
+        Ok((-old_r, -old_s, -old_t))
+    } else {
+        Ok((old_r, old_s, old_t))
+    }
 }
 
 #[cfg(test)]
@@ -645,5 +759,34 @@ mod tests {
         assert_eq!(karatsuba_mul(&x, &zero), zero);
         assert_eq!(karatsuba_mul(&zero, &x), zero);
         assert_eq!(karatsuba_mul(&x, &one), x);
+    }
+
+    #[test]
+    fn metered_karatsuba_halts_on_budget_exhaustion() {
+        let a = (BigInt::one() << 300) + 12345i64;
+        let b = (BigInt::one() << 300) + 67890i64;
+
+        // Exhausted budget
+        let limits = BudgetLimits::uniform(1, 0);
+        let mut budget = Budget::new(limits);
+        let err = metered_karatsuba(&a, &b, &mut budget).unwrap_err();
+        assert!(matches!(err, MeterError::Budget(_)));
+
+        // Generous budget succeeds
+        let limits = BudgetLimits::uniform(1_000_000, 0);
+        let mut budget = Budget::new(limits);
+        let res = metered_karatsuba(&a, &b, &mut budget).expect("computes within budget");
+        assert_eq!(res, &a * &b);
+    }
+
+    #[test]
+    fn metered_gcd_halts_on_budget_exhaustion() {
+        let a = (BigInt::one() << 200) + 1i64;
+        let b = (BigInt::one() << 150) + 1i64;
+
+        let limits = BudgetLimits::uniform(2, 0);
+        let mut budget = Budget::new(limits);
+        let err = metered_gcd(&a, &b, &mut budget).unwrap_err();
+        assert!(matches!(err, MeterError::Budget(_)));
     }
 }

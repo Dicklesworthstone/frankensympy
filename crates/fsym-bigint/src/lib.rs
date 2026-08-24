@@ -27,15 +27,16 @@
 //! budget per unit of work before entering an operation.
 
 use num_bigint::BigInt as Substrate;
-use num_traits::{One, Zero};
+use num_integer::Integer;
+use num_traits::{One, Pow, Signed, ToPrimitive, Zero};
 
-/// Bits per internal limb, matching the substrate's u32 digit chunks.
-pub const LIMB_BITS: u64 = 32;
+/// Bits per u64 limb.
+pub const LIMB_BITS: u64 = 64;
 
 /// Magnitude size in u64 limbs (rounded up); zero for zero.
 #[inline]
 pub fn limb_count_u64(magnitude_bits: u64) -> u64 {
-    magnitude_bits.div_ceil(64)
+    magnitude_bits.div_ceil(LIMB_BITS)
 }
 
 /// Multiplication strategy for [`multiply_with_strategy`].
@@ -64,8 +65,8 @@ pub fn select_strategy(max_magnitude_bits: u64) -> Strategy {
 
 /// Owned arbitrary-precision integer. The only bigint type visible above
 /// this crate.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct BigInt(Substrate);
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct BigInt(pub Substrate);
 
 impl BigInt {
     pub fn zero() -> Self {
@@ -80,12 +81,24 @@ impl BigInt {
         Self(Substrate::from(v))
     }
 
+    pub fn from_u64(v: u64) -> Self {
+        Self(Substrate::from(v))
+    }
+
     pub fn is_zero(&self) -> bool {
         self.0.is_zero()
     }
 
+    pub fn is_one(&self) -> bool {
+        self.0.is_one()
+    }
+
     pub fn is_negative(&self) -> bool {
         self.0.sign() == num_bigint::Sign::Minus
+    }
+
+    pub fn abs(&self) -> Self {
+        Self(self.0.abs())
     }
 
     /// Magnitude size in bits (0 for zero).
@@ -97,11 +110,57 @@ impl BigInt {
     pub fn limb_count(&self) -> u64 {
         limb_count_u64(self.bits())
     }
+
+    pub fn to_i64(&self) -> Option<i64> {
+        self.0.to_i64()
+    }
+
+    pub fn gcd(&self, other: &Self) -> Self {
+        Self(self.0.gcd(&other.0))
+    }
+
+    pub fn extended_gcd(&self, other: &Self) -> (Self, Self, Self) {
+        let res = self.0.extended_gcd(&other.0);
+        (Self(res.gcd), Self(res.x), Self(res.y))
+    }
+
+    pub fn pow(&self, exp: u32) -> Self {
+        Self(self.0.clone().pow(exp))
+    }
+
+    pub fn div_rem(&self, other: &Self) -> (Self, Self) {
+        let (q, r) = self.0.div_rem(&other.0);
+        (Self(q), Self(r))
+    }
 }
 
 impl From<i64> for BigInt {
     fn from(v: i64) -> Self {
         Self(Substrate::from(v))
+    }
+}
+
+impl From<u64> for BigInt {
+    fn from(v: u64) -> Self {
+        Self(Substrate::from(v))
+    }
+}
+
+impl From<i32> for BigInt {
+    fn from(v: i32) -> Self {
+        Self(Substrate::from(v))
+    }
+}
+
+impl From<u32> for BigInt {
+    fn from(v: u32) -> Self {
+        Self(Substrate::from(v))
+    }
+}
+
+impl std::fmt::Display for BigInt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
@@ -123,6 +182,27 @@ impl std::ops::Sub for BigInt {
     type Output = BigInt;
     fn sub(self, other: BigInt) -> BigInt {
         BigInt(self.0 - other.0)
+    }
+}
+
+impl std::ops::Div for BigInt {
+    type Output = BigInt;
+    fn div(self, other: BigInt) -> BigInt {
+        BigInt(self.0 / other.0)
+    }
+}
+
+impl std::ops::Rem for BigInt {
+    type Output = BigInt;
+    fn rem(self, other: BigInt) -> BigInt {
+        BigInt(self.0 % other.0)
+    }
+}
+
+impl std::ops::Neg for BigInt {
+    type Output = BigInt;
+    fn neg(self) -> BigInt {
+        BigInt(-self.0)
     }
 }
 

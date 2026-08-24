@@ -958,6 +958,37 @@ mod tests {
     }
 
     #[test]
+    fn oracle_protocol_rejects_unknown_fields_and_invalid_verdict_shapes() {
+        let unknown = "{\"kind\":\"meta\",\"schema_version\":1,\"profile_id\":\"native-math-corpus-v1\",\"sympy_version\":\"1.14.0\",\"extra\":true}\n";
+        assert!(
+            parse_oracle_stdout(unknown)
+                .expect_err("unknown field must fail")
+                .contains("unknown field")
+        );
+
+        let invalid = concat!(
+            "{\"kind\":\"meta\",\"schema_version\":1,\"profile_id\":\"native-math-corpus-v1\",\"sympy_version\":\"1.14.0\"}\n",
+            "{\"kind\":\"case\",\"id\":\"planted_001\",\"verdict\":\"pass\",\"expected\":null,\"detail\":null}\n"
+        );
+        assert!(
+            parse_oracle_stdout(invalid)
+                .expect_err("pass without expected output must fail")
+                .contains("invalid `pass` record shape")
+        );
+    }
+
+    #[test]
+    fn taylor_order_is_bounded_before_oracle_execution() {
+        let mut spec = case(false);
+        spec.op = Op::Taylor {
+            at: 0,
+            order: MAX_TAYLOR_ORDER + 1,
+        };
+        let err = validate_cases(&[spec]).expect_err("oversized order must fail");
+        assert!(err.contains("exceeds harness maximum"));
+    }
+
+    #[test]
     fn unreachable_oracle_fails_closed() {
         let err = run_conformance(&[case(false)], "/definitely/missing/frankensympy-python")
             .expect_err("missing interpreter must fail");
