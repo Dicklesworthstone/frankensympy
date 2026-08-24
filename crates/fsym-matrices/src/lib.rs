@@ -1100,10 +1100,10 @@ mod tests {
         let eig = m.eigenvalues().unwrap();
         assert_eq!(eig.len(), 2);
         for root in &eig {
-            match root {
-                Expr::Mul(parts) => assert_eq!(parts.len(), 2, "(-b +- sqrt(d)) / (2a) shape"),
-                other => panic!("expected quadratic-formula expression, got {other:?}"),
-            }
+            assert!(
+                matches!(root, Expr::Mul(parts) if parts.len() == 2),
+                "expected two-factor quadratic-formula expression, got {root:?}"
+            );
         }
     }
 

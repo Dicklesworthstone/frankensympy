@@ -18,6 +18,15 @@ use crate::{BigInt, BigRational};
 use crate::{Constant, CoreError, Expr, Symbol};
 use std::sync::Arc;
 
+/// Maximum source size admitted by the unsupervised convenience parser.
+///
+/// Callers needing a different policy must use a future supervised parser
+/// lane rather than making this allocation boundary implicit.
+const MAX_PARSE_INPUT_BYTES: usize = 1024 * 1024;
+
+/// Maximum recursive syntactic nesting admitted before descending further.
+const MAX_PARSE_NESTING_DEPTH: usize = 256;
+
 #[derive(Debug, Clone, PartialEq)]
 enum Tok {
     Int(String),
@@ -124,6 +133,7 @@ struct Parser<'a> {
     toks: &'a [Tok],
     pos: usize,
     src: &'a str,
+    nesting_depth: usize,
 }
 
 impl<'a> Parser<'a> {
@@ -150,6 +160,19 @@ impl<'a> Parser<'a> {
         } else {
             Err(self.err(&format!("expected {tok:?}")))
         }
+    }
+
+    fn nested<T>(
+        &mut self,
+        parse_nested: impl FnOnce(&mut Self) -> Result<T, CoreError>,
+    ) -> Result<T, CoreError> {
+        if self.nesting_depth >= MAX_PARSE_NESTING_DEPTH {
+            return Err(self.err("maximum parser nesting depth exceeded"));
+        }
+        self.nesting_depth += 1;
+        let result = parse_nested(self);
+        self.nesting_depth -= 1;
+        result
     }
 
     fn expr(&mut self) -> Result<Expr, CoreError> {
@@ -196,11 +219,11 @@ impl<'a> Parser<'a> {
         match self.peek() {
             Some(Tok::Minus) => {
                 self.bump();
-                Ok(neg(self.unary()?))
+                Ok(neg(self.nested(Self::unary)?))
             }
             Some(Tok::Plus) => {
                 self.bump();
-                self.unary()
+                self.nested(Self::unary)
             }
             _ => self.power(),
         }
@@ -210,7 +233,7 @@ impl<'a> Parser<'a> {
         let base = self.atom()?;
         if matches!(self.peek(), Some(Tok::Caret)) {
             self.bump();
-            let exp = self.unary()?;
+            let exp = self.nested(Self::unary)?;
             Ok(Expr::Pow(Arc::new(base), Arc::new(exp)))
         } else {
             Ok(base)
@@ -226,16 +249,18 @@ impl<'a> Parser<'a> {
             Some(Tok::Ident(name)) => {
                 if matches!(self.peek(), Some(Tok::LParen)) && constant_named(&name).is_none() {
                     self.bump();
-                    let mut args = Vec::new();
-                    if !matches!(self.peek(), Some(Tok::RParen)) {
-                        args.push(self.expr()?);
-                        while matches!(self.peek(), Some(Tok::Comma)) {
-                            self.bump();
-                            args.push(self.expr()?);
+                    self.nested(|parser| {
+                        let mut args = Vec::new();
+                        if !matches!(parser.peek(), Some(Tok::RParen)) {
+                            args.push(parser.expr()?);
+                            while matches!(parser.peek(), Some(Tok::Comma)) {
+                                parser.bump();
+                                args.push(parser.expr()?);
+                            }
                         }
-                    }
-                    self.expect(&Tok::RParen)?;
-                    Ok(Expr::Function(name, args))
+                        parser.expect(&Tok::RParen)?;
+                        Ok(Expr::Function(name, args))
+                    })
                 } else {
                     match constant_named(&name) {
                         Some(c) => Ok(Expr::Const(c)),
@@ -243,11 +268,11 @@ impl<'a> Parser<'a> {
                     }
                 }
             }
-            Some(Tok::LParen) => {
-                let e = self.expr()?;
-                self.expect(&Tok::RParen)?;
+            Some(Tok::LParen) => self.nested(|parser| {
+                let e = parser.expr()?;
+                parser.expect(&Tok::RParen)?;
                 Ok(e)
-            }
+            }),
             other => Err(self.err(&format!("unexpected token {other:?}"))),
         }
     }
@@ -322,7 +347,9 @@ fn decimal_expr(s: &str) -> Result<Expr, CoreError> {
     let digits = format!("{whole}{frac}");
     let numerator = BigInt::parse_bytes(digits.as_bytes(), 10)
         .ok_or_else(|| CoreError::ParseError(format!("bad number literal `{s}`")))?;
-    let denominator = BigInt::from(10u32).pow(frac.len() as u32);
+    let scale = u32::try_from(frac.len())
+        .map_err(|_| CoreError::ParseError("decimal scale exceeds u32".to_string()))?;
+    let denominator = BigInt::from(10u32).pow(scale);
     Ok(Expr::Rational(BigRational::new(numerator, denominator)))
 }
 
@@ -341,9 +368,14 @@ fn constant_named(name: &str) -> Option<Constant> {
 /// Parse an expression string into an [`Expr`].
 ///
 /// # Errors
-/// [`CoreError::ParseError`] on malformed input; [`CoreError::DivisionByZero`]
-/// for literal division by zero.
+/// [`CoreError::ParseError`] on malformed, oversized, or excessively nested
+/// input; [`CoreError::DivisionByZero`] for literal division by zero.
 pub fn parse(input: &str) -> Result<Expr, CoreError> {
+    if input.len() > MAX_PARSE_INPUT_BYTES {
+        return Err(CoreError::ParseError(format!(
+            "input exceeds {MAX_PARSE_INPUT_BYTES}-byte parser limit"
+        )));
+    }
     let toks = tokenize(input)?;
     if toks.is_empty() {
         return Err(CoreError::ParseError(format!("empty input `{input}`")));
@@ -352,6 +384,7 @@ pub fn parse(input: &str) -> Result<Expr, CoreError> {
         toks: &toks,
         pos: 0,
         src: input,
+        nesting_depth: 0,
     };
     let e = p.expr()?;
     if p.pos != toks.len() {
@@ -472,6 +505,31 @@ mod tests {
         assert!(matches!(parse("(x"), Err(CoreError::ParseError(_))));
         assert!(matches!(parse("2 3"), Err(CoreError::ParseError(_))));
         assert!(matches!(parse("x @ y"), Err(CoreError::ParseError(_))));
+    }
+
+    #[test]
+    fn parser_preflights_input_size_and_recursive_nesting() {
+        let oversized = "1".repeat(MAX_PARSE_INPUT_BYTES + 1);
+        assert_eq!(
+            parse(&oversized),
+            Err(CoreError::ParseError(format!(
+                "input exceeds {MAX_PARSE_INPUT_BYTES}-byte parser limit"
+            )))
+        );
+
+        let admitted = format!(
+            "{}x{}",
+            "(".repeat(MAX_PARSE_NESTING_DEPTH),
+            ")".repeat(MAX_PARSE_NESTING_DEPTH)
+        );
+        assert_eq!(parse(&admitted).unwrap(), Expr::symbol("x"));
+
+        let refused = format!(
+            "{}x{}",
+            "(".repeat(MAX_PARSE_NESTING_DEPTH + 1),
+            ")".repeat(MAX_PARSE_NESTING_DEPTH + 1)
+        );
+        assert!(matches!(parse(&refused), Err(CoreError::ParseError(_))));
     }
 
     #[test]
