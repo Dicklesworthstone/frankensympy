@@ -345,7 +345,10 @@ impl Matrix {
     pub(crate) fn exact_sub(a: &Expr, b: &Expr) -> Expr {
         match (Self::numeric(a), Self::numeric(b)) {
             (Some(x), Some(y)) => from_rational(x - y),
-            _ => simplify(&Expr::Add(vec![a.clone(), Expr::from_i64(-1), b.clone()])),
+            _ => simplify(&Expr::Add(vec![
+                a.clone(),
+                Expr::Mul(vec![Expr::from_i64(-1), b.clone()]),
+            ])),
         }
     }
 
@@ -482,8 +485,7 @@ impl Matrix {
             // M += c_k * I
             for i in 0..n {
                 let idx = i * n + i;
-                m.data[idx] =
-                    Self::exact_sub(&m.data[idx], &Self::exact_mul(&Expr::from_i64(-1), &c_k));
+                m.data[idx] = Self::exact_add(&m.data[idx], &c_k);
             }
         }
         Ok(coeffs)
