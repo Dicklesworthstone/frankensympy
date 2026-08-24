@@ -7,12 +7,14 @@
 
 pub mod factorization;
 pub mod gcd;
+pub mod groebner;
 pub mod identity;
 pub mod multivariate;
 pub mod univariate;
 
 pub use factorization::*;
 pub use gcd::*;
+pub use groebner::*;
 pub use identity::*;
 pub use multivariate::*;
 pub use univariate::*;
@@ -40,6 +42,8 @@ mod tests {
     use fsym_budget::Unbounded;
     use fsym_core::{BigInt, BigRational, Expr, Symbol};
     use fsym_proof_kernel::verify_derivation_independent;
+    use num_traits::One;
+    use std::collections::BTreeMap;
     use std::sync::Arc;
 
     #[test]
@@ -273,5 +277,71 @@ mod tests {
         // Tamper factor power
         factorization.factors[0].multiplicity = 99;
         assert!(verify_factorization_certificate(&p, &factorization).is_err());
+    }
+
+    #[test]
+    fn test_groebner_basis_computation_and_ideal_membership() {
+        // Ideal I = <x^2 + y, x*y + x> in Q[x, y]
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+        let gens = vec![x.clone(), y.clone()];
+
+        // f1 = x^2 + y
+        let mut t1 = BTreeMap::new();
+        t1.insert(vec![2, 0], BigRational::one());
+        t1.insert(vec![0, 1], BigRational::one());
+        let f1 = MultivariatePoly::new(gens.clone(), t1);
+
+        // f2 = x*y + x
+        let mut t2 = BTreeMap::new();
+        t2.insert(vec![1, 1], BigRational::one());
+        t2.insert(vec![1, 0], BigRational::one());
+        let f2 = MultivariatePoly::new(gens.clone(), t2);
+
+        let gb = groebner_basis(&[f1.clone(), f2.clone()], TermOrder::Lex).unwrap();
+        assert!(!gb.is_empty());
+
+        // Check ideal membership of original generators
+        assert!(ideal_membership(&f1, &gb, TermOrder::Lex));
+        assert!(ideal_membership(&f2, &gb, TermOrder::Lex));
+
+        // Check non-member polynomial is correctly rejected
+        // g = y + 5
+        let mut tg = BTreeMap::new();
+        tg.insert(vec![0, 1], BigRational::one());
+        tg.insert(vec![0, 0], BigRational::from_integer(BigInt::from(5)));
+        let g = MultivariatePoly::new(gens.clone(), tg);
+        assert!(!ideal_membership(&g, &gb, TermOrder::Lex));
+    }
+
+    #[test]
+    fn test_variable_elimination() {
+        // System:
+        // x - y^2 = 0
+        // x - z = 0
+        // Eliminate x -> yields y^2 - z = 0
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+        let z = Symbol::new("z");
+        let gens = vec![x.clone(), y.clone(), z.clone()];
+
+        // f1 = x - y^2
+        let mut t1 = BTreeMap::new();
+        t1.insert(vec![1, 0, 0], BigRational::one());
+        t1.insert(vec![0, 2, 0], BigRational::from_integer(BigInt::from(-1)));
+        let f1 = MultivariatePoly::new(gens.clone(), t1);
+
+        // f2 = x - z
+        let mut t2 = BTreeMap::new();
+        t2.insert(vec![1, 0, 0], BigRational::one());
+        t2.insert(vec![0, 0, 1], BigRational::from_integer(BigInt::from(-1)));
+        let f2 = MultivariatePoly::new(gens.clone(), t2);
+
+        let elim = eliminate(&[f1, f2], std::slice::from_ref(&x)).unwrap();
+        assert!(!elim.is_empty());
+        // Verify that none of the polynomials in elim contain x (deg in x is 0)
+        for p in &elim {
+            assert_eq!(p.degree_in(0), 0);
+        }
     }
 }
