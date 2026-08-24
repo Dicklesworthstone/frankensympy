@@ -590,6 +590,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "fsym-bigint"
+version = "0.1.0"
+dependencies = [
+ "num-bigint",
+ "num-traits",
+ "proptest",
+]
+
+[[package]]
 name = "fsym-budget"
 version = "0.1.0"
 
