@@ -79,6 +79,7 @@ release_readiness() {
   "$PYTHON_BIN" - "$ROOT" <<'PY'
 import json
 from pathlib import Path
+import subprocess
 import sys
 import tomllib
 
