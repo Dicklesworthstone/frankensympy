@@ -117,7 +117,7 @@ mod tests {
     use fsym_core::Expr;
     use fsym_id::ReceiptId;
     use fsym_outcome::EvidenceClass;
-    use fsym_proof_kernel::Claim;
+    use fsym_proof_kernel::{Claim, DerivationStep, DerivationTree, ProofRule, StepId};
 
     #[test]
     fn promotion_requires_matching_receipt_and_integrity() {
@@ -129,18 +129,27 @@ mod tests {
         assert_eq!(candidates.count(), 1);
         assert_eq!(verified.count(), 0);
 
-        // Valid receipt
+        let derivation = DerivationTree {
+            steps: vec![DerivationStep {
+                id: StepId(0),
+                rule: ProofRule::Reflexivity(Expr::symbol("x")),
+                claim: claim.clone(),
+            }],
+            root: StepId(0),
+        };
+
+        // Valid receipt bound to the derivation root and digest.
         let receipt = VerificationReceipt::issue(
             ReceiptId::new(1).unwrap(),
             &claim,
             EvidenceClass::KernelProved,
             "fsym-proof-kernel",
             100,
-            None,
+            Some(derivation.digest()),
         );
 
         let envelope = verified
-            .promote_candidate(&digest, &mut candidates, receipt, None)
+            .promote_candidate(&digest, &mut candidates, receipt, Some(derivation))
             .expect("promotion succeeds");
 
         assert_eq!(candidates.count(), 0);
@@ -172,6 +181,64 @@ mod tests {
             .promote_candidate(&digest_a, &mut candidates, wrong_receipt, None)
             .unwrap_err();
         assert_eq!(err, NamespaceError::ReceiptMismatch);
+        assert_eq!(verified.count(), 0);
+    }
+
+    #[test]
+    fn kernel_proved_promotion_without_derivation_is_rejected() {
+        let mut candidates = CandidateNamespace::new();
+        let mut verified = VerifiedNamespace::new();
+        let claim = Claim::equality(Expr::symbol("x"), Expr::symbol("x"));
+        let digest = candidates.register_candidate(claim.clone());
+        let receipt = VerificationReceipt::issue(
+            ReceiptId::new(3).unwrap(),
+            &claim,
+            EvidenceClass::KernelProved,
+            "forged-receipt-only-verifier",
+            102,
+            None,
+        );
+
+        let error = verified
+            .promote_candidate(&digest, &mut candidates, receipt, None)
+            .unwrap_err();
+
+        assert_eq!(error, NamespaceError::UnverifiedCandidate);
+        assert_eq!(verified.count(), 0);
+    }
+
+    #[test]
+    fn kernel_proved_envelope_with_mismatched_derivation_root_is_rejected() {
+        let mut verified = VerifiedNamespace::new();
+        let x = Expr::symbol("x");
+        let published_claim = Claim::equality(x.clone(), Expr::symbol("y"));
+        let derived_claim = Claim::equality(x.clone(), x.clone());
+        let derivation = DerivationTree {
+            steps: vec![DerivationStep {
+                id: StepId(0),
+                rule: ProofRule::Reflexivity(x),
+                claim: derived_claim,
+            }],
+            root: StepId(0),
+        };
+        let receipt = VerificationReceipt::issue(
+            ReceiptId::new(4).unwrap(),
+            &published_claim,
+            EvidenceClass::KernelProved,
+            "forged-claim-binding",
+            103,
+            Some(derivation.digest()),
+        );
+        let envelope = EvidenceEnvelope::new(
+            published_claim,
+            EvidenceClass::KernelProved,
+            receipt,
+            Some(derivation),
+        );
+
+        let error = verified.insert_verified(envelope).unwrap_err();
+
+        assert_eq!(error, NamespaceError::UnverifiedCandidate);
         assert_eq!(verified.count(), 0);
     }
 }

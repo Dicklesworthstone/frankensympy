@@ -75,9 +75,32 @@ impl EvidenceEnvelope {
         }
     }
 
-    /// Check integrity between the contained claim and receipt.
+    /// Check integrity between the claim, receipt, and any attached derivation.
+    ///
+    /// This is a structural trust-boundary check, not a replacement for replaying the
+    /// derivation under its assumptions context. Kernel-proved envelopes must carry a
+    /// derivation whose root claim and digest are bound by the receipt.
     pub fn verify_integrity(&self) -> bool {
-        self.receipt.claim_digest == self.claim.digest()
-            && self.receipt.evidence_class == self.evidence_class
+        if self.receipt.claim_digest != self.claim.digest()
+            || self.receipt.evidence_class != self.evidence_class
+        {
+            return false;
+        }
+
+        match &self.derivation {
+            Some(derivation) => {
+                let root_claim = derivation
+                    .steps
+                    .iter()
+                    .find(|step| step.id == derivation.root)
+                    .map(|step| &step.claim);
+                root_claim == Some(&self.claim)
+                    && self.receipt.derivation_digest == Some(derivation.digest())
+            }
+            None => {
+                self.receipt.derivation_digest.is_none()
+                    && self.evidence_class != EvidenceClass::KernelProved
+            }
+        }
     }
 }

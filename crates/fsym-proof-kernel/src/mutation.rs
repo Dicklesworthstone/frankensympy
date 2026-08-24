@@ -9,7 +9,9 @@
 #[cfg(test)]
 mod tests {
     use crate::claim::Claim;
-    use crate::kernel::{KernelError, ProofKernel, verify_derivation_independent};
+    use crate::kernel::{
+        DerivationStep, DerivationTree, KernelError, ProofKernel, verify_derivation_independent,
+    };
     use crate::rule::{ProofRule, StepId};
     use fsym_assumptions::{AssumptionsContext, Predicate};
     use fsym_budget::Unbounded;
@@ -152,6 +154,77 @@ mod tests {
 
         let err = verify_derivation_independent(&derivation, &ctx).unwrap_err();
         assert!(matches!(err, KernelError::ClaimDiscrepancy { .. }));
+    }
+
+    #[test]
+    fn mutant_unchecked_certificate_lemma_killed() {
+        let ctx = empty_context();
+        let forged_claim = Claim::equality(Expr::symbol("x"), Expr::symbol("y"));
+        let derivation = DerivationTree {
+            steps: vec![DerivationStep {
+                id: StepId(0),
+                rule: ProofRule::CertificateLemma {
+                    family: "unregistered-forged-family".to_string(),
+                    claim: forged_claim.clone(),
+                    receipt_digest: [0x42; 32],
+                },
+                claim: forged_claim,
+            }],
+            root: StepId(0),
+        };
+
+        let error = verify_derivation_independent(&derivation, &ctx).unwrap_err();
+        assert!(matches!(
+            error,
+            KernelError::UnverifiedCertificateLemma { .. }
+        ));
+    }
+
+    #[test]
+    fn mutant_broad_normal_form_claim_killed() {
+        let ctx = empty_context();
+        let mut kernel = ProofKernel::new(ctx);
+        let mut meter = Unbounded;
+
+        for rule_name in ["simplify_normal_form", "polynomial_ring_equivalence"] {
+            let error = kernel
+                .prove_definitional_reduction(
+                    Expr::symbol("x"),
+                    Expr::symbol("y"),
+                    rule_name,
+                    &mut meter,
+                )
+                .unwrap_err();
+            assert!(matches!(
+                error,
+                KernelError::InvalidDefinitionalReduction { .. }
+            ));
+        }
+    }
+
+    #[test]
+    fn bounded_polynomial_normal_form_proves_only_matching_identity() {
+        let ctx = empty_context();
+        let mut kernel = ProofKernel::new(ctx.clone());
+        let mut meter = Unbounded;
+        let x = Expr::symbol("x");
+        let lhs = Expr::Add(vec![x.clone(), x.clone()]);
+        let rhs = Expr::Mul(vec![Expr::from_i64(2), x.clone()]);
+
+        let step = kernel
+            .prove_definitional_reduction(
+                lhs.clone(),
+                rhs.clone(),
+                "polynomial_ring_equivalence",
+                &mut meter,
+            )
+            .unwrap();
+        let derivation = kernel.export_derivation(step).unwrap();
+
+        assert_eq!(
+            verify_derivation_independent(&derivation, &ctx).unwrap(),
+            Claim::AlgebraicIdentity { lhs, rhs }
+        );
     }
 
     #[test]

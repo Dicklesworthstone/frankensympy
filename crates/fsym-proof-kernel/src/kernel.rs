@@ -12,9 +12,9 @@ use fsym_assumptions::{
     Domain, ImmutableAssumptionsSnapshot, Predicate, TruthValue, capture_avoiding_subs,
 };
 use fsym_budget::{BudgetMeter, Dimension, MeterError};
-use fsym_core::{Expr, Symbol};
+use fsym_core::{BigInt, BigRational, Expr, Symbol};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -55,6 +55,8 @@ pub enum KernelError {
         expected: Box<Claim>,
         derived: Box<Claim>,
     },
+    #[error("Certificate lemma family `{family}` has no trusted certificate-dispatch verifier")]
+    UnverifiedCertificateLemma { family: String },
     #[error("Budget error: {0}")]
     Budget(String),
 }
@@ -600,13 +602,10 @@ fn check_rule_application(
             rule_name,
         } => check_definitional_reduction(lhs, rhs, rule_name),
 
-        ProofRule::CertificateLemma {
-            family: _,
-            claim,
-            receipt_digest: _,
-        } => {
-            // Certificate lemma verified against known claim
-            Ok(claim.clone())
+        ProofRule::CertificateLemma { family, .. } => {
+            Err(KernelError::UnverifiedCertificateLemma {
+                family: family.clone(),
+            })
         }
     }
 }
@@ -796,14 +795,205 @@ fn check_definitional_reduction(
                 reason: "trig_zero_eval requires trig function of 0".to_string(),
             }),
         },
-        "simplify_normal_form" | "polynomial_ring_equivalence" => {
-            // General algebraic normal-form and polynomial equivalence reduction witness
-            Ok(Claim::equality(lhs.clone(), rhs.clone()))
+        "simplify_normal_form" => check_polynomial_normal_form(lhs, rhs, rule_name)
+            .map(|()| Claim::equality(lhs.clone(), rhs.clone())),
+        "polynomial_ring_equivalence" => {
+            check_polynomial_normal_form(lhs, rhs, rule_name).map(|()| Claim::AlgebraicIdentity {
+                lhs: lhs.clone(),
+                rhs: rhs.clone(),
+            })
         }
         unknown => Err(KernelError::InvalidDefinitionalReduction {
             rule_name: unknown.to_string(),
             reason: format!("Unknown reduction rule `{unknown}`"),
         }),
+    }
+}
+
+const MAX_NORMAL_FORM_TERMS: usize = 4_096;
+const MAX_NORMAL_FORM_EXPONENT: u32 = 64;
+const MAX_NORMAL_FORM_COEFFICIENT_LIMBS: u64 = 4_096;
+
+type Monomial = Vec<(Expr, u32)>;
+type Polynomial = BTreeMap<Monomial, BigRational>;
+
+fn rational_zero() -> BigRational {
+    BigRational::from_integer(BigInt::zero())
+}
+
+fn rational_one() -> BigRational {
+    BigRational::from_integer(BigInt::one())
+}
+
+fn coefficient_is_bounded(value: &BigRational) -> bool {
+    value.numer().limb_count() <= MAX_NORMAL_FORM_COEFFICIENT_LIMBS
+        && value.denom().limb_count() <= MAX_NORMAL_FORM_COEFFICIENT_LIMBS
+}
+
+fn atomic_polynomial(atom: Expr) -> Polynomial {
+    BTreeMap::from([(vec![(atom, 1)], rational_one())])
+}
+
+fn constant_polynomial(coefficient: BigRational) -> Polynomial {
+    if coefficient == rational_zero() {
+        Polynomial::new()
+    } else {
+        BTreeMap::from([(Vec::new(), coefficient)])
+    }
+}
+
+fn insert_coefficient(
+    polynomial: &mut Polynomial,
+    monomial: Monomial,
+    coefficient: BigRational,
+) -> Result<(), String> {
+    let zero = rational_zero();
+    let combined = match polynomial.remove(&monomial) {
+        Some(existing) => existing + coefficient,
+        None => coefficient,
+    };
+    if !coefficient_is_bounded(&combined) {
+        return Err("normal-form coefficient bound exceeded".to_string());
+    }
+    if combined != zero {
+        polynomial.insert(monomial, combined);
+        if polynomial.len() > MAX_NORMAL_FORM_TERMS {
+            return Err("normal-form term bound exceeded".to_string());
+        }
+    }
+    Ok(())
+}
+
+fn multiply_monomials(lhs: &Monomial, rhs: &Monomial) -> Result<Monomial, String> {
+    let mut exponents = BTreeMap::<Expr, u32>::new();
+    for (atom, exponent) in lhs.iter().chain(rhs) {
+        let combined = exponents
+            .get(atom)
+            .copied()
+            .unwrap_or(0)
+            .checked_add(*exponent)
+            .ok_or_else(|| "normal-form exponent overflow".to_string())?;
+        if combined > MAX_NORMAL_FORM_EXPONENT {
+            return Err("normal-form exponent bound exceeded".to_string());
+        }
+        exponents.insert(atom.clone(), combined);
+    }
+    Ok(exponents.into_iter().collect())
+}
+
+fn add_polynomials(lhs: Polynomial, rhs: Polynomial) -> Result<Polynomial, String> {
+    let mut sum = lhs;
+    for (monomial, coefficient) in rhs {
+        insert_coefficient(&mut sum, monomial, coefficient)?;
+    }
+    Ok(sum)
+}
+
+fn multiply_polynomials(lhs: &Polynomial, rhs: &Polynomial) -> Result<Polynomial, String> {
+    if lhs.is_empty() || rhs.is_empty() {
+        return Ok(Polynomial::new());
+    }
+
+    let pair_count = lhs
+        .len()
+        .checked_mul(rhs.len())
+        .ok_or_else(|| "normal-form term count overflow".to_string())?;
+    if pair_count > MAX_NORMAL_FORM_TERMS {
+        return Err("normal-form product term bound exceeded".to_string());
+    }
+
+    let mut product = Polynomial::new();
+    for (lhs_monomial, lhs_coefficient) in lhs {
+        for (rhs_monomial, rhs_coefficient) in rhs {
+            let monomial = multiply_monomials(lhs_monomial, rhs_monomial)?;
+            let coefficient = lhs_coefficient.clone() * rhs_coefficient.clone();
+            insert_coefficient(&mut product, monomial, coefficient)?;
+        }
+    }
+    Ok(product)
+}
+
+fn pow_polynomial(mut base: Polynomial, mut exponent: u32) -> Result<Polynomial, String> {
+    let mut result = constant_polynomial(rational_one());
+    while exponent > 0 {
+        if exponent & 1 == 1 {
+            result = multiply_polynomials(&result, &base)?;
+        }
+        exponent >>= 1;
+        if exponent > 0 {
+            base = multiply_polynomials(&base, &base)?;
+        }
+    }
+    Ok(result)
+}
+
+fn normalize_polynomial(expr: &Expr) -> Result<Polynomial, String> {
+    match expr {
+        Expr::Integer(value) => {
+            let coefficient = BigRational::from_integer(value.clone());
+            if coefficient_is_bounded(&coefficient) {
+                Ok(constant_polynomial(coefficient))
+            } else {
+                Err("normal-form coefficient bound exceeded".to_string())
+            }
+        }
+        Expr::Rational(value) => {
+            if coefficient_is_bounded(value) {
+                Ok(constant_polynomial(value.clone()))
+            } else {
+                Err("normal-form coefficient bound exceeded".to_string())
+            }
+        }
+        Expr::Add(terms) => {
+            let mut sum = Polynomial::new();
+            for term in terms {
+                sum = add_polynomials(sum, normalize_polynomial(term)?)?;
+            }
+            Ok(sum)
+        }
+        Expr::Mul(factors) => {
+            let mut product = constant_polynomial(rational_one());
+            for factor in factors {
+                product = multiply_polynomials(&product, &normalize_polynomial(factor)?)?;
+            }
+            Ok(product)
+        }
+        Expr::Pow(base, exponent) => {
+            if let Expr::Integer(integer_exponent) = exponent.as_ref()
+                && let Some(exponent) = integer_exponent.to_u64()
+                && exponent <= u64::from(MAX_NORMAL_FORM_EXPONENT)
+            {
+                return pow_polynomial(normalize_polynomial(base)?, exponent as u32);
+            }
+            Ok(atomic_polynomial(expr.clone()))
+        }
+        Expr::Sym(_) | Expr::Const(_) | Expr::Function(_, _) => Ok(atomic_polynomial(expr.clone())),
+    }
+}
+
+fn check_polynomial_normal_form(
+    lhs: &Expr,
+    rhs: &Expr,
+    rule_name: &str,
+) -> Result<(), KernelError> {
+    let lhs_normal =
+        normalize_polynomial(lhs).map_err(|reason| KernelError::InvalidDefinitionalReduction {
+            rule_name: rule_name.to_string(),
+            reason: format!("LHS normalization refused: {reason}"),
+        })?;
+    let rhs_normal =
+        normalize_polynomial(rhs).map_err(|reason| KernelError::InvalidDefinitionalReduction {
+            rule_name: rule_name.to_string(),
+            reason: format!("RHS normalization refused: {reason}"),
+        })?;
+
+    if lhs_normal == rhs_normal {
+        Ok(())
+    } else {
+        Err(KernelError::InvalidDefinitionalReduction {
+            rule_name: rule_name.to_string(),
+            reason: "independent bounded polynomial normal forms differ".to_string(),
+        })
     }
 }
 
