@@ -12,7 +12,7 @@
 //! because the cap is checked against remaining input bytes first.
 
 use crate::CoreError;
-use num_bigint::{BigUint, BigInt};
+use num_bigint::{BigInt, BigUint};
 use num_rational::BigRational;
 use num_traits::Zero;
 
@@ -80,7 +80,10 @@ impl crate::Expr {
     pub fn to_canonical_numeric_bytes(&self) -> Result<Vec<u8>, CoreError> {
         let mut out = Vec::new();
         match self {
-            crate::Expr::Integer(n) => push_integer(&mut out, n),
+            crate::Expr::Integer(n) => {
+                out.push(b'I');
+                push_integer(&mut out, n);
+            }
             crate::Expr::Rational(q) => {
                 out.push(b'Q');
                 push_integer(&mut out, q.numer());
@@ -89,7 +92,7 @@ impl crate::Expr {
             _ => {
                 return Err(CoreError::InvalidOperation(
                     "only Integer/Rational serialize numerically".into(),
-                ))
+                ));
             }
         }
         if out.len() > MAX_SERIALIZED_BYTES {
@@ -140,7 +143,9 @@ mod tests {
         for raw in [0i64, 1, -1, 255, -255, i64::MAX, i64::MIN] {
             let e = Expr::from_i64(raw);
             let bytes = e.to_canonical_numeric_bytes().unwrap();
-            assert_eq!(bytes[0], b'I');
+            assert_eq!(bytes[0], b'I', "value tag for {raw}");
+            let expected_sign = if raw < 0 { 1u8 } else { 0u8 };
+            assert_eq!(bytes[1], expected_sign, "sign byte for {raw}");
             assert_eq!(
                 Expr::from_canonical_numeric_bytes(&bytes).unwrap(),
                 e,
@@ -162,9 +167,7 @@ mod tests {
     fn hostile_lengths_fail_before_allocation() {
         // Valid single-byte integer, then tamper the declared magnitude
         // length to an absurd value. Decode must reject cheaply.
-        let mut bytes = Expr::from_i64(7)
-            .to_canonical_numeric_bytes()
-            .unwrap();
+        let mut bytes = Expr::from_i64(7).to_canonical_numeric_bytes().unwrap();
         // Layout: tag(1) sign(1) len(8) mag(1). Overwrite len with 2^40.
         bytes[2..10].copy_from_slice(&(1u64 << 40).to_le_bytes());
         let err = Expr::from_canonical_numeric_bytes(&bytes).unwrap_err();
