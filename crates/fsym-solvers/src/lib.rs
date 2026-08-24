@@ -25,6 +25,10 @@ pub enum SolverError {
     UnsupportedDegree(usize),
     #[error("Expression is non-linear in the target variable")]
     NonLinear,
+    #[error("Invalid polynomial system: {0}")]
+    InvalidSystem(String),
+    #[error("The available exact solver cannot establish a complete solution set: {0}")]
+    IncompleteSolutionSet(String),
 }
 
 /// Solve a univariate polynomial equation `poly(x) = 0`.

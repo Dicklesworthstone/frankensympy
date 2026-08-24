@@ -10,6 +10,34 @@ use fsym_polys::univariate::UnivariatePoly;
 use fsym_simplify::simplify;
 use std::collections::HashMap;
 
+fn evaluate_as_univariate_in_x(
+    poly: &MultivariatePoly,
+    y_root: &Expr,
+) -> Vec<Expr> {
+    let mut coefficients = vec![Expr::from_i64(0); (poly.degree_in(0) as usize) + 1];
+    for (exponents, coefficient) in &poly.terms {
+        let degree_x = exponents[0] as usize;
+        let degree_y = exponents[1];
+        let coefficient_expr = Expr::Rational(coefficient.clone());
+        let term = if degree_y == 0 {
+            coefficient_expr
+        } else {
+            Expr::Mul(vec![
+                coefficient_expr,
+                Expr::Pow(
+                    std::sync::Arc::new(y_root.clone()),
+                    std::sync::Arc::new(Expr::from_i64(i64::from(degree_y))),
+                ),
+            ])
+        };
+        coefficients[degree_x] = simplify(&Expr::Add(vec![
+            coefficients[degree_x].clone(),
+            term,
+        ]));
+    }
+    coefficients
+}
+
 /// Solves a triangular or zero-dimensional 2-variable polynomial system using Lexicographical Groebner elimination.
 pub fn solve_2var_poly_system(
     eqs: &[MultivariatePoly],
@@ -19,17 +47,42 @@ pub fn solve_2var_poly_system(
     if eqs.is_empty() {
         return Ok(Vec::new());
     }
+    if x == y {
+        return Err(SolverError::InvalidSystem(
+            "the two solver variables must be distinct".to_string(),
+        ));
+    }
+    let expected_generators = [x.clone(), y.clone()];
+    for equation in eqs {
+        if equation.generators.as_slice() != expected_generators {
+            return Err(SolverError::InvalidSystem(format!(
+                "every equation must use generators [{}, {}] in that exact order",
+                x.name, y.name
+            )));
+        }
+        if equation
+            .terms
+            .keys()
+            .any(|exponents| exponents.len() != expected_generators.len())
+        {
+            return Err(SolverError::InvalidSystem(
+                "an exponent-vector width does not match the two-variable ring".to_string(),
+            ));
+        }
+    }
     // Compute Groebner basis under Lex (x > y)
-    let gb = groebner_basis(eqs, TermOrder::Lex).map_err(|_e| SolverError::NonLinear)?;
+    let gb = groebner_basis(eqs, TermOrder::Lex)
+        .map_err(|error| SolverError::InvalidSystem(error.to_string()))?;
 
     // Find univariate polynomial in y (degree in x == 0)
-    let y_polys: Vec<&MultivariatePoly> = gb.iter().filter(|p| p.degree_in(0) == 0).collect();
-    if y_polys.is_empty() {
+    let Some(y_poly_mv) = gb
+        .iter()
+        .find(|poly| poly.degree_in(0) == 0 && poly.degree_in(1) > 0)
+    else {
         return Err(SolverError::UnsupportedDegree(gb.len()));
-    }
+    };
 
     // Convert univariate polynomial in y to UnivariatePoly
-    let y_poly_mv = y_polys[0];
     let max_deg_y = y_poly_mv.degree_in(1) as usize;
     let mut y_coeffs = vec![BigRational::from_integer(0.into()); max_deg_y + 1];
     for (exp, coeff) in &y_poly_mv.terms {
@@ -42,38 +95,33 @@ pub fn solve_2var_poly_system(
 
     let mut solutions = Vec::new();
     // For each y root, back-substitute to find x roots
-    let x_polys: Vec<&MultivariatePoly> = gb.iter().filter(|p| p.degree_in(0) > 0).collect();
+    let x_polys: Vec<&MultivariatePoly> = gb.iter().filter(|p| p.degree_in(0) == 1).collect();
     if x_polys.is_empty() {
-        return Err(SolverError::InfiniteSolutions);
+        let maximum_x_degree = gb
+            .iter()
+            .map(|poly| poly.degree_in(0) as usize)
+            .max()
+            .unwrap_or(0);
+        return Err(if maximum_x_degree == 0 {
+            SolverError::InfiniteSolutions
+        } else {
+            SolverError::UnsupportedDegree(maximum_x_degree)
+        });
     }
-    let x_poly_mv = x_polys[0];
 
     for y_root in y_roots {
-        // Evaluate x_poly_mv at y = y_root
-        // x_poly is linear in x: c1(y) * x + c0(y) = 0 => x = -c0(y) / c1(y)
-        let mut x_uni_coeffs = vec![Expr::from_i64(0); (x_poly_mv.degree_in(0) as usize) + 1];
-        for (exp, coeff) in &x_poly_mv.terms {
-            let deg_x = exp[0] as usize;
-            let deg_y = exp[1] as usize;
-
-            let coeff_expr = Expr::Rational(coeff.clone());
-            let y_term = if deg_y == 0 {
-                coeff_expr
-            } else {
-                Expr::Mul(vec![
-                    coeff_expr,
-                    Expr::Pow(
-                        std::sync::Arc::new(y_root.clone()),
-                        std::sync::Arc::new(Expr::from_i64(deg_y as i64)),
-                    ),
-                ])
-            };
-            x_uni_coeffs[deg_x] = simplify(&Expr::Add(vec![x_uni_coeffs[deg_x].clone(), y_term]));
-        }
-
-        if x_uni_coeffs.len() == 2 {
+        let mut candidate = None;
+        for x_poly in &x_polys {
+            let x_uni_coeffs = evaluate_as_univariate_in_x(x_poly, &y_root);
             let c0 = &x_uni_coeffs[0];
             let c1 = &x_uni_coeffs[1];
+            if c1.is_zero() {
+                if c0.is_zero() {
+                    continue;
+                }
+                candidate = None;
+                break;
+            }
             let x_root = if c1 == &Expr::from_i64(1) {
                 simplify(&Expr::Mul(vec![Expr::from_i64(-1), c0.clone()]))
             } else {
@@ -86,12 +134,36 @@ pub fn solve_2var_poly_system(
                     ),
                 ]))
             };
-
-            let mut sol = HashMap::new();
-            sol.insert(x.clone(), x_root);
-            sol.insert(y.clone(), y_root);
-            solutions.push(sol);
+            candidate = Some(x_root);
+            break;
         }
+
+        let Some(x_root) = candidate else {
+            return Err(SolverError::IncompleteSolutionSet(format!(
+                "no linear back-substitution relation isolates {} at y = {}",
+                x.name, y_root
+            )));
+        };
+        let mut solution = HashMap::new();
+        solution.insert(x.clone(), x_root);
+        solution.insert(y.clone(), y_root);
+
+        let mut verified = true;
+        for equation in eqs {
+            let expression = equation
+                .to_expr()
+                .map_err(|error| SolverError::InvalidSystem(error.to_string()))?;
+            if !simplify(&expression.subs(&solution)).is_zero() {
+                verified = false;
+                break;
+            }
+        }
+        if !verified {
+            return Err(SolverError::IncompleteSolutionSet(
+                "a generated candidate did not satisfy every input equation".to_string(),
+            ));
+        }
+        solutions.push(solution);
     }
 
     Ok(solutions)

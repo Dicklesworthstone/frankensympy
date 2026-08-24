@@ -139,6 +139,20 @@ Canonical arbitrary-precision rationals, rational reconstruction, continued frac
 
 Finite-ring/field primitives, Montgomery/Barrett representations, CRT, rational reconstruction support, deterministic prime streams, and unlucky-prime diagnostics.
 
+Within L1, `fsym-modular` is the narrow reconstruction-support façade for modular preimage
+algorithms. `fsym-rational` may depend on it only to turn a canonical
+`(numerator, denominator)` reconstruction result into the owned `BigRational` value type. The
+edge is intentionally one-way:
+
+```text
+fsym-rational -> fsym-modular -> fsym-bigint / fsym-budget
+```
+
+`fsym-modular` must not depend on `fsym-rational`; any broader L1 sibling dependency requires a
+separate architecture amendment. This keeps the pair-returning reconstruction kernel usable by
+lower arithmetic consumers without creating a cycle or coupling modular algorithms to a rational
+storage representation.
+
 ### 5.6 `fsym-ball`
 
 Directed-rounding real/complex interval and ball primitives. Compatibility floats are not defined here; this crate serves certified numeric claims.

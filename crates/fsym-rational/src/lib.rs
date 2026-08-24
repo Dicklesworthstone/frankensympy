@@ -6,8 +6,9 @@
 //!
 //! This boundary owns the canonical rational value type, exact height metadata, finite simple
 //! continued fractions, and cross-cancelled scalar arithmetic with cancellation-first metered
-//! lanes. Pair-returning rational reconstruction support remains in `fsym-modular`; a
-//! value-returning reconstruction API remains later architecture §5.4 work.
+//! lanes. Pair-returning rational reconstruction support remains in `fsym-modular`; this crate
+//! wraps only its canonical result in the owned rational value type through the explicitly
+//! designated L1 reconstruction-support edge.
 
 #![forbid(unsafe_code)]
 
@@ -233,6 +234,36 @@ impl BigRational {
         let numerator = remainder / &reduction;
         let denominator = common_denominator / reduction;
         Self(num_rational::Ratio::new_raw(numerator, denominator))
+    }
+
+    /// Reconstructs the unique bounded rational representative of `residue (mod modulus)`.
+    ///
+    /// This proves only the bounded congruence contract documented by
+    /// [`fsym_modular::rational_reconstruct`]. It does not recognize or certify an external
+    /// numerical approximation.
+    pub fn reconstruct_modular(residue: &BigInt, modulus: &BigInt) -> Option<Self> {
+        let (numerator, denominator) =
+            fsym_modular::rational_reconstruct(residue, modulus)?;
+        Some(Self(num_rational::Ratio::new_raw(numerator, denominator)))
+    }
+
+    /// Cancellation-first bounded modular rational reconstruction.
+    ///
+    /// Both successful and refused computed results observe a final checkpoint before
+    /// publication. As in [`Self::reconstruct_modular`], the result establishes a bounded
+    /// congruence representative, not recognition of an external numerical approximation.
+    pub fn metered_reconstruct_modular<M: BudgetMeter>(
+        residue: &BigInt,
+        modulus: &BigInt,
+        meter: &mut M,
+    ) -> Result<Option<Self>, MeterError> {
+        let reconstructed =
+            fsym_modular::metered_rational_reconstruct(residue, modulus, meter)?.map(
+                |(numerator, denominator)| {
+                    Self(num_rational::Ratio::new_raw(numerator, denominator))
+                },
+            );
+        metered_finish(reconstructed, meter)
     }
 
     /// Cancellation-first, cross-cancelled rational addition.
