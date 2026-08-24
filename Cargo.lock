@@ -637,7 +637,9 @@ dependencies = [
 name = "fsym-core"
 version = "0.1.0"
 dependencies = [
+ "fsym-budget",
  "fsym-id",
+ "fsym-outcome",
  "num-bigint",
  "num-complex",
  "num-rational",

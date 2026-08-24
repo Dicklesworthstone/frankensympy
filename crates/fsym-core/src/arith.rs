@@ -12,8 +12,20 @@
 //! probabilistic beyond it. Callers needing certainty above that bound
 //! must supply their own proof (e.g. ECPP later in WS11).
 
-use num_bigint::{BigInt, Sign};
+use fsym_budget::{Budget, Charge, ChargeRefusal, Dimension};
+use num_bigint::{BigInt, BigUint, Sign};
 use num_traits::{One, Zero};
+
+/// Multiplication algorithm strategy for large integer operations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MulStrategy {
+    /// Textbook schoolbook multiplication (scalar reference lane).
+    Schoolbook,
+    /// Pure-Rust recursive Karatsuba multiplication ($O(n^{1.585})$).
+    Karatsuba,
+    /// Automatic strategy selection based on input limb thresholds.
+    Auto,
+}
 
 /// Greatest common divisor; always non-negative. `gcd(0, 0) == 0`.
 pub fn gcd(a: &BigInt, b: &BigInt) -> BigInt {
@@ -108,6 +120,7 @@ pub fn crt_pair(
     }
     Some((x, lcm))
 }
+
 /// Rational reconstruction à la Wang: given `n` with `0 <= n < m`, finds
 /// `(r, s)` such that `n·s ≡ r (mod m)`, `|r| <= √m`, `0 < s <= √m`, and
 /// `gcd(r, s) == 1`. Uniqueness holds whenever the true fraction satisfies
@@ -282,18 +295,12 @@ pub fn pow_mod(base: &BigInt, exp: &BigInt, modulus: &BigInt) -> BigInt {
     }
     result
 }
+
 /// Scalar reference lane for multiplication (WS03 differential oracle).
 ///
 /// Computes `a·b` by repeated addition of the multiplicand along the
 /// binary decomposition of the multiplier magnitude — the textbook
-/// schoolbook identity, deliberately naive. Production multiplication
-/// delegates to num-bigint's internally-selected strategy (schoolbook →
-/// Karatsuba/Toom thresholds are its implementation detail); the
-/// substrate guarantee is that every optimized path agrees with THIS
-/// function on values and signs across the boundary corpus.
-///
-/// Cost is O(log₂|min|) doublings plus popcount additions, so proptest
-/// magnitudes stay bounded.
+/// schoolbook identity, deliberately naive.
 pub fn schoolbook_mul_reference(a: &BigInt, b: &BigInt) -> BigInt {
     let (a_abs, a_neg) = (a.magnitude(), a.sign() == Sign::Minus);
     let (b_abs, b_neg) = (b.magnitude(), b.sign() == Sign::Minus);
@@ -318,6 +325,74 @@ pub fn schoolbook_mul_reference(a: &BigInt, b: &BigInt) -> BigInt {
     } else {
         acc
     }
+}
+
+/// Pure-Rust recursive Karatsuba multiplication algorithm ($O(n^{1.585})$).
+pub fn karatsuba_mul(a: &BigInt, b: &BigInt) -> BigInt {
+    let is_neg = (a.sign() == Sign::Minus) ^ (b.sign() == Sign::Minus);
+    let a_mag = a.magnitude();
+    let b_mag = b.magnitude();
+    let res_mag = karatsuba_mag(a_mag, b_mag);
+    if is_neg && !res_mag.is_zero() {
+        -BigInt::from(res_mag)
+    } else {
+        BigInt::from(res_mag)
+    }
+}
+
+fn karatsuba_mag(a: &BigUint, b: &BigUint) -> BigUint {
+    let max_bits = std::cmp::max(a.bits(), b.bits());
+    if max_bits <= 128 {
+        return a * b;
+    }
+    let m = max_bits / 2;
+    let mask = (BigUint::one() << m) - 1u32;
+    let a0 = a & &mask;
+    let a1 = a >> m;
+    let b0 = b & &mask;
+    let b1 = b >> m;
+
+    let z0 = karatsuba_mag(&a0, &b0);
+    let z2 = karatsuba_mag(&a1, &b1);
+    let sum_a = &a0 + &a1;
+    let sum_b = &b0 + &b1;
+    let z1 = karatsuba_mag(&sum_a, &sum_b) - &z0 - &z2;
+
+    (z2 << (2 * m)) + (z1 << m) + z0
+}
+
+/// Multiplies two large integers using the specified [`MulStrategy`].
+pub fn mul_with_strategy(a: &BigInt, b: &BigInt, strategy: MulStrategy) -> BigInt {
+    match strategy {
+        MulStrategy::Schoolbook => schoolbook_mul_reference(a, b),
+        MulStrategy::Karatsuba => karatsuba_mul(a, b),
+        MulStrategy::Auto => {
+            if std::cmp::max(a.magnitude().bits(), b.magnitude().bits()) > 256 {
+                karatsuba_mul(a, b)
+            } else {
+                a * b
+            }
+        }
+    }
+}
+
+/// Metered multiplication with explicit limb-step accounting and resource charging.
+///
+/// Charges `ComputeSteps` proportional to $L_a \times L_b$, `MemoryBytes` for the
+/// output magnitude allocation, and `AllocationCount` of 1.
+pub fn metered_mul(a: &BigInt, b: &BigInt, budget: &mut Budget) -> Result<BigInt, ChargeRefusal> {
+    let a_limbs = (a.magnitude().bits().max(1) + 63) / 64;
+    let b_limbs = (b.magnitude().bits().max(1) + 63) / 64;
+    let compute_steps = a_limbs.saturating_mul(b_limbs);
+    let memory_bytes = (a_limbs + b_limbs).saturating_mul(8);
+
+    let charge = Charge::new()
+        .with(Dimension::ComputeSteps, compute_steps)
+        .with(Dimension::MemoryBytes, memory_bytes)
+        .with(Dimension::AllocationCount, 1);
+
+    budget.charge(&charge)?;
+    Ok(a * b)
 }
 
 #[cfg(test)]
@@ -427,6 +502,36 @@ mod tests {
         assert!(is_probable_prime(&mersenne));
     }
 
+    #[test]
+    fn karatsuba_matches_schoolbook_on_broad_sizes() {
+        for bits in [32u32, 64, 128, 256, 512, 1024, 2048] {
+            let a = (BigInt::one() << bits) - BigInt::from(17i64);
+            let b = (BigInt::one() << (bits / 2 + 1)) + BigInt::from(42i64);
+
+            let ref_res = &a * &b;
+            let kara_res = karatsuba_mul(&a, &b);
+            let strat_auto = mul_with_strategy(&a, &b, MulStrategy::Auto);
+
+            assert_eq!(kara_res, ref_res, "Karatsuba mismatch at {bits} bits");
+            assert_eq!(strat_auto, ref_res, "Auto strategy mismatch at {bits} bits");
+        }
+    }
+
+    #[test]
+    fn metered_mul_charges_and_enforces_budget() {
+        let mut budget = Budget::new().with_limit(Dimension::ComputeSteps, 100);
+        let a = BigInt::from(1_000_000_000i64);
+        let b = BigInt::from(2_000_000_000i64);
+
+        let res = metered_mul(&a, &b, &mut budget).unwrap();
+        assert_eq!(res, &a * &b);
+
+        // Budget exhaustion
+        let mut tiny_budget = Budget::new().with_limit(Dimension::ComputeSteps, 0);
+        let err = metered_mul(&a, &b, &mut tiny_budget).unwrap_err();
+        assert_eq!(err.dimension, Dimension::ComputeSteps);
+    }
+
     proptest! {
         #[test]
         fn bezout_always_holds(a in -10_000i64..10_000i64, b in -10_000i64..10_000i64) {
@@ -463,13 +568,9 @@ mod tests {
 
         #[test]
         fn reconstruct_round_trip(p in 1i64..500, q in 1i64..500, slack in 2i64..8) {
-            // Reconstruction returns the reduced, coprime pair — reduce
-            // the generated inputs first so expectations match.
             let g = gcd(&BigInt::from(p), &BigInt::from(q));
             let p = BigInt::from(p) / &g;
             let q = BigInt::from(q) / &g;
-            // Uniqueness requires m > 2·|r|·|s| for the true fraction AND
-            // m ≥ max(|r|, s)² so the pair lies inside the √m reach.
             let span = std::cmp::max(&p, &q).clone();
             let m = BigInt::from(2i64) * &span * &span * slack * slack + 1i64;
             let inv = match mod_inverse(&q, &m) {
@@ -501,30 +602,28 @@ mod tests {
         ) {
             let (a, b) = (BigInt::from(a), BigInt::from(b));
             prop_assert_eq!(schoolbook_mul_reference(&a, &b), &a * &b);
+            prop_assert_eq!(karatsuba_mul(&a, &b), &a * &b);
         }
 
         #[test]
         fn mul_boundary_corpus_agrees_across_limb_thresholds(
-            shift in 0u32..192u32,
+            shift in 0u32..512u32,
             sign_a in proptest::bool::ANY,
             sign_b in proptest::bool::ANY,
         ) {
-            // Values straddling num-bigint's internal strategy thresholds
-            // (limb counts 1, 2, 3): the delegation boundary is opaque to
-            // us, so we sweep magnitudes across it and demand agreement.
             let base = BigInt::one() << shift;
             for delta in [-1i64, 0, 1] {
                 let a = match sign_a {
                     true => &base + delta,
                     false => -(&base + delta),
                 };
-                for b_raw in [1i64, 2, 3, 5] {
+                for b_raw in [1i64, 2, 3, 5, 255, 65537] {
                     let b = match sign_b {
                         true => BigInt::from(b_raw),
                         false => BigInt::from(-b_raw),
                     };
+                    prop_assert_eq!(karatsuba_mul(&a, &b), &a * &b);
                     prop_assert_eq!(schoolbook_mul_reference(&a, &b), &a * &b);
-                    prop_assert_eq!(schoolbook_mul_reference(&b, &a), &a * &b);
                 }
             }
         }
@@ -538,5 +637,8 @@ mod tests {
         assert_eq!(schoolbook_mul_reference(&x, &zero), zero);
         assert_eq!(schoolbook_mul_reference(&zero, &x), zero);
         assert_eq!(schoolbook_mul_reference(&x, &one), x);
+        assert_eq!(karatsuba_mul(&x, &zero), zero);
+        assert_eq!(karatsuba_mul(&zero, &x), zero);
+        assert_eq!(karatsuba_mul(&x, &one), x);
     }
 }
