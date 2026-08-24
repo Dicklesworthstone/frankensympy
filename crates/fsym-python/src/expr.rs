@@ -459,11 +459,11 @@ impl PyAdd {
     pub fn new(args: Vec<PyExpr>, evaluate: bool) -> Self {
         let exprs: Vec<Expr> = args.into_iter().map(|a| a.inner).collect();
         let inner = if evaluate {
-            let mut sum = Expr::from_i64(0);
-            for e in exprs {
-                sum = sum + e;
-            }
-            sum
+            let mut terms = exprs.into_iter();
+            terms
+                .next()
+                .map(|first| terms.fold(first, |sum, term| sum + term))
+                .unwrap_or_else(|| Expr::from_i64(0))
         } else {
             Expr::Add(exprs)
         };
@@ -491,11 +491,11 @@ impl PyMul {
     pub fn new(args: Vec<PyExpr>, evaluate: bool) -> Self {
         let exprs: Vec<Expr> = args.into_iter().map(|a| a.inner).collect();
         let inner = if evaluate {
-            let mut prod = Expr::from_i64(1);
-            for e in exprs {
-                prod = prod * e;
-            }
-            prod
+            let mut factors = exprs.into_iter();
+            factors
+                .next()
+                .map(|first| factors.fold(first, |product, factor| product * factor))
+                .unwrap_or_else(|| Expr::from_i64(1))
         } else {
             Expr::Mul(exprs)
         };

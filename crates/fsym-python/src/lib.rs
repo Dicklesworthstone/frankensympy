@@ -293,6 +293,20 @@ mod tests {
         let held_add = PyAdd::new(vec![x.clone(), x.clone()], false);
         assert_eq!(held_add.as_expr().raw_args().len(), 2);
         assert_eq!(held_add.as_expr().func_name(), "Add");
+
+        // Evaluated n-ary constructors use identities only for empty input.
+        let evaluated_add = PyAdd::new(vec![x.clone(), two.clone()], true);
+        assert_eq!(
+            evaluated_add.as_expr().raw_args(),
+            vec![x.clone(), two.clone()]
+        );
+        assert_eq!(PyAdd::new(Vec::new(), true).as_expr(), py_integer(0));
+        let evaluated_mul = PyMul::new(vec![x.clone(), two.clone()], true);
+        assert_eq!(
+            evaluated_mul.as_expr().raw_args(),
+            vec![x.clone(), two.clone()]
+        );
+        assert_eq!(PyMul::new(Vec::new(), true).as_expr(), py_integer(1));
     }
 
     #[test]

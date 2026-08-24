@@ -1,12 +1,12 @@
 //! Recursive-descent expression parser producing canonical [`Expr`] ASTs.
 //!
-//! Grammar (standard precedence, `^` right-associative):
+//! Grammar (standard precedence, `^` and `**` right-associative):
 //!
 //! ```text
 //! expr  := term (('+' | '-') term)*
 //! term  := unary (('*' | '/') unary)*
 //! unary := ('-' | '+') unary | power
-//! power := atom ('^' unary)?
+//! power := atom (('^' | '**') unary)?
 //! atom  := number | constant | symbol | func '(' args ')' | '(' expr ')'
 //! ```
 //!
@@ -51,7 +51,12 @@ fn tokenize(input: &str) -> Result<Vec<Tok>, CoreError> {
             }
             '*' => {
                 chars.next();
-                toks.push(Tok::Star);
+                if matches!(chars.peek(), Some('*')) {
+                    chars.next();
+                    toks.push(Tok::Caret);
+                } else {
+                    toks.push(Tok::Star);
+                }
             }
             '/' => {
                 chars.next();
@@ -381,6 +386,13 @@ mod tests {
                 ))
             )
         );
+        assert_eq!(parse("x**2**3").unwrap(), parse("x^2^3").unwrap());
+    }
+
+    #[test]
+    fn displayed_powers_round_trip_through_the_parser() {
+        let expression = parse("(x + 1)^(-2)").unwrap();
+        assert_eq!(parse(&expression.to_string()).unwrap(), expression);
     }
 
     #[test]
