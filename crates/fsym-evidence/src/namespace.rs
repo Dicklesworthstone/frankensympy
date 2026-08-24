@@ -408,14 +408,8 @@ mod tests {
     #[test]
     fn candidate_namespace_has_deterministic_json_roundtrip() {
         let mut first = CandidateNamespace::new();
-        first.register_candidate(Claim::equality(
-            Expr::symbol("z"),
-            Expr::symbol("z"),
-        ));
-        first.register_candidate(Claim::equality(
-            Expr::symbol("a"),
-            Expr::symbol("a"),
-        ));
+        first.register_candidate(Claim::equality(Expr::symbol("z"), Expr::symbol("z")));
+        first.register_candidate(Claim::equality(Expr::symbol("a"), Expr::symbol("a")));
 
         let json = serde_json::to_string(&first).expect("namespace has a JSON wire format");
         let restored: CandidateNamespace =

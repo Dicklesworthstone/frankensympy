@@ -156,22 +156,10 @@ mod tests {
         second_payload.insert("a".to_string(), 1u64);
         second_payload.insert("b".to_string(), 2u64);
 
-        let first = TypedCheckpoint::new(
-            "test.map.v1",
-            1,
-            first_payload,
-            BTreeMap::new(),
-            0,
-        )
-        .unwrap();
-        let second = TypedCheckpoint::new(
-            "test.map.v1",
-            1,
-            second_payload,
-            BTreeMap::new(),
-            0,
-        )
-        .unwrap();
+        let first =
+            TypedCheckpoint::new("test.map.v1", 1, first_payload, BTreeMap::new(), 0).unwrap();
+        let second =
+            TypedCheckpoint::new("test.map.v1", 1, second_payload, BTreeMap::new(), 0).unwrap();
         assert_eq!(first.content_digest, second.content_digest);
 
         let wire = serde_json::to_vec(&first).unwrap();

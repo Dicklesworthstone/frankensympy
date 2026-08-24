@@ -445,8 +445,7 @@ mod tests {
         for iteration in 0..2 {
             let candidate_x = x.clone();
             let strategy = Box::new(move |_cx: &mut FsymCx<'_, _>| {
-                let mut kernel =
-                    ProofKernel::new((*ImmutableAssumptionsSnapshot::empty()).clone());
+                let mut kernel = ProofKernel::new((*ImmutableAssumptionsSnapshot::empty()).clone());
                 let root = kernel
                     .prove_reflexivity(candidate_x.clone(), &mut Unbounded)
                     .unwrap();

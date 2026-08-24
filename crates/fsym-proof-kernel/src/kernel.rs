@@ -58,10 +58,7 @@ pub enum KernelError {
     #[error("Certificate lemma family `{family}` has no trusted certificate-dispatch verifier")]
     UnverifiedCertificateLemma { family: String },
     #[error("Derivation exceeds the trusted `{resource}` limit of {limit}")]
-    DerivationLimitExceeded {
-        resource: &'static str,
-        limit: u64,
-    },
+    DerivationLimitExceeded { resource: &'static str, limit: u64 },
     #[error("Proof kernel step identifier space is exhausted")]
     StepIdExhausted,
     #[error("Budget error: {0}")]
@@ -416,9 +413,7 @@ pub fn verify_derivation_independent(
 ///
 /// Portfolio coordinators use this value to reserve protected verifier budget before replay.
 /// The independent verifier repeats this bounded preflight so callers cannot bypass the limits.
-pub fn derivation_verification_units(
-    derivation: &DerivationTree,
-) -> Result<u64, KernelError> {
+pub fn derivation_verification_units(derivation: &DerivationTree) -> Result<u64, KernelError> {
     if derivation.steps.len() > MAX_DERIVATION_STEPS {
         return Err(KernelError::DerivationLimitExceeded {
             resource: "steps",
@@ -451,9 +446,9 @@ impl DerivationPreflight {
         limit: u64,
         resource: &'static str,
     ) -> Result<(), KernelError> {
-        *value = value.checked_add(amount).ok_or(
-            KernelError::DerivationLimitExceeded { resource, limit },
-        )?;
+        *value = value
+            .checked_add(amount)
+            .ok_or(KernelError::DerivationLimitExceeded { resource, limit })?;
         if *value > limit {
             return Err(KernelError::DerivationLimitExceeded { resource, limit });
         }
@@ -461,22 +456,22 @@ impl DerivationPreflight {
     }
 
     fn add_work(&mut self, amount: u64) -> Result<(), KernelError> {
-        self.work_units = self.work_units.checked_add(amount).ok_or(
-            KernelError::DerivationLimitExceeded {
-                resource: "verification work units",
-                limit: u64::MAX,
-            },
-        )?;
+        self.work_units =
+            self.work_units
+                .checked_add(amount)
+                .ok_or(KernelError::DerivationLimitExceeded {
+                    resource: "verification work units",
+                    limit: u64::MAX,
+                })?;
         Ok(())
     }
 
     fn add_text(&mut self, value: &str) -> Result<(), KernelError> {
-        let bytes = u64::try_from(value.len()).map_err(|_| {
-            KernelError::DerivationLimitExceeded {
+        let bytes =
+            u64::try_from(value.len()).map_err(|_| KernelError::DerivationLimitExceeded {
                 resource: "text bytes",
                 limit: MAX_DERIVATION_TEXT_BYTES,
-            }
-        })?;
+            })?;
         Self::add_bounded(
             &mut self.text_bytes,
             bytes,
@@ -487,11 +482,9 @@ impl DerivationPreflight {
     }
 
     fn add_references(&mut self, count: usize) -> Result<(), KernelError> {
-        let count = u64::try_from(count).map_err(|_| {
-            KernelError::DerivationLimitExceeded {
-                resource: "step references",
-                limit: MAX_DERIVATION_REFERENCES,
-            }
+        let count = u64::try_from(count).map_err(|_| KernelError::DerivationLimitExceeded {
+            resource: "step references",
+            limit: MAX_DERIVATION_REFERENCES,
         })?;
         Self::add_bounded(
             &mut self.references,

@@ -52,10 +52,7 @@ pub struct ReplayLog {
 
 impl ReplayLog {
     /// Create a new replay log.
-    pub fn new(
-        initial_seed: u64,
-        strategy_name: impl Into<String>,
-    ) -> Result<Self, ReplayError> {
+    pub fn new(initial_seed: u64, strategy_name: impl Into<String>) -> Result<Self, ReplayError> {
         let strategy_name = strategy_name.into();
         check_len(
             strategy_name.len(),
@@ -87,11 +84,7 @@ impl ReplayLog {
                 })?;
         check_len(next_event_count, MAX_REPLAY_EVENTS, "event count")?;
         let event_name = name.into();
-        check_len(
-            event_name.len(),
-            MAX_EVENT_NAME_BYTES,
-            "event-name bytes",
-        )?;
+        check_len(event_name.len(), MAX_EVENT_NAME_BYTES, "event-name bytes")?;
         check_len(
             dimension_charges.len(),
             MAX_EVENT_CHARGES,
@@ -105,12 +98,11 @@ impl ReplayLog {
         if dimension_charges.iter().any(|(_, amount)| *amount == 0) {
             return Err(ReplayError::ZeroCharge);
         }
-        let step_index = u64::try_from(self.events.len()).map_err(|_| {
-            ReplayError::LimitExceeded {
+        let step_index =
+            u64::try_from(self.events.len()).map_err(|_| ReplayError::LimitExceeded {
                 resource: "event count",
                 limit: MAX_REPLAY_EVENTS,
-            }
-        })?;
+            })?;
         let payload = payload.to_vec();
         let outcome_digest = event_digest(step_index, &event_name, &dimension_charges, &payload)?;
 
@@ -207,12 +199,9 @@ impl ReplayLog {
     }
 
     fn computed_final_digest(&self) -> Result<[u8; 32], ReplayError> {
-        let canonical_log = serde_json::to_vec(&(
-            self.initial_seed,
-            &self.strategy_name,
-            &self.events,
-        ))
-        .map_err(|error| ReplayError::Serialization(error.to_string()))?;
+        let canonical_log =
+            serde_json::to_vec(&(self.initial_seed, &self.strategy_name, &self.events))
+                .map_err(|error| ReplayError::Serialization(error.to_string()))?;
         let mut hasher = blake3::Hasher::new();
         hasher.update(b"fsym.replay.log.v2:");
         hasher.update(&canonical_log);
@@ -220,11 +209,7 @@ impl ReplayLog {
     }
 }
 
-fn check_len(
-    actual: usize,
-    limit: usize,
-    resource: &'static str,
-) -> Result<(), ReplayError> {
+fn check_len(actual: usize, limit: usize, resource: &'static str) -> Result<(), ReplayError> {
     if actual > limit {
         Err(ReplayError::LimitExceeded { resource, limit })
     } else {
@@ -238,9 +223,8 @@ fn event_digest(
     dimension_charges: &[(Dimension, u64)],
     payload: &[u8],
 ) -> Result<[u8; 32], ReplayError> {
-    let canonical_event =
-        serde_json::to_vec(&(step_index, event_name, dimension_charges, payload))
-            .map_err(|error| ReplayError::Serialization(error.to_string()))?;
+    let canonical_event = serde_json::to_vec(&(step_index, event_name, dimension_charges, payload))
+        .map_err(|error| ReplayError::Serialization(error.to_string()))?;
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"fsym.replay.event.v2:");
     hasher.update(&canonical_event);

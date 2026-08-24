@@ -151,20 +151,16 @@ mod tests {
     #[test]
     fn test_replay_log_reproduces_digest_bit_for_bit() {
         let mut log1 = ReplayLog::new(12345, "karatsuba_mul").unwrap();
-        log1
-            .record_event("mul_step_1", vec![(Dimension::ComputeSteps, 10)], b"a*b")
+        log1.record_event("mul_step_1", vec![(Dimension::ComputeSteps, 10)], b"a*b")
             .unwrap();
-        log1
-            .record_event("mul_step_2", vec![(Dimension::ComputeSteps, 5)], b"res")
+        log1.record_event("mul_step_2", vec![(Dimension::ComputeSteps, 5)], b"res")
             .unwrap();
         let d1 = log1.finalize().unwrap();
 
         let mut log2 = ReplayLog::new(12345, "karatsuba_mul").unwrap();
-        log2
-            .record_event("mul_step_1", vec![(Dimension::ComputeSteps, 10)], b"a*b")
+        log2.record_event("mul_step_1", vec![(Dimension::ComputeSteps, 10)], b"a*b")
             .unwrap();
-        log2
-            .record_event("mul_step_2", vec![(Dimension::ComputeSteps, 5)], b"res")
+        log2.record_event("mul_step_2", vec![(Dimension::ComputeSteps, 5)], b"res")
             .unwrap();
         let d2 = log2.finalize().unwrap();
 

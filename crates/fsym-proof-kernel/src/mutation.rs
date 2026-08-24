@@ -336,9 +336,11 @@ mod tests {
         let mut meter = Budget::new(limits);
         let mut kernel = ProofKernel::new(empty_context());
 
-        assert!(kernel
-            .prove_reflexivity(Expr::symbol("x"), &mut meter)
-            .is_err());
+        assert!(
+            kernel
+                .prove_reflexivity(Expr::symbol("x"), &mut meter)
+                .is_err()
+        );
         assert_eq!(meter.remaining(Dimension::ComputeSteps), 1);
         assert_eq!(meter.remaining(Dimension::AllocationCount), 0);
         assert_eq!(kernel.step_count(), 0);

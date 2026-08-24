@@ -486,13 +486,8 @@ mod tests {
         let x = Expr::symbol("x");
         let expr = Expr::Add(vec![x.clone(), x.clone()]);
 
-        let (simplified, envelope) = verified_simplify(
-            &expr,
-            &context,
-            ReceiptId::new(1).unwrap(),
-            &mut meter,
-        )
-        .unwrap();
+        let (simplified, envelope) =
+            verified_simplify(&expr, &context, ReceiptId::new(1).unwrap(), &mut meter).unwrap();
         assert_eq!(simplified, Expr::Mul(vec![Expr::from_i64(2), x]));
 
         assert_eq!(envelope.claim.lhs().unwrap(), &expr);
@@ -512,19 +507,18 @@ mod tests {
             ("tan", Expr::from_i64(0)),
         ] {
             let expr = Expr::Function(name.to_string(), vec![Expr::from_i64(0)]);
-            let (simplified, envelope) =
-                verified_simplify(
-                    &expr,
-                    &context,
-                    ReceiptId::new(match name {
-                        "sin" => 2,
-                        "cos" => 3,
-                        _ => 4,
-                    })
-                    .unwrap(),
-                    &mut Unbounded,
-                )
-                .unwrap();
+            let (simplified, envelope) = verified_simplify(
+                &expr,
+                &context,
+                ReceiptId::new(match name {
+                    "sin" => 2,
+                    "cos" => 3,
+                    _ => 4,
+                })
+                .unwrap(),
+                &mut Unbounded,
+            )
+            .unwrap();
 
             assert_eq!(simplified, expected);
             assert!(
@@ -574,13 +568,8 @@ mod tests {
         let x = Expr::symbol("x");
         let expr = Expr::Add(vec![x.clone(), x.clone()]);
 
-        let (_, envelope) = verified_simplify(
-            &expr,
-            &context,
-            ReceiptId::new(5).unwrap(),
-            &mut meter,
-        )
-        .unwrap();
+        let (_, envelope) =
+            verified_simplify(&expr, &context, ReceiptId::new(5).unwrap(), &mut meter).unwrap();
         let mut tree = envelope.derivation.unwrap();
 
         // Mutate the final step claim to forged claim x + x = x
