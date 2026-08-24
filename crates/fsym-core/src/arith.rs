@@ -12,7 +12,7 @@
 //! probabilistic beyond it. Callers needing certainty above that bound
 //! must supply their own proof (e.g. ECPP later in WS11).
 
-use fsym_budget::{Budget, Charge, ChargeRefusal, Dimension};
+use fsym_budget::{BudgetMeter, Dimension, MeterError};
 use num_bigint::{BigInt, BigUint, Sign};
 use num_traits::{One, Zero};
 
@@ -380,24 +380,29 @@ pub fn mul_with_strategy(a: &BigInt, b: &BigInt, strategy: MulStrategy) -> BigIn
 ///
 /// Charges `ComputeSteps` proportional to $L_a \times L_b$, `MemoryBytes` for the
 /// output magnitude allocation, and `AllocationCount` of 1.
-pub fn metered_mul(a: &BigInt, b: &BigInt, budget: &mut Budget) -> Result<BigInt, ChargeRefusal> {
-    let a_limbs = (a.magnitude().bits().max(1) + 63) / 64;
-    let b_limbs = (b.magnitude().bits().max(1) + 63) / 64;
+pub fn metered_mul<M: BudgetMeter>(
+    a: &BigInt,
+    b: &BigInt,
+    meter: &mut M,
+) -> Result<BigInt, MeterError> {
+    meter.checkpoint()?;
+    let a_limbs = a.magnitude().bits().max(1).div_ceil(64);
+    let b_limbs = b.magnitude().bits().max(1).div_ceil(64);
     let compute_steps = a_limbs.saturating_mul(b_limbs);
     let memory_bytes = (a_limbs + b_limbs).saturating_mul(8);
 
-    let charge = Charge::new()
-        .with(Dimension::ComputeSteps, compute_steps)
-        .with(Dimension::MemoryBytes, memory_bytes)
-        .with(Dimension::AllocationCount, 1);
+    meter.charge(Dimension::ComputeSteps, compute_steps)?;
+    meter.charge(Dimension::MemoryBytes, memory_bytes)?;
+    meter.charge(Dimension::AllocationCount, 1)?;
+    meter.checkpoint()?;
 
-    budget.charge(&charge)?;
     Ok(a * b)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fsym_budget::{Budget, BudgetLimits};
     use proptest::prelude::*;
 
     #[test]
@@ -519,7 +524,7 @@ mod tests {
 
     #[test]
     fn metered_mul_charges_and_enforces_budget() {
-        let mut budget = Budget::new().with_limit(Dimension::ComputeSteps, 100);
+        let mut budget = Budget::new(BudgetLimits::uniform(100, 0));
         let a = BigInt::from(1_000_000_000i64);
         let b = BigInt::from(2_000_000_000i64);
 
@@ -527,9 +532,9 @@ mod tests {
         assert_eq!(res, &a * &b);
 
         // Budget exhaustion
-        let mut tiny_budget = Budget::new().with_limit(Dimension::ComputeSteps, 0);
+        let mut tiny_budget = Budget::new(BudgetLimits::uniform(0, 0));
         let err = metered_mul(&a, &b, &mut tiny_budget).unwrap_err();
-        assert_eq!(err.dimension, Dimension::ComputeSteps);
+        assert!(matches!(err, MeterError::Budget(_)));
     }
 
     proptest! {

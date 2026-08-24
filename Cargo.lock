@@ -620,26 +620,11 @@ dependencies = [
 name = "fsym-conformance"
 version = "0.1.0"
 dependencies = [
- "blake3",
- "fsym-assumptions",
  "fsym-calculus",
  "fsym-core",
- "fsym-functions",
- "fsym-geometry",
- "fsym-logic",
- "fsym-matrices",
- "fsym-ntheory",
- "fsym-polys",
- "fsym-printing",
- "fsym-runtime",
- "fsym-sets",
  "fsym-simplify",
- "fsym-solvers",
- "fsym-tensor",
- "proptest",
  "serde",
  "serde_json",
- "thiserror",
 ]
 
 [[package]]
