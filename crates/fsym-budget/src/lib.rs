@@ -238,6 +238,18 @@ pub struct ChargeReceipt {
     authority: Arc<BudgetAuthority>,
 }
 
+impl ChargeReceipt {
+    /// Sequence number when this charge was executed.
+    pub fn seq(&self) -> u64 {
+        self.seq
+    }
+
+    /// Amount charged under this receipt.
+    pub fn amount(&self) -> u64 {
+        self.amount
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum ChargedKind {
     Dimension(Dimension),
@@ -480,8 +492,8 @@ mod tests {
         );
         let lease = budget.verifier_lease().expect("single lease");
         assert_eq!(
-            budget.try_charge_verifier(&lease, 0),
-            Err(BudgetError::ZeroCharge)
+            budget.try_charge_verifier(&lease, 0).unwrap_err(),
+            BudgetError::ZeroCharge
         );
     }
 
@@ -625,6 +637,22 @@ mod tests {
     }
 
     #[test]
+    fn verifier_receipt_refunds_only_its_issuing_ledger() {
+        let mut issuer = Budget::new(BudgetLimits::uniform(8, 6));
+        let lease = issuer.verifier_lease().expect("issuer lease");
+        let receipt = issuer
+            .try_charge_verifier(&lease, 4)
+            .expect("verifier charge");
+        assert_eq!(receipt.amount(), 4);
+        assert_eq!(receipt.seq(), 1);
+        assert_eq!(issuer.verifier_remaining(), 2);
+
+        issuer.refund(receipt).expect("matching verifier receipt");
+        assert_eq!(issuer.verifier_remaining(), 6);
+        assert_eq!(issuer.snapshot().sequence, 2);
+    }
+
+    #[test]
     fn foreign_child_is_rejected_atomically() {
         let mut reserving_parent = Budget::new(BudgetLimits::uniform(8, 0));
         let child = reserving_parent
@@ -643,6 +671,48 @@ mod tests {
             reserving_parent_after_reservation
         );
         assert_eq!(foreign_parent.snapshot(), foreign_before);
+    }
+
+    #[test]
+    fn every_refusal_class_preserves_counters_and_sequence() {
+        let mut budget = Budget::new(BudgetLimits::uniform(2, 2));
+        let before = budget.snapshot();
+
+        assert_eq!(
+            budget.try_charge(Dimension::ComputeSteps, 0).unwrap_err(),
+            BudgetError::ZeroCharge
+        );
+        assert_eq!(budget.snapshot(), before);
+
+        assert!(matches!(
+            budget.try_charge(Dimension::ComputeSteps, 3).unwrap_err(),
+            BudgetError::Exhausted { .. }
+        ));
+        assert_eq!(budget.snapshot(), before);
+
+        assert_eq!(
+            budget
+                .reserve_child(BudgetLimits::uniform(3, 0))
+                .unwrap_err(),
+            BudgetError::ChildReservationTooLarge
+        );
+        assert_eq!(budget.snapshot(), before);
+
+        assert_eq!(
+            budget
+                .reserve_child(BudgetLimits::uniform(1, 1))
+                .unwrap_err(),
+            BudgetError::VerifierPoolAccessDenied
+        );
+        assert_eq!(budget.snapshot(), before);
+
+        let mut lease_issuer = Budget::new(BudgetLimits::uniform(2, 2));
+        let foreign_lease = lease_issuer.verifier_lease().expect("foreign lease");
+        assert_eq!(
+            budget.try_charge_verifier(&foreign_lease, 1).unwrap_err(),
+            BudgetError::VerifierPoolAccessDenied
+        );
+        assert_eq!(budget.snapshot(), before);
     }
 
     #[test]
