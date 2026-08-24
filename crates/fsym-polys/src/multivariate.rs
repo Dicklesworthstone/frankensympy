@@ -6,10 +6,17 @@ use crate::PolyError;
 use fsym_budget::{BudgetMeter, Dimension};
 use fsym_core::{BigInt, BigRational, Expr, Symbol};
 use num_traits::{One, Zero};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
+
+const MAX_MULTIVARIATE_TERMS: usize = 4_096;
+const MAX_MULTIVARIATE_TERM_PRODUCTS: u64 = 1_000_000;
+const MAX_MULTIVARIATE_GENERATORS: usize = 256;
+const MAX_MULTIVARIATE_GENERATOR_NAME_BYTES: usize = 65_536;
+const MAX_MULTIVARIATE_EXPR_DEPTH: usize = 256;
+const MAX_MULTIVARIATE_EXPR_NODES: usize = 262_144;
 
 /// Term ordering policy for multivariate monomials.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -24,14 +31,119 @@ pub enum TermOrder {
 
 /// Sparse multivariate polynomial represented as a sorted map from exponent vectors to coefficients:
 /// $\sum_{\alpha} c_\alpha \mathbf{x}^\alpha$.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MultivariatePoly {
     pub generators: Vec<Symbol>,
     /// Exponent vector (in generator order) mapped to non-zero coefficient.
     pub terms: BTreeMap<Vec<u32>, BigRational>,
 }
 
+#[derive(Serialize)]
+struct MultivariatePolyWireRef<'a> {
+    schema_version: u32,
+    generators: &'a [Symbol],
+    terms: Vec<MultivariateTermWireRef<'a>>,
+}
+
+#[derive(Serialize)]
+struct MultivariateTermWireRef<'a> {
+    exponents: &'a [u32],
+    coefficient: &'a BigRational,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MultivariatePolyWire {
+    schema_version: u32,
+    generators: Vec<Symbol>,
+    terms: Vec<MultivariateTermWire>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MultivariateTermWire {
+    exponents: Vec<u32>,
+    coefficient: BigRational,
+}
+
+impl Serialize for MultivariatePoly {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.validate_shape().map_err(serde::ser::Error::custom)?;
+        let terms = self
+            .terms
+            .iter()
+            .map(|(exponents, coefficient)| MultivariateTermWireRef {
+                exponents,
+                coefficient,
+            })
+            .collect();
+        MultivariatePolyWireRef {
+            schema_version: 1,
+            generators: &self.generators,
+            terms,
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for MultivariatePoly {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = MultivariatePolyWire::deserialize(deserializer)?;
+        if wire.schema_version != 1 {
+            return Err(serde::de::Error::custom(format!(
+                "unsupported multivariate polynomial schema version {}",
+                wire.schema_version
+            )));
+        }
+        validate_generators(&wire.generators).map_err(serde::de::Error::custom)?;
+        if wire.terms.len() > MAX_MULTIVARIATE_TERMS {
+            return Err(serde::de::Error::custom(format!(
+                "multivariate polynomial exceeds the term limit of {MAX_MULTIVARIATE_TERMS}"
+            )));
+        }
+
+        let mut terms = BTreeMap::new();
+        for term in wire.terms {
+            if term.exponents.len() != wire.generators.len() {
+                return Err(serde::de::Error::custom(
+                    "multivariate exponent-vector width does not match the generator count",
+                ));
+            }
+            if term.coefficient.is_zero() {
+                return Err(serde::de::Error::custom(
+                    "multivariate canonical wire cannot contain a zero coefficient",
+                ));
+            }
+            if terms.insert(term.exponents, term.coefficient).is_some() {
+                return Err(serde::de::Error::custom(
+                    "multivariate canonical wire contains duplicate exponent vectors",
+                ));
+            }
+        }
+        Ok(Self {
+            generators: wire.generators,
+            terms,
+        })
+    }
+}
+
 impl MultivariatePoly {
+    /// Ordered polynomial-ring generators.
+    pub fn generators(&self) -> &[Symbol] {
+        &self.generators
+    }
+
+    /// Canonical non-zero terms keyed by exponent vector.
+    pub fn terms(&self) -> &BTreeMap<Vec<u32>, BigRational> {
+        &self.terms
+    }
+
     /// Creates a multivariate polynomial with canonicalized terms (dropping zeros).
     pub fn new(generators: Vec<Symbol>, raw_terms: BTreeMap<Vec<u32>, BigRational>) -> Self {
         let n_vars = generators.len();
@@ -42,7 +154,13 @@ impl MultivariatePoly {
             }
             let mut normalized_exp = exp;
             normalized_exp.resize(n_vars, 0);
-            terms.insert(normalized_exp, coeff);
+            let entry = terms
+                .entry(normalized_exp.clone())
+                .or_insert_with(BigRational::zero);
+            *entry += coeff;
+            if entry.is_zero() {
+                terms.remove(&normalized_exp);
+            }
         }
         Self { generators, terms }
     }
@@ -64,6 +182,7 @@ impl MultivariatePoly {
 
     /// Construct generator variable polynomial $x_k$.
     pub fn var(generators: Vec<Symbol>, sym: &Symbol) -> Result<Self, PolyError> {
+        validate_generators(&generators).map_err(PolyError::General)?;
         let idx = generators.iter().position(|s| s == sym).ok_or_else(|| {
             PolyError::IncompatibleGenerators(sym.name.clone(), "missing from generators".into())
         })?;
@@ -93,7 +212,14 @@ impl MultivariatePoly {
         if self.is_zero() {
             None
         } else {
-            self.terms.keys().map(|exp| exp.iter().sum::<u32>()).max()
+            let mut maximum = 0u32;
+            for exponents in self.terms.keys() {
+                let degree = exponents
+                    .iter()
+                    .try_fold(0u32, |sum, exponent| sum.checked_add(*exponent))?;
+                maximum = maximum.max(degree);
+            }
+            Some(maximum)
         }
     }
 
@@ -108,6 +234,7 @@ impl MultivariatePoly {
 
     /// Evaluates the polynomial given values for all generators.
     pub fn eval(&self, values: &[BigRational]) -> Result<BigRational, PolyError> {
+        self.validate_shape()?;
         if values.len() != self.generators.len() {
             return Err(PolyError::General(format!(
                 "Evaluation requires {} values, got {}",
@@ -120,7 +247,13 @@ impl MultivariatePoly {
             let mut monomial_val = coeff.clone();
             for (v_idx, &deg) in exp.iter().enumerate() {
                 if deg > 0 {
-                    let val_pow = values[v_idx].pow(deg as i32);
+                    let signed_degree = i32::try_from(deg).map_err(|_| {
+                        PolyError::General(
+                            "polynomial evaluation exponent exceeds the supported i32 range"
+                                .to_string(),
+                        )
+                    })?;
+                    let val_pow = values[v_idx].pow(signed_degree);
                     monomial_val *= val_pow;
                 }
             }
@@ -141,6 +274,11 @@ impl MultivariatePoly {
             if entry.is_zero() {
                 new_terms.remove(exp);
             }
+            if new_terms.len() > MAX_MULTIVARIATE_TERMS {
+                return Err(PolyError::General(format!(
+                    "multivariate result exceeds the term limit of {MAX_MULTIVARIATE_TERMS}"
+                )));
+            }
         }
         Ok(Self {
             generators: self.generators.clone(),
@@ -160,6 +298,11 @@ impl MultivariatePoly {
             if entry.is_zero() {
                 new_terms.remove(exp);
             }
+            if new_terms.len() > MAX_MULTIVARIATE_TERMS {
+                return Err(PolyError::General(format!(
+                    "multivariate result exceeds the term limit of {MAX_MULTIVARIATE_TERMS}"
+                )));
+            }
         }
         Ok(Self {
             generators: self.generators.clone(),
@@ -173,13 +316,18 @@ impl MultivariatePoly {
         if self.is_zero() || other.is_zero() {
             return Ok(Self::zero(self.generators.clone()));
         }
+        self.checked_term_products(other)?;
         let n_vars = self.generators.len();
         let mut new_terms = BTreeMap::new();
         for (exp_a, c_a) in &self.terms {
             for (exp_b, c_b) in &other.terms {
                 let mut exp_res = vec![0u32; n_vars];
                 for i in 0..n_vars {
-                    exp_res[i] = exp_a[i] + exp_b[i];
+                    exp_res[i] = exp_a[i].checked_add(exp_b[i]).ok_or_else(|| {
+                        PolyError::General(
+                            "multivariate exponent exceeds the u32 representation".to_string(),
+                        )
+                    })?;
                 }
                 let prod_c = c_a * c_b;
                 let entry = new_terms
@@ -188,6 +336,11 @@ impl MultivariatePoly {
                 *entry += prod_c;
                 if entry.is_zero() {
                     new_terms.remove(&exp_res);
+                }
+                if new_terms.len() > MAX_MULTIVARIATE_TERMS {
+                    return Err(PolyError::General(format!(
+                        "multivariate result exceeds the term limit of {MAX_MULTIVARIATE_TERMS}"
+                    )));
                 }
             }
         }
@@ -206,7 +359,11 @@ impl MultivariatePoly {
         meter
             .checkpoint()
             .map_err(|e| PolyError::General(e.to_string()))?;
-        let work = (self.terms.len() as u64).saturating_mul(other.terms.len() as u64);
+        self.check_same_generators(other)?;
+        if self.is_zero() || other.is_zero() {
+            return Ok(Self::zero(self.generators.clone()));
+        }
+        let work = self.checked_term_products(other)?;
         meter
             .charge(Dimension::ComputeSteps, work)
             .map_err(|e| PolyError::General(e.to_string()))?;
@@ -215,6 +372,7 @@ impl MultivariatePoly {
 
     /// Exponentiation $P^k$.
     pub fn pow(&self, mut exp: u32) -> Result<Self, PolyError> {
+        self.validate_shape()?;
         if exp == 0 {
             return Ok(Self::one(self.generators.clone()));
         }
@@ -234,6 +392,7 @@ impl MultivariatePoly {
 
     /// Partial derivative with respect to variable at `var_idx`.
     pub fn derivative(&self, var_idx: usize) -> Result<Self, PolyError> {
+        self.validate_shape()?;
         if var_idx >= self.generators.len() {
             return Err(PolyError::General(format!(
                 "Invalid variable index {} for generators count {}",
@@ -260,6 +419,33 @@ impl MultivariatePoly {
 
     /// Convert `Expr` into a multivariate polynomial in the given generators.
     pub fn from_expr(expr: &Expr, generators: &[Symbol]) -> Result<Self, PolyError> {
+        validate_generators(generators).map_err(PolyError::General)?;
+        let mut visited_nodes = 0usize;
+        Self::from_expr_at(expr, generators, 0, &mut visited_nodes)
+    }
+
+    fn from_expr_at(
+        expr: &Expr,
+        generators: &[Symbol],
+        depth: usize,
+        visited_nodes: &mut usize,
+    ) -> Result<Self, PolyError> {
+        if depth > MAX_MULTIVARIATE_EXPR_DEPTH {
+            return Err(PolyError::NonPolynomialExpression(format!(
+                "expression exceeds the conversion depth limit of {MAX_MULTIVARIATE_EXPR_DEPTH}"
+            )));
+        }
+        *visited_nodes = visited_nodes.checked_add(1).ok_or_else(|| {
+            PolyError::NonPolynomialExpression(
+                "expression node counter overflowed during conversion".to_string(),
+            )
+        })?;
+        if *visited_nodes > MAX_MULTIVARIATE_EXPR_NODES {
+            return Err(PolyError::NonPolynomialExpression(format!(
+                "expression exceeds the conversion node limit of {MAX_MULTIVARIATE_EXPR_NODES}"
+            )));
+        }
+
         let n_vars = generators.len();
         match expr {
             Expr::Integer(n) => {
@@ -285,8 +471,8 @@ impl MultivariatePoly {
             Expr::Sym(s) => {
                 let idx = generators.iter().position(|g| g == s).ok_or_else(|| {
                     PolyError::IncompatibleGenerators(
-                        s.name.clone(),
-                        "missing from generators".into(),
+                        "expression symbol".into(),
+                        "missing from bounded generator list".into(),
                     )
                 })?;
                 let mut exp = vec![0; n_vars];
@@ -301,7 +487,7 @@ impl MultivariatePoly {
             Expr::Add(terms_expr) => {
                 let mut sum = Self::zero(generators.to_vec());
                 for t in terms_expr {
-                    let pt = Self::from_expr(t, generators)?;
+                    let pt = Self::from_expr_at(t, generators, depth + 1, visited_nodes)?;
                     sum = sum.add(&pt)?;
                 }
                 Ok(sum)
@@ -309,32 +495,51 @@ impl MultivariatePoly {
             Expr::Mul(factors_expr) => {
                 let mut prod = Self::one(generators.to_vec());
                 for f in factors_expr {
-                    let pf = Self::from_expr(f, generators)?;
+                    let pf = Self::from_expr_at(f, generators, depth + 1, visited_nodes)?;
                     prod = prod.mul(&pf)?;
                 }
                 Ok(prod)
             }
             Expr::Pow(base, exp) => {
-                let p_base = Self::from_expr(base, generators)?;
-                if let Expr::Integer(n) = exp.as_ref()
-                    && let Ok(k) = usize::try_from(n)
-                {
-                    return p_base.pow(k as u32);
+                let k = match exp.as_ref() {
+                    Expr::Integer(n) => n
+                        .to_u64()
+                        .and_then(|value| u32::try_from(value).ok())
+                        .ok_or_else(|| {
+                            PolyError::NonPolynomialExpression(
+                                "polynomial exponent is negative or exceeds u32".to_string(),
+                            )
+                        })?,
+                    _ => {
+                        return Err(PolyError::NonPolynomialExpression(
+                            "multivariate polynomial exponent is not an integer".to_string(),
+                        ));
+                    }
+                };
+                *visited_nodes = visited_nodes.checked_add(1).ok_or_else(|| {
+                    PolyError::NonPolynomialExpression(
+                        "expression node counter overflowed during conversion".to_string(),
+                    )
+                })?;
+                if *visited_nodes > MAX_MULTIVARIATE_EXPR_NODES {
+                    return Err(PolyError::NonPolynomialExpression(format!(
+                        "expression exceeds the conversion node limit of {MAX_MULTIVARIATE_EXPR_NODES}"
+                    )));
                 }
-                Err(PolyError::NonPolynomialExpression(format!(
-                    "Non-integer exponent in multivariate polynomial: {expr}"
-                )))
+                let p_base = Self::from_expr_at(base, generators, depth + 1, visited_nodes)?;
+                p_base.pow(k)
             }
-            _ => Err(PolyError::NonPolynomialExpression(format!(
-                "Unsupported expression form for multivariate polynomial: {expr}"
-            ))),
+            _ => Err(PolyError::NonPolynomialExpression(
+                "unsupported expression form for multivariate polynomial".to_string(),
+            )),
         }
     }
 
     /// Converts back to an exact `Expr`.
-    pub fn to_expr(&self) -> Expr {
+    pub fn to_expr(&self) -> Result<Expr, PolyError> {
+        self.validate_shape()?;
         if self.is_zero() {
-            return Expr::from_i64(0);
+            return Ok(Expr::from_i64(0));
         }
         let mut terms_expr = Vec::new();
         for (exp, coeff) in &self.terms {
@@ -365,14 +570,16 @@ impl MultivariatePoly {
             terms_expr.push(term);
         }
 
-        match terms_expr.len() {
+        Ok(match terms_expr.len() {
             0 => Expr::from_i64(0),
             1 => terms_expr.pop().unwrap(),
             _ => Expr::Add(terms_expr),
-        }
+        })
     }
 
     fn check_same_generators(&self, other: &Self) -> Result<(), PolyError> {
+        self.validate_shape()?;
+        other.validate_shape()?;
         if self.generators != other.generators {
             Err(PolyError::IncompatibleGenerators(
                 format!("{:?}", self.generators),
@@ -382,15 +589,82 @@ impl MultivariatePoly {
             Ok(())
         }
     }
+
+    fn checked_term_products(&self, other: &Self) -> Result<u64, PolyError> {
+        let lhs_terms = u64::try_from(self.terms.len())
+            .map_err(|_| PolyError::General("left term count exceeds u64".to_string()))?;
+        let rhs_terms = u64::try_from(other.terms.len())
+            .map_err(|_| PolyError::General("right term count exceeds u64".to_string()))?;
+        let products = lhs_terms.checked_mul(rhs_terms).ok_or_else(|| {
+            PolyError::General("multivariate term-product count overflowed".to_string())
+        })?;
+        if products > MAX_MULTIVARIATE_TERM_PRODUCTS {
+            return Err(PolyError::General(format!(
+                "multivariate multiplication exceeds the term-product limit of {MAX_MULTIVARIATE_TERM_PRODUCTS}"
+            )));
+        }
+        Ok(products)
+    }
+
+    pub(crate) fn validate_shape(&self) -> Result<(), PolyError> {
+        validate_generators(&self.generators).map_err(PolyError::General)?;
+        if self.terms.len() > MAX_MULTIVARIATE_TERMS {
+            return Err(PolyError::General(format!(
+                "multivariate polynomial exceeds the term limit of {MAX_MULTIVARIATE_TERMS}"
+            )));
+        }
+        if self
+            .terms
+            .keys()
+            .any(|exponents| exponents.len() != self.generators.len())
+        {
+            return Err(PolyError::General(
+                "multivariate exponent-vector width does not match the generator count".to_string(),
+            ));
+        }
+        if self.terms.values().any(|coefficient| coefficient.is_zero()) {
+            return Err(PolyError::General(
+                "multivariate canonical form cannot contain a zero coefficient".to_string(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+fn validate_generators(generators: &[Symbol]) -> Result<(), String> {
+    if generators.len() > MAX_MULTIVARIATE_GENERATORS {
+        return Err(format!(
+            "multivariate generator count exceeds {MAX_MULTIVARIATE_GENERATORS}"
+        ));
+    }
+    let mut names = std::collections::BTreeSet::new();
+    let mut name_bytes = 0usize;
+    for generator in generators {
+        if !names.insert(&generator.name) {
+            return Err("multivariate generator list contains a duplicate".to_string());
+        }
+        name_bytes = name_bytes
+            .checked_add(generator.name.len())
+            .ok_or_else(|| "multivariate generator-name byte count overflowed".to_string())?;
+    }
+    if name_bytes > MAX_MULTIVARIATE_GENERATOR_NAME_BYTES {
+        return Err(format!(
+            "multivariate generator names exceed {MAX_MULTIVARIATE_GENERATOR_NAME_BYTES} bytes"
+        ));
+    }
+    Ok(())
 }
 
 impl fmt::Display for MultivariatePoly {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Poly({}, {:?})",
-            self.to_expr(),
-            self.generators.iter().map(|s| &s.name).collect::<Vec<_>>()
-        )
+        match self.to_expr() {
+            Ok(expr) => write!(
+                f,
+                "Poly({}, {:?})",
+                expr,
+                self.generators.iter().map(|s| &s.name).collect::<Vec<_>>()
+            ),
+            Err(error) => write!(f, "Poly(<invalid: {error}>)"),
+        }
     }
 }

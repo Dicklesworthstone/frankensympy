@@ -158,7 +158,15 @@ mod tests {
             Expr::Pow(Arc::new(Expr::Sym(y.clone())), Arc::new(Expr::from_i64(2))),
         ]);
 
-        let envelope = verify_polynomial_identity(&lhs, &rhs, &gens, &context, &mut meter).unwrap();
+        let envelope = verify_polynomial_identity(
+            &lhs,
+            &rhs,
+            &gens,
+            &context,
+            fsym_id::ReceiptId::new(1).unwrap(),
+            &mut meter,
+        )
+        .unwrap();
         assert!(
             verify_derivation_independent(envelope.derivation.as_ref().unwrap(), &context).is_ok()
         );
@@ -176,8 +184,77 @@ mod tests {
         let lhs = Expr::Add(vec![Expr::Sym(x.clone()), Expr::Sym(y.clone())]);
         let rhs = Expr::Mul(vec![Expr::Sym(x.clone()), Expr::Sym(y.clone())]);
 
-        let res = verify_polynomial_identity(&lhs, &rhs, &gens, &context, &mut meter);
+        let res = verify_polynomial_identity(
+            &lhs,
+            &rhs,
+            &gens,
+            &context,
+            fsym_id::ReceiptId::new(2).unwrap(),
+            &mut meter,
+        );
         assert!(matches!(res, Err(PolyError::IdentityCheckFailed(_))));
+    }
+
+    #[test]
+    fn multivariate_conversion_refuses_exponents_that_do_not_fit_u32() {
+        let x = Symbol::new("x");
+        let exponent = BigInt::from(u64::from(u32::MAX) + 1);
+        let expr = Expr::Pow(
+            Arc::new(Expr::Sym(x.clone())),
+            Arc::new(Expr::Integer(exponent)),
+        );
+
+        assert!(matches!(
+            MultivariatePoly::from_expr(&expr, &[x]),
+            Err(PolyError::NonPolynomialExpression(_))
+        ));
+    }
+
+    #[test]
+    fn verified_identity_refuses_duplicate_generators() {
+        let x = Symbol::new("x");
+        let expr = Expr::Sym(x.clone());
+        let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
+
+        assert!(matches!(
+            verify_polynomial_identity(
+                &expr,
+                &expr,
+                &[x.clone(), x],
+                &context,
+                fsym_id::ReceiptId::new(3).unwrap(),
+                &mut Unbounded,
+            ),
+            Err(PolyError::General(message)) if message.contains("duplicate")
+        ));
+    }
+
+    #[test]
+    fn metered_multivariate_zero_product_does_not_issue_a_zero_charge() {
+        let x = Symbol::new("x");
+        let zero = MultivariatePoly::zero(vec![x.clone()]);
+        let variable = MultivariatePoly::var(vec![x.clone()], &x).unwrap();
+        let mut meter = fsym_budget::Budget::new(fsym_budget::BudgetLimits::uniform(1, 0));
+
+        assert_eq!(
+            zero.metered_mul(&variable, &mut meter).unwrap(),
+            MultivariatePoly::zero(vec![x])
+        );
+    }
+
+    #[test]
+    fn multivariate_json_wire_roundtrips_without_non_string_map_keys() {
+        let x = Symbol::new("x");
+        let poly = MultivariatePoly::var(vec![x.clone()], &x).unwrap();
+        let wire = serde_json::to_value(&poly).unwrap();
+        assert!(wire["terms"].is_array());
+
+        let restored: MultivariatePoly = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(restored, poly);
+
+        let mut malformed = wire;
+        malformed["terms"][0]["exponents"] = serde_json::json!([1, 0]);
+        assert!(serde_json::from_value::<MultivariatePoly>(malformed).is_err());
     }
 
     #[test]

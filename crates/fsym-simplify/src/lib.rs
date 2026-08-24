@@ -72,6 +72,13 @@ fn split_coeff(term: &Expr) -> (BigRational, Expr) {
                     None => rest.push(f.clone()),
                 }
             }
+            // A zero coefficient annihilates only the total polynomial fragment. Preserve the
+            // original term as an opaque additive key when a partial/indeterminate factor is
+            // present; otherwise a surrounding Add would still erase `0 * Infinity`, `0/x`,
+            // or `0 * log(x)` after the Mul simplifier correctly retained it.
+            if coeff.is_zero() && !rest.iter().all(is_total_polynomial_expr) {
+                return (BigRational::one(), term.clone());
+            }
             if rest.len() > 1 {
                 rest.sort();
             }
@@ -157,6 +164,18 @@ impl SimplifyError {
 
 pub const MAX_RECURSION_DEPTH: usize = 1024;
 const NODE_STEP: u64 = 1;
+const MAX_INPUT_FANOUT: usize = 262_144;
+const MAX_EXPANDED_TERMS: usize = 4_096;
+
+fn check_fanout(actual: usize) -> Result<(), SimplifyError> {
+    if actual > MAX_INPUT_FANOUT {
+        Err(SimplifyError::General(format!(
+            "expression fanout {actual} exceeds the limit of {MAX_INPUT_FANOUT}"
+        )))
+    } else {
+        Ok(())
+    }
+}
 
 fn unwrap_unbounded(result: Result<Expr, SimplifyError>) -> Expr {
     match result {
@@ -192,6 +211,7 @@ fn simplify_at<M: BudgetMeter>(
         .map_err(SimplifyError::from_meter)?;
     match expr {
         Expr::Add(terms) => {
+            check_fanout(terms.len())?;
             let mut simplified = Vec::with_capacity(terms.len());
             for t in terms {
                 simplified.push(simplify_at(t, depth + 1, m)?);
@@ -199,6 +219,7 @@ fn simplify_at<M: BudgetMeter>(
             Ok(collect_terms(simplified))
         }
         Expr::Mul(factors) => {
+            check_fanout(factors.len())?;
             let mut simplified = Vec::with_capacity(factors.len());
             for f in factors {
                 simplified.push(simplify_at(f, depth + 1, m)?);
@@ -253,7 +274,12 @@ fn simplify_at<M: BudgetMeter>(
                 match (b, e) {
                     (Expr::Integer(bn), Expr::Integer(en)) => match usize::try_from(&en) {
                         Ok(exp_usize) if exp_usize <= 1000 => {
-                            Ok(Expr::Integer(bn.pow(exp_usize as u32)))
+                            let exponent = u32::try_from(exp_usize).map_err(|_| {
+                                SimplifyError::General(
+                                    "bounded exponent failed u32 conversion".to_string(),
+                                )
+                            })?;
+                            Ok(Expr::Integer(bn.pow(exponent)))
                         }
                         _ => Ok(Expr::Pow(
                             Arc::new(Expr::Integer(bn)),
@@ -265,6 +291,7 @@ fn simplify_at<M: BudgetMeter>(
             }
         }
         Expr::Function(name, args) => {
+            check_fanout(args.len())?;
             if name == "sin" && args.len() == 1 && args[0].is_zero() {
                 return Ok(Expr::from_i64(0));
             }
@@ -371,6 +398,7 @@ fn expand_at<M: BudgetMeter>(expr: &Expr, depth: usize, m: &mut M) -> Result<Exp
 
     match expr {
         Expr::Add(terms) => {
+            check_fanout(terms.len())?;
             let mut expanded_terms = Vec::with_capacity(terms.len());
             for t in terms {
                 expanded_terms.push(expand_at(t, depth + 1, m)?);
@@ -378,6 +406,7 @@ fn expand_at<M: BudgetMeter>(expr: &Expr, depth: usize, m: &mut M) -> Result<Exp
             Ok(collect_terms(expanded_terms))
         }
         Expr::Mul(factors) => {
+            check_fanout(factors.len())?;
             let mut current = vec![Expr::from_i64(1)];
             for f in factors {
                 let ef = expand_at(f, depth + 1, m)?;
@@ -385,7 +414,18 @@ fn expand_at<M: BudgetMeter>(expr: &Expr, depth: usize, m: &mut M) -> Result<Exp
                     Expr::Add(ts) => ts,
                     other => vec![other],
                 };
-                let mut product_terms = Vec::with_capacity(current.len() * next_terms.len());
+                let product_count =
+                    current.len().checked_mul(next_terms.len()).ok_or_else(|| {
+                        SimplifyError::General(
+                            "expanded term-count multiplication overflowed".to_string(),
+                        )
+                    })?;
+                if product_count > MAX_EXPANDED_TERMS {
+                    return Err(SimplifyError::General(format!(
+                        "expansion exceeds the term limit of {MAX_EXPANDED_TERMS}"
+                    )));
+                }
+                let mut product_terms = Vec::with_capacity(product_count);
                 for a in &current {
                     for b in &next_terms {
                         product_terms
@@ -459,6 +499,13 @@ mod tests {
         ] {
             let input = Expr::Mul(vec![zero.clone(), partial]);
             assert_eq!(simplify(&input), input);
+
+            let wrapped = Expr::Add(vec![Expr::from_i64(1), input.clone()]);
+            assert_eq!(
+                simplify(&wrapped),
+                Expr::Add(vec![input, Expr::from_i64(1)]),
+                "an additive parent must not erase the retained partial product"
+            );
         }
     }
 
@@ -477,6 +524,25 @@ mod tests {
             Expr::Pow(Arc::new(y.clone()), Arc::new(Expr::from_i64(2))),
         ]);
         assert_eq!(exp, expected);
+    }
+
+    #[test]
+    fn expansion_refuses_combinatorial_term_growth_before_allocation() {
+        let left = Expr::Add(
+            (0..65)
+                .map(|index| Expr::symbol(format!("x{index}")))
+                .collect(),
+        );
+        let right = Expr::Add(
+            (0..65)
+                .map(|index| Expr::symbol(format!("y{index}")))
+                .collect(),
+        );
+
+        assert!(matches!(
+            expand_with(&Expr::Mul(vec![left, right]), &mut Unbounded),
+            Err(SimplifyError::General(message)) if message.contains("term limit")
+        ));
     }
 
     #[test]

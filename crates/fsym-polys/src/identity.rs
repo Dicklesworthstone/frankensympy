@@ -5,14 +5,20 @@
 use crate::PolyError;
 use crate::multivariate::MultivariatePoly;
 use fsym_assumptions::ImmutableAssumptionsSnapshot;
-use fsym_budget::BudgetMeter;
+use fsym_budget::{BudgetMeter, Dimension};
 use fsym_core::{BigInt, BigRational, Expr, Symbol};
 use fsym_evidence::{EvidenceEnvelope, VerificationReceipt};
 use fsym_id::ReceiptId;
 use fsym_outcome::EvidenceClass;
-use fsym_proof_kernel::{Claim, ProofKernel, verify_derivation_independent};
+use fsym_proof_kernel::{
+    Claim, ProofKernel, expression_verification_units, verify_derivation_independent,
+};
 use num_traits::Zero;
+use std::collections::BTreeSet;
 use std::sync::Arc;
+
+const MAX_IDENTITY_GENERATORS: usize = 256;
+const MAX_IDENTITY_GENERATOR_NAME_BYTES: usize = 65_536;
 
 /// Concrete witness point witnessing that a polynomial is non-zero: $P(\mathbf{w}) \neq 0$.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,30 +45,29 @@ pub fn are_identically_equal(
 ///
 /// Evaluates $P$ at deterministic pseudorandom integer grid points.
 /// If any point evaluates to non-zero, returns `Ok(Some(NonZeroWitness))` (certifying $P \not\equiv 0$).
-/// If all points evaluate to zero and $P$ is identically zero, returns `Ok(None)`.
+/// `Ok(None)` is returned only when the canonical sparse polynomial is exactly zero. If a
+/// non-zero polynomial happens to vanish at every bounded sample, the routine refuses with an
+/// error rather than laundering an inconclusive search into an identity result.
 pub fn schwartz_zippel_test(
     poly: &MultivariatePoly,
     num_trials: usize,
     seed: u64,
 ) -> Result<Option<NonZeroWitness>, PolyError> {
+    poly.validate_shape()?;
     if poly.is_zero() {
         return Ok(None);
     }
     let n_vars = poly.generators.len();
     if n_vars == 0 {
-        if poly.is_zero() {
-            return Ok(None);
-        } else {
-            let val = poly
-                .terms
-                .get(&Vec::new())
-                .cloned()
-                .unwrap_or_else(BigRational::zero);
-            return Ok(Some(NonZeroWitness {
-                point: Vec::new(),
-                evaluated_value: val,
-            }));
-        }
+        let val = poly
+            .terms
+            .get(&Vec::new())
+            .cloned()
+            .unwrap_or_else(BigRational::zero);
+        return Ok(Some(NonZeroWitness {
+            point: Vec::new(),
+            evaluated_value: val,
+        }));
     }
 
     let mut state = seed.wrapping_add(0x9E3779B97F4A7C15);
@@ -83,26 +88,24 @@ pub fn schwartz_zippel_test(
         }
     }
 
-    // Double check exact representation if no witness found
-    if poly.is_zero() {
-        Ok(None)
+    // Fallback: evaluate at [2, 3, 5, 7, ...]
+    let primes = [2i64, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37];
+    let mut deterministic_point = Vec::with_capacity(n_vars);
+    for i in 0..n_vars {
+        let p = primes[i % primes.len()];
+        deterministic_point.push(BigRational::from_integer(BigInt::from(p)));
+    }
+    let val = poly.eval(&deterministic_point)?;
+    if !val.is_zero() {
+        Ok(Some(NonZeroWitness {
+            point: deterministic_point,
+            evaluated_value: val,
+        }))
     } else {
-        // Fallback: evaluate at [2, 3, 5, 7, ...]
-        let primes = [2i64, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37];
-        let mut deterministic_point = Vec::with_capacity(n_vars);
-        for i in 0..n_vars {
-            let p = primes[i % primes.len()];
-            deterministic_point.push(BigRational::from_integer(BigInt::from(p)));
-        }
-        let val = poly.eval(&deterministic_point)?;
-        if !val.is_zero() {
-            Ok(Some(NonZeroWitness {
-                point: deterministic_point,
-                evaluated_value: val,
-            }))
-        } else {
-            Ok(None)
-        }
+        Err(PolyError::General(
+            "bounded identity test was inconclusive for a canonically non-zero polynomial"
+                .to_string(),
+        ))
     }
 }
 
@@ -112,8 +115,58 @@ pub fn verify_polynomial_identity<M: BudgetMeter>(
     rhs_expr: &Expr,
     generators: &[Symbol],
     context: &Arc<ImmutableAssumptionsSnapshot>,
+    receipt_id: ReceiptId,
     meter: &mut M,
 ) -> Result<EvidenceEnvelope, PolyError> {
+    if generators.len() > MAX_IDENTITY_GENERATORS {
+        return Err(PolyError::General(format!(
+            "polynomial identity generator count exceeds {MAX_IDENTITY_GENERATORS}"
+        )));
+    }
+    let mut generator_names = BTreeSet::new();
+    let mut generator_name_bytes = 0usize;
+    for generator in generators {
+        if !generator_names.insert(&generator.name) {
+            return Err(PolyError::General(
+                "polynomial identity generator list contains a duplicate".to_string(),
+            ));
+        }
+        generator_name_bytes = generator_name_bytes
+            .checked_add(generator.name.len())
+            .ok_or_else(|| {
+                PolyError::General("generator-name byte count overflowed".to_string())
+            })?;
+    }
+    if generator_name_bytes > MAX_IDENTITY_GENERATOR_NAME_BYTES {
+        return Err(PolyError::General(format!(
+            "polynomial identity generator names exceed {MAX_IDENTITY_GENERATOR_NAME_BYTES} bytes"
+        )));
+    }
+
+    // Check cancellation and charge the first preflight unit before traversing caller input, so
+    // even an oversized expression is a paid refusal.
+    meter
+        .checkpoint()
+        .map_err(|error| PolyError::General(error.to_string()))?;
+    meter
+        .charge(Dimension::ComputeSteps, 1)
+        .map_err(|error| PolyError::General(error.to_string()))?;
+
+    // Bound both expression trees before recursive conversion and charge the remaining
+    // deterministic preflight units.
+    let lhs_units = expression_verification_units(lhs_expr)
+        .map_err(|error| PolyError::General(format!("LHS preflight refused: {error}")))?;
+    let rhs_units = expression_verification_units(rhs_expr)
+        .map_err(|error| PolyError::General(format!("RHS preflight refused: {error}")))?;
+    let preflight_units = lhs_units
+        .checked_add(rhs_units)
+        .ok_or_else(|| PolyError::General("preflight work-unit count overflowed".to_string()))?;
+    if preflight_units > 1 {
+        meter
+            .charge(Dimension::ComputeSteps, preflight_units - 1)
+            .map_err(|error| PolyError::General(error.to_string()))?;
+    }
+
     let poly_lhs = MultivariatePoly::from_expr(lhs_expr, generators)?;
     let poly_rhs = MultivariatePoly::from_expr(rhs_expr, generators)?;
 
@@ -143,24 +196,34 @@ pub fn verify_polynomial_identity<M: BudgetMeter>(
         .export_derivation(step_id)
         .map_err(|e| PolyError::General(e.to_string()))?;
 
-    verify_derivation_independent(&derivation_tree, context).map_err(|e| {
+    let verified_claim = verify_derivation_independent(&derivation_tree, context).map_err(|e| {
         PolyError::General(format!("Independent verifier rejected derivation: {e}"))
     })?;
+    if verified_claim != claim {
+        return Err(PolyError::General(format!(
+            "Independent verifier established `{verified_claim}`, expected `{claim}`"
+        )));
+    }
 
-    let receipt_id = ReceiptId::new(1).map_err(|e| PolyError::General(e.to_string()))?;
     let receipt = VerificationReceipt::issue(
         receipt_id,
         &claim,
         EvidenceClass::KernelProved,
         "fsym-polys.v1",
-        1,
+        receipt_id.raw(),
         Some(derivation_tree.digest()),
     );
 
-    Ok(EvidenceEnvelope::new(
+    let envelope = EvidenceEnvelope::new(
         claim,
         EvidenceClass::KernelProved,
         receipt,
         Some(derivation_tree),
-    ))
+    );
+    if !envelope.verify_integrity() {
+        return Err(PolyError::General(
+            "constructed evidence envelope failed its structural integrity check".to_string(),
+        ));
+    }
+    Ok(envelope)
 }
