@@ -318,10 +318,16 @@ impl UnivariatePoly {
             }
             Expr::Pow(base, exp) => {
                 let p_base = Self::from_expr(base, gen_sym)?;
-                if let Expr::Integer(n) = exp.as_ref()
-                    && let Ok(k) = usize::try_from(n)
-                {
-                    return p_base.pow(k as u32);
+                if let Expr::Integer(n) = exp.as_ref() {
+                    if let Ok(k) = usize::try_from(n) {
+                        return p_base.pow(k as u32);
+                    } else if p_base.degree() == Some(0) && !p_base.is_zero() {
+                        if let Ok(k) = usize::try_from(&(-n)) {
+                            let inv_c = BigRational::one() / p_base.leading_coeff();
+                            let inv_poly = Self::new(gen_sym.clone(), vec![inv_c]);
+                            return inv_poly.pow(k as u32);
+                        }
+                    }
                 }
                 Err(PolyError::NonPolynomialExpression(format!(
                     "Non-integer power expression in polynomial: {expr}"
