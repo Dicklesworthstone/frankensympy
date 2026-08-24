@@ -709,4 +709,60 @@ mod tests {
             )
         );
     }
+
+    #[test]
+    fn laplace_transform_rejects_nonlinear_function_arguments() {
+        let t = Symbol::new("t");
+        let s = Symbol::new("s");
+        let t_expr = Expr::Sym(t.clone());
+        let nonlinear_arguments = [
+            Expr::Mul(vec![t_expr.clone(), t_expr.clone()]),
+            Expr::Mul(vec![
+                t_expr.clone(),
+                Expr::Add(vec![t_expr.clone(), Expr::from_i64(1)]),
+            ]),
+        ];
+
+        for name in ["exp", "sin", "cos"] {
+            for argument in &nonlinear_arguments {
+                let expr = Expr::Function(name.to_string(), vec![argument.clone()]);
+                assert!(
+                    laplace_transform(&expr, &t, &s).is_err(),
+                    "{name}({argument}) is not a linear-in-t catalog entry"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn laplace_transform_handles_symbolic_constants_and_refuses_ambiguous_variables() {
+        let t = Symbol::new("t");
+        let s = Symbol::new("s");
+        let x = Symbol::new("x");
+
+        let transformed = laplace_transform(&Expr::Sym(x.clone()), &t, &s).unwrap();
+        assert_eq!(
+            transformed,
+            Expr::Mul(vec![
+                Expr::Sym(x),
+                Expr::Pow(Arc::new(Expr::Sym(s.clone())), Arc::new(Expr::from_i64(-1))),
+            ])
+        );
+
+        assert!(laplace_transform(&Expr::Sym(t.clone()), &t, &t).is_err());
+        assert!(laplace_transform(&Expr::Sym(s.clone()), &t, &s).is_err());
+    }
+
+    #[test]
+    fn laplace_transform_refuses_unbounded_polynomial_work() {
+        let t = Symbol::new("t");
+        let s = Symbol::new("s");
+        let oversized = Expr::Pow(
+            Arc::new(Expr::Sym(t.clone())),
+            Arc::new(Expr::Integer(BigInt::from(
+                transforms::MAX_LAPLACE_POLYNOMIAL_DEGREE + 1,
+            ))),
+        );
+        assert!(laplace_transform(&oversized, &t, &s).is_err());
+    }
 }

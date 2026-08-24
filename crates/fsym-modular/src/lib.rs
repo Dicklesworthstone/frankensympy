@@ -754,6 +754,444 @@ fn metered_subtract<M: BudgetMeter>(
     Ok(result)
 }
 
+/// Typed representation of a modular arithmetic residue ring $\mathbb{Z} / m\mathbb{Z}$.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ModularRing {
+    modulus: BigInt,
+}
+
+impl ModularRing {
+    /// Creates a new modular ring $\mathbb{Z} / m\mathbb{Z}$ for $m > 1$.
+    pub fn new(modulus: BigInt) -> Option<Self> {
+        if modulus > BigInt::one() {
+            Some(Self { modulus })
+        } else {
+            None
+        }
+    }
+
+    /// Access the modulus $m$.
+    pub fn modulus(&self) -> &BigInt {
+        &self.modulus
+    }
+
+    /// Constructs a canonical element in $\mathbb{Z} / m\mathbb{Z}$ from an arbitrary integer.
+    pub fn element(&self, value: BigInt) -> ModularRingElement {
+        let m = &self.modulus;
+        let residue = ((value % m) + m) % m;
+        ModularRingElement {
+            ring: self.clone(),
+            value: residue,
+        }
+    }
+
+    /// The additive identity $0 \pmod m$.
+    pub fn zero(&self) -> ModularRingElement {
+        self.element(BigInt::zero())
+    }
+
+    /// The multiplicative identity $1 \pmod m$.
+    pub fn one(&self) -> ModularRingElement {
+        self.element(BigInt::one())
+    }
+}
+
+/// A typed canonical element in a modular ring $\mathbb{Z} / m\mathbb{Z}$.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ModularRingElement {
+    ring: ModularRing,
+    value: BigInt,
+}
+
+impl ModularRingElement {
+    /// The canonical integer value in the range $[0, m)$.
+    pub fn value(&self) -> &BigInt {
+        &self.value
+    }
+
+    /// Reference to the parent modular ring.
+    pub fn ring(&self) -> &ModularRing {
+        &self.ring
+    }
+
+    /// Whether this element is $0 \pmod m$.
+    pub fn is_zero(&self) -> bool {
+        self.value.is_zero()
+    }
+
+    /// Whether this element is $1 \pmod m$.
+    pub fn is_one(&self) -> bool {
+        self.value.is_one()
+    }
+
+    /// Modular addition: $(a + b) \pmod m$.
+    pub fn add(&self, other: &Self) -> Option<Self> {
+        if self.ring != other.ring {
+            return None;
+        }
+        let m = &self.ring.modulus;
+        Some(ModularRingElement {
+            ring: self.ring.clone(),
+            value: (&self.value + &other.value) % m,
+        })
+    }
+
+    /// Modular subtraction: $(a - b) \pmod m$.
+    pub fn sub(&self, other: &Self) -> Option<Self> {
+        if self.ring != other.ring {
+            return None;
+        }
+        let m = &self.ring.modulus;
+        let mut diff = (&self.value - &other.value) % m;
+        if diff.is_negative() {
+            diff += m;
+        }
+        Some(ModularRingElement {
+            ring: self.ring.clone(),
+            value: diff,
+        })
+    }
+
+    /// Modular multiplication: $(a \cdot b) \pmod m$.
+    pub fn mul(&self, other: &Self) -> Option<Self> {
+        if self.ring != other.ring {
+            return None;
+        }
+        let m = &self.ring.modulus;
+        Some(ModularRingElement {
+            ring: self.ring.clone(),
+            value: (&self.value * &other.value) % m,
+        })
+    }
+
+    /// Modular negation: $-a \pmod m$.
+    pub fn neg(&self) -> Self {
+        if self.value.is_zero() {
+            self.clone()
+        } else {
+            ModularRingElement {
+                ring: self.ring.clone(),
+                value: &self.ring.modulus - &self.value,
+            }
+        }
+    }
+
+    /// Multiplicative inverse $a^{-1} \pmod m$; returns `None` when $\gcd(a, m) \neq 1$.
+    pub fn inv(&self) -> Option<Self> {
+        let inv_val = mod_inverse(&self.value, &self.ring.modulus)?;
+        Some(ModularRingElement {
+            ring: self.ring.clone(),
+            value: inv_val,
+        })
+    }
+
+    /// Exact modular division: $a / b \pmod m \iff a \cdot b^{-1} \pmod m$.
+    pub fn div(&self, other: &Self) -> Option<Self> {
+        if self.ring != other.ring {
+            return None;
+        }
+        let b_inv = other.inv()?;
+        self.mul(&b_inv)
+    }
+
+    /// Modular exponentiation $a^e \pmod m$.
+    pub fn pow(&self, exp: &BigInt) -> Self {
+        ModularRingElement {
+            ring: self.ring.clone(),
+            value: mod_pow(&self.value, exp, &self.ring.modulus),
+        }
+    }
+}
+
+/// Typed representation of a prime Galois field $\mathbb{F}_p = \mathbb{Z} / p\mathbb{Z}$.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct FiniteField {
+    characteristic: BigInt,
+}
+
+impl FiniteField {
+    /// Creates a new prime finite field $\mathbb{F}_p$ validating that $p$ is prime.
+    pub fn new(characteristic: BigInt) -> Option<Self> {
+        if characteristic > BigInt::one() && is_probable_prime(&characteristic) {
+            Some(Self { characteristic })
+        } else {
+            None
+        }
+    }
+
+    /// Access the prime characteristic $p$.
+    pub fn characteristic(&self) -> &BigInt {
+        &self.characteristic
+    }
+
+    /// Constructs a canonical element in $\mathbb{F}_p$.
+    pub fn element(&self, value: BigInt) -> FiniteFieldElement {
+        let p = &self.characteristic;
+        let residue = ((value % p) + p) % p;
+        FiniteFieldElement {
+            field: self.clone(),
+            value: residue,
+        }
+    }
+
+    /// The field additive identity $0$.
+    pub fn zero(&self) -> FiniteFieldElement {
+        self.element(BigInt::zero())
+    }
+
+    /// The field multiplicative identity $1$.
+    pub fn one(&self) -> FiniteFieldElement {
+        self.element(BigInt::one())
+    }
+}
+
+/// A typed canonical element in a prime finite field $\mathbb{F}_p$.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct FiniteFieldElement {
+    field: FiniteField,
+    value: BigInt,
+}
+
+impl FiniteFieldElement {
+    /// The canonical integer representative in $[0, p)$.
+    pub fn value(&self) -> &BigInt {
+        &self.value
+    }
+
+    /// Reference to the underlying finite field.
+    pub fn field(&self) -> &FiniteField {
+        &self.field
+    }
+
+    /// Whether this element is $0$.
+    pub fn is_zero(&self) -> bool {
+        self.value.is_zero()
+    }
+
+    /// Whether this element is $1$.
+    pub fn is_one(&self) -> bool {
+        self.value.is_one()
+    }
+
+    /// Field addition $(a + b) \pmod p$.
+    pub fn add(&self, other: &Self) -> Option<Self> {
+        if self.field != other.field {
+            return None;
+        }
+        let p = &self.field.characteristic;
+        Some(FiniteFieldElement {
+            field: self.field.clone(),
+            value: (&self.value + &other.value) % p,
+        })
+    }
+
+    /// Field subtraction $(a - b) \pmod p$.
+    pub fn sub(&self, other: &Self) -> Option<Self> {
+        if self.field != other.field {
+            return None;
+        }
+        let p = &self.field.characteristic;
+        let mut diff = (&self.value - &other.value) % p;
+        if diff.is_negative() {
+            diff += p;
+        }
+        Some(FiniteFieldElement {
+            field: self.field.clone(),
+            value: diff,
+        })
+    }
+
+    /// Field multiplication $(a \cdot b) \pmod p$.
+    pub fn mul(&self, other: &Self) -> Option<Self> {
+        if self.field != other.field {
+            return None;
+        }
+        let p = &self.field.characteristic;
+        Some(FiniteFieldElement {
+            field: self.field.clone(),
+            value: (&self.value * &other.value) % p,
+        })
+    }
+
+    /// Field negation $-a \pmod p$.
+    pub fn neg(&self) -> Self {
+        if self.value.is_zero() {
+            self.clone()
+        } else {
+            FiniteFieldElement {
+                field: self.field.clone(),
+                value: &self.field.characteristic - &self.value,
+            }
+        }
+    }
+
+    /// Multiplicative inverse $a^{-1} \pmod p$; returns `None` only for $0$.
+    pub fn inv(&self) -> Option<Self> {
+        if self.value.is_zero() {
+            return None;
+        }
+        let inv_val = mod_inverse(&self.value, &self.field.characteristic)?;
+        Some(FiniteFieldElement {
+            field: self.field.clone(),
+            value: inv_val,
+        })
+    }
+
+    /// Field division $a / b \pmod p$; returns `None` when $b = 0$ or fields mismatch.
+    pub fn div(&self, other: &Self) -> Option<Self> {
+        if self.field != other.field || other.is_zero() {
+            return None;
+        }
+        let b_inv = other.inv()?;
+        self.mul(&b_inv)
+    }
+
+    /// Exponentiation $a^e \pmod p$.
+    pub fn pow(&self, exp: &BigInt) -> Self {
+        FiniteFieldElement {
+            field: self.field.clone(),
+            value: mod_pow(&self.value, exp, &self.field.characteristic),
+        }
+    }
+}
+
+/// Montgomery representation reducer for fast modular arithmetic modulo an odd integer $M$.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MontgomeryReducer {
+    modulus: BigInt,
+    r: BigInt,
+    r_shift: usize,
+    r_mod_m: BigInt,
+    r2_mod_m: BigInt,
+    m_prime: BigInt,
+}
+
+impl MontgomeryReducer {
+    /// Creates a Montgomery reducer for an odd modulus $M > 1$.
+    pub fn new(modulus: BigInt) -> Option<Self> {
+        if modulus <= BigInt::one() || (&modulus % &BigInt::from(2i64)).is_zero() {
+            return None;
+        }
+        let bit_len = u32::try_from(modulus.bits()).ok()?;
+        let r_shift = bit_len + 1;
+        let r = BigInt::one() << r_shift;
+        let r_mod_m = &r % &modulus;
+        let r2_mod_m = (&r_mod_m * &r_mod_m) % &modulus;
+        let m_inv = mod_inverse(&modulus, &r)?;
+        let m_prime = (&r - m_inv) % &r;
+        Some(Self {
+            modulus,
+            r,
+            r_shift: r_shift as usize,
+            r_mod_m,
+            r2_mod_m,
+            m_prime,
+        })
+    }
+
+    /// Converts a standard residue $a \in [0, M)$ into Montgomery form $a \cdot R \pmod M$.
+    pub fn to_montgomery(&self, a: &BigInt) -> BigInt {
+        (a * &self.r_mod_m) % &self.modulus
+    }
+
+    /// Converts Montgomery form $a_R = a \cdot R \pmod M$ back to standard representative $a \pmod M$.
+    pub fn from_montgomery(&self, a_r: &BigInt) -> BigInt {
+        self.reduce(a_r)
+    }
+
+    /// Montgomery reduction algorithm: computes $T \cdot R^{-1} \pmod M$.
+    pub fn reduce(&self, t: &BigInt) -> BigInt {
+        let prod = t * &self.m_prime;
+        let r_minus_1 = (&self.r) - BigInt::one();
+        let m = &prod & &r_minus_1;
+        let u = (t + &m * &self.modulus) >> (self.r_shift as u32);
+        if u >= self.modulus {
+            u - &self.modulus
+        } else {
+            u
+        }
+    }
+
+    /// Montgomery multiplication: takes $a_R, b_R$ and returns $(a \cdot b)_R = a \cdot b \cdot R \pmod M$.
+    pub fn mul(&self, a_r: &BigInt, b_r: &BigInt) -> BigInt {
+        self.reduce(&(a_r * b_r))
+    }
+}
+
+/// Barrett reducer for division-free reduction modulo $M$.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BarrettReducer {
+    modulus: BigInt,
+    k: u32,
+    mu: BigInt,
+}
+
+impl BarrettReducer {
+    /// Creates a Barrett reducer for modulus $M > 1$.
+    pub fn new(modulus: BigInt) -> Option<Self> {
+        if modulus <= BigInt::one() {
+            return None;
+        }
+        let k = u32::try_from(modulus.bits()).ok()?;
+        let num = BigInt::one() << (2 * k);
+        let mu = num / &modulus;
+        Some(Self { modulus, k, mu })
+    }
+
+    /// Reduces $x$ modulo $M$ (exact for $x < M^2$).
+    pub fn reduce(&self, x: &BigInt) -> BigInt {
+        if x < &self.modulus {
+            return x.clone();
+        }
+        let q1 = x >> (self.k - 1);
+        let q2 = &q1 * &self.mu;
+        let q3 = q2 >> (self.k + 1);
+        let mut r = x - &q3 * &self.modulus;
+        while r >= self.modulus {
+            r -= &self.modulus;
+        }
+        r
+    }
+}
+
+/// Classification of unlucky prime failures during modular algorithms (e.g. modular GCD).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum UnluckyPrimeReason {
+    /// Prime divides the leading coefficient of one or more input polynomials.
+    DividesLeadingCoefficient,
+    /// Modular reduction causes degree collapse or degenerate structures.
+    DegenerateReduction,
+    /// Inconsistent modular residues during CRT combination.
+    InconsistentResidues,
+    /// Prime characteristic is smaller than algorithm coefficient bound.
+    ModulusTooSmall,
+}
+
+/// Diagnostic record explaining why a chosen prime is unusable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnluckyPrimeDiagnostic {
+    pub prime: BigInt,
+    pub reason: UnluckyPrimeReason,
+    pub description: String,
+}
+
+/// Verifies whether a candidate prime is lucky with respect to polynomial leading coefficients.
+pub fn check_lucky_prime(
+    prime: &BigInt,
+    leading_coefficients: &[BigInt],
+) -> Result<(), UnluckyPrimeDiagnostic> {
+    for (idx, coeff) in leading_coefficients.iter().enumerate() {
+        if (coeff % prime).is_zero() {
+            return Err(UnluckyPrimeDiagnostic {
+                prime: prime.clone(),
+                reason: UnluckyPrimeReason::DividesLeadingCoefficient,
+                description: format!("Prime {prime} divides leading coefficient #{idx} ({coeff})"),
+            });
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1325,5 +1763,62 @@ mod tests {
             metered_rational_reconstruct(&residue, &modulus_a, &mut cancelled_reconstruction,),
             Err(MeterError::Cancelled)
         );
+    }
+
+    #[test]
+    fn test_modular_ring_and_finite_field() {
+        let ring = ModularRing::new(BigInt::from(12)).expect("modulus > 1");
+        let a = ring.element(BigInt::from(7));
+        let b = ring.element(BigInt::from(8));
+        assert_eq!(a.add(&b).unwrap().value(), &BigInt::from(3));
+        assert_eq!(a.sub(&b).unwrap().value(), &BigInt::from(11));
+        assert_eq!(a.mul(&b).unwrap().value(), &BigInt::from(8));
+        assert_eq!(a.inv().unwrap().value(), &BigInt::from(7)); // 7 * 7 = 49 = 1 mod 12
+        assert!(b.inv().is_none()); // gcd(8, 12) = 4 != 1
+
+        let ff = FiniteField::new(BigInt::from(17)).expect("17 is prime");
+        assert!(FiniteField::new(BigInt::from(18)).is_none()); // 18 is composite
+        let x = ff.element(BigInt::from(5));
+        let y = ff.element(BigInt::from(11));
+        assert_eq!(x.add(&y).unwrap().value(), &BigInt::from(16));
+        assert_eq!(x.sub(&y).unwrap().value(), &BigInt::from(11)); // 5 - 11 = -6 = 11 mod 17
+        assert_eq!(x.mul(&y).unwrap().value(), &BigInt::from(4)); // 55 = 4 mod 17
+        let x_inv = x.inv().expect("5 is invertible mod 17");
+        assert_eq!(x_inv.value(), &BigInt::from(7)); // 5 * 7 = 35 = 1 mod 17
+        assert_eq!(y.div(&x).unwrap().value(), y.mul(&x_inv).unwrap().value());
+        assert_eq!(x.pow(&BigInt::from(16)).value(), &BigInt::one()); // Fermat's Little Theorem
+    }
+
+    #[test]
+    fn test_montgomery_and_barrett_reducers() {
+        let m = BigInt::from(97); // odd modulus
+        let mont = MontgomeryReducer::new(m.clone()).expect("valid odd modulus");
+        let a = BigInt::from(35);
+        let b = BigInt::from(42);
+        let expected_prod = (&a * &b) % &m;
+
+        let a_r = mont.to_montgomery(&a);
+        let b_r = mont.to_montgomery(&b);
+        let prod_r = mont.mul(&a_r, &b_r);
+        let actual_prod = mont.from_montgomery(&prod_r);
+        assert_eq!(actual_prod, expected_prod);
+
+        let barrett = BarrettReducer::new(m.clone()).expect("valid modulus");
+        for v in [0i64, 1, 35, 96, 97, 100, 500, 9000] {
+            let x = BigInt::from(v);
+            assert_eq!(barrett.reduce(&x), &x % &m);
+        }
+    }
+
+    #[test]
+    fn test_unlucky_prime_diagnostics() {
+        let p_lucky = BigInt::from(17);
+        let p_unlucky = BigInt::from(5);
+        let leading_coeffs = vec![BigInt::from(15), BigInt::from(28)]; // 15 = 3 * 5
+
+        assert!(check_lucky_prime(&p_lucky, &leading_coeffs).is_ok());
+        let diag = check_lucky_prime(&p_unlucky, &leading_coeffs).unwrap_err();
+        assert_eq!(diag.reason, UnluckyPrimeReason::DividesLeadingCoefficient);
+        assert_eq!(diag.prime, p_unlucky);
     }
 }

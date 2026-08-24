@@ -8,6 +8,31 @@ use fsym_simplify::simplify;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+pub(crate) const MAX_LAPLACE_POLYNOMIAL_DEGREE: u64 = 4_096;
+
+fn linear_argument_coefficient(arg: &Expr, t: &Symbol) -> Option<Expr> {
+    let t_expr = Expr::Sym(t.clone());
+    if arg == &t_expr {
+        return Some(Expr::from_i64(1));
+    }
+
+    let Expr::Mul(factors) = arg else {
+        return None;
+    };
+    let mut coefficient_factors = Vec::with_capacity(factors.len().saturating_sub(1));
+    let mut t_count = 0usize;
+    for factor in factors {
+        if factor == &t_expr {
+            t_count += 1;
+        } else if factor.free_symbols().contains(t) {
+            return None;
+        } else {
+            coefficient_factors.push(factor.clone());
+        }
+    }
+    (t_count == 1).then(|| simplify(&Expr::Mul(coefficient_factors)))
+}
+
 /// Computes the definite integral $\int_a^b f(x) dx = F(b) - F(a)$ via the Fundamental Theorem of Calculus.
 pub fn integrate_definite(
     expr: &Expr,
@@ -30,8 +55,24 @@ pub fn integrate_definite(
 
 /// Exact unilateral Laplace transform: $\mathcal{L}\{f(t)\}(s) = \int_0^\infty e^{-st} f(t) dt$.
 pub fn laplace_transform(expr: &Expr, t: &Symbol, s: &Symbol) -> Result<Expr, CalculusError> {
+    if t == s {
+        return Err(CalculusError::IntegrationFailed(
+            "Laplace input and transform variables must be distinct".to_string(),
+        ));
+    }
+    if expr.free_symbols().contains(s) {
+        return Err(CalculusError::IntegrationFailed(format!(
+            "Laplace input must be independent of transform variable {s}"
+        )));
+    }
+
     let s_sym = Expr::Sym(s.clone());
     let t_sym = Expr::Sym(t.clone());
+
+    if !expr.free_symbols().contains(t) {
+        let inv_s = Expr::Pow(Arc::new(s_sym), Arc::new(Expr::from_i64(-1)));
+        return Ok(simplify(&(expr.clone() * inv_s)));
+    }
 
     match expr {
         Expr::Add(terms) => {
@@ -67,14 +108,6 @@ pub fn laplace_transform(expr: &Expr, t: &Symbol, s: &Symbol) -> Result<Expr, Ca
                 expr
             )))
         }
-        Expr::Integer(n) => {
-            let inv_s = Expr::Pow(Arc::new(s_sym), Arc::new(Expr::from_i64(-1)));
-            Ok(simplify(&(Expr::Integer(n.clone()) * inv_s)))
-        }
-        Expr::Rational(r) => {
-            let inv_s = Expr::Pow(Arc::new(s_sym), Arc::new(Expr::from_i64(-1)));
-            Ok(simplify(&(Expr::Rational(r.clone()) * inv_s)))
-        }
         Expr::Sym(sym) if sym == t => {
             // L{t} = 1 / s^2
             let s_sq = Expr::Pow(Arc::new(s_sym), Arc::new(Expr::from_i64(2)));
@@ -84,18 +117,24 @@ pub fn laplace_transform(expr: &Expr, t: &Symbol, s: &Symbol) -> Result<Expr, Ca
         Expr::Pow(base, exp) if base.as_ref() == &t_sym => {
             // L{t^n} = n! / s^(n+1) for positive integer n
             if let Expr::Integer(n) = exp.as_ref()
-                && let Ok(n_val) = n.to_string().parse::<u64>()
+                && let Some(n_val) = n.to_u64()
+                && n_val <= MAX_LAPLACE_POLYNOMIAL_DEGREE
             {
                 let mut fact = BigInt::from(1);
                 for i in 1..=n_val {
                     fact *= BigInt::from(i);
                 }
-                let neg_np1 = Expr::from_i64(-((n_val + 1) as i64));
+                let exponent = i64::try_from(n_val + 1).map_err(|_| {
+                    CalculusError::IntegrationFailed(
+                        "Laplace polynomial exponent exceeds the supported range".to_string(),
+                    )
+                })?;
+                let neg_np1 = Expr::from_i64(-exponent);
                 let inv = Expr::Pow(Arc::new(s_sym), Arc::new(neg_np1));
                 return Ok(simplify(&(Expr::Integer(fact) * inv)));
             }
             Err(CalculusError::IntegrationFailed(format!(
-                "Laplace transform of t^{exp}"
+                "Laplace transform of t^{exp}; supported powers are non-negative integers up to {MAX_LAPLACE_POLYNOMIAL_DEGREE}"
             )))
         }
         Expr::Function(name, args) if args.len() == 1 => {
@@ -103,17 +142,7 @@ pub fn laplace_transform(expr: &Expr, t: &Symbol, s: &Symbol) -> Result<Expr, Ca
             match name.as_str() {
                 "exp" => {
                     // L{exp(a*t)} = 1 / (s - a)
-                    let a = if arg == &t_sym {
-                        Expr::from_i64(1)
-                    } else if let Expr::Mul(factors) = arg {
-                        let mut consts = Vec::new();
-                        for f in factors {
-                            if f != &t_sym {
-                                consts.push(f.clone());
-                            }
-                        }
-                        simplify(&Expr::Mul(consts))
-                    } else {
+                    let Some(a) = linear_argument_coefficient(arg, t) else {
                         return Err(CalculusError::IntegrationFailed(format!("exp({arg})")));
                     };
                     let denom = Expr::Add(vec![s_sym, Expr::Mul(vec![Expr::from_i64(-1), a])]);
@@ -122,17 +151,7 @@ pub fn laplace_transform(expr: &Expr, t: &Symbol, s: &Symbol) -> Result<Expr, Ca
                 }
                 "sin" => {
                     // L{sin(w*t)} = w / (s^2 + w^2)
-                    let w = if arg == &t_sym {
-                        Expr::from_i64(1)
-                    } else if let Expr::Mul(factors) = arg {
-                        let mut consts = Vec::new();
-                        for f in factors {
-                            if f != &t_sym {
-                                consts.push(f.clone());
-                            }
-                        }
-                        simplify(&Expr::Mul(consts))
-                    } else {
+                    let Some(w) = linear_argument_coefficient(arg, t) else {
                         return Err(CalculusError::IntegrationFailed(format!("sin({arg})")));
                     };
                     let s_sq = Expr::Pow(Arc::new(s_sym), Arc::new(Expr::from_i64(2)));
@@ -143,17 +162,7 @@ pub fn laplace_transform(expr: &Expr, t: &Symbol, s: &Symbol) -> Result<Expr, Ca
                 }
                 "cos" => {
                     // L{cos(w*t)} = s / (s^2 + w^2)
-                    let w = if arg == &t_sym {
-                        Expr::from_i64(1)
-                    } else if let Expr::Mul(factors) = arg {
-                        let mut consts = Vec::new();
-                        for f in factors {
-                            if f != &t_sym {
-                                consts.push(f.clone());
-                            }
-                        }
-                        simplify(&Expr::Mul(consts))
-                    } else {
+                    let Some(w) = linear_argument_coefficient(arg, t) else {
                         return Err(CalculusError::IntegrationFailed(format!("cos({arg})")));
                     };
                     let s_sq = Expr::Pow(Arc::new(s_sym.clone()), Arc::new(Expr::from_i64(2)));
