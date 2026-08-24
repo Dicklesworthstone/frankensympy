@@ -10,7 +10,7 @@
       "frankensqlite",
       "rust_std"
     ],
-    "cargo_manifest_count": 26,
+    "cargo_manifest_count": 27,
     "declared_dependency_names": [
       "asupersync",
       "blake3",
@@ -25,6 +25,7 @@
       "fsym-id",
       "fsym-logic",
       "fsym-matrices",
+      "fsym-modular",
       "fsym-ntheory",
       "fsym-outcome",
       "fsym-polys",

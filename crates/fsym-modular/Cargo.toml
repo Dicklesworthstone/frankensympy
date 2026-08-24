@@ -1,5 +1,5 @@
 [package]
-name = "fsym-core"
+name = "fsym-modular"
 version.workspace = true
 edition.workspace = true
 license-file.workspace = true
@@ -8,19 +8,11 @@ homepage.workspace = true
 readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
+publish = false
 
 [dependencies]
-fsym-id.workspace = true
-fsym-outcome.workspace = true
 fsym-bigint.workspace = true
-fsym-rational.workspace = true
-fsym-modular.workspace = true
-num-traits.workspace = true
-num-complex.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-thiserror.workspace = true
-blake3.workspace = true
+fsym-budget.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

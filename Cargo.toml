@@ -54,6 +54,7 @@ fsym-budget = { path = "crates/fsym-budget" }
 fsym-outcome = { path = "crates/fsym-outcome" }
 fsym-bigint = { path = "crates/fsym-bigint" }
 fsym-rational = { path = "crates/fsym-rational" }
+fsym-modular = { path = "crates/fsym-modular" }
 fsym-core = { path = "crates/fsym-core" }
 fsym-polys = { path = "crates/fsym-polys" }
 fsym-simplify = { path = "crates/fsym-simplify" }

@@ -639,8 +639,8 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "fsym-bigint",
- "fsym-budget",
  "fsym-id",
+ "fsym-modular",
  "fsym-outcome",
  "fsym-rational",
  "num-complex",
@@ -721,6 +721,15 @@ dependencies = [
  "proptest",
  "serde",
  "thiserror",
+]
+
+[[package]]
+name = "fsym-modular"
+version = "0.1.0"
+dependencies = [
+ "fsym-bigint",
+ "fsym-budget",
+ "proptest",
 ]
 
 [[package]]
