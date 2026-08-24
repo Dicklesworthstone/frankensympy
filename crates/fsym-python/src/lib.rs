@@ -142,6 +142,71 @@ fn solve_linear_expr(src: &str, var: &str) -> PyResult<String> {
         .map_err(to_value_error)
 }
 
+/// Definite integral of `src` from `a` to `b` with respect to `var`.
+#[pyfunction]
+fn integrate_definite_expr(src: &str, var: &str, a_src: &str, b_src: &str) -> PyResult<String> {
+    let e = parse_expr(src)?;
+    let a = parse_expr(a_src)?;
+    let b = parse_expr(b_src)?;
+    fsym_calculus::integrate_definite(&e, &Symbol::new(var), &a, &b)
+        .map(|v| v.to_string())
+        .map_err(to_value_error)
+}
+
+/// Laplace transform of `src(t)` to `s`.
+#[pyfunction]
+fn laplace_expr(src: &str, t_var: &str, s_var: &str) -> PyResult<String> {
+    let e = parse_expr(src)?;
+    fsym_calculus::laplace_transform(&e, &Symbol::new(t_var), &Symbol::new(s_var))
+        .map(|v| v.to_string())
+        .map_err(to_value_error)
+}
+
+/// Exact 1st-order linear ODE solver: dy/dx + P(x)*y = Q(x).
+#[pyfunction]
+fn dsolve_linear_first_order_expr(p_src: &str, q_src: &str, x_var: &str) -> PyResult<String> {
+    let p = parse_expr(p_src)?;
+    let q = parse_expr(q_src)?;
+    let c1 = Symbol::new("C1");
+    fsym_solvers::dsolve_linear_first_order(&p, &q, &Symbol::new(x_var), &c1)
+        .map(|v| v.to_string())
+        .map_err(to_value_error)
+}
+
+/// Exact 2nd-order constant-coefficient ODE solver: a*y'' + b*y' + c*y = 0.
+#[pyfunction]
+fn dsolve_const_coeff_second_order_expr(a: i64, b: i64, c: i64, x_var: &str) -> PyResult<String> {
+    let c1 = Symbol::new("C1");
+    let c2 = Symbol::new("C2");
+    fsym_solvers::dsolve_const_coeff_second_order(a, b, c, &Symbol::new(x_var), &c1, &c2)
+        .map(|v| v.to_string())
+        .map_err(to_value_error)
+}
+
+/// Mobius function μ(n).
+#[pyfunction]
+fn mobius_fn(n: u64) -> PyResult<i64> {
+    fsym_ntheory::mobius(n).map_err(to_value_error)
+}
+
+/// Divisor count d(n).
+#[pyfunction]
+fn divisor_count_fn(n: u64) -> PyResult<u64> {
+    fsym_ntheory::divisor_count(n).map_err(to_value_error)
+}
+
+/// Divisor power sum σ_k(n).
+#[pyfunction]
+fn divisor_sum_fn(n: u64, k: u32) -> PyResult<u64> {
+    fsym_ntheory::divisor_sum(n, k).map_err(to_value_error)
+}
+
+/// Jacobi symbol (a/n).
+#[pyfunction]
+fn jacobi_symbol_fn(a: i64, n: u64) -> i64 {
+    fsym_ntheory::jacobi_symbol(a, n)
+}
+
 pub mod expr;
 pub use expr::*;
 
@@ -171,9 +236,17 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(expand_expr, m)?)?;
     m.add_function(wrap_pyfunction!(diff_expr, m)?)?;
     m.add_function(wrap_pyfunction!(integrate_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(integrate_definite_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(laplace_expr, m)?)?;
     m.add_function(wrap_pyfunction!(limit_expr, m)?)?;
     m.add_function(wrap_pyfunction!(taylor_expr, m)?)?;
     m.add_function(wrap_pyfunction!(solve_linear_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(dsolve_linear_first_order_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(dsolve_const_coeff_second_order_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(mobius_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(divisor_count_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(divisor_sum_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(jacobi_symbol_fn, m)?)?;
     m.add_function(wrap_pyfunction!(evalf_expr, m)?)?;
     Ok(())
 }
@@ -221,5 +294,31 @@ mod tests {
         let ten = py_integer(10);
         let res = expr.subs(&x, &ten).unwrap();
         assert_eq!(res.__str__(), "15");
+    }
+
+    #[test]
+    fn test_py_definite_integral_and_laplace() {
+        // \int_0^1 2*x dx = 1
+        let def_int = integrate_definite_expr("2*x", "x", "0", "1").unwrap();
+        assert_eq!(def_int, "1");
+
+        // L{1}(s) = 1/s
+        let lap = laplace_expr("1", "t", "s").unwrap();
+        assert!(lap.contains("s**-1") || lap.contains("s^(-1)"));
+    }
+
+    #[test]
+    fn test_py_solvers_and_ntheory() {
+        // dy/dx + 0*y = 2*x -> y = x^2 + C1
+        let ode = dsolve_linear_first_order_expr("0", "2*x", "x").unwrap();
+        assert!(ode.contains("x^2") || ode.contains("x**2") || ode.contains("C1"));
+
+        // Mobius and divisors
+        assert_eq!(mobius_fn(1).unwrap(), 1);
+        assert_eq!(mobius_fn(6).unwrap(), 1);
+        assert_eq!(mobius_fn(4).unwrap(), 0);
+        assert_eq!(divisor_count_fn(12).unwrap(), 6);
+        assert_eq!(divisor_sum_fn(6, 1).unwrap(), 12);
+        assert_eq!(jacobi_symbol_fn(2, 7), 1);
     }
 }
