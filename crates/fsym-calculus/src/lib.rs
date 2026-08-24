@@ -4,9 +4,11 @@
 
 pub mod compile;
 pub mod proof;
+pub mod transforms;
 
 pub use compile::*;
 pub use proof::*;
+pub use transforms::*;
 
 use fsym_core::{BigInt, Constant, Expr, Symbol};
 use fsym_simplify::{expand, simplify};
@@ -608,6 +610,55 @@ mod tests {
         assert!(
             verified,
             "Compiled Jacobian must match numerical finite differences"
+        );
+    }
+
+    #[test]
+    fn test_definite_integration_polynomial() {
+        // \int_0^2 (3*x^2 + 1) dx = [x^3 + x]_0^2 = (8 + 2) - 0 = 10
+        let x = Symbol::new("x");
+        let expr = Expr::Add(vec![
+            Expr::Mul(vec![
+                Expr::from_i64(3),
+                Expr::Pow(Arc::new(Expr::Sym(x.clone())), Arc::new(Expr::from_i64(2))),
+            ]),
+            Expr::from_i64(1),
+        ]);
+
+        let a = Expr::from_i64(0);
+        let b = Expr::from_i64(2);
+        let val = integrate_definite(&expr, &x, &a, &b).unwrap();
+        assert_eq!(val, Expr::from_i64(10));
+    }
+
+    #[test]
+    fn test_laplace_transform_elementary_catalog() {
+        let t = Symbol::new("t");
+        let s = Symbol::new("s");
+
+        // L{t^2} = 2 / s^3
+        let t_sq = Expr::Pow(Arc::new(Expr::Sym(t.clone())), Arc::new(Expr::from_i64(2)));
+        let l_poly = laplace_transform(&t_sq, &t, &s).unwrap();
+        assert_eq!(
+            l_poly,
+            Expr::Mul(vec![
+                Expr::from_i64(2),
+                Expr::Pow(Arc::new(Expr::Sym(s.clone())), Arc::new(Expr::from_i64(-3))),
+            ])
+        );
+
+        // L{exp(3*t)} = 1 / (s - 3)
+        let exp_3t = Expr::Function(
+            "exp".into(),
+            vec![Expr::Mul(vec![Expr::from_i64(3), Expr::Sym(t.clone())])],
+        );
+        let l_exp = laplace_transform(&exp_3t, &t, &s).unwrap();
+        assert_eq!(
+            l_exp,
+            Expr::Pow(
+                Arc::new(Expr::Add(vec![Expr::Sym(s.clone()), Expr::from_i64(-3),])),
+                Arc::new(Expr::from_i64(-1)),
+            )
         );
     }
 }
