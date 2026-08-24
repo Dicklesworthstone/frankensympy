@@ -18,21 +18,26 @@
 //! compatibility laboratory and cannot support a drop-in compatibility
 //! claim.
 
-use fsym_calculus::{diff, integrate, limit, taylor};
-use fsym_core::{Expr, Symbol, parse};
+use fsym_calculus::{CalculusError, diff, integrate, limit, taylor};
+use fsym_core::{Constant, Expr, Symbol, parse};
 use fsym_simplify::{expand, simplify};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
-pub const PROFILE_ID: &str = "sympy-1.14.0-cpython";
+pub const PROFILE_ID: &str = "native-math-corpus-v1";
 pub const PINNED_SYMPY_VERSION: &str = "1.14.0";
 
 const COMPARATOR_ID: &str = "exact_or_algebraic_difference_zero";
+const PROTOCOL_SCHEMA_VERSION: u32 = 1;
 const MAX_CASES: usize = 1_024;
 const MAX_CASE_FIELD_BYTES: usize = 16 * 1_024;
+const MAX_TAYLOR_ORDER: usize = 12;
+const ORACLE_TIMEOUT: Duration = Duration::from_secs(35);
+const MAX_ORACLE_OUTPUT_BYTES: usize = 4 * 1024 * 1024;
 
 /// Operations exercised by the conformance corpus.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -58,10 +63,19 @@ pub struct CaseSpec {
     pub input_expr: String,
     pub var: String,
     pub op: Op,
-    /// When true, the current Rust capability boundary is expected to refuse.
-    /// Such a refusal is an expected harness outcome, but is not conformance.
+    /// Exact typed capability refusal required from the Rust lane. A matching
+    /// refusal is an expected harness outcome, but is not conformance.
     #[serde(default)]
-    pub expect_refusal: bool,
+    pub expected_refusal: Option<RefusalKind>,
+}
+
+/// Capability-boundary refusal kinds understood by this fixed corpus.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RefusalKind {
+    IntegrationUnsupported,
+    LimitUndetermined,
+    TaylorUnsupported,
 }
 
 /// One evidence record: what each side produced plus the verdict.
@@ -75,6 +89,7 @@ pub struct ConformanceCase {
     pub comparator: String,
     pub expected_sympy_output: Option<String>,
     pub actual_frankensympy_output: Option<String>,
+    pub frankensympy_refusal_kind: Option<RefusalKind>,
     pub frankensympy_refusal: Option<String>,
     pub oracle_detail: Option<String>,
     pub verdict: Verdict,
@@ -110,26 +125,64 @@ impl Verdict {
     }
 }
 
-/// Apply the Rust implementation to a case. `Err` carries the typed
-/// refusal message verbatim.
-pub fn franken_apply(spec: &CaseSpec) -> Result<String, String> {
-    let expr = parse(&spec.input_expr).map_err(|e| e.to_string())?;
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FrankenFailure {
+    kind: Option<RefusalKind>,
+    detail: String,
+}
+
+impl FrankenFailure {
+    fn parse(error: impl ToString) -> Self {
+        Self {
+            kind: None,
+            detail: error.to_string(),
+        }
+    }
+
+    fn calculus(error: CalculusError, expected_variant: RefusalKind) -> Self {
+        let kind = match (&error, expected_variant) {
+            (CalculusError::IntegrationFailed(_), RefusalKind::IntegrationUnsupported)
+            | (CalculusError::Undetermined(_), RefusalKind::LimitUndetermined)
+            | (CalculusError::NonDifferentiable(_), RefusalKind::TaylorUnsupported) => {
+                Some(expected_variant)
+            }
+            _ => None,
+        };
+        Self {
+            kind,
+            detail: error.to_string(),
+        }
+    }
+}
+
+fn franken_apply_expr(spec: &CaseSpec) -> Result<Expr, FrankenFailure> {
+    let expr = parse(&spec.input_expr).map_err(FrankenFailure::parse)?;
     let var = Symbol::new(&spec.var);
-    let rendered: Expr = match &spec.op {
-        Op::Simplify => simplify(&expr),
-        Op::Expand => expand(&expr),
-        Op::Diff => diff(&expr, &var),
-        Op::Integrate => integrate(&expr, &var).map_err(|e| e.to_string())?,
+    match &spec.op {
+        Op::Simplify => Ok(simplify(&expr)),
+        Op::Expand => Ok(expand(&expr)),
+        Op::Diff => Ok(diff(&expr, &var)),
+        Op::Integrate => integrate(&expr, &var)
+            .map_err(|error| FrankenFailure::calculus(error, RefusalKind::IntegrationUnsupported)),
         Op::Limit(target) => {
-            let point = parse(target).map_err(|e| e.to_string())?;
-            limit(&expr, &var, &point).map_err(|e| e.to_string())?
+            let point = parse(target).map_err(FrankenFailure::parse)?;
+            limit(&expr, &var, &point)
+                .map_err(|error| FrankenFailure::calculus(error, RefusalKind::LimitUndetermined))
         }
         Op::Taylor { at, order } => {
-            let point = parse(&at.to_string()).map_err(|e| e.to_string())?;
-            taylor(&expr, &var, &point, *order).map_err(|e| e.to_string())?
+            let point = Expr::from_i64(*at);
+            taylor(&expr, &var, &point, *order)
+                .map_err(|error| FrankenFailure::calculus(error, RefusalKind::TaylorUnsupported))
         }
-    };
-    Ok(rendered.to_string())
+    }
+}
+
+/// Apply the Rust implementation to a case. The public string boundary is
+/// retained for the CLI API; the differential runner uses typed failures.
+pub fn franken_apply(spec: &CaseSpec) -> Result<String, String> {
+    franken_apply_expr(spec)
+        .map(|expr| expr.to_string())
+        .map_err(|failure| failure.detail)
 }
 
 /// The fixed differential corpus. Extend here; keep cases deterministic.
@@ -139,7 +192,7 @@ pub fn corpus() -> Vec<CaseSpec> {
         input_expr: expr.to_string(),
         var: var.to_string(),
         op,
-        expect_refusal: false,
+        expected_refusal: None,
     };
     let mut v = vec![
         mk("simp_001", "x + x", "x", Op::Simplify),
@@ -169,7 +222,7 @@ pub fn corpus() -> Vec<CaseSpec> {
         input_expr: "x * sin(x)".to_string(),
         var: "x".to_string(),
         op: Op::Integrate,
-        expect_refusal: true,
+        expected_refusal: Some(RefusalKind::IntegrationUnsupported),
     });
     v
 }
@@ -201,7 +254,12 @@ import sympy as sp
 
 payload = json.load(sys.stdin)
 actual_version = sp.__version__
-print(json.dumps({"kind": "meta", "sympy_version": actual_version}), flush=True)
+print(json.dumps({
+    "kind": "meta",
+    "schema_version": payload["schema_version"],
+    "profile_id": payload["profile_id"],
+    "sympy_version": actual_version,
+}), flush=True)
 if actual_version != payload["required_sympy_version"]:
     print(
         f"SymPy version mismatch: required={payload['required_sympy_version']} actual={actual_version}",
@@ -210,9 +268,50 @@ if actual_version != payload["required_sympy_version"]:
     )
     sys.exit(3)
 
+CONSTANTS = {
+    "pi": sp.pi,
+    "e": sp.E,
+    "i": sp.I,
+    "infinity": sp.oo,
+    "negative_infinity": -sp.oo,
+    "complex_infinity": sp.zoo,
+    "nan": sp.nan,
+}
+KNOWN_FUNCTIONS = {
+    "sin": sp.sin,
+    "cos": sp.cos,
+    "exp": sp.exp,
+    "log": sp.log,
+    "gamma": sp.gamma,
+    "zeta": sp.zeta,
+}
+
+def from_expr(node):
+    kind = node["kind"]
+    if kind == "symbol":
+        return sp.Symbol(node["name"])
+    if kind == "integer":
+        return sp.Integer(node["value"])
+    if kind == "rational":
+        return sp.Rational(node["numerator"], node["denominator"])
+    if kind == "constant":
+        return CONSTANTS[node["name"]]
+    if kind == "add":
+        return sp.Add(*(from_expr(child) for child in node["children"]))
+    if kind == "mul":
+        return sp.Mul(*(from_expr(child) for child in node["children"]))
+    if kind == "pow":
+        return sp.Pow(from_expr(node["base"]), from_expr(node["exponent"]))
+    if kind == "function":
+        function = KNOWN_FUNCTIONS.get(node["name"])
+        if function is None:
+            function = sp.Function(node["name"])
+        return function(*(from_expr(arg) for arg in node["args"]))
+    raise ValueError(f"unknown expression node kind: {kind}")
+
 for c in payload["cases"]:
     try:
-        expr = sp.sympify(c["input_expr"])
+        expr = from_expr(c["input"])
         var = sp.Symbol(c["var"])
         op = c["op"]
         name = op["name"]
@@ -225,7 +324,7 @@ for c in payload["cases"]:
         elif name == "integrate":
             theirs = sp.integrate(expr, var)
         elif name == "limit":
-            theirs = sp.limit(expr, var, sp.sympify(op["target"]))
+            theirs = sp.limit(expr, var, from_expr(op["target"]))
         elif name == "taylor":
             theirs = sp.series(
                 expr, var, op["at"], op["series_terms"]
@@ -238,7 +337,7 @@ for c in payload["cases"]:
             verdict = "expectation_only"
             detail = None
         else:
-            ours = sp.sympify(c["ours"])
+            ours = from_expr(c["ours"])
             exact = ours == theirs
             delta = sp.S.Zero if exact else sp.simplify(ours - theirs)
             agrees = exact or delta == 0
@@ -264,9 +363,11 @@ signal.alarm(0)
 "#;
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum OracleRecord {
     Meta {
+        schema_version: u32,
+        profile_id: String,
         sympy_version: String,
     },
     Case {
@@ -285,6 +386,11 @@ struct OracleLine {
 }
 
 fn series_terms(order: usize) -> Result<usize, String> {
+    if order > MAX_TAYLOR_ORDER {
+        return Err(format!(
+            "Taylor order {order} exceeds harness maximum {MAX_TAYLOR_ORDER}"
+        ));
+    }
     order
         .checked_add(1)
         .ok_or_else(|| "Taylor order overflows the oracle series bound".to_string())
@@ -308,6 +414,9 @@ fn sympy_operation(spec: &CaseSpec) -> Result<String, String> {
 }
 
 fn validate_cases(cases: &[CaseSpec]) -> Result<(), String> {
+    if cases.is_empty() {
+        return Err("corpus must not be empty".to_string());
+    }
     if cases.len() > MAX_CASES {
         return Err(format!(
             "corpus has {} cases; maximum is {MAX_CASES}",
@@ -342,18 +451,82 @@ fn validate_cases(cases: &[CaseSpec]) -> Result<(), String> {
                 spec.case_id
             ));
         }
+        parse(&spec.input_expr)
+            .map_err(|error| format!("case `{}` input failed parsing: {error}", spec.case_id))?;
+        if let Op::Limit(target) = &spec.op {
+            parse(target).map_err(|error| {
+                format!(
+                    "case `{}` limit target failed parsing: {error}",
+                    spec.case_id
+                )
+            })?;
+        }
         let _ = sympy_operation(spec)?;
     }
     Ok(())
 }
 
-fn oracle_request(spec: &CaseSpec, ours: Option<&String>) -> Result<serde_json::Value, String> {
+fn expr_payload(expr: &Expr) -> serde_json::Value {
+    match expr {
+        Expr::Sym(symbol) => serde_json::json!({"kind": "symbol", "name": symbol.name}),
+        Expr::Integer(value) => {
+            serde_json::json!({"kind": "integer", "value": value.to_string()})
+        }
+        Expr::Rational(value) => serde_json::json!({
+            "kind": "rational",
+            "numerator": value.numer().to_string(),
+            "denominator": value.denom().to_string(),
+        }),
+        Expr::Const(value) => {
+            let name = match value {
+                Constant::Pi => "pi",
+                Constant::E => "e",
+                Constant::I => "i",
+                Constant::Infinity => "infinity",
+                Constant::NegativeInfinity => "negative_infinity",
+                Constant::ComplexInfinity => "complex_infinity",
+                Constant::NaN => "nan",
+            };
+            serde_json::json!({"kind": "constant", "name": name})
+        }
+        Expr::Add(children) => serde_json::json!({
+            "kind": "add",
+            "children": children.iter().map(expr_payload).collect::<Vec<_>>(),
+        }),
+        Expr::Mul(children) => serde_json::json!({
+            "kind": "mul",
+            "children": children.iter().map(expr_payload).collect::<Vec<_>>(),
+        }),
+        Expr::Pow(base, exponent) => serde_json::json!({
+            "kind": "pow",
+            "base": expr_payload(base),
+            "exponent": expr_payload(exponent),
+        }),
+        Expr::Function(name, args) => serde_json::json!({
+            "kind": "function",
+            "name": name,
+            "args": args.iter().map(expr_payload).collect::<Vec<_>>(),
+        }),
+    }
+}
+
+fn oracle_request(spec: &CaseSpec, ours: Option<&Expr>) -> Result<serde_json::Value, String> {
+    let input = parse(&spec.input_expr)
+        .map_err(|error| format!("case `{}` input failed parsing: {error}", spec.case_id))?;
     let op = match &spec.op {
         Op::Simplify => serde_json::json!({"name": "simplify"}),
         Op::Expand => serde_json::json!({"name": "expand"}),
         Op::Diff => serde_json::json!({"name": "diff"}),
         Op::Integrate => serde_json::json!({"name": "integrate"}),
-        Op::Limit(target) => serde_json::json!({"name": "limit", "target": target}),
+        Op::Limit(target) => {
+            let target = parse(target).map_err(|error| {
+                format!(
+                    "case `{}` limit target failed parsing: {error}",
+                    spec.case_id
+                )
+            })?;
+            serde_json::json!({"name": "limit", "target": expr_payload(&target)})
+        }
         Op::Taylor { at, order } => serde_json::json!({
             "name": "taylor",
             "at": at,
@@ -362,22 +535,29 @@ fn oracle_request(spec: &CaseSpec, ours: Option<&String>) -> Result<serde_json::
     };
     Ok(serde_json::json!({
         "id": spec.case_id,
-        "input_expr": spec.input_expr,
+        "input": expr_payload(&input),
         "var": spec.var,
         "op": op,
-        "ours": ours,
+        "ours": ours.map(expr_payload),
     }))
 }
 
 fn parse_oracle_stdout(stdout: &str) -> Result<(String, HashMap<String, OracleLine>), String> {
-    let mut version = None;
+    let mut metadata = None;
     let mut by_id = HashMap::new();
     for line in stdout.lines().filter(|line| !line.trim().is_empty()) {
         let parsed: OracleRecord =
             serde_json::from_str(line).map_err(|e| format!("bad oracle line `{line}`: {e}"))?;
         match parsed {
-            OracleRecord::Meta { sympy_version } => {
-                if version.replace(sympy_version).is_some() {
+            OracleRecord::Meta {
+                schema_version,
+                profile_id,
+                sympy_version,
+            } => {
+                if metadata
+                    .replace((schema_version, profile_id, sympy_version))
+                    .is_some()
+                {
                     return Err("oracle emitted duplicate metadata records".to_string());
                 }
             }
@@ -387,6 +567,17 @@ fn parse_oracle_stdout(stdout: &str) -> Result<(String, HashMap<String, OracleLi
                 expected,
                 detail,
             } => {
+                let valid_shape = match verdict.as_str() {
+                    "pass" | "expectation_only" => expected.is_some() && detail.is_none(),
+                    "mismatch" => expected.is_some() && detail.is_some(),
+                    "oracle_error" => expected.is_none() && detail.is_some(),
+                    _ => false,
+                };
+                if !valid_shape {
+                    return Err(format!(
+                        "oracle emitted invalid `{verdict}` record shape for case_id `{id}`"
+                    ));
+                }
                 let oracle_line = OracleLine {
                     verdict,
                     expected,
@@ -398,7 +589,18 @@ fn parse_oracle_stdout(stdout: &str) -> Result<(String, HashMap<String, OracleLi
             }
         }
     }
-    let version = version.ok_or_else(|| "oracle emitted no metadata record".to_string())?;
+    let (schema_version, profile_id, version) =
+        metadata.ok_or_else(|| "oracle emitted no metadata record".to_string())?;
+    if schema_version != PROTOCOL_SCHEMA_VERSION {
+        return Err(format!(
+            "oracle schema mismatch: required={PROTOCOL_SCHEMA_VERSION} actual={schema_version}"
+        ));
+    }
+    if profile_id != PROFILE_ID {
+        return Err(format!(
+            "oracle corpus profile mismatch: required={PROFILE_ID} actual={profile_id}"
+        ));
+    }
     if version != PINNED_SYMPY_VERSION {
         return Err(format!(
             "oracle SymPy version mismatch: required={PINNED_SYMPY_VERSION} actual={version}"
@@ -427,14 +629,20 @@ fn validate_oracle_ids(
 
 fn classify(
     spec: &CaseSpec,
-    rust_result: &Result<String, String>,
+    rust_result: &Result<Expr, FrankenFailure>,
     oracle: &OracleLine,
 ) -> Result<Verdict, String> {
     match (rust_result, oracle.verdict.as_str()) {
         (_, "oracle_error") => Ok(Verdict::OracleError),
-        (Err(_), "expectation_only") if spec.expect_refusal => Ok(Verdict::ExpectedRefusal),
+        (Err(failure), "expectation_only")
+            if spec.expected_refusal.is_some() && spec.expected_refusal == failure.kind =>
+        {
+            Ok(Verdict::ExpectedRefusal)
+        }
         (Err(_), "expectation_only") => Ok(Verdict::RefusalMismatch),
-        (Ok(_), "pass" | "mismatch") if spec.expect_refusal => Ok(Verdict::UnexpectedSuccess),
+        (Ok(_), "pass" | "mismatch") if spec.expected_refusal.is_some() => {
+            Ok(Verdict::UnexpectedSuccess)
+        }
         (Ok(_), "pass") => Ok(Verdict::Pass),
         (Ok(_), "mismatch") => Ok(Verdict::Mismatch),
         (Ok(_), "expectation_only") => Err(format!(
@@ -453,7 +661,7 @@ fn classify(
 
 fn assemble_report(
     cases: &[CaseSpec],
-    rust_results: Vec<Result<String, String>>,
+    rust_results: Vec<Result<Expr, FrankenFailure>>,
     oracle_version: &str,
     mut by_id: HashMap<String, OracleLine>,
 ) -> Result<Vec<ConformanceCase>, String> {
@@ -472,8 +680,12 @@ fn assemble_report(
             operation: sympy_operation(spec)?,
             comparator: COMPARATOR_ID.to_string(),
             expected_sympy_output: oracle.expected,
-            actual_frankensympy_output: rust_result.as_ref().ok().cloned(),
-            frankensympy_refusal: rust_result.as_ref().err().cloned(),
+            actual_frankensympy_output: rust_result.as_ref().ok().map(ToString::to_string),
+            frankensympy_refusal_kind: rust_result.as_ref().err().and_then(|failure| failure.kind),
+            frankensympy_refusal: rust_result
+                .as_ref()
+                .err()
+                .map(|failure| failure.detail.clone()),
             oracle_detail: oracle.detail,
             verdict,
         });
@@ -489,13 +701,16 @@ fn assemble_report(
 /// refusals are returned as explicit case verdicts.
 pub fn run_conformance(cases: &[CaseSpec], python: &str) -> Result<Vec<ConformanceCase>, String> {
     validate_cases(cases)?;
-    let rust_results: Vec<Result<String, String>> = cases.iter().map(franken_apply).collect();
+    let rust_results: Vec<Result<Expr, FrankenFailure>> =
+        cases.iter().map(franken_apply_expr).collect();
     let oracle_cases: Vec<serde_json::Value> = cases
         .iter()
         .zip(&rust_results)
         .map(|(spec, result)| oracle_request(spec, result.as_ref().ok()))
         .collect::<Result<_, _>>()?;
     let payload = serde_json::json!({
+        "schema_version": PROTOCOL_SCHEMA_VERSION,
+        "profile_id": PROFILE_ID,
         "required_sympy_version": PINNED_SYMPY_VERSION,
         "cases": oracle_cases,
     });
@@ -503,29 +718,74 @@ pub fn run_conformance(cases: &[CaseSpec], python: &str) -> Result<Vec<Conforman
         .map_err(|e| format!("serializing oracle request failed: {e}"))?;
 
     let mut child = Command::new(python)
-        .args(["-I", "-c", ORACLE_SCRIPT])
+        .args(["-I", "-W", "error", "-c", ORACLE_SCRIPT])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("spawning oracle `{python}` failed: {e}"))?;
-    let mut stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| "oracle stdin was not piped".to_string())?;
-    stdin
-        .write_all(&payload)
-        .map_err(|e| format!("writing oracle batch failed: {e}"))?;
+    let Some(mut stdin) = child.stdin.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err("oracle stdin was not piped".to_string());
+    };
+    if let Err(error) = stdin.write_all(&payload) {
+        drop(stdin);
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(format!("writing oracle batch failed: {error}"));
+    }
     drop(stdin);
 
+    let deadline = Instant::now() + ORACLE_TIMEOUT;
+    loop {
+        let status = match child.try_wait() {
+            Ok(status) => status,
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("polling oracle failed: {error}"));
+            }
+        };
+        match status {
+            Some(_) => break,
+            None if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
+            None => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!(
+                    "oracle exceeded parent wall-time bound of {} seconds",
+                    ORACLE_TIMEOUT.as_secs()
+                ));
+            }
+        }
+    }
     let output = child
         .wait_with_output()
         .map_err(|e| format!("reaping oracle failed: {e}"))?;
+    let output_bytes = output
+        .stdout
+        .len()
+        .checked_add(output.stderr.len())
+        .ok_or_else(|| "oracle output length overflowed".to_string())?;
+    if output_bytes > MAX_ORACLE_OUTPUT_BYTES {
+        return Err(format!(
+            "oracle output has {output_bytes} bytes; maximum is {MAX_ORACLE_OUTPUT_BYTES}"
+        ));
+    }
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!(
             "oracle exited with {}: {}",
             output.status,
+            stderr.trim()
+        ));
+    }
+    let stderr =
+        String::from_utf8(output.stderr).map_err(|e| format!("oracle stderr is not UTF-8: {e}"))?;
+    if !stderr.trim().is_empty() {
+        return Err(format!(
+            "oracle emitted unexpected stderr: {}",
             stderr.trim()
         ));
     }
@@ -537,12 +797,16 @@ pub fn run_conformance(cases: &[CaseSpec], python: &str) -> Result<Vec<Conforman
 
 /// Write an NDJSON evidence ledger; parent directories created as needed.
 pub fn write_evidence_ndjson(cases: &[ConformanceCase], path: &Path) -> std::io::Result<PathBuf> {
-    if let Some(parent) = path.parent() {
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
         std::fs::create_dir_all(parent)?;
     }
     let mut f = std::fs::File::create(path)?;
     for c in cases {
-        writeln!(f, "{}", serde_json::to_string(c).expect("serializable"))?;
+        serde_json::to_writer(&mut f, c).map_err(std::io::Error::other)?;
+        f.write_all(b"\n")?;
     }
     Ok(path.to_path_buf())
 }
@@ -557,7 +821,11 @@ mod tests {
             input_expr: "x + x".to_string(),
             var: "x".to_string(),
             op: Op::Simplify,
-            expect_refusal,
+            expected_refusal: if expect_refusal {
+                Some(RefusalKind::IntegrationUnsupported)
+            } else {
+                None
+            },
         }
     }
 
@@ -571,8 +839,9 @@ mod tests {
 
     #[test]
     fn planted_mismatch_is_never_conformant() {
-        let verdict = classify(&case(false), &Ok("x".to_string()), &oracle("mismatch"))
-            .expect("known verdict");
+        let x_expr = parse("x").unwrap();
+        let verdict =
+            classify(&case(false), &Ok(x_expr), &oracle("mismatch")).expect("known verdict");
         assert_eq!(verdict, Verdict::Mismatch);
         assert!(!verdict.is_conformant());
         assert!(!verdict.is_expected_outcome());
@@ -580,21 +849,41 @@ mod tests {
 
     #[test]
     fn expected_refusal_is_not_a_conformance_pass() {
-        let verdict = classify(
-            &case(true),
-            &Err("typed integration refusal".to_string()),
-            &oracle("expectation_only"),
-        )
-        .expect("known verdict");
+        let err = FrankenFailure {
+            kind: Some(RefusalKind::IntegrationUnsupported),
+            detail: "typed integration refusal".to_string(),
+        };
+        let verdict =
+            classify(&case(true), &Err(err), &oracle("expectation_only")).expect("known verdict");
         assert_eq!(verdict, Verdict::ExpectedRefusal);
         assert!(!verdict.is_conformant());
         assert!(verdict.is_expected_outcome());
     }
 
     #[test]
+    fn wrong_failure_kind_cannot_satisfy_expected_refusal() {
+        for err in [
+            FrankenFailure {
+                kind: None,
+                detail: "parser regression".to_string(),
+            },
+            FrankenFailure {
+                kind: Some(RefusalKind::LimitUndetermined),
+                detail: "wrong capability refusal".to_string(),
+            },
+        ] {
+            let verdict = classify(&case(true), &Err(err), &oracle("expectation_only"))
+                .expect("known verdict");
+            assert_eq!(verdict, Verdict::RefusalMismatch);
+            assert!(!verdict.is_expected_outcome());
+        }
+    }
+
+    #[test]
     fn success_where_refusal_was_required_is_unexpected() {
+        let two_x = parse("2*x").unwrap();
         for oracle_verdict in ["pass", "mismatch"] {
-            let verdict = classify(&case(true), &Ok("2*x".to_string()), &oracle(oracle_verdict))
+            let verdict = classify(&case(true), &Ok(two_x.clone()), &oracle(oracle_verdict))
                 .expect("known verdict");
             assert_eq!(verdict, Verdict::UnexpectedSuccess);
             assert!(!verdict.is_expected_outcome());
@@ -603,12 +892,12 @@ mod tests {
 
     #[test]
     fn unexpected_refusal_remains_a_mismatch() {
-        let verdict = classify(
-            &case(false),
-            &Err("unsupported".to_string()),
-            &oracle("expectation_only"),
-        )
-        .expect("known verdict");
+        let err = FrankenFailure {
+            kind: None,
+            detail: "unsupported".to_string(),
+        };
+        let verdict =
+            classify(&case(false), &Err(err), &oracle("expectation_only")).expect("known verdict");
         assert_eq!(verdict, Verdict::RefusalMismatch);
         assert!(!verdict.is_expected_outcome());
     }
@@ -620,14 +909,17 @@ mod tests {
             input_expr: "exp(x)".to_string(),
             var: "x".to_string(),
             op: Op::Taylor { at: 0, order: 6 },
-            expect_refusal: false,
+            expected_refusal: None,
         };
         assert_eq!(
             sympy_operation(&spec).expect("bounded order"),
             "series(exp(x), x, 0, 7).removeO()"
         );
-        let request = oracle_request(&spec, Some(&"1 + x".to_string())).expect("request");
+        let one_plus_x = parse("1 + x").unwrap();
+        let request = oracle_request(&spec, Some(&one_plus_x)).expect("request");
         assert_eq!(request["op"]["series_terms"], 7);
+        assert!(request.get("input_expr").is_none());
+        assert_eq!(request["input"]["kind"], "function");
     }
 
     #[test]
@@ -640,7 +932,7 @@ mod tests {
     #[test]
     fn oracle_protocol_rejects_duplicate_and_missing_results() {
         let duplicate = concat!(
-            "{\"kind\":\"meta\",\"sympy_version\":\"1.14.0\"}\n",
+            "{\"kind\":\"meta\",\"schema_version\":1,\"profile_id\":\"native-math-corpus-v1\",\"sympy_version\":\"1.14.0\"}\n",
             "{\"kind\":\"case\",\"id\":\"planted_001\",\"verdict\":\"pass\",\"expected\":\"2*x\",\"detail\":null}\n",
             "{\"kind\":\"case\",\"id\":\"planted_001\",\"verdict\":\"pass\",\"expected\":\"2*x\",\"detail\":null}\n"
         );
@@ -650,7 +942,7 @@ mod tests {
                 .contains("duplicate case_id")
         );
 
-        let meta_only = "{\"kind\":\"meta\",\"sympy_version\":\"1.14.0\"}\n";
+        let meta_only = "{\"kind\":\"meta\",\"schema_version\":1,\"profile_id\":\"native-math-corpus-v1\",\"sympy_version\":\"1.14.0\"}\n";
         let (_, by_id) = parse_oracle_stdout(meta_only).expect("valid metadata");
         assert!(
             validate_oracle_ids(&[case(false)], &by_id)
@@ -674,8 +966,21 @@ mod tests {
 
     #[test]
     fn wrong_sympy_version_fails_closed() {
-        let stdout = "{\"kind\":\"meta\",\"sympy_version\":\"1.13.3\"}\n";
+        let stdout = "{\"kind\":\"meta\",\"schema_version\":1,\"profile_id\":\"native-math-corpus-v1\",\"sympy_version\":\"1.13.3\"}\n";
         let err = parse_oracle_stdout(stdout).expect_err("wrong version must fail");
         assert!(err.contains("required=1.14.0 actual=1.13.3"));
+    }
+
+    #[test]
+    fn empty_and_executable_source_corpora_fail_before_oracle() {
+        assert!(
+            validate_cases(&[])
+                .expect_err("empty corpus")
+                .contains("must not be empty")
+        );
+        let mut executable = case(true);
+        executable.input_expr = "__import__('builtins').len([1,2,3])".to_string();
+        let err = validate_cases(&[executable]).expect_err("Rust grammar rejects Python source");
+        assert!(err.contains("input failed parsing"));
     }
 }

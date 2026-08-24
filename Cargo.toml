@@ -68,6 +68,8 @@ fsym-assumptions = { path = "crates/fsym-assumptions" }
 fsym-printing = { path = "crates/fsym-printing" }
 fsym-runtime = { path = "crates/fsym-runtime" }
 fsym-conformance = { path = "crates/fsym-conformance" }
+fsym-proof-kernel = { path = "crates/fsym-proof-kernel" }
+fsym-evidence = { path = "crates/fsym-evidence" }
 asupersync = { path = "../asupersync" }
 num-bigint = { version = "0.4", features = ["serde"] }
 num-rational = { version = "0.4", features = ["serde"] }

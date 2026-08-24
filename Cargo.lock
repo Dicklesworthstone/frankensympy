@@ -645,6 +645,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "fsym-evidence"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "fsym-budget",
+ "fsym-core",
+ "fsym-id",
+ "fsym-outcome",
+ "fsym-proof-kernel",
+ "proptest",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "fsym-functions"
 version = "0.1.0"
 dependencies = [
@@ -739,6 +755,23 @@ dependencies = [
  "num-rational",
  "proptest",
  "serde",
+ "thiserror",
+]
+
+[[package]]
+name = "fsym-proof-kernel"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "fsym-assumptions",
+ "fsym-budget",
+ "fsym-core",
+ "fsym-id",
+ "fsym-outcome",
+ "num-bigint",
+ "proptest",
+ "serde",
+ "serde_json",
  "thiserror",
 ]
 

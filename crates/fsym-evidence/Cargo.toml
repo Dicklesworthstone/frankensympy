@@ -1,0 +1,25 @@
+[package]
+name = "fsym-evidence"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish = false
+
+[dependencies]
+fsym-id.workspace = true
+fsym-budget.workspace = true
+fsym-outcome.workspace = true
+fsym-core.workspace = true
+fsym-proof-kernel.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+blake3.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
