@@ -4,13 +4,15 @@
 //! [`BigRational`] and [`fsym_bigint::BigInt`], keeping rational representation and normalization
 //! policy independently replaceable from the integer substrate.
 //!
-//! This initial boundary owns the canonical rational value type and its scalar operations.
-//! Rational reconstruction remains in the modular arithmetic lane until `fsym-modular` is split;
-//! this crate does not yet claim every deliverable in architecture §5.4.
+//! This boundary owns the canonical rational value type, exact height metadata, and finite simple
+//! continued fractions. Pair-returning rational reconstruction support remains in `fsym-modular`;
+//! a value-returning reconstruction API and fully cross-cancelled scalar operators remain later
+//! architecture §5.4 work.
 
 #![forbid(unsafe_code)]
 
-use fsym_bigint::BigInt;
+use fsym_bigint::{BigInt, NonZeroBigInt, metered_div_rem_nonzero, metered_multiply};
+use fsym_budget::{BudgetMeter, Dimension, MeterError};
 use num_traits::{Num, One, Signed, ToPrimitive, Zero};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt;
@@ -26,6 +28,40 @@ use std::str::FromStr;
 #[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(transparent)]
 pub struct BigRational(num_rational::Ratio<BigInt>);
+
+/// Exact coefficient-height metadata for a canonical rational.
+///
+/// Bit counts describe the absolute numerator and positive denominator. Zero therefore has a
+/// numerator height of zero bits, while every denominator has at least one bit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RationalHeight {
+    numerator_bits: u64,
+    denominator_bits: u64,
+}
+
+impl RationalHeight {
+    /// Magnitude bits in the canonical numerator.
+    pub fn numerator_bits(self) -> u64 {
+        self.numerator_bits
+    }
+
+    /// Magnitude bits in the positive canonical denominator.
+    pub fn denominator_bits(self) -> u64 {
+        self.denominator_bits
+    }
+
+    /// The conventional rational height: the larger coefficient bit length.
+    pub fn max_bits(self) -> u64 {
+        self.numerator_bits.max(self.denominator_bits)
+    }
+
+    /// Total u64 limbs needed by the two canonical coefficients.
+    pub fn total_limbs(self) -> u64 {
+        self.numerator_bits
+            .div_ceil(fsym_bigint::LIMB_BITS)
+            .saturating_add(self.denominator_bits.div_ceil(fsym_bigint::LIMB_BITS))
+    }
+}
 
 impl<'de> Deserialize<'de> for BigRational {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -95,6 +131,218 @@ impl BigRational {
     pub fn pow(&self, exponent: i32) -> Self {
         Self(num_rational::Ratio::<BigInt>::pow(&self.0, exponent))
     }
+
+    /// Returns exact numerator/denominator height metadata.
+    pub fn height(&self) -> RationalHeight {
+        RationalHeight {
+            numerator_bits: self.numer().bits(),
+            denominator_bits: self.denom().bits(),
+        }
+    }
+
+    /// Expands this value into its finite simple continued fraction.
+    ///
+    /// Division uses mathematical floor semantics, so negative values receive the standard
+    /// representation with a possibly negative first coefficient and positive remainders.
+    pub fn continued_fraction(&self) -> Vec<BigInt> {
+        let mut numerator = self.numer().clone();
+        let mut denominator = self.denom().clone();
+        let mut coefficients = Vec::new();
+        loop {
+            let (mut quotient, mut remainder) = numerator.div_rem(&denominator);
+            if remainder.is_negative() {
+                quotient -= 1i64;
+                remainder += &denominator;
+            }
+            coefficients.push(quotient);
+            if remainder.is_zero() {
+                return coefficients;
+            }
+            numerator = denominator;
+            denominator = remainder;
+        }
+    }
+
+    /// Cancellation-first continued-fraction expansion with coefficient-height accounting.
+    pub fn metered_continued_fraction<M: BudgetMeter>(
+        &self,
+        meter: &mut M,
+    ) -> Result<Vec<BigInt>, MeterError> {
+        meter.checkpoint()?;
+        let mut numerator = metered_clone(self.numer(), meter)?;
+        let mut denominator = metered_clone(self.denom(), meter)?;
+        let coefficient_capacity = continued_fraction_coefficient_bound(self.denom().bits());
+        let coefficient_bytes = u64::try_from(coefficient_capacity)
+            .unwrap_or(u64::MAX)
+            .saturating_mul(u64::try_from(std::mem::size_of::<BigInt>()).unwrap_or(u64::MAX));
+        meter.charge_batch(&[
+            (Dimension::MemoryBytes, coefficient_bytes),
+            (Dimension::AllocationCount, 1),
+        ])?;
+        let mut coefficients = Vec::with_capacity(coefficient_capacity);
+        loop {
+            meter.checkpoint()?;
+            let Some(divisor) = NonZeroBigInt::new(&denominator) else {
+                return metered_finish(coefficients, meter);
+            };
+            let (mut quotient, mut remainder) =
+                metered_div_rem_nonzero(&numerator, divisor, meter)?;
+            if remainder.is_negative() {
+                let one = metered_one(meter)?;
+                quotient = metered_subtract(&quotient, &one, meter)?;
+                remainder = metered_add(&remainder, &denominator, meter)?;
+            }
+            charge_persisted_coefficient(&quotient, meter)?;
+            debug_assert!(coefficients.len() < coefficient_capacity);
+            coefficients.push(quotient);
+            if remainder.is_zero() {
+                return metered_finish(coefficients, meter);
+            }
+            numerator = denominator;
+            denominator = remainder;
+        }
+    }
+
+    /// Reconstructs a rational from a nonempty finite integer continued fraction.
+    ///
+    /// Generated simple continued fractions are accepted, as are generalized integer coefficient
+    /// lists whose nested divisions are defined. Returns `None` when a zero suffix would require
+    /// division by zero.
+    pub fn from_continued_fraction(coefficients: &[BigInt]) -> Option<Self> {
+        let (last, prefix) = coefficients.split_last()?;
+        let mut numerator = last.clone();
+        let mut denominator = BigInt::one();
+        for coefficient in prefix.iter().rev() {
+            if numerator.is_zero() {
+                return None;
+            }
+            let next_numerator = coefficient * &numerator + &denominator;
+            denominator = numerator;
+            numerator = next_numerator;
+        }
+        if denominator.is_negative() {
+            numerator = -numerator;
+            denominator = -denominator;
+        }
+        Some(Self(num_rational::Ratio::new_raw(numerator, denominator)))
+    }
+
+    /// Cancellation-first reconstruction from a finite integer continued fraction.
+    pub fn metered_from_continued_fraction<M: BudgetMeter>(
+        coefficients: &[BigInt],
+        meter: &mut M,
+    ) -> Result<Option<Self>, MeterError> {
+        meter.checkpoint()?;
+        let Some((last, prefix)) = coefficients.split_last() else {
+            return Ok(None);
+        };
+        let mut numerator = metered_clone(last, meter)?;
+        let mut denominator = metered_one(meter)?;
+        for coefficient in prefix.iter().rev() {
+            meter.checkpoint()?;
+            if numerator.is_zero() {
+                return metered_finish(None, meter);
+            }
+            let product = metered_multiply(coefficient, &numerator, meter)?;
+            let next_numerator = metered_add(&product, &denominator, meter)?;
+            denominator = numerator;
+            numerator = next_numerator;
+        }
+        if denominator.is_negative() {
+            numerator = metered_negate(numerator, meter)?;
+            denominator = metered_negate(denominator, meter)?;
+        }
+        let value = Self(num_rational::Ratio::new_raw(numerator, denominator));
+        metered_finish(Some(value), meter)
+    }
+}
+
+fn metered_finish<T, M: BudgetMeter>(value: T, meter: &mut M) -> Result<T, MeterError> {
+    meter.checkpoint()?;
+    Ok(value)
+}
+
+/// Every two Euclidean divisions at least halve the positive divisor: if the first remainder is
+/// above half, the following remainder is below half. Two slots per denominator bit plus the
+/// initial quotient therefore bound every canonical rational's finite expansion.
+fn continued_fraction_coefficient_bound(denominator_bits: u64) -> usize {
+    usize::try_from(denominator_bits.saturating_mul(2).saturating_add(1)).unwrap_or(usize::MAX)
+}
+
+fn metered_clone<M: BudgetMeter>(value: &BigInt, meter: &mut M) -> Result<BigInt, MeterError> {
+    meter.checkpoint()?;
+    meter.charge_batch(&[
+        (
+            Dimension::MemoryBytes,
+            value.limb_count().max(1).saturating_mul(8),
+        ),
+        (Dimension::AllocationCount, 1),
+    ])?;
+    let cloned = value.clone();
+    meter.checkpoint()?;
+    Ok(cloned)
+}
+
+fn metered_one<M: BudgetMeter>(meter: &mut M) -> Result<BigInt, MeterError> {
+    meter.checkpoint()?;
+    meter.charge_batch(&[(Dimension::MemoryBytes, 8), (Dimension::AllocationCount, 1)])?;
+    let one = BigInt::one();
+    meter.checkpoint()?;
+    Ok(one)
+}
+
+fn charge_persisted_coefficient<M: BudgetMeter>(
+    value: &BigInt,
+    meter: &mut M,
+) -> Result<(), MeterError> {
+    meter.checkpoint()?;
+    meter.charge(
+        Dimension::MemoryBytes,
+        value.limb_count().max(1).saturating_mul(8),
+    )?;
+    meter.checkpoint()
+}
+
+fn metered_add<M: BudgetMeter>(
+    lhs: &BigInt,
+    rhs: &BigInt,
+    meter: &mut M,
+) -> Result<BigInt, MeterError> {
+    meter.checkpoint()?;
+    let output_limbs = lhs.limb_count().max(rhs.limb_count()).saturating_add(1);
+    meter.charge_batch(&[
+        (Dimension::ComputeSteps, output_limbs.max(1)),
+        (Dimension::MemoryBytes, output_limbs.saturating_mul(8)),
+        (Dimension::AllocationCount, 1),
+    ])?;
+    let result = lhs + rhs;
+    meter.checkpoint()?;
+    Ok(result)
+}
+
+fn metered_subtract<M: BudgetMeter>(
+    lhs: &BigInt,
+    rhs: &BigInt,
+    meter: &mut M,
+) -> Result<BigInt, MeterError> {
+    meter.checkpoint()?;
+    let output_limbs = lhs.limb_count().max(rhs.limb_count()).saturating_add(1);
+    meter.charge_batch(&[
+        (Dimension::ComputeSteps, output_limbs.max(1)),
+        (Dimension::MemoryBytes, output_limbs.saturating_mul(8)),
+        (Dimension::AllocationCount, 1),
+    ])?;
+    let result = lhs - rhs;
+    meter.checkpoint()?;
+    Ok(result)
+}
+
+fn metered_negate<M: BudgetMeter>(value: BigInt, meter: &mut M) -> Result<BigInt, MeterError> {
+    meter.checkpoint()?;
+    meter.charge(Dimension::ComputeSteps, value.limb_count().max(1))?;
+    let result = -value;
+    meter.checkpoint()?;
+    Ok(result)
 }
 
 impl fmt::Debug for BigRational {
@@ -278,7 +526,42 @@ impl ToPrimitive for BigRational {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fsym_budget::{Budget, BudgetError, BudgetLimits, Unbounded};
     use proptest::prelude::*;
+
+    #[derive(Debug, Default)]
+    struct CheckpointMeter {
+        checkpoints: usize,
+        cancel_at: Option<usize>,
+    }
+
+    impl CheckpointMeter {
+        fn cancelling_at(checkpoint: usize) -> Self {
+            Self {
+                checkpoints: 0,
+                cancel_at: Some(checkpoint),
+            }
+        }
+    }
+
+    impl BudgetMeter for CheckpointMeter {
+        fn charge(&mut self, _dimension: Dimension, _amount: u64) -> Result<(), MeterError> {
+            Ok(())
+        }
+
+        fn charge_batch(&mut self, _charges: &[(Dimension, u64)]) -> Result<(), MeterError> {
+            Ok(())
+        }
+
+        fn checkpoint(&mut self) -> Result<(), MeterError> {
+            self.checkpoints = self.checkpoints.saturating_add(1);
+            if self.cancel_at == Some(self.checkpoints) {
+                Err(MeterError::Cancelled)
+            } else {
+                Ok(())
+            }
+        }
+    }
 
     #[test]
     fn owned_rational_is_canonical_and_supports_arithmetic() {
@@ -322,6 +605,165 @@ mod tests {
         );
     }
 
+    #[test]
+    fn height_reports_exact_canonical_coefficient_bits() {
+        let height = BigRational::new(BigInt::from(-3), BigInt::from(4)).height();
+        assert_eq!(height.numerator_bits(), 2);
+        assert_eq!(height.denominator_bits(), 3);
+        assert_eq!(height.max_bits(), 3);
+        assert_eq!(height.total_limbs(), 2);
+
+        let zero_height = BigRational::zero().height();
+        assert_eq!(zero_height.numerator_bits(), 0);
+        assert_eq!(zero_height.denominator_bits(), 1);
+    }
+
+    #[test]
+    fn continued_fractions_use_floor_semantics_and_round_trip() {
+        let positive = BigRational::new(BigInt::from(415), BigInt::from(93));
+        let positive_coefficients = positive.continued_fraction();
+        assert_eq!(positive_coefficients, [4, 2, 6, 7].map(BigInt::from));
+        assert!(
+            positive_coefficients
+                .iter()
+                .skip(1)
+                .all(BigInt::is_positive)
+        );
+        assert!(positive_coefficients.last().is_some_and(|last| last > &1));
+
+        let negative = BigRational::new(BigInt::from(-415), BigInt::from(93));
+        assert_eq!(
+            negative.continued_fraction(),
+            [-5, 1, 1, 6, 7].map(BigInt::from)
+        );
+        assert_eq!(
+            BigRational::from_continued_fraction(&negative.continued_fraction()),
+            Some(negative)
+        );
+        assert_eq!(BigRational::from_continued_fraction(&[]), None);
+        assert_eq!(
+            BigRational::from_continued_fraction(&[BigInt::one(), BigInt::zero()]),
+            None
+        );
+    }
+
+    #[test]
+    fn metered_continued_fractions_match_and_obey_budget() {
+        let value = BigRational::new(BigInt::from(-415), BigInt::from(93));
+        let expected = value.continued_fraction();
+
+        let mut meter = Unbounded;
+        let actual = value.metered_continued_fraction(&mut meter).unwrap();
+        assert_eq!(actual, expected);
+
+        let mut meter = Unbounded;
+        assert_eq!(
+            BigRational::metered_from_continued_fraction(&actual, &mut meter).unwrap(),
+            Some(value)
+        );
+
+        let mut budget = Budget::new(BudgetLimits::uniform(1, 0));
+        assert!(matches!(
+            BigRational::new(BigInt::from(415), BigInt::from(93))
+                .metered_continued_fraction(&mut budget),
+            Err(MeterError::Budget(_))
+        ));
+
+        let mut budget = Budget::new(BudgetLimits::uniform(1, 0));
+        assert!(matches!(
+            BigRational::metered_from_continued_fraction(&actual, &mut budget),
+            Err(MeterError::Budget(_))
+        ));
+    }
+
+    #[test]
+    fn metered_expansion_preflights_the_bounded_coefficient_buffer() {
+        let value = BigRational::new(BigInt::from(415), BigInt::from(93));
+        let clone_bytes = value
+            .numer()
+            .limb_count()
+            .max(1)
+            .saturating_add(value.denom().limb_count().max(1))
+            .saturating_mul(8);
+        let coefficient_bytes =
+            u64::try_from(continued_fraction_coefficient_bound(value.denom().bits()))
+                .unwrap_or(u64::MAX)
+                .saturating_mul(u64::try_from(std::mem::size_of::<BigInt>()).unwrap_or(u64::MAX));
+        let mut limits = BudgetLimits::uniform(u64::MAX, 0);
+        limits.dimensions[Dimension::MemoryBytes.index()] = clone_bytes
+            .saturating_add(coefficient_bytes)
+            .saturating_sub(1);
+        let mut budget = Budget::new(limits);
+
+        assert_eq!(
+            value.metered_continued_fraction(&mut budget),
+            Err(MeterError::Budget(BudgetError::Exhausted {
+                dimension: Dimension::MemoryBytes,
+                requested: coefficient_bytes,
+                remaining: coefficient_bytes.saturating_sub(1),
+            }))
+        );
+    }
+
+    #[test]
+    fn continued_fraction_lanes_support_late_cancellation() {
+        let (mut previous, mut current) = (BigInt::zero(), BigInt::one());
+        for _ in 0..180 {
+            let next = &previous + &current;
+            previous = current;
+            current = next;
+        }
+        let value = BigRational::new(current, previous);
+
+        let mut measured = CheckpointMeter::default();
+        let coefficients = value.metered_continued_fraction(&mut measured).unwrap();
+        assert!(coefficients.len() > 100);
+        assert!(measured.checkpoints > 1_000);
+
+        let mut cancelled = CheckpointMeter::cancelling_at(measured.checkpoints);
+        assert_eq!(
+            value.metered_continued_fraction(&mut cancelled),
+            Err(MeterError::Cancelled)
+        );
+
+        let late_checkpoint = measured.checkpoints.saturating_mul(3) / 4;
+        let mut cancelled = CheckpointMeter::cancelling_at(late_checkpoint);
+        assert_eq!(
+            value.metered_continued_fraction(&mut cancelled),
+            Err(MeterError::Cancelled)
+        );
+
+        let mut measured = CheckpointMeter::default();
+        assert_eq!(
+            BigRational::metered_from_continued_fraction(&coefficients, &mut measured).unwrap(),
+            Some(value)
+        );
+        let final_checkpoint = measured.checkpoints;
+        let mut cancelled = CheckpointMeter::cancelling_at(final_checkpoint);
+        assert_eq!(
+            BigRational::metered_from_continued_fraction(&coefficients, &mut cancelled),
+            Err(MeterError::Cancelled)
+        );
+        let late_checkpoint = measured.checkpoints.saturating_mul(3) / 4;
+        let mut cancelled = CheckpointMeter::cancelling_at(late_checkpoint);
+        assert_eq!(
+            BigRational::metered_from_continued_fraction(&coefficients, &mut cancelled),
+            Err(MeterError::Cancelled)
+        );
+
+        let undefined = [BigInt::one(), BigInt::zero()];
+        let mut measured = CheckpointMeter::default();
+        assert_eq!(
+            BigRational::metered_from_continued_fraction(&undefined, &mut measured).unwrap(),
+            None
+        );
+        let mut cancelled = CheckpointMeter::cancelling_at(measured.checkpoints);
+        assert_eq!(
+            BigRational::metered_from_continued_fraction(&undefined, &mut cancelled),
+            Err(MeterError::Cancelled)
+        );
+    }
+
     proptest! {
         #[test]
         fn normalization_is_value_preserving_and_coprime(
@@ -346,6 +788,48 @@ mod tests {
             let decoded: BigRational =
                 serde_json::from_slice(&encoded).expect("canonical rational deserializes");
             prop_assert_eq!(decoded, rational);
+        }
+
+        #[test]
+        fn continued_fraction_round_trips_broad_signed_rationals(
+            numerator in any::<i64>(),
+            denominator in any::<i64>().prop_filter("nonzero denominator", |value| *value != 0),
+        ) {
+            let rational = BigRational::new(BigInt::from(numerator), BigInt::from(denominator));
+            let coefficients = rational.continued_fraction();
+            prop_assert_eq!(
+                BigRational::from_continued_fraction(&coefficients),
+                Some(rational.clone())
+            );
+
+            let mut meter = Unbounded;
+            prop_assert_eq!(
+                rational.metered_continued_fraction(&mut meter).unwrap(),
+                coefficients.clone()
+            );
+            let mut meter = Unbounded;
+            prop_assert_eq!(
+                BigRational::metered_from_continued_fraction(&coefficients, &mut meter).unwrap(),
+                Some(rational)
+            );
+        }
+
+        #[test]
+        fn generalized_integer_continued_fractions_remain_canonical(
+            coefficients in proptest::collection::vec(any::<i32>(), 1..20),
+        ) {
+            let coefficients: Vec<BigInt> = coefficients.into_iter().map(BigInt::from).collect();
+            if let Some(rational) = BigRational::from_continued_fraction(&coefficients) {
+                prop_assert!(rational.denom().is_positive());
+                prop_assert_eq!(
+                    fsym_bigint::gcd(rational.numer(), rational.denom()),
+                    BigInt::one()
+                );
+                prop_assert_eq!(
+                    BigRational::new(rational.numer().clone(), rational.denom().clone()),
+                    rational
+                );
+            }
         }
     }
 }

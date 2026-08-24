@@ -820,6 +820,7 @@ name = "fsym-rational"
 version = "0.1.0"
 dependencies = [
  "fsym-bigint",
+ "fsym-budget",
  "num-rational",
  "num-traits",
  "proptest",

@@ -12,6 +12,7 @@ publish = false
 
 [dependencies]
 fsym-bigint.workspace = true
+fsym-budget.workspace = true
 num-rational = { workspace = true, features = ["serde"] }
 num-traits.workspace = true
 serde.workspace = true
