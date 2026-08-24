@@ -9,7 +9,8 @@ readme = "../../README.md"
 description = "Multidimensional budgets, reservations, charging, and receipts for FrankenSymPy (L0)"
 keywords = ["sympy", "cas", "symbolic", "budgets"]
 categories = ["science", "data-structures"]
-publish = false
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
 
 [lints.rust]
 unsafe_code = "forbid"

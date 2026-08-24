@@ -21,10 +21,11 @@
 
 #![forbid(unsafe_code)]
 
+use serde::{Deserialize, Serialize};
 use std::{fmt, sync::Arc};
 
 /// Canonical budget dimensions charged by symbolic work.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum Dimension {
     ComputeSteps,
     MemoryBytes,
