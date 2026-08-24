@@ -27,7 +27,8 @@
 //! [`BigInt::limb_count`] exposes u64-limb height (`LIMB_BITS = 64`) so callers can charge
 //! budget per unit of work. [`metered_add`], [`metered_subtract`], [`metered_multiply`], and
 //! [`metered_div_rem`] use deliberately simple base-$2^{32}$ reference algorithms with safe points
-//! inside their limb loops.
+//! inside their limb loops. [`metered_karatsuba_multiply`] adds a controlled recursive portfolio
+//! whose splits, shifts, additions, subtractions, and scalar leaves are all metered.
 
 #![forbid(unsafe_code)]
 
@@ -63,6 +64,42 @@ pub enum Strategy {
     Toom3,
     /// Contained substrate multiplication.
     NativeSubstrate,
+}
+
+/// Failure from a recursively metered multiplication portfolio.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MeteredMultiplyError {
+    /// Cancellation or budget refusal from the caller-provided meter.
+    Meter(MeterError),
+    /// Checked buffer or shift-size arithmetic could not be represented.
+    SizeOverflow,
+    /// A preflighted backing-buffer reservation failed.
+    AllocationFailure,
+    /// A mathematically required internal invariant did not hold.
+    InvariantViolation,
+}
+
+impl fmt::Display for MeteredMultiplyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Meter(error) => write!(f, "{error}"),
+            Self::SizeOverflow => f.write_str("metered multiplication size overflow"),
+            Self::AllocationFailure => {
+                f.write_str("metered multiplication backing-buffer allocation refused")
+            }
+            Self::InvariantViolation => {
+                f.write_str("metered multiplication internal invariant violated")
+            }
+        }
+    }
+}
+
+impl std::error::Error for MeteredMultiplyError {}
+
+impl From<MeterError> for MeteredMultiplyError {
+    fn from(error: MeterError) -> Self {
+        Self::Meter(error)
+    }
 }
 
 /// Bit-size at or above which multiplication uses [`Strategy::Karatsuba`].
@@ -855,8 +892,9 @@ impl PartialOrd<i64> for BigInt {
 /// Multiplies via the explicitly requested root strategy.
 ///
 /// This API is unmetered. Recursive strategies use documented structural leaf and skew fallbacks,
-/// so the requested enum alone is not benchmark execution evidence. Controlled work must use
-/// [`metered_multiply`] until a recursively metered portfolio API exists.
+/// so the requested enum alone is not benchmark execution evidence. Controlled schoolbook or
+/// Karatsuba work must use [`metered_multiply`] or [`metered_karatsuba_multiply`], respectively.
+/// The explicit Toom-3 lane remains unmetered.
 pub fn multiply_with_strategy(a: &BigInt, b: &BigInt, strategy: Strategy) -> BigInt {
     match strategy {
         Strategy::SchoolbookReference => schoolbook_reference(&a.0, &b.0),
@@ -952,6 +990,229 @@ pub fn metered_multiply<M: BudgetMeter>(
         Sign::Minus
     };
     Ok(BigInt(Substrate::from_biguint(sign, magnitude)))
+}
+
+/// Recursively metered Karatsuba multiplication.
+///
+/// This controlled root uses base-$2^{32}$ digit-aligned splits and the scalar
+/// [`metered_multiply`] lane at structural leaves or skew fallbacks. Split and shift backing-buffer
+/// capacities are checked and charged before allocation, every copied/inserted digit has a safe
+/// point, and the depth charge equals the deepest recursion level actually entered. Existing
+/// metered scalar/add/sub kernels retain their documented transient charges. `MemoryBytes` records
+/// cumulative requested digit-buffer capacity; it is not allocator overhead or exact peak live
+/// memory. A final checkpoint occurs after the private recursive result is complete and before it
+/// is published to the caller.
+pub fn metered_karatsuba_multiply<M: BudgetMeter>(
+    a: &BigInt,
+    b: &BigInt,
+    meter: &mut M,
+) -> Result<BigInt, MeteredMultiplyError> {
+    let mut recursion = RecursiveMeter {
+        meter,
+        max_depth: 0,
+    };
+    let result = metered_karatsuba_recursive(a, b, 1, &mut recursion)?;
+    recursion.meter.checkpoint()?;
+    Ok(result)
+}
+
+const METERED_KARATSUBA_LEAF_DIGITS: usize = 4;
+
+struct RecursiveMeter<'a, M> {
+    meter: &'a mut M,
+    max_depth: u64,
+}
+
+impl<M: BudgetMeter> RecursiveMeter<'_, M> {
+    fn enter(&mut self, depth: usize) -> Result<(), MeteredMultiplyError> {
+        self.meter.checkpoint()?;
+        let depth = u64::try_from(depth).map_err(|_| MeteredMultiplyError::SizeOverflow)?;
+        if depth > self.max_depth {
+            let delta = depth - self.max_depth;
+            self.meter
+                .charge_batch(&[(Dimension::ComputeSteps, 1), (Dimension::DepthLimit, delta)])?;
+            self.max_depth = depth;
+        } else {
+            self.meter.charge(Dimension::ComputeSteps, 1)?;
+        }
+        Ok(())
+    }
+
+    fn step(&mut self) -> Result<(), MeteredMultiplyError> {
+        self.meter.checkpoint()?;
+        self.meter.charge(Dimension::ComputeSteps, 1)?;
+        Ok(())
+    }
+}
+
+fn metered_karatsuba_recursive<M: BudgetMeter>(
+    a: &BigInt,
+    b: &BigInt,
+    depth: usize,
+    recursion: &mut RecursiveMeter<'_, M>,
+) -> Result<BigInt, MeteredMultiplyError> {
+    recursion.enter(depth)?;
+    if a.is_zero() || b.is_zero() {
+        return Ok(BigInt::zero());
+    }
+
+    let a_digits = a.0.iter_u32_digits().len();
+    let b_digits = b.0.iter_u32_digits().len();
+    let max_digits = a_digits.max(b_digits);
+    let min_digits = a_digits.min(b_digits);
+    let split_digits = max_digits.div_ceil(2);
+    if max_digits <= METERED_KARATSUBA_LEAF_DIGITS || min_digits <= split_digits {
+        return metered_multiply(a, b, recursion.meter).map_err(Into::into);
+    }
+
+    let negative = a.is_negative() != b.is_negative();
+    let (a0, a1) = metered_split_two(a, split_digits, recursion.meter)?;
+    let (b0, b1) = metered_split_two(b, split_digits, recursion.meter)?;
+    let child_depth = depth
+        .checked_add(1)
+        .ok_or(MeteredMultiplyError::SizeOverflow)?;
+
+    let z0 = metered_karatsuba_recursive(&a0, &b0, child_depth, recursion)?;
+    let z2 = metered_karatsuba_recursive(&a1, &b1, child_depth, recursion)?;
+    let sum_a = metered_add(&a0, &a1, recursion.meter)?;
+    let sum_b = metered_add(&b0, &b1, recursion.meter)?;
+    let combined = metered_karatsuba_recursive(&sum_a, &sum_b, child_depth, recursion)?;
+    let without_z0 = metered_subtract(&combined, &z0, recursion.meter)?;
+    let z1 = metered_subtract(&without_z0, &z2, recursion.meter)?;
+    recursion.step()?;
+    if z1.is_negative() {
+        return Err(MeteredMultiplyError::InvariantViolation);
+    }
+
+    let z2_shift_digits = split_digits
+        .checked_mul(2)
+        .ok_or(MeteredMultiplyError::SizeOverflow)?;
+    let shifted_z2 = metered_shift_left_digits(&z2, z2_shift_digits, recursion.meter)?;
+    let shifted_z1 = metered_shift_left_digits(&z1, split_digits, recursion.meter)?;
+    let high_and_middle = metered_add(&shifted_z2, &shifted_z1, recursion.meter)?;
+    let magnitude = metered_add(&high_and_middle, &z0, recursion.meter)?;
+
+    recursion.step()?;
+    if magnitude.is_negative() {
+        return Err(MeteredMultiplyError::InvariantViolation);
+    }
+    Ok(if negative && !magnitude.is_zero() {
+        -magnitude
+    } else {
+        magnitude
+    })
+}
+
+fn metered_split_two<M: BudgetMeter>(
+    value: &BigInt,
+    split_digits: usize,
+    meter: &mut M,
+) -> Result<(BigInt, BigInt), MeteredMultiplyError> {
+    meter.checkpoint()?;
+    let total_digits = value.0.iter_u32_digits().len();
+    let low_capacity = split_digits.min(total_digits);
+    let high_capacity = total_digits
+        .checked_sub(low_capacity)
+        .ok_or(MeteredMultiplyError::SizeOverflow)?;
+    charge_vec_capacities(&[low_capacity, high_capacity], meter)?;
+    let mut low = try_u32_vec(low_capacity)?;
+    let mut high = try_u32_vec(high_capacity)?;
+
+    for (index, digit) in value.0.iter_u32_digits().enumerate() {
+        meter.checkpoint()?;
+        meter.charge(Dimension::ComputeSteps, 1)?;
+        if index < split_digits {
+            low.push(digit);
+        } else {
+            high.push(digit);
+        }
+    }
+    trim_digits(&mut low, meter)?;
+    trim_digits(&mut high, meter)?;
+    meter.checkpoint()?;
+    Ok((positive_from_digits(low), positive_from_digits(high)))
+}
+
+fn metered_shift_left_digits<M: BudgetMeter>(
+    value: &BigInt,
+    zero_digits: usize,
+    meter: &mut M,
+) -> Result<BigInt, MeteredMultiplyError> {
+    meter.checkpoint()?;
+    if value.is_zero() {
+        return Ok(BigInt::zero());
+    }
+
+    let input_digits = value.0.iter_u32_digits().len();
+    let output_capacity = input_digits
+        .checked_add(zero_digits)
+        .ok_or(MeteredMultiplyError::SizeOverflow)?;
+    charge_vec_capacities(&[output_capacity], meter)?;
+    let mut shifted = try_u32_vec(output_capacity)?;
+    for _ in 0..zero_digits {
+        meter.checkpoint()?;
+        meter.charge(Dimension::ComputeSteps, 1)?;
+        shifted.push(0);
+    }
+    for digit in value.0.iter_u32_digits() {
+        meter.checkpoint()?;
+        meter.charge(Dimension::ComputeSteps, 1)?;
+        shifted.push(digit);
+    }
+    meter.checkpoint()?;
+
+    let magnitude = BigUint::new(shifted);
+    let sign = if magnitude.is_zero() {
+        Sign::NoSign
+    } else {
+        value.0.sign()
+    };
+    Ok(BigInt(Substrate::from_biguint(sign, magnitude)))
+}
+
+fn charge_vec_capacities<M: BudgetMeter>(
+    capacities: &[usize],
+    meter: &mut M,
+) -> Result<(), MeteredMultiplyError> {
+    let mut total_elements = 0usize;
+    let mut allocations = 0u64;
+    for &capacity in capacities {
+        if capacity == 0 {
+            continue;
+        }
+        total_elements = total_elements
+            .checked_add(capacity)
+            .ok_or(MeteredMultiplyError::SizeOverflow)?;
+        allocations = allocations
+            .checked_add(1)
+            .ok_or(MeteredMultiplyError::SizeOverflow)?;
+    }
+    if allocations == 0 {
+        return Ok(());
+    }
+    let memory_bytes = u64::try_from(total_elements)
+        .map_err(|_| MeteredMultiplyError::SizeOverflow)?
+        .checked_mul(4)
+        .ok_or(MeteredMultiplyError::SizeOverflow)?;
+    meter.charge_batch(&[
+        (Dimension::MemoryBytes, memory_bytes),
+        (Dimension::AllocationCount, allocations),
+    ])?;
+    Ok(())
+}
+
+fn try_u32_vec(capacity: usize) -> Result<Vec<u32>, MeteredMultiplyError> {
+    let mut digits = Vec::new();
+    if capacity != 0 {
+        digits
+            .try_reserve_exact(capacity)
+            .map_err(|_| MeteredMultiplyError::AllocationFailure)?;
+    }
+    Ok(digits)
+}
+
+fn positive_from_digits(digits: Vec<u32>) -> BigInt {
+    BigInt(Substrate::from(BigUint::new(digits)))
 }
 
 /// Cancellation-first truncating division with remainder.
@@ -1529,7 +1790,7 @@ fn exact_div_small(value: Substrate, divisor: u32) -> Substrate {
 mod tests {
     use super::Strategy;
     use super::*;
-    use fsym_budget::{Budget, BudgetLimits, Unbounded};
+    use fsym_budget::{Budget, BudgetError, BudgetLimits, DIMENSION_COUNT, Unbounded};
     use proptest::prelude::*;
 
     #[derive(Debug)]
@@ -1563,6 +1824,38 @@ mod tests {
             } else {
                 Ok(())
             }
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct CountingMeter {
+        dimensions: [u64; DIMENSION_COUNT],
+        checkpoints: usize,
+    }
+
+    impl BudgetMeter for CountingMeter {
+        fn charge(&mut self, dimension: Dimension, amount: u64) -> Result<(), MeterError> {
+            self.charge_batch(&[(dimension, amount)])
+        }
+
+        fn charge_batch(&mut self, charges: &[(Dimension, u64)]) -> Result<(), MeterError> {
+            let mut updated = self.dimensions;
+            for &(dimension, amount) in charges {
+                let slot = &mut updated[dimension.index()];
+                *slot = slot.checked_add(amount).ok_or(MeterError::Budget(
+                    BudgetError::ChargeOverflow { dimension },
+                ))?;
+            }
+            self.dimensions = updated;
+            Ok(())
+        }
+
+        fn checkpoint(&mut self) -> Result<(), MeterError> {
+            self.checkpoints = self
+                .checkpoints
+                .checked_add(1)
+                .expect("test checkpoint count must fit usize");
+            Ok(())
         }
     }
 
@@ -1731,6 +2024,154 @@ mod tests {
         let metered = metered_multiply(&a, &b, &mut meter).unwrap();
         let native = multiply_with_strategy(&a, &b, Strategy::NativeSubstrate);
         assert_eq!(metered, native);
+    }
+
+    #[test]
+    fn recursively_metered_karatsuba_covers_sign_cutoff_skew_and_nested_boundaries() {
+        let five_digits = (BigInt::one() << 160) - 1i64;
+        let cases = [
+            (BigInt::zero(), five_digits.clone()),
+            (BigInt::from(-17), BigInt::from(29)),
+            (
+                (BigInt::one() << 127) + 65_537i64,
+                -((BigInt::one() << 126) + 17i64),
+            ),
+            (
+                five_digits.clone(),
+                -((BigInt::one() << 159) + (BigInt::one() << 65) + 29i64),
+            ),
+            (
+                (BigInt::one() << 640) + (BigInt::one() << 319) + 1i64,
+                BigInt::from(-65_537),
+            ),
+            (
+                (BigInt::one() << 288) - 1i64,
+                -((BigInt::one() << 287) + (BigInt::one() << 129) + 1i64),
+            ),
+        ];
+
+        for (a, b) in cases {
+            let mut meter = CountingMeter::default();
+            let result = metered_karatsuba_multiply(&a, &b, &mut meter).unwrap();
+            assert_eq!(
+                result,
+                multiply_with_strategy(&a, &b, Strategy::NativeSubstrate)
+            );
+        }
+
+        let four_digits = (BigInt::one() << 128) - 1i64;
+        let mut cutoff_meter = CountingMeter::default();
+        metered_karatsuba_multiply(&four_digits, &four_digits, &mut cutoff_meter).unwrap();
+        assert_eq!(cutoff_meter.dimensions[Dimension::DepthLimit.index()], 1);
+
+        let mut one_level_meter = CountingMeter::default();
+        metered_karatsuba_multiply(&five_digits, &five_digits, &mut one_level_meter).unwrap();
+        assert_eq!(
+            one_level_meter.dimensions[Dimension::DepthLimit.index()],
+            2,
+            "five base-2^32 digits must enter exactly one recursive level"
+        );
+
+        let skewed = (BigInt::one() << 640) + 1i64;
+        let mut skew_meter = CountingMeter::default();
+        metered_karatsuba_multiply(&skewed, &BigInt::from(65_537), &mut skew_meter).unwrap();
+        assert_eq!(skew_meter.dimensions[Dimension::DepthLimit.index()], 1);
+
+        let nested = (BigInt::one() << 288) - 1i64;
+        let mut nested_meter = CountingMeter::default();
+        metered_karatsuba_multiply(&nested, &nested, &mut nested_meter).unwrap();
+        assert!(
+            nested_meter.dimensions[Dimension::DepthLimit.index()] >= 3,
+            "nested fixture must kill an all-leaf fallback mutant"
+        );
+    }
+
+    #[test]
+    fn recursively_metered_karatsuba_exact_budgets_and_one_short_refusals() {
+        let a = (BigInt::one() << 160) - 1i64;
+        let b = -((BigInt::one() << 159) + (BigInt::one() << 97) + 65_537i64);
+        let expected = multiply_with_strategy(&a, &b, Strategy::NativeSubstrate);
+        let mut count = CountingMeter::default();
+        assert_eq!(
+            metered_karatsuba_multiply(&a, &b, &mut count).unwrap(),
+            expected
+        );
+        assert_eq!(count.dimensions[Dimension::RandomDraws.index()], 0);
+
+        let exact_limits = BudgetLimits {
+            dimensions: count.dimensions,
+            verifier_pool: 0,
+        };
+        let mut exact = Budget::new(exact_limits);
+        assert_eq!(
+            metered_karatsuba_multiply(&a, &b, &mut exact).unwrap(),
+            expected
+        );
+        for dimension in Dimension::ALL {
+            assert_eq!(exact.remaining(dimension), 0);
+        }
+
+        for dimension in Dimension::ALL {
+            let used = count.dimensions[dimension.index()];
+            if used == 0 {
+                continue;
+            }
+            let mut short_limits = exact_limits;
+            short_limits.dimensions[dimension.index()] = used - 1;
+            let mut short = Budget::new(short_limits);
+            assert!(
+                matches!(
+                    metered_karatsuba_multiply(&a, &b, &mut short),
+                    Err(MeteredMultiplyError::Meter(MeterError::Budget(
+                        BudgetError::Exhausted {
+                            dimension: observed,
+                            ..
+                        }
+                    ))) if observed == dimension
+                ),
+                "one-unit-short {dimension} allowance must refuse without a value"
+            );
+        }
+    }
+
+    #[test]
+    fn recursively_metered_karatsuba_cancels_at_every_safe_point() {
+        let a = (BigInt::one() << 160) - 1i64;
+        let b = (BigInt::one() << 159) + (BigInt::one() << 65) + 29i64;
+        let expected = multiply_with_strategy(&a, &b, Strategy::NativeSubstrate);
+        let mut baseline = CancelAfter {
+            cancel_at_checkpoint: usize::MAX,
+            checkpoints: 0,
+            compute_steps: 0,
+        };
+        assert_eq!(
+            metered_karatsuba_multiply(&a, &b, &mut baseline).unwrap(),
+            expected
+        );
+        assert!(baseline.checkpoints > 1);
+
+        for cancel_at_checkpoint in 1..=baseline.checkpoints {
+            let mut cancelled = CancelAfter {
+                cancel_at_checkpoint,
+                checkpoints: 0,
+                compute_steps: 0,
+            };
+            assert_eq!(
+                metered_karatsuba_multiply(&a, &b, &mut cancelled),
+                Err(MeteredMultiplyError::Meter(MeterError::Cancelled)),
+                "checkpoint {cancel_at_checkpoint} must not publish a partial value"
+            );
+            assert_eq!(cancelled.checkpoints, cancel_at_checkpoint);
+        }
+    }
+
+    #[test]
+    fn recursively_metered_digit_shift_reports_size_overflow() {
+        let mut meter = Unbounded;
+        assert_eq!(
+            metered_shift_left_digits(&BigInt::one(), usize::MAX, &mut meter),
+            Err(MeteredMultiplyError::SizeOverflow)
+        );
     }
 
     #[test]
@@ -1943,10 +2384,14 @@ mod tests {
             let native = multiply_with_strategy(&a, &b, Strategy::NativeSubstrate);
             let mut meter = Unbounded;
             let metered = metered_multiply(&a, &b, &mut meter).unwrap();
+            let mut recursive_meter = Unbounded;
+            let recursively_metered =
+                metered_karatsuba_multiply(&a, &b, &mut recursive_meter).unwrap();
             prop_assert_eq!(&reference, &karatsuba);
             prop_assert_eq!(&reference, &toom3);
             prop_assert_eq!(&reference, &native);
             prop_assert_eq!(&reference, &metered);
+            prop_assert_eq!(&reference, &recursively_metered);
             prop_assert_eq!(multiply_with_strategy(&b, &a, Strategy::Toom3), native.clone());
             prop_assert_eq!(&a * &b, native);
         }
