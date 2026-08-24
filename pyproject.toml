@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "frankensympy"
 version = "0.1.0"
-description = "Clean-room, certified high-performance drop-in replacement for SymPy"
+description = "Experimental clean-room symbolic mathematics engine targeting SymPy compatibility"
 readme = "README.md"
 license = { text = "Apache-2.0" }
 authors = [{ name = "FrankenSymPy Contributors" }]

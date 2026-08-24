@@ -1,75 +1,136 @@
-"""FrankenSymPy — Drop-in replacement for SymPy backed by high-performance native Rust."""
+"""Experimental FrankenSymPy compatibility slice.
+
+Only the names exported here are wired to native behavior. Unsupported SymPy
+operations fail explicitly; upstream SymPy is never used as a fallback.
+"""
 
 from .core import (
-    Expr, Symbol, Integer, Rational, Add, Mul, Pow, Derivative,
-    symbols, diff, expand, simplify,
+    Add,
+    Derivative,
+    Expr,
+    Integer,
+    Mul,
+    Pow,
+    Rational,
+    Symbol,
+    _native,
+    _native_expr,
+    _parse_result,
+    _require_symbol,
+    _wrap,
+    diff,
+    expand,
+    simplify,
+    symbols,
 )
 
-try:
-    import fsym_python as _native
-    __version__ = _native.version()
-except ImportError:
-    __version__ = "0.1.0"
-    _native = None
+__version__ = _native.version()
 
-pi = Symbol("pi")
-E = Symbol("E")
-I = Symbol("I")
-oo = Symbol("oo")
-zoo = Symbol("zoo")
-nan = Symbol("nan")
+# These are native constant nodes, not ordinary symbols with suggestive names.
+pi = Expr("pi")
+E = Expr("E")
+I = Expr("I")
+oo = Expr("oo")
+zoo = Expr("zoo")
+nan = Expr("nan")
 
-def integrate(expr, var, *limits):
-    """Compute indefinite or definite integral."""
-    if _native is None:
-        raise RuntimeError("fsym_python native module is not available")
-    expr_str = str(expr)
-    var_str = str(var)
-    if not limits:
-        return _native.integrate_expr(expr_str, var_str)
-    elif len(limits) == 2:
-        return _native.integrate_definite_expr(expr_str, var_str, str(limits[0]), str(limits[1]))
-    else:
-        raise ValueError("Invalid limits for integrate")
 
-def limit(expr, var, point):
-    """Compute limit of expression as var -> point."""
-    if _native is None:
-        raise RuntimeError("fsym_python native module is not available")
-    return _native.limit_expr(str(expr), str(var), str(point))
+def integrate(expression, *variables):
+    """Integrate one implemented univariate form.
 
-def solve(expr, var):
-    """Solve equation expr == 0 for var."""
-    if _native is None:
-        raise RuntimeError("fsym_python native module is not available")
-    return _native.solve_linear_expr(str(expr), str(var))
+    Accepted forms are ``integrate(expr, x)``, ``integrate(expr, (x, a, b))``,
+    and the legacy spelling ``integrate(expr, x, a, b)``.
+    """
+    if len(variables) == 1 and isinstance(variables[0], tuple):
+        spec = variables[0]
+        if len(spec) != 3:
+            raise ValueError("integration tuple must be (variable, lower, upper)")
+        variable, lower, upper = spec
+        symbol = _require_symbol(variable)
+        result = _native.integrate_definite_expr(
+            str(_wrap(_native_expr(expression))),
+            symbol.name,
+            str(_wrap(_native_expr(lower))),
+            str(_wrap(_native_expr(upper))),
+        )
+        return _parse_result(result)
+    if len(variables) == 1:
+        symbol = _require_symbol(variables[0])
+        return _parse_result(
+            _native.integrate_expr(str(_wrap(_native_expr(expression))), symbol.name)
+        )
+    if len(variables) == 3:
+        variable, lower, upper = variables
+        return integrate(expression, (variable, lower, upper))
+    raise TypeError("integrate requires one variable or one definite-integration tuple")
 
-def dsolve(eq, func=None):
-    """Solve ordinary differential equation."""
-    if _native is None:
-        raise RuntimeError("fsym_python native module is not available")
-    return _native.dsolve_linear_first_order_expr("0", str(eq), "x")
 
-def isprime(n):
-    """Miller-Rabin primality test."""
-    if _native is None:
-        raise RuntimeError("fsym_python native module is not available")
-    return _native.is_prime(int(n))
+def limit(expression, variable, point):
+    symbol = _require_symbol(variable)
+    return _parse_result(
+        _native.limit_expr(
+            str(_wrap(_native_expr(expression))),
+            symbol.name,
+            str(_wrap(_native_expr(point))),
+        )
+    )
 
-def factorint(n):
-    """Prime factorization."""
-    if _native is None:
-        raise RuntimeError("fsym_python native module is not available")
-    return _native.factorize(int(n))
 
-def totient(n):
-    """Euler's totient function."""
-    if _native is None:
-        raise RuntimeError("fsym_python native module is not available")
-    return _native.euler_totient(int(n))
+def solve(expression, variable):
+    """Solve the implemented linear ``expression == 0`` case."""
+    symbol = _require_symbol(variable)
+    result = _native.solve_linear_expr(
+        str(_wrap(_native_expr(expression))), symbol.name
+    )
+    return [_parse_result(result)]
+
+
+def dsolve(equation, func=None):
+    """Refuse the unsupported general SymPy ODE-equation interface."""
+    del equation, func
+    raise NotImplementedError(
+        "general dsolve equation parsing is not implemented; "
+        "the native coefficient-form solvers are not a drop-in dsolve interface"
+    )
+
+
+def isprime(value):
+    return _native.is_prime(int(value))
+
+
+def factorint(value):
+    return dict(_native.factorize(int(value)))
+
+
+def totient(value):
+    return _native.euler_totient(int(value))
+
 
 __all__ = [
-    "Expr", "Symbol", "Integer", "Rational", "Add", "Mul", "Pow", "Derivative",
-    "symbols", "diff", "expand", "simplify", "integrate", "limit", "solve", "dsolve",
-    "isprime", "factorint", "totient", "pi", "E", "I", "oo", "zoo", "nan", "__version__",
+    "Expr",
+    "Symbol",
+    "Integer",
+    "Rational",
+    "Add",
+    "Mul",
+    "Pow",
+    "Derivative",
+    "symbols",
+    "diff",
+    "expand",
+    "simplify",
+    "integrate",
+    "limit",
+    "solve",
+    "dsolve",
+    "isprime",
+    "factorint",
+    "totient",
+    "pi",
+    "E",
+    "I",
+    "oo",
+    "zoo",
+    "nan",
+    "__version__",
 ]
