@@ -11,7 +11,10 @@ use fsym_outcome::EvidenceClass;
 use fsym_proof_kernel::Claim;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-/// Unforgeable witness emitted when an independent verifier accepts a claim.
+/// Structural record emitted when a verifier reports accepting a claim.
+///
+/// A receipt is not authority by itself. Accepted-state boundaries must replay the
+/// attached evidence with a trusted verifier under the exact assumptions context.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerificationReceipt {
     pub receipt_id: ReceiptId,
@@ -72,7 +75,7 @@ impl<'de> Deserialize<'de> for VerificationReceipt {
 }
 
 impl VerificationReceipt {
-    /// Issue a new receipt for a verified claim.
+    /// Construct a receipt record for a verifier result.
     pub fn issue(
         receipt_id: ReceiptId,
         claim: &Claim,

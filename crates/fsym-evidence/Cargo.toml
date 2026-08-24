@@ -15,6 +15,7 @@ fsym-id.workspace = true
 fsym-budget.workspace = true
 fsym-outcome.workspace = true
 fsym-core.workspace = true
+fsym-assumptions.workspace = true
 fsym-proof-kernel.workspace = true
 thiserror.workspace = true
 serde.workspace = true

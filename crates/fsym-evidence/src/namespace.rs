@@ -9,7 +9,9 @@
 
 use crate::envelope::EvidenceEnvelope;
 use crate::receipt::VerificationReceipt;
-use fsym_proof_kernel::Claim;
+use fsym_assumptions::ImmutableAssumptionsSnapshot;
+use fsym_outcome::EvidenceClass;
+use fsym_proof_kernel::{Claim, verify_derivation_independent};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use thiserror::Error;
@@ -22,6 +24,8 @@ pub enum NamespaceError {
     ReceiptMismatch,
     #[error("Candidate not found in candidate namespace")]
     CandidateNotFound,
+    #[error("Independent verification rejected the evidence: {0}")]
+    IndependentVerificationFailed(String),
 }
 
 /// Unverified candidate term/claim namespace.
@@ -53,10 +57,21 @@ impl CandidateNamespace {
     }
 }
 
-/// Verified term/claim namespace containing only certified results with receipts.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+/// A verified envelope bound to the exact assumptions snapshot used for replay.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct VerifiedEvidence {
+    pub envelope: EvidenceEnvelope,
+    pub context_digest: [u8; 32],
+}
+
+/// Verified term/claim namespace containing only independently replayed results.
+///
+/// This type intentionally does not implement `Deserialize`: imported envelopes must
+/// cross [`Self::insert_verified`] with an explicit assumptions snapshot instead of
+/// materializing accepted state around the verifier.
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct VerifiedNamespace {
-    verified: HashMap<[u8; 32], EvidenceEnvelope>,
+    verified: HashMap<[u8; 32], VerifiedEvidence>,
 }
 
 impl VerifiedNamespace {
@@ -72,10 +87,12 @@ impl VerifiedNamespace {
         candidates: &mut CandidateNamespace,
         receipt: VerificationReceipt,
         derivation: Option<fsym_proof_kernel::DerivationTree>,
-    ) -> Result<EvidenceEnvelope, NamespaceError> {
+        context: &ImmutableAssumptionsSnapshot,
+    ) -> Result<VerifiedEvidence, NamespaceError> {
         let claim = candidates
             .candidates
-            .remove(candidate_digest)
+            .get(candidate_digest)
+            .cloned()
             .ok_or(NamespaceError::CandidateNotFound)?;
 
         if receipt.claim_digest != claim.digest() {
@@ -83,25 +100,27 @@ impl VerifiedNamespace {
         }
 
         let envelope = EvidenceEnvelope::new(claim, receipt.evidence_class, receipt, derivation);
-        if !envelope.verify_integrity() {
-            return Err(NamespaceError::UnverifiedCandidate);
-        }
+        let verified = independently_verify_envelope(envelope, context)?;
 
-        self.verified.insert(*candidate_digest, envelope.clone());
-        Ok(envelope)
+        candidates.candidates.remove(candidate_digest);
+        self.verified.insert(*candidate_digest, verified.clone());
+        Ok(verified)
     }
 
     /// Directly insert an externally verified evidence envelope.
-    pub fn insert_verified(&mut self, envelope: EvidenceEnvelope) -> Result<(), NamespaceError> {
-        if !envelope.verify_integrity() {
-            return Err(NamespaceError::UnverifiedCandidate);
-        }
-        self.verified.insert(envelope.claim.digest(), envelope);
+    pub fn insert_verified(
+        &mut self,
+        envelope: EvidenceEnvelope,
+        context: &ImmutableAssumptionsSnapshot,
+    ) -> Result<(), NamespaceError> {
+        let claim_digest = envelope.claim.digest();
+        let verified = independently_verify_envelope(envelope, context)?;
+        self.verified.insert(claim_digest, verified);
         Ok(())
     }
 
     /// Retrieve a verified evidence envelope by claim digest.
-    pub fn get_verified(&self, claim_digest: &[u8; 32]) -> Option<&EvidenceEnvelope> {
+    pub fn get_verified(&self, claim_digest: &[u8; 32]) -> Option<&VerifiedEvidence> {
         self.verified.get(claim_digest)
     }
 
@@ -109,6 +128,36 @@ impl VerifiedNamespace {
     pub fn count(&self) -> usize {
         self.verified.len()
     }
+}
+
+fn independently_verify_envelope(
+    envelope: EvidenceEnvelope,
+    context: &ImmutableAssumptionsSnapshot,
+) -> Result<VerifiedEvidence, NamespaceError> {
+    if !envelope.verify_integrity() {
+        return Err(NamespaceError::UnverifiedCandidate);
+    }
+    if envelope.evidence_class != EvidenceClass::KernelProved {
+        return Err(NamespaceError::IndependentVerificationFailed(format!(
+            "evidence class `{}` has no live trusted verifier",
+            envelope.evidence_class.as_str()
+        )));
+    }
+    let derivation = envelope
+        .derivation
+        .as_ref()
+        .ok_or(NamespaceError::UnverifiedCandidate)?;
+    let verified_claim = verify_derivation_independent(derivation, context)
+        .map_err(|error| NamespaceError::IndependentVerificationFailed(error.to_string()))?;
+    if verified_claim != envelope.claim {
+        return Err(NamespaceError::IndependentVerificationFailed(
+            "verified derivation root does not match the envelope claim".to_string(),
+        ));
+    }
+    Ok(VerifiedEvidence {
+        envelope,
+        context_digest: context.digest(),
+    })
 }
 
 #[cfg(test)]
@@ -123,6 +172,7 @@ mod tests {
     fn promotion_requires_matching_receipt_and_integrity() {
         let mut candidates = CandidateNamespace::new();
         let mut verified = VerifiedNamespace::new();
+        let ctx = ImmutableAssumptionsSnapshot::empty();
 
         let claim = Claim::equality(Expr::symbol("x"), Expr::symbol("x"));
         let digest = candidates.register_candidate(claim.clone());
@@ -149,18 +199,20 @@ mod tests {
         );
 
         let envelope = verified
-            .promote_candidate(&digest, &mut candidates, receipt, Some(derivation))
+            .promote_candidate(&digest, &mut candidates, receipt, Some(derivation), &ctx)
             .expect("promotion succeeds");
 
         assert_eq!(candidates.count(), 0);
         assert_eq!(verified.count(), 1);
-        assert!(envelope.verify_integrity());
+        assert!(envelope.envelope.verify_integrity());
+        assert_eq!(envelope.context_digest, ctx.digest());
     }
 
     #[test]
     fn promotion_with_mismatched_receipt_is_rejected() {
         let mut candidates = CandidateNamespace::new();
         let mut verified = VerifiedNamespace::new();
+        let ctx = ImmutableAssumptionsSnapshot::empty();
 
         let claim_a = Claim::equality(Expr::symbol("x"), Expr::symbol("x"));
         let claim_b = Claim::equality(Expr::symbol("y"), Expr::symbol("y"));
@@ -178,9 +230,10 @@ mod tests {
         );
 
         let err = verified
-            .promote_candidate(&digest_a, &mut candidates, wrong_receipt, None)
+            .promote_candidate(&digest_a, &mut candidates, wrong_receipt, None, &ctx)
             .unwrap_err();
         assert_eq!(err, NamespaceError::ReceiptMismatch);
+        assert_eq!(candidates.count(), 1);
         assert_eq!(verified.count(), 0);
     }
 
@@ -188,6 +241,7 @@ mod tests {
     fn kernel_proved_promotion_without_derivation_is_rejected() {
         let mut candidates = CandidateNamespace::new();
         let mut verified = VerifiedNamespace::new();
+        let ctx = ImmutableAssumptionsSnapshot::empty();
         let claim = Claim::equality(Expr::symbol("x"), Expr::symbol("x"));
         let digest = candidates.register_candidate(claim.clone());
         let receipt = VerificationReceipt::issue(
@@ -200,16 +254,18 @@ mod tests {
         );
 
         let error = verified
-            .promote_candidate(&digest, &mut candidates, receipt, None)
+            .promote_candidate(&digest, &mut candidates, receipt, None, &ctx)
             .unwrap_err();
 
         assert_eq!(error, NamespaceError::UnverifiedCandidate);
+        assert_eq!(candidates.count(), 1);
         assert_eq!(verified.count(), 0);
     }
 
     #[test]
     fn kernel_proved_envelope_with_mismatched_derivation_root_is_rejected() {
         let mut verified = VerifiedNamespace::new();
+        let ctx = ImmutableAssumptionsSnapshot::empty();
         let x = Expr::symbol("x");
         let published_claim = Claim::equality(x.clone(), Expr::symbol("y"));
         let derived_claim = Claim::equality(x.clone(), x.clone());
@@ -236,9 +292,48 @@ mod tests {
             Some(derivation),
         );
 
-        let error = verified.insert_verified(envelope).unwrap_err();
+        let error = verified.insert_verified(envelope, &ctx).unwrap_err();
 
         assert_eq!(error, NamespaceError::UnverifiedCandidate);
+        assert_eq!(verified.count(), 0);
+    }
+
+    #[test]
+    fn structurally_bound_but_invalid_derivation_is_rejected() {
+        let mut verified = VerifiedNamespace::new();
+        let ctx = ImmutableAssumptionsSnapshot::empty();
+        let x = Expr::symbol("x");
+        let forged_claim = Claim::equality(x.clone(), Expr::symbol("y"));
+        let derivation = DerivationTree {
+            steps: vec![DerivationStep {
+                id: StepId(0),
+                rule: ProofRule::Reflexivity(x),
+                claim: forged_claim.clone(),
+            }],
+            root: StepId(0),
+        };
+        let receipt = VerificationReceipt::issue(
+            ReceiptId::new(5).unwrap(),
+            &forged_claim,
+            EvidenceClass::KernelProved,
+            "untrusted-self-issued-receipt",
+            104,
+            Some(derivation.digest()),
+        );
+        let envelope = EvidenceEnvelope::new(
+            forged_claim,
+            EvidenceClass::KernelProved,
+            receipt,
+            Some(derivation),
+        );
+        assert!(envelope.verify_integrity());
+
+        let error = verified.insert_verified(envelope, &ctx).unwrap_err();
+
+        assert!(matches!(
+            error,
+            NamespaceError::IndependentVerificationFailed(_)
+        ));
         assert_eq!(verified.count(), 0);
     }
 }

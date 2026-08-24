@@ -15,7 +15,7 @@ mod tests {
     use crate::rule::{ProofRule, StepId};
     use fsym_assumptions::{AssumptionsContext, Predicate};
     use fsym_budget::Unbounded;
-    use fsym_core::{Expr, Symbol};
+    use fsym_core::{Constant, Expr, Symbol};
 
     fn empty_context() -> fsym_assumptions::ImmutableAssumptionsSnapshot {
         AssumptionsContext::default().snapshot()
@@ -225,6 +225,58 @@ mod tests {
             verify_derivation_independent(&derivation, &ctx).unwrap(),
             Claim::AlgebraicIdentity { lhs, rhs }
         );
+    }
+
+    #[test]
+    fn mutant_partial_values_cannot_be_erased_by_polynomial_zero() {
+        let ctx = empty_context();
+        let mut kernel = ProofKernel::new(ctx);
+        let mut meter = Unbounded;
+        let x = Expr::symbol("x");
+        let zero = Expr::from_i64(0);
+        let negative_one = Expr::from_i64(-1);
+        let partial_inputs = [
+            x.clone().pow(negative_one),
+            Expr::Const(Constant::Infinity),
+            Expr::Function("log".to_string(), vec![x]),
+        ];
+
+        for partial in partial_inputs {
+            let lhs = Expr::Mul(vec![zero.clone(), partial]);
+            for rule_name in ["mul_zero_annihilator", "polynomial_ring_equivalence"] {
+                let error = kernel
+                    .prove_definitional_reduction(lhs.clone(), zero.clone(), rule_name, &mut meter)
+                    .unwrap_err();
+                assert!(matches!(
+                    error,
+                    KernelError::InvalidDefinitionalReduction { .. }
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn mutant_polynomial_normalizer_refuses_excessive_depth() {
+        let ctx = empty_context();
+        let mut kernel = ProofKernel::new(ctx);
+        let mut meter = Unbounded;
+        let mut deep = Expr::symbol("x");
+        for _ in 0..300 {
+            deep = Expr::Add(vec![deep]);
+        }
+
+        let error = kernel
+            .prove_definitional_reduction(
+                deep.clone(),
+                deep,
+                "polynomial_ring_equivalence",
+                &mut meter,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            KernelError::InvalidDefinitionalReduction { .. }
+        ));
     }
 
     #[test]

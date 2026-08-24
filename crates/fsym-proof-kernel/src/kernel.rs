@@ -12,7 +12,7 @@ use fsym_assumptions::{
     Domain, ImmutableAssumptionsSnapshot, Predicate, TruthValue, capture_avoiding_subs,
 };
 use fsym_budget::{BudgetMeter, Dimension, MeterError};
-use fsym_core::{BigInt, BigRational, Expr, Symbol};
+use fsym_core::{BigInt, BigRational, Constant, Expr, Symbol};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -689,10 +689,13 @@ fn check_definitional_reduction(
             }
         }
         "mul_zero_annihilator" => {
-            // A * 0 -> 0
+            // A * 0 -> 0 is valid only in the total commutative-ring fragment.
+            // Partial values such as x^-1, log(x), Infinity, and NaN must retain
+            // their domain/definedness conditions instead of being erased by zero.
             match lhs {
                 Expr::Mul(terms) => {
-                    if terms.iter().any(|t| t.is_zero()) && rhs.is_zero() {
+                    let polynomial_fragment = normalize_polynomial(lhs).is_ok();
+                    if polynomial_fragment && terms.iter().any(|t| t.is_zero()) && rhs.is_zero() {
                         Ok(Claim::equality(lhs.clone(), rhs.clone()))
                     } else {
                         Err(KernelError::InvalidDefinitionalReduction {
@@ -813,6 +816,8 @@ fn check_definitional_reduction(
 const MAX_NORMAL_FORM_TERMS: usize = 4_096;
 const MAX_NORMAL_FORM_EXPONENT: u32 = 64;
 const MAX_NORMAL_FORM_COEFFICIENT_LIMBS: u64 = 4_096;
+const MAX_NORMAL_FORM_INPUT_NODES: usize = 16_384;
+const MAX_NORMAL_FORM_DEPTH: usize = 256;
 
 type Monomial = Vec<(Expr, u32)>;
 type Polynomial = BTreeMap<Monomial, BigRational>;
@@ -927,7 +932,39 @@ fn pow_polynomial(mut base: Polynomial, mut exponent: u32) -> Result<Polynomial,
     Ok(result)
 }
 
+struct NormalizationBudget {
+    remaining_nodes: usize,
+}
+
+impl NormalizationBudget {
+    fn new() -> Self {
+        Self {
+            remaining_nodes: MAX_NORMAL_FORM_INPUT_NODES,
+        }
+    }
+
+    fn visit(&mut self, depth: usize) -> Result<(), String> {
+        if depth > MAX_NORMAL_FORM_DEPTH {
+            return Err("normal-form input depth bound exceeded".to_string());
+        }
+        self.remaining_nodes = self
+            .remaining_nodes
+            .checked_sub(1)
+            .ok_or_else(|| "normal-form input node bound exceeded".to_string())?;
+        Ok(())
+    }
+}
+
 fn normalize_polynomial(expr: &Expr) -> Result<Polynomial, String> {
+    normalize_polynomial_inner(expr, 0, &mut NormalizationBudget::new())
+}
+
+fn normalize_polynomial_inner(
+    expr: &Expr,
+    depth: usize,
+    budget: &mut NormalizationBudget,
+) -> Result<Polynomial, String> {
+    budget.visit(depth)?;
     match expr {
         Expr::Integer(value) => {
             let coefficient = BigRational::from_integer(value.clone());
@@ -947,14 +984,17 @@ fn normalize_polynomial(expr: &Expr) -> Result<Polynomial, String> {
         Expr::Add(terms) => {
             let mut sum = Polynomial::new();
             for term in terms {
-                sum = add_polynomials(sum, normalize_polynomial(term)?)?;
+                sum = add_polynomials(sum, normalize_polynomial_inner(term, depth + 1, budget)?)?;
             }
             Ok(sum)
         }
         Expr::Mul(factors) => {
             let mut product = constant_polynomial(rational_one());
             for factor in factors {
-                product = multiply_polynomials(&product, &normalize_polynomial(factor)?)?;
+                product = multiply_polynomials(
+                    &product,
+                    &normalize_polynomial_inner(factor, depth + 1, budget)?,
+                )?;
             }
             Ok(product)
         }
@@ -963,11 +1003,27 @@ fn normalize_polynomial(expr: &Expr) -> Result<Polynomial, String> {
                 && let Some(exponent) = integer_exponent.to_u64()
                 && exponent <= u64::from(MAX_NORMAL_FORM_EXPONENT)
             {
-                return pow_polynomial(normalize_polynomial(base)?, exponent as u32);
+                return pow_polynomial(
+                    normalize_polynomial_inner(base, depth + 1, budget)?,
+                    exponent as u32,
+                );
             }
+            Err(
+                "only bounded non-negative integer powers belong to the polynomial fragment"
+                    .to_string(),
+            )
+        }
+        Expr::Sym(_) => Ok(atomic_polynomial(expr.clone())),
+        Expr::Const(Constant::Pi | Constant::E | Constant::I) => {
             Ok(atomic_polynomial(expr.clone()))
         }
-        Expr::Sym(_) | Expr::Const(_) | Expr::Function(_, _) => Ok(atomic_polynomial(expr.clone())),
+        Expr::Const(_) => Err(
+            "non-finite or indeterminate constants are outside the polynomial fragment".to_string(),
+        ),
+        Expr::Function(_, _) => Err(
+            "possibly partial function applications are outside the polynomial fragment"
+                .to_string(),
+        ),
     }
 }
 

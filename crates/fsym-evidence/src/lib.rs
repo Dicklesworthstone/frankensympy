@@ -16,5 +16,5 @@ pub mod receipt;
 
 pub use envelope::EvidenceEnvelope;
 pub use lattice::{LatticeError, validate_evidence_transition};
-pub use namespace::{CandidateNamespace, NamespaceError, VerifiedNamespace};
+pub use namespace::{CandidateNamespace, NamespaceError, VerifiedEvidence, VerifiedNamespace};
 pub use receipt::VerificationReceipt;
