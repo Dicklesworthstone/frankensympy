@@ -8,7 +8,16 @@ use fsym_polys::groebner::groebner_basis;
 use fsym_polys::multivariate::{MultivariatePoly, TermOrder};
 use fsym_polys::univariate::UnivariatePoly;
 use fsym_simplify::simplify;
+use num_traits::Zero;
 use std::collections::HashMap;
+
+fn numeric_zero_status(expr: &Expr) -> Option<bool> {
+    match expr {
+        Expr::Integer(value) => Some(value.is_zero()),
+        Expr::Rational(value) => Some(value.is_zero()),
+        _ => None,
+    }
+}
 
 fn evaluate_as_univariate_in_x(poly: &MultivariatePoly, y_root: &Expr) -> Vec<Expr> {
     let mut coefficients = vec![Expr::from_i64(0); (poly.degree_in(0) as usize) + 1];
@@ -63,10 +72,16 @@ pub fn solve_2var_poly_system(
                 "an exponent-vector width does not match the two-variable ring".to_string(),
             ));
         }
+        if equation.terms.values().any(Zero::is_zero) {
+            return Err(SolverError::InvalidSystem(
+                "an equation contains a non-canonical zero coefficient".to_string(),
+            ));
+        }
     }
     // Compute Groebner basis under Lex (x > y)
-    let gb = groebner_basis(eqs, TermOrder::Lex)
-        .map_err(|error| SolverError::InvalidSystem(error.to_string()))?;
+    let gb = groebner_basis(eqs, TermOrder::Lex).map_err(|error| {
+        SolverError::IncompleteSolutionSet(format!("Groebner basis computation failed: {error}"))
+    })?;
 
     // Find univariate polynomial in y (degree in x == 0)
     let Some(y_poly_mv) = gb
@@ -77,7 +92,14 @@ pub fn solve_2var_poly_system(
     };
 
     // Convert univariate polynomial in y to UnivariatePoly
-    let max_deg_y = y_poly_mv.degree_in(1) as usize;
+    let max_deg_y = usize::try_from(y_poly_mv.degree_in(1)).map_err(|_| {
+        SolverError::IncompleteSolutionSet(
+            "elimination polynomial degree does not fit usize".to_string(),
+        )
+    })?;
+    if max_deg_y > 2 {
+        return Err(SolverError::UnsupportedDegree(max_deg_y));
+    }
     let mut y_coeffs = vec![BigRational::from_integer(0.into()); max_deg_y + 1];
     for (exp, coeff) in &y_poly_mv.terms {
         let deg = exp[1] as usize;
@@ -110,12 +132,25 @@ pub fn solve_2var_poly_system(
             let x_uni_coeffs = evaluate_as_univariate_in_x(x_poly, &y_root);
             let c0 = &x_uni_coeffs[0];
             let c1 = &x_uni_coeffs[1];
-            if c1.is_zero() {
-                if c0.is_zero() {
-                    continue;
+            match numeric_zero_status(c1) {
+                Some(true) => match numeric_zero_status(c0) {
+                    Some(true) => continue,
+                    Some(false) => {
+                        root_is_impossible = true;
+                        break;
+                    }
+                    None => {
+                        return Err(SolverError::IncompleteSolutionSet(format!(
+                            "back-substitution constant has undecidable zero status at y = {y_root}"
+                        )));
+                    }
+                },
+                Some(false) => {}
+                None => {
+                    return Err(SolverError::IncompleteSolutionSet(format!(
+                        "back-substitution coefficient has undecidable zero status at y = {y_root}"
+                    )));
                 }
-                root_is_impossible = true;
-                break;
             }
             let x_root = if c1 == &Expr::from_i64(1) {
                 simplify(&Expr::Mul(vec![Expr::from_i64(-1), c0.clone()]))

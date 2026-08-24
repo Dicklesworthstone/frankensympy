@@ -475,4 +475,43 @@ mod tests {
             Err(SolverError::UnsupportedDegree(2))
         );
     }
+
+    #[test]
+    fn two_variable_solver_preflights_elimination_degree_before_allocation() {
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+        let generators = vec![x.clone(), y.clone()];
+
+        let mut x_terms = std::collections::BTreeMap::new();
+        x_terms.insert(vec![1, 0], BigRational::one());
+        let x_equation =
+            fsym_polys::multivariate::MultivariatePoly::new(generators.clone(), x_terms);
+
+        let mut huge_y_terms = std::collections::BTreeMap::new();
+        huge_y_terms.insert(vec![0, u32::MAX], BigRational::one());
+        let huge_y_equation =
+            fsym_polys::multivariate::MultivariatePoly::new(generators, huge_y_terms);
+
+        assert_eq!(
+            solve_2var_poly_system(&[x_equation, huge_y_equation], &x, &y),
+            Err(SolverError::UnsupportedDegree(u32::MAX as usize))
+        );
+    }
+
+    #[test]
+    fn two_variable_solver_rejects_noncanonical_zero_coefficients() {
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+        let mut terms = std::collections::BTreeMap::new();
+        terms.insert(vec![1, 0], BigRational::zero());
+        let malformed = fsym_polys::multivariate::MultivariatePoly {
+            generators: vec![x.clone(), y.clone()],
+            terms,
+        };
+
+        assert!(matches!(
+            solve_2var_poly_system(&[malformed], &x, &y),
+            Err(SolverError::InvalidSystem(_))
+        ));
+    }
 }
