@@ -227,10 +227,17 @@ pub fn groebner_basis(
     let mut minimal = Vec::new();
     for (i, p) in reduced.iter().enumerate() {
         let lm_p = p.leading_monomial(order).unwrap();
-        let is_redundant = reduced
-            .iter()
-            .enumerate()
-            .any(|(j, other)| i != j && divides(&other.leading_monomial(order).unwrap(), &lm_p));
+        let is_redundant = reduced.iter().enumerate().any(|(j, other)| {
+            if i == j {
+                return false;
+            }
+            let lm_other = other.leading_monomial(order).unwrap();
+            if lm_other == lm_p {
+                j < i // keep the first one with this leading monomial
+            } else {
+                divides(&lm_other, &lm_p)
+            }
+        });
         if !is_redundant {
             minimal.push(p.clone());
         }

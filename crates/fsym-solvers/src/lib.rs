@@ -3,7 +3,11 @@
 //! Algebraic equation solvers (`solve`, `solveset`), linear systems, polynomial systems,
 //! and differential equations (`dsolve`).
 
-#![forbid(unsafe_code)]
+pub mod ode;
+pub mod system;
+
+pub use ode::*;
+pub use system::*;
 
 use fsym_core::{BigRational, Expr, Symbol};
 use fsym_polys::UnivariatePoly;
@@ -342,5 +346,79 @@ mod tests {
         let y2 = Symbol::new("y");
         let p = Expr::Mul(vec![Expr::Sym(x.clone()), Expr::Sym(y2)]);
         assert_eq!(solve_linear(&p, &x), Ok(Expr::from_i64(0)));
+    }
+
+    #[test]
+    fn test_dsolve_linear_first_order_and_verification() {
+        // y'(x) + 2*y(x) = 4
+        // P(x) = 2, Q(x) = 4
+        // Solution: y(x) = 2 + C1 * exp(-2*x)
+        let x = Symbol::new("x");
+        let c1 = Symbol::new("C1");
+        let p_expr = Expr::from_i64(2);
+        let q_expr = Expr::from_i64(4);
+
+        let sol = dsolve_linear_first_order(&p_expr, &q_expr, &x, &c1).unwrap();
+        // Check ODE satisfaction: y' + 2*y - 4 = 0
+        let dy = fsym_calculus::diff(&sol, &x);
+        let ode_eval = Expr::Add(vec![
+            dy,
+            Expr::Mul(vec![Expr::from_i64(2), sol]),
+            Expr::from_i64(-4),
+        ]);
+        let mut map = std::collections::HashMap::new();
+        map.insert(x.clone(), Expr::from_i64(1));
+        map.insert(c1.clone(), Expr::from_i64(3));
+        let num_val = ode_eval.subs(&map).evalf().unwrap();
+        assert!(num_val.abs() < 1e-10, "ODE residual must be zero");
+    }
+
+    #[test]
+    fn test_dsolve_const_coeff_second_order_and_verification() {
+        // y'' - 5*y' + 6*y = 0
+        // Characteristic roots: r1 = 2, r2 = 3
+        // y(x) = C1 * exp(2*x) + C2 * exp(3*x)
+        let x = Symbol::new("x");
+        let c1 = Symbol::new("C1");
+        let c2 = Symbol::new("C2");
+
+        let sol = dsolve_const_coeff_second_order(1, -5, 6, &x, &c1, &c2).unwrap();
+        assert!(verify_const_coeff_second_order_solution(&sol, 1, -5, 6, &x));
+
+        // Harmonic oscillator: y'' + 4*y = 0
+        // y(x) = C1 * cos(2*x) + C2 * sin(2*x)
+        let sol_osc = dsolve_const_coeff_second_order(1, 0, 4, &x, &c1, &c2).unwrap();
+        assert!(verify_const_coeff_second_order_solution(
+            &sol_osc, 1, 0, 4, &x
+        ));
+    }
+
+    #[test]
+    fn test_solve_2var_poly_system() {
+        // System:
+        // x + y - 5 = 0
+        // x - y - 1 = 0
+        // Solution: x = 3, y = 2
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+        let gens = vec![x.clone(), y.clone()];
+
+        let mut t1 = std::collections::BTreeMap::new();
+        t1.insert(vec![1, 0], BigRational::one());
+        t1.insert(vec![0, 1], BigRational::one());
+        t1.insert(vec![0, 0], BigRational::from_integer((-5).into()));
+        let p1 = fsym_polys::multivariate::MultivariatePoly::new(gens.clone(), t1);
+
+        let mut t2 = std::collections::BTreeMap::new();
+        t2.insert(vec![1, 0], BigRational::one());
+        t2.insert(vec![0, 1], BigRational::from_integer((-1).into()));
+        t2.insert(vec![0, 0], BigRational::from_integer((-1).into()));
+        let p2 = fsym_polys::multivariate::MultivariatePoly::new(gens.clone(), t2);
+
+        let sols = solve_2var_poly_system(&[p1, p2], &x, &y).unwrap();
+        assert_eq!(sols.len(), 1);
+        let sol = &sols[0];
+        assert_eq!(sol.get(&x).unwrap(), &Expr::from_i64(3));
+        assert_eq!(sol.get(&y).unwrap(), &Expr::from_i64(2));
     }
 }

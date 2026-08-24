@@ -868,6 +868,7 @@ dependencies = [
 name = "fsym-solvers"
 version = "0.1.0"
 dependencies = [
+ "fsym-calculus",
  "fsym-core",
  "fsym-polys",
  "fsym-simplify",

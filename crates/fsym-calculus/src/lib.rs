@@ -166,15 +166,63 @@ fn integral_term(f: &Expr, var: &Symbol) -> Result<Expr, CalculusError> {
             }
             other => Err(CalculusError::IntegrationFailed(format!("x^{other}"))),
         },
-        Expr::Function(name, args) if args.len() == 1 && args[0] == x => match name.as_str() {
-            "exp" => Ok(Expr::Function("exp".to_string(), vec![x])),
-            "sin" => Ok(Expr::Mul(vec![
-                Expr::from_i64(-1),
-                Expr::Function("cos".to_string(), vec![x]),
-            ])),
-            "cos" => Ok(Expr::Function("sin".to_string(), vec![x])),
-            other => Err(CalculusError::IntegrationFailed(format!("{other}({x})"))),
-        },
+        Expr::Function(name, args) if args.len() == 1 => {
+            let u = &args[0];
+            let (c, is_linear) = if u == &x {
+                (Expr::from_i64(1), true)
+            } else if let Expr::Mul(factors) = u {
+                let mut const_factors = Vec::new();
+                let mut var_count = 0;
+                for f in factors {
+                    if f == &x {
+                        var_count += 1;
+                    } else if is_free_of(f, var) {
+                        const_factors.push(f.clone());
+                    }
+                }
+                if var_count == 1 {
+                    (simplify(&Expr::Mul(const_factors)), true)
+                } else {
+                    (Expr::from_i64(1), false)
+                }
+            } else {
+                (Expr::from_i64(1), false)
+            };
+
+            if is_linear {
+                if c == Expr::from_i64(1) {
+                    match name.as_str() {
+                        "exp" => Ok(Expr::Function("exp".to_string(), vec![u.clone()])),
+                        "sin" => Ok(Expr::Mul(vec![
+                            Expr::from_i64(-1),
+                            Expr::Function("cos".to_string(), vec![u.clone()]),
+                        ])),
+                        "cos" => Ok(Expr::Function("sin".to_string(), vec![u.clone()])),
+                        other => Err(CalculusError::IntegrationFailed(format!("{other}({u})"))),
+                    }
+                } else {
+                    let inv_c = Expr::Pow(Arc::new(c), Arc::new(Expr::from_i64(-1)));
+                    match name.as_str() {
+                        "exp" => Ok(simplify(&Expr::Mul(vec![
+                            inv_c,
+                            Expr::Function("exp".to_string(), vec![u.clone()]),
+                        ]))),
+                        "sin" => Ok(simplify(&Expr::Mul(vec![
+                            Expr::from_i64(-1),
+                            inv_c,
+                            Expr::Function("cos".to_string(), vec![u.clone()]),
+                        ]))),
+                        "cos" => Ok(simplify(&Expr::Mul(vec![
+                            inv_c,
+                            Expr::Function("sin".to_string(), vec![u.clone()]),
+                        ]))),
+                        other => Err(CalculusError::IntegrationFailed(format!("{other}({u})"))),
+                    }
+                }
+            } else {
+                Err(CalculusError::IntegrationFailed(format!("{name}({u})")))
+            }
+        }
         other => Err(CalculusError::IntegrationFailed(other.to_string())),
     }
 }
