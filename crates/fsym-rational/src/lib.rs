@@ -4,14 +4,16 @@
 //! [`BigRational`] and [`fsym_bigint::BigInt`], keeping rational representation and normalization
 //! policy independently replaceable from the integer substrate.
 //!
-//! This boundary owns the canonical rational value type, exact height metadata, and finite simple
-//! continued fractions. Pair-returning rational reconstruction support remains in `fsym-modular`;
-//! a value-returning reconstruction API and fully cross-cancelled scalar operators remain later
-//! architecture §5.4 work.
+//! This boundary owns the canonical rational value type, exact height metadata, finite simple
+//! continued fractions, and cross-cancelled scalar arithmetic with cancellation-first metered
+//! lanes. Pair-returning rational reconstruction support remains in `fsym-modular`; a
+//! value-returning reconstruction API remains later architecture §5.4 work.
 
 #![forbid(unsafe_code)]
 
-use fsym_bigint::{BigInt, NonZeroBigInt, metered_div_rem_nonzero, metered_multiply};
+use fsym_bigint::{
+    BigInt, NonZeroBigInt, gcd, metered_div_rem_nonzero, metered_gcd, metered_multiply,
+};
 use fsym_budget::{BudgetMeter, Dimension, MeterError};
 use num_traits::{Num, One, Signed, ToPrimitive, Zero};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -37,6 +39,37 @@ pub struct BigRational(num_rational::Ratio<BigInt>);
 pub struct RationalHeight {
     numerator_bits: u64,
     denominator_bits: u64,
+}
+
+/// Typed failure from cancellation-first rational arithmetic.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RationalArithmeticError {
+    /// A budget was exhausted or the owning region was cancelled.
+    Meter(MeterError),
+    /// Division or remainder was requested with a zero right-hand operand.
+    DivisionByZero,
+    /// A mathematically exact internal quotient failed its invariant check.
+    InvariantViolation(&'static str),
+}
+
+impl fmt::Display for RationalArithmeticError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Meter(error) => fmt::Display::fmt(error, f),
+            Self::DivisionByZero => f.write_str("rational division by zero"),
+            Self::InvariantViolation(message) => {
+                write!(f, "rational arithmetic invariant violated: {message}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for RationalArithmeticError {}
+
+impl From<MeterError> for RationalArithmeticError {
+    fn from(error: MeterError) -> Self {
+        Self::Meter(error)
+    }
 }
 
 impl RationalHeight {
@@ -130,6 +163,233 @@ impl BigRational {
     /// Raises this rational to a signed integer power.
     pub fn pow(&self, exponent: i32) -> Self {
         Self(num_rational::Ratio::<BigInt>::pow(&self.0, exponent))
+    }
+
+    /// Adds two canonical rationals while cancelling denominator factors before multiplication.
+    pub fn cross_cancelled_add(&self, rhs: &Self) -> Self {
+        cross_cancelled_sum(self, rhs, false)
+    }
+
+    /// Subtracts two canonical rationals while cancelling denominator factors before
+    /// multiplication.
+    pub fn cross_cancelled_sub(&self, rhs: &Self) -> Self {
+        cross_cancelled_sum(self, rhs, true)
+    }
+
+    /// Multiplies two canonical rationals after cancelling both numerator/denominator crosses.
+    pub fn cross_cancelled_mul(&self, rhs: &Self) -> Self {
+        let left_cross = gcd(self.numer(), rhs.denom());
+        let right_cross = gcd(rhs.numer(), self.denom());
+        let numerator = (self.numer() / &left_cross) * (rhs.numer() / &right_cross);
+        let denominator = (self.denom() / &right_cross) * (rhs.denom() / &left_cross);
+        Self(num_rational::Ratio::new_raw(numerator, denominator))
+    }
+
+    /// Divides two canonical rationals after cancelling numerator and denominator crosses.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `rhs` is zero, matching the ordinary division-operator contract.
+    pub fn cross_cancelled_div(&self, rhs: &Self) -> Self {
+        if rhs.is_zero() {
+            return Self(num_rational::Ratio::new(
+                self.numer().clone(),
+                BigInt::zero(),
+            ));
+        }
+        let numerator_cross = gcd(self.numer(), rhs.numer());
+        let denominator_cross = gcd(self.denom(), rhs.denom());
+        let mut numerator = (self.numer() / &numerator_cross) * (rhs.denom() / &denominator_cross);
+        let mut denominator =
+            (self.denom() / &denominator_cross) * (rhs.numer() / &numerator_cross);
+        if denominator.is_negative() {
+            numerator = -numerator;
+            denominator = -denominator;
+        }
+        Self(num_rational::Ratio::new_raw(numerator, denominator))
+    }
+
+    /// Computes the truncating rational remainder with an LCM-sized common denominator.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `rhs` is zero, matching the ordinary remainder-operator contract.
+    pub fn cross_cancelled_rem(&self, rhs: &Self) -> Self {
+        if rhs.is_zero() {
+            return Self(num_rational::Ratio::new(
+                self.numer().clone(),
+                BigInt::zero(),
+            ));
+        }
+        let denominator_gcd = gcd(self.denom(), rhs.denom());
+        let left_denominator = self.denom() / &denominator_gcd;
+        let right_denominator = rhs.denom() / &denominator_gcd;
+        let left_scaled = self.numer() * &right_denominator;
+        let right_scaled = rhs.numer() * &left_denominator;
+        let (_, remainder) = left_scaled.div_rem(&right_scaled);
+        let common_denominator = self.denom() * right_denominator;
+        let reduction = gcd(&remainder, &common_denominator);
+        let numerator = remainder / &reduction;
+        let denominator = common_denominator / reduction;
+        Self(num_rational::Ratio::new_raw(numerator, denominator))
+    }
+
+    /// Cancellation-first, cross-cancelled rational addition.
+    pub fn metered_add<M: BudgetMeter>(
+        &self,
+        rhs: &Self,
+        meter: &mut M,
+    ) -> Result<Self, RationalArithmeticError> {
+        metered_sum(self, rhs, false, meter)
+    }
+
+    /// Cancellation-first, cross-cancelled rational subtraction.
+    pub fn metered_sub<M: BudgetMeter>(
+        &self,
+        rhs: &Self,
+        meter: &mut M,
+    ) -> Result<Self, RationalArithmeticError> {
+        metered_sum(self, rhs, true, meter)
+    }
+
+    /// Cancellation-first rational multiplication with both crosses reduced first.
+    pub fn metered_mul<M: BudgetMeter>(
+        &self,
+        rhs: &Self,
+        meter: &mut M,
+    ) -> Result<Self, RationalArithmeticError> {
+        meter.checkpoint()?;
+        let left_cross = metered_gcd(self.numer(), rhs.denom(), meter)?;
+        let right_cross = metered_gcd(rhs.numer(), self.denom(), meter)?;
+        let left_numerator = metered_exact_quotient(
+            self.numer(),
+            &left_cross,
+            "left numerator cross-cancellation",
+            meter,
+        )?;
+        let right_numerator = metered_exact_quotient(
+            rhs.numer(),
+            &right_cross,
+            "right numerator cross-cancellation",
+            meter,
+        )?;
+        let left_denominator = metered_exact_quotient(
+            self.denom(),
+            &right_cross,
+            "left denominator cross-cancellation",
+            meter,
+        )?;
+        let right_denominator = metered_exact_quotient(
+            rhs.denom(),
+            &left_cross,
+            "right denominator cross-cancellation",
+            meter,
+        )?;
+        let numerator = metered_multiply(&left_numerator, &right_numerator, meter)?;
+        let denominator = metered_multiply(&left_denominator, &right_denominator, meter)?;
+        rational_metered_finish(
+            Self(num_rational::Ratio::new_raw(numerator, denominator)),
+            meter,
+        )
+    }
+
+    /// Cancellation-first rational division with typed zero-divisor refusal.
+    pub fn metered_div<M: BudgetMeter>(
+        &self,
+        rhs: &Self,
+        meter: &mut M,
+    ) -> Result<Self, RationalArithmeticError> {
+        meter.checkpoint()?;
+        if rhs.is_zero() {
+            return Err(RationalArithmeticError::DivisionByZero);
+        }
+        let numerator_cross = metered_gcd(self.numer(), rhs.numer(), meter)?;
+        let denominator_cross = metered_gcd(self.denom(), rhs.denom(), meter)?;
+        let left_numerator = metered_exact_quotient(
+            self.numer(),
+            &numerator_cross,
+            "division numerator cross-cancellation",
+            meter,
+        )?;
+        let right_numerator = metered_exact_quotient(
+            rhs.numer(),
+            &numerator_cross,
+            "division divisor cross-cancellation",
+            meter,
+        )?;
+        let left_denominator = metered_exact_quotient(
+            self.denom(),
+            &denominator_cross,
+            "division left-denominator cross-cancellation",
+            meter,
+        )?;
+        let right_denominator = metered_exact_quotient(
+            rhs.denom(),
+            &denominator_cross,
+            "division right-denominator cross-cancellation",
+            meter,
+        )?;
+        let mut numerator = metered_multiply(&left_numerator, &right_denominator, meter)?;
+        let mut denominator = metered_multiply(&left_denominator, &right_numerator, meter)?;
+        if denominator.is_negative() {
+            numerator = metered_negate(numerator, meter)?;
+            denominator = metered_negate(denominator, meter)?;
+        }
+        rational_metered_finish(
+            Self(num_rational::Ratio::new_raw(numerator, denominator)),
+            meter,
+        )
+    }
+
+    /// Cancellation-first truncating rational remainder with typed zero-divisor refusal.
+    pub fn metered_rem<M: BudgetMeter>(
+        &self,
+        rhs: &Self,
+        meter: &mut M,
+    ) -> Result<Self, RationalArithmeticError> {
+        meter.checkpoint()?;
+        if rhs.is_zero() {
+            return Err(RationalArithmeticError::DivisionByZero);
+        }
+        let denominator_gcd = metered_gcd(self.denom(), rhs.denom(), meter)?;
+        let left_denominator = metered_exact_quotient(
+            self.denom(),
+            &denominator_gcd,
+            "remainder left-denominator cancellation",
+            meter,
+        )?;
+        let right_denominator = metered_exact_quotient(
+            rhs.denom(),
+            &denominator_gcd,
+            "remainder right-denominator cancellation",
+            meter,
+        )?;
+        let left_scaled = metered_multiply(self.numer(), &right_denominator, meter)?;
+        let right_scaled = metered_multiply(rhs.numer(), &left_denominator, meter)?;
+        let Some(right_scaled) = NonZeroBigInt::new(&right_scaled) else {
+            return Err(RationalArithmeticError::InvariantViolation(
+                "nonzero remainder divisor became zero",
+            ));
+        };
+        let (_, remainder) = metered_div_rem_nonzero(&left_scaled, right_scaled, meter)?;
+        let common_denominator = metered_multiply(self.denom(), &right_denominator, meter)?;
+        let reduction = metered_gcd(&remainder, &common_denominator, meter)?;
+        let numerator = metered_exact_quotient(
+            &remainder,
+            &reduction,
+            "remainder numerator normalization",
+            meter,
+        )?;
+        let denominator = metered_exact_quotient(
+            &common_denominator,
+            &reduction,
+            "remainder denominator normalization",
+            meter,
+        )?;
+        rational_metered_finish(
+            Self(num_rational::Ratio::new_raw(numerator, denominator)),
+            meter,
+        )
     }
 
     /// Returns exact numerator/denominator height metadata.
@@ -255,6 +515,90 @@ impl BigRational {
         let value = Self(num_rational::Ratio::new_raw(numerator, denominator));
         metered_finish(Some(value), meter)
     }
+}
+
+fn cross_cancelled_sum(lhs: &BigRational, rhs: &BigRational, subtract: bool) -> BigRational {
+    let denominator_gcd = gcd(lhs.denom(), rhs.denom());
+    let left_denominator = lhs.denom() / &denominator_gcd;
+    let right_denominator = rhs.denom() / &denominator_gcd;
+    let left_scaled = lhs.numer() * &right_denominator;
+    let right_scaled = rhs.numer() * &left_denominator;
+    let combined = if subtract {
+        left_scaled - right_scaled
+    } else {
+        left_scaled + right_scaled
+    };
+    let reduction = gcd(&combined, &denominator_gcd);
+    let numerator = combined / &reduction;
+    let denominator = left_denominator * (rhs.denom() / reduction);
+    BigRational(num_rational::Ratio::new_raw(numerator, denominator))
+}
+
+fn metered_sum<M: BudgetMeter>(
+    lhs: &BigRational,
+    rhs: &BigRational,
+    subtract: bool,
+    meter: &mut M,
+) -> Result<BigRational, RationalArithmeticError> {
+    meter.checkpoint()?;
+    let denominator_gcd = metered_gcd(lhs.denom(), rhs.denom(), meter)?;
+    let left_denominator = metered_exact_quotient(
+        lhs.denom(),
+        &denominator_gcd,
+        "sum left-denominator cancellation",
+        meter,
+    )?;
+    let right_denominator = metered_exact_quotient(
+        rhs.denom(),
+        &denominator_gcd,
+        "sum right-denominator cancellation",
+        meter,
+    )?;
+    let left_scaled = metered_multiply(lhs.numer(), &right_denominator, meter)?;
+    let right_scaled = metered_multiply(rhs.numer(), &left_denominator, meter)?;
+    let combined = if subtract {
+        metered_subtract(&left_scaled, &right_scaled, meter)?
+    } else {
+        metered_add(&left_scaled, &right_scaled, meter)?
+    };
+    let reduction = metered_gcd(&combined, &denominator_gcd, meter)?;
+    let numerator =
+        metered_exact_quotient(&combined, &reduction, "sum numerator normalization", meter)?;
+    let right_reduced = metered_exact_quotient(
+        rhs.denom(),
+        &reduction,
+        "sum denominator normalization",
+        meter,
+    )?;
+    let denominator = metered_multiply(&left_denominator, &right_reduced, meter)?;
+    rational_metered_finish(
+        BigRational(num_rational::Ratio::new_raw(numerator, denominator)),
+        meter,
+    )
+}
+
+fn metered_exact_quotient<M: BudgetMeter>(
+    value: &BigInt,
+    divisor: &BigInt,
+    invariant: &'static str,
+    meter: &mut M,
+) -> Result<BigInt, RationalArithmeticError> {
+    let Some(divisor) = NonZeroBigInt::new(divisor) else {
+        return Err(RationalArithmeticError::InvariantViolation(invariant));
+    };
+    let (quotient, remainder) = metered_div_rem_nonzero(value, divisor, meter)?;
+    if !remainder.is_zero() {
+        return Err(RationalArithmeticError::InvariantViolation(invariant));
+    }
+    Ok(quotient)
+}
+
+fn rational_metered_finish<T, M: BudgetMeter>(
+    value: T,
+    meter: &mut M,
+) -> Result<T, RationalArithmeticError> {
+    meter.checkpoint()?;
+    Ok(value)
 }
 
 fn metered_finish<T, M: BudgetMeter>(value: T, meter: &mut M) -> Result<T, MeterError> {
@@ -390,12 +734,12 @@ impl One for BigRational {
 }
 
 macro_rules! impl_rational_binary_op {
-    ($trait:ident, $method:ident, $operator:tt) => {
+    ($trait:ident, $method:ident, $owned_method:ident) => {
         impl $trait for BigRational {
             type Output = BigRational;
 
             fn $method(self, rhs: BigRational) -> Self::Output {
-                BigRational(self.0 $operator rhs.0)
+                self.$owned_method(&rhs)
             }
         }
 
@@ -403,7 +747,7 @@ macro_rules! impl_rational_binary_op {
             type Output = BigRational;
 
             fn $method(self, rhs: &BigRational) -> Self::Output {
-                BigRational(self.0 $operator &rhs.0)
+                self.$owned_method(rhs)
             }
         }
 
@@ -411,7 +755,7 @@ macro_rules! impl_rational_binary_op {
             type Output = BigRational;
 
             fn $method(self, rhs: BigRational) -> Self::Output {
-                BigRational(&self.0 $operator rhs.0)
+                self.$owned_method(&rhs)
             }
         }
 
@@ -419,39 +763,39 @@ macro_rules! impl_rational_binary_op {
             type Output = BigRational;
 
             fn $method(self, rhs: &BigRational) -> Self::Output {
-                BigRational(&self.0 $operator &rhs.0)
+                self.$owned_method(rhs)
             }
         }
     };
 }
 
-impl_rational_binary_op!(Add, add, +);
-impl_rational_binary_op!(Sub, sub, -);
-impl_rational_binary_op!(Mul, mul, *);
-impl_rational_binary_op!(Div, div, /);
-impl_rational_binary_op!(Rem, rem, %);
+impl_rational_binary_op!(Add, add, cross_cancelled_add);
+impl_rational_binary_op!(Sub, sub, cross_cancelled_sub);
+impl_rational_binary_op!(Mul, mul, cross_cancelled_mul);
+impl_rational_binary_op!(Div, div, cross_cancelled_div);
+impl_rational_binary_op!(Rem, rem, cross_cancelled_rem);
 
 macro_rules! impl_rational_assign_op {
-    ($trait:ident, $method:ident, $operator:tt) => {
+    ($trait:ident, $method:ident, $owned_method:ident) => {
         impl $trait for BigRational {
             fn $method(&mut self, rhs: BigRational) {
-                self.0 $operator rhs.0;
+                *self = self.$owned_method(&rhs);
             }
         }
 
         impl $trait<&BigRational> for BigRational {
             fn $method(&mut self, rhs: &BigRational) {
-                self.0 $operator &rhs.0;
+                *self = self.$owned_method(rhs);
             }
         }
     };
 }
 
-impl_rational_assign_op!(AddAssign, add_assign, +=);
-impl_rational_assign_op!(SubAssign, sub_assign, -=);
-impl_rational_assign_op!(MulAssign, mul_assign, *=);
-impl_rational_assign_op!(DivAssign, div_assign, /=);
-impl_rational_assign_op!(RemAssign, rem_assign, %=);
+impl_rational_assign_op!(AddAssign, add_assign, cross_cancelled_add);
+impl_rational_assign_op!(SubAssign, sub_assign, cross_cancelled_sub);
+impl_rational_assign_op!(MulAssign, mul_assign, cross_cancelled_mul);
+impl_rational_assign_op!(DivAssign, div_assign, cross_cancelled_div);
+impl_rational_assign_op!(RemAssign, rem_assign, cross_cancelled_rem);
 
 impl Neg for BigRational {
     type Output = BigRational;
@@ -574,6 +918,133 @@ mod tests {
         );
         assert_eq!(value.recip(), BigRational::new(4.into(), 3.into()));
         assert_eq!(value.pow(-2), BigRational::new(16.into(), 9.into()));
+    }
+
+    #[test]
+    fn owned_operator_and_assignment_paths_use_canonical_cross_cancelled_results() {
+        let lhs = BigRational::new(BigInt::from(-14), BigInt::from(15));
+        let rhs = BigRational::new(BigInt::from(21), BigInt::from(22));
+
+        assert_eq!(
+            lhs.cross_cancelled_add(&rhs),
+            BigRational::new(BigInt::from(7), BigInt::from(330))
+        );
+        assert_eq!(
+            lhs.cross_cancelled_sub(&rhs),
+            BigRational::new(BigInt::from(-623), BigInt::from(330))
+        );
+        assert_eq!(
+            lhs.cross_cancelled_mul(&rhs),
+            BigRational::new(BigInt::from(-49), BigInt::from(55))
+        );
+        assert_eq!(
+            lhs.cross_cancelled_div(&rhs),
+            BigRational::new(BigInt::from(-44), BigInt::from(45))
+        );
+        assert_eq!(
+            lhs.cross_cancelled_rem(&rhs),
+            BigRational::new(BigInt::from(-14), BigInt::from(15))
+        );
+
+        assert_eq!(&lhs + &rhs, lhs.cross_cancelled_add(&rhs));
+        assert_eq!(&lhs - &rhs, lhs.cross_cancelled_sub(&rhs));
+        assert_eq!(&lhs * &rhs, lhs.cross_cancelled_mul(&rhs));
+        assert_eq!(&lhs / &rhs, lhs.cross_cancelled_div(&rhs));
+        assert_eq!(&lhs % &rhs, lhs.cross_cancelled_rem(&rhs));
+
+        let mut assigned = lhs.clone();
+        assigned += &rhs;
+        assert_eq!(assigned, lhs.cross_cancelled_add(&rhs));
+        assigned = lhs.clone();
+        assigned -= rhs.clone();
+        assert_eq!(assigned, lhs.cross_cancelled_sub(&rhs));
+        assigned = lhs.clone();
+        assigned *= &rhs;
+        assert_eq!(assigned, lhs.cross_cancelled_mul(&rhs));
+        assigned = lhs.clone();
+        assigned /= rhs.clone();
+        assert_eq!(assigned, lhs.cross_cancelled_div(&rhs));
+        assigned = lhs.clone();
+        assigned %= &rhs;
+        assert_eq!(assigned, lhs.cross_cancelled_rem(&rhs));
+    }
+
+    #[test]
+    fn metered_scalar_lanes_match_owned_operators_and_refuse_zero_divisors() {
+        let lhs = BigRational::new(BigInt::from(-14), BigInt::from(15));
+        let rhs = BigRational::new(BigInt::from(21), BigInt::from(22));
+        let mut meter = Unbounded;
+        assert_eq!(lhs.metered_add(&rhs, &mut meter), Ok(&lhs + &rhs));
+        let mut meter = Unbounded;
+        assert_eq!(lhs.metered_sub(&rhs, &mut meter), Ok(&lhs - &rhs));
+        let mut meter = Unbounded;
+        assert_eq!(lhs.metered_mul(&rhs, &mut meter), Ok(&lhs * &rhs));
+        let mut meter = Unbounded;
+        assert_eq!(lhs.metered_div(&rhs, &mut meter), Ok(&lhs / &rhs));
+        let mut meter = Unbounded;
+        assert_eq!(lhs.metered_rem(&rhs, &mut meter), Ok(&lhs % &rhs));
+
+        let zero = BigRational::zero();
+        let mut meter = Unbounded;
+        assert_eq!(
+            lhs.metered_div(&zero, &mut meter),
+            Err(RationalArithmeticError::DivisionByZero)
+        );
+        let mut meter = Unbounded;
+        assert_eq!(
+            lhs.metered_rem(&zero, &mut meter),
+            Err(RationalArithmeticError::DivisionByZero)
+        );
+
+        let mut cancelled = CheckpointMeter::cancelling_at(1);
+        assert_eq!(
+            lhs.metered_div(&zero, &mut cancelled),
+            Err(RationalArithmeticError::Meter(MeterError::Cancelled))
+        );
+        let mut cancelled = CheckpointMeter::cancelling_at(1);
+        assert_eq!(
+            lhs.metered_rem(&zero, &mut cancelled),
+            Err(RationalArithmeticError::Meter(MeterError::Cancelled))
+        );
+    }
+
+    #[test]
+    fn metered_scalar_lanes_refuse_budget_and_terminal_cancellation() {
+        let common = BigInt::from(2).pow(256) - 1i64;
+        let lhs = BigRational::new(common.clone(), BigInt::from(3).pow(161));
+        let rhs = BigRational::new(BigInt::from(3).pow(161), common);
+
+        let mut budget = Budget::new(BudgetLimits::uniform(1, 0));
+        assert!(matches!(
+            lhs.metered_mul(&rhs, &mut budget),
+            Err(RationalArithmeticError::Meter(MeterError::Budget(_)))
+        ));
+
+        let mut measured = CheckpointMeter::default();
+        assert_eq!(lhs.metered_add(&rhs, &mut measured).unwrap(), &lhs + &rhs);
+        let mut cancelled = CheckpointMeter::cancelling_at(measured.checkpoints);
+        assert_eq!(
+            lhs.metered_add(&rhs, &mut cancelled),
+            Err(RationalArithmeticError::Meter(MeterError::Cancelled))
+        );
+
+        let mut measured = CheckpointMeter::default();
+        assert_eq!(
+            lhs.metered_mul(&rhs, &mut measured).unwrap(),
+            BigRational::one()
+        );
+        assert!(measured.checkpoints > 1_000);
+        let mut cancelled = CheckpointMeter::cancelling_at(measured.checkpoints * 3 / 4);
+        assert_eq!(
+            lhs.metered_mul(&rhs, &mut cancelled),
+            Err(RationalArithmeticError::Meter(MeterError::Cancelled))
+        );
+
+        let mut cancelled = CheckpointMeter::cancelling_at(measured.checkpoints);
+        assert_eq!(
+            lhs.metered_mul(&rhs, &mut cancelled),
+            Err(RationalArithmeticError::Meter(MeterError::Cancelled))
+        );
     }
 
     #[test]
@@ -829,6 +1300,74 @@ mod tests {
                     BigRational::new(rational.numer().clone(), rational.denom().clone()),
                     rational
                 );
+            }
+        }
+
+        #[test]
+        fn owned_and_metered_scalar_lanes_match_naive_canonical_arithmetic(
+            left_numerator in any::<i64>(),
+            left_denominator in any::<i64>().prop_filter("nonzero left denominator", |value| *value != 0),
+            right_numerator in any::<i64>(),
+            right_denominator in any::<i64>().prop_filter("nonzero right denominator", |value| *value != 0),
+        ) {
+            let lhs = BigRational::new(
+                BigInt::from(left_numerator),
+                BigInt::from(left_denominator),
+            );
+            let rhs = BigRational::new(
+                BigInt::from(right_numerator),
+                BigInt::from(right_denominator),
+            );
+            let common_denominator = lhs.denom() * rhs.denom();
+            let left_scaled = lhs.numer() * rhs.denom();
+            let right_scaled = rhs.numer() * lhs.denom();
+            let expected_add = BigRational::new(
+                &left_scaled + &right_scaled,
+                common_denominator.clone(),
+            );
+            let expected_sub = BigRational::new(
+                &left_scaled - &right_scaled,
+                common_denominator.clone(),
+            );
+            let expected_mul = BigRational::new(
+                lhs.numer() * rhs.numer(),
+                common_denominator.clone(),
+            );
+
+            prop_assert_eq!(&lhs + &rhs, expected_add.clone());
+            prop_assert_eq!(&lhs - &rhs, expected_sub.clone());
+            prop_assert_eq!(&lhs * &rhs, expected_mul.clone());
+
+            let mut meter = Unbounded;
+            prop_assert_eq!(lhs.metered_add(&rhs, &mut meter).unwrap(), expected_add);
+            let mut meter = Unbounded;
+            prop_assert_eq!(lhs.metered_sub(&rhs, &mut meter).unwrap(), expected_sub);
+            let mut meter = Unbounded;
+            prop_assert_eq!(lhs.metered_mul(&rhs, &mut meter).unwrap(), expected_mul);
+
+            if !rhs.is_zero() {
+                let expected_div = BigRational::new(
+                    lhs.numer() * rhs.denom(),
+                    lhs.denom() * rhs.numer(),
+                );
+                let (_, naive_remainder) = left_scaled.div_rem(&right_scaled);
+                let expected_rem = BigRational::new(naive_remainder, common_denominator);
+                prop_assert_eq!(&lhs / &rhs, expected_div.clone());
+                prop_assert_eq!(&lhs % &rhs, expected_rem.clone());
+
+                let mut meter = Unbounded;
+                prop_assert_eq!(lhs.metered_div(&rhs, &mut meter).unwrap(), expected_div);
+                let mut meter = Unbounded;
+                prop_assert_eq!(lhs.metered_rem(&rhs, &mut meter).unwrap(), expected_rem);
+            }
+
+            for value in [
+                lhs.cross_cancelled_add(&rhs),
+                lhs.cross_cancelled_sub(&rhs),
+                lhs.cross_cancelled_mul(&rhs),
+            ] {
+                prop_assert!(value.denom().is_positive());
+                prop_assert_eq!(gcd(value.numer(), value.denom()), BigInt::one());
             }
         }
     }
