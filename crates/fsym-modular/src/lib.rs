@@ -1375,8 +1375,8 @@ impl FiniteFieldElement {
 pub struct MontgomeryReducer {
     modulus: BigInt,
     r: BigInt,
-    r_shift: usize,
-    r_mod_m: BigInt,
+    reduction_bound: BigInt,
+    r_shift: u32,
     r2_mod_m: BigInt,
     m_prime: BigInt,
 }
@@ -1388,38 +1388,133 @@ impl MontgomeryReducer {
             return None;
         }
         let bit_len = u32::try_from(modulus.bits()).ok()?;
-        let r_shift = bit_len + 1;
+        let r_shift = bit_len.checked_add(1)?;
         let r = BigInt::one() << r_shift;
         let r_mod_m = &r % &modulus;
         let r2_mod_m = (&r_mod_m * &r_mod_m) % &modulus;
         let m_inv = mod_inverse(&modulus, &r)?;
-        let m_prime = (&r - m_inv) % &r;
+        let m_prime = &r - m_inv;
+        let reduction_bound = &modulus * &r;
         Some(Self {
             modulus,
             r,
-            r_shift: r_shift as usize,
-            r_mod_m,
+            reduction_bound,
+            r_shift,
             r2_mod_m,
             m_prime,
         })
     }
 
-    /// Converts a standard residue $a \in [0, M)$ into Montgomery form $a \cdot R \pmod M$.
+    /// Cancellation-first reducer construction. Power-of-two setup is deliberately performed by
+    /// metered doublings so cancellation remains observable during large precomputation.
+    pub fn metered_new<M: BudgetMeter>(
+        modulus: BigInt,
+        meter: &mut M,
+    ) -> Result<Option<Self>, MeterError> {
+        meter.checkpoint()?;
+        if modulus <= BigInt::one() {
+            return metered_finish(None, meter);
+        }
+        let two = BigInt::from(2i64);
+        let two_divisor = NonZeroBigInt::new(&two).expect("two is nonzero");
+        let (_, parity) = metered_div_rem_nonzero(&modulus, two_divisor, meter)?;
+        if parity.is_zero() {
+            return metered_finish(None, meter);
+        }
+        let Some(r_shift) = u32::try_from(modulus.bits())
+            .ok()
+            .and_then(|bits| bits.checked_add(1))
+        else {
+            return metered_finish(None, meter);
+        };
+        let r = metered_power_of_two(r_shift, meter)?;
+        let r_divisor = NonZeroBigInt::new(&r).expect("power of two is nonzero");
+        let (_, r_mod_m) = {
+            let modulus_divisor =
+                NonZeroBigInt::new(&modulus).expect("admitted Montgomery modulus is nonzero");
+            metered_div_rem_nonzero(&r, modulus_divisor, meter)?
+        };
+        let r_squared = metered_mul(&r_mod_m, &r_mod_m, meter)?;
+        let r2_mod_m = {
+            let modulus_divisor =
+                NonZeroBigInt::new(&modulus).expect("admitted Montgomery modulus is nonzero");
+            metered_normalized_remainder(&r_squared, modulus_divisor, meter)?
+        };
+        let Some(m_inv) = metered_mod_inverse(&modulus, &r, meter)? else {
+            return metered_finish(None, meter);
+        };
+        let m_prime = metered_subtract(&r, &m_inv, meter)?;
+        let reduction_bound = metered_mul(&modulus, &r, meter)?;
+        let reducer = Self {
+            modulus,
+            r,
+            reduction_bound,
+            r_shift,
+            r2_mod_m,
+            m_prime,
+        };
+        let _ = r_divisor;
+        metered_finish(Some(reducer), meter)
+    }
+
+    /// Access the odd modulus.
+    pub fn modulus(&self) -> &BigInt {
+        &self.modulus
+    }
+
+    /// Converts any signed integer into canonical Montgomery form $a \cdot R \pmod M$.
     pub fn to_montgomery(&self, a: &BigInt) -> BigInt {
-        (a * &self.r_mod_m) % &self.modulus
+        let canonical = normalized_remainder(a, &self.modulus);
+        self.reduce_admitted(&(&canonical * &self.r2_mod_m))
     }
 
-    /// Converts Montgomery form $a_R = a \cdot R \pmod M$ back to standard representative $a \pmod M$.
-    pub fn from_montgomery(&self, a_r: &BigInt) -> BigInt {
-        self.reduce(a_r)
+    /// Cancellation-first conversion into canonical Montgomery form.
+    pub fn metered_to_montgomery<M: BudgetMeter>(
+        &self,
+        value: &BigInt,
+        meter: &mut M,
+    ) -> Result<BigInt, MeterError> {
+        let modulus = NonZeroBigInt::new(&self.modulus).expect("Montgomery modulus invariant");
+        let canonical = metered_normalized_remainder(value, modulus, meter)?;
+        let product = metered_mul(&canonical, &self.r2_mod_m, meter)?;
+        let Some(result) = self.metered_reduce(&product, meter)? else {
+            return metered_finish(BigInt::zero(), meter);
+        };
+        metered_finish(result, meter)
     }
 
-    /// Montgomery reduction algorithm: computes $T \cdot R^{-1} \pmod M$.
-    pub fn reduce(&self, t: &BigInt) -> BigInt {
-        let prod = t * &self.m_prime;
+    /// Converts a canonical Montgomery residue back to a standard representative.
+    pub fn from_montgomery(&self, value: &BigInt) -> Option<BigInt> {
+        is_canonical_residue(value, &self.modulus).then(|| self.reduce_admitted(value))
+    }
+
+    /// Cancellation-first conversion back from a canonical Montgomery residue.
+    pub fn metered_from_montgomery<M: BudgetMeter>(
+        &self,
+        value: &BigInt,
+        meter: &mut M,
+    ) -> Result<Option<BigInt>, MeterError> {
+        meter.checkpoint()?;
+        if !is_canonical_residue(value, &self.modulus) {
+            return metered_finish(None, meter);
+        }
+        self.metered_reduce(value, meter)
+    }
+
+    /// Montgomery reduction for the required domain `0 <= T < M*R`. Inputs outside that domain
+    /// are refused instead of producing a noncanonical or mathematically invalid value.
+    pub fn reduce(&self, value: &BigInt) -> Option<BigInt> {
+        if value.is_negative() || value >= &self.reduction_bound {
+            return None;
+        }
+        Some(self.reduce_admitted(value))
+    }
+
+    fn reduce_admitted(&self, value: &BigInt) -> BigInt {
+        let prod = value * &self.m_prime;
         let r_minus_1 = (&self.r) - BigInt::one();
         let m = &prod & &r_minus_1;
-        let u = (t + &m * &self.modulus) >> (self.r_shift as u32);
+        let u = (value + &m * &self.modulus) >> self.r_shift;
         if u >= self.modulus {
             u - &self.modulus
         } else {
@@ -1427,9 +1522,59 @@ impl MontgomeryReducer {
         }
     }
 
-    /// Montgomery multiplication: takes $a_R, b_R$ and returns $(a \cdot b)_R = a \cdot b \cdot R \pmod M$.
-    pub fn mul(&self, a_r: &BigInt, b_r: &BigInt) -> BigInt {
-        self.reduce(&(a_r * b_r))
+    /// Cancellation-first Montgomery reduction over the same admitted domain.
+    pub fn metered_reduce<M: BudgetMeter>(
+        &self,
+        value: &BigInt,
+        meter: &mut M,
+    ) -> Result<Option<BigInt>, MeterError> {
+        meter.checkpoint()?;
+        if value.is_negative()
+            || metered_greater_or_equal(value, &self.reduction_bound, meter)?
+        {
+            return metered_finish(None, meter);
+        }
+        let product = metered_mul(value, &self.m_prime, meter)?;
+        let r_divisor = NonZeroBigInt::new(&self.r).expect("Montgomery R invariant");
+        let m = metered_normalized_remainder(&product, r_divisor, meter)?;
+        let correction = metered_mul(&m, &self.modulus, meter)?;
+        let numerator = metered_add(value, &correction, meter)?;
+        let (mut reduced, remainder) =
+            metered_div_rem_nonzero(&numerator, r_divisor, meter)?;
+        if !remainder.is_zero() {
+            return metered_finish(None, meter);
+        }
+        if metered_greater_or_equal(&reduced, &self.modulus, meter)? {
+            reduced = metered_subtract(&reduced, &self.modulus, meter)?;
+        }
+        metered_finish(Some(reduced), meter)
+    }
+
+    /// Montgomery multiplication over two canonical Montgomery residues.
+    pub fn mul(&self, lhs: &BigInt, rhs: &BigInt) -> Option<BigInt> {
+        if !is_canonical_residue(lhs, &self.modulus)
+            || !is_canonical_residue(rhs, &self.modulus)
+        {
+            return None;
+        }
+        self.reduce(&(lhs * rhs))
+    }
+
+    /// Cancellation-first Montgomery multiplication over canonical operands.
+    pub fn metered_mul<M: BudgetMeter>(
+        &self,
+        lhs: &BigInt,
+        rhs: &BigInt,
+        meter: &mut M,
+    ) -> Result<Option<BigInt>, MeterError> {
+        meter.checkpoint()?;
+        if !is_canonical_residue(lhs, &self.modulus)
+            || !is_canonical_residue(rhs, &self.modulus)
+        {
+            return metered_finish(None, meter);
+        }
+        let product = metered_mul(lhs, rhs, meter)?;
+        self.metered_reduce(&product, meter)
     }
 }
 
@@ -1439,6 +1584,9 @@ pub struct BarrettReducer {
     modulus: BigInt,
     k: u32,
     mu: BigInt,
+    modulus_squared: BigInt,
+    b_k_minus_one: BigInt,
+    b_k_plus_one: BigInt,
 }
 
 impl BarrettReducer {
@@ -1448,24 +1596,135 @@ impl BarrettReducer {
             return None;
         }
         let k = u32::try_from(modulus.bits()).ok()?;
-        let num = BigInt::one() << (2 * k);
+        let two_k = k.checked_mul(2)?;
+        let k_minus_one = k.checked_sub(1)?;
+        let k_plus_one = k.checked_add(1)?;
+        let num = BigInt::one() << two_k;
         let mu = num / &modulus;
-        Some(Self { modulus, k, mu })
+        let modulus_squared = &modulus * &modulus;
+        let b_k_minus_one = BigInt::one() << k_minus_one;
+        let b_k_plus_one = BigInt::one() << k_plus_one;
+        Some(Self {
+            modulus,
+            k,
+            mu,
+            modulus_squared,
+            b_k_minus_one,
+            b_k_plus_one,
+        })
     }
 
-    /// Reduces $x$ modulo $M$ (exact for $x < M^2$).
-    pub fn reduce(&self, x: &BigInt) -> BigInt {
-        if x < &self.modulus {
-            return x.clone();
+    /// Cancellation-first reducer construction with metered power-of-two precomputation.
+    pub fn metered_new<M: BudgetMeter>(
+        modulus: BigInt,
+        meter: &mut M,
+    ) -> Result<Option<Self>, MeterError> {
+        meter.checkpoint()?;
+        if modulus <= BigInt::one() {
+            return metered_finish(None, meter);
         }
-        let q1 = x >> (self.k - 1);
+        let Some(k) = u32::try_from(modulus.bits()).ok() else {
+            return metered_finish(None, meter);
+        };
+        let Some(two_k) = k.checked_mul(2) else {
+            return metered_finish(None, meter);
+        };
+        let Some(k_minus_one) = k.checked_sub(1) else {
+            return metered_finish(None, meter);
+        };
+        let Some(k_plus_one) = k.checked_add(1) else {
+            return metered_finish(None, meter);
+        };
+        let numerator = metered_power_of_two(two_k, meter)?;
+        let modulus_divisor =
+            NonZeroBigInt::new(&modulus).expect("admitted Barrett modulus is nonzero");
+        let (mu, _) = metered_div_rem_nonzero(&numerator, modulus_divisor, meter)?;
+        let modulus_squared = metered_mul(&modulus, &modulus, meter)?;
+        let b_k_minus_one = metered_power_of_two(k_minus_one, meter)?;
+        let b_k_plus_one = metered_power_of_two(k_plus_one, meter)?;
+        metered_finish(
+            Some(Self {
+                modulus,
+                k,
+                mu,
+                modulus_squared,
+                b_k_minus_one,
+                b_k_plus_one,
+            }),
+            meter,
+        )
+    }
+
+    /// Access the positive modulus.
+    pub fn modulus(&self) -> &BigInt {
+        &self.modulus
+    }
+
+    /// Reduces `value` modulo $M$ for the admitted Barrett domain `0 <= value < M^2`.
+    /// Negative and out-of-range inputs are refused, making the correction loop bounded.
+    pub fn reduce(&self, value: &BigInt) -> Option<BigInt> {
+        if value.is_negative() || value >= &self.modulus_squared {
+            return None;
+        }
+        if value < &self.modulus {
+            return Some(value.clone());
+        }
+        let q1 = value >> (self.k - 1);
         let q2 = &q1 * &self.mu;
         let q3 = q2 >> (self.k + 1);
-        let mut r = x - &q3 * &self.modulus;
-        while r >= self.modulus {
+        let mut r = value - &q3 * &self.modulus;
+        if r.is_negative() {
+            return None;
+        }
+        for _ in 0..3 {
+            if r < self.modulus {
+                return Some(r);
+            }
             r -= &self.modulus;
         }
-        r
+        (r < self.modulus).then_some(r)
+    }
+
+    /// Cancellation-first Barrett reduction over the same bounded domain.
+    pub fn metered_reduce<M: BudgetMeter>(
+        &self,
+        value: &BigInt,
+        meter: &mut M,
+    ) -> Result<Option<BigInt>, MeterError> {
+        meter.checkpoint()?;
+        if value.is_negative()
+            || metered_greater_or_equal(value, &self.modulus_squared, meter)?
+        {
+            return metered_finish(None, meter);
+        }
+        if !metered_greater_or_equal(value, &self.modulus, meter)? {
+            let cloned = metered_clone_bigint(value, meter)?;
+            return metered_finish(Some(cloned), meter);
+        }
+        let k_minus_divisor =
+            NonZeroBigInt::new(&self.b_k_minus_one).expect("Barrett power invariant");
+        let (q1, _) = metered_div_rem_nonzero(value, k_minus_divisor, meter)?;
+        let q2 = metered_mul(&q1, &self.mu, meter)?;
+        let k_plus_divisor =
+            NonZeroBigInt::new(&self.b_k_plus_one).expect("Barrett power invariant");
+        let (q3, _) = metered_div_rem_nonzero(&q2, k_plus_divisor, meter)?;
+        let product = metered_mul(&q3, &self.modulus, meter)?;
+        let mut reduced = metered_subtract(value, &product, meter)?;
+        if reduced.is_negative() {
+            return metered_finish(None, meter);
+        }
+        for _ in 0..3 {
+            meter.checkpoint()?;
+            if !metered_greater_or_equal(&reduced, &self.modulus, meter)? {
+                return metered_finish(Some(reduced), meter);
+            }
+            reduced = metered_subtract(&reduced, &self.modulus, meter)?;
+        }
+        if metered_greater_or_equal(&reduced, &self.modulus, meter)? {
+            metered_finish(None, meter)
+        } else {
+            metered_finish(Some(reduced), meter)
+        }
     }
 }
 
