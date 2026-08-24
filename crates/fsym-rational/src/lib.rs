@@ -242,8 +242,7 @@ impl BigRational {
     /// [`fsym_modular::rational_reconstruct`]. It does not recognize or certify an external
     /// numerical approximation.
     pub fn reconstruct_modular(residue: &BigInt, modulus: &BigInt) -> Option<Self> {
-        let (numerator, denominator) =
-            fsym_modular::rational_reconstruct(residue, modulus)?;
+        let (numerator, denominator) = fsym_modular::rational_reconstruct(residue, modulus)?;
         Some(Self(num_rational::Ratio::new_raw(numerator, denominator)))
     }
 
@@ -257,12 +256,10 @@ impl BigRational {
         modulus: &BigInt,
         meter: &mut M,
     ) -> Result<Option<Self>, MeterError> {
-        let reconstructed =
-            fsym_modular::metered_rational_reconstruct(residue, modulus, meter)?.map(
-                |(numerator, denominator)| {
-                    Self(num_rational::Ratio::new_raw(numerator, denominator))
-                },
-            );
+        let reconstructed = fsym_modular::metered_rational_reconstruct(residue, modulus, meter)?
+            .map(|(numerator, denominator)| {
+                Self(num_rational::Ratio::new_raw(numerator, denominator))
+            });
         metered_finish(reconstructed, meter)
     }
 

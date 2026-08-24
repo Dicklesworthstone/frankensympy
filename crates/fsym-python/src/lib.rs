@@ -220,6 +220,13 @@ fn evalf_expr(src: &str) -> PyResult<f64> {
 #[pymodule]
 fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyExpr>()?;
+    m.add_class::<PySymbol>()?;
+    m.add_class::<PyInteger>()?;
+    m.add_class::<PyRational>()?;
+    m.add_class::<PyAdd>()?;
+    m.add_class::<PyMul>()?;
+    m.add_class::<PyPow>()?;
+    m.add_class::<PyDerivative>()?;
     m.add_function(wrap_pyfunction!(py_symbol, m)?)?;
     m.add_function(wrap_pyfunction!(py_integer, m)?)?;
     m.add_function(wrap_pyfunction!(py_rational, m)?)?;
@@ -262,14 +269,30 @@ mod tests {
         let expr = x.__mul__(&two);
 
         assert_eq!(expr.func_name(), "Mul");
-        assert_eq!(expr.args().len(), 2);
+        assert_eq!(expr.raw_args().len(), 2);
         assert!(!expr.is_integer());
         assert!(!expr.is_symbol());
         assert!(expr.is_mul());
+        assert_eq!(expr.free_symbols(), vec!["x".to_string()]);
 
         let x_sym = py_symbol("x");
         assert!(x_sym.is_symbol());
         assert_eq!(x_sym.func_name(), "Symbol");
+
+        // Dedicated classes
+        let sym_cls = PySymbol::new("y");
+        assert_eq!(sym_cls.name(), "y");
+        let int_cls = PyInteger::new(42);
+        assert_eq!(int_cls.p(), 42);
+        assert_eq!(int_cls.q(), 1);
+        let rat_cls = PyRational::new(3, 4).unwrap();
+        assert_eq!(rat_cls.p(), 3);
+        assert_eq!(rat_cls.q(), 4);
+
+        // evaluate=False held forms
+        let held_add = PyAdd::new(vec![x.clone(), x.clone()], false);
+        assert_eq!(held_add.as_expr().raw_args().len(), 2);
+        assert_eq!(held_add.as_expr().func_name(), "Add");
     }
 
     #[test]
@@ -279,7 +302,7 @@ mod tests {
         let three = py_integer(3);
         let pow_expr = py_pow(x, three);
 
-        let d = pow_expr.diff("x");
+        let d = pow_expr.diff("x", vec![]);
         assert_eq!(d.__str__(), "3*(x**2)");
         assert!(pow_expr._repr_latex_().contains("x^{3}"));
     }

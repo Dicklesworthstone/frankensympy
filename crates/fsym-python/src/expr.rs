@@ -10,7 +10,8 @@ use fsym_simplify::{expand_with, simplify_with};
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use std::collections::HashMap;
+use pyo3::types::PyTuple;
+use std::collections::{BTreeSet, HashMap};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 
@@ -40,9 +41,14 @@ impl PyExpr {
         }
     }
 
-    /// Tuple of direct structural subexpressions.
+    /// Tuple of direct structural subexpressions (`args`).
     #[getter]
-    pub fn args(&self) -> Vec<PyExpr> {
+    pub fn args<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
+        PyTuple::new(py, self.raw_args())
+    }
+
+    /// Direct list of subexpressions for Rust callers.
+    pub fn raw_args(&self) -> Vec<PyExpr> {
         match &self.inner {
             Expr::Sym(_) | Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_) => Vec::new(),
             Expr::Add(terms) | Expr::Mul(terms) => {
@@ -53,6 +59,23 @@ impl PyExpr {
                 PyExpr::from_expr((**exp).clone()),
             ],
             Expr::Function(_, args) => args.iter().map(|a| PyExpr::from_expr(a.clone())).collect(),
+        }
+    }
+
+    /// Callable constructor (`func`) for SymPy reconstruction invariant: `expr.func(*expr.args) == expr`.
+    #[getter]
+    pub fn func<'py>(&self, py: Python<'py>) -> PyResult<Py<PyAny>> {
+        match &self.inner {
+            Expr::Sym(_) => Ok(py.get_type::<PySymbol>().into()),
+            Expr::Integer(_) => Ok(py.get_type::<PyInteger>().into()),
+            Expr::Rational(_) => Ok(py.get_type::<PyRational>().into()),
+            Expr::Add(_) => Ok(py.get_type::<PyAdd>().into()),
+            Expr::Mul(_) => Ok(py.get_type::<PyMul>().into()),
+            Expr::Pow(_, _) => Ok(py.get_type::<PyPow>().into()),
+            Expr::Function(name, _) if name == "Derivative" => {
+                Ok(py.get_type::<PyDerivative>().into())
+            }
+            _ => Ok(py.get_type::<PyExpr>().into()),
         }
     }
 
@@ -69,6 +92,19 @@ impl PyExpr {
             Expr::Pow(_, _) => "Pow".into(),
             Expr::Function(name, _) => name.clone(),
         }
+    }
+
+    /// Set of free symbolic variable names in the expression.
+    #[getter]
+    pub fn free_symbols(&self) -> Vec<String> {
+        let mut symbols = BTreeSet::new();
+        collect_free_syms(&self.inner, &mut symbols);
+        symbols.into_iter().collect()
+    }
+
+    /// Tests if a subexpression or pattern is contained within this expression.
+    pub fn has(&self, pattern: &PyExpr) -> bool {
+        expr_contains(&self.inner, &pattern.inner)
     }
 
     #[getter]
@@ -182,7 +218,6 @@ impl PyExpr {
                 Ok(PyExpr::from_expr(self.inner.subs(&map)))
             }
             _ => {
-                // Syntactic tree replacement
                 if self.inner == old.inner {
                     Ok(new.clone())
                 } else {
@@ -193,9 +228,13 @@ impl PyExpr {
     }
 
     /// Exact differentiation ∂expr / ∂var.
-    pub fn diff(&self, var: &str) -> PyExpr {
-        let sym = Symbol::new(var);
-        PyExpr::from_expr(diff(&self.inner, &sym))
+    #[pyo3(signature = (var, *more_vars))]
+    pub fn diff(&self, var: &str, more_vars: Vec<String>) -> PyExpr {
+        let mut res = diff(&self.inner, &Symbol::new(var));
+        for v in more_vars {
+            res = diff(&res, &Symbol::new(&v));
+        }
+        PyExpr::from_expr(res)
     }
 
     /// Simplify expression under budgeted region.
@@ -238,6 +277,294 @@ impl PyExpr {
     /// Deepcopy support.
     pub fn __deepcopy__(&self, _memo: Py<PyAny>) -> PyExpr {
         self.clone()
+    }
+}
+
+fn collect_free_syms(expr: &Expr, set: &mut BTreeSet<String>) {
+    match expr {
+        Expr::Sym(s) => {
+            set.insert(s.name.clone());
+        }
+        Expr::Add(terms) | Expr::Mul(terms) => {
+            for t in terms {
+                collect_free_syms(t, set);
+            }
+        }
+        Expr::Pow(b, e) => {
+            collect_free_syms(b, set);
+            collect_free_syms(e, set);
+        }
+        Expr::Function(_, args) => {
+            for a in args {
+                collect_free_syms(a, set);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn expr_contains(haystack: &Expr, needle: &Expr) -> bool {
+    if haystack == needle {
+        return true;
+    }
+    match haystack {
+        Expr::Add(terms) | Expr::Mul(terms) => terms.iter().any(|t| expr_contains(t, needle)),
+        Expr::Pow(b, e) => expr_contains(b, needle) || expr_contains(e, needle),
+        Expr::Function(_, args) => args.iter().any(|a| expr_contains(a, needle)),
+        _ => false,
+    }
+}
+
+/// Dedicated Symbol class for Python SymPy drop-in compatibility.
+#[pyclass(name = "Symbol", module = "fsym_python")]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PySymbol {
+    pub inner: PyExpr,
+}
+
+#[pymethods]
+impl PySymbol {
+    #[new]
+    pub fn new(name: &str) -> Self {
+        Self {
+            inner: PyExpr::from_expr(Expr::symbol(name)),
+        }
+    }
+
+    #[getter]
+    pub fn name(&self) -> String {
+        match &self.inner.inner {
+            Expr::Sym(s) => s.name.clone(),
+            _ => String::new(),
+        }
+    }
+
+    pub fn __str__(&self) -> String {
+        self.inner.__str__()
+    }
+
+    pub fn __repr__(&self) -> String {
+        format!("Symbol('{}')", self.name())
+    }
+
+    pub fn as_expr(&self) -> PyExpr {
+        self.inner.clone()
+    }
+}
+
+/// Dedicated Integer class for Python SymPy drop-in compatibility.
+#[pyclass(name = "Integer", module = "fsym_python")]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PyInteger {
+    pub inner: PyExpr,
+}
+
+#[pymethods]
+impl PyInteger {
+    #[new]
+    pub fn new(val: i64) -> Self {
+        Self {
+            inner: PyExpr::from_expr(Expr::from_i64(val)),
+        }
+    }
+
+    #[getter]
+    pub fn p(&self) -> i64 {
+        match &self.inner.inner {
+            Expr::Integer(n) => n.to_i64().unwrap_or(0),
+            _ => 0,
+        }
+    }
+
+    #[getter]
+    pub fn q(&self) -> i64 {
+        1
+    }
+
+    pub fn __str__(&self) -> String {
+        self.inner.__str__()
+    }
+
+    pub fn __repr__(&self) -> String {
+        format!("Integer({})", self.p())
+    }
+
+    pub fn as_expr(&self) -> PyExpr {
+        self.inner.clone()
+    }
+}
+
+/// Dedicated Rational class for Python SymPy drop-in compatibility.
+#[pyclass(name = "Rational", module = "fsym_python")]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PyRational {
+    pub inner: PyExpr,
+}
+
+#[pymethods]
+impl PyRational {
+    #[new]
+    pub fn new(p: i64, q: i64) -> PyResult<Self> {
+        if q == 0 {
+            return Err(PyValueError::new_err("Denominator cannot be zero"));
+        }
+        let r = BigRational::new(BigInt::from(p), BigInt::from(q));
+        Ok(Self {
+            inner: PyExpr::from_expr(Expr::Rational(r)),
+        })
+    }
+
+    #[getter]
+    pub fn p(&self) -> i64 {
+        match &self.inner.inner {
+            Expr::Rational(r) => r.numer().to_i64().unwrap_or(0),
+            Expr::Integer(n) => n.to_i64().unwrap_or(0),
+            _ => 0,
+        }
+    }
+
+    #[getter]
+    pub fn q(&self) -> i64 {
+        match &self.inner.inner {
+            Expr::Rational(r) => r.denom().to_i64().unwrap_or(1),
+            Expr::Integer(_) => 1,
+            _ => 1,
+        }
+    }
+
+    pub fn __str__(&self) -> String {
+        self.inner.__str__()
+    }
+
+    pub fn __repr__(&self) -> String {
+        format!("Rational({}, {})", self.p(), self.q())
+    }
+
+    pub fn as_expr(&self) -> PyExpr {
+        self.inner.clone()
+    }
+}
+
+/// Dedicated Add class for Python SymPy drop-in compatibility with `evaluate=False` support.
+#[pyclass(name = "Add", module = "fsym_python")]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PyAdd {
+    pub inner: PyExpr,
+}
+
+#[pymethods]
+impl PyAdd {
+    #[new]
+    #[pyo3(signature = (*args, evaluate=true))]
+    pub fn new(args: Vec<PyExpr>, evaluate: bool) -> Self {
+        let exprs: Vec<Expr> = args.into_iter().map(|a| a.inner).collect();
+        let inner = if evaluate {
+            let mut sum = Expr::from_i64(0);
+            for e in exprs {
+                sum = sum + e;
+            }
+            sum
+        } else {
+            Expr::Add(exprs)
+        };
+        Self {
+            inner: PyExpr::from_expr(inner),
+        }
+    }
+
+    pub fn as_expr(&self) -> PyExpr {
+        self.inner.clone()
+    }
+}
+
+/// Dedicated Mul class for Python SymPy drop-in compatibility with `evaluate=False` support.
+#[pyclass(name = "Mul", module = "fsym_python")]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PyMul {
+    pub inner: PyExpr,
+}
+
+#[pymethods]
+impl PyMul {
+    #[new]
+    #[pyo3(signature = (*args, evaluate=true))]
+    pub fn new(args: Vec<PyExpr>, evaluate: bool) -> Self {
+        let exprs: Vec<Expr> = args.into_iter().map(|a| a.inner).collect();
+        let inner = if evaluate {
+            let mut prod = Expr::from_i64(1);
+            for e in exprs {
+                prod = prod * e;
+            }
+            prod
+        } else {
+            Expr::Mul(exprs)
+        };
+        Self {
+            inner: PyExpr::from_expr(inner),
+        }
+    }
+
+    pub fn as_expr(&self) -> PyExpr {
+        self.inner.clone()
+    }
+}
+
+/// Dedicated Pow class for Python SymPy drop-in compatibility.
+#[pyclass(name = "Pow", module = "fsym_python")]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PyPow {
+    pub inner: PyExpr,
+}
+
+#[pymethods]
+impl PyPow {
+    #[new]
+    #[pyo3(signature = (base, exp, evaluate=true))]
+    pub fn new(base: PyExpr, exp: PyExpr, evaluate: bool) -> Self {
+        let _ = evaluate;
+        Self {
+            inner: PyExpr::from_expr(Expr::Pow(Arc::new(base.inner), Arc::new(exp.inner))),
+        }
+    }
+
+    pub fn as_expr(&self) -> PyExpr {
+        self.inner.clone()
+    }
+}
+
+/// Dedicated Derivative class for Python SymPy drop-in compatibility.
+#[pyclass(name = "Derivative", module = "fsym_python")]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PyDerivative {
+    pub inner: PyExpr,
+}
+
+#[pymethods]
+impl PyDerivative {
+    #[new]
+    #[pyo3(signature = (expr, *variables, evaluate=false))]
+    pub fn new(expr: PyExpr, variables: Vec<PyExpr>, evaluate: bool) -> Self {
+        if evaluate {
+            let mut cur = expr.inner;
+            for v in variables {
+                if let Expr::Sym(s) = v.inner {
+                    cur = diff(&cur, &s);
+                }
+            }
+            Self {
+                inner: PyExpr::from_expr(cur),
+            }
+        } else {
+            let mut args = vec![expr.inner];
+            args.extend(variables.into_iter().map(|v| v.inner));
+            Self {
+                inner: PyExpr::from_expr(Expr::Function("Derivative".into(), args)),
+            }
+        }
+    }
+
+    pub fn as_expr(&self) -> PyExpr {
+        self.inner.clone()
     }
 }
 

@@ -15,8 +15,9 @@
 #![forbid(unsafe_code)]
 
 use fsym_bigint::{
-    BigInt, NonZeroBigInt, extended_gcd, gcd, metered_div_rem_nonzero, metered_extended_gcd,
-    metered_gcd, metered_multiply as metered_mul,
+    BigInt, NonZeroBigInt, extended_gcd, gcd, metered_add as metered_bigint_add,
+    metered_div_rem_nonzero, metered_extended_gcd, metered_gcd, metered_multiply as metered_mul,
+    metered_subtract as metered_bigint_subtract,
 };
 #[cfg(test)]
 use fsym_bigint::{exact_div, metered_exact_div};
@@ -717,16 +718,7 @@ fn metered_add<M: BudgetMeter>(
     rhs: &BigInt,
     meter: &mut M,
 ) -> Result<BigInt, MeterError> {
-    meter.checkpoint()?;
-    let output_limbs = lhs.limb_count().max(rhs.limb_count()).saturating_add(1);
-    meter.charge_batch(&[
-        (Dimension::ComputeSteps, output_limbs.max(1)),
-        (Dimension::MemoryBytes, output_limbs.saturating_mul(8)),
-        (Dimension::AllocationCount, 1),
-    ])?;
-    let result = lhs + rhs;
-    meter.checkpoint()?;
-    Ok(result)
+    metered_bigint_add(lhs, rhs, meter)
 }
 
 fn metered_negate<M: BudgetMeter>(value: BigInt, meter: &mut M) -> Result<BigInt, MeterError> {
@@ -742,16 +734,50 @@ fn metered_subtract<M: BudgetMeter>(
     rhs: &BigInt,
     meter: &mut M,
 ) -> Result<BigInt, MeterError> {
+    metered_bigint_subtract(lhs, rhs, meter)
+}
+
+/// Exclusive upper bound for the fixed-base Miller-Rabin theorem used by this crate.
+/// Values at or above this boundary remain probable-prime candidates, not exact field evidence.
+pub fn deterministic_primality_bound() -> BigInt {
+    BigInt::from(3_317_044_064_679_887_385u64) * BigInt::from(1_000_000u64)
+        + BigInt::from(961_981u64)
+}
+
+pub fn is_certified_prime(characteristic: &BigInt) -> bool {
+    characteristic > &BigInt::one()
+        && characteristic < &deterministic_primality_bound()
+        && is_probable_prime(characteristic)
+}
+
+pub fn is_canonical_residue(value: &BigInt, modulus: &BigInt) -> bool {
+    !value.is_negative() && value < modulus
+}
+
+pub fn normalized_remainder(value: &BigInt, modulus: &BigInt) -> BigInt {
+    let remainder = value % modulus;
+    if remainder.is_negative() {
+        remainder + modulus
+    } else {
+        remainder
+    }
+}
+
+pub fn metered_clone_bigint<M: BudgetMeter>(
+    value: &BigInt,
+    meter: &mut M,
+) -> Result<BigInt, MeterError> {
     meter.checkpoint()?;
-    let output_limbs = lhs.limb_count().max(rhs.limb_count()).saturating_add(1);
     meter.charge_batch(&[
-        (Dimension::ComputeSteps, output_limbs.max(1)),
-        (Dimension::MemoryBytes, output_limbs.saturating_mul(8)),
+        (
+            Dimension::MemoryBytes,
+            value.limb_count().max(1).saturating_mul(8),
+        ),
         (Dimension::AllocationCount, 1),
     ])?;
-    let result = lhs - rhs;
+    let cloned = value.clone();
     meter.checkpoint()?;
-    Ok(result)
+    Ok(cloned)
 }
 
 /// Typed representation of a modular arithmetic residue ring $\mathbb{Z} / m\mathbb{Z}$.
@@ -777,12 +803,33 @@ impl ModularRing {
 
     /// Constructs a canonical element in $\mathbb{Z} / m\mathbb{Z}$ from an arbitrary integer.
     pub fn element(&self, value: BigInt) -> ModularRingElement {
-        let m = &self.modulus;
-        let residue = ((value % m) + m) % m;
+        let residue = normalized_remainder(&value, &self.modulus);
         ModularRingElement {
             ring: self.clone(),
             value: residue,
         }
+    }
+
+    /// Cancellation-first construction of a canonical element from an arbitrary integer.
+    pub fn metered_element<M: BudgetMeter>(
+        &self,
+        value: &BigInt,
+        meter: &mut M,
+    ) -> Result<ModularRingElement, MeterError> {
+        let Some(modulus) = NonZeroBigInt::new(&self.modulus) else {
+            return metered_finish(self.zero(), meter);
+        };
+        let residue = metered_normalized_remainder(value, modulus, meter)?;
+        let ring = ModularRing {
+            modulus: metered_clone_bigint(&self.modulus, meter)?,
+        };
+        metered_finish(
+            ModularRingElement {
+                ring,
+                value: residue,
+            },
+            meter,
+        )
     }
 
     /// The additive identity $0 \pmod m$.
@@ -894,12 +941,126 @@ impl ModularRingElement {
         self.mul(&b_inv)
     }
 
-    /// Modular exponentiation $a^e \pmod m$.
-    pub fn pow(&self, exp: &BigInt) -> Self {
-        ModularRingElement {
+    /// Modular exponentiation $a^e \pmod m$; negative exponents are refused because a ring
+    /// element need not be a unit.
+    pub fn pow(&self, exp: &BigInt) -> Option<Self> {
+        if exp.is_negative() {
+            return None;
+        }
+        Some(ModularRingElement {
             ring: self.ring.clone(),
             value: mod_pow(&self.value, exp, &self.ring.modulus),
+        })
+    }
+
+    /// Cancellation-first modular addition. A different parent ring is a computed refusal.
+    pub fn metered_add<M: BudgetMeter>(
+        &self,
+        other: &Self,
+        meter: &mut M,
+    ) -> Result<Option<Self>, MeterError> {
+        meter.checkpoint()?;
+        if self.ring != other.ring {
+            return metered_finish(None, meter);
         }
+        let sum = metered_add(&self.value, &other.value, meter)?;
+        let Some(modulus) = NonZeroBigInt::new(&self.ring.modulus) else {
+            return metered_finish(None, meter);
+        };
+        let value = metered_normalized_remainder(&sum, modulus, meter)?;
+        let ring = ModularRing {
+            modulus: metered_clone_bigint(&self.ring.modulus, meter)?,
+        };
+        metered_finish(Some(Self { ring, value }), meter)
+    }
+
+    /// Cancellation-first modular subtraction. A different parent ring is refused.
+    pub fn metered_sub<M: BudgetMeter>(
+        &self,
+        other: &Self,
+        meter: &mut M,
+    ) -> Result<Option<Self>, MeterError> {
+        meter.checkpoint()?;
+        if self.ring != other.ring {
+            return metered_finish(None, meter);
+        }
+        let difference = metered_subtract(&self.value, &other.value, meter)?;
+        let Some(modulus) = NonZeroBigInt::new(&self.ring.modulus) else {
+            return metered_finish(None, meter);
+        };
+        let value = metered_normalized_remainder(&difference, modulus, meter)?;
+        let ring = ModularRing {
+            modulus: metered_clone_bigint(&self.ring.modulus, meter)?,
+        };
+        metered_finish(Some(Self { ring, value }), meter)
+    }
+
+    /// Cancellation-first modular multiplication. A different parent ring is refused.
+    pub fn metered_mul<M: BudgetMeter>(
+        &self,
+        other: &Self,
+        meter: &mut M,
+    ) -> Result<Option<Self>, MeterError> {
+        meter.checkpoint()?;
+        if self.ring != other.ring {
+            return metered_finish(None, meter);
+        }
+        let product = metered_mul(&self.value, &other.value, meter)?;
+        let Some(modulus) = NonZeroBigInt::new(&self.ring.modulus) else {
+            return metered_finish(None, meter);
+        };
+        let value = metered_normalized_remainder(&product, modulus, meter)?;
+        let ring = ModularRing {
+            modulus: metered_clone_bigint(&self.ring.modulus, meter)?,
+        };
+        metered_finish(Some(Self { ring, value }), meter)
+    }
+
+    /// Cancellation-first modular inverse; non-units produce `Ok(None)`.
+    pub fn metered_inv<M: BudgetMeter>(&self, meter: &mut M) -> Result<Option<Self>, MeterError> {
+        let Some(value) = metered_mod_inverse(&self.value, &self.ring.modulus, meter)? else {
+            return metered_finish(None, meter);
+        };
+        let ring = ModularRing {
+            modulus: metered_clone_bigint(&self.ring.modulus, meter)?,
+        };
+        metered_finish(Some(Self { ring, value }), meter)
+    }
+
+    /// Cancellation-first modular division; mismatched rings and non-unit divisors are refused.
+    pub fn metered_div<M: BudgetMeter>(
+        &self,
+        other: &Self,
+        meter: &mut M,
+    ) -> Result<Option<Self>, MeterError> {
+        meter.checkpoint()?;
+        if self.ring != other.ring {
+            return metered_finish(None, meter);
+        }
+        let Some(inverse) = other.metered_inv(meter)? else {
+            return metered_finish(None, meter);
+        };
+        self.metered_mul(&inverse, meter)
+    }
+
+    /// Cancellation-first nonnegative modular exponentiation.
+    pub fn metered_pow<M: BudgetMeter>(
+        &self,
+        exponent: &BigInt,
+        meter: &mut M,
+    ) -> Result<Option<Self>, MeterError> {
+        meter.checkpoint()?;
+        if exponent.is_negative() {
+            return metered_finish(None, meter);
+        }
+        let Some(modulus) = NonZeroBigInt::new(&self.ring.modulus) else {
+            return metered_finish(None, meter);
+        };
+        let value = metered_mod_pow(&self.value, exponent, modulus, meter)?;
+        let ring = ModularRing {
+            modulus: metered_clone_bigint(&self.ring.modulus, meter)?,
+        };
+        metered_finish(Some(Self { ring, value }), meter)
     }
 }
 
@@ -910,13 +1071,32 @@ pub struct FiniteField {
 }
 
 impl FiniteField {
-    /// Creates a new prime finite field $\mathbb{F}_p$ validating that $p$ is prime.
+    /// Creates a prime finite field $\mathbb{F}_p$ only when the fixed-base primality theorem
+    /// certifies `p` exactly. Larger probable primes are refused rather than promoted to fields.
     pub fn new(characteristic: BigInt) -> Option<Self> {
-        if characteristic > BigInt::one() && is_probable_prime(&characteristic) {
+        if is_certified_prime(&characteristic) {
             Some(Self { characteristic })
         } else {
             None
         }
+    }
+
+    /// Cancellation-first exact field admission under the same deterministic theorem bound.
+    pub fn metered_new<M: BudgetMeter>(
+        characteristic: BigInt,
+        meter: &mut M,
+    ) -> Result<Option<Self>, MeterError> {
+        meter.checkpoint()?;
+        let bound = deterministic_primality_bound();
+        if characteristic <= BigInt::one()
+            || metered_greater_or_equal(&characteristic, &bound, meter)?
+        {
+            return metered_finish(None, meter);
+        }
+        if !metered_is_probable_prime(&characteristic, meter)? {
+            return metered_finish(None, meter);
+        }
+        metered_finish(Some(Self { characteristic }), meter)
     }
 
     /// Access the prime characteristic $p$.
@@ -926,12 +1106,32 @@ impl FiniteField {
 
     /// Constructs a canonical element in $\mathbb{F}_p$.
     pub fn element(&self, value: BigInt) -> FiniteFieldElement {
-        let p = &self.characteristic;
-        let residue = ((value % p) + p) % p;
+        let residue = normalized_remainder(&value, &self.characteristic);
         FiniteFieldElement {
             field: self.clone(),
             value: residue,
         }
+    }
+
+    /// Cancellation-first construction of a canonical field element.
+    pub fn metered_element<M: BudgetMeter>(
+        &self,
+        value: &BigInt,
+        meter: &mut M,
+    ) -> Result<FiniteFieldElement, MeterError> {
+        let modulus =
+            NonZeroBigInt::new(&self.characteristic).expect("FiniteField characteristic invariant");
+        let residue = metered_normalized_remainder(value, modulus, meter)?;
+        let field = FiniteField {
+            characteristic: metered_clone_bigint(&self.characteristic, meter)?,
+        };
+        metered_finish(
+            FiniteFieldElement {
+                field,
+                value: residue,
+            },
+            meter,
+        )
     }
 
     /// The field additive identity $0$.
@@ -1046,12 +1246,127 @@ impl FiniteFieldElement {
         self.mul(&b_inv)
     }
 
-    /// Exponentiation $a^e \pmod p$.
-    pub fn pow(&self, exp: &BigInt) -> Self {
-        FiniteFieldElement {
+    /// Nonnegative exponentiation $a^e \pmod p$. Negative exponents are refused explicitly;
+    /// callers may invert a nonzero value and then exponentiate.
+    pub fn pow(&self, exp: &BigInt) -> Option<Self> {
+        if exp.is_negative() {
+            return None;
+        }
+        Some(FiniteFieldElement {
             field: self.field.clone(),
             value: mod_pow(&self.value, exp, &self.field.characteristic),
+        })
+    }
+
+    /// Cancellation-first field addition. A different parent field is refused.
+    pub fn metered_add<M: BudgetMeter>(
+        &self,
+        other: &Self,
+        meter: &mut M,
+    ) -> Result<Option<Self>, MeterError> {
+        meter.checkpoint()?;
+        if self.field != other.field {
+            return metered_finish(None, meter);
         }
+        let sum = metered_add(&self.value, &other.value, meter)?;
+        let modulus = NonZeroBigInt::new(&self.field.characteristic)
+            .expect("FiniteField characteristic invariant");
+        let value = metered_normalized_remainder(&sum, modulus, meter)?;
+        let field = FiniteField {
+            characteristic: metered_clone_bigint(&self.field.characteristic, meter)?,
+        };
+        metered_finish(Some(Self { field, value }), meter)
+    }
+
+    /// Cancellation-first field subtraction. A different parent field is refused.
+    pub fn metered_sub<M: BudgetMeter>(
+        &self,
+        other: &Self,
+        meter: &mut M,
+    ) -> Result<Option<Self>, MeterError> {
+        meter.checkpoint()?;
+        if self.field != other.field {
+            return metered_finish(None, meter);
+        }
+        let difference = metered_subtract(&self.value, &other.value, meter)?;
+        let modulus = NonZeroBigInt::new(&self.field.characteristic)
+            .expect("FiniteField characteristic invariant");
+        let value = metered_normalized_remainder(&difference, modulus, meter)?;
+        let field = FiniteField {
+            characteristic: metered_clone_bigint(&self.field.characteristic, meter)?,
+        };
+        metered_finish(Some(Self { field, value }), meter)
+    }
+
+    /// Cancellation-first field multiplication. A different parent field is refused.
+    pub fn metered_mul<M: BudgetMeter>(
+        &self,
+        other: &Self,
+        meter: &mut M,
+    ) -> Result<Option<Self>, MeterError> {
+        meter.checkpoint()?;
+        if self.field != other.field {
+            return metered_finish(None, meter);
+        }
+        let product = metered_mul(&self.value, &other.value, meter)?;
+        let modulus = NonZeroBigInt::new(&self.field.characteristic)
+            .expect("FiniteField characteristic invariant");
+        let value = metered_normalized_remainder(&product, modulus, meter)?;
+        let field = FiniteField {
+            characteristic: metered_clone_bigint(&self.field.characteristic, meter)?,
+        };
+        metered_finish(Some(Self { field, value }), meter)
+    }
+
+    /// Cancellation-first multiplicative inverse. Zero is a computed refusal.
+    pub fn metered_inv<M: BudgetMeter>(&self, meter: &mut M) -> Result<Option<Self>, MeterError> {
+        if self.value.is_zero() {
+            meter.checkpoint()?;
+            return metered_finish(None, meter);
+        }
+        let Some(value) = metered_mod_inverse(&self.value, &self.field.characteristic, meter)?
+        else {
+            return metered_finish(None, meter);
+        };
+        let field = FiniteField {
+            characteristic: metered_clone_bigint(&self.field.characteristic, meter)?,
+        };
+        metered_finish(Some(Self { field, value }), meter)
+    }
+
+    /// Cancellation-first field division. Mismatched fields and zero divisors are refused.
+    pub fn metered_div<M: BudgetMeter>(
+        &self,
+        other: &Self,
+        meter: &mut M,
+    ) -> Result<Option<Self>, MeterError> {
+        meter.checkpoint()?;
+        if self.field != other.field || other.value.is_zero() {
+            return metered_finish(None, meter);
+        }
+        let Some(inverse) = other.metered_inv(meter)? else {
+            return metered_finish(None, meter);
+        };
+        self.metered_mul(&inverse, meter)
+    }
+
+    /// Cancellation-first nonnegative field exponentiation.
+    pub fn metered_pow<M: BudgetMeter>(
+        &self,
+        exponent: &BigInt,
+        meter: &mut M,
+    ) -> Result<Option<Self>, MeterError> {
+        meter.checkpoint()?;
+        if exponent.is_negative() {
+            return metered_finish(None, meter);
+        }
+        let modulus = NonZeroBigInt::new(&self.field.characteristic)
+            .expect("FiniteField characteristic invariant");
+        let value = metered_mod_pow(&self.value, exponent, modulus, meter)?;
+        let field = FiniteField {
+            characteristic: metered_clone_bigint(&self.field.characteristic, meter)?,
+        };
+        metered_finish(Some(Self { field, value }), meter)
     }
 }
 
@@ -1693,7 +2008,7 @@ mod tests {
         assert_terminal_checkpoint(Some(BigInt::from(6)), 218, |meter| {
             metered_mod_inverse(&BigInt::from(17), &BigInt::from(101), meter)
         });
-        assert_terminal_checkpoint(None, 51, |meter| {
+        assert_terminal_checkpoint(None, 54, |meter| {
             metered_crt_pair(
                 &BigInt::zero(),
                 &BigInt::from(2),
@@ -1705,13 +2020,13 @@ mod tests {
         assert_terminal_checkpoint(Some((BigInt::zero(), BigInt::one())), 3, |meter| {
             metered_rational_reconstruct(&BigInt::zero(), &BigInt::from(101), meter)
         });
-        assert_terminal_checkpoint(None, 626, |meter| {
+        assert_terminal_checkpoint(None, 654, |meter| {
             metered_rational_reconstruct(&BigInt::from(8), &BigInt::from(101), meter)
         });
         assert_terminal_checkpoint(true, 591, |meter| {
             metered_is_probable_prime(&BigInt::from(41), meter)
         });
-        assert_terminal_checkpoint(false, 2_336, |meter| {
+        assert_terminal_checkpoint(false, 2_341, |meter| {
             metered_is_probable_prime(&BigInt::from(2_021), meter)
         });
     }
@@ -1786,7 +2101,7 @@ mod tests {
         let x_inv = x.inv().expect("5 is invertible mod 17");
         assert_eq!(x_inv.value(), &BigInt::from(7)); // 5 * 7 = 35 = 1 mod 17
         assert_eq!(y.div(&x).unwrap().value(), y.mul(&x_inv).unwrap().value());
-        assert_eq!(x.pow(&BigInt::from(16)).value(), &BigInt::one()); // Fermat's Little Theorem
+        assert_eq!(x.pow(&BigInt::from(16)).unwrap().value(), &BigInt::one()); // Fermat's Little Theorem
     }
 
     #[test]

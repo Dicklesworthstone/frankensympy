@@ -346,12 +346,14 @@ pub fn eliminate(
     let elim_indices: Vec<usize> = eliminated_vars
         .iter()
         .map(|symbol| {
-            gens.iter().position(|generator| generator == symbol).ok_or_else(|| {
-                PolyError::IncompatibleGenerators(
-                    format!("elimination variable {}", symbol.name),
-                    "missing from polynomial generators".to_string(),
-                )
-            })
+            gens.iter()
+                .position(|generator| generator == symbol)
+                .ok_or_else(|| {
+                    PolyError::IncompatibleGenerators(
+                        format!("elimination variable {}", symbol.name),
+                        "missing from polynomial generators".to_string(),
+                    )
+                })
         })
         .collect::<Result<_, _>>()?;
 

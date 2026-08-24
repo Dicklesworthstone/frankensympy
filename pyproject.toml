@@ -1,0 +1,22 @@
+[build-system]
+requires = ["maturin>=1.5,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "frankensympy"
+version = "0.1.0"
+description = "Clean-room, certified high-performance drop-in replacement for SymPy"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+authors = [{ name = "FrankenSymPy Contributors" }]
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Topic :: Scientific/Engineering :: Mathematics",
+]
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+module-name = "fsym_python"
+python-source = "python"

@@ -10,10 +10,7 @@ use fsym_polys::univariate::UnivariatePoly;
 use fsym_simplify::simplify;
 use std::collections::HashMap;
 
-fn evaluate_as_univariate_in_x(
-    poly: &MultivariatePoly,
-    y_root: &Expr,
-) -> Vec<Expr> {
+fn evaluate_as_univariate_in_x(poly: &MultivariatePoly, y_root: &Expr) -> Vec<Expr> {
     let mut coefficients = vec![Expr::from_i64(0); (poly.degree_in(0) as usize) + 1];
     for (exponents, coefficient) in &poly.terms {
         let degree_x = exponents[0] as usize;
@@ -30,10 +27,7 @@ fn evaluate_as_univariate_in_x(
                 ),
             ])
         };
-        coefficients[degree_x] = simplify(&Expr::Add(vec![
-            coefficients[degree_x].clone(),
-            term,
-        ]));
+        coefficients[degree_x] = simplify(&Expr::Add(vec![coefficients[degree_x].clone(), term]));
     }
     coefficients
 }

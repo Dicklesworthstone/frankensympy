@@ -152,7 +152,10 @@ impl ImmutableAssumptionsSnapshot {
             .unwrap_or_default();
 
         let has_internal_contradiction = known.iter().enumerate().any(|(i, a)| {
-            known.iter().skip(i + 1).any(|b| Predicate::contradicts(*a, *b))
+            known
+                .iter()
+                .skip(i + 1)
+                .any(|b| Predicate::contradicts(*a, *b))
         });
         if has_internal_contradiction {
             return TruthValue::Contradictory;
@@ -316,7 +319,10 @@ impl AssumptionsContext {
             .unwrap_or_default();
 
         let has_internal_contradiction = known.iter().enumerate().any(|(i, a)| {
-            known.iter().skip(i + 1).any(|b| Predicate::contradicts(*a, *b))
+            known
+                .iter()
+                .skip(i + 1)
+                .any(|b| Predicate::contradicts(*a, *b))
         });
         if has_internal_contradiction {
             return TruthValue::Contradictory;
