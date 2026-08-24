@@ -15,6 +15,7 @@ use std::sync::Arc;
 use thiserror::Error;
 
 pub mod arith;
+pub mod canonical;
 mod parser;
 
 pub use parser::parse;
