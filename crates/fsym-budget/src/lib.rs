@@ -21,7 +21,7 @@
 
 #![forbid(unsafe_code)]
 
-use std::fmt;
+use std::{fmt, sync::Arc};
 
 /// Canonical budget dimensions charged by symbolic work.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -88,8 +88,12 @@ pub enum BudgetError {
     ZeroCharge,
     /// The verifier pool was addressed without an active lease.
     VerifierPoolAccessDenied,
+    /// A receipt was presented to a ledger other than the one that issued it.
+    ReceiptAuthorityMismatch,
     /// Reserving a child would exceed the parent's remaining allowance.
     ChildReservationTooLarge,
+    /// A child was presented to a ledger other than its reserving parent.
+    ChildAuthorityMismatch,
 }
 
 impl fmt::Display for BudgetError {
@@ -112,8 +116,14 @@ impl fmt::Display for BudgetError {
                     "verifier-reserved budget requires an active verifier lease"
                 )
             }
+            BudgetError::ReceiptAuthorityMismatch => {
+                write!(f, "charge receipt belongs to a different budget ledger")
+            }
             BudgetError::ChildReservationTooLarge => {
                 write!(f, "child reservation exceeds parent remaining allowance")
+            }
+            BudgetError::ChildAuthorityMismatch => {
+                write!(f, "child budget belongs to a different parent ledger")
             }
         }
     }
@@ -214,17 +224,18 @@ impl BudgetLimits {
 /// inside dependent crates.
 #[derive(Debug)]
 pub struct VerifierLease {
-    _private: (),
+    authority: Arc<BudgetAuthority>,
 }
 
 /// Receipt proving that `amount` of `dimension` was charged at sequence
 /// `seq`. Consumed by [`Budget::refund`]; intentionally neither `Copy` nor
 /// `Clone` so a refund cannot happen twice.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct ChargeReceipt {
     pub(crate) kind: ChargedKind,
     pub(crate) amount: u64,
     pub(crate) seq: u64,
+    authority: Arc<BudgetAuthority>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -232,6 +243,13 @@ pub(crate) enum ChargedKind {
     Dimension(Dimension),
     VerifierPool,
 }
+
+/// Unforgeable, process-local identity for one accounting ledger.
+///
+/// This capability is never serialized or exposed as a stable content ID.
+/// Authorization uses allocation identity through [`Arc::ptr_eq`].
+#[derive(Debug)]
+struct BudgetAuthority;
 
 /// Immutable point-in-time view of remaining allowances.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -248,8 +266,10 @@ pub struct BudgetSnapshot {
 pub struct Budget {
     remaining: [u64; DIMENSION_COUNT],
     verifier_remaining: u64,
-    verifier_lease_open: bool,
+    verifier_lease_available: bool,
     sequence: u64,
+    authority: Arc<BudgetAuthority>,
+    parent_authority: Option<Arc<BudgetAuthority>>,
 }
 
 impl Budget {
@@ -258,8 +278,10 @@ impl Budget {
         Budget {
             remaining: limits.dimensions,
             verifier_remaining: limits.verifier_pool,
-            verifier_lease_open: false,
+            verifier_lease_available: limits.verifier_pool > 0,
             sequence: 0,
+            authority: Arc::new(BudgetAuthority),
+            parent_authority: None,
         }
     }
 
@@ -274,13 +296,17 @@ impl Budget {
     }
 
     /// Issues the single verifier lease. Returns `None` if one was already
-    /// issued: there is one protected pool per budget and one key to it.
+    /// issued or this ledger has no verifier authority. There is one protected
+    /// pool per root budget and one key to it; child and zero-pool budgets
+    /// cannot issue a key.
     pub fn verifier_lease(&mut self) -> Option<VerifierLease> {
-        if self.verifier_lease_open {
+        if !self.verifier_lease_available {
             None
         } else {
-            self.verifier_lease_open = true;
-            Some(VerifierLease { _private: () })
+            self.verifier_lease_available = false;
+            Some(VerifierLease {
+                authority: Arc::clone(&self.authority),
+            })
         }
     }
 
@@ -308,6 +334,7 @@ impl Budget {
             kind: ChargedKind::Dimension(dimension),
             amount,
             seq: self.sequence,
+            authority: Arc::clone(&self.authority),
         })
     }
 
@@ -318,7 +345,9 @@ impl Budget {
         lease: &VerifierLease,
         amount: u64,
     ) -> Result<ChargeReceipt, BudgetError> {
-        let _ = lease; // existence of a lease is the authorization proof
+        if !Arc::ptr_eq(&self.authority, &lease.authority) {
+            return Err(BudgetError::VerifierPoolAccessDenied);
+        }
         if amount == 0 {
             return Err(BudgetError::ZeroCharge);
         }
@@ -335,11 +364,16 @@ impl Budget {
             kind: ChargedKind::VerifierPool,
             amount,
             seq: self.sequence,
+            authority: Arc::clone(&self.authority),
         })
     }
 
-    /// Restores the allowance recorded in a consumed receipt.
-    pub fn refund(&mut self, receipt: ChargeReceipt) {
+    /// Restores the allowance recorded in a consumed receipt. A receipt from
+    /// another ledger is refused without changing this ledger.
+    pub fn refund(&mut self, receipt: ChargeReceipt) -> Result<(), BudgetError> {
+        if !Arc::ptr_eq(&self.authority, &receipt.authority) {
+            return Err(BudgetError::ReceiptAuthorityMismatch);
+        }
         match receipt.kind {
             ChargedKind::Dimension(dimension) => {
                 self.remaining[dimension.index()] += receipt.amount;
@@ -347,6 +381,7 @@ impl Budget {
             ChargedKind::VerifierPool => self.verifier_remaining += receipt.amount,
         }
         self.sequence += 1;
+        Ok(())
     }
 
     /// Reserves a child budget carved out of this one. The reserved amounts
@@ -372,17 +407,28 @@ impl Budget {
         Ok(Budget {
             remaining: caps.dimensions,
             verifier_remaining: 0,
-            verifier_lease_open: false,
+            verifier_lease_available: false,
             sequence: 0,
+            authority: Arc::new(BudgetAuthority),
+            parent_authority: Some(Arc::clone(&self.authority)),
         })
     }
 
-    /// Merges a child's unspent allowances back into this budget.
-    pub fn merge_child(&mut self, child: Budget) {
+    /// Merges a child's unspent allowances back into its reserving parent.
+    /// A root, foreign child, or grandchild is refused atomically.
+    pub fn merge_child(&mut self, child: Budget) -> Result<(), BudgetError> {
+        let belongs_to_self = child
+            .parent_authority
+            .as_ref()
+            .is_some_and(|parent| Arc::ptr_eq(&self.authority, parent));
+        if !belongs_to_self {
+            return Err(BudgetError::ChildAuthorityMismatch);
+        }
         for dimension in Dimension::ALL {
             self.remaining[dimension.index()] += child.remaining[dimension.index()];
         }
         self.sequence += 1;
+        Ok(())
     }
 
     /// Captures an immutable snapshot of current allowances.
