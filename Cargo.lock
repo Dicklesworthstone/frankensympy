@@ -737,6 +737,8 @@ name = "fsym-printing"
 version = "0.1.0"
 dependencies = [
  "fsym-core",
+ "num-bigint",
+ "num-rational",
  "proptest",
  "serde",
  "thiserror",

@@ -14,6 +14,10 @@ use std::fmt;
 use std::sync::Arc;
 use thiserror::Error;
 
+mod parser;
+
+pub use parser::parse;
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum CoreError {
     #[error("Division by zero in symbolic expression")]
@@ -22,6 +26,8 @@ pub enum CoreError {
     InvalidOperation(String),
     #[error("Symbol not found: {0}")]
     SymbolNotFound(String),
+    #[error("Failed to parse expression: {0}")]
+    ParseError(String),
 }
 
 /// Fundamental symbol definition with name and assumptions metadata.
@@ -203,6 +209,77 @@ impl Expr {
                 _ => None,
             },
             _ => None,
+        }
+    }
+
+    /// Numeric evaluation to `f64`.
+    ///
+    /// Fails on free symbols, non-real constants, and functions outside the
+    /// supported single-argument set (`sin`, `cos`, `tan`, `exp`, `log`,
+    /// `ln`, `sqrt`).
+    pub fn evalf(&self) -> Result<f64, CoreError> {
+        use num_traits::ToPrimitive;
+        match self {
+            Expr::Integer(n) => n.to_f64().ok_or_else(|| {
+                CoreError::InvalidOperation(format!("integer out of f64 range: {n}"))
+            }),
+            Expr::Rational(r) => {
+                let num = r.numer().to_f64();
+                let den = r.denom().to_f64();
+                match (num, den) {
+                    (Some(a), Some(b)) if b != 0.0 => Ok(a / b),
+                    _ => Err(CoreError::InvalidOperation(
+                        "rational out of f64 range".to_string(),
+                    )),
+                }
+            }
+            Expr::Const(c) => Ok(match c {
+                Constant::Pi => std::f64::consts::PI,
+                Constant::E => std::f64::consts::E,
+                Constant::Infinity => f64::INFINITY,
+                Constant::NegativeInfinity => f64::NEG_INFINITY,
+                Constant::NaN => f64::NAN,
+                Constant::I | Constant::ComplexInfinity => {
+                    return Err(CoreError::InvalidOperation(format!(
+                        "{c} is not real-valued"
+                    )));
+                }
+            }),
+            Expr::Add(terms) => {
+                let mut acc = 0.0;
+                for t in terms {
+                    acc += t.evalf()?;
+                }
+                Ok(acc)
+            }
+            Expr::Mul(factors) => {
+                let mut acc = 1.0;
+                for f in factors {
+                    acc *= f.evalf()?;
+                }
+                Ok(acc)
+            }
+            Expr::Pow(b, e) => Ok(b.evalf()?.powf(e.evalf()?)),
+            Expr::Function(name, args) => {
+                let x = match args.as_slice() {
+                    [arg] => Some(arg.evalf()?),
+                    _ => None,
+                };
+                match (name.as_str(), x) {
+                    ("sin", Some(x)) => Ok(x.sin()),
+                    ("cos", Some(x)) => Ok(x.cos()),
+                    ("tan", Some(x)) => Ok(x.tan()),
+                    ("exp", Some(x)) => Ok(x.exp()),
+                    ("log" | "ln", Some(x)) => Ok(x.ln()),
+                    ("sqrt", Some(x)) => Ok(x.sqrt()),
+                    _ => Err(CoreError::InvalidOperation(format!(
+                        "cannot evaluate function `{name}` numerically"
+                    ))),
+                }
+            }
+            Expr::Sym(s) => Err(CoreError::InvalidOperation(format!(
+                "free symbol `{s}` cannot be evaluated numerically"
+            ))),
         }
     }
 }
