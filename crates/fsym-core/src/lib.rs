@@ -13,11 +13,15 @@ use std::fmt;
 use std::sync::Arc;
 use thiserror::Error;
 
+pub mod algebraic;
 pub mod arith;
+pub mod ball;
 pub mod canonical;
 pub mod dag;
 mod parser;
 
+pub use algebraic::*;
+pub use ball::*;
 pub use dag::*;
 pub use parser::parse;
 
@@ -393,5 +397,72 @@ mod tests {
         map.insert(x, Expr::from_i64(3));
         let res = expr.subs(&map);
         assert_eq!(res, Expr::from_i64(3) + Expr::from_i64(10));
+    }
+
+    #[test]
+    fn test_certified_real_ball_arithmetic() {
+        // b1 = [1.5 ± 0.5] = [1.0, 2.0]
+        let b1 = RealBall::new(
+            BigRational::new(BigInt::from(3), BigInt::from(2)),
+            BigRational::new(BigInt::from(1), BigInt::from(2)),
+        )
+        .unwrap();
+
+        // b2 = [2.0 ± 0.2] = [1.8, 2.2]
+        let b2 = RealBall::new(
+            BigRational::from_integer(BigInt::from(2)),
+            BigRational::new(BigInt::from(1), BigInt::from(5)),
+        )
+        .unwrap();
+
+        let sum = b1.add(&b2);
+        assert_eq!(
+            sum.lower(),
+            BigRational::new(BigInt::from(14), BigInt::from(5))
+        ); // 2.8
+        assert_eq!(
+            sum.upper(),
+            BigRational::new(BigInt::from(21), BigInt::from(5))
+        ); // 4.2
+
+        let prod = b1.mul(&b2);
+        // Product [1.0, 2.0] * [1.8, 2.2] = [1.8, 4.4]
+        assert!(prod.lower() <= BigRational::new(BigInt::from(18), BigInt::from(10)));
+        assert!(prod.upper() >= BigRational::new(BigInt::from(44), BigInt::from(10)));
+
+        assert!(b1.is_positive());
+        assert!(!b1.contains_zero());
+    }
+
+    #[test]
+    fn test_algebraic_number_root_refinement() {
+        // sqrt(2): P(x) = x^2 - 2, isolating interval [1, 2] -> [1.5 ± 0.5]
+        let p_sqrt2 = vec![
+            BigRational::from_integer(BigInt::from(-2)),
+            BigRational::zero(),
+            BigRational::one(),
+        ];
+        let initial_ball = RealBall::new(
+            BigRational::new(BigInt::from(3), BigInt::from(2)),
+            BigRational::new(BigInt::from(1), BigInt::from(2)),
+        )
+        .unwrap();
+
+        let mut alpha = AlgebraicNumber::new(p_sqrt2, initial_ball).unwrap();
+        assert_eq!(alpha.degree(), 2);
+        assert_eq!(alpha.sign(), 1);
+
+        // Refine radius to <= 1/1000
+        let target = BigRational::new(BigInt::from(1), BigInt::from(1000));
+        alpha.refine_to_radius(&target);
+        assert!(alpha.isolating_ball.radius <= target);
+
+        // Check certified root enclosure: P(lower) <= 0 and P(upper) >= 0 for x^2 - 2
+        let low = alpha.isolating_ball.lower();
+        let high = alpha.isolating_ball.upper();
+        let p_low = &low * &low - BigRational::from_integer(BigInt::from(2));
+        let p_high = &high * &high - BigRational::from_integer(BigInt::from(2));
+        assert!(p_low <= BigRational::zero(), "P(lower) must be <= 0");
+        assert!(p_high >= BigRational::zero(), "P(upper) must be >= 0");
     }
 }
