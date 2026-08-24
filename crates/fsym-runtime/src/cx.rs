@@ -74,6 +74,21 @@ impl<'a, Caps> FsymCx<'a, Caps> {
         self.budget.try_charge_verifier(lease, amount)
     }
 
+    /// Reserve a child execution budget from this region.
+    ///
+    /// The reservation leaves the parent immediately. Callers must return the child
+    /// through [`Self::merge_child`] on every terminal path so unused allowances are
+    /// reconciled without resetting work already consumed by the child.
+    pub fn reserve_child(&mut self, limits: BudgetLimits) -> Result<Self, BudgetError> {
+        let child_budget = self.budget.reserve_child(limits)?;
+        Ok(Self::new(self.cx, child_budget, limits))
+    }
+
+    /// Reconcile a completed child region into its owning parent.
+    pub fn merge_child(&mut self, child: Self) -> Result<(), BudgetError> {
+        self.budget.merge_child(child.budget)
+    }
+
     /// Remaining shared allowance along a dimension.
     pub fn remaining(&self, dimension: Dimension) -> u64 {
         self.budget.remaining(dimension)
@@ -169,6 +184,22 @@ mod tests {
 
         region.charge_verifier(&lease, 15).unwrap();
         assert_eq!(region.verifier_remaining(), 25);
+    }
+
+    #[test]
+    fn child_consumption_is_reconciled_without_budget_reset() {
+        let cx = Cx::detached_cancel_context();
+        let limits = BudgetLimits::uniform(20, 5);
+        let mut parent = FsymCx::new(&cx, Budget::new(limits), limits);
+        let child_limits = BudgetLimits::uniform(10, 0);
+        let mut child = parent.reserve_child(child_limits).unwrap();
+
+        child.charge(Dimension::ComputeSteps, 4).unwrap();
+        parent.merge_child(child).unwrap();
+
+        assert_eq!(parent.remaining(Dimension::ComputeSteps), 16);
+        assert_eq!(parent.remaining(Dimension::MemoryBytes), 20);
+        assert_eq!(parent.verifier_remaining(), 5);
     }
 
     #[test]

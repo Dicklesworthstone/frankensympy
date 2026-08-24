@@ -166,6 +166,7 @@ mod tests {
 
         let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
         let x = Expr::symbol("x");
+        let requested_claim = fsym_proof_kernel::Claim::equality(x.clone(), x.clone());
 
         let s1_expr = x.clone();
         let s2_expr = x.clone();
@@ -182,7 +183,6 @@ mod tests {
                 result: s1_expr.clone(),
                 claim,
                 derivation,
-                steps_consumed: 1,
             })
         });
 
@@ -198,13 +198,13 @@ mod tests {
                 result: s2_expr.clone(),
                 claim,
                 derivation,
-                steps_consumed: 2,
             })
         });
 
         let outcome = run_portfolio_race(
             &mut fsym_cx,
             &context,
+            &requested_claim,
             vec![("strategy_1", strategy1), ("strategy_2", strategy2)],
         )
         .unwrap();
@@ -224,6 +224,7 @@ mod tests {
         let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
         let x = Expr::symbol("x");
         let y = Expr::symbol("y");
+        let requested_claim = fsym_proof_kernel::Claim::equality(x.clone(), y.clone());
 
         let forged_strategy = Box::new(move |_cx: &mut FsymCx<'_, _>| {
             let mut kernel = ProofKernel::new((*ImmutableAssumptionsSnapshot::empty()).clone());
@@ -237,11 +238,15 @@ mod tests {
                 result: y.clone(),
                 claim: fsym_proof_kernel::Claim::equality(x.clone(), y.clone()),
                 derivation,
-                steps_consumed: 1,
             })
         });
 
-        let res = run_portfolio_race(&mut fsym_cx, &context, vec![("forged", forged_strategy)]);
+        let res = run_portfolio_race(
+            &mut fsym_cx,
+            &context,
+            &requested_claim,
+            vec![("forged", forged_strategy)],
+        );
 
         assert!(matches!(
             res,
@@ -365,9 +370,12 @@ mod tests {
     #[test]
     fn test_remote_worker_candidate_verification_and_adversarial_rejection() {
         let context = ImmutableAssumptionsSnapshot::empty();
-        let coordinator = CoordinatorVerifier::new(context);
-
         let x = Expr::symbol("x");
+        let coordinator = CoordinatorVerifier::new(
+            101,
+            fsym_proof_kernel::Claim::equality(x.clone(), x.clone()),
+            context,
+        );
         let mut kernel = ProofKernel::new((*ImmutableAssumptionsSnapshot::empty()).clone());
         let step = kernel.prove_reflexivity(x.clone(), &mut Unbounded).unwrap();
         let derivation = kernel.export_derivation(step).unwrap();
@@ -391,7 +399,7 @@ mod tests {
         // Adversarial test: Worker signs a forged claim (x = 999) with non-matching derivation
         let forged_candidate = RemoteCandidate {
             worker_id: "malicious_worker".to_string(),
-            task_id: 102,
+            task_id: 101,
             result: Expr::from_i64(999),
             claim: fsym_proof_kernel::Claim::equality(x.clone(), Expr::from_i64(999)),
             derivation,

@@ -19,6 +19,8 @@ pub enum RemoteWorkerError {
     VerificationFailed(String),
     #[error("Untrusted worker claim forgery: claimed result does not match verified claim")]
     ClaimForgery,
+    #[error("Untrusted worker response does not answer the assigned task")]
+    TaskMismatch,
     #[error("Worker timeout or communication fault")]
     WorkerFault,
     #[error("Payload schema or integrity corruption")]
@@ -42,17 +44,28 @@ pub struct VerifiedAcceptedResult {
     pub task_id: u64,
     pub result: Expr,
     pub claim: Claim,
+    pub context_digest: [u8; 32],
     pub verifier_receipt_digest: [u8; 32],
 }
 
 /// Coordinator supervising untrusted remote workers.
 pub struct CoordinatorVerifier {
+    task_id: u64,
+    expected_claim: Claim,
     pub context: Arc<ImmutableAssumptionsSnapshot>,
 }
 
 impl CoordinatorVerifier {
-    pub fn new(context: Arc<ImmutableAssumptionsSnapshot>) -> Self {
-        Self { context }
+    pub fn new(
+        task_id: u64,
+        expected_claim: Claim,
+        context: Arc<ImmutableAssumptionsSnapshot>,
+    ) -> Self {
+        Self {
+            task_id,
+            expected_claim,
+            context,
+        }
     }
 
     /// Evaluates and verifies a candidate from an untrusted remote worker.
@@ -73,6 +86,9 @@ impl CoordinatorVerifier {
         {
             return Err(RemoteWorkerError::ClaimForgery);
         }
+        if candidate.task_id != self.task_id || verified_claim != self.expected_claim {
+            return Err(RemoteWorkerError::TaskMismatch);
+        }
 
         // 3. Compute BLAKE3 verifier receipt
         let mut hasher = blake3::Hasher::new();
@@ -85,12 +101,14 @@ impl CoordinatorVerifier {
         hasher.update(&claim_bytes);
         hasher.update(&result_bytes);
         hasher.update(&candidate.derivation.digest());
+        hasher.update(&self.context.digest());
         let verifier_receipt_digest = *hasher.finalize().as_bytes();
 
         Ok(VerifiedAcceptedResult {
             task_id: candidate.task_id,
             result: candidate.result.clone(),
             claim: candidate.claim.clone(),
+            context_digest: self.context.digest(),
             verifier_receipt_digest,
         })
     }
@@ -114,8 +132,9 @@ mod tests {
     #[test]
     fn rejects_result_not_bound_to_verified_claim() {
         let context = ImmutableAssumptionsSnapshot::empty();
-        let coordinator = CoordinatorVerifier::new(context);
         let x = Expr::symbol("x");
+        let expected_claim = Claim::equality(x.clone(), x.clone());
+        let coordinator = CoordinatorVerifier::new(999, expected_claim, context);
         let mut kernel = ProofKernel::new((*ImmutableAssumptionsSnapshot::empty()).clone());
         let root = kernel.prove_reflexivity(x.clone(), &mut Unbounded).unwrap();
         let derivation = kernel.export_derivation(root).unwrap();
@@ -132,6 +151,32 @@ mod tests {
         assert_eq!(
             coordinator.verify_remote_candidate(&candidate),
             Err(RemoteWorkerError::ClaimForgery)
+        );
+    }
+
+    #[test]
+    fn rejects_valid_but_irrelevant_remote_result() {
+        let context = ImmutableAssumptionsSnapshot::empty();
+        let requested = Expr::symbol("requested");
+        let coordinator =
+            CoordinatorVerifier::new(7, Claim::equality(requested.clone(), requested), context);
+        let irrelevant = Expr::symbol("irrelevant");
+        let mut kernel = ProofKernel::new((*ImmutableAssumptionsSnapshot::empty()).clone());
+        let root = kernel
+            .prove_reflexivity(irrelevant.clone(), &mut Unbounded)
+            .unwrap();
+        let candidate = RemoteCandidate {
+            worker_id: "untrusted-worker".to_string(),
+            task_id: 7,
+            result: irrelevant.clone(),
+            claim: Claim::equality(irrelevant.clone(), irrelevant),
+            derivation: kernel.export_derivation(root).unwrap(),
+            worker_signature: vec![],
+        };
+
+        assert_eq!(
+            coordinator.verify_remote_candidate(&candidate),
+            Err(RemoteWorkerError::TaskMismatch)
         );
     }
 }

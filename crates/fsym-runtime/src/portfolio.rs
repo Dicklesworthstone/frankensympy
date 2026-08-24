@@ -10,7 +10,7 @@
 
 use crate::cx::FsymCx;
 use fsym_assumptions::ImmutableAssumptionsSnapshot;
-use fsym_budget::{Budget, BudgetLimits, Dimension};
+use fsym_budget::{BudgetLimits, Dimension};
 use fsym_evidence::EvidenceEnvelope;
 use fsym_proof_kernel::{Claim, DerivationTree, verify_derivation_independent};
 use std::sync::Arc;
@@ -28,6 +28,8 @@ pub enum PortfolioError {
     Cancelled,
     #[error("No verifier lease available for protected verification")]
     NoVerifierLease,
+    #[error("Child budget accounting failed: {0}")]
+    BudgetAccountingFailed(String),
 }
 
 /// A candidate produced by an algorithm generator in the portfolio.
@@ -37,7 +39,6 @@ pub struct PortfolioCandidate {
     pub result: fsym_core::Expr,
     pub claim: Claim,
     pub derivation: DerivationTree,
-    pub steps_consumed: u64,
 }
 
 /// A verified accepted outcome from a portfolio execution.
@@ -46,6 +47,7 @@ pub struct VerifiedPortfolioOutcome {
     pub winning_strategy: String,
     pub result: fsym_core::Expr,
     pub evidence: EvidenceEnvelope,
+    pub context_digest: [u8; 32],
     pub total_steps_consumed: u64,
 }
 
@@ -61,86 +63,134 @@ pub type NamedStrategy<Caps> = (&'static str, StrategyRunner<Caps>);
 pub fn run_portfolio_race<Caps>(
     cx: &mut FsymCx<'_, Caps>,
     context: &Arc<ImmutableAssumptionsSnapshot>,
+    requested_claim: &Claim,
     strategies: Vec<NamedStrategy<Caps>>,
 ) -> Result<VerifiedPortfolioOutcome, PortfolioError> {
     cx.checkpoint().map_err(|_| PortfolioError::Cancelled)?;
 
-    let mut first_winner: Option<PortfolioCandidate> = None;
+    let lease = cx.verifier_lease().ok_or(PortfolioError::NoVerifierLease)?;
+    let initial_compute_remaining = cx.remaining(Dimension::ComputeSteps);
     let mut failure_reasons: Vec<String> = Vec::new();
+    let mut verification_attempted = false;
 
-    // Candidate Generation Phase: sequentially or concurrently execute strategies
+    // Candidate Generation Phase: each strategy gets a real reserved child ledger.
+    // This baseline is deliberately sequential until the asupersync region race lands.
     for (name, strategy) in strategies {
-        if cx.check_cancelled() {
-            return Err(PortfolioError::Cancelled);
-        }
+        cx.checkpoint().map_err(|_| PortfolioError::Cancelled)?;
 
-        // Subdivide budget for strategy candidate generation
-        let child_limits = BudgetLimits::uniform(cx.remaining(Dimension::ComputeSteps), 0);
-        let child_budget = Budget::new(child_limits);
-        let mut child_cx = FsymCx::new(cx.asupersync(), child_budget, child_limits);
+        let child_limits = remaining_generator_limits(cx);
+        let mut child_cx = cx
+            .reserve_child(child_limits)
+            .map_err(|error| PortfolioError::BudgetAccountingFailed(error.to_string()))?;
+        let generated = strategy(&mut child_cx);
+        cx.merge_child(child_cx)
+            .map_err(|error| PortfolioError::BudgetAccountingFailed(error.to_string()))?;
+        cx.checkpoint().map_err(|_| PortfolioError::Cancelled)?;
 
-        match strategy(&mut child_cx) {
-            Ok(candidate) => {
-                first_winner = Some(candidate);
-                break;
-            }
+        let winner = match generated {
+            Ok(candidate) => candidate,
             Err(e) => {
                 failure_reasons.push(format!("{name}: {e}"));
+                continue;
             }
+        };
+        verification_attempted = true;
+
+        let verifier_units = u64::try_from(winner.derivation.steps.len())
+            .unwrap_or(u64::MAX)
+            .max(1);
+        let verifier_charge = cx
+            .charge_verifier(&lease, verifier_units)
+            .map_err(|e| PortfolioError::BudgetExhausted(e.to_string()))?;
+        cx.checkpoint().map_err(|_| PortfolioError::Cancelled)?;
+
+        let verified_claim = match verify_derivation_independent(&winner.derivation, context) {
+            Ok(claim) => claim,
+            Err(error) => {
+                failure_reasons.push(format!(
+                    "{name}: verifier rejected candidate from `{}`: {error}",
+                    winner.strategy_name
+                ));
+                continue;
+            }
+        };
+        if verified_claim != winner.claim {
+            failure_reasons.push(format!(
+                "{name}: verifier established `{verified_claim}`, but `{}` requested publication of `{}`",
+                winner.strategy_name, winner.claim
+            ));
+            continue;
         }
-    }
-
-    let winner = first_winner
-        .ok_or_else(|| PortfolioError::AllStrategiesFailed(failure_reasons.join("; ")))?;
-
-    // Protected Verification Phase: obtain verifier lease and check derivation
-    let lease = cx.verifier_lease().ok_or(PortfolioError::NoVerifierLease)?;
-    cx.charge_verifier(&lease, 1)
-        .map_err(|e| PortfolioError::BudgetExhausted(e.to_string()))?;
-
-    let verified_claim =
-        verify_derivation_independent(&winner.derivation, context).map_err(|e| {
-            PortfolioError::WinnerVerificationFailed(format!(
-                "Verifier rejected candidate from strategy `{}`: {e}",
+        if &verified_claim != requested_claim {
+            failure_reasons.push(format!(
+                "{name}: verified claim `{verified_claim}` does not answer requested claim `{requested_claim}`"
+            ));
+            continue;
+        }
+        if portfolio_claimed_result(&verified_claim) != &winner.result {
+            failure_reasons.push(format!(
+                "{name}: verified claim `{verified_claim}` does not bind the result returned by `{}`",
                 winner.strategy_name
+            ));
+            continue;
+        }
+        cx.checkpoint().map_err(|_| PortfolioError::Cancelled)?;
+
+        let receipt_id = fsym_id::ReceiptId::new(verifier_charge.seq()).map_err(|error| {
+            PortfolioError::WinnerVerificationFailed(format!(
+                "invalid verifier receipt sequence: {error}"
             ))
         })?;
-    if verified_claim != winner.claim {
-        return Err(PortfolioError::WinnerVerificationFailed(format!(
-            "Verifier established `{verified_claim}`, but strategy `{}` requested publication of `{}`",
-            winner.strategy_name, winner.claim
-        )));
+        let receipt = fsym_evidence::VerificationReceipt::issue(
+            receipt_id,
+            &winner.claim,
+            fsym_outcome::EvidenceClass::KernelProved,
+            format!("portfolio-verifier:{}", winner.strategy_name),
+            verifier_charge.seq(),
+            Some(winner.derivation.digest()),
+        );
+
+        let evidence = EvidenceEnvelope::new(
+            winner.claim,
+            fsym_outcome::EvidenceClass::KernelProved,
+            receipt,
+            Some(winner.derivation),
+        );
+
+        let compute_remaining = cx.remaining(Dimension::ComputeSteps);
+        let total_steps_consumed = initial_compute_remaining
+            .checked_sub(compute_remaining)
+            .ok_or_else(|| {
+                PortfolioError::BudgetAccountingFailed(format!(
+                    "compute allowance increased from {initial_compute_remaining} to {compute_remaining}"
+                ))
+            })?;
+        return Ok(VerifiedPortfolioOutcome {
+            winning_strategy: winner.strategy_name,
+            result: winner.result,
+            evidence,
+            context_digest: context.digest(),
+            total_steps_consumed,
+        });
     }
-    if portfolio_claimed_result(&verified_claim) != &winner.result {
-        return Err(PortfolioError::WinnerVerificationFailed(format!(
-            "Verified claim `{verified_claim}` does not bind the result returned by strategy `{}`",
-            winner.strategy_name
-        )));
+
+    let failures = failure_reasons.join("; ");
+    if verification_attempted {
+        Err(PortfolioError::WinnerVerificationFailed(failures))
+    } else {
+        Err(PortfolioError::AllStrategiesFailed(failures))
     }
+}
 
-    let receipt_id = fsym_id::ReceiptId::new(1).expect("valid id");
-    let receipt = fsym_evidence::VerificationReceipt::issue(
-        receipt_id,
-        &winner.claim,
-        fsym_outcome::EvidenceClass::KernelProved,
-        format!("portfolio-verifier:{}", winner.strategy_name),
-        1,
-        Some(winner.derivation.digest()),
-    );
-
-    let evidence = EvidenceEnvelope::new(
-        winner.claim,
-        fsym_outcome::EvidenceClass::KernelProved,
-        receipt,
-        Some(winner.derivation),
-    );
-
-    Ok(VerifiedPortfolioOutcome {
-        winning_strategy: winner.strategy_name,
-        result: winner.result,
-        evidence,
-        total_steps_consumed: winner.steps_consumed,
-    })
+fn remaining_generator_limits<Caps>(cx: &FsymCx<'_, Caps>) -> BudgetLimits {
+    let mut dimensions = [0; fsym_budget::DIMENSION_COUNT];
+    for dimension in Dimension::ALL {
+        dimensions[dimension.index()] = cx.remaining(dimension);
+    }
+    BudgetLimits {
+        dimensions,
+        verifier_pool: 0,
+    }
 }
 
 fn portfolio_claimed_result(claim: &Claim) -> &fsym_core::Expr {
@@ -156,7 +206,7 @@ fn portfolio_claimed_result(claim: &Claim) -> &fsym_core::Expr {
 mod tests {
     use super::*;
     use asupersync::Cx;
-    use fsym_budget::Unbounded;
+    use fsym_budget::{Budget, Unbounded};
     use fsym_core::Expr;
     use fsym_proof_kernel::ProofKernel;
 
@@ -170,6 +220,7 @@ mod tests {
         let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
         let x = Expr::symbol("x");
         let y = Expr::symbol("y");
+        let requested = Claim::equality(x.clone(), y.clone());
 
         let mismatched_strategy = Box::new(move |_cx: &mut FsymCx<'_, _>| {
             let mut kernel = ProofKernel::new((*ImmutableAssumptionsSnapshot::empty()).clone());
@@ -181,13 +232,13 @@ mod tests {
                 result: y.clone(),
                 claim: Claim::equality(x.clone(), y.clone()),
                 derivation,
-                steps_consumed: 1,
             })
         });
 
         let result = run_portfolio_race(
             &mut fsym_cx,
             &context,
+            &requested,
             vec![("mismatched", mismatched_strategy)],
         );
 
@@ -207,6 +258,7 @@ mod tests {
 
         let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
         let x = Expr::symbol("x");
+        let requested = Claim::equality(x.clone(), x.clone());
         let incorrect_result_strategy = Box::new(move |_cx: &mut FsymCx<'_, _>| {
             let mut kernel = ProofKernel::new((*ImmutableAssumptionsSnapshot::empty()).clone());
             let step = kernel.prove_reflexivity(x.clone(), &mut Unbounded).unwrap();
@@ -217,13 +269,13 @@ mod tests {
                 result: Expr::from_i64(999),
                 claim: Claim::equality(x.clone(), x.clone()),
                 derivation,
-                steps_consumed: 1,
             })
         });
 
         let result = run_portfolio_race(
             &mut fsym_cx,
             &context,
+            &requested,
             vec![("incorrect-result", incorrect_result_strategy)],
         );
 
@@ -231,6 +283,135 @@ mod tests {
             result,
             Err(PortfolioError::WinnerVerificationFailed(message))
                 if message.contains("does not bind the result")
+        ));
+    }
+
+    #[test]
+    fn rejected_candidate_falls_back_without_refunding_consumed_work() {
+        let cx_raw = Cx::detached_cancel_context();
+        let limits = BudgetLimits::uniform(100, 10);
+        let budget = fsym_budget::Budget::new(limits);
+        let mut fsym_cx = FsymCx::new(&cx_raw, budget, limits);
+        let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
+        let x = Expr::symbol("x");
+
+        let rejected_x = x.clone();
+        let rejected = Box::new(move |cx: &mut FsymCx<'_, _>| {
+            cx.charge(Dimension::ComputeSteps, 2).unwrap();
+            let mut kernel = ProofKernel::new((*ImmutableAssumptionsSnapshot::empty()).clone());
+            let root = kernel
+                .prove_reflexivity(rejected_x.clone(), &mut Unbounded)
+                .unwrap();
+            Ok(PortfolioCandidate {
+                strategy_name: "rejected-result".into(),
+                result: Expr::from_i64(999),
+                claim: Claim::equality(rejected_x.clone(), rejected_x.clone()),
+                derivation: kernel.export_derivation(root).unwrap(),
+            })
+        });
+
+        let accepted_x = x.clone();
+        let accepted = Box::new(move |cx: &mut FsymCx<'_, _>| {
+            cx.charge(Dimension::ComputeSteps, 3).unwrap();
+            let mut kernel = ProofKernel::new((*ImmutableAssumptionsSnapshot::empty()).clone());
+            let root = kernel
+                .prove_reflexivity(accepted_x.clone(), &mut Unbounded)
+                .unwrap();
+            Ok(PortfolioCandidate {
+                strategy_name: "accepted".into(),
+                result: accepted_x.clone(),
+                claim: Claim::equality(accepted_x.clone(), accepted_x.clone()),
+                derivation: kernel.export_derivation(root).unwrap(),
+            })
+        });
+
+        let outcome = run_portfolio_race(
+            &mut fsym_cx,
+            &context,
+            &Claim::equality(x.clone(), x.clone()),
+            vec![("rejected", rejected), ("accepted", accepted)],
+        )
+        .unwrap();
+
+        assert_eq!(outcome.winning_strategy, "accepted");
+        assert_eq!(outcome.result, x);
+        assert_eq!(outcome.total_steps_consumed, 5);
+        assert_eq!(fsym_cx.remaining(Dimension::ComputeSteps), 95);
+        assert_eq!(fsym_cx.verifier_remaining(), 8);
+    }
+
+    #[test]
+    fn fallback_never_resets_parent_budget() {
+        let cx_raw = Cx::detached_cancel_context();
+        let limits = BudgetLimits::uniform(100, 10);
+        let budget = fsym_budget::Budget::new(limits);
+        let mut fsym_cx = FsymCx::new(&cx_raw, budget, limits);
+        let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
+        let x = Expr::symbol("x");
+
+        let first = Box::new(|cx: &mut FsymCx<'_, _>| {
+            cx.charge(Dimension::ComputeSteps, 60).unwrap();
+            Err(PortfolioError::AllStrategiesFailed(
+                "planned first-strategy refusal".into(),
+            ))
+        });
+        let second = Box::new(|cx: &mut FsymCx<'_, _>| {
+            cx.charge(Dimension::ComputeSteps, 50)
+                .map_err(|error| PortfolioError::BudgetExhausted(error.to_string()))?;
+            Err(PortfolioError::AllStrategiesFailed(
+                "unexpected charge success".into(),
+            ))
+        });
+
+        let result = run_portfolio_race(
+            &mut fsym_cx,
+            &context,
+            &Claim::equality(x.clone(), x),
+            vec![("first", first), ("second", second)],
+        );
+
+        assert!(matches!(
+            result,
+            Err(PortfolioError::AllStrategiesFailed(_))
+        ));
+        assert_eq!(fsym_cx.remaining(Dimension::ComputeSteps), 40);
+        assert_eq!(fsym_cx.verifier_remaining(), 10);
+    }
+
+    #[test]
+    fn rejects_valid_but_irrelevant_claim() {
+        let cx_raw = Cx::detached_cancel_context();
+        let limits = BudgetLimits::uniform(100, 10);
+        let budget = Budget::new(limits);
+        let mut fsym_cx = FsymCx::new(&cx_raw, budget, limits);
+        let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
+        let requested = Claim::equality(Expr::symbol("requested"), Expr::symbol("requested"));
+        let irrelevant = Expr::symbol("irrelevant");
+
+        let strategy = Box::new(move |_cx: &mut FsymCx<'_, _>| {
+            let mut kernel = ProofKernel::new((*ImmutableAssumptionsSnapshot::empty()).clone());
+            let root = kernel
+                .prove_reflexivity(irrelevant.clone(), &mut Unbounded)
+                .unwrap();
+            Ok(PortfolioCandidate {
+                strategy_name: "irrelevant".into(),
+                result: irrelevant.clone(),
+                claim: Claim::equality(irrelevant.clone(), irrelevant.clone()),
+                derivation: kernel.export_derivation(root).unwrap(),
+            })
+        });
+
+        let result = run_portfolio_race(
+            &mut fsym_cx,
+            &context,
+            &requested,
+            vec![("irrelevant", strategy)],
+        );
+
+        assert!(matches!(
+            result,
+            Err(PortfolioError::WinnerVerificationFailed(message))
+                if message.contains("does not answer requested claim")
         ));
     }
 }
