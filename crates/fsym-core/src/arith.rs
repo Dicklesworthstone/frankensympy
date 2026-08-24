@@ -88,12 +88,16 @@ pub fn crt(congruences: &[(BigInt, BigInt)]) -> Option<(BigInt, BigInt)> {
     if congruences.is_empty() {
         return Some((BigInt::zero(), BigInt::one()));
     }
-    let (mut x, mut m) = congruences[0].clone();
+    let mut congruence_iter = congruences.iter();
+    let (mut x, mut m) = congruence_iter.next()?.clone();
+    if !m.is_positive() {
+        return None;
+    }
     x %= &m;
     if x.is_negative() {
         x += &m;
     }
-    for (r_i, m_i) in &congruences[1..] {
+    for (r_i, m_i) in congruence_iter {
         let (next_x, next_m) = crt_pair(&x, &m, r_i, m_i)?;
         x = next_x;
         m = next_m;
@@ -101,17 +105,26 @@ pub fn crt(congruences: &[(BigInt, BigInt)]) -> Option<(BigInt, BigInt)> {
     Some((x, m))
 }
 
-/// Wang's rational reconstruction: recovers `(r, s)` with `gcd(r, s) == 1`,
-/// `s > 0`, and `r · s⁻¹ ≡ n (mod m)`, bounded by `2·r_max·s_max < m`.
+/// Symmetric rational reconstruction: recovers `(r, s)` with `gcd(r, s) == 1`,
+/// `s > 0`, and `r · s⁻¹ ≡ n (mod m)`, where `|r|` and `s` do not exceed
+/// `floor(sqrt((m - 1) / 2))`. The strict `2 * bound^2 < m` inequality makes the
+/// representative unique.
 pub fn rational_reconstruct(n: &BigInt, m: &BigInt) -> Option<(BigInt, BigInt)> {
-    if !m.is_positive() {
+    if *m <= BigInt::one() {
         return None;
     }
-    let sq = sqrt_floor(m);
-    let (mut r_prev, mut r_cur) = (m.clone(), (n % m + m) % m);
+    let residue = (n % m + m) % m;
+    if residue.is_zero() {
+        return Some((BigInt::zero(), BigInt::one()));
+    }
+
+    // The symmetric uniqueness condition is 2 * bound^2 < m. Using sqrt(m)
+    // admits multiple representatives and can make the result depend on the Euclidean path.
+    let bound = sqrt_floor(&((m - 1i64) / 2i64));
+    let (mut r_prev, mut r_cur) = (m.clone(), residue.clone());
     let (mut t_prev, mut t_cur) = (BigInt::zero(), BigInt::one());
 
-    while r_cur.abs() > sq {
+    while r_cur.abs() > bound {
         let (q, r_next) = r_prev.div_rem(&r_cur);
         r_prev = r_cur;
         r_cur = r_next;
@@ -126,13 +139,16 @@ pub fn rational_reconstruct(n: &BigInt, m: &BigInt) -> Option<(BigInt, BigInt)> 
         r_out = -r_out;
         t_cur = -t_cur;
     }
-    if r_out.is_zero() || !t_cur.is_positive() {
+    if !t_cur.is_positive() {
         return None;
     }
-    if r_out.abs() > sq || t_cur > sq {
+    if r_out.abs() > bound || t_cur > bound {
         return None;
     }
     if gcd(&r_out, &t_cur) != BigInt::one() {
+        return None;
+    }
+    if (&r_out - &residue * &t_cur) % m != BigInt::zero() {
         return None;
     }
     Some((r_out, t_cur))
@@ -202,7 +218,7 @@ pub fn is_probable_prime(n: &BigInt) -> bool {
         return false;
     }
     for base in MR_BASES {
-        let b = BigInt::from(base as i64);
+        let b = BigInt::from(i64::from(base));
         if *n == b {
             return true;
         }
@@ -220,7 +236,7 @@ pub fn is_probable_prime(n: &BigInt) -> bool {
     }
 
     for base in MR_BASES {
-        let a = BigInt::from(base as i64);
+        let a = BigInt::from(i64::from(base));
         if &a >= n {
             continue;
         }
@@ -320,6 +336,28 @@ pub fn metered_extended_gcd<M: BudgetMeter>(
 mod tests {
     use super::*;
     use fsym_budget::{Budget, BudgetLimits};
+    use proptest::prelude::*;
+
+    fn scalar_gcd(mut a: u64, mut b: u64) -> u64 {
+        while b != 0 {
+            (a, b) = (b, a % b);
+        }
+        a
+    }
+
+    fn scalar_is_prime(n: u64) -> bool {
+        if n < 2 {
+            return false;
+        }
+        let mut divisor = 2u64;
+        while divisor <= n / divisor {
+            if n.is_multiple_of(divisor) {
+                return false;
+            }
+            divisor += 1;
+        }
+        true
+    }
 
     #[test]
     fn known_gcd_and_bezout_identity() {
@@ -335,6 +373,128 @@ mod tests {
             gcd(&BigInt::from(0i64), &BigInt::from(0i64)),
             BigInt::from(0i64)
         );
+    }
+
+    #[test]
+    fn invalid_first_crt_modulus_is_refused_without_division() {
+        assert_eq!(crt(&[(1.into(), 0.into())]), None);
+        assert_eq!(crt(&[(1.into(), (-7).into())]), None);
+    }
+
+    #[test]
+    fn rational_reconstruction_handles_zero_and_refuses_degenerate_moduli() {
+        assert_eq!(
+            rational_reconstruct(&BigInt::zero(), &BigInt::from(101)),
+            Some((BigInt::zero(), BigInt::one()))
+        );
+        assert_eq!(
+            rational_reconstruct(&BigInt::from(17), &BigInt::one()),
+            None
+        );
+        assert_eq!(
+            rational_reconstruct(&BigInt::from(17), &BigInt::zero()),
+            None
+        );
+    }
+
+    #[test]
+    fn prime_stream_and_miller_rabin_match_independent_trial_division() {
+        let expected: Vec<u64> = (2..)
+            .filter(|value| scalar_is_prime(*value))
+            .take(100)
+            .collect();
+        let actual: Vec<u64> = PrimeStream::new()
+            .take(100)
+            .map(|value| value.to_u64().unwrap())
+            .collect();
+        assert_eq!(actual, expected);
+
+        for value in 0..10_000u64 {
+            assert_eq!(
+                is_probable_prime(&BigInt::from(value)),
+                scalar_is_prime(value),
+                "primality mismatch for {value}"
+            );
+        }
+        for carmichael in [561u64, 1_105, 1_729, 2_465, 2_821, 6_601] {
+            assert!(!is_probable_prime(&BigInt::from(carmichael)));
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn exact_division_round_trips_broad_operands(
+            dividend_bytes in proptest::collection::vec(any::<u8>(), 0..129),
+            divisor_bytes in proptest::collection::vec(any::<u8>(), 0..129),
+        ) {
+            let dividend = BigInt::from_signed_bytes_be(&dividend_bytes);
+            let mut divisor = BigInt::from_signed_bytes_be(&divisor_bytes);
+            if divisor.is_zero() {
+                divisor = BigInt::one();
+            }
+            let product = &dividend * &divisor;
+            prop_assert_eq!(exact_div(&product, &divisor), Some(dividend));
+
+            if divisor.abs() > BigInt::one() {
+                prop_assert_eq!(exact_div(&(product + 1i64), &divisor), None);
+            }
+        }
+
+        #[test]
+        fn modular_inverse_matches_bounded_scalar_oracle(a in -500i64..500, modulus in 1i64..200) {
+            let normalized = a.rem_euclid(modulus);
+            let expected = (0..modulus)
+                .find(|candidate| (normalized * candidate).rem_euclid(modulus) == 1i64.rem_euclid(modulus));
+            let actual = mod_inverse(&BigInt::from(a), &BigInt::from(modulus))
+                .map(|value| value.to_i64().unwrap());
+            prop_assert_eq!(actual, expected);
+        }
+
+        #[test]
+        fn crt_pair_matches_bounded_exhaustive_oracle(
+            remainder_a in -500i64..500,
+            modulus_a in 1u64..200,
+            remainder_b in -500i64..500,
+            modulus_b in 1u64..200,
+        ) {
+            let gcd = scalar_gcd(modulus_a, modulus_b);
+            let lcm = (modulus_a / gcd) * modulus_b;
+            let normalized_a = remainder_a.rem_euclid(modulus_a as i64) as u64;
+            let normalized_b = remainder_b.rem_euclid(modulus_b as i64) as u64;
+            let expected = (0..lcm).find(|candidate| {
+                candidate % modulus_a == normalized_a && candidate % modulus_b == normalized_b
+            });
+            let actual = crt_pair(
+                &BigInt::from(remainder_a),
+                &BigInt::from(modulus_a),
+                &BigInt::from(remainder_b),
+                &BigInt::from(modulus_b),
+            );
+            match (actual, expected) {
+                (Some((value, combined_modulus)), Some(expected_value)) => {
+                    prop_assert_eq!(value.to_u64(), Some(expected_value));
+                    prop_assert_eq!(combined_modulus.to_u64(), Some(lcm));
+                }
+                (None, None) => {}
+                (actual, expected) => prop_assert!(false, "CRT mismatch: {actual:?} vs {expected:?}"),
+            }
+        }
+
+        #[test]
+        fn rational_reconstruction_recovers_unique_small_fraction(
+            numerator in -50i64..51,
+            denominator in 1u64..51,
+        ) {
+            prop_assume!(scalar_gcd(numerator.unsigned_abs(), denominator) == 1);
+            const MODULUS: i64 = 1_000_003;
+            let inverse = mod_inverse(&BigInt::from(denominator), &BigInt::from(MODULUS)).unwrap();
+            let residue = ((BigInt::from(numerator) * inverse) % BigInt::from(MODULUS)
+                + BigInt::from(MODULUS)) % BigInt::from(MODULUS);
+            prop_assert_eq!(
+                rational_reconstruct(&residue, &BigInt::from(MODULUS)),
+                Some((BigInt::from(numerator), BigInt::from(denominator)))
+            );
+        }
     }
 
     #[test]
