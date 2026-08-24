@@ -92,7 +92,10 @@ impl<'a, Caps> FsymCx<'a, Caps> {
 
 impl<Caps> BudgetMeter for FsymCx<'_, Caps> {
     fn charge(&mut self, dimension: Dimension, amount: u64) -> Result<(), MeterError> {
-        self.budget.try_charge(dimension, amount).map(|_| ()).map_err(MeterError::Budget)
+        self.budget
+            .try_charge(dimension, amount)
+            .map(|_| ())
+            .map_err(MeterError::Budget)
     }
 
     fn checkpoint(&mut self) -> Result<(), MeterError> {
@@ -166,5 +169,36 @@ mod tests {
 
         region.charge_verifier(&lease, 15).unwrap();
         assert_eq!(region.verifier_remaining(), 25);
+    }
+
+    #[test]
+    fn budget_meter_trait_charges_and_reports_cancellation() {
+        let cx = Cx::detached_cancel_context();
+        let limits = BudgetLimits::uniform(3, 0);
+        let mut region = FsymCx::new(&cx, Budget::new(limits), limits);
+
+        // Generic meter use: exhaustion surfaces as MeterError::Budget.
+        fn drain<M: BudgetMeter>(m: &mut M) -> Result<(), MeterError> {
+            for _ in 0..10 {
+                m.checkpoint()?;
+                m.charge(Dimension::ComputeSteps, 1)?;
+            }
+            Ok(())
+        }
+        assert_eq!(
+            drain(&mut region),
+            Err(MeterError::Budget(BudgetError::Exhausted {
+                dimension: Dimension::ComputeSteps,
+                requested: 1,
+                remaining: 0,
+            }))
+        );
+
+        cx.cancel_with(CancelKind::User, Some("meter test"));
+        assert_eq!(
+            BudgetMeter::checkpoint(&mut region),
+            Err(MeterError::Cancelled),
+            "trait checkpoint must map the asupersync cancel source"
+        );
     }
 }

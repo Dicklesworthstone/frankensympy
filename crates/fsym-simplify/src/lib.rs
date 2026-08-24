@@ -4,6 +4,7 @@
 
 #![forbid(unsafe_code)]
 
+use fsym_budget::{BudgetError, BudgetMeter, Dimension, MeterError, Unbounded};
 use fsym_core::Expr;
 use num_bigint::BigInt;
 use num_rational::BigRational;
@@ -100,6 +101,43 @@ fn collect_terms(mut terms: Vec<Expr>) -> Expr {
 pub enum SimplifyError {
     #[error("Simplification error: {0}")]
     General(String),
+    #[error("Evaluation budget exhausted: {0}")]
+    BudgetExhausted(BudgetError),
+    #[error("Recursion depth limit exceeded: depth {0} > {MAX_RECURSION_DEPTH}")]
+    DepthLimitExceeded(usize),
+    #[error("Evaluation cancelled by owning region")]
+    Cancelled,
+}
+
+impl SimplifyError {
+    fn from_meter(e: MeterError) -> Self {
+        match e {
+            MeterError::Budget(b) => SimplifyError::BudgetExhausted(b),
+            MeterError::Cancelled => SimplifyError::Cancelled,
+        }
+    }
+}
+/// Maximum syntactic nesting the recursive evaluation descent will traverse
+/// before refusing with [`SimplifyError::DepthLimitExceeded`]. This bounds
+/// native stack usage independently of the step budget, on every path
+/// including the unbounded convenience forms (no parser-side nesting bound
+/// exists yet). Sized to stay safe on default 2 MiB secondary threads.
+pub const MAX_RECURSION_DEPTH: usize = 1024;
+
+/// Work units charged per visited expression node.
+const NODE_STEP: u64 = 1;
+
+/// Shared completion rule for the unbounded convenience forms: only the
+/// structural depth guard can fire under [`Unbounded`].
+fn unwrap_unbounded(result: Result<Expr, SimplifyError>) -> Expr {
+    match result {
+        Ok(e) => e,
+        Err(SimplifyError::DepthLimitExceeded(d)) => panic!(
+            "expression nesting depth {d} exceeds MAX_RECURSION_DEPTH ({MAX_RECURSION_DEPTH}); \
+             use simplify_with/expand_with for a typed refusal"
+        ),
+        Err(e) => unreachable!("unbounded meter cannot refuse: {e}"),
+    }
 }
 
 /// Simplify an algebraic expression recursively.
@@ -107,14 +145,46 @@ pub enum SimplifyError {
 /// Canonical form: like terms collected with exact rational coefficients,
 /// factors sorted with identical factors folded into powers, numeric
 /// constants merged (trailing in sums, leading in products).
+///
+/// Unbounded convenience form: runs the metered core under [`Unbounded`].
+/// Callers owning an execution region should use [`simplify_with`].
 pub fn simplify(expr: &Expr) -> Expr {
+    unwrap_unbounded(simplify_with(expr, &mut Unbounded))
+}
+/// Simplify under a caller-owned budget/cancellation meter.
+///
+/// Charges [`Dimension::ComputeSteps`] per visited node, checks the region
+/// safe point at every node, and refuses beyond [`MAX_RECURSION_DEPTH`]
+/// nesting. A refusal aborts the whole evaluation: no partial result is
+/// published.
+pub fn simplify_with<M: BudgetMeter>(expr: &Expr, meter: &mut M) -> Result<Expr, SimplifyError> {
+    simplify_at(expr, 0, meter)
+}
+
+fn simplify_at<M: BudgetMeter>(
+    expr: &Expr,
+    depth: usize,
+    m: &mut M,
+) -> Result<Expr, SimplifyError> {
+    if depth > MAX_RECURSION_DEPTH {
+        return Err(SimplifyError::DepthLimitExceeded(depth));
+    }
+    m.checkpoint().map_err(SimplifyError::from_meter)?;
+    m.charge(Dimension::ComputeSteps, NODE_STEP)
+        .map_err(SimplifyError::from_meter)?;
     match expr {
         Expr::Add(terms) => {
-            let simplified: Vec<Expr> = terms.iter().map(simplify).collect();
-            collect_terms(simplified)
+            let mut simplified = Vec::with_capacity(terms.len());
+            for t in terms {
+                simplified.push(simplify_at(t, depth + 1, m)?);
+            }
+            Ok(collect_terms(simplified))
         }
         Expr::Mul(factors) => {
-            let simplified: Vec<Expr> = factors.iter().map(simplify).collect();
+            let mut simplified = Vec::with_capacity(factors.len());
+            for f in factors {
+                simplified.push(simplify_at(f, depth + 1, m)?);
+            }
             let mut coeff = BigRational::one();
             let mut rest: Vec<Expr> = Vec::new();
             for f in simplified {
@@ -133,10 +203,10 @@ pub fn simplify(expr: &Expr) -> Expr {
                 )
             });
             if coeff.is_zero() && !has_neg_power {
-                return Expr::from_i64(0);
+                return Ok(Expr::from_i64(0));
             }
             if rest.is_empty() {
-                return rational_expr(coeff);
+                return Ok(rational_expr(coeff));
             }
             let mut parts: Vec<Expr> = Vec::new();
             if !coeff.is_one() {
@@ -153,42 +223,43 @@ pub fn simplify(expr: &Expr) -> Expr {
                 if count == 1 {
                     parts.push(f);
                 } else {
-                    parts.push(simplify(&Expr::Pow(
-                        Arc::new(f),
-                        Arc::new(Expr::from_i64(count as i64)),
-                    )));
+                    let folded = Expr::Pow(Arc::new(f), Arc::new(Expr::from_i64(count as i64)));
+                    parts.push(simplify_at(&folded, depth + 1, m)?);
                 }
             }
             if parts.len() == 1 {
-                parts.pop().expect("len checked")
+                Ok(parts.pop().expect("len checked"))
             } else {
-                Expr::Mul(parts)
+                Ok(Expr::Mul(parts))
             }
         }
         Expr::Pow(base, exp) => {
-            let b = simplify(base);
-            let e = simplify(exp);
+            let b = simplify_at(base, depth + 1, m)?;
+            let e = simplify_at(exp, depth + 1, m)?;
             if e.is_zero() {
-                Expr::from_i64(1)
+                Ok(Expr::from_i64(1))
             } else if e.is_one() {
-                b
+                Ok(b)
             } else if let (Some(bv), Some(ev)) = (b.const_integer_value(), e.const_integer_value())
             {
                 // Bounded constant-power fold: exponent must be a
                 // non-negative small integer.
                 match usize::try_from(ev) {
-                    Ok(n) => Expr::Integer(num_traits::pow::pow(bv, n)),
-                    Err(_) => Expr::Pow(Arc::new(b), Arc::new(e)),
+                    Ok(n) => Ok(Expr::Integer(num_traits::pow::pow(bv, n))),
+                    Err(_) => Ok(Expr::Pow(Arc::new(b), Arc::new(e))),
                 }
             } else {
-                Expr::Pow(Arc::new(b), Arc::new(e))
+                Ok(Expr::Pow(Arc::new(b), Arc::new(e)))
             }
         }
         Expr::Function(name, args) => {
-            let simplified: Vec<Expr> = args.iter().map(simplify).collect();
+            let mut simplified_args = Vec::with_capacity(args.len());
+            for a in args {
+                simplified_args.push(simplify_at(a, depth + 1, m)?);
+            }
             // Exact values at rational points fold to rationals.
-            if simplified.len() == 1
-                && let Some(v) = numeric_of(&simplified[0])
+            if simplified_args.len() == 1
+                && let Some(v) = numeric_of(&simplified_args[0])
             {
                 let folded = match name.as_str() {
                     "sin" | "tan" if v.is_zero() => Some(BigRational::zero()),
@@ -197,36 +268,54 @@ pub fn simplify(expr: &Expr) -> Expr {
                     _ => None,
                 };
                 if let Some(r) = folded {
-                    return rational_expr(r);
+                    return Ok(rational_expr(r));
                 }
             }
-            Expr::Function(name.clone(), simplified)
+            Ok(Expr::Function(name.clone(), simplified_args))
         }
-        other => other.clone(),
+        other => Ok(other.clone()),
     }
 }
 
-/// Additive term list of an expanded subexpression.
-fn expanded_terms(expr: &Expr) -> Vec<Expr> {
+/// Additive term list of an expanded subexpression, metered like
+/// [`simplify_at`]: every product/inner simplification charges the region.
+fn expanded_terms_in<M: BudgetMeter>(
+    expr: &Expr,
+    depth: usize,
+    m: &mut M,
+) -> Result<Vec<Expr>, SimplifyError> {
+    if depth > MAX_RECURSION_DEPTH {
+        return Err(SimplifyError::DepthLimitExceeded(depth));
+    }
+    m.checkpoint().map_err(SimplifyError::from_meter)?;
+    m.charge(Dimension::ComputeSteps, NODE_STEP)
+        .map_err(SimplifyError::from_meter)?;
     match expr {
-        Expr::Add(terms) => terms.iter().flat_map(expanded_terms).collect(),
+        Expr::Add(terms) => {
+            let mut out = Vec::new();
+            for t in terms {
+                out.extend(expanded_terms_in(t, depth + 1, m)?);
+            }
+            Ok(out)
+        }
         Expr::Mul(factors) => {
             let mut acc: Vec<Expr> = vec![Expr::from_i64(1)];
             for f in factors {
-                let f_terms = expanded_terms(f);
+                let f_terms = expanded_terms_in(f, depth + 1, m)?;
                 let mut next = Vec::with_capacity(acc.len() * f_terms.len());
                 for a in &acc {
                     for b in &f_terms {
-                        next.push(simplify(&(a.clone() * b.clone())));
+                        let product = a.clone() * b.clone();
+                        next.push(simplify_at(&product, depth + 1, m)?);
                     }
                 }
                 acc = next;
             }
-            acc
+            Ok(acc)
         }
         Expr::Pow(base, exp) => {
-            let b_terms = expanded_terms(base);
-            let e_simplified = simplify(exp);
+            let b_terms = expanded_terms_in(base, depth + 1, m)?;
+            let e_simplified = simplify_at(exp, depth + 1, m)?;
             match e_simplified
                 .const_integer_value()
                 .and_then(|v| usize::try_from(v).ok())
@@ -238,24 +327,37 @@ fn expanded_terms(expr: &Expr) -> Vec<Expr> {
                         let mut next = Vec::with_capacity(acc.len() * b_terms.len());
                         for a in &acc {
                             for b in &b_terms {
-                                next.push(simplify(&(a.clone() * b.clone())));
+                                let product = a.clone() * b.clone();
+                                next.push(simplify_at(&product, depth + 1, m)?);
                             }
                         }
                         acc = next;
                     }
-                    acc
+                    Ok(acc)
                 }
-                _ => vec![Expr::Pow(Arc::new(simplify(base)), Arc::new(e_simplified))],
+                _ => {
+                    let b = simplify_at(base, depth + 1, m)?;
+                    Ok(vec![Expr::Pow(Arc::new(b), Arc::new(e_simplified))])
+                }
             }
         }
-        other => vec![other.clone()],
+        other => Ok(vec![other.clone()]),
     }
+}
+
+/// Expand under a caller-owned budget/cancellation meter. A refusal aborts
+/// the expansion; no partial polynomial is published.
+pub fn expand_with<M: BudgetMeter>(expr: &Expr, meter: &mut M) -> Result<Expr, SimplifyError> {
+    let terms = expanded_terms_in(expr, 0, meter)?;
+    Ok(collect_terms(terms))
 }
 
 /// Expand products of sums and bounded powers over sums, collecting the
 /// result into canonical polynomial form.
+///
+/// Unbounded convenience form over [`expand_with`].
 pub fn expand(expr: &Expr) -> Expr {
-    collect_terms(expanded_terms(expr))
+    unwrap_unbounded(expand_with(expr, &mut Unbounded))
 }
 
 #[cfg(test)]
@@ -368,5 +470,139 @@ mod tests {
         let diff = Expr::Add(vec![y.clone(), Expr::from_i64(-1)]);
         let original = Expr::Mul(vec![sum.clone(), sum.clone(), diff]);
         assert_expansion_equivalent(&original, &[(3, 2), (-2, 5), (1, 1), (10, -10)]);
+    }
+    /// Meter that refuses everything after `cancel_after` successful
+    /// checkpoints: models an owning region cancelling mid-evaluation.
+    struct CancellingMeter {
+        remaining_steps: u64,
+        cancel_after: u64,
+        checkpoints_seen: usize,
+    }
+
+    impl CancellingMeter {
+        fn new(remaining_steps: u64, cancel_after: u64) -> Self {
+            Self {
+                remaining_steps,
+                cancel_after,
+                checkpoints_seen: 0,
+            }
+        }
+    }
+
+    impl BudgetMeter for CancellingMeter {
+        fn charge(&mut self, _d: Dimension, amount: u64) -> Result<(), MeterError> {
+            if amount > self.remaining_steps {
+                return Err(MeterError::Budget(fsym_budget::BudgetError::Exhausted {
+                    dimension: Dimension::ComputeSteps,
+                    requested: amount,
+                    remaining: self.remaining_steps,
+                }));
+            }
+            self.remaining_steps -= amount;
+            Ok(())
+        }
+
+        fn checkpoint(&mut self) -> Result<(), MeterError> {
+            self.checkpoints_seen += 1;
+            if self.checkpoints_seen as u64 > self.cancel_after {
+                Err(MeterError::Cancelled)
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    fn product_of_sums() -> Expr {
+        let (a, b, x, y) = (
+            Expr::symbol("a"),
+            Expr::symbol("b"),
+            Expr::symbol("x"),
+            Expr::symbol("y"),
+        );
+        Expr::Mul(vec![Expr::Add(vec![x, y]), Expr::Add(vec![a, b])])
+    }
+
+    #[test]
+    fn budgeted_simplify_reports_exhaustion_atomically() {
+        // Seven nodes must be charged for product_of_sums; four refuse first.
+        let mut budget = fsym_budget::Budget::new(fsym_budget::BudgetLimits::uniform(4, 0));
+        let err = simplify_with(&product_of_sums(), &mut budget).unwrap_err();
+        assert_eq!(
+            err,
+            SimplifyError::BudgetExhausted(fsym_budget::BudgetError::Exhausted {
+                dimension: Dimension::ComputeSteps,
+                requested: 1,
+                remaining: 0,
+            })
+        );
+        // Charges before the refusal are real ledger state, not rolled back
+        // fiction: exactly the accepted steps were consumed.
+        assert_eq!(budget.remaining(Dimension::ComputeSteps), 0);
+    }
+
+    #[test]
+    fn cancelled_region_stops_evaluation_at_safe_point() {
+        // Cancel right after entering: far fewer checkpoints than the
+        // expression has nodes.
+        let mut m = CancellingMeter::new(10_000, 2);
+        let err = simplify_with(&product_of_sums(), &mut m).unwrap_err();
+        assert_eq!(err, SimplifyError::Cancelled);
+        assert!(
+            m.checkpoints_seen <= 3,
+            "evaluation kept running after cancellation: {} checkpoints",
+            m.checkpoints_seen
+        );
+    }
+
+    #[test]
+    fn expand_budget_refusal_publishes_no_partial_result() {
+        let mut budget = fsym_budget::Budget::new(fsym_budget::BudgetLimits::uniform(2, 0));
+        let err = expand_with(&product_of_sums(), &mut budget).unwrap_err();
+        assert!(matches!(
+            err,
+            SimplifyError::BudgetExhausted(fsym_budget::BudgetError::Exhausted { .. })
+        ));
+    }
+
+    #[test]
+    fn depth_limit_refuses_deep_nesting_at_structural_bound() {
+        // Deep recursion needs a big-stack thread: this test exists precisely
+        // because default 2 MiB stacks cannot carry MAX_RECURSION_DEPTH frames.
+        std::thread::Builder::new()
+            .stack_size(64 * 1024 * 1024)
+            .spawn(|| {
+                let build = |n: usize| {
+                    let mut deep = Expr::from_i64(1);
+                    for _ in 0..n {
+                        deep = Expr::Add(vec![deep, Expr::from_i64(1)]);
+                    }
+                    deep
+                };
+                // A chain nesting exactly MAX_RECURSION_DEPTH levels is legal.
+                let ok = build(MAX_RECURSION_DEPTH);
+                assert!(simplify_with(&ok, &mut Unbounded).is_ok());
+                let _ = simplify(&ok);
+                // One level deeper refuses with the typed structural error on
+                // every entry point, before any budget is consulted.
+                let too_deep = build(MAX_RECURSION_DEPTH + 1);
+                let err = simplify_with(&too_deep, &mut Unbounded).unwrap_err();
+                assert!(matches!(err, SimplifyError::DepthLimitExceeded(_)));
+                let mut budget =
+                    fsym_budget::Budget::new(fsym_budget::BudgetLimits::uniform(10_000, 0));
+                assert!(simplify_with(&too_deep, &mut budget).is_err());
+            })
+            .expect("spawn")
+            .join()
+            .expect("depth test thread");
+    }
+
+    #[test]
+    fn legacy_wrappers_match_metered_results_on_small_inputs() {
+        let e = product_of_sums();
+        let mut budget = fsym_budget::Budget::new(fsym_budget::BudgetLimits::uniform(100_000, 0));
+        assert_eq!(simplify(&e), simplify_with(&e, &mut budget).unwrap());
+        assert_eq!(expand(&e), expand_with(&e, &mut budget).unwrap());
+        // Every node of both traversals was charged.
+        assert!(budget.remaining(Dimension::ComputeSteps) < 100_000);
     }
 }

@@ -748,6 +748,7 @@ dependencies = [
 name = "fsym-python"
 version = "0.1.0"
 dependencies = [
+ "asupersync",
  "fsym-assumptions",
  "fsym-calculus",
  "fsym-core",
@@ -800,6 +801,7 @@ dependencies = [
 name = "fsym-simplify"
 version = "0.1.0"
 dependencies = [
+ "fsym-budget",
  "fsym-core",
  "fsym-polys",
  "num-bigint",

@@ -33,6 +33,7 @@ fsym-tensor.workspace = true
 fsym-assumptions.workspace = true
 fsym-printing.workspace = true
 fsym-runtime.workspace = true
+asupersync.workspace = true
 pyo3.workspace = true
 
 [dev-dependencies]

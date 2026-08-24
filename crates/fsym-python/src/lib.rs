@@ -6,7 +6,8 @@
 use fsym_calculus::{diff, integrate, limit, taylor};
 use fsym_core::{Expr, Symbol, parse};
 use fsym_ntheory::{factorint, totient};
-use fsym_simplify::{expand, simplify};
+use fsym_runtime::{Budget, BudgetLimits, FsymCx, RuntimeBudget};
+use fsym_simplify::{SimplifyError, expand_with, simplify_with};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
@@ -50,16 +51,48 @@ fn euler_totient(n: u64) -> PyResult<u64> {
     totient(n).map_err(to_value_error)
 }
 
-/// Simplify an expression string.
-#[pyfunction]
-fn simplify_expr(src: &str) -> PyResult<String> {
-    Ok(simplify(&parse_expr(src)?).to_string())
+/// Maps a metered evaluation refusal onto the Python surface. Resource and
+/// cancellation refusals are explicit `ValueError`s; nothing silently
+/// falls back to unbounded execution.
+fn eval_error(e: SimplifyError) -> PyErr {
+    match e {
+        SimplifyError::BudgetExhausted(b) => {
+            PyValueError::new_err(format!("evaluation budget exhausted: {b}"))
+        }
+        other => PyValueError::new_err(other.to_string()),
+    }
 }
 
-/// Expand products of sums and bounded powers.
+/// Default per-request evaluation region: RuntimeBudget-default step
+/// limits over a fresh detached asupersync cancel region. No verifier
+/// pool: evaluation is generator-side work.
+fn eval_region() -> (asupersync::Cx<asupersync::cx::cap::None>, BudgetLimits) {
+    let steps =
+        u64::try_from(RuntimeBudget::default().max_eval_steps).expect("step limit fits u64");
+    let limits = BudgetLimits::uniform(steps, 0);
+    (asupersync::Cx::detached_cancel_context(), limits)
+}
+
+/// Simplify an expression string under a budgeted evaluation region.
+#[pyfunction]
+fn simplify_expr(src: &str) -> PyResult<String> {
+    let e = parse_expr(src)?;
+    let (cx, limits) = eval_region();
+    let mut region = FsymCx::new(&cx, Budget::new(limits), limits);
+    simplify_with(&e, &mut region)
+        .map(|v| v.to_string())
+        .map_err(eval_error)
+}
+
+/// Expand an expression string under a budgeted evaluation region.
 #[pyfunction]
 fn expand_expr(src: &str) -> PyResult<String> {
-    Ok(expand(&parse_expr(src)?).to_string())
+    let e = parse_expr(src)?;
+    let (cx, limits) = eval_region();
+    let mut region = FsymCx::new(&cx, Budget::new(limits), limits);
+    expand_with(&e, &mut region)
+        .map(|v| v.to_string())
+        .map_err(eval_error)
 }
 
 /// Taylor polynomial of `src` around `var = at` through degree `order`.
