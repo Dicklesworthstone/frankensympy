@@ -441,6 +441,10 @@ mod tests {
             Expr::Function("sin".to_string(), vec![Expr::Const(Constant::Pi)])
         );
         assert_eq!(
+            parse("f()").unwrap(),
+            Expr::Function("f".to_string(), vec![])
+        );
+        assert_eq!(
             parse("f(x, y+1)").unwrap(),
             Expr::Function(
                 "f".to_string(),
