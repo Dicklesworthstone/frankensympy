@@ -467,7 +467,7 @@ mod tests {
             "failed charge must not mutate"
         );
 
-        budget.refund(receipt);
+        budget.refund(receipt).expect("matching receipt");
         assert_eq!(budget.remaining(Dimension::ComputeSteps), 10);
     }
 
@@ -475,8 +475,8 @@ mod tests {
     fn zero_charges_are_rejected() {
         let mut budget = Budget::new(BudgetLimits::uniform(1, 1));
         assert_eq!(
-            budget.try_charge(Dimension::MemoryBytes, 0),
-            Err(BudgetError::ZeroCharge)
+            budget.try_charge(Dimension::MemoryBytes, 0).unwrap_err(),
+            BudgetError::ZeroCharge
         );
         let lease = budget.verifier_lease().expect("single lease");
         assert_eq!(
@@ -489,7 +489,7 @@ mod tests {
     fn receipts_are_single_use() {
         let mut budget = Budget::new(BudgetLimits::uniform(3, 0));
         let receipt = budget.try_charge(Dimension::DepthLimit, 2).expect("fits");
-        budget.refund(receipt);
+        budget.refund(receipt).expect("matching receipt");
         // `receipt` moved into refund; the compiler rejects reuse:
         // budget.refund(receipt); // <- does not compile (no Copy/Clone)
         assert_eq!(budget.remaining(Dimension::DepthLimit), 3);
@@ -509,7 +509,7 @@ mod tests {
         let child = budget
             .reserve_child(BudgetLimits::uniform(4, 0))
             .expect("reserves");
-        budget.merge_child(child);
+        budget.merge_child(child).expect("matching child");
         assert_eq!(
             budget.verifier_remaining(),
             6,
@@ -518,13 +518,15 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "children never possess a verifier lease")]
-    fn child_budgets_have_no_verifier_path() {
+    fn child_and_zero_pool_budgets_cannot_issue_verifier_leases() {
+        let mut zero_pool = Budget::new(BudgetLimits::uniform(8, 0));
+        assert!(zero_pool.verifier_lease().is_none());
+
         let mut budget = Budget::new(BudgetLimits::uniform(8, 6));
         let mut child = budget
             .reserve_child(BudgetLimits::uniform(4, 0))
             .expect("reserves");
-        child.try_charge_verifier_unreachable();
+        assert!(child.verifier_lease().is_none());
     }
 
     #[test]
@@ -544,7 +546,7 @@ mod tests {
         child
             .try_charge(Dimension::MemoryBytes, 1)
             .expect("child charge");
-        budget.merge_child(child);
+        budget.merge_child(child).expect("matching child");
         assert_eq!(
             budget.remaining(Dimension::ComputeSteps),
             10,
@@ -566,7 +568,7 @@ mod tests {
         let lease = budget.verifier_lease().unwrap();
         let r2 = budget.try_charge_verifier(&lease, 1).unwrap();
         assert_eq!(r2.seq, 2);
-        budget.refund(r1);
+        budget.refund(r1).expect("matching receipt");
         assert_eq!(budget.snapshot().sequence, 3);
     }
 
@@ -576,7 +578,7 @@ mod tests {
         let start = budget.snapshot();
         for i in 1..=20u64 {
             if let Ok(receipt) = budget.try_charge(Dimension::AllocationCount, i % 5 + 1) {
-                budget.refund(receipt);
+                budget.refund(receipt).expect("matching receipt");
             }
         }
         let end = budget.snapshot();
@@ -588,11 +590,106 @@ mod tests {
         }
     }
 
-    impl Budget {
-        /// Compile-time documentation helper: children have no verifier
-        /// path even when a lease-like value were somehow available.
-        pub(crate) fn try_charge_verifier_unreachable(&mut self) -> ! {
-            unreachable!("children never possess a verifier lease")
+    #[test]
+    fn foreign_verifier_lease_is_rejected_atomically() {
+        let mut issuer = Budget::new(BudgetLimits::uniform(8, 6));
+        let lease = issuer.verifier_lease().expect("issuer lease");
+        let issuer_before = issuer.snapshot();
+
+        let mut foreign = Budget::new(BudgetLimits::uniform(8, 6));
+        let foreign_before = foreign.snapshot();
+        assert_eq!(
+            foreign.try_charge_verifier(&lease, 1).unwrap_err(),
+            BudgetError::VerifierPoolAccessDenied
+        );
+        assert_eq!(issuer.snapshot(), issuer_before);
+        assert_eq!(foreign.snapshot(), foreign_before);
+    }
+
+    #[test]
+    fn foreign_receipt_is_rejected_atomically() {
+        let mut issuer = Budget::new(BudgetLimits::uniform(8, 0));
+        let receipt = issuer
+            .try_charge(Dimension::AllocationCount, 3)
+            .expect("issuer charge");
+        let issuer_after_charge = issuer.snapshot();
+
+        let mut foreign = Budget::new(BudgetLimits::uniform(8, 0));
+        let foreign_before = foreign.snapshot();
+        assert_eq!(
+            foreign.refund(receipt),
+            Err(BudgetError::ReceiptAuthorityMismatch)
+        );
+        assert_eq!(issuer.snapshot(), issuer_after_charge);
+        assert_eq!(foreign.snapshot(), foreign_before);
+    }
+
+    #[test]
+    fn foreign_child_is_rejected_atomically() {
+        let mut reserving_parent = Budget::new(BudgetLimits::uniform(8, 0));
+        let child = reserving_parent
+            .reserve_child(BudgetLimits::uniform(3, 0))
+            .expect("child reservation");
+        let reserving_parent_after_reservation = reserving_parent.snapshot();
+
+        let mut foreign_parent = Budget::new(BudgetLimits::uniform(8, 0));
+        let foreign_before = foreign_parent.snapshot();
+        assert_eq!(
+            foreign_parent.merge_child(child),
+            Err(BudgetError::ChildAuthorityMismatch)
+        );
+        assert_eq!(
+            reserving_parent.snapshot(),
+            reserving_parent_after_reservation
+        );
+        assert_eq!(foreign_parent.snapshot(), foreign_before);
+    }
+
+    #[test]
+    fn matching_numeric_state_never_substitutes_for_authority() {
+        // Exhaustive small-domain property matrix: matching limits, counters,
+        // dimensions, and charge sizes do not make independent ledgers
+        // interchangeable.
+        for limit in 1..=16 {
+            for amount in 1..=limit {
+                let limits = BudgetLimits::uniform(limit, limit);
+
+                let mut lease_issuer = Budget::new(limits);
+                let lease = lease_issuer.verifier_lease().expect("issuer lease");
+                let mut lease_foreign = Budget::new(limits);
+                let before = lease_foreign.snapshot();
+                assert_eq!(
+                    lease_foreign
+                        .try_charge_verifier(&lease, amount)
+                        .unwrap_err(),
+                    BudgetError::VerifierPoolAccessDenied
+                );
+                assert_eq!(lease_foreign.snapshot(), before);
+
+                let mut receipt_issuer = Budget::new(limits);
+                let receipt = receipt_issuer
+                    .try_charge(Dimension::ComputeSteps, amount)
+                    .expect("issuer charge");
+                let mut receipt_foreign = Budget::new(limits);
+                let before = receipt_foreign.snapshot();
+                assert_eq!(
+                    receipt_foreign.refund(receipt),
+                    Err(BudgetError::ReceiptAuthorityMismatch)
+                );
+                assert_eq!(receipt_foreign.snapshot(), before);
+
+                let mut child_issuer = Budget::new(limits);
+                let child = child_issuer
+                    .reserve_child(BudgetLimits::uniform(amount, 0))
+                    .expect("child reservation");
+                let mut child_foreign = Budget::new(limits);
+                let before = child_foreign.snapshot();
+                assert_eq!(
+                    child_foreign.merge_child(child),
+                    Err(BudgetError::ChildAuthorityMismatch)
+                );
+                assert_eq!(child_foreign.snapshot(), before);
+            }
         }
     }
 }
