@@ -184,7 +184,6 @@ for c in cases:
 struct OracleLine {
     id: String,
     verdict: String,
-    detail: String,
 }
 
 fn oracle_available(python: &str) -> bool {
@@ -267,7 +266,7 @@ pub fn run_conformance(cases: &[CaseSpec], python: &str) -> Result<Vec<Conforman
     }
 
     let mut out = Vec::with_capacity(cases.len());
-    for (spec, res) in cases.iter().zip(rust_results.into_iter()) {
+    for (spec, res) in cases.iter().zip(rust_results) {
         let theirs = sympy_expectation(spec);
         let (actual, verdict) = match res {
             Ok(ours) => match by_id.get(&spec.case_id).map(|l| l.verdict.as_str()) {
