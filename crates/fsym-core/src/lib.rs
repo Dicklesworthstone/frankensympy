@@ -5,8 +5,7 @@
 
 #![forbid(unsafe_code)]
 
-use num_bigint::{BigInt, BigUint};
-use num_rational::BigRational;
+pub use fsym_bigint::{BigInt, BigRational};
 use num_traits::{One, Zero};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -206,9 +205,12 @@ impl Expr {
             Expr::Integer(n) => Some(n.clone()),
             Expr::Pow(b, e) => match (b.as_ref(), e.as_ref()) {
                 (Expr::Integer(base), Expr::Integer(exp)) if exp.bits() <= 10 => {
-                    let exp_u = BigUint::try_from(exp.clone()).ok()?;
-                    let exp_n = usize::try_from(exp_u).ok()?;
-                    Some(num_traits::pow(base.clone(), exp_n))
+                    let exp_i = exp.to_i64()?;
+                    if (0..=1024).contains(&exp_i) {
+                        Some(base.pow(exp_i as u32))
+                    } else {
+                        None
+                    }
                 }
                 _ => None,
             },
@@ -222,7 +224,6 @@ impl Expr {
     /// supported single-argument set (`sin`, `cos`, `tan`, `exp`, `log`,
     /// `ln`, `sqrt`).
     pub fn evalf(&self) -> Result<f64, CoreError> {
-        use num_traits::ToPrimitive;
         match self {
             Expr::Integer(n) => n.to_f64().ok_or_else(|| {
                 CoreError::InvalidOperation(format!("integer out of f64 range: {n}"))

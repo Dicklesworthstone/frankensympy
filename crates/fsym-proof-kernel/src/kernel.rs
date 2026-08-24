@@ -699,10 +699,10 @@ fn check_definitional_reduction(
         }
         "constant_eval_add" => match (lhs, rhs) {
             (Expr::Add(terms), Expr::Integer(res)) => {
-                let mut sum = num_bigint::BigInt::from(0i64);
+                let mut sum = fsym_core::BigInt::zero();
                 for t in terms {
                     if let Expr::Integer(n) = t {
-                        sum += n;
+                        sum = &sum + n;
                     } else {
                         return Err(KernelError::InvalidDefinitionalReduction {
                             rule_name: rule_name.to_string(),
@@ -726,10 +726,10 @@ fn check_definitional_reduction(
         },
         "constant_eval_mul" => match (lhs, rhs) {
             (Expr::Mul(terms), Expr::Integer(res)) => {
-                let mut prod = num_bigint::BigInt::from(1i64);
+                let mut prod = fsym_core::BigInt::one();
                 for t in terms {
                     if let Expr::Integer(n) = t {
-                        prod *= n;
+                        prod = &prod * n;
                     } else {
                         return Err(KernelError::InvalidDefinitionalReduction {
                             rule_name: rule_name.to_string(),

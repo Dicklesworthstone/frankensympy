@@ -11,9 +11,12 @@ categories.workspace = true
 publish = false
 
 [dependencies]
-num-bigint = { workspace = true }
+num-bigint = { workspace = true, features = ["serde"] }
 num-integer = { workspace = true }
 num-traits.workspace = true
+num-rational = { workspace = true, features = ["serde"] }
+serde.workspace = true
+fsym-budget.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

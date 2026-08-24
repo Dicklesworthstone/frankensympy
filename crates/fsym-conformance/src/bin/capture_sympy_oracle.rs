@@ -2,9 +2,7 @@
 
 //! Live native-mathematics differential capture CLI for FrankenSymPy.
 
-use fsym_conformance::{
-    PROFILE_ID, corpus, default_python, run_conformance, write_evidence_ndjson,
-};
+use fsym_conformance::{PROFILE_ID, default_python, run_conformance, write_evidence_ndjson};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -46,7 +44,7 @@ fn run() -> Result<bool, String> {
         usage();
         return Ok(true);
     };
-    let report = run_conformance(&corpus(), &python)?;
+    let report = run_conformance(&python)?;
     write_evidence_ndjson(&report, &output)
         .map_err(|e| format!("writing `{}` failed: {e}", output.display()))?;
 

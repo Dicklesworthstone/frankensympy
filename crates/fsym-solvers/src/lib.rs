@@ -5,9 +5,8 @@
 
 #![forbid(unsafe_code)]
 
-use fsym_core::{Expr, Symbol};
+use fsym_core::{BigRational, Expr, Symbol};
 use fsym_polys::UnivariatePoly;
-use num_rational::BigRational;
 use num_traits::identities::{One, Zero};
 use std::ops::{Add, Mul};
 use thiserror::Error;
@@ -258,7 +257,7 @@ pub fn solve_linear(expr: &Expr, var: &Symbol) -> Result<Expr, SolverError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use num_bigint::BigInt;
+    use fsym_core::BigInt;
 
     #[test]
     fn test_solve_linear_poly() {

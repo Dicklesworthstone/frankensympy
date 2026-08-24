@@ -52,6 +52,7 @@ categories = ["science", "mathematics", "data-structures", "algorithms"]
 fsym-id = { path = "crates/fsym-id" }
 fsym-budget = { path = "crates/fsym-budget" }
 fsym-outcome = { path = "crates/fsym-outcome" }
+fsym-bigint = { path = "crates/fsym-bigint" }
 fsym-core = { path = "crates/fsym-core" }
 fsym-polys = { path = "crates/fsym-polys" }
 fsym-simplify = { path = "crates/fsym-simplify" }

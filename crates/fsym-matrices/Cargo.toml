@@ -14,7 +14,6 @@ fsym-core.workspace = true
 fsym-simplify.workspace = true
 fsym-polys.workspace = true
 fsym-solvers.workspace = true
-num-bigint.workspace = true
 num-rational.workspace = true
 num-traits.workspace = true
 serde.workspace = true

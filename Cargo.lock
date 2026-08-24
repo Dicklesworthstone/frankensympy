@@ -582,7 +582,6 @@ dependencies = [
  "fsym-core",
  "fsym-id",
  "fsym-logic",
- "num-bigint",
  "num-rational",
  "num-traits",
  "proptest",
@@ -594,10 +593,13 @@ dependencies = [
 name = "fsym-bigint"
 version = "0.1.0"
 dependencies = [
+ "fsym-budget",
  "num-bigint",
  "num-integer",
+ "num-rational",
  "num-traits",
  "proptest",
+ "serde",
 ]
 
 [[package]]
@@ -610,7 +612,6 @@ version = "0.1.0"
 dependencies = [
  "fsym-core",
  "fsym-simplify",
- "num-bigint",
  "num-rational",
  "num-traits",
  "proptest",
@@ -634,10 +635,10 @@ name = "fsym-core"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "fsym-bigint",
  "fsym-budget",
  "fsym-id",
  "fsym-outcome",
- "num-bigint",
  "num-complex",
  "num-rational",
  "num-traits",
@@ -712,7 +713,6 @@ dependencies = [
  "fsym-polys",
  "fsym-simplify",
  "fsym-solvers",
- "num-bigint",
  "num-rational",
  "num-traits",
  "proptest",
@@ -724,9 +724,7 @@ dependencies = [
 name = "fsym-ntheory"
 version = "0.1.0"
 dependencies = [
- "num-bigint",
- "num-integer",
- "num-traits",
+ "fsym-core",
  "proptest",
  "serde",
  "thiserror",
@@ -754,7 +752,6 @@ name = "fsym-printing"
 version = "0.1.0"
 dependencies = [
  "fsym-core",
- "num-bigint",
  "num-rational",
  "proptest",
  "serde",
@@ -838,7 +835,6 @@ dependencies = [
  "fsym-budget",
  "fsym-core",
  "fsym-polys",
- "num-bigint",
  "num-rational",
  "num-traits",
  "proptest",

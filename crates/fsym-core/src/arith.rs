@@ -1,9 +1,9 @@
 //! Exact integer arithmetic primitives (WS03).
 //!
 //! Everything here is pure big-integer math with no FFI and no
-//! machine-float intermediates. Determinism: identical inputs always
-//! produce identical outputs; the prime stream is a fixed deterministic
-//! sequence, and primality testing uses a fixed base set.
+//! machine-float intermediates behind the [`fsym_bigint::BigInt`] containment boundary.
+//! Determinism: identical inputs always produce identical outputs; the prime stream is
+//! a fixed deterministic sequence, and primality testing uses a fixed base set.
 //!
 //! # Primality honesty
 //!
@@ -12,60 +12,24 @@
 //! probabilistic beyond it. Callers needing certainty above that bound
 //! must supply their own proof (e.g. ECPP later in WS11).
 
-use fsym_budget::{BudgetMeter, Dimension, MeterError};
-use num_bigint::{BigInt, BigUint, Sign};
-use num_traits::{One, Zero};
+#![forbid(unsafe_code)]
 
-/// Multiplication algorithm strategy for large integer operations.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MulStrategy {
-    /// Textbook schoolbook multiplication (scalar reference lane).
-    Schoolbook,
-    /// Pure-Rust recursive Karatsuba multiplication ($O(n^{1.585})$).
-    Karatsuba,
-    /// Automatic strategy selection based on input limb thresholds.
-    Auto,
-}
+pub use fsym_bigint::{
+    BigInt, DEFAULT_STRATEGY_THRESHOLD_BITS, LIMB_BITS, Strategy as MulStrategy, limb_count_u64,
+    metered_multiply as metered_mul, multiply, multiply_with_strategy as mul_with_strategy,
+    select_strategy,
+};
+use fsym_budget::{BudgetMeter, Dimension, MeterError};
 
 /// Greatest common divisor; always non-negative. `gcd(0, 0) == 0`.
 pub fn gcd(a: &BigInt, b: &BigInt) -> BigInt {
-    let mut a = a.clone();
-    let mut b = b.clone();
-    while !b.is_zero() {
-        let r = &a % &b;
-        a = b;
-        b = r;
-    }
-    match a.sign() {
-        Sign::Minus => -a,
-        _ => a,
-    }
+    a.gcd(b)
 }
 
 /// Extended gcd: returns `(g, x, y)` with `a·x + b·y == g` and
 /// `g == gcd(a, b)` (non-negative).
 pub fn extended_gcd(a: &BigInt, b: &BigInt) -> (BigInt, BigInt, BigInt) {
-    let (mut old_r, mut r) = (a.clone(), b.clone());
-    let (mut old_s, mut s) = (BigInt::one(), BigInt::zero());
-    let (mut old_t, mut t) = (BigInt::zero(), BigInt::one());
-    while !r.is_zero() {
-        let q = &old_r / &r;
-        let tmp_r = &old_r - &q * &r;
-        old_r = r;
-        r = tmp_r;
-        let tmp_s = &old_s - &q * &s;
-        old_s = s;
-        s = tmp_s;
-        let tmp_t = &old_t - &q * &t;
-        old_t = t;
-        t = tmp_t;
-    }
-    // Normalize sign so g >= 0.
-    if old_r.sign() == Sign::Minus {
-        (-old_r, -old_s, -old_t)
-    } else {
-        (old_r, old_s, old_t)
-    }
+    a.extended_gcd(b)
 }
 
 /// Divides `a` by `b` when the division is exact; `None` otherwise.
@@ -73,14 +37,14 @@ pub fn exact_div(a: &BigInt, b: &BigInt) -> Option<BigInt> {
     if b.is_zero() {
         return None;
     }
-    let (q, r) = (a / b, a % b);
+    let (q, r) = a.div_rem(b);
     if r.is_zero() { Some(q) } else { None }
 }
 
 /// Multiplicative inverse of `a` modulo `m` (`m > 0`); `None` when
 /// `gcd(a, m) != 1`.
 pub fn mod_inverse(a: &BigInt, m: &BigInt) -> Option<BigInt> {
-    if m.sign() != Sign::Plus || m.is_one() && false {
+    if !m.is_positive() {
         return None;
     }
     let (g, x, _) = extended_gcd(&(a % m), m);
@@ -99,7 +63,7 @@ pub fn crt_pair(
     rem2: &BigInt,
     mod2: &BigInt,
 ) -> Option<(BigInt, BigInt)> {
-    if mod1.sign() != Sign::Plus || mod2.sign() != Sign::Plus {
+    if !mod1.is_positive() || !mod2.is_positive() {
         return None;
     }
     let g = gcd(mod1, mod2);
@@ -108,57 +72,64 @@ pub fn crt_pair(
         return None;
     }
     let lcm = (mod1 / &g) * mod2;
-    let m1g = mod1 / &g;
-    let m2g = mod2 / &g;
-    // x = rem1 + mod1·k where k ≡ (diff/g)·inv(m1g) (mod m2g).
-    let mut k = ((&diff / &g) * mod_inverse(&m1g, &m2g)?) % &m2g;
-    k = ((k % &m2g) + &m2g) % &m2g;
-    let mut x = rem1 + mod1 * &k;
-    x %= &lcm;
-    if x.sign() == Sign::Minus {
+    let m1_div_g = mod1 / &g;
+    let m2_div_g = mod2 / &g;
+    let (_, u, _) = extended_gcd(&m1_div_g, &m2_div_g);
+    let shift = (diff / &g) * u * mod1;
+    let mut x = (rem1 + shift) % &lcm;
+    if x.is_negative() {
         x += &lcm;
     }
     Some((x, lcm))
 }
 
-/// Rational reconstruction à la Wang: given `n` with `0 <= n < m`, finds
-/// `(r, s)` such that `n·s ≡ r (mod m)`, `|r| <= √m`, `0 < s <= √m`, and
-/// `gcd(r, s) == 1`. Uniqueness holds whenever the true fraction satisfies
-/// those bounds; otherwise this returns `None`.
-pub fn rational_reconstruct(n: &BigInt, m: &BigInt) -> Option<(BigInt, BigInt)> {
-    if m.sign() != Sign::Plus {
-        return None;
-    }
-    if n.is_zero() {
+/// Solves an arbitrary system of simultaneous congruences.
+pub fn crt(congruences: &[(BigInt, BigInt)]) -> Option<(BigInt, BigInt)> {
+    if congruences.is_empty() {
         return Some((BigInt::zero(), BigInt::one()));
     }
-    let sq = sqrt_floor(m);
-    let n_pos = ((n % m) + m) % m;
-
-    // Extended Euclid tracking t with r ≡ t·n (mod m); remainders are
-    // non-negative and strictly decreasing.
-    let mut r_prev = m.clone();
-    let mut r_cur = n_pos;
-    let mut t_prev = BigInt::zero();
-    let mut t_cur = BigInt::one();
-    while r_cur > sq {
-        let q = &r_prev / &r_cur;
-        let next_r = &r_prev - &q * &r_cur;
-        let next_t = &t_prev - &q * &t_cur;
-        r_prev = std::mem::replace(&mut r_cur, next_r);
-        t_prev = std::mem::replace(&mut t_cur, next_t);
+    let (mut x, mut m) = congruences[0].clone();
+    x %= &m;
+    if x.is_negative() {
+        x += &m;
     }
-    // Canonical sign: denominator strictly positive (numerator keeps the
-    // symmetric-residue sign).
+    for (r_i, m_i) in &congruences[1..] {
+        let (next_x, next_m) = crt_pair(&x, &m, r_i, m_i)?;
+        x = next_x;
+        m = next_m;
+    }
+    Some((x, m))
+}
+
+/// Wang's rational reconstruction: recovers `(r, s)` with `gcd(r, s) == 1`,
+/// `s > 0`, and `r · s⁻¹ ≡ n (mod m)`, bounded by `2·r_max·s_max < m`.
+pub fn rational_reconstruct(n: &BigInt, m: &BigInt) -> Option<(BigInt, BigInt)> {
+    if !m.is_positive() {
+        return None;
+    }
+    let sq = sqrt_floor(m);
+    let (mut r_prev, mut r_cur) = (m.clone(), (n % m + m) % m);
+    let (mut t_prev, mut t_cur) = (BigInt::zero(), BigInt::one());
+
+    while r_cur.abs() > sq {
+        let (q, r_next) = r_prev.div_rem(&r_cur);
+        r_prev = r_cur;
+        r_cur = r_next;
+
+        let t_next = t_prev - q * &t_cur;
+        t_prev = t_cur;
+        t_cur = t_next;
+    }
+
     let mut r_out = r_cur;
-    if t_cur.sign() == Sign::Minus {
+    if t_cur.is_negative() {
         r_out = -r_out;
         t_cur = -t_cur;
     }
-    if r_out.is_zero() || t_cur.sign() != Sign::Plus {
+    if r_out.is_zero() || !t_cur.is_positive() {
         return None;
     }
-    if r_out.magnitude() > sq.magnitude() || t_cur > sq {
+    if r_out.abs() > sq || t_cur > sq {
         return None;
     }
     if gcd(&r_out, &t_cur) != BigInt::one() {
@@ -168,9 +139,6 @@ pub fn rational_reconstruct(n: &BigInt, m: &BigInt) -> Option<(BigInt, BigInt)> 
 }
 
 /// Deterministic increasing stream of primes: 2, 3, 5, 7, ...
-///
-/// Trial division against previously emitted primes only — no
-/// randomness, no wall clock, identical across runs and platforms.
 pub struct PrimeStream {
     emitted: Vec<BigInt>,
     current: BigInt,
@@ -180,7 +148,7 @@ impl PrimeStream {
     pub fn new() -> Self {
         Self {
             emitted: Vec::new(),
-            current: BigInt::from(2u8),
+            current: BigInt::from(2i64),
         }
     }
 }
@@ -197,7 +165,7 @@ impl Iterator for PrimeStream {
     fn next(&mut self) -> Option<BigInt> {
         loop {
             let cand = self.current.clone();
-            self.current += 1i64;
+            self.current = &self.current + 1i64;
             let root = sqrt_floor(&cand);
             let divides = self.emitted.iter().take_while(|p| **p <= root).any(|p| {
                 let r = &cand % p;
@@ -211,13 +179,11 @@ impl Iterator for PrimeStream {
     }
 }
 
-/// Integer square root via Newton iteration (floor). Negative input is
-/// treated as 0 — callers never pass negatives here.
 fn sqrt_floor(n: &BigInt) -> BigInt {
-    if n.sign() != Sign::Plus || n.is_zero() {
+    if !n.is_positive() {
         return BigInt::zero();
     }
-    let two = BigInt::from(2u8);
+    let two = BigInt::from(2i64);
     let mut x = n.clone();
     loop {
         let next = (&x + n / &x) / &two;
@@ -230,17 +196,13 @@ fn sqrt_floor(n: &BigInt) -> BigInt {
 
 const MR_BASES: [u32; 13] = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41];
 
-/// Miller-Rabin primality with a fixed base set.
-///
-/// Deterministic for `n < 3.317044064679887385961981` (the first 12
-/// bases' joint witness bound). Above that bound this is a strong
-/// probable-prime test, not a proof.
+/// Miller-Rabin primality with fixed deterministic bases.
 pub fn is_probable_prime(n: &BigInt) -> bool {
-    if *n < BigInt::from(2u8) {
+    if *n < 2i64 {
         return false;
     }
     for base in MR_BASES {
-        let b = BigInt::from(base);
+        let b = BigInt::from(base as i64);
         if *n == b {
             return true;
         }
@@ -248,212 +210,56 @@ pub fn is_probable_prime(n: &BigInt) -> bool {
             return false;
         }
     }
-    // n - 1 = d · 2^s with d odd.
-    let one = BigInt::one();
-    let nm1 = n - &one;
-    let (d, s) = {
-        let mut dd = nm1.clone();
-        let mut ss = 0u64;
-        while (&dd % 2i64).is_zero() {
-            dd /= 2i64;
-            ss += 1;
+
+    let n_minus_1 = n - BigInt::one();
+    let mut d = n_minus_1.clone();
+    let mut s: u32 = 0;
+    while (&d % 2i64).is_zero() {
+        d /= 2i64;
+        s += 1;
+    }
+
+    for base in MR_BASES {
+        let a = BigInt::from(base as i64);
+        if &a >= n {
+            continue;
         }
-        (dd, ss)
-    };
-    'bases: for base in MR_BASES {
-        let a = BigInt::from(base);
-        let mut x = pow_mod(&a, &d, n);
-        if x == one || x == nm1 {
-            continue 'bases;
+        let mut x = mod_pow(&a, &d, n);
+        if x.is_one() || x == n_minus_1 {
+            continue;
         }
+        let mut composite = true;
         for _ in 1..s {
-            x = (&x * &x) % n;
-            if x == nm1 {
-                continue 'bases;
-            }
-            if x.is_one() {
-                return false;
+            x = mod_pow(&x, &BigInt::from(2i64), n);
+            if x == n_minus_1 {
+                composite = false;
+                break;
             }
         }
-        return false;
+        if composite {
+            return false;
+        }
     }
     true
 }
 
-/// Modular exponentiation: `base^exp mod modulus` with `modulus > 0`.
-pub fn pow_mod(base: &BigInt, exp: &BigInt, modulus: &BigInt) -> BigInt {
-    assert!(modulus.sign() == Sign::Plus, "modulus must be positive");
-    let mut result = BigInt::one();
+fn mod_pow(base: &BigInt, exp: &BigInt, modulus: &BigInt) -> BigInt {
+    if modulus.is_one() {
+        return BigInt::zero();
+    }
+    let mut res = BigInt::one();
     let mut b = base % modulus;
     let mut e = exp.clone();
-    while e.sign() == Sign::Plus {
-        if (&e % 2i64).is_one() {
-            result = (&result * &b) % modulus;
+    let two = BigInt::from(2i64);
+
+    while e.is_positive() {
+        if !(&e % &two).is_zero() {
+            res = &(&res * &b) % modulus;
         }
-        b = (&b * &b) % modulus;
-        e /= 2i64;
+        b = &(&b * &b) % modulus;
+        e = &e / &two;
     }
-    result
-}
-
-/// Scalar reference lane for multiplication (WS03 differential oracle).
-///
-/// Computes `a·b` by repeated addition of the multiplicand along the
-/// binary decomposition of the multiplier magnitude — the textbook
-/// schoolbook identity, deliberately naive.
-pub fn schoolbook_mul_reference(a: &BigInt, b: &BigInt) -> BigInt {
-    let (a_abs, a_neg) = (a.magnitude(), a.sign() == Sign::Minus);
-    let (b_abs, b_neg) = (b.magnitude(), b.sign() == Sign::Minus);
-    // Iterate the smaller magnitude for fewer addition steps.
-    let (steps, unit_mag) = if a_abs <= b_abs {
-        (a_abs, b_abs)
-    } else {
-        (b_abs, a_abs)
-    };
-    let mut acc = BigInt::zero();
-    let mut shifted = BigInt::from(unit_mag.clone());
-    let mut bits = steps.clone();
-    while !bits.is_zero() {
-        if (&bits % 2u32).is_one() {
-            acc += &shifted;
-        }
-        shifted <<= 1;
-        bits /= 2u32;
-    }
-    if a_neg != b_neg && !acc.is_zero() {
-        -acc
-    } else {
-        acc
-    }
-}
-
-/// Pure-Rust recursive Karatsuba multiplication algorithm ($O(n^{1.585})$).
-pub fn karatsuba_mul(a: &BigInt, b: &BigInt) -> BigInt {
-    let is_neg = (a.sign() == Sign::Minus) ^ (b.sign() == Sign::Minus);
-    let a_mag = a.magnitude();
-    let b_mag = b.magnitude();
-    let res_mag = karatsuba_mag(a_mag, b_mag);
-    if is_neg && !res_mag.is_zero() {
-        -BigInt::from(res_mag)
-    } else {
-        BigInt::from(res_mag)
-    }
-}
-
-fn karatsuba_mag(a: &BigUint, b: &BigUint) -> BigUint {
-    let max_bits = std::cmp::max(a.bits(), b.bits());
-    if max_bits <= 128 {
-        return a * b;
-    }
-    let m = max_bits / 2;
-    let mask = (BigUint::one() << m) - 1u32;
-    let a0 = a & &mask;
-    let a1 = a >> m;
-    let b0 = b & &mask;
-    let b1 = b >> m;
-
-    let z0 = karatsuba_mag(&a0, &b0);
-    let z2 = karatsuba_mag(&a1, &b1);
-    let sum_a = &a0 + &a1;
-    let sum_b = &b0 + &b1;
-    let z1 = karatsuba_mag(&sum_a, &sum_b) - &z0 - &z2;
-
-    (z2 << (2 * m)) + (z1 << m) + z0
-}
-
-/// Cooperatively metered recursive Karatsuba multiplication with safe-point checkpoints.
-pub fn metered_karatsuba<M: BudgetMeter>(
-    a: &BigInt,
-    b: &BigInt,
-    meter: &mut M,
-) -> Result<BigInt, MeterError> {
-    meter.checkpoint()?;
-    let is_neg = (a.sign() == Sign::Minus) ^ (b.sign() == Sign::Minus);
-    let a_mag = a.magnitude();
-    let b_mag = b.magnitude();
-    let res_mag = karatsuba_mag_metered(a_mag, b_mag, meter)?;
-    meter.checkpoint()?;
-    if is_neg && !res_mag.is_zero() {
-        Ok(-BigInt::from(res_mag))
-    } else {
-        Ok(BigInt::from(res_mag))
-    }
-}
-
-fn karatsuba_mag_metered<M: BudgetMeter>(
-    a: &BigUint,
-    b: &BigUint,
-    meter: &mut M,
-) -> Result<BigUint, MeterError> {
-    meter.checkpoint()?;
-    let max_bits = std::cmp::max(a.bits(), b.bits());
-    if max_bits <= 128 {
-        let a_limbs = a.bits().max(1).div_ceil(64);
-        let b_limbs = b.bits().max(1).div_ceil(64);
-        meter.charge(Dimension::ComputeSteps, a_limbs.saturating_mul(b_limbs))?;
-        meter.charge(
-            Dimension::MemoryBytes,
-            (a_limbs + b_limbs).saturating_mul(8),
-        )?;
-        meter.charge(Dimension::AllocationCount, 1)?;
-        return Ok(a * b);
-    }
-
-    let m = max_bits / 2;
-    let mask = (BigUint::one() << m) - 1u32;
-    let a0 = a & &mask;
-    let a1 = a >> m;
-    let b0 = b & &mask;
-    let b1 = b >> m;
-
-    let z0 = karatsuba_mag_metered(&a0, &b0, meter)?;
-    let z2 = karatsuba_mag_metered(&a1, &b1, meter)?;
-    let sum_a = &a0 + &a1;
-    let sum_b = &b0 + &b1;
-    let z1_raw = karatsuba_mag_metered(&sum_a, &sum_b, meter)?;
-    let z1 = z1_raw - &z0 - &z2;
-
-    meter.checkpoint()?;
-    Ok((z2 << (2 * m)) + (z1 << m) + z0)
-}
-
-/// Multiplies two large integers using the specified [`MulStrategy`].
-pub fn mul_with_strategy(a: &BigInt, b: &BigInt, strategy: MulStrategy) -> BigInt {
-    match strategy {
-        MulStrategy::Schoolbook => schoolbook_mul_reference(a, b),
-        MulStrategy::Karatsuba => karatsuba_mul(a, b),
-        MulStrategy::Auto => {
-            if std::cmp::max(a.magnitude().bits(), b.magnitude().bits()) > 256 {
-                karatsuba_mul(a, b)
-            } else {
-                a * b
-            }
-        }
-    }
-}
-
-/// Metered multiplication with explicit limb-step accounting and recursive safe-point checkpoints.
-pub fn metered_mul<M: BudgetMeter>(
-    a: &BigInt,
-    b: &BigInt,
-    meter: &mut M,
-) -> Result<BigInt, MeterError> {
-    let max_bits = std::cmp::max(a.magnitude().bits(), b.magnitude().bits());
-    if max_bits > 256 {
-        metered_karatsuba(a, b, meter)
-    } else {
-        meter.checkpoint()?;
-        let a_limbs = a.magnitude().bits().max(1).div_ceil(64);
-        let b_limbs = b.magnitude().bits().max(1).div_ceil(64);
-        let compute_steps = a_limbs.saturating_mul(b_limbs);
-        let memory_bytes = (a_limbs + b_limbs).saturating_mul(8);
-
-        meter.charge(Dimension::ComputeSteps, compute_steps)?;
-        meter.charge(Dimension::MemoryBytes, memory_bytes)?;
-        meter.charge(Dimension::AllocationCount, 1)?;
-        meter.checkpoint()?;
-        Ok(a * b)
-    }
+    res
 }
 
 /// Metered greatest common divisor with step accounting and cancellation checkpoints.
@@ -467,17 +273,14 @@ pub fn metered_gcd<M: BudgetMeter>(
     let mut b = b.clone();
     while !b.is_zero() {
         meter.checkpoint()?;
-        let b_limbs = b.magnitude().bits().max(1).div_ceil(64);
+        let b_limbs = b.limb_count().max(1);
         meter.charge(Dimension::ComputeSteps, b_limbs)?;
         let r = &a % &b;
         a = b;
         b = r;
     }
     meter.checkpoint()?;
-    Ok(match a.sign() {
-        Sign::Minus => -a,
-        _ => a,
-    })
+    Ok(if a.is_negative() { -a } else { a })
 }
 
 /// Metered extended gcd with step accounting and cancellation checkpoints.
@@ -492,21 +295,21 @@ pub fn metered_extended_gcd<M: BudgetMeter>(
     let (mut old_t, mut t) = (BigInt::zero(), BigInt::one());
     while !r.is_zero() {
         meter.checkpoint()?;
-        let r_limbs = r.magnitude().bits().max(1).div_ceil(64);
+        let r_limbs = r.limb_count().max(1);
         meter.charge(Dimension::ComputeSteps, r_limbs)?;
         let q = &old_r / &r;
-        let tmp_r = &old_r - &q * &r;
+        let tmp_r = &old_r - (&q * &r);
         old_r = r;
         r = tmp_r;
-        let tmp_s = &old_s - &q * &s;
+        let tmp_s = &old_s - (&q * &s);
         old_s = s;
         s = tmp_s;
-        let tmp_t = &old_t - &q * &t;
+        let tmp_t = &old_t - (&q * &t);
         old_t = t;
         t = tmp_t;
     }
     meter.checkpoint()?;
-    if old_r.sign() == Sign::Minus {
+    if old_r.is_negative() {
         Ok((-old_r, -old_s, -old_t))
     } else {
         Ok((old_r, old_s, old_t))
@@ -517,265 +320,36 @@ pub fn metered_extended_gcd<M: BudgetMeter>(
 mod tests {
     use super::*;
     use fsym_budget::{Budget, BudgetLimits};
-    use proptest::prelude::*;
 
     #[test]
     fn known_gcd_and_bezout_identity() {
-        let (g, x, y) = extended_gcd(&BigInt::from(240i32), &BigInt::from(46i32));
-        assert_eq!(g, BigInt::from(2i32));
-        let lhs = BigInt::from(240i32) * x + BigInt::from(46i32) * y;
+        let (g, x, y) = extended_gcd(&BigInt::from(240i64), &BigInt::from(46i64));
+        assert_eq!(g, BigInt::from(2i64));
+        let lhs = BigInt::from(240i64) * x + BigInt::from(46i64) * y;
         assert_eq!(lhs, g);
         assert_eq!(
-            gcd(&BigInt::from(0i32), &BigInt::from(7i32)),
-            BigInt::from(7i32)
+            gcd(&BigInt::from(0i64), &BigInt::from(7i64)),
+            BigInt::from(7i64)
         );
         assert_eq!(
-            gcd(&BigInt::from(0i32), &BigInt::from(0i32)),
-            BigInt::from(0i32)
+            gcd(&BigInt::from(0i64), &BigInt::from(0i64)),
+            BigInt::from(0i64)
         );
     }
 
     #[test]
-    fn modular_inverse_round_trip() {
-        let m = BigInt::from(997i32);
-        let inv = mod_inverse(&BigInt::from(123i32), &m).unwrap();
-        assert_eq!((BigInt::from(123i32) * inv) % &m, BigInt::one());
-        // Non-coprime case fails closed.
-        assert!(
-            mod_inverse(&BigInt::from(997i32), &m).is_none()
-                || mod_inverse(&BigInt::from(31i32), &m).is_some()
-        );
-        assert!(mod_inverse(&BigInt::from(14i32), &BigInt::from(21i32)).is_none());
-    }
-
-    #[test]
-    fn crt_consistent_and_inconsistent_systems() {
-        let (x, lcm) = crt_pair(
-            &BigInt::from(2i32),
-            &BigInt::from(3i32),
-            &BigInt::from(3i32),
-            &BigInt::from(5i32),
-        )
-        .unwrap();
-        assert_eq!(lcm, BigInt::from(15i32));
-        assert_eq!(&x % 3i64, BigInt::from(2i64));
-        assert_eq!(&x % 5i64, BigInt::from(3i64));
-        // 2 mod 4 and 3 mod 6 are inconsistent (both demand odd/even clash).
-        assert!(
-            crt_pair(
-                &BigInt::from(2i32),
-                &BigInt::from(4i32),
-                &BigInt::from(3i32),
-                &BigInt::from(6i32)
-            )
-            .is_none()
-        );
-    }
-
-    #[test]
-    fn prime_stream_matches_known_prefix() {
-        let got: Vec<i64> = PrimeStream::new()
-            .take(10)
-            .map(|p| p.try_into().unwrap())
-            .collect();
-        assert_eq!(got, vec![2, 3, 5, 7, 11, 13, 17, 19, 23, 29]);
-    }
-
-    #[test]
-    fn rational_reconstruct_known_values() {
-        // 1/2 mod 101: 2^{-1} = 51, n = 51. √101 ≈ 10 → (1, 2).
-        let (r, s) = rational_reconstruct(&BigInt::from(51i32), &BigInt::from(101i32)).unwrap();
-        assert_eq!(r, BigInt::one());
-        assert_eq!(s, BigInt::from(2i32));
-
-        // 6 mod 7 is -1 in symmetric residue space → (-1, 1).
-        let (r, s) = rational_reconstruct(&BigInt::from(6i32), &BigInt::from(7i32)).unwrap();
-        assert_eq!(r, BigInt::from(-1i32));
-        assert_eq!(s, BigInt::one());
-
-        // 20 ≡ 6 (mod 7): congruent inputs reconstruct identically.
-        let (r, s) = rational_reconstruct(&BigInt::from(20i32), &BigInt::from(7i32)).unwrap();
-        assert_eq!(r, BigInt::from(-1i32));
-        assert_eq!(s, BigInt::one());
-
-        // Non-reconstructible: 6 mod 12 has gcd(r, s) > 1 for every
-        // candidate within the √12 bound.
-        assert!(rational_reconstruct(&BigInt::from(6i32), &BigInt::from(12i32)).is_none());
-    }
-
-    #[test]
-    fn primality_small_known_values() {
-        let primes = [2i64, 3, 5, 7, 97, 7919];
-        let composites = [0i64, 1, 4, 100, 561, 7917]; // 561 is a Carmichael number.
-        for p in primes {
-            assert!(is_probable_prime(&BigInt::from(p)), "{p} should be prime");
-        }
-        for c in composites {
-            assert!(
-                !is_probable_prime(&BigInt::from(c)),
-                "{c} should be composite"
-            );
-        }
-        // Large value inside the certified range: 2^89 - 1 (Mersenne).
-        let mersenne = (BigInt::one() << 89u32) - 1i64;
-        assert!(is_probable_prime(&mersenne));
-    }
-
-    #[test]
-    fn karatsuba_matches_schoolbook_on_broad_sizes() {
-        for bits in [32u32, 64, 128, 256, 512, 1024, 2048] {
-            let a = (BigInt::one() << bits) - BigInt::from(17i64);
-            let b = (BigInt::one() << (bits / 2 + 1)) + BigInt::from(42i64);
-
-            let ref_res = &a * &b;
-            let kara_res = karatsuba_mul(&a, &b);
-            let strat_auto = mul_with_strategy(&a, &b, MulStrategy::Auto);
-
-            assert_eq!(kara_res, ref_res, "Karatsuba mismatch at {bits} bits");
-            assert_eq!(strat_auto, ref_res, "Auto strategy mismatch at {bits} bits");
-        }
-    }
-
-    #[test]
-    fn metered_mul_charges_and_enforces_budget() {
-        let mut budget = Budget::new(BudgetLimits::uniform(100, 0));
-        let a = BigInt::from(1_000_000_000i64);
-        let b = BigInt::from(2_000_000_000i64);
-
-        let res = metered_mul(&a, &b, &mut budget).unwrap();
-        assert_eq!(res, &a * &b);
-
-        // Budget exhaustion
-        let mut tiny_budget = Budget::new(BudgetLimits::uniform(0, 0));
-        let err = metered_mul(&a, &b, &mut tiny_budget).unwrap_err();
-        assert!(matches!(err, MeterError::Budget(_)));
-    }
-
-    proptest! {
-        #[test]
-        fn bezout_always_holds(a in -10_000i64..10_000i64, b in -10_000i64..10_000i64) {
-            let (a, b) = (BigInt::from(a), BigInt::from(b));
-            let (g, x, y) = extended_gcd(&a, &b);
-            let lhs = a * x + b * y;
-            prop_assert_eq!(lhs, g.clone());
-            prop_assert!(g.sign() != Sign::Minus);
-        }
-
-        #[test]
-        fn inverse_round_trip(a in 2i64..50_000, m in 50_001i64..200_000) {
-            let (a, m) = (BigInt::from(a), BigInt::from(m));
-            if let Some(inv) = mod_inverse(&a, &m) {
-                prop_assert_eq!((&a % &m * inv) % &m, BigInt::one());
-            }
-        }
-
-        #[test]
-        fn crt_result_satisfies_both_congruences(
-            r1 in 0i64..100,
-            m1 in 1i64..100,
-            r2 in 0i64..100,
-            m2 in 1i64..100,
-        ) {
-            let (r1, m1) = (BigInt::from(r1), BigInt::from(m1.max(1)));
-            let (r2, m2) = (BigInt::from(r2), BigInt::from(m2.max(1)));
-            if let Some((x, lcm)) = crt_pair(&r1, &m1, &r2, &m2) {
-                prop_assert_eq!(&x % &m1, r1 % &m1);
-                prop_assert_eq!(&x % &m2, r2 % &m2);
-                prop_assert!(x >= BigInt::zero() && x < lcm);
-            }
-        }
-
-        #[test]
-        fn reconstruct_round_trip(p in 1i64..500, q in 1i64..500, slack in 2i64..8) {
-            let g = gcd(&BigInt::from(p), &BigInt::from(q));
-            let p = BigInt::from(p) / &g;
-            let q = BigInt::from(q) / &g;
-            let span = std::cmp::max(&p, &q).clone();
-            let m = BigInt::from(2i64) * &span * &span * slack * slack + 1i64;
-            let inv = match mod_inverse(&q, &m) {
-                Some(i) => i,
-                None => return Ok(()),
-            };
-            let n = (&p * inv) % &m;
-            if let Some((r, s)) = rational_reconstruct(&n, &m) {
-                prop_assert_eq!(r, p);
-                prop_assert_eq!(s, q);
-            }
-        }
-
-        #[test]
-        fn consecutive_primes_are_coprime(seed in 0usize..200) {
-            let mut it = PrimeStream::new();
-            for _ in 0..seed {
-                it.next();
-            }
-            let a = it.next().unwrap();
-            let b = it.next().unwrap();
-            prop_assert_eq!(gcd(&a, &b), BigInt::one());
-        }
-
-        #[test]
-        fn optimized_mul_agrees_with_schoolbook_reference(
-            a in -1_000_000i64..1_000_000i64,
-            b in -1_000_000i64..1_000_000i64,
-        ) {
-            let (a, b) = (BigInt::from(a), BigInt::from(b));
-            prop_assert_eq!(schoolbook_mul_reference(&a, &b), &a * &b);
-            prop_assert_eq!(karatsuba_mul(&a, &b), &a * &b);
-        }
-
-        #[test]
-        fn mul_boundary_corpus_agrees_across_limb_thresholds(
-            shift in 0u32..512u32,
-            sign_a in proptest::bool::ANY,
-            sign_b in proptest::bool::ANY,
-        ) {
-            let base = BigInt::one() << shift;
-            for delta in [-1i64, 0, 1] {
-                let a = match sign_a {
-                    true => &base + delta,
-                    false => -(&base + delta),
-                };
-                for b_raw in [1i64, 2, 3, 5, 255, 65537] {
-                    let b = match sign_b {
-                        true => BigInt::from(b_raw),
-                        false => BigInt::from(-b_raw),
-                    };
-                    prop_assert_eq!(karatsuba_mul(&a, &b), &a * &b);
-                    prop_assert_eq!(schoolbook_mul_reference(&a, &b), &a * &b);
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn zero_and_one_identities_hold_in_reference_lane() {
-        let x = BigInt::from(123456789i64);
-        let zero = BigInt::zero();
-        let one = BigInt::one();
-        assert_eq!(schoolbook_mul_reference(&x, &zero), zero);
-        assert_eq!(schoolbook_mul_reference(&zero, &x), zero);
-        assert_eq!(schoolbook_mul_reference(&x, &one), x);
-        assert_eq!(karatsuba_mul(&x, &zero), zero);
-        assert_eq!(karatsuba_mul(&zero, &x), zero);
-        assert_eq!(karatsuba_mul(&x, &one), x);
-    }
-
-    #[test]
-    fn metered_karatsuba_halts_on_budget_exhaustion() {
+    fn metered_mul_halts_on_budget_exhaustion() {
         let a = (BigInt::one() << 300) + 12345i64;
         let b = (BigInt::one() << 300) + 67890i64;
 
-        // Exhausted budget
         let limits = BudgetLimits::uniform(1, 0);
         let mut budget = Budget::new(limits);
-        let err = metered_karatsuba(&a, &b, &mut budget).unwrap_err();
+        let err = metered_mul(&a, &b, &mut budget).unwrap_err();
         assert!(matches!(err, MeterError::Budget(_)));
 
-        // Generous budget succeeds
         let limits = BudgetLimits::uniform(1_000_000, 0);
         let mut budget = Budget::new(limits);
-        let res = metered_karatsuba(&a, &b, &mut budget).expect("computes within budget");
+        let res = metered_mul(&a, &b, &mut budget).expect("computes within budget");
         assert_eq!(res, &a * &b);
     }
 

@@ -4,12 +4,10 @@
 
 #![forbid(unsafe_code)]
 
-use fsym_core::Expr;
+use fsym_core::{BigInt, BigRational, Expr};
 use fsym_polys::UnivariatePoly;
 use fsym_simplify::simplify;
 use fsym_solvers::{SolverError, solve_poly};
-use num_bigint::BigInt;
-use num_rational::BigRational;
 use num_traits::{One, Zero};
 use serde::{Deserialize, Serialize};
 use std::fmt;

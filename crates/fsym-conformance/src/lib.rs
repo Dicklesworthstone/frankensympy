@@ -716,72 +716,22 @@ fn run_cases_with_timeout(
         "required_sympy_version": PINNED_SYMPY_VERSION,
         "cases": oracle_cases,
     });
-    let payload = serde_json::to_vec(&payload)
+    let payload = serde_json::to_string(&payload)
         .map_err(|e| format!("serializing oracle request failed: {e}"))?;
     if payload.len() > MAX_ORACLE_REQUEST_BYTES {
         return Err(format!(
-            "oracle payload size {} exceeds limit of {} bytes",
+            "oracle request size {} exceeds limit of {} bytes",
             payload.len(),
             MAX_ORACLE_REQUEST_BYTES
         ));
     }
 
-    let mut child = Command::new(python)
+    let mut command = Command::new(python);
+    command
         .args(["-I", "-W", "error", "-c", ORACLE_SCRIPT])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("spawning oracle `{python}` failed: {e}"))?;
-    let Some(mut stdin) = child.stdin.take() else {
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err("oracle stdin was not piped".to_string());
-    };
-    if let Err(error) = stdin.write_all(&payload) {
-        drop(stdin);
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err(format!("writing oracle batch failed: {error}"));
-    }
-    drop(stdin);
+        .arg(&payload);
+    let output = run_bounded_oracle(command, timeout)?;
 
-    let deadline = Instant::now() + ORACLE_TIMEOUT;
-    loop {
-        let status = match child.try_wait() {
-            Ok(status) => status,
-            Err(error) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(format!("polling oracle failed: {error}"));
-            }
-        };
-        match status {
-            Some(_) => break,
-            None if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
-            None => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(format!(
-                    "oracle exceeded parent wall-time bound of {} seconds",
-                    ORACLE_TIMEOUT.as_secs()
-                ));
-            }
-        }
-    }
-    let output = child
-        .wait_with_output()
-        .map_err(|e| format!("reaping oracle failed: {e}"))?;
-    let output_bytes = output
-        .stdout
-        .len()
-        .checked_add(output.stderr.len())
-        .ok_or_else(|| "oracle output length overflowed".to_string())?;
-    if output_bytes > MAX_ORACLE_OUTPUT_BYTES {
-        return Err(format!(
-            "oracle output has {output_bytes} bytes; maximum is {MAX_ORACLE_OUTPUT_BYTES}"
-        ));
-    }
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!(
@@ -802,6 +752,55 @@ fn run_cases_with_timeout(
         String::from_utf8(output.stdout).map_err(|e| format!("oracle stdout is not UTF-8: {e}"))?;
     let (oracle_version, by_id) = parse_oracle_stdout(&stdout)?;
     assemble_report(cases, rust_results, &oracle_version, by_id)
+}
+
+fn run_bounded_oracle(
+    mut command: Command,
+    timeout: Duration,
+) -> Result<std::process::Output, String> {
+    let deadline = Instant::now() + timeout;
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("spawning oracle process failed: {e}"))?;
+    loop {
+        let status = match child.try_wait() {
+            Ok(status) => status,
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("polling oracle failed: {error}"));
+            }
+        };
+        match status {
+            Some(_) => break,
+            None if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
+            None => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!(
+                    "oracle exceeded parent wall-time bound of {} seconds",
+                    timeout.as_secs_f64()
+                ));
+            }
+        }
+    }
+    let output = child
+        .wait_with_output()
+        .map_err(|e| format!("reaping oracle failed: {e}"))?;
+    let output_bytes = output
+        .stdout
+        .len()
+        .checked_add(output.stderr.len())
+        .ok_or_else(|| "oracle output length overflowed".to_string())?;
+    if output_bytes > MAX_ORACLE_OUTPUT_BYTES {
+        return Err(format!(
+            "oracle output has {output_bytes} bytes; maximum is {MAX_ORACLE_OUTPUT_BYTES}"
+        ));
+    }
+    Ok(output)
 }
 
 /// Write an NDJSON evidence ledger; parent directories created as needed.
@@ -999,9 +998,23 @@ mod tests {
 
     #[test]
     fn unreachable_oracle_fails_closed() {
-        let err = run_conformance(&[case(false)], "/definitely/missing/frankensympy-python")
-            .expect_err("missing interpreter must fail");
+        let err = run_cases_with_timeout(
+            &[case(false)],
+            "/definitely/missing/frankensympy-python",
+            Duration::from_millis(100),
+        )
+        .expect_err("missing interpreter must fail");
         assert!(err.contains("spawning oracle"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn output_flood_is_killed_and_reaped_within_parent_deadline() {
+        let started = Instant::now();
+        let err = run_bounded_oracle(Command::new("/usr/bin/yes"), Duration::from_millis(100))
+            .expect_err("flooding child must fail");
+        assert!(err.contains("parent wall-time bound"));
+        assert!(started.elapsed() < Duration::from_secs(2));
     }
 
     #[test]

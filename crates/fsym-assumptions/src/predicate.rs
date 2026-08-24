@@ -145,12 +145,12 @@ pub fn inherent_facts(expr: &Expr) -> Option<BTreeSet<Predicate>> {
                 facts.extend(Predicate::Zero.closure());
             } else {
                 facts.extend(Predicate::NonZero.closure());
-                facts.extend(if n > &num_bigint::BigInt::from(0) {
+                facts.extend(if n.is_positive() {
                     Predicate::Positive.closure()
                 } else {
                     Predicate::Negative.closure()
                 });
-                let two = num_bigint::BigInt::from(2);
+                let two = fsym_core::BigInt::from(2i64);
                 let even = (n % &two).is_zero();
                 facts.extend(
                     if even {

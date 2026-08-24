@@ -4,8 +4,7 @@
 
 #![forbid(unsafe_code)]
 
-use fsym_core::{Constant, Expr};
-use num_rational::BigRational;
+use fsym_core::{BigRational, Constant, Expr};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::fmt;

@@ -10,9 +10,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-num-bigint.workspace = true
-num-integer.workspace = true
-num-traits.workspace = true
+fsym-core.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 

@@ -5,8 +5,7 @@
 
 #![forbid(unsafe_code)]
 
-use fsym_core::{Expr, Symbol};
-use num_rational::BigRational;
+use fsym_core::{BigRational, Expr, Symbol};
 use num_traits::{One, Zero};
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -253,7 +252,7 @@ impl fmt::Display for UnivariatePoly {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use num_bigint::BigInt;
+    use fsym_core::BigInt;
 
     #[test]
     fn test_poly_arithmetic() {

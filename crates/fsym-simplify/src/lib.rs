@@ -5,9 +5,7 @@
 #![forbid(unsafe_code)]
 
 use fsym_budget::{BudgetError, BudgetMeter, Dimension, MeterError, Unbounded};
-use fsym_core::Expr;
-use num_bigint::BigInt;
-use num_rational::BigRational;
+use fsym_core::{BigInt, BigRational, Expr};
 use num_traits::{One, Zero};
 use std::collections::BTreeMap;
 use std::sync::Arc;

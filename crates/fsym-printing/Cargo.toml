@@ -11,7 +11,6 @@ categories.workspace = true
 
 [dependencies]
 fsym-core.workspace = true
-num-bigint.workspace = true
 num-rational.workspace = true
 serde.workspace = true
 thiserror.workspace = true

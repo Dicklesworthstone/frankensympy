@@ -15,8 +15,7 @@
 //! floating-point leaves anywhere in the numeric tower.
 
 use crate::{Constant, CoreError, Expr, Symbol};
-use num_bigint::BigInt;
-use num_rational::BigRational;
+use fsym_bigint::{BigInt, BigRational};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -259,7 +258,7 @@ fn neg(e: Expr) -> Expr {
 /// Exact division: integer over integer folds to a rational; anything else
 /// becomes multiplication by the reciprocal.
 fn divide(a: Expr, b: Expr) -> Result<Expr, CoreError> {
-    if matches!(&b, Expr::Integer(n) if *n == 0.into()) {
+    if matches!(&b, Expr::Integer(n) if n.is_zero()) {
         return Err(CoreError::DivisionByZero);
     }
     if let (Expr::Integer(an), Expr::Integer(bn)) = (&a, &b) {
@@ -321,7 +320,6 @@ pub fn parse(input: &str) -> Result<Expr, CoreError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use num_traits::Zero;
 
     #[test]
     fn test_precedence_and_associativity() {

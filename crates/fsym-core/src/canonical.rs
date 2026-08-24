@@ -13,9 +13,7 @@
 //! because the cap is checked against remaining input bytes first.
 
 use crate::CoreError;
-use num_bigint::{BigInt, BigUint};
-use num_rational::BigRational;
-use num_traits::Zero;
+use fsym_bigint::{BigInt, BigRational};
 
 /// Maximum accepted payload size per value, including tag and integer
 /// headers. The whole input is rejected before any big-integer allocation
@@ -25,7 +23,7 @@ pub const MAX_SERIALIZED_BYTES: usize = 1024 * 1024;
 const INTEGER_HEADER_BYTES: usize = 1 + std::mem::size_of::<u64>();
 
 fn magnitude_len(n: &BigInt) -> Result<usize, CoreError> {
-    usize::try_from(n.magnitude().bits().div_ceil(8)).map_err(|_| {
+    usize::try_from(n.bits().div_ceil(8)).map_err(|_| {
         CoreError::InvalidOperation("canonical integer: magnitude length overflow".into())
     })
 }
@@ -37,20 +35,12 @@ fn encoded_integer_len(n: &BigInt) -> Result<usize, CoreError> {
 }
 
 fn push_integer(out: &mut Vec<u8>, n: &BigInt) {
-    let sign_byte = if n.sign() == num_bigint::Sign::Minus {
-        1u8
-    } else {
-        0u8
-    };
-    // No per-integer tag: the enclosing value tag (b'I'/b'Q') already
-    // fixes the layout, and readers consume [sign][len][magnitude].
+    let sign_byte = if n.is_negative() { 1u8 } else { 0u8 };
     out.push(sign_byte);
-    // Zero has the unique empty magnitude. `BigUint::to_bytes_le()` emits
-    // `[0]` for zero, which would collide with our minimal-encoding rule.
     let magnitude_bytes = if n.is_zero() {
         Vec::new()
     } else {
-        n.magnitude().to_bytes_le()
+        n.to_bytes_le()
     };
     out.extend_from_slice(&(magnitude_bytes.len() as u64).to_le_bytes());
     out.extend_from_slice(&magnitude_bytes);
@@ -110,12 +100,12 @@ fn read_integer(buf: &[u8], offset: &mut usize) -> Result<BigInt, CoreError> {
             "canonical integer: negative zero is not canonical".into(),
         ));
     }
-    let magnitude = BigUint::from_bytes_le(magnitude_bytes);
+    let magnitude = BigInt::from_bytes_le(magnitude_bytes);
     *offset = magnitude_end;
 
     Ok(match sign_byte {
-        0 => BigInt::from(magnitude),
-        _ => BigInt::from(magnitude) * -1,
+        0 => magnitude,
+        _ => -magnitude,
     })
 }
 
@@ -189,9 +179,9 @@ impl crate::Expr {
                 let numer = read_integer(buf, &mut offset)?;
                 let denom = read_integer(buf, &mut offset)?;
                 require_end(buf, offset)?;
-                if denom.is_zero() || denom.sign() == num_bigint::Sign::Minus {
+                if denom.is_zero() || denom.is_negative() {
                     return Err(CoreError::InvalidOperation(
-                        "canonical rational: denominator must be positive".into(),
+                        "canonical rational: non-positive denominator".into(),
                     ));
                 }
                 let canonical = BigRational::new(numer.clone(), denom.clone());
@@ -320,10 +310,7 @@ mod tests {
     #[test]
     fn serialized_size_limit_is_an_exact_boundary() {
         let max_magnitude_len = MAX_SERIALIZED_BYTES - 1 - INTEGER_HEADER_BYTES;
-        let at_limit = Expr::Integer(BigInt::from(BigUint::from_bytes_le(&vec![
-            0xff;
-            max_magnitude_len
-        ])));
+        let at_limit = Expr::Integer(BigInt::from_bytes_le(&vec![0xff; max_magnitude_len]));
         let bytes = at_limit.to_canonical_numeric_bytes().unwrap();
         assert_eq!(bytes.len(), MAX_SERIALIZED_BYTES);
         assert_eq!(
@@ -331,11 +318,7 @@ mod tests {
             at_limit
         );
 
-        let over_limit = Expr::Integer(BigInt::from(BigUint::from_bytes_le(&vec![
-            0xff;
-            max_magnitude_len
-                + 1
-        ])));
+        let over_limit = Expr::Integer(BigInt::from_bytes_le(&vec![0xff; max_magnitude_len + 1]));
         let err = over_limit.to_canonical_numeric_bytes().unwrap_err();
         assert!(err.to_string().contains("too large"));
     }
@@ -346,7 +329,7 @@ mod tests {
             magnitude in prop::collection::vec(any::<u8>(), 0..8192),
             negative in any::<bool>(),
         ) {
-            let mut n = BigInt::from(BigUint::from_bytes_le(&magnitude));
+            let mut n = BigInt::from_bytes_le(&magnitude);
             if negative {
                 n = -n;
             }

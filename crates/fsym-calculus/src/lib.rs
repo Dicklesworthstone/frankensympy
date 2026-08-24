@@ -4,9 +4,8 @@
 
 #![forbid(unsafe_code)]
 
-use fsym_core::{Constant, Expr, Symbol};
+use fsym_core::{BigInt, Constant, Expr, Symbol};
 use fsym_simplify::{expand, simplify};
-use num_bigint::BigInt;
 use num_traits::Zero;
 use std::sync::Arc;
 use thiserror::Error;
@@ -21,7 +20,7 @@ pub enum CalculusError {
     Undetermined(String),
 }
 
-use num_rational::BigRational;
+use fsym_core::BigRational;
 use std::collections::HashMap;
 
 /// Compute the symbolic derivative of an expression with respect to a symbol: ∂expr / ∂var.
@@ -277,7 +276,7 @@ pub fn limit(expr: &Expr, var: &Symbol, to: &Expr) -> Result<Expr, CalculusError
 fn divides_by_zero(expr: &Expr) -> bool {
     match expr {
         Expr::Pow(base, exp) => {
-            let negative_exp = matches!(exp.as_ref(), Expr::Integer(n) if *n < 0.into());
+            let negative_exp = matches!(exp.as_ref(), Expr::Integer(n) if n.is_negative());
             (negative_exp && base.is_zero()) || divides_by_zero(base) || divides_by_zero(exp)
         }
         Expr::Add(terms) | Expr::Mul(terms) => terms.iter().any(divides_by_zero),

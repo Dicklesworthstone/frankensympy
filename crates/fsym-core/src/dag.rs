@@ -7,9 +7,8 @@
 #![forbid(unsafe_code)]
 
 use crate::{Constant, Expr, Symbol};
+use fsym_bigint::{BigInt, BigRational};
 use fsym_id::TermId;
-use num_bigint::BigInt;
-use num_rational::BigRational;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use thiserror::Error;

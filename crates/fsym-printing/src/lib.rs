@@ -4,8 +4,7 @@
 
 #![forbid(unsafe_code)]
 
-use fsym_core::{Constant, Expr};
-use num_bigint::BigInt;
+use fsym_core::{BigInt, Constant, Expr};
 use thiserror::Error;
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -196,12 +195,12 @@ pub fn latex(expr: &Expr) -> String {
 /// Superscript rendering of an integer exponent using Unicode digits.
 fn unicode_superscript(n: &BigInt) -> String {
     const DIGITS: [char; 10] = ['⁰', '¹', '²', '³', '⁴', '⁵', '⁶', '⁷', '⁸', '⁹'];
-    let mut s = if *n < zero() {
+    let mut s = if n.is_negative() {
         "⁻".to_string()
     } else {
         String::new()
     };
-    for ch in n.magnitude().to_string().chars() {
+    for ch in n.abs().to_string().chars() {
         s.push(DIGITS[ch.to_digit(10).expect("decimal digit") as usize]);
     }
     s
@@ -331,7 +330,7 @@ pub fn to_rust_code(expr: &Expr) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use num_rational::BigRational;
+    use fsym_core::BigRational;
     use std::sync::Arc;
 
     fn pow(b: Expr, e: Expr) -> Expr {

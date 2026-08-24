@@ -6,9 +6,7 @@
 
 #![forbid(unsafe_code)]
 
-use num_bigint::BigInt;
-use num_integer::Integer;
-use num_traits::{One, Zero};
+use fsym_core::BigInt;
 use std::collections::BTreeMap;
 use thiserror::Error;
 
