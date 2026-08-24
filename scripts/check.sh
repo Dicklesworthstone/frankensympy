@@ -237,11 +237,11 @@ PY
 write_audits() {
   require_python
   mkdir -p "$ROOT/artifacts/audit"
-  run "$PYTHON_BIN" "$ROOT/tools/verify_cross_cutting.py" --root "$ROOT" --json-output artifacts/audit/cross_cutting_obligations.json
-  run "$PYTHON_BIN" "$ROOT/tools/verify_registry_bundle.py" --root "$ROOT" --json-output artifacts/audit/registry_bundle.json
-  run "$PYTHON_BIN" "$ROOT/tools/audit_donor_sources.py" --root "$ROOT" --json-output artifacts/audit/donor_sources.json
-  run "$PYTHON_BIN" "$ROOT/tools/verify_dependency_and_safety.py" --root "$ROOT" --json-output artifacts/audit/dependency_safety.json
-  run "$PYTHON_BIN" "$ROOT/tools/verify_performance_kernels.py" --root "$ROOT" --json-output artifacts/audit/performance_kernels.json
+  run "$PYTHON_BIN" "$ROOT/tools/verify_cross_cutting.py" --root "$ROOT" --json-output "$ROOT/artifacts/audit/cross_cutting_obligations.json"
+  run "$PYTHON_BIN" "$ROOT/tools/verify_registry_bundle.py" --root "$ROOT" --json-output "$ROOT/artifacts/audit/registry_bundle.json"
+  run "$PYTHON_BIN" "$ROOT/tools/audit_donor_sources.py" --root "$ROOT" --json-output "$ROOT/artifacts/audit/donor_sources.json"
+  run "$PYTHON_BIN" "$ROOT/tools/verify_dependency_and_safety.py" --root "$ROOT" --json-output "$ROOT/artifacts/audit/dependency_safety.json"
+  run "$PYTHON_BIN" "$ROOT/tools/verify_performance_kernels.py" --root "$ROOT" --json-output "$ROOT/artifacts/audit/performance_kernels.json"
   ok "audit artifacts written"
 }
 
