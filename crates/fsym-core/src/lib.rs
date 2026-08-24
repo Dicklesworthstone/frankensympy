@@ -14,6 +14,7 @@ use std::fmt;
 use std::sync::Arc;
 use thiserror::Error;
 
+pub mod arith;
 mod parser;
 
 pub use parser::parse;
