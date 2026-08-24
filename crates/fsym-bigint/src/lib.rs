@@ -68,9 +68,9 @@ pub enum Strategy {
 
 /// Canonical signed base-$2^{32}$ output from the recursively metered multiplication kernel.
 ///
-/// Candidate publication is separate from [`Self::materialize_unmetered`] because the provisional
+/// Candidate publication deliberately exposes no `BigInt` lift because the provisional
 /// `num-bigint` substrate has no safe public fallible constructor that adopts this digit buffer.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct MeteredProductCandidate {
     negative: bool,
     digits: Vec<u32>,
@@ -92,13 +92,8 @@ impl MeteredProductCandidate {
         self.digits.is_empty()
     }
 
-    /// Converts this candidate into the provisional public bigint substrate.
-    ///
-    /// This operation is deliberately outside the metered region. On 64-bit targets, pinned
-    /// `num-bigint` converts the `u32` digits into a newly allocated private `u64` buffer through
-    /// an infallible, non-cooperative API. Callers must not treat this lift as budget, cancellation,
-    /// production, certification, or benchmark evidence.
-    pub fn materialize_unmetered(self) -> BigInt {
+    #[cfg(test)]
+    fn materialize_unmetered(self) -> BigInt {
         let magnitude = BigUint::new(self.digits);
         let sign = if magnitude.is_zero() {
             Sign::NoSign
@@ -1044,8 +1039,11 @@ pub fn metered_multiply<M: BudgetMeter>(
 /// substrate bigints inside recursion. Every nonempty kernel-owned buffer capacity is checked and
 /// charged before a fallible reservation, every digit loop has safe points, and `DepthLimit` equals
 /// the deepest recursion level actually entered. `MemoryBytes` records cumulative requested
-/// `Vec<u32>` capacity, not allocator overhead or peak live memory. A final checkpoint occurs after
-/// the complete digit result exists and before candidate publication.
+/// `Vec<u32>` capacity, while `AllocationCount` records reservation attempts; neither reports
+/// actual allocator capacity, allocator overhead, or peak live memory. `DepthLimit` records logical
+/// recursion depth rather than stack bytes. A failed physical reservation retains its admitted
+/// charges. A final checkpoint occurs after the complete digit result exists and before candidate
+/// publication.
 ///
 /// The returned candidate is not a controlled `BigInt`. Its explicitly unmetered lift is kept
 /// separate because pinned `num-bigint` cannot adopt the buffer through a safe fallible public API.
@@ -1078,6 +1076,7 @@ pub fn metered_karatsuba_candidate<M: BudgetMeter>(
     Ok(MeteredProductCandidate { negative, digits })
 }
 
+// Structural recursion bound only; this is not a calibrated strategy crossover.
 const METERED_KARATSUBA_LEAF_DIGITS: usize = 4;
 
 struct RecursiveMeter<'a, M> {
@@ -1173,7 +1172,7 @@ fn metered_copy_magnitude<M: BudgetMeter>(
     meter.checkpoint()?;
     let capacity = value.0.iter_u32_digits().len();
     charge_vec_capacities(&[capacity], meter)?;
-    let mut digits = try_u32_vec(capacity, meter)?;
+    let mut digits = try_u32_vec(capacity)?;
     for digit in value.0.iter_u32_digits() {
         meter.checkpoint()?;
         meter.charge(Dimension::ComputeSteps, 1)?;
@@ -1223,7 +1222,7 @@ fn metered_add_digit_slices<M: BudgetMeter>(
         .checked_add(1)
         .ok_or(MeteredMultiplyError::SizeOverflow)?;
     charge_vec_capacities(&[capacity], meter)?;
-    let mut output = try_u32_vec(capacity, meter)?;
+    let mut output = try_u32_vec(capacity)?;
     let mut carry = 0u64;
     for index in 0..lhs.len().max(rhs.len()) {
         meter.checkpoint()?;
@@ -1253,7 +1252,7 @@ fn metered_subtract_digit_slices<M: BudgetMeter>(
         std::cmp::Ordering::Greater => {}
     }
     charge_vec_capacities(&[lhs.len()], meter)?;
-    let mut output = try_u32_vec(lhs.len(), meter)?;
+    let mut output = try_u32_vec(lhs.len())?;
     let mut borrow = 0u64;
     for (index, &lhs_digit) in lhs.iter().enumerate() {
         meter.checkpoint()?;
@@ -1342,7 +1341,7 @@ fn metered_zeroed_digits<M: BudgetMeter>(
     meter: &mut M,
 ) -> Result<Vec<u32>, MeteredMultiplyError> {
     charge_vec_capacities(&[capacity], meter)?;
-    let mut digits = try_u32_vec(capacity, meter)?;
+    let mut digits = try_u32_vec(capacity)?;
     for _ in 0..capacity {
         meter.checkpoint()?;
         meter.charge(Dimension::ComputeSteps, 1)?;
@@ -1429,6 +1428,7 @@ fn charge_vec_capacities<M: BudgetMeter>(
         .map_err(|_| MeteredMultiplyError::SizeOverflow)?
         .checked_mul(4)
         .ok_or(MeteredMultiplyError::SizeOverflow)?;
+    meter.checkpoint()?;
     meter.charge_batch(&[
         (Dimension::MemoryBytes, memory_bytes),
         (Dimension::AllocationCount, allocations),
@@ -1436,13 +1436,9 @@ fn charge_vec_capacities<M: BudgetMeter>(
     Ok(())
 }
 
-fn try_u32_vec<M: BudgetMeter>(
-    capacity: usize,
-    meter: &mut M,
-) -> Result<Vec<u32>, MeteredMultiplyError> {
+fn try_u32_vec(capacity: usize) -> Result<Vec<u32>, MeteredMultiplyError> {
     let mut digits = Vec::new();
     if capacity != 0 {
-        meter.checkpoint()?;
         digits
             .try_reserve_exact(capacity)
             .map_err(|_| MeteredMultiplyError::AllocationFailure)?;
@@ -2383,8 +2379,8 @@ mod tests {
 
     #[test]
     fn metered_karatsuba_candidate_cancels_at_every_safe_point() {
-        let a = (BigInt::one() << 160) - 1i64;
-        let b = (BigInt::one() << 159) + (BigInt::one() << 65) + 29i64;
+        let a = (BigInt::one() << 288) - 1i64;
+        let b = (BigInt::one() << 287) + (BigInt::one() << 129) + 29i64;
         let expected = multiply_with_strategy(&a, &b, Strategy::NativeSubstrate);
         let mut baseline = CancelAfter {
             cancel_at_checkpoint: usize::MAX,
