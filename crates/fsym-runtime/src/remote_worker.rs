@@ -8,7 +8,10 @@
 
 use fsym_assumptions::ImmutableAssumptionsSnapshot;
 use fsym_core::Expr;
-use fsym_proof_kernel::{Claim, DerivationTree, verify_derivation_independent};
+use fsym_proof_kernel::{
+    Claim, DerivationTree, claim_verification_units, expression_verification_units,
+    verify_derivation_independent,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use thiserror::Error;
@@ -25,6 +28,8 @@ pub enum RemoteWorkerError {
     WorkerFault,
     #[error("Payload schema or integrity corruption")]
     CorruptedPayload,
+    #[error("Coordinator assignment exceeds trusted verification bounds")]
+    InvalidAssignment,
 }
 
 /// A candidate produced by an untrusted remote worker.
@@ -41,11 +46,33 @@ pub struct RemoteCandidate {
 /// An accepted result certified by the local coordinator's independent verifier.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct VerifiedAcceptedResult {
-    pub task_id: u64,
-    pub result: Expr,
-    pub claim: Claim,
-    pub context_digest: [u8; 32],
-    pub verifier_receipt_digest: [u8; 32],
+    task_id: u64,
+    result: Expr,
+    claim: Claim,
+    context_digest: [u8; 32],
+    verifier_receipt_digest: [u8; 32],
+}
+
+impl VerifiedAcceptedResult {
+    pub fn task_id(&self) -> u64 {
+        self.task_id
+    }
+
+    pub fn result(&self) -> &Expr {
+        &self.result
+    }
+
+    pub fn claim(&self) -> &Claim {
+        &self.claim
+    }
+
+    pub fn context_digest(&self) -> [u8; 32] {
+        self.context_digest
+    }
+
+    pub fn verifier_receipt_digest(&self) -> [u8; 32] {
+        self.verifier_receipt_digest
+    }
 }
 
 /// Coordinator supervising untrusted remote workers.
@@ -78,9 +105,18 @@ impl CoordinatorVerifier {
     ) -> Result<VerifiedAcceptedResult, RemoteWorkerError> {
         // 1. Reject responses that cannot possibly answer this assignment before spending
         // verifier work on an untrusted derivation.
-        if candidate.worker_id.len() > 256 || candidate.worker_signature.len() > 4_096 {
+        if candidate.worker_id.is_empty()
+            || candidate.worker_id.len() > 256
+            || candidate.worker_signature.len() > 4_096
+        {
             return Err(RemoteWorkerError::CorruptedPayload);
         }
+        claim_verification_units(&self.expected_claim)
+            .map_err(|_| RemoteWorkerError::InvalidAssignment)?;
+        claim_verification_units(&candidate.claim)
+            .map_err(|_| RemoteWorkerError::CorruptedPayload)?;
+        expression_verification_units(&candidate.result)
+            .map_err(|_| RemoteWorkerError::CorruptedPayload)?;
         if candidate.task_id != self.task_id || candidate.claim != self.expected_claim {
             return Err(RemoteWorkerError::TaskMismatch);
         }
@@ -216,6 +252,33 @@ mod tests {
             coordinator.verify_remote_candidate(&candidate),
             Err(RemoteWorkerError::TaskMismatch),
             "assignment mismatch must win over malformed-proof diagnostics"
+        );
+    }
+
+    #[test]
+    fn refuses_oversized_coordinator_assignment_before_comparison() {
+        let context = ImmutableAssumptionsSnapshot::empty();
+        let mut deep = Expr::symbol("x");
+        for _ in 0..300 {
+            deep = Expr::Add(vec![deep]);
+        }
+        let coordinator = CoordinatorVerifier::new(7, Claim::equality(deep.clone(), deep), context);
+        let x = Expr::symbol("x");
+        let candidate = RemoteCandidate {
+            worker_id: "untrusted-worker".to_string(),
+            task_id: 7,
+            result: x.clone(),
+            claim: Claim::equality(x.clone(), x),
+            derivation: DerivationTree {
+                steps: Vec::new(),
+                root: fsym_proof_kernel::StepId(u32::MAX),
+            },
+            worker_signature: Vec::new(),
+        };
+
+        assert_eq!(
+            coordinator.verify_remote_candidate(&candidate),
+            Err(RemoteWorkerError::InvalidAssignment)
         );
     }
 }

@@ -84,7 +84,7 @@ impl EvidenceEnvelope {
     /// derivation under its assumptions context. Kernel-proved envelopes must carry a
     /// derivation whose root claim and digest are bound by the receipt.
     pub fn verify_integrity(&self) -> bool {
-        if claim_verification_units(&self.claim).is_err() {
+        if claim_verification_units(&self.claim).is_err() || !self.receipt.has_valid_structure() {
             return false;
         }
         if self.receipt.claim_digest != self.claim.digest()

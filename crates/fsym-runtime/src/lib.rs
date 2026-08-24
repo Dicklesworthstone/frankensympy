@@ -220,9 +220,9 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(outcome.winning_strategy, "strategy_reflexive");
-        assert_eq!(outcome.result, x);
-        assert!(outcome.evidence.verify_integrity());
+        assert_eq!(outcome.winning_strategy(), "strategy_reflexive");
+        assert_eq!(outcome.result(), &x);
+        assert!(outcome.evidence().verify_integrity());
     }
 
     #[test]
@@ -412,7 +412,7 @@ mod tests {
         let verified = coordinator
             .verify_remote_candidate(&valid_candidate)
             .unwrap();
-        assert_eq!(verified.task_id, 101);
+        assert_eq!(verified.task_id(), 101);
 
         // Adversarial test: Worker signs a forged claim (x = 999) with non-matching derivation
         let forged_candidate = RemoteCandidate {

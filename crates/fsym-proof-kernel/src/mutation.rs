@@ -14,8 +14,8 @@ mod tests {
         derivation_verification_units, verify_derivation_independent,
     };
     use crate::rule::{ProofRule, StepId};
-    use fsym_assumptions::{AssumptionsContext, Predicate};
-    use fsym_budget::{Budget, BudgetLimits, Dimension, Unbounded};
+    use fsym_assumptions::{AssumptionsContext, Domain, Predicate};
+    use fsym_budget::{Budget, BudgetLimits, BudgetMeter, Dimension, MeterError, Unbounded};
     use fsym_core::{Constant, Expr, Symbol};
 
     fn empty_context() -> fsym_assumptions::ImmutableAssumptionsSnapshot {
@@ -347,6 +347,73 @@ mod tests {
         assert_eq!(meter.remaining(Dimension::ComputeSteps), 1);
         assert_eq!(meter.remaining(Dimension::AllocationCount), 0);
         assert_eq!(kernel.step_count(), 0);
+    }
+
+    #[test]
+    fn cancellation_before_publication_does_not_leave_a_verified_step() {
+        struct CancelBeforePublication {
+            checkpoints: usize,
+        }
+
+        impl BudgetMeter for CancelBeforePublication {
+            fn charge(&mut self, _dimension: Dimension, _amount: u64) -> Result<(), MeterError> {
+                Ok(())
+            }
+
+            fn charge_batch(&mut self, _charges: &[(Dimension, u64)]) -> Result<(), MeterError> {
+                Ok(())
+            }
+
+            fn checkpoint(&mut self) -> Result<(), MeterError> {
+                self.checkpoints += 1;
+                if self.checkpoints == 2 {
+                    Err(MeterError::Cancelled)
+                } else {
+                    Ok(())
+                }
+            }
+        }
+
+        let mut meter = CancelBeforePublication { checkpoints: 0 };
+        let mut kernel = ProofKernel::new(empty_context());
+
+        assert!(matches!(
+            kernel.prove_reflexivity(Expr::symbol("x"), &mut meter),
+            Err(KernelError::Budget(_))
+        ));
+        assert_eq!(kernel.step_count(), 0);
+    }
+
+    #[test]
+    fn online_step_refuses_before_publication_when_preflight_work_exceeds_budget() {
+        let limits = BudgetLimits::uniform(1, 0);
+        let mut meter = Budget::new(limits);
+        let mut kernel = ProofKernel::new(empty_context());
+        let wide_name = "x".repeat(4_096);
+
+        assert!(matches!(
+            kernel.prove_reflexivity(Expr::symbol(wide_name), &mut meter),
+            Err(KernelError::Budget(_))
+        ));
+        assert_eq!(kernel.step_count(), 0);
+        assert_eq!(meter.remaining(Dimension::ComputeSteps), 0);
+    }
+
+    #[test]
+    fn domain_generator_flood_is_refused_by_claim_preflight() {
+        let generators = (0..4_097)
+            .map(|index| Symbol::new(format!("x{index}")))
+            .collect();
+        let claim =
+            Claim::domain_membership(Expr::symbol("x"), Domain::poly_ring(Domain::ZZ, generators));
+
+        assert!(matches!(
+            crate::claim_verification_units(&claim),
+            Err(KernelError::DerivationLimitExceeded {
+                resource: "domain generators",
+                ..
+            })
+        ));
     }
 
     #[test]

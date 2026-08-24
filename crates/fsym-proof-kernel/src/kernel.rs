@@ -107,6 +107,8 @@ const MAX_DERIVATION_EXPR_DEPTH: usize = 256;
 const MAX_DERIVATION_REFERENCES: u64 = 262_144;
 const MAX_DERIVATION_TEXT_BYTES: u64 = 1_048_576;
 const MAX_DERIVATION_NUMERIC_LIMBS: u64 = 262_144;
+const MAX_DERIVATION_DOMAIN_NODES: u64 = 4_096;
+const MAX_DERIVATION_DOMAIN_GENERATORS: u64 = 4_096;
 
 /// Small trusted proof kernel maintaining verified proof steps.
 #[derive(Debug, Clone)]
@@ -169,16 +171,22 @@ impl ProofKernel {
         // Validate the rule against all prior verified steps
         let claim = check_rule_application(&rule, id, &self.claims, &self.context)?;
         preflight.visit_claim(&claim)?;
+        let verification_units = preflight.work_units.div_ceil(64).max(1);
+        if verification_units > 1 {
+            meter.charge(Dimension::ComputeSteps, verification_units - 1)?;
+        }
 
         let step = DerivationStep {
             id,
             rule,
             claim: claim.clone(),
         };
+
+        // Cancellation is checked before publication. Returning `Err` after mutating `steps`
+        // would make an apparently refused proof step exportable by a later call.
+        meter.checkpoint()?;
         self.steps.push(step);
         self.claims.insert(id, claim);
-
-        meter.checkpoint()?;
         Ok(id)
     }
 
@@ -342,7 +350,7 @@ impl ProofKernel {
 
         for (new_idx, old_idx) in required.iter().enumerate() {
             let old_id = StepId(*old_idx);
-            let new_id = StepId(new_idx as u32);
+            let new_id = StepId(u32::try_from(new_idx).map_err(|_| KernelError::StepIdExhausted)?);
             old_to_new.insert(old_id, new_id);
 
             let old_step = &self.steps[*old_idx as usize];
@@ -437,6 +445,13 @@ pub fn claim_verification_units(claim: &Claim) -> Result<u64, KernelError> {
     Ok(preflight.work_units.div_ceil(64).max(1))
 }
 
+/// Preflight one standalone expression before comparing or hashing it at a trust boundary.
+pub fn expression_verification_units(expr: &Expr) -> Result<u64, KernelError> {
+    let mut preflight = DerivationPreflight::default();
+    preflight.visit_expr(expr)?;
+    Ok(preflight.work_units.div_ceil(64).max(1))
+}
+
 #[derive(Default)]
 struct DerivationPreflight {
     work_units: u64,
@@ -444,6 +459,8 @@ struct DerivationPreflight {
     references: u64,
     text_bytes: u64,
     numeric_limbs: u64,
+    domain_nodes: u64,
+    domain_generators: u64,
 }
 
 impl DerivationPreflight {
@@ -583,10 +600,28 @@ impl DerivationPreflight {
                     limit: MAX_DERIVATION_EXPR_DEPTH as u64,
                 });
             }
+            Self::add_bounded(
+                &mut self.domain_nodes,
+                1,
+                MAX_DERIVATION_DOMAIN_NODES,
+                "domain nodes",
+            )?;
             self.add_work(1)?;
             match current {
                 Domain::PolyRing { base, generators }
                 | Domain::FractionField { base, generators } => {
+                    let generator_count = u64::try_from(generators.len()).map_err(|_| {
+                        KernelError::DerivationLimitExceeded {
+                            resource: "domain generators",
+                            limit: MAX_DERIVATION_DOMAIN_GENERATORS,
+                        }
+                    })?;
+                    Self::add_bounded(
+                        &mut self.domain_generators,
+                        generator_count,
+                        MAX_DERIVATION_DOMAIN_GENERATORS,
+                        "domain generators",
+                    )?;
                     for generator in generators {
                         self.add_text(&generator.name)?;
                     }
@@ -1295,7 +1330,9 @@ fn normalize_polynomial_inner(
             {
                 return pow_polynomial(
                     normalize_polynomial_inner(base, depth + 1, budget)?,
-                    exponent as u32,
+                    u32::try_from(exponent).map_err(|_| {
+                        "bounded polynomial exponent failed u32 conversion".to_string()
+                    })?,
                 );
             }
             Err(

@@ -11,6 +11,8 @@ use fsym_outcome::EvidenceClass;
 use fsym_proof_kernel::Claim;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+const MAX_VERIFIER_NAME_BYTES: usize = 512;
+
 /// Structural record emitted when a verifier reports accepting a claim.
 ///
 /// A receipt is not authority by itself. Accepted-state boundaries must replay the
@@ -64,6 +66,7 @@ impl<'de> Deserialize<'de> for VerificationReceipt {
         let evidence_class = EvidenceClass::parse(&wire.evidence_class).ok_or_else(|| {
             serde::de::Error::custom(format!("unknown evidence class `{}`", wire.evidence_class))
         })?;
+        validate_verifier_name(&wire.verifier_name).map_err(serde::de::Error::custom)?;
         Ok(Self {
             receipt_id,
             claim_digest: wire.claim_digest,
@@ -95,6 +98,11 @@ impl VerificationReceipt {
         }
     }
 
+    /// Whether bounded structural receipt fields are suitable for an accepted envelope.
+    pub fn has_valid_structure(&self) -> bool {
+        validate_verifier_name(&self.verifier_name).is_ok()
+    }
+
     /// Canonical BLAKE3 digest of this receipt.
     pub fn digest(&self) -> [u8; 32] {
         let serialized = serde_json::to_vec(self).expect("receipt is serializable");
@@ -102,5 +110,38 @@ impl VerificationReceipt {
         hasher.update(b"fsym.receipt.v1:");
         hasher.update(&serialized);
         *hasher.finalize().as_bytes()
+    }
+}
+
+fn validate_verifier_name(verifier_name: &str) -> Result<(), String> {
+    if verifier_name.is_empty() || verifier_name.len() > MAX_VERIFIER_NAME_BYTES {
+        Err(format!(
+            "verifier name must contain 1..={MAX_VERIFIER_NAME_BYTES} bytes"
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fsym_core::Expr;
+
+    #[test]
+    fn receipt_wire_refuses_unbounded_verifier_names() {
+        let claim = Claim::equality(Expr::symbol("x"), Expr::symbol("x"));
+        let receipt = VerificationReceipt::issue(
+            ReceiptId::new(1).unwrap(),
+            &claim,
+            EvidenceClass::KernelProved,
+            "x".repeat(MAX_VERIFIER_NAME_BYTES + 1),
+            1,
+            None,
+        );
+        assert!(!receipt.has_valid_structure());
+
+        let wire = serde_json::to_value(&receipt).unwrap();
+        assert!(serde_json::from_value::<VerificationReceipt>(wire).is_err());
     }
 }

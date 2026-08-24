@@ -13,10 +13,14 @@ use fsym_assumptions::ImmutableAssumptionsSnapshot;
 use fsym_budget::{BudgetLimits, Dimension};
 use fsym_evidence::EvidenceEnvelope;
 use fsym_proof_kernel::{
-    Claim, DerivationTree, derivation_verification_units, verify_derivation_independent,
+    Claim, DerivationTree, claim_verification_units, derivation_verification_units,
+    expression_verification_units, verify_derivation_independent,
 };
 use std::sync::Arc;
 use thiserror::Error;
+
+const MAX_CANDIDATE_STRATEGY_NAME_BYTES: usize = 256;
+const MAX_PORTFOLIO_STRATEGIES: usize = 64;
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum PortfolioError {
@@ -32,6 +36,8 @@ pub enum PortfolioError {
     NoVerifierLease,
     #[error("Child budget accounting failed: {0}")]
     BudgetAccountingFailed(String),
+    #[error("Invalid portfolio configuration: {0}")]
+    InvalidPortfolio(String),
 }
 
 /// A candidate produced by an algorithm generator in the portfolio.
@@ -46,11 +52,35 @@ pub struct PortfolioCandidate {
 /// A verified accepted outcome from a portfolio execution.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerifiedPortfolioOutcome {
-    pub winning_strategy: String,
-    pub result: fsym_core::Expr,
-    pub evidence: EvidenceEnvelope,
-    pub context_digest: [u8; 32],
-    pub total_steps_consumed: u64,
+    winning_strategy: String,
+    result: fsym_core::Expr,
+    evidence: EvidenceEnvelope,
+    context_digest: [u8; 32],
+    total_steps_consumed: u64,
+}
+
+impl VerifiedPortfolioOutcome {
+    pub fn winning_strategy(&self) -> &str {
+        &self.winning_strategy
+    }
+
+    pub fn result(&self) -> &fsym_core::Expr {
+        &self.result
+    }
+
+    pub fn evidence(&self) -> &EvidenceEnvelope {
+        &self.evidence
+    }
+
+    pub fn context_digest(&self) -> [u8; 32] {
+        self.context_digest
+    }
+
+    /// Generator compute steps consumed across all attempted strategies.
+    /// Protected verifier units are reported by their separate budget pool.
+    pub fn generator_steps_consumed(&self) -> u64 {
+        self.total_steps_consumed
+    }
 }
 
 /// Function signature for a candidate strategy runner.
@@ -70,8 +100,38 @@ pub fn run_portfolio_race<Caps>(
 ) -> Result<VerifiedPortfolioOutcome, PortfolioError> {
     cx.checkpoint().map_err(|_| PortfolioError::Cancelled)?;
 
+    if strategies.is_empty() || strategies.len() > MAX_PORTFOLIO_STRATEGIES {
+        return Err(PortfolioError::InvalidPortfolio(format!(
+            "strategy count must be in 1..={MAX_PORTFOLIO_STRATEGIES}"
+        )));
+    }
+    if strategies
+        .iter()
+        .any(|(name, _)| name.is_empty() || name.len() > MAX_CANDIDATE_STRATEGY_NAME_BYTES)
+    {
+        return Err(PortfolioError::InvalidPortfolio(format!(
+            "registered strategy names must contain 1..={MAX_CANDIDATE_STRATEGY_NAME_BYTES} bytes"
+        )));
+    }
+
     if !cx.has_verifier_authority() {
         return Err(PortfolioError::NoVerifierLease);
+    }
+    // Bound and pay for the caller's requested claim before any candidate is compared against
+    // it. Otherwise an oversized request could bypass the candidate preflight and make the final
+    // equality comparison itself the unmetered trust boundary.
+    let _requested_preflight_charge = cx
+        .charge_verifier(1)
+        .map_err(|error| PortfolioError::BudgetExhausted(error.to_string()))?;
+    let requested_claim_units = claim_verification_units(requested_claim).map_err(|error| {
+        PortfolioError::WinnerVerificationFailed(format!(
+            "requested claim failed verifier preflight: {error}"
+        ))
+    })?;
+    if requested_claim_units > 1 {
+        let _requested_remainder_charge = cx
+            .charge_verifier(requested_claim_units - 1)
+            .map_err(|error| PortfolioError::BudgetExhausted(error.to_string()))?;
     }
     let initial_compute_remaining = cx.remaining(Dimension::ComputeSteps);
     let mut failure_reasons: Vec<String> = Vec::new();
@@ -105,9 +165,31 @@ pub fn run_portfolio_race<Caps>(
         let mut verifier_charge = cx
             .charge_verifier(1)
             .map_err(|e| PortfolioError::BudgetExhausted(e.to_string()))?;
-        let verifier_units = match derivation_verification_units(&winner.derivation) {
-            Ok(units) => units,
-            Err(error) => {
+        if winner.strategy_name.is_empty()
+            || winner.strategy_name.len() > MAX_CANDIDATE_STRATEGY_NAME_BYTES
+        {
+            failure_reasons.push(format!(
+                "{name}: candidate strategy name must contain 1..={MAX_CANDIDATE_STRATEGY_NAME_BYTES} bytes"
+            ));
+            continue;
+        }
+        let verifier_units = match (
+            claim_verification_units(&winner.claim),
+            expression_verification_units(&winner.result),
+            derivation_verification_units(&winner.derivation),
+        ) {
+            (Ok(claim_units), Ok(result_units), Ok(derivation_units)) => claim_units
+                .checked_add(result_units)
+                .and_then(|units| units.checked_add(derivation_units))
+                .unwrap_or(u64::MAX),
+            (Err(error), _, _) => {
+                failure_reasons.push(format!(
+                    "{name}: verifier preflight rejected candidate from `{}`: {error}",
+                    winner.strategy_name
+                ));
+                continue;
+            }
+            (_, Err(error), _) | (_, _, Err(error)) => {
                 failure_reasons.push(format!(
                     "{name}: verifier preflight rejected candidate from `{}`: {error}",
                     winner.strategy_name
@@ -174,6 +256,12 @@ pub fn run_portfolio_race<Caps>(
             receipt,
             Some(winner.derivation),
         );
+        if !evidence.verify_integrity() {
+            failure_reasons.push(format!(
+                "{name}: verified candidate produced an invalid structural evidence envelope"
+            ));
+            continue;
+        }
 
         let compute_remaining = cx.remaining(Dimension::ComputeSteps);
         let total_steps_consumed = initial_compute_remaining
@@ -227,6 +315,7 @@ mod tests {
     use fsym_budget::{Budget, Unbounded};
     use fsym_core::Expr;
     use fsym_proof_kernel::ProofKernel;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     #[test]
     fn rejects_claim_that_is_not_the_verified_derivation_root() {
@@ -351,11 +440,11 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(outcome.winning_strategy, "accepted");
-        assert_eq!(outcome.result, x);
-        assert_eq!(outcome.total_steps_consumed, 5);
+        assert_eq!(outcome.winning_strategy(), "accepted");
+        assert_eq!(outcome.result(), &x);
+        assert_eq!(outcome.generator_steps_consumed(), 5);
         assert_eq!(fsym_cx.remaining(Dimension::ComputeSteps), 95);
-        assert_eq!(fsym_cx.verifier_remaining(), 8);
+        assert_eq!(fsym_cx.verifier_remaining(), 3);
     }
 
     #[test]
@@ -393,7 +482,7 @@ mod tests {
             Err(PortfolioError::AllStrategiesFailed(_))
         ));
         assert_eq!(fsym_cx.remaining(Dimension::ComputeSteps), 40);
-        assert_eq!(fsym_cx.verifier_remaining(), 10);
+        assert_eq!(fsym_cx.verifier_remaining(), 9);
     }
 
     #[test]
@@ -465,6 +554,60 @@ mod tests {
             )
             .expect("the verifier capability remains owned by the region");
         }
-        assert_eq!(fsym_cx.verifier_remaining(), 8);
+        assert_eq!(fsym_cx.verifier_remaining(), 2);
+    }
+
+    #[test]
+    fn oversized_requested_claim_is_a_paid_refusal_before_generation() {
+        let cx_raw = Cx::detached_cancel_context();
+        let limits = BudgetLimits::uniform(100, 10);
+        let mut fsym_cx = FsymCx::new(&cx_raw, Budget::new(limits), limits);
+        let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
+        let mut deep = Expr::symbol("x");
+        for _ in 0..300 {
+            deep = Expr::Add(vec![deep]);
+        }
+        let requested = Claim::equality(deep.clone(), deep);
+
+        let generation_ran = Arc::new(AtomicBool::new(false));
+        let generation_ran_in_strategy = Arc::clone(&generation_ran);
+        let strategy = Box::new(move |_cx: &mut FsymCx<'_, _>| {
+            generation_ran_in_strategy.store(true, Ordering::SeqCst);
+            Err(PortfolioError::AllStrategiesFailed(
+                "unexpected generation".to_string(),
+            ))
+        });
+        assert!(matches!(
+            run_portfolio_race(
+                &mut fsym_cx,
+                &context,
+                &requested,
+                vec![("must-not-run", strategy)],
+            ),
+            Err(PortfolioError::WinnerVerificationFailed(message))
+                if message.contains("requested claim failed verifier preflight")
+        ));
+        assert!(!generation_ran.load(Ordering::SeqCst));
+        assert_eq!(fsym_cx.verifier_remaining(), 9);
+    }
+
+    #[test]
+    fn empty_portfolio_is_a_typed_configuration_refusal() {
+        let cx_raw = Cx::detached_cancel_context();
+        let limits = BudgetLimits::uniform(100, 10);
+        let mut fsym_cx = FsymCx::new(&cx_raw, Budget::new(limits), limits);
+        let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
+        let x = Expr::symbol("x");
+
+        assert!(matches!(
+            run_portfolio_race(
+                &mut fsym_cx,
+                &context,
+                &Claim::equality(x.clone(), x),
+                Vec::new(),
+            ),
+            Err(PortfolioError::InvalidPortfolio(_))
+        ));
+        assert_eq!(fsym_cx.verifier_remaining(), 10);
     }
 }
