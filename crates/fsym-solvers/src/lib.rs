@@ -425,4 +425,54 @@ mod tests {
         assert_eq!(sol.get(&x).unwrap(), &Expr::from_i64(3));
         assert_eq!(sol.get(&y).unwrap(), &Expr::from_i64(2));
     }
+
+    #[test]
+    fn two_variable_solver_refuses_wrong_ring_shape_and_order() {
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+
+        let one_variable = fsym_polys::multivariate::MultivariatePoly::one(vec![x.clone()]);
+        assert!(matches!(
+            solve_2var_poly_system(&[one_variable], &x, &y),
+            Err(SolverError::InvalidSystem(_))
+        ));
+
+        let reversed = fsym_polys::multivariate::MultivariatePoly::one(vec![y.clone(), x.clone()]);
+        assert!(matches!(
+            solve_2var_poly_system(&[reversed], &x, &y),
+            Err(SolverError::InvalidSystem(_))
+        ));
+        assert!(matches!(
+            solve_2var_poly_system(
+                &[fsym_polys::multivariate::MultivariatePoly::one(vec![
+                    x.clone(),
+                    y.clone(),
+                ])],
+                &x,
+                &x,
+            ),
+            Err(SolverError::InvalidSystem(_))
+        ));
+    }
+
+    #[test]
+    fn two_variable_solver_refuses_nonlinear_back_substitution() {
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+        let generators = vec![x.clone(), y.clone()];
+
+        let mut x_squared_terms = std::collections::BTreeMap::new();
+        x_squared_terms.insert(vec![2, 0], BigRational::one());
+        let x_squared =
+            fsym_polys::multivariate::MultivariatePoly::new(generators.clone(), x_squared_terms);
+
+        let mut y_terms = std::collections::BTreeMap::new();
+        y_terms.insert(vec![0, 1], BigRational::one());
+        let y_equation = fsym_polys::multivariate::MultivariatePoly::new(generators, y_terms);
+
+        assert_eq!(
+            solve_2var_poly_system(&[x_squared, y_equation], &x, &y),
+            Err(SolverError::UnsupportedDegree(2))
+        );
+    }
 }
