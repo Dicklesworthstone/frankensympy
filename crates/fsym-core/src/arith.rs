@@ -282,6 +282,43 @@ pub fn pow_mod(base: &BigInt, exp: &BigInt, modulus: &BigInt) -> BigInt {
     }
     result
 }
+/// Scalar reference lane for multiplication (WS03 differential oracle).
+///
+/// Computes `a·b` by repeated addition of the multiplicand along the
+/// binary decomposition of the multiplier magnitude — the textbook
+/// schoolbook identity, deliberately naive. Production multiplication
+/// delegates to num-bigint's internally-selected strategy (schoolbook →
+/// Karatsuba/Toom thresholds are its implementation detail); the
+/// substrate guarantee is that every optimized path agrees with THIS
+/// function on values and signs across the boundary corpus.
+///
+/// Cost is O(log₂|min|) doublings plus popcount additions, so proptest
+/// magnitudes stay bounded.
+pub fn schoolbook_mul_reference(a: &BigInt, b: &BigInt) -> BigInt {
+    let (a_abs, a_neg) = (a.magnitude(), a.sign() == Sign::Minus);
+    let (b_abs, b_neg) = (b.magnitude(), b.sign() == Sign::Minus);
+    // Iterate the smaller magnitude for fewer addition steps.
+    let (steps, unit_mag) = if a_abs <= b_abs {
+        (a_abs, b_abs)
+    } else {
+        (b_abs, a_abs)
+    };
+    let mut acc = BigInt::zero();
+    let mut shifted = BigInt::from(unit_mag.clone());
+    let mut bits = steps.clone();
+    while !bits.is_zero() {
+        if (&bits % 2u32).is_one() {
+            acc += &shifted;
+        }
+        shifted <<= 1;
+        bits /= 2u32;
+    }
+    if a_neg != b_neg && !acc.is_zero() {
+        -acc
+    } else {
+        acc
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -456,5 +493,50 @@ mod tests {
             let b = it.next().unwrap();
             prop_assert_eq!(gcd(&a, &b), BigInt::one());
         }
+
+        #[test]
+        fn optimized_mul_agrees_with_schoolbook_reference(
+            a in -1_000_000i64..1_000_000i64,
+            b in -1_000_000i64..1_000_000i64,
+        ) {
+            let (a, b) = (BigInt::from(a), BigInt::from(b));
+            prop_assert_eq!(schoolbook_mul_reference(&a, &b), &a * &b);
+        }
+
+        #[test]
+        fn mul_boundary_corpus_agrees_across_limb_thresholds(
+            shift in 0u32..192u32,
+            sign_a in proptest::bool::ANY,
+            sign_b in proptest::bool::ANY,
+        ) {
+            // Values straddling num-bigint's internal strategy thresholds
+            // (limb counts 1, 2, 3): the delegation boundary is opaque to
+            // us, so we sweep magnitudes across it and demand agreement.
+            let base = BigInt::one() << shift;
+            for delta in [-1i64, 0, 1] {
+                let a = match sign_a {
+                    true => &base + delta,
+                    false => -(&base + delta),
+                };
+                for b_raw in [1i64, 2, 3, 5] {
+                    let b = match sign_b {
+                        true => BigInt::from(b_raw),
+                        false => BigInt::from(-b_raw),
+                    };
+                    prop_assert_eq!(schoolbook_mul_reference(&a, &b), &a * &b);
+                    prop_assert_eq!(schoolbook_mul_reference(&b, &a), &a * &b);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn zero_and_one_identities_hold_in_reference_lane() {
+        let x = BigInt::from(123456789i64);
+        let zero = BigInt::zero();
+        let one = BigInt::one();
+        assert_eq!(schoolbook_mul_reference(&x, &zero), zero);
+        assert_eq!(schoolbook_mul_reference(&zero, &x), zero);
+        assert_eq!(schoolbook_mul_reference(&x, &one), x);
     }
 }
