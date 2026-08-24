@@ -5,10 +5,14 @@
 
 #![forbid(unsafe_code)]
 
+pub mod factorization;
+pub mod gcd;
 pub mod identity;
 pub mod multivariate;
 pub mod univariate;
 
+pub use factorization::*;
+pub use gcd::*;
 pub use identity::*;
 pub use multivariate::*;
 pub use univariate::*;
@@ -170,5 +174,104 @@ mod tests {
 
         let res = verify_polynomial_identity(&lhs, &rhs, &gens, &context, &mut meter);
         assert!(matches!(res, Err(PolyError::IdentityCheckFailed(_))));
+    }
+
+    #[test]
+    fn test_extended_gcd_bezout_certificate_verified() {
+        let x = Symbol::new("x");
+        // A(x) = (x - 1)*(x - 2) = x^2 - 3x + 2
+        let a = UnivariatePoly::new(
+            x.clone(),
+            vec![
+                BigRational::from_integer(BigInt::from(2)),
+                BigRational::from_integer(BigInt::from(-3)),
+                BigRational::from_integer(BigInt::from(1)),
+            ],
+        );
+        // B(x) = (x - 2)*(x - 3) = x^2 - 5x + 6
+        let b = UnivariatePoly::new(
+            x.clone(),
+            vec![
+                BigRational::from_integer(BigInt::from(6)),
+                BigRational::from_integer(BigInt::from(-5)),
+                BigRational::from_integer(BigInt::from(1)),
+            ],
+        );
+
+        let cert = a.extended_gcd(&b).unwrap();
+        // Expect monic gcd = x - 2
+        let expected_gcd = UnivariatePoly::new(
+            x.clone(),
+            vec![
+                BigRational::from_integer(BigInt::from(-2)),
+                BigRational::from_integer(BigInt::from(1)),
+            ],
+        );
+        assert_eq!(cert.gcd, expected_gcd);
+        assert!(verify_bezout_certificate(&a, &b, &cert).is_ok());
+    }
+
+    #[test]
+    fn test_mutant_tampered_bezout_rejected() {
+        let x = Symbol::new("x");
+        let a = UnivariatePoly::new(
+            x.clone(),
+            vec![
+                BigRational::from_integer(BigInt::from(2)),
+                BigRational::from_integer(BigInt::from(-3)),
+                BigRational::from_integer(BigInt::from(1)),
+            ],
+        );
+        let b = UnivariatePoly::new(
+            x.clone(),
+            vec![
+                BigRational::from_integer(BigInt::from(6)),
+                BigRational::from_integer(BigInt::from(-5)),
+                BigRational::from_integer(BigInt::from(1)),
+            ],
+        );
+
+        let mut cert = a.extended_gcd(&b).unwrap();
+        // Tamper U coefficient
+        cert.u.coeffs[0] = BigRational::from_integer(BigInt::from(999));
+        assert!(verify_bezout_certificate(&a, &b, &cert).is_err());
+    }
+
+    #[test]
+    fn test_square_free_decomposition_and_verification() {
+        let x = Symbol::new("x");
+        // P(x) = (x - 1)^2 * (x + 2) = (x^2 - 2x + 1)*(x + 2) = x^3 - 3x + 2
+        let p = UnivariatePoly::new(
+            x.clone(),
+            vec![
+                BigRational::from_integer(BigInt::from(2)),
+                BigRational::from_integer(BigInt::from(-3)),
+                BigRational::from_integer(BigInt::from(0)),
+                BigRational::from_integer(BigInt::from(1)),
+            ],
+        );
+
+        let factorization = square_free_decomposition(&p).unwrap();
+        assert!(verify_factorization_certificate(&p, &factorization).is_ok());
+        assert_eq!(factorization.factors.len(), 2);
+    }
+
+    #[test]
+    fn test_mutant_tampered_factorization_rejected() {
+        let x = Symbol::new("x");
+        let p = UnivariatePoly::new(
+            x.clone(),
+            vec![
+                BigRational::from_integer(BigInt::from(2)),
+                BigRational::from_integer(BigInt::from(-3)),
+                BigRational::from_integer(BigInt::from(0)),
+                BigRational::from_integer(BigInt::from(1)),
+            ],
+        );
+
+        let mut factorization = square_free_decomposition(&p).unwrap();
+        // Tamper factor power
+        factorization.factors[0].multiplicity = 99;
+        assert!(verify_factorization_certificate(&p, &factorization).is_err());
     }
 }
