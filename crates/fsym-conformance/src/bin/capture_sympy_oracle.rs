@@ -1,6 +1,6 @@
 //! Oracle capture CLI binary for FrankenSymPy
 
-use fsym_conformance::ConformanceCase;
+use fsym_conformance::{ConformanceCase, Verdict};
 use std::fs;
 use std::path::PathBuf;
 
@@ -23,7 +23,7 @@ fn main() {
         operation: "identity".to_string(),
         expected_sympy_output: "x + y".to_string(),
         actual_frankensympy_output: Some("x + y".to_string()),
-        passed: true,
+        verdict: Verdict::Pass,
     }];
 
     let json = serde_json::to_string_pretty(&report).unwrap();
