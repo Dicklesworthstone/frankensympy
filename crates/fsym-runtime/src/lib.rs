@@ -7,13 +7,17 @@
 
 pub mod checkpoint;
 pub mod cx;
+pub mod ledger;
 pub mod portfolio;
+pub mod repair;
 pub mod replay;
 pub mod rng;
 
 pub use checkpoint::*;
 pub use cx::FsymCx;
+pub use ledger::*;
 pub use portfolio::*;
+pub use repair::*;
 pub use replay::*;
 
 pub use fsym_budget::{Budget, BudgetLimits, ChargeReceipt, Dimension};
@@ -233,5 +237,64 @@ mod tests {
             res,
             Err(PortfolioError::WinnerVerificationFailed(_))
         ));
+    }
+
+    #[test]
+    fn test_raptorq_repair_recovery_and_digest_validation() {
+        let payload =
+            b"FrankenSymPy certified mathematical payload with exact proofs and receipts.".to_vec();
+        let symbol_size = 16;
+        let sidecar = RepairSidecar::encode(&payload, symbol_size, 2);
+
+        // Simulate 5 source symbols
+        let mut source_symbols = Vec::new();
+        for i in 0..sidecar.num_source_symbols {
+            let start = i * symbol_size;
+            let end = (start + symbol_size).min(payload.len());
+            let mut sym = vec![0u8; symbol_size];
+            sym[..(end - start)].copy_from_slice(&payload[start..end]);
+            source_symbols.push(Some(sym));
+        }
+
+        // Drop symbol index 2 (packet loss)
+        source_symbols[2] = None;
+
+        // Reconstruct using repair sidecar
+        let recovered = sidecar
+            .reconstruct(&source_symbols, &sidecar.repair_symbols)
+            .unwrap();
+        assert_eq!(recovered, payload);
+
+        // Test corruption detection: tamper a bit in a source symbol
+        source_symbols[0].as_mut().unwrap()[0] ^= 0xFF;
+        let corrupted_res = sidecar.reconstruct(&source_symbols, &sidecar.repair_symbols);
+        assert!(matches!(
+            corrupted_res,
+            Err(RepairError::DigestMismatch(_, _))
+        ));
+    }
+
+    #[test]
+    fn test_durable_ledger_hash_chain_and_checkpoints() {
+        let mut ledger = DurableLedger::new();
+
+        let mut budget = BTreeMap::new();
+        budget.insert(Dimension::ComputeSteps, 500);
+        let cp = TypedCheckpoint::new(0, "mathematical_checkpoint_payload".to_string(), budget, 50);
+
+        let seq0 = ledger.append_checkpoint(&cp).unwrap();
+        assert_eq!(seq0, 0);
+
+        let seq1 = ledger.append(b"audit_event_1".to_vec());
+        assert_eq!(seq1, 1);
+
+        assert!(ledger.verify_chain());
+
+        // Tamper with a record
+        ledger.records[0].payload[0] ^= 0xFF;
+        assert!(
+            !ledger.verify_chain(),
+            "Tampered ledger record must fail verification"
+        );
     }
 }
