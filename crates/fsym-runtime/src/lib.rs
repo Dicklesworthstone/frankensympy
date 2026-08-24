@@ -7,7 +7,10 @@
 
 // Canonical budget/outcome types live in the fsym-budget and fsym-outcome
 // crates (registry-aligned evidence classes, single-issuance verifier lease).
+pub mod cx;
 pub mod rng;
+
+pub use cx::FsymCx;
 
 pub use fsym_budget::{Budget, BudgetLimits, ChargeReceipt, Dimension};
 pub use fsym_outcome::{ExecutionOutcome, MathOutcome};
