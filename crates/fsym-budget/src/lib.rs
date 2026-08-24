@@ -180,7 +180,9 @@ impl BudgetMeter for Unbounded {
 
 impl BudgetMeter for Budget {
     fn charge(&mut self, dimension: Dimension, amount: u64) -> Result<(), MeterError> {
-        self.try_charge(dimension, amount).map(|_| ()).map_err(Into::into)
+        self.try_charge(dimension, amount)
+            .map(|_| ())
+            .map_err(Into::into)
     }
 
     fn checkpoint(&mut self) -> Result<(), MeterError> {
