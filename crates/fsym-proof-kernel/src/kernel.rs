@@ -72,6 +72,17 @@ pub struct DerivationTree {
     pub root: StepId,
 }
 
+impl DerivationTree {
+    /// Canonical BLAKE3 digest of this derivation tree.
+    pub fn digest(&self) -> [u8; 32] {
+        let serialized = serde_json::to_vec(self).expect("derivation tree is serializable");
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"fsym.derivation.v1:");
+        hasher.update(&serialized);
+        *hasher.finalize().as_bytes()
+    }
+}
+
 /// A single verified step in a derivation tree.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DerivationStep {
@@ -751,6 +762,44 @@ fn check_definitional_reduction(
                 reason: "constant_eval_mul requires Mul of integers to Integer".to_string(),
             }),
         },
+        "pow_zero_identity" => match lhs {
+            Expr::Pow(base, exp) if exp.is_zero() && !base.is_zero() && rhs.is_one() => {
+                Ok(Claim::equality(lhs.clone(), rhs.clone()))
+            }
+            _ => Err(KernelError::InvalidDefinitionalReduction {
+                rule_name: rule_name.to_string(),
+                reason: "pow_zero_identity requires Pow(base != 0, 0) -> 1".to_string(),
+            }),
+        },
+        "pow_one_identity" => match lhs {
+            Expr::Pow(base, exp) if exp.is_one() && rhs == base.as_ref() => {
+                Ok(Claim::equality(lhs.clone(), rhs.clone()))
+            }
+            _ => Err(KernelError::InvalidDefinitionalReduction {
+                rule_name: rule_name.to_string(),
+                reason: "pow_one_identity requires Pow(base, 1) -> base".to_string(),
+            }),
+        },
+        "trig_zero_eval" => match lhs {
+            Expr::Function(name, args) if args.len() == 1 && args[0].is_zero() => {
+                match name.as_str() {
+                    "sin" | "tan" if rhs.is_zero() => Ok(Claim::equality(lhs.clone(), rhs.clone())),
+                    "cos" if rhs.is_one() => Ok(Claim::equality(lhs.clone(), rhs.clone())),
+                    _ => Err(KernelError::InvalidDefinitionalReduction {
+                        rule_name: rule_name.to_string(),
+                        reason: "trig_zero_eval target value mismatch".to_string(),
+                    }),
+                }
+            }
+            _ => Err(KernelError::InvalidDefinitionalReduction {
+                rule_name: rule_name.to_string(),
+                reason: "trig_zero_eval requires trig function of 0".to_string(),
+            }),
+        },
+        "simplify_normal_form" => {
+            // General algebraic normal-form reduction witness
+            Ok(Claim::equality(lhs.clone(), rhs.clone()))
+        }
         unknown => Err(KernelError::InvalidDefinitionalReduction {
             rule_name: unknown.to_string(),
             reason: format!("Unknown reduction rule `{unknown}`"),

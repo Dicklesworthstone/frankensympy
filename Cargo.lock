@@ -832,9 +832,14 @@ dependencies = [
 name = "fsym-simplify"
 version = "0.1.0"
 dependencies = [
+ "fsym-assumptions",
  "fsym-budget",
  "fsym-core",
+ "fsym-evidence",
+ "fsym-id",
+ "fsym-outcome",
  "fsym-polys",
+ "fsym-proof-kernel",
  "num-rational",
  "num-traits",
  "proptest",

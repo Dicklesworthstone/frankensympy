@@ -76,6 +76,22 @@ impl Claim {
         hasher.update(&serialized);
         *hasher.finalize().as_bytes()
     }
+
+    /// Access the LHS expression if this is an equality or algebraic identity.
+    pub fn lhs(&self) -> Option<&Expr> {
+        match self {
+            Claim::Equality { lhs, .. } | Claim::AlgebraicIdentity { lhs, .. } => Some(lhs),
+            _ => None,
+        }
+    }
+
+    /// Access the RHS expression if this is an equality or algebraic identity.
+    pub fn rhs(&self) -> Option<&Expr> {
+        match self {
+            Claim::Equality { rhs, .. } | Claim::AlgebraicIdentity { rhs, .. } => Some(rhs),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for Claim {

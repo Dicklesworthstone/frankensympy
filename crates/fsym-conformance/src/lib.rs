@@ -754,10 +754,14 @@ fn run_cases_with_timeout(
     assemble_report(cases, rust_results, &oracle_version, by_id)
 }
 
+#[cfg(unix)]
 fn run_bounded_oracle(
     mut command: Command,
     timeout: Duration,
 ) -> Result<std::process::Output, String> {
+    use std::os::unix::process::CommandExt;
+
+    command.process_group(0);
     let deadline = Instant::now() + timeout;
     let mut child = command
         .stdin(Stdio::null())
@@ -769,21 +773,33 @@ fn run_bounded_oracle(
         let status = match child.try_wait() {
             Ok(status) => status,
             Err(error) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(format!("polling oracle failed: {error}"));
+                let cleanup = abort_oracle_group(&mut child);
+                return Err(match cleanup {
+                    Ok(()) => format!("polling oracle failed: {error}"),
+                    Err(cleanup) => {
+                        format!("polling oracle failed: {error}; cleanup failed: {cleanup}")
+                    }
+                });
             }
         };
         match status {
-            Some(_) => break,
+            Some(_) => {
+                kill_oracle_group(child.id())?;
+                break;
+            }
             None if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
             None => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(format!(
-                    "oracle exceeded parent wall-time bound of {} seconds",
-                    timeout.as_secs_f64()
-                ));
+                let cleanup = abort_oracle_group(&mut child);
+                return Err(match cleanup {
+                    Ok(()) => format!(
+                        "oracle exceeded parent wall-time bound of {} seconds",
+                        timeout.as_secs_f64()
+                    ),
+                    Err(cleanup) => format!(
+                        "oracle exceeded parent wall-time bound of {} seconds; cleanup failed: {cleanup}",
+                        timeout.as_secs_f64()
+                    ),
+                });
             }
         }
     }
@@ -801,6 +817,77 @@ fn run_bounded_oracle(
         ));
     }
     Ok(output)
+}
+
+#[cfg(not(unix))]
+fn run_bounded_oracle(
+    _command: Command,
+    _timeout: Duration,
+) -> Result<std::process::Output, String> {
+    Err("live oracle execution requires Unix process-group containment".to_string())
+}
+
+#[cfg(unix)]
+fn oracle_group_exists(process_group: u32) -> Result<bool, String> {
+    let target = format!("-{process_group}");
+    let status = Command::new("/bin/kill")
+        .args(["-0", "--", &target])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|error| format!("probing oracle process group failed: {error}"))?;
+    Ok(status.success())
+}
+
+#[cfg(all(unix, test))]
+fn oracle_process_exists(process: u32) -> Result<bool, String> {
+    let status = Command::new("/bin/kill")
+        .args(["-0", "--", &process.to_string()])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|error| format!("probing oracle descendant failed: {error}"))?;
+    Ok(status.success())
+}
+
+#[cfg(unix)]
+fn kill_oracle_group(process_group: u32) -> Result<(), String> {
+    if !oracle_group_exists(process_group)? {
+        return Ok(());
+    }
+    let target = format!("-{process_group}");
+    let output = Command::new("/bin/kill")
+        .args(["-KILL", "--", &target])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|error| format!("killing oracle process group failed: {error}"))?;
+    if output.status.success() || !oracle_group_exists(process_group)? {
+        return Ok(());
+    }
+    Err(format!(
+        "killing oracle process group failed with {}: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr).trim()
+    ))
+}
+
+#[cfg(unix)]
+fn abort_oracle_group(child: &mut std::process::Child) -> Result<(), String> {
+    if let Err(group_error) = kill_oracle_group(child.id()) {
+        let direct_error = child.kill().err();
+        let wait_error = child.wait().err();
+        return Err(format!(
+            "{group_error}; direct kill error={direct_error:?}; reap error={wait_error:?}"
+        ));
+    }
+    child
+        .wait()
+        .map(|_| ())
+        .map_err(|error| format!("reaping killed oracle failed: {error}"))
 }
 
 /// Write an NDJSON evidence ledger; parent directories created as needed.
@@ -1015,6 +1102,32 @@ mod tests {
             .expect_err("flooding child must fail");
         assert!(err.contains("parent wall-time bound"));
         assert!(started.elapsed() < Duration::from_secs(2));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn exited_parent_cannot_leave_a_descendant_holding_oracle_pipes() {
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", "sleep 5 & echo $!"]);
+        let started = Instant::now();
+        let output = run_bounded_oracle(command, Duration::from_secs(1))
+            .expect("supervisor must kill the inherited-pipe holder");
+        assert!(output.status.success());
+        assert!(started.elapsed() < Duration::from_secs(2));
+        let descendant = String::from_utf8(output.stdout)
+            .expect("pid output is UTF-8")
+            .trim()
+            .parse::<u32>()
+            .expect("pid output is numeric");
+        let mut alive = oracle_process_exists(descendant).expect("process probe works");
+        for _ in 0..100 {
+            if !alive {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+            alive = oracle_process_exists(descendant).expect("process probe works");
+        }
+        assert!(!alive, "descendant {descendant} survived group cleanup");
     }
 
     #[test]
