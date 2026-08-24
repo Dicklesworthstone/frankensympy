@@ -84,7 +84,19 @@ fn collect_terms(mut terms: Vec<Expr>) -> Expr {
         if coeff.is_one() {
             out.push(key);
         } else {
-            out.push(Expr::Mul(vec![rational_expr(coeff), key]));
+            // Prepend the coefficient to the key's own factor list: a
+            // product stays flat (Mul(-1, b, c)), never nested
+            // (Mul(-1, Mul(b, c))). Matches the SymPy object model the
+            // compatibility profile pins.
+            match key {
+                Expr::Mul(factors) => {
+                    let mut parts = Vec::with_capacity(factors.len() + 1);
+                    parts.push(rational_expr(coeff));
+                    parts.extend(factors);
+                    out.push(Expr::Mul(parts));
+                }
+                other => out.push(Expr::Mul(vec![rational_expr(coeff), other])),
+            }
         }
     }
     if !constant.is_zero() || out.is_empty() {
@@ -604,5 +616,37 @@ mod tests {
         assert_eq!(expand(&e), expand_with(&e, &mut budget).unwrap());
         // Every node of both traversals was charged.
         assert!(budget.remaining(Dimension::ComputeSteps) < 100_000);
+    }
+
+    #[test]
+    fn coefficient_times_multi_factor_key_stays_flat() {
+        // Regression: the fra-4rm collection rebuild wrapped coefficients
+        // around an already-multiplied key, emitting Mul(-1, Mul(b, c)).
+        // Canonical products are flat, matching the SymPy object model and
+        // every consumer that pins product shape (e.g. matrix determinants).
+        let (a, b, c, d) = (
+            Expr::symbol("a"),
+            Expr::symbol("b"),
+            Expr::symbol("c"),
+            Expr::symbol("d"),
+        );
+        let ad_bc = Expr::Add(vec![
+            Expr::Mul(vec![a.clone(), d.clone()]),
+            Expr::Mul(vec![Expr::from_i64(-1), b.clone(), c.clone()]),
+        ]);
+        assert_eq!(
+            simplify(&ad_bc),
+            Expr::Add(vec![
+                Expr::Mul(vec![a, d]),
+                Expr::Mul(vec![Expr::from_i64(-1), b, c]),
+            ])
+        );
+        // Rational coefficients flatten identically.
+        let two_x_y = Expr::Mul(vec![
+            Expr::from_i64(2),
+            Expr::symbol("x"),
+            Expr::symbol("y"),
+        ]);
+        assert_eq!(simplify(&two_x_y), two_x_y);
     }
 }
