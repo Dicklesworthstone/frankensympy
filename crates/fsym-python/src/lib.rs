@@ -142,6 +142,9 @@ fn solve_linear_expr(src: &str, var: &str) -> PyResult<String> {
         .map_err(to_value_error)
 }
 
+pub mod expr;
+pub use expr::*;
+
 /// Numeric evaluation of an expression string.
 #[pyfunction]
 fn evalf_expr(src: &str) -> PyResult<f64> {
@@ -151,6 +154,14 @@ fn evalf_expr(src: &str) -> PyResult<f64> {
 /// Native FrankenSymPy module.
 #[pymodule]
 fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<PyExpr>()?;
+    m.add_function(wrap_pyfunction!(py_symbol, m)?)?;
+    m.add_function(wrap_pyfunction!(py_integer, m)?)?;
+    m.add_function(wrap_pyfunction!(py_rational, m)?)?;
+    m.add_function(wrap_pyfunction!(py_add, m)?)?;
+    m.add_function(wrap_pyfunction!(py_mul, m)?)?;
+    m.add_function(wrap_pyfunction!(py_pow, m)?)?;
+    m.add_function(wrap_pyfunction!(py_derivative, m)?)?;
     m.add_function(wrap_pyfunction!(version, m)?)?;
     m.add_function(wrap_pyfunction!(symbol, m)?)?;
     m.add_function(wrap_pyfunction!(is_prime, m)?)?;
@@ -165,4 +176,50 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(solve_linear_expr, m)?)?;
     m.add_function(wrap_pyfunction!(evalf_expr, m)?)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_py_expr_structural_args_and_properties() {
+        let x = py_symbol("x");
+        let two = py_integer(2);
+        let expr = x.__mul__(&two);
+
+        assert_eq!(expr.func_name(), "Mul");
+        assert_eq!(expr.args().len(), 2);
+        assert!(!expr.is_integer());
+        assert!(!expr.is_symbol());
+        assert!(expr.is_mul());
+
+        let x_sym = py_symbol("x");
+        assert!(x_sym.is_symbol());
+        assert_eq!(x_sym.func_name(), "Symbol");
+    }
+
+    #[test]
+    fn test_py_expr_differentiation_and_latex() {
+        // d/dx (x^3) = 3*x^2
+        let x = py_symbol("x");
+        let three = py_integer(3);
+        let pow_expr = py_pow(x, three);
+
+        let d = pow_expr.diff("x");
+        assert_eq!(d.__str__(), "3*(x**2)");
+        assert!(pow_expr._repr_latex_().contains("x^{3}"));
+    }
+
+    #[test]
+    fn test_py_expr_substitution() {
+        // x + 5 where x -> 10
+        let x = py_symbol("x");
+        let five = py_integer(5);
+        let expr = x.__add__(&five);
+
+        let ten = py_integer(10);
+        let res = expr.subs(&x, &ten).unwrap();
+        assert_eq!(res.__str__(), "15");
+    }
 }
