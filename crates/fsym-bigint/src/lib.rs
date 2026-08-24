@@ -9,15 +9,18 @@
 //!
 //! # Strategy selection
 //!
-//! Multiplication offers three strategies with an explicit threshold:
+//! Multiplication offers four explicit strategies:
 //!
 //! - [`Strategy::SchoolbookReference`] — repeated-addition scalar reference lane,
 //!   O(log₂|min|) doublings; used below threshold for simple formal cross-checking.
 //! - [`Strategy::Karatsuba`] — pure-Rust recursive divide-and-conquer multiplication ($O(n^{1.585})$).
+//! - [`Strategy::Toom3`] — explicit, non-default Toom-3 evaluation/interpolation lane.
 //! - [`Strategy::NativeSubstrate`] — delegates to the contained substrate multiplication.
 //!
-//! [`select_strategy`] applies [`DEFAULT_STRATEGY_THRESHOLD_BITS`]; every
-//! strategy pair is proptest-differential-tested across boundary thresholds.
+//! [`select_strategy`] applies [`DEFAULT_STRATEGY_THRESHOLD_BITS`] only to the existing
+//! schoolbook/Karatsuba policy. Toom-3 remains opt-in until a pinned architecture/profile
+//! benchmark establishes crossover evidence. All explicit lanes are differential-tested against
+//! the scalar reference and contained substrate.
 //!
 //! # Limb accounting and cooperative cancellation
 //!
@@ -56,6 +59,8 @@ pub enum Strategy {
     SchoolbookReference,
     /// Pure-Rust recursive Karatsuba multiplication.
     Karatsuba,
+    /// Explicit Toom-3 lane; not selected by the default policy without crossover evidence.
+    Toom3,
     /// Contained substrate multiplication.
     NativeSubstrate,
 }
@@ -852,6 +857,7 @@ pub fn multiply_with_strategy(a: &BigInt, b: &BigInt, strategy: Strategy) -> Big
     match strategy {
         Strategy::SchoolbookReference => schoolbook_reference(&a.0, &b.0),
         Strategy::Karatsuba => karatsuba_mul_internal(&a.0, &b.0),
+        Strategy::Toom3 => toom3_mul_internal(&a.0, &b.0),
         Strategy::NativeSubstrate => BigInt(a.0.clone() * b.0.clone()),
     }
 }
@@ -1387,9 +1393,17 @@ fn karatsuba_mul_internal(a: &Substrate, b: &Substrate) -> BigInt {
     }
 }
 
+const KARATSUBA_LEAF_BITS: u64 = 128;
+// A structural recursion guard, not a calibrated strategy-selection threshold.
+const TOOM3_RECURSION_CUTOFF_BITS: u64 = 3 * KARATSUBA_LEAF_BITS;
+
 fn karatsuba_mag_internal(a: &BigUint, b: &BigUint) -> BigUint {
+    if a.is_zero() || b.is_zero() {
+        return BigUint::zero();
+    }
     let max_bits = std::cmp::max(a.bits(), b.bits());
-    if max_bits <= 128 {
+    let min_bits = std::cmp::min(a.bits(), b.bits());
+    if max_bits <= KARATSUBA_LEAF_BITS || min_bits <= max_bits / 2 {
         return a * b;
     }
     let m = max_bits / 2;
@@ -1406,6 +1420,107 @@ fn karatsuba_mag_internal(a: &BigUint, b: &BigUint) -> BigUint {
     let z1 = karatsuba_mag_internal(&sum_a, &sum_b) - &z0 - &z2;
 
     (z2 << (2 * m)) + (z1 << m) + z0
+}
+
+fn toom3_mul_internal(a: &Substrate, b: &Substrate) -> BigInt {
+    BigInt(toom3_signed_internal(a, b))
+}
+
+fn toom3_signed_internal(a: &Substrate, b: &Substrate) -> Substrate {
+    if a.is_zero() || b.is_zero() {
+        return Substrate::zero();
+    }
+
+    let negative = a.sign() != b.sign();
+    let magnitude = toom3_mag_internal(a.magnitude(), b.magnitude());
+    let result = Substrate::from(magnitude);
+    if negative { -result } else { result }
+}
+
+fn toom3_mag_internal(a: &BigUint, b: &BigUint) -> BigUint {
+    if a.is_zero() || b.is_zero() {
+        return BigUint::zero();
+    }
+
+    let max_bits = std::cmp::max(a.bits(), b.bits());
+    let min_bits = std::cmp::min(a.bits(), b.bits());
+    if max_bits <= TOOM3_RECURSION_CUTOFF_BITS {
+        return karatsuba_mag_internal(a, b);
+    }
+
+    let chunk_bits = max_bits.div_ceil(3);
+    let chunk_bits_x2 = chunk_bits
+        .checked_mul(2)
+        .expect("allocated bigint chunk shift must fit u64");
+    let chunk_bits_x3 = chunk_bits
+        .checked_mul(3)
+        .expect("allocated bigint chunk shift must fit u64");
+    let chunk_bits_x4 = chunk_bits
+        .checked_mul(4)
+        .expect("allocated bigint chunk shift must fit u64");
+    // Both operands need a nonzero top third. Skewed or cancellation-shortened recursive values
+    // stay on the hardened Karatsuba/native lane instead of expanding zero-heavy Toom branches.
+    if min_bits <= chunk_bits_x2 {
+        return karatsuba_mag_internal(a, b);
+    }
+
+    let mask = (BigUint::one() << chunk_bits) - 1u32;
+    let split = |value: &BigUint| {
+        let low = value & &mask;
+        let middle = (value >> chunk_bits) & &mask;
+        let high = value >> chunk_bits_x2;
+        (
+            Substrate::from(low),
+            Substrate::from(middle),
+            Substrate::from(high),
+        )
+    };
+    let (a0, a1, a2) = split(a);
+    let (b0, b1, b2) = split(b);
+
+    let evaluate = |c0: &Substrate, c1: &Substrate, c2: &Substrate| {
+        let at_zero = c0.clone();
+        let at_one = c0 + c1 + c2;
+        let at_minus_one = c0 - c1 + c2;
+        let at_two = c0 + (c1 << 1u32) + (c2 << 2u32);
+        let at_infinity = c2.clone();
+        (at_zero, at_one, at_minus_one, at_two, at_infinity)
+    };
+    let (a_at_zero, a_at_one, a_at_minus_one, a_at_two, a_at_infinity) = evaluate(&a0, &a1, &a2);
+    let (b_at_zero, b_at_one, b_at_minus_one, b_at_two, b_at_infinity) = evaluate(&b0, &b1, &b2);
+
+    let w0 = toom3_signed_internal(&a_at_zero, &b_at_zero);
+    let w1 = toom3_signed_internal(&a_at_one, &b_at_one);
+    let w_minus_one = toom3_signed_internal(&a_at_minus_one, &b_at_minus_one);
+    let w2 = toom3_signed_internal(&a_at_two, &b_at_two);
+    let w4 = toom3_signed_internal(&a_at_infinity, &b_at_infinity);
+
+    let c2 = exact_div_small(&w1 + &w_minus_one, 2) - &w0 - &w4;
+    let sum_c1_c3 = exact_div_small(&w1 - &w_minus_one, 2);
+    let c1_plus_four_c3 = exact_div_small(w2 - &w0 - (&c2 << 2u32) - (&w4 << 4u32), 2);
+    let c3 = exact_div_small(&c1_plus_four_c3 - &sum_c1_c3, 3);
+    let c1 = sum_c1_c3 - &c3;
+
+    let result = w0
+        + (c1 << chunk_bits)
+        + (c2 << chunk_bits_x2)
+        + (c3 << chunk_bits_x3)
+        + (w4 << chunk_bits_x4);
+    assert!(
+        result.sign() != Sign::Minus,
+        "internal Toom-3 magnitude interpolation must be non-negative"
+    );
+    result.magnitude().clone()
+}
+
+fn exact_div_small(value: Substrate, divisor: u32) -> Substrate {
+    let divisor = Substrate::from(divisor);
+    let (quotient, remainder) = value.div_rem(&divisor);
+    assert!(
+        remainder.is_zero(),
+        "internal Toom-3 interpolation division must be exact"
+    );
+    quotient
 }
 
 #[cfg(test)]
@@ -1472,11 +1587,114 @@ mod tests {
         for strategy in [
             Strategy::SchoolbookReference,
             Strategy::Karatsuba,
+            Strategy::Toom3,
             Strategy::NativeSubstrate,
         ] {
             assert_eq!(multiply_with_strategy(&x, &zero, strategy), zero);
             assert_eq!(multiply_with_strategy(&zero, &x, strategy), zero);
         }
+    }
+
+    fn from_base_chunks(c0: &BigInt, c1: &BigInt, c2: &BigInt, chunk_bits: u32) -> BigInt {
+        c0 + (c1 << chunk_bits) + (c2 << (2 * chunk_bits))
+    }
+
+    fn assert_explicit_multiplication_lanes_agree(a: &BigInt, b: &BigInt) {
+        let reference = multiply_with_strategy(a, b, Strategy::SchoolbookReference);
+        assert_eq!(multiply_with_strategy(a, b, Strategy::Karatsuba), reference);
+        assert_eq!(multiply_with_strategy(a, b, Strategy::Toom3), reference);
+        assert_eq!(
+            multiply_with_strategy(a, b, Strategy::NativeSubstrate),
+            reference
+        );
+        assert_eq!(multiply_with_strategy(b, a, Strategy::Toom3), reference);
+    }
+
+    #[test]
+    fn toom3_interpolation_handles_signed_evaluations_and_carries() {
+        let chunk_bits = 129;
+        let top = BigInt::one() << 126;
+        let chunk_max = (BigInt::one() << chunk_bits) - 1i64;
+
+        // a(-1) == 0 while both operands retain nonzero top thirds.
+        let minus_one_zero = from_base_chunks(&3.into(), &(&top + 3i64), &top, chunk_bits);
+        let ordinary = from_base_chunks(&11.into(), &17.into(), &(&top + 5i64), chunk_bits);
+
+        // a(-1) < 0 exercises signed evaluation products and exact interpolation.
+        let minus_one_negative =
+            from_base_chunks(&1.into(), &chunk_max, &(&top + 7i64), chunk_bits);
+
+        // Every chunk is dense, forcing cross-chunk carries and a nonzero cubic coefficient.
+        let all_ones = from_base_chunks(&chunk_max, &chunk_max, &chunk_max, chunk_bits);
+
+        for (a, b) in [
+            (&minus_one_zero, &ordinary),
+            (&minus_one_negative, &ordinary),
+            (&all_ones, &minus_one_negative),
+        ] {
+            for (neg_a, neg_b) in [(false, false), (true, false), (false, true), (true, true)] {
+                let signed_a = if neg_a { -a } else { a.clone() };
+                let signed_b = if neg_b { -b } else { b.clone() };
+                assert_explicit_multiplication_lanes_agree(&signed_a, &signed_b);
+            }
+        }
+    }
+
+    #[test]
+    fn toom3_structural_cutoff_boundaries_match_reference() {
+        for bits in [
+            TOOM3_RECURSION_CUTOFF_BITS - 1,
+            TOOM3_RECURSION_CUTOFF_BITS,
+            TOOM3_RECURSION_CUTOFF_BITS + 1,
+        ] {
+            let shift = u32::try_from(bits - 1).unwrap();
+            let a = (BigInt::one() << shift) + (BigInt::one() << (shift / 2)) + 65_537i64;
+            let b = (BigInt::one() << shift) + (BigInt::one() << (shift / 3)) + 17i64;
+            assert_explicit_multiplication_lanes_agree(&a, &b);
+        }
+    }
+
+    #[test]
+    fn toom3_nested_recursion_matches_reference() {
+        // Dense 1,281-bit operands make each at-two evaluation exceed the 384-bit structural
+        // cutoff, so the product exercises a second Toom level rather than only leaf fallback.
+        let dense = (BigInt::one() << 1_281) - 1i64;
+        let companion = &dense - (BigInt::one() << 637) - 65_537i64;
+        assert_explicit_multiplication_lanes_agree(&dense, &companion);
+    }
+
+    #[test]
+    fn toom3_skew_boundary_falls_back_only_without_a_top_third() {
+        let wide = (BigInt::one() << 599) + (BigInt::one() << 311) + 17i64;
+        // max_bits=600 gives 200-bit chunks. The 400-bit operand has no top-third chunk,
+        // while the 401-bit operand has the smallest possible nonzero top third.
+        let at_fallback_boundary = (BigInt::one() << 399) + 65_537i64;
+        let above_fallback_boundary = (BigInt::one() << 400) + 65_537i64;
+        assert_explicit_multiplication_lanes_agree(&wide, &at_fallback_boundary);
+        assert_explicit_multiplication_lanes_agree(&wide, &above_fallback_boundary);
+    }
+
+    #[test]
+    fn karatsuba_refuses_zero_heavy_recursion_for_skewed_operands() {
+        let huge = (BigInt::one() << 32_768) + (BigInt::one() << 16_383) + 1i64;
+        let tiny = BigInt::from(-65_537);
+        let expected = multiply_with_strategy(&huge, &tiny, Strategy::NativeSubstrate);
+        assert_eq!(select_strategy(huge.bits()), Strategy::Karatsuba);
+        assert_eq!(
+            multiply_with_strategy(&huge, &tiny, Strategy::Karatsuba),
+            expected
+        );
+        assert_eq!(
+            multiply_with_strategy(&huge, &tiny, Strategy::Toom3),
+            expected
+        );
+        assert_eq!(&huge * &tiny, expected);
+    }
+
+    #[test]
+    #[should_panic(expected = "interpolation division must be exact")]
+    fn toom3_exact_division_helper_rejects_truncation() {
+        let _ = exact_div_small(Substrate::from(5), 3);
     }
 
     #[test]
@@ -1687,21 +1905,25 @@ mod tests {
             sign_b in proptest::bool::ANY,
         ) {
             let base = BigInt::one() << shift;
-            for delta in [-1i64, 0, 1] {
+            for delta_a in [-1i64, 0, 1] {
                 let a = match sign_a {
-                    true => &base + delta,
-                    false => -(&base + delta),
+                    true => &base + delta_a,
+                    false => -(&base + delta_a),
                 };
-                for b_raw in [1i64, 2, 3, 5, 255, 65537] {
+                for delta_b in [-1i64, 0, 1] {
                     let b = match sign_b {
-                        true => BigInt::from(b_raw),
-                        false => BigInt::from(-b_raw),
+                        true => &base + delta_b,
+                        false => -(&base + delta_b),
                     };
                     let ref_res = multiply_with_strategy(&a, &b, Strategy::SchoolbookReference);
                     let kar_res = multiply_with_strategy(&a, &b, Strategy::Karatsuba);
+                    let toom_res = multiply_with_strategy(&a, &b, Strategy::Toom3);
                     let nat_res = multiply_with_strategy(&a, &b, Strategy::NativeSubstrate);
+                    let selected_res = multiply(&a, &b);
                     prop_assert_eq!(&ref_res, &kar_res);
+                    prop_assert_eq!(&ref_res, &toom_res);
                     prop_assert_eq!(&ref_res, &nat_res);
+                    prop_assert_eq!(&ref_res, &selected_res);
                 }
             }
         }
@@ -1715,12 +1937,15 @@ mod tests {
             let b = BigInt::from_signed_bytes_be(&b_bytes);
             let reference = multiply_with_strategy(&a, &b, Strategy::SchoolbookReference);
             let karatsuba = multiply_with_strategy(&a, &b, Strategy::Karatsuba);
+            let toom3 = multiply_with_strategy(&a, &b, Strategy::Toom3);
             let native = multiply_with_strategy(&a, &b, Strategy::NativeSubstrate);
             let mut meter = Unbounded;
             let metered = metered_multiply(&a, &b, &mut meter).unwrap();
             prop_assert_eq!(&reference, &karatsuba);
+            prop_assert_eq!(&reference, &toom3);
             prop_assert_eq!(&reference, &native);
             prop_assert_eq!(&reference, &metered);
+            prop_assert_eq!(multiply_with_strategy(&b, &a, Strategy::Toom3), native.clone());
             prop_assert_eq!(&a * &b, native);
         }
 
