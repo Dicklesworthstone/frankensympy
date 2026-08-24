@@ -10,7 +10,9 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+fsym-budget.workspace = true
 fsym-id.workspace = true
+fsym-outcome.workspace = true
 num-bigint.workspace = true
 num-rational.workspace = true
 num-traits.workspace = true
