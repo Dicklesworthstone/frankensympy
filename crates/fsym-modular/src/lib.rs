@@ -739,22 +739,22 @@ fn metered_subtract<M: BudgetMeter>(
 
 /// Exclusive upper bound for the fixed-base Miller-Rabin theorem used by this crate.
 /// Values at or above this boundary remain probable-prime candidates, not exact field evidence.
-pub fn deterministic_primality_bound() -> BigInt {
+fn deterministic_primality_bound() -> BigInt {
     BigInt::from(3_317_044_064_679_887_385u64) * BigInt::from(1_000_000u64)
         + BigInt::from(961_981u64)
 }
 
-pub fn is_certified_prime(characteristic: &BigInt) -> bool {
+fn is_certified_prime(characteristic: &BigInt) -> bool {
     characteristic > &BigInt::one()
         && characteristic < &deterministic_primality_bound()
         && is_probable_prime(characteristic)
 }
 
-pub fn is_canonical_residue(value: &BigInt, modulus: &BigInt) -> bool {
+fn is_canonical_residue(value: &BigInt, modulus: &BigInt) -> bool {
     !value.is_negative() && value < modulus
 }
 
-pub fn normalized_remainder(value: &BigInt, modulus: &BigInt) -> BigInt {
+fn normalized_remainder(value: &BigInt, modulus: &BigInt) -> BigInt {
     let remainder = value % modulus;
     if remainder.is_negative() {
         remainder + modulus
@@ -763,7 +763,7 @@ pub fn normalized_remainder(value: &BigInt, modulus: &BigInt) -> BigInt {
     }
 }
 
-pub fn metered_clone_bigint<M: BudgetMeter>(
+fn metered_clone_bigint<M: BudgetMeter>(
     value: &BigInt,
     meter: &mut M,
 ) -> Result<BigInt, MeterError> {
@@ -778,6 +778,18 @@ pub fn metered_clone_bigint<M: BudgetMeter>(
     let cloned = value.clone();
     meter.checkpoint()?;
     Ok(cloned)
+}
+
+fn metered_power_of_two<M: BudgetMeter>(
+    exponent: u32,
+    meter: &mut M,
+) -> Result<BigInt, MeterError> {
+    meter.checkpoint()?;
+    let mut value = BigInt::one();
+    for _ in 0..exponent {
+        value = metered_add(&value, &value, meter)?;
+    }
+    metered_finish(value, meter)
 }
 
 /// Typed representation of a modular arithmetic residue ring $\mathbb{Z} / m\mathbb{Z}$.
@@ -921,6 +933,20 @@ impl ModularRingElement {
                 value: &self.ring.modulus - &self.value,
             }
         }
+    }
+
+    /// Cancellation-first modular negation.
+    pub fn metered_neg<M: BudgetMeter>(&self, meter: &mut M) -> Result<Self, MeterError> {
+        meter.checkpoint()?;
+        let value = if self.value.is_zero() {
+            metered_clone_bigint(&self.value, meter)?
+        } else {
+            metered_subtract(&self.ring.modulus, &self.value, meter)?
+        };
+        let ring = ModularRing {
+            modulus: metered_clone_bigint(&self.ring.modulus, meter)?,
+        };
+        metered_finish(Self { ring, value }, meter)
     }
 
     /// Multiplicative inverse $a^{-1} \pmod m$; returns `None` when $\gcd(a, m) \neq 1$.
@@ -1225,6 +1251,20 @@ impl FiniteFieldElement {
         }
     }
 
+    /// Cancellation-first field negation.
+    pub fn metered_neg<M: BudgetMeter>(&self, meter: &mut M) -> Result<Self, MeterError> {
+        meter.checkpoint()?;
+        let value = if self.value.is_zero() {
+            metered_clone_bigint(&self.value, meter)?
+        } else {
+            metered_subtract(&self.field.characteristic, &self.value, meter)?
+        };
+        let field = FiniteField {
+            characteristic: metered_clone_bigint(&self.field.characteristic, meter)?,
+        };
+        metered_finish(Self { field, value }, meter)
+    }
+
     /// Multiplicative inverse $a^{-1} \pmod p$; returns `None` only for $0$.
     pub fn inv(&self) -> Option<Self> {
         if self.value.is_zero() {
@@ -1428,7 +1468,6 @@ impl MontgomeryReducer {
             return metered_finish(None, meter);
         };
         let r = metered_power_of_two(r_shift, meter)?;
-        let r_divisor = NonZeroBigInt::new(&r).expect("power of two is nonzero");
         let (_, r_mod_m) = {
             let modulus_divisor =
                 NonZeroBigInt::new(&modulus).expect("admitted Montgomery modulus is nonzero");
@@ -1453,7 +1492,6 @@ impl MontgomeryReducer {
             r2_mod_m,
             m_prime,
         };
-        let _ = r_divisor;
         metered_finish(Some(reducer), meter)
     }
 
@@ -1473,14 +1511,11 @@ impl MontgomeryReducer {
         &self,
         value: &BigInt,
         meter: &mut M,
-    ) -> Result<BigInt, MeterError> {
+    ) -> Result<Option<BigInt>, MeterError> {
         let modulus = NonZeroBigInt::new(&self.modulus).expect("Montgomery modulus invariant");
         let canonical = metered_normalized_remainder(value, modulus, meter)?;
         let product = metered_mul(&canonical, &self.r2_mod_m, meter)?;
-        let Some(result) = self.metered_reduce(&product, meter)? else {
-            return metered_finish(BigInt::zero(), meter);
-        };
-        metered_finish(result, meter)
+        self.metered_reduce(&product, meter)
     }
 
     /// Converts a canonical Montgomery residue back to a standard representative.
@@ -1529,9 +1564,7 @@ impl MontgomeryReducer {
         meter: &mut M,
     ) -> Result<Option<BigInt>, MeterError> {
         meter.checkpoint()?;
-        if value.is_negative()
-            || metered_greater_or_equal(value, &self.reduction_bound, meter)?
-        {
+        if value.is_negative() || metered_greater_or_equal(value, &self.reduction_bound, meter)? {
             return metered_finish(None, meter);
         }
         let product = metered_mul(value, &self.m_prime, meter)?;
@@ -1539,8 +1572,7 @@ impl MontgomeryReducer {
         let m = metered_normalized_remainder(&product, r_divisor, meter)?;
         let correction = metered_mul(&m, &self.modulus, meter)?;
         let numerator = metered_add(value, &correction, meter)?;
-        let (mut reduced, remainder) =
-            metered_div_rem_nonzero(&numerator, r_divisor, meter)?;
+        let (mut reduced, remainder) = metered_div_rem_nonzero(&numerator, r_divisor, meter)?;
         if !remainder.is_zero() {
             return metered_finish(None, meter);
         }
@@ -1552,9 +1584,7 @@ impl MontgomeryReducer {
 
     /// Montgomery multiplication over two canonical Montgomery residues.
     pub fn mul(&self, lhs: &BigInt, rhs: &BigInt) -> Option<BigInt> {
-        if !is_canonical_residue(lhs, &self.modulus)
-            || !is_canonical_residue(rhs, &self.modulus)
-        {
+        if !is_canonical_residue(lhs, &self.modulus) || !is_canonical_residue(rhs, &self.modulus) {
             return None;
         }
         self.reduce(&(lhs * rhs))
@@ -1568,9 +1598,7 @@ impl MontgomeryReducer {
         meter: &mut M,
     ) -> Result<Option<BigInt>, MeterError> {
         meter.checkpoint()?;
-        if !is_canonical_residue(lhs, &self.modulus)
-            || !is_canonical_residue(rhs, &self.modulus)
-        {
+        if !is_canonical_residue(lhs, &self.modulus) || !is_canonical_residue(rhs, &self.modulus) {
             return metered_finish(None, meter);
         }
         let product = metered_mul(lhs, rhs, meter)?;
@@ -1692,9 +1720,7 @@ impl BarrettReducer {
         meter: &mut M,
     ) -> Result<Option<BigInt>, MeterError> {
         meter.checkpoint()?;
-        if value.is_negative()
-            || metered_greater_or_equal(value, &self.modulus_squared, meter)?
-        {
+        if value.is_negative() || metered_greater_or_equal(value, &self.modulus_squared, meter)? {
             return metered_finish(None, meter);
         }
         if !metered_greater_or_equal(value, &self.modulus, meter)? {
@@ -1731,6 +1757,8 @@ impl BarrettReducer {
 /// Classification of unlucky prime failures during modular algorithms (e.g. modular GCD).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UnluckyPrimeReason {
+    /// Candidate is nonpositive, composite, or above the exact fixed-base theorem range.
+    InvalidPrimeCandidate,
     /// Prime divides the leading coefficient of one or more input polynomials.
     DividesLeadingCoefficient,
     /// Modular reduction causes degree collapse or degenerate structures.
@@ -1744,26 +1772,87 @@ pub enum UnluckyPrimeReason {
 /// Diagnostic record explaining why a chosen prime is unusable.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnluckyPrimeDiagnostic {
+    /// Rejected candidate; this is diagnostic data, never prime evidence.
     pub prime: BigInt,
+    /// Structured refusal class.
     pub reason: UnluckyPrimeReason,
-    pub description: String,
+    /// Index of the offending leading coefficient when the reason is coefficient-specific.
+    pub coefficient_index: Option<usize>,
 }
 
-/// Verifies whether a candidate prime is lucky with respect to polynomial leading coefficients.
+fn unlucky_prime_diagnostic(
+    prime: &BigInt,
+    reason: UnluckyPrimeReason,
+    coefficient_index: Option<usize>,
+) -> UnluckyPrimeDiagnostic {
+    UnluckyPrimeDiagnostic {
+        prime: prime.clone(),
+        reason,
+        coefficient_index,
+    }
+}
+
+/// Verifies an exactly admitted prime against polynomial leading coefficients.
+///
+/// This bounded diagnostic check does not establish that a prime will be lucky for every later
+/// modular-algorithm phase; it only rejects the declared leading-coefficient obstruction.
 pub fn check_lucky_prime(
     prime: &BigInt,
     leading_coefficients: &[BigInt],
 ) -> Result<(), UnluckyPrimeDiagnostic> {
+    if !is_certified_prime(prime) {
+        return Err(unlucky_prime_diagnostic(
+            prime,
+            UnluckyPrimeReason::InvalidPrimeCandidate,
+            None,
+        ));
+    }
     for (idx, coeff) in leading_coefficients.iter().enumerate() {
         if (coeff % prime).is_zero() {
-            return Err(UnluckyPrimeDiagnostic {
-                prime: prime.clone(),
-                reason: UnluckyPrimeReason::DividesLeadingCoefficient,
-                description: format!("Prime {prime} divides leading coefficient #{idx} ({coeff})"),
-            });
+            return Err(unlucky_prime_diagnostic(
+                prime,
+                UnluckyPrimeReason::DividesLeadingCoefficient,
+                Some(idx),
+            ));
         }
     }
     Ok(())
+}
+
+/// Cancellation-first form of [`check_lucky_prime`].
+pub fn metered_check_lucky_prime<M: BudgetMeter>(
+    prime: &BigInt,
+    leading_coefficients: &[BigInt],
+    meter: &mut M,
+) -> Result<Result<(), UnluckyPrimeDiagnostic>, MeterError> {
+    meter.checkpoint()?;
+    let bound = deterministic_primality_bound();
+    let invalid = prime <= &BigInt::one()
+        || metered_greater_or_equal(prime, &bound, meter)?
+        || !metered_is_probable_prime(prime, meter)?;
+    if invalid {
+        let diagnostic = UnluckyPrimeDiagnostic {
+            prime: metered_clone_bigint(prime, meter)?,
+            reason: UnluckyPrimeReason::InvalidPrimeCandidate,
+            coefficient_index: None,
+        };
+        return metered_finish(Err(diagnostic), meter);
+    }
+    let divisor = NonZeroBigInt::new(prime).expect("certified prime is nonzero");
+    for (index, coefficient) in leading_coefficients.iter().enumerate() {
+        meter.checkpoint()?;
+        meter.charge(Dimension::ComputeSteps, 1)?;
+        let (_, remainder) = metered_div_rem_nonzero(coefficient, divisor, meter)?;
+        if remainder.is_zero() {
+            let diagnostic = UnluckyPrimeDiagnostic {
+                prime: metered_clone_bigint(prime, meter)?,
+                reason: UnluckyPrimeReason::DividesLeadingCoefficient,
+                coefficient_index: Some(index),
+            };
+            return metered_finish(Err(diagnostic), meter);
+        }
+    }
+    metered_finish(Ok(()), meter)
 }
 
 #[cfg(test)]
@@ -2340,32 +2429,64 @@ mod tests {
     }
 
     #[test]
-    fn test_modular_ring_and_finite_field() {
+    fn modular_ring_and_exact_finite_field_preserve_parent_invariants() {
         let ring = ModularRing::new(BigInt::from(12)).expect("modulus > 1");
         let a = ring.element(BigInt::from(7));
         let b = ring.element(BigInt::from(8));
         assert_eq!(a.add(&b).unwrap().value(), &BigInt::from(3));
         assert_eq!(a.sub(&b).unwrap().value(), &BigInt::from(11));
         assert_eq!(a.mul(&b).unwrap().value(), &BigInt::from(8));
-        assert_eq!(a.inv().unwrap().value(), &BigInt::from(7)); // 7 * 7 = 49 = 1 mod 12
-        assert!(b.inv().is_none()); // gcd(8, 12) = 4 != 1
+        assert_eq!(a.inv().unwrap().value(), &BigInt::from(7));
+        assert!(b.inv().is_none());
+        assert!(a.pow(&BigInt::from(-1)).is_none());
+        let other_ring = ModularRing::new(BigInt::from(13)).unwrap();
+        assert!(a.add(&other_ring.one()).is_none());
 
         let ff = FiniteField::new(BigInt::from(17)).expect("17 is prime");
-        assert!(FiniteField::new(BigInt::from(18)).is_none()); // 18 is composite
+        assert!(FiniteField::new(BigInt::from(18)).is_none());
+        assert!(FiniteField::new(deterministic_primality_bound()).is_none());
         let x = ff.element(BigInt::from(5));
         let y = ff.element(BigInt::from(11));
         assert_eq!(x.add(&y).unwrap().value(), &BigInt::from(16));
-        assert_eq!(x.sub(&y).unwrap().value(), &BigInt::from(11)); // 5 - 11 = -6 = 11 mod 17
-        assert_eq!(x.mul(&y).unwrap().value(), &BigInt::from(4)); // 55 = 4 mod 17
+        assert_eq!(x.sub(&y).unwrap().value(), &BigInt::from(11));
+        assert_eq!(x.mul(&y).unwrap().value(), &BigInt::from(4));
         let x_inv = x.inv().expect("5 is invertible mod 17");
-        assert_eq!(x_inv.value(), &BigInt::from(7)); // 5 * 7 = 35 = 1 mod 17
+        assert_eq!(x_inv.value(), &BigInt::from(7));
         assert_eq!(y.div(&x).unwrap().value(), y.mul(&x_inv).unwrap().value());
-        assert_eq!(x.pow(&BigInt::from(16)).unwrap().value(), &BigInt::one()); // Fermat's Little Theorem
+        assert_eq!(x.pow(&BigInt::from(16)).unwrap().value(), &BigInt::one());
+        assert!(x.pow(&BigInt::from(-1)).is_none());
+        let other_field = FiniteField::new(BigInt::from(19)).unwrap();
+        assert!(x.mul(&other_field.one()).is_none());
+
+        let mut meter = Unbounded;
+        assert_eq!(
+            ring.metered_element(&BigInt::from(-5), &mut meter)
+                .unwrap()
+                .value(),
+            &BigInt::from(7)
+        );
+        let mut meter = Unbounded;
+        assert_eq!(
+            a.metered_mul(&b, &mut meter).unwrap().unwrap().value(),
+            a.mul(&b).unwrap().value()
+        );
+        let mut meter = Unbounded;
+        assert_eq!(
+            FiniteField::metered_new(BigInt::from(17), &mut meter).unwrap(),
+            Some(ff.clone())
+        );
+        let mut meter = Unbounded;
+        assert_eq!(
+            x.metered_pow(&BigInt::from(16), &mut meter)
+                .unwrap()
+                .unwrap(),
+            x.pow(&BigInt::from(16)).unwrap()
+        );
     }
 
     #[test]
-    fn test_montgomery_and_barrett_reducers() {
-        let m = BigInt::from(97); // odd modulus
+    fn montgomery_and_barrett_reducers_enforce_their_input_domains() {
+        let m = BigInt::from(97);
         let mont = MontgomeryReducer::new(m.clone()).expect("valid odd modulus");
         let a = BigInt::from(35);
         let b = BigInt::from(42);
@@ -2373,26 +2494,167 @@ mod tests {
 
         let a_r = mont.to_montgomery(&a);
         let b_r = mont.to_montgomery(&b);
-        let prod_r = mont.mul(&a_r, &b_r);
-        let actual_prod = mont.from_montgomery(&prod_r);
+        let prod_r = mont.mul(&a_r, &b_r).unwrap();
+        let actual_prod = mont.from_montgomery(&prod_r).unwrap();
         assert_eq!(actual_prod, expected_prod);
+        assert_eq!(
+            mont.from_montgomery(&mont.to_montgomery(&BigInt::from(-3))),
+            Some(BigInt::from(94))
+        );
+        assert_eq!(mont.reduce(&BigInt::from(-1)), None);
+        assert_eq!(mont.reduce(&mont.reduction_bound), None);
+        assert_eq!(mont.mul(&BigInt::from(-1), &b_r), None);
 
         let barrett = BarrettReducer::new(m.clone()).expect("valid modulus");
         for v in [0i64, 1, 35, 96, 97, 100, 500, 9000] {
             let x = BigInt::from(v);
-            assert_eq!(barrett.reduce(&x), &x % &m);
+            assert_eq!(barrett.reduce(&x), Some(&x % &m));
         }
+        assert_eq!(barrett.reduce(&BigInt::from(-1)), None);
+        assert_eq!(barrett.reduce(&barrett.modulus_squared), None);
+
+        let mut meter = Unbounded;
+        let metered_mont = MontgomeryReducer::metered_new(m.clone(), &mut meter)
+            .unwrap()
+            .unwrap();
+        assert_eq!(metered_mont, mont);
+        let mut meter = Unbounded;
+        let a_r_metered = metered_mont
+            .metered_to_montgomery(&a, &mut meter)
+            .unwrap()
+            .unwrap();
+        assert_eq!(a_r_metered, a_r);
+        let mut meter = Unbounded;
+        assert_eq!(
+            metered_mont.metered_mul(&a_r, &b_r, &mut meter).unwrap(),
+            Some(prod_r)
+        );
+
+        let mut meter = Unbounded;
+        let metered_barrett = BarrettReducer::metered_new(m.clone(), &mut meter)
+            .unwrap()
+            .unwrap();
+        assert_eq!(metered_barrett, barrett);
+        let mut meter = Unbounded;
+        assert_eq!(
+            metered_barrett
+                .metered_reduce(&BigInt::from(9000), &mut meter)
+                .unwrap(),
+            Some(BigInt::from(76))
+        );
     }
 
     #[test]
-    fn test_unlucky_prime_diagnostics() {
+    fn unlucky_prime_diagnostics_are_structured_bounded_and_fail_closed() {
         let p_lucky = BigInt::from(17);
         let p_unlucky = BigInt::from(5);
-        let leading_coeffs = vec![BigInt::from(15), BigInt::from(28)]; // 15 = 3 * 5
+        let leading_coeffs = vec![BigInt::from(15), BigInt::from(28)];
 
         assert!(check_lucky_prime(&p_lucky, &leading_coeffs).is_ok());
         let diag = check_lucky_prime(&p_unlucky, &leading_coeffs).unwrap_err();
         assert_eq!(diag.reason, UnluckyPrimeReason::DividesLeadingCoefficient);
         assert_eq!(diag.prime, p_unlucky);
+        assert_eq!(diag.coefficient_index, Some(0));
+
+        for invalid in [
+            BigInt::from(-3),
+            BigInt::zero(),
+            BigInt::one(),
+            BigInt::from(9),
+            deterministic_primality_bound(),
+        ] {
+            let diag = check_lucky_prime(&invalid, &leading_coeffs).unwrap_err();
+            assert_eq!(diag.reason, UnluckyPrimeReason::InvalidPrimeCandidate);
+            assert_eq!(diag.coefficient_index, None);
+        }
+
+        let mut meter = Unbounded;
+        assert_eq!(
+            metered_check_lucky_prime(&p_lucky, &leading_coeffs, &mut meter).unwrap(),
+            Ok(())
+        );
+        let mut meter = Unbounded;
+        assert_eq!(
+            metered_check_lucky_prime(&BigInt::zero(), &leading_coeffs, &mut meter)
+                .unwrap()
+                .unwrap_err()
+                .reason,
+            UnluckyPrimeReason::InvalidPrimeCandidate
+        );
+    }
+
+    #[test]
+    fn new_metered_types_check_cancellation_before_terminal_publication() {
+        let mut measured = CheckpointMeter::default();
+        let reducer = MontgomeryReducer::metered_new(BigInt::from(97), &mut measured)
+            .unwrap()
+            .unwrap();
+        let mut cancelled = CheckpointMeter::cancelling_at(measured.checkpoints);
+        assert_eq!(
+            MontgomeryReducer::metered_new(BigInt::from(97), &mut cancelled),
+            Err(MeterError::Cancelled)
+        );
+
+        let value = reducer.to_montgomery(&BigInt::from(35));
+        let mut measured = CheckpointMeter::default();
+        assert!(
+            reducer
+                .metered_from_montgomery(&value, &mut measured)
+                .unwrap()
+                .is_some()
+        );
+        let mut cancelled = CheckpointMeter::cancelling_at(measured.checkpoints);
+        assert_eq!(
+            reducer.metered_from_montgomery(&value, &mut cancelled),
+            Err(MeterError::Cancelled)
+        );
+
+        let coefficients = [BigInt::from(15), BigInt::from(28)];
+        let mut measured = CheckpointMeter::default();
+        assert!(
+            metered_check_lucky_prime(&BigInt::from(5), &coefficients, &mut measured)
+                .unwrap()
+                .is_err()
+        );
+        let mut cancelled = CheckpointMeter::cancelling_at(measured.checkpoints);
+        assert_eq!(
+            metered_check_lucky_prime(&BigInt::from(5), &coefficients, &mut cancelled),
+            Err(MeterError::Cancelled)
+        );
+    }
+
+    proptest! {
+        #[test]
+        fn reducers_match_scalar_remainders_over_their_full_admitted_ranges(
+            modulus in 2u64..500,
+            value_seed in any::<u64>(),
+            lhs in -10_000i64..10_001,
+            rhs in -10_000i64..10_001,
+        ) {
+            let modulus_big = BigInt::from(modulus);
+            let modulus_squared = modulus.saturating_mul(modulus);
+            let value = value_seed % modulus_squared;
+            let barrett = BarrettReducer::new(modulus_big.clone()).unwrap();
+            let expected = BigInt::from(value % modulus);
+            prop_assert_eq!(barrett.reduce(&BigInt::from(value)), Some(expected.clone()));
+            let mut meter = Unbounded;
+            prop_assert_eq!(
+                barrett.metered_reduce(&BigInt::from(value), &mut meter).unwrap(),
+                Some(expected)
+            );
+
+            if modulus > 2 && modulus % 2 == 1 {
+                let montgomery = MontgomeryReducer::new(modulus_big.clone()).unwrap();
+                let lhs_mont = montgomery.to_montgomery(&BigInt::from(lhs));
+                let rhs_mont = montgomery.to_montgomery(&BigInt::from(rhs));
+                let product_mont = montgomery.mul(&lhs_mont, &rhs_mont).unwrap();
+                let product = montgomery.from_montgomery(&product_mont).unwrap();
+                let expected_product =
+                    BigInt::from(lhs.rem_euclid(modulus as i64))
+                        * BigInt::from(rhs.rem_euclid(modulus as i64))
+                        % &modulus_big;
+                prop_assert_eq!(product, expected_product);
+            }
+        }
     }
 }

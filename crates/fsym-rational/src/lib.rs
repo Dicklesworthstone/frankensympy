@@ -1106,6 +1106,69 @@ mod tests {
     }
 
     #[test]
+    fn modular_reconstruction_wraps_only_canonical_bounded_results() {
+        let modulus = BigInt::from(101);
+        assert_eq!(
+            BigRational::reconstruct_modular(&BigInt::from(26), &modulus),
+            Some(BigRational::new(BigInt::from(3), BigInt::from(4)))
+        );
+        assert_eq!(
+            BigRational::reconstruct_modular(&BigInt::zero(), &modulus),
+            Some(BigRational::zero())
+        );
+        assert_eq!(
+            BigRational::reconstruct_modular(&BigInt::from(3), &BigInt::from(7)),
+            None
+        );
+        assert_eq!(
+            BigRational::reconstruct_modular(&BigInt::one(), &BigInt::one()),
+            None
+        );
+    }
+
+    #[test]
+    fn metered_modular_reconstruction_checks_before_every_publication_class() {
+        for (residue, modulus) in [
+            (BigInt::from(26), BigInt::from(101)),
+            (BigInt::from(3), BigInt::from(7)),
+            (BigInt::one(), BigInt::one()),
+        ] {
+            let mut measured = CheckpointMeter::default();
+            let expected =
+                BigRational::metered_reconstruct_modular(&residue, &modulus, &mut measured)
+                    .expect("unbounded checkpoint meter admits reconstruction");
+            assert_eq!(
+                expected,
+                BigRational::reconstruct_modular(&residue, &modulus)
+            );
+            let mut cancelled = CheckpointMeter::cancelling_at(measured.checkpoints);
+            assert_eq!(
+                BigRational::metered_reconstruct_modular(&residue, &modulus, &mut cancelled,),
+                Err(MeterError::Cancelled)
+            );
+        }
+
+        let modulus = (BigInt::one() << 127) - 1i64;
+        let denominator = BigInt::from(37);
+        let inverse = fsym_modular::mod_inverse(&denominator, &modulus)
+            .expect("denominator is invertible modulo the Mersenne prime");
+        let residue = (&BigInt::from(-23) * inverse) % &modulus;
+        let mut measured = CheckpointMeter::default();
+        assert!(
+            BigRational::metered_reconstruct_modular(&residue, &modulus, &mut measured)
+                .expect("unbounded checkpoint meter admits reconstruction")
+                .is_some()
+        );
+        assert!(measured.checkpoints > 100);
+        let mut cancelled =
+            CheckpointMeter::cancelling_at(measured.checkpoints.saturating_mul(3) / 4);
+        assert_eq!(
+            BigRational::metered_reconstruct_modular(&residue, &modulus, &mut cancelled),
+            Err(MeterError::Cancelled)
+        );
+    }
+
+    #[test]
     fn continued_fractions_use_floor_semantics_and_round_trip() {
         let positive = BigRational::new(BigInt::from(415), BigInt::from(93));
         let positive_coefficients = positive.continued_fraction();
@@ -1252,6 +1315,38 @@ mod tests {
     }
 
     proptest! {
+        #[test]
+        fn modular_reconstruction_round_trips_unique_small_rationals(
+            numerator in -50i64..51,
+            denominator in 1u64..51,
+        ) {
+            fn scalar_gcd(mut lhs: u64, mut rhs: u64) -> u64 {
+                while rhs != 0 {
+                    let remainder = lhs % rhs;
+                    lhs = rhs;
+                    rhs = remainder;
+                }
+                lhs
+            }
+
+            prop_assume!(scalar_gcd(numerator.unsigned_abs(), denominator) == 1);
+            let modulus = BigInt::from(1_000_003);
+            let denominator = BigInt::from(denominator);
+            let inverse = fsym_modular::mod_inverse(&denominator, &modulus).unwrap();
+            let product = BigInt::from(numerator) * inverse;
+            let residue = ((&product % &modulus) + &modulus) % &modulus;
+            let expected = BigRational::new(BigInt::from(numerator), denominator);
+            prop_assert_eq!(
+                BigRational::reconstruct_modular(&residue, &modulus),
+                Some(expected.clone())
+            );
+            let mut meter = Unbounded;
+            prop_assert_eq!(
+                BigRational::metered_reconstruct_modular(&residue, &modulus, &mut meter).unwrap(),
+                Some(expected)
+            );
+        }
+
         #[test]
         fn normalization_is_value_preserving_and_coprime(
             numerator in any::<i64>(),
