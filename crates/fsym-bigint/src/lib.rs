@@ -27,8 +27,9 @@
 //! [`BigInt::limb_count`] exposes u64-limb height (`LIMB_BITS = 64`) so callers can charge
 //! budget per unit of work. [`metered_add`], [`metered_subtract`], [`metered_multiply`], and
 //! [`metered_div_rem`] use deliberately simple base-$2^{32}$ reference algorithms with safe points
-//! inside their limb loops. [`metered_karatsuba_candidate`] adds a controlled recursive digit
-//! kernel whose output remains separate from the provisional substrate's unmetered materializer.
+//! inside their limb loops. [`metered_karatsuba_candidate`] and [`metered_toom3_candidate`] add
+//! controlled recursive digit kernels whose output has no production lift into the provisional
+//! substrate.
 
 #![forbid(unsafe_code)]
 
@@ -933,9 +934,9 @@ impl PartialOrd<i64> for BigInt {
 ///
 /// This API is unmetered. Recursive strategies use documented structural leaf and skew fallbacks,
 /// so the requested enum alone is not benchmark execution evidence. [`metered_karatsuba_candidate`]
-/// controls the recursive digit kernel but intentionally separates provisional-substrate
-/// materialization; no recursive strategy-to-`BigInt` path is presently fully controlled. The
-/// explicit Toom-3 lane remains unmetered.
+/// and [`metered_toom3_candidate`] control recursive digit kernels but expose no production
+/// provisional-substrate materialization; no recursive strategy-to-`BigInt` path is presently
+/// fully controlled. The explicit `BigInt`-returning Toom-3 lane remains unmetered.
 pub fn multiply_with_strategy(a: &BigInt, b: &BigInt, strategy: Strategy) -> BigInt {
     match strategy {
         Strategy::SchoolbookReference => schoolbook_reference(&a.0, &b.0),
@@ -1045,8 +1046,8 @@ pub fn metered_multiply<M: BudgetMeter>(
 /// charges. A final checkpoint occurs after the complete digit result exists and before candidate
 /// publication.
 ///
-/// The returned candidate is not a controlled `BigInt`. Its explicitly unmetered lift is kept
-/// separate because pinned `num-bigint` cannot adopt the buffer through a safe fallible public API.
+/// The returned candidate is not a controlled `BigInt`; pinned `num-bigint` cannot adopt the
+/// buffer through a safe fallible public API.
 pub fn metered_karatsuba_candidate<M: BudgetMeter>(
     a: &BigInt,
     b: &BigInt,
@@ -1055,6 +1056,8 @@ pub fn metered_karatsuba_candidate<M: BudgetMeter>(
     let mut recursion = RecursiveMeter {
         meter,
         max_depth: 0,
+        #[cfg(test)]
+        toom_nodes: 0,
     };
     recursion.enter(1)?;
     if a.is_zero() || b.is_zero() {
@@ -1076,12 +1079,75 @@ pub fn metered_karatsuba_candidate<M: BudgetMeter>(
     Ok(MeteredProductCandidate { negative, digits })
 }
 
+/// Recursively computes an opt-in Toom-3 product candidate under caller-owned metering.
+///
+/// Evaluation at `0`, `1`, `-1`, `2`, and infinity, all five recursive products, exact signed
+/// interpolation, and digit-aligned recombination stay in canonical base-$2^{32}$ buffers. Every
+/// nonempty kernel-owned buffer follows the same checked capacity charge and fallible reservation
+/// contract as [`metered_karatsuba_candidate`]. Structural cutoff and skew fallbacks remain inside
+/// the metered Karatsuba/schoolbook digit kernels. Non-exact interpolation and negative final
+/// coefficients fail with [`MeteredMultiplyError::InvariantViolation`] rather than truncating or
+/// panicking. A final checkpoint separates the complete canonical digit result from publication.
+/// `DepthLimit` is the maximum logical depth of the combined Toom/Karatsuba multiplication tree;
+/// buffer accounting remains cumulative requested capacity rather than peak live memory.
+///
+/// This API does not select Toom-3 by default, establish a crossover threshold, claim a performance
+/// win, or provide a controlled `BigInt` lift.
+pub fn metered_toom3_candidate<M: BudgetMeter>(
+    a: &BigInt,
+    b: &BigInt,
+    meter: &mut M,
+) -> Result<MeteredProductCandidate, MeteredMultiplyError> {
+    metered_toom3_candidate_inner(a, b, meter).map(|(candidate, _)| candidate)
+}
+
+fn metered_toom3_candidate_inner<M: BudgetMeter>(
+    a: &BigInt,
+    b: &BigInt,
+    meter: &mut M,
+) -> Result<(MeteredProductCandidate, u64), MeteredMultiplyError> {
+    let mut recursion = RecursiveMeter {
+        meter,
+        max_depth: 0,
+        #[cfg(test)]
+        toom_nodes: 0,
+    };
+    recursion.enter(1)?;
+    if a.is_zero() || b.is_zero() {
+        recursion.meter.checkpoint()?;
+        return Ok((
+            MeteredProductCandidate {
+                negative: false,
+                digits: Vec::new(),
+            },
+            recursion.observed_toom_nodes(),
+        ));
+    }
+
+    let negative = a.is_negative() != b.is_negative();
+    let a_digits = metered_copy_magnitude(a, recursion.meter)?;
+    let b_digits = metered_copy_magnitude(b, recursion.meter)?;
+    let digits = metered_toom3_digits(&a_digits, &b_digits, 1, &mut recursion)?;
+    if digits.is_empty() || digits.last() == Some(&0) {
+        return Err(MeteredMultiplyError::InvariantViolation);
+    }
+    recursion.meter.checkpoint()?;
+    Ok((
+        MeteredProductCandidate { negative, digits },
+        recursion.observed_toom_nodes(),
+    ))
+}
+
 // Structural recursion bound only; this is not a calibrated strategy crossover.
 const METERED_KARATSUBA_LEAF_DIGITS: usize = 4;
+// Structural Toom recursion bound only; this does not authorize a selector threshold.
+const METERED_TOOM3_RECURSION_CUTOFF_DIGITS: usize = 12;
 
 struct RecursiveMeter<'a, M> {
     meter: &'a mut M,
     max_depth: u64,
+    #[cfg(test)]
+    toom_nodes: u64,
 }
 
 impl<M: BudgetMeter> RecursiveMeter<'_, M> {
@@ -1098,6 +1164,28 @@ impl<M: BudgetMeter> RecursiveMeter<'_, M> {
         }
         Ok(())
     }
+
+    fn mark_toom_node(&mut self) -> Result<(), MeteredMultiplyError> {
+        #[cfg(test)]
+        {
+            self.toom_nodes = self
+                .toom_nodes
+                .checked_add(1)
+                .ok_or(MeteredMultiplyError::SizeOverflow)?;
+        }
+        Ok(())
+    }
+
+    fn observed_toom_nodes(&self) -> u64 {
+        #[cfg(test)]
+        {
+            self.toom_nodes
+        }
+        #[cfg(not(test))]
+        {
+            0
+        }
+    }
 }
 
 fn metered_karatsuba_digits<M: BudgetMeter>(
@@ -1109,6 +1197,15 @@ fn metered_karatsuba_digits<M: BudgetMeter>(
     if depth != 1 {
         recursion.enter(depth)?;
     }
+    metered_karatsuba_digits_entered(a, b, depth, recursion)
+}
+
+fn metered_karatsuba_digits_entered<M: BudgetMeter>(
+    a: &[u32],
+    b: &[u32],
+    depth: usize,
+    recursion: &mut RecursiveMeter<'_, M>,
+) -> Result<Vec<u32>, MeteredMultiplyError> {
     if a.is_empty() || b.is_empty() {
         return Ok(Vec::new());
     }
@@ -1154,6 +1251,385 @@ fn metered_karatsuba_digits<M: BudgetMeter>(
     metered_add_shifted_digits(&mut output, &z2, z2_shift_digits, recursion.meter)?;
     metered_trim_owned_digits(&mut output, recursion.meter)?;
     Ok(output)
+}
+
+struct SignedDigits {
+    negative: bool,
+    digits: Vec<u32>,
+}
+
+impl SignedDigits {
+    fn new(negative: bool, digits: Vec<u32>) -> Self {
+        Self {
+            negative: negative && !digits.is_empty(),
+            digits,
+        }
+    }
+}
+
+struct ToomEvaluations {
+    at_one: Vec<u32>,
+    at_minus_one: SignedDigits,
+    at_two: Vec<u32>,
+}
+
+struct ToomChunks<'a> {
+    low: &'a [u32],
+    middle: &'a [u32],
+    high: &'a [u32],
+}
+
+struct ToomCoefficients {
+    c0: Vec<u32>,
+    c1: Vec<u32>,
+    c2: Vec<u32>,
+    c3: Vec<u32>,
+    c4: Vec<u32>,
+}
+
+fn metered_toom3_digits<M: BudgetMeter>(
+    a: &[u32],
+    b: &[u32],
+    depth: usize,
+    recursion: &mut RecursiveMeter<'_, M>,
+) -> Result<Vec<u32>, MeteredMultiplyError> {
+    if depth != 1 {
+        recursion.enter(depth)?;
+    }
+    if a.is_empty() || b.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let output_capacity = checked_product_capacity(a.len(), b.len())?;
+    let max_digits = a.len().max(b.len());
+    let min_digits = a.len().min(b.len());
+    let chunk_digits = max_digits.div_ceil(3);
+    let chunk_digits_x2 = chunk_digits
+        .checked_mul(2)
+        .ok_or(MeteredMultiplyError::SizeOverflow)?;
+    if max_digits <= METERED_TOOM3_RECURSION_CUTOFF_DIGITS || min_digits <= chunk_digits_x2 {
+        return metered_karatsuba_digits_entered(a, b, depth, recursion);
+    }
+    let chunk_digits_x3 = chunk_digits
+        .checked_mul(3)
+        .ok_or(MeteredMultiplyError::SizeOverflow)?;
+    let chunk_digits_x4 = chunk_digits
+        .checked_mul(4)
+        .ok_or(MeteredMultiplyError::SizeOverflow)?;
+    let child_depth = depth
+        .checked_add(1)
+        .ok_or(MeteredMultiplyError::SizeOverflow)?;
+    recursion.mark_toom_node()?;
+
+    let a_chunks = metered_split_three_slices(a, chunk_digits, chunk_digits_x2, recursion.meter)?;
+    let b_chunks = metered_split_three_slices(b, chunk_digits, chunk_digits_x2, recursion.meter)?;
+    let (a0, a1, a2) = (a_chunks.low, a_chunks.middle, a_chunks.high);
+    let (b0, b1, b2) = (b_chunks.low, b_chunks.middle, b_chunks.high);
+    let a_values = metered_evaluate_toom3_chunks(a0, a1, a2, recursion.meter)?;
+    let b_values = metered_evaluate_toom3_chunks(b0, b1, b2, recursion.meter)?;
+
+    let w0 = metered_toom3_signed_product(false, a0, false, b0, child_depth, recursion)?;
+    let w1 = metered_toom3_signed_product(
+        false,
+        &a_values.at_one,
+        false,
+        &b_values.at_one,
+        child_depth,
+        recursion,
+    )?;
+    let w_minus_one = metered_toom3_signed_product(
+        a_values.at_minus_one.negative,
+        &a_values.at_minus_one.digits,
+        b_values.at_minus_one.negative,
+        &b_values.at_minus_one.digits,
+        child_depth,
+        recursion,
+    )?;
+    let w2 = metered_toom3_signed_product(
+        false,
+        &a_values.at_two,
+        false,
+        &b_values.at_two,
+        child_depth,
+        recursion,
+    )?;
+    let w4 = metered_toom3_signed_product(false, a2, false, b2, child_depth, recursion)?;
+    let coefficients = metered_interpolate_toom3(w0, w1, w_minus_one, w2, w4, recursion.meter)?;
+    metered_recombine_toom3(
+        coefficients,
+        [
+            0,
+            chunk_digits,
+            chunk_digits_x2,
+            chunk_digits_x3,
+            chunk_digits_x4,
+        ],
+        output_capacity,
+        recursion.meter,
+    )
+}
+
+fn metered_toom3_signed_product<M: BudgetMeter>(
+    a_negative: bool,
+    a: &[u32],
+    b_negative: bool,
+    b: &[u32],
+    depth: usize,
+    recursion: &mut RecursiveMeter<'_, M>,
+) -> Result<SignedDigits, MeteredMultiplyError> {
+    let digits = metered_toom3_digits(a, b, depth, recursion)?;
+    Ok(SignedDigits::new(a_negative != b_negative, digits))
+}
+
+fn metered_split_three_slices<'a, M: BudgetMeter>(
+    digits: &'a [u32],
+    chunk_digits: usize,
+    chunk_digits_x2: usize,
+    meter: &mut M,
+) -> Result<ToomChunks<'a>, MeteredMultiplyError> {
+    let first = chunk_digits.min(digits.len());
+    let second = chunk_digits_x2.min(digits.len());
+    let low = metered_trimmed_slice(&digits[..first], meter)?;
+    let middle = metered_trimmed_slice(&digits[first..second], meter)?;
+    let high = metered_trimmed_slice(&digits[second..], meter)?;
+    Ok(ToomChunks { low, middle, high })
+}
+
+fn metered_evaluate_toom3_chunks<M: BudgetMeter>(
+    c0: &[u32],
+    c1: &[u32],
+    c2: &[u32],
+    meter: &mut M,
+) -> Result<ToomEvaluations, MeteredMultiplyError> {
+    let c0_plus_c2 = metered_add_digit_slices(c0, c2, meter)?;
+    let at_one = metered_add_digit_slices(&c0_plus_c2, c1, meter)?;
+    let at_minus_one = metered_signed_add_parts(false, &c0_plus_c2, true, c1, meter)?;
+
+    let twice_c1 = metered_multiply_digit_slice_by_small(c1, 2, meter)?;
+    let four_c2 = metered_multiply_digit_slice_by_small(c2, 4, meter)?;
+    let c0_plus_twice_c1 = metered_add_digit_slices(c0, &twice_c1, meter)?;
+    let at_two = metered_add_digit_slices(&c0_plus_twice_c1, &four_c2, meter)?;
+    Ok(ToomEvaluations {
+        at_one,
+        at_minus_one,
+        at_two,
+    })
+}
+
+fn metered_interpolate_toom3<M: BudgetMeter>(
+    w0: SignedDigits,
+    w1: SignedDigits,
+    w_minus_one: SignedDigits,
+    w2: SignedDigits,
+    w4: SignedDigits,
+    meter: &mut M,
+) -> Result<ToomCoefficients, MeteredMultiplyError> {
+    if w0.negative || w1.negative || w2.negative || w4.negative {
+        return Err(MeteredMultiplyError::InvariantViolation);
+    }
+
+    let w1_plus_minus_one = metered_signed_add(&w1, &w_minus_one, meter)?;
+    let half_sum = metered_exact_divide_signed_small(w1_plus_minus_one, 2, meter)?;
+    let without_w0 = metered_signed_subtract(&half_sum, &w0, meter)?;
+    let c2 = metered_signed_subtract(&without_w0, &w4, meter)?;
+
+    let w1_minus_minus_one = metered_signed_subtract(&w1, &w_minus_one, meter)?;
+    let sum_c1_c3 = metered_exact_divide_signed_small(w1_minus_minus_one, 2, meter)?;
+
+    let four_c2 = metered_multiply_signed_by_small(&c2, 4, meter)?;
+    let sixteen_w4 = metered_multiply_signed_by_small(&w4, 16, meter)?;
+    let w2_without_w0 = metered_signed_subtract(&w2, &w0, meter)?;
+    let without_four_c2 = metered_signed_subtract(&w2_without_w0, &four_c2, meter)?;
+    let without_sixteen_w4 = metered_signed_subtract(&without_four_c2, &sixteen_w4, meter)?;
+    let c1_plus_four_c3 = metered_exact_divide_signed_small(without_sixteen_w4, 2, meter)?;
+    let three_c3 = metered_signed_subtract(&c1_plus_four_c3, &sum_c1_c3, meter)?;
+    let c3 = metered_exact_divide_signed_small(three_c3, 3, meter)?;
+    let c1 = metered_signed_subtract(&sum_c1_c3, &c3, meter)?;
+
+    if c1.negative || c2.negative || c3.negative {
+        return Err(MeteredMultiplyError::InvariantViolation);
+    }
+    for digits in [&w0.digits, &c1.digits, &c2.digits, &c3.digits, &w4.digits] {
+        if digits.last() == Some(&0) {
+            return Err(MeteredMultiplyError::InvariantViolation);
+        }
+    }
+    Ok(ToomCoefficients {
+        c0: w0.digits,
+        c1: c1.digits,
+        c2: c2.digits,
+        c3: c3.digits,
+        c4: w4.digits,
+    })
+}
+
+fn metered_recombine_toom3<M: BudgetMeter>(
+    coefficients: ToomCoefficients,
+    offsets: [usize; 5],
+    output_capacity: usize,
+    meter: &mut M,
+) -> Result<Vec<u32>, MeteredMultiplyError> {
+    let coefficient_slices = [
+        coefficients.c0.as_slice(),
+        coefficients.c1.as_slice(),
+        coefficients.c2.as_slice(),
+        coefficients.c3.as_slice(),
+        coefficients.c4.as_slice(),
+    ];
+    for (digits, offset) in coefficient_slices.iter().zip(offsets) {
+        let end = offset
+            .checked_add(digits.len())
+            .ok_or(MeteredMultiplyError::SizeOverflow)?;
+        if end > output_capacity {
+            return Err(MeteredMultiplyError::InvariantViolation);
+        }
+    }
+
+    let mut output = metered_zeroed_digits(output_capacity, meter)?;
+    for (digits, offset) in coefficient_slices.iter().zip(offsets) {
+        metered_add_shifted_digits(&mut output, digits, offset, meter)?;
+    }
+    metered_trim_owned_digits(&mut output, meter)?;
+    Ok(output)
+}
+
+fn metered_signed_add<M: BudgetMeter>(
+    lhs: &SignedDigits,
+    rhs: &SignedDigits,
+    meter: &mut M,
+) -> Result<SignedDigits, MeteredMultiplyError> {
+    metered_signed_add_parts(lhs.negative, &lhs.digits, rhs.negative, &rhs.digits, meter)
+}
+
+fn metered_signed_subtract<M: BudgetMeter>(
+    lhs: &SignedDigits,
+    rhs: &SignedDigits,
+    meter: &mut M,
+) -> Result<SignedDigits, MeteredMultiplyError> {
+    metered_signed_add_parts(lhs.negative, &lhs.digits, !rhs.negative, &rhs.digits, meter)
+}
+
+fn metered_signed_add_parts<M: BudgetMeter>(
+    lhs_negative: bool,
+    lhs: &[u32],
+    rhs_negative: bool,
+    rhs: &[u32],
+    meter: &mut M,
+) -> Result<SignedDigits, MeteredMultiplyError> {
+    if lhs.is_empty() {
+        return Ok(SignedDigits::new(
+            rhs_negative,
+            metered_copy_digit_slice(rhs, meter)?,
+        ));
+    }
+    if rhs.is_empty() {
+        return Ok(SignedDigits::new(
+            lhs_negative,
+            metered_copy_digit_slice(lhs, meter)?,
+        ));
+    }
+    if lhs_negative == rhs_negative {
+        return Ok(SignedDigits::new(
+            lhs_negative,
+            metered_add_digit_slices(lhs, rhs, meter)?,
+        ));
+    }
+
+    match metered_compare_digit_slices(lhs, rhs, meter)? {
+        std::cmp::Ordering::Less => Ok(SignedDigits::new(
+            rhs_negative,
+            metered_subtract_digit_slices(rhs, lhs, meter)?,
+        )),
+        std::cmp::Ordering::Equal => Ok(SignedDigits::new(false, Vec::new())),
+        std::cmp::Ordering::Greater => Ok(SignedDigits::new(
+            lhs_negative,
+            metered_subtract_digit_slices(lhs, rhs, meter)?,
+        )),
+    }
+}
+
+fn metered_copy_digit_slice<M: BudgetMeter>(
+    digits: &[u32],
+    meter: &mut M,
+) -> Result<Vec<u32>, MeteredMultiplyError> {
+    charge_vec_capacities(&[digits.len()], meter)?;
+    let mut output = try_u32_vec(digits.len())?;
+    for &digit in digits {
+        meter.checkpoint()?;
+        meter.charge(Dimension::ComputeSteps, 1)?;
+        output.push(digit);
+    }
+    Ok(output)
+}
+
+fn metered_multiply_digit_slice_by_small<M: BudgetMeter>(
+    digits: &[u32],
+    factor: u32,
+    meter: &mut M,
+) -> Result<Vec<u32>, MeteredMultiplyError> {
+    if digits.is_empty() || factor == 0 {
+        return Ok(Vec::new());
+    }
+    let capacity = digits
+        .len()
+        .checked_add(1)
+        .ok_or(MeteredMultiplyError::SizeOverflow)?;
+    charge_vec_capacities(&[capacity], meter)?;
+    let mut output = try_u32_vec(capacity)?;
+    let mut carry = 0u64;
+    for &digit in digits {
+        meter.checkpoint()?;
+        meter.charge(Dimension::ComputeSteps, 1)?;
+        let product = u64::from(digit) * u64::from(factor) + carry;
+        output.push(
+            u32::try_from(product & u64::from(u32::MAX))
+                .map_err(|_| MeteredMultiplyError::InvariantViolation)?,
+        );
+        carry = product >> 32;
+    }
+    if carry != 0 {
+        meter.checkpoint()?;
+        meter.charge(Dimension::ComputeSteps, 1)?;
+        output.push(u32::try_from(carry).map_err(|_| MeteredMultiplyError::InvariantViolation)?);
+    }
+    Ok(output)
+}
+
+fn metered_multiply_signed_by_small<M: BudgetMeter>(
+    value: &SignedDigits,
+    factor: u32,
+    meter: &mut M,
+) -> Result<SignedDigits, MeteredMultiplyError> {
+    Ok(SignedDigits::new(
+        value.negative,
+        metered_multiply_digit_slice_by_small(&value.digits, factor, meter)?,
+    ))
+}
+
+fn metered_exact_divide_signed_small<M: BudgetMeter>(
+    mut value: SignedDigits,
+    divisor: u32,
+    meter: &mut M,
+) -> Result<SignedDigits, MeteredMultiplyError> {
+    if divisor == 0 {
+        return Err(MeteredMultiplyError::InvariantViolation);
+    }
+    let divisor = u64::from(divisor);
+    let mut remainder = 0u64;
+    for digit in value.digits.iter_mut().rev() {
+        meter.checkpoint()?;
+        meter.charge(Dimension::ComputeSteps, 1)?;
+        let wide = (remainder << 32) | u64::from(*digit);
+        *digit =
+            u32::try_from(wide / divisor).map_err(|_| MeteredMultiplyError::InvariantViolation)?;
+        remainder = wide % divisor;
+    }
+    if remainder != 0 {
+        return Err(MeteredMultiplyError::InvariantViolation);
+    }
+    metered_trim_owned_digits(&mut value.digits, meter)?;
+    value.negative = value.negative && !value.digits.is_empty();
+    Ok(value)
 }
 
 fn checked_product_capacity(
@@ -2125,6 +2601,49 @@ mod tests {
         c0 + (c1 << chunk_bits) + (c2 << (2 * chunk_bits))
     }
 
+    fn signed_digits_from_i128(value: i128) -> SignedDigits {
+        let negative = value.is_negative();
+        let mut magnitude = value.unsigned_abs();
+        let mut digits = Vec::new();
+        while magnitude != 0 {
+            digits.push(
+                u32::try_from(magnitude & u128::from(u32::MAX))
+                    .expect("masked test digit must fit u32"),
+            );
+            magnitude >>= 32;
+        }
+        SignedDigits::new(negative, digits)
+    }
+
+    fn signed_digits_to_i128(value: &SignedDigits) -> i128 {
+        let mut magnitude = 0u128;
+        for &digit in value.digits.iter().rev() {
+            magnitude = (magnitude << 32) | u128::from(digit);
+        }
+        let magnitude = i128::try_from(magnitude).expect("test magnitude must fit i128");
+        if value.negative {
+            -magnitude
+        } else {
+            magnitude
+        }
+    }
+
+    fn actual_metered_toom_operands() -> (BigInt, BigInt) {
+        let chunk_bits = 160;
+        let high = (BigInt::one() << 64) + 5i64;
+        let twice_high = &high + &high;
+        let three_high = &twice_high + &high;
+        // a(-1) is negative while b(-1) is positive, exercising a signed recursive product.
+        let a = from_base_chunks(&high, &three_high, &high, chunk_bits);
+        let b = from_base_chunks(
+            &(&high + 11i64),
+            &(&twice_high + 1i64),
+            &(&high + 17i64),
+            chunk_bits,
+        );
+        (a, b)
+    }
+
     fn assert_explicit_multiplication_lanes_agree(a: &BigInt, b: &BigInt) {
         let reference = multiply_with_strategy(a, b, Strategy::SchoolbookReference);
         assert_eq!(multiply_with_strategy(a, b, Strategy::Karatsuba), reference);
@@ -2454,6 +2973,333 @@ mod tests {
     }
 
     #[test]
+    fn metered_toom3_evaluation_and_interpolation_match_direct_convolution() {
+        let mut meter = CountingMeter::default();
+        let values = metered_evaluate_toom3_chunks(&[1], &[9], &[2], &mut meter).unwrap();
+        assert_eq!(values.at_one, vec![12]);
+        assert_eq!(signed_digits_to_i128(&values.at_minus_one), -6);
+        assert_eq!(values.at_two, vec![27]);
+
+        let zero_at_minus_one =
+            metered_evaluate_toom3_chunks(&[1], &[2], &[1], &mut meter).unwrap();
+        assert_eq!(signed_digits_to_i128(&zero_at_minus_one.at_minus_one), 0);
+
+        let a = [1i128, 9, 2];
+        let b = [3i128, 4, 5];
+        let evaluate = |coefficients: [i128; 3], point: i128| {
+            coefficients[0] + coefficients[1] * point + coefficients[2] * point * point
+        };
+        let coefficients = metered_interpolate_toom3(
+            signed_digits_from_i128(a[0] * b[0]),
+            signed_digits_from_i128(evaluate(a, 1) * evaluate(b, 1)),
+            signed_digits_from_i128(evaluate(a, -1) * evaluate(b, -1)),
+            signed_digits_from_i128(evaluate(a, 2) * evaluate(b, 2)),
+            signed_digits_from_i128(a[2] * b[2]),
+            &mut meter,
+        )
+        .unwrap();
+        assert_eq!(coefficients.c0, vec![3]);
+        assert_eq!(coefficients.c1, vec![31]);
+        assert_eq!(coefficients.c2, vec![47]);
+        assert_eq!(coefficients.c3, vec![53]);
+        assert_eq!(coefficients.c4, vec![10]);
+
+        assert!(matches!(
+            metered_interpolate_toom3(
+                signed_digits_from_i128(10),
+                signed_digits_from_i128(9),
+                signed_digits_from_i128(11),
+                signed_digits_from_i128(8),
+                signed_digits_from_i128(0),
+                &mut meter,
+            ),
+            Err(MeteredMultiplyError::InvariantViolation)
+        ));
+    }
+
+    #[test]
+    fn metered_toom3_exact_small_division_is_signed_and_fail_closed() {
+        let mut meter = CountingMeter::default();
+        let quotient =
+            metered_exact_divide_signed_small(signed_digits_from_i128(-9), 3, &mut meter).unwrap();
+        assert_eq!(signed_digits_to_i128(&quotient), -3);
+        assert!(matches!(
+            metered_exact_divide_signed_small(signed_digits_from_i128(5), 3, &mut meter,),
+            Err(MeteredMultiplyError::InvariantViolation)
+        ));
+        assert!(matches!(
+            metered_exact_divide_signed_small(signed_digits_from_i128(-5), 2, &mut meter,),
+            Err(MeteredMultiplyError::InvariantViolation)
+        ));
+        assert!(matches!(
+            metered_exact_divide_signed_small(signed_digits_from_i128(0), 0, &mut meter,),
+            Err(MeteredMultiplyError::InvariantViolation)
+        ));
+    }
+
+    #[test]
+    fn metered_toom3_candidate_covers_real_branch_signs_and_canonicality() {
+        let (a, b) = actual_metered_toom_operands();
+        for (negative_a, negative_b) in [(false, false), (true, false), (false, true), (true, true)]
+        {
+            let signed_a = if negative_a { -&a } else { a.clone() };
+            let signed_b = if negative_b { -&b } else { b.clone() };
+            let expected = multiply_with_strategy(&signed_a, &signed_b, Strategy::NativeSubstrate);
+            let mut meter = CountingMeter::default();
+            let (candidate, toom_nodes) =
+                metered_toom3_candidate_inner(&signed_a, &signed_b, &mut meter).unwrap();
+            assert!(
+                toom_nodes > 0,
+                "fixture must enter the Toom interpolation body"
+            );
+            assert!(!candidate.is_zero());
+            assert_eq!(candidate.is_negative(), negative_a != negative_b);
+            assert_ne!(candidate.digits_le().last(), Some(&0));
+            assert_eq!(candidate.materialize_unmetered(), expected);
+            assert_eq!(meter.dimensions[Dimension::RandomDraws.index()], 0);
+        }
+
+        let mut meter = CountingMeter::default();
+        let (zero, toom_nodes) =
+            metered_toom3_candidate_inner(&BigInt::zero(), &b, &mut meter).unwrap();
+        assert!(zero.is_zero());
+        assert!(!zero.is_negative());
+        assert_eq!(toom_nodes, 0);
+    }
+
+    #[test]
+    fn metered_toom3_structural_cutoff_skew_and_nested_boundaries_are_exercised() {
+        let cutoff = (BigInt::one() << 384) - 1i64;
+        let mut cutoff_meter = CountingMeter::default();
+        let (_, cutoff_nodes) =
+            metered_toom3_candidate_inner(&cutoff, &cutoff, &mut cutoff_meter).unwrap();
+        assert_eq!(cutoff_nodes, 0);
+
+        let thirteen_digits = (BigInt::one() << 416) - 1i64;
+        let ten_digits = (BigInt::one() << 320) - 1i64;
+        let eleven_digits = (BigInt::one() << 321) - 1i64;
+        let mut skew_meter = CountingMeter::default();
+        let (_, skew_nodes) =
+            metered_toom3_candidate_inner(&thirteen_digits, &ten_digits, &mut skew_meter).unwrap();
+        assert_eq!(skew_nodes, 0, "ten digits are exactly the 2k skew boundary");
+
+        let mut above_skew_meter = CountingMeter::default();
+        let (_, above_skew_nodes) =
+            metered_toom3_candidate_inner(&thirteen_digits, &eleven_digits, &mut above_skew_meter)
+                .unwrap();
+        assert!(
+            above_skew_nodes > 0,
+            "eleven digits provide a nonzero top third"
+        );
+
+        let nested = (BigInt::one() << 1_280) - 1i64;
+        let mut nested_meter = CountingMeter::default();
+        let (nested_candidate, nested_nodes) =
+            metered_toom3_candidate_inner(&nested, &nested, &mut nested_meter).unwrap();
+        assert_eq!(
+            nested_candidate.materialize_unmetered(),
+            multiply_with_strategy(&nested, &nested, Strategy::NativeSubstrate)
+        );
+        assert!(
+            nested_nodes > 1,
+            "dense forty-digit input must recurse through Toom"
+        );
+        assert_eq!(
+            nested_meter.dimensions[Dimension::DepthLimit.index()],
+            5,
+            "nested fixture must count its Toom and metered Karatsuba multiplication depths"
+        );
+
+        let mut nested_baseline = CancelAfter {
+            cancel_at_checkpoint: usize::MAX,
+            checkpoints: 0,
+            compute_steps: 0,
+        };
+        metered_toom3_candidate(&nested, &nested, &mut nested_baseline).unwrap();
+        let cancel_at_checkpoint = nested_baseline.checkpoints * 3 / 4;
+        let mut nested_cancelled = CancelAfter {
+            cancel_at_checkpoint,
+            checkpoints: 0,
+            compute_steps: 0,
+        };
+        assert_eq!(
+            metered_toom3_candidate(&nested, &nested, &mut nested_cancelled),
+            Err(MeteredMultiplyError::Meter(MeterError::Cancelled))
+        );
+        assert_eq!(nested_cancelled.checkpoints, cancel_at_checkpoint);
+        assert!(nested_cancelled.compute_steps < nested_baseline.compute_steps);
+    }
+
+    #[test]
+    fn metered_toom3_candidate_exact_budgets_and_one_short_refusals() {
+        let (a, b) = actual_metered_toom_operands();
+        let expected = multiply_with_strategy(&a, &b, Strategy::NativeSubstrate);
+        let mut count = CountingMeter::default();
+        let (candidate, toom_nodes) = metered_toom3_candidate_inner(&a, &b, &mut count).unwrap();
+        assert!(toom_nodes > 0);
+        assert_eq!(candidate.materialize_unmetered(), expected);
+        assert_eq!(count.dimensions[Dimension::RandomDraws.index()], 0);
+
+        let exact_limits = BudgetLimits {
+            dimensions: count.dimensions,
+            verifier_pool: 0,
+        };
+        let mut exact = Budget::new(exact_limits);
+        assert_eq!(
+            metered_toom3_candidate(&a, &b, &mut exact)
+                .unwrap()
+                .materialize_unmetered(),
+            expected
+        );
+        for dimension in Dimension::ALL {
+            assert_eq!(exact.remaining(dimension), 0);
+        }
+
+        for dimension in Dimension::ALL {
+            let used = count.dimensions[dimension.index()];
+            if used == 0 {
+                continue;
+            }
+            let mut short_limits = exact_limits;
+            short_limits.dimensions[dimension.index()] = used - 1;
+            let mut short = Budget::new(short_limits);
+            assert!(
+                matches!(
+                    metered_toom3_candidate(&a, &b, &mut short),
+                    Err(MeteredMultiplyError::Meter(MeterError::Budget(
+                        BudgetError::Exhausted {
+                            dimension: observed,
+                            ..
+                        }
+                    ))) if observed == dimension
+                ),
+                "one-unit-short {dimension} allowance must refuse without a value"
+            );
+        }
+    }
+
+    #[test]
+    fn metered_toom3_candidate_cancels_at_every_safe_point() {
+        let (a, b) = actual_metered_toom_operands();
+        let expected = multiply_with_strategy(&a, &b, Strategy::NativeSubstrate);
+        let mut baseline = CancelAfter {
+            cancel_at_checkpoint: usize::MAX,
+            checkpoints: 0,
+            compute_steps: 0,
+        };
+        assert_eq!(
+            metered_toom3_candidate(&a, &b, &mut baseline)
+                .unwrap()
+                .materialize_unmetered(),
+            expected
+        );
+        assert!(baseline.checkpoints > 1);
+
+        for cancel_at_checkpoint in 1..=baseline.checkpoints {
+            let mut cancelled = CancelAfter {
+                cancel_at_checkpoint,
+                checkpoints: 0,
+                compute_steps: 0,
+            };
+            assert_eq!(
+                metered_toom3_candidate(&a, &b, &mut cancelled),
+                Err(MeteredMultiplyError::Meter(MeterError::Cancelled)),
+                "checkpoint {cancel_at_checkpoint} must not publish a partial Toom candidate"
+            );
+            assert_eq!(cancelled.checkpoints, cancel_at_checkpoint);
+        }
+    }
+
+    #[test]
+    fn metered_toom3_helper_allocations_and_recombination_are_explicit() {
+        let mut scale_meter = CountingMeter::default();
+        assert_eq!(
+            metered_multiply_digit_slice_by_small(&[u32::MAX, u32::MAX], 16, &mut scale_meter,)
+                .unwrap(),
+            vec![u32::MAX - 15, u32::MAX, 15]
+        );
+        assert_eq!(
+            scale_meter.dimensions[Dimension::MemoryBytes.index()],
+            3 * 4
+        );
+        assert_eq!(
+            scale_meter.dimensions[Dimension::AllocationCount.index()],
+            1
+        );
+
+        let mut division_meter = CountingMeter::default();
+        let quotient = metered_exact_divide_signed_small(
+            SignedDigits::new(false, vec![0, 3]),
+            3,
+            &mut division_meter,
+        )
+        .unwrap();
+        assert_eq!(quotient.digits, vec![0, 1]);
+        assert_eq!(division_meter.dimensions[Dimension::MemoryBytes.index()], 0);
+        assert_eq!(
+            division_meter.dimensions[Dimension::AllocationCount.index()],
+            0
+        );
+
+        let mut recombination_meter = CountingMeter::default();
+        let recombined = metered_recombine_toom3(
+            ToomCoefficients {
+                c0: vec![1],
+                c1: vec![1],
+                c2: vec![1],
+                c3: vec![1],
+                c4: vec![1],
+            },
+            [0, 1, 2, 3, 4],
+            5,
+            &mut recombination_meter,
+        )
+        .unwrap();
+        assert_eq!(recombined, vec![1, 1, 1, 1, 1]);
+        assert_eq!(
+            recombination_meter.dimensions[Dimension::MemoryBytes.index()],
+            5 * 4
+        );
+        assert_eq!(
+            recombination_meter.dimensions[Dimension::AllocationCount.index()],
+            1
+        );
+
+        let mut carry_meter = CountingMeter::default();
+        assert_eq!(
+            metered_recombine_toom3(
+                ToomCoefficients {
+                    c0: vec![u32::MAX],
+                    c1: vec![1],
+                    c2: Vec::new(),
+                    c3: Vec::new(),
+                    c4: Vec::new(),
+                },
+                [0, 0, 0, 0, 0],
+                2,
+                &mut carry_meter,
+            )
+            .unwrap(),
+            vec![0, 1]
+        );
+        assert_eq!(
+            metered_recombine_toom3(
+                ToomCoefficients {
+                    c0: vec![1],
+                    c1: Vec::new(),
+                    c2: Vec::new(),
+                    c3: Vec::new(),
+                    c4: vec![1],
+                },
+                [0, 1, 2, 3, usize::MAX],
+                5,
+                &mut CountingMeter::default(),
+            ),
+            Err(MeteredMultiplyError::SizeOverflow)
+        );
+    }
+
+    #[test]
     fn metered_addition_and_subtraction_match_signed_native_lanes() {
         let values = [
             BigInt::zero(),
@@ -2668,11 +3514,16 @@ mod tests {
                 metered_karatsuba_candidate(&a, &b, &mut recursive_meter)
                     .unwrap()
                     .materialize_unmetered();
+            let mut metered_toom_meter = Unbounded;
+            let metered_toom = metered_toom3_candidate(&a, &b, &mut metered_toom_meter)
+                .unwrap()
+                .materialize_unmetered();
             prop_assert_eq!(&reference, &karatsuba);
             prop_assert_eq!(&reference, &toom3);
             prop_assert_eq!(&reference, &native);
             prop_assert_eq!(&reference, &metered);
             prop_assert_eq!(&reference, &recursively_metered);
+            prop_assert_eq!(&reference, &metered_toom);
             prop_assert_eq!(multiply_with_strategy(&b, &a, Strategy::Toom3), native.clone());
             prop_assert_eq!(&a * &b, native);
         }
