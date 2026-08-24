@@ -15,9 +15,9 @@
 #![forbid(unsafe_code)]
 
 pub use fsym_bigint::{
-    BigInt, DEFAULT_STRATEGY_THRESHOLD_BITS, LIMB_BITS, Strategy as MulStrategy, limb_count_u64,
-    metered_multiply as metered_mul, multiply, multiply_with_strategy as mul_with_strategy,
-    select_strategy,
+    BigInt, DEFAULT_STRATEGY_THRESHOLD_BITS, LIMB_BITS, NonZeroBigInt, Strategy as MulStrategy,
+    limb_count_u64, metered_div_rem, metered_div_rem_nonzero, metered_multiply as metered_mul,
+    multiply, multiply_with_strategy as mul_with_strategy, select_strategy,
 };
 use fsym_budget::{BudgetMeter, Dimension, MeterError};
 
@@ -39,6 +39,22 @@ pub fn exact_div(a: &BigInt, b: &BigInt) -> Option<BigInt> {
     }
     let (q, r) = a.div_rem(b);
     if r.is_zero() { Some(q) } else { None }
+}
+
+/// Cancellation-first exact division using the metered scalar division lane.
+pub fn metered_exact_div<M: BudgetMeter>(
+    a: &BigInt,
+    b: &BigInt,
+    meter: &mut M,
+) -> Result<Option<BigInt>, MeterError> {
+    let Some((quotient, remainder)) = metered_div_rem(a, b, meter)? else {
+        return Ok(None);
+    };
+    if remainder.is_zero() {
+        Ok(Some(quotient))
+    } else {
+        Ok(None)
+    }
 }
 
 /// Multiplicative inverse of `a` modulo `m` (`m > 0`); `None` when
@@ -285,13 +301,18 @@ pub fn metered_gcd<M: BudgetMeter>(
     meter: &mut M,
 ) -> Result<BigInt, MeterError> {
     meter.checkpoint()?;
+    meter.charge(
+        Dimension::MemoryBytes,
+        a.limb_count()
+            .saturating_add(b.limb_count())
+            .saturating_mul(8),
+    )?;
+    meter.charge(Dimension::AllocationCount, 2)?;
     let mut a = a.clone();
     let mut b = b.clone();
-    while !b.is_zero() {
+    while let Some(divisor) = NonZeroBigInt::new(&b) {
         meter.checkpoint()?;
-        let b_limbs = b.limb_count().max(1);
-        meter.charge(Dimension::ComputeSteps, b_limbs)?;
-        let r = &a % &b;
+        let (_, r) = metered_div_rem_nonzero(&a, divisor, meter)?;
         a = b;
         b = r;
     }
@@ -306,21 +327,28 @@ pub fn metered_extended_gcd<M: BudgetMeter>(
     meter: &mut M,
 ) -> Result<(BigInt, BigInt, BigInt), MeterError> {
     meter.checkpoint()?;
+    meter.charge(
+        Dimension::MemoryBytes,
+        a.limb_count()
+            .saturating_add(b.limb_count())
+            .saturating_add(4)
+            .saturating_mul(8),
+    )?;
+    meter.charge(Dimension::AllocationCount, 6)?;
     let (mut old_r, mut r) = (a.clone(), b.clone());
     let (mut old_s, mut s) = (BigInt::one(), BigInt::zero());
     let (mut old_t, mut t) = (BigInt::zero(), BigInt::one());
-    while !r.is_zero() {
+    while let Some(divisor) = NonZeroBigInt::new(&r) {
         meter.checkpoint()?;
-        let r_limbs = r.limb_count().max(1);
-        meter.charge(Dimension::ComputeSteps, r_limbs)?;
-        let q = &old_r / &r;
-        let tmp_r = &old_r - (&q * &r);
+        let (q, tmp_r) = metered_div_rem_nonzero(&old_r, divisor, meter)?;
         old_r = r;
         r = tmp_r;
-        let tmp_s = &old_s - (&q * &s);
+        let q_times_s = metered_mul(&q, &s, meter)?;
+        let tmp_s = metered_subtract(&old_s, &q_times_s, meter)?;
         old_s = s;
         s = tmp_s;
-        let tmp_t = &old_t - (&q * &t);
+        let q_times_t = metered_mul(&q, &t, meter)?;
+        let tmp_t = metered_subtract(&old_t, &q_times_t, meter)?;
         old_t = t;
         t = tmp_t;
     }
@@ -332,10 +360,23 @@ pub fn metered_extended_gcd<M: BudgetMeter>(
     }
 }
 
+fn metered_subtract<M: BudgetMeter>(
+    lhs: &BigInt,
+    rhs: &BigInt,
+    meter: &mut M,
+) -> Result<BigInt, MeterError> {
+    meter.checkpoint()?;
+    let output_limbs = lhs.limb_count().max(rhs.limb_count()).saturating_add(1);
+    meter.charge(Dimension::ComputeSteps, output_limbs.max(1))?;
+    meter.charge(Dimension::MemoryBytes, output_limbs.saturating_mul(8))?;
+    meter.charge(Dimension::AllocationCount, 1)?;
+    Ok(lhs - rhs)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fsym_budget::{Budget, BudgetLimits};
+    use fsym_budget::{Budget, BudgetLimits, Unbounded};
     use proptest::prelude::*;
 
     fn scalar_gcd(mut a: u64, mut b: u64) -> u64 {
@@ -441,6 +482,20 @@ mod tests {
         }
 
         #[test]
+        fn metered_exact_division_matches_unmetered_lane(
+            dividend_bytes in proptest::collection::vec(any::<u8>(), 0..97),
+            divisor_bytes in proptest::collection::vec(any::<u8>(), 0..65),
+        ) {
+            let dividend = BigInt::from_signed_bytes_be(&dividend_bytes);
+            let divisor = BigInt::from_signed_bytes_be(&divisor_bytes);
+            let mut meter = Unbounded;
+            prop_assert_eq!(
+                metered_exact_div(&dividend, &divisor, &mut meter).unwrap(),
+                exact_div(&dividend, &divisor)
+            );
+        }
+
+        #[test]
         fn modular_inverse_matches_bounded_scalar_oracle(a in -500i64..500, modulus in 1i64..200) {
             let normalized = a.rem_euclid(modulus);
             let expected = (0..modulus)
@@ -494,6 +549,22 @@ mod tests {
                 rational_reconstruct(&residue, &BigInt::from(MODULUS)),
                 Some((BigInt::from(numerator), BigInt::from(denominator)))
             );
+        }
+
+        #[test]
+        fn metered_gcd_and_bezout_match_unmetered_lanes(
+            a_bytes in proptest::collection::vec(any::<u8>(), 0..97),
+            b_bytes in proptest::collection::vec(any::<u8>(), 0..97),
+        ) {
+            let a = BigInt::from_signed_bytes_be(&a_bytes);
+            let b = BigInt::from_signed_bytes_be(&b_bytes);
+            let mut meter = Unbounded;
+            prop_assert_eq!(metered_gcd(&a, &b, &mut meter).unwrap(), gcd(&a, &b));
+
+            let mut meter = Unbounded;
+            let (metered_g, x, y) = metered_extended_gcd(&a, &b, &mut meter).unwrap();
+            prop_assert_eq!(&metered_g, &gcd(&a, &b));
+            prop_assert_eq!(&a * x + &b * y, metered_g);
         }
     }
 

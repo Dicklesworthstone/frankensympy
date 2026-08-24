@@ -21,7 +21,8 @@
 //! # Limb accounting and cooperative cancellation
 //!
 //! [`BigInt::limb_count`] exposes u64-limb height (`LIMB_BITS = 64`) so callers can charge
-//! budget per unit of work. [`metered_multiply`] checks safe points and charges budget.
+//! budget per unit of work. [`metered_multiply`] and [`metered_div_rem`] use deliberately
+//! simple base-$2^{32}$ reference algorithms with safe points inside their limb loops.
 
 #![forbid(unsafe_code)]
 
@@ -72,6 +73,30 @@ pub fn select_strategy(max_magnitude_bits: u64) -> Strategy {
 /// Owned arbitrary-precision integer. The ONLY bigint type visible above this crate.
 #[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct BigInt(Substrate);
+
+/// Borrowed proof that a [`BigInt`] divisor is nonzero.
+///
+/// The field is private: callers can obtain this capability only through [`NonZeroBigInt::new`].
+/// Algorithms admitted through this type cannot silently reinterpret division by zero as a
+/// normal arithmetic result.
+#[derive(Debug, Clone, Copy)]
+pub struct NonZeroBigInt<'a>(&'a BigInt);
+
+impl<'a> NonZeroBigInt<'a> {
+    /// Returns a nonzero-divisor capability, or `None` for zero.
+    pub fn new(value: &'a BigInt) -> Option<Self> {
+        if value.is_zero() {
+            None
+        } else {
+            Some(Self(value))
+        }
+    }
+
+    /// Returns the admitted nonzero integer.
+    pub fn get(self) -> &'a BigInt {
+        self.0
+    }
+}
 
 /// Owned, canonical arbitrary-precision rational.
 ///
@@ -1131,6 +1156,201 @@ pub fn metered_multiply<M: BudgetMeter>(
     Ok(BigInt(Substrate::from_biguint(sign, magnitude)))
 }
 
+/// Cancellation-first truncating division with remainder.
+///
+/// Returns `Ok(None)` when `divisor` is zero. Otherwise the result agrees with Rust/`num-bigint`
+/// truncation semantics: the quotient truncates toward zero, the remainder has the dividend's
+/// sign, and `dividend == quotient * divisor + remainder`.
+///
+/// This is a scalar reference lane, not the ordinary performance path. It copies magnitudes into
+/// owned base-$2^{32}$ digits, then performs binary long division. Every digit copy, remainder
+/// shift, comparison digit, and subtraction digit is charged and preceded by a cancellation
+/// checkpoint. All four transient digit buffers are charged before allocation.
+pub fn metered_div_rem<M: BudgetMeter>(
+    dividend: &BigInt,
+    divisor: &BigInt,
+    meter: &mut M,
+) -> Result<Option<(BigInt, BigInt)>, MeterError> {
+    meter.checkpoint()?;
+    let Some(divisor) = NonZeroBigInt::new(divisor) else {
+        return Ok(None);
+    };
+    metered_div_rem_nonzero(dividend, divisor, meter).map(Some)
+}
+
+/// Cancellation-first truncating division after typed nonzero-divisor admission.
+pub fn metered_div_rem_nonzero<M: BudgetMeter>(
+    dividend: &BigInt,
+    divisor: NonZeroBigInt<'_>,
+    meter: &mut M,
+) -> Result<(BigInt, BigInt), MeterError> {
+    meter.checkpoint()?;
+    let divisor = divisor.get();
+    if dividend.is_zero() {
+        return Ok((BigInt::zero(), BigInt::zero()));
+    }
+    if dividend.bits() < divisor.bits() {
+        meter.charge(
+            Dimension::MemoryBytes,
+            dividend.limb_count().saturating_mul(8),
+        )?;
+        meter.charge(Dimension::AllocationCount, 1)?;
+        meter.checkpoint()?;
+        return Ok((BigInt::zero(), dividend.clone()));
+    }
+
+    let dividend_len = dividend.0.iter_u32_digits().len();
+    let divisor_len = divisor.0.iter_u32_digits().len();
+    let remainder_capacity = divisor_len.min(dividend_len).saturating_add(1);
+    let transient_digits = dividend_len
+        .saturating_mul(2)
+        .saturating_add(divisor_len)
+        .saturating_add(remainder_capacity);
+    meter.charge(
+        Dimension::MemoryBytes,
+        u64::try_from(transient_digits)
+            .unwrap_or(u64::MAX)
+            .saturating_mul(4),
+    )?;
+    meter.charge(Dimension::AllocationCount, 4)?;
+
+    let dividend_digits = copy_u32_digits(&dividend.0, dividend_len, meter)?;
+    let divisor_digits = copy_u32_digits(&divisor.0, divisor_len, meter)?;
+    let mut quotient_digits = vec![0u32; dividend_len];
+    let mut remainder_digits = Vec::with_capacity(remainder_capacity);
+
+    for (&dividend_digit, quotient_digit) in
+        dividend_digits.iter().zip(quotient_digits.iter_mut()).rev()
+    {
+        for bit in (0..32).rev() {
+            meter.checkpoint()?;
+            meter.charge(Dimension::ComputeSteps, 1)?;
+            shift_left_one(&mut remainder_digits, meter)?;
+            if dividend_digit & (1u32 << bit) != 0 {
+                if remainder_digits.is_empty() {
+                    remainder_digits.push(1);
+                } else {
+                    remainder_digits[0] |= 1;
+                }
+            }
+
+            if compare_digits(&remainder_digits, &divisor_digits, meter)?
+                != std::cmp::Ordering::Less
+            {
+                subtract_digits(&mut remainder_digits, &divisor_digits, meter)?;
+                *quotient_digit |= 1u32 << bit;
+            }
+        }
+    }
+
+    meter.checkpoint()?;
+    trim_digits(&mut quotient_digits, meter)?;
+    trim_digits(&mut remainder_digits, meter)?;
+    let quotient_magnitude = BigUint::new(quotient_digits);
+    let remainder_magnitude = BigUint::new(remainder_digits);
+    let quotient_sign = if quotient_magnitude.is_zero() {
+        Sign::NoSign
+    } else if dividend.0.sign() == divisor.0.sign() {
+        Sign::Plus
+    } else {
+        Sign::Minus
+    };
+    let remainder_sign = if remainder_magnitude.is_zero() {
+        Sign::NoSign
+    } else {
+        dividend.0.sign()
+    };
+    Ok((
+        BigInt(Substrate::from_biguint(quotient_sign, quotient_magnitude)),
+        BigInt(Substrate::from_biguint(remainder_sign, remainder_magnitude)),
+    ))
+}
+
+fn copy_u32_digits<M: BudgetMeter>(
+    value: &Substrate,
+    capacity: usize,
+    meter: &mut M,
+) -> Result<Vec<u32>, MeterError> {
+    let mut digits = Vec::with_capacity(capacity);
+    for digit in value.iter_u32_digits() {
+        meter.checkpoint()?;
+        meter.charge(Dimension::ComputeSteps, 1)?;
+        digits.push(digit);
+    }
+    Ok(digits)
+}
+
+fn shift_left_one<M: BudgetMeter>(digits: &mut Vec<u32>, meter: &mut M) -> Result<(), MeterError> {
+    let mut carry = 0u32;
+    for digit in digits.iter_mut() {
+        meter.checkpoint()?;
+        meter.charge(Dimension::ComputeSteps, 1)?;
+        let next_carry = *digit >> 31;
+        *digit = (*digit << 1) | carry;
+        carry = next_carry;
+    }
+    if carry != 0 {
+        meter.checkpoint()?;
+        meter.charge(Dimension::ComputeSteps, 1)?;
+        digits.push(carry);
+    }
+    Ok(())
+}
+
+fn compare_digits<M: BudgetMeter>(
+    lhs: &[u32],
+    rhs: &[u32],
+    meter: &mut M,
+) -> Result<std::cmp::Ordering, MeterError> {
+    match lhs.len().cmp(&rhs.len()) {
+        std::cmp::Ordering::Equal => {}
+        ordering => return Ok(ordering),
+    }
+    for (lhs_digit, rhs_digit) in lhs.iter().rev().zip(rhs.iter().rev()) {
+        meter.checkpoint()?;
+        meter.charge(Dimension::ComputeSteps, 1)?;
+        match lhs_digit.cmp(rhs_digit) {
+            std::cmp::Ordering::Equal => {}
+            ordering => return Ok(ordering),
+        }
+    }
+    Ok(std::cmp::Ordering::Equal)
+}
+
+fn subtract_digits<M: BudgetMeter>(
+    lhs: &mut Vec<u32>,
+    rhs: &[u32],
+    meter: &mut M,
+) -> Result<(), MeterError> {
+    let mut borrow = 0u64;
+    for (index, lhs_digit) in lhs.iter_mut().enumerate() {
+        meter.checkpoint()?;
+        meter.charge(Dimension::ComputeSteps, 1)?;
+        let rhs_digit = u64::from(rhs.get(index).copied().unwrap_or(0));
+        let subtrahend = rhs_digit + borrow;
+        let lhs_value = u64::from(*lhs_digit);
+        if lhs_value >= subtrahend {
+            *lhs_digit = u32::try_from(lhs_value - subtrahend).unwrap_or(0);
+            borrow = 0;
+        } else {
+            *lhs_digit = u32::try_from((1u64 << 32) + lhs_value - subtrahend).unwrap_or(0);
+            borrow = 1;
+        }
+    }
+    debug_assert_eq!(borrow, 0, "subtraction caller must prove lhs >= rhs");
+    trim_digits(lhs, meter)?;
+    Ok(())
+}
+
+fn trim_digits<M: BudgetMeter>(digits: &mut Vec<u32>, meter: &mut M) -> Result<(), MeterError> {
+    while digits.last() == Some(&0) {
+        meter.checkpoint()?;
+        meter.charge(Dimension::ComputeSteps, 1)?;
+        digits.pop();
+    }
+    Ok(())
+}
+
 fn schoolbook_reference(a: &Substrate, b: &Substrate) -> BigInt {
     let neg = a.sign() != b.sign();
     let steps = a.magnitude().min(b.magnitude());
@@ -1299,6 +1519,58 @@ mod tests {
         assert_eq!(metered, native);
     }
 
+    #[test]
+    fn metered_division_preserves_truncating_sign_rules() {
+        let mut meter = Unbounded;
+        for (dividend, divisor, quotient, remainder) in [
+            (17, 5, 3, 2),
+            (-17, 5, -3, -2),
+            (17, -5, -3, 2),
+            (-17, -5, 3, -2),
+            (3, 8, 0, 3),
+            (0, 8, 0, 0),
+        ] {
+            assert_eq!(
+                metered_div_rem(&dividend.into(), &divisor.into(), &mut meter),
+                Ok(Some((quotient.into(), remainder.into())))
+            );
+        }
+        assert_eq!(
+            metered_div_rem(&17.into(), &BigInt::zero(), &mut meter),
+            Ok(None)
+        );
+    }
+
+    #[test]
+    fn metered_division_cancels_inside_digit_batches() {
+        let dividend = (BigInt::one() << 4_096) - 1i64;
+        let divisor = (BigInt::one() << 2_047) + 65_537i64;
+        let mut baseline = CancelAfter {
+            cancel_at_checkpoint: usize::MAX,
+            checkpoints: 0,
+            compute_steps: 0,
+        };
+        let completed = metered_div_rem(&dividend, &divisor, &mut baseline)
+            .unwrap()
+            .unwrap();
+        assert_eq!(&completed.0 * &divisor + &completed.1, dividend);
+
+        let cancel_at_checkpoint = baseline.checkpoints * 3 / 4;
+        let mut meter = CancelAfter {
+            cancel_at_checkpoint,
+            checkpoints: 0,
+            compute_steps: 0,
+        };
+
+        assert_eq!(
+            metered_div_rem(&dividend, &divisor, &mut meter),
+            Err(MeterError::Cancelled)
+        );
+        assert_eq!(meter.checkpoints, cancel_at_checkpoint);
+        assert!(meter.compute_steps > baseline.compute_steps / 2);
+        assert!(meter.compute_steps < baseline.compute_steps);
+    }
+
     proptest! {
         #[test]
         fn strategies_agree_across_the_threshold_boundary(
@@ -1342,6 +1614,27 @@ mod tests {
             prop_assert_eq!(&reference, &native);
             prop_assert_eq!(&reference, &metered);
             prop_assert_eq!(&a * &b, native);
+        }
+
+
+        #[test]
+        fn metered_division_matches_native_lane_for_broad_signed_operands(
+            dividend_bytes in proptest::collection::vec(any::<u8>(), 0..97),
+            divisor_bytes in proptest::collection::vec(any::<u8>(), 0..65),
+        ) {
+            let dividend = BigInt::from_signed_bytes_be(&dividend_bytes);
+            let mut divisor = BigInt::from_signed_bytes_be(&divisor_bytes);
+            if divisor.is_zero() {
+                divisor = BigInt::one();
+            }
+            let mut meter = Unbounded;
+            let (quotient, remainder) = metered_div_rem(&dividend, &divisor, &mut meter)
+                .unwrap()
+                .unwrap();
+            let (native_quotient, native_remainder) = dividend.div_rem(&divisor);
+            prop_assert_eq!(&quotient, &native_quotient);
+            prop_assert_eq!(&remainder, &native_remainder);
+            prop_assert_eq!(&quotient * &divisor + &remainder, dividend);
         }
     }
 }
