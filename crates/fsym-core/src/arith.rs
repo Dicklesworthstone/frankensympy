@@ -50,11 +50,12 @@ pub fn metered_exact_div<M: BudgetMeter>(
     let Some((quotient, remainder)) = metered_div_rem(a, b, meter)? else {
         return Ok(None);
     };
-    if remainder.is_zero() {
-        Ok(Some(quotient))
+    let result = if remainder.is_zero() {
+        Some(quotient)
     } else {
-        Ok(None)
-    }
+        None
+    };
+    metered_finish(result, meter)
 }
 
 /// Multiplicative inverse of `a` modulo `m` (`m > 0`); `None` when
@@ -86,9 +87,10 @@ pub fn metered_mod_inverse<M: BudgetMeter>(
     let residue = metered_normalized_remainder(a, modulus, meter)?;
     let (g, x, _) = metered_extended_gcd(&residue, m, meter)?;
     if !g.is_one() {
-        return Ok(None);
+        return metered_finish(None, meter);
     }
-    Ok(Some(metered_normalized_remainder(&x, modulus, meter)?))
+    let inverse = metered_normalized_remainder(&x, modulus, meter)?;
+    metered_finish(Some(inverse), meter)
 }
 
 /// Solves the two-congruence system `x ≡ rem_i (mod mod_i)`. Returns
@@ -140,12 +142,12 @@ pub fn metered_crt_pair<M: BudgetMeter>(
     let diff = metered_subtract(rem2, rem1, meter)?;
     let (diff_over_g, diff_remainder) = metered_div_rem_nonzero(&diff, g_divisor, meter)?;
     if !diff_remainder.is_zero() {
-        return Ok(None);
+        return metered_finish(None, meter);
     }
     let (m1_div_g, m1_remainder) = metered_div_rem_nonzero(mod1, g_divisor, meter)?;
     let (m2_div_g, m2_remainder) = metered_div_rem_nonzero(mod2, g_divisor, meter)?;
     if !m1_remainder.is_zero() || !m2_remainder.is_zero() {
-        return Ok(None);
+        return metered_finish(None, meter);
     }
 
     let lcm = metered_mul(&m1_div_g, mod2, meter)?;
@@ -154,11 +156,10 @@ pub fn metered_crt_pair<M: BudgetMeter>(
     let shift = metered_mul(&scaled_diff, mod1, meter)?;
     let shifted_remainder = metered_add(rem1, &shift, meter)?;
     let Some(lcm_divisor) = NonZeroBigInt::new(&lcm) else {
-        return Ok(None);
+        return metered_finish(None, meter);
     };
     let x = metered_normalized_remainder(&shifted_remainder, lcm_divisor, meter)?;
-    meter.checkpoint()?;
-    Ok(Some((x, lcm)))
+    metered_finish(Some((x, lcm)), meter)
 }
 
 /// Solves an arbitrary system of simultaneous congruences.
@@ -189,10 +190,10 @@ pub fn metered_crt<M: BudgetMeter>(
     meter: &mut M,
 ) -> Result<Option<(BigInt, BigInt)>, MeterError> {
     meter.checkpoint()?;
-    if congruences.is_empty() {
+    let mut congruence_iter = congruences.iter();
+    let Some((first_remainder, first_modulus)) = congruence_iter.next() else {
         return Ok(Some((BigInt::zero(), BigInt::one())));
-    }
-    let (first_remainder, first_modulus) = &congruences[0];
+    };
     if !first_modulus.is_positive() {
         return Ok(None);
     }
@@ -208,19 +209,18 @@ pub fn metered_crt<M: BudgetMeter>(
     ])?;
     let mut x = metered_normalized_remainder(first_remainder, first_modulus_divisor, meter)?;
     let mut modulus = first_modulus.clone();
-    for (remainder, next_modulus) in &congruences[1..] {
+    for (remainder, next_modulus) in congruence_iter {
         meter.checkpoint()?;
         meter.charge(Dimension::ComputeSteps, 1)?;
         let Some((next_x, combined_modulus)) =
             metered_crt_pair(&x, &modulus, remainder, next_modulus, meter)?
         else {
-            return Ok(None);
+            return metered_finish(None, meter);
         };
         x = next_x;
         modulus = combined_modulus;
     }
-    meter.checkpoint()?;
-    Ok(Some((x, modulus)))
+    metered_finish(Some((x, modulus)), meter)
 }
 
 /// Symmetric rational reconstruction: recovers `(r, s)` with `gcd(r, s) == 1`,
@@ -287,7 +287,7 @@ pub fn metered_rational_reconstruct<M: BudgetMeter>(
     };
     let residue = metered_normalized_remainder(n, modulus, meter)?;
     if residue.is_zero() {
-        return Ok(Some((BigInt::zero(), BigInt::one())));
+        return metered_finish(Some((BigInt::zero(), BigInt::one())), meter);
     }
 
     let one = BigInt::one();
@@ -312,7 +312,7 @@ pub fn metered_rational_reconstruct<M: BudgetMeter>(
     let (mut r_prev, mut r_cur) = (m.clone(), residue.clone());
     let (mut t_prev, mut t_cur) = (BigInt::zero(), BigInt::one());
 
-    while r_cur > bound {
+    while metered_greater(&r_cur, &bound, meter)? {
         meter.checkpoint()?;
         meter.charge(Dimension::ComputeSteps, 1)?;
         let Some(r_cur_divisor) = NonZeroBigInt::new(&r_cur) else {
@@ -333,19 +333,18 @@ pub fn metered_rational_reconstruct<M: BudgetMeter>(
         r_out = metered_negate(r_out, meter)?;
         t_cur = metered_negate(t_cur, meter)?;
     }
-    if !t_cur.is_positive() || t_cur > bound {
-        return Ok(None);
+    if !t_cur.is_positive() || metered_greater(&t_cur, &bound, meter)? {
+        return metered_finish(None, meter);
     }
     if metered_gcd(&r_out, &t_cur, meter)? != BigInt::one() {
-        return Ok(None);
+        return metered_finish(None, meter);
     }
     let residue_times_denominator = metered_mul(&residue, &t_cur, meter)?;
     let congruence_delta = metered_subtract(&r_out, &residue_times_denominator, meter)?;
     if !metered_normalized_remainder(&congruence_delta, modulus, meter)?.is_zero() {
-        return Ok(None);
+        return metered_finish(None, meter);
     }
-    meter.checkpoint()?;
-    Ok(Some((r_out, t_cur)))
+    metered_finish(Some((r_out, t_cur)), meter)
 }
 
 /// Deterministic increasing stream of primes: 2, 3, 5, 7, ...
@@ -387,7 +386,7 @@ impl PrimeStream {
             for prime in &self.emitted {
                 meter.checkpoint()?;
                 meter.charge(Dimension::ComputeSteps, 1)?;
-                if *prime > root {
+                if metered_greater(prime, &root, meter)? {
                     break;
                 }
                 let Some(prime_divisor) = NonZeroBigInt::new(prime) else {
@@ -403,13 +402,20 @@ impl PrimeStream {
                 meter.charge_batch(&[
                     (
                         Dimension::MemoryBytes,
-                        candidate.limb_count().max(1).saturating_mul(8),
+                        candidate
+                            .limb_count()
+                            .max(1)
+                            .saturating_mul(8)
+                            .saturating_add(
+                                u64::try_from(std::mem::size_of::<BigInt>()).unwrap_or(u64::MAX),
+                            ),
                     ),
-                    (Dimension::AllocationCount, 1),
+                    (Dimension::AllocationCount, 2),
                 ])?;
+                let stored_candidate = candidate.clone();
                 meter.checkpoint()?;
+                self.emitted.push(stored_candidate);
                 self.current = next_current;
-                self.emitted.push(candidate.clone());
                 return Ok(candidate);
             }
             current = next_current;
@@ -524,14 +530,14 @@ pub fn metered_is_probable_prime<M: BudgetMeter>(
         meter.charge(Dimension::ComputeSteps, 1)?;
         let divisor = BigInt::from(i64::from(base));
         if *n == divisor {
-            return Ok(true);
+            return metered_finish(true, meter);
         }
         let Some(divisor) = NonZeroBigInt::new(&divisor) else {
             return Ok(false);
         };
         let (_, remainder) = metered_div_rem_nonzero(n, divisor, meter)?;
         if remainder.is_zero() {
-            return Ok(false);
+            return metered_finish(false, meter);
         }
     }
 
@@ -564,11 +570,11 @@ pub fn metered_is_probable_prime<M: BudgetMeter>(
         meter.checkpoint()?;
         meter.charge(Dimension::ComputeSteps, 1)?;
         let a = BigInt::from(i64::from(base));
-        if &a >= n {
+        if metered_greater_or_equal(&a, n, meter)? {
             continue;
         }
         let mut x = metered_mod_pow(&a, &d, modulus, meter)?;
-        if x.is_one() || x == n_minus_one {
+        if x.is_one() || metered_equal(&x, &n_minus_one, meter)? {
             continue;
         }
         let mut composite = true;
@@ -577,17 +583,16 @@ pub fn metered_is_probable_prime<M: BudgetMeter>(
             meter.charge(Dimension::ComputeSteps, 1)?;
             let square = metered_mul(&x, &x, meter)?;
             x = metered_normalized_remainder(&square, modulus, meter)?;
-            if x == n_minus_one {
+            if metered_equal(&x, &n_minus_one, meter)? {
                 composite = false;
                 break;
             }
         }
         if composite {
-            return Ok(false);
+            return metered_finish(false, meter);
         }
     }
-    meter.checkpoint()?;
-    Ok(true)
+    metered_finish(true, meter)
 }
 
 fn mod_pow(base: &BigInt, exp: &BigInt, modulus: &BigInt) -> BigInt {
@@ -678,8 +683,8 @@ fn metered_sqrt_floor<M: BudgetMeter>(n: &BigInt, meter: &mut M) -> Result<BigIn
         let (quotient, _) = metered_div_rem_nonzero(n, x_divisor, meter)?;
         let sum = metered_add(&x, &quotient, meter)?;
         let (next, _) = metered_div_rem_nonzero(&sum, two_divisor, meter)?;
-        if next >= x {
-            return Ok(x);
+        if metered_greater_or_equal(&next, &x, meter)? {
+            return metered_finish(x, meter);
         }
         x = next;
     }
@@ -711,7 +716,8 @@ pub fn metered_gcd<M: BudgetMeter>(
         b = r;
     }
     meter.checkpoint()?;
-    Ok(if a.is_negative() { -a } else { a })
+    let result = if a.is_negative() { -a } else { a };
+    metered_finish(result, meter)
 }
 
 /// Metered extended gcd with step accounting and cancellation checkpoints.
@@ -748,12 +754,12 @@ pub fn metered_extended_gcd<M: BudgetMeter>(
         old_t = t;
         t = tmp_t;
     }
-    meter.checkpoint()?;
-    if old_r.is_negative() {
-        Ok((-old_r, -old_s, -old_t))
+    let result = if old_r.is_negative() {
+        (-old_r, -old_s, -old_t)
     } else {
-        Ok((old_r, old_s, old_t))
-    }
+        (old_r, old_s, old_t)
+    };
+    metered_finish(result, meter)
 }
 
 fn metered_normalized_remainder<M: BudgetMeter>(
@@ -769,6 +775,51 @@ fn metered_normalized_remainder<M: BudgetMeter>(
     }
 }
 
+fn metered_finish<T, M: BudgetMeter>(value: T, meter: &mut M) -> Result<T, MeterError> {
+    meter.checkpoint()?;
+    Ok(value)
+}
+
+fn metered_equal<M: BudgetMeter>(
+    lhs: &BigInt,
+    rhs: &BigInt,
+    meter: &mut M,
+) -> Result<bool, MeterError> {
+    metered_compare(lhs, rhs, |ordering| ordering.is_eq(), meter)
+}
+
+fn metered_greater<M: BudgetMeter>(
+    lhs: &BigInt,
+    rhs: &BigInt,
+    meter: &mut M,
+) -> Result<bool, MeterError> {
+    metered_compare(lhs, rhs, |ordering| ordering.is_gt(), meter)
+}
+
+fn metered_greater_or_equal<M: BudgetMeter>(
+    lhs: &BigInt,
+    rhs: &BigInt,
+    meter: &mut M,
+) -> Result<bool, MeterError> {
+    metered_compare(lhs, rhs, |ordering| ordering.is_ge(), meter)
+}
+
+fn metered_compare<M: BudgetMeter>(
+    lhs: &BigInt,
+    rhs: &BigInt,
+    predicate: impl FnOnce(std::cmp::Ordering) -> bool,
+    meter: &mut M,
+) -> Result<bool, MeterError> {
+    meter.checkpoint()?;
+    meter.charge(
+        Dimension::ComputeSteps,
+        lhs.limb_count().max(rhs.limb_count()).max(1),
+    )?;
+    let result = predicate(lhs.cmp(rhs));
+    meter.checkpoint()?;
+    Ok(result)
+}
+
 fn metered_add<M: BudgetMeter>(
     lhs: &BigInt,
     rhs: &BigInt,
@@ -781,13 +832,17 @@ fn metered_add<M: BudgetMeter>(
         (Dimension::MemoryBytes, output_limbs.saturating_mul(8)),
         (Dimension::AllocationCount, 1),
     ])?;
-    Ok(lhs + rhs)
+    let result = lhs + rhs;
+    meter.checkpoint()?;
+    Ok(result)
 }
 
 fn metered_negate<M: BudgetMeter>(value: BigInt, meter: &mut M) -> Result<BigInt, MeterError> {
     meter.checkpoint()?;
     meter.charge(Dimension::ComputeSteps, value.limb_count().max(1))?;
-    Ok(-value)
+    let result = -value;
+    meter.checkpoint()?;
+    Ok(result)
 }
 
 fn metered_subtract<M: BudgetMeter>(
@@ -802,7 +857,9 @@ fn metered_subtract<M: BudgetMeter>(
         (Dimension::MemoryBytes, output_limbs.saturating_mul(8)),
         (Dimension::AllocationCount, 1),
     ])?;
-    Ok(lhs - rhs)
+    let result = lhs - rhs;
+    meter.checkpoint()?;
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -815,6 +872,8 @@ mod tests {
     struct CheckpointMeter {
         checkpoints: usize,
         cancel_at: Option<usize>,
+        arm_after: Option<usize>,
+        armed: bool,
     }
 
     impl CheckpointMeter {
@@ -822,6 +881,17 @@ mod tests {
             Self {
                 checkpoints: 0,
                 cancel_at: Some(checkpoint.max(1)),
+                arm_after: None,
+                armed: false,
+            }
+        }
+
+        fn arming_after(checkpoint: usize) -> Self {
+            Self {
+                checkpoints: 0,
+                cancel_at: None,
+                arm_after: Some(checkpoint),
+                armed: false,
             }
         }
     }
@@ -836,10 +906,16 @@ mod tests {
         }
 
         fn checkpoint(&mut self) -> Result<(), MeterError> {
+            if self.armed {
+                return Err(MeterError::Cancelled);
+            }
             self.checkpoints = self.checkpoints.saturating_add(1);
             if self.cancel_at == Some(self.checkpoints) {
                 Err(MeterError::Cancelled)
             } else {
+                if self.arm_after == Some(self.checkpoints) {
+                    self.armed = true;
+                }
                 Ok(())
             }
         }
@@ -864,6 +940,25 @@ mod tests {
             divisor += 1;
         }
         true
+    }
+
+    fn assert_terminal_checkpoint<T: std::fmt::Debug + PartialEq>(
+        expected: T,
+        expected_checkpoints: usize,
+        mut operation: impl FnMut(&mut CheckpointMeter) -> Result<T, MeterError>,
+    ) {
+        let mut measured = CheckpointMeter::default();
+        assert_eq!(
+            operation(&mut measured).expect("measurement run completes"),
+            expected
+        );
+        assert_eq!(measured.checkpoints, expected_checkpoints);
+
+        let mut cancelled = CheckpointMeter::arming_after(expected_checkpoints - 1);
+        assert!(matches!(
+            operation(&mut cancelled),
+            Err(MeterError::Cancelled)
+        ));
     }
 
     #[test]
@@ -1255,6 +1350,40 @@ mod tests {
             Err(MeterError::Cancelled)
         );
         assert!(cancelled.checkpoints > 75);
+    }
+
+    #[test]
+    fn every_computed_terminal_class_observes_final_cancellation() {
+        assert_terminal_checkpoint(None, 51, |meter| {
+            metered_exact_div(&BigInt::from(35), &BigInt::from(6), meter)
+        });
+        assert_terminal_checkpoint(None, 126, |meter| {
+            metered_mod_inverse(&BigInt::from(6), &BigInt::from(9), meter)
+        });
+        assert_terminal_checkpoint(Some(BigInt::from(6)), 194, |meter| {
+            metered_mod_inverse(&BigInt::from(17), &BigInt::from(101), meter)
+        });
+        assert_terminal_checkpoint(None, 51, |meter| {
+            metered_crt_pair(
+                &BigInt::zero(),
+                &BigInt::from(2),
+                &BigInt::one(),
+                &BigInt::from(2),
+                meter,
+            )
+        });
+        assert_terminal_checkpoint(Some((BigInt::zero(), BigInt::one())), 3, |meter| {
+            metered_rational_reconstruct(&BigInt::zero(), &BigInt::from(101), meter)
+        });
+        assert_terminal_checkpoint(None, 626, |meter| {
+            metered_rational_reconstruct(&BigInt::from(8), &BigInt::from(101), meter)
+        });
+        assert_terminal_checkpoint(true, 591, |meter| {
+            metered_is_probable_prime(&BigInt::from(41), meter)
+        });
+        assert_terminal_checkpoint(false, 2_336, |meter| {
+            metered_is_probable_prime(&BigInt::from(2_021), meter)
+        });
     }
 
     #[test]
