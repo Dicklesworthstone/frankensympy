@@ -37,7 +37,8 @@ const MAX_CASES: usize = 1_024;
 const MAX_CASE_FIELD_BYTES: usize = 16 * 1_024;
 const MAX_TAYLOR_ORDER: usize = 12;
 const ORACLE_TIMEOUT: Duration = Duration::from_secs(35);
-const MAX_ORACLE_OUTPUT_BYTES: usize = 4 * 1024 * 1024;
+const MAX_ORACLE_REQUEST_BYTES: usize = 16 * 1024;
+const MAX_ORACLE_OUTPUT_BYTES: usize = 32 * 1024;
 
 /// Operations exercised by the conformance corpus.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -177,14 +178,6 @@ fn franken_apply_expr(spec: &CaseSpec) -> Result<Expr, FrankenFailure> {
     }
 }
 
-/// Apply the Rust implementation to a case. The public string boundary is
-/// retained for the CLI API; the differential runner uses typed failures.
-pub fn franken_apply(spec: &CaseSpec) -> Result<String, String> {
-    franken_apply_expr(spec)
-        .map(|expr| expr.to_string())
-        .map_err(|failure| failure.detail)
-}
-
 /// The fixed differential corpus. Extend here; keep cases deterministic.
 pub fn corpus() -> Vec<CaseSpec> {
     let mk = |id: &str, expr: &str, var: &str, op: Op| CaseSpec {
@@ -252,7 +245,7 @@ signal.alarm(30)
 
 import sympy as sp
 
-payload = json.load(sys.stdin)
+payload = json.loads(sys.argv[1])
 actual_version = sp.__version__
 print(json.dumps({
     "kind": "meta",
@@ -693,13 +686,22 @@ fn assemble_report(
     Ok(report)
 }
 
-/// Run the full fixed corpus against a separate live SymPy process.
+/// Run the compiled, fixed native-mathematics corpus against a separate live
+/// SymPy process. External callers cannot inject cases into this lane.
 ///
 /// `Err` means the run itself is invalid: malformed/duplicate cases, a
 /// missing or wrong-version oracle, child-process failure, or a broken
 /// result protocol. Individual mathematical disagreements and typed Rust
 /// refusals are returned as explicit case verdicts.
-pub fn run_conformance(cases: &[CaseSpec], python: &str) -> Result<Vec<ConformanceCase>, String> {
+pub fn run_conformance(python: &str) -> Result<Vec<ConformanceCase>, String> {
+    run_cases_with_timeout(&corpus(), python, ORACLE_TIMEOUT)
+}
+
+fn run_cases_with_timeout(
+    cases: &[CaseSpec],
+    python: &str,
+    timeout: Duration,
+) -> Result<Vec<ConformanceCase>, String> {
     validate_cases(cases)?;
     let rust_results: Vec<Result<Expr, FrankenFailure>> =
         cases.iter().map(franken_apply_expr).collect();
@@ -716,6 +718,13 @@ pub fn run_conformance(cases: &[CaseSpec], python: &str) -> Result<Vec<Conforman
     });
     let payload = serde_json::to_vec(&payload)
         .map_err(|e| format!("serializing oracle request failed: {e}"))?;
+    if payload.len() > MAX_ORACLE_REQUEST_BYTES {
+        return Err(format!(
+            "oracle payload size {} exceeds limit of {} bytes",
+            payload.len(),
+            MAX_ORACLE_REQUEST_BYTES
+        ));
+    }
 
     let mut child = Command::new(python)
         .args(["-I", "-W", "error", "-c", ORACLE_SCRIPT])

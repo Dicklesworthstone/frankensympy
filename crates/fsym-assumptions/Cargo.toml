@@ -13,6 +13,7 @@ categories.workspace = true
 fsym-core.workspace = true
 fsym-id.workspace = true
 fsym-logic.workspace = true
+blake3.workspace = true
 num-bigint.workspace = true
 num-rational.workspace = true
 num-traits.workspace = true

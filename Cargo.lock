@@ -578,6 +578,7 @@ version = "0.1.0"
 name = "fsym-assumptions"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "fsym-core",
  "fsym-id",
  "fsym-logic",
@@ -632,6 +633,7 @@ dependencies = [
 name = "fsym-core"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "fsym-budget",
  "fsym-id",
  "fsym-outcome",

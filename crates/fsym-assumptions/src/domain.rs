@@ -307,8 +307,19 @@ impl Domain {
                 let b_dom = Domain::of_expr(b);
                 let e_dom = Domain::of_expr(e);
                 match (b_dom, e_dom) {
-                    (Domain::ZZ, Domain::ZZ) => Domain::ZZ,
-                    (d, Domain::ZZ) => d,
+                    (Domain::ZZ, Domain::ZZ) => match e.as_ref() {
+                        Expr::Integer(n) if n >= &num_bigint::BigInt::from(0) => Domain::ZZ,
+                        _ => Domain::QQ,
+                    },
+                    (Domain::QQ, Domain::ZZ) => Domain::QQ,
+                    (Domain::RR, Domain::ZZ | Domain::QQ) => Domain::RR,
+                    (Domain::CC, _) | (_, Domain::CC) => Domain::CC,
+                    (Domain::PolyRing { base, generators }, Domain::ZZ) => match e.as_ref() {
+                        Expr::Integer(n) if n >= &num_bigint::BigInt::from(0) => {
+                            Domain::PolyRing { base, generators }
+                        }
+                        _ => Domain::FractionField { base, generators },
+                    },
                     _ => Domain::ExpressionDomain,
                 }
             }

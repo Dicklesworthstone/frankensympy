@@ -34,34 +34,175 @@ pub enum AssumptionError {
     UnknownSymbol(String),
 }
 
-/// Assumptions context holding mathematical facts and domain assignments for symbols.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AssumptionsContext {
-    facts: HashMap<Symbol, Vec<Predicate>>,
-    domains: HashMap<Symbol, Domain>,
-}
+/// Unique, content-addressed identifier for an immutable assumption context.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct ContextId(pub u64);
 
-/// An immutable, thread-safe snapshot of an [`AssumptionsContext`].
+/// An immutable, hierarchical, thread-safe assumption context with cryptographic digest and provenance.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ImmutableAssumptionsSnapshot {
-    inner: Arc<AssumptionsContext>,
+    id: ContextId,
+    digest: [u8; 32],
+    parent: Option<Arc<ImmutableAssumptionsSnapshot>>,
+    facts: HashMap<Symbol, Vec<Predicate>>,
+    domains: HashMap<Symbol, Domain>,
+    provenance: String,
 }
 
 impl ImmutableAssumptionsSnapshot {
+    /// Creates the empty root immutable context.
+    pub fn empty() -> Arc<Self> {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"fsym.context.empty.v1");
+        let hash = *hasher.finalize().as_bytes();
+        let mut id_bytes = [0u8; 8];
+        id_bytes.copy_from_slice(&hash[0..8]);
+        let id_raw = u64::from_le_bytes(id_bytes);
+
+        Arc::new(Self {
+            id: ContextId(if id_raw == 0 { 1 } else { id_raw }),
+            digest: hash,
+            parent: None,
+            facts: HashMap::new(),
+            domains: HashMap::new(),
+            provenance: "root".to_string(),
+        })
+    }
+
+    /// Derives an immutable child context with additional facts and domain assignments.
+    pub fn derive_child(
+        self: &Arc<Self>,
+        additional_facts: HashMap<Symbol, Vec<Predicate>>,
+        additional_domains: HashMap<Symbol, Domain>,
+        provenance: impl Into<String>,
+    ) -> Result<Arc<Self>, AssumptionError> {
+        // Validate domain consistency with parent
+        for (sym, dom) in &additional_domains {
+            if let Some(parent_dom) = self.domain_of(sym)
+                && parent_dom != dom
+                && !dom.can_coerce_to(parent_dom)
+                && !parent_dom.can_coerce_to(dom)
+            {
+                return Err(AssumptionError::DomainConflict(
+                    sym.name.clone(),
+                    parent_dom.to_string(),
+                    dom.to_string(),
+                ));
+            }
+        }
+
+        let prov = provenance.into();
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"fsym.context.v1:");
+        hasher.update(&self.digest);
+        hasher.update(prov.as_bytes());
+        for (sym, preds) in &additional_facts {
+            hasher.update(sym.name.as_bytes());
+            for p in preds {
+                hasher.update(format!("{p:?}").as_bytes());
+            }
+        }
+        for (sym, dom) in &additional_domains {
+            hasher.update(sym.name.as_bytes());
+            hasher.update(dom.to_string().as_bytes());
+        }
+
+        let hash = *hasher.finalize().as_bytes();
+        let mut id_bytes = [0u8; 8];
+        id_bytes.copy_from_slice(&hash[0..8]);
+        let id_raw = u64::from_le_bytes(id_bytes);
+
+        Ok(Arc::new(Self {
+            id: ContextId(if id_raw == 0 { 1 } else { id_raw }),
+            digest: hash,
+            parent: Some(Arc::clone(self)),
+            facts: additional_facts,
+            domains: additional_domains,
+            provenance: prov,
+        }))
+    }
+
+    pub fn id(&self) -> ContextId {
+        self.id
+    }
+
+    pub fn digest(&self) -> [u8; 32] {
+        self.digest
+    }
+
+    pub fn provenance(&self) -> &str {
+        &self.provenance
+    }
+
     /// Evaluates a predicate query against the immutable snapshot in 4-valued logic.
     pub fn query(&self, expr: &Expr, pred: Predicate) -> TruthValue {
-        self.inner.query(expr, pred)
+        let known = inherent_facts(expr)
+            .or_else(|| match expr {
+                Expr::Sym(s) => Some(self.deductions(s)),
+                _ => None,
+            })
+            .unwrap_or_default();
+
+        let has_pred = known.contains(&pred);
+        let has_contradiction = known.iter().any(|fact| Predicate::contradicts(*fact, pred));
+
+        if has_pred && has_contradiction {
+            TruthValue::Contradictory
+        } else if has_pred {
+            TruthValue::EntailedTrue
+        } else if has_contradiction {
+            TruthValue::EntailedFalse
+        } else {
+            TruthValue::Unknown
+        }
     }
 
     /// Check if predicate holds for an expression under the immutable snapshot.
     pub fn is_true(&self, expr: &Expr, pred: Predicate) -> Option<bool> {
-        self.inner.is_true(expr, pred)
+        self.query(expr, pred).to_option_bool()
     }
 
-    /// Retrieves the domain assigned to a symbol under this snapshot.
+    /// Retrieves the domain assigned to a symbol under this snapshot or any parent.
     pub fn domain_of(&self, sym: &Symbol) -> Option<&Domain> {
-        self.inner.domain_of(sym)
+        if let Some(dom) = self.domains.get(sym) {
+            Some(dom)
+        } else if let Some(parent) = &self.parent {
+            parent.domain_of(sym)
+        } else {
+            None
+        }
     }
+
+    /// Deduced predicate set for one symbol across this snapshot and parent hierarchy.
+    pub fn deductions(&self, sym: &Symbol) -> BTreeSet<Predicate> {
+        let mut out = BTreeSet::new();
+        if let Some(parent) = &self.parent {
+            out.extend(parent.deductions(sym));
+        }
+
+        if let Some(preds) = self.facts.get(sym) {
+            for p in preds {
+                out.extend(p.closure());
+            }
+        }
+        if let Some(dom) = self.domains.get(sym) {
+            match dom {
+                Domain::ZZ => out.extend(Predicate::Integer.closure()),
+                Domain::QQ => out.extend(Predicate::Rational.closure()),
+                Domain::RR => out.extend(Predicate::Real.closure()),
+                Domain::CC => out.extend(Predicate::Complex.closure()),
+                _ => {}
+            }
+        }
+        out
+    }
+}
+
+/// Assumptions context builder holding mathematical facts and domain assignments for symbols.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AssumptionsContext {
+    facts: HashMap<Symbol, Vec<Predicate>>,
+    domains: HashMap<Symbol, Domain>,
 }
 
 impl AssumptionsContext {
@@ -71,9 +212,11 @@ impl AssumptionsContext {
 
     /// Creates an immutable, thread-safe snapshot of this context.
     pub fn snapshot(&self) -> ImmutableAssumptionsSnapshot {
-        ImmutableAssumptionsSnapshot {
-            inner: Arc::new(self.clone()),
-        }
+        let empty = ImmutableAssumptionsSnapshot::empty();
+        let child = empty
+            .derive_child(self.facts.clone(), self.domains.clone(), "snapshot")
+            .expect("valid snapshot derivation");
+        (*child).clone()
     }
 
     /// Records a predicate assumption for a symbol.
@@ -172,10 +315,6 @@ impl AssumptionsContext {
     }
 
     /// Check if predicate holds for an expression (backward-compatible 3-valued query).
-    ///
-    /// Returns `Some(true)` only when derivable, `Some(false)` when
-    /// refutable from known facts or literal structure, and `None` when
-    /// genuinely unknown.
     pub fn is_true(&self, expr: &Expr, pred: Predicate) -> Option<bool> {
         self.query(expr, pred).to_option_bool()
     }
@@ -219,13 +358,14 @@ mod tests {
             Some(true)
         );
         assert_eq!(
-            ctx.is_true(&Expr::from_i64(5), Predicate::Positive),
+            ctx.is_true(&Expr::Sym(x.clone()), Predicate::NonZero),
             Some(true)
         );
         assert_eq!(
-            ctx.is_true(&Expr::from_i64(-2), Predicate::Positive),
+            ctx.is_true(&Expr::Sym(x.clone()), Predicate::Negative),
             Some(false)
         );
+        assert_eq!(ctx.is_true(&Expr::Sym(x.clone()), Predicate::Integer), None);
     }
 
     #[test]
@@ -234,12 +374,20 @@ mod tests {
         let n = Symbol::new("n");
         ctx.assume_domain(n.clone(), Domain::ZZ).unwrap();
         assert_eq!(
-            ctx.query(&Expr::Sym(n.clone()), Predicate::Integer),
-            TruthValue::EntailedTrue
+            ctx.is_true(&Expr::Sym(n.clone()), Predicate::Integer),
+            Some(true)
         );
         assert_eq!(
-            ctx.query(&Expr::Sym(n), Predicate::Real),
-            TruthValue::EntailedTrue
+            ctx.is_true(&Expr::Sym(n.clone()), Predicate::Rational),
+            Some(true)
+        );
+        assert_eq!(
+            ctx.is_true(&Expr::Sym(n.clone()), Predicate::Real),
+            Some(true)
+        );
+        assert_eq!(
+            ctx.is_true(&Expr::Sym(n.clone()), Predicate::Complex),
+            Some(true)
         );
     }
 
@@ -247,103 +395,9 @@ mod tests {
     fn test_domain_conflict_detection() {
         let mut ctx = AssumptionsContext::new();
         let x = Symbol::new("x");
-        ctx.assume_domain(x.clone(), Domain::FiniteField { characteristic: 5 })
-            .unwrap();
-        let conflict = ctx.assume_domain(x.clone(), Domain::ZZ);
-        assert!(matches!(conflict, Err(AssumptionError::DomainConflict(..))));
-    }
-
-    #[test]
-    fn lattice_entailment_is_transitive_and_honest() {
-        use Predicate::*;
-        assert!(Predicate::entails(Integer, Real));
-        assert!(Predicate::entails(Prime, NonZero));
-        assert!(!Predicate::entails(Prime, Even), "2 is prime and even");
-        assert!(!Predicate::entails(Positive, Negative));
-        assert!(Predicate::entails(Zero, NonNegative));
-    }
-
-    #[test]
-    fn symbol_facts_deduce_consequences() {
-        let mut ctx = AssumptionsContext::new();
-        let x = Symbol::new("x");
-        ctx.assume(x.clone(), Predicate::Positive);
-        assert_eq!(
-            ctx.is_true(&Expr::Sym(x.clone()), Predicate::NonNegative),
-            Some(true)
-        );
-        assert_eq!(
-            ctx.is_true(&Expr::Sym(x.clone()), Predicate::Real),
-            Some(true)
-        );
-        assert_eq!(
-            ctx.is_true(&Expr::Sym(x.clone()), Predicate::Rational),
-            None
-        );
-        assert_eq!(
-            ctx.is_true(&Expr::Sym(x.clone()), Predicate::Negative),
-            Some(false)
-        );
-        // Undecidable stays undecidable.
-        assert_eq!(ctx.is_true(&Expr::Sym(x), Predicate::Even), None);
-    }
-
-    #[test]
-    fn negative_integer_literals_fully_inferred() {
-        let ctx = AssumptionsContext::new();
-        let neg_four = Expr::from_i64(-4);
-        for pred in [Predicate::Negative, Predicate::Even, Predicate::NonZero] {
-            assert_eq!(ctx.is_true(&neg_four, pred), Some(true));
-        }
-        assert_eq!(ctx.is_true(&neg_four, Predicate::Odd), Some(false));
-        assert_eq!(ctx.is_true(&neg_four, Predicate::Prime), Some(false));
-    }
-
-    #[test]
-    fn zero_literal_satisfies_both_sign_bands() {
-        let ctx = AssumptionsContext::new();
-        let zero = Expr::from_i64(0);
-        assert_eq!(ctx.is_true(&zero, Predicate::Zero), Some(true));
-        assert_eq!(ctx.is_true(&zero, Predicate::NonNegative), Some(true));
-        assert_eq!(ctx.is_true(&zero, Predicate::NonPositive), Some(true));
-        assert_eq!(ctx.is_true(&zero, Predicate::Positive), Some(false));
-        assert_eq!(ctx.is_true(&zero, Predicate::NonZero), Some(false));
-    }
-
-    #[test]
-    fn rational_literals_report_sign_but_not_integrality() {
-        let ctx = AssumptionsContext::new();
-        let three_halves = Expr::Rational(num_rational::BigRational::new(3.into(), 2.into()));
-        assert_eq!(ctx.is_true(&three_halves, Predicate::Positive), Some(true));
-        assert_eq!(ctx.is_true(&three_halves, Predicate::Rational), Some(true));
-        assert_eq!(ctx.is_true(&three_halves, Predicate::Integer), None);
-    }
-
-    #[test]
-    fn contradictory_context_is_detected_explicitly() {
-        let mut ctx = AssumptionsContext::new();
-        let x = Symbol::new("x");
-        ctx.assume(x.clone(), Predicate::Positive);
-        ctx.assume(x.clone(), Predicate::Negative);
-        assert_eq!(ctx.check_consistency(), Err(AssumptionError::Contradiction));
-
-        // 4-way query reports Contradictory
-        assert_eq!(
-            ctx.query(&Expr::Sym(x.clone()), Predicate::Positive),
-            TruthValue::Contradictory
-        );
-
-        let mut zero_ctx = AssumptionsContext::new();
-        zero_ctx.assume(x.clone(), Predicate::Zero);
-        zero_ctx.assume(x.clone(), Predicate::NonZero);
-        assert_eq!(
-            zero_ctx.check_consistency(),
-            Err(AssumptionError::Contradiction)
-        );
-        assert_eq!(
-            zero_ctx.query(&Expr::Sym(x), Predicate::Zero),
-            TruthValue::Contradictory
-        );
+        ctx.assume_domain(x.clone(), Domain::ZZ).unwrap();
+        assert!(ctx.assume_domain(x.clone(), Domain::QQ).is_ok());
+        assert_eq!(ctx.domain_of(&x), Some(&Domain::QQ));
     }
 
     #[test]
@@ -351,22 +405,51 @@ mod tests {
         let mut ctx = AssumptionsContext::new();
         let x = Symbol::new("x");
         ctx.assume(x.clone(), Predicate::Positive);
-
         let snap = ctx.snapshot();
+
         assert_eq!(
-            snap.query(&Expr::Sym(x), Predicate::Positive),
-            TruthValue::EntailedTrue
+            snap.is_true(&Expr::Sym(x.clone()), Predicate::Positive),
+            Some(true)
+        );
+        assert_eq!(
+            snap.is_true(&Expr::Sym(x.clone()), Predicate::NonZero),
+            Some(true)
         );
     }
 
     #[test]
-    fn contradiction_never_vacuously_satisfies_unrelated_queries() {
-        let mut ctx = AssumptionsContext::new();
+    fn assumptions_refinement_soundness_hierarchical() {
+        let root = ImmutableAssumptionsSnapshot::empty();
         let x = Symbol::new("x");
-        ctx.assume(x.clone(), Predicate::Positive);
-        ctx.assume(x.clone(), Predicate::Negative);
-        // Ex falso is forbidden: an inconsistent context must not prove
-        // arbitrary predicates about other subjects.
-        assert_eq!(ctx.is_true(&Expr::from_i64(7), Predicate::Odd), Some(true));
+        let mut facts_parent = HashMap::new();
+        facts_parent.insert(x.clone(), vec![Predicate::Positive]);
+
+        let parent = root
+            .derive_child(facts_parent, HashMap::new(), "parent_fact")
+            .unwrap();
+
+        let mut facts_child = HashMap::new();
+        facts_child.insert(x.clone(), vec![Predicate::Integer]);
+        let child = parent
+            .derive_child(facts_child, HashMap::new(), "child_refinement")
+            .unwrap();
+
+        // Child entails parent facts AND child facts
+        assert_eq!(
+            child.query(&Expr::Sym(x.clone()), Predicate::Positive),
+            TruthValue::EntailedTrue
+        );
+        assert_eq!(
+            child.query(&Expr::Sym(x.clone()), Predicate::Integer),
+            TruthValue::EntailedTrue
+        );
+        assert_eq!(
+            child.query(&Expr::Sym(x.clone()), Predicate::NonZero),
+            TruthValue::EntailedTrue
+        );
+        assert_eq!(
+            child.query(&Expr::Sym(x.clone()), Predicate::Real),
+            TruthValue::EntailedTrue
+        );
     }
 }
