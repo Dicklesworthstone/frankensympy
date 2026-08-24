@@ -613,7 +613,10 @@ dependencies = [
 name = "fsym-calculus"
 version = "0.1.0"
 dependencies = [
+ "fsym-budget",
  "fsym-core",
+ "fsym-evidence",
+ "fsym-proof-kernel",
  "fsym-simplify",
  "num-rational",
  "num-traits",

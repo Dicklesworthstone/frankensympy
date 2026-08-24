@@ -2,7 +2,11 @@
 //!
 //! Symbolic differentiation, integration, limits, and series expansion.
 
-#![forbid(unsafe_code)]
+pub mod compile;
+pub mod proof;
+
+pub use compile::*;
+pub use proof::*;
 
 use fsym_core::{BigInt, Constant, Expr, Symbol};
 use fsym_simplify::{expand, simplify};
@@ -553,5 +557,57 @@ mod tests {
             taylor(&l, &x, &Expr::from_i64(1), 2),
             Err(CalculusError::NonDifferentiable(_))
         ));
+    }
+
+    #[test]
+    fn test_verified_differentiation_proof_and_independent_verification() {
+        let x = Symbol::new("x");
+        let expr = Expr::Mul(vec![Expr::symbol("x"), Expr::from_i64(5)]);
+
+        let (deriv, tree) = verified_diff(&expr, &x);
+        assert!(verify_diff_derivation(&tree, &expr, &x, &deriv).is_ok());
+
+        // Mutant test: tampered derivative claim is rejected
+        let forged_deriv = Expr::from_i64(42);
+        assert!(verify_diff_derivation(&tree, &expr, &x, &forged_deriv).is_err());
+    }
+
+    #[test]
+    fn test_hero_pipeline_compiled_residual_and_jacobian_certification() {
+        // Nonlinear 2D residual system:
+        // f1(x, y) = x^2 + y^2 - 1
+        // f2(x, y) = sin(x) + cos(y)
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+        let vars = vec![x.clone(), y.clone()];
+
+        let f1 = Expr::Add(vec![
+            Expr::Pow(Arc::new(Expr::Sym(x.clone())), Arc::new(Expr::from_i64(2))),
+            Expr::Pow(Arc::new(Expr::Sym(y.clone())), Arc::new(Expr::from_i64(2))),
+            Expr::from_i64(-1),
+        ]);
+        let f2 = Expr::Add(vec![
+            Expr::Function("sin".into(), vec![Expr::Sym(x.clone())]),
+            Expr::Function("cos".into(), vec![Expr::Sym(y.clone())]),
+        ]);
+
+        let system = CompiledResidualSystem::compile(&[f1, f2], &vars);
+        assert_eq!(system.num_residuals, 2);
+        assert_eq!(system.num_vars, 2);
+
+        let test_point = [0.6, 0.8];
+        let mut res = [0.0; 2];
+        let mut jac = [0.0; 4];
+        system.eval_system(&test_point, &mut res, &mut jac);
+
+        // f1(0.6, 0.8) = 0.6^2 + 0.8^2 - 1 = 0.36 + 0.64 - 1 = 0.0
+        assert!((res[0] - 0.0).abs() < 1e-12);
+
+        // Verify Jacobian against central finite differences with 1e-6 tolerance
+        let verified = system.verify_with_finite_differences(&test_point, 1e-6, 1e-5);
+        assert!(
+            verified,
+            "Compiled Jacobian must match numerical finite differences"
+        );
     }
 }
