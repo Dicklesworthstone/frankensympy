@@ -49,6 +49,14 @@
     ],
     "portable_verifier_profile_count": 2,
     "project_build_scripts": [],
+    "provisional_substrate_declarations": {
+      "num-bigint": [
+        "crates/fsym-bigint/Cargo.toml"
+      ],
+      "num-rational": [
+        "crates/fsym-bigint/Cargo.toml"
+      ]
+    },
     "toolchain_channel": "nightly-2026-08-20"
   },
   "ok": true,
