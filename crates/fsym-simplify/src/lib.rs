@@ -1,7 +1,8 @@
 //! # fsym-simplify
 //!
-//! Algebraic simplification engine, rewrite pipelines, expansion, and verified simplification (WS07).
-//! Emits proof kernel derivations and independent verification receipts for all transformations.
+//! Algebraic simplification engine, rewrite pipelines, expansion, and an explicitly verified
+//! simplification entry point (WS07). Ordinary convenience functions return values only;
+//! `verified_simplify` additionally emits an independently replayed kernel derivation.
 
 #![forbid(unsafe_code)]
 
@@ -35,6 +36,24 @@ fn rational_expr(r: BigRational) -> Expr {
         Expr::Integer(r.to_integer())
     } else {
         Expr::Rational(r)
+    }
+}
+
+fn is_total_polynomial_expr(expr: &Expr) -> bool {
+    match expr {
+        Expr::Sym(_) | Expr::Integer(_) | Expr::Rational(_) => true,
+        Expr::Const(fsym_core::Constant::Pi | fsym_core::Constant::E | fsym_core::Constant::I) => {
+            true
+        }
+        Expr::Const(_) | Expr::Function(_, _) => false,
+        Expr::Add(terms) | Expr::Mul(terms) => terms.iter().all(is_total_polynomial_expr),
+        Expr::Pow(base, exponent) => {
+            is_total_polynomial_expr(base)
+                && matches!(
+                    exponent.as_ref(),
+                    Expr::Integer(value) if !value.is_negative()
+                )
+        }
     }
 }
 
@@ -192,13 +211,7 @@ fn simplify_at<M: BudgetMeter>(
                     None => rest.push(f),
                 }
             }
-            let has_neg_power = rest.iter().any(|f| {
-                matches!(
-                    f,
-                    Expr::Pow(_, e) if matches!(e.as_ref(), Expr::Integer(n) if n.is_negative())
-                )
-            });
-            if coeff.is_zero() && !has_neg_power {
+            if coeff.is_zero() && rest.iter().all(is_total_polynomial_expr) {
                 return Ok(Expr::from_i64(0));
             }
             if rest.is_empty() {
@@ -271,10 +284,11 @@ fn simplify_at<M: BudgetMeter>(
     }
 }
 
-/// Simplifies an expression and produces a cryptographically verified derivation receipt (WS07).
+/// Simplifies an expression and produces an independently replayed derivation receipt (WS07).
 pub fn verified_simplify<M: BudgetMeter>(
     expr: &Expr,
     context: &Arc<ImmutableAssumptionsSnapshot>,
+    receipt_id: ReceiptId,
     meter: &mut M,
 ) -> Result<(Expr, EvidenceEnvelope), SimplifyError> {
     let simplified = simplify_with(expr, meter)?;
@@ -306,16 +320,20 @@ pub fn verified_simplify<M: BudgetMeter>(
         .map_err(|e| SimplifyError::ProofFailed(e.to_string()))?;
 
     // Independent reference verification check
-    verify_derivation_independent(&derivation_tree, context)
+    let verified_claim = verify_derivation_independent(&derivation_tree, context)
         .map_err(|e| SimplifyError::ProofFailed(format!("Independent verifier rejected: {e}")))?;
+    if verified_claim != claim {
+        return Err(SimplifyError::ProofFailed(format!(
+            "Independent verifier established `{verified_claim}`, expected `{claim}`"
+        )));
+    }
 
-    let receipt_id = ReceiptId::new(1).map_err(|e| SimplifyError::ProofFailed(e.to_string()))?;
     let receipt = VerificationReceipt::issue(
         receipt_id,
         &claim,
         EvidenceClass::KernelProved,
         "fsym-simplify.v1",
-        1,
+        receipt_id.raw(),
         Some(derivation_tree.digest()),
     );
 
@@ -325,6 +343,11 @@ pub fn verified_simplify<M: BudgetMeter>(
         receipt,
         Some(derivation_tree),
     );
+    if !envelope.verify_integrity() {
+        return Err(SimplifyError::ProofFailed(
+            "constructed evidence envelope failed its structural integrity check".to_string(),
+        ));
+    }
     Ok((simplified, envelope))
 }
 
@@ -425,6 +448,21 @@ mod tests {
     }
 
     #[test]
+    fn simplify_does_not_erase_partial_or_indeterminate_zero_factors() {
+        let x = Expr::symbol("x");
+        let zero = Expr::from_i64(0);
+        for partial in [
+            x.clone().pow(Expr::from_i64(-1)),
+            Expr::Const(fsym_core::Constant::Infinity),
+            Expr::Const(fsym_core::Constant::NaN),
+            Expr::Function("log".to_string(), vec![x.clone()]),
+        ] {
+            let input = Expr::Mul(vec![zero.clone(), partial]);
+            assert_eq!(simplify(&input), input);
+        }
+    }
+
+    #[test]
     fn test_expand_square_of_sum() {
         let x = Expr::symbol("x");
         let y = Expr::symbol("y");
@@ -448,7 +486,13 @@ mod tests {
         let x = Expr::symbol("x");
         let expr = Expr::Add(vec![x.clone(), x.clone()]);
 
-        let (simplified, envelope) = verified_simplify(&expr, &context, &mut meter).unwrap();
+        let (simplified, envelope) = verified_simplify(
+            &expr,
+            &context,
+            ReceiptId::new(1).unwrap(),
+            &mut meter,
+        )
+        .unwrap();
         assert_eq!(simplified, Expr::Mul(vec![Expr::from_i64(2), x]));
 
         assert_eq!(envelope.claim.lhs().unwrap(), &expr);
@@ -469,7 +513,18 @@ mod tests {
         ] {
             let expr = Expr::Function(name.to_string(), vec![Expr::from_i64(0)]);
             let (simplified, envelope) =
-                verified_simplify(&expr, &context, &mut Unbounded).unwrap();
+                verified_simplify(
+                    &expr,
+                    &context,
+                    ReceiptId::new(match name {
+                        "sin" => 2,
+                        "cos" => 3,
+                        _ => 4,
+                    })
+                    .unwrap(),
+                    &mut Unbounded,
+                )
+                .unwrap();
 
             assert_eq!(simplified, expected);
             assert!(
@@ -519,7 +574,13 @@ mod tests {
         let x = Expr::symbol("x");
         let expr = Expr::Add(vec![x.clone(), x.clone()]);
 
-        let (_, envelope) = verified_simplify(&expr, &context, &mut meter).unwrap();
+        let (_, envelope) = verified_simplify(
+            &expr,
+            &context,
+            ReceiptId::new(5).unwrap(),
+            &mut meter,
+        )
+        .unwrap();
         let mut tree = envelope.derivation.unwrap();
 
         // Mutate the final step claim to forged claim x + x = x

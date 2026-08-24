@@ -291,6 +291,9 @@ release_candidate() {
   reproducibility
   package
   write_audits
+  # Audit generation is admissible only when it reproduces the tracked bytes exactly. A dirty
+  # diff here means the candidate no longer matches the evidence bundle checked above.
+  source_clean
   ok "release candidate locally validated against every required implemented gate"
 }
 
