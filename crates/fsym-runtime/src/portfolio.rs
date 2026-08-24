@@ -32,9 +32,9 @@ pub enum PortfolioError {
 
 /// A candidate produced by an algorithm generator in the portfolio.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PortfolioCandidate<T> {
+pub struct PortfolioCandidate {
     pub strategy_name: String,
-    pub result: T,
+    pub result: fsym_core::Expr,
     pub claim: Claim,
     pub derivation: DerivationTree,
     pub steps_consumed: u64,
@@ -42,30 +42,30 @@ pub struct PortfolioCandidate<T> {
 
 /// A verified accepted outcome from a portfolio execution.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct VerifiedPortfolioOutcome<T> {
+pub struct VerifiedPortfolioOutcome {
     pub winning_strategy: String,
-    pub result: T,
+    pub result: fsym_core::Expr,
     pub evidence: EvidenceEnvelope,
     pub total_steps_consumed: u64,
 }
 
 /// Function signature for a candidate strategy runner.
-pub type StrategyRunner<T, Caps> =
-    Box<dyn Fn(&mut FsymCx<'_, Caps>) -> Result<PortfolioCandidate<T>, PortfolioError>>;
+pub type StrategyRunner<Caps> =
+    Box<dyn Fn(&mut FsymCx<'_, Caps>) -> Result<PortfolioCandidate, PortfolioError>>;
 
 /// A named strategy runner pair.
-pub type NamedStrategy<T, Caps> = (&'static str, StrategyRunner<T, Caps>);
+pub type NamedStrategy<Caps> = (&'static str, StrategyRunner<Caps>);
 
 /// Executes a portfolio race between two or more candidate generation strategies,
 /// followed by mandatory protected verification of the winning candidate before publication.
-pub fn run_portfolio_race<T: Clone, Caps>(
+pub fn run_portfolio_race<Caps>(
     cx: &mut FsymCx<'_, Caps>,
     context: &Arc<ImmutableAssumptionsSnapshot>,
-    strategies: Vec<NamedStrategy<T, Caps>>,
-) -> Result<VerifiedPortfolioOutcome<T>, PortfolioError> {
+    strategies: Vec<NamedStrategy<Caps>>,
+) -> Result<VerifiedPortfolioOutcome, PortfolioError> {
     cx.checkpoint().map_err(|_| PortfolioError::Cancelled)?;
 
-    let mut first_winner: Option<PortfolioCandidate<T>> = None;
+    let mut first_winner: Option<PortfolioCandidate> = None;
     let mut failure_reasons: Vec<String> = Vec::new();
 
     // Candidate Generation Phase: sequentially or concurrently execute strategies
@@ -98,12 +98,25 @@ pub fn run_portfolio_race<T: Clone, Caps>(
     cx.charge_verifier(&lease, 1)
         .map_err(|e| PortfolioError::BudgetExhausted(e.to_string()))?;
 
-    verify_derivation_independent(&winner.derivation, context).map_err(|e| {
-        PortfolioError::WinnerVerificationFailed(format!(
-            "Verifier rejected candidate from strategy `{}`: {e}",
+    let verified_claim =
+        verify_derivation_independent(&winner.derivation, context).map_err(|e| {
+            PortfolioError::WinnerVerificationFailed(format!(
+                "Verifier rejected candidate from strategy `{}`: {e}",
+                winner.strategy_name
+            ))
+        })?;
+    if verified_claim != winner.claim {
+        return Err(PortfolioError::WinnerVerificationFailed(format!(
+            "Verifier established `{verified_claim}`, but strategy `{}` requested publication of `{}`",
+            winner.strategy_name, winner.claim
+        )));
+    }
+    if portfolio_claimed_result(&verified_claim) != &winner.result {
+        return Err(PortfolioError::WinnerVerificationFailed(format!(
+            "Verified claim `{verified_claim}` does not bind the result returned by strategy `{}`",
             winner.strategy_name
-        ))
-    })?;
+        )));
+    }
 
     let receipt_id = fsym_id::ReceiptId::new(1).expect("valid id");
     let receipt = fsym_evidence::VerificationReceipt::issue(
@@ -128,4 +141,96 @@ pub fn run_portfolio_race<T: Clone, Caps>(
         evidence,
         total_steps_consumed: winner.steps_consumed,
     })
+}
+
+fn portfolio_claimed_result(claim: &Claim) -> &fsym_core::Expr {
+    match claim {
+        Claim::Equality { rhs, .. } | Claim::AlgebraicIdentity { rhs, .. } => rhs,
+        Claim::PredicateHold { expr, .. }
+        | Claim::DomainMembership { expr, .. }
+        | Claim::NonZero(expr) => expr,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use asupersync::Cx;
+    use fsym_budget::Unbounded;
+    use fsym_core::Expr;
+    use fsym_proof_kernel::ProofKernel;
+
+    #[test]
+    fn rejects_claim_that_is_not_the_verified_derivation_root() {
+        let cx_raw = Cx::detached_cancel_context();
+        let limits = BudgetLimits::uniform(100, 10);
+        let budget = Budget::new(limits);
+        let mut fsym_cx = FsymCx::new(&cx_raw, budget, limits);
+
+        let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
+        let x = Expr::symbol("x");
+        let y = Expr::symbol("y");
+
+        let mismatched_strategy = Box::new(move |_cx: &mut FsymCx<'_, _>| {
+            let mut kernel = ProofKernel::new((*ImmutableAssumptionsSnapshot::empty()).clone());
+            let step = kernel.prove_reflexivity(x.clone(), &mut Unbounded).unwrap();
+            let derivation = kernel.export_derivation(step).unwrap();
+
+            Ok(PortfolioCandidate {
+                strategy_name: "mismatched_claim".into(),
+                result: y.clone(),
+                claim: Claim::equality(x.clone(), y.clone()),
+                derivation,
+                steps_consumed: 1,
+            })
+        });
+
+        let result = run_portfolio_race(
+            &mut fsym_cx,
+            &context,
+            vec![("mismatched", mismatched_strategy)],
+        );
+
+        assert!(matches!(
+            result,
+            Err(PortfolioError::WinnerVerificationFailed(message))
+                if message.contains("requested publication")
+        ));
+    }
+
+    #[test]
+    fn rejects_result_that_is_not_bound_to_the_verified_claim() {
+        let cx_raw = Cx::detached_cancel_context();
+        let limits = BudgetLimits::uniform(100, 10);
+        let budget = Budget::new(limits);
+        let mut fsym_cx = FsymCx::new(&cx_raw, budget, limits);
+
+        let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
+        let x = Expr::symbol("x");
+        let incorrect_result_strategy = Box::new(move |_cx: &mut FsymCx<'_, _>| {
+            let mut kernel = ProofKernel::new((*ImmutableAssumptionsSnapshot::empty()).clone());
+            let step = kernel.prove_reflexivity(x.clone(), &mut Unbounded).unwrap();
+            let derivation = kernel.export_derivation(step).unwrap();
+
+            Ok(PortfolioCandidate {
+                strategy_name: "incorrect_result".into(),
+                result: Expr::from_i64(999),
+                claim: Claim::equality(x.clone(), x.clone()),
+                derivation,
+                steps_consumed: 1,
+            })
+        });
+
+        let result = run_portfolio_race(
+            &mut fsym_cx,
+            &context,
+            vec![("incorrect-result", incorrect_result_strategy)],
+        );
+
+        assert!(matches!(
+            result,
+            Err(PortfolioError::WinnerVerificationFailed(message))
+                if message.contains("does not bind the result")
+        ));
+    }
 }

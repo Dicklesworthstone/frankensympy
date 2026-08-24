@@ -42,15 +42,18 @@ impl ReplayLog {
         payload: &[u8],
     ) {
         let step_index = self.events.len() as u64;
+        let event_name = name.into();
+        let canonical_event =
+            serde_json::to_vec(&(step_index, &event_name, &dimension_charges, payload))
+                .expect("replay event fields must be serializable");
         let mut hasher = blake3::Hasher::new();
-        hasher.update(b"fsym.replay.event.v1:");
-        hasher.update(&step_index.to_le_bytes());
-        hasher.update(payload);
+        hasher.update(b"fsym.replay.event.v2:");
+        hasher.update(&canonical_event);
         let outcome_digest = *hasher.finalize().as_bytes();
 
         self.events.push(ReplayEvent {
             step_index,
-            event_name: name.into(),
+            event_name,
             dimension_charges,
             outcome_digest,
         });
@@ -58,22 +61,45 @@ impl ReplayLog {
 
     /// Seal and finalize the replay transcript digest.
     pub fn finalize(&mut self) -> [u8; 32] {
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(b"fsym.replay.log.v1:");
-        hasher.update(&self.initial_seed.to_le_bytes());
-        hasher.update(self.strategy_name.as_bytes());
-        for ev in &self.events {
-            hasher.update(&ev.step_index.to_le_bytes());
-            hasher.update(ev.event_name.as_bytes());
-            hasher.update(&ev.outcome_digest);
-        }
-        let digest = *hasher.finalize().as_bytes();
+        let digest = self.computed_final_digest();
         self.final_digest = digest;
         digest
     }
 
+    /// Verify that every replay field remains bound to the sealed digest.
+    pub fn verify_integrity(&self) -> bool {
+        self.final_digest == self.computed_final_digest()
+    }
+
     /// Verify that a candidate replay log matches this reference transcript bit-for-bit.
     pub fn verify_replay_match(&self, candidate: &ReplayLog) -> bool {
-        self == candidate && self.final_digest == candidate.final_digest
+        self.verify_integrity() && candidate.verify_integrity() && self == candidate
+    }
+
+    fn computed_final_digest(&self) -> [u8; 32] {
+        let canonical_log =
+            serde_json::to_vec(&(self.initial_seed, &self.strategy_name, &self.events))
+                .expect("replay log fields must be serializable");
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"fsym.replay.log.v2:");
+        hasher.update(&canonical_log);
+        *hasher.finalize().as_bytes()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dimension_charges_are_integrity_bound() {
+        let mut log = ReplayLog::new(11, "strategy");
+        log.record_event("step", vec![(Dimension::ComputeSteps, 3)], b"outcome");
+        log.finalize();
+        assert!(log.verify_integrity());
+
+        log.events[0].dimension_charges[0].1 = 300;
+
+        assert!(!log.verify_integrity());
     }
 }

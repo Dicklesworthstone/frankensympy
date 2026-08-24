@@ -27,14 +27,13 @@ impl<T: Serialize> TypedCheckpoint<T> {
         remaining_budget: BTreeMap<Dimension, u64>,
         verifier_remaining: u64,
     ) -> Self {
-        let serialized_payload =
-            serde_json::to_vec(&payload).expect("payload must be serializable");
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(b"fsym.checkpoint.v1:");
-        hasher.update(&checkpoint_seq.to_le_bytes());
-        hasher.update(&serialized_payload);
-        hasher.update(&verifier_remaining.to_le_bytes());
-        let content_digest = *hasher.finalize().as_bytes();
+        let content_digest = checkpoint_digest(
+            checkpoint_seq,
+            &payload,
+            &remaining_budget,
+            verifier_remaining,
+        )
+        .expect("checkpoint fields must be serializable");
 
         Self {
             checkpoint_seq,
@@ -47,15 +46,49 @@ impl<T: Serialize> TypedCheckpoint<T> {
 
     /// Check integrity digest of this checkpoint.
     pub fn verify_integrity(&self) -> bool {
-        let serialized_payload = match serde_json::to_vec(&self.payload) {
-            Ok(bytes) => bytes,
-            Err(_) => return false,
-        };
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(b"fsym.checkpoint.v1:");
-        hasher.update(&self.checkpoint_seq.to_le_bytes());
-        hasher.update(&serialized_payload);
-        hasher.update(&self.verifier_remaining.to_le_bytes());
-        *hasher.finalize().as_bytes() == self.content_digest
+        checkpoint_digest(
+            self.checkpoint_seq,
+            &self.payload,
+            &self.remaining_budget,
+            self.verifier_remaining,
+        )
+        .is_ok_and(|digest| digest == self.content_digest)
+    }
+}
+
+fn checkpoint_digest<T: Serialize>(
+    checkpoint_seq: u64,
+    payload: &T,
+    remaining_budget: &BTreeMap<Dimension, u64>,
+    verifier_remaining: u64,
+) -> Result<[u8; 32], serde_json::Error> {
+    let canonical_fields = serde_json::to_vec(&(
+        checkpoint_seq,
+        payload,
+        remaining_budget,
+        verifier_remaining,
+    ))?;
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"fsym.checkpoint.v2:");
+    hasher.update(&canonical_fields);
+    Ok(*hasher.finalize().as_bytes())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn remaining_budget_is_integrity_bound() {
+        let mut budget = BTreeMap::new();
+        budget.insert(Dimension::ComputeSteps, 10);
+        let mut checkpoint = TypedCheckpoint::new(7, "state", budget, 2);
+        assert!(checkpoint.verify_integrity());
+
+        checkpoint
+            .remaining_budget
+            .insert(Dimension::ComputeSteps, 1_000_000);
+
+        assert!(!checkpoint.verify_integrity());
     }
 }

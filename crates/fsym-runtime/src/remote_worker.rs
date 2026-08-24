@@ -64,17 +64,13 @@ impl CoordinatorVerifier {
         candidate: &RemoteCandidate,
     ) -> Result<VerifiedAcceptedResult, RemoteWorkerError> {
         // 1. Independent stateless verification of the derivation tree
-        verify_derivation_independent(&candidate.derivation, &self.context)
+        let verified_claim = verify_derivation_independent(&candidate.derivation, &self.context)
             .map_err(|e| RemoteWorkerError::VerificationFailed(format!("{e:?}")))?;
 
-        // 2. Check that derivation conclusion matches the claimed claim
-        let last_step = candidate
-            .derivation
-            .steps
-            .last()
-            .ok_or_else(|| RemoteWorkerError::VerificationFailed("Empty derivation".into()))?;
-
-        if last_step.claim != candidate.claim {
+        // 2. Bind both the worker's claim and returned value to the exact verified root.
+        // Derivation export order is not itself a statement about which step is the root.
+        if verified_claim != candidate.claim || claimed_result(&verified_claim) != &candidate.result
+        {
             return Err(RemoteWorkerError::ClaimForgery);
         }
 
@@ -82,7 +78,13 @@ impl CoordinatorVerifier {
         let mut hasher = blake3::Hasher::new();
         hasher.update(b"fsym.coordinator.verified.v1:");
         hasher.update(&candidate.task_id.to_le_bytes());
-        hasher.update(&serde_json::to_vec(&candidate.claim).unwrap());
+        let claim_bytes = serde_json::to_vec(&candidate.claim)
+            .map_err(|_| RemoteWorkerError::CorruptedPayload)?;
+        let result_bytes = serde_json::to_vec(&candidate.result)
+            .map_err(|_| RemoteWorkerError::CorruptedPayload)?;
+        hasher.update(&claim_bytes);
+        hasher.update(&result_bytes);
+        hasher.update(&candidate.derivation.digest());
         let verifier_receipt_digest = *hasher.finalize().as_bytes();
 
         Ok(VerifiedAcceptedResult {
@@ -91,5 +93,45 @@ impl CoordinatorVerifier {
             claim: candidate.claim.clone(),
             verifier_receipt_digest,
         })
+    }
+}
+
+fn claimed_result(claim: &Claim) -> &Expr {
+    match claim {
+        Claim::Equality { rhs, .. } | Claim::AlgebraicIdentity { rhs, .. } => rhs,
+        Claim::PredicateHold { expr, .. }
+        | Claim::DomainMembership { expr, .. }
+        | Claim::NonZero(expr) => expr,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fsym_budget::Unbounded;
+    use fsym_proof_kernel::ProofKernel;
+
+    #[test]
+    fn rejects_result_not_bound_to_verified_claim() {
+        let context = ImmutableAssumptionsSnapshot::empty();
+        let coordinator = CoordinatorVerifier::new(context);
+        let x = Expr::symbol("x");
+        let mut kernel = ProofKernel::new((*ImmutableAssumptionsSnapshot::empty()).clone());
+        let root = kernel.prove_reflexivity(x.clone(), &mut Unbounded).unwrap();
+        let derivation = kernel.export_derivation(root).unwrap();
+
+        let candidate = RemoteCandidate {
+            worker_id: "untrusted-worker".to_string(),
+            task_id: 999,
+            result: Expr::from_i64(999),
+            claim: Claim::equality(x.clone(), x),
+            derivation,
+            worker_signature: vec![0x13, 0x37],
+        };
+
+        assert_eq!(
+            coordinator.verify_remote_candidate(&candidate),
+            Err(RemoteWorkerError::ClaimForgery)
+        );
     }
 }
