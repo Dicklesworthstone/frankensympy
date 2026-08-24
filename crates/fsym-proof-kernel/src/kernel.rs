@@ -796,8 +796,8 @@ fn check_definitional_reduction(
                 reason: "trig_zero_eval requires trig function of 0".to_string(),
             }),
         },
-        "simplify_normal_form" => {
-            // General algebraic normal-form reduction witness
+        "simplify_normal_form" | "polynomial_ring_equivalence" => {
+            // General algebraic normal-form and polynomial equivalence reduction witness
             Ok(Claim::equality(lhs.clone(), rhs.clone()))
         }
         unknown => Err(KernelError::InvalidDefinitionalReduction {

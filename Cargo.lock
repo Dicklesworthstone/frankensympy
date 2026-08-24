@@ -738,8 +738,14 @@ version = "0.1.0"
 name = "fsym-polys"
 version = "0.1.0"
 dependencies = [
+ "fsym-assumptions",
+ "fsym-bigint",
+ "fsym-budget",
  "fsym-core",
- "num-bigint",
+ "fsym-evidence",
+ "fsym-id",
+ "fsym-outcome",
+ "fsym-proof-kernel",
  "num-rational",
  "num-traits",
  "proptest",
