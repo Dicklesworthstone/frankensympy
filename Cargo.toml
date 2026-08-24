@@ -53,6 +53,7 @@ fsym-id = { path = "crates/fsym-id" }
 fsym-budget = { path = "crates/fsym-budget" }
 fsym-outcome = { path = "crates/fsym-outcome" }
 fsym-bigint = { path = "crates/fsym-bigint" }
+fsym-rational = { path = "crates/fsym-rational" }
 fsym-core = { path = "crates/fsym-core" }
 fsym-polys = { path = "crates/fsym-polys" }
 fsym-simplify = { path = "crates/fsym-simplify" }
@@ -73,7 +74,7 @@ fsym-proof-kernel = { path = "crates/fsym-proof-kernel" }
 fsym-evidence = { path = "crates/fsym-evidence" }
 asupersync = { path = "../asupersync" }
 num-bigint = { version = "0.4", features = ["serde"] }
-num-rational = { version = "0.4", features = ["serde"] }
+num-rational = { version = "0.4", default-features = false, features = ["serde", "std"] }
 num-traits = "0.2"
 num-complex = "0.4"
 num-integer = "0.1"

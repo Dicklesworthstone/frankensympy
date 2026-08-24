@@ -10,7 +10,7 @@
       "frankensqlite",
       "rust_std"
     ],
-    "cargo_manifest_count": 25,
+    "cargo_manifest_count": 26,
     "declared_dependency_names": [
       "asupersync",
       "blake3",
@@ -30,6 +30,7 @@
       "fsym-polys",
       "fsym-printing",
       "fsym-proof-kernel",
+      "fsym-rational",
       "fsym-runtime",
       "fsym-sets",
       "fsym-simplify",
@@ -47,6 +48,11 @@
       "thiserror",
       "trybuild"
     ],
+    "num_rational_default_features": false,
+    "num_rational_features": [
+      "serde",
+      "std"
+    ],
     "portable_verifier_profile_count": 2,
     "project_build_scripts": [],
     "provisional_substrate_declarations": {
@@ -54,7 +60,7 @@
         "crates/fsym-bigint/Cargo.toml"
       ],
       "num-rational": [
-        "crates/fsym-bigint/Cargo.toml"
+        "crates/fsym-rational/Cargo.toml"
       ]
     },
     "toolchain_channel": "nightly-2026-08-20"

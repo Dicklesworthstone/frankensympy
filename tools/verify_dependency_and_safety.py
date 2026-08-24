@@ -71,6 +71,22 @@ def run(root: Path) -> dict:
     rust_lints = cargo.get("lints", {}).get("rust", {}) if isinstance(cargo.get("lints", {}), dict) else {}
     audit.require(isinstance(rust_lints, dict) and rust_lints.get("unsafe_code") == "forbid", "Cargo.toml must set lints.rust.unsafe_code = forbid")
 
+    workspace = cargo.get("workspace", {})
+    workspace_dependencies = workspace.get("dependencies", {}) if isinstance(workspace, dict) else {}
+    num_rational = workspace_dependencies.get("num-rational") if isinstance(workspace_dependencies, dict) else None
+    num_rational_features = num_rational.get("features") if isinstance(num_rational, dict) else None
+    audit.require(isinstance(num_rational, dict), "workspace num-rational dependency must use an explicit table")
+    if isinstance(num_rational, dict):
+        audit.require(
+            num_rational.get("default-features") is False,
+            "workspace num-rational must disable the optional num-bigint default feature",
+        )
+    audit.require(
+        isinstance(num_rational_features, list)
+        and set(num_rational_features) == {"serde", "std"},
+        "workspace num-rational must enable exactly serde and std",
+    )
+
     channel = toolchain.get("toolchain", {}).get("channel") if isinstance(toolchain.get("toolchain", {}), dict) else None
     audit.require(isinstance(channel, str) and bool(NIGHTLY_RE.fullmatch(channel)), "toolchain channel must be exact nightly-YYYY-MM-DD")
 
@@ -95,7 +111,10 @@ def run(root: Path) -> dict:
     manifests = sorted(root.rglob("Cargo.toml"))
     actual_dependencies: set[str] = set()
     substrate_declarations: dict[str, list[str]] = {"num-bigint": [], "num-rational": []}
-    substrate_allowed_manifests = {"Cargo.toml", "crates/fsym-bigint/Cargo.toml"}
+    substrate_allowed_manifests = {
+        "num-bigint": {"Cargo.toml", "crates/fsym-bigint/Cargo.toml"},
+        "num-rational": {"Cargo.toml", "crates/fsym-rational/Cargo.toml"},
+    }
     build_scripts: list[str] = []
     for manifest_path in manifests:
         try:
@@ -113,8 +132,8 @@ def run(root: Path) -> dict:
             if substrate in resolved_packages:
                 substrate_declarations[substrate].append(manifest_relative)
                 audit.require(
-                    manifest_relative in substrate_allowed_manifests,
-                    f"{manifest_relative}: provisional substrate {substrate} must be contained by crates/fsym-bigint",
+                    manifest_relative in substrate_allowed_manifests[substrate],
+                    f"{manifest_relative}: provisional substrate {substrate} is outside its dedicated ownership boundary",
                 )
         package = manifest.get("package", {})
         if isinstance(package, dict) and package.get("build"):
@@ -151,6 +170,10 @@ def run(root: Path) -> dict:
         "provisional_substrate_declarations": {
             dependency: sorted(paths) for dependency, paths in substrate_declarations.items()
         },
+        "num_rational_default_features": (
+            num_rational.get("default-features") if isinstance(num_rational, dict) else None
+        ),
+        "num_rational_features": sorted(num_rational_features) if isinstance(num_rational_features, list) else [],
         "project_build_scripts": sorted(set(build_scripts)),
         "portable_verifier_profile_count": len(profiles),
     })

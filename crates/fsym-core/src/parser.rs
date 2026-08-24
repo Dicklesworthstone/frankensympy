@@ -14,8 +14,8 @@
 //! literals parse as exact rationals scaled by powers of ten. There are no
 //! floating-point leaves anywhere in the numeric tower.
 
+use crate::{BigInt, BigRational};
 use crate::{Constant, CoreError, Expr, Symbol};
-use fsym_bigint::{BigInt, BigRational};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq)]

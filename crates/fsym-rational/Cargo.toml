@@ -1,5 +1,5 @@
 [package]
-name = "fsym-bigint"
+name = "fsym-rational"
 version.workspace = true
 edition.workspace = true
 license-file.workspace = true
@@ -11,11 +11,11 @@ categories.workspace = true
 publish = false
 
 [dependencies]
-num-bigint = { workspace = true, features = ["serde"] }
-num-integer = { workspace = true }
+fsym-bigint.workspace = true
+num-rational = { workspace = true, features = ["serde"] }
 num-traits.workspace = true
 serde.workspace = true
-fsym-budget.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+serde_json.workspace = true

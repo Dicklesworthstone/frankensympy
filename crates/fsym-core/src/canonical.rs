@@ -13,7 +13,7 @@
 //! because the cap is checked against remaining input bytes first.
 
 use crate::CoreError;
-use fsym_bigint::{BigInt, BigRational};
+use crate::{BigInt, BigRational};
 
 /// Maximum accepted payload size per value, including tag and integer
 /// headers. The whole input is rejected before any big-integer allocation

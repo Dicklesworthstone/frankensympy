@@ -6,8 +6,8 @@
 
 #![forbid(unsafe_code)]
 
+use crate::{BigInt, BigRational};
 use crate::{Constant, Expr, Symbol};
-use fsym_bigint::{BigInt, BigRational};
 use fsym_id::TermId;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;

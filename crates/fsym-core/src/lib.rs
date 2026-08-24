@@ -5,7 +5,8 @@
 
 #![forbid(unsafe_code)]
 
-pub use fsym_bigint::{BigInt, BigRational};
+pub use fsym_bigint::BigInt;
+pub use fsym_rational::BigRational;
 use num_traits::{One, Zero};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

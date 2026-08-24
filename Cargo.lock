@@ -595,7 +595,6 @@ dependencies = [
  "fsym-budget",
  "num-bigint",
  "num-integer",
- "num-rational",
  "num-traits",
  "proptest",
  "serde",
@@ -643,6 +642,7 @@ dependencies = [
  "fsym-budget",
  "fsym-id",
  "fsym-outcome",
+ "fsym-rational",
  "num-complex",
  "num-traits",
  "proptest",
@@ -803,6 +803,18 @@ dependencies = [
  "fsym-tensor",
  "proptest",
  "pyo3",
+]
+
+[[package]]
+name = "fsym-rational"
+version = "0.1.0"
+dependencies = [
+ "fsym-bigint",
+ "num-rational",
+ "num-traits",
+ "proptest",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
