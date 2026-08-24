@@ -57,9 +57,9 @@ pub fn limb_count_u64(magnitude_bits: u64) -> u64 {
 pub enum Strategy {
     /// Repeated-addition oracle reference lane.
     SchoolbookReference,
-    /// Pure-Rust recursive Karatsuba multiplication.
+    /// Recursive Karatsuba root with contained substrate leaves and skew fallback.
     Karatsuba,
-    /// Explicit Toom-3 lane; not selected by the default policy without crossover evidence.
+    /// Toom-3 root with Karatsuba/substrate structural fallbacks; not selected by default.
     Toom3,
     /// Contained substrate multiplication.
     NativeSubstrate,
@@ -852,7 +852,11 @@ impl PartialOrd<i64> for BigInt {
     }
 }
 
-/// Multiplies via the explicitly chosen strategy.
+/// Multiplies via the explicitly requested root strategy.
+///
+/// This API is unmetered. Recursive strategies use documented structural leaf and skew fallbacks,
+/// so the requested enum alone is not benchmark execution evidence. Controlled work must use
+/// [`metered_multiply`] until a recursively metered portfolio API exists.
 pub fn multiply_with_strategy(a: &BigInt, b: &BigInt, strategy: Strategy) -> BigInt {
     match strategy {
         Strategy::SchoolbookReference => schoolbook_reference(&a.0, &b.0),
@@ -1449,15 +1453,13 @@ fn toom3_mag_internal(a: &BigUint, b: &BigUint) -> BigUint {
     }
 
     let chunk_bits = max_bits.div_ceil(3);
-    let chunk_bits_x2 = chunk_bits
-        .checked_mul(2)
-        .expect("allocated bigint chunk shift must fit u64");
-    let chunk_bits_x3 = chunk_bits
-        .checked_mul(3)
-        .expect("allocated bigint chunk shift must fit u64");
-    let chunk_bits_x4 = chunk_bits
-        .checked_mul(4)
-        .expect("allocated bigint chunk shift must fit u64");
+    let (Some(chunk_bits_x2), Some(chunk_bits_x3), Some(chunk_bits_x4)) = (
+        chunk_bits.checked_mul(2),
+        chunk_bits.checked_mul(3),
+        chunk_bits.checked_mul(4),
+    ) else {
+        return a * b;
+    };
     // Both operands need a nonzero top third. Skewed or cancellation-shortened recursive values
     // stay on the hardened Karatsuba/native lane instead of expanding zero-heavy Toom branches.
     if min_bits <= chunk_bits_x2 {
