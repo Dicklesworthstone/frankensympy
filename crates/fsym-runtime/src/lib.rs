@@ -5,6 +5,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod benchmarks;
 pub mod checkpoint;
 pub mod cx;
 pub mod graph_index;
@@ -17,6 +18,7 @@ pub mod replay;
 pub mod rng;
 pub mod workspace;
 
+pub use benchmarks::*;
 pub use checkpoint::*;
 pub use cx::FsymCx;
 pub use graph_index::*;
@@ -420,5 +422,44 @@ mod tests {
         // Add a cycle: thm_pythagoras -> ws_main
         graph.add_edge("thm_pythagoras", "ws_main");
         assert!(graph.has_cycle(), "Cycle must be detected in graph index");
+    }
+
+    #[test]
+    fn test_paired_benchmark_with_semantic_admission() {
+        // Paired run where candidate matches reference
+        let res = run_paired_benchmark(
+            "karatsuba_vs_naive_poly_mul",
+            || (42, 10),
+            || (42, 25),
+            |c, r| c == r,
+        )
+        .unwrap();
+
+        assert_eq!(res.benchmark_name, "karatsuba_vs_naive_poly_mul");
+        assert!(res.semantic_equivalence_verified);
+        assert_eq!(res.candidate_steps, 10);
+        assert_eq!(res.reference_steps, 25);
+
+        // Adversarial test: Semantic admission failure (diverging output) must fail closed
+        let fail_res = run_paired_benchmark(
+            "diverging_algorithm",
+            || (42, 5),
+            || (999, 10),
+            |c, r| c == r,
+        );
+
+        assert!(matches!(
+            fail_res,
+            Err(BenchmarkError::SemanticAdmissionFailed)
+        ));
+    }
+
+    #[test]
+    fn test_standard_ws22_suite_execution() {
+        let results = run_standard_ws22_suite().unwrap();
+        assert_eq!(results.len(), 2);
+        for res in results {
+            assert!(res.semantic_equivalence_verified);
+        }
     }
 }
