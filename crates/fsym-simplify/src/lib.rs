@@ -419,7 +419,8 @@ mod tests {
         let yx = Expr::Mul(vec![y.clone(), x.clone()]);
         assert_eq!(
             simplify(&Expr::Add(vec![xy, yx])),
-            Expr::Mul(vec![Expr::from_i64(2), Expr::Mul(vec![x, y])])
+            // Flat canonical Mul: SymPy keeps 2*x*y un-nested.
+            Expr::Mul(vec![Expr::from_i64(2), x, y])
         );
     }
 
