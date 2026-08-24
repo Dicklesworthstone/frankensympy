@@ -257,7 +257,7 @@ mod tests {
     }
 
     #[test]
-    fn mutant_polynomial_normalizer_refuses_excessive_depth() {
+    fn mutant_polynomial_proof_refuses_excessive_depth_at_trust_boundary() {
         let ctx = empty_context();
         let mut kernel = ProofKernel::new(ctx);
         let mut meter = Unbounded;
@@ -276,7 +276,10 @@ mod tests {
             .unwrap_err();
         assert!(matches!(
             error,
-            KernelError::InvalidDefinitionalReduction { .. }
+            KernelError::DerivationLimitExceeded {
+                resource: "expression depth",
+                ..
+            }
         ));
     }
 

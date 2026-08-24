@@ -97,7 +97,7 @@ fn checkpoint_digest<T: Serialize>(
 ) -> Result<[u8; 32], CheckpointError> {
     // Convert through `Value`: serde_json's default map representation is key-sorted, avoiding
     // process-random `HashMap` iteration order in an otherwise generic payload.
-    let canonical_value = serde_json::to_value(&(
+    let canonical_value = serde_json::to_value((
         schema_version,
         payload_schema,
         checkpoint_seq,

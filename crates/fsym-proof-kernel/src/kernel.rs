@@ -430,6 +430,13 @@ pub fn derivation_verification_units(derivation: &DerivationTree) -> Result<u64,
     Ok(preflight.work_units.div_ceil(64).max(1))
 }
 
+/// Preflight one standalone claim before hashing or comparing it at a trust boundary.
+pub fn claim_verification_units(claim: &Claim) -> Result<u64, KernelError> {
+    let mut preflight = DerivationPreflight::default();
+    preflight.visit_claim(claim)?;
+    Ok(preflight.work_units.div_ceil(64).max(1))
+}
+
 #[derive(Default)]
 struct DerivationPreflight {
     work_units: u64,
@@ -521,6 +528,7 @@ impl DerivationPreflight {
                 }
                 Expr::Const(_) => {}
                 Expr::Add(terms) | Expr::Mul(terms) => {
+                    self.ensure_expression_children_fit(terms.len())?;
                     let child_depth = depth + 1;
                     stack.extend(terms.iter().rev().map(|term| (term, child_depth)));
                 }
@@ -531,12 +539,29 @@ impl DerivationPreflight {
                 }
                 Expr::Function(name, args) => {
                     self.add_text(name)?;
+                    self.ensure_expression_children_fit(args.len())?;
                     let child_depth = depth + 1;
                     stack.extend(args.iter().rev().map(|arg| (arg, child_depth)));
                 }
             }
         }
         Ok(())
+    }
+
+    fn ensure_expression_children_fit(&self, child_count: usize) -> Result<(), KernelError> {
+        let child_count =
+            u64::try_from(child_count).map_err(|_| KernelError::DerivationLimitExceeded {
+                resource: "expression nodes",
+                limit: MAX_DERIVATION_EXPR_NODES,
+            })?;
+        if child_count > MAX_DERIVATION_EXPR_NODES.saturating_sub(self.expression_nodes) {
+            Err(KernelError::DerivationLimitExceeded {
+                resource: "expression nodes",
+                limit: MAX_DERIVATION_EXPR_NODES,
+            })
+        } else {
+            Ok(())
+        }
     }
 
     fn add_numeric_limbs(&mut self, limbs: u64) -> Result<(), KernelError> {

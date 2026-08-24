@@ -6,7 +6,9 @@
 
 use crate::receipt::VerificationReceipt;
 use fsym_outcome::EvidenceClass;
-use fsym_proof_kernel::{Claim, DerivationTree};
+use fsym_proof_kernel::{
+    Claim, DerivationTree, claim_verification_units, derivation_verification_units,
+};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Sealed evidence envelope packaging a claim and its verification credentials.
@@ -82,6 +84,9 @@ impl EvidenceEnvelope {
     /// derivation under its assumptions context. Kernel-proved envelopes must carry a
     /// derivation whose root claim and digest are bound by the receipt.
     pub fn verify_integrity(&self) -> bool {
+        if claim_verification_units(&self.claim).is_err() {
+            return false;
+        }
         if self.receipt.claim_digest != self.claim.digest()
             || self.receipt.evidence_class != self.evidence_class
         {
@@ -90,6 +95,9 @@ impl EvidenceEnvelope {
 
         match &self.derivation {
             Some(derivation) => {
+                if derivation_verification_units(derivation).is_err() {
+                    return false;
+                }
                 let root_claim = derivation
                     .steps
                     .iter()

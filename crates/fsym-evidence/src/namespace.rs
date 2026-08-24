@@ -202,14 +202,14 @@ fn independently_verify_envelope(
     envelope: EvidenceEnvelope,
     context: &ImmutableAssumptionsSnapshot,
 ) -> Result<VerifiedEvidence, NamespaceError> {
-    if !envelope.verify_integrity() {
-        return Err(NamespaceError::UnverifiedCandidate);
-    }
     if envelope.evidence_class != EvidenceClass::KernelProved {
         return Err(NamespaceError::IndependentVerificationFailed(format!(
             "evidence class `{}` has no live trusted verifier",
             envelope.evidence_class.as_str()
         )));
+    }
+    if !envelope.verify_integrity() {
+        return Err(NamespaceError::UnverifiedCandidate);
     }
     let derivation = envelope
         .derivation

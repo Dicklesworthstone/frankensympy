@@ -397,7 +397,11 @@ impl TruthTable {
 ///
 /// Returns one satisfying assignment when one exists.
 pub fn dpll_satisfiable(expr: &BoolExpr) -> Option<HashMap<Symbol, bool>> {
-    dpll(&structural_cnf(&expr.nnf()), HashMap::new())
+    let mut model = dpll(&structural_cnf(&expr.nnf()), HashMap::new())?;
+    for var in expr.variables() {
+        model.entry(var).or_insert(false);
+    }
+    Some(model)
 }
 
 /// Convert an NNF formula to CNF by distribution.
@@ -492,18 +496,25 @@ fn dpll(clauses: &[Vec<Literal>], model: HashMap<Symbol, bool>) -> Option<HashMa
         return dpll(clauses, m);
     }
 
-    // Pure-literal elimination on unassigned variables.
-    let mut seen = HashMap::<&Symbol, [bool; 2]>::new();
+    // Pure-literal elimination on unassigned variables in unresolved clauses.
+    let mut seen = HashMap::<&Symbol, (bool, bool)>::new(); // (pos_seen, neg_seen)
     for clause in clauses {
+        if clause_value(clause, &model) == Some(true) {
+            continue;
+        }
         for lit in clause {
             if !model.contains_key(lit.variable()) {
-                let entry = seen.entry(lit.variable()).or_insert([false, false]);
-                entry[usize::from(!lit.is_positive())] = true;
+                let entry = seen.entry(lit.variable()).or_insert((false, false));
+                if lit.is_positive() {
+                    entry.0 = true;
+                } else {
+                    entry.1 = true;
+                }
             }
         }
     }
-    for (&var, &[neg_seen, pos_seen]) in seen.iter() {
-        if neg_seen != pos_seen {
+    for (&var, &(pos_seen, neg_seen)) in seen.iter() {
+        if pos_seen != neg_seen {
             let mut m = model;
             m.insert(var.clone(), pos_seen);
             return dpll(clauses, m);
