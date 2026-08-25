@@ -38,10 +38,8 @@ const DIFFERENTIATION_LIMITS: ExpressionLimits = ExpressionLimits {
     max_fanout: 64,
 };
 
-const OUTPUT_LIMIT_RESPONSE: &str =
-    r#"{"status":"Error","data":{"code":"output_limit_exceeded","error":"response exceeded protocol output limit"}}"#;
-const SERIALIZATION_FAILURE_RESPONSE: &str =
-    r#"{"status":"Error","data":{"code":"internal_serialization","error":"response serialization failed"}}"#;
+const OUTPUT_LIMIT_RESPONSE: &str = r#"{"status":"Error","data":{"code":"output_limit_exceeded","error":"response exceeded protocol output limit"}}"#;
+const SERIALIZATION_FAILURE_RESPONSE: &str = r#"{"status":"Error","data":{"code":"internal_serialization","error":"response serialization failed"}}"#;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ExpressionLimits {
@@ -154,7 +152,9 @@ pub enum AgentRequest {
 #[serde(tag = "status", content = "data")]
 #[serde(deny_unknown_fields)]
 pub enum AgentResponse {
-    Success { result: String },
+    Success {
+        result: String,
+    },
     Error {
         code: ProtocolErrorCode,
         error: String,
@@ -353,28 +353,115 @@ pub fn handle_agent_ndjson(line: &str, workspace: &mut SemanticWorkspace) -> Str
                 Err(error) => error,
             }
         }
-        AgentRequest::Diff { expr, var } => match fsym_core::parse(&expr) {
-            Ok(e) => {
-                let res = diff(&e, &Symbol::new(var));
-                AgentResponse::Success {
-                    result: res.to_string(),
+        AgentRequest::Diff { expr, var } => {
+            if !valid_symbol_name(&var) {
+                error_response(
+                    ProtocolErrorCode::InvalidName,
+                    "differentiation variable is not a bounded parser identifier",
+                )
+            } else {
+                match parse_expression(&expr, DIFFERENTIATION_LIMITS) {
+                    Ok(expression) => {
+                        let result = diff(&expression, &Symbol::new(var));
+                        match render_expression(&result) {
+                            Ok(result) => AgentResponse::Success { result },
+                            Err(error) => error,
+                        }
+                    }
+                    Err(error) => error,
                 }
             }
-            Err(e) => AgentResponse::Error {
-                error: format!("Parse error: {e}"),
-            },
-        },
-        AgentRequest::Fork { branch_name } => {
-            let _forked = workspace.fork(branch_name.clone());
-            AgentResponse::WorkspaceForked { branch_name }
         }
-        AgentRequest::Merge { branch } => match workspace.merge(&branch) {
-            Ok(receipt) => AgentResponse::Receipt { receipt },
-            Err(e) => AgentResponse::Error {
-                error: format!("Merge rejected: {e}"),
-            },
-        },
+        AgentRequest::Fork { branch_name: _ } => error_response(
+            ProtocolErrorCode::UnsupportedOperation,
+            "fork requires the planned versioned workspace-reference protocol",
+        ),
     };
 
-    serde_json::to_string(&resp).unwrap()
+    encode_response(&resp)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn decode_response(wire: &str) -> AgentResponse {
+        serde_json::from_str(wire).expect("protocol response must be valid JSON")
+    }
+
+    #[test]
+    fn oversized_and_unknown_requests_fail_before_mutation() {
+        let mut workspace = SemanticWorkspace::new("test");
+        let oversized = " ".repeat(MAX_AGENT_NDJSON_REQUEST_BYTES + 1);
+        assert!(matches!(
+            decode_response(&handle_agent_ndjson(&oversized, &mut workspace)),
+            AgentResponse::Error {
+                code: ProtocolErrorCode::RequestTooLarge,
+                ..
+            }
+        ));
+        assert!(workspace.bindings.is_empty());
+
+        let unknown_field = r#"{"type":"Bind","payload":{"symbol":"x","expr":"1","extra":true}}"#;
+        assert!(matches!(
+            decode_response(&handle_agent_ndjson(unknown_field, &mut workspace)),
+            AgentResponse::Error {
+                code: ProtocolErrorCode::MalformedRequest,
+                ..
+            }
+        ));
+        assert!(workspace.bindings.is_empty());
+    }
+
+    #[test]
+    fn refused_binding_does_not_publish_partial_state() {
+        let mut workspace = SemanticWorkspace::new("test");
+        let oversized_expression = "x".repeat(MAX_AGENT_EXPRESSION_BYTES + 1);
+        let request = serde_json::to_string(&AgentRequest::Bind {
+            symbol: "x".to_owned(),
+            expr: oversized_expression,
+        })
+        .unwrap();
+        assert!(matches!(
+            decode_response(&handle_agent_ndjson(&request, &mut workspace)),
+            AgentResponse::Error {
+                code: ProtocolErrorCode::ResourceLimitExceeded,
+                ..
+            }
+        ));
+        assert!(workspace.bindings.is_empty());
+    }
+
+    #[test]
+    fn discarded_fork_is_replaced_by_typed_refusal() {
+        let mut workspace = SemanticWorkspace::new("test");
+        let request = serde_json::to_string(&AgentRequest::Fork {
+            branch_name: "child".to_owned(),
+        })
+        .unwrap();
+        assert!(matches!(
+            decode_response(&handle_agent_ndjson(&request, &mut workspace)),
+            AgentResponse::Error {
+                code: ProtocolErrorCode::UnsupportedOperation,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn expression_views_are_bounded_even_for_preloaded_workspace_state() {
+        let mut workspace = SemanticWorkspace::new("test");
+        workspace.bind(
+            Symbol::new("x"),
+            Expr::symbol("y".repeat(MAX_AGENT_NDJSON_RESPONSE_BYTES + 1)),
+        );
+        let request = r#"{"type":"Eval","payload":{"expr":"x"}}"#;
+        assert!(matches!(
+            decode_response(&handle_agent_ndjson(request, &mut workspace)),
+            AgentResponse::Error {
+                code: ProtocolErrorCode::OutputLimitExceeded,
+                ..
+            }
+        ));
+    }
 }
