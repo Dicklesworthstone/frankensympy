@@ -1,8 +1,8 @@
 //! # fsym-ntheory
 //!
-//! Number-theoretic functions: prime generation, Miller-Rabin primality test,
-//! prime factorization, Euler's totient, divisor sigma, modular arithmetic,
-//! and continued fractions.
+//! Number-theoretic functions: deterministic `u64` Miller-Rabin primality,
+//! bounded trial-division factorization, Euler's totient and divisor functions,
+//! the Jacobi symbol, and arbitrary-precision extended GCD.
 
 #![forbid(unsafe_code)]
 
@@ -12,10 +12,12 @@ use thiserror::Error;
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum NTheoryError {
-    #[error("Cannot factor negative integer or zero")]
-    NonPositiveFactorization,
-    #[error("Modular inverse does not exist for {0} mod {1}")]
-    NoModularInverse(String, String),
+    #[error("Cannot factor zero")]
+    ZeroFactorization,
+    #[error("Trial-division factorization limit reached with unresolved cofactor {0}")]
+    FactorizationLimitExceeded(u64),
+    #[error("Exact result does not fit u64 while computing {0}")]
+    ArithmeticOverflow(&'static str),
 }
 
 /// Deterministic primality test for small numbers (<= 2^64) using Miller-Rabin with optimal bases.
@@ -86,9 +88,15 @@ fn miller_rabin_test(n: u64, a: u64, d: u64, s: u32) -> bool {
 }
 
 /// Compute prime factorization of an integer: n -> {p_1: e_1, p_2: e_2, ...}.
+///
+/// Prime cofactors are recognized with deterministic Miller-Rabin. Composite
+/// cofactors that survive trial divisors through one million receive a typed
+/// refusal rather than running without a work bound.
 pub fn factorint(mut n: u64) -> Result<BTreeMap<u64, u32>, NTheoryError> {
+    const MAX_TRIAL_DIVISOR: u64 = 1_000_000;
+
     if n == 0 {
-        return Err(NTheoryError::NonPositiveFactorization);
+        return Err(NTheoryError::ZeroFactorization);
     }
     let mut factors = BTreeMap::new();
     // Factor out 2s
@@ -96,12 +104,25 @@ pub fn factorint(mut n: u64) -> Result<BTreeMap<u64, u32>, NTheoryError> {
         *factors.entry(2).or_insert(0) += 1;
         n /= 2;
     }
+    if n > 1 && is_prime(n) {
+        *factors.entry(n).or_insert(0) += 1;
+        return Ok(factors);
+    }
     // Trial division by odds
     let mut p = 3;
-    while p * p <= n {
+    while p <= n / p {
+        if p > MAX_TRIAL_DIVISOR {
+            return Err(NTheoryError::FactorizationLimitExceeded(n));
+        }
+        let mut divided = false;
         while n.is_multiple_of(p) {
             *factors.entry(p).or_insert(0) += 1;
             n /= p;
+            divided = true;
+        }
+        if divided && n > 1 && is_prime(n) {
+            *factors.entry(n).or_insert(0) += 1;
+            return Ok(factors);
         }
         p += 2;
     }
@@ -127,7 +148,7 @@ pub fn totient(n: u64) -> Result<u64, NTheoryError> {
 /// Mobius function: μ(n) = 1 if n is square-free with even number of prime factors, -1 if odd, 0 if n has a squared prime factor.
 pub fn mobius(n: u64) -> Result<i64, NTheoryError> {
     if n == 0 {
-        return Err(NTheoryError::NonPositiveFactorization);
+        return Err(NTheoryError::ZeroFactorization);
     }
     if n == 1 {
         return Ok(1);
@@ -148,7 +169,7 @@ pub fn mobius(n: u64) -> Result<i64, NTheoryError> {
 /// Number of divisors function: d(n) = \prod (e_i + 1).
 pub fn divisor_count(n: u64) -> Result<u64, NTheoryError> {
     if n == 0 {
-        return Err(NTheoryError::NonPositiveFactorization);
+        return Err(NTheoryError::ZeroFactorization);
     }
     let factors = factorint(n)?;
     let mut count = 1u64;
@@ -161,7 +182,7 @@ pub fn divisor_count(n: u64) -> Result<u64, NTheoryError> {
 /// Sum of k-th powers of divisors: \sigma_k(n) = \prod \frac{p^{k(e+1)} - 1}{p^k - 1}.
 pub fn divisor_sum(n: u64, k: u32) -> Result<u64, NTheoryError> {
     if n == 0 {
-        return Err(NTheoryError::NonPositiveFactorization);
+        return Err(NTheoryError::ZeroFactorization);
     }
     if k == 0 {
         return divisor_count(n);
@@ -169,28 +190,35 @@ pub fn divisor_sum(n: u64, k: u32) -> Result<u64, NTheoryError> {
     let factors = factorint(n)?;
     let mut total = 1u64;
     for (p, exp) in factors {
-        let pk = p.pow(k);
+        let pk = p
+            .checked_pow(k)
+            .ok_or(NTheoryError::ArithmeticOverflow("divisor sum prime power"))?;
         let mut term = 1u64;
         let mut cur_pk = 1u64;
         for _ in 0..exp {
-            cur_pk *= pk;
-            term += cur_pk;
+            cur_pk = cur_pk
+                .checked_mul(pk)
+                .ok_or(NTheoryError::ArithmeticOverflow("divisor sum factor power"))?;
+            term = term
+                .checked_add(cur_pk)
+                .ok_or(NTheoryError::ArithmeticOverflow("divisor sum factor"))?;
         }
-        total *= term;
+        total = total
+            .checked_mul(term)
+            .ok_or(NTheoryError::ArithmeticOverflow("divisor sum product"))?;
     }
     Ok(total)
 }
 
 /// Jacobi symbol (a / n) for integer a and odd positive integer n.
-pub fn jacobi_symbol(mut a: i64, mut n: u64) -> i64 {
+pub fn jacobi_symbol(a: i64, mut n: u64) -> i64 {
     if n == 0 || n.is_multiple_of(2) {
         return 0;
     }
-    a %= n as i64;
-    if a < 0 {
-        a += n as i64;
-    }
-    let mut a = a as u64;
+    let reduced = i128::from(a).rem_euclid(i128::from(n));
+    let Ok(mut a) = u64::try_from(reduced) else {
+        return 0;
+    };
     let mut result = 1i64;
 
     while a != 0 {
@@ -213,13 +241,7 @@ pub fn jacobi_symbol(mut a: i64, mut n: u64) -> i64 {
 
 /// Extended Euclidean Algorithm returning (gcd, x, y) such that a*x + b*y = gcd(a, b).
 pub fn egcd(a: &BigInt, b: &BigInt) -> (BigInt, BigInt, BigInt) {
-    if b.is_zero() {
-        (a.clone(), BigInt::one(), BigInt::zero())
-    } else {
-        let (q, r) = a.div_rem(b);
-        let (g, x, y) = egcd(b, &r);
-        (g, y.clone(), x - q * y)
-    }
+    a.extended_gcd(b)
 }
 
 #[cfg(test)]
@@ -248,6 +270,13 @@ mod tests {
 
         // totient(360) = 360 * (1/2) * (2/3) * (4/5) = 96
         assert_eq!(totient(360).unwrap(), 96);
+
+        let hard_semiprime = 1_000_003u64 * 1_000_003;
+        assert!(is_prime(1_000_003));
+        assert_eq!(
+            factorint(hard_semiprime),
+            Err(NTheoryError::FactorizationLimitExceeded(hard_semiprime))
+        );
     }
 
     #[test]
@@ -263,9 +292,68 @@ mod tests {
 
         // Divisor sum: sigma_1(12) = 1+2+3+4+6+12 = 28
         assert_eq!(divisor_sum(12, 1).unwrap(), 28);
+        assert_eq!(
+            divisor_sum(2, 64),
+            Err(NTheoryError::ArithmeticOverflow("divisor sum prime power"))
+        );
 
         // Jacobi symbol: (2 / 7) = 1, (3 / 7) = -1
         assert_eq!(jacobi_symbol(2, 7), 1);
         assert_eq!(jacobi_symbol(3, 7), -1);
+        assert_eq!(jacobi_symbol(-1, (1u64 << 63) + 1), 1);
+        assert_eq!(jacobi_symbol(i64::MIN, 3), 1);
+    }
+
+    #[test]
+    fn extended_gcd_normalizes_negative_inputs() {
+        let a = BigInt::from(-30);
+        let b = BigInt::from(12);
+        let (gcd, x, y) = egcd(&a, &b);
+        assert_eq!(gcd, BigInt::from(6));
+        assert_eq!(a * x + b * y, gcd);
+    }
+
+    #[test]
+    fn arithmetic_functions_match_small_reference_lanes() {
+        fn gcd_u64(mut left: u64, mut right: u64) -> u64 {
+            while right != 0 {
+                (left, right) = (right, left % right);
+            }
+            left
+        }
+
+        for n in 1..=200u64 {
+            let factors = factorint(n).unwrap();
+            let reconstructed = factors.iter().fold(1u64, |product, (&prime, &exponent)| {
+                assert!(is_prime(prime));
+                product * prime.pow(exponent)
+            });
+            assert_eq!(reconstructed, n);
+
+            let reference_totient = (1..=n).filter(|&value| gcd_u64(value, n) == 1).count() as u64;
+            assert_eq!(totient(n), Ok(reference_totient));
+
+            for power in 0..=2u32 {
+                let reference_sum = (1..=n)
+                    .filter(|divisor| n.is_multiple_of(*divisor))
+                    .map(|divisor| divisor.pow(power))
+                    .sum();
+                assert_eq!(divisor_sum(n, power), Ok(reference_sum));
+            }
+        }
+
+        for prime in (3..100u64).filter(|value| is_prime(*value)) {
+            for value in -50..=50i64 {
+                let reduced = i128::from(value).rem_euclid(i128::from(prime)) as u128;
+                let residue = mod_pow(reduced, u128::from((prime - 1) / 2), u128::from(prime));
+                assert!(matches!(residue, 0 | 1) || residue == u128::from(prime - 1));
+                let reference = match residue {
+                    0 => 0,
+                    1 => 1,
+                    _ => -1,
+                };
+                assert_eq!(jacobi_symbol(value, prime), reference);
+            }
+        }
     }
 }
