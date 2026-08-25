@@ -10,8 +10,9 @@ pub use compile::*;
 pub use proof::*;
 pub use transforms::*;
 
+use fsym_budget::Unbounded;
 use fsym_core::{BigInt, BigRational, Constant, Expr, Symbol};
-use fsym_simplify::{expand, simplify};
+use fsym_simplify::{expand_with, simplify};
 use num_traits::{Signed, Zero};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -295,7 +296,8 @@ pub fn integrate(expr: &Expr, var: &Symbol) -> Result<Expr, CalculusError> {
 pub fn limit(expr: &Expr, var: &Symbol, to: &Expr) -> Result<Expr, CalculusError> {
     match to {
         Expr::Const(Constant::Infinity) | Expr::Const(Constant::NegativeInfinity) => {
-            let expanded = expand(expr);
+            let expanded = expand_with(expr, &mut Unbounded)
+                .map_err(|error| CalculusError::Undetermined(error.to_string()))?;
             if is_free_of(&expanded, var) {
                 return Ok(simplify(&expanded));
             }
@@ -579,7 +581,7 @@ mod tests {
             Expr::from_i64(-1),
             Expr::Pow(Arc::new(Expr::symbol("x")), Arc::new(Expr::from_i64(5))),
         ]);
-        let expanded_quintic = expand(&quintic);
+        let expanded_quintic = expand_with(&quintic, &mut Unbounded).unwrap();
         assert_eq!(
             polynomial_term(&expanded_quintic, &x),
             Some((5, BigRational::from_integer(BigInt::from(-1)))),
@@ -630,6 +632,17 @@ mod tests {
             limit(&Expr::symbol("a"), &x, &Expr::Const(Constant::Infinity)).unwrap(),
             Expr::symbol("a")
         );
+    }
+
+    #[test]
+    fn infinity_limit_reports_expansion_cap_as_typed_refusal() {
+        let x = Symbol::new("x");
+        let factor = Expr::Add(vec![Expr::symbol("x"), Expr::from_i64(1)]);
+        let expansion_bomb = Expr::Mul(vec![factor; 13]);
+        assert!(matches!(
+            limit(&expansion_bomb, &x, &Expr::Const(Constant::Infinity)),
+            Err(CalculusError::Undetermined(_))
+        ));
     }
 
     #[test]
