@@ -9,6 +9,92 @@ use fsym_core::{Expr, Symbol};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
+/// Strongly typed representation of a binder construct.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum BinderNode {
+    /// Lambda abstraction over bound parameter.
+    Lambda { param: Symbol, body: Box<Expr> },
+    /// Integral over integration variable with optional limits.
+    Integral {
+        var: Symbol,
+        body: Box<Expr>,
+        limits: Option<(Box<Expr>, Box<Expr>)>,
+    },
+    /// Derivative with respect to a differentiation variable.
+    Derivative { var: Symbol, body: Box<Expr> },
+}
+
+/// De Bruijn canonical indexed term for syntax-invariant alpha comparison.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum DeBruijnExpr {
+    /// Free symbol (not bound in enclosing scopes).
+    Free(Symbol),
+    /// Bound variable represented by its de Bruijn index (0 = innermost enclosing binder).
+    Bound(usize),
+    /// Exact integer literal.
+    Integer(fsym_core::BigInt),
+    /// Exact rational literal.
+    Rational(fsym_core::BigRational),
+    /// Mathematical constant.
+    Const(fsym_core::Constant),
+    /// Addition of subterms.
+    Add(Vec<DeBruijnExpr>),
+    /// Multiplication of subterms.
+    Mul(Vec<DeBruijnExpr>),
+    /// Power of base and exponent.
+    Pow(Box<DeBruijnExpr>, Box<DeBruijnExpr>),
+    /// Arbitrary named function application.
+    Function(String, Vec<DeBruijnExpr>),
+    /// Scoped binder (e.g. Lambda) with body in which index 0 refers to this binder.
+    Binder(String, Box<DeBruijnExpr>),
+}
+
+/// Converts an expression into canonical De Bruijn indexed form.
+pub fn to_de_bruijn(expr: &Expr) -> DeBruijnExpr {
+    let mut scope = Vec::new();
+    expr_to_de_bruijn(expr, &mut scope)
+}
+
+fn expr_to_de_bruijn(expr: &Expr, scope: &mut Vec<Symbol>) -> DeBruijnExpr {
+    match expr {
+        Expr::Sym(s) => {
+            if let Some(pos) = scope.iter().rev().position(|sym| sym == s) {
+                DeBruijnExpr::Bound(pos)
+            } else {
+                DeBruijnExpr::Free(s.clone())
+            }
+        }
+        Expr::Integer(n) => DeBruijnExpr::Integer(n.clone()),
+        Expr::Rational(q) => DeBruijnExpr::Rational(q.clone()),
+        Expr::Const(c) => DeBruijnExpr::Const(*c),
+        Expr::Add(terms) => {
+            DeBruijnExpr::Add(terms.iter().map(|t| expr_to_de_bruijn(t, scope)).collect())
+        }
+        Expr::Mul(terms) => {
+            DeBruijnExpr::Mul(terms.iter().map(|t| expr_to_de_bruijn(t, scope)).collect())
+        }
+        Expr::Pow(b, e) => DeBruijnExpr::Pow(
+            Box::new(expr_to_de_bruijn(b, scope)),
+            Box::new(expr_to_de_bruijn(e, scope)),
+        ),
+        Expr::Function(name, args) => {
+            if name == "Lambda"
+                && args.len() == 2
+                && let Expr::Sym(param) = &args[0]
+            {
+                scope.push(param.clone());
+                let body_db = expr_to_de_bruijn(&args[1], scope);
+                scope.pop();
+                return DeBruijnExpr::Binder("Lambda".into(), Box::new(body_db));
+            }
+            DeBruijnExpr::Function(
+                name.clone(),
+                args.iter().map(|a| expr_to_de_bruijn(a, scope)).collect(),
+            )
+        }
+    }
+}
+
 /// Identifies binder function semantics.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BinderKind {
@@ -451,5 +537,76 @@ mod tests {
             ],
         );
         assert!(alpha_equivalent(&substituted, &expected));
+    }
+
+    #[test]
+    fn de_bruijn_conversion_guarantees_alpha_identity() {
+        let l1 = Expr::Function(
+            "Lambda".into(),
+            vec![
+                Expr::symbol("x"),
+                Expr::Add(vec![Expr::symbol("x"), Expr::from_i64(1)]),
+            ],
+        );
+        let l2 = Expr::Function(
+            "Lambda".into(),
+            vec![
+                Expr::symbol("y"),
+                Expr::Add(vec![Expr::symbol("y"), Expr::from_i64(1)]),
+            ],
+        );
+
+        // De Bruijn trees are strictly identical for alpha-equivalent terms
+        let db1 = to_de_bruijn(&l1);
+        let db2 = to_de_bruijn(&l2);
+        assert_eq!(db1, db2);
+    }
+
+    #[test]
+    fn binder_node_representation() {
+        let b = BinderNode::Lambda {
+            param: Symbol::new("t"),
+            body: Box::new(Expr::Mul(vec![Expr::symbol("t"), Expr::from_i64(2)])),
+        };
+        match b {
+            BinderNode::Lambda { param, body } => {
+                assert_eq!(param.name, "t");
+                assert_eq!(*body, Expr::Mul(vec![Expr::symbol("t"), Expr::from_i64(2)]));
+            }
+            _ => panic!("Expected Lambda"),
+        }
+    }
+
+    #[test]
+    fn substitution_free_symbols_soundness_property() {
+        let expr = Expr::Function(
+            "Lambda".into(),
+            vec![
+                Expr::symbol("y"),
+                Expr::Add(vec![
+                    Expr::symbol("x"),
+                    Expr::Mul(vec![Expr::symbol("y"), Expr::symbol("z")]),
+                ]),
+            ],
+        );
+        let repl = Expr::Add(vec![Expr::symbol("a"), Expr::symbol("b")]);
+        let substituted = capture_avoiding_subs(&expr, &Symbol::new("x"), &repl);
+
+        let free_sub = free_symbols(&substituted);
+        let free_orig = free_symbols(&expr);
+        let free_repl = free_symbols(&repl);
+
+        // free(e[x/r]) subseteq (free(e) \ {x}) U free(r)
+        let mut expected_superset = free_orig;
+        expected_superset.remove(&Symbol::new("x"));
+        expected_superset.extend(free_repl);
+
+        for sym in &free_sub {
+            assert!(
+                expected_superset.contains(sym),
+                "Symbol {:?} violated free symbol containment",
+                sym
+            );
+        }
     }
 }

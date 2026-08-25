@@ -15,8 +15,10 @@ pub enum DomainError {
     CoercionFailed(String, String, String),
     #[error("No common superdomain for {0} and {1}")]
     NoCommonDomain(String, String),
-    #[error("Invalid generator list for polynomial/rational domain")]
-    InvalidGenerators,
+    #[error("Invalid generator list for polynomial/rational domain: {0}")]
+    InvalidGenerators(String),
+    #[error("Invalid characteristic for finite field (must be prime > 1): {0}")]
+    InvalidCharacteristic(u64),
 }
 
 /// Mathematical domain specification.
@@ -79,12 +81,64 @@ impl Domain {
         }
     }
 
+    /// Validates and constructs a polynomial ring domain $D[x_1, \ldots, x_n]$.
+    pub fn try_poly_ring(base: Domain, generators: Vec<Symbol>) -> Result<Self, DomainError> {
+        if generators.is_empty() {
+            return Err(DomainError::InvalidGenerators(
+                "Generator list cannot be empty".into(),
+            ));
+        }
+        let mut seen = std::collections::HashSet::new();
+        for g in &generators {
+            if !seen.insert(g.clone()) {
+                return Err(DomainError::InvalidGenerators(format!(
+                    "Duplicate generator: {}",
+                    g.name
+                )));
+            }
+        }
+        Ok(Domain::PolyRing {
+            base: Box::new(base),
+            generators,
+        })
+    }
+
     /// Create a rational function field domain $D(x)$.
     pub fn fraction_field(base: Domain, generators: Vec<Symbol>) -> Self {
         Domain::FractionField {
             base: Box::new(base),
             generators,
         }
+    }
+
+    /// Validates and constructs a rational function field domain $D(x_1, \ldots, x_n)$.
+    pub fn try_fraction_field(base: Domain, generators: Vec<Symbol>) -> Result<Self, DomainError> {
+        if generators.is_empty() {
+            return Err(DomainError::InvalidGenerators(
+                "Generator list cannot be empty".into(),
+            ));
+        }
+        let mut seen = std::collections::HashSet::new();
+        for g in &generators {
+            if !seen.insert(g.clone()) {
+                return Err(DomainError::InvalidGenerators(format!(
+                    "Duplicate generator: {}",
+                    g.name
+                )));
+            }
+        }
+        Ok(Domain::FractionField {
+            base: Box::new(base),
+            generators,
+        })
+    }
+
+    /// Validates and constructs a prime finite field $\mathbb{F}_p$.
+    pub fn try_finite_field(characteristic: u64) -> Result<Self, DomainError> {
+        if characteristic <= 1 || !is_prime_u64(characteristic) {
+            return Err(DomainError::InvalidCharacteristic(characteristic));
+        }
+        Ok(Domain::FiniteField { characteristic })
     }
 
     /// Whether this domain maintains exact representations.
@@ -405,9 +459,63 @@ impl fmt::Display for Domain {
     }
 }
 
+fn is_prime_u64(n: u64) -> bool {
+    if n <= 1 {
+        return false;
+    }
+    if n <= 3 {
+        return true;
+    }
+    if n.is_multiple_of(2) || n.is_multiple_of(3) {
+        return false;
+    }
+    let mut d = n - 1;
+    let mut s = 0;
+    while d.is_multiple_of(2) {
+        d /= 2;
+        s += 1;
+    }
+    let bases = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37];
+    for &a in &bases {
+        if n <= a {
+            break;
+        }
+        let mut x = mod_pow_u64(a, d, n);
+        if x == 1 || x == n - 1 {
+            continue;
+        }
+        let mut composite = true;
+        for _ in 1..s {
+            x = ((x as u128 * x as u128) % n as u128) as u64;
+            if x == n - 1 {
+                composite = false;
+                break;
+            }
+        }
+        if composite {
+            return false;
+        }
+    }
+    true
+}
+
+fn mod_pow_u64(mut base: u64, mut exp: u64, modulus: u64) -> u64 {
+    let mut res = 1u64;
+    base %= modulus;
+    while exp > 0 {
+        if (exp & 1) != 0 {
+            res = ((res as u128 * base as u128) % modulus as u128) as u64;
+        }
+        base = ((base as u128 * base as u128) % modulus as u128) as u64;
+        exp /= 2;
+    }
+    res
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     #[test]
     fn domain_coercion_lattice() {
@@ -442,15 +550,37 @@ mod tests {
 
     #[test]
     fn finite_field_and_characteristic_properties() {
-        let gf7 = Domain::FiniteField { characteristic: 7 };
+        let gf7 = Domain::try_finite_field(7).unwrap();
         assert!(gf7.is_exact());
         assert!(gf7.is_field());
         assert_eq!(gf7.characteristic(), 7);
+
+        // Validation failures
+        assert!(Domain::try_finite_field(0).is_err());
+        assert!(Domain::try_finite_field(1).is_err());
+        assert!(Domain::try_finite_field(4).is_err());
+        assert!(Domain::try_finite_field(9).is_err());
 
         assert_eq!(Domain::ZZ.characteristic(), 0);
         assert_eq!(Domain::QQ.characteristic(), 0);
         assert!(Domain::ZZ.is_exact());
         assert!(!Domain::RR.is_exact());
+    }
+
+    #[test]
+    fn domain_generator_validation() {
+        let x = Symbol::new("x");
+        // Empty generators error
+        assert!(Domain::try_poly_ring(Domain::ZZ, vec![]).is_err());
+        assert!(Domain::try_fraction_field(Domain::QQ, vec![]).is_err());
+
+        // Duplicate generators error
+        assert!(Domain::try_poly_ring(Domain::ZZ, vec![x.clone(), x.clone()]).is_err());
+        assert!(Domain::try_fraction_field(Domain::QQ, vec![x.clone(), x.clone()]).is_err());
+
+        // Valid
+        assert!(Domain::try_poly_ring(Domain::ZZ, vec![x.clone()]).is_ok());
+        assert!(Domain::try_fraction_field(Domain::QQ, vec![x]).is_ok());
     }
 
     #[test]
@@ -473,5 +603,9 @@ mod tests {
                 generators: vec![x],
             }
         );
+
+        // Power with negative exponent gives QQ, not ZZ
+        let pow_neg = Expr::Pow(Arc::new(Expr::from_i64(2)), Arc::new(Expr::from_i64(-1)));
+        assert_eq!(Domain::of_expr(&pow_neg), Domain::QQ);
     }
 }

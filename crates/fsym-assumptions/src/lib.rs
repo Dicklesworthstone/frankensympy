@@ -480,4 +480,41 @@ mod tests {
             TruthValue::EntailedTrue
         );
     }
+
+    #[test]
+    fn monotonicity_under_arbitrary_refinement_property() {
+        let x = Symbol::new("x");
+        let predicates = [
+            Predicate::Positive,
+            Predicate::Negative,
+            Predicate::NonZero,
+            Predicate::Integer,
+            Predicate::Rational,
+            Predicate::Real,
+            Predicate::Complex,
+        ];
+
+        let mut base_ctx = AssumptionsContext::new();
+        base_ctx.assume(x.clone(), Predicate::Positive);
+        let base_snap = Arc::new(base_ctx.snapshot());
+
+        // Query all predicates on base
+        for &pred in &predicates {
+            let base_ans = base_snap.query(&Expr::Sym(x.clone()), pred);
+            if base_ans == TruthValue::EntailedTrue {
+                // If entailed true in base, must remain entailed true or become contradictory in any valid refinement
+                let mut refined_facts = HashMap::new();
+                refined_facts.insert(x.clone(), vec![Predicate::Integer]);
+                let child = base_snap
+                    .derive_child(refined_facts, HashMap::new(), "int_refinement")
+                    .unwrap();
+                let child_ans = child.query(&Expr::Sym(x.clone()), pred);
+                assert!(
+                    child_ans == TruthValue::EntailedTrue || child_ans == TruthValue::Contradictory,
+                    "Monotonicity violated for predicate {:?}",
+                    pred
+                );
+            }
+        }
+    }
 }

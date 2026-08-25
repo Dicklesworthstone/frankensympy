@@ -23,6 +23,8 @@ pub enum DagError {
     DepthExceeded(usize),
     #[error("Unknown TermId {0:?}")]
     UnknownId(TermId),
+    #[error("Hash collision detected at TermId {0:?}")]
+    HashCollision(TermId),
 }
 
 /// A node in the deduplicated Semantic Term DAG.
@@ -167,7 +169,13 @@ impl TermDag {
         }
 
         let term_id = compute_term_id(&node);
-        self.nodes.entry(term_id).or_insert(node);
+        if let Some(existing) = self.nodes.get(&term_id) {
+            if existing != &node {
+                return Err(DagError::HashCollision(term_id));
+            }
+        } else {
+            self.nodes.insert(term_id, node);
+        }
         Ok(term_id)
     }
 

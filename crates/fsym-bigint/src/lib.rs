@@ -28,8 +28,9 @@
 //! budget per unit of work. [`metered_add`], [`metered_subtract`], [`metered_multiply`], and
 //! [`metered_div_rem`] use deliberately simple base-$2^{32}$ reference algorithms with safe points
 //! inside their limb loops. [`metered_karatsuba_candidate`] and [`metered_toom3_candidate`] add
-//! controlled recursive digit kernels whose output has no production lift into the provisional
-//! substrate.
+//! controlled recursive digit kernels, while [`metered_ntt_crt_candidate`] adds an exact
+//! transform/CRT lane with reconstruction bounds and independent modular self-checks. Their output
+//! has no production lift into the provisional substrate.
 
 #![forbid(unsafe_code)]
 
@@ -44,6 +45,8 @@ use std::ops::{
     Shl, Shr, Sub, SubAssign,
 };
 use std::str::FromStr;
+
+mod ntt;
 
 /// Bits per u64 limb.
 pub const LIMB_BITS: u64 = 64;
@@ -116,6 +119,8 @@ pub enum MeteredMultiplyError {
     SizeOverflow,
     /// A preflighted kernel-owned digit-buffer reservation failed.
     AllocationFailure,
+    /// The requested exact transform exceeds the fixed roots or CRT reconstruction domain.
+    TransformDomainUnsupported,
     /// A mathematically required internal invariant did not hold.
     InvariantViolation,
 }
@@ -127,6 +132,9 @@ impl fmt::Display for MeteredMultiplyError {
             Self::SizeOverflow => f.write_str("metered multiplication size overflow"),
             Self::AllocationFailure => {
                 f.write_str("metered multiplication backing-buffer allocation refused")
+            }
+            Self::TransformDomainUnsupported => {
+                f.write_str("metered multiplication transform domain unsupported")
             }
             Self::InvariantViolation => {
                 f.write_str("metered multiplication internal invariant violated")
@@ -1099,6 +1107,46 @@ pub fn metered_toom3_candidate<M: BudgetMeter>(
     meter: &mut M,
 ) -> Result<MeteredProductCandidate, MeteredMultiplyError> {
     metered_toom3_candidate_inner(a, b, meter).map(|(candidate, _)| candidate)
+}
+
+/// Computes an opt-in exact NTT/CRT product candidate under caller-owned metering.
+///
+/// Magnitudes are split into base-$2^{16}$ coefficients and convolved under two fixed prime
+/// moduli. Admission proves that the CRT modulus product strictly exceeds every possible integer
+/// convolution coefficient before allocating transform buffers. Iterative bit reversal,
+/// butterflies, pointwise multiplication, inverse normalization, CRT reconstruction, carry
+/// propagation, and both modular self-checks contain cancellation safe points and compute charges.
+/// Every nonempty owned buffer is checked, charged, and fallibly reserved before use. The
+/// self-checks are internal fault detectors, not mathematical evidence. A final checkpoint occurs
+/// after canonical output exists and before publication.
+///
+/// This API does not alter [`Strategy`] or [`select_strategy`], select a default transform
+/// threshold, establish crossover/performance evidence, support transform lengths beyond the
+/// fixed exact domain, or provide a controlled [`BigInt`] lift.
+pub fn metered_ntt_crt_candidate<M: BudgetMeter>(
+    a: &BigInt,
+    b: &BigInt,
+    meter: &mut M,
+) -> Result<MeteredProductCandidate, MeteredMultiplyError> {
+    meter.checkpoint()?;
+    if a.is_zero() || b.is_zero() {
+        meter.checkpoint()?;
+        return Ok(MeteredProductCandidate {
+            negative: false,
+            digits: Vec::new(),
+        });
+    }
+
+    let negative = a.is_negative() != b.is_negative();
+    ntt::preflight_u32_lengths(a.0.iter_u32_digits().len(), b.0.iter_u32_digits().len())?;
+    let a_digits = metered_copy_magnitude(a, meter)?;
+    let b_digits = metered_copy_magnitude(b, meter)?;
+    let digits = ntt::multiply_u32_digits(&a_digits, &b_digits, meter)?;
+    if digits.is_empty() || digits.last() == Some(&0) {
+        return Err(MeteredMultiplyError::InvariantViolation);
+    }
+    meter.checkpoint()?;
+    Ok(MeteredProductCandidate { negative, digits })
 }
 
 fn metered_toom3_candidate_inner<M: BudgetMeter>(
@@ -2644,6 +2692,20 @@ mod tests {
         (a, b)
     }
 
+    fn actual_metered_ntt_operands() -> (BigInt, BigInt) {
+        let a = (BigInt::one() << 255)
+            + (BigInt::one() << 193)
+            + (BigInt::one() << 127)
+            + (BigInt::one() << 65)
+            + 65_537i64;
+        let b = (BigInt::one() << 247)
+            + (BigInt::one() << 181)
+            + (BigInt::one() << 113)
+            + (BigInt::one() << 47)
+            + 17i64;
+        (a, b)
+    }
+
     fn assert_explicit_multiplication_lanes_agree(a: &BigInt, b: &BigInt) {
         let reference = multiply_with_strategy(a, b, Strategy::SchoolbookReference);
         assert_eq!(multiply_with_strategy(a, b, Strategy::Karatsuba), reference);
@@ -3300,6 +3362,136 @@ mod tests {
     }
 
     #[test]
+    fn metered_ntt_crt_candidate_executes_exact_transform_for_all_signs() {
+        let (a, b) = actual_metered_ntt_operands();
+        for (negative_a, negative_b) in [(false, false), (true, false), (false, true), (true, true)]
+        {
+            let signed_a = if negative_a { -&a } else { a.clone() };
+            let signed_b = if negative_b { -&b } else { b.clone() };
+            let expected = multiply_with_strategy(&signed_a, &signed_b, Strategy::NativeSubstrate);
+            let mut meter = CountingMeter::default();
+            let candidate = metered_ntt_crt_candidate(&signed_a, &signed_b, &mut meter).unwrap();
+            assert!(!candidate.is_zero());
+            assert_eq!(candidate.is_negative(), negative_a != negative_b);
+            assert_ne!(candidate.digits_le().last(), Some(&0));
+            assert_eq!(candidate.materialize_unmetered(), expected);
+            assert!(meter.dimensions[Dimension::ComputeSteps.index()] > 0);
+            assert!(meter.dimensions[Dimension::MemoryBytes.index()] > 0);
+            assert!(meter.dimensions[Dimension::AllocationCount.index()] > 0);
+            assert_eq!(meter.dimensions[Dimension::DepthLimit.index()], 0);
+            assert_eq!(meter.dimensions[Dimension::RandomDraws.index()], 0);
+        }
+    }
+
+    #[test]
+    fn metered_ntt_crt_candidate_handles_dense_carry_and_canonical_zero() {
+        let dense = (BigInt::one() << 2_048) - 1i64;
+        let companion = &dense - (BigInt::one() << 1_023) - 65_537i64;
+        let expected = multiply_with_strategy(&dense, &companion, Strategy::NativeSubstrate);
+        let candidate = metered_ntt_crt_candidate(&dense, &companion, &mut Unbounded).unwrap();
+        assert_ne!(candidate.digits_le().last(), Some(&0));
+        assert_eq!(candidate.materialize_unmetered(), expected);
+
+        let zero = metered_ntt_crt_candidate(&BigInt::zero(), &dense, &mut Unbounded).unwrap();
+        assert!(zero.is_zero());
+        assert!(!zero.is_negative());
+    }
+
+    #[test]
+    fn metered_ntt_crt_preflight_refuses_unsupported_domain_without_allocation() {
+        assert_eq!(
+            ntt::preflight_u32_lengths(ntt::MAX_TRANSFORM_LENGTH / 2, 1),
+            Err(MeteredMultiplyError::TransformDomainUnsupported)
+        );
+        assert_eq!(
+            ntt::preflight_u32_lengths(usize::MAX, 1),
+            Err(MeteredMultiplyError::SizeOverflow)
+        );
+    }
+
+    #[test]
+    fn metered_ntt_crt_candidate_exact_budgets_and_one_short_refusals() {
+        let (a, b) = actual_metered_ntt_operands();
+        let expected = multiply_with_strategy(&a, &b, Strategy::NativeSubstrate);
+        let mut count = CountingMeter::default();
+        assert_eq!(
+            metered_ntt_crt_candidate(&a, &b, &mut count)
+                .unwrap()
+                .materialize_unmetered(),
+            expected
+        );
+
+        let exact_limits = BudgetLimits {
+            dimensions: count.dimensions,
+            verifier_pool: 0,
+        };
+        let mut exact = Budget::new(exact_limits);
+        assert_eq!(
+            metered_ntt_crt_candidate(&a, &b, &mut exact)
+                .unwrap()
+                .materialize_unmetered(),
+            expected
+        );
+        for dimension in Dimension::ALL {
+            assert_eq!(exact.remaining(dimension), 0);
+        }
+
+        for dimension in Dimension::ALL {
+            let used = count.dimensions[dimension.index()];
+            if used == 0 {
+                continue;
+            }
+            let mut short_limits = exact_limits;
+            short_limits.dimensions[dimension.index()] = used - 1;
+            let mut short = Budget::new(short_limits);
+            assert!(
+                matches!(
+                    metered_ntt_crt_candidate(&a, &b, &mut short),
+                    Err(MeteredMultiplyError::Meter(MeterError::Budget(
+                        BudgetError::Exhausted {
+                            dimension: observed,
+                            ..
+                        }
+                    ))) if observed == dimension
+                ),
+                "one-unit-short {dimension} allowance must refuse without a value"
+            );
+        }
+    }
+
+    #[test]
+    fn metered_ntt_crt_candidate_cancels_at_every_observed_safe_point() {
+        let (a, b) = actual_metered_ntt_operands();
+        let expected = multiply_with_strategy(&a, &b, Strategy::NativeSubstrate);
+        let mut baseline = CancelAfter {
+            cancel_at_checkpoint: usize::MAX,
+            checkpoints: 0,
+            compute_steps: 0,
+        };
+        assert_eq!(
+            metered_ntt_crt_candidate(&a, &b, &mut baseline)
+                .unwrap()
+                .materialize_unmetered(),
+            expected
+        );
+        assert!(baseline.checkpoints > 1);
+
+        for cancel_at_checkpoint in 1..=baseline.checkpoints {
+            let mut cancelled = CancelAfter {
+                cancel_at_checkpoint,
+                checkpoints: 0,
+                compute_steps: 0,
+            };
+            assert_eq!(
+                metered_ntt_crt_candidate(&a, &b, &mut cancelled),
+                Err(MeteredMultiplyError::Meter(MeterError::Cancelled)),
+                "checkpoint {cancel_at_checkpoint} must not publish a partial NTT candidate"
+            );
+            assert_eq!(cancelled.checkpoints, cancel_at_checkpoint);
+        }
+    }
+
+    #[test]
     fn metered_addition_and_subtraction_match_signed_native_lanes() {
         let values = [
             BigInt::zero(),
@@ -3518,14 +3710,37 @@ mod tests {
             let metered_toom = metered_toom3_candidate(&a, &b, &mut metered_toom_meter)
                 .unwrap()
                 .materialize_unmetered();
+            let mut metered_ntt_meter = Unbounded;
+            let metered_ntt = metered_ntt_crt_candidate(&a, &b, &mut metered_ntt_meter)
+                .unwrap()
+                .materialize_unmetered();
             prop_assert_eq!(&reference, &karatsuba);
             prop_assert_eq!(&reference, &toom3);
             prop_assert_eq!(&reference, &native);
             prop_assert_eq!(&reference, &metered);
             prop_assert_eq!(&reference, &recursively_metered);
             prop_assert_eq!(&reference, &metered_toom);
+            prop_assert_eq!(&reference, &metered_ntt);
             prop_assert_eq!(multiply_with_strategy(&b, &a, Strategy::Toom3), native.clone());
             prop_assert_eq!(&a * &b, native);
+        }
+
+        #[test]
+        fn metered_ntt_crt_candidate_matches_broad_balanced_operands(
+            a_bytes in proptest::collection::vec(any::<u8>(), 0..65),
+            b_bytes in proptest::collection::vec(any::<u8>(), 0..65),
+        ) {
+            let a = BigInt::from_signed_bytes_be(&a_bytes);
+            let b = BigInt::from_signed_bytes_be(&b_bytes);
+            let expected = multiply_with_strategy(&a, &b, Strategy::NativeSubstrate);
+            let actual = metered_ntt_crt_candidate(&a, &b, &mut Unbounded)
+                .unwrap()
+                .materialize_unmetered();
+            prop_assert_eq!(&actual, &expected);
+            let commuted = metered_ntt_crt_candidate(&b, &a, &mut Unbounded)
+                .unwrap()
+                .materialize_unmetered();
+            prop_assert_eq!(commuted, expected);
         }
 
         #[test]
