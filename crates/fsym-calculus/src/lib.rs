@@ -358,13 +358,27 @@ fn divides_by_zero(expr: &Expr) -> bool {
     }
 }
 
+fn monomial_degree(expr: &Expr, var: &Symbol) -> Option<u64> {
+    match expr {
+        Expr::Sym(s) if s == var => Some(1),
+        Expr::Pow(b, e) => {
+            let Expr::Integer(exponent) = e.as_ref() else {
+                return None;
+            };
+            let exponent = u64::try_from(exponent).ok()?;
+            let base_deg = monomial_degree(b, var)?;
+            base_deg.checked_mul(exponent)
+        }
+        _ => None,
+    }
+}
+
 /// Parse one expanded term as an exact univariate monomial.
 ///
 /// Only numeric coefficients are admitted. A symbolic coefficient may be
 /// positive, negative, or zero, so it cannot determine a limit at infinity
 /// without assumptions.
 fn polynomial_term(term: &Expr, var: &Symbol) -> Option<(u64, BigRational)> {
-    let x = Expr::Sym(var.clone());
     let mut degree = 0u64;
     let mut coefficient = BigRational::from_integer(1.into());
     let mut factors = vec![term];
@@ -372,16 +386,11 @@ fn polynomial_term(term: &Expr, var: &Symbol) -> Option<(u64, BigRational)> {
         match f {
             Expr::Integer(value) => coefficient *= BigRational::from_integer(value.clone()),
             Expr::Rational(value) => coefficient *= value,
-            Expr::Sym(s) if s == var => degree = degree.checked_add(1)?,
             Expr::Mul(nested) => factors.extend(nested),
-            Expr::Pow(b, e) if b.as_ref() == &x => {
-                let Expr::Integer(exponent) = e.as_ref() else {
-                    return None;
-                };
-                let exponent = u64::try_from(exponent).ok()?;
-                degree = degree.checked_add(exponent)?;
+            other => {
+                let deg = monomial_degree(other, var)?;
+                degree = degree.checked_add(deg)?;
             }
-            _ => return None,
         }
     }
     Some((degree, coefficient))

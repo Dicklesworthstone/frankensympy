@@ -6,17 +6,39 @@ use crate::PolyError;
 use fsym_budget::{BudgetMeter, Dimension};
 use fsym_core::{BigInt, BigRational, Expr, Symbol};
 use num_traits::{One, Zero};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt;
 use std::sync::Arc;
 
 /// Univariate polynomial represented by dense coefficient vector:
 /// `c_0 + c_1 * x + ... + c_n * x^n`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 pub struct UnivariatePoly {
     pub gen_sym: Symbol,
     /// Coefficients ordered by increasing degree: `coeffs[k]` is coefficient of `gen_sym^k`.
     pub coeffs: Vec<BigRational>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UnivariatePolyWire {
+    gen_sym: Symbol,
+    coeffs: Vec<BigRational>,
+}
+
+impl<'de> Deserialize<'de> for UnivariatePoly {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = UnivariatePolyWire::deserialize(deserializer)?;
+        let poly = Self {
+            gen_sym: wire.gen_sym,
+            coeffs: wire.coeffs,
+        };
+        poly.validate_shape().map_err(serde::de::Error::custom)?;
+        Ok(poly)
+    }
 }
 
 impl UnivariatePoly {
@@ -29,6 +51,21 @@ impl UnivariatePoly {
             coeffs.push(BigRational::zero());
         }
         Self { gen_sym, coeffs }
+    }
+
+    /// Validates the canonical dense representation at a trust boundary.
+    pub fn validate_shape(&self) -> Result<(), PolyError> {
+        if self.coeffs.is_empty() {
+            return Err(PolyError::General(
+                "univariate polynomial coefficient vector is empty".to_string(),
+            ));
+        }
+        if self.coeffs.len() > 1 && self.coeffs.last().is_some_and(Zero::is_zero) {
+            return Err(PolyError::General(
+                "univariate polynomial has a noncanonical trailing zero coefficient".to_string(),
+            ));
+        }
+        Ok(())
     }
 
     /// Construct constant polynomial 0.
@@ -319,15 +356,18 @@ impl UnivariatePoly {
             Expr::Pow(base, exp) => {
                 let p_base = Self::from_expr(base, gen_sym)?;
                 if let Expr::Integer(n) = exp.as_ref() {
-                    if let Ok(k) = usize::try_from(n) {
-                        return p_base.pow(k as u32);
+                    if let Ok(k) = usize::try_from(n)
+                        && let Ok(k_u32) = u32::try_from(k)
+                    {
+                        return p_base.pow(k_u32);
                     } else if p_base.degree() == Some(0)
                         && !p_base.is_zero()
                         && let Ok(k) = usize::try_from(&(-n))
+                        && let Ok(k_u32) = u32::try_from(k)
                     {
                         let inv_c = BigRational::one() / p_base.leading_coeff();
                         let inv_poly = Self::new(gen_sym.clone(), vec![inv_c]);
-                        return inv_poly.pow(k as u32);
+                        return inv_poly.pow(k_u32);
                     }
                 }
                 Err(PolyError::NonPolynomialExpression(format!(

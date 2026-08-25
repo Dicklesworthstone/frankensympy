@@ -357,6 +357,76 @@ mod tests {
     }
 
     #[test]
+    fn factorization_verifier_rejects_noncanonical_certificate_shapes() {
+        let x = Symbol::new("x");
+        let x_poly = UnivariatePoly::new(
+            x.clone(),
+            vec![BigRational::from_integer(0.into()), BigRational::one()],
+        );
+
+        let non_monic = FactorizationResult {
+            scale: BigRational::new(1.into(), 2.into()),
+            factors: vec![FactorTerm {
+                poly: UnivariatePoly::new(
+                    x.clone(),
+                    vec![
+                        BigRational::from_integer(0.into()),
+                        BigRational::from_integer(2.into()),
+                    ],
+                ),
+                multiplicity: 1,
+            }],
+        };
+        assert!(verify_factorization_certificate(&x_poly, &non_monic).is_err());
+
+        let one = UnivariatePoly::one(x.clone());
+        let zero_multiplicity = FactorizationResult {
+            scale: BigRational::one(),
+            factors: vec![FactorTerm {
+                poly: x_poly.clone(),
+                multiplicity: 0,
+            }],
+        };
+        assert!(verify_factorization_certificate(&one, &zero_multiplicity).is_err());
+
+        #[cfg(target_pointer_width = "64")]
+        {
+            let wrapped_multiplicity = FactorizationResult {
+                scale: BigRational::one(),
+                factors: vec![FactorTerm {
+                    poly: x_poly,
+                    multiplicity: (u32::MAX as usize) + 1,
+                }],
+            };
+            assert!(verify_factorization_certificate(&one, &wrapped_multiplicity).is_err());
+        }
+    }
+
+    #[test]
+    fn univariate_boundaries_reject_noncanonical_wire_and_exponent_narrowing() {
+        let x = Symbol::new("x");
+        let poly = UnivariatePoly::new(
+            x.clone(),
+            vec![BigRational::from_integer(1.into()), BigRational::one()],
+        );
+        let mut wire = serde_json::to_value(&poly).unwrap();
+        wire.get_mut("coeffs")
+            .and_then(serde_json::Value::as_array_mut)
+            .unwrap()
+            .push(serde_json::to_value(BigRational::from_integer(0.into())).unwrap());
+        assert!(serde_json::from_value::<UnivariatePoly>(wire).is_err());
+
+        let oversized_power = Expr::Pow(
+            Arc::new(Expr::Sym(x.clone())),
+            Arc::new(Expr::Integer(BigInt::from(u64::from(u32::MAX) + 1))),
+        );
+        assert!(matches!(
+            UnivariatePoly::from_expr(&oversized_power, &x),
+            Err(PolyError::NonPolynomialExpression(_))
+        ));
+    }
+
+    #[test]
     fn test_groebner_basis_computation_and_ideal_membership() {
         // Ideal I = <x^2 + y, x*y + x> in Q[x, y]
         let x = Symbol::new("x");

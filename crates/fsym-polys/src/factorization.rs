@@ -5,7 +5,7 @@
 use crate::PolyError;
 use crate::univariate::UnivariatePoly;
 use fsym_core::{BigRational, Symbol};
-use num_traits::Zero;
+use num_traits::{One, Zero};
 use serde::{Deserialize, Serialize};
 
 /// Factor with multiplicity: $(f(x), k)$.
@@ -27,7 +27,25 @@ impl FactorizationResult {
     pub fn expand(&self, sym: Symbol) -> Result<UnivariatePoly, PolyError> {
         let mut prod = UnivariatePoly::new(sym.clone(), vec![self.scale.clone()]);
         for factor in &self.factors {
-            let factor_pow = factor.poly.pow(factor.multiplicity as u32)?;
+            factor.poly.validate_shape()?;
+            if factor.poly.gen_sym != sym {
+                return Err(PolyError::IncompatibleGenerators(
+                    sym.name.clone(),
+                    factor.poly.gen_sym.name.clone(),
+                ));
+            }
+            if factor.multiplicity == 0 {
+                return Err(PolyError::IdentityCheckFailed(
+                    "factor multiplicity must be positive".to_string(),
+                ));
+            }
+            let exponent = u32::try_from(factor.multiplicity).map_err(|_| {
+                PolyError::IdentityCheckFailed(format!(
+                    "factor multiplicity {} exceeds the supported exponent range",
+                    factor.multiplicity
+                ))
+            })?;
+            let factor_pow = factor.poly.pow(exponent)?;
             prod = prod.mul(&factor_pow)?;
         }
         Ok(prod)
@@ -105,6 +123,84 @@ pub fn verify_factorization_certificate(
     poly: &UnivariatePoly,
     factorization: &FactorizationResult,
 ) -> Result<(), PolyError> {
+    poly.validate_shape()?;
+    if poly.is_zero() {
+        if !factorization.scale.is_zero() || !factorization.factors.is_empty() {
+            return Err(PolyError::IdentityCheckFailed(
+                "the zero polynomial requires canonical scale zero with no factors".to_string(),
+            ));
+        }
+    } else if factorization.scale.is_zero() {
+        return Err(PolyError::IdentityCheckFailed(
+            "a nonzero polynomial cannot have factorization scale zero".to_string(),
+        ));
+    }
+
+    // Admit the certificate shape before exponentiation. This prevents a
+    // malformed multiplicity from triggering disproportionate dense work and
+    // enforces the canonical monic, positive-degree factor convention.
+    let target_degree = poly.degree().unwrap_or(0);
+    let mut reconstructed_degree = 0usize;
+    for factor in &factorization.factors {
+        factor.poly.validate_shape()?;
+        if factor.poly.gen_sym != poly.gen_sym {
+            return Err(PolyError::IncompatibleGenerators(
+                poly.gen_sym.name.clone(),
+                factor.poly.gen_sym.name.clone(),
+            ));
+        }
+        if factor.multiplicity == 0 {
+            return Err(PolyError::IdentityCheckFailed(
+                "factor multiplicity must be positive".to_string(),
+            ));
+        }
+        u32::try_from(factor.multiplicity).map_err(|_| {
+            PolyError::IdentityCheckFailed(format!(
+                "factor multiplicity {} exceeds the supported exponent range",
+                factor.multiplicity
+            ))
+        })?;
+        let factor_degree = factor.poly.degree().ok_or_else(|| {
+            PolyError::IdentityCheckFailed("zero polynomial cannot be a factor".to_string())
+        })?;
+        if factor_degree == 0 {
+            return Err(PolyError::IdentityCheckFailed(
+                "constant factors must be absorbed into the scale".to_string(),
+            ));
+        }
+        if !factor.poly.leading_coeff().is_one() {
+            return Err(PolyError::IdentityCheckFailed(format!(
+                "factor `{}` is not monic",
+                factor.poly
+            )));
+        }
+        let degree_contribution =
+            factor_degree
+                .checked_mul(factor.multiplicity)
+                .ok_or_else(|| {
+                    PolyError::IdentityCheckFailed(
+                        "factorization degree calculation overflowed".to_string(),
+                    )
+                })?;
+        reconstructed_degree = reconstructed_degree
+            .checked_add(degree_contribution)
+            .ok_or_else(|| {
+                PolyError::IdentityCheckFailed(
+                    "factorization degree calculation overflowed".to_string(),
+                )
+            })?;
+        if reconstructed_degree > target_degree {
+            return Err(PolyError::IdentityCheckFailed(format!(
+                "factorization degree {reconstructed_degree} exceeds polynomial degree {target_degree}"
+            )));
+        }
+    }
+    if reconstructed_degree != target_degree {
+        return Err(PolyError::IdentityCheckFailed(format!(
+            "factorization degree {reconstructed_degree} does not match polynomial degree {target_degree}"
+        )));
+    }
+
     // 1. Reconstruct product and check equality
     let reconstructed = factorization.expand(poly.gen_sym.clone())?;
     if &reconstructed != poly {
