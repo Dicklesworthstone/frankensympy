@@ -458,15 +458,68 @@ mod tests {
 
         // Refine radius to <= 1/1000
         let target = BigRational::new(BigInt::from(1), BigInt::from(1000));
-        alpha.refine_to_radius(&target);
-        assert!(alpha.isolating_ball.radius <= target);
+        alpha.refine_to_radius(&target).unwrap();
+        assert!(alpha.isolating_ball().radius() <= &target);
 
         // Check certified root enclosure: P(lower) <= 0 and P(upper) >= 0 for x^2 - 2
-        let low = alpha.isolating_ball.lower();
-        let high = alpha.isolating_ball.upper();
+        let low = alpha.isolating_ball().lower();
+        let high = alpha.isolating_ball().upper();
         let p_low = &low * &low - BigRational::from_integer(BigInt::from(2));
         let p_high = &high * &high - BigRational::from_integer(BigInt::from(2));
         assert!(p_low <= BigRational::zero(), "P(lower) must be <= 0");
         assert!(p_high >= BigRational::zero(), "P(upper) must be >= 0");
+    }
+
+    #[test]
+    fn test_algebraic_number_rejects_non_isolating_intervals() {
+        // P(x) = x^3 - x = x(x-1)(x+1) with roots at -1, 0, 1
+        let p_cubic = vec![
+            BigRational::zero(),
+            BigRational::from_integer(BigInt::from(-1)),
+            BigRational::zero(),
+            BigRational::one(),
+        ];
+
+        // Interval [-2, 2] contains 3 roots -> must be REJECTED!
+        let multi_root_ball = RealBall::new(
+            BigRational::zero(),
+            BigRational::from_integer(BigInt::from(2)),
+        )
+        .unwrap();
+        assert!(matches!(
+            AlgebraicNumber::new(p_cubic.clone(), multi_root_ball),
+            Err(crate::algebraic::AlgebraicError::InvalidIsolatingInterval(
+                _
+            ))
+        ));
+
+        // Interval [2, 3] contains 0 roots -> must be REJECTED!
+        let zero_root_ball = RealBall::new(
+            BigRational::new(BigInt::from(5), BigInt::from(2)),
+            BigRational::new(BigInt::from(1), BigInt::from(2)),
+        )
+        .unwrap();
+        assert!(matches!(
+            AlgebraicNumber::new(p_cubic.clone(), zero_root_ball),
+            Err(crate::algebraic::AlgebraicError::InvalidIsolatingInterval(
+                _
+            ))
+        ));
+
+        // Interval [0.5, 1.5] contains exactly root x=1 -> ACCEPTED!
+        let isolating_ball = RealBall::new(
+            BigRational::one(),
+            BigRational::new(BigInt::from(1), BigInt::from(2)),
+        )
+        .unwrap();
+        let mut root1 = AlgebraicNumber::new(p_cubic, isolating_ball).unwrap();
+        assert_eq!(root1.sign(), 1);
+
+        // Negative refine target radius must be rejected
+        let neg_target = BigRational::from_integer(BigInt::from(-1));
+        assert!(matches!(
+            root1.refine_to_radius(&neg_target),
+            Err(crate::algebraic::AlgebraicError::NegativeTargetRadius(_))
+        ));
     }
 }

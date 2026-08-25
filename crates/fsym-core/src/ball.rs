@@ -58,6 +58,26 @@ impl RealBall {
         &self.midpoint + &self.radius
     }
 
+    /// Midpoint $m$.
+    pub fn midpoint(&self) -> &BigRational {
+        &self.midpoint
+    }
+
+    /// Radius $r$.
+    pub fn radius(&self) -> &BigRational {
+        &self.radius
+    }
+
+    /// Width / diameter $2r$.
+    pub fn width(&self) -> BigRational {
+        self.diameter()
+    }
+
+    /// Checks if this ball is completely disjoint from another ball.
+    pub fn is_disjoint(&self, other: &Self) -> bool {
+        self.upper() < other.lower() || other.upper() < self.lower()
+    }
+
     /// Diameter $2r$.
     pub fn diameter(&self) -> BigRational {
         &self.radius * BigRational::from_integer(BigInt::from(2))

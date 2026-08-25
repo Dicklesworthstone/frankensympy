@@ -19,51 +19,201 @@ pub enum AlgebraicError {
     ZeroPolynomial,
     #[error("Root isolating interval contains no root (or is not isolating): {0}")]
     InvalidIsolatingInterval(String),
+    #[error("Target radius cannot be negative: {0}")]
+    NegativeTargetRadius(String),
+    #[error("Refinement iteration limit exceeded ({0} steps)")]
+    IterationLimitExceeded(usize),
     #[error("Ball arithmetic error: {0}")]
     Ball(#[from] BallError),
+}
+
+/// Trims trailing zeros from coefficient vector.
+fn poly_trim(mut coeffs: Vec<BigRational>) -> Vec<BigRational> {
+    while coeffs.len() > 1 && coeffs.last().is_some_and(|c| c.is_zero()) {
+        coeffs.pop();
+    }
+    if coeffs.is_empty() {
+        coeffs.push(BigRational::zero());
+    }
+    coeffs
+}
+
+/// Checks if polynomial is identically zero.
+fn poly_is_zero(coeffs: &[BigRational]) -> bool {
+    coeffs.is_empty() || (coeffs.len() == 1 && coeffs[0].is_zero())
+}
+
+/// Degree of polynomial.
+fn poly_degree(coeffs: &[BigRational]) -> usize {
+    if coeffs.is_empty() {
+        0
+    } else {
+        coeffs.len() - 1
+    }
+}
+
+/// Formal polynomial derivative $\frac{d}{dx} P(x)$.
+fn poly_derivative(coeffs: &[BigRational]) -> Vec<BigRational> {
+    if coeffs.len() <= 1 {
+        return vec![BigRational::zero()];
+    }
+    let mut deriv = Vec::with_capacity(coeffs.len() - 1);
+    for (deg, coeff) in coeffs.iter().enumerate().skip(1) {
+        let k = BigRational::from_integer(BigInt::from(deg as u64));
+        deriv.push(coeff * &k);
+    }
+    poly_trim(deriv)
+}
+
+/// Negates polynomial coefficients.
+fn poly_negate(coeffs: &[BigRational]) -> Vec<BigRational> {
+    coeffs.iter().map(|c| -c).collect()
+}
+
+/// Polynomial remainder $A \pmod B$.
+fn poly_rem(a: &[BigRational], b: &[BigRational]) -> Vec<BigRational> {
+    let a_trimmed = poly_trim(a.to_vec());
+    let b_trimmed = poly_trim(b.to_vec());
+    if poly_is_zero(&b_trimmed) {
+        return a_trimmed;
+    }
+    let deg_b = poly_degree(&b_trimmed);
+    let lead_b = &b_trimmed[deg_b];
+
+    let mut rem = a_trimmed;
+    while !poly_is_zero(&rem) && poly_degree(&rem) >= deg_b {
+        let deg_r = poly_degree(&rem);
+        let lead_r = rem[deg_r].clone();
+        let factor = &lead_r / lead_b;
+        let shift = deg_r - deg_b;
+
+        for (j, b_coeff) in b_trimmed.iter().enumerate() {
+            rem[j + shift] -= &factor * b_coeff;
+        }
+        rem = poly_trim(rem);
+    }
+    rem
+}
+
+/// Builds the Sturm sequence $(f_0, f_1, \dots, f_k)$ for a univariate polynomial $P$.
+pub fn sturm_sequence(poly: &[BigRational]) -> Vec<Vec<BigRational>> {
+    let p0 = poly_trim(poly.to_vec());
+    if poly_is_zero(&p0) {
+        return Vec::new();
+    }
+    let p1 = poly_derivative(&p0);
+    if poly_is_zero(&p1) {
+        return vec![p0];
+    }
+    let mut seq = vec![p0, p1];
+    loop {
+        let last_idx = seq.len() - 1;
+        let rem = poly_rem(&seq[last_idx - 1], &seq[last_idx]);
+        if poly_is_zero(&rem) {
+            break;
+        }
+        let neg_rem = poly_negate(&rem);
+        seq.push(neg_rem);
+        if poly_degree(seq.last().unwrap()) == 0 {
+            break;
+        }
+    }
+    seq
+}
+
+/// Number of sign variations in the Sturm sequence evaluated at rational point $x$ (ignoring zeroes).
+pub fn sign_variations(seq: &[Vec<BigRational>], x: &BigRational) -> usize {
+    let mut signs: Vec<i8> = Vec::new();
+    for p in seq {
+        let val = AlgebraicNumber::eval_poly_at(p, x);
+        if val > BigRational::zero() {
+            signs.push(1);
+        } else if val < BigRational::zero() {
+            signs.push(-1);
+        }
+    }
+    let mut count = 0;
+    for i in 0..signs.len().saturating_sub(1) {
+        if signs[i] != signs[i + 1] {
+            count += 1;
+        }
+    }
+    count
+}
+
+/// Exact count of distinct real roots of $P$ in the closed interval $[a, b]$ via Sturm's theorem.
+pub fn count_real_roots_in_interval(
+    seq: &[Vec<BigRational>],
+    a: &BigRational,
+    b: &BigRational,
+) -> usize {
+    if a > b || seq.is_empty() {
+        return 0;
+    }
+    if a == b {
+        return if AlgebraicNumber::eval_poly_at(&seq[0], a).is_zero() {
+            1
+        } else {
+            0
+        };
+    }
+    let v_a = sign_variations(seq, a);
+    let v_b = sign_variations(seq, b);
+    let mut roots = v_a.saturating_sub(v_b);
+    if AlgebraicNumber::eval_poly_at(&seq[0], a).is_zero() {
+        roots += 1;
+    }
+    roots
 }
 
 /// Exact real algebraic number with certified root isolating ball.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct AlgebraicNumber {
     /// Coefficients in increasing degree: $c_0 + c_1 x + \dots + c_n x^n$.
-    pub min_poly_coeffs: Vec<BigRational>,
+    min_poly_coeffs: Vec<BigRational>,
     /// Certified ball enclosing the unique target root.
-    pub isolating_ball: RealBall,
+    isolating_ball: RealBall,
 }
 
 impl AlgebraicNumber {
-    /// Constructs an algebraic number with defining polynomial and root isolating ball.
+    /// Constructs an algebraic number with defining polynomial and certified root isolating ball.
+    ///
+    /// Verifies via Sturm's theorem that the isolating interval contains exactly one real root.
     pub fn new(
-        mut min_poly_coeffs: Vec<BigRational>,
+        min_poly_coeffs: Vec<BigRational>,
         isolating_ball: RealBall,
     ) -> Result<Self, AlgebraicError> {
-        while min_poly_coeffs.len() > 1 && min_poly_coeffs.last().is_some_and(|c| c.is_zero()) {
-            min_poly_coeffs.pop();
-        }
-        if min_poly_coeffs.is_empty()
-            || (min_poly_coeffs.len() == 1 && min_poly_coeffs[0].is_zero())
-        {
+        let coeffs = poly_trim(min_poly_coeffs);
+        if poly_is_zero(&coeffs) {
             return Err(AlgebraicError::ZeroPolynomial);
         }
 
-        // Verify root existence by intermediate value theorem: P(low) * P(high) <= 0
         let low = isolating_ball.lower();
         let high = isolating_ball.upper();
-        let p_low = Self::eval_poly_at(&min_poly_coeffs, &low);
-        let p_high = Self::eval_poly_at(&min_poly_coeffs, &high);
+        let sturm_seq = sturm_sequence(&coeffs);
+        let root_count = count_real_roots_in_interval(&sturm_seq, &low, &high);
 
-        if &p_low * &p_high > BigRational::zero() {
+        if root_count != 1 {
             return Err(AlgebraicError::InvalidIsolatingInterval(format!(
-                "P({}) = {}, P({}) = {} (no sign change)",
-                low, p_low, high, p_high
+                "isolating interval [{}, {}] contains {} real roots of defining polynomial, expected exactly 1",
+                low, high, root_count
             )));
         }
 
         Ok(Self {
-            min_poly_coeffs,
+            min_poly_coeffs: coeffs,
             isolating_ball,
         })
+    }
+
+    /// Access the defining polynomial coefficients in ascending degree.
+    pub fn min_poly_coeffs(&self) -> &[BigRational] {
+        &self.min_poly_coeffs
+    }
+
+    /// Access the certified root isolating ball.
+    pub fn isolating_ball(&self) -> &RealBall {
+        &self.isolating_ball
     }
 
     /// Construct exact rational as a degree-1 algebraic number: $x - q = 0$.
@@ -84,8 +234,8 @@ impl AlgebraicNumber {
         self.min_poly_coeffs.len() - 1
     }
 
-    /// Evaluates polynomial at a given rational point.
-    fn eval_poly_at(coeffs: &[BigRational], x: &BigRational) -> BigRational {
+    /// Evaluates polynomial at a given rational point using Horner's method.
+    pub fn eval_poly_at(coeffs: &[BigRational], x: &BigRational) -> BigRational {
         let mut acc = BigRational::zero();
         for c in coeffs.iter().rev() {
             acc = acc * x + c;
@@ -127,10 +277,22 @@ impl AlgebraicNumber {
     }
 
     /// Refines the root isolating ball until its radius is at most `target_radius`.
-    pub fn refine_to_radius(&mut self, target_radius: &BigRational) {
-        while &self.isolating_ball.radius > target_radius {
-            self.refine_step();
+    pub fn refine_to_radius(&mut self, target_radius: &BigRational) -> Result<(), AlgebraicError> {
+        if target_radius < &BigRational::zero() {
+            return Err(AlgebraicError::NegativeTargetRadius(
+                target_radius.to_string(),
+            ));
         }
+        let mut steps = 0;
+        const MAX_REFINE_STEPS: usize = 10_000;
+        while self.isolating_ball.radius() > target_radius {
+            if steps >= MAX_REFINE_STEPS {
+                return Err(AlgebraicError::IterationLimitExceeded(steps));
+            }
+            self.refine_step();
+            steps += 1;
+        }
+        Ok(())
     }
 
     /// Exact sign of algebraic number: returns -1, 0, or 1.
@@ -146,7 +308,7 @@ impl AlgebraicNumber {
             return 0;
         }
         // Refine until isolating interval excludes 0
-        while self.isolating_ball.contains_zero() && !self.isolating_ball.radius.is_zero() {
+        while self.isolating_ball.contains_zero() && !self.isolating_ball.radius().is_zero() {
             self.refine_step();
         }
 
