@@ -9,7 +9,8 @@
 //! - IDs of different kinds are distinct types; a parsed payload of one kind
 //!   can never be reinterpreted as another kind.
 //! - Identifier `0` is reserved and never issued (fail-closed sentinel).
-//! - Parsing rejects unknown kind prefixes instead of guessing.
+//! - Parsing accepts only the canonical `Display` spelling and rejects unknown
+//!   kind prefixes instead of guessing.
 //! - Digest preimages are framed with an explicit domain tag so that bytes
 //!   hashed under one identity domain can never collide with bytes framed
 //!   under another domain.
@@ -21,6 +22,36 @@
 #![forbid(unsafe_code)]
 
 use std::fmt;
+
+const MAX_DIAGNOSTIC_BYTES: usize = 128;
+const MAX_U64_DECIMAL_DIGITS: usize = 20;
+
+fn bounded_text(text: &str) -> String {
+    if text.len() <= MAX_DIAGNOSTIC_BYTES {
+        return text.to_owned();
+    }
+    let mut summary = String::with_capacity(MAX_DIAGNOSTIC_BYTES + 16);
+    for character in text.chars() {
+        if summary.len() + character.len_utf8() > MAX_DIAGNOSTIC_BYTES {
+            break;
+        }
+        summary.push(character);
+    }
+    summary.push_str("…<truncated>");
+    summary
+}
+
+fn bounded_binary_kind(bytes: &[u8]) -> String {
+    let visible_len = bytes.len().min(MAX_DIAGNOSTIC_BYTES);
+    let visible = bytes.get(..visible_len).unwrap_or_default();
+    let lossy = String::from_utf8_lossy(visible);
+    let lossy_was_truncated = lossy.len() > MAX_DIAGNOSTIC_BYTES;
+    let mut summary = bounded_text(&lossy);
+    if visible.len() != bytes.len() && !lossy_was_truncated {
+        summary.push_str("…<truncated>");
+    }
+    summary
+}
 
 /// Errors produced while validating or parsing typed identifiers.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -110,13 +141,16 @@ macro_rules! define_id {
                 let Some(rest) = bytes.get(8..) else {
                     return Err(malformed(bytes.len()));
                 };
-                if rest.len() != kind_len + 8 {
+                let Some(expected_rest_len) = kind_len.checked_add(8) else {
+                    return Err(malformed(bytes.len()));
+                };
+                if rest.len() != expected_rest_len {
                     return Err(malformed(bytes.len()));
                 }
                 let (kind, payload) = rest.split_at(kind_len);
                 if kind != Self::KIND.as_bytes() {
                     return Err(IdError::UnknownKind {
-                        found: String::from_utf8_lossy(kind).into_owned(),
+                        found: bounded_binary_kind(kind),
                     });
                 }
                 let Ok(payload_arr) = <[u8; 8]>::try_from(payload) else {
@@ -136,15 +170,40 @@ macro_rules! define_id {
             type Err = IdError;
 
             fn from_str(text: &str) -> Result<Self, Self::Err> {
+                let max_text_len = Self::KIND
+                    .len()
+                    .checked_add(1 + MAX_U64_DECIMAL_DIGITS)
+                    .ok_or_else(|| IdError::MalformedPayload {
+                        found: bounded_text(text),
+                    })?;
+                if text.len() > max_text_len {
+                    return Err(IdError::MalformedPayload {
+                        found: bounded_text(text),
+                    });
+                }
                 let Some(rest) = text.strip_prefix(Self::KIND) else {
-                    return Err(IdError::UnknownKind { found: text.to_string() });
+                    return Err(IdError::UnknownKind {
+                        found: bounded_text(text),
+                    });
                 };
                 let Some(payload) = rest.strip_prefix('-') else {
-                    return Err(IdError::UnknownKind { found: text.to_string() });
+                    return Err(IdError::UnknownKind {
+                        found: bounded_text(text),
+                    });
                 };
+                if payload.is_empty()
+                    || !payload.bytes().all(|byte| byte.is_ascii_digit())
+                    || (payload.len() > 1 && payload.starts_with('0'))
+                {
+                    return Err(IdError::MalformedPayload {
+                        found: bounded_text(text),
+                    });
+                }
                 let raw: u64 = payload
                     .parse()
-                    .map_err(|_| IdError::MalformedPayload { found: text.to_string() })?;
+                    .map_err(|_| IdError::MalformedPayload {
+                        found: bounded_text(text),
+                    })?;
                 Self::new(raw)
             }
         }
@@ -223,6 +282,34 @@ define_id!(
     "branch"
 );
 
+/// Default allocation bound for an encoded digest preimage.
+pub const MAX_PREIMAGE_BYTES: usize = 1024 * 1024;
+
+/// Errors produced while framing a canonical digest preimage.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PreimageError {
+    /// A component or aggregate encoded length overflowed its representation.
+    LengthOverflow,
+    /// The encoded preimage exceeded the caller's allocation limit.
+    SizeLimitExceeded { limit: usize },
+    /// Reserving the admitted output allocation failed.
+    AllocationFailure,
+}
+
+impl fmt::Display for PreimageError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::LengthOverflow => write!(f, "canonical preimage length overflow"),
+            Self::SizeLimitExceeded { limit } => {
+                write!(f, "canonical preimage exceeds byte limit {limit}")
+            }
+            Self::AllocationFailure => write!(f, "canonical preimage allocation failed"),
+        }
+    }
+}
+
+impl std::error::Error for PreimageError {}
+
 /// Frames byte slices into a canonical digest preimage under an explicit
 /// domain tag.
 ///
@@ -230,25 +317,61 @@ define_id!(
 /// exists: two different `(domain, parts)` inputs always frame to different
 /// bytes whenever they differ in any component boundary. Hashing happens in
 /// higher layers; this function only produces the canonical input bytes.
-pub fn frame_preimage(domain: &str, parts: &[&[u8]]) -> Vec<u8> {
+/// The complete encoded length is checked before one bounded allocation.
+pub fn frame_preimage(domain: &str, parts: &[&[u8]]) -> Result<Vec<u8>, PreimageError> {
+    frame_preimage_with_limit(domain, parts, MAX_PREIMAGE_BYTES)
+}
+
+/// Frames a canonical digest preimage under a caller-provided byte limit.
+pub fn frame_preimage_with_limit(
+    domain: &str,
+    parts: &[&[u8]],
+    max_bytes: usize,
+) -> Result<Vec<u8>, PreimageError> {
+    u64::try_from(parts.len()).map_err(|_| PreimageError::LengthOverflow)?;
+    let mut encoded_len = framed_chunk_len(domain.len())?
+        .checked_add(framed_chunk_len(8)?)
+        .ok_or(PreimageError::LengthOverflow)?;
+    if encoded_len > max_bytes {
+        return Err(PreimageError::SizeLimitExceeded { limit: max_bytes });
+    }
+    for part in parts {
+        encoded_len = encoded_len
+            .checked_add(framed_chunk_len(part.len())?)
+            .ok_or(PreimageError::LengthOverflow)?;
+        if encoded_len > max_bytes {
+            return Err(PreimageError::SizeLimitExceeded { limit: max_bytes });
+        }
+    }
+
     let mut out = Vec::new();
-    push_chunk(&mut out, domain.as_bytes());
+    out.try_reserve_exact(encoded_len)
+        .map_err(|_| PreimageError::AllocationFailure)?;
+    push_chunk(&mut out, domain.as_bytes())?;
     push_chunk(
         &mut out,
         &u64::try_from(parts.len())
-            .expect("part count fits u64")
+            .map_err(|_| PreimageError::LengthOverflow)?
             .to_le_bytes(),
-    );
+    )?;
     for part in parts {
-        push_chunk(&mut out, part);
+        push_chunk(&mut out, part)?;
     }
-    out
+    Ok(out)
 }
 
-fn push_chunk(out: &mut Vec<u8>, chunk: &[u8]) {
-    let len = u64::try_from(chunk.len()).expect("chunk length fits u64");
+fn framed_chunk_len(payload_len: usize) -> Result<usize, PreimageError> {
+    u64::try_from(payload_len).map_err(|_| PreimageError::LengthOverflow)?;
+    payload_len
+        .checked_add(8)
+        .ok_or(PreimageError::LengthOverflow)
+}
+
+fn push_chunk(out: &mut Vec<u8>, chunk: &[u8]) -> Result<(), PreimageError> {
+    let len = u64::try_from(chunk.len()).map_err(|_| PreimageError::LengthOverflow)?;
     out.extend_from_slice(&len.to_le_bytes());
     out.extend_from_slice(chunk);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -296,6 +419,8 @@ mod tests {
     fn negative_and_overflowing_payloads_are_malformed_or_reserved() {
         assert!("term--1".parse::<TermId>().is_err());
         assert!("term-99999999999999999999999".parse::<TermId>().is_err());
+        assert!("term-01".parse::<TermId>().is_err());
+        assert!("term-+1".parse::<TermId>().is_err());
     }
 
     #[test]
@@ -332,8 +457,8 @@ mod tests {
 
     #[test]
     fn framing_is_unambiguous_across_boundaries() {
-        let ab = frame_preimage("d", &[b"a", b"bc"]);
-        let abc = frame_preimage("d", &[b"ab", b"c"]);
+        let ab = frame_preimage("d", &[b"a", b"bc"]).unwrap();
+        let abc = frame_preimage("d", &[b"ab", b"c"]).unwrap();
         // Same concatenated bytes but different component boundaries must
         // frame differently.
         assert_ne!(ab, abc);
@@ -342,16 +467,16 @@ mod tests {
     #[test]
     fn framing_separates_domains() {
         let parts: [&[u8]; 1] = [b"payload"];
-        let a = frame_preimage("term", &parts);
-        let b = frame_preimage("surface", &parts);
+        let a = frame_preimage("term", &parts).unwrap();
+        let b = frame_preimage("surface", &parts).unwrap();
         assert_ne!(a, b, "distinct identity domains must never share preimages");
     }
 
     #[test]
     fn framing_is_deterministic_and_length_prefixed() {
         let parts: [&[u8]; 2] = [b"x", b"yz"];
-        let f1 = frame_preimage("term", &parts);
-        let f2 = frame_preimage("term", &parts);
+        let f1 = frame_preimage("term", &parts).unwrap();
+        let f2 = frame_preimage("term", &parts).unwrap();
         assert_eq!(f1, f2);
         // Head is the length-prefixed domain tag itself.
         assert_eq!(&f1[..8], &4u64.to_le_bytes());
@@ -364,13 +489,29 @@ mod tests {
 
     #[test]
     fn empty_parts_frame_is_still_well_formed() {
-        let f = frame_preimage("claim", &[]);
+        let f = frame_preimage("claim", &[]).unwrap();
         assert_eq!(&f[..8], &5u64.to_le_bytes());
         assert_eq!(&f[8..13], b"claim");
         // Zero parts still carry a framed (length-prefixed) count.
         assert_eq!(&f[13..21], &8u64.to_le_bytes());
         assert_eq!(&f[21..29], &0u64.to_le_bytes());
         assert_eq!(f.len(), 29);
+    }
+
+    #[test]
+    fn framing_preflights_the_exact_encoded_size() {
+        let parts: [&[u8]; 1] = [b"payload"];
+        let encoded = frame_preimage("term", &parts).unwrap();
+        assert_eq!(
+            frame_preimage_with_limit("term", &parts, encoded.len()).unwrap(),
+            encoded
+        );
+        assert_eq!(
+            frame_preimage_with_limit("term", &parts, encoded.len() - 1),
+            Err(PreimageError::SizeLimitExceeded {
+                limit: encoded.len() - 1
+            })
+        );
     }
 
     #[test]
@@ -404,5 +545,39 @@ mod tests {
         let mut padded = full.clone();
         padded.push(0);
         assert!(TermId::from_binary(&padded).is_err());
+    }
+
+    #[test]
+    fn hostile_binary_lengths_and_diagnostics_are_bounded() {
+        let hostile_length = [u8::MAX; 16];
+        assert!(TermId::from_binary(&hostile_length).is_err());
+
+        let kind_len = 4096_u64;
+        let kind_len_usize = usize::try_from(kind_len).unwrap();
+        let mut oversized_kind = Vec::new();
+        oversized_kind.extend_from_slice(&kind_len.to_le_bytes());
+        oversized_kind.extend(std::iter::repeat_n(b'x', kind_len_usize));
+        oversized_kind.extend_from_slice(&7_u64.to_le_bytes());
+        let error = TermId::from_binary(&oversized_kind).unwrap_err();
+        assert!(matches!(&error, IdError::UnknownKind { .. }));
+        if let IdError::UnknownKind { found } = error {
+            assert!(found.len() <= MAX_DIAGNOSTIC_BYTES + "…<truncated>".len());
+        }
+        oversized_kind
+            .get_mut(8..8 + kind_len_usize)
+            .unwrap()
+            .fill(u8::MAX);
+        let error = TermId::from_binary(&oversized_kind).unwrap_err();
+        assert!(matches!(&error, IdError::UnknownKind { .. }));
+        if let IdError::UnknownKind { found } = error {
+            assert!(found.len() <= MAX_DIAGNOSTIC_BYTES + "…<truncated>".len());
+        }
+
+        let oversized_text = "x".repeat(4096);
+        let error = oversized_text.parse::<TermId>().unwrap_err();
+        assert!(matches!(&error, IdError::MalformedPayload { .. }));
+        if let IdError::MalformedPayload { found } = error {
+            assert!(found.len() <= MAX_DIAGNOSTIC_BYTES + "…<truncated>".len());
+        }
     }
 }
