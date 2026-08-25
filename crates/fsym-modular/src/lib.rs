@@ -44,10 +44,10 @@ pub fn metered_mod_inverse<M: BudgetMeter>(
 ) -> Result<Option<BigInt>, MeterError> {
     meter.checkpoint()?;
     if !m.is_positive() {
-        return Ok(None);
+        return metered_finish(None, meter);
     }
     let Some(modulus) = NonZeroBigInt::new(m) else {
-        return Ok(None);
+        return metered_finish(None, meter);
     };
     let residue = metered_normalized_remainder(a, modulus, meter)?;
     let (g, x, _) = metered_extended_gcd(&residue, m, meter)?;
@@ -97,12 +97,12 @@ pub fn metered_crt_pair<M: BudgetMeter>(
 ) -> Result<Option<(BigInt, BigInt)>, MeterError> {
     meter.checkpoint()?;
     if !mod1.is_positive() || !mod2.is_positive() {
-        return Ok(None);
+        return metered_finish(None, meter);
     }
 
     let g = metered_gcd(mod1, mod2, meter)?;
     let Some(g_divisor) = NonZeroBigInt::new(&g) else {
-        return Ok(None);
+        return metered_finish(None, meter);
     };
     let diff = metered_subtract(rem2, rem1, meter)?;
     let (diff_over_g, diff_remainder) = metered_div_rem_nonzero(&diff, g_divisor, meter)?;
@@ -157,13 +157,13 @@ pub fn metered_crt<M: BudgetMeter>(
     meter.checkpoint()?;
     let mut congruence_iter = congruences.iter();
     let Some((first_remainder, first_modulus)) = congruence_iter.next() else {
-        return Ok(Some((BigInt::zero(), BigInt::one())));
+        return metered_finish(Some((BigInt::zero(), BigInt::one())), meter);
     };
     if !first_modulus.is_positive() {
-        return Ok(None);
+        return metered_finish(None, meter);
     }
     let Some(first_modulus_divisor) = NonZeroBigInt::new(first_modulus) else {
-        return Ok(None);
+        return metered_finish(None, meter);
     };
     meter.charge_batch(&[
         (
@@ -245,10 +245,10 @@ pub fn metered_rational_reconstruct<M: BudgetMeter>(
 ) -> Result<Option<(BigInt, BigInt)>, MeterError> {
     meter.checkpoint()?;
     if *m <= BigInt::one() {
-        return Ok(None);
+        return metered_finish(None, meter);
     }
     let Some(modulus) = NonZeroBigInt::new(m) else {
-        return Ok(None);
+        return metered_finish(None, meter);
     };
     let residue = metered_normalized_remainder(n, modulus, meter)?;
     if residue.is_zero() {
@@ -485,10 +485,10 @@ pub fn metered_is_probable_prime<M: BudgetMeter>(
 ) -> Result<bool, MeterError> {
     meter.checkpoint()?;
     if *n < 2i64 {
-        return Ok(false);
+        return metered_finish(false, meter);
     }
     let Some(modulus) = NonZeroBigInt::new(n) else {
-        return Ok(false);
+        return metered_finish(false, meter);
     };
     for base in MR_BASES {
         meter.checkpoint()?;
@@ -668,6 +668,7 @@ fn metered_normalized_remainder<M: BudgetMeter>(
     }
 }
 
+/// Publishes a fully classified value only after one terminal cancellation checkpoint.
 fn metered_finish<T, M: BudgetMeter>(value: T, meter: &mut M) -> Result<T, MeterError> {
     meter.checkpoint()?;
     Ok(value)
@@ -1888,6 +1889,7 @@ mod tests {
         cancel_at: Option<usize>,
         arm_after: Option<usize>,
         armed: bool,
+        charged: bool,
     }
 
     impl CheckpointMeter {
@@ -1897,6 +1899,7 @@ mod tests {
                 cancel_at: Some(checkpoint.max(1)),
                 arm_after: None,
                 armed: false,
+                charged: false,
             }
         }
 
@@ -1906,16 +1909,19 @@ mod tests {
                 cancel_at: None,
                 arm_after: Some(checkpoint),
                 armed: false,
+                charged: false,
             }
         }
     }
 
     impl BudgetMeter for CheckpointMeter {
-        fn charge(&mut self, _dimension: Dimension, _amount: u64) -> Result<(), MeterError> {
+        fn charge(&mut self, _dimension: Dimension, amount: u64) -> Result<(), MeterError> {
+            self.charged |= amount != 0;
             Ok(())
         }
 
-        fn charge_batch(&mut self, _charges: &[(Dimension, u64)]) -> Result<(), MeterError> {
+        fn charge_batch(&mut self, charges: &[(Dimension, u64)]) -> Result<(), MeterError> {
+            self.charged |= charges.iter().any(|(_, amount)| *amount != 0);
             Ok(())
         }
 
@@ -1973,6 +1979,27 @@ mod tests {
             operation(&mut cancelled),
             Err(MeterError::Cancelled)
         ));
+    }
+
+    fn assert_uncharged_fast_terminal<T: std::fmt::Debug + PartialEq>(
+        expected: T,
+        mut operation: impl FnMut(&mut CheckpointMeter) -> Result<T, MeterError>,
+    ) {
+        let mut measured = CheckpointMeter::default();
+        assert_eq!(
+            operation(&mut measured).expect("fast terminal path completes"),
+            expected
+        );
+        assert_eq!(measured.checkpoints, 2);
+        assert!(!measured.charged);
+
+        let mut cancelled = CheckpointMeter::arming_after(1);
+        assert!(matches!(
+            operation(&mut cancelled),
+            Err(MeterError::Cancelled)
+        ));
+        assert_eq!(cancelled.checkpoints, 1);
+        assert!(!cancelled.charged);
     }
 
     #[test]
@@ -2288,6 +2315,34 @@ mod tests {
             metered_is_probable_prime(&BigInt::one(), &mut budget),
             Ok(false)
         );
+    }
+
+    #[test]
+    fn fast_terminal_classes_checkpoint_after_classification_without_charges() {
+        assert_uncharged_fast_terminal(None, |meter| {
+            metered_mod_inverse(&BigInt::one(), &BigInt::zero(), meter)
+        });
+        assert_uncharged_fast_terminal(None, |meter| {
+            metered_crt_pair(
+                &BigInt::zero(),
+                &BigInt::zero(),
+                &BigInt::zero(),
+                &BigInt::one(),
+                meter,
+            )
+        });
+        assert_uncharged_fast_terminal(Some((BigInt::zero(), BigInt::one())), |meter| {
+            metered_crt(&[], meter)
+        });
+        assert_uncharged_fast_terminal(None, |meter| {
+            metered_crt(&[(BigInt::zero(), BigInt::zero())], meter)
+        });
+        assert_uncharged_fast_terminal(None, |meter| {
+            metered_rational_reconstruct(&BigInt::one(), &BigInt::one(), meter)
+        });
+        assert_uncharged_fast_terminal(false, |meter| {
+            metered_is_probable_prime(&BigInt::one(), meter)
+        });
     }
 
     #[test]
