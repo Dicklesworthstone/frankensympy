@@ -209,13 +209,16 @@ impl Expr {
         match self {
             Expr::Integer(n) => Some(n.clone()),
             Expr::Pow(b, e) => match (b.as_ref(), e.as_ref()) {
-                (Expr::Integer(base), Expr::Integer(exp)) if exp.bits() <= 10 => {
+                (Expr::Integer(base), Expr::Integer(exp)) if exp.bits() <= 11 => {
                     let exp_i = exp.to_i64()?;
-                    if (0..=1024).contains(&exp_i) {
-                        Some(base.pow(exp_i as u32))
-                    } else {
-                        None
+                    // Result budget: base bits x exponent capped so a
+                    // hostile (huge_base, huge_exp) pair cannot allocate
+                    // gigabytes inside a fold. 4096 result bits max.
+                    let result_bits = base.bits() * u64::try_from(exp_i).ok()?;
+                    if !(0..=1024).contains(&exp_i) || result_bits > 4096 {
+                        return None;
                     }
+                    Some(base.pow(exp_i as u32))
                 }
                 _ => None,
             },
