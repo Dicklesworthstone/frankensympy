@@ -4,7 +4,7 @@
 
 use crate::PolyError;
 use crate::univariate::UnivariatePoly;
-use fsym_core::{BigRational, Symbol};
+use fsym_core::{BigInt, BigRational, Symbol};
 use num_traits::{One, Zero};
 use serde::{Deserialize, Serialize};
 
@@ -236,4 +236,186 @@ pub fn verify_factorization_certificate(
     }
 
     Ok(())
+}
+
+fn integer_divisors(n: &BigInt, limit: usize) -> Vec<BigInt> {
+    let abs_n = if n < &BigInt::zero() {
+        -n.clone()
+    } else {
+        n.clone()
+    };
+    if abs_n.is_zero() {
+        return Vec::new();
+    }
+    if abs_n.is_one() {
+        return vec![BigInt::one()];
+    }
+    if let Ok(val) = u64::try_from(abs_n.clone()) {
+        let mut divs = Vec::new();
+        let mut d = 1u64;
+        while d * d <= val && divs.len() < limit {
+            if val % d == 0 {
+                divs.push(BigInt::from(d));
+                if d * d != val {
+                    divs.push(BigInt::from(val / d));
+                }
+            }
+            d += 1;
+        }
+        divs.sort();
+        divs
+    } else {
+        vec![BigInt::one(), abs_n]
+    }
+}
+
+fn find_rational_roots(poly: &UnivariatePoly) -> Vec<BigRational> {
+    if poly.degree() == Some(0) || poly.is_zero() {
+        return Vec::new();
+    }
+    let mut roots = Vec::new();
+    let mut current = poly.clone();
+    if current.coeffs[0].is_zero() {
+        roots.push(BigRational::zero());
+        if let Ok(m) = UnivariatePoly::monomial(current.gen_sym.clone(), BigRational::one(), 1) {
+            if let Ok((q, _)) = current.div_rem(&m) {
+                current = q;
+            }
+        }
+    }
+    if current.degree() == Some(0) {
+        return roots;
+    }
+    let mut denom_lcm = BigInt::one();
+    for c in &current.coeffs {
+        let d = c.denom();
+        let gcd_d = denom_lcm.gcd(d);
+        if !gcd_d.is_zero() {
+            denom_lcm = (&denom_lcm * d) / gcd_d;
+        }
+    }
+    let mut int_coeffs: Vec<BigInt> = current
+        .coeffs
+        .iter()
+        .map(|c| (c * BigRational::from_integer(denom_lcm.clone())).to_integer())
+        .collect();
+    while int_coeffs.len() > 1 && int_coeffs.last().is_some_and(|c| c.is_zero()) {
+        int_coeffs.pop();
+    }
+    if int_coeffs.len() <= 1 {
+        return roots;
+    }
+    let a0 = &int_coeffs[0];
+    let an = &int_coeffs[int_coeffs.len() - 1];
+    let p_divs = integer_divisors(a0, 500);
+    let q_divs = integer_divisors(an, 100);
+
+    for p in &p_divs {
+        for q in &q_divs {
+            if q.is_zero() {
+                continue;
+            }
+            for sign in &[1i64, -1i64] {
+                let candidate_p = if *sign == -1 { -p.clone() } else { p.clone() };
+                let candidate = BigRational::new(candidate_p, q.clone());
+                let val = current.eval(&candidate);
+                if val.is_zero() && !roots.contains(&candidate) {
+                    roots.push(candidate);
+                }
+            }
+        }
+    }
+    roots
+}
+
+fn factor_square_free_monic(poly: &UnivariatePoly) -> Result<Vec<UnivariatePoly>, PolyError> {
+    poly.validate_shape()?;
+    if poly.degree() == Some(0) || poly.is_zero() {
+        return Ok(Vec::new());
+    }
+    let mut factors = Vec::new();
+    let mut rem = poly.clone();
+    let roots = find_rational_roots(&rem);
+    for r in roots {
+        let linear = UnivariatePoly::new(rem.gen_sym.clone(), vec![-r, BigRational::one()]);
+        while let Ok((q, remainder)) = rem.div_rem(&linear) {
+            if remainder.is_zero() {
+                factors.push(linear.clone());
+                rem = q;
+                if rem.degree() == Some(0) {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+    }
+    if rem.degree() > Some(0) {
+        if rem.degree() == Some(2) {
+            let b = &rem.coeffs[1];
+            let c = &rem.coeffs[0];
+            let four = BigRational::from_integer(BigInt::from(4));
+            let discr = b * b - four * c;
+            if discr >= BigRational::zero() {
+                let num_sqrt = discr.numer().sqrt();
+                let den_sqrt = discr.denom().sqrt();
+                if &num_sqrt * &num_sqrt == *discr.numer()
+                    && &den_sqrt * &den_sqrt == *discr.denom()
+                {
+                    let d = BigRational::new(num_sqrt, den_sqrt);
+                    let two = BigRational::from_integer(BigInt::from(2));
+                    let r1 = (-b + &d) / &two;
+                    let r2 = (-b - &d) / &two;
+                    factors.push(UnivariatePoly::new(
+                        rem.gen_sym.clone(),
+                        vec![-r1, BigRational::one()],
+                    ));
+                    factors.push(UnivariatePoly::new(
+                        rem.gen_sym.clone(),
+                        vec![-r2, BigRational::one()],
+                    ));
+                    return Ok(factors);
+                }
+            }
+        }
+        if rem != UnivariatePoly::one(rem.gen_sym.clone()) {
+            factors.push(rem);
+        }
+    }
+    Ok(factors)
+}
+
+/// Computes the complete factorization of a univariate polynomial over $\mathbb{Q}[x]$:
+/// $P(x) = \text{scale} \cdot \prod f_i(x)^{e_i}$.
+pub fn factor_polynomial(poly: &UnivariatePoly) -> Result<FactorizationResult, PolyError> {
+    poly.validate_shape()?;
+    if poly.is_zero() {
+        return Ok(FactorizationResult {
+            scale: BigRational::zero(),
+            factors: Vec::new(),
+        });
+    }
+    let sqf = square_free_decomposition(poly)?;
+    let mut factors_vec: Vec<FactorTerm> = Vec::new();
+
+    for sqf_term in sqf.factors {
+        let irreducible = factor_square_free_monic(&sqf_term.poly)?;
+        for irr in irreducible {
+            if let Some(existing) = factors_vec.iter_mut().find(|f| f.poly == irr) {
+                existing.multiplicity += sqf_term.multiplicity;
+            } else {
+                factors_vec.push(FactorTerm {
+                    poly: irr,
+                    multiplicity: sqf_term.multiplicity,
+                });
+            }
+        }
+    }
+
+    let res = FactorizationResult {
+        scale: sqf.scale,
+        factors: factors_vec,
+    };
+    verify_factorization_certificate(poly, &res)?;
+    Ok(res)
 }

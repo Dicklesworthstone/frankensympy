@@ -42,7 +42,7 @@ mod tests {
     use fsym_budget::Unbounded;
     use fsym_core::{BigInt, BigRational, Expr, Symbol};
     use fsym_proof_kernel::verify_derivation_independent;
-    use num_traits::One;
+    use num_traits::{One, Zero};
     use std::collections::BTreeMap;
     use std::sync::Arc;
 
@@ -569,5 +569,63 @@ mod tests {
             eliminate(&[poly], &[missing]),
             Err(PolyError::IncompatibleGenerators(_, _))
         ));
+    }
+
+    #[test]
+    fn test_factor_polynomial_complete() {
+        let x = Symbol::new("x");
+
+        // 1. Quadratic: x^2 - 1 = (x - 1)(x + 1)
+        let p1 = UnivariatePoly::new(
+            x.clone(),
+            vec![
+                BigRational::from_integer(BigInt::from(-1)),
+                BigRational::zero(),
+                BigRational::one(),
+            ],
+        );
+        let res1 = factor_polynomial(&p1).unwrap();
+        assert_eq!(res1.factors.len(), 2);
+        assert_eq!(res1.scale, BigRational::one());
+        assert!(verify_factorization_certificate(&p1, &res1).is_ok());
+
+        // 2. Cubic with 3 roots: (x - 1)(x - 2)(x - 3) = x^3 - 6x^2 + 11x - 6
+        let p2 = UnivariatePoly::new(
+            x.clone(),
+            vec![
+                BigRational::from_integer(BigInt::from(-6)),
+                BigRational::from_integer(BigInt::from(11)),
+                BigRational::from_integer(BigInt::from(-6)),
+                BigRational::one(),
+            ],
+        );
+        let res2 = factor_polynomial(&p2).unwrap();
+        assert_eq!(res2.factors.len(), 3);
+        assert!(verify_factorization_certificate(&p2, &res2).is_ok());
+
+        // 3. Repeated roots: 3*(x - 2)^2 = 3*(x^2 - 4x + 4) = 3x^2 - 12x + 12
+        let p3 = UnivariatePoly::new(
+            x.clone(),
+            vec![
+                BigRational::from_integer(BigInt::from(12)),
+                BigRational::from_integer(BigInt::from(-12)),
+                BigRational::from_integer(BigInt::from(3)),
+            ],
+        );
+        let res3 = factor_polynomial(&p3).unwrap();
+        assert_eq!(res3.scale, BigRational::from_integer(BigInt::from(3)));
+        assert_eq!(res3.factors.len(), 1);
+        assert_eq!(res3.factors[0].multiplicity, 2);
+        assert!(verify_factorization_certificate(&p3, &res3).is_ok());
+
+        // 4. Irreducible quadratic: x^2 + 1
+        let p4 = UnivariatePoly::new(
+            x.clone(),
+            vec![BigRational::one(), BigRational::zero(), BigRational::one()],
+        );
+        let res4 = factor_polynomial(&p4).unwrap();
+        assert_eq!(res4.factors.len(), 1);
+        assert_eq!(res4.factors[0].poly, p4);
+        assert!(verify_factorization_certificate(&p4, &res4).is_ok());
     }
 }
