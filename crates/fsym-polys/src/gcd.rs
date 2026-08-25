@@ -2,8 +2,8 @@
 
 #![forbid(unsafe_code)]
 
-use crate::PolyError;
 use crate::univariate::UnivariatePoly;
+use crate::PolyError;
 use fsym_core::BigRational;
 use num_traits::{One, Zero};
 use serde::{Deserialize, Serialize};
@@ -30,6 +30,8 @@ impl UnivariatePoly {
 
     /// Computes the monic GCD of two univariate polynomials using Euclidean algorithm.
     pub fn gcd(&self, other: &Self) -> Result<Self, PolyError> {
+        self.validate_shape()?;
+        other.validate_shape()?;
         if self.gen_sym != other.gen_sym {
             return Err(PolyError::IncompatibleGenerators(
                 self.gen_sym.name.clone(),
@@ -58,6 +60,8 @@ impl UnivariatePoly {
     /// Extended Euclidean algorithm producing GCD and Bezout coefficients $U, V$
     /// such that $U \cdot A + V \cdot B = \gcd(A, B)$.
     pub fn extended_gcd(&self, other: &Self) -> Result<BezoutCertificate, PolyError> {
+        self.validate_shape()?;
+        other.validate_shape()?;
         if self.gen_sym != other.gen_sym {
             return Err(PolyError::IncompatibleGenerators(
                 self.gen_sym.name.clone(),
@@ -134,6 +138,12 @@ pub fn verify_bezout_certificate(
     b: &UnivariatePoly,
     cert: &BezoutCertificate,
 ) -> Result<(), PolyError> {
+    a.validate_shape()?;
+    b.validate_shape()?;
+    cert.gcd.validate_shape()?;
+    cert.u.validate_shape()?;
+    cert.v.validate_shape()?;
+
     // 1. Verify linear combination: U * A + V * B == GCD
     let ua = cert.u.mul(a)?;
     let vb = cert.v.mul(b)?;

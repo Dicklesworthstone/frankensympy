@@ -438,6 +438,20 @@ mod tests {
             UnivariatePoly::monomial(x, BigRational::one(), usize::MAX),
             Err(PolyError::General(_))
         ));
+
+        let invalid = UnivariatePoly {
+            gen_sym: Symbol::new("x"),
+            coeffs: Vec::new(),
+        };
+        let one = UnivariatePoly::one(Symbol::new("x"));
+        assert!(invalid.add(&one).is_err());
+        assert!(invalid.sub(&one).is_err());
+        assert!(invalid.mul(&one).is_err());
+        assert!(invalid.div_rem(&one).is_err());
+        assert!(invalid.gcd(&one).is_err());
+        assert!(invalid.extended_gcd(&one).is_err());
+        assert!(square_free_decomposition(&invalid).is_err());
+        assert!(serde_json::to_value(&invalid).is_err());
     }
 
     #[test]

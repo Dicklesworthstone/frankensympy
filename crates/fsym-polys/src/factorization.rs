@@ -2,8 +2,8 @@
 
 #![forbid(unsafe_code)]
 
-use crate::PolyError;
 use crate::univariate::UnivariatePoly;
+use crate::PolyError;
 use fsym_core::{BigRational, Symbol};
 use num_traits::{One, Zero};
 use serde::{Deserialize, Serialize};

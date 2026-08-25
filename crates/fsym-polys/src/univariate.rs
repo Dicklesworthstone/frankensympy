@@ -282,6 +282,8 @@ impl UnivariatePoly {
         other: &Self,
         meter: &mut M,
     ) -> Result<Self, PolyError> {
+        self.validate_shape()?;
+        other.validate_shape()?;
         meter
             .checkpoint()
             .map_err(|e| PolyError::General(e.to_string()))?;
