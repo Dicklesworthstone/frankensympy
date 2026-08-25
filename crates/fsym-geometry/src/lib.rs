@@ -7,7 +7,7 @@
 
 use fsym_core::{BigRational, Expr};
 use fsym_simplify::simplify;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt;
 use std::sync::Arc;
 use thiserror::Error;
@@ -59,10 +59,27 @@ impl fmt::Display for Point2D {
 }
 
 /// 2D Symbolic Line passing through two distinct points `p1` and `p2`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Line2D {
-    pub p1: Point2D,
-    pub p2: Point2D,
+    p1: Point2D,
+    p2: Point2D,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Line2DWire {
+    p1: Point2D,
+    p2: Point2D,
+}
+
+impl<'de> Deserialize<'de> for Line2D {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = Line2DWire::deserialize(deserializer)?;
+        Self::new(wire.p1, wire.p2).map_err(serde::de::Error::custom)
+    }
 }
 
 impl Line2D {
@@ -71,6 +88,14 @@ impl Line2D {
             return Err(GeometryError::CoincidentPoints);
         }
         Ok(Self { p1, p2 })
+    }
+
+    pub fn p1(&self) -> &Point2D {
+        &self.p1
+    }
+
+    pub fn p2(&self) -> &Point2D {
+        &self.p2
     }
 
     /// Computes intersection point with another 2D line.
@@ -288,10 +313,27 @@ impl Triangle2D {
 }
 
 /// 2D Symbolic Circle.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 pub struct Circle {
-    pub center: Point2D,
-    pub radius: Expr,
+    center: Point2D,
+    radius: Expr,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CircleWire {
+    center: Point2D,
+    radius: Expr,
+}
+
+impl<'de> Deserialize<'de> for Circle {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = CircleWire::deserialize(deserializer)?;
+        Self::new(wire.center, wire.radius).map_err(serde::de::Error::custom)
+    }
 }
 
 impl Circle {
@@ -300,6 +342,14 @@ impl Circle {
             return Err(GeometryError::NegativeRadius);
         }
         Ok(Self { center, radius })
+    }
+
+    pub fn center(&self) -> &Point2D {
+        &self.center
+    }
+
+    pub fn radius(&self) -> &Expr {
+        &self.radius
     }
 }
 
@@ -396,5 +446,38 @@ mod tests {
             Err(GeometryError::NegativeRadius)
         );
         assert!(Circle::new(origin, Expr::symbol("r")).is_ok());
+    }
+
+    #[test]
+    fn geometry_wire_decode_cannot_bypass_constructor_invariants() {
+        let origin = Point2D::new(Expr::from_i64(0), Expr::from_i64(0));
+        let valid_line = Line2D::new(
+            origin.clone(),
+            Point2D::new(Expr::from_i64(1), Expr::from_i64(1)),
+        )
+        .unwrap();
+        let mut line_wire = serde_json::to_value(&valid_line).unwrap();
+        assert_eq!(
+            serde_json::from_value::<Line2D>(line_wire.clone()).unwrap(),
+            valid_line
+        );
+        let duplicate_point = line_wire.get("p1").unwrap().clone();
+        line_wire
+            .as_object_mut()
+            .unwrap()
+            .insert("p2".to_owned(), duplicate_point);
+        assert!(serde_json::from_value::<Line2D>(line_wire).is_err());
+
+        let valid_circle = Circle::new(origin, Expr::from_i64(1)).unwrap();
+        let mut circle_wire = serde_json::to_value(&valid_circle).unwrap();
+        assert_eq!(
+            serde_json::from_value::<Circle>(circle_wire.clone()).unwrap(),
+            valid_circle
+        );
+        circle_wire.as_object_mut().unwrap().insert(
+            "radius".to_owned(),
+            serde_json::to_value(Expr::from_i64(-1)).unwrap(),
+        );
+        assert!(serde_json::from_value::<Circle>(circle_wire).is_err());
     }
 }
