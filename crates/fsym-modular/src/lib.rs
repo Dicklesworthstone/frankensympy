@@ -2368,16 +2368,16 @@ mod tests {
 
     #[test]
     fn every_computed_terminal_class_observes_final_cancellation() {
-        assert_terminal_checkpoint(None, 51, |meter| {
+        assert_terminal_checkpoint(None, 53, |meter| {
             metered_exact_div(&BigInt::from(35), &BigInt::from(6), meter)
         });
-        assert_terminal_checkpoint(None, 142, |meter| {
+        assert_terminal_checkpoint(None, 152, |meter| {
             metered_mod_inverse(&BigInt::from(6), &BigInt::from(9), meter)
         });
-        assert_terminal_checkpoint(Some(BigInt::from(6)), 218, |meter| {
+        assert_terminal_checkpoint(Some(BigInt::from(6)), 232, |meter| {
             metered_mod_inverse(&BigInt::from(17), &BigInt::from(101), meter)
         });
-        assert_terminal_checkpoint(None, 54, |meter| {
+        assert_terminal_checkpoint(None, 56, |meter| {
             metered_crt_pair(
                 &BigInt::zero(),
                 &BigInt::from(2),
@@ -2386,16 +2386,16 @@ mod tests {
                 meter,
             )
         });
-        assert_terminal_checkpoint(Some((BigInt::zero(), BigInt::one())), 3, |meter| {
+        assert_terminal_checkpoint(Some((BigInt::zero(), BigInt::one())), 4, |meter| {
             metered_rational_reconstruct(&BigInt::zero(), &BigInt::from(101), meter)
         });
-        assert_terminal_checkpoint(None, 654, |meter| {
+        assert_terminal_checkpoint(None, 668, |meter| {
             metered_rational_reconstruct(&BigInt::from(8), &BigInt::from(101), meter)
         });
-        assert_terminal_checkpoint(true, 591, |meter| {
+        assert_terminal_checkpoint(true, 603, |meter| {
             metered_is_probable_prime(&BigInt::from(41), meter)
         });
-        assert_terminal_checkpoint(false, 2_341, |meter| {
+        assert_terminal_checkpoint(false, 2_399, |meter| {
             metered_is_probable_prime(&BigInt::from(2_021), meter)
         });
     }

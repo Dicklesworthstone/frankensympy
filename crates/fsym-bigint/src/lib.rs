@@ -964,7 +964,8 @@ pub fn multiply(a: &BigInt, b: &BigInt) -> BigInt {
 ///
 /// This cancellation-first lane deliberately uses a simple base-$2^{32}$ reference algorithm.
 /// Each input-copy and limb-product unit is charged and preceded by a checkpoint, so cancellation
-/// latency does not depend on an opaque substrate multiplication call.
+/// latency does not depend on an opaque substrate multiplication call. A final checkpoint occurs
+/// after the complete result exists and before it is published.
 pub fn metered_multiply<M: BudgetMeter>(
     a: &BigInt,
     b: &BigInt,
@@ -973,7 +974,7 @@ pub fn metered_multiply<M: BudgetMeter>(
     meter.checkpoint()?;
 
     if a.is_zero() || b.is_zero() {
-        return Ok(BigInt::zero());
+        return metered_finish(BigInt::zero(), meter);
     }
 
     let a_len = a.0.iter_u32_digits().len();
@@ -1039,7 +1040,8 @@ pub fn metered_multiply<M: BudgetMeter>(
     } else {
         Sign::Minus
     };
-    Ok(BigInt(Substrate::from_biguint(sign, magnitude)))
+    let result = BigInt(Substrate::from_biguint(sign, magnitude));
+    metered_finish(result, meter)
 }
 
 /// Recursively computes a canonical Karatsuba product candidate under caller-owned metering.
@@ -1979,7 +1981,8 @@ fn try_u32_vec(capacity: usize) -> Result<Vec<u32>, MeteredMultiplyError> {
 /// This is a scalar reference lane, not the ordinary performance path. It copies magnitudes into
 /// owned base-$2^{32}$ digits, then performs binary long division. Every digit copy, remainder
 /// shift, comparison digit, and subtraction digit is charged and preceded by a cancellation
-/// checkpoint. All four transient digit buffers are charged before allocation.
+/// checkpoint. All four transient digit buffers are charged before allocation. A final checkpoint
+/// occurs after the complete optional result exists and before it is published.
 pub fn metered_div_rem<M: BudgetMeter>(
     dividend: &BigInt,
     divisor: &BigInt,
@@ -1987,12 +1990,15 @@ pub fn metered_div_rem<M: BudgetMeter>(
 ) -> Result<Option<(BigInt, BigInt)>, MeterError> {
     meter.checkpoint()?;
     let Some(divisor) = NonZeroBigInt::new(divisor) else {
-        return Ok(None);
+        return metered_finish(None, meter);
     };
-    metered_div_rem_nonzero(dividend, divisor, meter).map(Some)
+    let result = metered_div_rem_nonzero(dividend, divisor, meter)?;
+    metered_finish(Some(result), meter)
 }
 
 /// Cancellation-first truncating division after typed nonzero-divisor admission.
+///
+/// Every terminal class is staged before a final cancellation checkpoint and publication.
 pub fn metered_div_rem_nonzero<M: BudgetMeter>(
     dividend: &BigInt,
     divisor: NonZeroBigInt<'_>,
@@ -2001,7 +2007,8 @@ pub fn metered_div_rem_nonzero<M: BudgetMeter>(
     meter.checkpoint()?;
     let divisor = divisor.get();
     if dividend.is_zero() {
-        return Ok((BigInt::zero(), BigInt::zero()));
+        let result = (BigInt::zero(), BigInt::zero());
+        return metered_finish(result, meter);
     }
     if dividend.bits() < divisor.bits() {
         meter.charge_batch(&[
@@ -2012,7 +2019,8 @@ pub fn metered_div_rem_nonzero<M: BudgetMeter>(
             (Dimension::AllocationCount, 1),
         ])?;
         meter.checkpoint()?;
-        return Ok((BigInt::zero(), dividend.clone()));
+        let result = (BigInt::zero(), dividend.clone());
+        return metered_finish(result, meter);
     }
 
     let dividend_len = dividend.0.iter_u32_digits().len();
@@ -2078,20 +2086,24 @@ pub fn metered_div_rem_nonzero<M: BudgetMeter>(
     } else {
         dividend.0.sign()
     };
-    Ok((
+    let result = (
         BigInt(Substrate::from_biguint(quotient_sign, quotient_magnitude)),
         BigInt(Substrate::from_biguint(remainder_sign, remainder_magnitude)),
-    ))
+    );
+    metered_finish(result, meter)
 }
 
 /// Cancellation-first exact division using the metered scalar division lane.
+///
+/// The exact quotient, inexact refusal, and zero-divisor refusal each pass a final cancellation
+/// checkpoint after the complete optional result exists and before publication.
 pub fn metered_exact_div<M: BudgetMeter>(
     a: &BigInt,
     b: &BigInt,
     meter: &mut M,
 ) -> Result<Option<BigInt>, MeterError> {
     let Some((quotient, remainder)) = metered_div_rem(a, b, meter)? else {
-        return Ok(None);
+        return metered_finish(None, meter);
     };
     let result = remainder.is_zero().then_some(quotient);
     metered_finish(result, meter)
@@ -2612,6 +2624,78 @@ mod tests {
                 .expect("test checkpoint count must fit usize");
             Ok(())
         }
+    }
+
+    #[derive(Debug, Default)]
+    struct TerminalProbe {
+        checkpoints: usize,
+        trailing_uncharged_checkpoints: usize,
+    }
+
+    impl BudgetMeter for TerminalProbe {
+        fn charge(&mut self, _dimension: Dimension, _amount: u64) -> Result<(), MeterError> {
+            self.trailing_uncharged_checkpoints = 0;
+            Ok(())
+        }
+
+        fn charge_batch(&mut self, _charges: &[(Dimension, u64)]) -> Result<(), MeterError> {
+            self.trailing_uncharged_checkpoints = 0;
+            Ok(())
+        }
+
+        fn checkpoint(&mut self) -> Result<(), MeterError> {
+            self.checkpoints = self
+                .checkpoints
+                .checked_add(1)
+                .expect("test checkpoint count must fit usize");
+            self.trailing_uncharged_checkpoints = self
+                .trailing_uncharged_checkpoints
+                .checked_add(1)
+                .expect("test trailing checkpoint count must fit usize");
+            Ok(())
+        }
+    }
+
+    fn assert_terminal_cancellation<T>(
+        expected: &T,
+        mut run: impl FnMut(&mut CancelAfter) -> Result<T, MeterError>,
+    ) where
+        T: std::fmt::Debug + PartialEq,
+    {
+        let mut baseline = CancelAfter {
+            cancel_at_checkpoint: usize::MAX,
+            checkpoints: 0,
+            compute_steps: 0,
+        };
+        let baseline_result = run(&mut baseline);
+        assert_eq!(baseline_result.as_ref(), Ok(expected));
+        assert!(baseline.checkpoints > 0);
+
+        let mut cancelled = CancelAfter {
+            cancel_at_checkpoint: baseline.checkpoints,
+            checkpoints: 0,
+            compute_steps: 0,
+        };
+        assert_eq!(run(&mut cancelled), Err(MeterError::Cancelled));
+        assert_eq!(cancelled.checkpoints, baseline.checkpoints);
+        assert_eq!(cancelled.compute_steps, baseline.compute_steps);
+    }
+
+    fn assert_terminal_shape<T>(
+        expected: &T,
+        expected_trailing_checkpoints: usize,
+        run: impl FnOnce(&mut TerminalProbe) -> Result<T, MeterError>,
+    ) where
+        T: std::fmt::Debug + PartialEq,
+    {
+        let mut meter = TerminalProbe::default();
+        let result = run(&mut meter);
+        assert_eq!(result.as_ref(), Ok(expected));
+        assert!(meter.checkpoints >= expected_trailing_checkpoints);
+        assert_eq!(
+            meter.trailing_uncharged_checkpoints,
+            expected_trailing_checkpoints
+        );
     }
 
     #[test]
@@ -3655,6 +3739,69 @@ mod tests {
         assert_eq!(meter.checkpoints, cancel_at_checkpoint);
         assert!(meter.compute_steps > baseline.compute_steps / 2);
         assert!(meter.compute_steps < baseline.compute_steps);
+    }
+
+    #[test]
+    fn metered_value_lanes_cancel_at_each_terminal_publication_class() {
+        macro_rules! assert_terminal_boundary {
+            ($expected:expr, $trailing_checkpoints:expr, $run:expr) => {{
+                let expected = $expected;
+                assert_terminal_shape(&expected, $trailing_checkpoints, $run);
+                assert_terminal_cancellation(&expected, $run);
+            }};
+        }
+
+        let zero = BigInt::zero();
+        let multiplier = (BigInt::one() << 129) + 65_537i64;
+        let multiplicand = -((BigInt::one() << 131) + 17i64);
+        assert_terminal_boundary!(zero.clone(), 2, |meter| {
+            metered_multiply(&zero, &multiplier, meter)
+        });
+        assert_terminal_boundary!(&multiplier * &multiplicand, 2, |meter| {
+            metered_multiply(&multiplier, &multiplicand, meter)
+        });
+
+        let zero_divisor = BigInt::zero();
+        let divisor = BigInt::from(97);
+        let small_dividend = BigInt::from(7);
+        let general_dividend = BigInt::from(12_345);
+        assert_terminal_boundary!(None, 2, |meter| {
+            metered_div_rem(&general_dividend, &zero_divisor, meter)
+        });
+        assert_terminal_boundary!((zero.clone(), zero.clone()), 2, |meter| {
+            let divisor = NonZeroBigInt::new(&divisor).expect("fixture divisor is nonzero");
+            metered_div_rem_nonzero(&zero, divisor, meter)
+        });
+        assert_terminal_boundary!((BigInt::zero(), small_dividend.clone()), 2, |meter| {
+            let divisor = NonZeroBigInt::new(&divisor).expect("fixture divisor is nonzero");
+            metered_div_rem_nonzero(&small_dividend, divisor, meter)
+        });
+        let general_result = (BigInt::from(127), BigInt::from(26));
+        assert_terminal_boundary!(general_result.clone(), 2, |meter| {
+            let divisor = NonZeroBigInt::new(&divisor).expect("fixture divisor is nonzero");
+            metered_div_rem_nonzero(&general_dividend, divisor, meter)
+        });
+        assert_terminal_boundary!(Some(general_result), 3, |meter| {
+            metered_div_rem(&general_dividend, &divisor, meter)
+        });
+        assert_terminal_boundary!(Some((zero.clone(), zero.clone())), 4, |meter| {
+            metered_div_rem(&zero, &divisor, meter)
+        });
+
+        let exact_dividend = BigInt::from(12_222);
+        let inexact_dividend = BigInt::from(12_223);
+        assert_terminal_boundary!(None, 3, |meter| {
+            metered_exact_div(&exact_dividend, &zero_divisor, meter)
+        });
+        assert_terminal_boundary!(Some(BigInt::from(126)), 4, |meter| {
+            metered_exact_div(&exact_dividend, &divisor, meter)
+        });
+        assert_terminal_boundary!(None, 4, |meter| {
+            metered_exact_div(&inexact_dividend, &divisor, meter)
+        });
+        assert_terminal_boundary!(Some(zero.clone()), 5, |meter| {
+            metered_exact_div(&zero, &divisor, meter)
+        });
     }
 
     proptest! {
