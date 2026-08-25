@@ -452,6 +452,12 @@ mod tests {
         assert!(invalid.extended_gcd(&one).is_err());
         assert!(square_free_decomposition(&invalid).is_err());
         assert!(serde_json::to_value(&invalid).is_err());
+
+        let oversized_wire = serde_json::json!({
+            "gen_sym": Symbol::new("x"),
+            "coeffs": vec![BigRational::from_integer(0.into()); 65_537],
+        });
+        assert!(serde_json::from_value::<UnivariatePoly>(oversized_wire).is_err());
     }
 
     #[test]

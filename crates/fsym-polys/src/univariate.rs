@@ -6,6 +6,7 @@ use crate::PolyError;
 use fsym_budget::{BudgetMeter, Dimension};
 use fsym_core::{BigInt, BigRational, Expr, Symbol};
 use num_traits::{One, Zero};
+use serde::de::{IgnoredAny, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt;
 use std::sync::Arc;
@@ -32,7 +33,56 @@ struct UnivariatePolyWireRef<'a> {
 #[serde(deny_unknown_fields)]
 struct UnivariatePolyWire {
     gen_sym: Symbol,
+    #[serde(deserialize_with = "deserialize_bounded_coefficients")]
     coeffs: Vec<BigRational>,
+}
+
+fn deserialize_bounded_coefficients<'de, D>(
+    deserializer: D,
+) -> Result<Vec<BigRational>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct BoundedCoefficientVisitor;
+
+    impl<'de> Visitor<'de> for BoundedCoefficientVisitor {
+        type Value = Vec<BigRational>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(
+                formatter,
+                "at most {MAX_UNIVARIATE_COEFFICIENTS} rational coefficients"
+            )
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: SeqAccess<'de>,
+        {
+            let size_hint = seq.size_hint().unwrap_or(0);
+            if size_hint > MAX_UNIVARIATE_COEFFICIENTS {
+                return Err(serde::de::Error::invalid_length(size_hint, &self));
+            }
+
+            let mut coeffs = Vec::with_capacity(size_hint);
+            while coeffs.len() < MAX_UNIVARIATE_COEFFICIENTS {
+                match seq.next_element()? {
+                    Some(coefficient) => coeffs.push(coefficient),
+                    None => return Ok(coeffs),
+                }
+            }
+
+            if seq.next_element::<IgnoredAny>()?.is_some() {
+                return Err(serde::de::Error::invalid_length(
+                    MAX_UNIVARIATE_COEFFICIENTS + 1,
+                    &self,
+                ));
+            }
+            Ok(coeffs)
+        }
+    }
+
+    deserializer.deserialize_seq(BoundedCoefficientVisitor)
 }
 
 impl Serialize for UnivariatePoly {
@@ -113,17 +163,13 @@ impl UnivariatePoly {
     }
 
     /// Construct monomial $c \cdot x^k$ within the dense representation limit.
-    pub fn monomial(
-        gen_sym: Symbol,
-        coeff: BigRational,
-        degree: usize,
-    ) -> Result<Self, PolyError> {
+    pub fn monomial(gen_sym: Symbol, coeff: BigRational, degree: usize) -> Result<Self, PolyError> {
         if coeff.is_zero() {
             return Ok(Self::zero(gen_sym));
         }
-        let coefficient_count = degree
-            .checked_add(1)
-            .ok_or_else(|| PolyError::General("univariate monomial degree overflowed".to_string()))?;
+        let coefficient_count = degree.checked_add(1).ok_or_else(|| {
+            PolyError::General("univariate monomial degree overflowed".to_string())
+        })?;
         if coefficient_count > MAX_UNIVARIATE_COEFFICIENTS {
             return Err(PolyError::General(format!(
                 "univariate monomial exceeds the coefficient limit of {MAX_UNIVARIATE_COEFFICIENTS}"
