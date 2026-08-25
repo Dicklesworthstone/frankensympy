@@ -424,6 +424,20 @@ mod tests {
             UnivariatePoly::from_expr(&oversized_power, &x),
             Err(PolyError::NonPolynomialExpression(_))
         ));
+
+        let excessive_dense_power = Expr::Pow(
+            Arc::new(Expr::Sym(x.clone())),
+            Arc::new(Expr::from_i64(65_536)),
+        );
+        assert!(matches!(
+            UnivariatePoly::from_expr(&excessive_dense_power, &x),
+            Err(PolyError::General(_))
+        ));
+
+        assert!(matches!(
+            UnivariatePoly::monomial(x, BigRational::one(), usize::MAX),
+            Err(PolyError::General(_))
+        ));
     }
 
     #[test]

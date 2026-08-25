@@ -55,6 +55,7 @@ impl FactorizationResult {
 /// Computes the square-free decomposition of a univariate polynomial using Yun's algorithm:
 /// $P(x) = c \cdot f_1^1 \cdot f_2^2 \cdots f_k^k$ where each $f_i$ is square-free and pairwise coprime.
 pub fn square_free_decomposition(poly: &UnivariatePoly) -> Result<FactorizationResult, PolyError> {
+    poly.validate_shape()?;
     if poly.is_zero() {
         return Ok(FactorizationResult {
             scale: BigRational::zero(),

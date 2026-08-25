@@ -10,13 +10,22 @@ use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt;
 use std::sync::Arc;
 
+const MAX_UNIVARIATE_COEFFICIENTS: usize = 65_536;
+const MAX_UNIVARIATE_POWER: u32 = 65_535;
+
 /// Univariate polynomial represented by dense coefficient vector:
 /// `c_0 + c_1 * x + ... + c_n * x^n`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct UnivariatePoly {
     pub gen_sym: Symbol,
     /// Coefficients ordered by increasing degree: `coeffs[k]` is coefficient of `gen_sym^k`.
     pub coeffs: Vec<BigRational>,
+}
+
+#[derive(Serialize)]
+struct UnivariatePolyWireRef<'a> {
+    gen_sym: &'a Symbol,
+    coeffs: &'a [BigRational],
 }
 
 #[derive(Deserialize)]
@@ -24,6 +33,20 @@ pub struct UnivariatePoly {
 struct UnivariatePolyWire {
     gen_sym: Symbol,
     coeffs: Vec<BigRational>,
+}
+
+impl Serialize for UnivariatePoly {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.validate_shape().map_err(serde::ser::Error::custom)?;
+        UnivariatePolyWireRef {
+            gen_sym: &self.gen_sym,
+            coeffs: &self.coeffs,
+        }
+        .serialize(serializer)
+    }
 }
 
 impl<'de> Deserialize<'de> for UnivariatePoly {
@@ -60,6 +83,11 @@ impl UnivariatePoly {
                 "univariate polynomial coefficient vector is empty".to_string(),
             ));
         }
+        if self.coeffs.len() > MAX_UNIVARIATE_COEFFICIENTS {
+            return Err(PolyError::General(format!(
+                "univariate polynomial exceeds the coefficient limit of {MAX_UNIVARIATE_COEFFICIENTS}"
+            )));
+        }
         if self.coeffs.len() > 1 && self.coeffs.last().is_some_and(Zero::is_zero) {
             return Err(PolyError::General(
                 "univariate polynomial has a noncanonical trailing zero coefficient".to_string(),
@@ -84,14 +112,26 @@ impl UnivariatePoly {
         }
     }
 
-    /// Construct monomial $c \cdot x^k$.
-    pub fn monomial(gen_sym: Symbol, coeff: BigRational, degree: usize) -> Self {
+    /// Construct monomial $c \cdot x^k$ within the dense representation limit.
+    pub fn monomial(
+        gen_sym: Symbol,
+        coeff: BigRational,
+        degree: usize,
+    ) -> Result<Self, PolyError> {
         if coeff.is_zero() {
-            return Self::zero(gen_sym);
+            return Ok(Self::zero(gen_sym));
         }
-        let mut coeffs = vec![BigRational::zero(); degree + 1];
+        let coefficient_count = degree
+            .checked_add(1)
+            .ok_or_else(|| PolyError::General("univariate monomial degree overflowed".to_string()))?;
+        if coefficient_count > MAX_UNIVARIATE_COEFFICIENTS {
+            return Err(PolyError::General(format!(
+                "univariate monomial exceeds the coefficient limit of {MAX_UNIVARIATE_COEFFICIENTS}"
+            )));
+        }
+        let mut coeffs = vec![BigRational::zero(); coefficient_count];
         coeffs[degree] = coeff;
-        Self { gen_sym, coeffs }
+        Ok(Self { gen_sym, coeffs })
     }
 
     /// Degree of polynomial ($\text{deg}(0) = \text{None}$).
@@ -143,6 +183,8 @@ impl UnivariatePoly {
 
     /// Addition of polynomials in the same generator.
     pub fn add(&self, other: &Self) -> Result<Self, PolyError> {
+        self.validate_shape()?;
+        other.validate_shape()?;
         if self.gen_sym != other.gen_sym {
             return Err(PolyError::IncompatibleGenerators(
                 self.gen_sym.name.clone(),
@@ -169,6 +211,8 @@ impl UnivariatePoly {
 
     /// Subtraction of polynomials in the same generator.
     pub fn sub(&self, other: &Self) -> Result<Self, PolyError> {
+        self.validate_shape()?;
+        other.validate_shape()?;
         if self.gen_sym != other.gen_sym {
             return Err(PolyError::IncompatibleGenerators(
                 self.gen_sym.name.clone(),
@@ -195,6 +239,8 @@ impl UnivariatePoly {
 
     /// Multiplication of polynomials in the same generator.
     pub fn mul(&self, other: &Self) -> Result<Self, PolyError> {
+        self.validate_shape()?;
+        other.validate_shape()?;
         if self.gen_sym != other.gen_sym {
             return Err(PolyError::IncompatibleGenerators(
                 self.gen_sym.name.clone(),
@@ -206,7 +252,16 @@ impl UnivariatePoly {
         }
         let deg_a = self.coeffs.len() - 1;
         let deg_b = other.coeffs.len() - 1;
-        let mut res = vec![BigRational::zero(); deg_a + deg_b + 1];
+        let result_len = deg_a
+            .checked_add(deg_b)
+            .and_then(|degree| degree.checked_add(1))
+            .ok_or_else(|| PolyError::General("univariate result degree overflowed".to_string()))?;
+        if result_len > MAX_UNIVARIATE_COEFFICIENTS {
+            return Err(PolyError::General(format!(
+                "univariate result exceeds the coefficient limit of {MAX_UNIVARIATE_COEFFICIENTS}"
+            )));
+        }
+        let mut res = vec![BigRational::zero(); result_len];
         for (i, c_a) in self.coeffs.iter().enumerate() {
             if c_a.is_zero() {
                 continue;
@@ -239,6 +294,26 @@ impl UnivariatePoly {
 
     /// Polynomial power $P^k$.
     pub fn pow(&self, mut exp: u32) -> Result<Self, PolyError> {
+        self.validate_shape()?;
+        if exp > MAX_UNIVARIATE_POWER {
+            return Err(PolyError::General(format!(
+                "univariate exponent {exp} exceeds the limit of {MAX_UNIVARIATE_POWER}"
+            )));
+        }
+        if let Some(degree) = self.degree() {
+            let result_degree = degree
+                .checked_mul(usize::try_from(exp).map_err(|_| {
+                    PolyError::General("univariate exponent conversion failed".to_string())
+                })?)
+                .ok_or_else(|| {
+                    PolyError::General("univariate result degree overflowed".to_string())
+                })?;
+            if result_degree >= MAX_UNIVARIATE_COEFFICIENTS {
+                return Err(PolyError::General(format!(
+                    "univariate result exceeds the coefficient limit of {MAX_UNIVARIATE_COEFFICIENTS}"
+                )));
+            }
+        }
         if exp == 0 {
             return Ok(Self::one(self.gen_sym.clone()));
         }
@@ -258,6 +333,8 @@ impl UnivariatePoly {
 
     /// Polynomial division with remainder: `self = quotient * divisor + remainder`.
     pub fn div_rem(&self, divisor: &Self) -> Result<(Self, Self), PolyError> {
+        self.validate_shape()?;
+        divisor.validate_shape()?;
         if self.gen_sym != divisor.gen_sym {
             return Err(PolyError::IncompatibleGenerators(
                 self.gen_sym.name.clone(),
