@@ -20,6 +20,8 @@ pub enum GeometryError {
     NegativeRadius,
     #[error("Lines are parallel, no unique intersection")]
     ParallelLines,
+    #[error("A symbolic degeneracy predicate is undecidable without additional assumptions")]
+    SymbolicDegeneracyUndetermined,
 }
 
 /// 2D Symbolic Point.
@@ -103,8 +105,12 @@ impl Line2D {
             Expr::Mul(vec![Expr::from_i64(-1), dy12.clone(), dx34.clone()]),
         ]));
 
-        if denom.is_zero() {
-            return Err(GeometryError::ParallelLines);
+        match numeric_value(&denom) {
+            Some(value) if value.numer().is_zero() => {
+                return Err(GeometryError::ParallelLines);
+            }
+            Some(_) => {}
+            None => return Err(GeometryError::SymbolicDegeneracyUndetermined),
         }
 
         let d12 = simplify(&Expr::Add(vec![
@@ -130,6 +136,14 @@ impl Line2D {
         let py = expr_div(py_num, denom);
 
         Ok(Point2D::new(px, py))
+    }
+}
+
+fn numeric_value(expr: &Expr) -> Option<BigRational> {
+    match expr {
+        Expr::Integer(value) => Some(BigRational::from_integer(value.clone())),
+        Expr::Rational(value) => Some(value.clone()),
+        _ => None,
     }
 }
 
@@ -259,9 +273,17 @@ impl Triangle2D {
         simplify(&Expr::Add(vec![t1, t2, t3]))
     }
 
-    /// Checks if the three vertices are collinear (double signed area is zero).
-    pub fn is_collinear(&self) -> bool {
-        self.double_signed_area().is_zero()
+    /// Decides whether the three vertices are collinear when their exact signed area is numeric.
+    ///
+    /// A symbolic nonzero-looking expression is not evidence of non-collinearity: it may vanish
+    /// under a specialization. Such cases remain `None` until assumptions discharge the predicate.
+    pub fn is_collinear(&self) -> Option<bool> {
+        let area = self.double_signed_area();
+        if area.is_zero() {
+            Some(true)
+        } else {
+            numeric_value(&area).map(|value| value.numer().is_zero())
+        }
     }
 }
 
@@ -273,8 +295,11 @@ pub struct Circle {
 }
 
 impl Circle {
-    pub fn new(center: Point2D, radius: Expr) -> Self {
-        Self { center, radius }
+    pub fn new(center: Point2D, radius: Expr) -> Result<Self, GeometryError> {
+        if numeric_value(&radius).is_some_and(|value| value < BigRational::from_integer(0.into())) {
+            return Err(GeometryError::NegativeRadius);
+        }
+        Ok(Self { center, radius })
     }
 }
 
@@ -324,7 +349,7 @@ mod tests {
         let p3 = Point2D::new(Expr::from_i64(0), Expr::from_i64(6));
 
         let tri = Triangle2D::new(p1, p2, p3);
-        assert!(!tri.is_collinear());
+        assert_eq!(tri.is_collinear(), Some(false));
         let centroid = tri.centroid();
         assert_eq!(centroid.x, Expr::from_i64(2));
         assert_eq!(centroid.y, Expr::from_i64(2));
@@ -334,6 +359,42 @@ mod tests {
         let c2 = Point2D::new(Expr::from_i64(1), Expr::from_i64(1));
         let c3 = Point2D::new(Expr::from_i64(2), Expr::from_i64(2));
         let tri_col = Triangle2D::new(c1, c2, c3);
-        assert!(tri_col.is_collinear());
+        assert_eq!(tri_col.is_collinear(), Some(true));
+    }
+
+    #[test]
+    fn symbolic_geometry_preserves_degeneracy_uncertainty() {
+        let a = Expr::symbol("a");
+        let first = Line2D::new(
+            Point2D::new(Expr::from_i64(0), Expr::from_i64(0)),
+            Point2D::new(Expr::from_i64(1), a.clone()),
+        )
+        .unwrap();
+        let second = Line2D::new(
+            Point2D::new(Expr::from_i64(0), Expr::from_i64(1)),
+            Point2D::new(Expr::from_i64(1), Expr::symbol("b")),
+        )
+        .unwrap();
+        assert_eq!(
+            first.intersection(&second),
+            Err(GeometryError::SymbolicDegeneracyUndetermined)
+        );
+
+        let symbolic_triangle = Triangle2D::new(
+            Point2D::new(Expr::from_i64(0), Expr::from_i64(0)),
+            Point2D::new(Expr::from_i64(1), a),
+            Point2D::new(Expr::from_i64(2), Expr::symbol("b")),
+        );
+        assert_eq!(symbolic_triangle.is_collinear(), None);
+    }
+
+    #[test]
+    fn circle_rejects_provably_negative_radius() {
+        let origin = Point2D::new(Expr::from_i64(0), Expr::from_i64(0));
+        assert_eq!(
+            Circle::new(origin.clone(), Expr::from_i64(-1)),
+            Err(GeometryError::NegativeRadius)
+        );
+        assert!(Circle::new(origin, Expr::symbol("r")).is_ok());
     }
 }
