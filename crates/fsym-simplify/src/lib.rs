@@ -191,20 +191,28 @@ fn check_fanout(actual: usize) -> Result<(), SimplifyError> {
     }
 }
 
-fn unwrap_unbounded(result: Result<Expr, SimplifyError>) -> Expr {
+fn unwrap_legacy(result: Result<Expr, SimplifyError>, checked_api: &str) -> Expr {
     match result {
         Ok(e) => e,
-        Err(SimplifyError::DepthLimitExceeded(d)) => panic!(
-            "expression nesting depth {d} exceeds MAX_RECURSION_DEPTH ({MAX_RECURSION_DEPTH}); \
-             use simplify_with/expand_with for a typed refusal"
+        Err(error) => panic!(
+            "legacy infallible symbolic operation refused the input: {error}; use {checked_api} \
+             for a typed refusal"
         ),
-        Err(e) => unreachable!("unbounded meter cannot refuse: {e}"),
     }
 }
 
+/// Simplify an algebraic expression recursively, returning resource and shape refusals.
+pub fn try_simplify(expr: &Expr) -> Result<Expr, SimplifyError> {
+    simplify_with(expr, &mut Unbounded)
+}
+
 /// Simplify an algebraic expression recursively.
+///
+/// This compatibility convenience panics when fixed structural limits reject
+/// the input. Trust-boundary callers should use [`try_simplify`] or
+/// [`simplify_with`] instead.
 pub fn simplify(expr: &Expr) -> Expr {
-    unwrap_unbounded(simplify_with(expr, &mut Unbounded))
+    unwrap_legacy(try_simplify(expr), "try_simplify/simplify_with")
 }
 
 /// Simplify under a caller-owned budget/cancellation meter.
@@ -394,9 +402,18 @@ pub fn verified_simplify<M: BudgetMeter>(
     Ok((simplified, envelope))
 }
 
+/// Expand polynomial products and powers, returning resource and shape refusals.
+pub fn try_expand(expr: &Expr) -> Result<Expr, SimplifyError> {
+    expand_with(expr, &mut Unbounded)
+}
+
 /// Expand polynomial products and powers into sum-of-products normal form.
+///
+/// This compatibility convenience panics when fixed structural limits reject
+/// the input. Trust-boundary callers should use [`try_expand`] or
+/// [`expand_with`] instead.
 pub fn expand(expr: &Expr) -> Expr {
-    unwrap_unbounded(expand_with(expr, &mut Unbounded))
+    unwrap_legacy(try_expand(expr), "try_expand/expand_with")
 }
 
 /// Expand under a caller-owned budget/cancellation meter.
@@ -555,8 +572,13 @@ mod tests {
                 .collect(),
         );
 
+        let oversized = Expr::Mul(vec![left, right]);
         assert!(matches!(
-            expand_with(&Expr::Mul(vec![left, right]), &mut Unbounded),
+            expand_with(&oversized, &mut Unbounded),
+            Err(SimplifyError::General(message)) if message.contains("term limit")
+        ));
+        assert!(matches!(
+            try_expand(&oversized),
             Err(SimplifyError::General(message)) if message.contains("term limit")
         ));
     }

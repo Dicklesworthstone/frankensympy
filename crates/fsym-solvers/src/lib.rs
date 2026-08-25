@@ -375,6 +375,13 @@ mod tests {
         map.insert(c1.clone(), Expr::from_i64(3));
         let num_val = ode_eval.subs(&map).evalf().unwrap();
         assert!(num_val.abs() < 1e-10, "ODE residual must be zero");
+
+        let unsupported = Expr::Function("log".to_string(), vec![Expr::Sym(x.clone())]);
+        assert!(matches!(
+            dsolve_linear_first_order(&unsupported, &q_expr, &x, &c1),
+            Err(SolverError::IncompleteSolutionSet(message))
+                if message.contains("coefficient")
+        ));
     }
 
     #[test]
@@ -394,6 +401,51 @@ mod tests {
         let sol_osc = dsolve_const_coeff_second_order(1, 0, 4, &x, &c1, &c2).unwrap();
         assert!(verify_const_coeff_second_order_solution(
             &sol_osc, 1, 0, 4, &x
+        ));
+    }
+
+    #[test]
+    fn ode_solver_and_residual_checker_refuse_overflows_and_false_positives() {
+        let x = Symbol::new("x");
+        let c1 = Symbol::new("C1");
+        let c2 = Symbol::new("C2");
+
+        assert!(matches!(
+            dsolve_const_coeff_second_order(0, 1, 1, &x, &c1, &c2),
+            Err(SolverError::InvalidSystem(_))
+        ));
+        assert!(dsolve_const_coeff_second_order(i64::MIN, 0, 0, &x, &c1, &c2).is_ok());
+        assert!(dsolve_const_coeff_second_order(1, i64::MIN, 0, &x, &c1, &c2).is_ok());
+        assert!(dsolve_const_coeff_second_order(1, 0, i64::MAX, &x, &c1, &c2).is_ok());
+
+        // The old sampled fallback substituted x=1 and accepted this nonzero
+        // residual for the equation y=0.
+        let sampled_false_positive = Expr::Add(vec![Expr::Sym(x.clone()), Expr::from_i64(-1)]);
+        assert!(!verify_const_coeff_second_order_solution(
+            &sampled_false_positive,
+            0,
+            0,
+            1,
+            &x,
+        ));
+
+        let left = Expr::Add(
+            (0..65)
+                .map(|index| Expr::symbol(format!("u{index}")))
+                .collect(),
+        );
+        let right = Expr::Add(
+            (0..65)
+                .map(|index| Expr::symbol(format!("v{index}")))
+                .collect(),
+        );
+        let oversized_residual = Expr::Mul(vec![left, right]);
+        assert!(!verify_const_coeff_second_order_solution(
+            &oversized_residual,
+            0,
+            0,
+            1,
+            &x,
         ));
     }
 

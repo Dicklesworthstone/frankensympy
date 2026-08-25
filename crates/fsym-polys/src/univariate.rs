@@ -37,9 +37,7 @@ struct UnivariatePolyWire {
     coeffs: Vec<BigRational>,
 }
 
-fn deserialize_bounded_coefficients<'de, D>(
-    deserializer: D,
-) -> Result<Vec<BigRational>, D::Error>
+fn deserialize_bounded_coefficients<'de, D>(deserializer: D) -> Result<Vec<BigRational>, D::Error>
 where
     D: Deserializer<'de>,
 {

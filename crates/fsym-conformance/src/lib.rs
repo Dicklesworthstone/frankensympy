@@ -20,7 +20,7 @@
 
 use fsym_calculus::{CalculusError, diff, integrate, limit, taylor};
 use fsym_core::{Constant, Expr, Symbol, parse};
-use fsym_simplify::{expand, simplify};
+use fsym_simplify::{SimplifyError, try_expand, try_simplify};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
@@ -154,14 +154,21 @@ impl FrankenFailure {
             detail: error.to_string(),
         }
     }
+
+    fn simplify(error: SimplifyError) -> Self {
+        Self {
+            kind: None,
+            detail: error.to_string(),
+        }
+    }
 }
 
 fn franken_apply_expr(spec: &CaseSpec) -> Result<Expr, FrankenFailure> {
     let expr = parse(&spec.input_expr).map_err(FrankenFailure::parse)?;
     let var = Symbol::new(&spec.var);
     match &spec.op {
-        Op::Simplify => Ok(simplify(&expr)),
-        Op::Expand => Ok(expand(&expr)),
+        Op::Simplify => try_simplify(&expr).map_err(FrankenFailure::simplify),
+        Op::Expand => try_expand(&expr).map_err(FrankenFailure::simplify),
         Op::Diff => Ok(diff(&expr, &var)),
         Op::Integrate => integrate(&expr, &var)
             .map_err(|error| FrankenFailure::calculus(error, RefusalKind::IntegrationUnsupported)),
@@ -930,6 +937,29 @@ mod tests {
             expected: Some("2*x".to_string()),
             detail: None,
         }
+    }
+
+    #[test]
+    fn native_expand_limit_is_recorded_as_failure_instead_of_panicking() {
+        let left = (0..65)
+            .map(|index| format!("x{index}"))
+            .collect::<Vec<_>>()
+            .join("+");
+        let right = (0..65)
+            .map(|index| format!("y{index}"))
+            .collect::<Vec<_>>()
+            .join("+");
+        let spec = CaseSpec {
+            case_id: "oversized_expand".to_string(),
+            input_expr: format!("({left})*({right})"),
+            var: "x".to_string(),
+            op: Op::Expand,
+            expected_refusal: None,
+        };
+
+        let failure = franken_apply_expr(&spec).expect_err("expansion must refuse");
+        assert_eq!(failure.kind, None);
+        assert!(failure.detail.contains("term limit"));
     }
 
     #[test]
