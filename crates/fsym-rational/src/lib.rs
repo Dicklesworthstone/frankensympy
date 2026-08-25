@@ -330,7 +330,7 @@ impl BigRational {
     ) -> Result<Self, RationalArithmeticError> {
         meter.checkpoint()?;
         if rhs.is_zero() {
-            return Err(RationalArithmeticError::DivisionByZero);
+            return rational_metered_error(RationalArithmeticError::DivisionByZero, meter);
         }
         let numerator_cross = metered_gcd(self.numer(), rhs.numer(), meter)?;
         let denominator_cross = metered_gcd(self.denom(), rhs.denom(), meter)?;
@@ -378,7 +378,7 @@ impl BigRational {
     ) -> Result<Self, RationalArithmeticError> {
         meter.checkpoint()?;
         if rhs.is_zero() {
-            return Err(RationalArithmeticError::DivisionByZero);
+            return rational_metered_error(RationalArithmeticError::DivisionByZero, meter);
         }
         let denominator_gcd = metered_gcd(self.denom(), rhs.denom(), meter)?;
         let left_denominator = metered_exact_quotient(
@@ -523,7 +523,7 @@ impl BigRational {
     ) -> Result<Option<Self>, MeterError> {
         meter.checkpoint()?;
         let Some((last, prefix)) = coefficients.split_last() else {
-            return Ok(None);
+            return metered_finish(None, meter);
         };
         let mut numerator = metered_clone(last, meter)?;
         let mut denominator = metered_one(meter)?;
@@ -622,6 +622,7 @@ fn metered_exact_quotient<M: BudgetMeter>(
     Ok(quotient)
 }
 
+/// Publishes a fully classified rational value only after a terminal checkpoint.
 fn rational_metered_finish<T, M: BudgetMeter>(
     value: T,
     meter: &mut M,
@@ -630,6 +631,16 @@ fn rational_metered_finish<T, M: BudgetMeter>(
     Ok(value)
 }
 
+/// Publishes a fully classified rational refusal only after a terminal checkpoint.
+fn rational_metered_error<T, M: BudgetMeter>(
+    error: RationalArithmeticError,
+    meter: &mut M,
+) -> Result<T, RationalArithmeticError> {
+    meter.checkpoint()?;
+    Err(error)
+}
+
+/// Publishes a fully classified value only after a terminal checkpoint.
 fn metered_finish<T, M: BudgetMeter>(value: T, meter: &mut M) -> Result<T, MeterError> {
     meter.checkpoint()?;
     Ok(value)
@@ -872,6 +883,7 @@ mod tests {
     struct CheckpointMeter {
         checkpoints: usize,
         cancel_at: Option<usize>,
+        charged: bool,
     }
 
     impl CheckpointMeter {
@@ -879,16 +891,19 @@ mod tests {
             Self {
                 checkpoints: 0,
                 cancel_at: Some(checkpoint),
+                charged: false,
             }
         }
     }
 
     impl BudgetMeter for CheckpointMeter {
-        fn charge(&mut self, _dimension: Dimension, _amount: u64) -> Result<(), MeterError> {
+        fn charge(&mut self, _dimension: Dimension, amount: u64) -> Result<(), MeterError> {
+            self.charged |= amount != 0;
             Ok(())
         }
 
-        fn charge_batch(&mut self, _charges: &[(Dimension, u64)]) -> Result<(), MeterError> {
+        fn charge_batch(&mut self, charges: &[(Dimension, u64)]) -> Result<(), MeterError> {
+            self.charged |= charges.iter().any(|(_, amount)| *amount != 0);
             Ok(())
         }
 
@@ -1061,6 +1076,49 @@ mod tests {
             lhs.metered_mul(&rhs, &mut cancelled),
             Err(RationalArithmeticError::Meter(MeterError::Cancelled))
         );
+    }
+
+    #[test]
+    fn classified_fast_terminals_checkpoint_without_charging_work() {
+        let value = BigRational::new(BigInt::from(7), BigInt::from(11));
+        let zero = BigRational::zero();
+
+        for operation in [
+            BigRational::metered_div::<CheckpointMeter>,
+            BigRational::metered_rem::<CheckpointMeter>,
+        ] {
+            let mut measured = CheckpointMeter::default();
+            assert_eq!(
+                operation(&value, &zero, &mut measured),
+                Err(RationalArithmeticError::DivisionByZero)
+            );
+            assert_eq!(measured.checkpoints, 2);
+            assert!(!measured.charged);
+
+            let mut cancelled = CheckpointMeter::cancelling_at(2);
+            assert_eq!(
+                operation(&value, &zero, &mut cancelled),
+                Err(RationalArithmeticError::Meter(MeterError::Cancelled))
+            );
+            assert_eq!(cancelled.checkpoints, 2);
+            assert!(!cancelled.charged);
+        }
+
+        let mut measured = CheckpointMeter::default();
+        assert_eq!(
+            BigRational::metered_from_continued_fraction(&[], &mut measured),
+            Ok(None)
+        );
+        assert_eq!(measured.checkpoints, 2);
+        assert!(!measured.charged);
+
+        let mut cancelled = CheckpointMeter::cancelling_at(2);
+        assert_eq!(
+            BigRational::metered_from_continued_fraction(&[], &mut cancelled),
+            Err(MeterError::Cancelled)
+        );
+        assert_eq!(cancelled.checkpoints, 2);
+        assert!(!cancelled.charged);
     }
 
     #[test]
