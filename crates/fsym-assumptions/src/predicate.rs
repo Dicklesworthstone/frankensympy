@@ -38,6 +38,29 @@ pub enum Predicate {
 }
 
 impl Predicate {
+    /// Canonical stable discriminant byte for deterministic hashing and identity.
+    pub const fn discriminant(self) -> u8 {
+        match self {
+            Predicate::Complex => 0,
+            Predicate::Real => 1,
+            Predicate::Rational => 2,
+            Predicate::Integer => 3,
+            Predicate::Algebraic => 4,
+            Predicate::Transcendental => 5,
+            Predicate::Positive => 6,
+            Predicate::Negative => 7,
+            Predicate::NonNegative => 8,
+            Predicate::NonPositive => 9,
+            Predicate::Zero => 10,
+            Predicate::NonZero => 11,
+            Predicate::Prime => 12,
+            Predicate::Even => 13,
+            Predicate::Odd => 14,
+            Predicate::Finite => 15,
+            Predicate::Infinite => 16,
+        }
+    }
+
     /// Direct deductive consequences in the numeric lattice.
     ///
     /// Excludes `Prime => Odd` because 2 is prime and even.

@@ -93,26 +93,29 @@ impl ImmutableAssumptionsSnapshot {
 
         let prov = provenance.into();
         let mut hasher = blake3::Hasher::new();
-        hasher.update(b"fsym.context.v1:");
+        hasher.update(b"fsym.context.v2:");
         hasher.update(&self.digest);
-        hasher.update(prov.as_bytes());
         let mut sorted_facts: Vec<(&Symbol, &Vec<Predicate>)> = additional_facts.iter().collect();
         sorted_facts.sort_by_key(|(s, _)| &s.name);
         for (sym, preds) in sorted_facts {
             hasher.update(b"fact:");
+            hasher.update(&(sym.name.len() as u64).to_le_bytes());
             hasher.update(sym.name.as_bytes());
             let mut sorted_preds = preds.clone();
             sorted_preds.sort();
+            sorted_preds.dedup();
+            hasher.update(&(sorted_preds.len() as u64).to_le_bytes());
             for p in &sorted_preds {
-                hasher.update(format!("{p:?}").as_bytes());
+                hasher.update(&[p.discriminant()]);
             }
         }
         let mut sorted_domains: Vec<(&Symbol, &Domain)> = additional_domains.iter().collect();
         sorted_domains.sort_by_key(|(s, _)| &s.name);
         for (sym, dom) in sorted_domains {
             hasher.update(b"dom:");
+            hasher.update(&(sym.name.len() as u64).to_le_bytes());
             hasher.update(sym.name.as_bytes());
-            hasher.update(dom.to_string().as_bytes());
+            dom.hash_canonical(&mut hasher);
         }
 
         let hash = *hasher.finalize().as_bytes();
@@ -516,5 +519,48 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_context_digest_invariant_to_provenance_and_fact_order() {
+        let root = ImmutableAssumptionsSnapshot::empty();
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+
+        let mut facts1 = HashMap::new();
+        facts1.insert(
+            x.clone(),
+            vec![Predicate::Positive, Predicate::Integer, Predicate::NonZero],
+        );
+        facts1.insert(y.clone(), vec![Predicate::Real]);
+
+        let mut facts2 = HashMap::new();
+        facts2.insert(y.clone(), vec![Predicate::Real]);
+        facts2.insert(
+            x.clone(),
+            vec![Predicate::NonZero, Predicate::Integer, Predicate::Positive],
+        );
+
+        let mut domains1 = HashMap::new();
+        domains1.insert(x.clone(), Domain::ZZ);
+        domains1.insert(y.clone(), Domain::RR);
+
+        let mut domains2 = HashMap::new();
+        domains2.insert(y.clone(), Domain::RR);
+        domains2.insert(x.clone(), Domain::ZZ);
+
+        let child1 = root
+            .derive_child(facts1, domains1, "derived_from_worker_1")
+            .unwrap();
+        let child2 = root
+            .derive_child(
+                facts2,
+                domains2,
+                "derived_from_worker_2_different_provenance",
+            )
+            .unwrap();
+
+        assert_eq!(child1.digest(), child2.digest());
+        assert_eq!(child1.id(), child2.id());
     }
 }

@@ -73,6 +73,49 @@ pub struct CoercionReceipt {
 }
 
 impl Domain {
+    /// Canonical binary hashing for deterministic domain identity.
+    pub fn hash_canonical(&self, hasher: &mut blake3::Hasher) {
+        match self {
+            Domain::ZZ => {
+                hasher.update(&[0]);
+            }
+            Domain::QQ => {
+                hasher.update(&[1]);
+            }
+            Domain::RR => {
+                hasher.update(&[2]);
+            }
+            Domain::CC => {
+                hasher.update(&[3]);
+            }
+            Domain::PolyRing { base, generators } => {
+                hasher.update(&[4]);
+                base.hash_canonical(hasher);
+                hasher.update(&(generators.len() as u64).to_le_bytes());
+                for g in generators {
+                    hasher.update(&(g.name.len() as u64).to_le_bytes());
+                    hasher.update(g.name.as_bytes());
+                }
+            }
+            Domain::FractionField { base, generators } => {
+                hasher.update(&[5]);
+                base.hash_canonical(hasher);
+                hasher.update(&(generators.len() as u64).to_le_bytes());
+                for g in generators {
+                    hasher.update(&(g.name.len() as u64).to_le_bytes());
+                    hasher.update(g.name.as_bytes());
+                }
+            }
+            Domain::FiniteField { characteristic } => {
+                hasher.update(&[6]);
+                hasher.update(&characteristic.to_le_bytes());
+            }
+            Domain::ExpressionDomain => {
+                hasher.update(&[7]);
+            }
+        }
+    }
+
     /// Create a polynomial ring domain $D[x]$.
     pub fn poly_ring(base: Domain, generators: Vec<Symbol>) -> Self {
         Domain::PolyRing {

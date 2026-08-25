@@ -277,10 +277,10 @@ fn find_rational_roots(poly: &UnivariatePoly) -> Vec<BigRational> {
     let mut current = poly.clone();
     if current.coeffs[0].is_zero() {
         roots.push(BigRational::zero());
-        if let Ok(m) = UnivariatePoly::monomial(current.gen_sym.clone(), BigRational::one(), 1) {
-            if let Ok((q, _)) = current.div_rem(&m) {
-                current = q;
-            }
+        if let Ok(m) = UnivariatePoly::monomial(current.gen_sym.clone(), BigRational::one(), 1)
+            && let Ok((q, _)) = current.div_rem(&m)
+        {
+            current = q;
         }
     }
     if current.degree() == Some(0) {
