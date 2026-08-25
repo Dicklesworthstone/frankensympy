@@ -154,6 +154,16 @@ impl SymSet {
                 right_open,
             } => {
                 use std::cmp::Ordering;
+                // Decide interval emptiness before inspecting the element.  An inverted
+                // numeric interval, or a zero-width interval with either endpoint open,
+                // contains nothing even when the candidate element is symbolic.
+                if let (Some(start_value), Some(end_value)) =
+                    (numeric_value(start), numeric_value(end))
+                    && (start_value > end_value
+                        || (start_value == end_value && (*left_open || *right_open)))
+                {
+                    return Some(false);
+                }
                 let el = numeric_value(elem)?;
                 let start_cmp = cmp_to_bound(&el, start)?;
                 let end_cmp = cmp_to_bound(&el, end)?;
@@ -328,6 +338,26 @@ mod tests {
     fn test_interval_with_symbolic_bounds_undecidable() {
         let iv = SymSet::interval_closed(Expr::symbol("a"), Expr::from_i64(10));
         assert_eq!(iv.contains(&Expr::from_i64(3)), None);
+    }
+
+    #[test]
+    fn numerically_empty_intervals_are_false_before_element_evaluation() {
+        let symbolic_element = Expr::symbol("x");
+        let open_point = SymSet::interval_open(Expr::from_i64(0), Expr::from_i64(0));
+        assert_eq!(open_point.contains(&symbolic_element), Some(false));
+
+        let half_open_point = SymSet::Interval {
+            start: Expr::from_i64(2),
+            end: Expr::from_i64(2),
+            left_open: false,
+            right_open: true,
+        };
+        assert_eq!(half_open_point.contains(&symbolic_element), Some(false));
+
+        // The unchecked convenience constructors preserve their existing API, but
+        // an inverted numeric interval still has a decidable empty membership set.
+        let inverted = SymSet::interval_closed(Expr::from_i64(5), Expr::from_i64(1));
+        assert_eq!(inverted.contains(&symbolic_element), Some(false));
     }
 
     #[test]
