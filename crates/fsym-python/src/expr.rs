@@ -153,8 +153,10 @@ impl PyExpr {
         format!("{}", self.inner)
     }
 
-    pub fn _repr_latex_(&self) -> String {
-        format!("${}$", latex(&self.inner))
+    pub fn _repr_latex_(&self) -> PyResult<String> {
+        latex(&self.inner)
+            .map(|rendered| format!("${rendered}$"))
+            .map_err(|error| PyValueError::new_err(error.to_string()))
     }
 
     pub fn __hash__(&self) -> u64 {

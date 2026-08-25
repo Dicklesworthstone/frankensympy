@@ -768,8 +768,6 @@ name = "fsym-printing"
 version = "0.1.0"
 dependencies = [
  "fsym-core",
- "proptest",
- "serde",
  "thiserror",
 ]
 
