@@ -375,7 +375,7 @@ mod tests {
         let merge_res = base.merge(&conflicting_branch);
         assert!(matches!(
             merge_res,
-            Err(WorkspaceError::BindingConflict(name, e1, e2)) if name == "x" && e1 == "10" && e2 == "999"
+            Err(WorkspaceError::BindingConflict { symbol }) if symbol == x
         ));
     }
 
