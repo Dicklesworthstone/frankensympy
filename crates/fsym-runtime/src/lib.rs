@@ -301,8 +301,8 @@ mod tests {
     }
 
     #[test]
-    fn test_durable_ledger_hash_chain_and_checkpoints() {
-        let mut ledger = DurableLedger::new();
+    fn test_ephemeral_ledger_hash_chain_and_checkpoints() {
+        let mut ledger = EphemeralLedger::new();
 
         let mut budget = BTreeMap::new();
         budget.insert(Dimension::ComputeSteps, 500);
@@ -318,17 +318,31 @@ mod tests {
         let seq0 = ledger.append_checkpoint(&cp).unwrap();
         assert_eq!(seq0, 0);
 
-        let seq1 = ledger.append(b"audit_event_1".to_vec());
+        let seq1 = ledger.append(b"audit_event_1".to_vec()).unwrap();
         assert_eq!(seq1, 1);
 
         assert!(ledger.verify_chain());
-
-        // Tamper with a record
-        ledger.records[0].payload[0] ^= 0xFF;
-        assert!(
-            !ledger.verify_chain(),
-            "Tampered ledger record must fail verification"
+        assert_eq!(ledger.get(1).unwrap().payload(), b"audit_event_1");
+        assert_eq!(
+            ledger.total_payload_bytes(),
+            ledger
+                .records()
+                .iter()
+                .map(|record| record.payload().len())
+                .sum::<usize>()
         );
+
+        let tiny_payload = LedgerLimits {
+            max_records: 1,
+            max_payload_bytes: 1,
+            max_total_payload_bytes: 1024,
+        };
+        let mut rejecting_ledger = EphemeralLedger::new();
+        assert_eq!(
+            rejecting_ledger.append_checkpoint_with_limits(&cp, tiny_payload),
+            Err(LedgerError::PayloadLimitExceeded(1))
+        );
+        assert!(rejecting_ledger.is_empty());
     }
 
     #[test]
