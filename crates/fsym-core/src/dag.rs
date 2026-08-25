@@ -1,8 +1,10 @@
-//! Semantic Term DAG representation for WS04.
+//! Provisional Semantic Term DAG representation for WS04.
 //!
 //! Subexpression sharing, arena interning, and structural deduplication
-//! indexed by stable content-addressed [`TermId`]. Guarantees acyclicity by construction
-//! and identical canonical ID for isomorphic subexpressions.
+//! indexed by stable content-addressed [`TermId`]. Child-before-parent insertion
+//! guarantees acyclicity. Domain/sort/context typing and alpha-normalized binders
+//! are not implemented yet, so arbitrary `Lambda` surface forms remain opaque
+//! functions when lowering from [`Expr`].
 
 #![forbid(unsafe_code)]
 
@@ -25,6 +27,50 @@ pub enum DagError {
     UnknownId(TermId),
     #[error("Hash collision detected at TermId {0:?}")]
     HashCollision(TermId),
+    #[error("Canonical term digest mapped to the reserved zero TermId")]
+    ZeroDigest,
+    #[error("Term payload length cannot be represented canonically")]
+    PayloadLengthOverflow,
+    #[error("DAG node limit exceeded ({0})")]
+    NodeLimitExceeded(usize),
+    #[error("DAG traversal limit exceeded ({0})")]
+    TraversalLimitExceeded(usize),
+    #[error("DAG expansion limit exceeded ({0})")]
+    ExpansionLimitExceeded(usize),
+    #[error("Term arity limit exceeded ({0})")]
+    ArityLimitExceeded(usize),
+    #[error("Term payload byte limit exceeded ({0})")]
+    PayloadLimitExceeded(usize),
+    #[error("Term numeric payload bit limit exceeded ({0})")]
+    NumericPayloadLimitExceeded(u64),
+    #[error("DAG allocation failed")]
+    AllocationFailure,
+}
+
+/// Independent admission limits for DAG construction and lifting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DagLimits {
+    pub max_depth: usize,
+    pub max_nodes: usize,
+    pub max_traversal_nodes: usize,
+    pub max_expanded_nodes: usize,
+    pub max_arity: usize,
+    pub max_payload_bytes: usize,
+    pub max_numeric_bits: u64,
+}
+
+impl Default for DagLimits {
+    fn default() -> Self {
+        Self {
+            max_depth: 512,
+            max_nodes: 100_000,
+            max_traversal_nodes: 100_000,
+            max_expanded_nodes: 100_000,
+            max_arity: 100_000,
+            max_payload_bytes: crate::canonical::MAX_SERIALIZED_BYTES,
+            max_numeric_bits: 8 * 1024 * 1024,
+        }
+    }
 }
 
 /// A node in the deduplicated Semantic Term DAG.
@@ -46,79 +92,209 @@ pub enum TermNode {
     Pow(TermId, TermId),
     /// Named function application with child term arguments.
     Function(String, Vec<TermId>),
-    /// Scoped lambda binder.
+    /// Name-preserving Lambda placeholder. This variant is not yet an
+    /// alpha-normalized semantic binder and is not produced by `insert_expr`.
     Lambda(Vec<Symbol>, TermId),
 }
 
-/// Computes a stable, deterministic content-addressed [`TermId`] from a [`TermNode`].
-/// Independent of arena allocation order or pointer addresses.
-pub fn compute_term_id(node: &TermNode) -> TermId {
+fn hash_len(hasher: &mut blake3::Hasher, len: usize) -> Result<(), DagError> {
+    let len = u64::try_from(len).map_err(|_| DagError::PayloadLengthOverflow)?;
+    hasher.update(&len.to_le_bytes());
+    Ok(())
+}
+
+fn hash_bytes(hasher: &mut blake3::Hasher, bytes: &[u8]) -> Result<(), DagError> {
+    hash_len(hasher, bytes.len())?;
+    hasher.update(bytes);
+    Ok(())
+}
+
+fn hash_ids(hasher: &mut blake3::Hasher, ids: &[TermId]) -> Result<(), DagError> {
+    hash_len(hasher, ids.len())?;
+    for id in ids {
+        hasher.update(&id.raw().to_le_bytes());
+    }
+    Ok(())
+}
+
+fn hash_integer(hasher: &mut blake3::Hasher, value: &BigInt) -> Result<(), DagError> {
+    hasher.update(&[u8::from(value.is_negative())]);
+    hash_bytes(hasher, &value.to_bytes_le())
+}
+
+fn compute_term_id_unchecked(node: &TermNode) -> Result<TermId, DagError> {
     let mut hasher = blake3::Hasher::new();
-    hasher.update(b"fsym.term.v1:");
+    hasher.update(b"fsym.term.v2\0");
     match node {
         TermNode::Sym(s) => {
-            hasher.update(b"sym:");
-            hasher.update(s.name.as_bytes());
+            hasher.update(&[0]);
+            hash_bytes(&mut hasher, s.name.as_bytes())?;
         }
         TermNode::Integer(n) => {
-            hasher.update(b"int:");
-            hasher.update(n.to_string().as_bytes());
+            hasher.update(&[1]);
+            hash_integer(&mut hasher, n)?;
         }
         TermNode::Rational(q) => {
-            hasher.update(b"rat:");
-            hasher.update(q.numer().to_string().as_bytes());
-            hasher.update(b"/");
-            hasher.update(q.denom().to_string().as_bytes());
+            hasher.update(&[2]);
+            hash_integer(&mut hasher, q.numer())?;
+            hash_integer(&mut hasher, q.denom())?;
         }
         TermNode::Const(c) => {
-            hasher.update(b"const:");
-            hasher.update(c.to_string().as_bytes());
+            hasher.update(&[3]);
+            hasher.update(&[match c {
+                Constant::Pi => 0,
+                Constant::E => 1,
+                Constant::I => 2,
+                Constant::Infinity => 3,
+                Constant::NegativeInfinity => 4,
+                Constant::ComplexInfinity => 5,
+                Constant::NaN => 6,
+            }]);
         }
         TermNode::Add(ids) => {
-            hasher.update(b"add:");
-            for id in ids {
-                hasher.update(&id.raw().to_le_bytes());
-            }
+            hasher.update(&[4]);
+            hash_ids(&mut hasher, ids)?;
         }
         TermNode::Mul(ids) => {
-            hasher.update(b"mul:");
-            for id in ids {
-                hasher.update(&id.raw().to_le_bytes());
-            }
+            hasher.update(&[5]);
+            hash_ids(&mut hasher, ids)?;
         }
         TermNode::Pow(base, exp) => {
-            hasher.update(b"pow:");
+            hasher.update(&[6]);
             hasher.update(&base.raw().to_le_bytes());
             hasher.update(&exp.raw().to_le_bytes());
         }
         TermNode::Function(name, ids) => {
-            hasher.update(b"func:");
-            hasher.update(name.as_bytes());
-            for id in ids {
-                hasher.update(&id.raw().to_le_bytes());
-            }
+            hasher.update(&[7]);
+            hash_bytes(&mut hasher, name.as_bytes())?;
+            hash_ids(&mut hasher, ids)?;
         }
         TermNode::Lambda(params, body) => {
-            hasher.update(b"lambda:");
-            for p in params {
-                hasher.update(p.name.as_bytes());
-                hasher.update(b",");
+            hasher.update(&[8]);
+            hash_len(&mut hasher, params.len())?;
+            for parameter in params {
+                hash_bytes(&mut hasher, parameter.name.as_bytes())?;
             }
             hasher.update(&body.raw().to_le_bytes());
         }
     }
-    let hash_bytes = hasher.finalize();
+    let mut digest = hasher.finalize_xof();
     let mut raw_bytes = [0u8; 8];
-    raw_bytes.copy_from_slice(&hash_bytes.as_bytes()[0..8]);
+    digest.fill(&mut raw_bytes);
     let raw = u64::from_le_bytes(raw_bytes);
-    let non_zero_raw = if raw == 0 { 1 } else { raw };
-    TermId::new(non_zero_raw).unwrap()
+    TermId::new(raw).map_err(|_| DagError::ZeroDigest)
+}
+
+fn node_arity(node: &TermNode) -> Result<usize, DagError> {
+    Ok(match node {
+        TermNode::Add(ids) | TermNode::Mul(ids) | TermNode::Function(_, ids) => ids.len(),
+        TermNode::Pow(..) => 2,
+        TermNode::Lambda(parameters, _) => parameters
+            .len()
+            .checked_add(1)
+            .ok_or(DagError::PayloadLengthOverflow)?,
+        TermNode::Sym(_) | TermNode::Integer(_) | TermNode::Rational(_) | TermNode::Const(_) => 0,
+    })
+}
+
+fn validate_node_limits(node: &TermNode, limits: DagLimits) -> Result<(), DagError> {
+    if node_arity(node)? > limits.max_arity {
+        return Err(DagError::ArityLimitExceeded(limits.max_arity));
+    }
+    let payload_bytes = match node {
+        TermNode::Sym(symbol) => symbol.name.len(),
+        TermNode::Function(name, _) => name.len(),
+        TermNode::Lambda(parameters, _) => parameters
+            .iter()
+            .try_fold(0_usize, |total, parameter| {
+                total.checked_add(parameter.name.len())
+            })
+            .ok_or(DagError::PayloadLengthOverflow)?,
+        TermNode::Integer(_)
+        | TermNode::Rational(_)
+        | TermNode::Const(_)
+        | TermNode::Add(_)
+        | TermNode::Mul(_)
+        | TermNode::Pow(..) => 0,
+    };
+    if payload_bytes > limits.max_payload_bytes {
+        return Err(DagError::PayloadLimitExceeded(limits.max_payload_bytes));
+    }
+    let numeric_bits = match node {
+        TermNode::Integer(value) => value.bits(),
+        TermNode::Rational(value) => value.numer().bits().max(value.denom().bits()),
+        _ => 0,
+    };
+    if numeric_bits > limits.max_numeric_bits {
+        return Err(DagError::NumericPayloadLimitExceeded(
+            limits.max_numeric_bits,
+        ));
+    }
+    Ok(())
+}
+
+fn validate_expr_local_limits(expr: &Expr, limits: DagLimits) -> Result<(), DagError> {
+    let arity = match expr {
+        Expr::Add(terms) | Expr::Mul(terms) | Expr::Function(_, terms) => terms.len(),
+        Expr::Pow(..) => 2,
+        Expr::Sym(_) | Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_) => 0,
+    };
+    if arity > limits.max_arity {
+        return Err(DagError::ArityLimitExceeded(limits.max_arity));
+    }
+    let payload_bytes = match expr {
+        Expr::Sym(symbol) => symbol.name.len(),
+        Expr::Function(name, _) => name.len(),
+        Expr::Integer(_)
+        | Expr::Rational(_)
+        | Expr::Const(_)
+        | Expr::Add(_)
+        | Expr::Mul(_)
+        | Expr::Pow(..) => 0,
+    };
+    if payload_bytes > limits.max_payload_bytes {
+        return Err(DagError::PayloadLimitExceeded(limits.max_payload_bytes));
+    }
+    let numeric_bits = match expr {
+        Expr::Integer(value) => value.bits(),
+        Expr::Rational(value) => value.numer().bits().max(value.denom().bits()),
+        Expr::Sym(_)
+        | Expr::Const(_)
+        | Expr::Add(_)
+        | Expr::Mul(_)
+        | Expr::Pow(..)
+        | Expr::Function(..) => 0,
+    };
+    if numeric_bits > limits.max_numeric_bits {
+        return Err(DagError::NumericPayloadLimitExceeded(
+            limits.max_numeric_bits,
+        ));
+    }
+    Ok(())
+}
+
+fn next_depth(current: usize, limit: usize) -> Result<usize, DagError> {
+    current.checked_add(1).ok_or(DagError::DepthExceeded(limit))
+}
+
+/// Computes a stable content-addressed [`TermId`] from an unambiguous,
+/// length-framed canonical preimage under default payload and arity limits.
+/// Independent of arena allocation order and pointer addresses.
+pub fn compute_term_id(node: &TermNode) -> Result<TermId, DagError> {
+    compute_term_id_with_limits(node, DagLimits::default())
+}
+
+/// Computes a stable content ID under caller-provided admission limits.
+pub fn compute_term_id_with_limits(node: &TermNode, limits: DagLimits) -> Result<TermId, DagError> {
+    validate_node_limits(node, limits)?;
+    compute_term_id_unchecked(node)
 }
 
 /// An arena-interned Semantic Term DAG with stable identity and acyclicity invariants.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TermDag {
     nodes: HashMap<TermId, TermNode>,
+    depths: HashMap<TermId, usize>,
 }
 
 impl TermDag {
@@ -140,8 +316,25 @@ impl TermDag {
     /// Interns a [`TermNode`], returning its content-addressed [`TermId`].
     /// Fails closed if any child [`TermId`] is not already present in the DAG.
     pub fn insert_node(&mut self, node: TermNode) -> Result<TermId, DagError> {
+        self.insert_node_with_limits(node, DagLimits::default())
+    }
+
+    /// Interns one node under caller-provided admission limits.
+    pub fn insert_node_with_limits(
+        &mut self,
+        node: TermNode,
+        limits: DagLimits,
+    ) -> Result<TermId, DagError> {
+        validate_node_limits(&node, limits)?;
+        self.validate_child_links(&node)?;
+        let node_depth = self.prospective_node_depth(&node, limits)?;
+        let term_id = compute_term_id_unchecked(&node)?;
+        self.intern_prehashed_node(node, term_id, node_depth, limits)
+    }
+
+    fn validate_child_links(&self, node: &TermNode) -> Result<(), DagError> {
         // Enforce acyclicity: all child IDs must already be interned in this DAG.
-        match &node {
+        match node {
             TermNode::Sym(_)
             | TermNode::Integer(_)
             | TermNode::Rational(_)
@@ -167,60 +360,194 @@ impl TermDag {
                 }
             }
         }
+        Ok(())
+    }
 
-        let term_id = compute_term_id(&node);
+    fn prospective_node_depth(
+        &self,
+        node: &TermNode,
+        limits: DagLimits,
+    ) -> Result<usize, DagError> {
+        let child_depth = |child: &TermId| {
+            self.depths
+                .get(child)
+                .copied()
+                .ok_or(DagError::UnknownId(*child))
+        };
+        let max_child_depth = match node {
+            TermNode::Add(ids) | TermNode::Mul(ids) | TermNode::Function(_, ids) => {
+                let mut max_depth = 0;
+                for child in ids {
+                    max_depth = max_depth.max(child_depth(child)?);
+                }
+                max_depth
+            }
+            TermNode::Pow(base, exponent) => child_depth(base)?.max(child_depth(exponent)?),
+            TermNode::Lambda(_, body) => child_depth(body)?,
+            TermNode::Sym(_)
+            | TermNode::Integer(_)
+            | TermNode::Rational(_)
+            | TermNode::Const(_) => 0,
+        };
+        let node_depth = max_child_depth
+            .checked_add(1)
+            .ok_or(DagError::DepthExceeded(limits.max_depth))?;
+        if node_depth.saturating_sub(1) > limits.max_depth {
+            return Err(DagError::DepthExceeded(limits.max_depth));
+        }
+        Ok(node_depth)
+    }
+
+    fn intern_prehashed_node(
+        &mut self,
+        node: TermNode,
+        term_id: TermId,
+        node_depth: usize,
+        limits: DagLimits,
+    ) -> Result<TermId, DagError> {
         if let Some(existing) = self.nodes.get(&term_id) {
             if existing != &node {
                 return Err(DagError::HashCollision(term_id));
             }
         } else {
+            if self.nodes.len() >= limits.max_nodes {
+                return Err(DagError::NodeLimitExceeded(limits.max_nodes));
+            }
+            self.nodes
+                .try_reserve(1)
+                .map_err(|_| DagError::AllocationFailure)?;
+            self.depths
+                .try_reserve(1)
+                .map_err(|_| DagError::AllocationFailure)?;
             self.nodes.insert(term_id, node);
+            self.depths.insert(term_id, node_depth);
         }
         Ok(term_id)
     }
 
-    /// Recursively inserts an [`Expr`] into the DAG, returning its root [`TermId`].
-    pub fn insert_expr(&mut self, expr: &Expr) -> TermId {
-        match expr {
-            Expr::Sym(s) => self.insert_node(TermNode::Sym(s.clone())).unwrap(),
-            Expr::Integer(n) => self.insert_node(TermNode::Integer(n.clone())).unwrap(),
-            Expr::Rational(q) => self.insert_node(TermNode::Rational(q.clone())).unwrap(),
-            Expr::Const(c) => self.insert_node(TermNode::Const(*c)).unwrap(),
-            Expr::Add(terms) => {
-                let ids = terms.iter().map(|t| self.insert_expr(t)).collect();
-                self.insert_node(TermNode::Add(ids)).unwrap()
-            }
-            Expr::Mul(terms) => {
-                let ids = terms.iter().map(|t| self.insert_expr(t)).collect();
-                self.insert_node(TermNode::Mul(ids)).unwrap()
-            }
-            Expr::Pow(base, exp) => {
-                let b_id = self.insert_expr(base);
-                let e_id = self.insert_expr(exp);
-                self.insert_node(TermNode::Pow(b_id, e_id)).unwrap()
-            }
-            Expr::Function(name, args) => {
-                if name == "Lambda" && args.len() >= 2 {
-                    let mut params = Vec::new();
-                    let mut all_syms = true;
-                    for p in &args[0..args.len() - 1] {
-                        if let Expr::Sym(s) = p {
-                            params.push(s.clone());
-                        } else {
-                            all_syms = false;
-                            break;
-                        }
-                    }
-                    if all_syms {
-                        let body_id = self.insert_expr(&args[args.len() - 1]);
-                        return self.insert_node(TermNode::Lambda(params, body_id)).unwrap();
-                    }
+    /// Recursively inserts an [`Expr`] under default traversal and arena limits.
+    pub fn insert_expr(&mut self, expr: &Expr) -> Result<TermId, DagError> {
+        self.insert_expr_with_limits(expr, DagLimits::default())
+    }
+
+    /// Recursively inserts an [`Expr`] under caller-provided limits.
+    pub fn insert_expr_with_limits(
+        &mut self,
+        expr: &Expr,
+        limits: DagLimits,
+    ) -> Result<TermId, DagError> {
+        let mut traversed = 0_usize;
+        let mut inserted = Vec::new();
+        match self.insert_expr_internal(expr, 0, limits, &mut traversed, &mut inserted) {
+            Ok(root) => Ok(root),
+            Err(error) => {
+                for id in inserted.into_iter().rev() {
+                    self.nodes.remove(&id);
+                    self.depths.remove(&id);
                 }
-                let ids = args.iter().map(|a| self.insert_expr(a)).collect();
-                self.insert_node(TermNode::Function(name.clone(), ids))
-                    .unwrap()
+                Err(error)
             }
         }
+    }
+
+    fn insert_expr_internal(
+        &mut self,
+        expr: &Expr,
+        depth: usize,
+        limits: DagLimits,
+        traversed: &mut usize,
+        inserted: &mut Vec<TermId>,
+    ) -> Result<TermId, DagError> {
+        if depth > limits.max_depth {
+            return Err(DagError::DepthExceeded(limits.max_depth));
+        }
+        if *traversed >= limits.max_traversal_nodes {
+            return Err(DagError::TraversalLimitExceeded(limits.max_traversal_nodes));
+        }
+        *traversed += 1;
+        validate_expr_local_limits(expr, limits)?;
+
+        match expr {
+            Expr::Sym(s) => self.insert_node_tracking(TermNode::Sym(s.clone()), limits, inserted),
+            Expr::Integer(n) => {
+                self.insert_node_tracking(TermNode::Integer(n.clone()), limits, inserted)
+            }
+            Expr::Rational(q) => {
+                self.insert_node_tracking(TermNode::Rational(q.clone()), limits, inserted)
+            }
+            Expr::Const(c) => self.insert_node_tracking(TermNode::Const(*c), limits, inserted),
+            Expr::Add(terms) => {
+                let ids = self.insert_expr_children(terms, depth, limits, traversed, inserted)?;
+                self.insert_node_tracking(TermNode::Add(ids), limits, inserted)
+            }
+            Expr::Mul(terms) => {
+                let ids = self.insert_expr_children(terms, depth, limits, traversed, inserted)?;
+                self.insert_node_tracking(TermNode::Mul(ids), limits, inserted)
+            }
+            Expr::Pow(base, exp) => {
+                let child_depth = next_depth(depth, limits.max_depth)?;
+                let base_id =
+                    self.insert_expr_internal(base, child_depth, limits, traversed, inserted)?;
+                let exponent_id =
+                    self.insert_expr_internal(exp, child_depth, limits, traversed, inserted)?;
+                self.insert_node_tracking(TermNode::Pow(base_id, exponent_id), limits, inserted)
+            }
+            Expr::Function(name, args) => {
+                // Binders remain opaque until the kernel has a capture-avoiding,
+                // alpha-normalized representation. Name-based lowering would
+                // conflate surface spelling with semantic binding identity.
+                let ids = self.insert_expr_children(args, depth, limits, traversed, inserted)?;
+                self.insert_node_tracking(TermNode::Function(name.clone(), ids), limits, inserted)
+            }
+        }
+    }
+
+    fn insert_node_tracking(
+        &mut self,
+        node: TermNode,
+        limits: DagLimits,
+        inserted: &mut Vec<TermId>,
+    ) -> Result<TermId, DagError> {
+        validate_node_limits(&node, limits)?;
+        self.validate_child_links(&node)?;
+        let node_depth = self.prospective_node_depth(&node, limits)?;
+        let expected_id = compute_term_id_unchecked(&node)?;
+        let is_new = !self.nodes.contains_key(&expected_id);
+        if is_new {
+            inserted
+                .try_reserve(1)
+                .map_err(|_| DagError::AllocationFailure)?;
+        }
+        let actual_id = self.intern_prehashed_node(node, expected_id, node_depth, limits)?;
+        if is_new {
+            inserted.push(actual_id);
+        }
+        Ok(actual_id)
+    }
+
+    fn insert_expr_children(
+        &mut self,
+        children: &[Expr],
+        parent_depth: usize,
+        limits: DagLimits,
+        traversed: &mut usize,
+        inserted: &mut Vec<TermId>,
+    ) -> Result<Vec<TermId>, DagError> {
+        if children.len() > limits.max_arity {
+            return Err(DagError::ArityLimitExceeded(limits.max_arity));
+        }
+        let mut ids = Vec::new();
+        ids.try_reserve(children.len())
+            .map_err(|_| DagError::AllocationFailure)?;
+        let child_depth = if children.is_empty() {
+            parent_depth
+        } else {
+            next_depth(parent_depth, limits.max_depth)?
+        };
+        for child in children {
+            ids.push(self.insert_expr_internal(child, child_depth, limits, traversed, inserted)?);
+        }
+        Ok(ids)
     }
 
     /// Retrieves a term node by its [`TermId`].
@@ -228,132 +555,243 @@ impl TermDag {
         self.nodes.get(&id)
     }
 
-    /// Computes the tree depth of an interned term with cycle detection and bounded recursion.
+    /// Computes term depth with cycle detection and default limits.
     pub fn depth(&self, id: TermId) -> Result<usize, DagError> {
-        let mut visited = HashSet::new();
-        self.depth_internal(id, &mut visited, 0, 512)
+        self.depth_with_limits(id, DagLimits::default())
+    }
+
+    /// Computes term depth with caller-provided limits. Shared subterms are
+    /// memoized, so a diamond DAG is visited once per unique node.
+    pub fn depth_with_limits(&self, id: TermId, limits: DagLimits) -> Result<usize, DagError> {
+        let mut visiting = HashSet::new();
+        let mut memo = HashMap::new();
+        let mut traversed = 0_usize;
+        self.depth_internal(id, &mut visiting, &mut memo, &mut traversed, 0, limits)
     }
 
     fn depth_internal(
         &self,
         id: TermId,
-        visited: &mut HashSet<TermId>,
+        visiting: &mut HashSet<TermId>,
+        memo: &mut HashMap<TermId, usize>,
+        traversed: &mut usize,
         current_depth: usize,
-        max_depth: usize,
+        limits: DagLimits,
     ) -> Result<usize, DagError> {
-        if current_depth > max_depth {
-            return Err(DagError::DepthExceeded(max_depth));
+        if current_depth > limits.max_depth {
+            return Err(DagError::DepthExceeded(limits.max_depth));
         }
-        if !visited.insert(id) {
+        if let Some(depth) = memo.get(&id) {
+            let deepest_level = current_depth
+                .checked_add(depth.saturating_sub(1))
+                .ok_or(DagError::DepthExceeded(limits.max_depth))?;
+            if deepest_level > limits.max_depth {
+                return Err(DagError::DepthExceeded(limits.max_depth));
+            }
+            return Ok(*depth);
+        }
+        if *traversed >= limits.max_traversal_nodes {
+            return Err(DagError::TraversalLimitExceeded(limits.max_traversal_nodes));
+        }
+        *traversed += 1;
+        if visiting.contains(&id) {
             return Err(DagError::CycleDetected(id));
         }
+        visiting
+            .try_reserve(1)
+            .map_err(|_| DagError::AllocationFailure)?;
+        visiting.insert(id);
 
         let node = self.get(id).ok_or(DagError::UnknownId(id))?;
-        let d = match node {
+        validate_node_limits(node, limits)?;
+        let depth = match node {
             TermNode::Sym(_)
             | TermNode::Integer(_)
             | TermNode::Rational(_)
-            | TermNode::Const(_) => Ok(1),
+            | TermNode::Const(_) => 1,
             TermNode::Add(ids) | TermNode::Mul(ids) | TermNode::Function(_, ids) => {
                 let mut max_child = 0;
+                let child_level = if ids.is_empty() {
+                    current_depth
+                } else {
+                    next_depth(current_depth, limits.max_depth)?
+                };
                 for &child_id in ids {
-                    let cd =
-                        self.depth_internal(child_id, visited, current_depth + 1, max_depth)?;
-                    max_child = max_child.max(cd);
+                    let child_depth = self.depth_internal(
+                        child_id,
+                        visiting,
+                        memo,
+                        traversed,
+                        child_level,
+                        limits,
+                    )?;
+                    max_child = max_child.max(child_depth);
                 }
-                Ok(1 + max_child)
+                max_child
+                    .checked_add(1)
+                    .ok_or(DagError::DepthExceeded(limits.max_depth))?
             }
-            TermNode::Pow(b, e) => {
-                let b_d = self.depth_internal(*b, visited, current_depth + 1, max_depth)?;
-                let e_d = self.depth_internal(*e, visited, current_depth + 1, max_depth)?;
-                Ok(1 + b_d.max(e_d))
+            TermNode::Pow(base, exponent) => {
+                let child_level = next_depth(current_depth, limits.max_depth)?;
+                let base_depth =
+                    self.depth_internal(*base, visiting, memo, traversed, child_level, limits)?;
+                let exponent_depth =
+                    self.depth_internal(*exponent, visiting, memo, traversed, child_level, limits)?;
+                base_depth
+                    .max(exponent_depth)
+                    .checked_add(1)
+                    .ok_or(DagError::DepthExceeded(limits.max_depth))?
             }
             TermNode::Lambda(_, body) => {
-                let b_d = self.depth_internal(*body, visited, current_depth + 1, max_depth)?;
-                Ok(1 + b_d)
+                let child_level = next_depth(current_depth, limits.max_depth)?;
+                self.depth_internal(*body, visiting, memo, traversed, child_level, limits)?
+                    .checked_add(1)
+                    .ok_or(DagError::DepthExceeded(limits.max_depth))?
             }
         };
 
-        visited.remove(&id);
-        d
+        visiting.remove(&id);
+        memo.try_reserve(1)
+            .map_err(|_| DagError::AllocationFailure)?;
+        memo.insert(id, depth);
+        Ok(depth)
     }
 
-    /// Reconstructs a full [`Expr`] AST from an interned [`TermId`] with depth bounds.
+    /// Reconstructs a full [`Expr`] tree under default depth and expansion bounds.
     pub fn to_expr(&self, id: TermId) -> Result<Expr, DagError> {
-        let mut visited = HashSet::new();
-        self.to_expr_internal(id, &mut visited, 0, 512)
+        self.to_expr_with_limits(id, DagLimits::default())
+    }
+
+    /// Reconstructs a full [`Expr`] tree under caller-provided limits. Every
+    /// duplicated occurrence counts against `max_expanded_nodes` even when the
+    /// source DAG shares that term.
+    pub fn to_expr_with_limits(&self, id: TermId, limits: DagLimits) -> Result<Expr, DagError> {
+        let mut visiting = HashSet::new();
+        let mut expanded = 0_usize;
+        self.to_expr_internal(id, &mut visiting, &mut expanded, 0, limits)
     }
 
     fn to_expr_internal(
         &self,
         id: TermId,
-        visited: &mut HashSet<TermId>,
+        visiting: &mut HashSet<TermId>,
+        expanded: &mut usize,
         current_depth: usize,
-        max_depth: usize,
+        limits: DagLimits,
     ) -> Result<Expr, DagError> {
-        if current_depth > max_depth {
-            return Err(DagError::DepthExceeded(max_depth));
+        if current_depth > limits.max_depth {
+            return Err(DagError::DepthExceeded(limits.max_depth));
         }
-        if !visited.insert(id) {
+        if *expanded >= limits.max_expanded_nodes {
+            return Err(DagError::ExpansionLimitExceeded(limits.max_expanded_nodes));
+        }
+        *expanded += 1;
+        if visiting.contains(&id) {
             return Err(DagError::CycleDetected(id));
         }
+        visiting
+            .try_reserve(1)
+            .map_err(|_| DagError::AllocationFailure)?;
+        visiting.insert(id);
 
         let node = self.get(id).ok_or(DagError::UnknownId(id))?;
-        let res = match node {
-            TermNode::Sym(s) => Ok(Expr::Sym(s.clone())),
-            TermNode::Integer(n) => Ok(Expr::Integer(n.clone())),
-            TermNode::Rational(q) => Ok(Expr::Rational(q.clone())),
-            TermNode::Const(c) => Ok(Expr::Const(*c)),
+        validate_node_limits(node, limits)?;
+        let result = match node {
+            TermNode::Sym(symbol) => Ok(Expr::Sym(symbol.clone())),
+            TermNode::Integer(value) => Ok(Expr::Integer(value.clone())),
+            TermNode::Rational(value) => Ok(Expr::Rational(value.clone())),
+            TermNode::Const(constant) => Ok(Expr::Const(*constant)),
             TermNode::Add(ids) => {
-                let mut terms = Vec::with_capacity(ids.len());
-                for &cid in ids {
+                let child_level = if ids.is_empty() {
+                    current_depth
+                } else {
+                    next_depth(current_depth, limits.max_depth)?
+                };
+                let mut terms = Vec::new();
+                terms
+                    .try_reserve(ids.len())
+                    .map_err(|_| DagError::AllocationFailure)?;
+                for &child_id in ids {
                     terms.push(self.to_expr_internal(
-                        cid,
-                        visited,
-                        current_depth + 1,
-                        max_depth,
+                        child_id,
+                        visiting,
+                        expanded,
+                        child_level,
+                        limits,
                     )?);
                 }
                 Ok(Expr::Add(terms))
             }
             TermNode::Mul(ids) => {
-                let mut terms = Vec::with_capacity(ids.len());
-                for &cid in ids {
-                    terms.push(self.to_expr_internal(
-                        cid,
-                        visited,
-                        current_depth + 1,
-                        max_depth,
+                let child_level = if ids.is_empty() {
+                    current_depth
+                } else {
+                    next_depth(current_depth, limits.max_depth)?
+                };
+                let mut factors = Vec::new();
+                factors
+                    .try_reserve(ids.len())
+                    .map_err(|_| DagError::AllocationFailure)?;
+                for &child_id in ids {
+                    factors.push(self.to_expr_internal(
+                        child_id,
+                        visiting,
+                        expanded,
+                        child_level,
+                        limits,
                     )?);
                 }
-                Ok(Expr::Mul(terms))
+                Ok(Expr::Mul(factors))
             }
-            TermNode::Pow(b, e) => {
-                let base = self.to_expr_internal(*b, visited, current_depth + 1, max_depth)?;
-                let exp = self.to_expr_internal(*e, visited, current_depth + 1, max_depth)?;
-                Ok(Expr::Pow(Arc::new(base), Arc::new(exp)))
+            TermNode::Pow(base, exponent) => {
+                let child_level = next_depth(current_depth, limits.max_depth)?;
+                let base = self.to_expr_internal(*base, visiting, expanded, child_level, limits)?;
+                let exponent =
+                    self.to_expr_internal(*exponent, visiting, expanded, child_level, limits)?;
+                Ok(Expr::Pow(Arc::new(base), Arc::new(exponent)))
             }
             TermNode::Function(name, ids) => {
-                let mut args = Vec::with_capacity(ids.len());
-                for &cid in ids {
-                    args.push(self.to_expr_internal(cid, visited, current_depth + 1, max_depth)?);
+                let child_level = if ids.is_empty() {
+                    current_depth
+                } else {
+                    next_depth(current_depth, limits.max_depth)?
+                };
+                let mut args = Vec::new();
+                args.try_reserve(ids.len())
+                    .map_err(|_| DagError::AllocationFailure)?;
+                for &child_id in ids {
+                    args.push(self.to_expr_internal(
+                        child_id,
+                        visiting,
+                        expanded,
+                        child_level,
+                        limits,
+                    )?);
                 }
                 Ok(Expr::Function(name.clone(), args))
             }
-            TermNode::Lambda(params, body) => {
-                let mut args = params
-                    .iter()
-                    .map(|p| Expr::Sym(p.clone()))
-                    .collect::<Vec<_>>();
-                let body_expr =
-                    self.to_expr_internal(*body, visited, current_depth + 1, max_depth)?;
-                args.push(body_expr);
+            TermNode::Lambda(parameters, body) => {
+                let child_level = next_depth(current_depth, limits.max_depth)?;
+                let capacity = parameters
+                    .len()
+                    .checked_add(1)
+                    .ok_or(DagError::PayloadLengthOverflow)?;
+                let mut args = Vec::new();
+                args.try_reserve(capacity)
+                    .map_err(|_| DagError::AllocationFailure)?;
+                args.extend(
+                    parameters
+                        .iter()
+                        .map(|parameter| Expr::Sym(parameter.clone())),
+                );
+                let body = self.to_expr_internal(*body, visiting, expanded, child_level, limits)?;
+                args.push(body);
                 Ok(Expr::Function("Lambda".to_string(), args))
             }
         };
 
-        visited.remove(&id);
-        res
+        visiting.remove(&id);
+        result
     }
 }
 
@@ -377,6 +815,38 @@ mod tests {
     }
 
     #[test]
+    fn canonical_preimage_frames_variable_length_fields() {
+        let absorbed_child = TermId::new(u64::from_le_bytes([b'b', 0, 0, 0, 0, 0, 0, 0])).unwrap();
+        // The old delimiter-free encoding made these exact preimages equal:
+        // name "a" + the child's raw bytes versus one longer function name.
+        let with_child = TermNode::Function("a".to_string(), vec![absorbed_child]);
+        let absorbed_name = TermNode::Function("ab\0\0\0\0\0\0\0".to_string(), Vec::new());
+        assert_ne!(
+            compute_term_id(&with_child).unwrap(),
+            compute_term_id(&absorbed_name).unwrap()
+        );
+
+        // Comma delimiters likewise could not distinguish one parameter name
+        // containing a comma from two separate parameter names.
+        let body = TermId::new(1).unwrap();
+        let one_parameter = TermNode::Lambda(vec![Symbol::new("a,b")], body);
+        let two_parameters = TermNode::Lambda(vec![Symbol::new("a"), Symbol::new("b")], body);
+        assert_ne!(
+            compute_term_id(&one_parameter).unwrap(),
+            compute_term_id(&two_parameters).unwrap()
+        );
+
+        let tiny_payload = DagLimits {
+            max_payload_bytes: 1,
+            ..DagLimits::default()
+        };
+        assert_eq!(
+            compute_term_id_with_limits(&TermNode::Sym(Symbol::new("xx")), tiny_payload),
+            Err(DagError::PayloadLimitExceeded(1))
+        );
+    }
+
+    #[test]
     fn dangling_child_is_rejected_at_insertion() {
         let mut dag = TermDag::new();
         let fake_child = TermId::new(9999).unwrap();
@@ -394,8 +864,136 @@ mod tests {
             Expr::Mul(vec![Expr::symbol("x"), Expr::symbol("y")]),
         ]);
 
-        let root = dag.insert_expr(&expr);
+        let root = dag.insert_expr(&expr).unwrap();
         assert_eq!(dag.to_expr(root).unwrap(), expr);
         assert_eq!(dag.depth(root).unwrap(), 3);
+    }
+
+    #[test]
+    fn surface_lambda_remains_opaque_until_binding_identity_exists() {
+        let expression = Expr::Function(
+            "Lambda".to_string(),
+            vec![Expr::symbol("x"), Expr::symbol("x")],
+        );
+        let mut dag = TermDag::new();
+        let root = dag.insert_expr(&expression).unwrap();
+        assert!(matches!(dag.get(root), Some(TermNode::Function(name, _)) if name == "Lambda"));
+        assert_eq!(dag.to_expr(root).unwrap(), expression);
+    }
+
+    #[test]
+    fn failed_recursive_insert_publishes_no_partial_nodes() {
+        let mut dag = TermDag::new();
+        let existing = dag
+            .insert_node(TermNode::Sym(Symbol::new("existing")))
+            .unwrap();
+        let before = dag.len();
+        let expression = Expr::Add(vec![Expr::symbol("new_a"), Expr::symbol("new_b")]);
+        let limits = DagLimits {
+            max_traversal_nodes: 2,
+            ..DagLimits::default()
+        };
+        assert_eq!(
+            dag.insert_expr_with_limits(&expression, limits),
+            Err(DagError::TraversalLimitExceeded(2))
+        );
+        assert_eq!(dag.len(), before);
+        assert!(dag.get(existing).is_some());
+
+        let tiny_payload = DagLimits {
+            max_payload_bytes: 1,
+            ..DagLimits::default()
+        };
+        let oversized_function = Expr::Function("xx".to_string(), vec![Expr::symbol("child")]);
+        assert_eq!(
+            dag.insert_expr_with_limits(&oversized_function, tiny_payload),
+            Err(DagError::PayloadLimitExceeded(1))
+        );
+        assert_eq!(dag.len(), before);
+    }
+
+    #[test]
+    fn node_and_arity_limits_fail_closed() {
+        let mut dag = TermDag::new();
+        let one_node = DagLimits {
+            max_nodes: 1,
+            ..DagLimits::default()
+        };
+        let x = dag
+            .insert_node_with_limits(TermNode::Sym(Symbol::new("x")), one_node)
+            .unwrap();
+        assert_eq!(
+            dag.insert_node_with_limits(TermNode::Sym(Symbol::new("x")), one_node)
+                .unwrap(),
+            x,
+            "deduplication remains available at the arena limit"
+        );
+        assert_eq!(
+            dag.insert_node_with_limits(TermNode::Sym(Symbol::new("y")), one_node),
+            Err(DagError::NodeLimitExceeded(1))
+        );
+
+        let arity_one = DagLimits {
+            max_nodes: 10,
+            max_arity: 1,
+            ..DagLimits::default()
+        };
+        assert_eq!(
+            dag.insert_node_with_limits(TermNode::Add(vec![x, x]), arity_one),
+            Err(DagError::ArityLimitExceeded(1))
+        );
+
+        let root_only = DagLimits {
+            max_nodes: 10,
+            max_depth: 0,
+            ..DagLimits::default()
+        };
+        assert_eq!(
+            dag.insert_node_with_limits(TermNode::Add(vec![x]), root_only),
+            Err(DagError::DepthExceeded(0)),
+            "direct insertion must enforce the resulting DAG depth"
+        );
+        assert_eq!(dag.len(), 1);
+    }
+
+    #[test]
+    fn shared_diamond_depth_is_memoized_but_tree_expansion_is_bounded() {
+        let mut dag = TermDag::new();
+        let mut root = dag.insert_node(TermNode::Sym(Symbol::new("x"))).unwrap();
+        for _ in 0..18 {
+            root = dag.insert_node(TermNode::Add(vec![root, root])).unwrap();
+        }
+
+        assert_eq!(dag.depth(root).unwrap(), 19);
+        assert_eq!(
+            dag.to_expr(root),
+            Err(DagError::ExpansionLimitExceeded(
+                DagLimits::default().max_expanded_nodes
+            ))
+        );
+    }
+
+    #[test]
+    fn memoized_depth_still_enforces_the_deeper_parent_path() {
+        let mut dag = TermDag::new();
+        let leaf = dag.insert_node(TermNode::Sym(Symbol::new("x"))).unwrap();
+        let tail_1 = dag.insert_node(TermNode::Add(vec![leaf])).unwrap();
+        let tail_2 = dag.insert_node(TermNode::Add(vec![tail_1])).unwrap();
+        let deep_1 = dag.insert_node(TermNode::Add(vec![tail_2])).unwrap();
+        let deep_2 = dag.insert_node(TermNode::Add(vec![deep_1])).unwrap();
+        let deep_3 = dag.insert_node(TermNode::Add(vec![deep_2])).unwrap();
+        // Visit tail_2 first so it is memoized at the shallow root path, then
+        // encounter the same height-three tail below three additional parents.
+        let root = dag
+            .insert_node(TermNode::Add(vec![tail_2, deep_3]))
+            .unwrap();
+        let limits = DagLimits {
+            max_depth: 5,
+            ..DagLimits::default()
+        };
+        assert_eq!(
+            dag.depth_with_limits(root, limits),
+            Err(DagError::DepthExceeded(5))
+        );
     }
 }
