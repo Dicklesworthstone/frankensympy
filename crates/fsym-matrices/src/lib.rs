@@ -937,6 +937,221 @@ impl Matrix {
     ) -> Result<(Self, Vec<usize>), MatrixError> {
         self.rref_with_meter(meter)
     }
+
+    /// Exact LU decomposition with partial row pivoting: $P \cdot A = L \cdot U$.
+    pub fn lu(&self) -> Result<LuCertificate, MatrixError> {
+        self.validate_shape()?;
+        if self.rows != self.cols {
+            return Err(MatrixError::NotSquare(self.rows, self.cols));
+        }
+        let n = self.rows;
+        let mut p_mat = Matrix::eye(n)?;
+        let mut l_mat = Matrix::eye(n)?;
+        let mut u_mat = self.clone();
+
+        let at = |r: usize, c: usize| r * n + c;
+
+        for k in 0..n {
+            let pivot_row = Self::select_numeric_pivot(&u_mat.data, n, n, k, k)?;
+            let Some(p_idx) = pivot_row else {
+                continue;
+            };
+            if p_idx != k {
+                for c in 0..n {
+                    u_mat.data.swap(at(k, c), at(p_idx, c));
+                    p_mat.data.swap(at(k, c), at(p_idx, c));
+                }
+                for c in 0..k {
+                    l_mat.data.swap(at(k, c), at(p_idx, c));
+                }
+            }
+            let pivot_val = u_mat.data[at(k, k)].clone();
+            if pivot_val.is_zero() {
+                continue;
+            }
+            for i in (k + 1)..n {
+                let entry_i_k = u_mat.data[at(i, k)].clone();
+                if entry_i_k.is_zero() {
+                    continue;
+                }
+                let factor = Self::exact_div(&entry_i_k, &pivot_val)?;
+                l_mat.data[at(i, k)] = factor.clone();
+                for j in k..n {
+                    let prod = Self::exact_mul(&factor, &u_mat.data[at(k, j)]);
+                    u_mat.data[at(i, j)] = Self::exact_sub(&u_mat.data[at(i, j)], &prod);
+                }
+            }
+        }
+
+        let cert = LuCertificate {
+            p: p_mat,
+            l: l_mat,
+            u: u_mat,
+        };
+        verify_lu_certificate(self, &cert)?;
+        Ok(cert)
+    }
+}
+
+/// Certificate for Matrix inverse.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InverseCertificate {
+    pub inverse: Matrix,
+}
+
+/// Independent verifier checking that candidate inverse satisfies $A \cdot A^{-1} = I$ and $A^{-1} \cdot A = I$.
+pub fn verify_inverse_certificate(
+    matrix: &Matrix,
+    cert: &InverseCertificate,
+) -> Result<(), MatrixError> {
+    matrix.validate_shape()?;
+    cert.inverse.validate_shape()?;
+    if matrix.rows != matrix.cols
+        || cert.inverse.rows != cert.inverse.cols
+        || matrix.rows != cert.inverse.rows
+    {
+        return Err(MatrixError::ShapeMismatch(
+            matrix.rows,
+            matrix.cols,
+            cert.inverse.rows,
+            cert.inverse.cols,
+        ));
+    }
+    let n = matrix.rows;
+    let eye = Matrix::eye(n)?;
+    let prod1 = matrix.matmul(&cert.inverse)?;
+    let prod2 = cert.inverse.matmul(matrix)?;
+    if prod1 != eye || prod2 != eye {
+        return Err(MatrixError::ResourceLimit(
+            "Inverse certificate verification failed: A * A^-1 != I".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Certificate for Matrix nullspace basis.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NullspaceCertificate {
+    pub basis: Vec<Matrix>,
+}
+
+/// Independent verifier checking that nullspace basis vectors span the kernel and satisfy rank-nullity.
+pub fn verify_nullspace_certificate(
+    matrix: &Matrix,
+    cert: &NullspaceCertificate,
+) -> Result<(), MatrixError> {
+    matrix.validate_shape()?;
+    let rank = matrix.rank()?;
+    let expected_nullity = matrix.cols.saturating_sub(rank);
+    if cert.basis.len() != expected_nullity {
+        return Err(MatrixError::ResourceLimit(format!(
+            "Nullspace certificate basis size {} does not match rank-nullity expected nullity {}",
+            cert.basis.len(),
+            expected_nullity
+        )));
+    }
+    for (idx, v) in cert.basis.iter().enumerate() {
+        v.validate_shape()?;
+        if v.rows != matrix.cols || v.cols != 1 {
+            return Err(MatrixError::ShapeMismatch(
+                matrix.rows,
+                matrix.cols,
+                v.rows,
+                v.cols,
+            ));
+        }
+        let av = matrix.matmul(v)?;
+        for r in 0..av.rows {
+            if !av.get(r, 0)?.is_zero() {
+                return Err(MatrixError::ResourceLimit(format!(
+                    "Nullspace basis vector {idx} does not satisfy A * v = 0"
+                )));
+            }
+        }
+    }
+    if !cert.basis.is_empty() {
+        let mut stacked_data = Vec::with_capacity(matrix.cols * cert.basis.len());
+        for r in 0..matrix.cols {
+            for v in &cert.basis {
+                stacked_data.push(v.get(r, 0)?.clone());
+            }
+        }
+        let stacked = Matrix::new(matrix.cols, cert.basis.len(), stacked_data)?;
+        if stacked.rank()? != cert.basis.len() {
+            return Err(MatrixError::ResourceLimit(
+                "Nullspace basis vectors are not linearly independent".to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Certificate for exact LU decomposition with partial row pivoting: $P \cdot A = L \cdot U$.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LuCertificate {
+    pub p: Matrix,
+    pub l: Matrix,
+    pub u: Matrix,
+}
+
+/// Independent verifier checking that $P \cdot A = L \cdot U$, $P$ is orthogonal, $L$ is unit lower-triangular, and $U$ is upper-triangular.
+pub fn verify_lu_certificate(matrix: &Matrix, cert: &LuCertificate) -> Result<(), MatrixError> {
+    matrix.validate_shape()?;
+    cert.p.validate_shape()?;
+    cert.l.validate_shape()?;
+    cert.u.validate_shape()?;
+    if matrix.rows != matrix.cols {
+        return Err(MatrixError::NotSquare(matrix.rows, matrix.cols));
+    }
+    let n = matrix.rows;
+    if cert.p.rows != n
+        || cert.p.cols != n
+        || cert.l.rows != n
+        || cert.l.cols != n
+        || cert.u.rows != n
+        || cert.u.cols != n
+    {
+        return Err(MatrixError::ShapeMismatch(n, n, cert.p.rows, cert.p.cols));
+    }
+    let eye = Matrix::eye(n)?;
+    if cert.p.matmul(&cert.p.transpose())? != eye {
+        return Err(MatrixError::ResourceLimit(
+            "P is not an orthogonal permutation matrix".to_string(),
+        ));
+    }
+    for i in 0..n {
+        for j in 0..n {
+            let entry = cert.l.get(i, j)?;
+            if i == j {
+                if !entry.is_one() {
+                    return Err(MatrixError::ResourceLimit(
+                        "L diagonal entries must be 1".to_string(),
+                    ));
+                }
+            } else if j > i && !entry.is_zero() {
+                return Err(MatrixError::ResourceLimit(
+                    "L upper triangular entries must be 0".to_string(),
+                ));
+            }
+        }
+    }
+    for i in 0..n {
+        for j in 0..n {
+            if i > j && !cert.u.get(i, j)?.is_zero() {
+                return Err(MatrixError::ResourceLimit(
+                    "U lower triangular entries must be 0".to_string(),
+                ));
+            }
+        }
+    }
+    let pa = cert.p.matmul(matrix)?;
+    let lu = cert.l.matmul(&cert.u)?;
+    if pa != lu {
+        return Err(MatrixError::ResourceLimit(
+            "LU factorization check failed: P * A != L * U".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 impl fmt::Display for Matrix {
@@ -1299,6 +1514,113 @@ mod tests {
         let mut wire = serde_json::to_value(sparse).unwrap();
         wire["entries"][0]["row"] = serde_json::json!(1);
         assert!(serde_json::from_value::<SparseMatrix>(wire).is_err());
+    }
+
+    #[test]
+    fn test_lu_decomposition_and_verification() {
+        // A = [[2, 4], [1, 7]]
+        let a = Matrix::new(2, 2, vec![num(2), num(4), num(1), num(7)]).unwrap();
+        let lu_cert = a.lu().unwrap();
+        assert!(verify_lu_certificate(&a, &lu_cert).is_ok());
+
+        // A = [[0, 3], [2, 1]] (requires row swap pivot)
+        let a_swap = Matrix::new(2, 2, vec![num(0), num(3), num(2), num(1)]).unwrap();
+        let lu_swap = a_swap.lu().unwrap();
+        assert!(verify_lu_certificate(&a_swap, &lu_swap).is_ok());
+
+        // 3x3 matrix
+        let a_3x3 = Matrix::new(
+            3,
+            3,
+            vec![
+                num(1),
+                num(2),
+                num(3),
+                num(2),
+                num(5),
+                num(7),
+                num(3),
+                num(1),
+                num(2),
+            ],
+        )
+        .unwrap();
+        let lu_3x3 = a_3x3.lu().unwrap();
+        assert!(verify_lu_certificate(&a_3x3, &lu_3x3).is_ok());
+    }
+
+    #[test]
+    fn test_inverse_certificate_and_verification() {
+        let m = Matrix::new(2, 2, vec![num(4), num(7), num(2), num(6)]).unwrap();
+        let inv = m.inverse().unwrap();
+        let cert = InverseCertificate { inverse: inv };
+        assert!(verify_inverse_certificate(&m, &cert).is_ok());
+    }
+
+    #[test]
+    fn test_nullspace_certificate_and_verification() {
+        let m = Matrix::new(
+            3,
+            3,
+            vec![
+                num(1),
+                num(2),
+                num(1),
+                num(2),
+                num(4),
+                num(2),
+                num(3),
+                num(6),
+                num(4),
+            ],
+        )
+        .unwrap();
+        let basis = m.nullspace().unwrap();
+        let cert = NullspaceCertificate { basis };
+        assert!(verify_nullspace_certificate(&m, &cert).is_ok());
+    }
+
+    #[test]
+    fn test_mutant_tampered_certificates_rejected() {
+        let a = Matrix::new(2, 2, vec![num(2), num(4), num(1), num(7)]).unwrap();
+        let mut lu_cert = a.lu().unwrap();
+
+        // 1. Tamper L entry
+        lu_cert.l.data[1] = num(99);
+        assert!(verify_lu_certificate(&a, &lu_cert).is_err());
+
+        // 2. Tamper U entry
+        let mut lu_cert2 = a.lu().unwrap();
+        lu_cert2.u.data[3] = num(99);
+        assert!(verify_lu_certificate(&a, &lu_cert2).is_err());
+
+        // 3. Tamper inverse
+        let inv = a.inverse().unwrap();
+        let mut inv_cert = InverseCertificate { inverse: inv };
+        inv_cert.inverse.data[0] = num(99);
+        assert!(verify_inverse_certificate(&a, &inv_cert).is_err());
+
+        // 4. Tamper nullspace vector
+        let m = Matrix::new(
+            3,
+            3,
+            vec![
+                num(1),
+                num(2),
+                num(1),
+                num(2),
+                num(4),
+                num(2),
+                num(3),
+                num(6),
+                num(4),
+            ],
+        )
+        .unwrap();
+        let mut basis = m.nullspace().unwrap();
+        basis[0].data[0] = num(99);
+        let ns_cert = NullspaceCertificate { basis };
+        assert!(verify_nullspace_certificate(&m, &ns_cert).is_err());
     }
 
     #[test]
