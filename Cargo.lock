@@ -673,10 +673,6 @@ name = "fsym-functions"
 version = "0.1.0"
 dependencies = [
  "fsym-core",
- "num-traits",
- "proptest",
- "serde",
- "thiserror",
 ]
 
 [[package]]

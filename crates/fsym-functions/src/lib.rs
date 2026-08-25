@@ -1,20 +1,11 @@
 //! # fsym-functions
 //!
-//! Elementary and special mathematical functions: trigonometric, hyperbolic, exponential,
-//! logarithmic, gamma, zeta, error functions, Bessel, and orthogonal polynomials.
+//! Constructors for sine, cosine, exponential, logarithm, gamma, and zeta
+//! expressions, with a small catalog of exact identity values.
 
 #![forbid(unsafe_code)]
 
 use fsym_core::{Constant, Expr};
-use thiserror::Error;
-
-#[derive(Debug, Error, PartialEq, Eq)]
-pub enum FunctionError {
-    #[error("Invalid argument count for function {0}: expected {1}, got {2}")]
-    ArgumentCountMismatch(String, usize, usize),
-    #[error("Evaluation error: {0}")]
-    EvaluationError(String),
-}
 
 /// Create a sine function expression: sin(x).
 pub fn sin(arg: Expr) -> Expr {
@@ -40,7 +31,7 @@ pub fn exp(arg: Expr) -> Expr {
     Expr::Function("exp".to_string(), vec![arg])
 }
 
-/// Create a natural logarithm function expression: log(x) or ln(x).
+/// Create a natural logarithm function expression: log(x).
 pub fn log(arg: Expr) -> Expr {
     if arg.is_one() {
         return Expr::from_i64(0);
