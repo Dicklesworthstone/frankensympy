@@ -6,7 +6,6 @@ use crate::SolverError;
 use fsym_calculus::{diff, integrate};
 use fsym_core::{BigRational, Expr, Symbol};
 use fsym_simplify::simplify;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Solves first-order linear ODE: $y'(x) + P(x) y(x) = Q(x)$.
@@ -156,22 +155,12 @@ pub fn verify_const_coeff_second_order_solution(
     let d2y = diff(&dy, x);
 
     let lhs = Expr::Add(vec![
-        Expr::Mul(vec![Expr::from_i64(a), d2y]),
-        Expr::Mul(vec![Expr::from_i64(b), dy]),
+        Expr::Mul(vec![Expr::from_i64(a), d2y.clone()]),
+        Expr::Mul(vec![Expr::from_i64(b), dy.clone()]),
         Expr::Mul(vec![Expr::from_i64(c), sol.clone()]),
     ]);
 
     let expanded = fsym_simplify::expand(&lhs);
     let simplified = simplify(&expanded);
-    if simplified.is_zero() {
-        return true;
-    }
-    // Also test numerical eval at sample points to confirm algebraic identity
-    let mut map = HashMap::new();
-    map.insert(x.clone(), Expr::from_i64(1));
-    for s in simplified.free_symbols() {
-        map.insert(s, Expr::from_i64(2));
-    }
-    let eval_res = simplified.subs(&map);
-    eval_res.evalf().map(|v| v.abs() < 1e-10).unwrap_or(false)
+    simplified.is_zero()
 }

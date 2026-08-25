@@ -39,16 +39,20 @@ fn rational_expr(r: BigRational) -> Expr {
     }
 }
 
-fn is_total_polynomial_expr(expr: &Expr) -> bool {
+fn is_total_expr(expr: &Expr) -> bool {
     match expr {
         Expr::Sym(_) | Expr::Integer(_) | Expr::Rational(_) => true,
         Expr::Const(fsym_core::Constant::Pi | fsym_core::Constant::E | fsym_core::Constant::I) => {
             true
         }
-        Expr::Const(_) | Expr::Function(_, _) => false,
-        Expr::Add(terms) | Expr::Mul(terms) => terms.iter().all(is_total_polynomial_expr),
+        Expr::Const(_) => false,
+        Expr::Function(name, args) => {
+            matches!(name.as_str(), "exp" | "sin" | "cos" | "sinh" | "cosh")
+                && args.iter().all(is_total_expr)
+        }
+        Expr::Add(terms) | Expr::Mul(terms) => terms.iter().all(is_total_expr),
         Expr::Pow(base, exponent) => {
-            is_total_polynomial_expr(base)
+            is_total_expr(base)
                 && matches!(
                     exponent.as_ref(),
                     Expr::Integer(value) if !value.is_negative()
@@ -66,17 +70,21 @@ fn split_coeff(term: &Expr) -> (BigRational, Expr) {
         Expr::Mul(factors) => {
             let mut coeff = BigRational::one();
             let mut rest: Vec<Expr> = Vec::new();
-            for f in factors {
-                match numeric_of(f) {
-                    Some(q) => coeff *= q,
-                    None => rest.push(f.clone()),
+            let mut stack: Vec<&Expr> = factors.iter().collect();
+            while let Some(f) = stack.pop() {
+                match f {
+                    Expr::Mul(nested) => stack.extend(nested.iter()),
+                    _ => match numeric_of(f) {
+                        Some(q) => coeff *= q,
+                        None => rest.push(f.clone()),
+                    },
                 }
             }
             // A zero coefficient annihilates only the total polynomial fragment. Preserve the
             // original term as an opaque additive key when a partial/indeterminate factor is
             // present; otherwise a surrounding Add would still erase `0 * Infinity`, `0/x`,
             // or `0 * log(x)` after the Mul simplifier correctly retained it.
-            if coeff.is_zero() && !rest.iter().all(is_total_polynomial_expr) {
+            if coeff.is_zero() && !rest.iter().all(is_total_expr) {
                 return (BigRational::one(), term.clone());
             }
             if rest.len() > 1 {
@@ -96,18 +104,24 @@ fn split_coeff(term: &Expr) -> (BigRational, Expr) {
 /// Canonicalize an additive term list: collect like terms by symbolic key
 /// with exact rational coefficients, dropping zeros; numeric leaves merge
 /// into a trailing constant.
-fn collect_terms(mut terms: Vec<Expr>) -> Expr {
+fn collect_terms(terms: Vec<Expr>) -> Expr {
     let mut collected: BTreeMap<Expr, BigRational> = BTreeMap::new();
     let mut constant = BigRational::zero();
-    for t in terms.drain(..) {
-        let (coeff, key) = split_coeff(&t);
-        if coeff.is_zero() {
-            continue;
-        }
-        if key == Expr::from_i64(1) {
-            constant += coeff;
-        } else {
-            *collected.entry(key).or_insert_with(BigRational::zero) += coeff;
+    let mut stack: Vec<Expr> = terms;
+    while let Some(t) = stack.pop() {
+        match t {
+            Expr::Add(nested) => stack.extend(nested),
+            _ => {
+                let (coeff, key) = split_coeff(&t);
+                if coeff.is_zero() {
+                    continue;
+                }
+                if key == Expr::from_i64(1) {
+                    constant += coeff;
+                } else {
+                    *collected.entry(key).or_insert_with(BigRational::zero) += coeff;
+                }
+            }
         }
     }
     let mut out: Vec<Expr> = Vec::new();
@@ -226,13 +240,17 @@ fn simplify_at<M: BudgetMeter>(
             }
             let mut coeff = BigRational::one();
             let mut rest: Vec<Expr> = Vec::new();
-            for f in simplified {
-                match numeric_of(&f) {
-                    Some(q) => coeff *= q,
-                    None => rest.push(f),
+            let mut stack: Vec<Expr> = simplified;
+            while let Some(f) = stack.pop() {
+                match f {
+                    Expr::Mul(nested) => stack.extend(nested),
+                    _ => match numeric_of(&f) {
+                        Some(q) => coeff *= q,
+                        None => rest.push(f),
+                    },
                 }
             }
-            if coeff.is_zero() && rest.iter().all(is_total_polynomial_expr) {
+            if coeff.is_zero() && rest.iter().all(is_total_expr) {
                 return Ok(Expr::from_i64(0));
             }
             if rest.is_empty() {
