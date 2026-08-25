@@ -10,9 +10,10 @@ pub use compile::*;
 pub use proof::*;
 pub use transforms::*;
 
-use fsym_core::{BigInt, Constant, Expr, Symbol};
+use fsym_core::{BigInt, BigRational, Constant, Expr, Symbol};
 use fsym_simplify::{expand, simplify};
-use num_traits::Zero;
+use num_traits::{Signed, Zero};
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -26,8 +27,13 @@ pub enum CalculusError {
     Undetermined(String),
 }
 
-use fsym_core::BigRational;
-use std::collections::HashMap;
+fn numeric_value(expr: &Expr) -> Option<BigRational> {
+    match expr {
+        Expr::Integer(n) => Some(BigRational::from_integer(n.clone())),
+        Expr::Rational(r) => Some(r.clone()),
+        _ => None,
+    }
+}
 
 /// Compute the symbolic derivative of an expression with respect to a symbol: ∂expr / ∂var.
 pub fn diff(expr: &Expr, var: &Symbol) -> Expr {
@@ -173,14 +179,17 @@ fn integral_term(f: &Expr, var: &Symbol) -> Result<Expr, CalculusError> {
             } else if let Expr::Mul(factors) = u {
                 let mut const_factors = Vec::new();
                 let mut var_count = 0;
+                let mut all_other_factors_constant = true;
                 for f in factors {
                     if f == &x {
                         var_count += 1;
                     } else if is_free_of(f, var) {
                         const_factors.push(f.clone());
+                    } else {
+                        all_other_factors_constant = false;
                     }
                 }
-                if var_count == 1 {
+                if var_count == 1 && all_other_factors_constant {
                     (simplify(&Expr::Mul(const_factors)), true)
                 } else {
                     (Expr::from_i64(1), false)
@@ -200,7 +209,7 @@ fn integral_term(f: &Expr, var: &Symbol) -> Result<Expr, CalculusError> {
                         "cos" => Ok(Expr::Function("sin".to_string(), vec![u.clone()])),
                         other => Err(CalculusError::IntegrationFailed(format!("{other}({u})"))),
                     }
-                } else {
+                } else if numeric_value(&c).is_some_and(|value| !value.is_zero()) {
                     let inv_c = Expr::Pow(Arc::new(c), Arc::new(Expr::from_i64(-1)));
                     match name.as_str() {
                         "exp" => Ok(simplify(&Expr::Mul(vec![
@@ -218,6 +227,15 @@ fn integral_term(f: &Expr, var: &Symbol) -> Result<Expr, CalculusError> {
                         ]))),
                         other => Err(CalculusError::IntegrationFailed(format!("{other}({u})"))),
                     }
+                } else if c.is_zero() {
+                    // A zero slope makes the function constant. Simplify first so
+                    // exp(0*x), sin(0*x), and cos(0*x) take their exact values.
+                    integral_term(&simplify(f), var)
+                } else {
+                    // Dividing by a symbolic slope would silently assume it is
+                    // nonzero. Keep the antiderivative conditional until an
+                    // assumptions context can discharge that side condition.
+                    Err(CalculusError::IntegrationFailed(format!("{name}({u})")))
                 }
             } else {
                 Err(CalculusError::IntegrationFailed(format!("{name}({u})")))
@@ -278,37 +296,33 @@ pub fn limit(expr: &Expr, var: &Symbol, to: &Expr) -> Result<Expr, CalculusError
     match to {
         Expr::Const(Constant::Infinity) | Expr::Const(Constant::NegativeInfinity) => {
             let expanded = expand(expr);
+            if is_free_of(&expanded, var) {
+                return Ok(simplify(&expanded));
+            }
             // Polynomial degree/leading-coefficient scan over additive terms.
             let terms: Vec<Expr> = match &expanded {
                 Expr::Add(ts) => ts.clone(),
                 single => vec![single.clone()],
             };
-            let mut best_degree: Option<i64> = None;
-            let mut lead_coeff_sign: i64 = 0;
+            let mut coefficients = BTreeMap::<u64, BigRational>::new();
             for t in &terms {
-                let (deg, sign) = term_degree_and_coeff_sign(t, var);
-                if deg > best_degree.unwrap_or(i64::MIN) {
-                    best_degree = Some(deg);
-                    lead_coeff_sign = sign;
-                }
+                let Some((degree, coefficient)) = polynomial_term(t, var) else {
+                    return Err(CalculusError::Undetermined(expr.to_string()));
+                };
+                *coefficients.entry(degree).or_insert_with(BigRational::zero) += coefficient;
             }
-            let Some(d) = best_degree else {
-                return Err(CalculusError::Undetermined(expr.to_string()));
+            coefficients.retain(|_, coefficient| !coefficient.is_zero());
+            let Some((&degree, leading_coefficient)) = coefficients.iter().next_back() else {
+                return Ok(Expr::from_i64(0));
             };
-            if d < 0 {
-                return Err(CalculusError::Undetermined(expr.to_string()));
-            }
-            if d == 0 {
+            if degree == 0 {
                 return Ok(simplify(&expanded));
             }
-            let mut sign = lead_coeff_sign;
-            if *to == Expr::Const(Constant::NegativeInfinity) && d % 2 == 1 {
-                sign = -sign;
+            let mut positive = leading_coefficient.is_positive();
+            if *to == Expr::Const(Constant::NegativeInfinity) && degree % 2 == 1 {
+                positive = !positive;
             }
-            if sign == 0 {
-                return Err(CalculusError::Undetermined(expr.to_string()));
-            }
-            Ok(Expr::Const(if sign > 0 {
+            Ok(Expr::Const(if positive {
                 Constant::Infinity
             } else {
                 Constant::NegativeInfinity
@@ -330,7 +344,11 @@ pub fn limit(expr: &Expr, var: &Symbol, to: &Expr) -> Result<Expr, CalculusError
 fn divides_by_zero(expr: &Expr) -> bool {
     match expr {
         Expr::Pow(base, exp) => {
-            let negative_exp = matches!(exp.as_ref(), Expr::Integer(n) if n.is_negative());
+            let negative_exp = match exp.as_ref() {
+                Expr::Integer(n) => n.is_negative(),
+                Expr::Rational(value) => value < &BigRational::zero(),
+                _ => false,
+            };
             (negative_exp && base.is_zero()) || divides_by_zero(base) || divides_by_zero(exp)
         }
         Expr::Add(terms) | Expr::Mul(terms) => terms.iter().any(divides_by_zero),
@@ -338,34 +356,33 @@ fn divides_by_zero(expr: &Expr) -> bool {
     }
 }
 
-/// Degree in `var` of one expanded additive term and the sign of its
-/// leading coefficient contribution.
-fn term_degree_and_coeff_sign(term: &Expr, var: &Symbol) -> (i64, i64) {
+/// Parse one expanded term as an exact univariate monomial.
+///
+/// Only numeric coefficients are admitted. A symbolic coefficient may be
+/// positive, negative, or zero, so it cannot determine a limit at infinity
+/// without assumptions.
+fn polynomial_term(term: &Expr, var: &Symbol) -> Option<(u64, BigRational)> {
     let x = Expr::Sym(var.clone());
-    let mut degree = 0i64;
-    let mut sign = 1i64;
-    let factors: Vec<Expr> = match term {
-        Expr::Mul(fs) => fs.clone(),
-        single => vec![single.clone()],
-    };
-    for f in &factors {
+    let mut degree = 0u64;
+    let mut coefficient = BigRational::from_integer(1.into());
+    let mut factors = vec![term];
+    while let Some(f) = factors.pop() {
         match f {
-            Expr::Sym(s) if s == var => degree += 1,
+            Expr::Integer(value) => coefficient *= BigRational::from_integer(value.clone()),
+            Expr::Rational(value) => coefficient *= value,
+            Expr::Sym(s) if s == var => degree = degree.checked_add(1)?,
+            Expr::Mul(nested) => factors.extend(nested),
             Expr::Pow(b, e) if b.as_ref() == &x => {
-                if let Expr::Integer(n) = e.as_ref() {
-                    degree += i64::try_from(n.clone()).unwrap_or(0);
-                }
+                let Expr::Integer(exponent) = e.as_ref() else {
+                    return None;
+                };
+                let exponent = u64::try_from(exponent).ok()?;
+                degree = degree.checked_add(exponent)?;
             }
-            Expr::Integer(n) => {
-                if *n < BigInt::from(0) {
-                    sign = -sign;
-                }
-            }
-            Expr::Const(Constant::NegativeInfinity) => sign = -sign,
-            _ => {}
+            _ => return None,
         }
     }
-    (degree, sign)
+    Some((degree, coefficient))
 }
 
 /// Taylor polynomial of `expr` around `var = at` through degree `order`.
@@ -513,6 +530,39 @@ mod tests {
     }
 
     #[test]
+    fn integration_discharges_linear_slope_before_division() {
+        let x = Symbol::new("x");
+        let x_expr = Expr::Sym(x.clone());
+
+        let symbolic_slope = Expr::Function(
+            "exp".to_string(),
+            vec![Expr::Mul(vec![Expr::symbol("a"), x_expr.clone()])],
+        );
+        assert!(matches!(
+            integrate(&symbolic_slope, &x),
+            Err(CalculusError::IntegrationFailed(_))
+        ));
+
+        let nonlinear_argument = Expr::Function(
+            "exp".to_string(),
+            vec![Expr::Mul(vec![
+                x_expr.clone(),
+                Expr::Function("sin".to_string(), vec![x_expr.clone()]),
+            ])],
+        );
+        assert!(matches!(
+            integrate(&nonlinear_argument, &x),
+            Err(CalculusError::IntegrationFailed(_))
+        ));
+
+        let zero_slope = Expr::Function(
+            "exp".to_string(),
+            vec![Expr::Mul(vec![Expr::from_i64(0), x_expr])],
+        );
+        assert_eq!(integrate(&zero_slope, &x).unwrap(), Expr::symbol("x"));
+    }
+
+    #[test]
     fn test_limit_infinity_degree_analysis() {
         let x = Symbol::new("x");
         // lim_{x->oo} 2x + 1 = +oo
@@ -529,6 +579,12 @@ mod tests {
             Expr::from_i64(-1),
             Expr::Pow(Arc::new(Expr::symbol("x")), Arc::new(Expr::from_i64(5))),
         ]);
+        let expanded_quintic = expand(&quintic);
+        assert_eq!(
+            polynomial_term(&expanded_quintic, &x),
+            Some((5, BigRational::from_integer(BigInt::from(-1)))),
+            "expanded quintic: {expanded_quintic:?}"
+        );
         assert_eq!(
             limit(&quintic, &x, &Expr::Const(Constant::NegativeInfinity)).unwrap(),
             Expr::Const(Constant::Infinity)
@@ -537,6 +593,42 @@ mod tests {
         assert_eq!(
             limit(&Expr::symbol("x"), &x, &Expr::from_i64(5)).unwrap(),
             Expr::from_i64(5)
+        );
+    }
+
+    #[test]
+    fn infinity_limit_requires_an_exact_numeric_leading_coefficient() {
+        let x = Symbol::new("x");
+        let negative_half_x = Expr::Mul(vec![
+            Expr::Rational(BigRational::new(BigInt::from(-1), BigInt::from(2))),
+            Expr::symbol("x"),
+        ]);
+        assert_eq!(
+            limit(&negative_half_x, &x, &Expr::Const(Constant::Infinity)).unwrap(),
+            Expr::Const(Constant::NegativeInfinity)
+        );
+
+        let unknown_lead = Expr::Mul(vec![Expr::symbol("a"), Expr::symbol("x")]);
+        assert!(matches!(
+            limit(&unknown_lead, &x, &Expr::Const(Constant::Infinity)),
+            Err(CalculusError::Undetermined(_))
+        ));
+
+        let fractional_power = Expr::Pow(
+            Arc::new(Expr::symbol("x")),
+            Arc::new(Expr::Rational(BigRational::new(
+                BigInt::from(1),
+                BigInt::from(2),
+            ))),
+        );
+        assert!(matches!(
+            limit(&fractional_power, &x, &Expr::Const(Constant::Infinity)),
+            Err(CalculusError::Undetermined(_))
+        ));
+
+        assert_eq!(
+            limit(&Expr::symbol("a"), &x, &Expr::Const(Constant::Infinity)).unwrap(),
+            Expr::symbol("a")
         );
     }
 
@@ -550,6 +642,18 @@ mod tests {
         ]);
         assert!(matches!(
             limit(&e, &x, &Expr::from_i64(0)),
+            Err(CalculusError::Undetermined(_))
+        ));
+
+        let fractional_pole = Expr::Pow(
+            Arc::new(Expr::symbol("x")),
+            Arc::new(Expr::Rational(BigRational::new(
+                BigInt::from(-1),
+                BigInt::from(2),
+            ))),
+        );
+        assert!(matches!(
+            limit(&fractional_pole, &x, &Expr::from_i64(0)),
             Err(CalculusError::Undetermined(_))
         ));
     }

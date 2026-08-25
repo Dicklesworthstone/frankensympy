@@ -15,13 +15,15 @@ const PRIME_2: u64 = 1_004_535_809; // 479 * 2^21 + 1
 const PRIMITIVE_ROOT: u64 = 3;
 const CRT_MODULUS: u128 = PRIME_1 as u128 * PRIME_2 as u128;
 
+// Independent of both transform primes. This is an internal fault detector, not evidence.
+const CHECK_MODULUS: u64 = 18_446_744_073_709_551_557; // 2^64 - 59
+const CHECK_POINT: u64 = 65_537;
+
 /// Maximum exact transform length supported by the fixed two-prime configuration.
 pub(crate) const MAX_TRANSFORM_LENGTH: usize = 1 << 21;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct TransformDomain {
-    a_coefficient_len: usize,
-    b_coefficient_len: usize,
     coefficient_len: usize,
     transform_len: usize,
     output_u32_capacity: usize,
@@ -68,8 +70,6 @@ fn transform_domain(
         .checked_add(b_len)
         .ok_or(MeteredMultiplyError::SizeOverflow)?;
     Ok(Some(TransformDomain {
-        a_coefficient_len,
-        b_coefficient_len,
         coefficient_len,
         transform_len,
         output_u32_capacity,
@@ -141,6 +141,10 @@ fn try_u32_vec<M: BudgetMeter>(
 
 fn multiply_mod(lhs: u64, rhs: u64, modulus: u64) -> u64 {
     ((u128::from(lhs) * u128::from(rhs)) % u128::from(modulus)) as u64
+}
+
+fn multiply_add_mod(lhs: u64, rhs: u64, addend: u64, modulus: u64) -> u64 {
+    ((u128::from(lhs) * u128::from(rhs) + u128::from(addend)) % u128::from(modulus)) as u64
 }
 
 fn mod_pow<M: BudgetMeter>(
@@ -239,15 +243,128 @@ fn ntt_transform<M: BudgetMeter>(
 }
 
 /// Validates input slice lengths before allocation.
-pub fn preflight_u32_lengths(a_len: usize, b_len: usize) -> Result<(), MeteredMultiplyError> {
+pub(crate) fn preflight_u32_lengths(
+    a_len: usize,
+    b_len: usize,
+) -> Result<(), MeteredMultiplyError> {
     transform_domain(a_len, b_len).map(|_| ())
 }
 
-/// Computes the exact polynomial product of two u32 digit slices using 2-prime NTT and CRT.
-pub fn multiply_u32_digits<M: BudgetMeter>(
+fn fill_transform_inputs<M: BudgetMeter>(
+    digits: &[u32],
+    prime_1_values: &mut [u64],
+    prime_2_values: &mut [u64],
+    meter: &mut M,
+) -> Result<(), MeteredMultiplyError> {
+    for (index, &digit) in digits.iter().enumerate() {
+        let coefficient_index = index
+            .checked_mul(2)
+            .ok_or(MeteredMultiplyError::SizeOverflow)?;
+        let low = u64::from(digit & COEFFICIENT_MASK);
+        let high = u64::from(digit >> COEFFICIENT_BITS);
+        checkpoint_and_charge(meter, 2)?;
+        prime_1_values[coefficient_index] = low;
+        prime_1_values[coefficient_index + 1] = high;
+        prime_2_values[coefficient_index] = low;
+        prime_2_values[coefficient_index + 1] = high;
+    }
+    Ok(())
+}
+
+fn pointwise_multiply<M: BudgetMeter>(
+    lhs: &mut [u64],
+    rhs: &[u64],
+    prime: u64,
+    meter: &mut M,
+) -> Result<(), MeteredMultiplyError> {
+    if lhs.len() != rhs.len() {
+        return Err(MeteredMultiplyError::InvariantViolation);
+    }
+    for (lhs_value, &rhs_value) in lhs.iter_mut().zip(rhs) {
+        checkpoint_and_charge(meter, 1)?;
+        *lhs_value = multiply_mod(*lhs_value, rhs_value, prime);
+    }
+    Ok(())
+}
+
+fn evaluate_split_coefficients<M: BudgetMeter>(
+    digits: &[u32],
+    point: u64,
+    meter: &mut M,
+) -> Result<u64, MeteredMultiplyError> {
+    let mut value = 0;
+    for &digit in digits.iter().rev() {
+        let high = u64::from(digit >> COEFFICIENT_BITS);
+        let low = u64::from(digit & COEFFICIENT_MASK);
+        checkpoint_and_charge(meter, 1)?;
+        value = multiply_add_mod(value, point, high, CHECK_MODULUS);
+        checkpoint_and_charge(meter, 1)?;
+        value = multiply_add_mod(value, point, low, CHECK_MODULUS);
+    }
+    Ok(value)
+}
+
+fn evaluate_u32_digits<M: BudgetMeter>(
+    digits: &[u32],
+    meter: &mut M,
+) -> Result<u64, MeteredMultiplyError> {
+    let radix = (1u64 << 32) % CHECK_MODULUS;
+    let mut value = 0;
+    for &digit in digits.iter().rev() {
+        checkpoint_and_charge(meter, 1)?;
+        value = multiply_add_mod(value, radix, u64::from(digit), CHECK_MODULUS);
+    }
+    Ok(value)
+}
+
+fn reconstruct_coefficient(residue_1: u64, residue_2: u64, inverse: u64) -> u128 {
+    let residue_1_mod_prime_2 = residue_1 % PRIME_2;
+    let difference = if residue_2 >= residue_1_mod_prime_2 {
+        residue_2 - residue_1_mod_prime_2
+    } else {
+        residue_2 + PRIME_2 - residue_1_mod_prime_2
+    };
+    let multiplier = multiply_mod(difference, inverse, PRIME_2);
+    u128::from(residue_1) + u128::from(PRIME_1) * u128::from(multiplier)
+}
+
+fn push_base16_limb<M: BudgetMeter>(
+    limb: u32,
+    pending_low: &mut Option<u32>,
+    output: &mut Vec<u32>,
+    output_capacity: usize,
+    meter: &mut M,
+) -> Result<(), MeteredMultiplyError> {
+    if limb > COEFFICIENT_MASK {
+        return Err(MeteredMultiplyError::InvariantViolation);
+    }
+    checkpoint_and_charge(meter, 1)?;
+    if let Some(low) = pending_low.take() {
+        if output.len() >= output_capacity {
+            return Err(MeteredMultiplyError::InvariantViolation);
+        }
+        output.push(low | (limb << COEFFICIENT_BITS));
+    } else {
+        *pending_low = Some(limb);
+    }
+    Ok(())
+}
+
+/// Computes the exact product of two canonical base-2^32 digit slices using two-prime NTT/CRT.
+pub(crate) fn multiply_u32_digits<M: BudgetMeter>(
     a: &[u32],
     b: &[u32],
     meter: &mut M,
+) -> Result<Vec<u32>, MeteredMultiplyError> {
+    multiply_u32_digits_inner(a, b, meter, None, None)
+}
+
+fn multiply_u32_digits_inner<M: BudgetMeter>(
+    a: &[u32],
+    b: &[u32],
+    meter: &mut M,
+    corrupt_coefficient: Option<usize>,
+    corrupt_output_digit: Option<usize>,
 ) -> Result<Vec<u32>, MeteredMultiplyError> {
     meter.checkpoint()?;
     let domain = match transform_domain(a.len(), b.len())? {
@@ -255,89 +372,215 @@ pub fn multiply_u32_digits<M: BudgetMeter>(
         None => return Ok(Vec::new()),
     };
 
-    let mut a_poly_1 = try_zeroed_u64_vec(domain.transform_len, meter)?;
-    let mut b_poly_1 = try_zeroed_u64_vec(domain.transform_len, meter)?;
-    let mut a_poly_2 = try_zeroed_u64_vec(domain.transform_len, meter)?;
-    let mut b_poly_2 = try_zeroed_u64_vec(domain.transform_len, meter)?;
+    let mut a_prime_1 = try_zeroed_u64_vec(domain.transform_len, meter)?;
+    let mut b_prime_1 = try_zeroed_u64_vec(domain.transform_len, meter)?;
+    let mut a_prime_2 = try_zeroed_u64_vec(domain.transform_len, meter)?;
+    let mut b_prime_2 = try_zeroed_u64_vec(domain.transform_len, meter)?;
+    fill_transform_inputs(a, &mut a_prime_1, &mut a_prime_2, meter)?;
+    fill_transform_inputs(b, &mut b_prime_1, &mut b_prime_2, meter)?;
 
-    for (idx, &digit) in a.iter().enumerate() {
-        let low = (digit & COEFFICIENT_MASK) as u64;
-        let high = (digit >> COEFFICIENT_BITS) as u64;
-        a_poly_1[idx * 2] = low;
-        a_poly_1[idx * 2 + 1] = high;
-        a_poly_2[idx * 2] = low;
-        a_poly_2[idx * 2 + 1] = high;
-    }
-    for (idx, &digit) in b.iter().enumerate() {
-        let low = (digit & COEFFICIENT_MASK) as u64;
-        let high = (digit >> COEFFICIENT_BITS) as u64;
-        b_poly_1[idx * 2] = low;
-        b_poly_1[idx * 2 + 1] = high;
-        b_poly_2[idx * 2] = low;
-        b_poly_2[idx * 2 + 1] = high;
-    }
+    let expected_raw_evaluation = multiply_mod(
+        evaluate_split_coefficients(a, CHECK_POINT, meter)?,
+        evaluate_split_coefficients(b, CHECK_POINT, meter)?,
+        CHECK_MODULUS,
+    );
 
-    ntt_transform(&mut a_poly_1, PRIME_1, false, meter)?;
-    ntt_transform(&mut b_poly_1, PRIME_1, false, meter)?;
-    for i in 0..domain.transform_len {
+    ntt_transform(&mut a_prime_1, PRIME_1, false, meter)?;
+    ntt_transform(&mut b_prime_1, PRIME_1, false, meter)?;
+    pointwise_multiply(&mut a_prime_1, &b_prime_1, PRIME_1, meter)?;
+    ntt_transform(&mut a_prime_1, PRIME_1, true, meter)?;
+
+    ntt_transform(&mut a_prime_2, PRIME_2, false, meter)?;
+    ntt_transform(&mut b_prime_2, PRIME_2, false, meter)?;
+    pointwise_multiply(&mut a_prime_2, &b_prime_2, PRIME_2, meter)?;
+    ntt_transform(&mut a_prime_2, PRIME_2, true, meter)?;
+
+    if let Some(index) = corrupt_coefficient {
+        if index >= domain.coefficient_len {
+            return Err(MeteredMultiplyError::InvariantViolation);
+        }
         checkpoint_and_charge(meter, 1)?;
-        a_poly_1[i] = multiply_mod(a_poly_1[i], b_poly_1[i], PRIME_1);
+        a_prime_1[index] = (a_prime_1[index] + 1) % PRIME_1;
+        a_prime_2[index] = (a_prime_2[index] + 1) % PRIME_2;
     }
-    ntt_transform(&mut a_poly_1, PRIME_1, true, meter)?;
 
-    ntt_transform(&mut a_poly_2, PRIME_2, false, meter)?;
-    ntt_transform(&mut b_poly_2, PRIME_2, false, meter)?;
-    for i in 0..domain.transform_len {
-        checkpoint_and_charge(meter, 1)?;
-        a_poly_2[i] = multiply_mod(a_poly_2[i], b_poly_2[i], PRIME_2);
-    }
-    ntt_transform(&mut a_poly_2, PRIME_2, true, meter)?;
+    let inverse_prime_1_mod_prime_2 = mod_pow(PRIME_1 % PRIME_2, PRIME_2 - 2, PRIME_2, meter)?;
 
-    let inv_p1_mod_p2 = mod_pow(PRIME_1 % PRIME_2, PRIME_2 - 2, PRIME_2, meter)? as u128;
-
+    let mut result = try_u32_vec(domain.output_u32_capacity, meter)?;
+    let mut pending_low = None;
     let mut carry = 0u128;
-    let mut u16_coeffs = Vec::new();
-    u16_coeffs
-        .try_reserve(domain.coefficient_len + 8)
-        .map_err(|_| MeteredMultiplyError::AllocationFailure)?;
-
-    for i in 0..domain.coefficient_len {
+    let mut reconstructed_evaluation = 0;
+    let mut evaluation_power = 1;
+    for index in 0..domain.coefficient_len {
         checkpoint_and_charge(meter, 1)?;
-        let r1 = a_poly_1[i] as u128;
-        let r2 = a_poly_2[i] as u128;
-        let p2 = PRIME_2 as u128;
-        let diff = if r2 >= (r1 % p2) {
-            r2 - (r1 % p2)
-        } else {
-            r2 + p2 - (r1 % p2)
-        };
-        let h = (diff * inv_p1_mod_p2) % p2;
-        let coeff = r1 + (PRIME_1 as u128) * h;
-        let total = coeff + carry;
-        u16_coeffs.push((total & (COEFFICIENT_MASK as u128)) as u16);
+        let coefficient = reconstruct_coefficient(
+            a_prime_1[index],
+            a_prime_2[index],
+            inverse_prime_1_mod_prime_2,
+        );
+        if coefficient > domain.coefficient_bound {
+            return Err(MeteredMultiplyError::InvariantViolation);
+        }
+        let coefficient_mod_check = u64::try_from(coefficient % u128::from(CHECK_MODULUS))
+            .map_err(|_| MeteredMultiplyError::InvariantViolation)?;
+        reconstructed_evaluation = multiply_add_mod(
+            coefficient_mod_check,
+            evaluation_power,
+            reconstructed_evaluation,
+            CHECK_MODULUS,
+        );
+        evaluation_power = multiply_mod(evaluation_power, CHECK_POINT, CHECK_MODULUS);
+
+        let total = coefficient
+            .checked_add(carry)
+            .ok_or(MeteredMultiplyError::InvariantViolation)?;
+        let limb = u32::try_from(total & u128::from(COEFFICIENT_MASK))
+            .map_err(|_| MeteredMultiplyError::InvariantViolation)?;
         carry = total >> COEFFICIENT_BITS;
+        push_base16_limb(
+            limb,
+            &mut pending_low,
+            &mut result,
+            domain.output_u32_capacity,
+            meter,
+        )?;
     }
-    while carry > 0 {
+    if reconstructed_evaluation != expected_raw_evaluation {
+        return Err(MeteredMultiplyError::InvariantViolation);
+    }
+
+    while carry != 0 {
         checkpoint_and_charge(meter, 1)?;
-        u16_coeffs.push((carry & (COEFFICIENT_MASK as u128)) as u16);
+        let limb = u32::try_from(carry & u128::from(COEFFICIENT_MASK))
+            .map_err(|_| MeteredMultiplyError::InvariantViolation)?;
         carry >>= COEFFICIENT_BITS;
+        push_base16_limb(
+            limb,
+            &mut pending_low,
+            &mut result,
+            domain.output_u32_capacity,
+            meter,
+        )?;
     }
-
-    let mut result_digits = try_u32_vec(domain.output_u32_capacity, meter)?;
-    for chunk in u16_coeffs.chunks(2) {
+    if let Some(low) = pending_low {
         checkpoint_and_charge(meter, 1)?;
-        let low = chunk[0] as u32;
-        let high = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
-        result_digits.push(low | (high << 16));
+        if result.len() >= domain.output_u32_capacity {
+            return Err(MeteredMultiplyError::InvariantViolation);
+        }
+        result.push(low);
+    }
+    while result.last() == Some(&0) {
+        checkpoint_and_charge(meter, 1)?;
+        result.pop();
+    }
+    if result.is_empty() {
+        return Err(MeteredMultiplyError::InvariantViolation);
+    }
+    if let Some(index) = corrupt_output_digit {
+        checkpoint_and_charge(meter, 1)?;
+        let digit = result
+            .get_mut(index)
+            .ok_or(MeteredMultiplyError::InvariantViolation)?;
+        *digit ^= 1;
     }
 
-    while result_digits.len() > 1 && result_digits.last() == Some(&0) {
-        result_digits.pop();
+    let expected_integer_evaluation = multiply_mod(
+        evaluate_u32_digits(a, meter)?,
+        evaluate_u32_digits(b, meter)?,
+        CHECK_MODULUS,
+    );
+    if evaluate_u32_digits(&result, meter)? != expected_integer_evaluation {
+        return Err(MeteredMultiplyError::InvariantViolation);
     }
-    if result_digits.last() == Some(&0) {
-        result_digits.pop();
-    }
-
     meter.checkpoint()?;
-    Ok(result_digits)
+    Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fsym_budget::Unbounded;
+
+    fn power(base: u64, exponent: u64, modulus: u64) -> u64 {
+        mod_pow(base, exponent, modulus, &mut Unbounded).unwrap()
+    }
+
+    fn scalar_product(lhs: &[u32], rhs: &[u32]) -> Vec<u32> {
+        let mut coefficients = vec![0u128; lhs.len() + rhs.len()];
+        for (lhs_index, &lhs_digit) in lhs.iter().enumerate() {
+            for (rhs_index, &rhs_digit) in rhs.iter().enumerate() {
+                coefficients[lhs_index + rhs_index] +=
+                    u128::from(lhs_digit) * u128::from(rhs_digit);
+            }
+        }
+        let mut carry = 0u128;
+        let mut output = Vec::with_capacity(coefficients.len());
+        for coefficient in coefficients {
+            let total = coefficient + carry;
+            output.push(total as u32);
+            carry = total >> 32;
+        }
+        while carry != 0 {
+            output.push(carry as u32);
+            carry >>= 32;
+        }
+        while output.last() == Some(&0) {
+            output.pop();
+        }
+        output
+    }
+
+    #[test]
+    fn fixed_roots_have_the_required_exact_orders() {
+        for prime in [PRIME_1, PRIME_2] {
+            let transform_len = MAX_TRANSFORM_LENGTH as u64;
+            let root = power(PRIMITIVE_ROOT, (prime - 1) / transform_len, prime);
+            assert_eq!(power(root, transform_len, prime), 1);
+            assert_ne!(power(root, transform_len / 2, prime), 1);
+        }
+    }
+
+    #[test]
+    fn inverse_round_trip_and_crt_product_match_independent_scalar_lane() {
+        let original = vec![1, 65_535, 17, 42, 999, 0, 12_345, 7];
+        for prime in [PRIME_1, PRIME_2] {
+            let mut transformed = original.clone();
+            ntt_transform(&mut transformed, prime, false, &mut Unbounded).unwrap();
+            assert_ne!(transformed, original);
+            ntt_transform(&mut transformed, prime, true, &mut Unbounded).unwrap();
+            assert_eq!(transformed, original);
+        }
+
+        let lhs = [u32::MAX, 0x8000_0001, 0, 17];
+        let rhs = [0xffff_0001, u32::MAX, 65_537];
+        let actual = multiply_u32_digits(&lhs, &rhs, &mut Unbounded).unwrap();
+        assert_eq!(actual, scalar_product(&lhs, &rhs));
+    }
+
+    #[test]
+    fn admission_proves_reconstruction_bound_before_allocation() {
+        let domain = transform_domain(MAX_TRANSFORM_LENGTH / 4, 1)
+            .unwrap()
+            .unwrap();
+        assert!(domain.coefficient_bound < CRT_MODULUS);
+        assert_eq!(domain.transform_len, MAX_TRANSFORM_LENGTH);
+        assert_eq!(
+            transform_domain(MAX_TRANSFORM_LENGTH / 2, 1),
+            Err(MeteredMultiplyError::TransformDomainUnsupported)
+        );
+    }
+
+    #[test]
+    fn independent_checks_reject_planted_residue_and_output_corruption() {
+        let lhs = [u32::MAX, 0x1234_5678, 0x9abc_def0, 7];
+        let rhs = [0x8765_4321, u32::MAX, 11];
+        assert_eq!(
+            multiply_u32_digits_inner(&lhs, &rhs, &mut Unbounded, Some(1), None),
+            Err(MeteredMultiplyError::InvariantViolation)
+        );
+        assert_eq!(
+            multiply_u32_digits_inner(&lhs, &rhs, &mut Unbounded, None, Some(0)),
+            Err(MeteredMultiplyError::InvariantViolation)
+        );
+    }
 }
