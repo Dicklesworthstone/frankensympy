@@ -12,7 +12,7 @@ use fsym_calculus::diff;
 use fsym_core::{Expr, Symbol};
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Write as _};
-use std::io::{self, Write as _};
+use std::io;
 
 /// Maximum encoded size of one provisional request envelope.
 pub const MAX_AGENT_NDJSON_REQUEST_BYTES: usize = 256 * 1024;
@@ -135,7 +135,7 @@ pub enum ProtocolErrorCode {
     InternalSerialization,
 }
 
-/// Agent-native NDJSON request packet.
+/// Request packet accepted by the provisional facade.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload")]
 #[serde(deny_unknown_fields)]
@@ -147,7 +147,7 @@ pub enum AgentRequest {
     Fork { branch_name: String },
 }
 
-/// Agent-native NDJSON response packet.
+/// Response packet emitted by the provisional facade.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", content = "data")]
 #[serde(deny_unknown_fields)]
@@ -402,6 +402,16 @@ mod tests {
         ));
         assert!(workspace.bindings.is_empty());
 
+        let duplicate_field = r#"{"type":"Eval","payload":{"expr":"1","expr":"2"}}"#;
+        assert!(matches!(
+            decode_response(&handle_agent_ndjson(duplicate_field, &mut workspace)),
+            AgentResponse::Error {
+                code: ProtocolErrorCode::MalformedRequest,
+                ..
+            }
+        ));
+        assert!(workspace.bindings.is_empty());
+
         let unknown_field = r#"{"type":"Bind","payload":{"symbol":"x","expr":"1","extra":true}}"#;
         assert!(matches!(
             decode_response(&handle_agent_ndjson(unknown_field, &mut workspace)),
@@ -458,6 +468,20 @@ mod tests {
         let request = r#"{"type":"Eval","payload":{"expr":"x"}}"#;
         assert!(matches!(
             decode_response(&handle_agent_ndjson(request, &mut workspace)),
+            AgentResponse::Error {
+                code: ProtocolErrorCode::OutputLimitExceeded,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn response_encoder_limit_fallback_is_typed_valid_json() {
+        let oversized = AgentResponse::Success {
+            result: "x".repeat(MAX_AGENT_NDJSON_RESPONSE_BYTES + 1),
+        };
+        assert!(matches!(
+            decode_response(&encode_response(&oversized)),
             AgentResponse::Error {
                 code: ProtocolErrorCode::OutputLimitExceeded,
                 ..
