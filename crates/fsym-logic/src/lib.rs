@@ -16,6 +16,14 @@ pub enum LogicError {
     UnassignedVariable(String),
     #[error("Truth table exceeds supported variable count: {0} > 20")]
     TableTooLarge(usize),
+    #[error("SAT solver resource limit exceeded for {resource}: {actual} > {limit}")]
+    SolverLimitExceeded {
+        resource: &'static str,
+        actual: usize,
+        limit: usize,
+    },
+    #[error("SAT solver invariant violation: {0}")]
+    SolverInvariantViolation(String),
 }
 
 /// Propositional logic formula.
@@ -393,119 +401,330 @@ impl TruthTable {
     }
 }
 
-/// Decide satisfiability with DPLL (unit propagation + pure-literal elimination).
-///
-/// Returns one satisfying assignment when one exists.
-pub fn dpll_satisfiable(expr: &BoolExpr) -> Option<HashMap<Symbol, bool>> {
-    let mut model = dpll(&structural_cnf(&expr.nnf()), HashMap::new())?;
-    for var in expr.variables() {
-        model.entry(var).or_insert(false);
-    }
-    Some(model)
+const MAX_DPLL_DEPTH: usize = 256;
+const MAX_DPLL_VARIABLES: usize = 256;
+const MAX_DPLL_CLAUSES: usize = 65_536;
+const MAX_DPLL_CLAUSE_LITERALS: usize = 65_536;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct SatVar(usize);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SatLiteral {
+    variable: SatVar,
+    positive: bool,
 }
 
-/// Convert an NNF formula to CNF by distribution.
-fn structural_cnf(e: &BoolExpr) -> Cnf {
-    match e {
-        BoolExpr::Const(true) => Cnf::new(),
-        BoolExpr::Const(false) => vec![Vec::new()],
-        BoolExpr::Var(s) => vec![vec![Literal::Pos(s.clone())]],
-        BoolExpr::Not(inner) => match inner.as_ref() {
-            BoolExpr::Var(s) => vec![vec![Literal::Neg(s.clone())]],
-            // Post-NNF, Not wraps literals only.
-            other => structural_cnf(other),
-        },
-        BoolExpr::And(terms) => terms.iter().flat_map(structural_cnf).collect(),
-        BoolExpr::Or(terms) => terms
-            .iter()
-            .map(structural_cnf)
-            .reduce(|acc, next| {
-                let mut out = Vec::with_capacity(acc.len() * next.len());
-                for a in &acc {
-                    for c in &next {
-                        let mut merged = a.clone();
-                        merged.extend(c.iter().cloned());
-                        out.push(merged);
-                    }
-                }
-                out
-            })
-            .unwrap_or_else(|| vec![Vec::new()]),
-        // NNF removes these connectives before conversion.
-        BoolExpr::Implies(..) | BoolExpr::Equivalent(..) => {
-            unreachable!("nnf() eliminates Implies/Equivalent")
+impl SatLiteral {
+    fn positive(variable: SatVar) -> Self {
+        Self {
+            variable,
+            positive: true,
         }
     }
+
+    fn negative(variable: SatVar) -> Self {
+        Self {
+            variable,
+            positive: false,
+        }
+    }
+}
+
+struct TseitinEncoder<'a> {
+    clauses: Vec<Vec<SatLiteral>>,
+    original_variables: HashMap<Symbol, SatVar>,
+    memo: HashMap<&'a BoolExpr, SatVar>,
+    variable_count: usize,
+}
+
+impl<'a> TseitinEncoder<'a> {
+    fn new() -> Self {
+        Self {
+            clauses: Vec::new(),
+            original_variables: HashMap::new(),
+            memo: HashMap::new(),
+            variable_count: 0,
+        }
+    }
+
+    fn new_variable(&mut self) -> Result<SatVar, LogicError> {
+        let actual = self
+            .variable_count
+            .checked_add(1)
+            .ok_or(LogicError::SolverLimitExceeded {
+                resource: "variables",
+                actual: usize::MAX,
+                limit: MAX_DPLL_VARIABLES,
+            })?;
+        if actual > MAX_DPLL_VARIABLES {
+            return Err(LogicError::SolverLimitExceeded {
+                resource: "variables",
+                actual,
+                limit: MAX_DPLL_VARIABLES,
+            });
+        }
+        let variable = SatVar(self.variable_count);
+        self.variable_count = actual;
+        Ok(variable)
+    }
+
+    fn push_clause(&mut self, clause: Vec<SatLiteral>) -> Result<(), LogicError> {
+        if clause.len() > MAX_DPLL_CLAUSE_LITERALS {
+            return Err(LogicError::SolverLimitExceeded {
+                resource: "literals per clause",
+                actual: clause.len(),
+                limit: MAX_DPLL_CLAUSE_LITERALS,
+            });
+        }
+        let actual = self
+            .clauses
+            .len()
+            .checked_add(1)
+            .ok_or(LogicError::SolverLimitExceeded {
+                resource: "clauses",
+                actual: usize::MAX,
+                limit: MAX_DPLL_CLAUSES,
+            })?;
+        if actual > MAX_DPLL_CLAUSES {
+            return Err(LogicError::SolverLimitExceeded {
+                resource: "clauses",
+                actual,
+                limit: MAX_DPLL_CLAUSES,
+            });
+        }
+        self.clauses.push(clause);
+        Ok(())
+    }
+
+    fn encode(&mut self, expr: &'a BoolExpr, depth: usize) -> Result<SatVar, LogicError> {
+        if depth > MAX_DPLL_DEPTH {
+            return Err(LogicError::SolverLimitExceeded {
+                resource: "formula depth",
+                actual: depth,
+                limit: MAX_DPLL_DEPTH,
+            });
+        }
+        if let Some(&variable) = self.memo.get(expr) {
+            return Ok(variable);
+        }
+
+        let variable = match expr {
+            BoolExpr::Var(symbol) => {
+                if let Some(&variable) = self.original_variables.get(symbol) {
+                    variable
+                } else {
+                    let variable = self.new_variable()?;
+                    self.original_variables.insert(symbol.clone(), variable);
+                    variable
+                }
+            }
+            BoolExpr::Const(value) => {
+                let variable = self.new_variable()?;
+                self.push_clause(vec![if *value {
+                    SatLiteral::positive(variable)
+                } else {
+                    SatLiteral::negative(variable)
+                }])?;
+                variable
+            }
+            BoolExpr::Not(inner) => {
+                let inner = self.encode(inner, depth + 1)?;
+                let variable = self.new_variable()?;
+                self.push_clause(vec![
+                    SatLiteral::negative(variable),
+                    SatLiteral::negative(inner),
+                ])?;
+                self.push_clause(vec![
+                    SatLiteral::positive(variable),
+                    SatLiteral::positive(inner),
+                ])?;
+                variable
+            }
+            BoolExpr::And(terms) | BoolExpr::Or(terms) => {
+                if terms.len() > MAX_DPLL_CLAUSE_LITERALS {
+                    return Err(LogicError::SolverLimitExceeded {
+                        resource: "operator fanout",
+                        actual: terms.len(),
+                        limit: MAX_DPLL_CLAUSE_LITERALS,
+                    });
+                }
+                let mut children = Vec::with_capacity(terms.len());
+                for term in terms {
+                    children.push(self.encode(term, depth + 1)?);
+                }
+                let variable = self.new_variable()?;
+                match expr {
+                    BoolExpr::And(_) => {
+                        for &child in &children {
+                            self.push_clause(vec![
+                                SatLiteral::negative(variable),
+                                SatLiteral::positive(child),
+                            ])?;
+                        }
+                        let mut clause = Vec::with_capacity(children.len() + 1);
+                        clause.push(SatLiteral::positive(variable));
+                        clause.extend(children.into_iter().map(SatLiteral::negative));
+                        self.push_clause(clause)?;
+                    }
+                    BoolExpr::Or(_) => {
+                        for &child in &children {
+                            self.push_clause(vec![
+                                SatLiteral::positive(variable),
+                                SatLiteral::negative(child),
+                            ])?;
+                        }
+                        let mut clause = Vec::with_capacity(children.len() + 1);
+                        clause.push(SatLiteral::negative(variable));
+                        clause.extend(children.into_iter().map(SatLiteral::positive));
+                        self.push_clause(clause)?;
+                    }
+                    _ => {
+                        return Err(LogicError::SolverInvariantViolation(
+                            "n-ary encoder reached a non-n-ary expression".to_string(),
+                        ));
+                    }
+                }
+                variable
+            }
+            BoolExpr::Implies(antecedent, consequent) => {
+                let antecedent = self.encode(antecedent, depth + 1)?;
+                let consequent = self.encode(consequent, depth + 1)?;
+                let variable = self.new_variable()?;
+                self.push_clause(vec![
+                    SatLiteral::positive(variable),
+                    SatLiteral::positive(antecedent),
+                ])?;
+                self.push_clause(vec![
+                    SatLiteral::positive(variable),
+                    SatLiteral::negative(consequent),
+                ])?;
+                self.push_clause(vec![
+                    SatLiteral::negative(variable),
+                    SatLiteral::negative(antecedent),
+                    SatLiteral::positive(consequent),
+                ])?;
+                variable
+            }
+            BoolExpr::Equivalent(left, right) => {
+                let left = self.encode(left, depth + 1)?;
+                let right = self.encode(right, depth + 1)?;
+                let variable = self.new_variable()?;
+                self.push_clause(vec![
+                    SatLiteral::negative(variable),
+                    SatLiteral::negative(left),
+                    SatLiteral::positive(right),
+                ])?;
+                self.push_clause(vec![
+                    SatLiteral::negative(variable),
+                    SatLiteral::positive(left),
+                    SatLiteral::negative(right),
+                ])?;
+                self.push_clause(vec![
+                    SatLiteral::positive(variable),
+                    SatLiteral::positive(left),
+                    SatLiteral::positive(right),
+                ])?;
+                self.push_clause(vec![
+                    SatLiteral::positive(variable),
+                    SatLiteral::negative(left),
+                    SatLiteral::negative(right),
+                ])?;
+                variable
+            }
+        };
+        self.memo.insert(expr, variable);
+        Ok(variable)
+    }
+}
+
+/// Decide satisfiability with a bounded Tseitin encoding and DPLL.
+///
+/// Returns one satisfying assignment when one exists, `Ok(None)` only for an
+/// established UNSAT result, and a typed error when the solver's structural
+/// limits refuse the input.
+pub fn dpll_satisfiable(expr: &BoolExpr) -> Result<Option<HashMap<Symbol, bool>>, LogicError> {
+    let mut encoder = TseitinEncoder::new();
+    let root = encoder.encode(expr, 0)?;
+    encoder.push_clause(vec![SatLiteral::positive(root)])?;
+    let Some(model) = dpll(&encoder.clauses, vec![None; encoder.variable_count]) else {
+        return Ok(None);
+    };
+
+    let mut public_model = HashMap::with_capacity(encoder.original_variables.len());
+    for (symbol, variable) in encoder.original_variables {
+        public_model.insert(symbol, model[variable.0].unwrap_or(false));
+    }
+    if !expr.evaluate(&public_model)? {
+        return Err(LogicError::SolverInvariantViolation(
+            "Tseitin/DPLL model does not satisfy the source formula".to_string(),
+        ));
+    }
+    Ok(Some(public_model))
 }
 
 /// Clause value under a partial model: `Some(true)` satisfied, `Some(false)`
 /// falsified (all literals assigned false), `None` undetermined.
-fn clause_value(clause: &[Literal], model: &HashMap<Symbol, bool>) -> Option<bool> {
-    // Self-contained literal evaluation: `Some(true)` once any literal
-    // holds, `Some(false)` when every literal is assigned and false,
-    // `None` while the clause is still undetermined.
+fn clause_value(clause: &[SatLiteral], model: &[Option<bool>]) -> Option<bool> {
     let mut all_assigned_false = true;
-    for lit in clause {
-        match model.get(lit.variable()) {
-            Some(&v) if v == lit.is_positive() => return Some(true),
+    for literal in clause {
+        match model[literal.variable.0] {
+            Some(value) if value == literal.positive => return Some(true),
             Some(_) => {}
             None => all_assigned_false = false,
         }
     }
-    if all_assigned_false {
-        Some(false)
-    } else {
-        None
-    }
+    all_assigned_false.then_some(false)
 }
 
-fn unit_literal(clause: &[Literal], model: &HashMap<Symbol, bool>) -> Option<Literal> {
+fn unit_literal(clause: &[SatLiteral], model: &[Option<bool>]) -> Option<SatLiteral> {
     if clause_value(clause, model) == Some(true) {
         return None;
     }
-    let mut unassigned: Option<&Literal> = None;
-    for lit in clause {
-        if !model.contains_key(lit.variable()) {
+    let mut unassigned = None;
+    for &literal in clause {
+        if model[literal.variable.0].is_none() {
             if unassigned.is_some() {
                 return None;
             }
-            unassigned = Some(lit);
+            unassigned = Some(literal);
         }
     }
-    unassigned.cloned()
+    unassigned
 }
 
-fn dpll(clauses: &[Vec<Literal>], model: HashMap<Symbol, bool>) -> Option<HashMap<Symbol, bool>> {
+fn dpll(clauses: &[Vec<SatLiteral>], model: Vec<Option<bool>>) -> Option<Vec<Option<bool>>> {
     if clauses
         .iter()
-        .any(|c| clause_value(c, &model) == Some(false))
+        .any(|clause| clause_value(clause, &model) == Some(false))
     {
         return None;
     }
     if clauses
         .iter()
-        .all(|c| clause_value(c, &model) == Some(true))
+        .all(|clause| clause_value(clause, &model) == Some(true))
     {
         return Some(model);
     }
 
-    // Unit propagation.
-    if let Some(lit) = clauses.iter().find_map(|c| unit_literal(c, &model)) {
-        let mut m = model;
-        m.insert(lit.variable().clone(), lit.is_positive());
-        return dpll(clauses, m);
+    if let Some(literal) = clauses
+        .iter()
+        .find_map(|clause| unit_literal(clause, &model))
+    {
+        let mut next = model;
+        next[literal.variable.0] = Some(literal.positive);
+        return dpll(clauses, next);
     }
 
-    // Pure-literal elimination on unassigned variables in unresolved clauses.
-    let mut seen = HashMap::<&Symbol, (bool, bool)>::new(); // (pos_seen, neg_seen)
+    let mut seen = vec![(false, false); model.len()];
     for clause in clauses {
         if clause_value(clause, &model) == Some(true) {
             continue;
         }
-        for lit in clause {
-            if !model.contains_key(lit.variable()) {
-                let entry = seen.entry(lit.variable()).or_insert((false, false));
-                if lit.is_positive() {
+        for literal in clause {
+            if model[literal.variable.0].is_none() {
+                let entry = &mut seen[literal.variable.0];
+                if literal.positive {
                     entry.0 = true;
                 } else {
                     entry.1 = true;
@@ -513,25 +732,21 @@ fn dpll(clauses: &[Vec<Literal>], model: HashMap<Symbol, bool>) -> Option<HashMa
             }
         }
     }
-    for (&var, &(pos_seen, neg_seen)) in seen.iter() {
-        if pos_seen != neg_seen {
-            let mut m = model;
-            m.insert(var.clone(), pos_seen);
-            return dpll(clauses, m);
-        }
+    if let Some((variable, &(positive, _))) = seen
+        .iter()
+        .enumerate()
+        .find(|(_, (positive, negative))| positive != negative)
+    {
+        let mut next = model;
+        next[variable] = Some(positive);
+        return dpll(clauses, next);
     }
 
-    // Branch on the first unassigned variable.
-    let var = clauses
-        .iter()
-        .flat_map(|c| c.iter())
-        .map(|lit| lit.variable())
-        .find(|s| !model.contains_key(*s))?
-        .clone();
-    for branch_value in [true, false] {
-        let mut m = model.clone();
-        m.insert(var.clone(), branch_value);
-        if let Some(solution) = dpll(clauses, m) {
+    let variable = model.iter().position(Option::is_none)?;
+    for value in [true, false] {
+        let mut next = model.clone();
+        next[variable] = Some(value);
+        if let Some(solution) = dpll(clauses, next) {
             return Some(solution);
         }
     }
@@ -634,12 +849,12 @@ mod tests {
         let taut = p.clone().or(!p.clone());
         assert!(taut.truth_table().unwrap().is_tautology());
         assert_eq!(taut.to_cnf().unwrap(), Vec::<Vec<Literal>>::new());
-        assert!(dpll_satisfiable(&taut).is_some());
+        assert!(dpll_satisfiable(&taut).unwrap().is_some());
 
         let contra = p.clone().and(!p);
         assert!(contra.truth_table().unwrap().is_contradiction());
         assert_eq!(contra.to_cnf().unwrap(), vec![Vec::<Literal>::new()]);
-        assert!(dpll_satisfiable(&contra).is_none());
+        assert!(dpll_satisfiable(&contra).unwrap().is_none());
     }
 
     #[test]
@@ -674,14 +889,80 @@ mod tests {
         let unsat = BoolExpr::Implies(Box::new(BoolExpr::var("p")), Box::new(BoolExpr::var("q")))
             .and(BoolExpr::var("p"))
             .and(!BoolExpr::var("q"));
-        assert!(dpll_satisfiable(&unsat).is_none());
+        assert!(dpll_satisfiable(&unsat).unwrap().is_none());
 
         // (p | q) & (~p | r) & (q | r) is satisfiable.
         let sat = BoolExpr::var("p")
             .or(BoolExpr::var("q"))
             .and((!BoolExpr::var("p")).or(BoolExpr::var("r")))
             .and(BoolExpr::var("q").or(BoolExpr::var("r")));
-        let model = dpll_satisfiable(&sat).expect("expected a model");
+        let model = dpll_satisfiable(&sat)
+            .expect("solver should admit the formula")
+            .expect("expected a model");
         assert_eq!(sat.evaluate(&model), Ok(true));
+    }
+
+    #[test]
+    fn tseitin_encoding_avoids_distributive_cnf_explosion() {
+        // Raw CNF distribution requires 2^18 clauses. The Tseitin encoding is
+        // linear in the source tree and retains a source-variable model.
+        let expr = (0..18)
+            .map(|index| BoolExpr::var(format!("p{index}")).and(BoolExpr::var(format!("q{index}"))))
+            .reduce(BoolExpr::or)
+            .unwrap();
+        let model = dpll_satisfiable(&expr)
+            .expect("bounded encoding should admit the formula")
+            .expect("formula is satisfiable");
+        assert_eq!(expr.evaluate(&model), Ok(true));
+    }
+
+    #[test]
+    fn tseitin_dpll_matches_exhaustive_semantics_for_all_connectives() {
+        let p = BoolExpr::var("p");
+        let q = BoolExpr::var("q");
+        let atoms = vec![
+            BoolExpr::Const(false),
+            BoolExpr::Const(true),
+            p.clone(),
+            q.clone(),
+            !p,
+            !q,
+            BoolExpr::And(Vec::new()),
+            BoolExpr::Or(Vec::new()),
+        ];
+        let mut formulas = atoms.clone();
+        for left in &atoms {
+            for right in &atoms {
+                formulas.push(left.clone().and(right.clone()));
+                formulas.push(left.clone().or(right.clone()));
+                formulas.push(left.clone().implies(right.clone()));
+                formulas.push(left.clone().equiv(right.clone()));
+            }
+        }
+
+        for formula in formulas {
+            let expected_sat = !formula.truth_table().unwrap().is_contradiction();
+            let model = dpll_satisfiable(&formula).expect("small formula must be admitted");
+            assert_eq!(model.is_some(), expected_sat, "formula: {formula}");
+            if let Some(model) = model {
+                assert_eq!(formula.evaluate(&model), Ok(true), "formula: {formula}");
+            }
+        }
+    }
+
+    #[test]
+    fn dpll_resource_refusal_is_not_reported_as_unsat() {
+        let expr = BoolExpr::And(
+            (0..=MAX_DPLL_VARIABLES)
+                .map(|index| BoolExpr::var(format!("v{index}")))
+                .collect(),
+        );
+        assert!(matches!(
+            dpll_satisfiable(&expr),
+            Err(LogicError::SolverLimitExceeded {
+                resource: "variables",
+                ..
+            })
+        ));
     }
 }
