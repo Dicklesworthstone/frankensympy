@@ -398,6 +398,9 @@ impl ToPrimitive for BigInt {
     fn to_u128(&self) -> Option<u128> {
         self.0.to_u128()
     }
+    fn to_f32(&self) -> Option<f32> {
+        self.0.to_f32()
+    }
     fn to_f64(&self) -> Option<f64> {
         self.0.to_f64()
     }
@@ -415,6 +418,9 @@ impl FromPrimitive for BigInt {
     }
     fn from_u128(n: u128) -> Option<Self> {
         Some(Self(Substrate::from(n)))
+    }
+    fn from_f64(n: f64) -> Option<Self> {
+        Substrate::from_f64(n).map(Self)
     }
 }
 
@@ -3560,6 +3566,33 @@ mod tests {
         BigInt::from_str_radix(src, 10).expect("test decimal must parse")
     }
 
+    fn reference_truncating_bigint_from_f64(value: f64) -> Option<BigInt> {
+        if !value.is_finite() {
+            return None;
+        }
+
+        let bits = value.to_bits();
+        let negative = bits >> 63 != 0;
+        let biased_exponent = ((bits >> 52) & 0x7ff) as i32;
+        let fraction = bits & ((1u64 << 52) - 1);
+        let (significand, binary_exponent) = if biased_exponent == 0 {
+            (fraction, -1074)
+        } else {
+            (fraction | (1u64 << 52), biased_exponent - 1023 - 52)
+        };
+        let magnitude = if binary_exponent >= 0 {
+            BigInt::from(significand) << (binary_exponent as u32)
+        } else {
+            BigInt::from(significand) >> binary_exponent.unsigned_abs()
+        };
+
+        if negative && !magnitude.is_zero() {
+            Some(-magnitude)
+        } else {
+            Some(magnitude)
+        }
+    }
+
     #[test]
     fn exact_signed_128_bit_primitive_conversions_cover_the_full_range() {
         for value in [
@@ -3620,6 +3653,109 @@ mod tests {
             <BigInt as ToPrimitive>::to_i128(&parsed_decimal(&u128::MAX.to_string())),
             None
         );
+    }
+
+    #[test]
+    fn direct_integer_to_f32_avoids_double_rounding() {
+        let adversary = (1i128 << 55) + (1i128 << 31) + 1;
+        for scalar in [adversary, -adversary] {
+            let integer = parsed_decimal(&scalar.to_string());
+            let direct_bits = (scalar as f32).to_bits();
+            let double_rounded_bits = ((scalar as f64) as f32).to_bits();
+
+            assert_ne!(
+                direct_bits, double_rounded_bits,
+                "fixture must distinguish a direct binary32 conversion"
+            );
+            assert_eq!(
+                <BigInt as ToPrimitive>::to_f32(&integer).map(f32::to_bits),
+                Some(direct_bits),
+                "signed adversary {scalar}"
+            );
+        }
+    }
+
+    #[test]
+    fn integer_to_f32_uses_ties_to_even_and_signed_overflow_boundaries() {
+        let halfway = (1i128 << 100) + (1i128 << (100 - f32::MANTISSA_DIGITS));
+        for scalar in [halfway, halfway + 1, -halfway, -(halfway + 1)] {
+            let integer = parsed_decimal(&scalar.to_string());
+            assert_eq!(
+                <BigInt as ToPrimitive>::to_f32(&integer).map(f32::to_bits),
+                Some((scalar as f32).to_bits()),
+                "ties-to-even fixture {scalar}"
+            );
+        }
+
+        let overflow_midpoint = (&BigInt::one() << 128u32) - (&BigInt::one() << 103u32);
+        let last_finite_integer = &overflow_midpoint - 1i64;
+        for (integer, expected) in [
+            (last_finite_integer.clone(), f32::MAX),
+            (-last_finite_integer, f32::MIN),
+            (overflow_midpoint.clone(), f32::INFINITY),
+            (-overflow_midpoint, f32::NEG_INFINITY),
+        ] {
+            assert_eq!(
+                <BigInt as ToPrimitive>::to_f32(&integer).map(f32::to_bits),
+                Some(expected.to_bits()),
+                "overflow boundary {integer}"
+            );
+        }
+    }
+
+    #[test]
+    fn float_to_bigint_truncates_wide_finite_values_and_refuses_nonfinite_values() {
+        let two_to_100 = BigInt::one() << 100u32;
+        let max_f64_integer = ((BigInt::one() << 53u32) - 1i64) << 971u32;
+        for (value, expected) in [
+            (0.0, BigInt::zero()),
+            (-0.0, BigInt::zero()),
+            (f64::from_bits(1), BigInt::zero()),
+            (-f64::from_bits(1), BigInt::zero()),
+            (0.999_999_999_999, BigInt::zero()),
+            (-0.999_999_999_999, BigInt::zero()),
+            (std::f64::consts::PI, BigInt::from(3)),
+            (-std::f64::consts::PI, BigInt::from(-3)),
+            (2.0f64.powi(100), two_to_100.clone()),
+            (-2.0f64.powi(100), -two_to_100),
+            (f64::MAX, max_f64_integer.clone()),
+            (-f64::MAX, -max_f64_integer),
+        ] {
+            assert_eq!(
+                <BigInt as FromPrimitive>::from_f64(value),
+                Some(expected),
+                "finite input {value:?}"
+            );
+        }
+
+        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert_eq!(<BigInt as FromPrimitive>::from_f64(value), None);
+        }
+    }
+
+    #[test]
+    fn inherited_f32_conversion_uses_the_repaired_wide_float_path() {
+        let max_f32_integer = ((BigInt::one() << 24u32) - 1i64) << 104u32;
+        let two_to_100 = BigInt::one() << 100u32;
+        for (value, expected) in [
+            (f32::MAX, max_f32_integer.clone()),
+            (f32::MIN, -max_f32_integer),
+            (2.0f32.powi(100), two_to_100.clone()),
+            (-2.0f32.powi(100), -two_to_100),
+            (std::f32::consts::PI, BigInt::from(3)),
+            (-std::f32::consts::PI, BigInt::from(-3)),
+            (f32::from_bits(1), BigInt::zero()),
+        ] {
+            assert_eq!(
+                <BigInt as FromPrimitive>::from_f32(value),
+                Some(expected),
+                "finite input {value:?}"
+            );
+        }
+
+        for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            assert_eq!(<BigInt as FromPrimitive>::from_f32(value), None);
+        }
     }
 
     #[test]
@@ -5606,6 +5742,42 @@ mod tests {
                 .expect("every u128 value is exactly representable");
             prop_assert_eq!(&constructed, &expected);
             prop_assert_eq!(<BigInt as ToPrimitive>::to_u128(&constructed), Some(value));
+        }
+
+        #[test]
+        fn signed_integers_convert_directly_to_binary32(value in any::<i128>()) {
+            let integer = parsed_decimal(&value.to_string());
+            prop_assert_eq!(
+                <BigInt as ToPrimitive>::to_f32(&integer).map(f32::to_bits),
+                Some((value as f32).to_bits())
+            );
+        }
+
+        #[test]
+        fn unsigned_integers_convert_directly_to_binary32(value in any::<u128>()) {
+            let integer = parsed_decimal(&value.to_string());
+            prop_assert_eq!(
+                <BigInt as ToPrimitive>::to_f32(&integer).map(f32::to_bits),
+                Some((value as f32).to_bits())
+            );
+        }
+
+        #[test]
+        fn binary64_to_integer_matches_ieee_bit_decomposition(bits in any::<u64>()) {
+            let value = f64::from_bits(bits);
+            prop_assert_eq!(
+                <BigInt as FromPrimitive>::from_f64(value),
+                reference_truncating_bigint_from_f64(value)
+            );
+        }
+
+        #[test]
+        fn binary32_to_integer_matches_exact_widening_and_ieee_decomposition(bits in any::<u32>()) {
+            let value = f32::from_bits(bits);
+            prop_assert_eq!(
+                <BigInt as FromPrimitive>::from_f32(value),
+                reference_truncating_bigint_from_f64(f64::from(value))
+            );
         }
 
         #[test]
