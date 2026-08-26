@@ -650,6 +650,10 @@ mod tests {
 
         let initial = vec![f1, f2];
         let cert = groebner_basis_with_certificate(&initial, TermOrder::DegLex).unwrap();
+        assert_eq!(
+            cert.basis,
+            groebner_basis(&initial, TermOrder::DegLex).unwrap()
+        );
         assert!(verify_groebner_certificate(&initial, &cert).is_ok());
 
         // Mutants:
@@ -666,7 +670,28 @@ mod tests {
         let incomplete_cert = GroebnerBasisCertificate {
             order: TermOrder::DegLex,
             basis: vec![cert.basis[0].clone()],
+            input_ideal_witnesses: vec![cert.input_ideal_witnesses[0].clone()],
         };
         assert!(verify_groebner_certificate(&initial, &incomplete_cert).is_err());
+
+        // 3. A larger ideal is not the same ideal: <1> contains the input ideal, but the unit
+        // polynomial cannot be expressed as a linear combination of these generators.
+        let forged_unit_ideal = GroebnerBasisCertificate {
+            order: TermOrder::DegLex,
+            basis: vec![MultivariatePoly::one(initial[0].generators.clone())],
+            input_ideal_witnesses: vec![vec![
+                MultivariatePoly::zero(initial[0].generators.clone());
+                initial.len()
+            ]],
+        };
+        assert!(verify_groebner_certificate(&initial, &forged_unit_ideal).is_err());
+
+        // 4. Membership witnesses are checked as exact identities, not trusted metadata.
+        let mut tampered_witness_cert = cert.clone();
+        tampered_witness_cert.input_ideal_witnesses[0][0] = tampered_witness_cert
+            .input_ideal_witnesses[0][0]
+            .add(&MultivariatePoly::one(initial[0].generators.clone()))
+            .unwrap();
+        assert!(verify_groebner_certificate(&initial, &tampered_witness_cert).is_err());
     }
 }

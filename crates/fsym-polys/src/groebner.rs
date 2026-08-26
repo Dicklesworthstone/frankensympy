@@ -235,7 +235,7 @@ pub fn groebner_basis(
     }
     let mut g: Vec<MultivariatePoly> = initial_basis
         .iter()
-        .filter(|p| !p.is_zero())
+        .filter(|poly| !poly.is_zero())
         .cloned()
         .collect();
 
@@ -253,8 +253,8 @@ pub fn groebner_basis(
 
     while let Some((i, j)) = pairs.pop() {
         let s = s_polynomial(&g[i], &g[j], order)?;
-        let (_, rem) = s.div_rem(&g, order)?;
-        if !rem.is_zero() {
+        let (_, remainder) = s.div_rem(&g, order)?;
+        if !remainder.is_zero() {
             if g.len() == MAX_GROEBNER_BASIS_POLYNOMIALS {
                 return Err(PolyError::General(format!(
                     "Groebner computation exceeds the basis limit of {MAX_GROEBNER_BASIS_POLYNOMIALS}"
@@ -269,28 +269,236 @@ pub fn groebner_basis(
                 }
                 pairs.push((k, new_idx));
             }
-            g.push(rem);
+            g.push(remainder);
+        }
+    }
+
+    let reduced: Vec<MultivariatePoly> = g
+        .into_iter()
+        .map(|poly| poly.to_monic(order))
+        .collect::<Result<_, _>>()?;
+
+    let mut minimal = Vec::new();
+    for (i, poly) in reduced.iter().enumerate() {
+        if poly.is_zero() {
+            continue;
+        }
+        let leading_monomial = poly.leading_monomial(order).unwrap();
+        let is_redundant = reduced.iter().enumerate().any(|(j, other)| {
+            if i == j || other.is_zero() {
+                return false;
+            }
+            let other_leading_monomial = other.leading_monomial(order).unwrap();
+            if other_leading_monomial == leading_monomial {
+                j < i
+            } else {
+                divides(&other_leading_monomial, &leading_monomial)
+            }
+        });
+        if !is_redundant {
+            minimal.push(poly.clone());
+        }
+    }
+
+    let mut fully_reduced = Vec::new();
+    for i in 0..minimal.len() {
+        let poly = minimal[i].clone();
+        let other_divisors: Vec<MultivariatePoly> = minimal
+            .iter()
+            .enumerate()
+            .filter(|(j, _)| *j != i)
+            .map(|(_, other)| other.clone())
+            .collect();
+        let (_, remainder) = poly.div_rem(&other_divisors, order)?;
+        if !remainder.is_zero() {
+            fully_reduced.push(remainder.to_monic(order)?);
+        }
+    }
+
+    Ok(fully_reduced)
+}
+
+#[derive(Clone)]
+struct TrackedPolynomial {
+    poly: MultivariatePoly,
+    /// Coefficients expressing `poly` as a linear combination of the input basis.
+    input_coefficients: Vec<MultivariatePoly>,
+}
+
+fn scale_poly(poly: &MultivariatePoly, scalar: &BigRational) -> MultivariatePoly {
+    let terms = poly
+        .terms
+        .iter()
+        .map(|(exponents, coefficient)| (exponents.clone(), coefficient * scalar))
+        .collect();
+    MultivariatePoly::new(poly.generators.clone(), terms)
+}
+
+fn make_tracked_monic(
+    tracked: TrackedPolynomial,
+    order: TermOrder,
+) -> Result<TrackedPolynomial, PolyError> {
+    let leading_coefficient = tracked.poly.leading_coeff(order).ok_or_else(|| {
+        PolyError::General("non-zero tracked polynomial has no leading coefficient".to_string())
+    })?;
+    let scale = BigRational::one() / leading_coefficient;
+    Ok(TrackedPolynomial {
+        poly: tracked.poly.to_monic(order)?,
+        input_coefficients: tracked
+            .input_coefficients
+            .iter()
+            .map(|coefficient| scale_poly(coefficient, &scale))
+            .collect(),
+    })
+}
+
+fn reduce_tracked(
+    dividend: TrackedPolynomial,
+    divisors: &[TrackedPolynomial],
+    order: TermOrder,
+) -> Result<TrackedPolynomial, PolyError> {
+    let divisor_polys: Vec<_> = divisors
+        .iter()
+        .map(|divisor| divisor.poly.clone())
+        .collect();
+    let (quotients, remainder) = dividend.poly.div_rem(&divisor_polys, order)?;
+    let mut input_coefficients = dividend.input_coefficients;
+
+    for (quotient, divisor) in quotients.iter().zip(divisors) {
+        for (coefficient, divisor_coefficient) in input_coefficients
+            .iter_mut()
+            .zip(&divisor.input_coefficients)
+        {
+            *coefficient = coefficient.sub(&quotient.mul(divisor_coefficient)?)?;
+        }
+    }
+
+    Ok(TrackedPolynomial {
+        poly: remainder,
+        input_coefficients,
+    })
+}
+
+fn tracked_s_polynomial(
+    f: &TrackedPolynomial,
+    g: &TrackedPolynomial,
+    order: TermOrder,
+) -> Result<TrackedPolynomial, PolyError> {
+    let (f_exp, f_coefficient) = f.poly.leading_term(order).ok_or_else(|| {
+        PolyError::General("zero polynomial reached a tracked S-pair".to_string())
+    })?;
+    let (g_exp, g_coefficient) = g.poly.leading_term(order).ok_or_else(|| {
+        PolyError::General("zero polynomial reached a tracked S-pair".to_string())
+    })?;
+    let lcm_exp = monomial_lcm(f_exp, g_exp);
+
+    let mut f_factor_terms = BTreeMap::new();
+    f_factor_terms.insert(
+        monomial_sub(&lcm_exp, f_exp),
+        BigRational::one() / f_coefficient,
+    );
+    let f_factor = MultivariatePoly::new(f.poly.generators.clone(), f_factor_terms);
+
+    let mut g_factor_terms = BTreeMap::new();
+    g_factor_terms.insert(
+        monomial_sub(&lcm_exp, g_exp),
+        BigRational::one() / g_coefficient,
+    );
+    let g_factor = MultivariatePoly::new(g.poly.generators.clone(), g_factor_terms);
+
+    let poly = f_factor.mul(&f.poly)?.sub(&g_factor.mul(&g.poly)?)?;
+    let mut input_coefficients = Vec::with_capacity(f.input_coefficients.len());
+    for (f_input, g_input) in f.input_coefficients.iter().zip(&g.input_coefficients) {
+        input_coefficients.push(f_factor.mul(f_input)?.sub(&g_factor.mul(g_input)?)?);
+    }
+
+    Ok(TrackedPolynomial {
+        poly,
+        input_coefficients,
+    })
+}
+
+fn tracked_groebner_basis(
+    initial_basis: &[MultivariatePoly],
+    order: TermOrder,
+) -> Result<Vec<TrackedPolynomial>, PolyError> {
+    validate_common_ring(initial_basis)?;
+    if initial_basis.is_empty() {
+        return Ok(Vec::new());
+    }
+    if initial_basis.len() > MAX_GROEBNER_BASIS_POLYNOMIALS {
+        return Err(PolyError::General(format!(
+            "Groebner basis input exceeds the polynomial limit of {MAX_GROEBNER_BASIS_POLYNOMIALS}"
+        )));
+    }
+    let generators = initial_basis[0].generators.clone();
+    let mut g: Vec<TrackedPolynomial> = initial_basis
+        .iter()
+        .enumerate()
+        .filter(|(_, poly)| !poly.is_zero())
+        .map(|(index, poly)| {
+            let mut input_coefficients =
+                vec![MultivariatePoly::zero(generators.clone()); initial_basis.len()];
+            input_coefficients[index] = MultivariatePoly::one(generators.clone());
+            TrackedPolynomial {
+                poly: poly.clone(),
+                input_coefficients,
+            }
+        })
+        .collect();
+
+    let mut pairs = Vec::new();
+    for i in 0..g.len() {
+        for j in (i + 1)..g.len() {
+            if pairs.len() == MAX_GROEBNER_PENDING_PAIRS {
+                return Err(PolyError::General(format!(
+                    "Groebner computation exceeds the pending-pair limit of {MAX_GROEBNER_PENDING_PAIRS}"
+                )));
+            }
+            pairs.push((i, j));
+        }
+    }
+
+    while let Some((i, j)) = pairs.pop() {
+        let s = tracked_s_polynomial(&g[i], &g[j], order)?;
+        let remainder = reduce_tracked(s, &g, order)?;
+        if !remainder.poly.is_zero() {
+            if g.len() == MAX_GROEBNER_BASIS_POLYNOMIALS {
+                return Err(PolyError::General(format!(
+                    "Groebner computation exceeds the basis limit of {MAX_GROEBNER_BASIS_POLYNOMIALS}"
+                )));
+            }
+            let new_idx = g.len();
+            for k in 0..g.len() {
+                if pairs.len() == MAX_GROEBNER_PENDING_PAIRS {
+                    return Err(PolyError::General(format!(
+                        "Groebner computation exceeds the pending-pair limit of {MAX_GROEBNER_PENDING_PAIRS}"
+                    )));
+                }
+                pairs.push((k, new_idx));
+            }
+            g.push(remainder);
         }
     }
 
     // Auto-reduction: make monic and reduce each element against all others
-    let reduced: Vec<MultivariatePoly> = g
+    let reduced: Vec<TrackedPolynomial> = g
         .into_iter()
-        .map(|p| p.to_monic(order))
+        .map(|tracked| make_tracked_monic(tracked, order))
         .collect::<Result<_, _>>()?;
 
     // Remove redundant elements whose leading monomial is divisible by another
     let mut minimal = Vec::new();
     for (i, p) in reduced.iter().enumerate() {
-        if p.is_zero() {
+        if p.poly.is_zero() {
             continue;
         }
-        let lm_p = p.leading_monomial(order).unwrap();
+        let lm_p = p.poly.leading_monomial(order).unwrap();
         let is_redundant = reduced.iter().enumerate().any(|(j, other)| {
-            if i == j || other.is_zero() {
+            if i == j || other.poly.is_zero() {
                 return false;
             }
-            let lm_other = other.leading_monomial(order).unwrap();
+            let lm_other = other.poly.leading_monomial(order).unwrap();
             if lm_other == lm_p {
                 j < i // keep the first one with this leading monomial
             } else {
@@ -306,15 +514,15 @@ pub fn groebner_basis(
     let mut fully_reduced = Vec::new();
     for i in 0..minimal.len() {
         let p = minimal[i].clone();
-        let other_divisors: Vec<MultivariatePoly> = minimal
+        let other_divisors: Vec<TrackedPolynomial> = minimal
             .iter()
             .enumerate()
             .filter(|(j, _)| *j != i)
-            .map(|(_, q)| q.clone())
+            .map(|(_, tracked)| tracked.clone())
             .collect();
-        let (_, rem) = p.div_rem(&other_divisors, order)?;
-        if !rem.is_zero() {
-            fully_reduced.push(rem.to_monic(order)?);
+        let remainder = reduce_tracked(p, &other_divisors, order)?;
+        if !remainder.poly.is_zero() {
+            fully_reduced.push(make_tracked_monic(remainder, order)?);
         }
     }
 
@@ -371,6 +579,9 @@ pub fn eliminate(
 pub struct GroebnerBasisCertificate {
     pub order: TermOrder,
     pub basis: Vec<MultivariatePoly>,
+    /// For each basis polynomial, coefficients expressing it as a linear combination of the
+    /// original input basis. The verifier checks these exact identities independently.
+    pub input_ideal_witnesses: Vec<Vec<MultivariatePoly>>,
 }
 
 /// Computes the minimal reduced Groebner basis along with a typed verification certificate.
@@ -378,8 +589,18 @@ pub fn groebner_basis_with_certificate(
     initial_basis: &[MultivariatePoly],
     order: TermOrder,
 ) -> Result<GroebnerBasisCertificate, PolyError> {
-    let basis = groebner_basis(initial_basis, order)?;
-    let cert = GroebnerBasisCertificate { order, basis };
+    let tracked_basis = tracked_groebner_basis(initial_basis, order)?;
+    let mut basis = Vec::with_capacity(tracked_basis.len());
+    let mut input_ideal_witnesses = Vec::with_capacity(tracked_basis.len());
+    for tracked in tracked_basis {
+        basis.push(tracked.poly);
+        input_ideal_witnesses.push(tracked.input_coefficients);
+    }
+    let cert = GroebnerBasisCertificate {
+        order,
+        basis,
+        input_ideal_witnesses,
+    };
     verify_groebner_certificate(initial_basis, &cert)?;
     Ok(cert)
 }
@@ -388,10 +609,11 @@ pub fn groebner_basis_with_certificate(
 ///
 /// Verifies without search:
 /// 1. Ring and generator compatibility between input generators and basis polynomials.
-/// 2. Every input generator $f_i$ belongs to the ideal $\langle G \rangle$: $f_i \xrightarrow{G} 0$.
-/// 3. Every basis polynomial $g_j$ is monic ($\text{LC}(g_j) = 1$).
-/// 4. Buchberger's S-polynomial criterion: for all $i < j$, $S(g_i, g_j) \xrightarrow{G} 0$.
-/// 5. Minimal reduced property: for all $i \neq j$, no monomial in $\text{supp}(g_i)$ is divisible by $\text{LM}(g_j)$.
+/// 2. Every reported basis polynomial is an exact linear combination of the input generators.
+/// 3. Every input generator $f_i$ belongs to the ideal $\langle G \rangle$: $f_i \xrightarrow{G} 0$.
+/// 4. Every basis polynomial $g_j$ is monic ($\text{LC}(g_j) = 1$).
+/// 5. Buchberger's S-polynomial criterion: for all $i < j$, $S(g_i, g_j) \xrightarrow{G} 0$.
+/// 6. Minimal reduced property: for all $i \neq j$, no monomial in $\text{supp}(g_i)$ is divisible by $\text{LM}(g_j)$.
 pub fn verify_groebner_certificate(
     initial_basis: &[MultivariatePoly],
     cert: &GroebnerBasisCertificate,
@@ -399,11 +621,50 @@ pub fn verify_groebner_certificate(
     validate_common_ring(initial_basis)?;
     validate_common_ring(&cert.basis)?;
 
-    if let (Some(first_in), Some(first_gb)) = (initial_basis.first(), cert.basis.first()) {
-        if first_in.generators != first_gb.generators {
-            return Err(incompatible_rings(
-                &first_in.generators,
-                &first_gb.generators,
+    if initial_basis.len() > MAX_GROEBNER_BASIS_POLYNOMIALS
+        || cert.basis.len() > MAX_GROEBNER_BASIS_POLYNOMIALS
+    {
+        return Err(PolyError::General(format!(
+            "Groebner certificate exceeds the polynomial limit of {MAX_GROEBNER_BASIS_POLYNOMIALS}"
+        )));
+    }
+    if cert.input_ideal_witnesses.len() != cert.basis.len() {
+        return Err(PolyError::General(
+            "Groebner certificate witness count does not match the basis".to_string(),
+        ));
+    }
+
+    if let (Some(first_in), Some(first_gb)) = (initial_basis.first(), cert.basis.first())
+        && first_in.generators != first_gb.generators
+    {
+        return Err(incompatible_rings(
+            &first_in.generators,
+            &first_gb.generators,
+        ));
+    }
+
+    // Reverse ideal containment: every g_j must be proven to belong to the input ideal.
+    for (basis_poly, witness) in cert.basis.iter().zip(&cert.input_ideal_witnesses) {
+        if witness.len() != initial_basis.len() {
+            return Err(PolyError::General(
+                "Groebner certificate witness width does not match the input basis".to_string(),
+            ));
+        }
+        let mut reconstructed = MultivariatePoly::zero(basis_poly.generators.clone());
+        for (coefficient, input_poly) in witness.iter().zip(initial_basis) {
+            coefficient.validate_shape()?;
+            if coefficient.generators != basis_poly.generators {
+                return Err(incompatible_rings(
+                    &basis_poly.generators,
+                    &coefficient.generators,
+                ));
+            }
+            reconstructed = reconstructed.add(&coefficient.mul(input_poly)?)?;
+        }
+        if reconstructed != *basis_poly {
+            return Err(PolyError::General(
+                "Groebner basis polynomial is not established as a member of the input ideal"
+                    .to_string(),
             ));
         }
     }
@@ -460,7 +721,7 @@ pub fn verify_groebner_certificate(
                 continue;
             }
             let lm_j = gj.leading_monomial(order).unwrap();
-            for (exp_i, _) in &gi.terms {
+            for exp_i in gi.terms.keys() {
                 if divides(&lm_j, exp_i) {
                     return Err(PolyError::General(format!(
                         "Groebner basis is not reduced: term in g_{i} is divisible by leading monomial of g_{j}"
