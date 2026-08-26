@@ -51,6 +51,10 @@ pub enum RationalArithmeticError {
     Meter(MeterError),
     /// Division or remainder was requested with a zero right-hand operand.
     DivisionByZero,
+    /// A checked rational work-buffer size could not be represented.
+    SizeOverflow,
+    /// A preflighted rational work-buffer reservation was refused by the allocator.
+    AllocationFailure,
     /// A mathematically exact internal quotient failed its invariant check.
     InvariantViolation(&'static str),
 }
@@ -60,6 +64,8 @@ impl fmt::Display for RationalArithmeticError {
         match self {
             Self::Meter(error) => fmt::Display::fmt(error, f),
             Self::DivisionByZero => f.write_str("rational division by zero"),
+            Self::SizeOverflow => f.write_str("rational work-buffer size overflow"),
+            Self::AllocationFailure => f.write_str("rational work-buffer allocation refused"),
             Self::InvariantViolation(message) => {
                 write!(f, "rational arithmetic invariant violated: {message}")
             }
@@ -487,27 +493,32 @@ impl BigRational {
         }
     }
 
-    /// Cancellation-first continued-fraction expansion with coefficient-height accounting.
+    /// Cancellation-first continued-fraction expansion with incremental, fallible coefficient
+    /// storage and coefficient-height accounting.
     pub fn metered_continued_fraction<M: BudgetMeter>(
         &self,
         meter: &mut M,
-    ) -> Result<Vec<BigInt>, MeterError> {
+    ) -> Result<Vec<BigInt>, RationalArithmeticError> {
         meter.checkpoint()?;
+        let coefficient_limit = match continued_fraction_coefficient_bound(self.denom().bits()) {
+            Ok(limit) => limit,
+            Err(error) => return rational_metered_error(error, meter),
+        };
+        self.metered_continued_fraction_with_limit(coefficient_limit, meter)
+    }
+
+    fn metered_continued_fraction_with_limit<M: BudgetMeter>(
+        &self,
+        coefficient_limit: usize,
+        meter: &mut M,
+    ) -> Result<Vec<BigInt>, RationalArithmeticError> {
         let mut numerator = metered_clone(self.numer(), meter)?;
         let mut denominator = metered_clone(self.denom(), meter)?;
-        let coefficient_capacity = continued_fraction_coefficient_bound(self.denom().bits());
-        let coefficient_bytes = u64::try_from(coefficient_capacity)
-            .unwrap_or(u64::MAX)
-            .saturating_mul(u64::try_from(std::mem::size_of::<BigInt>()).unwrap_or(u64::MAX));
-        meter.charge_batch(&[
-            (Dimension::MemoryBytes, coefficient_bytes),
-            (Dimension::AllocationCount, 1),
-        ])?;
-        let mut coefficients = Vec::with_capacity(coefficient_capacity);
+        let mut coefficients = Vec::new();
         loop {
             meter.checkpoint()?;
             let Some(divisor) = NonZeroBigInt::new(&denominator) else {
-                return metered_finish(coefficients, meter);
+                return rational_metered_finish(coefficients, meter);
             };
             let (mut quotient, mut remainder) =
                 metered_div_rem_nonzero(&numerator, divisor, meter)?;
@@ -516,11 +527,11 @@ impl BigRational {
                 quotient = metered_bigint_subtract(&quotient, &one, meter)?;
                 remainder = metered_bigint_add(&remainder, &denominator, meter)?;
             }
+            reserve_next_continued_fraction_slot(&mut coefficients, coefficient_limit, meter)?;
             charge_persisted_coefficient(&quotient, meter)?;
-            debug_assert!(coefficients.len() < coefficient_capacity);
             coefficients.push(quotient);
             if remainder.is_zero() {
-                return metered_finish(coefficients, meter);
+                return rational_metered_finish(coefficients, meter);
             }
             numerator = denominator;
             denominator = remainder;
@@ -684,8 +695,74 @@ fn metered_finish<T, M: BudgetMeter>(value: T, meter: &mut M) -> Result<T, Meter
 /// Every two Euclidean divisions at least halve the positive divisor: if the first remainder is
 /// above half, the following remainder is below half. Two slots per denominator bit plus the
 /// initial quotient therefore bound every canonical rational's finite expansion.
-fn continued_fraction_coefficient_bound(denominator_bits: u64) -> usize {
-    usize::try_from(denominator_bits.saturating_mul(2).saturating_add(1)).unwrap_or(usize::MAX)
+fn continued_fraction_coefficient_bound(
+    denominator_bits: u64,
+) -> Result<usize, RationalArithmeticError> {
+    let bound = denominator_bits
+        .checked_mul(2)
+        .and_then(|bits| bits.checked_add(1))
+        .ok_or(RationalArithmeticError::SizeOverflow)?;
+    usize::try_from(bound).map_err(|_| RationalArithmeticError::SizeOverflow)
+}
+
+fn reserve_next_continued_fraction_slot<M: BudgetMeter>(
+    coefficients: &mut Vec<BigInt>,
+    coefficient_limit: usize,
+    meter: &mut M,
+) -> Result<(), RationalArithmeticError> {
+    if coefficients.len() >= coefficient_limit {
+        return rational_metered_error(
+            RationalArithmeticError::InvariantViolation(
+                "continued-fraction coefficient bound exceeded",
+            ),
+            meter,
+        );
+    }
+    if coefficients.len() < coefficients.capacity() {
+        return Ok(());
+    }
+
+    let target_capacity = if coefficients.capacity() == 0 {
+        1
+    } else {
+        match coefficients.capacity().checked_mul(2) {
+            Some(capacity) => capacity,
+            None => return rational_metered_error(RationalArithmeticError::SizeOverflow, meter),
+        }
+    }
+    .min(coefficient_limit);
+    let additional = match target_capacity.checked_sub(coefficients.len()) {
+        Some(additional) => additional,
+        None => return rational_metered_error(RationalArithmeticError::SizeOverflow, meter),
+    };
+    reserve_continued_fraction_slots(coefficients, additional, meter)
+}
+
+fn reserve_continued_fraction_slots<M: BudgetMeter>(
+    coefficients: &mut Vec<BigInt>,
+    additional: usize,
+    meter: &mut M,
+) -> Result<(), RationalArithmeticError> {
+    let Some(slot_bytes) = u64::try_from(std::mem::size_of::<BigInt>()).ok() else {
+        return rational_metered_error(RationalArithmeticError::SizeOverflow, meter);
+    };
+    let Some(additional_slots) = u64::try_from(additional).ok() else {
+        return rational_metered_error(RationalArithmeticError::SizeOverflow, meter);
+    };
+    let Some(additional_bytes) = additional_slots.checked_mul(slot_bytes) else {
+        return rational_metered_error(RationalArithmeticError::SizeOverflow, meter);
+    };
+
+    meter.checkpoint()?;
+    meter.charge_batch(&[
+        (Dimension::MemoryBytes, additional_bytes),
+        (Dimension::AllocationCount, 1),
+    ])?;
+    if coefficients.try_reserve_exact(additional).is_err() {
+        return rational_metered_error(RationalArithmeticError::AllocationFailure, meter);
+    }
+    meter.checkpoint()?;
+    Ok(())
 }
 
 fn metered_clone<M: BudgetMeter>(value: &BigInt, meter: &mut M) -> Result<BigInt, MeterError> {
@@ -1052,6 +1129,38 @@ mod tests {
             } else {
                 Ok(())
             }
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct GrowthMeter {
+        reservations: Vec<(u64, u64)>,
+    }
+
+    impl BudgetMeter for GrowthMeter {
+        fn charge(&mut self, _dimension: Dimension, _amount: u64) -> Result<(), MeterError> {
+            Ok(())
+        }
+
+        fn charge_batch(&mut self, charges: &[(Dimension, u64)]) -> Result<(), MeterError> {
+            let memory_bytes = charges
+                .iter()
+                .find_map(|(dimension, amount)| {
+                    (*dimension == Dimension::MemoryBytes).then_some(*amount)
+                })
+                .unwrap_or(0);
+            let allocation_count = charges
+                .iter()
+                .find_map(|(dimension, amount)| {
+                    (*dimension == Dimension::AllocationCount).then_some(*amount)
+                })
+                .unwrap_or(0);
+            self.reservations.push((memory_bytes, allocation_count));
+            Ok(())
+        }
+
+        fn checkpoint(&mut self) -> Result<(), MeterError> {
+            Ok(())
         }
     }
 
@@ -1578,7 +1687,7 @@ mod tests {
         assert!(matches!(
             BigRational::new(BigInt::from(415), BigInt::from(93))
                 .metered_continued_fraction(&mut budget),
-            Err(MeterError::Budget(_))
+            Err(RationalArithmeticError::Meter(MeterError::Budget(_)))
         ));
 
         let mut budget = Budget::new(BudgetLimits::uniform(1, 0));
@@ -1589,32 +1698,161 @@ mod tests {
     }
 
     #[test]
-    fn metered_expansion_preflights_the_bounded_coefficient_buffer() {
-        let value = BigRational::new(BigInt::from(415), BigInt::from(93));
-        let clone_bytes = value
-            .numer()
-            .limb_count()
-            .max(1)
-            .saturating_add(value.denom().limb_count().max(1))
-            .saturating_mul(8);
-        let coefficient_bytes =
-            u64::try_from(continued_fraction_coefficient_bound(value.denom().bits()))
-                .unwrap_or(u64::MAX)
-                .saturating_mul(u64::try_from(std::mem::size_of::<BigInt>()).unwrap_or(u64::MAX));
+    fn metered_expansion_allocates_for_actual_sparse_output() {
+        let denominator = BigInt::one() << 4_096u32;
+        let value = BigRational::new(BigInt::one(), denominator.clone());
+        let mut meter = Unbounded;
+        let coefficients = value
+            .metered_continued_fraction(&mut meter)
+            .expect("sparse expansion uses bounded incremental storage");
+
+        assert_eq!(coefficients, [BigInt::zero(), denominator]);
+        assert!(coefficients.capacity() <= 4);
+        let theorem_limit = continued_fraction_coefficient_bound(value.denom().bits())
+            .expect("4097 denominator bits have a representable theorem bound");
+        assert!(theorem_limit > coefficients.capacity().saturating_mul(1_000));
+    }
+
+    #[test]
+    fn continued_fraction_growth_refuses_before_reserve_and_reports_allocator_failure() {
+        let slot_bytes =
+            u64::try_from(std::mem::size_of::<BigInt>()).expect("BigInt header size fits u64");
+
         let mut limits = BudgetLimits::uniform(u64::MAX, 0);
-        limits.dimensions[Dimension::MemoryBytes.index()] = clone_bytes
-            .saturating_add(coefficient_bytes)
-            .saturating_sub(1);
+        limits.dimensions[Dimension::MemoryBytes.index()] = slot_bytes - 1;
         let mut budget = Budget::new(limits);
+        let before = budget.snapshot();
+        let mut coefficients = Vec::new();
+        assert_eq!(
+            reserve_continued_fraction_slots(&mut coefficients, 1, &mut budget),
+            Err(RationalArithmeticError::Meter(MeterError::Budget(
+                BudgetError::Exhausted {
+                    dimension: Dimension::MemoryBytes,
+                    requested: slot_bytes,
+                    remaining: slot_bytes - 1,
+                }
+            )))
+        );
+        assert_eq!(coefficients.capacity(), 0);
+        assert_eq!(budget.snapshot(), before);
+
+        let mut limits = BudgetLimits::uniform(u64::MAX, 0);
+        limits.dimensions[Dimension::AllocationCount.index()] = 0;
+        let mut budget = Budget::new(limits);
+        let before = budget.snapshot();
+        assert_eq!(
+            reserve_continued_fraction_slots(&mut coefficients, 1, &mut budget),
+            Err(RationalArithmeticError::Meter(MeterError::Budget(
+                BudgetError::Exhausted {
+                    dimension: Dimension::AllocationCount,
+                    requested: 1,
+                    remaining: 0,
+                }
+            )))
+        );
+        assert_eq!(coefficients.capacity(), 0);
+        assert_eq!(budget.snapshot(), before);
+
+        let impossible_slots = (isize::MAX as usize)
+            .checked_div(std::mem::size_of::<BigInt>())
+            .and_then(|slots| slots.checked_add(1))
+            .expect("an impossible Vec<BigInt> capacity is representable");
+        assert_eq!(
+            reserve_continued_fraction_slots(&mut coefficients, impossible_slots, &mut Unbounded,),
+            Err(RationalArithmeticError::AllocationFailure)
+        );
+        assert_eq!(coefficients.capacity(), 0);
+
+        let mut measured = CheckpointMeter::default();
+        assert_eq!(
+            reserve_continued_fraction_slots(&mut coefficients, impossible_slots, &mut measured,),
+            Err(RationalArithmeticError::AllocationFailure)
+        );
+        let mut cancelled = CheckpointMeter::cancelling_at(measured.checkpoints);
+        assert_eq!(
+            reserve_continued_fraction_slots(&mut coefficients, impossible_slots, &mut cancelled,),
+            Err(RationalArithmeticError::Meter(MeterError::Cancelled))
+        );
+        assert_eq!(cancelled.checkpoints, measured.checkpoints);
+        assert_eq!(coefficients.capacity(), 0);
+        assert_eq!(
+            continued_fraction_coefficient_bound(u64::MAX),
+            Err(RationalArithmeticError::SizeOverflow)
+        );
+    }
+
+    #[test]
+    fn continued_fraction_growth_topology_is_geometric_and_capped() {
+        let logical_limit = 7;
+        let slot_bytes =
+            u64::try_from(std::mem::size_of::<BigInt>()).expect("BigInt header size fits u64");
+        let mut coefficients = Vec::new();
+        let mut meter = GrowthMeter::default();
+
+        for value in 0i64..6 {
+            reserve_next_continued_fraction_slot(&mut coefficients, logical_limit, &mut meter)
+                .expect("slot growth stays within its logical cap");
+            assert!(coefficients.capacity() <= logical_limit);
+            coefficients.push(BigInt::from(value));
+        }
 
         assert_eq!(
-            value.metered_continued_fraction(&mut budget),
-            Err(MeterError::Budget(BudgetError::Exhausted {
-                dimension: Dimension::MemoryBytes,
-                requested: coefficient_bytes,
-                remaining: coefficient_bytes.saturating_sub(1),
-            }))
+            meter.reservations,
+            [
+                (slot_bytes, 1),
+                (slot_bytes, 1),
+                (slot_bytes * 2, 1),
+                (slot_bytes * 3, 1),
+            ]
         );
+        assert_eq!(coefficients.capacity(), logical_limit);
+    }
+
+    #[test]
+    fn metered_expansion_enforces_the_logical_coefficient_bound() {
+        let value = BigRational::new(BigInt::from(415), BigInt::from(93));
+        assert_eq!(value.continued_fraction().len(), 4);
+        assert_eq!(
+            value.metered_continued_fraction_with_limit(3, &mut Unbounded),
+            Err(RationalArithmeticError::InvariantViolation(
+                "continued-fraction coefficient bound exceeded"
+            ))
+        );
+
+        let mut measured = CheckpointMeter::default();
+        assert_eq!(
+            value.metered_continued_fraction_with_limit(3, &mut measured),
+            Err(RationalArithmeticError::InvariantViolation(
+                "continued-fraction coefficient bound exceeded"
+            ))
+        );
+        let mut cancelled = CheckpointMeter::cancelling_at(measured.checkpoints);
+        assert_eq!(
+            value.metered_continued_fraction_with_limit(3, &mut cancelled),
+            Err(RationalArithmeticError::Meter(MeterError::Cancelled))
+        );
+        assert_eq!(cancelled.checkpoints, measured.checkpoints);
+    }
+
+    #[test]
+    fn metered_expansion_cancels_at_every_observed_safe_point() {
+        let value = BigRational::new(BigInt::from(-415), BigInt::from(93));
+        let mut measured = CheckpointMeter::default();
+        let expected = value
+            .metered_continued_fraction(&mut measured)
+            .expect("baseline expansion succeeds");
+        assert_eq!(expected, value.continued_fraction());
+        assert!(measured.checkpoints > 0);
+
+        for checkpoint in 1..=measured.checkpoints {
+            let mut cancelled = CheckpointMeter::cancelling_at(checkpoint);
+            assert_eq!(
+                value.metered_continued_fraction(&mut cancelled),
+                Err(RationalArithmeticError::Meter(MeterError::Cancelled)),
+                "checkpoint {checkpoint} did not stop publication"
+            );
+            assert_eq!(cancelled.checkpoints, checkpoint);
+        }
     }
 
     #[test]
@@ -1635,14 +1873,14 @@ mod tests {
         let mut cancelled = CheckpointMeter::cancelling_at(measured.checkpoints);
         assert_eq!(
             value.metered_continued_fraction(&mut cancelled),
-            Err(MeterError::Cancelled)
+            Err(RationalArithmeticError::Meter(MeterError::Cancelled))
         );
 
         let late_checkpoint = measured.checkpoints.saturating_mul(3) / 4;
         let mut cancelled = CheckpointMeter::cancelling_at(late_checkpoint);
         assert_eq!(
             value.metered_continued_fraction(&mut cancelled),
-            Err(MeterError::Cancelled)
+            Err(RationalArithmeticError::Meter(MeterError::Cancelled))
         );
 
         let mut measured = CheckpointMeter::default();
