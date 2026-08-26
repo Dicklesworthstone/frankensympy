@@ -1,13 +1,13 @@
 error[E0308]: mismatched types
- --> tests/ui/raw_payload_smuggling.rs:7:46
+ --> tests/ui/raw_payload_smuggling.rs:9:22
   |
-7 |     let receipt: ReceiptId = ReceiptId::from(TermId::new(3).unwrap().raw());
-  |                              --------------- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `ReceiptId`, found `u64`
-  |                              |
-  |                              arguments to this function are incorrect
+9 |     requires_receipt(TermId::new(3).unwrap().raw());
+  |     ---------------- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `ReceiptId`, found `u64`
+  |     |
+  |     arguments to this function are incorrect
   |
-note: associated function defined here
- --> $RUST/core/src/convert/mod.rs
+note: function defined here
+ --> tests/ui/raw_payload_smuggling.rs:3:4
   |
-  |     fn from(value: T) -> Self;
-  |        ^^^^
+3 | fn requires_receipt(_: ReceiptId) {}
+  |    ^^^^^^^^^^^^^^^^ ------------
