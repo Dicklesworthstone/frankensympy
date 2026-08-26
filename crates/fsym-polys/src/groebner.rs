@@ -6,6 +6,7 @@ use crate::PolyError;
 use crate::multivariate::{MultivariatePoly, TermOrder};
 use fsym_core::{BigRational, Symbol};
 use num_traits::{One, Zero};
+use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
@@ -363,4 +364,111 @@ pub fn eliminate(
         .collect();
 
     Ok(eliminated_basis)
+}
+
+/// Certificate for a minimal reduced Groebner basis under a specified term ordering.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GroebnerBasisCertificate {
+    pub order: TermOrder,
+    pub basis: Vec<MultivariatePoly>,
+}
+
+/// Computes the minimal reduced Groebner basis along with a typed verification certificate.
+pub fn groebner_basis_with_certificate(
+    initial_basis: &[MultivariatePoly],
+    order: TermOrder,
+) -> Result<GroebnerBasisCertificate, PolyError> {
+    let basis = groebner_basis(initial_basis, order)?;
+    let cert = GroebnerBasisCertificate { order, basis };
+    verify_groebner_certificate(initial_basis, &cert)?;
+    Ok(cert)
+}
+
+/// Independent verifier for a minimal reduced Groebner basis certificate.
+///
+/// Verifies without search:
+/// 1. Ring and generator compatibility between input generators and basis polynomials.
+/// 2. Every input generator $f_i$ belongs to the ideal $\langle G \rangle$: $f_i \xrightarrow{G} 0$.
+/// 3. Every basis polynomial $g_j$ is monic ($\text{LC}(g_j) = 1$).
+/// 4. Buchberger's S-polynomial criterion: for all $i < j$, $S(g_i, g_j) \xrightarrow{G} 0$.
+/// 5. Minimal reduced property: for all $i \neq j$, no monomial in $\text{supp}(g_i)$ is divisible by $\text{LM}(g_j)$.
+pub fn verify_groebner_certificate(
+    initial_basis: &[MultivariatePoly],
+    cert: &GroebnerBasisCertificate,
+) -> Result<(), PolyError> {
+    validate_common_ring(initial_basis)?;
+    validate_common_ring(&cert.basis)?;
+
+    if let (Some(first_in), Some(first_gb)) = (initial_basis.first(), cert.basis.first()) {
+        if first_in.generators != first_gb.generators {
+            return Err(incompatible_rings(
+                &first_in.generators,
+                &first_gb.generators,
+            ));
+        }
+    }
+
+    let order = cert.order;
+
+    // 1. Monic check and non-zero check
+    for g in &cert.basis {
+        if g.is_zero() {
+            return Err(PolyError::General(
+                "Groebner basis certificate contains non-canonical zero polynomial".to_string(),
+            ));
+        }
+        let lc = g.leading_coeff(order).ok_or_else(|| {
+            PolyError::General("Groebner basis polynomial has no leading coefficient".to_string())
+        })?;
+        if !lc.is_one() {
+            return Err(PolyError::General(
+                "Groebner basis polynomial is not monic".to_string(),
+            ));
+        }
+    }
+
+    // 2. Input ideal containment: every f_i in initial_basis reduces to 0 modulo G
+    for f in initial_basis {
+        if f.is_zero() {
+            continue;
+        }
+        let (_, rem) = f.div_rem(&cert.basis, order)?;
+        if !rem.is_zero() {
+            return Err(PolyError::General(
+                "Input ideal polynomial does not reduce to zero modulo Groebner basis".to_string(),
+            ));
+        }
+    }
+
+    // 3. S-pair Buchberger criterion: S(g_i, g_j) reduces to 0 modulo G for all pairs
+    for i in 0..cert.basis.len() {
+        for j in (i + 1)..cert.basis.len() {
+            let s = s_polynomial(&cert.basis[i], &cert.basis[j], order)?;
+            let (_, rem) = s.div_rem(&cert.basis, order)?;
+            if !rem.is_zero() {
+                return Err(PolyError::General(format!(
+                    "S-polynomial S(g_{i}, g_{j}) does not reduce to zero modulo Groebner basis"
+                )));
+            }
+        }
+    }
+
+    // 4. Reducedness: for all i != j, no monomial in supp(g_i) is divisible by LM(g_j)
+    for (i, gi) in cert.basis.iter().enumerate() {
+        for (j, gj) in cert.basis.iter().enumerate() {
+            if i == j {
+                continue;
+            }
+            let lm_j = gj.leading_monomial(order).unwrap();
+            for (exp_i, _) in &gi.terms {
+                if divides(&lm_j, exp_i) {
+                    return Err(PolyError::General(format!(
+                        "Groebner basis is not reduced: term in g_{i} is divisible by leading monomial of g_{j}"
+                    )));
+                }
+            }
+        }
+    }
+
+    Ok(())
 }

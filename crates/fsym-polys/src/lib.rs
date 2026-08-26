@@ -628,4 +628,45 @@ mod tests {
         assert_eq!(res4.factors[0].poly, p4);
         assert!(verify_factorization_certificate(&p4, &res4).is_ok());
     }
+
+    #[test]
+    fn test_groebner_basis_certificate_and_verification() {
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+        let gens = vec![x.clone(), y.clone()];
+
+        // Ideal I = <x^2 + y, x*y + x> under DegLex
+        // f1 = x^2 + y
+        let mut t1 = BTreeMap::new();
+        t1.insert(vec![2, 0], BigRational::one());
+        t1.insert(vec![0, 1], BigRational::one());
+        let f1 = MultivariatePoly::new(gens.clone(), t1);
+
+        // f2 = x*y + x
+        let mut t2 = BTreeMap::new();
+        t2.insert(vec![1, 1], BigRational::one());
+        t2.insert(vec![1, 0], BigRational::one());
+        let f2 = MultivariatePoly::new(gens, t2);
+
+        let initial = vec![f1, f2];
+        let cert = groebner_basis_with_certificate(&initial, TermOrder::DegLex).unwrap();
+        assert!(verify_groebner_certificate(&initial, &cert).is_ok());
+
+        // Mutants:
+        // 1. Non-monic basis element
+        let mut non_monic_cert = cert.clone();
+        let mut tampered_terms = non_monic_cert.basis[0].terms.clone();
+        for val in tampered_terms.values_mut() {
+            *val *= BigRational::from_integer(2.into());
+        }
+        non_monic_cert.basis[0].terms = tampered_terms;
+        assert!(verify_groebner_certificate(&initial, &non_monic_cert).is_err());
+
+        // 2. Incomplete basis (missing generator)
+        let incomplete_cert = GroebnerBasisCertificate {
+            order: TermOrder::DegLex,
+            basis: vec![cert.basis[0].clone()],
+        };
+        assert!(verify_groebner_certificate(&initial, &incomplete_cert).is_err());
+    }
 }
