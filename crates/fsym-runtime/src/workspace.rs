@@ -166,6 +166,7 @@ fn map_dag_error(error: DagError) -> WorkspaceError {
         | DagError::ExpansionLimitExceeded(_)
         | DagError::ArityLimitExceeded(_)
         | DagError::PayloadLimitExceeded(_)
+        | DagError::TotalPayloadLimitExceeded(_)
         | DagError::NumericPayloadLimitExceeded(_) => WorkspaceError::ResourceLimitExceeded,
     }
 }
@@ -452,6 +453,14 @@ mod tests {
             }],
             root: StepId(0),
         }
+    }
+
+    #[test]
+    fn aggregate_dag_limit_maps_to_workspace_resource_refusal() {
+        assert_eq!(
+            map_dag_error(DagError::TotalPayloadLimitExceeded(1)),
+            WorkspaceError::ResourceLimitExceeded
+        );
     }
 
     #[test]
