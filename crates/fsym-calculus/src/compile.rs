@@ -1,4 +1,5 @@
-//! Fast symbolic-to-numeric compilation for residual systems and exact Jacobians (WS12).
+//! Fast symbolic-to-numeric compilation for residual systems and symbolically differentiated
+//! Jacobians (WS12).
 
 #![forbid(unsafe_code)]
 
@@ -17,6 +18,8 @@ pub const MAX_COMPILE_OPS: usize = 8192;
 /// Errors emitted during symbolic-to-numeric expression and system compilation.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum CompileError {
+    #[error("Variable list contains the duplicate symbol {0}")]
+    DuplicateVariable(Symbol),
     #[error("Unmapped variable in expression: {0}")]
     UnmappedVariable(Symbol),
     #[error("Unsupported expression variant for compilation: {0}")]
@@ -31,6 +34,10 @@ pub enum CompileError {
     DepthLimitExceeded { depth: usize, max: usize },
     #[error("Compiled bytecode size {ops} exceeds maximum operation limit {max}")]
     OpLimitExceeded { ops: usize, max: usize },
+    #[error("Residual-system dimensions overflow the platform size type")]
+    DimensionOverflow,
+    #[error("Allocation failed during symbolic-to-numeric compilation")]
+    AllocationFailure,
 }
 
 /// Errors emitted during compiled numerical evaluation.
@@ -46,6 +53,18 @@ pub enum EvalError {
     ResidualBufferMismatch { expected: usize, actual: usize },
     #[error("Jacobian buffer length mismatch: expected {expected}, got {actual}")]
     JacobianBufferMismatch { expected: usize, actual: usize },
+    #[error("Compiled {lane} expression count mismatch: expected {expected}, got {actual}")]
+    CompiledExpressionCountMismatch {
+        lane: &'static str,
+        expected: usize,
+        actual: usize,
+    },
+    #[error("Compiled bytecode size {ops} exceeds maximum operation limit {max}")]
+    OpLimitExceeded { ops: usize, max: usize },
+    #[error("Residual-system dimensions overflow the platform size type")]
+    DimensionOverflow,
+    #[error("Allocation failed during compiled numerical evaluation")]
+    AllocationFailure,
 }
 
 /// Fast compiled expression evaluator targeting numerical arrays.
@@ -84,9 +103,6 @@ impl CompiledExpr {
     ) -> Result<Self, CompileError> {
         let mut ops = Vec::new();
         Self::compile_recursive(expr, var_map, &mut ops, 0)?;
-        if ops.is_empty() {
-            ops.push(CompiledOp::LoadConst(0.0));
-        }
         Ok(Self { ops })
     }
 
@@ -107,9 +123,9 @@ impl CompiledExpr {
                 max: MAX_COMPILE_DEPTH,
             });
         }
-        if ops.len() > MAX_COMPILE_OPS {
+        if ops.len() >= MAX_COMPILE_OPS {
             return Err(CompileError::OpLimitExceeded {
-                ops: ops.len(),
+                ops: ops.len().saturating_add(1),
                 max: MAX_COMPILE_OPS,
             });
         }
@@ -123,7 +139,7 @@ impl CompiledExpr {
                 if !val.is_finite() {
                     return Err(CompileError::NumericConversion(s));
                 }
-                ops.push(CompiledOp::LoadConst(val));
+                Self::push_op(ops, CompiledOp::LoadConst(val))?;
             }
             Expr::Rational(r) => {
                 let numer_s = r.numer().to_string();
@@ -141,13 +157,19 @@ impl CompiledExpr {
                 if !val.is_finite() {
                     return Err(CompileError::NumericConversion(format!("{numer}/{denom}")));
                 }
-                ops.push(CompiledOp::LoadConst(val));
+                Self::push_op(ops, CompiledOp::LoadConst(val))?;
             }
-            Expr::Const(Constant::Pi) => ops.push(CompiledOp::LoadConst(std::f64::consts::PI)),
-            Expr::Const(Constant::E) => ops.push(CompiledOp::LoadConst(std::f64::consts::E)),
-            Expr::Const(Constant::Infinity) => ops.push(CompiledOp::LoadConst(f64::INFINITY)),
+            Expr::Const(Constant::Pi) => {
+                Self::push_op(ops, CompiledOp::LoadConst(std::f64::consts::PI))?
+            }
+            Expr::Const(Constant::E) => {
+                Self::push_op(ops, CompiledOp::LoadConst(std::f64::consts::E))?
+            }
+            Expr::Const(Constant::Infinity) => {
+                Self::push_op(ops, CompiledOp::LoadConst(f64::INFINITY))?
+            }
             Expr::Const(Constant::NegativeInfinity) => {
-                ops.push(CompiledOp::LoadConst(f64::NEG_INFINITY))
+                Self::push_op(ops, CompiledOp::LoadConst(f64::NEG_INFINITY))?
             }
             Expr::Const(Constant::ComplexInfinity)
             | Expr::Const(Constant::I)
@@ -156,29 +178,29 @@ impl CompiledExpr {
             }
             Expr::Sym(s) => {
                 if let Some(&idx) = var_map.get(s) {
-                    ops.push(CompiledOp::LoadVar(idx));
+                    Self::push_op(ops, CompiledOp::LoadVar(idx))?;
                 } else {
                     return Err(CompileError::UnmappedVariable(s.clone()));
                 }
             }
             Expr::Add(terms) => {
                 if terms.is_empty() {
-                    ops.push(CompiledOp::LoadConst(0.0));
+                    Self::push_op(ops, CompiledOp::LoadConst(0.0))?;
                 } else {
                     for t in terms {
                         Self::compile_recursive(t, var_map, ops, depth + 1)?;
                     }
-                    ops.push(CompiledOp::Add(terms.len()));
+                    Self::push_op(ops, CompiledOp::Add(terms.len()))?;
                 }
             }
             Expr::Mul(factors) => {
                 if factors.is_empty() {
-                    ops.push(CompiledOp::LoadConst(1.0));
+                    Self::push_op(ops, CompiledOp::LoadConst(1.0))?;
                 } else {
                     for f in factors {
                         Self::compile_recursive(f, var_map, ops, depth + 1)?;
                     }
-                    ops.push(CompiledOp::Mul(factors.len()));
+                    Self::push_op(ops, CompiledOp::Mul(factors.len()))?;
                 }
             }
             Expr::Pow(base, exp) => {
@@ -189,7 +211,10 @@ impl CompiledExpr {
                             .to_string()
                             .parse::<f64>()
                             .map_err(|_| CompileError::UnsupportedExponent(n.to_string()))?;
-                        ops.push(CompiledOp::Pow(p));
+                        if !p.is_finite() {
+                            return Err(CompileError::UnsupportedExponent(n.to_string()));
+                        }
+                        Self::push_op(ops, CompiledOp::Pow(p))?;
                     }
                     Expr::Rational(r) => {
                         let numer = r
@@ -205,7 +230,11 @@ impl CompiledExpr {
                         if denom == 0.0 {
                             return Err(CompileError::UnsupportedExponent("0 denominator".into()));
                         }
-                        ops.push(CompiledOp::Pow(numer / denom));
+                        let exponent = numer / denom;
+                        if !exponent.is_finite() {
+                            return Err(CompileError::UnsupportedExponent(r.to_string()));
+                        }
+                        Self::push_op(ops, CompiledOp::Pow(exponent))?;
                     }
                     other => {
                         return Err(CompileError::UnsupportedExponent(format!("{other}")));
@@ -221,16 +250,16 @@ impl CompiledExpr {
                 }
                 Self::compile_recursive(&args[0], var_map, ops, depth + 1)?;
                 match name.as_str() {
-                    "sin" => ops.push(CompiledOp::Sin),
-                    "cos" => ops.push(CompiledOp::Cos),
-                    "tan" => ops.push(CompiledOp::Tan),
-                    "sinh" => ops.push(CompiledOp::Sinh),
-                    "cosh" => ops.push(CompiledOp::Cosh),
-                    "tanh" => ops.push(CompiledOp::Tanh),
-                    "exp" => ops.push(CompiledOp::Exp),
-                    "ln" | "log" => ops.push(CompiledOp::Ln),
-                    "sqrt" => ops.push(CompiledOp::Sqrt),
-                    "abs" => ops.push(CompiledOp::Abs),
+                    "sin" => Self::push_op(ops, CompiledOp::Sin)?,
+                    "cos" => Self::push_op(ops, CompiledOp::Cos)?,
+                    "tan" => Self::push_op(ops, CompiledOp::Tan)?,
+                    "sinh" => Self::push_op(ops, CompiledOp::Sinh)?,
+                    "cosh" => Self::push_op(ops, CompiledOp::Cosh)?,
+                    "tanh" => Self::push_op(ops, CompiledOp::Tanh)?,
+                    "exp" => Self::push_op(ops, CompiledOp::Exp)?,
+                    "ln" | "log" => Self::push_op(ops, CompiledOp::Ln)?,
+                    "sqrt" => Self::push_op(ops, CompiledOp::Sqrt)?,
+                    "abs" => Self::push_op(ops, CompiledOp::Abs)?,
                     other => {
                         return Err(CompileError::UnsupportedFunction(other.to_string()));
                     }
@@ -240,9 +269,38 @@ impl CompiledExpr {
         Ok(())
     }
 
+    fn push_op(ops: &mut Vec<CompiledOp>, op: CompiledOp) -> Result<(), CompileError> {
+        let attempted = ops
+            .len()
+            .checked_add(1)
+            .ok_or(CompileError::OpLimitExceeded {
+                ops: usize::MAX,
+                max: MAX_COMPILE_OPS,
+            })?;
+        if attempted > MAX_COMPILE_OPS {
+            return Err(CompileError::OpLimitExceeded {
+                ops: attempted,
+                max: MAX_COMPILE_OPS,
+            });
+        }
+        ops.try_reserve(1)
+            .map_err(|_| CompileError::AllocationFailure)?;
+        ops.push(op);
+        Ok(())
+    }
+
     /// Evaluates the compiled expression using a verified operand stack with bounds checks.
     pub fn try_eval(&self, vars: &[f64]) -> Result<f64, EvalError> {
-        let mut stack = Vec::with_capacity(16);
+        if self.ops.len() > MAX_COMPILE_OPS {
+            return Err(EvalError::OpLimitExceeded {
+                ops: self.ops.len(),
+                max: MAX_COMPILE_OPS,
+            });
+        }
+        let mut stack = Vec::new();
+        stack
+            .try_reserve_exact(self.ops.len())
+            .map_err(|_| EvalError::AllocationFailure)?;
         for op in &self.ops {
             match op {
                 CompiledOp::LoadConst(c) => stack.push(*c),
@@ -323,7 +381,7 @@ impl CompiledExpr {
         if stack.len() != 1 {
             return Err(EvalError::StackRemaining(stack.len()));
         }
-        Ok(stack.pop().unwrap())
+        stack.pop().ok_or(EvalError::StackUnderflow)
     }
 
     /// Evaluates the compiled expression, returning `f64::NAN` on failure.
@@ -332,7 +390,7 @@ impl CompiledExpr {
     }
 }
 
-/// Compiled multi-dimensional residual system and exact Jacobian matrix.
+/// Compiled multi-dimensional residual system and symbolically differentiated Jacobian matrix.
 #[derive(Debug, Clone)]
 pub struct CompiledResidualSystem {
     pub vars: Vec<Symbol>,
@@ -343,23 +401,38 @@ pub struct CompiledResidualSystem {
 }
 
 impl CompiledResidualSystem {
-    /// Compiles a system of equations $\mathbf{f}(\mathbf{x}) = \mathbf{0}$ and its exact Jacobian.
+    /// Compiles a system of equations $\mathbf{f}(\mathbf{x}) = \mathbf{0}$ and its symbolic
+    /// Jacobian.
     /// Fails closed if any expression contains unmapped symbols or unsupported functions.
     pub fn try_compile(exprs: &[Expr], vars: &[Symbol]) -> Result<Self, CompileError> {
         let mut var_map = HashMap::new();
+        var_map
+            .try_reserve(vars.len())
+            .map_err(|_| CompileError::AllocationFailure)?;
         for (i, v) in vars.iter().enumerate() {
-            var_map.insert(v.clone(), i);
+            if var_map.insert(v.clone(), i).is_some() {
+                return Err(CompileError::DuplicateVariable(v.clone()));
+            }
         }
 
         let num_residuals = exprs.len();
         let num_vars = vars.len();
+        let jacobian_len = num_residuals
+            .checked_mul(num_vars)
+            .ok_or(CompileError::DimensionOverflow)?;
 
-        let mut compiled_residuals = Vec::with_capacity(num_residuals);
+        let mut compiled_residuals = Vec::new();
+        compiled_residuals
+            .try_reserve_exact(num_residuals)
+            .map_err(|_| CompileError::AllocationFailure)?;
         for e in exprs {
             compiled_residuals.push(CompiledExpr::try_compile(e, &var_map)?);
         }
 
-        let mut compiled_jacobian = Vec::with_capacity(num_residuals * num_vars);
+        let mut compiled_jacobian = Vec::new();
+        compiled_jacobian
+            .try_reserve_exact(jacobian_len)
+            .map_err(|_| CompileError::AllocationFailure)?;
         for e in exprs {
             for v in vars {
                 let d = diff(e, v);
@@ -389,9 +462,9 @@ impl CompiledResidualSystem {
                 actual: out_res.len(),
             });
         }
-        for (i, expr) in self.compiled_residuals.iter().enumerate() {
-            out_res[i] = expr.try_eval(x)?;
-        }
+        let evaluated =
+            Self::evaluate_batch(&self.compiled_residuals, x, self.num_residuals, "residual")?;
+        out_res.copy_from_slice(&evaluated);
         Ok(())
     }
 
@@ -403,16 +476,18 @@ impl CompiledResidualSystem {
 
     /// Evaluates the flat Jacobian matrix $J_{i, j}$ in-place (row-major: $i \times n + j$).
     pub fn try_eval_jacobian(&self, x: &[f64], out_jac: &mut [f64]) -> Result<(), EvalError> {
-        let expected = self.num_residuals * self.num_vars;
+        let expected = self
+            .num_residuals
+            .checked_mul(self.num_vars)
+            .ok_or(EvalError::DimensionOverflow)?;
         if out_jac.len() != expected {
             return Err(EvalError::JacobianBufferMismatch {
                 expected,
                 actual: out_jac.len(),
             });
         }
-        for (idx, expr) in self.compiled_jacobian.iter().enumerate() {
-            out_jac[idx] = expr.try_eval(x)?;
-        }
+        let evaluated = Self::evaluate_batch(&self.compiled_jacobian, x, expected, "Jacobian")?;
+        out_jac.copy_from_slice(&evaluated);
         Ok(())
     }
 
@@ -429,8 +504,27 @@ impl CompiledResidualSystem {
         out_res: &mut [f64],
         out_jac: &mut [f64],
     ) -> Result<(), EvalError> {
-        self.try_eval_residuals(x, out_res)?;
-        self.try_eval_jacobian(x, out_jac)?;
+        if out_res.len() != self.num_residuals {
+            return Err(EvalError::ResidualBufferMismatch {
+                expected: self.num_residuals,
+                actual: out_res.len(),
+            });
+        }
+        let jacobian_len = self
+            .num_residuals
+            .checked_mul(self.num_vars)
+            .ok_or(EvalError::DimensionOverflow)?;
+        if out_jac.len() != jacobian_len {
+            return Err(EvalError::JacobianBufferMismatch {
+                expected: jacobian_len,
+                actual: out_jac.len(),
+            });
+        }
+        let residuals =
+            Self::evaluate_batch(&self.compiled_residuals, x, self.num_residuals, "residual")?;
+        let jacobian = Self::evaluate_batch(&self.compiled_jacobian, x, jacobian_len, "Jacobian")?;
+        out_res.copy_from_slice(&residuals);
+        out_jac.copy_from_slice(&jacobian);
         Ok(())
     }
 
@@ -440,33 +534,90 @@ impl CompiledResidualSystem {
             .expect("system evaluation failed");
     }
 
-    /// Verifies exact compiled Jacobian against numerical central finite differences.
-    pub fn verify_with_finite_differences(&self, x: &[f64], eps: f64, tol: f64) -> bool {
-        let mut jac = vec![0.0; self.num_residuals * self.num_vars];
-        if self.try_eval_jacobian(x, &mut jac).is_err() {
+    /// Runs a fail-closed approximate consistency check against central finite differences.
+    ///
+    /// This diagnostic is neither an exact verifier nor mathematical evidence for the compiled
+    /// Jacobian. It rejects non-finite inputs, outputs, steps, and tolerances.
+    pub fn check_with_finite_differences(&self, x: &[f64], eps: f64, tol: f64) -> bool {
+        if x.len() != self.num_vars
+            || self.vars.len() != self.num_vars
+            || !eps.is_finite()
+            || eps <= 0.0
+            || !tol.is_finite()
+            || tol < 0.0
+            || x.iter().any(|value| !value.is_finite())
+        {
             return false;
         }
 
-        let mut x_plus = x.to_vec();
-        let mut x_minus = x.to_vec();
-        let mut res_plus = vec![0.0; self.num_residuals];
-        let mut res_minus = vec![0.0; self.num_residuals];
+        let Some(jacobian_len) = self.num_residuals.checked_mul(self.num_vars) else {
+            return false;
+        };
+        let Ok(jac) = Self::evaluate_batch(&self.compiled_jacobian, x, jacobian_len, "Jacobian")
+        else {
+            return false;
+        };
+        if jac.iter().any(|value| !value.is_finite()) {
+            return false;
+        }
+
+        let Ok(baseline) =
+            Self::evaluate_batch(&self.compiled_residuals, x, self.num_residuals, "residual")
+        else {
+            return false;
+        };
+        if baseline.iter().any(|value| !value.is_finite()) {
+            return false;
+        }
+
+        let mut x_plus = Vec::new();
+        let mut x_minus = Vec::new();
+        if x_plus.try_reserve_exact(x.len()).is_err() || x_minus.try_reserve_exact(x.len()).is_err()
+        {
+            return false;
+        }
+        x_plus.extend_from_slice(x);
+        x_minus.extend_from_slice(x);
 
         for j in 0..self.num_vars {
             x_plus[j] = x[j] + eps;
             x_minus[j] = x[j] - eps;
+            let denominator = x_plus[j] - x_minus[j];
+            if !x_plus[j].is_finite()
+                || !x_minus[j].is_finite()
+                || !denominator.is_finite()
+                || denominator == 0.0
+            {
+                return false;
+            }
 
-            if self.try_eval_residuals(&x_plus, &mut res_plus).is_err() {
+            let Ok(res_plus) = Self::evaluate_batch(
+                &self.compiled_residuals,
+                &x_plus,
+                self.num_residuals,
+                "residual",
+            ) else {
                 return false;
-            }
-            if self.try_eval_residuals(&x_minus, &mut res_minus).is_err() {
+            };
+            let Ok(res_minus) = Self::evaluate_batch(
+                &self.compiled_residuals,
+                &x_minus,
+                self.num_residuals,
+                "residual",
+            ) else {
                 return false;
-            }
+            };
 
             for i in 0..self.num_residuals {
-                let numerical_deriv = (res_plus[i] - res_minus[i]) / (2.0 * eps);
-                let exact_deriv = jac[i * self.num_vars + j];
-                if (numerical_deriv - exact_deriv).abs() > tol {
+                let numerical_deriv = (res_plus[i] - res_minus[i]) / denominator;
+                let compiled_deriv = jac[i * self.num_vars + j];
+                let difference = (numerical_deriv - compiled_deriv).abs();
+                if !res_plus[i].is_finite()
+                    || !res_minus[i].is_finite()
+                    || !numerical_deriv.is_finite()
+                    || !difference.is_finite()
+                    || difference > tol
+                {
                     return false;
                 }
             }
@@ -475,6 +626,29 @@ impl CompiledResidualSystem {
             x_minus[j] = x[j];
         }
         true
+    }
+
+    fn evaluate_batch(
+        expressions: &[CompiledExpr],
+        x: &[f64],
+        expected: usize,
+        lane: &'static str,
+    ) -> Result<Vec<f64>, EvalError> {
+        if expressions.len() != expected {
+            return Err(EvalError::CompiledExpressionCountMismatch {
+                lane,
+                expected,
+                actual: expressions.len(),
+            });
+        }
+        let mut evaluated = Vec::new();
+        evaluated
+            .try_reserve_exact(expected)
+            .map_err(|_| EvalError::AllocationFailure)?;
+        for expression in expressions {
+            evaluated.push(expression.try_eval(x)?);
+        }
+        Ok(evaluated)
     }
 }
 
@@ -542,5 +716,143 @@ mod tests {
             sys.try_eval_jacobian(&[1.0], &mut wrong_jac),
             Err(EvalError::JacobianBufferMismatch { .. })
         ));
+    }
+
+    #[test]
+    fn compile_operation_limit_includes_parent_operations() {
+        let boundary = Expr::Add(vec![Expr::from_i64(1); MAX_COMPILE_OPS - 1]);
+        assert_eq!(
+            CompiledExpr::try_compile(&boundary, &HashMap::new())
+                .unwrap()
+                .ops
+                .len(),
+            MAX_COMPILE_OPS
+        );
+
+        let expression = Expr::Add(vec![Expr::from_i64(1); MAX_COMPILE_OPS]);
+        assert!(matches!(
+            CompiledExpr::try_compile(&expression, &HashMap::new()),
+            Err(CompileError::OpLimitExceeded { ops, max })
+                if ops == MAX_COMPILE_OPS + 1 && max == MAX_COMPILE_OPS
+        ));
+    }
+
+    #[test]
+    fn non_finite_exponents_are_refused() {
+        let huge = fsym_core::BigInt::parse_bytes("9".repeat(400).as_bytes(), 10).unwrap();
+        let base = Arc::new(Expr::from_i64(2));
+
+        for exponent in [
+            Expr::Integer(huge.clone()),
+            Expr::Rational(fsym_core::BigRational::new(
+                huge,
+                fsym_core::BigInt::from(1),
+            )),
+        ] {
+            assert!(matches!(
+                CompiledExpr::try_compile(
+                    &Expr::Pow(base.clone(), Arc::new(exponent)),
+                    &HashMap::new(),
+                ),
+                Err(CompileError::UnsupportedExponent(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn failed_batch_evaluation_does_not_publish_partial_outputs() {
+        let system = CompiledResidualSystem {
+            vars: Vec::new(),
+            num_residuals: 2,
+            num_vars: 1,
+            compiled_residuals: vec![
+                CompiledExpr {
+                    ops: vec![CompiledOp::LoadConst(1.0)],
+                },
+                CompiledExpr {
+                    ops: vec![CompiledOp::Add(1)],
+                },
+            ],
+            compiled_jacobian: vec![
+                CompiledExpr {
+                    ops: vec![CompiledOp::LoadConst(1.0)],
+                },
+                CompiledExpr {
+                    ops: vec![CompiledOp::Add(1)],
+                },
+            ],
+        };
+
+        let mut residuals = [9.0, 9.0];
+        assert_eq!(
+            system.try_eval_residuals(&[], &mut residuals),
+            Err(EvalError::StackUnderflow)
+        );
+        assert_eq!(residuals, [9.0, 9.0]);
+
+        let mut jacobian = [9.0, 9.0];
+        assert_eq!(
+            system.try_eval_jacobian(&[], &mut jacobian),
+            Err(EvalError::StackUnderflow)
+        );
+        assert_eq!(jacobian, [9.0, 9.0]);
+
+        assert_eq!(
+            system.try_eval_system(&[], &mut residuals, &mut jacobian),
+            Err(EvalError::StackUnderflow)
+        );
+        assert_eq!(residuals, [9.0, 9.0]);
+        assert_eq!(jacobian, [9.0, 9.0]);
+    }
+
+    #[test]
+    fn finite_difference_diagnostic_rejects_invalid_numeric_policy() {
+        let x = Symbol::new("x");
+        let system = CompiledResidualSystem::try_compile(&[Expr::symbol("x")], &[x]).unwrap();
+
+        assert!(!system.check_with_finite_differences(&[1.0], 0.0, 1e-5));
+        assert!(!system.check_with_finite_differences(&[1.0], 1e-6, f64::NAN));
+        assert!(!system.check_with_finite_differences(&[f64::NAN], 1e-6, 1e-5));
+    }
+
+    #[test]
+    fn duplicate_variables_and_oversized_bytecode_are_typed_refusals() {
+        let x = Symbol::new("x");
+        assert!(matches!(
+            CompiledResidualSystem::try_compile(&[Expr::symbol("x")], &[x.clone(), x.clone()],),
+            Err(CompileError::DuplicateVariable(ref duplicate)) if duplicate == &x
+        ));
+
+        let expression = CompiledExpr {
+            ops: vec![CompiledOp::LoadConst(1.0); MAX_COMPILE_OPS + 1],
+        };
+        assert_eq!(
+            expression.try_eval(&[]),
+            Err(EvalError::OpLimitExceeded {
+                ops: MAX_COMPILE_OPS + 1,
+                max: MAX_COMPILE_OPS,
+            })
+        );
+    }
+
+    #[test]
+    fn inconsistent_public_system_shape_is_refused_without_output_mutation() {
+        let system = CompiledResidualSystem {
+            vars: Vec::new(),
+            num_residuals: 1,
+            num_vars: 0,
+            compiled_residuals: Vec::new(),
+            compiled_jacobian: Vec::new(),
+        };
+        let mut output = [7.0];
+        assert!(matches!(
+            system.try_eval_residuals(&[], &mut output),
+            Err(EvalError::CompiledExpressionCountMismatch {
+                lane: "residual",
+                expected: 1,
+                actual: 0,
+            })
+        ));
+        assert_eq!(output, [7.0]);
     }
 }

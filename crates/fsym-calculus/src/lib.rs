@@ -753,7 +753,7 @@ mod tests {
     }
 
     #[test]
-    fn test_hero_pipeline_compiled_residual_and_jacobian_certification() {
+    fn test_hero_pipeline_compiled_residual_and_jacobian_diagnostic() {
         // Nonlinear 2D residual system:
         // f1(x, y) = x^2 + y^2 - 1
         // f2(x, y) = sin(x) + cos(y)
@@ -783,10 +783,11 @@ mod tests {
         // f1(0.6, 0.8) = 0.6^2 + 0.8^2 - 1 = 0.36 + 0.64 - 1 = 0.0
         assert!((res[0] - 0.0).abs() < 1e-12);
 
-        // Verify Jacobian against central finite differences with 1e-6 tolerance
-        let verified = system.verify_with_finite_differences(&test_point, 1e-6, 1e-5);
+        // Check Jacobian against central finite differences with 1e-6 tolerance.
+        // This is an approximate diagnostic, not mathematical verification.
+        let consistent = system.check_with_finite_differences(&test_point, 1e-6, 1e-5);
         assert!(
-            verified,
+            consistent,
             "Compiled Jacobian must match numerical finite differences"
         );
     }
