@@ -196,14 +196,19 @@ pub fn rational_reconstruct(n: &BigInt, m: &BigInt) -> Option<(BigInt, BigInt)> 
     if *m <= BigInt::one() {
         return None;
     }
+
+    // The symmetric uniqueness condition is 2 * bound^2 < m. Using sqrt(m)
+    // admits multiple representatives and can make the result depend on the Euclidean path.
+    let bound = sqrt_floor(&((m - 1i64) / 2i64));
+    if bound.is_zero() {
+        return None;
+    }
+
     let residue = (n % m + m) % m;
     if residue.is_zero() {
         return Some((BigInt::zero(), BigInt::one()));
     }
 
-    // The symmetric uniqueness condition is 2 * bound^2 < m. Using sqrt(m)
-    // admits multiple representatives and can make the result depend on the Euclidean path.
-    let bound = sqrt_floor(&((m - 1i64) / 2i64));
     let (mut r_prev, mut r_cur) = (m.clone(), residue.clone());
     let (mut t_prev, mut t_cur) = (BigInt::zero(), BigInt::one());
 
@@ -247,14 +252,6 @@ pub fn metered_rational_reconstruct<M: BudgetMeter>(
     if *m <= BigInt::one() {
         return metered_finish(None, meter);
     }
-    let Some(modulus) = NonZeroBigInt::new(m) else {
-        return metered_finish(None, meter);
-    };
-    let residue = metered_normalized_remainder(n, modulus, meter)?;
-    if residue.is_zero() {
-        return metered_finish(Some((BigInt::zero(), BigInt::one())), meter);
-    }
-
     let one = BigInt::one();
     let two = BigInt::from(2i64);
     let m_minus_one = metered_subtract(m, &one, meter)?;
@@ -263,6 +260,17 @@ pub fn metered_rational_reconstruct<M: BudgetMeter>(
     };
     let (half, _) = metered_div_rem_nonzero(&m_minus_one, two_divisor, meter)?;
     let bound = metered_sqrt_floor(&half, meter)?;
+    if bound.is_zero() {
+        return metered_finish(None, meter);
+    }
+
+    let Some(modulus) = NonZeroBigInt::new(m) else {
+        return metered_finish(None, meter);
+    };
+    let residue = metered_normalized_remainder(n, modulus, meter)?;
+    if residue.is_zero() {
+        return metered_finish(Some((BigInt::zero(), BigInt::one())), meter);
+    }
 
     meter.charge_batch(&[
         (
@@ -2041,6 +2049,62 @@ mod tests {
     }
 
     #[test]
+    fn rational_reconstruction_zero_respects_the_declared_uniqueness_bound() {
+        let zero_mod_two = (BigInt::from(2), BigInt::from(2));
+        assert_eq!(rational_reconstruct(&zero_mod_two.0, &zero_mod_two.1), None);
+
+        let mut measured = CheckpointMeter::default();
+        assert_eq!(
+            metered_rational_reconstruct(&zero_mod_two.0, &zero_mod_two.1, &mut measured).unwrap(),
+            None
+        );
+        let mut cancelled = CheckpointMeter::cancelling_at(measured.checkpoints);
+        assert_eq!(
+            metered_rational_reconstruct(&zero_mod_two.0, &zero_mod_two.1, &mut cancelled),
+            Err(MeterError::Cancelled)
+        );
+
+        let zero_mod_three = (BigInt::from(3), BigInt::from(3));
+        let expected = Some((BigInt::zero(), BigInt::one()));
+        assert_eq!(
+            rational_reconstruct(&zero_mod_three.0, &zero_mod_three.1),
+            expected
+        );
+        let mut meter = Unbounded;
+        assert_eq!(
+            metered_rational_reconstruct(&zero_mod_three.0, &zero_mod_three.1, &mut meter).unwrap(),
+            expected
+        );
+    }
+
+    #[test]
+    fn published_rational_reconstructions_satisfy_the_declared_bounds() {
+        for modulus_value in 2i64..65 {
+            let modulus = BigInt::from(modulus_value);
+            let bound = sqrt_floor(&((&modulus - 1i64) / 2i64));
+            for residue_value in -128i64..=128 {
+                let residue = BigInt::from(residue_value);
+                let result = rational_reconstruct(&residue, &modulus);
+                let mut meter = Unbounded;
+                assert_eq!(
+                    metered_rational_reconstruct(&residue, &modulus, &mut meter).unwrap(),
+                    result
+                );
+                if let Some((numerator, denominator)) = result {
+                    assert!(denominator.is_positive());
+                    assert!(numerator.abs() <= bound);
+                    assert!(denominator <= bound);
+                    assert_eq!(gcd(&numerator, &denominator), BigInt::one());
+                    assert_eq!(
+                        (&numerator - &residue * &denominator) % &modulus,
+                        BigInt::zero()
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn prime_stream_and_miller_rabin_match_independent_trial_division() {
         let expected: Vec<u64> = (2..)
             .filter(|value| scalar_is_prime(*value))
@@ -2441,7 +2505,7 @@ mod tests {
                 meter,
             )
         });
-        assert_terminal_checkpoint(Some((BigInt::zero(), BigInt::one())), 4, |meter| {
+        assert_terminal_checkpoint(Some((BigInt::zero(), BigInt::one())), 593, |meter| {
             metered_rational_reconstruct(&BigInt::zero(), &BigInt::from(101), meter)
         });
         assert_terminal_checkpoint(None, 668, |meter| {

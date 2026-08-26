@@ -1182,6 +1182,37 @@ mod tests {
             BigRational::reconstruct_modular(&BigInt::one(), &BigInt::one()),
             None
         );
+
+        let mut meter = Unbounded;
+        assert_eq!(
+            BigRational::reconstruct_modular(&BigInt::from(2), &BigInt::from(2)),
+            None
+        );
+        assert_eq!(
+            BigRational::metered_reconstruct_modular(
+                &BigInt::from(2),
+                &BigInt::from(2),
+                &mut meter,
+            )
+            .unwrap(),
+            None
+        );
+
+        let expected_zero = Some(BigRational::zero());
+        let mut meter = Unbounded;
+        assert_eq!(
+            BigRational::reconstruct_modular(&BigInt::from(3), &BigInt::from(3)),
+            expected_zero
+        );
+        assert_eq!(
+            BigRational::metered_reconstruct_modular(
+                &BigInt::from(3),
+                &BigInt::from(3),
+                &mut meter,
+            )
+            .unwrap(),
+            expected_zero
+        );
     }
 
     #[test]
