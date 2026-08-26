@@ -392,6 +392,12 @@ impl ToPrimitive for BigInt {
     fn to_u64(&self) -> Option<u64> {
         self.0.to_u64()
     }
+    fn to_i128(&self) -> Option<i128> {
+        self.0.to_i128()
+    }
+    fn to_u128(&self) -> Option<u128> {
+        self.0.to_u128()
+    }
     fn to_f64(&self) -> Option<f64> {
         self.0.to_f64()
     }
@@ -402,6 +408,12 @@ impl FromPrimitive for BigInt {
         Some(Self(Substrate::from(n)))
     }
     fn from_u64(n: u64) -> Option<Self> {
+        Some(Self(Substrate::from(n)))
+    }
+    fn from_i128(n: i128) -> Option<Self> {
+        Some(Self(Substrate::from(n)))
+    }
+    fn from_u128(n: u128) -> Option<Self> {
         Some(Self(Substrate::from(n)))
     }
 }
@@ -3544,6 +3556,72 @@ mod tests {
         }
     }
 
+    fn parsed_decimal(src: &str) -> BigInt {
+        BigInt::from_str_radix(src, 10).expect("test decimal must parse")
+    }
+
+    #[test]
+    fn exact_signed_128_bit_primitive_conversions_cover_the_full_range() {
+        for value in [
+            i128::from(i64::MIN),
+            i128::from(i64::MIN) - 1,
+            i128::MIN,
+            i128::from(i64::MAX),
+            i128::from(i64::MAX) + 1,
+            i128::MAX,
+        ] {
+            let expected = parsed_decimal(&value.to_string());
+            let constructed = <BigInt as FromPrimitive>::from_i128(value)
+                .expect("every i128 value is exactly representable");
+            assert_eq!(constructed, expected, "inbound value {value}");
+            assert_eq!(
+                <BigInt as ToPrimitive>::to_i128(&expected),
+                Some(value),
+                "outbound value {value}"
+            );
+        }
+
+        assert_eq!(
+            <BigInt as ToPrimitive>::to_i128(&parsed_decimal(
+                "170141183460469231731687303715884105728",
+            )),
+            None
+        );
+        assert_eq!(
+            <BigInt as ToPrimitive>::to_i128(&parsed_decimal(
+                "-170141183460469231731687303715884105729",
+            )),
+            None
+        );
+    }
+
+    #[test]
+    fn exact_unsigned_128_bit_primitive_conversions_cover_the_full_range() {
+        for value in [0, u128::from(u64::MAX), u128::from(u64::MAX) + 1, u128::MAX] {
+            let expected = parsed_decimal(&value.to_string());
+            let constructed = <BigInt as FromPrimitive>::from_u128(value)
+                .expect("every u128 value is exactly representable");
+            assert_eq!(constructed, expected, "inbound value {value}");
+            assert_eq!(
+                <BigInt as ToPrimitive>::to_u128(&expected),
+                Some(value),
+                "outbound value {value}"
+            );
+        }
+
+        assert_eq!(<BigInt as ToPrimitive>::to_u128(&BigInt::from(-1)), None);
+        assert_eq!(
+            <BigInt as ToPrimitive>::to_u128(&parsed_decimal(
+                "340282366920938463463374607431768211456",
+            )),
+            None
+        );
+        assert_eq!(
+            <BigInt as ToPrimitive>::to_i128(&parsed_decimal(&u128::MAX.to_string())),
+            None
+        );
+    }
+
     #[test]
     fn serde_preserves_the_existing_canonical_sign_and_u32_digit_shape() {
         let negative_two_to_32_plus_one = -((&BigInt::one() << 32u32) + 1i64);
@@ -5512,6 +5590,24 @@ mod tests {
     }
 
     proptest! {
+        #[test]
+        fn exact_signed_128_bit_primitive_conversions_round_trip(value in any::<i128>()) {
+            let expected = parsed_decimal(&value.to_string());
+            let constructed = <BigInt as FromPrimitive>::from_i128(value)
+                .expect("every i128 value is exactly representable");
+            prop_assert_eq!(&constructed, &expected);
+            prop_assert_eq!(<BigInt as ToPrimitive>::to_i128(&constructed), Some(value));
+        }
+
+        #[test]
+        fn exact_unsigned_128_bit_primitive_conversions_round_trip(value in any::<u128>()) {
+            let expected = parsed_decimal(&value.to_string());
+            let constructed = <BigInt as FromPrimitive>::from_u128(value)
+                .expect("every u128 value is exactly representable");
+            prop_assert_eq!(&constructed, &expected);
+            prop_assert_eq!(<BigInt as ToPrimitive>::to_u128(&constructed), Some(value));
+        }
+
         #[test]
         fn strategies_agree_across_the_threshold_boundary(
             shift in 254u32..258u32,
