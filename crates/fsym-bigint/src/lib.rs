@@ -38,6 +38,7 @@ use fsym_budget::{BudgetMeter, Dimension, MeterError};
 use num_bigint::{BigInt as Substrate, BigUint, Sign};
 use num_integer::Integer;
 use num_traits::{FromPrimitive, Num, One, Pow, Signed, ToPrimitive, Zero};
+use serde::de::{Error as DeError, SeqAccess, Unexpected, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 use std::ops::{
@@ -50,6 +51,13 @@ mod ntt;
 
 /// Bits per u64 limb.
 pub const LIMB_BITS: u64 = 64;
+
+// Serde is only a convenience adapter; the authoritative bounded numeric wire lives in
+// `fsym-core::canonical`. Keep the adapter's temporary magnitude storage within the same 1 MiB
+// order of magnitude without treating this implementation-local limit as an identity, schema, or
+// durable-format decision.
+const MAX_SERDE_U32_DIGITS: usize = 1024 * 1024 / std::mem::size_of::<u32>();
+const INITIAL_SERDE_U32_DIGIT_RESERVE: usize = 4_096;
 
 /// Magnitude size in u64 limbs (rounded up); zero for zero.
 #[inline]
@@ -459,7 +467,168 @@ impl Serialize for BigInt {
     where
         S: Serializer,
     {
+        let max_magnitude_bits = u64::try_from(MAX_SERDE_U32_DIGITS)
+            .ok()
+            .and_then(|digits| digits.checked_mul(u64::from(u32::BITS)))
+            .ok_or_else(|| serde::ser::Error::custom("big integer serde limit overflow"))?;
+        if self.bits() > max_magnitude_bits {
+            return Err(serde::ser::Error::custom(format_args!(
+                "big integer magnitude exceeds {MAX_SERDE_U32_DIGITS} u32 digits"
+            )));
+        }
         self.0.serialize(serializer)
+    }
+}
+
+struct BoundedU32Digits<const LIMIT: usize>(Vec<u32>);
+
+struct BoundedU32DigitsVisitor<const LIMIT: usize>;
+
+fn try_reserve_serde_digits<E>(digits: &mut Vec<u32>, additional: usize) -> Result<(), E>
+where
+    E: DeError,
+{
+    digits
+        .try_reserve_exact(additional)
+        .map_err(|_| E::custom("big integer magnitude digit allocation refused"))
+}
+
+fn next_serde_digit_capacity(current: usize, limit: usize) -> Option<usize> {
+    if current >= limit {
+        return None;
+    }
+    Some(current.checked_mul(2).unwrap_or(limit).max(1).min(limit))
+}
+
+impl<'de, const LIMIT: usize> Deserialize<'de> for BoundedU32Digits<LIMIT> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer
+            .deserialize_seq(BoundedU32DigitsVisitor::<LIMIT>)
+            .map(Self)
+    }
+}
+
+impl<'de, const LIMIT: usize> Visitor<'de> for BoundedU32DigitsVisitor<LIMIT> {
+    type Value = Vec<u32>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "at most {LIMIT} little-endian unsigned 32-bit magnitude digits"
+        )
+    }
+
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        let hint = seq.size_hint();
+        if let Some(hint) = hint
+            && hint > LIMIT
+        {
+            return Err(A::Error::invalid_length(hint, &self));
+        }
+
+        let mut digits = Vec::new();
+        let initial_reserve = hint
+            .unwrap_or(0)
+            .min(INITIAL_SERDE_U32_DIGIT_RESERVE)
+            .min(LIMIT);
+        if initial_reserve != 0 {
+            try_reserve_serde_digits::<A::Error>(&mut digits, initial_reserve)?;
+        }
+
+        while digits.len() < LIMIT {
+            let Some(digit) = seq.next_element::<u32>()? else {
+                return Ok(digits);
+            };
+            if digits.len() == digits.capacity() {
+                let target_capacity = next_serde_digit_capacity(digits.capacity(), LIMIT)
+                    .ok_or_else(|| {
+                        A::Error::custom("big integer magnitude digit capacity invariant violated")
+                    })?;
+                let additional = target_capacity.checked_sub(digits.len()).ok_or_else(|| {
+                    A::Error::custom("big integer magnitude digit capacity accounting overflow")
+                })?;
+                if additional == 0 {
+                    return Err(A::Error::custom(
+                        "big integer magnitude digit capacity invariant violated",
+                    ));
+                }
+                try_reserve_serde_digits::<A::Error>(&mut digits, additional)?;
+            }
+            digits.push(digit);
+        }
+
+        if seq.next_element::<u32>()?.is_some() {
+            return Err(A::Error::invalid_length(LIMIT.saturating_add(1), &self));
+        }
+        Ok(digits)
+    }
+}
+
+struct BigIntWireVisitor;
+
+impl<'de> Visitor<'de> for BigIntWireVisitor {
+    type Value = BigInt;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(
+            "a canonical big integer tuple containing a sign and little-endian u32 magnitude",
+        )
+    }
+
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        let raw_sign = seq
+            .next_element::<i8>()?
+            .ok_or_else(|| A::Error::invalid_length(0, &self))?;
+        let sign = match raw_sign {
+            -1 => Sign::Minus,
+            0 => Sign::NoSign,
+            1 => Sign::Plus,
+            other => {
+                return Err(A::Error::invalid_value(
+                    Unexpected::Signed(i64::from(other)),
+                    &"a sign of -1, 0, or 1",
+                ));
+            }
+        };
+        let digits = match sign {
+            Sign::NoSign => seq
+                .next_element::<BoundedU32Digits<0>>()?
+                .map(|digits| digits.0),
+            Sign::Minus | Sign::Plus => seq
+                .next_element::<BoundedU32Digits<MAX_SERDE_U32_DIGITS>>()?
+                .map(|digits| digits.0),
+        }
+        .ok_or_else(|| A::Error::invalid_length(1, &self))?;
+        if digits.last() == Some(&0) {
+            return Err(A::Error::custom(
+                "big integer magnitude has a redundant most-significant zero digit",
+            ));
+        }
+        match (sign, digits.is_empty()) {
+            (Sign::NoSign, false) => {
+                return Err(A::Error::custom(
+                    "zero sign requires an empty big integer magnitude",
+                ));
+            }
+            (Sign::Minus | Sign::Plus, true) => {
+                return Err(A::Error::custom(
+                    "nonzero sign requires a nonempty big integer magnitude",
+                ));
+            }
+            _ => {}
+        }
+
+        let magnitude = BigUint::new(digits);
+        Ok(BigInt(Substrate::from_biguint(sign, magnitude)))
     }
 }
 
@@ -468,7 +637,7 @@ impl<'de> Deserialize<'de> for BigInt {
     where
         D: Deserializer<'de>,
     {
-        Substrate::deserialize(deserializer).map(Self)
+        deserializer.deserialize_tuple(2, BigIntWireVisitor)
     }
 }
 
@@ -2559,6 +2728,80 @@ mod tests {
     use super::*;
     use fsym_budget::{Budget, BudgetError, BudgetLimits, DIMENSION_COUNT, Unbounded};
     use proptest::prelude::*;
+    use serde::de::DeserializeSeed;
+    use serde::de::value::{
+        Error as ValueError, I8Deserializer, SeqAccessDeserializer, U32Deserializer,
+    };
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    struct HintSeq {
+        values: std::vec::IntoIter<u32>,
+        claimed: Option<usize>,
+        next_calls: Rc<Cell<usize>>,
+    }
+
+    impl HintSeq {
+        fn new(values: Vec<u32>, claimed: Option<usize>, next_calls: Rc<Cell<usize>>) -> Self {
+            Self {
+                values: values.into_iter(),
+                claimed,
+                next_calls,
+            }
+        }
+    }
+
+    impl<'de> serde::de::SeqAccess<'de> for HintSeq {
+        type Error = ValueError;
+
+        fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
+        where
+            T: DeserializeSeed<'de>,
+        {
+            let Some(value) = self.values.next() else {
+                return Ok(None);
+            };
+            self.next_calls.set(self.next_calls.get() + 1);
+            seed.deserialize(U32Deserializer::<ValueError>::new(value))
+                .map(Some)
+        }
+
+        fn size_hint(&self) -> Option<usize> {
+            self.claimed
+        }
+    }
+
+    struct ObservedBigIntWireSeq {
+        raw_sign: i8,
+        digits: Option<HintSeq>,
+        member_calls: Rc<Cell<usize>>,
+    }
+
+    impl<'de> serde::de::SeqAccess<'de> for ObservedBigIntWireSeq {
+        type Error = ValueError;
+
+        fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
+        where
+            T: DeserializeSeed<'de>,
+        {
+            let member = self.member_calls.get();
+            self.member_calls.set(member + 1);
+            match member {
+                0 => seed
+                    .deserialize(I8Deserializer::<ValueError>::new(self.raw_sign))
+                    .map(Some),
+                1 => {
+                    let digits = self
+                        .digits
+                        .take()
+                        .expect("magnitude requested at most once");
+                    seed.deserialize(SeqAccessDeserializer::new(digits))
+                        .map(Some)
+                }
+                _ => Ok(None),
+            }
+        }
+    }
 
     #[derive(Debug)]
     struct CancelAfter {
@@ -2695,6 +2938,208 @@ mod tests {
         assert_eq!(
             meter.trailing_uncharged_checkpoints,
             expected_trailing_checkpoints
+        );
+    }
+
+    #[test]
+    fn serde_preserves_the_existing_canonical_sign_and_u32_digit_shape() {
+        let negative_two_to_32_plus_one = -((&BigInt::one() << 32u32) + 1i64);
+        for (value, expected) in [
+            (BigInt::zero(), "[0,[]]"),
+            (BigInt::one(), "[1,[1]]"),
+            (negative_two_to_32_plus_one, "[-1,[1,1]]"),
+        ] {
+            let encoded = serde_json::to_string(&value).expect("canonical integer serializes");
+            assert_eq!(encoded, expected);
+            let decoded: BigInt =
+                serde_json::from_str(&encoded).expect("canonical integer deserializes");
+            assert_eq!(decoded, value);
+            assert_eq!(
+                serde_json::to_string(&decoded).expect("decoded integer reserializes"),
+                encoded
+            );
+        }
+
+        let low_zero_is_significant = "[1,[0,1]]";
+        let decoded: BigInt = serde_json::from_str(low_zero_is_significant)
+            .expect("a low zero digit is canonical and significant");
+        assert_eq!(decoded, &BigInt::one() << 32u32);
+        assert_eq!(
+            serde_json::to_string(&decoded).expect("canonical integer reserializes"),
+            low_zero_is_significant
+        );
+    }
+
+    #[test]
+    fn serde_rejects_noncanonical_or_malformed_sign_and_magnitude_tuples() {
+        for malformed in [
+            "[1,[]]",
+            "[-1,[]]",
+            "[0,[1]]",
+            "[1,[0]]",
+            "[-1,[1,0]]",
+            "[2,[1]]",
+            "[1,[4294967296]]",
+            "[]",
+            "[1]",
+            "[1,[1],0]",
+        ] {
+            assert!(
+                serde_json::from_str::<BigInt>(malformed).is_err(),
+                "malformed wire was accepted: {malformed}"
+            );
+        }
+
+        #[derive(serde::Deserialize)]
+        struct WrappedBigInt {
+            value: BigInt,
+        }
+
+        let wrapped: WrappedBigInt = serde_json::from_str(r#"{"value":[1,[7]]}"#)
+            .expect("a nested canonical integer is admitted");
+        assert_eq!(wrapped.value, BigInt::from(7));
+        assert!(
+            serde_json::from_str::<WrappedBigInt>(r#"{"value":[0,[7]]}"#).is_err(),
+            "derived containers must inherit canonical integer admission"
+        );
+    }
+
+    #[test]
+    fn serde_digit_limit_handles_absent_underreported_and_hostile_hints() {
+        for hostile_hint in [Some(4), Some(usize::MAX)] {
+            let next_calls = Rc::new(Cell::new(0));
+            let error = BoundedU32DigitsVisitor::<3>
+                .visit_seq(HintSeq::new(
+                    vec![1, 2, 3, 4],
+                    hostile_hint,
+                    Rc::clone(&next_calls),
+                ))
+                .expect_err("over-limit hint must fail before reading elements");
+            assert!(error.to_string().contains("at most 3"));
+            assert_eq!(next_calls.get(), 0);
+        }
+
+        for underreported_hint in [None, Some(1), Some(3)] {
+            let next_calls = Rc::new(Cell::new(0));
+            let error = BoundedU32DigitsVisitor::<3>
+                .visit_seq(HintSeq::new(
+                    vec![1, 2, 3, 4, 5, 6, 7],
+                    underreported_hint,
+                    Rc::clone(&next_calls),
+                ))
+                .expect_err("an underreported sequence must not bypass the logical limit");
+            assert!(error.to_string().contains("at most 3"));
+            assert_eq!(next_calls.get(), 4, "decoder must stop at limit plus one");
+        }
+
+        let next_calls = Rc::new(Cell::new(0));
+        let digits = BoundedU32DigitsVisitor::<3>
+            .visit_seq(HintSeq::new(vec![1, 2, 3], Some(3), Rc::clone(&next_calls)))
+            .expect("the exact limit is admitted");
+        assert_eq!(digits, [1, 2, 3]);
+        assert_eq!(next_calls.get(), 3);
+    }
+
+    #[test]
+    fn serde_validates_sign_before_reading_or_allocating_the_magnitude() {
+        let member_calls = Rc::new(Cell::new(0));
+        let digit_calls = Rc::new(Cell::new(0));
+        let error = BigIntWireVisitor
+            .visit_seq(ObservedBigIntWireSeq {
+                raw_sign: 2,
+                digits: Some(HintSeq::new(
+                    vec![1, 2, 3, 4],
+                    Some(usize::MAX),
+                    Rc::clone(&digit_calls),
+                )),
+                member_calls: Rc::clone(&member_calls),
+            })
+            .expect_err("an invalid sign must be refused immediately");
+        assert!(error.to_string().contains("-1, 0, or 1"));
+        assert_eq!(member_calls.get(), 1);
+        assert_eq!(digit_calls.get(), 0);
+
+        let member_calls = Rc::new(Cell::new(0));
+        let digit_calls = Rc::new(Cell::new(0));
+        let error = BigIntWireVisitor
+            .visit_seq(ObservedBigIntWireSeq {
+                raw_sign: 0,
+                digits: Some(HintSeq::new(
+                    vec![1, 2, 3, 4],
+                    None,
+                    Rc::clone(&digit_calls),
+                )),
+                member_calls: Rc::clone(&member_calls),
+            })
+            .expect_err("a zero sign must refuse a nonempty magnitude immediately");
+        assert!(error.to_string().contains("at most 0"));
+        assert_eq!(member_calls.get(), 2);
+        assert_eq!(digit_calls.get(), 1);
+    }
+
+    #[test]
+    fn serde_absent_hint_capacity_growth_starts_small_and_doubles() {
+        assert_eq!(next_serde_digit_capacity(0, 10), Some(1));
+        assert_eq!(next_serde_digit_capacity(1, 10), Some(2));
+        assert_eq!(next_serde_digit_capacity(2, 10), Some(4));
+        assert_eq!(next_serde_digit_capacity(8, 10), Some(10));
+        assert_eq!(next_serde_digit_capacity(10, 10), None);
+    }
+
+    #[test]
+    fn serde_digit_reservation_failure_is_typed_instead_of_panicking() {
+        let mut digits = Vec::<u32>::new();
+        let error = try_reserve_serde_digits::<ValueError>(&mut digits, usize::MAX)
+            .expect_err("an impossible reservation must fail");
+        assert!(error.to_string().contains("allocation refused"));
+        assert!(digits.is_empty());
+    }
+
+    fn repeated_digit_wire(count: usize) -> String {
+        let mut encoded = String::with_capacity(count.saturating_mul(2).saturating_add(6));
+        encoded.push_str("[1,[");
+        for index in 0..count {
+            if index != 0 {
+                encoded.push(',');
+            }
+            encoded.push('1');
+        }
+        encoded.push_str("]]");
+        encoded
+    }
+
+    #[test]
+    fn public_serde_digit_limit_is_an_exact_boundary_without_a_json_hint() {
+        let at_limit_wire = repeated_digit_wire(MAX_SERDE_U32_DIGITS);
+        let at_limit: BigInt =
+            serde_json::from_str(&at_limit_wire).expect("the exact digit limit is admitted");
+        assert_eq!(
+            serde_json::to_string(&at_limit).expect("limit value reserializes"),
+            at_limit_wire
+        );
+
+        let over_limit_wire = repeated_digit_wire(MAX_SERDE_U32_DIGITS + 1);
+        let error = serde_json::from_str::<BigInt>(&over_limit_wire)
+            .expect_err("limit plus one must be refused");
+        assert!(
+            error
+                .to_string()
+                .contains(&MAX_SERDE_U32_DIGITS.to_string())
+        );
+
+        let first_over_limit_bit = u32::try_from(
+            MAX_SERDE_U32_DIGITS
+                .checked_mul(u32::BITS as usize)
+                .expect("test limit product fits usize"),
+        )
+        .expect("test shift fits u32");
+        let over_limit_value = BigInt::one() << first_over_limit_bit;
+        let error = serde_json::to_string(&over_limit_value)
+            .expect_err("serializer must not emit values its paired decoder refuses");
+        assert!(
+            error
+                .to_string()
+                .contains(&MAX_SERDE_U32_DIGITS.to_string())
         );
     }
 

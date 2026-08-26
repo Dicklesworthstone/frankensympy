@@ -1309,6 +1309,17 @@ mod tests {
             serde_json::from_slice::<BigRational>(&encoded).expect("canonical pair deserializes"),
             BigRational::new(canonical.0, canonical.1)
         );
+
+        for malformed_coefficient in [
+            "[[1,[]],[1,[1]]]",
+            "[[1,[1]],[1,[1,0]]]",
+            "[[0,[1]],[1,[1]]]",
+        ] {
+            assert!(
+                serde_json::from_str::<BigRational>(malformed_coefficient).is_err(),
+                "rational admitted a noncanonical integer coefficient: {malformed_coefficient}"
+            );
+        }
     }
 
     #[test]
