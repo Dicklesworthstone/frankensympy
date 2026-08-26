@@ -363,7 +363,10 @@ fn solve_particular_term(
         );
         let sin_wx = Expr::Function(
             "sin".into(),
-            vec![Expr::Mul(vec![Expr::Rational(omega), x_sym.clone()])],
+            vec![Expr::Mul(vec![
+                Expr::Rational(omega.clone()),
+                x_sym.clone(),
+            ])],
         );
 
         if !denom.is_zero() {
