@@ -26,16 +26,19 @@ const GENERAL_EXPRESSION_LIMITS: ExpressionLimits = ExpressionLimits {
     max_nodes: 8_192,
     max_depth: 256,
     max_fanout: 4_096,
+    max_payload_bytes: MAX_AGENT_EXPRESSION_BYTES,
 };
 const EVALUATED_EXPRESSION_LIMITS: ExpressionLimits = ExpressionLimits {
     max_nodes: 100_000,
     max_depth: 512,
     max_fanout: 4_096,
+    max_payload_bytes: MAX_AGENT_NDJSON_RESPONSE_BYTES,
 };
 const DIFFERENTIATION_LIMITS: ExpressionLimits = ExpressionLimits {
     max_nodes: 512,
     max_depth: 128,
     max_fanout: 64,
+    max_payload_bytes: MAX_AGENT_EXPRESSION_BYTES,
 };
 
 const OUTPUT_LIMIT_RESPONSE: &str = r#"{"status":"Error","data":{"code":"output_limit_exceeded","error":"response exceeded protocol output limit"}}"#;
@@ -46,6 +49,13 @@ struct ExpressionLimits {
     max_nodes: usize,
     max_depth: usize,
     max_fanout: usize,
+    max_payload_bytes: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExpressionValidationError {
+    StructuralLimit,
+    PayloadLimit,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -93,12 +103,22 @@ impl io::Write for BoundedOutputWriter {
 
 struct BoundedDisplayWriter {
     rendered: String,
+    max_bytes: usize,
 }
 
 impl BoundedDisplayWriter {
     fn new() -> Self {
         Self {
             rendered: String::new(),
+            max_bytes: MAX_AGENT_NDJSON_RESPONSE_BYTES,
+        }
+    }
+
+    #[cfg(test)]
+    fn with_limit(max_bytes: usize) -> Self {
+        Self {
+            rendered: String::new(),
+            max_bytes,
         }
     }
 }
@@ -110,7 +130,7 @@ impl fmt::Write for BoundedDisplayWriter {
             .len()
             .checked_add(value.len())
             .ok_or(fmt::Error)?;
-        if new_len > MAX_AGENT_NDJSON_RESPONSE_BYTES {
+        if new_len > self.max_bytes {
             return Err(fmt::Error);
         }
         self.rendered
@@ -183,47 +203,77 @@ fn valid_symbol_name(name: &str) -> bool {
     if name.is_empty() || name.len() > MAX_AGENT_NAME_BYTES {
         return false;
     }
-    let mut characters = name.chars();
-    let Some(first) = characters.next() else {
-        return false;
+    matches!(
+        fsym_core::parse(name),
+        Ok(Expr::Sym(symbol)) if symbol.name == name
+    )
+}
+
+fn node_payload_bytes(node: &Expr) -> Result<usize, ExpressionValidationError> {
+    let bits_to_bytes = |bits: u64| {
+        usize::try_from(bits.div_ceil(8)).map_err(|_| ExpressionValidationError::PayloadLimit)
     };
-    (first.is_alphabetic() || first == '_')
-        && characters.all(|character| character.is_alphanumeric() || character == '_')
+    match node {
+        Expr::Sym(symbol) => Ok(symbol.name.len()),
+        Expr::Integer(integer) => bits_to_bytes(integer.bits()),
+        Expr::Rational(rational) => bits_to_bytes(rational.numer().bits())?
+            .checked_add(bits_to_bytes(rational.denom().bits())?)
+            .ok_or(ExpressionValidationError::PayloadLimit),
+        Expr::Function(name, _) => Ok(name.len()),
+        Expr::Const(_) | Expr::Add(_) | Expr::Mul(_) | Expr::Pow(_, _) => Ok(0),
+    }
 }
 
 fn validate_expression_shape<'a>(
     expression: &'a Expr,
     workspace: Option<&'a SemanticWorkspace>,
     limits: ExpressionLimits,
-) -> Result<(), ()> {
+) -> Result<(), ExpressionValidationError> {
     let mut stack = Vec::new();
-    stack.try_reserve(1).map_err(|_| ())?;
+    stack
+        .try_reserve(1)
+        .map_err(|_| ExpressionValidationError::StructuralLimit)?;
     stack.push((expression, 0_usize, workspace.is_some()));
     let mut nodes = 0_usize;
+    let mut payload_bytes = 0_usize;
 
     while let Some((node, depth, substitute_symbols)) = stack.pop() {
         if substitute_symbols
             && let Expr::Sym(symbol) = node
             && let Some(binding) = workspace.and_then(|active| active.bindings.get(symbol))
         {
-            stack.try_reserve(1).map_err(|_| ())?;
+            stack
+                .try_reserve(1)
+                .map_err(|_| ExpressionValidationError::StructuralLimit)?;
             stack.push((binding, depth, false));
             continue;
         }
 
-        nodes = nodes.checked_add(1).ok_or(())?;
+        nodes = nodes
+            .checked_add(1)
+            .ok_or(ExpressionValidationError::StructuralLimit)?;
         if nodes > limits.max_nodes || depth > limits.max_depth {
-            return Err(());
+            return Err(ExpressionValidationError::StructuralLimit);
+        }
+        payload_bytes = payload_bytes
+            .checked_add(node_payload_bytes(node)?)
+            .ok_or(ExpressionValidationError::PayloadLimit)?;
+        if payload_bytes > limits.max_payload_bytes {
+            return Err(ExpressionValidationError::PayloadLimit);
         }
 
         let children: &[Expr] = match node {
             Expr::Add(children) | Expr::Mul(children) | Expr::Function(_, children) => children,
             Expr::Pow(base, exponent) => {
-                let child_depth = depth.checked_add(1).ok_or(())?;
+                let child_depth = depth
+                    .checked_add(1)
+                    .ok_or(ExpressionValidationError::StructuralLimit)?;
                 if child_depth > limits.max_depth {
-                    return Err(());
+                    return Err(ExpressionValidationError::StructuralLimit);
                 }
-                stack.try_reserve(2).map_err(|_| ())?;
+                stack
+                    .try_reserve(2)
+                    .map_err(|_| ExpressionValidationError::StructuralLimit)?;
                 stack.push((exponent, child_depth, substitute_symbols));
                 stack.push((base, child_depth, substitute_symbols));
                 continue;
@@ -232,13 +282,17 @@ fn validate_expression_shape<'a>(
         };
 
         if children.len() > limits.max_fanout {
-            return Err(());
+            return Err(ExpressionValidationError::StructuralLimit);
         }
-        let child_depth = depth.checked_add(1).ok_or(())?;
+        let child_depth = depth
+            .checked_add(1)
+            .ok_or(ExpressionValidationError::StructuralLimit)?;
         if !children.is_empty() && child_depth > limits.max_depth {
-            return Err(());
+            return Err(ExpressionValidationError::StructuralLimit);
         }
-        stack.try_reserve(children.len()).map_err(|_| ())?;
+        stack
+            .try_reserve(children.len())
+            .map_err(|_| ExpressionValidationError::StructuralLimit)?;
         for child in children.iter().rev() {
             stack.push((child, child_depth, substitute_symbols));
         }
@@ -331,22 +385,25 @@ pub fn handle_agent_ndjson(line: &str, workspace: &mut SemanticWorkspace) -> Str
         AgentRequest::Eval { expr } | AgentRequest::Simplify { expr } => {
             match parse_expression(&expr, GENERAL_EXPRESSION_LIMITS) {
                 Ok(expression) => {
-                    if validate_expression_shape(
+                    match validate_expression_shape(
                         &expression,
                         Some(workspace),
                         EVALUATED_EXPRESSION_LIMITS,
-                    )
-                    .is_err()
-                    {
-                        error_response(
+                    ) {
+                        Err(ExpressionValidationError::StructuralLimit) => error_response(
                             ProtocolErrorCode::ResourceLimitExceeded,
                             "workspace substitution exceeds protocol structural limits",
-                        )
-                    } else {
-                        let result = workspace.eval(&expression);
-                        match render_expression(&result) {
-                            Ok(result) => AgentResponse::Success { result },
-                            Err(error) => error,
+                        ),
+                        Err(ExpressionValidationError::PayloadLimit) => error_response(
+                            ProtocolErrorCode::OutputLimitExceeded,
+                            "workspace substitution payload exceeds protocol output limit",
+                        ),
+                        Ok(()) => {
+                            let result = workspace.eval(&expression);
+                            match render_expression(&result) {
+                                Ok(result) => AgentResponse::Success { result },
+                                Err(error) => error,
+                            }
                         }
                     }
                 }
@@ -443,6 +500,40 @@ mod tests {
     }
 
     #[test]
+    fn parser_constants_cannot_be_published_as_unreachable_bindings() {
+        for reserved in ["pi", "Pi", "E", "I", "oo", "zoo", "nan", "NaN"] {
+            let mut workspace = SemanticWorkspace::new("test");
+            let request = serde_json::to_string(&AgentRequest::Bind {
+                symbol: reserved.to_owned(),
+                expr: "1".to_owned(),
+            })
+            .unwrap();
+            assert!(matches!(
+                decode_response(&handle_agent_ndjson(&request, &mut workspace)),
+                AgentResponse::Error {
+                    code: ProtocolErrorCode::InvalidName,
+                    ..
+                }
+            ));
+            assert!(workspace.bindings.is_empty());
+        }
+
+        let mut workspace = SemanticWorkspace::new("test");
+        let request = serde_json::to_string(&AgentRequest::Diff {
+            expr: "x".to_owned(),
+            var: "pi".to_owned(),
+        })
+        .unwrap();
+        assert!(matches!(
+            decode_response(&handle_agent_ndjson(&request, &mut workspace)),
+            AgentResponse::Error {
+                code: ProtocolErrorCode::InvalidName,
+                ..
+            }
+        ));
+    }
+
+    #[test]
     fn discarded_fork_is_replaced_by_typed_refusal() {
         let mut workspace = SemanticWorkspace::new("test");
         let request = serde_json::to_string(&AgentRequest::Fork {
@@ -464,6 +555,14 @@ mod tests {
         workspace.bind(
             Symbol::new("x"),
             Expr::symbol("y".repeat(MAX_AGENT_NDJSON_RESPONSE_BYTES + 1)),
+        );
+        assert_eq!(
+            validate_expression_shape(
+                &Expr::symbol("x"),
+                Some(&workspace),
+                EVALUATED_EXPRESSION_LIMITS,
+            ),
+            Err(ExpressionValidationError::PayloadLimit)
         );
         let request = r#"{"type":"Eval","payload":{"expr":"x"}}"#;
         assert!(matches!(
@@ -487,5 +586,32 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn structural_renderer_matches_display_and_stops_inside_large_children() {
+        for (expression, expected) in [
+            (fsym_core::parse("x").unwrap(), "x"),
+            (
+                fsym_core::parse("12345678901234567890").unwrap(),
+                "12345678901234567890",
+            ),
+            (fsym_core::parse("1/3").unwrap(), "1/3"),
+            (fsym_core::parse("pi").unwrap(), "pi"),
+            (fsym_core::parse("x + 1").unwrap(), "(x + 1)"),
+            (fsym_core::parse("2*x*y").unwrap(), "2*x*y"),
+            (fsym_core::parse("(x + 1)^2").unwrap(), "((x + 1)**2)"),
+            (fsym_core::parse("f(x, y + 1)").unwrap(), "f(x, (y + 1))"),
+            (fsym_core::parse("f()").unwrap(), "f()"),
+            (Expr::Add(Vec::new()), "()"),
+            (Expr::Mul(Vec::new()), ""),
+        ] {
+            assert_eq!(render_expression(&expression).unwrap(), expected);
+        }
+
+        let expression = Expr::Add(vec![Expr::symbol("x".repeat(128))]);
+        let mut writer = BoundedDisplayWriter::with_limit(8);
+        assert_eq!(write!(&mut writer, "{expression}"), Err(fmt::Error));
+        assert_eq!(writer.rendered, "(");
     }
 }

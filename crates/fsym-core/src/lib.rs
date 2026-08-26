@@ -345,29 +345,35 @@ impl fmt::Display for Expr {
             Expr::Rational(r) => write!(f, "{}", r),
             Expr::Const(c) => write!(f, "{}", c),
             Expr::Add(terms) => {
-                let s = terms
-                    .iter()
-                    .map(|t| format!("{}", t))
-                    .collect::<Vec<_>>()
-                    .join(" + ");
-                write!(f, "({})", s)
+                f.write_str("(")?;
+                for (index, term) in terms.iter().enumerate() {
+                    if index > 0 {
+                        f.write_str(" + ")?;
+                    }
+                    term.fmt(f)?;
+                }
+                f.write_str(")")
             }
             Expr::Mul(factors) => {
-                let s = factors
-                    .iter()
-                    .map(|fac| format!("{}", fac))
-                    .collect::<Vec<_>>()
-                    .join("*");
-                write!(f, "{}", s)
+                for (index, factor) in factors.iter().enumerate() {
+                    if index > 0 {
+                        f.write_str("*")?;
+                    }
+                    factor.fmt(f)?;
+                }
+                Ok(())
             }
             Expr::Pow(b, e) => write!(f, "({}**{})", b, e),
             Expr::Function(name, args) => {
-                let arg_strs = args
-                    .iter()
-                    .map(|a| format!("{}", a))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                write!(f, "{}({})", name, arg_strs)
+                f.write_str(name)?;
+                f.write_str("(")?;
+                for (index, argument) in args.iter().enumerate() {
+                    if index > 0 {
+                        f.write_str(", ")?;
+                    }
+                    argument.fmt(f)?;
+                }
+                f.write_str(")")
             }
         }
     }
