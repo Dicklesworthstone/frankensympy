@@ -136,16 +136,24 @@ impl SymSet {
                 if elems.contains(elem) {
                     return Some(true);
                 }
-                if let Some(el_num) = numeric_value(elem) {
-                    for e in elems {
-                        if let Some(e_num) = numeric_value(e)
-                            && el_num == e_num
-                        {
+
+                let elem_numeric = numeric_value(elem);
+                let mut all_distinct = true;
+                for member in elems {
+                    match (elem_numeric.as_ref(), numeric_value(member)) {
+                        (Some(candidate), Some(member)) if candidate == &member => {
                             return Some(true);
                         }
+                        (Some(_), Some(_)) => {}
+                        _ => all_distinct = false,
                     }
                 }
-                Some(false)
+
+                // Structural inequality alone does not refute mathematical
+                // equality. For example, a symbol in `{x}` may equal `1`
+                // under a later substitution. Only exact numeric pairs are
+                // currently strong enough to establish non-membership.
+                if all_distinct { Some(false) } else { None }
             }
             SymSet::Interval {
                 start,
@@ -332,6 +340,25 @@ mod tests {
         assert_eq!(open.contains(&Expr::from_i64(0)), Some(false));
         // Symbolic element against numeric bounds is undecidable, not false.
         assert_eq!(open.contains(&Expr::symbol("x")), None);
+    }
+
+    #[test]
+    fn symbolic_finite_set_membership_remains_unknown() {
+        let symbolic = SymSet::finite([Expr::symbol("x")]);
+        assert_eq!(symbolic.contains(&Expr::from_i64(1)), None);
+        assert_eq!(symbolic.contains(&Expr::symbol("y")), None);
+        assert_eq!(symbolic.contains(&Expr::symbol("x")), Some(true));
+
+        // Complement must not turn an unresolved equality into a proof of
+        // membership.
+        assert_eq!(
+            symbolic.clone().complement().contains(&Expr::from_i64(1)),
+            None
+        );
+
+        let mixed = SymSet::finite([Expr::from_i64(1), Expr::symbol("x")]);
+        assert_eq!(mixed.contains(&Expr::from_i64(1)), Some(true));
+        assert_eq!(mixed.contains(&Expr::from_i64(2)), None);
     }
 
     #[test]
