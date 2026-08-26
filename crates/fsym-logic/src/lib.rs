@@ -402,9 +402,86 @@ impl TruthTable {
 }
 
 const MAX_DPLL_DEPTH: usize = 256;
+const MAX_DPLL_FORMULA_NODES: usize = 65_536;
 const MAX_DPLL_VARIABLES: usize = 256;
 const MAX_DPLL_CLAUSES: usize = 65_536;
 const MAX_DPLL_CLAUSE_LITERALS: usize = 65_536;
+const MAX_DPLL_SEARCH_WORK: usize = 16_777_216;
+
+fn validate_solver_input(expr: &BoolExpr) -> Result<(), LogicError> {
+    let mut visited = 0usize;
+    let mut stack = vec![(expr, 0usize)];
+
+    while let Some((current, depth)) = stack.pop() {
+        if depth > MAX_DPLL_DEPTH {
+            return Err(LogicError::SolverLimitExceeded {
+                resource: "formula depth",
+                actual: depth,
+                limit: MAX_DPLL_DEPTH,
+            });
+        }
+        visited = visited
+            .checked_add(1)
+            .ok_or(LogicError::SolverLimitExceeded {
+                resource: "formula nodes",
+                actual: usize::MAX,
+                limit: MAX_DPLL_FORMULA_NODES,
+            })?;
+        if visited > MAX_DPLL_FORMULA_NODES {
+            return Err(LogicError::SolverLimitExceeded {
+                resource: "formula nodes",
+                actual: visited,
+                limit: MAX_DPLL_FORMULA_NODES,
+            });
+        }
+
+        let child_count = match current {
+            BoolExpr::Const(_) | BoolExpr::Var(_) => 0,
+            BoolExpr::Not(_) => 1,
+            BoolExpr::And(terms) | BoolExpr::Or(terms) => terms.len(),
+            BoolExpr::Implies(_, _) | BoolExpr::Equivalent(_, _) => 2,
+        };
+        let admitted_nodes = visited
+            .checked_add(stack.len())
+            .and_then(|count| count.checked_add(child_count))
+            .ok_or(LogicError::SolverLimitExceeded {
+                resource: "formula nodes",
+                actual: usize::MAX,
+                limit: MAX_DPLL_FORMULA_NODES,
+            })?;
+        if admitted_nodes > MAX_DPLL_FORMULA_NODES {
+            return Err(LogicError::SolverLimitExceeded {
+                resource: "formula nodes",
+                actual: admitted_nodes,
+                limit: MAX_DPLL_FORMULA_NODES,
+            });
+        }
+
+        if child_count == 0 {
+            continue;
+        }
+        let child_depth = depth
+            .checked_add(1)
+            .ok_or(LogicError::SolverLimitExceeded {
+                resource: "formula depth",
+                actual: usize::MAX,
+                limit: MAX_DPLL_DEPTH,
+            })?;
+        match current {
+            BoolExpr::Not(inner) => stack.push((inner, child_depth)),
+            BoolExpr::And(terms) | BoolExpr::Or(terms) => {
+                stack.extend(terms.iter().map(|term| (term, child_depth)));
+            }
+            BoolExpr::Implies(left, right) | BoolExpr::Equivalent(left, right) => {
+                stack.push((left, child_depth));
+                stack.push((right, child_depth));
+            }
+            BoolExpr::Const(_) | BoolExpr::Var(_) => {}
+        }
+    }
+
+    Ok(())
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct SatVar(usize);
@@ -642,18 +719,25 @@ impl<'a> TseitinEncoder<'a> {
 ///
 /// Returns one satisfying assignment when one exists, `Ok(None)` only for an
 /// established UNSAT result, and a typed error when the solver's structural
-/// limits refuse the input.
+/// or search-work limits refuse the input.
 pub fn dpll_satisfiable(expr: &BoolExpr) -> Result<Option<HashMap<Symbol, bool>>, LogicError> {
+    validate_solver_input(expr)?;
     let mut encoder = TseitinEncoder::new();
     let root = encoder.encode(expr, 0)?;
     encoder.push_clause(vec![SatLiteral::positive(root)])?;
-    let Some(model) = dpll(&encoder.clauses, vec![None; encoder.variable_count]) else {
+    let mut search_budget = SearchBudget::new(MAX_DPLL_SEARCH_WORK);
+    let Some(model) = dpll(
+        &encoder.clauses,
+        vec![None; encoder.variable_count],
+        &mut search_budget,
+    )?
+    else {
         return Ok(None);
     };
 
     let mut public_model = HashMap::with_capacity(encoder.original_variables.len());
     for (symbol, variable) in encoder.original_variables {
-        public_model.insert(symbol, model[variable.0].unwrap_or(false));
+        public_model.insert(symbol, model_value(&model, variable)?.unwrap_or(false));
     }
     if !expr.evaluate(&public_model)? {
         return Err(LogicError::SolverInvariantViolation(
@@ -663,67 +747,150 @@ pub fn dpll_satisfiable(expr: &BoolExpr) -> Result<Option<HashMap<Symbol, bool>>
     Ok(Some(public_model))
 }
 
+struct SearchBudget {
+    used: usize,
+    limit: usize,
+}
+
+impl SearchBudget {
+    fn new(limit: usize) -> Self {
+        Self { used: 0, limit }
+    }
+
+    fn charge(&mut self, amount: usize) -> Result<(), LogicError> {
+        let actual = self
+            .used
+            .checked_add(amount)
+            .ok_or(LogicError::SolverLimitExceeded {
+                resource: "search work units",
+                actual: usize::MAX,
+                limit: self.limit,
+            })?;
+        if actual > self.limit {
+            return Err(LogicError::SolverLimitExceeded {
+                resource: "search work units",
+                actual,
+                limit: self.limit,
+            });
+        }
+        self.used = actual;
+        Ok(())
+    }
+}
+
+fn model_value(model: &[Option<bool>], variable: SatVar) -> Result<Option<bool>, LogicError> {
+    model.get(variable.0).copied().ok_or_else(|| {
+        LogicError::SolverInvariantViolation(format!(
+            "SAT variable {} is outside model length {}",
+            variable.0,
+            model.len()
+        ))
+    })
+}
+
+fn assign_model(
+    model: &mut [Option<bool>],
+    variable: SatVar,
+    value: bool,
+) -> Result<(), LogicError> {
+    let model_len = model.len();
+    let slot = model.get_mut(variable.0).ok_or_else(|| {
+        LogicError::SolverInvariantViolation(format!(
+            "SAT variable {} is outside model length {model_len}",
+            variable.0
+        ))
+    })?;
+    *slot = Some(value);
+    Ok(())
+}
+
 /// Clause value under a partial model: `Some(true)` satisfied, `Some(false)`
 /// falsified (all literals assigned false), `None` undetermined.
-fn clause_value(clause: &[SatLiteral], model: &[Option<bool>]) -> Option<bool> {
+fn clause_value(
+    clause: &[SatLiteral],
+    model: &[Option<bool>],
+    budget: &mut SearchBudget,
+) -> Result<Option<bool>, LogicError> {
+    budget.charge(clause.len().max(1))?;
     let mut all_assigned_false = true;
     for literal in clause {
-        match model[literal.variable.0] {
-            Some(value) if value == literal.positive => return Some(true),
+        match model_value(model, literal.variable)? {
+            Some(value) if value == literal.positive => return Ok(Some(true)),
             Some(_) => {}
             None => all_assigned_false = false,
         }
     }
-    all_assigned_false.then_some(false)
+    Ok(all_assigned_false.then_some(false))
 }
 
-fn unit_literal(clause: &[SatLiteral], model: &[Option<bool>]) -> Option<SatLiteral> {
-    if clause_value(clause, model) == Some(true) {
-        return None;
+fn unit_literal(
+    clause: &[SatLiteral],
+    model: &[Option<bool>],
+    budget: &mut SearchBudget,
+) -> Result<Option<SatLiteral>, LogicError> {
+    if clause_value(clause, model, budget)? == Some(true) {
+        return Ok(None);
     }
+    budget.charge(clause.len().max(1))?;
     let mut unassigned = None;
     for &literal in clause {
-        if model[literal.variable.0].is_none() {
+        if model_value(model, literal.variable)?.is_none() {
             if unassigned.is_some() {
-                return None;
+                return Ok(None);
             }
             unassigned = Some(literal);
         }
     }
-    unassigned
+    Ok(unassigned)
 }
 
-fn dpll(clauses: &[Vec<SatLiteral>], model: Vec<Option<bool>>) -> Option<Vec<Option<bool>>> {
-    if clauses
-        .iter()
-        .any(|clause| clause_value(clause, &model) == Some(false))
-    {
-        return None;
-    }
-    if clauses
-        .iter()
-        .all(|clause| clause_value(clause, &model) == Some(true))
-    {
-        return Some(model);
+fn dpll(
+    clauses: &[Vec<SatLiteral>],
+    model: Vec<Option<bool>>,
+    budget: &mut SearchBudget,
+) -> Result<Option<Vec<Option<bool>>>, LogicError> {
+    budget.charge(1)?;
+    for clause in clauses {
+        if clause_value(clause, &model, budget)? == Some(false) {
+            return Ok(None);
+        }
     }
 
-    if let Some(literal) = clauses
-        .iter()
-        .find_map(|clause| unit_literal(clause, &model))
-    {
-        let mut next = model;
-        next[literal.variable.0] = Some(literal.positive);
-        return dpll(clauses, next);
+    let mut all_satisfied = true;
+    for clause in clauses {
+        if clause_value(clause, &model, budget)? != Some(true) {
+            all_satisfied = false;
+            break;
+        }
+    }
+    if all_satisfied {
+        return Ok(Some(model));
     }
 
+    for clause in clauses {
+        if let Some(literal) = unit_literal(clause, &model, budget)? {
+            let mut next = model;
+            assign_model(&mut next, literal.variable, literal.positive)?;
+            return dpll(clauses, next, budget);
+        }
+    }
+
+    budget.charge(model.len().max(1))?;
     let mut seen = vec![(false, false); model.len()];
     for clause in clauses {
-        if clause_value(clause, &model) == Some(true) {
+        if clause_value(clause, &model, budget)? == Some(true) {
             continue;
         }
+        budget.charge(clause.len().max(1))?;
         for literal in clause {
-            if model[literal.variable.0].is_none() {
-                let entry = &mut seen[literal.variable.0];
+            if model_value(&model, literal.variable)?.is_none() {
+                let seen_len = seen.len();
+                let entry = seen.get_mut(literal.variable.0).ok_or_else(|| {
+                    LogicError::SolverInvariantViolation(format!(
+                        "SAT variable {} is outside polarity table length {seen_len}",
+                        literal.variable.0
+                    ))
+                })?;
                 if literal.positive {
                     entry.0 = true;
                 } else {
@@ -738,19 +905,24 @@ fn dpll(clauses: &[Vec<SatLiteral>], model: Vec<Option<bool>>) -> Option<Vec<Opt
         .find(|(_, (positive, negative))| positive != negative)
     {
         let mut next = model;
-        next[variable] = Some(positive);
-        return dpll(clauses, next);
+        assign_model(&mut next, SatVar(variable), positive)?;
+        return dpll(clauses, next, budget);
     }
 
-    let variable = model.iter().position(Option::is_none)?;
+    let Some(variable) = model.iter().position(Option::is_none) else {
+        return Err(LogicError::SolverInvariantViolation(
+            "undetermined clause remained after every SAT variable was assigned".to_string(),
+        ));
+    };
     for value in [true, false] {
+        budget.charge(model.len().max(1))?;
         let mut next = model.clone();
-        next[variable] = Some(value);
-        if let Some(solution) = dpll(clauses, next) {
-            return Some(solution);
+        assign_model(&mut next, SatVar(variable), value)?;
+        if let Some(solution) = dpll(clauses, next, budget)? {
+            return Ok(Some(solution));
         }
     }
-    None
+    Ok(None)
 }
 
 #[cfg(test)]
@@ -963,6 +1135,58 @@ mod tests {
                 resource: "variables",
                 ..
             })
+        ));
+    }
+
+    #[test]
+    fn dpll_preflights_formula_depth_and_node_count() {
+        let mut too_deep = BoolExpr::Const(true);
+        for _ in 0..=MAX_DPLL_DEPTH {
+            too_deep = BoolExpr::Not(Box::new(too_deep));
+        }
+        assert!(matches!(
+            dpll_satisfiable(&too_deep),
+            Err(LogicError::SolverLimitExceeded {
+                resource: "formula depth",
+                actual,
+                limit: MAX_DPLL_DEPTH,
+            }) if actual > MAX_DPLL_DEPTH
+        ));
+
+        let too_wide = BoolExpr::And(vec![BoolExpr::var("p"); MAX_DPLL_FORMULA_NODES]);
+        assert!(matches!(
+            dpll_satisfiable(&too_wide),
+            Err(LogicError::SolverLimitExceeded {
+                resource: "formula nodes",
+                actual,
+                limit: MAX_DPLL_FORMULA_NODES,
+            }) if actual > MAX_DPLL_FORMULA_NODES
+        ));
+    }
+
+    #[test]
+    fn dpll_search_budget_refuses_instead_of_reporting_unsat() {
+        let variable = SatVar(0);
+        let clauses = vec![vec![SatLiteral::positive(variable)]];
+        let mut budget = SearchBudget::new(1);
+        assert_eq!(
+            dpll(&clauses, vec![None], &mut budget),
+            Err(LogicError::SolverLimitExceeded {
+                resource: "search work units",
+                actual: 2,
+                limit: 1,
+            })
+        );
+    }
+
+    #[test]
+    fn malformed_sat_variable_is_a_typed_invariant_error() {
+        let malformed = vec![SatLiteral::positive(SatVar(1))];
+        let mut budget = SearchBudget::new(16);
+        assert!(matches!(
+            clause_value(&malformed, &[None], &mut budget),
+            Err(LogicError::SolverInvariantViolation(message))
+                if message.contains("outside model length")
         ));
     }
 }
