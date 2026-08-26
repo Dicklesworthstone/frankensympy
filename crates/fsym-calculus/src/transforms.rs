@@ -103,6 +103,32 @@ pub fn laplace_transform(expr: &Expr, t: &Symbol, s: &Symbol) -> Result<Expr, Ca
                 let l_t = laplace_transform(&t_factors[0], t, s)?;
                 return Ok(simplify(&(c * l_t)));
             }
+            if t_factors.len() == 2 {
+                let c = simplify(&Expr::Mul(consts));
+                for (exp_idx, other_idx) in [(0, 1), (1, 0)] {
+                    if let Expr::Function(name, args) = &t_factors[exp_idx]
+                        && name == "exp"
+                        && args.len() == 1
+                        && let Some(a) = linear_argument_coefficient(&args[0], t)
+                    {
+                        let base_transform = laplace_transform(&t_factors[other_idx], t, s)?;
+                        let s_minus_a =
+                            Expr::Add(vec![s_sym.clone(), Expr::Mul(vec![Expr::from_i64(-1), a])]);
+                        let mut sub_map = HashMap::new();
+                        sub_map.insert(s.clone(), s_minus_a);
+                        let shifted = base_transform.subs(&sub_map);
+                        return Ok(simplify(&(c * shifted)));
+                    }
+                }
+                for (t_idx, other_idx) in [(0, 1), (1, 0)] {
+                    if t_factors[t_idx] == t_sym {
+                        let base_transform = laplace_transform(&t_factors[other_idx], t, s)?;
+                        let d_ds = crate::diff(&base_transform, s);
+                        let res = Expr::Mul(vec![Expr::from_i64(-1), d_ds]);
+                        return Ok(simplify(&(c * res)));
+                    }
+                }
+            }
             Err(CalculusError::IntegrationFailed(format!(
                 "Laplace transform not computable for product: {}",
                 expr
@@ -171,6 +197,28 @@ pub fn laplace_transform(expr: &Expr, t: &Symbol, s: &Symbol) -> Result<Expr, Ca
                     let inv = Expr::Pow(Arc::new(denom), Arc::new(Expr::from_i64(-1)));
                     Ok(simplify(&(s_sym * inv)))
                 }
+                "sinh" => {
+                    // L{sinh(a*t)} = a / (s^2 - a^2)
+                    let Some(a) = linear_argument_coefficient(arg, t) else {
+                        return Err(CalculusError::IntegrationFailed(format!("sinh({arg})")));
+                    };
+                    let s_sq = Expr::Pow(Arc::new(s_sym), Arc::new(Expr::from_i64(2)));
+                    let a_sq = Expr::Pow(Arc::new(a.clone()), Arc::new(Expr::from_i64(2)));
+                    let denom = Expr::Add(vec![s_sq, Expr::Mul(vec![Expr::from_i64(-1), a_sq])]);
+                    let inv = Expr::Pow(Arc::new(denom), Arc::new(Expr::from_i64(-1)));
+                    Ok(simplify(&(a * inv)))
+                }
+                "cosh" => {
+                    // L{cosh(a*t)} = s / (s^2 - a^2)
+                    let Some(a) = linear_argument_coefficient(arg, t) else {
+                        return Err(CalculusError::IntegrationFailed(format!("cosh({arg})")));
+                    };
+                    let s_sq = Expr::Pow(Arc::new(s_sym.clone()), Arc::new(Expr::from_i64(2)));
+                    let a_sq = Expr::Pow(Arc::new(a), Arc::new(Expr::from_i64(2)));
+                    let denom = Expr::Add(vec![s_sq, Expr::Mul(vec![Expr::from_i64(-1), a_sq])]);
+                    let inv = Expr::Pow(Arc::new(denom), Arc::new(Expr::from_i64(-1)));
+                    Ok(simplify(&(s_sym * inv)))
+                }
                 other => Err(CalculusError::IntegrationFailed(format!(
                     "Laplace transform of {other}({arg})"
                 ))),
@@ -178,6 +226,159 @@ pub fn laplace_transform(expr: &Expr, t: &Symbol, s: &Symbol) -> Result<Expr, Ca
         }
         other => Err(CalculusError::IntegrationFailed(format!(
             "Laplace transform not implemented for {other}"
+        ))),
+    }
+}
+
+/// Typed Laplace transform output with Region of Convergence (ROC) metadata.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct LaplaceResult {
+    pub transform: Expr,
+    pub roc_abscissa: Option<Expr>,
+}
+
+/// Computes the unilateral Laplace transform along with its Region of Convergence: $\text{Re}(s) > \sigma_0$.
+pub fn laplace_transform_with_roc(
+    expr: &Expr,
+    t: &Symbol,
+    s: &Symbol,
+) -> Result<LaplaceResult, CalculusError> {
+    let transform = laplace_transform(expr, t, s)?;
+    let roc_abscissa = compute_roc_abscissa(expr, t);
+    Ok(LaplaceResult {
+        transform,
+        roc_abscissa,
+    })
+}
+
+fn compute_roc_abscissa(expr: &Expr, t: &Symbol) -> Option<Expr> {
+    match expr {
+        Expr::Function(name, args) if args.len() == 1 => {
+            let arg = &args[0];
+            match name.as_str() {
+                "exp" => linear_argument_coefficient(arg, t),
+                "sinh" | "cosh" => {
+                    let a = linear_argument_coefficient(arg, t)?;
+                    Some(Expr::Function("abs".to_string(), vec![a]))
+                }
+                "sin" | "cos" => Some(Expr::from_i64(0)),
+                _ => None,
+            }
+        }
+        Expr::Pow(base, _) if base.as_ref() == &Expr::Sym(t.clone()) => Some(Expr::from_i64(0)),
+        Expr::Sym(sym) if sym == t => Some(Expr::from_i64(0)),
+        _ if !expr.free_symbols().contains(t) => Some(Expr::from_i64(0)),
+        Expr::Mul(factors) => {
+            for f in factors {
+                if let Expr::Function(name, args) = f
+                    && name == "exp"
+                    && args.len() == 1
+                {
+                    return linear_argument_coefficient(&args[0], t);
+                }
+            }
+            Some(Expr::from_i64(0))
+        }
+        Expr::Add(terms) => {
+            let mut max_abscissa = None;
+            for term in terms {
+                let roc = compute_roc_abscissa(term, t)?;
+                max_abscissa = Some(roc);
+            }
+            max_abscissa
+        }
+        _ => None,
+    }
+}
+
+/// Exact Fourier transform: $\mathcal{F}\{f(t)\}(\omega) = \int_{-\infty}^\infty f(t) e^{-i \omega t} dt$ for catalog functions.
+pub fn fourier_transform(expr: &Expr, t: &Symbol, omega: &Symbol) -> Result<Expr, CalculusError> {
+    if t == omega {
+        return Err(CalculusError::IntegrationFailed(
+            "Fourier input and transform variables must be distinct".to_string(),
+        ));
+    }
+    if expr.free_symbols().contains(omega) {
+        return Err(CalculusError::IntegrationFailed(format!(
+            "Fourier input must be independent of transform variable {omega}"
+        )));
+    }
+    let omega_sym = Expr::Sym(omega.clone());
+    let t_sym = Expr::Sym(t.clone());
+
+    if !expr.free_symbols().contains(t) {
+        let two_pi = Expr::Mul(vec![
+            Expr::from_i64(2),
+            Expr::Const(fsym_core::Constant::Pi),
+            expr.clone(),
+        ]);
+        let dirac = Expr::Function("dirac".to_string(), vec![omega_sym]);
+        return Ok(simplify(&(two_pi * dirac)));
+    }
+
+    match expr {
+        Expr::Add(terms) => {
+            let mut transformed = Vec::with_capacity(terms.len());
+            for term in terms {
+                transformed.push(fourier_transform(term, t, omega)?);
+            }
+            Ok(simplify(&Expr::Add(transformed)))
+        }
+        Expr::Mul(factors) => {
+            let mut consts = Vec::new();
+            let mut t_factors = Vec::new();
+            for f in factors {
+                if !f.free_symbols().contains(t) {
+                    consts.push(f.clone());
+                } else {
+                    t_factors.push(f.clone());
+                }
+            }
+            if t_factors.len() == 1 {
+                let c = simplify(&Expr::Mul(consts));
+                let f_t = fourier_transform(&t_factors[0], t, omega)?;
+                return Ok(simplify(&(c * f_t)));
+            }
+            Err(CalculusError::IntegrationFailed(format!(
+                "Fourier transform not computable for product: {}",
+                expr
+            )))
+        }
+        Expr::Function(name, args) if args.len() == 1 => {
+            let arg = &args[0];
+            match name.as_str() {
+                "exp" => {
+                    // Check for exp(-a * abs(t)) -> 2a / (a^2 + omega^2)
+                    if let Expr::Mul(factors) = arg
+                        && factors.len() == 2
+                        && factors.iter().any(|f| {
+                            matches!(f, Expr::Function(n, a) if n == "abs" && a.len() == 1 && a[0] == t_sym)
+                        })
+                    {
+                        let a_opt = factors
+                            .iter()
+                            .find(|f| !matches!(f, Expr::Function(n, _) if n == "abs"));
+                        if let Some(neg_a) = a_opt {
+                            let a = simplify(&(Expr::from_i64(-1) * neg_a.clone()));
+                            let two_a = Expr::Mul(vec![Expr::from_i64(2), a.clone()]);
+                            let a_sq = Expr::Pow(Arc::new(a), Arc::new(Expr::from_i64(2)));
+                            let w_sq = Expr::Pow(Arc::new(omega_sym), Arc::new(Expr::from_i64(2)));
+                            let denom = Expr::Add(vec![a_sq, w_sq]);
+                            let inv = Expr::Pow(Arc::new(denom), Arc::new(Expr::from_i64(-1)));
+                            return Ok(simplify(&(two_a * inv)));
+                        }
+                    }
+                    Err(CalculusError::IntegrationFailed(format!(
+                        "Fourier transform of exp({arg})"
+                    )))
+                }
+                other => Err(CalculusError::IntegrationFailed(format!(
+                    "Fourier transform of {other}({arg})"
+                ))),
+            }
+        }
+        other => Err(CalculusError::IntegrationFailed(format!(
+            "Fourier transform not implemented for {other}"
         ))),
     }
 }

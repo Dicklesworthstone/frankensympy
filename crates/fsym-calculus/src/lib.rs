@@ -891,4 +891,57 @@ mod tests {
         );
         assert!(laplace_transform(&oversized, &t, &s).is_err());
     }
+
+    #[test]
+    fn test_laplace_hyperbolic_and_damped() {
+        let t = Symbol::new("t");
+        let s = Symbol::new("s");
+        let a = Symbol::new("a");
+        let w = Symbol::new("w");
+
+        // 1. L{sinh(a*t)} = a / (s^2 - a^2)
+        let at = Expr::Mul(vec![Expr::Sym(a.clone()), Expr::Sym(t.clone())]);
+        let sinh_at = Expr::Function("sinh".to_string(), vec![at.clone()]);
+        let l_sinh = laplace_transform(&sinh_at, &t, &s).unwrap();
+        assert!(matches!(l_sinh, Expr::Mul(_)));
+
+        // 2. L{cosh(a*t)} = s / (s^2 - a^2)
+        let cosh_at = Expr::Function("cosh".to_string(), vec![at]);
+        let l_cosh = laplace_transform(&cosh_at, &t, &s).unwrap();
+        assert!(matches!(l_cosh, Expr::Mul(_)));
+
+        // 3. Damped: L{exp(a*t) * sin(w*t)}
+        let wt = Expr::Mul(vec![Expr::Sym(w.clone()), Expr::Sym(t.clone())]);
+        let sin_wt = Expr::Function("sin".to_string(), vec![wt]);
+        let exp_at = Expr::Function(
+            "exp".to_string(),
+            vec![Expr::Mul(vec![Expr::Sym(a.clone()), Expr::Sym(t.clone())])],
+        );
+        let damped = Expr::Mul(vec![exp_at, sin_wt]);
+        let l_damped = laplace_transform(&damped, &t, &s).unwrap();
+        assert!(matches!(l_damped, Expr::Mul(_)));
+
+        // 4. Laplace with ROC
+        let res_roc = laplace_transform_with_roc(&damped, &t, &s).unwrap();
+        assert!(res_roc.roc_abscissa.is_some());
+    }
+
+    #[test]
+    fn test_fourier_transform_catalog() {
+        let t = Symbol::new("t");
+        let omega = Symbol::new("omega");
+        let a = Symbol::new("a");
+
+        // F{exp(-a*|t|)} = 2*a / (a^2 + omega^2)
+        let abs_t = Expr::Function("abs".to_string(), vec![Expr::Sym(t.clone())]);
+        let neg_a_abs_t = Expr::Mul(vec![Expr::from_i64(-1), Expr::Sym(a.clone()), abs_t]);
+        let f_expr = Expr::Function("exp".to_string(), vec![neg_a_abs_t]);
+        let f_trans = fourier_transform(&f_expr, &t, &omega).unwrap();
+        assert!(matches!(f_trans, Expr::Mul(_)));
+
+        // Constant: F{c} = 2*pi*c*delta(omega)
+        let c = Expr::from_i64(5);
+        let f_c = fourier_transform(&c, &t, &omega).unwrap();
+        assert!(matches!(f_c, Expr::Mul(_)));
+    }
 }
