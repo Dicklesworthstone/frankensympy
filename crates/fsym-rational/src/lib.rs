@@ -135,6 +135,43 @@ impl BigRational {
         Self(num_rational::Ratio::new(numer, denom))
     }
 
+    /// Constructs a reduced rational with a positive denominator under the caller's meter.
+    ///
+    /// A zero denominator is refused before normalization begins. GCD reduction, both exact
+    /// quotients, sign normalization, and final publication all use governed arithmetic lanes.
+    pub fn metered_new<M: BudgetMeter>(
+        numer: &BigInt,
+        denom: &BigInt,
+        meter: &mut M,
+    ) -> Result<Self, RationalArithmeticError> {
+        meter.checkpoint()?;
+        if denom.is_zero() {
+            return rational_metered_error(RationalArithmeticError::DivisionByZero, meter);
+        }
+
+        let reduction = metered_gcd(numer, denom, meter)?;
+        let mut numerator = metered_exact_quotient(
+            numer,
+            &reduction,
+            "constructor numerator normalization",
+            meter,
+        )?;
+        let mut denominator = metered_exact_quotient(
+            denom,
+            &reduction,
+            "constructor denominator normalization",
+            meter,
+        )?;
+        if denominator.is_negative() {
+            numerator = metered_negate(numerator, meter)?;
+            denominator = metered_negate(denominator, meter)?;
+        }
+        rational_metered_finish(
+            Self(num_rational::Ratio::new_raw(numerator, denominator)),
+            meter,
+        )
+    }
+
     /// Constructs a rational whose denominator is one.
     pub fn from_integer(value: BigInt) -> Self {
         Self(num_rational::Ratio::from_integer(value))
@@ -1111,7 +1148,7 @@ impl ToPrimitive for BigRational {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fsym_budget::{Budget, BudgetError, BudgetLimits, Unbounded};
+    use fsym_budget::{Budget, BudgetError, BudgetLimits, DIMENSION_COUNT, Unbounded};
     use proptest::prelude::*;
 
     #[derive(Debug, Default)]
@@ -1150,6 +1187,54 @@ mod tests {
                 Ok(())
             }
         }
+    }
+
+    #[derive(Debug, Default)]
+    struct CountingMeter {
+        dimensions: [u64; DIMENSION_COUNT],
+        checkpoints: usize,
+    }
+
+    impl BudgetMeter for CountingMeter {
+        fn charge(&mut self, dimension: Dimension, amount: u64) -> Result<(), MeterError> {
+            self.dimensions[dimension.index()] =
+                self.dimensions[dimension.index()].saturating_add(amount);
+            Ok(())
+        }
+
+        fn charge_batch(&mut self, charges: &[(Dimension, u64)]) -> Result<(), MeterError> {
+            for &(dimension, amount) in charges {
+                self.charge(dimension, amount)?;
+            }
+            Ok(())
+        }
+
+        fn checkpoint(&mut self) -> Result<(), MeterError> {
+            self.checkpoints = self.checkpoints.saturating_add(1);
+            Ok(())
+        }
+    }
+
+    fn scalar_normalize(numerator: i64, denominator: i64) -> (i128, i128) {
+        assert_ne!(denominator, 0);
+        let mut left = i128::from(numerator).abs();
+        let mut right = i128::from(denominator).abs();
+        while right != 0 {
+            let remainder = left % right;
+            left = right;
+            right = remainder;
+        }
+        let mut numerator = i128::from(numerator) / left;
+        let mut denominator = i128::from(denominator) / left;
+        if denominator < 0 {
+            numerator = -numerator;
+            denominator = -denominator;
+        }
+        (numerator, denominator)
+    }
+
+    fn bigint_from_i128(value: i128) -> BigInt {
+        BigInt::from_str_radix(&value.to_string(), 10).expect("an i128 decimal is a valid BigInt")
     }
 
     #[derive(Debug, Default)]
@@ -1195,6 +1280,103 @@ mod tests {
         );
         assert_eq!(value.recip(), BigRational::new(4.into(), 3.into()));
         assert_eq!(value.pow(-2), BigRational::new(16.into(), 9.into()));
+    }
+
+    #[test]
+    fn governed_constructor_normalizes_sign_reduction_and_large_coefficients() {
+        for (numerator, denominator, expected_numerator, expected_denominator) in [
+            (0i64, 17i64, 0i64, 1i64),
+            (0, -17, 0, 1),
+            (7, 1, 7, 1),
+            (7, -1, -7, 1),
+            (-42, -30, 7, 5),
+            (-42, 30, -7, 5),
+        ] {
+            let numerator = BigInt::from(numerator);
+            let denominator = BigInt::from(denominator);
+            let actual = BigRational::metered_new(&numerator, &denominator, &mut Unbounded)
+                .expect("valid coefficients normalize under the unbounded meter");
+            assert_eq!(actual.numer(), &BigInt::from(expected_numerator));
+            assert_eq!(actual.denom(), &BigInt::from(expected_denominator));
+            assert_eq!(
+                actual,
+                BigRational::new(numerator.clone(), denominator.clone())
+            );
+            assert!(actual.denom().is_positive());
+            assert_eq!(gcd(actual.numer(), actual.denom()), BigInt::one());
+            assert_eq!(actual.numer() * &denominator, actual.denom() * &numerator);
+        }
+
+        let shared_factor = (BigInt::one() << 4_096u32) - 1i64;
+        let numerator = BigInt::from(-42) * &shared_factor;
+        let denominator = BigInt::from(-30) * &shared_factor;
+        assert_eq!(
+            BigRational::metered_new(&numerator, &denominator, &mut Unbounded),
+            Ok(BigRational::new(BigInt::from(7), BigInt::from(5)))
+        );
+    }
+
+    #[test]
+    fn governed_constructor_refuses_zero_and_pins_resource_topology() {
+        let numerator = BigInt::from(-42);
+        let denominator = BigInt::from(-30);
+        let mut measured = CountingMeter::default();
+        assert_eq!(
+            BigRational::metered_new(&numerator, &denominator, &mut measured),
+            Ok(BigRational::new(BigInt::from(7), BigInt::from(5)))
+        );
+        assert_eq!(measured.dimensions, [228, 116, 22, 0, 0]);
+        assert_eq!(measured.checkpoints, 253);
+
+        for dimension in [
+            Dimension::ComputeSteps,
+            Dimension::MemoryBytes,
+            Dimension::AllocationCount,
+        ] {
+            let admitted = measured.dimensions[dimension.index()];
+            assert!(admitted > 0);
+            let mut limits = BudgetLimits::uniform(u64::MAX, 0);
+            limits.dimensions[dimension.index()] = admitted - 1;
+            let mut budget = Budget::new(limits);
+            assert!(matches!(
+                BigRational::metered_new(&numerator, &denominator, &mut budget),
+                Err(RationalArithmeticError::Meter(MeterError::Budget(
+                    BudgetError::Exhausted {
+                        dimension: exhausted,
+                        ..
+                    }
+                ))) if exhausted == dimension
+            ));
+        }
+
+        for checkpoint in 1..=measured.checkpoints {
+            let mut cancelled = CheckpointMeter::cancelling_at(checkpoint);
+            assert_eq!(
+                BigRational::metered_new(&numerator, &denominator, &mut cancelled),
+                Err(RationalArithmeticError::Meter(MeterError::Cancelled))
+            );
+            assert_eq!(cancelled.checkpoints, checkpoint);
+        }
+        assert_eq!(
+            BigRational::metered_new(&numerator, &denominator, &mut Unbounded),
+            Ok(BigRational::new(BigInt::from(7), BigInt::from(5)))
+        );
+
+        let zero = BigInt::zero();
+        let mut refused = CountingMeter::default();
+        assert_eq!(
+            BigRational::metered_new(&numerator, &zero, &mut refused),
+            Err(RationalArithmeticError::DivisionByZero)
+        );
+        assert_eq!(refused.dimensions, [0; DIMENSION_COUNT]);
+        assert_eq!(refused.checkpoints, 2);
+        for checkpoint in 1..=refused.checkpoints {
+            let mut cancelled = CheckpointMeter::cancelling_at(checkpoint);
+            assert_eq!(
+                BigRational::metered_new(&numerator, &zero, &mut cancelled),
+                Err(RationalArithmeticError::Meter(MeterError::Cancelled))
+            );
+        }
     }
 
     #[test]
@@ -2077,6 +2259,35 @@ mod tests {
             let decoded: BigRational =
                 serde_json::from_slice(&encoded).expect("canonical rational deserializes");
             prop_assert_eq!(decoded, rational);
+        }
+
+        #[test]
+        fn governed_constructor_matches_independent_i128_normalization(
+            numerator in any::<i64>(),
+            denominator in any::<i64>().prop_filter("nonzero denominator", |value| *value != 0),
+        ) {
+            let original_numerator = BigInt::from(numerator);
+            let original_denominator = BigInt::from(denominator);
+            let actual = BigRational::metered_new(
+                &original_numerator,
+                &original_denominator,
+                &mut Unbounded,
+            ).expect("a nonzero denominator is admitted");
+            let (expected_numerator, expected_denominator) =
+                scalar_normalize(numerator, denominator);
+
+            prop_assert_eq!(actual.numer(), &bigint_from_i128(expected_numerator));
+            prop_assert_eq!(actual.denom(), &bigint_from_i128(expected_denominator));
+            prop_assert_eq!(
+                actual.clone(),
+                BigRational::new(original_numerator.clone(), original_denominator.clone())
+            );
+            prop_assert!(actual.denom().is_positive());
+            prop_assert_eq!(gcd(actual.numer(), actual.denom()), BigInt::one());
+            prop_assert_eq!(
+                actual.numer() * &original_denominator,
+                actual.denom() * &original_numerator,
+            );
         }
 
         #[test]
