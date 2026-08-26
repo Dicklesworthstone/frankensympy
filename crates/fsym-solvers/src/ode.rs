@@ -6,6 +6,7 @@ use crate::SolverError;
 use fsym_calculus::{diff, integrate};
 use fsym_core::{BigInt, BigRational, Expr, Symbol};
 use fsym_simplify::{simplify, try_expand, try_simplify};
+use num_traits::Zero;
 use std::sync::Arc;
 
 fn square_root_if_exact(value: &BigInt) -> Option<BigInt> {
@@ -35,7 +36,7 @@ pub fn dsolve_linear_first_order(
             "integrating the first-order ODE coefficient failed: {error}"
         ))
     })?;
-    let mu = Expr::Function("exp".into(), vec![int_p]);
+    let mu = Expr::Function("exp".into(), vec![int_p.clone()]);
 
     // \int mu(x) * Q(x) dx
     let mu_q = simplify(&Expr::Mul(vec![mu.clone(), q_expr.clone()]));
@@ -208,11 +209,7 @@ fn parse_linear_arg(expr: &Expr, x: &Symbol) -> Option<BigRational> {
                     return None;
                 }
             }
-            if found_x {
-                Some(k)
-            } else {
-                None
-            }
+            if found_x { Some(k) } else { None }
         }
         _ => None,
     }
@@ -359,7 +356,10 @@ fn solve_particular_term(
 
         let cos_wx = Expr::Function(
             "cos".into(),
-            vec![Expr::Mul(vec![Expr::Rational(omega.clone()), x_sym.clone()])],
+            vec![Expr::Mul(vec![
+                Expr::Rational(omega.clone()),
+                x_sym.clone(),
+            ])],
         );
         let sin_wx = Expr::Function(
             "sin".into(),
@@ -503,4 +503,3 @@ pub fn verify_const_coeff_second_order_nonhomogeneous_solution(
     };
     try_simplify(&expanded).is_ok_and(|simplified| simplified.is_zero())
 }
-

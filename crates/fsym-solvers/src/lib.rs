@@ -628,4 +628,67 @@ mod tests {
         let lin_sol = dsolve_linear_first_order(&p, &q, &x, &c1).unwrap();
         assert!(verify_first_order_linear_solution(&lin_sol, &p, &q, &x));
     }
+
+    #[test]
+    fn test_nonhomogeneous_second_order_ode_solving_and_verification() {
+        let x = Symbol::new("x");
+        let c1 = Symbol::new("C1");
+        let c2 = Symbol::new("C2");
+
+        // 1. Constant forcing: y'' - 3*y' + 2*y = 4
+        let f_const = Expr::from_i64(4);
+        let sol_const =
+            dsolve_const_coeff_second_order_nonhomogeneous(1, -3, 2, &f_const, &x, &c1, &c2)
+                .unwrap();
+        assert!(verify_const_coeff_second_order_nonhomogeneous_solution(
+            &sol_const, 1, -3, 2, &f_const, &x
+        ));
+
+        // 2. Exponential forcing: y'' - y = exp(2*x)
+        let f_exp = Expr::Function(
+            "exp".into(),
+            vec![Expr::Mul(vec![Expr::from_i64(2), Expr::Sym(x.clone())])],
+        );
+        let sol_exp =
+            dsolve_const_coeff_second_order_nonhomogeneous(1, 0, -1, &f_exp, &x, &c1, &c2).unwrap();
+        assert!(verify_const_coeff_second_order_nonhomogeneous_solution(
+            &sol_exp, 1, 0, -1, &f_exp, &x
+        ));
+
+        // 3. Trigonometric forcing: y'' + 4*y = cos(x)
+        let f_cos = Expr::Function("cos".into(), vec![Expr::Sym(x.clone())]);
+        let sol_cos =
+            dsolve_const_coeff_second_order_nonhomogeneous(1, 0, 4, &f_cos, &x, &c1, &c2).unwrap();
+        assert!(verify_const_coeff_second_order_nonhomogeneous_solution(
+            &sol_cos, 1, 0, 4, &f_cos, &x
+        ));
+
+        // 4. Resonant trigonometric forcing: y'' + y = cos(x)
+        let f_res_cos = Expr::Function("cos".into(), vec![Expr::Sym(x.clone())]);
+        let sol_res_cos =
+            dsolve_const_coeff_second_order_nonhomogeneous(1, 0, 1, &f_res_cos, &x, &c1, &c2)
+                .unwrap();
+        assert!(verify_const_coeff_second_order_nonhomogeneous_solution(
+            &sol_res_cos,
+            1,
+            0,
+            1,
+            &f_res_cos,
+            &x
+        ));
+
+        // 5. Resonant exponential forcing: y'' - y = exp(x)
+        let f_res_exp = Expr::Function("exp".into(), vec![Expr::Sym(x.clone())]);
+        let sol_res_exp =
+            dsolve_const_coeff_second_order_nonhomogeneous(1, 0, -1, &f_res_exp, &x, &c1, &c2)
+                .unwrap();
+        assert!(verify_const_coeff_second_order_nonhomogeneous_solution(
+            &sol_res_exp,
+            1,
+            0,
+            -1,
+            &f_res_exp,
+            &x
+        ));
+    }
 }
