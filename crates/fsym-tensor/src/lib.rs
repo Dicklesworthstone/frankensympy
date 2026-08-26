@@ -125,14 +125,14 @@ impl TensorExpr {
         let expected = if rank == 0 {
             1
         } else {
-            dimension.checked_pow(rank as u32).ok_or_else(|| {
-                TensorError::ComponentCountMismatch {
+            dimension
+                .checked_pow(rank as u32)
+                .ok_or(TensorError::ComponentCountMismatch {
                     expected: usize::MAX,
                     actual: components.len(),
                     dimension,
                     rank,
-                }
-            })?
+                })?
         };
         if components.len() != expected {
             return Err(TensorError::ComponentCountMismatch {

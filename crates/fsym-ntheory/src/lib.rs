@@ -6,7 +6,13 @@
 
 #![forbid(unsafe_code)]
 
-use fsym_core::{BigInt, arith::jacobi_symbol as exact_jacobi_symbol};
+use fsym_core::{
+    BigInt,
+    arith::{
+        crt as exact_crt, gcd as exact_gcd, jacobi_symbol as exact_jacobi_symbol,
+        mod_inverse as exact_mod_inverse,
+    },
+};
 use std::collections::BTreeMap;
 use thiserror::Error;
 
@@ -27,17 +33,14 @@ pub enum NTheoryError {
 }
 
 /// Computes modular inverse of `a` modulo `m` such that `(a * x) % m == 1`.
+///
+/// Exact arithmetic is delegated to the WS03 modular owner. This facade retains
+/// its historical `m > 1` admission rule.
 pub fn mod_inverse(a: &BigInt, m: &BigInt) -> Option<BigInt> {
     if m <= &BigInt::from(1) {
         return None;
     }
-    let (g, x, _) = egcd(a, m);
-    if g == BigInt::from(1) {
-        let res = (x % m + m) % m;
-        Some(res)
-    } else {
-        None
-    }
+    exact_mod_inverse(a, m)
 }
 
 /// Solves a system of modular congruences using the Chinese Remainder Theorem:
@@ -52,19 +55,22 @@ pub fn crt(remainders: &[BigInt], moduli: &[BigInt]) -> Result<BigInt, NTheoryEr
             return Err(NTheoryError::InvalidCRTSystem);
         }
     }
-    let mut total_mod = BigInt::from(1);
-    for m in moduli {
-        total_mod *= m;
+    for (index, modulus) in moduli.iter().enumerate() {
+        for other in &moduli[..index] {
+            if exact_gcd(modulus, other) != BigInt::from(1) {
+                return Err(NTheoryError::NonCoprimeModuli);
+            }
+        }
     }
 
-    let mut result = BigInt::from(0);
-    for (r, m) in remainders.iter().zip(moduli.iter()) {
-        let m_i = &total_mod / m;
-        let z_i = mod_inverse(&m_i, m).ok_or(NTheoryError::NonCoprimeModuli)?;
-        let term = ((r % m + m) % m) * &m_i * z_i;
-        result += term;
-    }
-    Ok(result % total_mod)
+    let congruences = remainders
+        .iter()
+        .cloned()
+        .zip(moduli.iter().cloned())
+        .collect::<Vec<_>>();
+    exact_crt(&congruences)
+        .map(|(result, _combined_modulus)| result)
+        .ok_or(NTheoryError::NonCoprimeModuli)
 }
 
 /// Deterministic primality test for small numbers (<= 2^64) using Miller-Rabin with optimal bases.
@@ -412,6 +418,12 @@ mod tests {
         let m = BigInt::from(7);
         let inv = mod_inverse(&a, &m).unwrap();
         assert_eq!((&a * &inv) % &m, BigInt::from(1));
+        assert_eq!(inv, exact_mod_inverse(&a, &m).unwrap());
+        assert_eq!(mod_inverse(&BigInt::from(3), &BigInt::from(1)), None);
+        assert_eq!(
+            mod_inverse(&BigInt::from(-3), &BigInt::from(7)),
+            exact_mod_inverse(&BigInt::from(-3), &BigInt::from(7))
+        );
 
         // System:
         // x = 2 mod 3
@@ -422,10 +434,74 @@ mod tests {
         let moduli = vec![BigInt::from(3), BigInt::from(5), BigInt::from(7)];
         let sol = crt(&remainders, &moduli).unwrap();
         assert_eq!(sol, BigInt::from(23));
+        let owner_input = remainders
+            .iter()
+            .cloned()
+            .zip(moduli.iter().cloned())
+            .collect::<Vec<_>>();
+        assert_eq!(sol, exact_crt(&owner_input).unwrap().0);
 
         // Refusal on non-coprime moduli:
         let non_coprime = vec![BigInt::from(4), BigInt::from(6)];
         let rem = vec![BigInt::from(1), BigInt::from(3)];
         assert_eq!(crt(&rem, &non_coprime), Err(NTheoryError::NonCoprimeModuli));
+
+        // The owner supports consistent generalized CRT, while this facade's
+        // public contract deliberately requires pairwise-coprime moduli.
+        let consistent_non_coprime = vec![BigInt::from(2), BigInt::from(4)];
+        let consistent_remainders = vec![BigInt::from(1), BigInt::from(1)];
+        assert!(
+            exact_crt(&[
+                (BigInt::from(1), BigInt::from(2)),
+                (BigInt::from(1), BigInt::from(4)),
+            ])
+            .is_some()
+        );
+        assert_eq!(
+            crt(&consistent_remainders, &consistent_non_coprime),
+            Err(NTheoryError::NonCoprimeModuli)
+        );
+        assert_eq!(crt(&[], &[]), Err(NTheoryError::InvalidCRTSystem));
+        assert_eq!(
+            crt(&[BigInt::from(0)], &[BigInt::from(1)]),
+            Err(NTheoryError::InvalidCRTSystem)
+        );
+    }
+
+    #[test]
+    fn modular_facade_matches_exact_owner_over_bounded_inputs() {
+        for modulus in 2..=40i64 {
+            let modulus = BigInt::from(modulus);
+            for value in -80..=80i64 {
+                let value = BigInt::from(value);
+                assert_eq!(
+                    mod_inverse(&value, &modulus),
+                    exact_mod_inverse(&value, &modulus)
+                );
+            }
+        }
+
+        let pairwise_moduli = [3i64, 5, 7, 11];
+        for left_index in 0..pairwise_moduli.len() {
+            for right_index in (left_index + 1)..pairwise_moduli.len() {
+                let moduli = [
+                    BigInt::from(pairwise_moduli[left_index]),
+                    BigInt::from(pairwise_moduli[right_index]),
+                ];
+                for left_remainder in -20..=20i64 {
+                    for right_remainder in -20..=20i64 {
+                        let remainders =
+                            [BigInt::from(left_remainder), BigInt::from(right_remainder)];
+                        let owner_input = remainders
+                            .iter()
+                            .cloned()
+                            .zip(moduli.iter().cloned())
+                            .collect::<Vec<_>>();
+                        let expected = exact_crt(&owner_input).unwrap().0;
+                        assert_eq!(crt(&remainders, &moduli), Ok(expected));
+                    }
+                }
+            }
+        }
     }
 }

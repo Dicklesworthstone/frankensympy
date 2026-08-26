@@ -1073,8 +1073,8 @@ impl Matrix {
             r_data[at_r(j, j)] = Expr::from_i64(1);
             // Compute norm squared <v_j, v_j>
             let mut norm_sq = Expr::from_i64(0);
-            for k in 0..m {
-                let term = Self::exact_mul(&v[j][k], &v[j][k]);
+            for val in &v[j] {
+                let term = Self::exact_mul(val, val);
                 norm_sq = Self::exact_add(&norm_sq, &term);
             }
             if norm_sq.is_zero() {
@@ -1084,18 +1084,19 @@ impl Matrix {
             for k in (j + 1)..n {
                 // Compute inner product <v_j, A_k>
                 let mut dot = Expr::from_i64(0);
-                for i in 0..m {
+                for (i, v_j_i) in v[j].iter().enumerate() {
                     let a_i_k = self.get(i, k)?;
-                    let term = Self::exact_mul(&v[j][i], a_i_k);
+                    let term = Self::exact_mul(v_j_i, a_i_k);
                     dot = Self::exact_add(&dot, &term);
                 }
                 let proj = Self::exact_div(&dot, &norm_sq)?;
                 r_data[at_r(j, k)] = proj.clone();
 
                 // Subtract projection from v_k: v_k -= proj * v_j
-                for i in 0..m {
-                    let sub_term = Self::exact_mul(&proj, &v[j][i]);
-                    v[k][i] = Self::exact_sub(&v[k][i], &sub_term);
+                let (left, right) = v.split_at_mut(k);
+                for (v_k_i, v_j_i) in right[0].iter_mut().zip(&left[j]) {
+                    let sub_term = Self::exact_mul(&proj, v_j_i);
+                    *v_k_i = Self::exact_sub(v_k_i, &sub_term);
                 }
             }
         }
@@ -1103,8 +1104,8 @@ impl Matrix {
         // Build Q matrix from columns v_0 .. v_{n-1}
         let mut q_data = Vec::with_capacity(m * n);
         for r in 0..m {
-            for c in 0..n {
-                q_data.push(v[c][r].clone());
+            for col in &v {
+                q_data.push(col[r].clone());
             }
         }
 
