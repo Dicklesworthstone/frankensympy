@@ -1219,6 +1219,38 @@ pub fn nth_root_floor(value: &BigInt, degree: u32) -> Option<(BigInt, bool)> {
     }
 }
 
+fn greatest_possible_power_degree(value: &BigInt, max_degree: u32) -> Option<u32> {
+    if max_degree < 2 || value.bits() <= 1 {
+        return None;
+    }
+    let magnitude_bound = u32::try_from(value.bits() - 1).unwrap_or(u32::MAX);
+    let mut upper = max_degree.min(magnitude_bound);
+    if value.is_negative() && upper.is_multiple_of(2) {
+        upper -= 1;
+    }
+    let minimum = if value.is_negative() { 3 } else { 2 };
+    (upper >= minimum).then_some(upper)
+}
+
+/// Returns the integer base and greatest admitted exponent whose power equals `value`.
+///
+/// Only exponents in `2..=max_degree` are considered. Degrees larger than the magnitude's bit
+/// bound are mathematically impossible for a nontrivial integer base and are not scanned. Negative
+/// values admit only odd exponents. Zero and `±1` return `None`, excluding their trivial
+/// decompositions from this nontrivial perfect-power predicate.
+pub fn greatest_perfect_power_up_to(value: &BigInt, max_degree: u32) -> Option<(BigInt, u32)> {
+    let mut degree = greatest_possible_power_degree(value, max_degree)?;
+    let negative = value.is_negative();
+    let degree_step = if negative { 2 } else { 1 };
+    while degree > degree_step {
+        if let Some((root, true)) = nth_root_floor(value, degree) {
+            return Some((root, degree));
+        }
+        degree -= degree_step;
+    }
+    None
+}
+
 /// Cancellation-first exact comparison over borrowed integers.
 ///
 /// Sign, magnitude length, and each most-significant-first base-$2^{32}$ digit comparison are
@@ -1447,6 +1479,36 @@ pub fn metered_nth_root_floor<M: BudgetMeter>(
         metered_subtract(&BigInt::zero(), &ceiling, meter)?
     };
     metered_finish(Some((result, exact)), meter)
+}
+
+/// Cancellation-first greatest perfect-power decomposition under an explicit degree bound.
+///
+/// Candidate degrees are visited in descending order after applying the same mathematical bit
+/// bound as [`greatest_perfect_power_up_to`]. Every admissible visited degree is charged and
+/// checkpointed. Exactness is owned by [`metered_nth_root_floor`], and every success or refusal
+/// observes a final checkpoint before publication.
+pub fn metered_greatest_perfect_power_up_to<M: BudgetMeter>(
+    value: &BigInt,
+    max_degree: u32,
+    meter: &mut M,
+) -> Result<Option<(BigInt, u32)>, MeterError> {
+    meter.checkpoint()?;
+    let Some(mut degree) = greatest_possible_power_degree(value, max_degree) else {
+        return metered_finish(None, meter);
+    };
+    let negative = value.is_negative();
+    let degree_step = if negative { 2 } else { 1 };
+    while degree > degree_step {
+        meter.checkpoint()?;
+        meter.charge(Dimension::ComputeSteps, 1)?;
+        let root = metered_nth_root_floor(value, degree, meter)?
+            .expect("an admitted perfect-power degree has an integer-real root");
+        if root.1 {
+            return metered_finish(Some((root.0, degree)), meter);
+        }
+        degree -= degree_step;
+    }
+    metered_finish(None, meter)
 }
 
 fn metered_root_clone<M: BudgetMeter>(value: &BigInt, meter: &mut M) -> Result<BigInt, MeterError> {
@@ -3761,6 +3823,40 @@ mod tests {
         Some((floor, floor.pow(degree) == value))
     }
 
+    fn scalar_greatest_perfect_power(value: i64, max_degree: u32) -> Option<(i64, u32)> {
+        if max_degree < 2 || (-1..=1).contains(&value) {
+            return None;
+        }
+        let magnitude = value.unsigned_abs();
+        for degree in (2..=max_degree).rev() {
+            if value < 0 && degree.is_multiple_of(2) {
+                continue;
+            }
+            for base_magnitude in 2..=magnitude {
+                let mut power = 1u64;
+                for _ in 0..degree {
+                    let Some(next) = power.checked_mul(base_magnitude) else {
+                        power = magnitude.saturating_add(1);
+                        break;
+                    };
+                    power = next;
+                    if power > magnitude {
+                        break;
+                    }
+                }
+                if power == magnitude {
+                    let base =
+                        i64::try_from(base_magnitude).expect("bounded scalar oracle base fits i64");
+                    return Some((if value < 0 { -base } else { base }, degree));
+                }
+                if power > magnitude {
+                    break;
+                }
+            }
+        }
+        None
+    }
+
     #[test]
     fn caller_degree_roots_pin_domain_floor_and_exactness_boundaries() {
         for (value, degree, expected) in [
@@ -3872,6 +3968,195 @@ mod tests {
                 Ok(Some(expected))
             );
         }
+    }
+
+    #[test]
+    fn greatest_perfect_power_selects_the_highest_admitted_nontrivial_exponent() {
+        for (value, max_degree, expected) in [
+            (4096i64, 12u32, Some((2i64, 12u32))),
+            (4096, 10, Some((4, 6))),
+            (4096, 6, Some((4, 6))),
+            (4096, 5, Some((8, 4))),
+            (4096, 3, Some((16, 3))),
+            (4096, 2, Some((64, 2))),
+            (81, 6, Some((3, 4))),
+            (64, 6, Some((2, 6))),
+            (64, 5, Some((4, 3))),
+            (-512, 12, Some((-2, 9))),
+            (-512, 8, Some((-8, 3))),
+            (-64, 6, Some((-4, 3))),
+            (-4096, u32::MAX, Some((-16, 3))),
+            (-64, 2, None),
+            (63, u32::MAX, None),
+            (65, u32::MAX, None),
+            (-511, u32::MAX, None),
+            (-513, u32::MAX, None),
+            (8, u32::MAX, Some((2, 3))),
+            (-8, u32::MAX, Some((-2, 3))),
+            (2, u32::MAX, None),
+            (0, u32::MAX, None),
+            (1, u32::MAX, None),
+            (-1, u32::MAX, None),
+            (16, 1, None),
+            (17, u32::MAX, None),
+        ] {
+            let value = BigInt::from(value);
+            let expected = expected.map(|(base, degree)| (BigInt::from(base), degree));
+            assert_eq!(greatest_perfect_power_up_to(&value, max_degree), expected);
+            assert_eq!(
+                metered_greatest_perfect_power_up_to(&value, max_degree, &mut Unbounded),
+                Ok(expected.clone())
+            );
+            if let Some((base, degree)) = expected {
+                assert_eq!(BigInt::pow(&base, degree), value);
+            }
+        }
+
+        for value in [-1i64, 0, 1] {
+            for max_degree in [0u32, 1, 2, 3, u32::MAX] {
+                assert_eq!(
+                    greatest_perfect_power_up_to(&BigInt::from(value), max_degree),
+                    None
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn greatest_perfect_power_matches_an_independent_bounded_scalar_oracle() {
+        for value in -256i64..=256 {
+            for max_degree in 0u32..=10 {
+                let expected = scalar_greatest_perfect_power(value, max_degree)
+                    .map(|(base, degree)| (BigInt::from(base), degree));
+                let value = BigInt::from(value);
+                assert_eq!(greatest_perfect_power_up_to(&value, max_degree), expected);
+                assert_eq!(
+                    metered_greatest_perfect_power_up_to(&value, max_degree, &mut Unbounded),
+                    Ok(expected)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn governed_greatest_perfect_power_pins_resources_cancellation_and_publication() {
+        let value = BigInt::from(4096);
+        let expected = Some((BigInt::from(4), 6));
+        let mut measured = CountingMeter::default();
+        assert_eq!(
+            metered_greatest_perfect_power_up_to(&value, 10, &mut measured),
+            Ok(expected.clone())
+        );
+        assert_eq!(
+            (measured.dimensions, measured.checkpoints),
+            ([3011, 2224, 407, 0, 0], 3446)
+        );
+        assert_eq!(
+            metered_greatest_perfect_power_up_to(&value, u32::MAX, &mut Unbounded),
+            Ok(Some((BigInt::from(2), 12))),
+            "the mathematical bit bound must cap an extreme caller degree"
+        );
+        assert_eq!(measured.dimensions[Dimension::DepthLimit.index()], 0);
+        assert_eq!(measured.dimensions[Dimension::RandomDraws.index()], 0);
+
+        let mut extreme = CountingMeter::default();
+        assert_eq!(
+            metered_greatest_perfect_power_up_to(&BigInt::from(8), u32::MAX, &mut extreme),
+            Ok(Some((BigInt::from(2), 3)))
+        );
+        assert_eq!(
+            (extreme.dimensions, extreme.checkpoints),
+            ([201, 208, 37, 0, 0], 245)
+        );
+
+        let miss_value = BigInt::from(72);
+        let mut miss = CountingMeter::default();
+        assert_eq!(
+            metered_greatest_perfect_power_up_to(&miss_value, 8, &mut miss),
+            Ok(None)
+        );
+        assert_eq!(
+            (miss.dimensions, miss.checkpoints),
+            ([2672, 2060, 376, 0, 0], 3070)
+        );
+
+        let mut cap_12 = CountingMeter::default();
+        let mut cap_13 = CountingMeter::default();
+        let mut cap_max = CountingMeter::default();
+        for (cap, meter) in [
+            (12u32, &mut cap_12),
+            (13u32, &mut cap_13),
+            (u32::MAX, &mut cap_max),
+        ] {
+            assert_eq!(
+                metered_greatest_perfect_power_up_to(&value, cap, meter),
+                Ok(Some((BigInt::from(2), 12)))
+            );
+        }
+        assert_eq!(cap_13.dimensions, cap_12.dimensions);
+        assert_eq!(cap_13.checkpoints, cap_12.checkpoints);
+        assert_eq!(cap_max.dimensions, cap_12.dimensions);
+        assert_eq!(cap_max.checkpoints, cap_12.checkpoints);
+
+        let mut negative_cap_7 = CountingMeter::default();
+        let mut negative_cap_8 = CountingMeter::default();
+        assert_eq!(
+            metered_greatest_perfect_power_up_to(&BigInt::from(-512), 7, &mut negative_cap_7,),
+            Ok(Some((BigInt::from(-8), 3)))
+        );
+        assert_eq!(
+            metered_greatest_perfect_power_up_to(&BigInt::from(-512), 8, &mut negative_cap_8,),
+            Ok(Some((BigInt::from(-8), 3)))
+        );
+        assert_eq!(negative_cap_8.dimensions, negative_cap_7.dimensions);
+        assert_eq!(negative_cap_8.checkpoints, negative_cap_7.checkpoints);
+
+        for (budget_value, max_degree, totals) in [
+            (&value, 10u32, measured.dimensions),
+            (&miss_value, 8u32, miss.dimensions),
+        ] {
+            for dimension in [
+                Dimension::ComputeSteps,
+                Dimension::MemoryBytes,
+                Dimension::AllocationCount,
+            ] {
+                let total = totals[dimension.index()];
+                assert!(total > 0);
+                let mut limits = BudgetLimits::uniform(u64::MAX, 0);
+                limits.dimensions[dimension.index()] = total - 1;
+                let mut budget = Budget::new(limits);
+                assert!(matches!(
+                    metered_greatest_perfect_power_up_to(
+                        budget_value,
+                        max_degree,
+                        &mut budget,
+                    ),
+                    Err(MeterError::Budget(BudgetError::Exhausted {
+                        dimension: refused,
+                        ..
+                    })) if refused == dimension
+                ));
+            }
+        }
+
+        assert_cancels_at_every_checkpoint(|meter| {
+            metered_greatest_perfect_power_up_to(&value, 10, meter)
+        });
+        assert_cancels_at_every_checkpoint(|meter| {
+            metered_greatest_perfect_power_up_to(&BigInt::from(72), 8, meter)
+        });
+        assert_cancels_at_every_checkpoint(|meter| {
+            metered_greatest_perfect_power_up_to(&BigInt::from(-512), 12, meter)
+        });
+        assert_terminal_shape(&expected, 3, |meter| {
+            metered_greatest_perfect_power_up_to(&value, 10, meter)
+        });
+        assert_terminal_shape(&None, 2, |meter| {
+            metered_greatest_perfect_power_up_to(&BigInt::one(), u32::MAX, meter)
+        });
+        assert_terminal_shape(&None, 3, |meter| {
+            metered_greatest_perfect_power_up_to(&BigInt::from(72), 8, meter)
+        });
     }
 
     #[test]
