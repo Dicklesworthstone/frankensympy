@@ -1142,6 +1142,71 @@ pub fn sqrt_floor(value: &BigInt) -> Option<BigInt> {
     }
 }
 
+/// Cancellation-first exact comparison over borrowed integers.
+///
+/// Sign, magnitude length, and each most-significant-first base-$2^{32}$ digit comparison are
+/// charged separately, with a checkpoint before every digit. A final checkpoint occurs after the
+/// ordering is fully classified but before publication. No transient arithmetic buffer is
+/// allocated.
+pub fn metered_cmp<M: BudgetMeter>(
+    lhs: &BigInt,
+    rhs: &BigInt,
+    meter: &mut M,
+) -> Result<std::cmp::Ordering, MeterError> {
+    meter.checkpoint()?;
+    meter.charge(Dimension::ComputeSteps, 1)?;
+    let left_sign = lhs.0.sign();
+    let right_sign = rhs.0.sign();
+    let sign_order = match (left_sign, right_sign) {
+        (Sign::Minus, Sign::Minus) | (Sign::NoSign, Sign::NoSign) | (Sign::Plus, Sign::Plus) => {
+            std::cmp::Ordering::Equal
+        }
+        (Sign::Minus, _) | (Sign::NoSign, Sign::Plus) => std::cmp::Ordering::Less,
+        (Sign::NoSign, Sign::Minus) | (Sign::Plus, _) => std::cmp::Ordering::Greater,
+    };
+    if sign_order != std::cmp::Ordering::Equal {
+        return metered_finish(sign_order, meter);
+    }
+    if left_sign == Sign::NoSign {
+        return metered_finish(std::cmp::Ordering::Equal, meter);
+    }
+
+    let mut left_digits = lhs.0.iter_u32_digits();
+    let mut right_digits = rhs.0.iter_u32_digits();
+    meter.checkpoint()?;
+    meter.charge(Dimension::ComputeSteps, 1)?;
+    let length_order = left_digits.len().cmp(&right_digits.len());
+    if length_order != std::cmp::Ordering::Equal {
+        let ordering = if left_sign == Sign::Minus {
+            length_order.reverse()
+        } else {
+            length_order
+        };
+        return metered_finish(ordering, meter);
+    }
+
+    while left_digits.len() != 0 {
+        meter.checkpoint()?;
+        meter.charge(Dimension::ComputeSteps, 1)?;
+        let left_digit = left_digits
+            .next_back()
+            .expect("nonempty exact-size iterator has a back digit");
+        let right_digit = right_digits
+            .next_back()
+            .expect("equal-length iterator has a corresponding back digit");
+        let digit_order = left_digit.cmp(&right_digit);
+        if digit_order != std::cmp::Ordering::Equal {
+            let ordering = if left_sign == Sign::Minus {
+                digit_order.reverse()
+            } else {
+                digit_order
+            };
+            return metered_finish(ordering, meter);
+        }
+    }
+    metered_finish(std::cmp::Ordering::Equal, meter)
+}
+
 /// Cancellation-first binary exponentiation for a nonnegative machine exponent.
 ///
 /// The complete, deterministic control-loop cost is charged before cloning or multiplying, so a
@@ -3384,6 +3449,48 @@ mod tests {
         assert_eq!(sqrt_floor(&(&square - 1i64)), Some(&root - 1i64));
         assert_eq!(sqrt_floor(&square), Some(root.clone()));
         assert_eq!(sqrt_floor(&(&square + 1i64)), Some(root));
+    }
+
+    #[test]
+    fn governed_comparison_scans_common_prefixes_and_has_terminal_cancellation() {
+        let high_prefix = BigInt::one() << (32u32 * 64);
+        let lhs = &high_prefix + 1i64;
+        let rhs = &high_prefix + 2i64;
+        let mut measured = CountingMeter::default();
+        assert_eq!(
+            metered_cmp(&lhs, &rhs, &mut measured),
+            Ok(std::cmp::Ordering::Less)
+        );
+        assert_eq!(measured.dimensions, [67, 0, 0, 0, 0]);
+        assert_eq!(measured.checkpoints, 68);
+
+        let mut limits = BudgetLimits::uniform(u64::MAX, 0);
+        limits.dimensions[Dimension::ComputeSteps.index()] = 66;
+        let mut budget = Budget::new(limits);
+        assert_eq!(
+            metered_cmp(&lhs, &rhs, &mut budget),
+            Err(MeterError::Budget(BudgetError::Exhausted {
+                dimension: Dimension::ComputeSteps,
+                requested: 1,
+                remaining: 0,
+            }))
+        );
+        assert_cancels_at_every_checkpoint(|meter| metered_cmp(&lhs, &rhs, meter));
+
+        let negative_lhs = -lhs.clone();
+        let negative_rhs = -rhs.clone();
+        assert_eq!(
+            metered_cmp(&negative_lhs, &negative_rhs, &mut Unbounded),
+            Ok(std::cmp::Ordering::Greater)
+        );
+        for left in -32i64..=32 {
+            for right in -32i64..=32 {
+                assert_eq!(
+                    metered_cmp(&BigInt::from(left), &BigInt::from(right), &mut Unbounded),
+                    Ok(left.cmp(&right))
+                );
+            }
+        }
     }
 
     #[test]

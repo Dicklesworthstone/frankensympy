@@ -13,14 +13,16 @@
 #![forbid(unsafe_code)]
 
 use fsym_bigint::{
-    BigInt, NonZeroBigInt, gcd, metered_add as metered_bigint_add, metered_div_rem_nonzero,
-    metered_gcd, metered_multiply, metered_pow as metered_bigint_pow,
-    metered_subtract as metered_bigint_subtract,
+    BigInt, NonZeroBigInt, gcd, metered_add as metered_bigint_add,
+    metered_cmp as metered_bigint_cmp, metered_div_rem_nonzero, metered_gcd, metered_multiply,
+    metered_pow as metered_bigint_pow, metered_subtract as metered_bigint_subtract,
 };
 use fsym_budget::{BudgetMeter, Dimension, MeterError};
 use num_traits::{Num, One, Signed, ToPrimitive, Zero};
 use serde::{Deserialize, Deserializer, Serialize};
+use std::cmp::Ordering;
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::ops::{
     Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
 };
@@ -30,9 +32,92 @@ use std::str::FromStr;
 ///
 /// Values are reduced and their denominators are positive. The wrapped substrate is private so
 /// persisted and semantic consumers cannot depend on its concrete representation.
-#[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[derive(Clone, Default, Serialize)]
 #[serde(transparent)]
 pub struct BigRational(num_rational::Ratio<BigInt>);
+
+impl PartialEq for BigRational {
+    fn eq(&self, other: &Self) -> bool {
+        self.numer() == other.numer() && self.denom() == other.denom()
+    }
+}
+
+impl Eq for BigRational {}
+
+impl PartialOrd for BigRational {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for BigRational {
+    fn cmp(&self, other: &Self) -> Ordering {
+        compare_canonical_rationals(self, other)
+    }
+}
+
+impl Hash for BigRational {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.numer().hash(state);
+        self.denom().hash(state);
+    }
+}
+
+fn compare_canonical_rationals(lhs: &BigRational, rhs: &BigRational) -> Ordering {
+    let mut left_numerator = lhs.numer().clone();
+    let mut left_denominator = lhs.denom().clone();
+    let mut right_numerator = rhs.numer().clone();
+    let mut right_denominator = rhs.denom().clone();
+    let mut reverse = false;
+
+    loop {
+        let (left_integer, left_remainder) =
+            div_mod_floor_positive_denominator(&left_numerator, &left_denominator);
+        let (right_integer, right_remainder) =
+            div_mod_floor_positive_denominator(&right_numerator, &right_denominator);
+        let integer_order = left_integer.cmp(&right_integer);
+        if integer_order != Ordering::Equal {
+            return orient_ordering(integer_order, reverse);
+        }
+
+        let remainder_order = match (left_remainder.is_zero(), right_remainder.is_zero()) {
+            (true, true) => return Ordering::Equal,
+            (true, false) => Some(Ordering::Less),
+            (false, true) => Some(Ordering::Greater),
+            (false, false) => None,
+        };
+        if let Some(ordering) = remainder_order {
+            return orient_ordering(ordering, reverse);
+        }
+
+        left_numerator = left_denominator;
+        left_denominator = left_remainder;
+        right_numerator = right_denominator;
+        right_denominator = right_remainder;
+        reverse = !reverse;
+    }
+}
+
+fn div_mod_floor_positive_denominator(
+    numerator: &BigInt,
+    denominator: &BigInt,
+) -> (BigInt, BigInt) {
+    debug_assert!(denominator.is_positive());
+    let (mut quotient, mut remainder) = numerator.div_rem(denominator);
+    if remainder.is_negative() {
+        quotient -= 1i64;
+        remainder += denominator;
+    }
+    (quotient, remainder)
+}
+
+fn orient_ordering(ordering: Ordering, reverse: bool) -> Ordering {
+    if reverse {
+        ordering.reverse()
+    } else {
+        ordering
+    }
+}
 
 /// Exact coefficient-height metadata for a canonical rational.
 ///
@@ -185,6 +270,19 @@ impl BigRational {
     /// Returns the positive canonical denominator.
     pub fn denom(&self) -> &BigInt {
         self.0.denom()
+    }
+
+    /// Compares two canonical rationals through a cancellation-first continued-fraction lane.
+    ///
+    /// The comparator never materializes cross-products. It iterates over reciprocal remainders,
+    /// so adversarial Euclidean chains consume governed loop work without consuming call stack.
+    /// A final checkpoint separates the fully classified ordering from publication.
+    pub fn metered_cmp<M: BudgetMeter>(
+        &self,
+        other: &Self,
+        meter: &mut M,
+    ) -> Result<Ordering, RationalArithmeticError> {
+        metered_compare_canonical_rationals(self, other, meter)
     }
 
     /// Returns whether the denominator is one.
@@ -682,6 +780,70 @@ fn metered_sum<M: BudgetMeter>(
         BigRational(num_rational::Ratio::new_raw(numerator, denominator)),
         meter,
     )
+}
+
+fn metered_compare_canonical_rationals<M: BudgetMeter>(
+    lhs: &BigRational,
+    rhs: &BigRational,
+    meter: &mut M,
+) -> Result<Ordering, RationalArithmeticError> {
+    meter.checkpoint()?;
+    let mut left_numerator = metered_clone(lhs.numer(), meter)?;
+    let mut left_denominator = metered_clone(lhs.denom(), meter)?;
+    let mut right_numerator = metered_clone(rhs.numer(), meter)?;
+    let mut right_denominator = metered_clone(rhs.denom(), meter)?;
+    let mut reverse = false;
+
+    loop {
+        meter.checkpoint()?;
+        meter.charge(Dimension::ComputeSteps, 1)?;
+        let (left_integer, left_remainder) =
+            metered_div_mod_floor_positive_denominator(&left_numerator, &left_denominator, meter)?;
+        let (right_integer, right_remainder) = metered_div_mod_floor_positive_denominator(
+            &right_numerator,
+            &right_denominator,
+            meter,
+        )?;
+        let integer_order = metered_bigint_cmp(&left_integer, &right_integer, meter)?;
+        if integer_order != Ordering::Equal {
+            return rational_metered_finish(orient_ordering(integer_order, reverse), meter);
+        }
+
+        let remainder_order = match (left_remainder.is_zero(), right_remainder.is_zero()) {
+            (true, true) => return rational_metered_finish(Ordering::Equal, meter),
+            (true, false) => Some(Ordering::Less),
+            (false, true) => Some(Ordering::Greater),
+            (false, false) => None,
+        };
+        if let Some(ordering) = remainder_order {
+            return rational_metered_finish(orient_ordering(ordering, reverse), meter);
+        }
+
+        left_numerator = left_denominator;
+        left_denominator = left_remainder;
+        right_numerator = right_denominator;
+        right_denominator = right_remainder;
+        reverse = !reverse;
+    }
+}
+
+fn metered_div_mod_floor_positive_denominator<M: BudgetMeter>(
+    numerator: &BigInt,
+    denominator: &BigInt,
+    meter: &mut M,
+) -> Result<(BigInt, BigInt), RationalArithmeticError> {
+    let denominator = metered_require_nonzero(
+        denominator,
+        "canonical rational comparison denominator became zero",
+        meter,
+    )?;
+    let (mut quotient, mut remainder) = metered_div_rem_nonzero(numerator, denominator, meter)?;
+    if remainder.is_negative() {
+        let one = metered_one(meter)?;
+        quotient = metered_bigint_subtract(&quotient, &one, meter)?;
+        remainder = metered_bigint_add(&remainder, denominator.get(), meter)?;
+    }
+    Ok((quotient, remainder))
 }
 
 fn metered_exact_quotient<M: BudgetMeter>(
@@ -1215,6 +1377,31 @@ mod tests {
         }
     }
 
+    #[derive(Debug, Default)]
+    struct TerminalProbe {
+        checkpoints: usize,
+        trailing_uncharged_checkpoints: usize,
+    }
+
+    impl BudgetMeter for TerminalProbe {
+        fn charge(&mut self, _dimension: Dimension, _amount: u64) -> Result<(), MeterError> {
+            self.trailing_uncharged_checkpoints = 0;
+            Ok(())
+        }
+
+        fn charge_batch(&mut self, _charges: &[(Dimension, u64)]) -> Result<(), MeterError> {
+            self.trailing_uncharged_checkpoints = 0;
+            Ok(())
+        }
+
+        fn checkpoint(&mut self) -> Result<(), MeterError> {
+            self.checkpoints = self.checkpoints.saturating_add(1);
+            self.trailing_uncharged_checkpoints =
+                self.trailing_uncharged_checkpoints.saturating_add(1);
+            Ok(())
+        }
+    }
+
     fn scalar_normalize(numerator: i64, denominator: i64) -> (i128, i128) {
         assert_ne!(denominator, 0);
         let mut left = i128::from(numerator).abs();
@@ -1269,6 +1456,21 @@ mod tests {
         }
     }
 
+    fn cross_product_order(lhs: &BigRational, rhs: &BigRational) -> Ordering {
+        (lhs.numer() * rhs.denom()).cmp(&(rhs.numer() * lhs.denom()))
+    }
+
+    fn fibonacci_pair(steps: usize) -> (BigInt, BigInt) {
+        let mut previous = BigInt::zero();
+        let mut current = BigInt::one();
+        for _ in 0..steps {
+            let next = &previous + &current;
+            previous = current;
+            current = next;
+        }
+        (previous, current)
+    }
+
     #[test]
     fn owned_rational_is_canonical_and_supports_arithmetic() {
         let value = BigRational::new(BigInt::from(-6), BigInt::from(-8));
@@ -1280,6 +1482,220 @@ mod tests {
         );
         assert_eq!(value.recip(), BigRational::new(4.into(), 3.into()));
         assert_eq!(value.pow(-2), BigRational::new(16.into(), 9.into()));
+    }
+
+    #[test]
+    fn ordering_equality_and_hash_are_iterative_on_deep_euclidean_chains() {
+        let (f_n, f_n_plus_one) = fibonacci_pair(4_096);
+        let f_n_plus_two = &f_n + &f_n_plus_one;
+        let lhs = BigRational::new(f_n_plus_one.clone(), f_n);
+        let rhs = BigRational::new(f_n_plus_two, f_n_plus_one);
+        let expected = cross_product_order(&lhs, &rhs);
+
+        let worker = std::thread::Builder::new()
+            .name("stack-safe-rational-order".to_string())
+            .stack_size(128 * 1024)
+            .spawn(move || {
+                let ordering = lhs.cmp(&rhs);
+                let unequal = lhs != rhs;
+                let mut lhs_hasher = std::collections::hash_map::DefaultHasher::new();
+                lhs.hash(&mut lhs_hasher);
+                let mut lhs_clone_hasher = std::collections::hash_map::DefaultHasher::new();
+                lhs.clone().hash(&mut lhs_clone_hasher);
+                let metered_ordering = lhs.metered_cmp(&rhs, &mut Unbounded);
+                let mut cancelled = CheckpointMeter::cancelling_at(32);
+                let metered_cancellation = lhs.metered_cmp(&rhs, &mut cancelled);
+                (
+                    ordering,
+                    unequal,
+                    lhs_hasher.finish(),
+                    lhs_clone_hasher.finish(),
+                    metered_ordering,
+                    metered_cancellation,
+                )
+            })
+            .expect("comparison worker thread must start");
+        let (ordering, unequal, hash, clone_hash, metered_ordering, metered_cancellation) = worker
+            .join()
+            .expect("iterative comparison must not exhaust stack");
+        assert_eq!(ordering, expected);
+        assert!(unequal);
+        assert_eq!(hash, clone_hash);
+        assert_eq!(metered_ordering, Ok(expected));
+        assert_eq!(
+            metered_cancellation,
+            Err(RationalArithmeticError::Meter(MeterError::Cancelled))
+        );
+
+        let canonical = BigRational::new(BigInt::from(3), BigInt::from(2));
+        let independently_reduced = BigRational::new(BigInt::from(9), BigInt::from(6));
+        let mut canonical_hasher = std::collections::hash_map::DefaultHasher::new();
+        canonical.hash(&mut canonical_hasher);
+        let mut reduced_hasher = std::collections::hash_map::DefaultHasher::new();
+        independently_reduced.hash(&mut reduced_hasher);
+        assert_eq!(canonical, independently_reduced);
+        assert_eq!(canonical_hasher.finish(), reduced_hasher.finish());
+    }
+
+    #[test]
+    fn governed_comparison_matches_order_and_enforces_resources_and_cancellation() {
+        for (left, right) in [
+            ((-13, 8), (-21, 13)),
+            ((-2, 1), (-7, 3)),
+            ((0, 1), (1, 97)),
+            ((3, 2), (9, 6)),
+            ((233, 144), (377, 233)),
+        ] {
+            let lhs = BigRational::new(left.0.into(), left.1.into());
+            let rhs = BigRational::new(right.0.into(), right.1.into());
+            assert_eq!(lhs.cmp(&rhs), cross_product_order(&lhs, &rhs));
+            assert_eq!(lhs.metered_cmp(&rhs, &mut Unbounded), Ok(lhs.cmp(&rhs)));
+        }
+
+        let lhs = BigRational::new(BigInt::from(-13), BigInt::from(8));
+        let rhs = BigRational::new(BigInt::from(-21), BigInt::from(13));
+        let mut measured = CountingMeter::default();
+        assert_eq!(lhs.metered_cmp(&rhs, &mut measured), Ok(lhs.cmp(&rhs)));
+        assert_eq!(measured.dimensions, [353, 272, 50, 0, 0]);
+        assert_eq!(measured.checkpoints, 407);
+        assert!(measured.dimensions[Dimension::ComputeSteps.index()] > 0);
+        assert!(measured.dimensions[Dimension::MemoryBytes.index()] > 0);
+        assert!(measured.dimensions[Dimension::AllocationCount.index()] > 0);
+        assert_eq!(measured.dimensions[Dimension::DepthLimit.index()], 0);
+        assert_eq!(measured.dimensions[Dimension::RandomDraws.index()], 0);
+        assert!(measured.checkpoints > 1);
+
+        let mut terminal = TerminalProbe::default();
+        assert_eq!(lhs.metered_cmp(&rhs, &mut terminal), Ok(lhs.cmp(&rhs)));
+        assert_eq!(terminal.trailing_uncharged_checkpoints, 2);
+
+        for (terminal_lhs, terminal_rhs, expected) in [
+            (
+                BigRational::new(BigInt::from(3), BigInt::from(2)),
+                BigRational::new(BigInt::from(9), BigInt::from(6)),
+                Ordering::Equal,
+            ),
+            (
+                BigRational::from_integer(BigInt::from(2)),
+                BigRational::new(BigInt::from(7), BigInt::from(3)),
+                Ordering::Less,
+            ),
+        ] {
+            let mut shape = TerminalProbe::default();
+            assert_eq!(
+                terminal_lhs.metered_cmp(&terminal_rhs, &mut shape),
+                Ok(expected)
+            );
+            assert_eq!(shape.trailing_uncharged_checkpoints, 2);
+            let mut counted = CountingMeter::default();
+            assert_eq!(
+                terminal_lhs.metered_cmp(&terminal_rhs, &mut counted),
+                Ok(expected)
+            );
+            let mut cancelled = CheckpointMeter::cancelling_at(counted.checkpoints);
+            assert_eq!(
+                terminal_lhs.metered_cmp(&terminal_rhs, &mut cancelled),
+                Err(RationalArithmeticError::Meter(MeterError::Cancelled))
+            );
+        }
+
+        for dimension in [
+            Dimension::ComputeSteps,
+            Dimension::MemoryBytes,
+            Dimension::AllocationCount,
+        ] {
+            let admitted = measured.dimensions[dimension.index()];
+            let mut limits = BudgetLimits::uniform(u64::MAX, 0);
+            limits.dimensions[dimension.index()] = admitted - 1;
+            let mut budget = Budget::new(limits);
+            assert!(matches!(
+                lhs.metered_cmp(&rhs, &mut budget),
+                Err(RationalArithmeticError::Meter(MeterError::Budget(
+                    BudgetError::Exhausted {
+                        dimension: exhausted,
+                        ..
+                    }
+                ))) if exhausted == dimension
+            ));
+        }
+
+        for checkpoint in 1..=measured.checkpoints {
+            let mut cancelled = CheckpointMeter::cancelling_at(checkpoint);
+            assert_eq!(
+                lhs.metered_cmp(&rhs, &mut cancelled),
+                Err(RationalArithmeticError::Meter(MeterError::Cancelled)),
+                "checkpoint {checkpoint} must prevent ordering publication"
+            );
+            assert_eq!(cancelled.checkpoints, checkpoint);
+        }
+        assert_eq!(lhs.metered_cmp(&rhs, &mut Unbounded), Ok(lhs.cmp(&rhs)));
+    }
+
+    #[test]
+    fn governed_comparison_topology_distinguishes_deep_chains_from_early_decisions() {
+        let (f_n, f_n_plus_one) = fibonacci_pair(64);
+        let f_n_plus_two = &f_n + &f_n_plus_one;
+        let deep_lhs = BigRational::new(f_n_plus_one.clone(), f_n.clone());
+        let deep_rhs = BigRational::new(f_n_plus_two, f_n_plus_one.clone());
+        let early_rhs = BigRational::new(&f_n_plus_one + (&f_n * 2i64), f_n);
+
+        assert_eq!(
+            deep_lhs.height().total_limbs(),
+            early_rhs.height().total_limbs()
+        );
+        let mut deep = CountingMeter::default();
+        assert_eq!(
+            deep_lhs.metered_cmp(&deep_rhs, &mut deep),
+            Ok(deep_lhs.cmp(&deep_rhs))
+        );
+        let mut early = CountingMeter::default();
+        assert_eq!(
+            deep_lhs.metered_cmp(&early_rhs, &mut early),
+            Ok(deep_lhs.cmp(&early_rhs))
+        );
+        assert!(
+            deep.dimensions[Dimension::ComputeSteps.index()]
+                > early.dimensions[Dimension::ComputeSteps.index()] * 8
+        );
+        assert!(deep.checkpoints > early.checkpoints * 8);
+
+        let late_checkpoint = deep.checkpoints * 3 / 4;
+        let mut cancelled = CheckpointMeter::cancelling_at(late_checkpoint);
+        assert_eq!(
+            deep_lhs.metered_cmp(&deep_rhs, &mut cancelled),
+            Err(RationalArithmeticError::Meter(MeterError::Cancelled))
+        );
+        assert_eq!(cancelled.checkpoints, late_checkpoint);
+        assert_eq!(
+            deep_lhs.metered_cmp(&deep_rhs, &mut Unbounded),
+            Ok(deep_lhs.cmp(&deep_rhs))
+        );
+    }
+
+    proptest! {
+        #[test]
+        fn rational_order_matches_independent_i128_cross_products(
+            left_numerator in -1_000_000i64..=1_000_000,
+            left_denominator in 1i64..=1_000_000,
+            right_numerator in -1_000_000i64..=1_000_000,
+            right_denominator in 1i64..=1_000_000,
+            third_numerator in -1_000_000i64..=1_000_000,
+            third_denominator in 1i64..=1_000_000,
+        ) {
+            let lhs = BigRational::new(left_numerator.into(), left_denominator.into());
+            let rhs = BigRational::new(right_numerator.into(), right_denominator.into());
+            let third = BigRational::new(third_numerator.into(), third_denominator.into());
+            let expected = (i128::from(left_numerator) * i128::from(right_denominator))
+                .cmp(&(i128::from(right_numerator) * i128::from(left_denominator)));
+            prop_assert_eq!(lhs.cmp(&rhs), expected);
+            prop_assert_eq!(lhs.partial_cmp(&rhs), Some(expected));
+            prop_assert_eq!(lhs == rhs, expected == Ordering::Equal);
+            prop_assert_eq!(lhs.metered_cmp(&rhs, &mut Unbounded), Ok(expected));
+            prop_assert_eq!(rhs.cmp(&lhs), expected.reverse());
+            if lhs <= rhs && rhs <= third {
+                prop_assert!(lhs <= third);
+            }
+        }
     }
 
     #[test]
