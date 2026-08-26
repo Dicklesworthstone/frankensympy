@@ -10,7 +10,7 @@ use num_traits::Zero;
 use std::sync::Arc;
 
 fn square_root_if_exact(value: &BigInt) -> Option<BigInt> {
-    let root = value.sqrt();
+    let root = value.sqrt()?;
     (&root * &root == value.clone()).then_some(root)
 }
 

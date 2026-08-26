@@ -300,8 +300,9 @@ impl BigInt {
         Self(self.0.clone().pow(exp))
     }
 
-    pub fn sqrt(&self) -> Self {
-        Self(self.0.sqrt())
+    /// Returns the floor of the real square root, or `None` for a negative value.
+    pub fn sqrt(&self) -> Option<Self> {
+        sqrt_floor(self)
     }
 
     pub fn to_bytes_le(&self) -> Vec<u8> {
@@ -3354,6 +3355,7 @@ mod tests {
     #[test]
     fn floor_square_root_pins_exact_square_boundaries_and_governed_lane() {
         let negative = BigInt::from(-1);
+        assert_eq!(negative.sqrt(), None);
         assert_eq!(sqrt_floor(&negative), None);
         assert_eq!(metered_sqrt_floor(&negative, &mut Unbounded), Ok(None));
 
@@ -3369,6 +3371,7 @@ mod tests {
         ] {
             let value = BigInt::from(value);
             let expected = BigInt::from(expected);
+            assert_eq!(value.sqrt(), Some(expected.clone()));
             assert_eq!(sqrt_floor(&value), Some(expected.clone()));
             assert_eq!(
                 metered_sqrt_floor(&value, &mut Unbounded),

@@ -356,26 +356,25 @@ fn factor_square_free_monic(poly: &UnivariatePoly) -> Result<Vec<UnivariatePoly>
             let c = &rem.coeffs[0];
             let four = BigRational::from_integer(BigInt::from(4));
             let discr = b * b - four * c;
-            if discr >= BigRational::zero() {
-                let num_sqrt = discr.numer().sqrt();
-                let den_sqrt = discr.denom().sqrt();
-                if &num_sqrt * &num_sqrt == *discr.numer()
-                    && &den_sqrt * &den_sqrt == *discr.denom()
-                {
-                    let d = BigRational::new(num_sqrt, den_sqrt);
-                    let two = BigRational::from_integer(BigInt::from(2));
-                    let r1 = (-b + &d) / &two;
-                    let r2 = (-b - &d) / &two;
-                    factors.push(UnivariatePoly::new(
-                        rem.gen_sym.clone(),
-                        vec![-r1, BigRational::one()],
-                    ));
-                    factors.push(UnivariatePoly::new(
-                        rem.gen_sym.clone(),
-                        vec![-r2, BigRational::one()],
-                    ));
-                    return Ok(factors);
-                }
+            if discr >= BigRational::zero()
+                && let (Some(num_sqrt), Some(den_sqrt)) =
+                    (discr.numer().sqrt(), discr.denom().sqrt())
+                && &num_sqrt * &num_sqrt == *discr.numer()
+                && &den_sqrt * &den_sqrt == *discr.denom()
+            {
+                let d = BigRational::new(num_sqrt, den_sqrt);
+                let two = BigRational::from_integer(BigInt::from(2));
+                let r1 = (-b + &d) / &two;
+                let r2 = (-b - &d) / &two;
+                factors.push(UnivariatePoly::new(
+                    rem.gen_sym.clone(),
+                    vec![-r1, BigRational::one()],
+                ));
+                factors.push(UnivariatePoly::new(
+                    rem.gen_sym.clone(),
+                    vec![-r2, BigRational::one()],
+                ));
+                return Ok(factors);
             }
         }
         if rem != UnivariatePoly::one(rem.gen_sym.clone()) {

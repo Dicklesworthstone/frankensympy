@@ -86,10 +86,7 @@ fn from_rational(r: BigRational) -> Expr {
 }
 
 fn is_perfect_square(n: &BigInt) -> Option<BigInt> {
-    if n < &BigInt::zero() {
-        return None;
-    }
-    let root = n.sqrt();
+    let root = n.sqrt()?;
     if &root * &root == *n {
         Some(root)
     } else {
