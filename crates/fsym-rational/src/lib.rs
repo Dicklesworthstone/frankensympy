@@ -436,12 +436,7 @@ impl BigRational {
         )?;
         let left_scaled = metered_multiply(self.numer(), &right_denominator, meter)?;
         let right_scaled = metered_multiply(rhs.numer(), &left_denominator, meter)?;
-        let Some(right_scaled) = NonZeroBigInt::new(&right_scaled) else {
-            return Err(RationalArithmeticError::InvariantViolation(
-                "nonzero remainder divisor became zero",
-            ));
-        };
-        let (_, remainder) = metered_div_rem_nonzero(&left_scaled, right_scaled, meter)?;
+        let remainder = metered_scaled_remainder(&left_scaled, &right_scaled, meter)?;
         let common_denominator = metered_multiply(self.denom(), &right_denominator, meter)?;
         let reduction = metered_gcd(&remainder, &common_denominator, meter)?;
         let numerator = metered_exact_quotient(
@@ -658,14 +653,39 @@ fn metered_exact_quotient<M: BudgetMeter>(
     invariant: &'static str,
     meter: &mut M,
 ) -> Result<BigInt, RationalArithmeticError> {
-    let Some(divisor) = NonZeroBigInt::new(divisor) else {
-        return Err(RationalArithmeticError::InvariantViolation(invariant));
-    };
+    let divisor = metered_require_nonzero(divisor, invariant, meter)?;
     let (quotient, remainder) = metered_div_rem_nonzero(value, divisor, meter)?;
     if !remainder.is_zero() {
-        return Err(RationalArithmeticError::InvariantViolation(invariant));
+        return rational_metered_error(
+            RationalArithmeticError::InvariantViolation(invariant),
+            meter,
+        );
     }
     Ok(quotient)
+}
+
+fn metered_scaled_remainder<M: BudgetMeter>(
+    value: &BigInt,
+    divisor: &BigInt,
+    meter: &mut M,
+) -> Result<BigInt, RationalArithmeticError> {
+    let divisor = metered_require_nonzero(divisor, "nonzero remainder divisor became zero", meter)?;
+    let (_, remainder) = metered_div_rem_nonzero(value, divisor, meter)?;
+    Ok(remainder)
+}
+
+fn metered_require_nonzero<'a, M: BudgetMeter>(
+    value: &'a BigInt,
+    invariant: &'static str,
+    meter: &mut M,
+) -> Result<NonZeroBigInt<'a>, RationalArithmeticError> {
+    match NonZeroBigInt::new(value) {
+        Some(value) => Ok(value),
+        None => rational_metered_error(
+            RationalArithmeticError::InvariantViolation(invariant),
+            meter,
+        ),
+    }
 }
 
 /// Publishes a fully classified rational value only after a terminal checkpoint.
@@ -1447,6 +1467,79 @@ mod tests {
             lhs.metered_mul(&rhs, &mut cancelled),
             Err(RationalArithmeticError::Meter(MeterError::Cancelled))
         );
+    }
+
+    #[test]
+    fn invariant_refusals_observe_one_terminal_checkpoint() {
+        let fixture = "exact-quotient fixture";
+        let mut zero_divisor = CheckpointMeter::default();
+        assert_eq!(
+            metered_exact_quotient(&BigInt::one(), &BigInt::zero(), fixture, &mut zero_divisor,),
+            Err(RationalArithmeticError::InvariantViolation(fixture))
+        );
+        assert_eq!(zero_divisor.checkpoints, 1);
+        assert!(!zero_divisor.charged);
+
+        let mut cancelled = CheckpointMeter::cancelling_at(1);
+        assert_eq!(
+            metered_exact_quotient(&BigInt::one(), &BigInt::zero(), fixture, &mut cancelled,),
+            Err(RationalArithmeticError::Meter(MeterError::Cancelled))
+        );
+        assert_eq!(cancelled.checkpoints, 1);
+        assert!(!cancelled.charged);
+
+        let mut zero_remainder_divisor = CheckpointMeter::default();
+        assert_eq!(
+            metered_scaled_remainder(&BigInt::one(), &BigInt::zero(), &mut zero_remainder_divisor,),
+            Err(RationalArithmeticError::InvariantViolation(
+                "nonzero remainder divisor became zero"
+            ))
+        );
+        assert_eq!(zero_remainder_divisor.checkpoints, 1);
+        assert!(!zero_remainder_divisor.charged);
+
+        let value = BigInt::from(5);
+        let divisor = BigInt::from(2);
+        let mut division = CheckpointMeter::default();
+        let (_, remainder) = metered_div_rem_nonzero(
+            &value,
+            NonZeroBigInt::new(&divisor).expect("fixture divisor is nonzero"),
+            &mut division,
+        )
+        .expect("governed division succeeds");
+        assert_eq!(remainder, BigInt::one());
+        assert!(division.charged);
+
+        let mut inexact = CheckpointMeter::default();
+        assert_eq!(
+            metered_exact_quotient(&value, &divisor, fixture, &mut inexact),
+            Err(RationalArithmeticError::InvariantViolation(fixture))
+        );
+        assert_eq!(inexact.checkpoints, division.checkpoints + 1);
+        assert!(inexact.charged);
+
+        let mut cancelled = CheckpointMeter::cancelling_at(inexact.checkpoints);
+        assert_eq!(
+            metered_exact_quotient(&value, &divisor, fixture, &mut cancelled),
+            Err(RationalArithmeticError::Meter(MeterError::Cancelled))
+        );
+        assert_eq!(cancelled.checkpoints, inexact.checkpoints);
+        assert!(cancelled.charged);
+
+        let exact_value = BigInt::from(6);
+        let mut exact_division = CheckpointMeter::default();
+        metered_div_rem_nonzero(
+            &exact_value,
+            NonZeroBigInt::new(&divisor).expect("fixture divisor is nonzero"),
+            &mut exact_division,
+        )
+        .expect("governed division succeeds");
+        let mut exact = CheckpointMeter::default();
+        assert_eq!(
+            metered_exact_quotient(&exact_value, &divisor, fixture, &mut exact),
+            Ok(BigInt::from(3))
+        );
+        assert_eq!(exact.checkpoints, exact_division.checkpoints);
     }
 
     #[test]
