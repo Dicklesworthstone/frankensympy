@@ -2,7 +2,7 @@
 
 #![forbid(unsafe_code)]
 
-use crate::diff;
+use crate::{diff, diff_unsimplified};
 use fsym_core::{BigInt, Expr, Symbol};
 use fsym_proof_kernel::{Claim, DerivationStep, DerivationTree, KernelError, ProofRule, StepId};
 use std::sync::Arc;
@@ -54,7 +54,7 @@ pub fn classify_diff_rule(expr: &Expr, var: &Symbol) -> &'static str {
 /// Computes the symbolic derivative and generates a typed, verifiable derivation proof tree
 /// establishing the claim: $\vdash \text{diff}(\text{expr}, \text{var}) = \text{deriv}$.
 pub fn verified_diff(expr: &Expr, var: &Symbol) -> (Expr, DerivationTree) {
-    let deriv = diff(expr, var);
+    let deriv = diff_unsimplified(expr, var);
     let diff_term = make_diff_term(expr, var);
     let rule_name = classify_diff_rule(expr, var);
 

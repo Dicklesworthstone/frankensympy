@@ -36,9 +36,9 @@ fn numeric_value(expr: &Expr) -> Option<BigRational> {
     }
 }
 
-/// Compute the symbolic derivative of an expression with respect to a symbol: ∂expr / ∂var.
-pub fn diff(expr: &Expr, var: &Symbol) -> Expr {
-    let unsimplified = match expr {
+/// Compute the unsimplified symbolic derivative following direct definitional reduction rules.
+pub fn diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
+    match expr {
         Expr::Sym(s) => {
             if s == var {
                 Expr::from_i64(1)
@@ -111,8 +111,12 @@ pub fn diff(expr: &Expr, var: &Symbol) -> Expr {
                 )
             }
         }
-    };
-    simplify(&unsimplified)
+    }
+}
+
+/// Compute the symbolic derivative of an expression with respect to a symbol: ∂expr / ∂var.
+pub fn diff(expr: &Expr, var: &Symbol) -> Expr {
+    simplify(&diff_unsimplified(expr, var))
 }
 
 /// Compute the N-th derivative: d^n(expr) / d(var)^n.
