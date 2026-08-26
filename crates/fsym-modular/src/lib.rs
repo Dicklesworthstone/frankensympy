@@ -17,7 +17,8 @@
 use fsym_bigint::{
     BigInt, NonZeroBigInt, extended_gcd, gcd, metered_add as metered_bigint_add,
     metered_div_rem_nonzero, metered_extended_gcd, metered_gcd, metered_multiply as metered_mul,
-    metered_sqrt_floor, metered_subtract as metered_bigint_subtract, sqrt_floor,
+    metered_pow as metered_bigint_pow, metered_sqrt_floor,
+    metered_subtract as metered_bigint_subtract, sqrt_floor,
 };
 #[cfg(test)]
 use fsym_bigint::{exact_div, metered_exact_div};
@@ -885,18 +886,6 @@ fn metered_clone_bigint<M: BudgetMeter>(
     Ok(cloned)
 }
 
-fn metered_power_of_two<M: BudgetMeter>(
-    exponent: u32,
-    meter: &mut M,
-) -> Result<BigInt, MeterError> {
-    meter.checkpoint()?;
-    let mut value = BigInt::one();
-    for _ in 0..exponent {
-        value = metered_add(&value, &value, meter)?;
-    }
-    metered_finish(value, meter)
-}
-
 /// Typed representation of a modular arithmetic residue ring $\mathbb{Z} / m\mathbb{Z}$.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ModularRing {
@@ -1567,8 +1556,8 @@ impl MontgomeryReducer {
         })
     }
 
-    /// Cancellation-first reducer construction. Power-of-two setup is deliberately performed by
-    /// metered doublings so cancellation remains observable during large precomputation.
+    /// Cancellation-first reducer construction. Power-of-two setup uses the governed bigint
+    /// binary-power lane, which exposes safe points during each multiply and square.
     pub fn metered_new<M: BudgetMeter>(
         modulus: BigInt,
         meter: &mut M,
@@ -1589,7 +1578,7 @@ impl MontgomeryReducer {
         else {
             return metered_finish(None, meter);
         };
-        let r = metered_power_of_two(r_shift, meter)?;
+        let r = metered_bigint_pow(&two, r_shift, meter)?;
         let (_, r_mod_m) = {
             let modulus_divisor =
                 NonZeroBigInt::new(&modulus).expect("admitted Montgomery modulus is nonzero");
@@ -1789,13 +1778,14 @@ impl BarrettReducer {
         let Some(k_plus_one) = k.checked_add(1) else {
             return metered_finish(None, meter);
         };
-        let numerator = metered_power_of_two(two_k, meter)?;
+        let two = BigInt::from(2i64);
+        let numerator = metered_bigint_pow(&two, two_k, meter)?;
         let modulus_divisor =
             NonZeroBigInt::new(&modulus).expect("admitted Barrett modulus is nonzero");
         let (mu, _) = metered_div_rem_nonzero(&numerator, modulus_divisor, meter)?;
         let modulus_squared = metered_mul(&modulus, &modulus, meter)?;
-        let b_k_minus_one = metered_power_of_two(k_minus_one, meter)?;
-        let b_k_plus_one = metered_power_of_two(k_plus_one, meter)?;
+        let b_k_minus_one = metered_bigint_pow(&two, k_minus_one, meter)?;
+        let b_k_plus_one = metered_bigint_pow(&two, k_plus_one, meter)?;
         metered_finish(
             Some(Self {
                 modulus,
@@ -1984,7 +1974,7 @@ pub fn metered_check_lucky_prime<M: BudgetMeter>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fsym_budget::{Budget, BudgetLimits, Unbounded};
+    use fsym_budget::{Budget, BudgetError, BudgetLimits, DIMENSION_COUNT, Unbounded};
     use proptest::prelude::*;
 
     #[derive(Debug, Default)]
@@ -2042,6 +2032,38 @@ mod tests {
                 }
                 Ok(())
             }
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct CountingMeter {
+        dimensions: [u64; DIMENSION_COUNT],
+        checkpoints: usize,
+    }
+
+    impl BudgetMeter for CountingMeter {
+        fn charge(&mut self, dimension: Dimension, amount: u64) -> Result<(), MeterError> {
+            self.charge_batch(&[(dimension, amount)])
+        }
+
+        fn charge_batch(&mut self, charges: &[(Dimension, u64)]) -> Result<(), MeterError> {
+            let mut updated = self.dimensions;
+            for &(dimension, amount) in charges {
+                let slot = &mut updated[dimension.index()];
+                *slot = slot.checked_add(amount).ok_or(MeterError::Budget(
+                    BudgetError::ChargeOverflow { dimension },
+                ))?;
+            }
+            self.dimensions = updated;
+            Ok(())
+        }
+
+        fn checkpoint(&mut self) -> Result<(), MeterError> {
+            self.checkpoints = self
+                .checkpoints
+                .checked_add(1)
+                .expect("test checkpoint count must fit usize");
+            Ok(())
         }
     }
 
@@ -2976,6 +2998,161 @@ mod tests {
                 .unwrap(),
             Some(BigInt::from(76))
         );
+    }
+
+    #[test]
+    fn metered_reducer_constructors_match_small_and_limb_boundary_moduli() {
+        let smallest_barrett =
+            BarrettReducer::new(BigInt::from(2)).expect("two is an admitted Barrett modulus");
+        let mut meter = Unbounded;
+        assert_eq!(
+            BarrettReducer::metered_new(BigInt::from(2), &mut meter).unwrap(),
+            Some(smallest_barrett)
+        );
+
+        let moduli = [
+            BigInt::from(3),
+            (BigInt::one() << 31u32) + BigInt::one(),
+            (BigInt::one() << 32u32) + BigInt::one(),
+            (BigInt::one() << 63u32) + BigInt::one(),
+            (BigInt::one() << 64u32) + BigInt::one(),
+            (BigInt::one() << 127u32) - BigInt::one(),
+        ];
+
+        for modulus in moduli {
+            let expected_montgomery =
+                MontgomeryReducer::new(modulus.clone()).expect("odd modulus is admitted");
+            let mut meter = Unbounded;
+            let actual_montgomery = MontgomeryReducer::metered_new(modulus.clone(), &mut meter)
+                .unwrap()
+                .expect("odd modulus is admitted");
+            assert_eq!(actual_montgomery, expected_montgomery);
+
+            let expected_barrett =
+                BarrettReducer::new(modulus.clone()).expect("positive modulus is admitted");
+            let mut meter = Unbounded;
+            let actual_barrett = BarrettReducer::metered_new(modulus.clone(), &mut meter)
+                .unwrap()
+                .expect("positive modulus is admitted");
+            assert_eq!(actual_barrett, expected_barrett);
+
+            let largest_admitted = &modulus * &modulus - BigInt::one();
+            assert_eq!(
+                actual_barrett.reduce(&largest_admitted),
+                Some(&largest_admitted % &modulus)
+            );
+        }
+    }
+
+    #[test]
+    fn reducer_constructors_cancel_at_every_observed_safe_point() {
+        let modulus = BigInt::from(97);
+
+        let mut observed = CheckpointMeter::default();
+        assert!(
+            MontgomeryReducer::metered_new(modulus.clone(), &mut observed)
+                .unwrap()
+                .is_some()
+        );
+        assert!(observed.checkpoints > 1);
+        for checkpoint in 1..=observed.checkpoints {
+            let mut cancelled = CheckpointMeter::cancelling_at(checkpoint);
+            assert_eq!(
+                MontgomeryReducer::metered_new(modulus.clone(), &mut cancelled),
+                Err(MeterError::Cancelled),
+                "Montgomery constructor published across checkpoint {checkpoint}"
+            );
+        }
+
+        let mut observed = CheckpointMeter::default();
+        assert!(
+            BarrettReducer::metered_new(modulus.clone(), &mut observed)
+                .unwrap()
+                .is_some()
+        );
+        assert!(observed.checkpoints > 1);
+        for checkpoint in 1..=observed.checkpoints {
+            let mut cancelled = CheckpointMeter::cancelling_at(checkpoint);
+            assert_eq!(
+                BarrettReducer::metered_new(modulus.clone(), &mut cancelled),
+                Err(MeterError::Cancelled),
+                "Barrett constructor published across checkpoint {checkpoint}"
+            );
+        }
+    }
+
+    #[test]
+    fn reducer_constructors_refuse_one_short_owned_budgets() {
+        let modulus = BigInt::from(97);
+        for dimension in [
+            Dimension::ComputeSteps,
+            Dimension::MemoryBytes,
+            Dimension::AllocationCount,
+        ] {
+            let mut measured = CountingMeter::default();
+            assert!(
+                MontgomeryReducer::metered_new(modulus.clone(), &mut measured)
+                    .unwrap()
+                    .is_some()
+            );
+            assert!(measured.dimensions[dimension.index()] > 0);
+            let mut limits = BudgetLimits {
+                dimensions: measured.dimensions,
+                verifier_pool: 0,
+            };
+            limits.dimensions[dimension.index()] -= 1;
+            let mut budget = Budget::new(limits);
+            assert!(matches!(
+                MontgomeryReducer::metered_new(modulus.clone(), &mut budget),
+                Err(MeterError::Budget(BudgetError::Exhausted {
+                    dimension: exhausted,
+                    ..
+                })) if exhausted == dimension
+            ));
+
+            let mut measured = CountingMeter::default();
+            assert!(
+                BarrettReducer::metered_new(modulus.clone(), &mut measured)
+                    .unwrap()
+                    .is_some()
+            );
+            assert!(measured.dimensions[dimension.index()] > 0);
+            let mut limits = BudgetLimits {
+                dimensions: measured.dimensions,
+                verifier_pool: 0,
+            };
+            limits.dimensions[dimension.index()] -= 1;
+            let mut budget = Budget::new(limits);
+            assert!(matches!(
+                BarrettReducer::metered_new(modulus.clone(), &mut budget),
+                Err(MeterError::Budget(BudgetError::Exhausted {
+                    dimension: exhausted,
+                    ..
+                })) if exhausted == dimension
+            ));
+        }
+    }
+
+    #[test]
+    fn reducer_constructors_use_the_owned_binary_power_transcript() {
+        // MOD-POWER-OWNER-RESTORE: restoring modular's former repeated-doubling helper changes
+        // both transcripts. Pinning the smallest useful constructors makes that ownership mutant
+        // observable while full-struct comparisons separately guard every derived value.
+        let mut montgomery = CountingMeter::default();
+        assert_eq!(
+            MontgomeryReducer::metered_new(BigInt::from(3), &mut montgomery).unwrap(),
+            MontgomeryReducer::new(BigInt::from(3))
+        );
+        assert_eq!(montgomery.dimensions, [290, 480, 89, 0, 0]);
+        assert_eq!(montgomery.checkpoints, 393);
+
+        let mut barrett = CountingMeter::default();
+        assert_eq!(
+            BarrettReducer::metered_new(BigInt::from(2), &mut barrett).unwrap(),
+            BarrettReducer::new(BigInt::from(2))
+        );
+        assert_eq!(barrett.dimensions, [69, 196, 34, 0, 0]);
+        assert_eq!(barrett.checkpoints, 110);
     }
 
     #[test]
