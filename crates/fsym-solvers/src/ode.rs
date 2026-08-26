@@ -164,10 +164,10 @@ pub fn verify_first_order_linear_solution(
         py,
         Expr::Mul(vec![Expr::from_i64(-1), q_expr.clone()]),
     ]);
-    if let Ok(expanded) = try_expand(&residual) {
-        if try_simplify(&expanded).is_ok_and(|s| s.is_zero()) {
-            return true;
-        }
+    if let Ok(expanded) = try_expand(&residual)
+        && try_simplify(&expanded).is_ok_and(|s| s.is_zero())
+    {
+        return true;
     }
     if let Ok(expanded_sol) = try_expand(sol) {
         let dy2 = diff(&expanded_sol, x);
@@ -177,10 +177,10 @@ pub fn verify_first_order_linear_solution(
             py2,
             Expr::Mul(vec![Expr::from_i64(-1), q_expr.clone()]),
         ]);
-        if let Ok(exp2) = try_expand(&res2) {
-            if try_simplify(&exp2).is_ok_and(|s| s.is_zero()) {
-                return true;
-            }
+        if let Ok(exp2) = try_expand(&res2)
+            && try_simplify(&exp2).is_ok_and(|s| s.is_zero())
+        {
+            return true;
         }
     }
     simplify(&residual).is_zero()
@@ -224,10 +224,9 @@ fn parse_linear_arg(expr: &Expr, x: &Symbol) -> Option<BigRational> {
                     } else {
                         return None;
                     }
-                } else if let Some(r) = parse_rational_scalar(f) {
-                    k *= r;
                 } else {
-                    return None;
+                    let r = parse_rational_scalar(f)?;
+                    k *= r;
                 }
             }
             if found_x { Some(k) } else { None }
@@ -246,16 +245,15 @@ fn parse_exponential(expr: &Expr, x: &Symbol) -> Option<(BigRational, BigRationa
             let mut k = BigRational::from_integer(1.into());
             let mut exp_gamma = None;
             for f in factors {
-                if let Some(r) = parse_rational_scalar(f) {
-                    k *= r;
-                } else if let Expr::Function(name, args) = f {
+                if let Expr::Function(name, args) = f {
                     if name == "exp" && args.len() == 1 && exp_gamma.is_none() {
                         exp_gamma = parse_linear_arg(&args[0], x);
                     } else {
                         return None;
                     }
                 } else {
-                    return None;
+                    let r = parse_rational_scalar(f)?;
+                    k *= r;
                 }
             }
             exp_gamma.map(|g| (k, g))
@@ -279,9 +277,7 @@ fn parse_trig(expr: &Expr, x: &Symbol) -> Option<(BigRational, BigRational, bool
             let mut k = BigRational::from_integer(1.into());
             let mut trig_data = None;
             for f in factors {
-                if let Some(r) = parse_rational_scalar(f) {
-                    k *= r;
-                } else if let Expr::Function(name, args) = f {
+                if let Expr::Function(name, args) = f {
                     if args.len() == 1 && trig_data.is_none() {
                         let is_cos = match name.as_str() {
                             "cos" => true,
@@ -294,7 +290,8 @@ fn parse_trig(expr: &Expr, x: &Symbol) -> Option<(BigRational, BigRational, bool
                         return None;
                     }
                 } else {
-                    return None;
+                    let r = parse_rational_scalar(f)?;
+                    k *= r;
                 }
             }
             trig_data.map(|(w, is_cos)| (k, w, is_cos))

@@ -9,17 +9,84 @@
 use fsym_assumptions::ImmutableAssumptionsSnapshot;
 use fsym_core::Expr;
 use fsym_proof_kernel::{
-    Claim, DerivationTree, claim_verification_units, expression_verification_units,
-    verify_derivation_independent,
+    Claim, DerivationTree, KernelError, claim_verification_units, derivation_verification_units,
+    expression_verification_units, verify_derivation_independent,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use thiserror::Error;
 
+/// Maximum JSON wire size accepted for one untrusted remote candidate.
+///
+/// This transport cap is deliberately independent of the proof kernel's in-memory
+/// traversal limits. It bounds allocation during decoding before typed preflights run.
+pub const MAX_REMOTE_CANDIDATE_BYTES: usize = 1024 * 1024;
+
+/// Privacy-safe category for a rejected independent verification.
+///
+/// Kernel errors can contain complete expressions and symbol names. Remote-boundary
+/// diagnostics expose only a stable category so an untrusted payload cannot amplify logs
+/// or disclose private formulas through an error string.
+#[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
+pub enum RemoteVerificationFailure {
+    #[error("unknown proof step")]
+    UnknownStep,
+    #[error("invalid proof step reference")]
+    InvalidStepReference,
+    #[error("proof rule mismatch")]
+    RuleMismatch,
+    #[error("transitivity mismatch")]
+    TransitivityMismatch,
+    #[error("symmetry requires equality")]
+    SymmetryRequiresEquality,
+    #[error("invalid congruence")]
+    InvalidCongruence,
+    #[error("invalid substitution")]
+    InvalidSubstitution,
+    #[error("required predicate is not entailed")]
+    PredicateNotEntailed,
+    #[error("required domain is not entailed")]
+    DomainNotEntailed,
+    #[error("invalid definitional reduction")]
+    InvalidDefinitionalReduction,
+    #[error("derived claim does not match the declared claim")]
+    ClaimDiscrepancy,
+    #[error("certificate lemma has no trusted verifier")]
+    UnverifiedCertificateLemma,
+    #[error("derivation exceeds a trusted verifier limit")]
+    DerivationLimitExceeded,
+    #[error("proof step identifier space is exhausted")]
+    StepIdExhausted,
+    #[error("verifier budget failure")]
+    Budget,
+}
+
+impl From<KernelError> for RemoteVerificationFailure {
+    fn from(error: KernelError) -> Self {
+        match error {
+            KernelError::UnknownStep(_) => Self::UnknownStep,
+            KernelError::InvalidStepReference(_) => Self::InvalidStepReference,
+            KernelError::RuleMismatch(_) => Self::RuleMismatch,
+            KernelError::TransitivityMismatch { .. } => Self::TransitivityMismatch,
+            KernelError::SymmetryRequiresEquality(_) => Self::SymmetryRequiresEquality,
+            KernelError::InvalidCongruence(_) => Self::InvalidCongruence,
+            KernelError::InvalidSubstitution(_) => Self::InvalidSubstitution,
+            KernelError::PredicateNotEntailed { .. } => Self::PredicateNotEntailed,
+            KernelError::DomainNotEntailed { .. } => Self::DomainNotEntailed,
+            KernelError::InvalidDefinitionalReduction { .. } => Self::InvalidDefinitionalReduction,
+            KernelError::ClaimDiscrepancy { .. } => Self::ClaimDiscrepancy,
+            KernelError::UnverifiedCertificateLemma { .. } => Self::UnverifiedCertificateLemma,
+            KernelError::DerivationLimitExceeded { .. } => Self::DerivationLimitExceeded,
+            KernelError::StepIdExhausted => Self::StepIdExhausted,
+            KernelError::Budget(_) => Self::Budget,
+        }
+    }
+}
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum RemoteWorkerError {
     #[error("Candidate derivation verification failed: {0}")]
-    VerificationFailed(String),
+    VerificationFailed(RemoteVerificationFailure),
     #[error("Untrusted worker claim forgery: claimed result does not match verified claim")]
     ClaimForgery,
     #[error("Untrusted worker response does not answer the assigned task")]
@@ -28,12 +95,14 @@ pub enum RemoteWorkerError {
     WorkerFault,
     #[error("Payload schema or integrity corruption")]
     CorruptedPayload,
+    #[error("Remote candidate payload exceeds the {limit}-byte wire limit")]
+    PayloadTooLarge { limit: usize },
     #[error("Coordinator assignment exceeds trusted verification bounds")]
     InvalidAssignment,
 }
 
 /// A candidate produced by an untrusted remote worker.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RemoteCandidate {
     pub worker_id: String,
     pub task_id: u64,
@@ -41,6 +110,59 @@ pub struct RemoteCandidate {
     pub claim: Claim,
     pub derivation: DerivationTree,
     pub worker_signature: Vec<u8>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RemoteCandidateWire {
+    worker_id: String,
+    task_id: u64,
+    result: Expr,
+    claim: Claim,
+    derivation: DerivationTree,
+    worker_signature: Vec<u8>,
+}
+
+impl RemoteCandidate {
+    /// Decode one bounded JSON response from an untrusted worker.
+    ///
+    /// `RemoteCandidate` intentionally does not implement [`Deserialize`]: callers must
+    /// enter through this size-bounded decoder rather than materializing an arbitrarily
+    /// large worker-controlled graph before validation.
+    pub fn decode_json(bytes: &[u8]) -> Result<Self, RemoteWorkerError> {
+        if bytes.len() > MAX_REMOTE_CANDIDATE_BYTES {
+            return Err(RemoteWorkerError::PayloadTooLarge {
+                limit: MAX_REMOTE_CANDIDATE_BYTES,
+            });
+        }
+        let wire: RemoteCandidateWire =
+            serde_json::from_slice(bytes).map_err(|_| RemoteWorkerError::CorruptedPayload)?;
+        let candidate = Self {
+            worker_id: wire.worker_id,
+            task_id: wire.task_id,
+            result: wire.result,
+            claim: wire.claim,
+            derivation: wire.derivation,
+            worker_signature: wire.worker_signature,
+        };
+        candidate.preflight_fields()?;
+        derivation_verification_units(&candidate.derivation)
+            .map_err(|_| RemoteWorkerError::CorruptedPayload)?;
+        Ok(candidate)
+    }
+
+    fn preflight_fields(&self) -> Result<(), RemoteWorkerError> {
+        if self.worker_id.is_empty()
+            || self.worker_id.len() > 256
+            || self.worker_signature.len() > 4_096
+        {
+            return Err(RemoteWorkerError::CorruptedPayload);
+        }
+        claim_verification_units(&self.claim).map_err(|_| RemoteWorkerError::CorruptedPayload)?;
+        expression_verification_units(&self.result)
+            .map_err(|_| RemoteWorkerError::CorruptedPayload)?;
+        Ok(())
+    }
 }
 
 /// An accepted result certified by the local coordinator's independent verifier.
@@ -79,7 +201,7 @@ impl VerifiedAcceptedResult {
 pub struct CoordinatorVerifier {
     task_id: u64,
     expected_claim: Claim,
-    pub context: Arc<ImmutableAssumptionsSnapshot>,
+    context: Arc<ImmutableAssumptionsSnapshot>,
 }
 
 impl CoordinatorVerifier {
@@ -95,6 +217,11 @@ impl CoordinatorVerifier {
         }
     }
 
+    /// Immutable assumptions snapshot bound to this coordinator assignment.
+    pub fn context(&self) -> &ImmutableAssumptionsSnapshot {
+        &self.context
+    }
+
     /// Evaluates and verifies a candidate from an untrusted remote worker.
     ///
     /// Fails closed if the derivation is invalid, context predicates are unproven,
@@ -105,18 +232,9 @@ impl CoordinatorVerifier {
     ) -> Result<VerifiedAcceptedResult, RemoteWorkerError> {
         // 1. Reject responses that cannot possibly answer this assignment before spending
         // verifier work on an untrusted derivation.
-        if candidate.worker_id.is_empty()
-            || candidate.worker_id.len() > 256
-            || candidate.worker_signature.len() > 4_096
-        {
-            return Err(RemoteWorkerError::CorruptedPayload);
-        }
+        candidate.preflight_fields()?;
         claim_verification_units(&self.expected_claim)
             .map_err(|_| RemoteWorkerError::InvalidAssignment)?;
-        claim_verification_units(&candidate.claim)
-            .map_err(|_| RemoteWorkerError::CorruptedPayload)?;
-        expression_verification_units(&candidate.result)
-            .map_err(|_| RemoteWorkerError::CorruptedPayload)?;
         if candidate.task_id != self.task_id || candidate.claim != self.expected_claim {
             return Err(RemoteWorkerError::TaskMismatch);
         }
@@ -127,7 +245,7 @@ impl CoordinatorVerifier {
         // 2. Independent stateless verification of the derivation tree. The proof kernel's
         // trust-boundary preflight caps steps, expression depth, nodes, text, and numeric limbs.
         let verified_claim = verify_derivation_independent(&candidate.derivation, &self.context)
-            .map_err(|e| RemoteWorkerError::VerificationFailed(format!("{e:?}")))?;
+            .map_err(|error| RemoteWorkerError::VerificationFailed(error.into()))?;
 
         // 3. Bind both the worker's claim and returned value to the exact verified root.
         // Derivation export order is not itself a statement about which step is the root.
@@ -311,9 +429,26 @@ mod tests {
             })
         );
 
-        let unknown_field = br#"{"worker_id":"worker-1","task_id":1,"result":{"Integer":[1,[1]]},"claim":{"NonZero":{"Integer":[1,[1]]}},"derivation":{"steps":[],"root":0},"worker_signature":[],"unexpected":true}"#;
+        let x = Expr::symbol("x");
+        let claim = Claim::equality(x.clone(), x.clone());
+        let mut kernel = ProofKernel::new((*ImmutableAssumptionsSnapshot::empty()).clone());
+        let root = kernel.prove_reflexivity(x.clone(), &mut Unbounded).unwrap();
+        let candidate = RemoteCandidate {
+            worker_id: "worker-1".to_string(),
+            task_id: 1,
+            result: x,
+            claim,
+            derivation: kernel.export_derivation(root).unwrap(),
+            worker_signature: Vec::new(),
+        };
+        let mut unknown_field = serde_json::to_value(candidate).unwrap();
+        unknown_field
+            .as_object_mut()
+            .unwrap()
+            .insert("unexpected".to_string(), serde_json::Value::Bool(true));
+        let unknown_field = serde_json::to_vec(&unknown_field).unwrap();
         assert_eq!(
-            RemoteCandidate::decode_json(unknown_field),
+            RemoteCandidate::decode_json(&unknown_field),
             Err(RemoteWorkerError::CorruptedPayload)
         );
     }

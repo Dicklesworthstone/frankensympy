@@ -82,25 +82,24 @@ pub fn solve_poly(poly: &UnivariatePoly) -> Result<Vec<Expr>, SolverError> {
             Ok(vec![r1, r2])
         }
         Some(d) => {
-            if let Ok(factorization) = fsym_polys::factor_polynomial(poly) {
-                if factorization.factors.len() > 1
+            if let Ok(factorization) = fsym_polys::factor_polynomial(poly)
+                && (factorization.factors.len() > 1
                     || factorization
                         .factors
                         .iter()
-                        .any(|f| f.poly.degree().unwrap_or(0) < d)
-                {
-                    let mut all_roots = Vec::new();
-                    for factor in &factorization.factors {
-                        let factor_roots = solve_poly(&factor.poly)?;
-                        for r in factor_roots {
-                            if !all_roots.contains(&r) {
-                                all_roots.push(r);
-                            }
+                        .any(|f| f.poly.degree().unwrap_or(0) < d))
+            {
+                let mut all_roots = Vec::new();
+                for factor in &factorization.factors {
+                    let factor_roots = solve_poly(&factor.poly)?;
+                    for r in factor_roots {
+                        if !all_roots.contains(&r) {
+                            all_roots.push(r);
                         }
                     }
-                    if !all_roots.is_empty() {
-                        return Ok(all_roots);
-                    }
+                }
+                if !all_roots.is_empty() {
+                    return Ok(all_roots);
                 }
             }
             Err(SolverError::UnsupportedDegree(d))
