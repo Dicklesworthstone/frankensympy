@@ -94,16 +94,43 @@ def dsolve(equation, func=None):
     )
 
 
+def _exact_integer_value(value):
+    """Return an admitted exact integer without invoking lossy converters."""
+    if type(value) is int:
+        return value
+    if type(value) is Integer:
+        return value.p
+    return None
+
+
 def isprime(value):
-    return _native.is_prime(int(value))
+    integer = _exact_integer_value(value)
+    if integer is None:
+        raise ValueError(f"{value} is not an integer")
+    if integer < 2:
+        return False
+    return _native.is_prime(integer)
 
 
 def factorint(value):
-    return dict(_native.factorize(int(value)))
+    integer = _exact_integer_value(value)
+    if integer is None:
+        raise ValueError(f"{value} is not an integer")
+    if integer == 0:
+        return {0: 1}
+    factors = dict(_native.factorize(abs(integer)))
+    if integer < 0:
+        factors[-1] = 1
+    return factors
 
 
 def totient(value):
-    return _native.euler_totient(int(value))
+    integer = _exact_integer_value(value)
+    if integer is None:
+        raise TypeError("n should be an integer")
+    if integer <= 0:
+        raise ValueError("n should be a positive integer")
+    return _native.euler_totient(integer)
 
 
 __all__ = [

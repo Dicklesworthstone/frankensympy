@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import copy
 import os
-from pathlib import Path
 import pickle
 import subprocess
 import sys
 import unittest
+from pathlib import Path
 
 import sympy
 
@@ -61,6 +61,34 @@ class SurfaceTests(unittest.TestCase):
         self.assertIs(type(custom), CustomSymbol)
         with self.assertRaisesRegex(NotImplementedError, "exact built-in classes only"):
             custom + 1
+
+    def test_number_theory_wrappers_admit_only_exact_integers(self):
+        with self.assertRaisesRegex(ValueError, r"^2\.9 is not an integer$"):
+            sympy.isprime(2.9)
+        with self.assertRaisesRegex(ValueError, r"^2\.9 is not an integer$"):
+            sympy.factorint(2.9)
+        with self.assertRaisesRegex(TypeError, r"^n should be an integer$"):
+            sympy.totient(2.9)
+
+        class LossyInteger:
+            calls = 0
+
+            def __int__(self):
+                self.calls += 1
+                return 2
+
+        lossy = LossyInteger()
+        with self.assertRaises(ValueError):
+            sympy.isprime(lossy)
+        self.assertEqual(lossy.calls, 0)
+
+    def test_number_theory_wrappers_preserve_signed_and_zero_domains(self):
+        self.assertTrue(sympy.isprime(sympy.Integer(2)))
+        self.assertFalse(sympy.isprime(-2))
+        self.assertEqual(sympy.factorint(-12), {2: 2, 3: 1, -1: 1})
+        self.assertEqual(sympy.factorint(0), {0: 1})
+        with self.assertRaisesRegex(ValueError, r"^n should be a positive integer$"):
+            sympy.totient(0)
 
     def test_missing_native_extension_fails_closed(self):
         package_root = Path(__file__).resolve().parents[1]
