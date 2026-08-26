@@ -29,7 +29,9 @@ REGISTRY: dict[str, dict] = {
 
 
 def _walk(prefix: str, left, right, out: list[dict]) -> None:
-    if type(left) is not type(right):
+    # JSON booleans are Python integers by inheritance, so isinstance would
+    # wrongly treat `true` and `1` as the same observation type.
+    if left.__class__ is not right.__class__:
         out.append({"path": prefix, "oracle": left, "candidate": right})
         return
     if isinstance(left, dict):
@@ -38,8 +40,8 @@ def _walk(prefix: str, left, right, out: list[dict]) -> None:
                 out.append(
                     {
                         "path": f"{prefix}.{key}",
-                        "oracle": "<missing>" if key not in left else left[key],
-                        "candidate": "<missing>" if key not in right else right[key],
+                        "oracle": left.get(key, "<missing>"),
+                        "candidate": right.get(key, "<missing>"),
                     }
                 )
             else:
@@ -68,7 +70,6 @@ def diff_envelopes(oracle: dict, candidate: dict, comparator_id: str) -> list[di
 
     o_obs = oracle.get("observations", {})
     c_obs = candidate.get("observations", {})
-    fields = spec["fields"]
     if spec["fields"] is None:
         # Exact surface: every observed field plus the full environment
         # fingerprint must match.
@@ -97,6 +98,12 @@ def is_valid_discrepancy(record: dict) -> tuple[bool, str]:
     """Minimal fail-closed validation against schema/discrepancy.schema.json."""
     import re
 
+    if not isinstance(record, dict):
+        return False, "record must be an object"
+    try:
+        json.dumps(record, allow_nan=False)
+    except (TypeError, ValueError) as exc:
+        return False, f"record is not strict JSON: {exc}"
     required = {
         "schema_version",
         "discrepancy_id",
@@ -110,33 +117,50 @@ def is_valid_discrepancy(record: dict) -> tuple[bool, str]:
     missing = required - record.keys()
     if missing:
         return False, f"missing keys: {sorted(missing)}"
-    unknown = record.keys() - required - {
-        "outcome_classes",
-        "environment",
-        "affected_stage",
-        "affected_claim",
-        "closure_test",
-        "owner",
-        "created_at_utc",
-    }
+    unknown = (
+        record.keys()
+        - required
+        - {
+            "outcome_classes",
+            "environment",
+            "affected_stage",
+            "affected_claim",
+            "closure_test",
+            "owner",
+            "created_at_utc",
+        }
+    )
     if unknown:
         return False, f"unknown fields rejected: {sorted(unknown)}"
     if record["schema_version"] != 1:
         return False, "unsupported schema_version"
-    if not re.fullmatch(r"disc-[a-z0-9-]+", record["discrepancy_id"]):
+    if not isinstance(record["discrepancy_id"], str) or not re.fullmatch(
+        r"disc-[a-z0-9-]+", record["discrepancy_id"]
+    ):
         return False, "bad discrepancy_id"
-    if record["status"] not in {
+    if not isinstance(record["status"], str) or record["status"] not in {
         "open",
         "blocked",
         "fix_landed_unverified",
         "closed_verified",
     }:
         return False, f"bad status: {record['status']!r}"
-    if record["severity"] not in {"object", "mathematical", "runtime", "security"}:
+    if not isinstance(record["severity"], str) or record["severity"] not in {
+        "object",
+        "mathematical",
+        "runtime",
+        "security",
+    }:
         return False, f"bad severity: {record['severity']!r}"
-    if record["comparator"] not in REGISTRY:
+    if (
+        not isinstance(record["comparator"], str)
+        or record["comparator"] not in REGISTRY
+    ):
         return False, f"unregistered comparator: {record['comparator']!r}"
-    if not record["differences"]:
+    for field in ("profile_id", "fixture_id"):
+        if not isinstance(record[field], str) or not record[field]:
+            return False, f"{field} must be a non-empty string"
+    if not isinstance(record["differences"], list) or not record["differences"]:
         return False, "empty difference set"
     path_re = re.compile(
         r"^observations(\.[A-Za-z0-9_\[\]]+)+$"
@@ -144,12 +168,48 @@ def is_valid_discrepancy(record: dict) -> tuple[bool, str]:
         r"|^outcome_class$|^fixture_id$|^profile_id$"
     )
     for diff in record["differences"]:
-        if not path_re.fullmatch(diff.get("path", "")):
-            return False, f"bad difference path: {diff.get('path')!r}"
+        if not isinstance(diff, dict):
+            return False, "difference entries must be objects"
+        if set(diff) != {"path", "oracle", "candidate"}:
+            return False, f"difference keys invalid: {sorted(diff)}"
+        path = diff.get("path")
+        if not isinstance(path, str) or not path_re.fullmatch(path):
+            return False, f"bad difference path: {path!r}"
+    outcome_classes = record.get("outcome_classes")
+    if outcome_classes is not None and (
+        not isinstance(outcome_classes, dict)
+        or set(outcome_classes) != {"oracle", "candidate"}
+        or not all(isinstance(value, str) for value in outcome_classes.values())
+    ):
+        return (
+            False,
+            "outcome_classes must contain exactly oracle and candidate strings",
+        )
+    if "environment" in record and not isinstance(record["environment"], dict):
+        return False, "environment must be an object"
+    for field in (
+        "affected_stage",
+        "affected_claim",
+        "closure_test",
+        "owner",
+        "created_at_utc",
+    ):
+        if field in record and not isinstance(record[field], str):
+            return False, f"{field} must be a string"
     return True, ""
 
 
-def discrepancy_id(differences: list[dict]) -> str:
-    """Content-derived stable id for a difference set."""
-    canonical = json.dumps(differences, sort_keys=True, separators=(",", ":"))
-    return "disc-" + hashlib.sha256(canonical.encode()).hexdigest()[:12]
+def discrepancy_id(
+    *, profile_id: str, fixture_id: str, comparator: str, differences: list[dict]
+) -> str:
+    """Content-derived stable id bound to the full comparison claim."""
+    identity = {
+        "profile_id": profile_id,
+        "fixture_id": fixture_id,
+        "comparator": comparator,
+        "differences": differences,
+    }
+    canonical = json.dumps(
+        identity, sort_keys=True, separators=(",", ":"), allow_nan=False
+    )
+    return "disc-" + hashlib.sha256(canonical.encode()).hexdigest()

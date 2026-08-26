@@ -3,6 +3,7 @@
   "title": "FrankenSymPy conformance discrepancy record",
   "description": "One blocking or recorded mismatch between an oracle observation envelope and a candidate observation envelope. Shape follows docs/FIRST_IMPLEMENTATION_CAMPAIGN.md section 19 (discrepancy policy) and docs/CONFORMANCE_AND_BENCHMARKING.md section 7.3. Unknown fields are rejected by consumers (fail closed).",
   "type": "object",
+  "additionalProperties": false,
   "required": [
     "schema_version",
     "discrepancy_id",
@@ -36,6 +37,8 @@
     },
     "outcome_classes": {
       "type": "object",
+      "additionalProperties": false,
+      "required": ["oracle", "candidate"],
       "properties": {
         "oracle": {"type": "string"},
         "candidate": {"type": "string"}
@@ -47,6 +50,7 @@
       "minItems": 1,
       "items": {
         "type": "object",
+        "additionalProperties": false,
         "required": ["path", "oracle", "candidate"],
         "properties": {
           "path": {
