@@ -108,6 +108,11 @@ mod tests {
         ];
         let val = poly.eval(&eval_pt).unwrap();
         assert_eq!(val, BigRational::from_integer(BigInt::from(49)));
+
+        // Positive powers of zero remain ordinary polynomial evaluation,
+        // even though negative powers of zero are rejected by BigRational.
+        let zero_pt = vec![BigRational::zero(), BigRational::zero()];
+        assert_eq!(poly.eval(&zero_pt).unwrap(), BigRational::zero());
     }
 
     #[test]

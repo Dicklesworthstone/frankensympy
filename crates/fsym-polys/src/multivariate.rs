@@ -253,7 +253,11 @@ impl MultivariatePoly {
                                 .to_string(),
                         )
                     })?;
-                    let val_pow = values[v_idx].pow(signed_degree);
+                    let val_pow = values[v_idx].pow(signed_degree).map_err(|error| {
+                        PolyError::General(format!(
+                            "polynomial evaluation exponentiation failed: {error}"
+                        ))
+                    })?;
                     monomial_val *= val_pow;
                 }
             }

@@ -182,10 +182,20 @@ fn exact_fold(expr: &Expr) -> Expr {
                 (Some(v), Expr::Integer(n)) => {
                     let exp = i64::try_from(n.clone()).ok();
                     match exp {
-                        Some(k) if (0..=64).contains(&k) => from_rational(v.pow(k as i32)),
-                        Some(-1) => {
-                            from_rational(BigRational::new(v.denom().clone(), v.numer().clone()))
-                        }
+                        Some(k) if (0..=64).contains(&k) => match v.pow(k as i32) {
+                            Ok(power) => from_rational(power),
+                            Err(_) => Expr::Pow(
+                                std::sync::Arc::new(from_rational(v)),
+                                std::sync::Arc::new(Expr::Integer(n.clone())),
+                            ),
+                        },
+                        Some(-1) => match v.pow(-1) {
+                            Ok(power) => from_rational(power),
+                            Err(_) => Expr::Pow(
+                                std::sync::Arc::new(from_rational(v)),
+                                std::sync::Arc::new(Expr::Integer(n.clone())),
+                            ),
+                        },
                         _ => Expr::Pow(
                             std::sync::Arc::new(from_rational(v)),
                             std::sync::Arc::new(Expr::Integer(n.clone())),
@@ -1737,6 +1747,55 @@ mod tests {
 
     fn num(n: i64) -> Expr {
         Expr::from_i64(n)
+    }
+
+    #[test]
+    fn exact_fold_handles_typed_nonnegative_rational_powers() {
+        let rational_power = Expr::Pow(
+            std::sync::Arc::new(Expr::Rational(BigRational::new(
+                BigInt::from(2),
+                BigInt::from(3),
+            ))),
+            std::sync::Arc::new(Expr::Integer(BigInt::from(3))),
+        );
+        assert_eq!(
+            exact_fold(&rational_power),
+            Expr::Rational(BigRational::new(BigInt::from(8), BigInt::from(27)))
+        );
+
+        let zero_to_zero = Expr::Pow(
+            std::sync::Arc::new(Expr::Rational(BigRational::zero())),
+            std::sync::Arc::new(Expr::Integer(BigInt::zero())),
+        );
+        assert_eq!(exact_fold(&zero_to_zero), Expr::Integer(BigInt::one()));
+
+        let reciprocal = Expr::Pow(
+            std::sync::Arc::new(Expr::Rational(BigRational::new(
+                BigInt::from(2),
+                BigInt::from(3),
+            ))),
+            std::sync::Arc::new(Expr::Integer(BigInt::from(-1))),
+        );
+        assert_eq!(
+            exact_fold(&reciprocal),
+            Expr::Rational(BigRational::new(BigInt::from(3), BigInt::from(2)))
+        );
+
+        let zero_reciprocal = Expr::Pow(
+            std::sync::Arc::new(Expr::Rational(BigRational::zero())),
+            std::sync::Arc::new(Expr::Integer(BigInt::from(-1))),
+        );
+        let folded = std::panic::catch_unwind(|| exact_fold(&zero_reciprocal));
+        assert!(folded.is_ok(), "exact folding zero reciprocal unwound");
+        if let Ok(folded) = folded {
+            assert_eq!(
+                folded,
+                Expr::Pow(
+                    std::sync::Arc::new(Expr::Integer(BigInt::zero())),
+                    std::sync::Arc::new(Expr::Integer(BigInt::from(-1))),
+                )
+            );
+        }
     }
 
     #[test]

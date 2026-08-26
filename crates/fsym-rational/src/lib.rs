@@ -305,8 +305,28 @@ impl BigRational {
     }
 
     /// Raises this rational to a signed integer power.
-    pub fn pow(&self, exponent: i32) -> Self {
-        Self(num_rational::Ratio::<BigInt>::pow(&self.0, exponent))
+    ///
+    /// A negative power of zero is refused before any exponentiation work begins. Successful
+    /// results are constructed from the owned integer powers and retain the canonical positive
+    /// denominator invariant.
+    pub fn pow(&self, exponent: i32) -> Result<Self, RationalArithmeticError> {
+        if exponent.is_negative() && self.is_zero() {
+            return Err(RationalArithmeticError::DivisionByZero);
+        }
+
+        let magnitude = exponent.unsigned_abs();
+        let numerator_power = self.numer().pow(magnitude);
+        let denominator_power = self.denom().pow(magnitude);
+        let (mut numerator, mut denominator) = if exponent.is_negative() {
+            (denominator_power, numerator_power)
+        } else {
+            (numerator_power, denominator_power)
+        };
+        if denominator.is_negative() {
+            numerator = -numerator;
+            denominator = -denominator;
+        }
+        Ok(Self(num_rational::Ratio::new_raw(numerator, denominator)))
     }
 
     /// Cancellation-first signed rational exponentiation.
@@ -1505,7 +1525,43 @@ mod tests {
             BigRational::one()
         );
         assert_eq!(value.recip(), BigRational::new(4.into(), 3.into()));
-        assert_eq!(value.pow(-2), BigRational::new(16.into(), 9.into()));
+        assert_eq!(value.pow(-2), Ok(BigRational::new(16.into(), 9.into())));
+    }
+
+    #[test]
+    fn ordinary_signed_power_is_total_and_matches_the_governed_owner() {
+        let zero = BigRational::zero();
+        for exponent in [-1, i32::MIN] {
+            let result = std::panic::catch_unwind(|| zero.pow(exponent));
+            assert!(result.is_ok(), "zero to exponent {exponent} unwound");
+            if let Ok(result) = result {
+                assert_eq!(result, Err(RationalArithmeticError::DivisionByZero));
+            }
+        }
+
+        assert_eq!(zero.pow(0), Ok(BigRational::one()));
+        assert_eq!(zero.pow(7), Ok(BigRational::zero()));
+        assert_eq!(BigRational::one().pow(i32::MIN), Ok(BigRational::one()));
+        assert_eq!(BigRational::from(-1).pow(i32::MIN), Ok(BigRational::one()));
+        assert_eq!(
+            BigRational::from(-1).pow(i32::MIN + 1),
+            Ok(BigRational::from(-1))
+        );
+
+        let negative = BigRational::new(BigInt::from(-2), BigInt::from(3));
+        for (exponent, expected) in [
+            (2, BigRational::new(BigInt::from(4), BigInt::from(9))),
+            (3, BigRational::new(BigInt::from(-8), BigInt::from(27))),
+            (-2, BigRational::new(BigInt::from(9), BigInt::from(4))),
+            (-3, BigRational::new(BigInt::from(-27), BigInt::from(8))),
+        ] {
+            let actual = negative.pow(exponent);
+            assert_eq!(actual, Ok(expected));
+            assert_eq!(actual, negative.metered_pow(exponent, &mut Unbounded));
+            let actual = actual.expect("nonzero rational power succeeds");
+            assert!(actual.denom().is_positive());
+            assert_eq!(gcd(actual.numer(), actual.denom()), BigInt::one());
+        }
     }
 
     #[test]
@@ -2837,6 +2893,29 @@ mod tests {
             ] {
                 prop_assert!(value.denom().is_positive());
                 prop_assert_eq!(gcd(value.numer(), value.denom()), BigInt::one());
+            }
+        }
+
+        #[test]
+        fn ordinary_and_metered_signed_powers_agree_and_remain_canonical(
+            numerator in -32i32..=32,
+            denominator in (-32i32..=32).prop_filter("nonzero denominator", |value| *value != 0),
+            exponent in -10i32..=10,
+        ) {
+            let value = BigRational::new(BigInt::from(numerator), BigInt::from(denominator));
+            let ordinary = value.pow(exponent);
+            let metered = value.metered_pow(exponent, &mut Unbounded);
+            prop_assert_eq!(&ordinary, &metered);
+            match ordinary {
+                Ok(result) => {
+                    prop_assert!(result.denom().is_positive());
+                    prop_assert_eq!(gcd(result.numer(), result.denom()), BigInt::one());
+                }
+                Err(error) => {
+                    prop_assert_eq!(error, RationalArithmeticError::DivisionByZero);
+                    prop_assert!(value.is_zero());
+                    prop_assert!(exponent.is_negative());
+                }
             }
         }
     }
