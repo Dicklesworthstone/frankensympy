@@ -7,7 +7,7 @@
 
 #![forbid(unsafe_code)]
 
-use crate::checkpoint::TypedCheckpoint;
+use crate::checkpoint::{TypedCheckpoint, serialized_checkpoint_has_valid_integrity};
 use serde::Serialize;
 use std::io::{self, Write};
 use thiserror::Error;
@@ -330,9 +330,7 @@ impl EphemeralLedger {
                 None => LedgerError::SerializationFailed,
             });
         }
-        let stored_checkpoint: TypedCheckpoint<serde_json::Value> =
-            serde_json::from_slice(&writer.bytes).map_err(|_| LedgerError::SerializationFailed)?;
-        if !stored_checkpoint.verify_integrity() {
+        if !serialized_checkpoint_has_valid_integrity(&writer.bytes) {
             return Err(LedgerError::CorruptedEntry);
         }
         self.append_with_limits(writer.bytes, limits)
@@ -344,6 +342,7 @@ mod tests {
     use super::*;
     use fsym_budget::Dimension;
     use serde::Serializer;
+    use serde::ser::SerializeMap;
     use std::cell::Cell;
     use std::collections::BTreeMap;
 
@@ -356,6 +355,23 @@ mod tests {
             let value = self.serializations.get();
             self.serializations.set(value + 1);
             serializer.serialize_u64(value)
+        }
+    }
+
+    struct DuplicateOnSecondSerialization {
+        serializations: Cell<u64>,
+    }
+
+    impl Serialize for DuplicateOnSecondSerialization {
+        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            let serialization = self.serializations.get();
+            self.serializations.set(serialization + 1);
+            let mut map = serializer.serialize_map(None)?;
+            if serialization > 0 {
+                map.serialize_entry("value", &1_u8)?;
+            }
+            map.serialize_entry("value", &2_u8)?;
+            map.end()
         }
     }
 
@@ -409,6 +425,26 @@ mod tests {
             "test.stateful.v1",
             0,
             StatefulPayload {
+                serializations: Cell::new(0),
+            },
+            BTreeMap::<Dimension, u64>::new(),
+            0,
+        )
+        .unwrap();
+        let mut ledger = EphemeralLedger::new();
+        assert_eq!(
+            ledger.append_checkpoint(&checkpoint),
+            Err(LedgerError::CorruptedEntry)
+        );
+        assert!(ledger.is_empty());
+    }
+
+    #[test]
+    fn checkpoint_storage_rejects_duplicate_payload_keys() {
+        let checkpoint = TypedCheckpoint::new(
+            "test.duplicate-on-storage.v1",
+            0,
+            DuplicateOnSecondSerialization {
                 serializations: Cell::new(0),
             },
             BTreeMap::<Dimension, u64>::new(),

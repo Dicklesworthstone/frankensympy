@@ -17,6 +17,7 @@ use thiserror::Error;
 const CHECKPOINT_SCHEMA_VERSION: u32 = 3;
 const MAX_CHECKPOINT_SCHEMA_ID_BYTES: usize = 128;
 const MAX_CHECKPOINT_CANONICAL_BYTES: usize = 8 * 1024 * 1024;
+const MAX_CHECKPOINT_WIRE_BYTES: usize = MAX_CHECKPOINT_CANONICAL_BYTES + 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum CheckpointError {
@@ -251,6 +252,20 @@ impl<T: Serialize> TypedCheckpoint<T> {
         )
         .is_ok_and(|digest| digest == self.content_digest)
     }
+}
+
+/// Validates the exact serialized checkpoint representation before storage.
+///
+/// Deserializing the payload through `serde_json::Value` first would silently
+/// collapse duplicate object keys. Parsing it directly as `CanonicalJson`
+/// preserves the checkpoint's fail-closed duplicate-key rule at the wire
+/// boundary as well as during initial construction.
+pub(crate) fn serialized_checkpoint_has_valid_integrity(serialized: &[u8]) -> bool {
+    if serialized.len() > MAX_CHECKPOINT_WIRE_BYTES {
+        return false;
+    }
+    serde_json::from_slice::<TypedCheckpoint<CanonicalJson>>(serialized)
+        .is_ok_and(|checkpoint| checkpoint.verify_integrity())
 }
 
 fn checkpoint_digest<T: Serialize>(
