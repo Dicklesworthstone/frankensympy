@@ -1472,6 +1472,30 @@ mod tests {
     }
 
     #[test]
+    fn radix_parser_inherits_bigint_admission_without_unwinding() {
+        for radix in [0, 1, 37, u32::MAX] {
+            let parsed = std::panic::catch_unwind(|| BigRational::from_str_radix("1/2", radix))
+                .expect("fallible rational parsing must not unwind for an unsupported radix");
+            assert!(parsed.is_err(), "radix {radix}");
+        }
+
+        assert_eq!(
+            BigRational::from_str_radix("101/11", 2),
+            Ok(BigRational::new(BigInt::from(5), BigInt::from(3)))
+        );
+        assert_eq!(
+            BigRational::from_str_radix("z/10", 36),
+            Ok(BigRational::new(BigInt::from(35), BigInt::from(36)))
+        );
+        for malformed in ["1", "1/2/3", "2/1", "/1", "1/", "1/0"] {
+            assert!(
+                BigRational::from_str_radix(malformed, 2).is_err(),
+                "malformed rational was accepted: {malformed}"
+            );
+        }
+    }
+
+    #[test]
     fn owned_rational_is_canonical_and_supports_arithmetic() {
         let value = BigRational::new(BigInt::from(-6), BigInt::from(-8));
         assert_eq!(value.numer(), &BigInt::from(3));

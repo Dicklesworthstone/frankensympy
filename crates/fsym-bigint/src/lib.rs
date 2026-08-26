@@ -58,6 +58,22 @@ pub const LIMB_BITS: u64 = 64;
 // durable-format decision.
 const MAX_SERDE_U32_DIGITS: usize = 1024 * 1024 / std::mem::size_of::<u32>();
 const INITIAL_SERDE_U32_DIGIT_RESERVE: usize = 4_096;
+const MIN_STRING_RADIX: u32 = 2;
+const MAX_STRING_RADIX: u32 = 36;
+const UNSUPPORTED_RADIX_ERROR: &str = "radix must be in the range 2..=36";
+
+#[inline]
+fn string_radix_is_supported(radix: u32) -> bool {
+    (MIN_STRING_RADIX..=MAX_STRING_RADIX).contains(&radix)
+}
+
+fn validate_string_radix(radix: u32) -> Result<(), String> {
+    if string_radix_is_supported(radix) {
+        Ok(())
+    } else {
+        Err(UNSUPPORTED_RADIX_ERROR.to_owned())
+    }
+}
 
 /// Magnitude size in u64 limbs (rounded up); zero for zero.
 #[inline]
@@ -277,8 +293,16 @@ impl BigInt {
         self.0.to_f64()
     }
 
+    /// Parses a signed integer from bytes in `radix`.
+    ///
+    /// Returns `None` when `radix` is outside `2..=36`, the bytes are not UTF-8, or the payload is
+    /// not a valid integer in the requested radix.
     pub fn parse_bytes(buf: &[u8], radix: u32) -> Option<Self> {
-        Substrate::parse_bytes(buf, radix).map(Self)
+        if !string_radix_is_supported(radix) {
+            return None;
+        }
+        let src = std::str::from_utf8(buf).ok()?;
+        Self::from_str_radix(src, radix).ok()
     }
 
     /// Magnitude size in bits (0 for zero).
@@ -321,11 +345,22 @@ impl BigInt {
         Self(Substrate::from_signed_bytes_be(bytes))
     }
 
+    /// Formats this integer in `radix`.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `radix` is outside `2..=36`. Callers accepting an untrusted or dynamic radix
+    /// must validate it before using this infallible formatting API.
     pub fn to_str_radix(&self, radix: u32) -> String {
         self.0.to_str_radix(radix)
     }
 
+    /// Parses a signed integer in `radix`.
+    ///
+    /// Returns an error when `radix` is outside `2..=36` or `src` is not a valid integer in the
+    /// requested radix.
     pub fn from_str_radix(src: &str, radix: u32) -> Result<Self, String> {
+        validate_string_radix(radix)?;
         Substrate::from_str_radix(src, radix)
             .map(Self)
             .map_err(|e| e.to_string())
@@ -424,9 +459,7 @@ impl Integer for BigInt {
 impl Num for BigInt {
     type FromStrRadixErr = String;
     fn from_str_radix(str: &str, radix: u32) -> Result<Self, Self::FromStrRadixErr> {
-        Substrate::from_str_radix(str, radix)
-            .map(Self)
-            .map_err(|e| e.to_string())
+        BigInt::from_str_radix(str, radix)
     }
 }
 
@@ -3362,6 +3395,60 @@ mod tests {
             meter.trailing_uncharged_checkpoints,
             expected_trailing_checkpoints
         );
+    }
+
+    #[test]
+    fn fallible_radix_parsers_reject_unsupported_radices_without_unwinding() {
+        for radix in [0, 1, 37, u32::MAX] {
+            let parsed_bytes = std::panic::catch_unwind(|| BigInt::parse_bytes(b"1", radix))
+                .expect("fallible byte parsing must not unwind for an unsupported radix");
+            assert_eq!(parsed_bytes, None, "radix {radix}");
+
+            let inherent = std::panic::catch_unwind(|| BigInt::from_str_radix("1", radix))
+                .expect("inherent fallible parsing must not unwind for an unsupported radix");
+            let through_trait =
+                std::panic::catch_unwind(|| <BigInt as Num>::from_str_radix("1", radix))
+                    .expect("Num parsing must not unwind for an unsupported radix");
+            assert_eq!(
+                inherent,
+                Err(UNSUPPORTED_RADIX_ERROR.to_owned()),
+                "radix {radix}"
+            );
+            assert_eq!(through_trait, inherent, "radix {radix}");
+        }
+    }
+
+    #[test]
+    fn fallible_radix_parsers_preserve_valid_boundaries_and_parse_refusals() {
+        for (src, radix, expected) in [
+            ("-101", 2, BigInt::from(-5)),
+            ("0", 2, BigInt::zero()),
+            ("z", 36, BigInt::from(35)),
+            ("Z", 36, BigInt::from(35)),
+        ] {
+            assert_eq!(
+                BigInt::parse_bytes(src.as_bytes(), radix),
+                Some(expected.clone())
+            );
+            assert_eq!(BigInt::from_str_radix(src, radix), Ok(expected.clone()));
+            assert_eq!(<BigInt as Num>::from_str_radix(src, radix), Ok(expected));
+        }
+
+        assert_eq!(BigInt::parse_bytes(&[0xff], 10), None);
+        assert_eq!(BigInt::parse_bytes(b"2", 2), None);
+        assert!(BigInt::from_str_radix("2", 2).is_err());
+        assert!(<BigInt as Num>::from_str_radix("2", 2).is_err());
+
+        for value in [
+            BigInt::zero(),
+            BigInt::from(-1),
+            (&BigInt::one() << 257u32) + BigInt::from(12345),
+        ] {
+            for radix in [2, 10, 36] {
+                let encoded = value.to_str_radix(radix);
+                assert_eq!(BigInt::from_str_radix(&encoded, radix), Ok(value.clone()));
+            }
+        }
     }
 
     #[test]
