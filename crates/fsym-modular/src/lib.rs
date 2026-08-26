@@ -55,6 +55,42 @@ impl From<MeterError> for PrimeStreamError {
     }
 }
 
+/// Why a governed finite-field batch inversion stopped before publishing its output.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BatchInverseError {
+    /// Budget exhaustion or structured cancellation from the owning region.
+    Meter(MeterError),
+    /// The checked buffer-layout calculation exceeded machine size.
+    SizeOverflow,
+    /// One of the two private batch buffers could not reserve its checked capacity.
+    AllocationFailure,
+    /// A private finite-field invariant failed after public inputs were admitted.
+    InvariantViolation(&'static str),
+}
+
+impl std::fmt::Display for BatchInverseError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Meter(error) => error.fmt(formatter),
+            Self::SizeOverflow => formatter.write_str("batch-inverse buffer size overflow"),
+            Self::AllocationFailure => {
+                formatter.write_str("batch-inverse private-buffer allocation failed")
+            }
+            Self::InvariantViolation(message) => {
+                write!(formatter, "batch-inverse invariant violation: {message}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for BatchInverseError {}
+
+impl From<MeterError> for BatchInverseError {
+    fn from(error: MeterError) -> Self {
+        Self::Meter(error)
+    }
+}
+
 /// Multiplicative inverse of `a` modulo `m` (`m > 0`); `None` when
 /// `gcd(a, m) != 1`.
 pub fn mod_inverse(a: &BigInt, m: &BigInt) -> Option<BigInt> {
@@ -1035,6 +1071,81 @@ fn metered_clone_bigint<M: BudgetMeter>(
     Ok(cloned)
 }
 
+fn batch_inverse_error<T, M: BudgetMeter>(
+    error: BatchInverseError,
+    meter: &mut M,
+) -> Result<T, BatchInverseError> {
+    meter.checkpoint()?;
+    Err(error)
+}
+
+fn batch_buffer_layout(len: usize) -> Result<u64, BatchInverseError> {
+    let prefix_slot = std::mem::size_of::<BigInt>();
+    let output_slot = std::mem::size_of::<FiniteFieldElement>();
+    let prefix_bytes = len
+        .checked_mul(prefix_slot)
+        .ok_or(BatchInverseError::SizeOverflow)?;
+    let output_bytes = len
+        .checked_mul(output_slot)
+        .ok_or(BatchInverseError::SizeOverflow)?;
+    let layout_ceiling = isize::MAX as usize;
+    if prefix_bytes > layout_ceiling || output_bytes > layout_ceiling {
+        return Err(BatchInverseError::SizeOverflow);
+    }
+    let total_bytes = prefix_bytes
+        .checked_add(output_bytes)
+        .ok_or(BatchInverseError::SizeOverflow)?;
+    u64::try_from(total_bytes).map_err(|_| BatchInverseError::SizeOverflow)
+}
+
+fn reserve_batch_buffers<M: BudgetMeter>(
+    len: usize,
+    meter: &mut M,
+) -> Result<(Vec<BigInt>, Vec<FiniteFieldElement>), BatchInverseError> {
+    reserve_batch_buffers_with(
+        len,
+        meter,
+        |prefixes, capacity| prefixes.try_reserve_exact(capacity).map_err(|_| ()),
+        |output, capacity| output.try_reserve_exact(capacity).map_err(|_| ()),
+    )
+}
+
+fn reserve_batch_buffers_with<M, P, O>(
+    len: usize,
+    meter: &mut M,
+    mut reserve_prefixes: P,
+    mut reserve_output: O,
+) -> Result<(Vec<BigInt>, Vec<FiniteFieldElement>), BatchInverseError>
+where
+    M: BudgetMeter,
+    P: FnMut(&mut Vec<BigInt>, usize) -> Result<(), ()>,
+    O: FnMut(&mut Vec<FiniteFieldElement>, usize) -> Result<(), ()>,
+{
+    let buffer_bytes = match batch_buffer_layout(len) {
+        Ok(bytes) => bytes,
+        Err(error) => return batch_inverse_error(error, meter),
+    };
+
+    meter.checkpoint()?;
+    meter.charge_batch(&[
+        (Dimension::MemoryBytes, buffer_bytes),
+        (Dimension::AllocationCount, 2),
+    ])?;
+
+    let mut prefixes = Vec::new();
+    if reserve_prefixes(&mut prefixes, len).is_err() {
+        return batch_inverse_error(BatchInverseError::AllocationFailure, meter);
+    }
+    meter.checkpoint()?;
+
+    let mut output = Vec::new();
+    if reserve_output(&mut output, len).is_err() {
+        return batch_inverse_error(BatchInverseError::AllocationFailure, meter);
+    }
+    meter.checkpoint()?;
+    Ok((prefixes, output))
+}
+
 /// Typed representation of a modular arithmetic residue ring $\mathbb{Z} / m\mathbb{Z}$.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ModularRing {
@@ -1411,6 +1522,106 @@ impl FiniteField {
     /// The field multiplicative identity $1$.
     pub fn one(&self) -> FiniteFieldElement {
         self.element(BigInt::one())
+    }
+
+    /// Inverts a batch of nonzero elements with one modular inverse.
+    ///
+    /// `Ok(None)` means that at least one input belongs to another field or is zero. Buffer-size
+    /// and allocation refusals are typed, and no partial output is published.
+    pub fn try_batch_inv(
+        &self,
+        values: &[FiniteFieldElement],
+    ) -> Result<Option<Vec<FiniteFieldElement>>, BatchInverseError> {
+        self.metered_batch_inv(values, &mut fsym_budget::Unbounded)
+    }
+
+    /// Cancellation-first batch inversion using one modular inverse and ordered prefix products.
+    ///
+    /// Membership and zero admission complete before either private output buffer is allocated.
+    /// Cancellation, budget exhaustion, and typed internal failures drop all private work rather
+    /// than exposing a partial vector.
+    pub fn metered_batch_inv<M: BudgetMeter>(
+        &self,
+        values: &[FiniteFieldElement],
+        meter: &mut M,
+    ) -> Result<Option<Vec<FiniteFieldElement>>, BatchInverseError> {
+        meter.checkpoint()?;
+        if values.is_empty() {
+            return metered_finish(Some(Vec::new()), meter).map_err(BatchInverseError::from);
+        }
+
+        for value in values {
+            if !metered_equal(&self.characteristic, &value.field.characteristic, meter)? {
+                return metered_finish(None, meter).map_err(BatchInverseError::from);
+            }
+        }
+        for value in values {
+            meter.checkpoint()?;
+            meter.charge(Dimension::ComputeSteps, 1)?;
+            if value.is_zero() {
+                return metered_finish(None, meter).map_err(BatchInverseError::from);
+            }
+        }
+
+        let Some(modulus) = NonZeroBigInt::new(&self.characteristic) else {
+            return batch_inverse_error(
+                BatchInverseError::InvariantViolation("field characteristic is zero"),
+                meter,
+            );
+        };
+        let (mut prefixes, mut output) = reserve_batch_buffers(values.len(), meter)?;
+        prefixes.push(metered_clone_bigint(&values[0].value, meter)?);
+
+        for value in &values[1..] {
+            meter.checkpoint()?;
+            meter.charge(Dimension::ComputeSteps, 1)?;
+            let product = metered_mul(
+                prefixes
+                    .last()
+                    .expect("nonempty batch has an admitted prefix"),
+                &value.value,
+                meter,
+            )?;
+            prefixes.push(metered_normalized_remainder(&product, modulus, meter)?);
+        }
+
+        let Some(mut inverse_accumulator) = metered_mod_inverse(
+            prefixes.last().expect("nonempty batch has a final prefix"),
+            &self.characteristic,
+            meter,
+        )?
+        else {
+            return batch_inverse_error(
+                BatchInverseError::InvariantViolation(
+                    "nonzero product in a certified field was not invertible",
+                ),
+                meter,
+            );
+        };
+
+        for index in (1..values.len()).rev() {
+            meter.checkpoint()?;
+            meter.charge(Dimension::ComputeSteps, 1)?;
+            let inverse_product = metered_mul(&inverse_accumulator, &prefixes[index - 1], meter)?;
+            let inverse_value = metered_normalized_remainder(&inverse_product, modulus, meter)?;
+            let next_product = metered_mul(&inverse_accumulator, &values[index].value, meter)?;
+            let next_accumulator = metered_normalized_remainder(&next_product, modulus, meter)?;
+            prefixes[index] = inverse_value;
+            inverse_accumulator = next_accumulator;
+        }
+        prefixes[0] = inverse_accumulator;
+
+        for value in prefixes {
+            meter.checkpoint()?;
+            meter.charge(Dimension::ComputeSteps, 1)?;
+            output.push(FiniteFieldElement {
+                field: FiniteField {
+                    characteristic: metered_clone_bigint(&self.characteristic, meter)?,
+                },
+                value,
+            });
+        }
+        metered_finish(Some(output), meter).map_err(BatchInverseError::from)
     }
 }
 
@@ -3244,6 +3455,371 @@ mod tests {
                 .unwrap(),
             x.pow(&BigInt::from(16)).unwrap()
         );
+    }
+
+    #[test]
+    fn finite_field_batch_inverse_matches_scalar_and_preserves_order() {
+        let field = FiniteField::new(BigInt::from(101)).unwrap();
+        let values = [2, 3, 5, 7].map(|value| field.element(BigInt::from(value)));
+        let expected = values
+            .iter()
+            .map(|value| value.inv().unwrap())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            field.try_batch_inv(&values).unwrap(),
+            Some(expected.clone())
+        );
+        let mut meter = Unbounded;
+        let actual = field
+            .metered_batch_inv(&values, &mut meter)
+            .unwrap()
+            .unwrap();
+        assert_eq!(actual, expected);
+        for (value, inverse) in values.iter().zip(&actual) {
+            assert_eq!(value.mul(inverse).unwrap(), field.one());
+        }
+
+        let binary_field = FiniteField::new(BigInt::from(2)).unwrap();
+        assert_eq!(
+            binary_field.try_batch_inv(&[binary_field.one()]).unwrap(),
+            Some(vec![binary_field.one()])
+        );
+        let repeated = vec![field.element(BigInt::from(9)); 3];
+        assert_eq!(
+            field.try_batch_inv(&repeated).unwrap(),
+            Some(repeated.iter().map(|value| value.inv().unwrap()).collect())
+        );
+    }
+
+    #[test]
+    fn finite_field_batch_inverse_preflights_before_allocation() {
+        let field = FiniteField::new(BigInt::from(101)).unwrap();
+        let foreign = FiniteField::new(BigInt::from(103)).unwrap();
+
+        let mut empty_meter = CountingMeter::default();
+        assert_eq!(
+            field.metered_batch_inv(&[], &mut empty_meter).unwrap(),
+            Some(Vec::new())
+        );
+        assert_eq!(empty_meter.dimensions, [0; DIMENSION_COUNT]);
+        assert_eq!(empty_meter.checkpoints, 2);
+
+        let mut zero_meter = CountingMeter::default();
+        assert_eq!(
+            field
+                .metered_batch_inv(&[field.zero()], &mut zero_meter)
+                .unwrap(),
+            None
+        );
+        assert_eq!(zero_meter.dimensions[Dimension::AllocationCount.index()], 0);
+
+        let mut foreign_zero_meter = CountingMeter::default();
+        assert_eq!(
+            field
+                .metered_batch_inv(&[foreign.zero()], &mut foreign_zero_meter)
+                .unwrap(),
+            None
+        );
+        let mut foreign_nonzero_meter = CountingMeter::default();
+        assert_eq!(
+            field
+                .metered_batch_inv(&[foreign.one()], &mut foreign_nonzero_meter)
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            foreign_zero_meter.dimensions,
+            foreign_nonzero_meter.dimensions
+        );
+        assert_eq!(
+            foreign_zero_meter.checkpoints,
+            foreign_nonzero_meter.checkpoints
+        );
+        assert_eq!(
+            foreign_zero_meter.dimensions[Dimension::AllocationCount.index()],
+            0
+        );
+
+        let mut mixed_meter = CountingMeter::default();
+        let mixed = [field.one(), foreign.one()];
+        assert_eq!(
+            field.metered_batch_inv(&mixed, &mut mixed_meter).unwrap(),
+            None
+        );
+        assert_eq!(
+            mixed_meter.dimensions[Dimension::AllocationCount.index()],
+            0
+        );
+
+        for refused in [vec![field.zero()], vec![foreign.one()], mixed.to_vec()] {
+            let mut measured = CheckpointMeter::default();
+            assert_eq!(
+                field.metered_batch_inv(&refused, &mut measured).unwrap(),
+                None
+            );
+            let mut terminal = CheckpointMeter::cancelling_at(measured.checkpoints);
+            assert_eq!(
+                field.metered_batch_inv(&refused, &mut terminal),
+                Err(BatchInverseError::Meter(MeterError::Cancelled))
+            );
+        }
+    }
+
+    #[test]
+    fn finite_field_batch_inverse_pins_governed_transcript() {
+        let field = FiniteField::new(BigInt::from(101)).unwrap();
+        let values = [2, 3, 5, 7].map(|value| field.element(BigInt::from(value)));
+        let mut measured = CountingMeter::default();
+        let expected = field
+            .metered_batch_inv(&values, &mut measured)
+            .unwrap()
+            .unwrap();
+
+        // BATCH-INVERSE-PER-ELEMENT: replacing the one-inverse prefix/reverse lane with four
+        // independent scalar inversions still returns these values but changes this transcript.
+        assert_eq!(measured.dimensions, [573, 1_176, 147, 0, 0]);
+        assert_eq!(measured.checkpoints, 748);
+        assert_eq!(
+            expected,
+            values
+                .iter()
+                .map(|value| value.inv().unwrap())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(measured.dimensions[Dimension::DepthLimit.index()], 0);
+        assert_eq!(measured.dimensions[Dimension::RandomDraws.index()], 0);
+    }
+
+    #[test]
+    fn finite_field_batch_inverse_refuses_each_one_short_budget() {
+        let field = FiniteField::new(BigInt::from(101)).unwrap();
+        let values = [2, 3, 5, 7].map(|value| field.element(BigInt::from(value)));
+        let mut measured = CountingMeter::default();
+        let expected = field
+            .metered_batch_inv(&values, &mut measured)
+            .unwrap()
+            .unwrap();
+
+        for dimension in [
+            Dimension::ComputeSteps,
+            Dimension::MemoryBytes,
+            Dimension::AllocationCount,
+        ] {
+            assert!(measured.dimensions[dimension.index()] > 0);
+            let mut limits = BudgetLimits {
+                dimensions: measured.dimensions,
+                verifier_pool: 0,
+            };
+            limits.dimensions[dimension.index()] -= 1;
+            let mut budget = Budget::new(limits);
+            assert!(matches!(
+                field.metered_batch_inv(&values, &mut budget),
+                Err(BatchInverseError::Meter(MeterError::Budget(
+                    BudgetError::Exhausted {
+                        dimension: exhausted,
+                        ..
+                    }
+                ))) if exhausted == dimension
+            ));
+
+            let mut retry = Unbounded;
+            assert_eq!(
+                field.metered_batch_inv(&values, &mut retry).unwrap(),
+                Some(expected.clone())
+            );
+        }
+    }
+
+    #[test]
+    fn finite_field_batch_inverse_cancels_at_every_checkpoint() {
+        let field = FiniteField::new(BigInt::from(101)).unwrap();
+        let values = [2, 3, 5, 7].map(|value| field.element(BigInt::from(value)));
+        let mut measured = CheckpointMeter::default();
+        let expected = field
+            .metered_batch_inv(&values, &mut measured)
+            .unwrap()
+            .unwrap();
+        assert!(measured.checkpoints > 20);
+
+        for checkpoint in 1..=measured.checkpoints {
+            let mut cancelled = CheckpointMeter::cancelling_at(checkpoint);
+            assert_eq!(
+                field.metered_batch_inv(&values, &mut cancelled),
+                Err(BatchInverseError::Meter(MeterError::Cancelled)),
+                "batch output crossed checkpoint {checkpoint}"
+            );
+        }
+
+        let mut retry = Unbounded;
+        assert_eq!(
+            field.metered_batch_inv(&values, &mut retry).unwrap(),
+            Some(expected)
+        );
+    }
+
+    #[test]
+    fn finite_field_batch_buffers_fail_typed_and_terminally() {
+        let prefix_slot = std::mem::size_of::<BigInt>();
+        let output_slot = std::mem::size_of::<FiniteFieldElement>();
+        let combined_slot = prefix_slot.checked_add(output_slot).unwrap();
+        let u64_limit =
+            usize::try_from(u64::MAX / u64::try_from(combined_slot).unwrap()).unwrap_or(usize::MAX);
+        let max_len = [
+            (isize::MAX as usize) / prefix_slot,
+            (isize::MAX as usize) / output_slot,
+            usize::MAX / combined_slot,
+            u64_limit,
+        ]
+        .into_iter()
+        .min()
+        .unwrap();
+        let overflowing_len = max_len.checked_add(1).unwrap();
+        assert_eq!(
+            batch_buffer_layout(max_len),
+            Ok(u64::try_from(max_len.checked_mul(combined_slot).unwrap()).unwrap())
+        );
+        assert_eq!(
+            batch_buffer_layout(overflowing_len),
+            Err(BatchInverseError::SizeOverflow)
+        );
+        let mut overflow_meter = CheckpointMeter::default();
+        assert_eq!(
+            reserve_batch_buffers(overflowing_len, &mut overflow_meter),
+            Err(BatchInverseError::SizeOverflow)
+        );
+        assert_eq!(overflow_meter.checkpoints, 1);
+        let mut overflow_cancelled = CheckpointMeter::cancelling_at(1);
+        assert_eq!(
+            reserve_batch_buffers(overflowing_len, &mut overflow_cancelled),
+            Err(BatchInverseError::Meter(MeterError::Cancelled))
+        );
+
+        let mut first_calls = 0;
+        let mut second_calls = 0;
+        let mut measured = CheckpointMeter::default();
+        assert_eq!(
+            reserve_batch_buffers_with(
+                1,
+                &mut measured,
+                |_, _| {
+                    first_calls += 1;
+                    Err(())
+                },
+                |_, _| {
+                    second_calls += 1;
+                    Ok(())
+                },
+            ),
+            Err(BatchInverseError::AllocationFailure)
+        );
+        assert_eq!((first_calls, second_calls), (1, 0));
+        assert_eq!(measured.checkpoints, 2);
+
+        let mut first_calls = 0;
+        let mut second_calls = 0;
+        let mut measured = CheckpointMeter::default();
+        assert_eq!(
+            reserve_batch_buffers_with(
+                1,
+                &mut measured,
+                |_, _| {
+                    first_calls += 1;
+                    Ok(())
+                },
+                |_, _| {
+                    second_calls += 1;
+                    Err(())
+                },
+            ),
+            Err(BatchInverseError::AllocationFailure)
+        );
+        assert_eq!((first_calls, second_calls), (1, 1));
+        assert_eq!(measured.checkpoints, 3);
+
+        let mut cancelled = CheckpointMeter::arming_after(1);
+        assert_eq!(
+            reserve_batch_buffers_with(1, &mut cancelled, |_, _| Err(()), |_, _| Ok(())),
+            Err(BatchInverseError::Meter(MeterError::Cancelled))
+        );
+
+        let reserve_calls = std::cell::Cell::<usize>::new(0);
+        let mut budget = Budget::new(BudgetLimits {
+            dimensions: [u64::MAX, 0, u64::MAX, u64::MAX, u64::MAX],
+            verifier_pool: 0,
+        });
+        assert!(matches!(
+            reserve_batch_buffers_with(
+                1,
+                &mut budget,
+                |_, _| {
+                    reserve_calls.set(reserve_calls.get() + 1);
+                    Ok(())
+                },
+                |_, _| {
+                    reserve_calls.set(reserve_calls.get() + 1);
+                    Ok(())
+                },
+            ),
+            Err(BatchInverseError::Meter(MeterError::Budget(
+                BudgetError::Exhausted {
+                    dimension: Dimension::MemoryBytes,
+                    ..
+                }
+            )))
+        ));
+        assert_eq!(reserve_calls.get(), 0);
+    }
+
+    #[test]
+    fn finite_field_batch_inverse_does_not_downgrade_internal_faults() {
+        let invalid_field = FiniteField {
+            characteristic: BigInt::from(4),
+        };
+        let invalid_value = FiniteFieldElement {
+            field: invalid_field.clone(),
+            value: BigInt::from(2),
+        };
+        let mut measured = CheckpointMeter::default();
+        assert_eq!(
+            invalid_field.metered_batch_inv(std::slice::from_ref(&invalid_value), &mut measured),
+            Err(BatchInverseError::InvariantViolation(
+                "nonzero product in a certified field was not invertible"
+            ))
+        );
+
+        let mut cancelled = CheckpointMeter::arming_after(measured.checkpoints - 1);
+        assert_eq!(
+            invalid_field.metered_batch_inv(std::slice::from_ref(&invalid_value), &mut cancelled),
+            Err(BatchInverseError::Meter(MeterError::Cancelled))
+        );
+    }
+
+    proptest! {
+        #[test]
+        fn finite_field_batch_inverse_matches_scalar_over_generated_batches(
+            representatives in proptest::collection::vec(1u64..101, 0..24),
+        ) {
+            let field = FiniteField::new(BigInt::from(101)).unwrap();
+            let values = representatives
+                .into_iter()
+                .map(|value| field.element(BigInt::from(value)))
+                .collect::<Vec<_>>();
+            let expected = values
+                .iter()
+                .map(|value| value.inv().unwrap())
+                .collect::<Vec<_>>();
+
+            prop_assert_eq!(
+                field.try_batch_inv(&values).unwrap(),
+                Some(expected.clone())
+            );
+            let mut meter = Unbounded;
+            prop_assert_eq!(
+                field.metered_batch_inv(&values, &mut meter).unwrap(),
+                Some(expected)
+            );
+        }
     }
 
     #[test]
