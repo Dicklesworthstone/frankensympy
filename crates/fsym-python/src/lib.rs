@@ -203,8 +203,8 @@ fn divisor_sum_fn(n: u64, k: u32) -> PyResult<u64> {
 
 /// Jacobi symbol (a/n).
 #[pyfunction]
-fn jacobi_symbol_fn(a: i64, n: u64) -> i64 {
-    fsym_ntheory::jacobi_symbol(a, n)
+fn jacobi_symbol_fn(a: i64, n: u64) -> PyResult<i64> {
+    fsym_ntheory::jacobi_symbol(a, n).map_err(to_value_error)
 }
 
 pub mod expr;
@@ -356,6 +356,12 @@ mod tests {
         assert_eq!(mobius_fn(4).unwrap(), 0);
         assert_eq!(divisor_count_fn(12).unwrap(), 6);
         assert_eq!(divisor_sum_fn(6, 1).unwrap(), 12);
-        assert_eq!(jacobi_symbol_fn(2, 7), 1);
+        assert_eq!(jacobi_symbol_fn(2, 7).unwrap(), 1);
+        assert_eq!(jacobi_symbol_fn(3, 9).unwrap(), 0);
+        Python::initialize();
+        assert_eq!(
+            jacobi_symbol_fn(1, 2).unwrap_err().to_string(),
+            "ValueError: n should be an odd positive integer"
+        );
     }
 }

@@ -2,11 +2,11 @@
 //!
 //! Number-theoretic functions: deterministic `u64` Miller-Rabin primality,
 //! bounded trial-division factorization, Euler's totient and divisor functions,
-//! the Jacobi symbol, and arbitrary-precision extended GCD.
+//! the exact-arithmetic owner's Jacobi symbol, and arbitrary-precision extended GCD.
 
 #![forbid(unsafe_code)]
 
-use fsym_core::BigInt;
+use fsym_core::{BigInt, arith::jacobi_symbol as exact_jacobi_symbol};
 use std::collections::BTreeMap;
 use thiserror::Error;
 
@@ -18,6 +18,8 @@ pub enum NTheoryError {
     FactorizationLimitExceeded(u64),
     #[error("Exact result does not fit u64 while computing {0}")]
     ArithmeticOverflow(&'static str),
+    #[error("n should be an odd positive integer")]
+    InvalidJacobiDenominator,
 }
 
 /// Deterministic primality test for small numbers (<= 2^64) using Miller-Rabin with optimal bases.
@@ -210,33 +212,14 @@ pub fn divisor_sum(n: u64, k: u32) -> Result<u64, NTheoryError> {
     Ok(total)
 }
 
-/// Jacobi symbol (a / n) for integer a and odd positive integer n.
-pub fn jacobi_symbol(a: i64, mut n: u64) -> i64 {
-    if n == 0 || n.is_multiple_of(2) {
-        return 0;
-    }
-    let reduced = i128::from(a).rem_euclid(i128::from(n));
-    let Ok(mut a) = u64::try_from(reduced) else {
-        return 0;
-    };
-    let mut result = 1i64;
-
-    while a != 0 {
-        while a.is_multiple_of(2) {
-            a /= 2;
-            let n_mod_8 = n % 8;
-            if n_mod_8 == 3 || n_mod_8 == 5 {
-                result = -result;
-            }
-        }
-        std::mem::swap(&mut a, &mut n);
-        if a % 4 == 3 && n % 4 == 3 {
-            result = -result;
-        }
-        a %= n;
-    }
-
-    if n == 1 { result } else { 0 }
+/// Jacobi symbol (a / n) for integer `a` and odd positive integer `n`.
+///
+/// The arithmetic is delegated to the arbitrary-precision WS03 owner. Invalid
+/// denominators are a typed refusal, distinct from the legitimate symbol `0`.
+pub fn jacobi_symbol(a: i64, n: u64) -> Result<i64, NTheoryError> {
+    exact_jacobi_symbol(&BigInt::from(a), &BigInt::from(n))
+        .map(i64::from)
+        .ok_or(NTheoryError::InvalidJacobiDenominator)
 }
 
 /// Extended Euclidean Algorithm returning (gcd, x, y) such that a*x + b*y = gcd(a, b).
@@ -298,10 +281,19 @@ mod tests {
         );
 
         // Jacobi symbol: (2 / 7) = 1, (3 / 7) = -1
-        assert_eq!(jacobi_symbol(2, 7), 1);
-        assert_eq!(jacobi_symbol(3, 7), -1);
-        assert_eq!(jacobi_symbol(-1, (1u64 << 63) + 1), 1);
-        assert_eq!(jacobi_symbol(i64::MIN, 3), 1);
+        assert_eq!(jacobi_symbol(2, 7), Ok(1));
+        assert_eq!(jacobi_symbol(3, 7), Ok(-1));
+        assert_eq!(jacobi_symbol(-1, (1u64 << 63) + 1), Ok(1));
+        assert_eq!(jacobi_symbol(i64::MIN, 3), Ok(1));
+        assert_eq!(jacobi_symbol(3, 9), Ok(0));
+        assert_eq!(
+            jacobi_symbol(1, 0),
+            Err(NTheoryError::InvalidJacobiDenominator)
+        );
+        assert_eq!(
+            jacobi_symbol(1, 2),
+            Err(NTheoryError::InvalidJacobiDenominator)
+        );
     }
 
     #[test]
@@ -352,7 +344,19 @@ mod tests {
                     1 => 1,
                     _ => -1,
                 };
-                assert_eq!(jacobi_symbol(value, prime), reference);
+                assert_eq!(jacobi_symbol(value, prime), Ok(reference));
+            }
+        }
+
+        for denominator in (1..=199u64).step_by(2) {
+            for value in -200..=200i64 {
+                let expected = fsym_core::arith::jacobi_symbol(
+                    &BigInt::from(value),
+                    &BigInt::from(denominator),
+                )
+                .map(i64::from)
+                .ok_or(NTheoryError::InvalidJacobiDenominator);
+                assert_eq!(jacobi_symbol(value, denominator), expected);
             }
         }
     }
