@@ -24,6 +24,37 @@ use fsym_bigint::{
 use fsym_bigint::{exact_div, metered_exact_div};
 use fsym_budget::{BudgetMeter, Dimension, MeterError};
 
+/// Why a governed prime-stream step stopped before publishing a prime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrimeStreamError {
+    /// Budget exhaustion or structured cancellation from the owning region.
+    Meter(MeterError),
+    /// The deterministic emitted-table growth calculation exceeded machine size.
+    SizeOverflow,
+    /// The private replacement table could not reserve its checked logical capacity.
+    AllocationFailure,
+}
+
+impl std::fmt::Display for PrimeStreamError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Meter(error) => error.fmt(formatter),
+            Self::SizeOverflow => formatter.write_str("prime-stream table size overflow"),
+            Self::AllocationFailure => {
+                formatter.write_str("prime-stream replacement-table allocation failed")
+            }
+        }
+    }
+}
+
+impl std::error::Error for PrimeStreamError {}
+
+impl From<MeterError> for PrimeStreamError {
+    fn from(error: MeterError) -> Self {
+        Self::Meter(error)
+    }
+}
+
 /// Multiplicative inverse of `a` modulo `m` (`m > 0`); `None` when
 /// `gcd(a, m) != 1`.
 pub fn mod_inverse(a: &BigInt, m: &BigInt) -> Option<BigInt> {
@@ -326,13 +357,75 @@ pub fn metered_rational_reconstruct<M: BudgetMeter>(
 /// Deterministic increasing stream of primes: 2, 3, 5, 7, ...
 pub struct PrimeStream {
     emitted: Vec<BigInt>,
+    emitted_capacity: usize,
     current: BigInt,
+}
+
+fn prime_table_growth_target(
+    logical_capacity: usize,
+    required_len: usize,
+) -> Result<usize, PrimeStreamError> {
+    if required_len <= logical_capacity {
+        return Ok(logical_capacity);
+    }
+    let grown = if logical_capacity == 0 {
+        1
+    } else {
+        logical_capacity
+            .checked_mul(2)
+            .ok_or(PrimeStreamError::SizeOverflow)?
+    };
+    Ok(grown.max(required_len))
+}
+
+fn prime_stream_error<T, M: BudgetMeter>(
+    error: PrimeStreamError,
+    meter: &mut M,
+) -> Result<T, PrimeStreamError> {
+    meter.checkpoint()?;
+    Err(error)
+}
+
+fn reserve_prime_table<M: BudgetMeter>(
+    logical_capacity: usize,
+    copied_entries: usize,
+    meter: &mut M,
+) -> Result<Vec<BigInt>, PrimeStreamError> {
+    let header_bytes = match u64::try_from(std::mem::size_of::<BigInt>()) {
+        Ok(bytes) => bytes,
+        Err(_) => return prime_stream_error(PrimeStreamError::SizeOverflow, meter),
+    };
+    let logical_capacity_u64 = match u64::try_from(logical_capacity) {
+        Ok(capacity) => capacity,
+        Err(_) => return prime_stream_error(PrimeStreamError::SizeOverflow, meter),
+    };
+    let copied_entries = match u64::try_from(copied_entries) {
+        Ok(entries) => entries,
+        Err(_) => return prime_stream_error(PrimeStreamError::SizeOverflow, meter),
+    };
+    let Some(replacement_bytes) = logical_capacity_u64.checked_mul(header_bytes) else {
+        return prime_stream_error(PrimeStreamError::SizeOverflow, meter);
+    };
+
+    meter.checkpoint()?;
+    meter.charge_batch(&[
+        (Dimension::ComputeSteps, copied_entries),
+        (Dimension::MemoryBytes, replacement_bytes),
+        (Dimension::AllocationCount, 1),
+    ])?;
+    let mut replacement = Vec::new();
+    if replacement.try_reserve_exact(logical_capacity).is_err() {
+        return prime_stream_error(PrimeStreamError::AllocationFailure, meter);
+    }
+    meter.checkpoint()?;
+    Ok(replacement)
 }
 
 impl PrimeStream {
     pub fn new() -> Self {
         Self {
             emitted: Vec::new(),
+            emitted_capacity: 0,
             current: BigInt::from(2i64),
         }
     }
@@ -341,7 +434,10 @@ impl PrimeStream {
     ///
     /// Refusal leaves the stream cursor and emitted-prime table unchanged, so retrying cannot
     /// silently skip a candidate. Consumed budget is not refunded.
-    pub fn next_metered<M: BudgetMeter>(&mut self, meter: &mut M) -> Result<BigInt, MeterError> {
+    pub fn next_metered<M: BudgetMeter>(
+        &mut self,
+        meter: &mut M,
+    ) -> Result<BigInt, PrimeStreamError> {
         meter.checkpoint()?;
         meter.charge_batch(&[
             (
@@ -376,26 +472,87 @@ impl PrimeStream {
                 }
             }
             if !divides {
-                meter.charge_batch(&[
-                    (
-                        Dimension::MemoryBytes,
-                        candidate
-                            .limb_count()
-                            .max(1)
-                            .saturating_mul(8)
-                            .saturating_add(
-                                u64::try_from(std::mem::size_of::<BigInt>()).unwrap_or(u64::MAX),
-                            ),
-                    ),
-                    (Dimension::AllocationCount, 2),
-                ])?;
-                let stored_candidate = candidate.clone();
+                let Some(required_len) = self.emitted.len().checked_add(1) else {
+                    return prime_stream_error(PrimeStreamError::SizeOverflow, meter);
+                };
+                if required_len > self.emitted_capacity {
+                    let target =
+                        match prime_table_growth_target(self.emitted_capacity, required_len) {
+                            Ok(target) => target,
+                            Err(error) => return prime_stream_error(error, meter),
+                        };
+                    let mut replacement = reserve_prime_table(target, required_len, meter)?;
+                    for prime in &self.emitted {
+                        replacement.push(metered_clone_bigint(prime, meter)?);
+                    }
+                    replacement.push(metered_clone_bigint(&candidate, meter)?);
+                    meter.checkpoint()?;
+                    self.emitted = replacement;
+                    self.emitted_capacity = target;
+                    self.current = next_current;
+                    return Ok(candidate);
+                }
+
+                debug_assert!(self.emitted.capacity() >= self.emitted_capacity);
+                meter.charge(Dimension::ComputeSteps, 1)?;
+                let stored_candidate = metered_clone_bigint(&candidate, meter)?;
                 meter.checkpoint()?;
                 self.emitted.push(stored_candidate);
                 self.current = next_current;
                 return Ok(candidate);
             }
             current = next_current;
+        }
+    }
+
+    /// Returns the next prime without metering, preserving the stream on allocation refusal.
+    ///
+    /// This is the fallible counterpart to [`Iterator::next`]. Size and table-allocation errors
+    /// leave the cursor, emitted primes, and logical capacity unchanged, so callers may retry.
+    pub fn try_next(&mut self) -> Result<BigInt, PrimeStreamError> {
+        self.try_next_with_reserve(|emitted, additional| {
+            emitted
+                .try_reserve_exact(additional)
+                .map_err(|_| PrimeStreamError::AllocationFailure)
+        })
+    }
+
+    fn try_next_with_reserve<F>(&mut self, mut reserve: F) -> Result<BigInt, PrimeStreamError>
+    where
+        F: FnMut(&mut Vec<BigInt>, usize) -> Result<(), PrimeStreamError>,
+    {
+        let mut current = self.current.clone();
+        loop {
+            let candidate = current;
+            let next_current = &candidate + 1i64;
+            let root = sqrt_floor(&candidate).expect("prime-stream candidates stay positive");
+            let divides = self.emitted.iter().take_while(|p| **p <= root).any(|p| {
+                let remainder = &candidate % p;
+                remainder.is_zero()
+            });
+            if divides {
+                current = next_current;
+                continue;
+            }
+
+            let required_len = self
+                .emitted
+                .len()
+                .checked_add(1)
+                .ok_or(PrimeStreamError::SizeOverflow)?;
+            let mut next_capacity = self.emitted_capacity;
+            if required_len > self.emitted_capacity {
+                next_capacity = prime_table_growth_target(self.emitted_capacity, required_len)?;
+                let additional = next_capacity
+                    .checked_sub(self.emitted.len())
+                    .ok_or(PrimeStreamError::SizeOverflow)?;
+                reserve(&mut self.emitted, additional)?;
+            }
+
+            self.emitted.push(candidate.clone());
+            self.emitted_capacity = next_capacity;
+            self.current = next_current;
+            return Ok(candidate);
         }
     }
 }
@@ -410,19 +567,11 @@ impl Iterator for PrimeStream {
     type Item = BigInt;
 
     fn next(&mut self) -> Option<BigInt> {
-        loop {
-            let cand = self.current.clone();
-            self.current = &self.current + 1i64;
-            let root = sqrt_floor(&cand).expect("prime-stream candidates stay positive");
-            let divides = self.emitted.iter().take_while(|p| **p <= root).any(|p| {
-                let r = &cand % p;
-                r.is_zero()
-            });
-            if !divides {
-                self.emitted.push(cand.clone());
-                return Some(cand);
-            }
-        }
+        let prime = self.try_next_with_reserve(|emitted, additional| {
+            emitted.reserve_exact(additional);
+            Ok(())
+        });
+        Some(prime.expect("infinite prime-stream iterator cannot exhaust"))
     }
 }
 
@@ -2074,6 +2223,16 @@ mod tests {
         a
     }
 
+    fn prime_stream_before_four_to_eight_growth() -> PrimeStream {
+        let mut stream = PrimeStream::new();
+        for expected in [2i64, 3, 5, 7] {
+            assert_eq!(stream.next(), Some(BigInt::from(expected)));
+        }
+        assert_eq!(stream.emitted.len(), 4);
+        assert_eq!(stream.emitted_capacity, 4);
+        stream
+    }
+
     fn scalar_is_prime(n: u64) -> bool {
         if n < 2 {
             return false;
@@ -2727,7 +2886,7 @@ mod tests {
         let mut cancelled = CheckpointMeter::cancelling_at(measured.checkpoints);
         assert_eq!(
             stream.next_metered(&mut cancelled),
-            Err(MeterError::Cancelled)
+            Err(PrimeStreamError::Meter(MeterError::Cancelled))
         );
         assert_eq!(stream.current, BigInt::from(2));
         assert!(stream.emitted.is_empty());
@@ -2737,6 +2896,153 @@ mod tests {
         assert_eq!(stream.next(), Some(BigInt::from(3)));
         assert_eq!(stream.next_metered(&mut meter).unwrap(), BigInt::from(5));
         assert_eq!(stream.next(), Some(BigInt::from(7)));
+    }
+
+    #[test]
+    fn prime_stream_unmetered_growth_failure_is_retry_safe() {
+        let mut stream = prime_stream_before_four_to_eight_growth();
+        let before_emitted = stream.emitted.clone();
+        let before_current = stream.current.clone();
+        let before_capacity = stream.emitted_capacity;
+        let mut reserve_calls = 0;
+
+        // PRIME-ITERATOR-SKIP-ON-RESERVE-FAIL: advancing the public cursor while scanning 8, 9,
+        // 10, or before the failing reservation silently skips prime 11 on retry.
+        assert_eq!(
+            stream.try_next_with_reserve(|_, _| {
+                reserve_calls += 1;
+                Err(PrimeStreamError::AllocationFailure)
+            }),
+            Err(PrimeStreamError::AllocationFailure)
+        );
+        assert_eq!(reserve_calls, 1);
+        assert_eq!(stream.emitted, before_emitted);
+        assert_eq!(stream.current, before_current);
+        assert_eq!(stream.emitted_capacity, before_capacity);
+
+        let mut meter = Unbounded;
+        assert_eq!(stream.next_metered(&mut meter).unwrap(), BigInt::from(11));
+        assert_eq!(stream.try_next().unwrap(), BigInt::from(13));
+    }
+
+    #[test]
+    fn prime_stream_growth_is_prepared_before_atomic_publication() {
+        let mut stream = prime_stream_before_four_to_eight_growth();
+        let before_emitted = stream.emitted.clone();
+        let before_current = stream.current.clone();
+        let mut measured = CountingMeter::default();
+        assert_eq!(
+            stream.next_metered(&mut measured).unwrap(),
+            BigInt::from(11)
+        );
+        // PRIME-TABLE-DIRECT-PUSH: the former one-header charge/direct Vec::push path reports a
+        // smaller transcript and performs its reallocation after the final checkpoint.
+        assert_eq!(measured.dimensions, [1_445, 1_280, 194, 0, 0]);
+        assert_eq!(measured.checkpoints, 1_637);
+        assert_eq!(stream.emitted_capacity, 8);
+        assert_eq!(stream.emitted.len(), 5);
+        assert_eq!(stream.emitted.last(), Some(&BigInt::from(11)));
+
+        let mut stream = prime_stream_before_four_to_eight_growth();
+        let mut terminal = CheckpointMeter::arming_after(measured.checkpoints - 1);
+        assert_eq!(
+            stream.next_metered(&mut terminal),
+            Err(PrimeStreamError::Meter(MeterError::Cancelled))
+        );
+        assert_eq!(stream.emitted, before_emitted);
+        assert_eq!(stream.current, before_current);
+        assert_eq!(stream.emitted_capacity, 4);
+    }
+
+    #[test]
+    fn prime_stream_growth_refuses_one_short_budgets_without_state_change() {
+        let mut measured_stream = prime_stream_before_four_to_eight_growth();
+        let mut measured = CountingMeter::default();
+        let expected = measured_stream.next_metered(&mut measured).unwrap();
+
+        for dimension in [
+            Dimension::ComputeSteps,
+            Dimension::MemoryBytes,
+            Dimension::AllocationCount,
+        ] {
+            assert!(measured.dimensions[dimension.index()] > 0);
+            let mut limits = BudgetLimits {
+                dimensions: measured.dimensions,
+                verifier_pool: 0,
+            };
+            limits.dimensions[dimension.index()] -= 1;
+
+            let mut stream = prime_stream_before_four_to_eight_growth();
+            let before_emitted = stream.emitted.clone();
+            let before_current = stream.current.clone();
+            let mut budget = Budget::new(limits);
+            assert!(matches!(
+                stream.next_metered(&mut budget),
+                Err(PrimeStreamError::Meter(MeterError::Budget(
+                    BudgetError::Exhausted {
+                        dimension: exhausted,
+                        ..
+                    }
+                ))) if exhausted == dimension
+            ));
+            assert_eq!(stream.emitted, before_emitted);
+            assert_eq!(stream.current, before_current);
+            assert_eq!(stream.emitted_capacity, 4);
+
+            let mut retry_meter = Unbounded;
+            assert_eq!(stream.next_metered(&mut retry_meter).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn prime_stream_growth_cancels_at_every_observed_prepare_checkpoint() {
+        let mut measured_stream = prime_stream_before_four_to_eight_growth();
+        let mut measured = CheckpointMeter::default();
+        let expected = measured_stream.next_metered(&mut measured).unwrap();
+        assert!(measured.checkpoints > 10);
+
+        for checkpoint in 1..=measured.checkpoints {
+            let mut stream = prime_stream_before_four_to_eight_growth();
+            let before_emitted = stream.emitted.clone();
+            let before_current = stream.current.clone();
+            let mut cancelled = CheckpointMeter::cancelling_at(checkpoint);
+            assert_eq!(
+                stream.next_metered(&mut cancelled),
+                Err(PrimeStreamError::Meter(MeterError::Cancelled)),
+                "prime table published across checkpoint {checkpoint}"
+            );
+            assert_eq!(stream.emitted, before_emitted);
+            assert_eq!(stream.current, before_current);
+            assert_eq!(stream.emitted_capacity, 4);
+
+            let mut retry_meter = Unbounded;
+            assert_eq!(stream.next_metered(&mut retry_meter).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn prime_stream_table_growth_fails_typed_and_terminally() {
+        let overflowing_capacity = usize::MAX / 2 + 1;
+        assert_eq!(
+            prime_table_growth_target(overflowing_capacity, overflowing_capacity + 1),
+            Err(PrimeStreamError::SizeOverflow)
+        );
+
+        let header_size = std::mem::size_of::<BigInt>();
+        let impossible_capacity = (isize::MAX as usize) / header_size + 1;
+        let mut measured = CheckpointMeter::default();
+        assert_eq!(
+            reserve_prime_table(impossible_capacity, 1, &mut measured),
+            Err(PrimeStreamError::AllocationFailure)
+        );
+        assert_eq!(measured.checkpoints, 2);
+
+        let mut cancelled = CheckpointMeter::arming_after(1);
+        assert_eq!(
+            reserve_prime_table(impossible_capacity, 1, &mut cancelled),
+            Err(PrimeStreamError::Meter(MeterError::Cancelled))
+        );
+        assert_eq!(cancelled.checkpoints, 1);
     }
 
     #[test]
