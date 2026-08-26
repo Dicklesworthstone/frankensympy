@@ -41,6 +41,8 @@ pub enum DagError {
     ArityLimitExceeded(usize),
     #[error("Term payload byte limit exceeded ({0})")]
     PayloadLimitExceeded(usize),
+    #[error("Aggregate DAG payload byte limit exceeded ({0})")]
+    TotalPayloadLimitExceeded(usize),
     #[error("Term numeric payload bit limit exceeded ({0})")]
     NumericPayloadLimitExceeded(u64),
     #[error("DAG allocation failed")]
@@ -56,6 +58,7 @@ pub struct DagLimits {
     pub max_expanded_nodes: usize,
     pub max_arity: usize,
     pub max_payload_bytes: usize,
+    pub max_total_payload_bytes: usize,
     pub max_numeric_bits: u64,
 }
 
@@ -68,6 +71,7 @@ impl Default for DagLimits {
             max_expanded_nodes: 100_000,
             max_arity: 100_000,
             max_payload_bytes: crate::canonical::MAX_SERIALIZED_BYTES,
+            max_total_payload_bytes: crate::canonical::MAX_SERIALIZED_BYTES,
             max_numeric_bits: 8 * 1024 * 1024,
         }
     }
@@ -197,26 +201,92 @@ fn node_arity(node: &TermNode) -> Result<usize, DagError> {
     })
 }
 
+fn numeric_payload_bytes(value: &BigInt) -> Result<usize, DagError> {
+    usize::try_from(value.bits().div_ceil(8)).map_err(|_| DagError::PayloadLengthOverflow)
+}
+
+fn sequence_storage_bytes<T>(len: usize) -> Result<usize, DagError> {
+    len.checked_mul(std::mem::size_of::<T>())
+        .ok_or(DagError::PayloadLengthOverflow)
+}
+
+fn add_payload_bytes(lhs: usize, rhs: usize) -> Result<usize, DagError> {
+    lhs.checked_add(rhs).ok_or(DagError::PayloadLengthOverflow)
+}
+
+fn node_payload_bytes(node: &TermNode) -> Result<usize, DagError> {
+    match node {
+        TermNode::Sym(symbol) => Ok(symbol.name.len()),
+        TermNode::Integer(value) => numeric_payload_bytes(value),
+        TermNode::Rational(value) => add_payload_bytes(
+            numeric_payload_bytes(value.numer())?,
+            numeric_payload_bytes(value.denom())?,
+        ),
+        TermNode::Add(ids) | TermNode::Mul(ids) => sequence_storage_bytes::<TermId>(ids.len()),
+        TermNode::Function(name, ids) => {
+            add_payload_bytes(name.len(), sequence_storage_bytes::<TermId>(ids.len())?)
+        }
+        TermNode::Lambda(parameters, _) => {
+            let parameter_storage = sequence_storage_bytes::<Symbol>(parameters.len())?;
+            parameters
+                .iter()
+                .try_fold(parameter_storage, |total, parameter| {
+                    total
+                        .checked_add(parameter.name.len())
+                        .ok_or(DagError::PayloadLengthOverflow)
+                })
+        }
+        TermNode::Pow(..) | TermNode::Const(_) => Ok(0),
+    }
+}
+
+fn lifted_node_payload_bytes(node: &TermNode) -> Result<usize, DagError> {
+    match node {
+        TermNode::Sym(symbol) => Ok(symbol.name.len()),
+        TermNode::Integer(value) => numeric_payload_bytes(value),
+        TermNode::Rational(value) => add_payload_bytes(
+            numeric_payload_bytes(value.numer())?,
+            numeric_payload_bytes(value.denom())?,
+        ),
+        TermNode::Add(ids) | TermNode::Mul(ids) => sequence_storage_bytes::<Expr>(ids.len()),
+        TermNode::Pow(..) => sequence_storage_bytes::<Expr>(2),
+        TermNode::Function(name, ids) => {
+            add_payload_bytes(name.len(), sequence_storage_bytes::<Expr>(ids.len())?)
+        }
+        TermNode::Lambda(parameters, _) => {
+            let output_arity = parameters
+                .len()
+                .checked_add(1)
+                .ok_or(DagError::PayloadLengthOverflow)?;
+            let expression_storage = sequence_storage_bytes::<Expr>(output_arity)?;
+            parameters
+                .iter()
+                .try_fold(expression_storage, |total, parameter| {
+                    total
+                        .checked_add(parameter.name.len())
+                        .ok_or(DagError::PayloadLengthOverflow)
+                })
+        }
+        TermNode::Const(_) => Ok(0),
+    }
+}
+
+fn charge_total_payload(total: &mut usize, amount: usize, limit: usize) -> Result<(), DagError> {
+    let next = total
+        .checked_add(amount)
+        .ok_or(DagError::PayloadLengthOverflow)?;
+    if next > limit {
+        return Err(DagError::TotalPayloadLimitExceeded(limit));
+    }
+    *total = next;
+    Ok(())
+}
+
 fn validate_node_limits(node: &TermNode, limits: DagLimits) -> Result<(), DagError> {
     if node_arity(node)? > limits.max_arity {
         return Err(DagError::ArityLimitExceeded(limits.max_arity));
     }
-    let payload_bytes = match node {
-        TermNode::Sym(symbol) => symbol.name.len(),
-        TermNode::Function(name, _) => name.len(),
-        TermNode::Lambda(parameters, _) => parameters
-            .iter()
-            .try_fold(0_usize, |total, parameter| {
-                total.checked_add(parameter.name.len())
-            })
-            .ok_or(DagError::PayloadLengthOverflow)?,
-        TermNode::Integer(_)
-        | TermNode::Rational(_)
-        | TermNode::Const(_)
-        | TermNode::Add(_)
-        | TermNode::Mul(_)
-        | TermNode::Pow(..) => 0,
-    };
+    let payload_bytes = node_payload_bytes(node)?;
     if payload_bytes > limits.max_payload_bytes {
         return Err(DagError::PayloadLimitExceeded(limits.max_payload_bytes));
     }
@@ -244,13 +314,17 @@ fn validate_expr_local_limits(expr: &Expr, limits: DagLimits) -> Result<(), DagE
     }
     let payload_bytes = match expr {
         Expr::Sym(symbol) => symbol.name.len(),
-        Expr::Function(name, _) => name.len(),
-        Expr::Integer(_)
-        | Expr::Rational(_)
-        | Expr::Const(_)
-        | Expr::Add(_)
-        | Expr::Mul(_)
-        | Expr::Pow(..) => 0,
+        Expr::Integer(value) => numeric_payload_bytes(value)?,
+        Expr::Rational(value) => add_payload_bytes(
+            numeric_payload_bytes(value.numer())?,
+            numeric_payload_bytes(value.denom())?,
+        )?,
+        Expr::Add(terms) | Expr::Mul(terms) => sequence_storage_bytes::<TermId>(terms.len())?,
+        Expr::Function(name, arguments) => add_payload_bytes(
+            name.len(),
+            sequence_storage_bytes::<TermId>(arguments.len())?,
+        )?,
+        Expr::Const(_) | Expr::Pow(..) => 0,
     };
     if payload_bytes > limits.max_payload_bytes {
         return Err(DagError::PayloadLimitExceeded(limits.max_payload_bytes));
@@ -295,6 +369,7 @@ pub fn compute_term_id_with_limits(node: &TermNode, limits: DagLimits) -> Result
 pub struct TermDag {
     nodes: HashMap<TermId, TermNode>,
     depths: HashMap<TermId, usize>,
+    total_payload_bytes: usize,
 }
 
 impl TermDag {
@@ -313,6 +388,11 @@ impl TermDag {
         self.nodes.is_empty()
     }
 
+    /// Total variable-size payload bytes owned by distinct interned nodes.
+    pub fn total_payload_bytes(&self) -> usize {
+        self.total_payload_bytes
+    }
+
     /// Interns a [`TermNode`], returning its content-addressed [`TermId`].
     /// Fails closed if any child [`TermId`] is not already present in the DAG.
     pub fn insert_node(&mut self, node: TermNode) -> Result<TermId, DagError> {
@@ -329,7 +409,8 @@ impl TermDag {
         self.validate_child_links(&node)?;
         let node_depth = self.prospective_node_depth(&node, limits)?;
         let term_id = compute_term_id_unchecked(&node)?;
-        self.intern_prehashed_node(node, term_id, node_depth, limits)
+        let payload_bytes = node_payload_bytes(&node)?;
+        self.intern_prehashed_node(node, term_id, node_depth, payload_bytes, limits)
     }
 
     fn validate_child_links(&self, node: &TermNode) -> Result<(), DagError> {
@@ -403,6 +484,7 @@ impl TermDag {
         node: TermNode,
         term_id: TermId,
         node_depth: usize,
+        payload_bytes: usize,
         limits: DagLimits,
     ) -> Result<TermId, DagError> {
         if let Some(existing) = self.nodes.get(&term_id) {
@@ -413,6 +495,12 @@ impl TermDag {
             if self.nodes.len() >= limits.max_nodes {
                 return Err(DagError::NodeLimitExceeded(limits.max_nodes));
             }
+            let mut next_total_payload = self.total_payload_bytes;
+            charge_total_payload(
+                &mut next_total_payload,
+                payload_bytes,
+                limits.max_total_payload_bytes,
+            )?;
             self.nodes
                 .try_reserve(1)
                 .map_err(|_| DagError::AllocationFailure)?;
@@ -421,6 +509,7 @@ impl TermDag {
                 .map_err(|_| DagError::AllocationFailure)?;
             self.nodes.insert(term_id, node);
             self.depths.insert(term_id, node_depth);
+            self.total_payload_bytes = next_total_payload;
         }
         Ok(term_id)
     }
@@ -442,8 +531,13 @@ impl TermDag {
             Ok(root) => Ok(root),
             Err(error) => {
                 for id in inserted.into_iter().rev() {
-                    self.nodes.remove(&id);
-                    self.depths.remove(&id);
+                    let node = self.nodes.remove(&id).ok_or(DagError::UnknownId(id))?;
+                    self.depths.remove(&id).ok_or(DagError::UnknownId(id))?;
+                    let payload_bytes = node_payload_bytes(&node)?;
+                    self.total_payload_bytes = self
+                        .total_payload_bytes
+                        .checked_sub(payload_bytes)
+                        .ok_or(DagError::PayloadLengthOverflow)?;
                 }
                 Err(error)
             }
@@ -512,13 +606,15 @@ impl TermDag {
         self.validate_child_links(&node)?;
         let node_depth = self.prospective_node_depth(&node, limits)?;
         let expected_id = compute_term_id_unchecked(&node)?;
+        let payload_bytes = node_payload_bytes(&node)?;
         let is_new = !self.nodes.contains_key(&expected_id);
         if is_new {
             inserted
                 .try_reserve(1)
                 .map_err(|_| DagError::AllocationFailure)?;
         }
-        let actual_id = self.intern_prehashed_node(node, expected_id, node_depth, limits)?;
+        let actual_id =
+            self.intern_prehashed_node(node, expected_id, node_depth, payload_bytes, limits)?;
         if is_new {
             inserted.push(actual_id);
         }
@@ -668,7 +764,15 @@ impl TermDag {
     pub fn to_expr_with_limits(&self, id: TermId, limits: DagLimits) -> Result<Expr, DagError> {
         let mut visiting = HashSet::new();
         let mut expanded = 0_usize;
-        self.to_expr_internal(id, &mut visiting, &mut expanded, 0, limits)
+        let mut emitted_payload_bytes = 0_usize;
+        self.to_expr_internal(
+            id,
+            &mut visiting,
+            &mut expanded,
+            &mut emitted_payload_bytes,
+            0,
+            limits,
+        )
     }
 
     fn to_expr_internal(
@@ -676,6 +780,7 @@ impl TermDag {
         id: TermId,
         visiting: &mut HashSet<TermId>,
         expanded: &mut usize,
+        emitted_payload_bytes: &mut usize,
         current_depth: usize,
         limits: DagLimits,
     ) -> Result<Expr, DagError> {
@@ -696,6 +801,11 @@ impl TermDag {
 
         let node = self.get(id).ok_or(DagError::UnknownId(id))?;
         validate_node_limits(node, limits)?;
+        charge_total_payload(
+            emitted_payload_bytes,
+            lifted_node_payload_bytes(node)?,
+            limits.max_total_payload_bytes,
+        )?;
         let result = match node {
             TermNode::Sym(symbol) => Ok(Expr::Sym(symbol.clone())),
             TermNode::Integer(value) => Ok(Expr::Integer(value.clone())),
@@ -716,6 +826,7 @@ impl TermDag {
                         child_id,
                         visiting,
                         expanded,
+                        emitted_payload_bytes,
                         child_level,
                         limits,
                     )?);
@@ -737,6 +848,7 @@ impl TermDag {
                         child_id,
                         visiting,
                         expanded,
+                        emitted_payload_bytes,
                         child_level,
                         limits,
                     )?);
@@ -745,9 +857,22 @@ impl TermDag {
             }
             TermNode::Pow(base, exponent) => {
                 let child_level = next_depth(current_depth, limits.max_depth)?;
-                let base = self.to_expr_internal(*base, visiting, expanded, child_level, limits)?;
-                let exponent =
-                    self.to_expr_internal(*exponent, visiting, expanded, child_level, limits)?;
+                let base = self.to_expr_internal(
+                    *base,
+                    visiting,
+                    expanded,
+                    emitted_payload_bytes,
+                    child_level,
+                    limits,
+                )?;
+                let exponent = self.to_expr_internal(
+                    *exponent,
+                    visiting,
+                    expanded,
+                    emitted_payload_bytes,
+                    child_level,
+                    limits,
+                )?;
                 Ok(Expr::Pow(Arc::new(base), Arc::new(exponent)))
             }
             TermNode::Function(name, ids) => {
@@ -764,6 +889,7 @@ impl TermDag {
                         child_id,
                         visiting,
                         expanded,
+                        emitted_payload_bytes,
                         child_level,
                         limits,
                     )?);
@@ -784,7 +910,14 @@ impl TermDag {
                         .iter()
                         .map(|parameter| Expr::Sym(parameter.clone())),
                 );
-                let body = self.to_expr_internal(*body, visiting, expanded, child_level, limits)?;
+                let body = self.to_expr_internal(
+                    *body,
+                    visiting,
+                    expanded,
+                    emitted_payload_bytes,
+                    child_level,
+                    limits,
+                )?;
                 args.push(body);
                 Ok(Expr::Function("Lambda".to_string(), args))
             }
@@ -910,6 +1043,77 @@ mod tests {
             Err(DagError::PayloadLimitExceeded(1))
         );
         assert_eq!(dag.len(), before);
+    }
+
+    #[test]
+    fn aggregate_payload_limit_is_transactional_and_counts_numeric_storage() {
+        let mut dag = TermDag::new();
+        let existing = dag.insert_node(TermNode::Sym(Symbol::new("z"))).unwrap();
+        assert_eq!(dag.total_payload_bytes(), 1);
+
+        let five_payload_bytes = DagLimits {
+            max_total_payload_bytes: 5,
+            ..DagLimits::default()
+        };
+        let expression = Expr::Add(vec![Expr::symbol("aa"), Expr::symbol("bbb")]);
+        assert_eq!(
+            dag.insert_expr_with_limits(&expression, five_payload_bytes),
+            Err(DagError::TotalPayloadLimitExceeded(5))
+        );
+        assert_eq!(dag.len(), 1, "failed insertion must roll back new leaves");
+        assert_eq!(dag.total_payload_bytes(), 1);
+        assert!(dag.get(existing).is_some());
+
+        let no_payload = DagLimits {
+            max_payload_bytes: 0,
+            ..DagLimits::default()
+        };
+        assert_eq!(
+            dag.insert_node_with_limits(TermNode::Integer(BigInt::from(1)), no_payload),
+            Err(DagError::PayloadLimitExceeded(0)),
+            "numeric magnitude allocations count as variable-size payload"
+        );
+    }
+
+    #[test]
+    fn aggregate_payload_limit_bounds_arena_growth_and_shared_tree_lifting() {
+        let three_payload_bytes = DagLimits {
+            max_total_payload_bytes: 3,
+            ..DagLimits::default()
+        };
+        let mut bounded = TermDag::new();
+        let aa = bounded
+            .insert_node_with_limits(TermNode::Sym(Symbol::new("aa")), three_payload_bytes)
+            .unwrap();
+        assert_eq!(bounded.total_payload_bytes(), 2);
+        assert_eq!(
+            bounded
+                .insert_node_with_limits(TermNode::Sym(Symbol::new("aa")), three_payload_bytes)
+                .unwrap(),
+            aa,
+            "deduplication does not allocate or consume payload budget"
+        );
+        assert_eq!(
+            bounded.insert_node_with_limits(TermNode::Sym(Symbol::new("bb")), three_payload_bytes),
+            Err(DagError::TotalPayloadLimitExceeded(3))
+        );
+        assert_eq!(bounded.total_payload_bytes(), 2);
+
+        let mut shared = TermDag::new();
+        let leaf = shared
+            .insert_node(TermNode::Sym(Symbol::new("wide")))
+            .unwrap();
+        let root = shared.insert_node(TermNode::Add(vec![leaf, leaf])).unwrap();
+        let seven_output_bytes = DagLimits {
+            max_total_payload_bytes: 7,
+            ..DagLimits::default()
+        };
+        assert_eq!(
+            shared.to_expr_with_limits(root, seven_output_bytes),
+            Err(DagError::TotalPayloadLimitExceeded(7)),
+            "duplicated DAG occurrences must each charge their cloned payload"
+        );
+        assert!(shared.to_expr(root).is_ok());
     }
 
     #[test]
