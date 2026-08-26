@@ -183,7 +183,7 @@ pub fn verify_first_order_linear_solution(
             return true;
         }
     }
-    simplify(&residual).is_zero()
+    try_simplify(&residual).is_ok_and(|simplified| simplified.is_zero())
 }
 
 /// Solves separable ODE of the form $y'(x) = f(x) \cdot y(x)$:

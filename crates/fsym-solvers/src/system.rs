@@ -7,7 +7,7 @@ use fsym_core::{BigRational, Expr, Symbol};
 use fsym_polys::groebner::groebner_basis;
 use fsym_polys::multivariate::{MultivariatePoly, TermOrder};
 use fsym_polys::univariate::UnivariatePoly;
-use fsym_simplify::simplify;
+use fsym_simplify::{simplify, try_simplify};
 use num_traits::Zero;
 use std::collections::HashMap;
 
@@ -187,7 +187,9 @@ pub fn solve_2var_poly_system(
             let expression = equation
                 .to_expr()
                 .map_err(|error| SolverError::InvalidSystem(error.to_string()))?;
-            if !simplify(&expression.subs(&solution)).is_zero() {
+            if !try_simplify(&expression.subs(&solution))
+                .is_ok_and(|simplified| simplified.is_zero())
+            {
                 verified = false;
                 break;
             }
@@ -211,8 +213,7 @@ pub fn solve_2var_poly_system(
 pub fn verify_poly_system_solution(eqs: &[Expr], solution: &HashMap<Symbol, Expr>) -> bool {
     for eq in eqs {
         let evaluated = eq.subs(solution);
-        let simplified = simplify(&evaluated);
-        if !simplified.is_zero() {
+        if !try_simplify(&evaluated).is_ok_and(|simplified| simplified.is_zero()) {
             return false;
         }
     }

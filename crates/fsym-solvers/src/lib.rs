@@ -629,6 +629,32 @@ mod tests {
     }
 
     #[test]
+    fn residual_verifiers_fail_closed_on_oversized_candidates() {
+        let builder = std::thread::Builder::new().stack_size(16 * 1024 * 1024);
+        let handle = builder
+            .spawn(|| {
+                let x = Symbol::new("x");
+                let mut too_deep = Expr::from_i64(1);
+                for _ in 0..=(fsym_simplify::MAX_RECURSION_DEPTH + 2) {
+                    too_deep = Expr::Add(vec![too_deep]);
+                }
+
+                assert!(!verify_first_order_linear_solution(
+                    &Expr::from_i64(0),
+                    &Expr::from_i64(1),
+                    &too_deep,
+                    &x,
+                ));
+                assert!(!verify_poly_system_solution(
+                    &[too_deep],
+                    &std::collections::HashMap::new(),
+                ));
+            })
+            .unwrap();
+        handle.join().unwrap();
+    }
+
+    #[test]
     fn test_nonhomogeneous_second_order_ode_solving_and_verification() {
         let x = Symbol::new("x");
         let c1 = Symbol::new("C1");
