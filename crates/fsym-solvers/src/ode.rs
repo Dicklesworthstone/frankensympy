@@ -162,6 +162,25 @@ pub fn verify_first_order_linear_solution(
         py,
         Expr::Mul(vec![Expr::from_i64(-1), q_expr.clone()]),
     ]);
+    if let Ok(expanded) = try_expand(&residual) {
+        if try_simplify(&expanded).is_ok_and(|s| s.is_zero()) {
+            return true;
+        }
+    }
+    if let Ok(expanded_sol) = try_expand(sol) {
+        let dy2 = diff(&expanded_sol, x);
+        let py2 = Expr::Mul(vec![p_expr.clone(), expanded_sol]);
+        let res2 = Expr::Add(vec![
+            dy2,
+            py2,
+            Expr::Mul(vec![Expr::from_i64(-1), q_expr.clone()]),
+        ]);
+        if let Ok(exp2) = try_expand(&res2) {
+            if try_simplify(&exp2).is_ok_and(|s| s.is_zero()) {
+                return true;
+            }
+        }
+    }
     simplify(&residual).is_zero()
 }
 
