@@ -7,7 +7,7 @@
 
 pub use fsym_bigint::BigInt;
 pub use fsym_rational::BigRational;
-use num_traits::{One, Zero};
+use num_traits::{One, ToPrimitive, Zero};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
@@ -236,16 +236,9 @@ impl Expr {
             Expr::Integer(n) => n.to_f64().ok_or_else(|| {
                 CoreError::InvalidOperation(format!("integer out of f64 range: {n}"))
             }),
-            Expr::Rational(r) => {
-                let num = r.numer().to_f64();
-                let den = r.denom().to_f64();
-                match (num, den) {
-                    (Some(a), Some(b)) if b != 0.0 => Ok(a / b),
-                    _ => Err(CoreError::InvalidOperation(
-                        "rational out of f64 range".to_string(),
-                    )),
-                }
-            }
+            Expr::Rational(r) => r.to_f64().ok_or_else(|| {
+                CoreError::InvalidOperation("rational out of f64 range".to_string())
+            }),
             Expr::Const(c) => Ok(match c {
                 Constant::Pi => std::f64::consts::PI,
                 Constant::E => std::f64::consts::E,
@@ -407,6 +400,13 @@ mod tests {
         map.insert(x, Expr::from_i64(3));
         let res = expr.subs(&map);
         assert_eq!(res, Expr::from_i64(3) + Expr::from_i64(10));
+    }
+
+    #[test]
+    fn rational_evalf_uses_balanced_owner_conversion() {
+        let scale = &BigInt::one() << 2000u32;
+        let value = BigRational::new(&scale + 1i64, &scale - 1i64);
+        assert_eq!(Expr::Rational(value).evalf(), Ok(1.0));
     }
 
     #[test]

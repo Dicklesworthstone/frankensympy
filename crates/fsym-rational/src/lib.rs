@@ -859,6 +859,109 @@ impl Signed for BigRational {
     }
 }
 
+fn rounded_binary_quotient(
+    numerator: &BigInt,
+    denominator: &BigInt,
+    binary_shift: i32,
+) -> Option<u64> {
+    let (scaled_numerator, scaled_denominator) = if binary_shift >= 0 {
+        (
+            numerator << u32::try_from(binary_shift).ok()?,
+            denominator.clone(),
+        )
+    } else {
+        (
+            numerator.clone(),
+            denominator << binary_shift.unsigned_abs(),
+        )
+    };
+    let (quotient, remainder) = scaled_numerator.div_rem(&scaled_denominator);
+    let twice_remainder = &remainder << 1u32;
+    let round_up = twice_remainder > scaled_denominator
+        || (twice_remainder == scaled_denominator && (&quotient % 2i64) == BigInt::one());
+    let quotient = quotient.to_u64()?;
+    if round_up {
+        quotient.checked_add(1)
+    } else {
+        Some(quotient)
+    }
+}
+
+/// Converts a canonical exact rational to binary64 with round-to-nearest, ties-to-even.
+///
+/// The coefficient magnitudes are never converted independently: doing so can form
+/// `infinity / infinity` and turn an ordinary finite rational into `NaN`. Exact integer scaling
+/// instead computes the final normal or subnormal significand before constructing the float bits.
+fn rational_to_f64(value: &BigRational) -> Option<f64> {
+    const FRACTION_BITS: u64 = 52;
+    const SIGNIFICAND_FLOOR: u64 = 1u64 << FRACTION_BITS;
+    const SIGNIFICAND_CARRY: u64 = SIGNIFICAND_FLOOR << 1;
+    const MAX_NORMAL_EXPONENT: i128 = 1023;
+    const MIN_NORMAL_EXPONENT: i128 = -1022;
+    const HALF_MIN_SUBNORMAL_EXPONENT: i128 = -1075;
+    const EXPONENT_BIAS: i128 = 1023;
+    const SIGN_BIT: u64 = 1u64 << 63;
+    const INFINITY_BITS: u64 = 0x7ff0_0000_0000_0000;
+
+    let negative = value.numer().is_negative();
+    let numerator = value.numer().abs();
+    if numerator.is_zero() {
+        return Some(0.0);
+    }
+    let denominator = value.denom();
+
+    let mut exponent = i128::from(numerator.bits()) - i128::from(denominator.bits());
+    if exponent > MAX_NORMAL_EXPONENT + 1 {
+        return Some(f64::from_bits(
+            INFINITY_BITS | if negative { SIGN_BIT } else { 0 },
+        ));
+    }
+    if exponent < HALF_MIN_SUBNORMAL_EXPONENT {
+        return Some(f64::from_bits(if negative { SIGN_BIT } else { 0 }));
+    }
+
+    let below_estimated_power = if exponent >= 0 {
+        numerator < (denominator << u32::try_from(exponent).ok()?)
+    } else {
+        (&numerator << u32::try_from(-exponent).ok()?) < *denominator
+    };
+    if below_estimated_power {
+        exponent -= 1;
+    }
+
+    let magnitude_bits = if exponent > MAX_NORMAL_EXPONENT {
+        INFINITY_BITS
+    } else if exponent < HALF_MIN_SUBNORMAL_EXPONENT {
+        0
+    } else if exponent < MIN_NORMAL_EXPONENT {
+        let significand = rounded_binary_quotient(&numerator, denominator, 1074)?;
+        if significand > SIGNIFICAND_FLOOR {
+            return None;
+        }
+        significand
+    } else {
+        let binary_shift = i32::try_from(i128::from(FRACTION_BITS) - exponent).ok()?;
+        let mut significand = rounded_binary_quotient(&numerator, denominator, binary_shift)?;
+        if significand == SIGNIFICAND_CARRY {
+            significand = SIGNIFICAND_FLOOR;
+            exponent += 1;
+        }
+        if exponent > MAX_NORMAL_EXPONENT {
+            INFINITY_BITS
+        } else {
+            if !(SIGNIFICAND_FLOOR..SIGNIFICAND_CARRY).contains(&significand) {
+                return None;
+            }
+            let biased_exponent = u64::try_from(exponent + EXPONENT_BIAS).ok()?;
+            (biased_exponent << FRACTION_BITS) | (significand - SIGNIFICAND_FLOOR)
+        }
+    };
+
+    Some(f64::from_bits(
+        magnitude_bits | if negative { SIGN_BIT } else { 0 },
+    ))
+}
+
 impl ToPrimitive for BigRational {
     fn to_i64(&self) -> Option<i64> {
         self.to_integer().to_i64()
@@ -869,7 +972,7 @@ impl ToPrimitive for BigRational {
     }
 
     fn to_f64(&self) -> Option<f64> {
-        Some(self.numer().to_f64()? / self.denom().to_f64()?)
+        rational_to_f64(self)
     }
 }
 
@@ -928,6 +1031,73 @@ mod tests {
         );
         assert_eq!(value.recip(), BigRational::new(4.into(), 3.into()));
         assert_eq!(value.pow(-2), BigRational::new(16.into(), 9.into()));
+    }
+
+    #[test]
+    fn binary64_conversion_balances_large_coefficients_and_rounds_boundaries() {
+        let scale = &BigInt::one() << 2000u32;
+        let near_one = BigRational::new(&scale + 1i64, &scale - 1i64);
+        let negative_near_one = -near_one.clone();
+        assert_eq!(near_one.to_f64(), Some(1.0));
+        assert_eq!(negative_near_one.to_f64(), Some(-1.0));
+
+        let tie_denominator = &BigInt::one() << 53u32;
+        let tie_above_one = BigRational::new(&tie_denominator + 1i64, tie_denominator.clone());
+        assert_eq!(tie_above_one.to_f64(), Some(1.0));
+        let odd_tie_above_one = BigRational::new(&tie_denominator + 3i64, tie_denominator);
+        assert_eq!(
+            odd_tie_above_one.to_f64().map(f64::to_bits),
+            Some(1.0f64.to_bits() + 2)
+        );
+        let above_tie_denominator = &BigInt::one() << 54u32;
+        let above_tie = BigRational::new(&above_tie_denominator + 3i64, above_tie_denominator);
+        assert_eq!(
+            above_tie.to_f64().map(f64::to_bits),
+            Some(1.0f64.to_bits() + 1)
+        );
+
+        let min_subnormal_denominator = &BigInt::one() << 1074u32;
+        let min_subnormal = BigRational::new(BigInt::one(), min_subnormal_denominator);
+        assert_eq!(min_subnormal.to_f64().map(f64::to_bits), Some(1));
+
+        let transition_denominator = &BigInt::one() << 1075u32;
+        let transition_midpoint =
+            BigRational::new((&BigInt::one() << 53u32) - 1i64, transition_denominator);
+        assert_eq!(
+            transition_midpoint.to_f64().map(f64::to_bits),
+            Some(f64::MIN_POSITIVE.to_bits())
+        );
+
+        let half_subnormal_denominator = &BigInt::one() << 1075u32;
+        let positive_half = BigRational::new(BigInt::one(), half_subnormal_denominator.clone());
+        let negative_half = BigRational::new(BigInt::from(-1), half_subnormal_denominator);
+        assert_eq!(positive_half.to_f64().map(f64::to_bits), Some(0));
+        assert_eq!(negative_half.to_f64().map(f64::to_bits), Some(1u64 << 63));
+        let below_half = BigRational::new(BigInt::from(-1), &BigInt::one() << 1076u32);
+        assert_eq!(below_half.to_f64().map(f64::to_bits), Some(1u64 << 63));
+
+        let max_finite = ((&BigInt::one() << 53u32) - 1i64) << 971u32;
+        assert_eq!(
+            BigRational::from_integer(max_finite).to_f64(),
+            Some(f64::MAX)
+        );
+        assert_eq!(
+            BigRational::from_integer(&BigInt::one() << 1024u32).to_f64(),
+            Some(f64::INFINITY)
+        );
+        assert_eq!(
+            BigRational::from_integer(-(&BigInt::one() << 1025u32)).to_f64(),
+            Some(f64::NEG_INFINITY)
+        );
+        let overflow_midpoint = ((&BigInt::one() << 54u32) - 1i64) << 970u32;
+        assert_eq!(
+            BigRational::from_integer(&overflow_midpoint - 1i64).to_f64(),
+            Some(f64::MAX)
+        );
+        assert_eq!(
+            BigRational::from_integer(overflow_midpoint).to_f64(),
+            Some(f64::INFINITY)
+        );
     }
 
     #[test]
@@ -1404,6 +1574,20 @@ mod tests {
     }
 
     proptest! {
+        #[test]
+        fn binary64_conversion_matches_exact_small_coefficient_division(
+            numerator in -(1i64 << 52)..(1i64 << 52),
+            denominator in 1u64..(1u64 << 52),
+        ) {
+            let rational = BigRational::new(
+                BigInt::from(numerator),
+                BigInt::from(denominator),
+            );
+            let expected = (numerator as f64) / (denominator as f64);
+            let actual = rational.to_f64().expect("finite bounded ratio converts");
+            prop_assert_eq!(actual.to_bits(), expected.to_bits());
+        }
+
         #[test]
         fn modular_reconstruction_round_trips_unique_small_rationals(
             numerator in -50i64..51,
