@@ -996,4 +996,54 @@ mod tests {
             Err(DagError::DepthExceeded(5))
         );
     }
+
+    #[test]
+    fn concurrent_interning_yields_identical_content_ids() {
+        // WS04 acceptance: concurrent interning schedule exploration.
+        // Four threads insert the same symbol set under different rotation
+        // offsets, producing distinct lock-interleaving schedules. Content
+        // identity must hold regardless of schedule; interning deduplicates
+        // to exactly one DAG node per distinct term.
+        use std::sync::Mutex;
+
+        let dag = Mutex::new(TermDag::new());
+        let symbols: Vec<String> = (0..64).map(|i| format!("v{i}")).collect();
+
+        let all_observed: Vec<Vec<(usize, TermId)>> = std::thread::scope(|scope| {
+            (0..4)
+                .map(|offset| {
+                    let dag_ref = &dag;
+                    let symbols_ref = &symbols;
+                    scope.spawn(move || {
+                        let mut observed = Vec::new();
+                        for step in 0..symbols_ref.len() {
+                            let index = (step + offset) % symbols_ref.len();
+                            let id = dag_ref
+                                .lock()
+                                .expect("interning mutex poisoned")
+                                .insert_node(TermNode::Sym(Symbol::new(symbols_ref[index].clone())))
+                                .expect("symbol insertion cannot exceed depth");
+                            observed.push((index, id));
+                        }
+                        observed
+                    })
+                })
+                .collect::<Vec<_>>()
+                .into_iter()
+                .map(|handle| handle.join().expect("interning thread panicked"))
+                .collect()
+        });
+        // Schedules differ per thread, so compare the content->identity
+        // MAPPING rather than visitation order.
+        let observed_maps: Vec<std::collections::BTreeMap<usize, TermId>> = all_observed
+            .into_iter()
+            .map(|thread| thread.into_iter().collect())
+            .collect();
+        for window in observed_maps.windows(2) {
+            assert_eq!(window[0], window[1], "schedules must not affect identity");
+        }
+
+        let dag = dag.into_inner().unwrap();
+        assert_eq!(dag.len(), symbols.len(), "interning must deduplicate");
+    }
 }
