@@ -14,7 +14,8 @@
 
 use fsym_bigint::{
     BigInt, NonZeroBigInt, gcd, metered_add as metered_bigint_add, metered_div_rem_nonzero,
-    metered_gcd, metered_multiply, metered_subtract as metered_bigint_subtract,
+    metered_gcd, metered_multiply, metered_pow as metered_bigint_pow,
+    metered_subtract as metered_bigint_subtract,
 };
 use fsym_budget::{BudgetMeter, Dimension, MeterError};
 use num_traits::{Num, One, Signed, ToPrimitive, Zero};
@@ -165,6 +166,40 @@ impl BigRational {
     /// Raises this rational to a signed integer power.
     pub fn pow(&self, exponent: i32) -> Self {
         Self(num_rational::Ratio::<BigInt>::pow(&self.0, exponent))
+    }
+
+    /// Cancellation-first signed rational exponentiation.
+    ///
+    /// Negative powers of zero are refused with [`RationalArithmeticError::DivisionByZero`]
+    /// instead of reaching the substrate panic path. Numerator and denominator powers use the
+    /// bigint-owned governed binary lane; reciprocal sign normalization and final publication are
+    /// checkpointed.
+    pub fn metered_pow<M: BudgetMeter>(
+        &self,
+        exponent: i32,
+        meter: &mut M,
+    ) -> Result<Self, RationalArithmeticError> {
+        meter.checkpoint()?;
+        if exponent.is_negative() && self.is_zero() {
+            return rational_metered_error(RationalArithmeticError::DivisionByZero, meter);
+        }
+
+        let magnitude = exponent.unsigned_abs();
+        let numerator_power = metered_bigint_pow(self.numer(), magnitude, meter)?;
+        let denominator_power = metered_bigint_pow(self.denom(), magnitude, meter)?;
+        let (mut numerator, mut denominator) = if exponent.is_negative() {
+            (denominator_power, numerator_power)
+        } else {
+            (numerator_power, denominator_power)
+        };
+        if denominator.is_negative() {
+            numerator = metered_negate(numerator, meter)?;
+            denominator = metered_negate(denominator, meter)?;
+        }
+        rational_metered_finish(
+            Self(num_rational::Ratio::new_raw(numerator, denominator)),
+            meter,
+        )
     }
 
     /// Adds two canonical rationals while cancelling denominator factors before multiplication.
@@ -1031,6 +1066,63 @@ mod tests {
         );
         assert_eq!(value.recip(), BigRational::new(4.into(), 3.into()));
         assert_eq!(value.pow(-2), BigRational::new(16.into(), 9.into()));
+    }
+
+    #[test]
+    fn governed_signed_power_handles_reciprocals_refusal_budget_and_cancellation() {
+        let value = BigRational::new(BigInt::from(2), BigInt::from(3));
+        assert_eq!(
+            value.metered_pow(-5, &mut Unbounded),
+            Ok(BigRational::new(BigInt::from(243), BigInt::from(32)))
+        );
+        assert_eq!(
+            (-value.clone()).metered_pow(-5, &mut Unbounded),
+            Ok(BigRational::new(BigInt::from(-243), BigInt::from(32)))
+        );
+        assert_eq!(value.metered_pow(0, &mut Unbounded), Ok(BigRational::one()));
+
+        let zero = BigRational::zero();
+        assert_eq!(
+            zero.metered_pow(-1, &mut Unbounded),
+            Err(RationalArithmeticError::DivisionByZero)
+        );
+        for checkpoint in 1..=2 {
+            let mut cancelled = CheckpointMeter::cancelling_at(checkpoint);
+            assert_eq!(
+                zero.metered_pow(-1, &mut cancelled),
+                Err(RationalArithmeticError::Meter(MeterError::Cancelled))
+            );
+            assert_eq!(cancelled.checkpoints, checkpoint);
+        }
+
+        let mut budget = Budget::new(BudgetLimits::uniform(31, 0));
+        let before = budget.snapshot();
+        assert_eq!(
+            value.metered_pow(i32::MIN, &mut budget),
+            Err(RationalArithmeticError::Meter(MeterError::Budget(
+                BudgetError::Exhausted {
+                    dimension: Dimension::ComputeSteps,
+                    requested: 32,
+                    remaining: 31,
+                }
+            )))
+        );
+        assert_eq!(budget.snapshot(), before);
+
+        let mut baseline = CheckpointMeter::default();
+        let expected = value
+            .metered_pow(-5, &mut baseline)
+            .expect("baseline power succeeds");
+        for checkpoint in 1..=baseline.checkpoints {
+            let mut cancelled = CheckpointMeter::cancelling_at(checkpoint);
+            assert_eq!(
+                value.metered_pow(-5, &mut cancelled),
+                Err(RationalArithmeticError::Meter(MeterError::Cancelled)),
+                "checkpoint {checkpoint} did not stop publication"
+            );
+            assert_eq!(cancelled.checkpoints, checkpoint);
+        }
+        assert_eq!(expected, BigRational::new(243.into(), 32.into()));
     }
 
     #[test]

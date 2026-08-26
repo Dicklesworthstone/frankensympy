@@ -1129,6 +1129,138 @@ pub fn multiply(a: &BigInt, b: &BigInt) -> BigInt {
     multiply_with_strategy(a, b, strategy)
 }
 
+/// Returns the floor of the real square root, or `None` for a negative radicand.
+///
+/// Zero is admitted and maps to `Some(0)`. Keeping the negative-domain refusal distinct prevents
+/// callers from confusing an invalid integer-to-real operation with the exact root of zero.
+pub fn sqrt_floor(value: &BigInt) -> Option<BigInt> {
+    if value.is_negative() {
+        None
+    } else {
+        Some(BigInt(value.0.sqrt()))
+    }
+}
+
+/// Cancellation-first binary exponentiation for a nonnegative machine exponent.
+///
+/// The complete, deterministic control-loop cost is charged before cloning or multiplying, so a
+/// tiny compute budget can refuse an extreme exponent before result growth begins. Every multiply
+/// and square then uses the cancellation-first scalar multiplication lane. A final checkpoint
+/// occurs after the exact result exists and before publication.
+pub fn metered_pow<M: BudgetMeter>(
+    base: &BigInt,
+    exponent: u32,
+    meter: &mut M,
+) -> Result<BigInt, MeterError> {
+    meter.checkpoint()?;
+    if exponent == 0 {
+        return metered_finish(BigInt::one(), meter);
+    }
+    if base.is_zero() {
+        return metered_finish(BigInt::zero(), meter);
+    }
+    if base.is_one() {
+        return metered_finish(BigInt::one(), meter);
+    }
+    if *base == -BigInt::one() {
+        let result = if exponent.is_multiple_of(2) {
+            BigInt::one()
+        } else {
+            -BigInt::one()
+        };
+        return metered_finish(result, meter);
+    }
+
+    let control_steps = u64::from(u32::BITS - exponent.leading_zeros());
+    meter.charge(Dimension::ComputeSteps, control_steps)?;
+    meter.charge_batch(&[
+        (
+            Dimension::MemoryBytes,
+            base.limb_count().max(1).saturating_add(1).saturating_mul(8),
+        ),
+        (Dimension::AllocationCount, 2),
+    ])?;
+    meter.checkpoint()?;
+    let mut factor = base.clone();
+    let mut result = BigInt::one();
+    meter.checkpoint()?;
+
+    let mut remaining = exponent;
+    while remaining != 0 {
+        meter.checkpoint()?;
+        if remaining & 1 == 1 {
+            result = metered_multiply(&result, &factor, meter)?;
+        }
+        remaining >>= 1;
+        if remaining != 0 {
+            factor = metered_multiply(&factor, &factor, meter)?;
+        }
+    }
+    metered_finish(result, meter)
+}
+
+/// Cancellation-first floor square root with safe points in every Newton iteration and in the
+/// scalar add/divide lanes it consumes.
+///
+/// Negative inputs publish `None`; zero publishes `Some(0)`. A final checkpoint occurs after the
+/// exact root exists and before publication.
+pub fn metered_sqrt_floor<M: BudgetMeter>(
+    value: &BigInt,
+    meter: &mut M,
+) -> Result<Option<BigInt>, MeterError> {
+    meter.checkpoint()?;
+    if value.is_negative() {
+        return metered_finish(None, meter);
+    }
+    if value.is_zero() {
+        return metered_finish(Some(BigInt::zero()), meter);
+    }
+    meter.charge_batch(&[
+        (
+            Dimension::MemoryBytes,
+            value
+                .limb_count()
+                .max(1)
+                .saturating_add(1)
+                .saturating_mul(8),
+        ),
+        (Dimension::AllocationCount, 2),
+    ])?;
+    meter.checkpoint()?;
+    let mut current = value.clone();
+    let two = BigInt::from(2i64);
+    meter.checkpoint()?;
+    let two_divisor = NonZeroBigInt::new(&two).expect("the constant two is nonzero");
+
+    loop {
+        meter.checkpoint()?;
+        meter.charge(Dimension::ComputeSteps, 1)?;
+        let current_divisor = NonZeroBigInt::new(&current).expect("Newton iterates stay positive");
+        let (quotient, _) = metered_div_rem_nonzero(value, current_divisor, meter)?;
+        let sum = metered_add(&current, &quotient, meter)?;
+        let (next, _) = metered_div_rem_nonzero(&sum, two_divisor, meter)?;
+        if metered_greater_or_equal(&next, &current, meter)? {
+            return metered_finish(Some(current), meter);
+        }
+        current = next;
+    }
+}
+
+fn metered_greater_or_equal<M: BudgetMeter>(
+    lhs: &BigInt,
+    rhs: &BigInt,
+    meter: &mut M,
+) -> Result<bool, MeterError> {
+    meter.checkpoint()?;
+    meter.charge(
+        Dimension::ComputeSteps,
+        lhs.limb_count().max(rhs.limb_count()).max(1),
+    )?;
+    let result = lhs >= rhs;
+    meter.checkpoint()?;
+    Ok(result)
+}
+
 /// Metered multiplication with safe points inside the limb-product loop.
 ///
 /// This cancellation-first lane deliberately uses a simple base-$2^{32}$ reference algorithm.
@@ -2924,6 +3056,34 @@ mod tests {
         assert_eq!(cancelled.compute_steps, baseline.compute_steps);
     }
 
+    fn assert_cancels_at_every_checkpoint<T>(
+        mut run: impl FnMut(&mut CancelAfter) -> Result<T, MeterError>,
+    ) where
+        T: std::fmt::Debug + PartialEq,
+    {
+        let mut baseline = CancelAfter {
+            cancel_at_checkpoint: usize::MAX,
+            checkpoints: 0,
+            compute_steps: 0,
+        };
+        run(&mut baseline).expect("baseline operation succeeds");
+        assert!(baseline.checkpoints > 0);
+
+        for cancel_at_checkpoint in 1..=baseline.checkpoints {
+            let mut cancelled = CancelAfter {
+                cancel_at_checkpoint,
+                checkpoints: 0,
+                compute_steps: 0,
+            };
+            assert_eq!(
+                run(&mut cancelled),
+                Err(MeterError::Cancelled),
+                "checkpoint {cancel_at_checkpoint} did not stop publication"
+            );
+            assert_eq!(cancelled.checkpoints, cancel_at_checkpoint);
+        }
+    }
+
     fn assert_terminal_shape<T>(
         expected: &T,
         expected_trailing_checkpoints: usize,
@@ -3141,6 +3301,95 @@ mod tests {
                 .to_string()
                 .contains(&MAX_SERDE_U32_DIGITS.to_string())
         );
+    }
+
+    #[test]
+    fn governed_power_matches_exact_signed_boundaries_and_preflights_extreme_control() {
+        for base in -3i64..=3 {
+            let base = BigInt::from(base);
+            for exponent in 0u32..=12 {
+                let expected = BigInt::pow(&base, exponent);
+                let mut meter = CountingMeter::default();
+                assert_eq!(metered_pow(&base, exponent, &mut meter), Ok(expected));
+            }
+        }
+        assert_eq!(
+            metered_pow(&BigInt::from(2), 10, &mut Unbounded),
+            Ok(BigInt::from(1_024))
+        );
+        assert_eq!(
+            metered_pow(&BigInt::from(-2), 11, &mut Unbounded),
+            Ok(BigInt::from(-2_048))
+        );
+
+        let mut budget = Budget::new(BudgetLimits::uniform(31, 0));
+        let before = budget.snapshot();
+        assert_eq!(
+            metered_pow(&BigInt::from(2), u32::MAX, &mut budget),
+            Err(MeterError::Budget(BudgetError::Exhausted {
+                dimension: Dimension::ComputeSteps,
+                requested: 32,
+                remaining: 31,
+            }))
+        );
+        assert_eq!(budget.snapshot(), before);
+
+        // 3^13 follows four binary-control iterations and six one-limb multiply/square calls.
+        // These exact charges kill an opaque substrate-pow mutant hidden between safe points.
+        let mut topology_meter = CountingMeter::default();
+        assert_eq!(
+            metered_pow(&BigInt::from(3), 13, &mut topology_meter),
+            Ok(BigInt::from(1_594_323))
+        );
+        assert_eq!(
+            topology_meter.dimensions[Dimension::ComputeSteps.index()],
+            22
+        );
+        assert_eq!(
+            topology_meter.dimensions[Dimension::AllocationCount.index()],
+            20
+        );
+    }
+
+    #[test]
+    fn floor_square_root_pins_exact_square_boundaries_and_governed_lane() {
+        let negative = BigInt::from(-1);
+        assert_eq!(sqrt_floor(&negative), None);
+        assert_eq!(metered_sqrt_floor(&negative, &mut Unbounded), Ok(None));
+
+        for (value, expected) in [
+            (0i64, 0i64),
+            (1, 1),
+            (2, 1),
+            (3, 1),
+            (4, 2),
+            (15, 3),
+            (16, 4),
+            (17, 4),
+        ] {
+            let value = BigInt::from(value);
+            let expected = BigInt::from(expected);
+            assert_eq!(sqrt_floor(&value), Some(expected.clone()));
+            assert_eq!(
+                metered_sqrt_floor(&value, &mut Unbounded),
+                Ok(Some(expected))
+            );
+        }
+
+        let root = BigInt::one() << 256u32;
+        let square = &root * &root;
+        assert_eq!(sqrt_floor(&(&square - 1i64)), Some(&root - 1i64));
+        assert_eq!(sqrt_floor(&square), Some(root.clone()));
+        assert_eq!(sqrt_floor(&(&square + 1i64)), Some(root));
+    }
+
+    #[test]
+    fn governed_power_and_root_cancel_at_every_observed_safe_point() {
+        let base = BigInt::from(3);
+        assert_cancels_at_every_checkpoint(|meter| metered_pow(&base, 13, meter));
+
+        let radicand = BigInt::from(15);
+        assert_cancels_at_every_checkpoint(|meter| metered_sqrt_floor(&radicand, meter));
     }
 
     #[test]
@@ -4384,6 +4633,19 @@ mod tests {
             let (metered_g, x, y) = metered_extended_gcd(&a, &b, &mut meter).unwrap();
             prop_assert_eq!(&metered_g, &gcd(&a, &b));
             prop_assert_eq!(&a * x + &b * y, metered_g);
+        }
+
+        #[test]
+        fn floor_square_root_satisfies_the_defining_invariant(
+            bytes in proptest::collection::vec(any::<u8>(), 0..80),
+        ) {
+            let value = BigInt::from_bytes_le(&bytes);
+            let root = sqrt_floor(&value).expect("byte magnitudes are nonnegative");
+            let root_squared = &root * &root;
+            let successor = &root + 1i64;
+            let successor_squared = &successor * &successor;
+            prop_assert!(root_squared <= value);
+            prop_assert!(value < successor_squared);
         }
     }
 }

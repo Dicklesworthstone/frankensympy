@@ -17,7 +17,7 @@
 use fsym_bigint::{
     BigInt, NonZeroBigInt, extended_gcd, gcd, metered_add as metered_bigint_add,
     metered_div_rem_nonzero, metered_extended_gcd, metered_gcd, metered_multiply as metered_mul,
-    metered_subtract as metered_bigint_subtract,
+    metered_sqrt_floor, metered_subtract as metered_bigint_subtract, sqrt_floor,
 };
 #[cfg(test)]
 use fsym_bigint::{exact_div, metered_exact_div};
@@ -199,7 +199,7 @@ pub fn rational_reconstruct(n: &BigInt, m: &BigInt) -> Option<(BigInt, BigInt)> 
 
     // The symmetric uniqueness condition is 2 * bound^2 < m. Using sqrt(m)
     // admits multiple representatives and can make the result depend on the Euclidean path.
-    let bound = sqrt_floor(&((m - 1i64) / 2i64));
+    let bound = sqrt_floor(&((m - 1i64) / 2i64))?;
     if bound.is_zero() {
         return None;
     }
@@ -259,7 +259,9 @@ pub fn metered_rational_reconstruct<M: BudgetMeter>(
         return Ok(None);
     };
     let (half, _) = metered_div_rem_nonzero(&m_minus_one, two_divisor, meter)?;
-    let bound = metered_sqrt_floor(&half, meter)?;
+    let Some(bound) = metered_sqrt_floor(&half, meter)? else {
+        return metered_finish(None, meter);
+    };
     if bound.is_zero() {
         return metered_finish(None, meter);
     }
@@ -354,7 +356,8 @@ impl PrimeStream {
             meter.charge(Dimension::ComputeSteps, 1)?;
             let candidate = current;
             let next_current = metered_add(&candidate, &one, meter)?;
-            let root = metered_sqrt_floor(&candidate, meter)?;
+            let root = metered_sqrt_floor(&candidate, meter)?
+                .expect("prime-stream candidates stay positive");
             let mut divides = false;
             for prime in &self.emitted {
                 meter.checkpoint()?;
@@ -409,7 +412,7 @@ impl Iterator for PrimeStream {
         loop {
             let cand = self.current.clone();
             self.current = &self.current + 1i64;
-            let root = sqrt_floor(&cand);
+            let root = sqrt_floor(&cand).expect("prime-stream candidates stay positive");
             let divides = self.emitted.iter().take_while(|p| **p <= root).any(|p| {
                 let r = &cand % p;
                 r.is_zero()
@@ -419,21 +422,6 @@ impl Iterator for PrimeStream {
                 return Some(cand);
             }
         }
-    }
-}
-
-fn sqrt_floor(n: &BigInt) -> BigInt {
-    if !n.is_positive() {
-        return BigInt::zero();
-    }
-    let two = BigInt::from(2i64);
-    let mut x = n.clone();
-    loop {
-        let next = (&x + n / &x) / &two;
-        if next >= x {
-            return x;
-        }
-        x = next;
     }
 }
 
@@ -769,39 +757,6 @@ fn metered_mod_pow<M: BudgetMeter>(
     }
     meter.checkpoint()?;
     Ok(result)
-}
-
-fn metered_sqrt_floor<M: BudgetMeter>(n: &BigInt, meter: &mut M) -> Result<BigInt, MeterError> {
-    meter.checkpoint()?;
-    if !n.is_positive() {
-        return Ok(BigInt::zero());
-    }
-    meter.charge_batch(&[
-        (
-            Dimension::MemoryBytes,
-            n.limb_count().max(1).saturating_mul(8),
-        ),
-        (Dimension::AllocationCount, 1),
-    ])?;
-    let mut x = n.clone();
-    let two = BigInt::from(2i64);
-    let Some(two_divisor) = NonZeroBigInt::new(&two) else {
-        return Ok(BigInt::zero());
-    };
-    loop {
-        meter.checkpoint()?;
-        meter.charge(Dimension::ComputeSteps, 1)?;
-        let Some(x_divisor) = NonZeroBigInt::new(&x) else {
-            return Ok(BigInt::zero());
-        };
-        let (quotient, _) = metered_div_rem_nonzero(n, x_divisor, meter)?;
-        let sum = metered_add(&x, &quotient, meter)?;
-        let (next, _) = metered_div_rem_nonzero(&sum, two_divisor, meter)?;
-        if metered_greater_or_equal(&next, &x, meter)? {
-            return metered_finish(x, meter);
-        }
-        x = next;
-    }
 }
 
 fn metered_normalized_remainder<M: BudgetMeter>(
@@ -2267,7 +2222,8 @@ mod tests {
     fn published_rational_reconstructions_satisfy_the_declared_bounds() {
         for modulus_value in 2i64..65 {
             let modulus = BigInt::from(modulus_value);
-            let bound = sqrt_floor(&((&modulus - 1i64) / 2i64));
+            let bound = sqrt_floor(&((&modulus - 1i64) / 2i64))
+                .expect("admitted modulus gives a nonnegative bound radicand");
             for residue_value in -128i64..=128 {
                 let residue = BigInt::from(residue_value);
                 let result = rational_reconstruct(&residue, &modulus);
@@ -2842,10 +2798,11 @@ mod tests {
                 meter,
             )
         });
-        assert_terminal_checkpoint(Some((BigInt::zero(), BigInt::one())), 593, |meter| {
+        // The bigint root owner brackets its charged input clone with two safe points.
+        assert_terminal_checkpoint(Some((BigInt::zero(), BigInt::one())), 595, |meter| {
             metered_rational_reconstruct(&BigInt::zero(), &BigInt::from(101), meter)
         });
-        assert_terminal_checkpoint(None, 668, |meter| {
+        assert_terminal_checkpoint(None, 670, |meter| {
             metered_rational_reconstruct(&BigInt::from(8), &BigInt::from(101), meter)
         });
         assert_terminal_checkpoint(true, 603, |meter| {
