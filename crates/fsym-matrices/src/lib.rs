@@ -19,10 +19,15 @@ use thiserror::Error;
 
 const MATRIX_SCHEMA_VERSION: u32 = 1;
 const MAX_MATRIX_ENTRIES: usize = 262_144;
+const MAX_MATRIX_DIMENSION: usize = MAX_MATRIX_ENTRIES;
 const MAX_DETERMINANT_DIMENSION: usize = 8;
 const MAX_CHARACTERISTIC_POLYNOMIAL_DIMENSION: usize = 32;
 const MAX_MATRIX_MULTIPLICATION_OPS: u128 = 10_000_000;
 const MAX_RREF_OPS: u128 = 10_000_000;
+const MAX_NULLSPACE_BASIS_ENTRIES: usize = MAX_MATRIX_ENTRIES;
+// floor(sqrt(MAX_NULLSPACE_BASIS_ENTRIES)): a full nullspace basis has at
+// least `vectors * vectors` scalar entries because nullity <= column count.
+const MAX_NULLSPACE_BASIS_VECTORS: usize = 512;
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum MatrixError {
@@ -48,12 +53,18 @@ pub enum MatrixError {
     InvalidStorageLength(usize, usize, usize, usize),
     #[error("Matrix has {0} entries, exceeding the limit of {MAX_MATRIX_ENTRIES}")]
     EntryLimitExceeded(usize),
+    #[error("Matrix shape {0}x{1} has a dimension exceeding the limit of {MAX_MATRIX_DIMENSION}")]
+    DimensionLimitExceeded(usize, usize),
     #[error("Matrix operation exceeds a supported resource bound: {0}")]
     ResourceLimit(String),
     #[error("A symbolic pivot or determinant may be zero; an unconditional result is unsafe")]
     SymbolicZeroUndetermined,
     #[error("Exact matrix division by zero")]
     DivisionByZero,
+    #[error("Matrix certificate verification currently supports exact rational entries only")]
+    UnsupportedCertificateDomain,
+    #[error("LU certificate matrix P is not a 0/1 permutation matrix")]
+    InvalidPermutationMatrix,
 }
 
 /// Numeric value of an expression when it is fully constant.
@@ -91,6 +102,18 @@ fn perfect_square_root(r: &BigRational) -> Option<BigRational> {
         is_perfect_square(r.numer())?,
         is_perfect_square(r.denom())?,
     ))
+}
+
+fn check_nullspace_basis_size(columns: usize, vectors: usize) -> Result<usize, MatrixError> {
+    let entries = columns.checked_mul(vectors).ok_or_else(|| {
+        MatrixError::ResourceLimit("nullspace basis entry count overflowed".to_string())
+    })?;
+    if entries > MAX_NULLSPACE_BASIS_ENTRIES || vectors > MAX_NULLSPACE_BASIS_VECTORS {
+        return Err(MatrixError::ResourceLimit(format!(
+            "nullspace basis exceeds the limits of {MAX_NULLSPACE_BASIS_ENTRIES} aggregate entries and {MAX_NULLSPACE_BASIS_VECTORS} vectors"
+        )));
+    }
+    Ok(entries)
 }
 
 /// Folds provably numeric subexpressions into canonical form: sums,
@@ -296,6 +319,11 @@ impl Matrix {
         if entries > MAX_MATRIX_ENTRIES {
             return Err(MatrixError::EntryLimitExceeded(entries));
         }
+        // A product bound alone does not constrain a zero-area shape: `0 x usize::MAX`
+        // contains no entries but can still drive effectively unbounded dimension loops.
+        if rows > MAX_MATRIX_DIMENSION || cols > MAX_MATRIX_DIMENSION {
+            return Err(MatrixError::DimensionLimitExceeded(rows, cols));
+        }
         Ok(entries)
     }
 
@@ -308,6 +336,18 @@ impl Matrix {
                 expected,
                 self.data.len(),
             ));
+        }
+        Ok(())
+    }
+
+    fn validate_certificate_domain(&self) -> Result<(), MatrixError> {
+        self.validate_shape()?;
+        if self
+            .data
+            .iter()
+            .any(|entry| !matches!(entry, Expr::Integer(_) | Expr::Rational(_)))
+        {
+            return Err(MatrixError::UnsupportedCertificateDomain);
         }
         Ok(())
     }
@@ -877,8 +917,9 @@ impl Matrix {
         let n_cols = self.cols;
         let pivot_set: std::collections::HashSet<usize> = pivot_cols.iter().cloned().collect();
         let free_cols: Vec<usize> = (0..n_cols).filter(|c| !pivot_set.contains(c)).collect();
+        check_nullspace_basis_size(n_cols, free_cols.len())?;
 
-        let mut basis = Vec::new();
+        let mut basis = Vec::with_capacity(free_cols.len());
         for &free_col in &free_cols {
             let mut vec_data = vec![Expr::from_i64(0); n_cols];
             vec_data[free_col] = Expr::from_i64(1);
@@ -938,7 +979,7 @@ impl Matrix {
         self.rref_with_meter(meter)
     }
 
-    /// Exact LU decomposition with partial row pivoting: $P \cdot A = L \cdot U$.
+    /// Exact-rational LU decomposition with partial row pivoting: $P \cdot A = L \cdot U$.
     pub fn lu(&self) -> Result<LuCertificate, MatrixError> {
         self.validate_shape()?;
         if self.rows != self.cols {
@@ -992,7 +1033,7 @@ impl Matrix {
         Ok(cert)
     }
 
-    /// Solves exact linear system $A \cdot X = B$ for square matrix $A$ and right-hand side $B$.
+    /// Solves an exact-rational linear system $A \cdot X = B$ for square $A$ and right-hand side $B$.
     pub fn solve(&self, b: &Matrix) -> Result<Matrix, MatrixError> {
         self.validate_shape()?;
         b.validate_shape()?;
@@ -1007,7 +1048,11 @@ impl Matrix {
         let n = self.rows;
         let m = b.cols;
         // Build augmented matrix [A | B] of shape n x (n + m)
-        let mut aug_data = Vec::with_capacity(n * (n + m));
+        let augmented_cols = n.checked_add(m).ok_or_else(|| {
+            MatrixError::ResourceLimit("augmented matrix column count overflowed".to_string())
+        })?;
+        let augmented_entries = Self::checked_element_count(n, augmented_cols)?;
+        let mut aug_data = Vec::with_capacity(augmented_entries);
         for r in 0..n {
             for c in 0..n {
                 aug_data.push(self.get(r, c)?.clone());
@@ -1016,13 +1061,14 @@ impl Matrix {
                 aug_data.push(b.get(r, c)?.clone());
             }
         }
-        let aug_mat = Matrix::new(n, n + m, aug_data)?;
+        let aug_mat = Matrix::new(n, augmented_cols, aug_data)?;
         let (rref_aug, pivot_cols) = aug_mat.rref()?;
         if pivot_cols.len() < n || pivot_cols.iter().any(|&c| c >= n) {
             return Err(MatrixError::SingularMatrix);
         }
         // Extract solution X of shape n x m from right columns
-        let mut x_data = Vec::with_capacity(n * m);
+        let solution_entries = Self::checked_element_count(n, m)?;
+        let mut x_data = Vec::with_capacity(solution_entries);
         for r in 0..n {
             for c in 0..m {
                 x_data.push(rref_aug.get(r, n + c)?.clone());
@@ -1036,7 +1082,7 @@ impl Matrix {
         Ok(sol)
     }
 
-    /// Solves linear least-squares system $A^T A X = A^T B$.
+    /// Solves an exact-rational least-squares system $A^T A X = A^T B$.
     pub fn solve_least_squares(&self, b: &Matrix) -> Result<Matrix, MatrixError> {
         let at = self.transpose();
         let ata = at.matmul(self)?;
@@ -1044,13 +1090,13 @@ impl Matrix {
         ata.solve(&atb)
     }
 
-    /// Exact QR decomposition with orthogonal columns via Modified Gram-Schmidt: $A = Q \cdot R$.
+    /// Exact-rational QR decomposition with orthogonal columns via Modified Gram-Schmidt: $A = Q \cdot R$.
     ///
     /// For an $m \times n$ matrix $A$ with linearly independent columns ($m \ge n$), computes:
     /// - $Q$ ($m \times n$) whose columns are mutually orthogonal: $Q^T \cdot Q = D$ (diagonal with non-zero entries).
     /// - $R$ ($n \times n$) which is unit upper-triangular with $R_{j, j} = 1$.
     pub fn qr(&self) -> Result<QrCertificate, MatrixError> {
-        self.validate_shape()?;
+        self.validate_certificate_domain()?;
         let (m, n) = (self.rows, self.cols);
         if m < n {
             return Err(MatrixError::ShapeMismatch(m, n, n, n));
@@ -1116,7 +1162,7 @@ impl Matrix {
         Ok(cert)
     }
 
-    /// Exact $LDL^T$ decomposition for symmetric matrix $A$: $A = L \cdot D \cdot L^T$.
+    /// Exact-rational $LDL^T$ decomposition for symmetric matrix $A$: $A = L \cdot D \cdot L^T$.
     ///
     /// Computes unit lower-triangular $L$ and diagonal $D$.
     pub fn ldl(&self) -> Result<LdlCertificate, MatrixError> {
@@ -1184,21 +1230,22 @@ impl Matrix {
     }
 }
 
-/// Certificate for exact linear system solution $A \cdot X = B$.
+/// Certificate candidate for an exact-rational linear system solution $A \cdot X = B$.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LinearSystemCertificate {
     pub solution: Matrix,
 }
 
-/// Independent verifier checking that $A \cdot X = B$.
+/// Same-crate reference validator checking that exact-rational matrices satisfy $A \cdot X = B$.
 pub fn verify_linear_system_certificate(
     a: &Matrix,
     b: &Matrix,
     cert: &LinearSystemCertificate,
 ) -> Result<(), MatrixError> {
-    a.validate_shape()?;
-    b.validate_shape()?;
-    cert.solution.validate_shape()?;
+    a.validate_certificate_domain()?;
+    b.validate_certificate_domain()?;
+    cert.solution.validate_certificate_domain()?;
     if a.cols != cert.solution.rows || a.rows != b.rows || cert.solution.cols != b.cols {
         return Err(MatrixError::ShapeMismatch(
             a.rows,
@@ -1216,18 +1263,19 @@ pub fn verify_linear_system_certificate(
     Ok(())
 }
 
-/// Certificate for exact QR decomposition: $A = Q \cdot R$.
+/// Certificate candidate for an exact-rational QR decomposition: $A = Q \cdot R$.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct QrCertificate {
     pub q: Matrix,
     pub r: Matrix,
 }
 
-/// Independent verifier checking that $A = Q \cdot R$, $R$ is unit upper-triangular, and $Q^T \cdot Q$ is diagonal.
+/// Same-crate reference validator checking exact-rational $A = Q \cdot R$, unit upper-triangular $R$, and diagonal $Q^T \cdot Q$.
 pub fn verify_qr_certificate(matrix: &Matrix, cert: &QrCertificate) -> Result<(), MatrixError> {
-    matrix.validate_shape()?;
-    cert.q.validate_shape()?;
-    cert.r.validate_shape()?;
+    matrix.validate_certificate_domain()?;
+    cert.q.validate_certificate_domain()?;
+    cert.r.validate_certificate_domain()?;
     let (m, n) = (matrix.rows, matrix.cols);
     if cert.q.rows != m || cert.q.cols != n || cert.r.rows != n || cert.r.cols != n {
         return Err(MatrixError::ShapeMismatch(m, n, cert.q.rows, cert.q.cols));
@@ -1278,18 +1326,19 @@ pub fn verify_qr_certificate(matrix: &Matrix, cert: &QrCertificate) -> Result<()
     Ok(())
 }
 
-/// Certificate for exact $LDL^T$ decomposition: $A = L \cdot D \cdot L^T$.
+/// Certificate candidate for an exact-rational $LDL^T$ decomposition: $A = L \cdot D \cdot L^T$.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LdlCertificate {
     pub l: Matrix,
     pub d: Matrix,
 }
 
-/// Independent verifier checking that $A = L \cdot D \cdot L^T$, $L$ is unit lower-triangular, and $D$ is diagonal.
+/// Same-crate reference validator checking exact-rational $A = L \cdot D \cdot L^T$, unit lower-triangular $L$, and diagonal $D$.
 pub fn verify_ldl_certificate(matrix: &Matrix, cert: &LdlCertificate) -> Result<(), MatrixError> {
-    matrix.validate_shape()?;
-    cert.l.validate_shape()?;
-    cert.d.validate_shape()?;
+    matrix.validate_certificate_domain()?;
+    cert.l.validate_certificate_domain()?;
+    cert.d.validate_certificate_domain()?;
     if matrix.rows != matrix.cols {
         return Err(MatrixError::NotSquare(matrix.rows, matrix.cols));
     }
@@ -1336,19 +1385,20 @@ pub fn verify_ldl_certificate(matrix: &Matrix, cert: &LdlCertificate) -> Result<
     Ok(())
 }
 
-/// Certificate for Matrix inverse.
+/// Certificate candidate for an exact-rational matrix inverse.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct InverseCertificate {
     pub inverse: Matrix,
 }
 
-/// Independent verifier checking that candidate inverse satisfies $A \cdot A^{-1} = I$ and $A^{-1} \cdot A = I$.
+/// Same-crate reference validator checking an exact-rational inverse on both multiplication sides.
 pub fn verify_inverse_certificate(
     matrix: &Matrix,
     cert: &InverseCertificate,
 ) -> Result<(), MatrixError> {
-    matrix.validate_shape()?;
-    cert.inverse.validate_shape()?;
+    matrix.validate_certificate_domain()?;
+    cert.inverse.validate_certificate_domain()?;
     if matrix.rows != matrix.cols
         || cert.inverse.rows != cert.inverse.cols
         || matrix.rows != cert.inverse.rows
@@ -1372,20 +1422,131 @@ pub fn verify_inverse_certificate(
     Ok(())
 }
 
-/// Certificate for Matrix nullspace basis.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Certificate candidate for an exact-rational matrix nullspace basis.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NullspaceCertificate {
     pub basis: Vec<Matrix>,
 }
 
-/// Independent verifier checking that nullspace basis vectors span the kernel and satisfy rank-nullity.
+#[derive(Serialize)]
+struct NullspaceCertificateWireRef<'a> {
+    basis: &'a [Matrix],
+}
+
+impl Serialize for NullspaceCertificate {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        if self.basis.len() > MAX_NULLSPACE_BASIS_VECTORS {
+            return Err(serde::ser::Error::custom(format!(
+                "nullspace basis exceeds the vector limit of {MAX_NULLSPACE_BASIS_VECTORS}"
+            )));
+        }
+        let aggregate_entries = self.basis.iter().try_fold(0usize, |entries, vector| {
+            entries
+                .checked_add(vector.data.len())
+                .ok_or_else(|| serde::ser::Error::custom("nullspace basis entry count overflowed"))
+        })?;
+        if aggregate_entries > MAX_NULLSPACE_BASIS_ENTRIES {
+            return Err(serde::ser::Error::custom(format!(
+                "nullspace basis exceeds the aggregate entry limit of {MAX_NULLSPACE_BASIS_ENTRIES}"
+            )));
+        }
+        NullspaceCertificateWireRef { basis: &self.basis }.serialize(serializer)
+    }
+}
+
+struct BoundedMatrixVec(Vec<Matrix>);
+
+impl<'de> Deserialize<'de> for BoundedMatrixVec {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct BoundedMatrixVecVisitor;
+
+        impl<'de> Visitor<'de> for BoundedMatrixVecVisitor {
+            type Value = BoundedMatrixVec;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(
+                    formatter,
+                    "a nullspace basis with at most {MAX_NULLSPACE_BASIS_VECTORS} vectors and {MAX_NULLSPACE_BASIS_ENTRIES} aggregate entries"
+                )
+            }
+
+            fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                let hinted = sequence.size_hint().unwrap_or(0);
+                if hinted > MAX_NULLSPACE_BASIS_VECTORS {
+                    return Err(serde::de::Error::custom(format!(
+                        "nullspace basis exceeds the vector limit of {MAX_NULLSPACE_BASIS_VECTORS}"
+                    )));
+                }
+                let mut basis = Vec::with_capacity(hinted.min(MAX_NULLSPACE_BASIS_VECTORS));
+                let mut aggregate_entries = 0usize;
+                loop {
+                    if basis.len() == MAX_NULLSPACE_BASIS_VECTORS {
+                        if sequence.next_element::<IgnoredAny>()?.is_some() {
+                            return Err(serde::de::Error::custom(format!(
+                                "nullspace basis exceeds the vector limit of {MAX_NULLSPACE_BASIS_VECTORS}"
+                            )));
+                        }
+                        break;
+                    }
+                    let Some(vector) = sequence.next_element::<Matrix>()? else {
+                        break;
+                    };
+                    aggregate_entries = aggregate_entries
+                        .checked_add(vector.data.len())
+                        .ok_or_else(|| {
+                            serde::de::Error::custom("nullspace basis entry count overflowed")
+                        })?;
+                    if aggregate_entries > MAX_NULLSPACE_BASIS_ENTRIES {
+                        return Err(serde::de::Error::custom(format!(
+                            "nullspace basis exceeds the aggregate entry limit of {MAX_NULLSPACE_BASIS_ENTRIES}"
+                        )));
+                    }
+                    basis.push(vector);
+                }
+                Ok(BoundedMatrixVec(basis))
+            }
+        }
+
+        deserializer.deserialize_seq(BoundedMatrixVecVisitor)
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NullspaceCertificateWire {
+    basis: BoundedMatrixVec,
+}
+
+impl<'de> Deserialize<'de> for NullspaceCertificate {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = NullspaceCertificateWire::deserialize(deserializer)?;
+        Ok(Self {
+            basis: wire.basis.0,
+        })
+    }
+}
+
+/// Same-crate reference validator checking an exact-rational nullspace basis and rank-nullity.
 pub fn verify_nullspace_certificate(
     matrix: &Matrix,
     cert: &NullspaceCertificate,
 ) -> Result<(), MatrixError> {
-    matrix.validate_shape()?;
+    matrix.validate_certificate_domain()?;
     let rank = matrix.rank()?;
     let expected_nullity = matrix.cols.saturating_sub(rank);
+    check_nullspace_basis_size(matrix.cols, expected_nullity)?;
     if cert.basis.len() != expected_nullity {
         return Err(MatrixError::ResourceLimit(format!(
             "Nullspace certificate basis size {} does not match rank-nullity expected nullity {}",
@@ -1394,7 +1555,7 @@ pub fn verify_nullspace_certificate(
         )));
     }
     for (idx, v) in cert.basis.iter().enumerate() {
-        v.validate_shape()?;
+        v.validate_certificate_domain()?;
         if v.rows != matrix.cols || v.cols != 1 {
             return Err(MatrixError::ShapeMismatch(
                 matrix.rows,
@@ -1429,20 +1590,21 @@ pub fn verify_nullspace_certificate(
     Ok(())
 }
 
-/// Certificate for exact LU decomposition with partial row pivoting: $P \cdot A = L \cdot U$.
+/// Certificate candidate for exact-rational LU with partial row pivoting: $P \cdot A = L \cdot U$.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LuCertificate {
     pub p: Matrix,
     pub l: Matrix,
     pub u: Matrix,
 }
 
-/// Independent verifier checking that $P \cdot A = L \cdot U$, $P$ is orthogonal, $L$ is unit lower-triangular, and $U$ is upper-triangular.
+/// Same-crate reference validator checking exact-rational $P \cdot A = L \cdot U$, a 0/1 permutation $P$, unit lower-triangular $L$, and upper-triangular $U$.
 pub fn verify_lu_certificate(matrix: &Matrix, cert: &LuCertificate) -> Result<(), MatrixError> {
-    matrix.validate_shape()?;
-    cert.p.validate_shape()?;
-    cert.l.validate_shape()?;
-    cert.u.validate_shape()?;
+    matrix.validate_certificate_domain()?;
+    cert.p.validate_certificate_domain()?;
+    cert.l.validate_certificate_domain()?;
+    cert.u.validate_certificate_domain()?;
     if matrix.rows != matrix.cols {
         return Err(MatrixError::NotSquare(matrix.rows, matrix.cols));
     }
@@ -1456,12 +1618,29 @@ pub fn verify_lu_certificate(matrix: &Matrix, cert: &LuCertificate) -> Result<()
     {
         return Err(MatrixError::ShapeMismatch(n, n, cert.p.rows, cert.p.cols));
     }
-    let eye = Matrix::eye(n)?;
-    if cert.p.matmul(&cert.p.transpose())? != eye {
-        return Err(MatrixError::ResourceLimit(
-            "P is not an orthogonal permutation matrix".to_string(),
-        ));
+    let mut column_ones = vec![0usize; n];
+    for row in 0..n {
+        let mut row_ones = 0usize;
+        for (column, column_count) in column_ones.iter_mut().enumerate() {
+            let entry = cert.p.get(row, column)?;
+            if entry.is_zero() {
+                continue;
+            }
+            if entry.is_one() {
+                row_ones += 1;
+                *column_count += 1;
+            } else {
+                return Err(MatrixError::InvalidPermutationMatrix);
+            }
+        }
+        if row_ones != 1 {
+            return Err(MatrixError::InvalidPermutationMatrix);
+        }
     }
+    if column_ones.iter().any(|&ones| ones != 1) {
+        return Err(MatrixError::InvalidPermutationMatrix);
+    }
+
     for i in 0..n {
         for j in 0..n {
             let entry = cert.l.get(i, j)?;
@@ -2073,5 +2252,87 @@ mod tests {
         let mut tampered_d = ldl_cert;
         tampered_d.d.data[1] = num(1);
         assert!(verify_ldl_certificate(&a, &tampered_d).is_err());
+    }
+
+    #[test]
+    fn zero_area_shapes_still_bound_each_dimension() {
+        let oversized = MAX_MATRIX_DIMENSION + 1;
+
+        assert_eq!(
+            Matrix::new(0, oversized, Vec::new()),
+            Err(MatrixError::DimensionLimitExceeded(0, oversized))
+        );
+        assert_eq!(
+            Matrix::new(oversized, 0, Vec::new()),
+            Err(MatrixError::DimensionLimitExceeded(oversized, 0))
+        );
+    }
+
+    #[test]
+    fn nullspace_refuses_quadratic_output_amplification() {
+        let matrix = Matrix::zeros(0, MAX_NULLSPACE_BASIS_VECTORS + 1).unwrap();
+        assert!(matches!(
+            matrix.nullspace(),
+            Err(MatrixError::ResourceLimit(message))
+                if message.contains("nullspace basis exceeds")
+        ));
+    }
+
+    #[test]
+    fn nullspace_certificate_wire_bounds_vector_count() {
+        let empty = Matrix::zeros(0, 0).unwrap();
+        let encoded_empty = serde_json::to_value(empty).unwrap();
+        let wire = serde_json::to_vec(&serde_json::json!({
+            "basis": vec![encoded_empty; MAX_NULLSPACE_BASIS_VECTORS + 1],
+        }))
+        .unwrap();
+
+        assert!(serde_json::from_slice::<NullspaceCertificate>(&wire).is_err());
+    }
+
+    #[test]
+    fn nullspace_certificate_wire_refuses_invalid_export() {
+        let certificate = NullspaceCertificate {
+            basis: vec![Matrix::zeros(0, 0).unwrap(); MAX_NULLSPACE_BASIS_VECTORS + 1],
+        };
+
+        assert!(serde_json::to_vec(&certificate).is_err());
+    }
+
+    #[test]
+    fn qr_refuses_symbolic_nonzero_assumptions() {
+        let x = Expr::symbol("x");
+        let matrix = Matrix::new(1, 1, vec![x.clone()]).unwrap();
+        assert_eq!(matrix.qr(), Err(MatrixError::UnsupportedCertificateDomain));
+
+        let forged = QrCertificate {
+            q: Matrix::new(1, 1, vec![x]).unwrap(),
+            r: Matrix::eye(1).unwrap(),
+        };
+        assert_eq!(
+            verify_qr_certificate(&matrix, &forged),
+            Err(MatrixError::UnsupportedCertificateDomain)
+        );
+    }
+
+    #[test]
+    fn lu_verifier_rejects_orthogonal_non_permutation_matrix() {
+        let rat = |numerator: i64, denominator: i64| {
+            Expr::Rational(BigRational::new(numerator.into(), denominator.into()))
+        };
+        let matrix = Matrix::eye(2).unwrap();
+        let p = Matrix::new(2, 2, vec![rat(3, 5), rat(4, 5), rat(-4, 5), rat(3, 5)]).unwrap();
+        let l = Matrix::new(2, 2, vec![num(1), num(0), rat(-4, 3), num(1)]).unwrap();
+        let u = Matrix::new(2, 2, vec![rat(3, 5), rat(4, 5), num(0), rat(5, 3)]).unwrap();
+
+        // This certificate satisfies the old verifier's orthogonality and decomposition
+        // checks, but P is a rotation rather than a row permutation.
+        assert_eq!(p.matmul(&p.transpose()).unwrap(), matrix);
+        assert_eq!(l.matmul(&u).unwrap(), p);
+        let forged = LuCertificate { p, l, u };
+        assert_eq!(
+            verify_lu_certificate(&matrix, &forged),
+            Err(MatrixError::InvalidPermutationMatrix)
+        );
     }
 }
