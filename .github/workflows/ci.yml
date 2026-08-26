@@ -33,6 +33,7 @@ jobs:
           python-version: "3.13"
       - run: python tools/validate_planning.py
       - run: python tools/validate_planning.py --self-test
+      - run: python -m unittest discover -s tools/conformance-lab -p 'test_*.py'
 
   # ── G1: Formatting + Linting ──────────────────────────────────────
   g1-fmt-lint:

@@ -29,6 +29,7 @@ PY
 tooling_self_check() {
   require_python
   run "$PYTHON_BIN" -m py_compile "$ROOT"/tools/*.py
+  run "$PYTHON_BIN" -m unittest discover -s "$ROOT/tools/conformance-lab" -p 'test_*.py'
   run "$PYTHON_BIN" "$ROOT/tools/validate_planning.py" --self-test
   run "$PYTHON_BIN" "$ROOT/tools/validate_planning.py"
   run bash -n "$ROOT/scripts/check.sh"
