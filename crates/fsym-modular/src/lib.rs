@@ -3148,8 +3148,11 @@ mod tests {
         );
         // PRIME-TABLE-DIRECT-PUSH: the former one-header charge/direct Vec::push path reports a
         // smaller transcript and performs its reallocation after the final checkpoint.
-        assert_eq!(measured.dimensions, [1_445, 1_280, 194, 0, 0]);
-        assert_eq!(measured.checkpoints, 1_637);
+        // Candidates 8 through 11 perform thirteen one-limb Newton comparisons. The governed
+        // comparator charges sign, length, and digit work with four safe points, so replacing it
+        // with an opaque one-step/two-checkpoint comparison would reduce both totals by 26.
+        assert_eq!(measured.dimensions, [1_471, 1_280, 194, 0, 0]);
+        assert_eq!(measured.checkpoints, 1_663);
         assert_eq!(stream.emitted_capacity, 8);
         assert_eq!(stream.emitted.len(), 5);
         assert_eq!(stream.emitted.last(), Some(&BigInt::from(11)));
@@ -3337,11 +3340,13 @@ mod tests {
                 meter,
             )
         });
-        // The bigint root owner brackets its charged input clone with two safe points.
-        assert_terminal_checkpoint(Some((BigInt::zero(), BigInt::one())), 595, |meter| {
+        // sqrt(50) performs five one-limb Newton comparisons. The governed comparator charges
+        // sign, length, and digit work with four safe points, so an opaque one-step/two-checkpoint
+        // comparison would reduce each reconstruction transcript by ten checkpoints.
+        assert_terminal_checkpoint(Some((BigInt::zero(), BigInt::one())), 605, |meter| {
             metered_rational_reconstruct(&BigInt::zero(), &BigInt::from(101), meter)
         });
-        assert_terminal_checkpoint(None, 670, |meter| {
+        assert_terminal_checkpoint(None, 680, |meter| {
             metered_rational_reconstruct(&BigInt::from(8), &BigInt::from(101), meter)
         });
         assert_terminal_checkpoint(true, 603, |meter| {

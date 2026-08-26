@@ -1142,6 +1142,50 @@ pub fn sqrt_floor(value: &BigInt) -> Option<BigInt> {
     }
 }
 
+/// Returns the mathematical floor of the real `degree`th root and whether it is exact.
+///
+/// Degree zero and even-degree roots of negative integers are outside this integer-real domain and
+/// return `None`. Negative odd roots use true floor semantics rather than truncation toward zero:
+/// for example, `nth_root_floor(-9, 3)` is `Some((-3, false))`, while
+/// `nth_root_floor(-8, 3)` is `Some((-2, true))`.
+pub fn nth_root_floor(value: &BigInt, degree: u32) -> Option<(BigInt, bool)> {
+    if degree == 0 || (value.is_negative() && degree.is_multiple_of(2)) {
+        return None;
+    }
+    if degree == 1 {
+        return Some((value.clone(), true));
+    }
+    if value.is_zero() {
+        return Some((BigInt::zero(), true));
+    }
+
+    let negative = value.is_negative();
+    let magnitude = value.abs();
+    if magnitude.is_one() {
+        return Some((value.clone(), true));
+    }
+
+    let (magnitude_root, exact) = if degree == 2 {
+        let root = sqrt_floor(&magnitude).expect("a magnitude has a real square root");
+        let exact = BigInt::pow(&root, degree) == magnitude;
+        (root, exact)
+    } else if u64::from(degree) >= magnitude.bits() {
+        (BigInt::one(), false)
+    } else {
+        let root = BigInt(magnitude.0.nth_root(degree));
+        let exact = BigInt::pow(&root, degree) == magnitude;
+        (root, exact)
+    };
+
+    if !negative {
+        Some((magnitude_root, exact))
+    } else if exact {
+        Some((-magnitude_root, true))
+    } else {
+        Some((-(magnitude_root + 1i64), false))
+    }
+}
+
 /// Cancellation-first exact comparison over borrowed integers.
 ///
 /// Sign, magnitude length, and each most-significant-first base-$2^{32}$ digit comparison are
@@ -1305,26 +1349,178 @@ pub fn metered_sqrt_floor<M: BudgetMeter>(
         let (quotient, _) = metered_div_rem_nonzero(value, current_divisor, meter)?;
         let sum = metered_add(&current, &quotient, meter)?;
         let (next, _) = metered_div_rem_nonzero(&sum, two_divisor, meter)?;
-        if metered_greater_or_equal(&next, &current, meter)? {
+        if metered_cmp(&next, &current, meter)? != std::cmp::Ordering::Less {
             return metered_finish(Some(current), meter);
         }
         current = next;
     }
 }
 
-fn metered_greater_or_equal<M: BudgetMeter>(
+/// Cancellation-first mathematical floor `degree`th root with an exactness result.
+///
+/// Degree zero and even-degree roots of negative integers publish `None`. The positive-magnitude
+/// search uses an exclusive power-of-two upper bound and a capped exponent comparator, so no
+/// candidate power larger than the input magnitude is ever materialized. Negative odd inexact
+/// roots are adjusted away from zero to preserve mathematical floor semantics. Every classified
+/// result or domain refusal passes a final checkpoint before publication.
+pub fn metered_nth_root_floor<M: BudgetMeter>(
+    value: &BigInt,
+    degree: u32,
+    meter: &mut M,
+) -> Result<Option<(BigInt, bool)>, MeterError> {
+    meter.checkpoint()?;
+    if degree == 0 || (value.is_negative() && degree.is_multiple_of(2)) {
+        return metered_finish(None, meter);
+    }
+    if degree == 1 {
+        let result = metered_root_clone(value, meter)?;
+        return metered_finish(Some((result, true)), meter);
+    }
+    if value.is_zero() {
+        return metered_finish(Some((BigInt::zero(), true)), meter);
+    }
+    if *value == BigInt::one() || *value == -BigInt::one() {
+        let result = metered_root_clone(value, meter)?;
+        return metered_finish(Some((result, true)), meter);
+    }
+
+    let negative = value.is_negative();
+    let magnitude_storage;
+    let magnitude = if negative {
+        magnitude_storage = metered_subtract(&BigInt::zero(), value, meter)?;
+        &magnitude_storage
+    } else {
+        value
+    };
+
+    let (magnitude_root, exact) = if degree == 2 {
+        let root = metered_sqrt_floor(magnitude, meter)?
+            .expect("a positive magnitude has a real square root");
+        let square = metered_multiply(&root, &root, meter)?;
+        let exact = metered_cmp(&square, magnitude, meter)? == std::cmp::Ordering::Equal;
+        (root, exact)
+    } else if u64::from(degree) >= magnitude.bits() {
+        (BigInt::one(), false)
+    } else {
+        metered_positive_nth_root_floor(magnitude, degree, meter)?
+    };
+
+    let result = if !negative {
+        magnitude_root
+    } else if exact {
+        metered_subtract(&BigInt::zero(), &magnitude_root, meter)?
+    } else {
+        let ceiling = metered_add(&magnitude_root, &BigInt::one(), meter)?;
+        metered_subtract(&BigInt::zero(), &ceiling, meter)?
+    };
+    metered_finish(Some((result, exact)), meter)
+}
+
+fn metered_root_clone<M: BudgetMeter>(value: &BigInt, meter: &mut M) -> Result<BigInt, MeterError> {
+    meter.charge_batch(&[
+        (
+            Dimension::MemoryBytes,
+            value
+                .limb_count()
+                .max(1)
+                .saturating_add(1)
+                .saturating_mul(8),
+        ),
+        (Dimension::AllocationCount, 1),
+    ])?;
+    meter.checkpoint()?;
+    Ok(value.clone())
+}
+
+fn metered_positive_nth_root_floor<M: BudgetMeter>(
+    magnitude: &BigInt,
+    degree: u32,
+    meter: &mut M,
+) -> Result<(BigInt, bool), MeterError> {
+    debug_assert!(*magnitude > BigInt::one());
+    debug_assert!(degree >= 3);
+    debug_assert!(u64::from(degree) < magnitude.bits());
+
+    let upper_bits = magnitude.bits().div_ceil(u64::from(degree));
+    let mut high = if let Ok(exponent) = u32::try_from(upper_bits) {
+        metered_pow(&BigInt::from(2i64), exponent, meter)?
+    } else {
+        let mut bound = BigInt::one();
+        for _ in 0..upper_bits {
+            meter.checkpoint()?;
+            meter.charge(Dimension::ComputeSteps, 1)?;
+            bound = metered_add(&bound, &bound, meter)?;
+        }
+        bound
+    };
+    let mut low = BigInt::one();
+    let two = BigInt::from(2i64);
+    let two_divisor = NonZeroBigInt::new(&two).expect("the constant two is nonzero");
+
+    loop {
+        meter.checkpoint()?;
+        meter.charge(Dimension::ComputeSteps, 1)?;
+        let sum = metered_add(&low, &high, meter)?;
+        let (midpoint, _) = metered_div_rem_nonzero(&sum, two_divisor, meter)?;
+        if metered_cmp(&midpoint, &low, meter)? == std::cmp::Ordering::Equal {
+            return Ok((low, false));
+        }
+        match metered_compare_power_to_limit(&midpoint, degree, magnitude, meter)? {
+            std::cmp::Ordering::Less => low = midpoint,
+            std::cmp::Ordering::Equal => return Ok((midpoint, true)),
+            std::cmp::Ordering::Greater => high = midpoint,
+        }
+    }
+}
+
+fn metered_compare_power_to_limit<M: BudgetMeter>(
+    base: &BigInt,
+    exponent: u32,
+    limit: &BigInt,
+    meter: &mut M,
+) -> Result<std::cmp::Ordering, MeterError> {
+    debug_assert!(*base > BigInt::zero());
+    debug_assert!(exponent > 0);
+    debug_assert!(*limit > BigInt::zero());
+
+    let mut result = BigInt::one();
+    let mut factor = metered_root_clone(base, meter)?;
+    let mut remaining = exponent;
+    while remaining != 0 {
+        meter.checkpoint()?;
+        meter.charge(Dimension::ComputeSteps, 1)?;
+        if remaining & 1 == 1 {
+            let Some(product) = metered_multiply_capped(&result, &factor, limit, meter)? else {
+                return Ok(std::cmp::Ordering::Greater);
+            };
+            result = product;
+        }
+        remaining >>= 1;
+        if remaining != 0 {
+            let Some(square) = metered_multiply_capped(&factor, &factor, limit, meter)? else {
+                return Ok(std::cmp::Ordering::Greater);
+            };
+            factor = square;
+        }
+    }
+    metered_cmp(&result, limit, meter)
+}
+
+fn metered_multiply_capped<M: BudgetMeter>(
     lhs: &BigInt,
     rhs: &BigInt,
+    limit: &BigInt,
     meter: &mut M,
-) -> Result<bool, MeterError> {
+) -> Result<Option<BigInt>, MeterError> {
     meter.checkpoint()?;
-    meter.charge(
-        Dimension::ComputeSteps,
-        lhs.limb_count().max(rhs.limb_count()).max(1),
-    )?;
-    let result = lhs >= rhs;
-    meter.checkpoint()?;
-    Ok(result)
+    meter.charge(Dimension::ComputeSteps, 1)?;
+    let rhs_divisor = NonZeroBigInt::new(rhs).expect("positive power factors are nonzero");
+    let (quotient, _) = metered_div_rem_nonzero(limit, rhs_divisor, meter)?;
+    if metered_cmp(lhs, &quotient, meter)? == std::cmp::Ordering::Greater {
+        Ok(None)
+    } else {
+        metered_multiply(lhs, rhs, meter).map(Some)
+    }
 }
 
 /// Metered multiplication with safe points inside the limb-product loop.
@@ -3150,6 +3346,7 @@ mod tests {
         }
     }
 
+    #[track_caller]
     fn assert_terminal_shape<T>(
         expected: &T,
         expected_trailing_checkpoints: usize,
@@ -3449,6 +3646,309 @@ mod tests {
         assert_eq!(sqrt_floor(&(&square - 1i64)), Some(&root - 1i64));
         assert_eq!(sqrt_floor(&square), Some(root.clone()));
         assert_eq!(sqrt_floor(&(&square + 1i64)), Some(root));
+
+        let long_prefix_radicand = (BigInt::one() << 160u32) + 65_537i64;
+        let mut measured = CountingMeter::default();
+        assert_eq!(
+            metered_sqrt_floor(&long_prefix_radicand, &mut measured),
+            Ok(sqrt_floor(&long_prefix_radicand))
+        );
+        assert_eq!(measured.dimensions, [94_217, 15_088, 948, 0, 0]);
+        assert_eq!(measured.checkpoints, 95_081);
+    }
+
+    fn scalar_nth_root_floor(value: i128, degree: u32) -> Option<(i128, bool)> {
+        if degree == 0 || (value < 0 && degree.is_multiple_of(2)) {
+            return None;
+        }
+        let start = if value < 0 { -value.abs() - 1 } else { 0 };
+        let mut floor = start;
+        let end = if value < 0 { 0 } else { value + 1 };
+        for candidate in start..=end {
+            if candidate.pow(degree) <= value {
+                floor = candidate;
+            } else {
+                break;
+            }
+        }
+        Some((floor, floor.pow(degree) == value))
+    }
+
+    #[test]
+    fn caller_degree_roots_pin_domain_floor_and_exactness_boundaries() {
+        for (value, degree, expected) in [
+            (0i64, 0u32, None),
+            (1, 0, None),
+            (-1, 0, None),
+            (-16, 4, None),
+            (-1, 2, None),
+            (-9, 3, Some((-3i64, false))),
+            (-8, 3, Some((-2, true))),
+            (-7, 3, Some((-2, false))),
+            (-2, 3, Some((-2, false))),
+            (-1, 31, Some((-1, true))),
+            (0, 31, Some((0, true))),
+            (1, u32::MAX, Some((1, true))),
+            (2, u32::MAX, Some((1, false))),
+            (-2, u32::MAX, Some((-2, false))),
+            (4, 3, Some((1, false))),
+            (8, 3, Some((2, true))),
+        ] {
+            let value = BigInt::from(value);
+            let expected = expected.map(|(root, exact)| (BigInt::from(root), exact));
+            assert_eq!(nth_root_floor(&value, degree), expected);
+            assert_eq!(
+                metered_nth_root_floor(&value, degree, &mut Unbounded),
+                Ok(expected)
+            );
+        }
+    }
+
+    #[test]
+    fn caller_degree_roots_match_an_independent_scalar_floor_oracle() {
+        for value in -128i64..=128 {
+            for degree in 0u32..=16 {
+                let expected =
+                    scalar_nth_root_floor(i128::from(value), degree).map(|(root, exact)| {
+                        (
+                            BigInt::from(
+                                i64::try_from(root).expect("bounded oracle root fits i64"),
+                            ),
+                            exact,
+                        )
+                    });
+                let value = BigInt::from(value);
+                assert_eq!(nth_root_floor(&value, degree), expected);
+                assert_eq!(
+                    metered_nth_root_floor(&value, degree, &mut Unbounded),
+                    Ok(expected)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn caller_degree_roots_pin_exact_powers_neighbors_and_square_root_parity() {
+        for degree in [2u32, 3, 4, 5, 31] {
+            for base in 2i64..=5 {
+                let power = BigInt::pow(&BigInt::from(base), degree);
+                for value in [&power - 1i64, power.clone(), &power + 1i64] {
+                    let ordinary = nth_root_floor(&value, degree);
+                    let governed = metered_nth_root_floor(&value, degree, &mut Unbounded)
+                        .expect("unbounded governed root succeeds");
+                    assert_eq!(governed, ordinary);
+                    let (root, exact) = ordinary.expect("nonnegative roots are admitted");
+                    assert!(BigInt::pow(&root, degree) <= value);
+                    assert!(value < BigInt::pow(&(&root + 1i64), degree));
+                    assert_eq!(exact, BigInt::pow(&root, degree) == value);
+                }
+                if !degree.is_multiple_of(2) {
+                    for value in [-(&power + 1i64), -power.clone(), -(&power - 1i64)] {
+                        let (root, exact) = nth_root_floor(&value, degree)
+                            .expect("odd negative roots are admitted");
+                        assert!(BigInt::pow(&root, degree) <= value);
+                        assert!(value < BigInt::pow(&(&root + 1i64), degree));
+                        assert_eq!(exact, BigInt::pow(&root, degree) == value);
+                        assert_eq!(
+                            metered_nth_root_floor(&value, degree, &mut Unbounded),
+                            Ok(Some((root, exact)))
+                        );
+                    }
+                }
+            }
+        }
+
+        for value in 0i64..=512 {
+            let value = BigInt::from(value);
+            let root = sqrt_floor(&value).expect("nonnegative square root exists");
+            let expected = Some((root.clone(), &root * &root == value));
+            assert_eq!(nth_root_floor(&value, 2), expected);
+            assert_eq!(
+                metered_nth_root_floor(&value, 2, &mut Unbounded),
+                Ok(expected)
+            );
+        }
+    }
+
+    #[test]
+    fn caller_degree_root_handles_large_exact_and_adjacent_inputs() {
+        let root = (BigInt::one() << 96u32) + 17i64;
+        let exact = BigInt::pow(&root, 5);
+        for (value, expected) in [
+            (&exact - 1i64, (root.clone() - 1i64, false)),
+            (exact.clone(), (root.clone(), true)),
+            (&exact + 1i64, (root.clone(), false)),
+        ] {
+            assert_eq!(nth_root_floor(&value, 5), Some(expected.clone()));
+            assert_eq!(
+                metered_nth_root_floor(&value, 5, &mut Unbounded),
+                Ok(Some(expected))
+            );
+        }
+    }
+
+    #[test]
+    fn capped_power_comparison_pins_strict_guard_and_extreme_control() {
+        let base = BigInt::from(3);
+        for (limit, expected) in [
+            (8i64, std::cmp::Ordering::Greater),
+            (9, std::cmp::Ordering::Equal),
+            (10, std::cmp::Ordering::Less),
+        ] {
+            assert_eq!(
+                metered_compare_power_to_limit(&base, 2, &BigInt::from(limit), &mut Unbounded),
+                Ok(expected)
+            );
+        }
+
+        let mut selected_product_cap = CountingMeter::default();
+        assert_eq!(
+            metered_compare_power_to_limit(&base, 3, &BigInt::from(10), &mut selected_product_cap,),
+            Ok(std::cmp::Ordering::Greater)
+        );
+        assert_eq!(
+            (
+                selected_product_cap.dimensions,
+                selected_product_cap.checkpoints
+            ),
+            ([148, 108, 19, 0, 0], 167)
+        );
+
+        let completed = std::thread::Builder::new()
+            .stack_size(128 * 1024)
+            .spawn(|| {
+                metered_compare_power_to_limit(
+                    &BigInt::from(2),
+                    u32::MAX,
+                    &BigInt::from(3),
+                    &mut Unbounded,
+                )
+            })
+            .expect("small-stack worker spawns")
+            .join()
+            .expect("iterative capped power comparison does not overflow the stack");
+        assert_eq!(completed, Ok(std::cmp::Ordering::Greater));
+    }
+
+    #[test]
+    fn governed_caller_degree_root_pins_resources_cancellation_and_publication() {
+        let value = BigInt::from(28);
+        let expected = Some((BigInt::from(3), false));
+        let mut measured = CountingMeter::default();
+        assert_eq!(
+            metered_nth_root_floor(&value, 3, &mut measured),
+            Ok(expected.clone())
+        );
+        assert_eq!(measured.dimensions, [476, 404, 73, 0, 0]);
+        assert_eq!(measured.checkpoints, 555);
+        assert_eq!(measured.dimensions[Dimension::DepthLimit.index()], 0);
+        assert_eq!(measured.dimensions[Dimension::RandomDraws.index()], 0);
+
+        for dimension in [
+            Dimension::ComputeSteps,
+            Dimension::MemoryBytes,
+            Dimension::AllocationCount,
+        ] {
+            let total = measured.dimensions[dimension.index()];
+            assert!(total > 0);
+            let mut limits = BudgetLimits::uniform(u64::MAX, 0);
+            limits.dimensions[dimension.index()] = total - 1;
+            let mut budget = Budget::new(limits);
+            assert!(matches!(
+                metered_nth_root_floor(&value, 3, &mut budget),
+                Err(MeterError::Budget(BudgetError::Exhausted {
+                    dimension: refused,
+                    ..
+                })) if refused == dimension
+            ));
+            assert_eq!(
+                metered_nth_root_floor(&value, 3, &mut Unbounded),
+                Ok(expected.clone())
+            );
+        }
+
+        let degree_two_value = BigInt::from(15);
+        let degree_two_expected = Some((BigInt::from(3), false));
+        let mut degree_two_meter = CountingMeter::default();
+        assert_eq!(
+            metered_nth_root_floor(&degree_two_value, 2, &mut degree_two_meter),
+            Ok(degree_two_expected.clone())
+        );
+        assert_eq!(
+            (degree_two_meter.dimensions, degree_two_meter.checkpoints),
+            ([365, 256, 49, 0, 0], 415)
+        );
+        for dimension in [
+            Dimension::ComputeSteps,
+            Dimension::MemoryBytes,
+            Dimension::AllocationCount,
+        ] {
+            let total = degree_two_meter.dimensions[dimension.index()];
+            assert!(total > 0);
+            let mut limits = BudgetLimits::uniform(u64::MAX, 0);
+            limits.dimensions[dimension.index()] = total - 1;
+            let mut budget = Budget::new(limits);
+            assert!(matches!(
+                metered_nth_root_floor(&degree_two_value, 2, &mut budget),
+                Err(MeterError::Budget(BudgetError::Exhausted {
+                    dimension: refused,
+                    ..
+                })) if refused == dimension
+            ));
+        }
+        assert_cancels_at_every_checkpoint(|meter| {
+            metered_nth_root_floor(&degree_two_value, 2, meter)
+        });
+
+        let identity = (BigInt::one() << 129u32) + 17i64;
+        let mut identity_meter = CountingMeter::default();
+        assert_eq!(
+            metered_nth_root_floor(&identity, 1, &mut identity_meter),
+            Ok(Some((identity.clone(), true)))
+        );
+        assert_eq!(
+            (identity_meter.dimensions, identity_meter.checkpoints),
+            ([0, 32, 1, 0, 0], 3)
+        );
+        for dimension in [Dimension::MemoryBytes, Dimension::AllocationCount] {
+            let total = identity_meter.dimensions[dimension.index()];
+            let mut limits = BudgetLimits::uniform(u64::MAX, 0);
+            limits.dimensions[dimension.index()] = total - 1;
+            let mut budget = Budget::new(limits);
+            assert!(matches!(
+                metered_nth_root_floor(&identity, 1, &mut budget),
+                Err(MeterError::Budget(BudgetError::Exhausted {
+                    dimension: refused,
+                    ..
+                })) if refused == dimension
+            ));
+        }
+
+        for (value, degree) in [
+            (BigInt::from(1), 0u32),
+            (BigInt::from(-16), 4),
+            (BigInt::from(8), 3),
+            (BigInt::from(9), 3),
+            (BigInt::from(-9), 3),
+            (BigInt::from(2), u32::MAX),
+        ] {
+            assert_cancels_at_every_checkpoint(|meter| {
+                metered_nth_root_floor(&value, degree, meter)
+            });
+        }
+
+        assert_terminal_shape(&None, 2, |meter| {
+            metered_nth_root_floor(&BigInt::from(1), 0, meter)
+        });
+        assert_terminal_shape(&Some((BigInt::from(2), true)), 2, |meter| {
+            metered_nth_root_floor(&BigInt::from(8), 3, meter)
+        });
+        assert_terminal_shape(&Some((BigInt::from(2), false)), 2, |meter| {
+            metered_nth_root_floor(&BigInt::from(9), 3, meter)
+        });
+        assert_terminal_shape(&Some((BigInt::from(-3), false)), 3, |meter| {
+            metered_nth_root_floor(&BigInt::from(-9), 3, meter)
+        });
     }
 
     #[test]
