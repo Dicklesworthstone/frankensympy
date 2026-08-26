@@ -1,6 +1,6 @@
 //! # fsym-ntheory
 //!
-//! Number-theoretic functions: deterministic `u64` Miller-Rabin primality,
+//! Number-theoretic functions: exact-owner deterministic `u64` primality,
 //! bounded trial-division factorization, Euler's totient and divisor functions,
 //! the exact-arithmetic owner's Jacobi symbol, and arbitrary-precision extended GCD.
 
@@ -9,8 +9,8 @@
 use fsym_core::{
     BigInt,
     arith::{
-        crt as exact_crt, gcd as exact_gcd, jacobi_symbol as exact_jacobi_symbol,
-        mod_inverse as exact_mod_inverse,
+        crt as exact_crt, gcd as exact_gcd, is_probable_prime as exact_is_probable_prime,
+        jacobi_symbol as exact_jacobi_symbol, mod_inverse as exact_mod_inverse,
     },
 };
 use std::collections::BTreeMap;
@@ -73,42 +73,14 @@ pub fn crt(remainders: &[BigInt], moduli: &[BigInt]) -> Result<BigInt, NTheoryEr
         .ok_or(NTheoryError::NonCoprimeModuli)
 }
 
-/// Deterministic primality test for small numbers (<= 2^64) using Miller-Rabin with optimal bases.
+/// Deterministic primality test for `u64` values, delegated to the exact-arithmetic owner.
+///
+/// Every `u64` value lies below the owner's fixed-base deterministic theorem bound.
 pub fn is_prime(n: u64) -> bool {
-    if n < 2 {
-        return false;
-    }
-    if n == 2 || n == 3 || n == 5 || n == 7 {
-        return true;
-    }
-    if n.is_multiple_of(2) || n.is_multiple_of(3) || n.is_multiple_of(5) || n.is_multiple_of(7) {
-        return false;
-    }
-    if n < 121 {
-        return true;
-    }
-
-    // Factor n-1 as 2^s * d
-    let mut d = n - 1;
-    let mut s = 0;
-    while d.is_multiple_of(2) {
-        d /= 2;
-        s += 1;
-    }
-
-    // Deterministic witness set for u64
-    let bases: &[u64] = &[2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37];
-    for &a in bases {
-        if a >= n {
-            break;
-        }
-        if !miller_rabin_test(n, a, d, s) {
-            return false;
-        }
-    }
-    true
+    exact_is_probable_prime(&BigInt::from(n))
 }
 
+#[cfg(test)]
 fn mod_pow(mut base: u128, mut exp: u128, modulus: u128) -> u128 {
     if modulus == 1 {
         return 0;
@@ -123,21 +95,6 @@ fn mod_pow(mut base: u128, mut exp: u128, modulus: u128) -> u128 {
         exp /= 2;
     }
     result
-}
-
-fn miller_rabin_test(n: u64, a: u64, d: u64, s: u32) -> bool {
-    let n_128 = n as u128;
-    let mut x = mod_pow(a as u128, d as u128, n_128);
-    if x == 1 || x == n_128 - 1 {
-        return true;
-    }
-    for _ in 1..s {
-        x = (x * x) % n_128;
-        if x == n_128 - 1 {
-            return true;
-        }
-    }
-    false
 }
 
 /// Compute prime factorization of an integer: n -> {p_1: e_1, p_2: e_2, ...}.
@@ -292,6 +249,41 @@ mod tests {
         assert!(is_prime(997));
         assert!(!is_prime(1000));
         assert!(is_prime(1_000_000_007));
+    }
+
+    #[test]
+    fn exact_owner_rejects_the_terminal_u64_witness_adversary() {
+        fn scalar_is_prime(n: u64) -> bool {
+            if n < 2 {
+                return false;
+            }
+            let mut divisor = 2;
+            while divisor <= n / divisor {
+                if n.is_multiple_of(divisor) {
+                    return false;
+                }
+                divisor += 1;
+            }
+            true
+        }
+
+        const FACTORS: [u64; 3] = [149_491, 747_451, 34_233_211];
+        const LAST_WITNESS_PSEUDOPRIME: u64 = 3_825_123_056_546_413_051;
+
+        assert!(FACTORS.into_iter().all(scalar_is_prime));
+        assert_eq!(
+            FACTORS.into_iter().product::<u64>(),
+            LAST_WITNESS_PSEUDOPRIME
+        );
+        assert!(!is_prime(LAST_WITNESS_PSEUDOPRIME));
+        assert_eq!(
+            factorint(LAST_WITNESS_PSEUDOPRIME),
+            Ok(BTreeMap::from([
+                (FACTORS[0], 1),
+                (FACTORS[1], 1),
+                (FACTORS[2], 1),
+            ]))
+        );
     }
 
     #[test]

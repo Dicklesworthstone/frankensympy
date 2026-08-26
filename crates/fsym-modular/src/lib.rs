@@ -2451,6 +2451,16 @@ mod tests {
         true
     }
 
+    fn terminal_base_pseudoprime() -> BigInt {
+        let factors = [399_165_290_221u64, 798_330_580_441u64];
+        assert!(factors.into_iter().all(scalar_is_prime));
+        let composite = BigInt::from(factors[0]) * BigInt::from(factors[1]);
+        let decimal = BigInt::from(318_665_857_834_031_151u64) * BigInt::from(1_000_000u64)
+            + BigInt::from(167_461u64);
+        assert_eq!(composite, decimal);
+        composite
+    }
+
     fn scalar_mod_pow(mut base: u64, mut exponent: u64, modulus: u64) -> u64 {
         let mut result = 1u64 % modulus;
         while exponent != 0 {
@@ -2675,6 +2685,90 @@ mod tests {
             assert!(!is_probable_prime(&BigInt::from(carmichael)));
             let mut meter = Unbounded;
             assert!(!metered_is_probable_prime(&BigInt::from(carmichael), &mut meter).unwrap());
+        }
+    }
+
+    #[test]
+    fn deterministic_primality_rejects_the_terminal_base_adversary() {
+        let composite = terminal_base_pseudoprime();
+        assert!(composite < deterministic_primality_bound());
+        assert!(!is_probable_prime(&composite));
+
+        let mut measured = CountingMeter::default();
+        assert!(!metered_is_probable_prime(&composite, &mut measured).unwrap());
+        assert_eq!(measured.dimensions, [1_257_341, 200_552, 14_769, 0, 0]);
+        assert_eq!(measured.checkpoints, 1_269_888);
+
+        let mut limits = BudgetLimits {
+            dimensions: measured.dimensions,
+            verifier_pool: 0,
+        };
+        limits.dimensions[Dimension::ComputeSteps.index()] -= 1;
+        let mut budget = Budget::new(limits);
+        assert!(matches!(
+            metered_is_probable_prime(&composite, &mut budget),
+            Err(MeterError::Budget(BudgetError::Exhausted {
+                dimension: Dimension::ComputeSteps,
+                ..
+            }))
+        ));
+
+        for checkpoint in [
+            1,
+            measured.checkpoints / 4,
+            measured.checkpoints / 2,
+            measured.checkpoints * 3 / 4,
+            measured.checkpoints - 1,
+            measured.checkpoints,
+        ] {
+            let mut cancelled = CheckpointMeter::cancelling_at(checkpoint);
+            assert_eq!(
+                metered_is_probable_prime(&composite, &mut cancelled),
+                Err(MeterError::Cancelled),
+                "primality result crossed checkpoint {checkpoint}"
+            );
+        }
+
+        assert_eq!(FiniteField::new(composite.clone()), None);
+        let mut meter = Unbounded;
+        assert_eq!(
+            FiniteField::metered_new(composite.clone(), &mut meter).unwrap(),
+            None
+        );
+        assert_eq!(legendre_symbol(&BigInt::from(2), &composite), None);
+        let mut meter = Unbounded;
+        assert_eq!(
+            metered_legendre_symbol(&BigInt::from(2), &composite, &mut meter).unwrap(),
+            None
+        );
+
+        let diagnostic = check_lucky_prime(&composite, &[]).unwrap_err();
+        assert_eq!(diagnostic.prime, composite);
+        assert_eq!(diagnostic.reason, UnluckyPrimeReason::InvalidPrimeCandidate);
+        assert_eq!(diagnostic.coefficient_index, None);
+        let mut meter = Unbounded;
+        let diagnostic = metered_check_lucky_prime(&composite, &[], &mut meter)
+            .unwrap()
+            .unwrap_err();
+        assert_eq!(diagnostic.prime, composite);
+        assert_eq!(diagnostic.reason, UnluckyPrimeReason::InvalidPrimeCandidate);
+        assert_eq!(diagnostic.coefficient_index, None);
+    }
+
+    #[test]
+    fn deterministic_primality_cancels_at_every_observed_small_composite_checkpoint() {
+        let composite = BigInt::from(2_021);
+        let mut measured = CheckpointMeter::default();
+        assert!(!metered_is_probable_prime(&composite, &mut measured).unwrap());
+        assert_eq!(measured.checkpoints, 2_405);
+
+        for checkpoint in 1..=measured.checkpoints {
+            let mut cancelled = CheckpointMeter::cancelling_at(checkpoint);
+            assert_eq!(
+                metered_is_probable_prime(&composite, &mut cancelled),
+                Err(MeterError::Cancelled),
+                "primality result crossed checkpoint {checkpoint}"
+            );
         }
     }
 
