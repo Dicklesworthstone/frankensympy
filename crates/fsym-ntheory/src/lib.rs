@@ -20,6 +20,51 @@ pub enum NTheoryError {
     ArithmeticOverflow(&'static str),
     #[error("n should be an odd positive integer")]
     InvalidJacobiDenominator,
+    #[error("Invalid system for Chinese Remainder Theorem")]
+    InvalidCRTSystem,
+    #[error("Moduli in Chinese Remainder Theorem must be pairwise coprime")]
+    NonCoprimeModuli,
+}
+
+/// Computes modular inverse of `a` modulo `m` such that `(a * x) % m == 1`.
+pub fn mod_inverse(a: &BigInt, m: &BigInt) -> Option<BigInt> {
+    if m <= &BigInt::from(1) {
+        return None;
+    }
+    let (g, x, _) = egcd(a, m);
+    if g == BigInt::from(1) {
+        let res = (x % m + m) % m;
+        Some(res)
+    } else {
+        None
+    }
+}
+
+/// Solves a system of modular congruences using the Chinese Remainder Theorem:
+/// $x \equiv r_i \pmod{m_i}$ for pairwise coprime moduli $m_i > 1$.
+/// Returns the unique solution $0 \le x < \prod m_i$.
+pub fn crt(remainders: &[BigInt], moduli: &[BigInt]) -> Result<BigInt, NTheoryError> {
+    if remainders.len() != moduli.len() || remainders.is_empty() {
+        return Err(NTheoryError::InvalidCRTSystem);
+    }
+    for m in moduli {
+        if m <= &BigInt::from(1) {
+            return Err(NTheoryError::InvalidCRTSystem);
+        }
+    }
+    let mut total_mod = BigInt::from(1);
+    for m in moduli {
+        total_mod *= m;
+    }
+
+    let mut result = BigInt::from(0);
+    for (r, m) in remainders.iter().zip(moduli.iter()) {
+        let m_i = &total_mod / m;
+        let z_i = mod_inverse(&m_i, m).ok_or(NTheoryError::NonCoprimeModuli)?;
+        let term = ((r % m + m) % m) * &m_i * z_i;
+        result += term;
+    }
+    Ok(result % total_mod)
 }
 
 /// Deterministic primality test for small numbers (<= 2^64) using Miller-Rabin with optimal bases.
@@ -359,5 +404,28 @@ mod tests {
                 assert_eq!(jacobi_symbol(value, denominator), expected);
             }
         }
+    }
+
+    #[test]
+    fn test_chinese_remainder_theorem_and_modular_inverse() {
+        let a = BigInt::from(3);
+        let m = BigInt::from(7);
+        let inv = mod_inverse(&a, &m).unwrap();
+        assert_eq!((&a * &inv) % &m, BigInt::from(1));
+
+        // System:
+        // x = 2 mod 3
+        // x = 3 mod 5
+        // x = 2 mod 7
+        // Solution: x = 23 mod 105
+        let remainders = vec![BigInt::from(2), BigInt::from(3), BigInt::from(2)];
+        let moduli = vec![BigInt::from(3), BigInt::from(5), BigInt::from(7)];
+        let sol = crt(&remainders, &moduli).unwrap();
+        assert_eq!(sol, BigInt::from(23));
+
+        // Refusal on non-coprime moduli:
+        let non_coprime = vec![BigInt::from(4), BigInt::from(6)];
+        let rem = vec![BigInt::from(1), BigInt::from(3)];
+        assert_eq!(crt(&rem, &non_coprime), Err(NTheoryError::NonCoprimeModuli));
     }
 }
