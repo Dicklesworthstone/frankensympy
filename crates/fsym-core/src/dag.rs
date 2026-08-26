@@ -15,6 +15,14 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use thiserror::Error;
 
+// Fixed, cross-platform accounting charges. They deliberately upper-bound the
+// current Rust layouts on supported targets without making refusal behavior
+// depend on pointer width or compiler enum layout.
+const TERM_ID_SLOT_CHARGE_BYTES: usize = 8;
+const SYMBOL_SLOT_CHARGE_BYTES: usize = 24;
+const LIFTED_EXPR_SLOT_CHARGE_BYTES: usize = 64;
+const LAMBDA_SURFACE_NAME_CHARGE_BYTES: usize = "Lambda".len();
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum DagError {
     #[error("Dangling child TermId {0:?} does not exist in DAG")]
@@ -71,7 +79,7 @@ impl Default for DagLimits {
             max_expanded_nodes: 100_000,
             max_arity: 100_000,
             max_payload_bytes: crate::canonical::MAX_SERIALIZED_BYTES,
-            max_total_payload_bytes: crate::canonical::MAX_SERIALIZED_BYTES,
+            max_total_payload_bytes: 8 * crate::canonical::MAX_SERIALIZED_BYTES,
             max_numeric_bits: 8 * 1024 * 1024,
         }
     }
@@ -205,8 +213,8 @@ fn numeric_payload_bytes(value: &BigInt) -> Result<usize, DagError> {
     usize::try_from(value.bits().div_ceil(8)).map_err(|_| DagError::PayloadLengthOverflow)
 }
 
-fn sequence_storage_bytes<T>(len: usize) -> Result<usize, DagError> {
-    len.checked_mul(std::mem::size_of::<T>())
+fn sequence_storage_bytes(len: usize, slot_charge_bytes: usize) -> Result<usize, DagError> {
+    len.checked_mul(slot_charge_bytes)
         .ok_or(DagError::PayloadLengthOverflow)
 }
 
@@ -222,12 +230,16 @@ fn node_payload_bytes(node: &TermNode) -> Result<usize, DagError> {
             numeric_payload_bytes(value.numer())?,
             numeric_payload_bytes(value.denom())?,
         ),
-        TermNode::Add(ids) | TermNode::Mul(ids) => sequence_storage_bytes::<TermId>(ids.len()),
-        TermNode::Function(name, ids) => {
-            add_payload_bytes(name.len(), sequence_storage_bytes::<TermId>(ids.len())?)
+        TermNode::Add(ids) | TermNode::Mul(ids) => {
+            sequence_storage_bytes(ids.len(), TERM_ID_SLOT_CHARGE_BYTES)
         }
+        TermNode::Function(name, ids) => add_payload_bytes(
+            name.len(),
+            sequence_storage_bytes(ids.len(), TERM_ID_SLOT_CHARGE_BYTES)?,
+        ),
         TermNode::Lambda(parameters, _) => {
-            let parameter_storage = sequence_storage_bytes::<Symbol>(parameters.len())?;
+            let parameter_storage =
+                sequence_storage_bytes(parameters.len(), SYMBOL_SLOT_CHARGE_BYTES)?;
             parameters
                 .iter()
                 .try_fold(parameter_storage, |total, parameter| {
@@ -248,17 +260,23 @@ fn lifted_node_payload_bytes(node: &TermNode) -> Result<usize, DagError> {
             numeric_payload_bytes(value.numer())?,
             numeric_payload_bytes(value.denom())?,
         ),
-        TermNode::Add(ids) | TermNode::Mul(ids) => sequence_storage_bytes::<Expr>(ids.len()),
-        TermNode::Pow(..) => sequence_storage_bytes::<Expr>(2),
-        TermNode::Function(name, ids) => {
-            add_payload_bytes(name.len(), sequence_storage_bytes::<Expr>(ids.len())?)
+        TermNode::Add(ids) | TermNode::Mul(ids) => {
+            sequence_storage_bytes(ids.len(), LIFTED_EXPR_SLOT_CHARGE_BYTES)
         }
+        TermNode::Pow(..) => sequence_storage_bytes(2, LIFTED_EXPR_SLOT_CHARGE_BYTES),
+        TermNode::Function(name, ids) => add_payload_bytes(
+            name.len(),
+            sequence_storage_bytes(ids.len(), LIFTED_EXPR_SLOT_CHARGE_BYTES)?,
+        ),
         TermNode::Lambda(parameters, _) => {
             let output_arity = parameters
                 .len()
                 .checked_add(1)
                 .ok_or(DagError::PayloadLengthOverflow)?;
-            let expression_storage = sequence_storage_bytes::<Expr>(output_arity)?;
+            let expression_storage = add_payload_bytes(
+                sequence_storage_bytes(output_arity, LIFTED_EXPR_SLOT_CHARGE_BYTES)?,
+                LAMBDA_SURFACE_NAME_CHARGE_BYTES,
+            )?;
             parameters
                 .iter()
                 .try_fold(expression_storage, |total, parameter| {
@@ -319,10 +337,12 @@ fn validate_expr_local_limits(expr: &Expr, limits: DagLimits) -> Result<(), DagE
             numeric_payload_bytes(value.numer())?,
             numeric_payload_bytes(value.denom())?,
         )?,
-        Expr::Add(terms) | Expr::Mul(terms) => sequence_storage_bytes::<TermId>(terms.len())?,
+        Expr::Add(terms) | Expr::Mul(terms) => {
+            sequence_storage_bytes(terms.len(), TERM_ID_SLOT_CHARGE_BYTES)?
+        }
         Expr::Function(name, arguments) => add_payload_bytes(
             name.len(),
-            sequence_storage_bytes::<TermId>(arguments.len())?,
+            sequence_storage_bytes(arguments.len(), TERM_ID_SLOT_CHARGE_BYTES)?,
         )?,
         Expr::Const(_) | Expr::Pow(..) => 0,
     };
@@ -933,6 +953,13 @@ mod tests {
     use super::*;
 
     #[test]
+    fn deterministic_storage_charges_cover_current_native_layouts() {
+        assert!(std::mem::size_of::<TermId>() <= TERM_ID_SLOT_CHARGE_BYTES);
+        assert!(std::mem::size_of::<Symbol>() <= SYMBOL_SLOT_CHARGE_BYTES);
+        assert!(std::mem::size_of::<Expr>() <= LIFTED_EXPR_SLOT_CHARGE_BYTES);
+    }
+
+    #[test]
     fn term_id_is_stable_and_order_independent() {
         let mut dag1 = TermDag::new();
         let x_id1 = dag1.insert_node(TermNode::Sym(Symbol::new("x"))).unwrap();
@@ -1114,6 +1141,23 @@ mod tests {
             "duplicated DAG occurrences must each charge their cloned payload"
         );
         assert!(shared.to_expr(root).is_ok());
+
+        let mut lambda_dag = TermDag::new();
+        let body = lambda_dag
+            .insert_node(TermNode::Sym(Symbol::new("x")))
+            .unwrap();
+        let lambda = lambda_dag
+            .insert_node(TermNode::Lambda(vec![Symbol::new("p")], body))
+            .unwrap();
+        let omitted_name_would_fit = DagLimits {
+            max_total_payload_bytes: 130,
+            ..DagLimits::default()
+        };
+        assert_eq!(
+            lambda_dag.to_expr_with_limits(lambda, omitted_name_would_fit),
+            Err(DagError::TotalPayloadLimitExceeded(130)),
+            "lifting must charge the synthesized `Lambda` function name"
+        );
     }
 
     #[test]
