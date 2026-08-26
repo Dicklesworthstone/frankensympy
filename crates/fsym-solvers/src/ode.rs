@@ -157,6 +157,9 @@ pub fn verify_first_order_linear_solution(
     q_expr: &Expr,
     x: &Symbol,
 ) -> bool {
+    if !crate::verifier_inputs_within_bounds([sol, p_expr, q_expr]) {
+        return false;
+    }
     let dy = diff(sol, x);
     let py = Expr::Mul(vec![p_expr.clone(), sol.clone()]);
     let residual = Expr::Add(vec![
@@ -500,6 +503,9 @@ pub fn verify_const_coeff_second_order_nonhomogeneous_solution(
     f_expr: &Expr,
     x: &Symbol,
 ) -> bool {
+    if !crate::verifier_inputs_within_bounds([sol, f_expr]) {
+        return false;
+    }
     let mut terms = Vec::with_capacity(4);
     if a != 0 {
         let dy = diff(sol, x);

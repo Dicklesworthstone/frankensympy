@@ -187,6 +187,13 @@ pub fn solve_2var_poly_system(
             let expression = equation
                 .to_expr()
                 .map_err(|error| SolverError::InvalidSystem(error.to_string()))?;
+            if !crate::verifier_inputs_within_bounds(
+                std::iter::once(&expression).chain(solution.values()),
+            ) {
+                return Err(SolverError::IncompleteSolutionSet(
+                    "candidate verification input exceeds structural limits".to_string(),
+                ));
+            }
             if !try_simplify(&expression.subs(&solution))
                 .is_ok_and(|simplified| simplified.is_zero())
             {
@@ -211,6 +218,9 @@ pub fn solve_2var_poly_system(
 
 /// Independent verifier checking that candidate solution satisfies all equations in the polynomial system.
 pub fn verify_poly_system_solution(eqs: &[Expr], solution: &HashMap<Symbol, Expr>) -> bool {
+    if !crate::verifier_inputs_within_bounds(eqs.iter().chain(solution.values())) {
+        return false;
+    }
     for eq in eqs {
         let evaluated = eq.subs(solution);
         if !try_simplify(&evaluated).is_ok_and(|simplified| simplified.is_zero()) {

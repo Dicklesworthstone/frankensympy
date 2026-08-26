@@ -15,6 +15,51 @@ use num_traits::identities::{One, Zero};
 use std::ops::{Add, Mul};
 use thiserror::Error;
 
+const MAX_VERIFIER_INPUT_NODES: usize = 256;
+const MAX_VERIFIER_INPUT_DEPTH: usize = 64;
+const MAX_VERIFIER_INPUT_FANOUT: usize = 64;
+
+/// Iterative trust-boundary preflight used before recursive differentiation,
+/// substitution, expansion, or simplification in public residual verifiers.
+pub(crate) fn verifier_inputs_within_bounds<'a>(
+    expressions: impl IntoIterator<Item = &'a Expr>,
+) -> bool {
+    let mut stack = Vec::new();
+    for expression in expressions {
+        if stack.len() == MAX_VERIFIER_INPUT_NODES {
+            return false;
+        }
+        stack.push((expression, 0usize));
+    }
+
+    let mut visited = 0usize;
+    while let Some((expression, depth)) = stack.pop() {
+        if depth > MAX_VERIFIER_INPUT_DEPTH || visited == MAX_VERIFIER_INPUT_NODES {
+            return false;
+        }
+        visited += 1;
+        let children: &[Expr] = match expression {
+            Expr::Add(terms) | Expr::Mul(terms) | Expr::Function(_, terms) => terms,
+            Expr::Pow(base, exponent) => {
+                if stack.len() > MAX_VERIFIER_INPUT_NODES.saturating_sub(2) {
+                    return false;
+                }
+                stack.push((exponent, depth + 1));
+                stack.push((base, depth + 1));
+                continue;
+            }
+            Expr::Sym(_) | Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_) => continue,
+        };
+        if children.len() > MAX_VERIFIER_INPUT_FANOUT
+            || stack.len() > MAX_VERIFIER_INPUT_NODES.saturating_sub(children.len())
+        {
+            return false;
+        }
+        stack.extend(children.iter().map(|child| (child, depth + 1)));
+    }
+    true
+}
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum SolverError {
     #[error("No solution found for equation")]
@@ -630,28 +675,25 @@ mod tests {
 
     #[test]
     fn residual_verifiers_fail_closed_on_oversized_candidates() {
-        let builder = std::thread::Builder::new().stack_size(16 * 1024 * 1024);
-        let handle = builder
-            .spawn(|| {
-                let x = Symbol::new("x");
-                let mut too_deep = Expr::from_i64(1);
-                for _ in 0..=(fsym_simplify::MAX_RECURSION_DEPTH + 2) {
-                    too_deep = Expr::Add(vec![too_deep]);
-                }
+        let x = Symbol::new("x");
+        let mut too_deep = Expr::from_i64(1);
+        for _ in 0..=(MAX_VERIFIER_INPUT_DEPTH + 2) {
+            too_deep = Expr::Add(vec![too_deep]);
+        }
 
-                assert!(!verify_first_order_linear_solution(
-                    &Expr::from_i64(0),
-                    &Expr::from_i64(1),
-                    &too_deep,
-                    &x,
-                ));
-                assert!(!verify_poly_system_solution(
-                    &[too_deep],
-                    &std::collections::HashMap::new(),
-                ));
-            })
-            .unwrap();
-        handle.join().unwrap();
+        assert!(!verify_first_order_linear_solution(
+            &Expr::from_i64(0),
+            &Expr::from_i64(1),
+            &too_deep,
+            &x,
+        ));
+        assert!(!verify_poly_system_solution(
+            &[too_deep.clone()],
+            &std::collections::HashMap::new(),
+        ));
+        assert!(!verify_const_coeff_second_order_solution(
+            &too_deep, 1, 0, 0, &x,
+        ));
     }
 
     #[test]
