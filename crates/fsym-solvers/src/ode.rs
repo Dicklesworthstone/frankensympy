@@ -160,11 +160,7 @@ pub fn verify_first_order_linear_solution(
         py,
         Expr::Mul(vec![Expr::from_i64(-1), q_expr.clone()]),
     ]);
-    let expanded = match try_expand(&residual) {
-        Ok(exp) => exp,
-        Err(_) => return false,
-    };
-    try_simplify(&expanded).is_ok_and(|simplified| simplified.is_zero())
+    simplify(&residual).is_zero()
 }
 
 /// Solves separable ODE of the form $y'(x) = f(x) \cdot y(x)$:
