@@ -50,7 +50,9 @@ pub fn dsolve_linear_first_order(
     let neg_int_p = simplify(&Expr::Mul(vec![Expr::from_i64(-1), int_p]));
     let inv_mu = Expr::Function("exp".into(), vec![neg_int_p]);
 
-    let y_sol = simplify(&Expr::Mul(vec![numerator, inv_mu]));
+    let raw_sol = Expr::Mul(vec![numerator, inv_mu]);
+    let expanded = try_expand(&raw_sol).unwrap_or(raw_sol);
+    let y_sol = simplify(&expanded);
     Ok(y_sol)
 }
 

@@ -261,6 +261,38 @@ fn simplify_at<M: BudgetMeter>(
             if coeff.is_zero() && rest.iter().all(is_total_expr) {
                 return Ok(Expr::from_i64(0));
             }
+
+            // Combine exponential factors: exp(a) * exp(b) -> exp(a + b)
+            let mut exp_args: Vec<Expr> = Vec::new();
+            let mut other_factors: Vec<Expr> = Vec::new();
+            for f in rest {
+                if let Expr::Function(name, args) = &f
+                    && name == "exp"
+                    && args.len() == 1
+                {
+                    exp_args.push(args[0].clone());
+                } else {
+                    other_factors.push(f);
+                }
+            }
+            if exp_args.len() > 1 {
+                let sum_args = collect_terms(exp_args);
+                let simplified_exp = simplify_at(
+                    &Expr::Function("exp".to_string(), vec![sum_args]),
+                    depth + 1,
+                    m,
+                )?;
+                if !simplified_exp.is_one() {
+                    other_factors.push(simplified_exp);
+                }
+                rest = other_factors;
+            } else if exp_args.len() == 1 {
+                other_factors.push(Expr::Function("exp".to_string(), exp_args));
+                rest = other_factors;
+            } else {
+                rest = other_factors;
+            }
+
             if rest.is_empty() {
                 return Ok(rational_expr(coeff));
             }

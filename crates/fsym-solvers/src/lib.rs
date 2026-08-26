@@ -626,14 +626,6 @@ mod tests {
         let p = Expr::from_i64(1);
         let q = Expr::from_i64(1);
         let lin_sol = dsolve_linear_first_order(&p, &q, &x, &c1).unwrap();
-        let dy = fsym_calculus::diff(&lin_sol, &x);
-        let py = Expr::Mul(vec![p.clone(), lin_sol.clone()]);
-        let residual = Expr::Add(vec![dy.clone(), py.clone(), Expr::Mul(vec![Expr::from_i64(-1), q.clone()])]);
-        println!("lin_sol = {lin_sol:?}");
-        println!("dy = {dy:?}");
-        println!("py = {py:?}");
-        println!("residual = {residual:?}");
-        println!("simplified = {:?}", fsym_simplify::simplify(&residual));
         assert!(verify_first_order_linear_solution(&lin_sol, &p, &q, &x));
     }
 
