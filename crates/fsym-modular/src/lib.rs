@@ -568,6 +568,147 @@ pub fn metered_is_probable_prime<M: BudgetMeter>(
     metered_finish(true, meter)
 }
 
+/// Jacobi symbol `(a / n)` for a positive odd denominator.
+///
+/// Returns `None` when `n` is nonpositive or even. The symbol is otherwise one
+/// of `-1`, `0`, or `1`; a zero result means that `a` and `n` are not coprime.
+/// This definition includes `(a / 1) = 1`.
+pub fn jacobi_symbol(a: &BigInt, n: &BigInt) -> Option<i8> {
+    if !n.is_positive() || (n % 2i64).is_zero() {
+        return None;
+    }
+
+    let mut numerator = normalized_remainder(a, n);
+    let mut denominator = n.clone();
+    let mut symbol = 1i8;
+
+    while !numerator.is_zero() {
+        while (&numerator % 2i64).is_zero() {
+            numerator /= 2i64;
+            let denominator_mod_eight = &denominator % 8i64;
+            if denominator_mod_eight == 3i64 || denominator_mod_eight == 5i64 {
+                symbol = -symbol;
+            }
+        }
+
+        std::mem::swap(&mut numerator, &mut denominator);
+        if (&numerator % 4i64) == 3i64 && (&denominator % 4i64) == 3i64 {
+            symbol = -symbol;
+        }
+        numerator %= &denominator;
+    }
+
+    Some(if denominator.is_one() { symbol } else { 0 })
+}
+
+/// Cancellation-first Jacobi symbol using metered big-integer division lanes.
+pub fn metered_jacobi_symbol<M: BudgetMeter>(
+    a: &BigInt,
+    n: &BigInt,
+    meter: &mut M,
+) -> Result<Option<i8>, MeterError> {
+    meter.checkpoint()?;
+    if !n.is_positive() {
+        return metered_finish(None, meter);
+    }
+
+    let two = BigInt::from(2i64);
+    let Some(two_divisor) = NonZeroBigInt::new(&two) else {
+        return metered_finish(None, meter);
+    };
+    let (_, denominator_parity) = metered_div_rem_nonzero(n, two_divisor, meter)?;
+    if denominator_parity.is_zero() {
+        return metered_finish(None, meter);
+    }
+    let Some(denominator_divisor) = NonZeroBigInt::new(n) else {
+        return metered_finish(None, meter);
+    };
+
+    let mut numerator = metered_normalized_remainder(a, denominator_divisor, meter)?;
+    let mut denominator = metered_clone_bigint(n, meter)?;
+    let eight = BigInt::from(8i64);
+    let Some(eight_divisor) = NonZeroBigInt::new(&eight) else {
+        return metered_finish(None, meter);
+    };
+    let four = BigInt::from(4i64);
+    let Some(four_divisor) = NonZeroBigInt::new(&four) else {
+        return metered_finish(None, meter);
+    };
+    let three = BigInt::from(3i64);
+    let five = BigInt::from(5i64);
+    let mut symbol = 1i8;
+
+    while !numerator.is_zero() {
+        meter.checkpoint()?;
+        meter.charge(Dimension::ComputeSteps, 1)?;
+        loop {
+            meter.checkpoint()?;
+            let (halved, parity) = metered_div_rem_nonzero(&numerator, two_divisor, meter)?;
+            if !parity.is_zero() {
+                break;
+            }
+            numerator = halved;
+            let (_, denominator_mod_eight) =
+                metered_div_rem_nonzero(&denominator, eight_divisor, meter)?;
+            meter.charge(Dimension::ComputeSteps, 1)?;
+            if denominator_mod_eight == three || denominator_mod_eight == five {
+                symbol = -symbol;
+            }
+        }
+
+        meter.checkpoint()?;
+        meter.charge(Dimension::ComputeSteps, 1)?;
+        std::mem::swap(&mut numerator, &mut denominator);
+        let (_, numerator_mod_four) = metered_div_rem_nonzero(&numerator, four_divisor, meter)?;
+        let (_, denominator_mod_four) = metered_div_rem_nonzero(&denominator, four_divisor, meter)?;
+        meter.charge(Dimension::ComputeSteps, 1)?;
+        if numerator_mod_four == three && denominator_mod_four == three {
+            symbol = -symbol;
+        }
+        let Some(next_denominator_divisor) = NonZeroBigInt::new(&denominator) else {
+            return metered_finish(None, meter);
+        };
+        numerator = metered_normalized_remainder(&numerator, next_denominator_divisor, meter)?;
+    }
+
+    meter.charge(Dimension::ComputeSteps, denominator.limb_count().max(1))?;
+    let result = if denominator.is_one() { symbol } else { 0 };
+    metered_finish(Some(result), meter)
+}
+
+/// Legendre symbol `(a / p)` for an exactly admitted odd prime `p`.
+///
+/// The crate's fixed-base Miller-Rabin theorem is exact only below its
+/// registered exclusive bound. Therefore this function refuses `p = 2`,
+/// composites, and probable-prime candidates at or above that bound.
+pub fn legendre_symbol(a: &BigInt, p: &BigInt) -> Option<i8> {
+    if *p <= 2i64 || !is_certified_prime(p) {
+        return None;
+    }
+    jacobi_symbol(a, p)
+}
+
+/// Cancellation-first Legendre symbol with the same exact-prime admission rule.
+pub fn metered_legendre_symbol<M: BudgetMeter>(
+    a: &BigInt,
+    p: &BigInt,
+    meter: &mut M,
+) -> Result<Option<i8>, MeterError> {
+    meter.checkpoint()?;
+    if *p <= 2i64 {
+        return metered_finish(None, meter);
+    }
+    let bound = deterministic_primality_bound();
+    if metered_greater_or_equal(p, &bound, meter)? {
+        return metered_finish(None, meter);
+    }
+    if !metered_is_probable_prime(p, meter)? {
+        return metered_finish(None, meter);
+    }
+    let symbol = metered_jacobi_symbol(a, p, meter)?;
+    metered_finish(symbol, meter)
+}
+
 fn mod_pow(base: &BigInt, exp: &BigInt, modulus: &BigInt) -> BigInt {
     if modulus.is_one() {
         return BigInt::zero();
@@ -1970,6 +2111,51 @@ mod tests {
         true
     }
 
+    fn scalar_mod_pow(mut base: u64, mut exponent: u64, modulus: u64) -> u64 {
+        let mut result = 1u64 % modulus;
+        while exponent != 0 {
+            if exponent & 1 == 1 {
+                result = ((u128::from(result) * u128::from(base)) % u128::from(modulus)) as u64;
+            }
+            base = ((u128::from(base) * u128::from(base)) % u128::from(modulus)) as u64;
+            exponent >>= 1;
+        }
+        result
+    }
+
+    fn scalar_legendre_prime(a: i64, prime: u64) -> i8 {
+        debug_assert!(scalar_is_prime(prime));
+        debug_assert!(prime > 2);
+        let residue = a.rem_euclid(prime as i64) as u64;
+        if residue == 0 {
+            return 0;
+        }
+        let criterion = scalar_mod_pow(residue, (prime - 1) / 2, prime);
+        if criterion == 1 {
+            1
+        } else {
+            assert_eq!(criterion, prime - 1);
+            -1
+        }
+    }
+
+    fn scalar_jacobi_by_factorization(a: i64, mut denominator: u64) -> i8 {
+        debug_assert!(denominator > 0 && denominator % 2 == 1);
+        let mut symbol = 1i8;
+        let mut prime = 3u64;
+        while prime <= denominator / prime {
+            while denominator.is_multiple_of(prime) {
+                symbol *= scalar_legendre_prime(a, prime);
+                denominator /= prime;
+            }
+            prime += 2;
+        }
+        if denominator > 1 {
+            symbol *= scalar_legendre_prime(a, denominator);
+        }
+        symbol
+    }
+
     fn assert_terminal_checkpoint<T: std::fmt::Debug + PartialEq>(
         expected: T,
         expected_checkpoints: usize,
@@ -2148,6 +2334,87 @@ mod tests {
             assert!(!is_probable_prime(&BigInt::from(carmichael)));
             let mut meter = Unbounded;
             assert!(!metered_is_probable_prime(&BigInt::from(carmichael), &mut meter).unwrap());
+        }
+    }
+
+    #[test]
+    fn quadratic_symbols_match_independent_factorization_and_euler_oracles() {
+        for denominator in (1u64..128).step_by(2) {
+            for numerator in -128i64..=128 {
+                let expected = scalar_jacobi_by_factorization(numerator, denominator);
+                let numerator = BigInt::from(numerator);
+                let denominator = BigInt::from(denominator);
+                assert_eq!(
+                    jacobi_symbol(&numerator, &denominator),
+                    Some(expected),
+                    "Jacobi mismatch for numerator={numerator}, denominator={denominator}"
+                );
+                let mut meter = Unbounded;
+                assert_eq!(
+                    metered_jacobi_symbol(&numerator, &denominator, &mut meter).unwrap(),
+                    Some(expected),
+                    "metered Jacobi mismatch for numerator={numerator}, denominator={denominator}"
+                );
+            }
+        }
+
+        let prime = 97u64;
+        for numerator in -128i64..=128 {
+            let expected = scalar_legendre_prime(numerator, prime);
+            let numerator = BigInt::from(numerator);
+            let prime = BigInt::from(prime);
+            assert_eq!(legendre_symbol(&numerator, &prime), Some(expected));
+            let mut meter = Unbounded;
+            assert_eq!(
+                metered_legendre_symbol(&numerator, &prime, &mut meter).unwrap(),
+                Some(expected)
+            );
+        }
+    }
+
+    #[test]
+    fn jacobi_supports_arbitrary_precision_and_checks_terminal_gcd() {
+        let mersenne_prime = (BigInt::one() << 127) - 1i64;
+        assert_eq!(jacobi_symbol(&BigInt::from(2), &mersenne_prime), Some(1));
+        let mut meter = Unbounded;
+        assert_eq!(
+            metered_jacobi_symbol(&BigInt::from(2), &mersenne_prime, &mut meter).unwrap(),
+            Some(1)
+        );
+
+        let composite = BigInt::from(3) * &mersenne_prime;
+        assert_eq!(jacobi_symbol(&BigInt::from(3), &composite), Some(0));
+        let mut meter = Unbounded;
+        assert_eq!(
+            metered_jacobi_symbol(&BigInt::from(3), &composite, &mut meter).unwrap(),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn quadratic_symbols_refuse_values_outside_their_exact_domains() {
+        for invalid_denominator in [BigInt::from(-3), BigInt::zero(), BigInt::from(2)] {
+            assert_eq!(jacobi_symbol(&BigInt::one(), &invalid_denominator), None);
+            let mut meter = Unbounded;
+            assert_eq!(
+                metered_jacobi_symbol(&BigInt::one(), &invalid_denominator, &mut meter).unwrap(),
+                None
+            );
+        }
+
+        let above_bound_prime = (BigInt::one() << 127) - 1i64;
+        for refused_prime in [
+            BigInt::from(2),
+            BigInt::from(91),
+            deterministic_primality_bound(),
+            above_bound_prime,
+        ] {
+            assert_eq!(legendre_symbol(&BigInt::from(3), &refused_prime), None);
+            let mut meter = Unbounded;
+            assert_eq!(
+                metered_legendre_symbol(&BigInt::from(3), &refused_prime, &mut meter).unwrap(),
+                None
+            );
         }
     }
 
@@ -2379,6 +2646,14 @@ mod tests {
             metered_is_probable_prime(&BigInt::one(), &mut budget),
             Ok(false)
         );
+        assert_eq!(
+            metered_jacobi_symbol(&BigInt::one(), &BigInt::zero(), &mut budget),
+            Ok(None)
+        );
+        assert_eq!(
+            metered_legendre_symbol(&BigInt::one(), &BigInt::from(2), &mut budget),
+            Ok(None)
+        );
     }
 
     #[test]
@@ -2406,6 +2681,12 @@ mod tests {
         });
         assert_uncharged_fast_terminal(false, |meter| {
             metered_is_probable_prime(&BigInt::one(), meter)
+        });
+        assert_uncharged_fast_terminal(None, |meter| {
+            metered_jacobi_symbol(&BigInt::one(), &BigInt::zero(), meter)
+        });
+        assert_uncharged_fast_terminal(None, |meter| {
+            metered_legendre_symbol(&BigInt::one(), &BigInt::from(2), meter)
         });
     }
 
@@ -2438,6 +2719,18 @@ mod tests {
         let mut budget = Budget::new(BudgetLimits::uniform(1, 0));
         assert!(matches!(
             metered_is_probable_prime(&BigInt::from(1_000_003), &mut budget),
+            Err(MeterError::Budget(_))
+        ));
+
+        let mut budget = Budget::new(BudgetLimits::uniform(1, 0));
+        assert!(matches!(
+            metered_jacobi_symbol(&BigInt::from(37), &BigInt::from(101), &mut budget),
+            Err(MeterError::Budget(_))
+        ));
+
+        let mut budget = Budget::new(BudgetLimits::uniform(1, 0));
+        assert!(matches!(
+            metered_legendre_symbol(&BigInt::from(37), &BigInt::from(101), &mut budget),
             Err(MeterError::Budget(_))
         ));
     }
@@ -2483,6 +2776,50 @@ mod tests {
             Err(MeterError::Cancelled)
         );
         assert!(cancelled.checkpoints > 75);
+    }
+
+    #[test]
+    fn quadratic_symbols_support_late_and_terminal_cancellation() {
+        let mut previous = BigInt::one();
+        let mut current = BigInt::one();
+        for _ in 0..219 {
+            let next = &previous + &current;
+            previous = current;
+            current = next;
+        }
+        assert!(!(&current % 2i64).is_zero());
+
+        let mut measured = CheckpointMeter::default();
+        let expected = metered_jacobi_symbol(&previous, &current, &mut measured)
+            .unwrap()
+            .expect("positive odd denominator has a Jacobi symbol");
+        assert_eq!(jacobi_symbol(&previous, &current), Some(expected));
+        assert!(measured.checkpoints > 100);
+
+        let mut late_cancelled =
+            CheckpointMeter::cancelling_at(measured.checkpoints.saturating_mul(3) / 4);
+        assert_eq!(
+            metered_jacobi_symbol(&previous, &current, &mut late_cancelled),
+            Err(MeterError::Cancelled)
+        );
+        assert!(late_cancelled.checkpoints > 75);
+
+        let mut terminal_cancelled = CheckpointMeter::cancelling_at(measured.checkpoints);
+        assert_eq!(
+            metered_jacobi_symbol(&previous, &current, &mut terminal_cancelled),
+            Err(MeterError::Cancelled)
+        );
+
+        let numerator = BigInt::from(35);
+        let prime = BigInt::from(97);
+        let mut measured = CheckpointMeter::default();
+        let expected = metered_legendre_symbol(&numerator, &prime, &mut measured).unwrap();
+        assert_eq!(expected, legendre_symbol(&numerator, &prime));
+        let mut terminal_cancelled = CheckpointMeter::cancelling_at(measured.checkpoints);
+        assert_eq!(
+            metered_legendre_symbol(&numerator, &prime, &mut terminal_cancelled),
+            Err(MeterError::Cancelled)
+        );
     }
 
     #[test]
