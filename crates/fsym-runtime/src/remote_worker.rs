@@ -281,4 +281,77 @@ mod tests {
             Err(RemoteWorkerError::InvalidAssignment)
         );
     }
+
+    #[test]
+    fn bounded_wire_decoder_roundtrips_a_valid_candidate() {
+        let x = Expr::symbol("x");
+        let claim = Claim::equality(x.clone(), x.clone());
+        let mut kernel = ProofKernel::new((*ImmutableAssumptionsSnapshot::empty()).clone());
+        let root = kernel
+            .prove_reflexivity(x.clone(), &mut Unbounded)
+            .unwrap();
+        let candidate = RemoteCandidate {
+            worker_id: "worker-1".to_string(),
+            task_id: 42,
+            result: x,
+            claim,
+            derivation: kernel.export_derivation(root).unwrap(),
+            worker_signature: vec![1, 2, 3],
+        };
+        let encoded = serde_json::to_vec(&candidate).unwrap();
+
+        assert_eq!(RemoteCandidate::decode_json(&encoded), Ok(candidate));
+    }
+
+    #[test]
+    fn bounded_wire_decoder_rejects_oversized_and_unknown_fields() {
+        let oversized = vec![b' '; MAX_REMOTE_CANDIDATE_BYTES + 1];
+        assert_eq!(
+            RemoteCandidate::decode_json(&oversized),
+            Err(RemoteWorkerError::PayloadTooLarge {
+                limit: MAX_REMOTE_CANDIDATE_BYTES
+            })
+        );
+
+        let unknown_field = br#"{"worker_id":"worker-1","task_id":1,"result":{"Integer":[1,[1]]},"claim":{"NonZero":{"Integer":[1,[1]]}},"derivation":{"steps":[],"root":0},"worker_signature":[],"unexpected":true}"#;
+        assert_eq!(
+            RemoteCandidate::decode_json(unknown_field),
+            Err(RemoteWorkerError::CorruptedPayload)
+        );
+    }
+
+    #[test]
+    fn verifier_errors_do_not_echo_untrusted_formulas() {
+        let secret = Expr::symbol("private_formula_name_that_must_not_reach_diagnostics");
+        let forged_result = Expr::from_i64(7);
+        let forged_claim = Claim::equality(secret.clone(), forged_result.clone());
+        let coordinator = CoordinatorVerifier::new(
+            77,
+            forged_claim.clone(),
+            ImmutableAssumptionsSnapshot::empty(),
+        );
+        let mut kernel = ProofKernel::new((*ImmutableAssumptionsSnapshot::empty()).clone());
+        let root = kernel
+            .prove_reflexivity(secret.clone(), &mut Unbounded)
+            .unwrap();
+        let mut derivation = kernel.export_derivation(root).unwrap();
+        derivation.steps[0].claim = forged_claim.clone();
+        let candidate = RemoteCandidate {
+            worker_id: "worker-1".to_string(),
+            task_id: 77,
+            result: forged_result,
+            claim: forged_claim,
+            derivation,
+            worker_signature: Vec::new(),
+        };
+
+        let error = coordinator.verify_remote_candidate(&candidate).unwrap_err();
+        assert_eq!(
+            error,
+            RemoteWorkerError::VerificationFailed(
+                RemoteVerificationFailure::ClaimDiscrepancy
+            )
+        );
+        assert!(!error.to_string().contains("private_formula_name"));
+    }
 }

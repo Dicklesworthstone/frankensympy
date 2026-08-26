@@ -146,6 +146,44 @@ pub fn dsolve_const_coeff_second_order(
     }
 }
 
+/// Exact residual checker for a candidate solution of $y'(x) + P(x) y(x) = Q(x)$.
+pub fn verify_first_order_linear_solution(
+    sol: &Expr,
+    p_expr: &Expr,
+    q_expr: &Expr,
+    x: &Symbol,
+) -> bool {
+    let dy = diff(sol, x);
+    let py = Expr::Mul(vec![p_expr.clone(), sol.clone()]);
+    let residual = Expr::Add(vec![
+        dy,
+        py,
+        Expr::Mul(vec![Expr::from_i64(-1), q_expr.clone()]),
+    ]);
+    let expanded = match try_expand(&residual) {
+        Ok(exp) => exp,
+        Err(_) => return false,
+    };
+    try_simplify(&expanded).is_ok_and(|simplified| simplified.is_zero())
+}
+
+/// Solves separable ODE of the form $y'(x) = f(x) \cdot y(x)$:
+/// Solution: $y(x) = C_1 \cdot \exp(\int f(x) dx)$.
+pub fn dsolve_separable_linear(
+    f_expr: &Expr,
+    x: &Symbol,
+    c1: &Symbol,
+) -> Result<Expr, SolverError> {
+    let int_f = integrate(f_expr, x).map_err(|error| {
+        SolverError::IncompleteSolutionSet(format!(
+            "integrating separable ODE coefficient failed: {error}"
+        ))
+    })?;
+    let exp_int = Expr::Function("exp".into(), vec![int_f]);
+    let sol = Expr::Mul(vec![Expr::Sym(c1.clone()), exp_int]);
+    Ok(simplify(&sol))
+}
+
 /// Exact residual checker for a candidate solution of $a y'' + b y' + c y = 0$.
 ///
 /// This establishes only that the native differentiator and simplifier reduce
