@@ -347,12 +347,12 @@ impl BigInt {
 
     /// Formats this integer in `radix`.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics when `radix` is outside `2..=36`. Callers accepting an untrusted or dynamic radix
-    /// must validate it before using this infallible formatting API.
-    pub fn to_str_radix(&self, radix: u32) -> String {
-        self.0.to_str_radix(radix)
+    /// Returns an error when `radix` is outside `2..=36`.
+    pub fn to_str_radix(&self, radix: u32) -> Result<String, String> {
+        validate_string_radix(radix)?;
+        Ok(self.0.to_str_radix(radix))
     }
 
     /// Parses a signed integer in `radix`.
@@ -3481,6 +3481,27 @@ mod tests {
     }
 
     #[test]
+    fn fallible_radix_formatter_rejects_unsupported_radices_without_unwinding() {
+        let values = [
+            BigInt::zero(),
+            BigInt::from(-1),
+            (&BigInt::one() << 257u32) + BigInt::from(12345),
+        ];
+
+        for value in values {
+            for radix in [0, 1, 37, u32::MAX] {
+                let formatted = std::panic::catch_unwind(|| value.to_str_radix(radix))
+                    .expect("fallible formatting must not unwind for an unsupported radix");
+                assert_eq!(
+                    formatted,
+                    Err(UNSUPPORTED_RADIX_ERROR.to_owned()),
+                    "value {value}, radix {radix}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn fallible_radix_parsers_preserve_valid_boundaries_and_parse_refusals() {
         for (src, radix, expected) in [
             ("-101", 2, BigInt::from(-5)),
@@ -3501,13 +3522,23 @@ mod tests {
         assert!(BigInt::from_str_radix("2", 2).is_err());
         assert!(<BigInt as Num>::from_str_radix("2", 2).is_err());
 
+        for (value, radix, expected) in [
+            (BigInt::from(-5), 2, "-101"),
+            (BigInt::zero(), 10, "0"),
+            (BigInt::from(35), 36, "z"),
+        ] {
+            assert_eq!(value.to_str_radix(radix).as_deref(), Ok(expected));
+        }
+
         for value in [
             BigInt::zero(),
             BigInt::from(-1),
             (&BigInt::one() << 257u32) + BigInt::from(12345),
         ] {
             for radix in [2, 10, 36] {
-                let encoded = value.to_str_radix(radix);
+                let encoded = value
+                    .to_str_radix(radix)
+                    .expect("supported-radix formatting succeeds");
                 assert_eq!(BigInt::from_str_radix(&encoded, radix), Ok(value.clone()));
             }
         }
