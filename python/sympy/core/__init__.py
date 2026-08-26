@@ -70,6 +70,34 @@ def _restore_pow(cls, base, exponent):
     return cls(base, exponent, evaluate=False)
 
 
+def _exact_integer_argument(value: Any) -> int:
+    """Apply the pinned built-in conversions without invoking user hooks."""
+    if type(value) is int:
+        return value
+    if type(value) is bool:
+        return 1 if value else 0
+    if type(value) is float:
+        return int(value)
+    if type(value) is Integer:
+        return value.p
+    raise TypeError("admitted built-in number or Integer required")
+
+
+def _exact_rational_argument(value: Any) -> tuple[int, int]:
+    """Return an exact ratio for admitted built-ins and exact shell numbers."""
+    if type(value) is int:
+        return value, 1
+    if type(value) is bool:
+        return (1 if value else 0), 1
+    if type(value) is float:
+        return value.as_integer_ratio()
+    if type(value) is Integer:
+        return value.p, 1
+    if type(value) is Rational:
+        return value.p, value.q
+    raise TypeError("exact built-in number, Integer, or Rational required")
+
+
 class Expr:
     """Python-visible wrapper for a native exact expression."""
 
@@ -256,9 +284,7 @@ class Integer(Expr):
     __slots__ = ()
 
     def __init__(self, value: int):
-        if isinstance(value, bool):
-            raise TypeError("boolean coercion is not implemented")
-        self._value = _native.py_integer(int(value))
+        self._value = _native.py_integer(_exact_integer_argument(value))
 
     @property
     def p(self) -> int:
@@ -273,7 +299,12 @@ class Rational(Expr):
     __slots__ = ()
 
     def __init__(self, numerator: int, denominator: int):
-        self._value = _native.py_rational(int(numerator), int(denominator))
+        numerator_p, numerator_q = _exact_rational_argument(numerator)
+        denominator_p, denominator_q = _exact_rational_argument(denominator)
+        self._value = _native.py_rational(
+            numerator_p * denominator_q,
+            numerator_q * denominator_p,
+        )
 
     @property
     def p(self) -> int:
@@ -334,9 +365,13 @@ def symbols(names: str | Iterable[str], **assumptions: Any):
 
 
 def _require_symbol(value: Any) -> Symbol:
-    if not isinstance(value, Symbol):
-        raise TypeError("differentiation variable must be a Symbol")
-    return value
+    if type(value) is Symbol:
+        return value
+    if isinstance(value, Symbol):
+        raise NotImplementedError(
+            "custom Symbol subclasses require a supervised Python override lane"
+        )
+    raise TypeError("differentiation variable must be a Symbol")
 
 
 def diff(expression: Any, *variables: Any) -> Expr:

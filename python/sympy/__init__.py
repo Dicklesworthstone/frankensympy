@@ -103,10 +103,17 @@ def _exact_integer_value(value):
     return None
 
 
+def _not_integer_message(value):
+    """Format exact built-in floats without executing arbitrary object hooks."""
+    if type(value) is float:
+        return f"{value!r} is not an integer"
+    return "value is not an integer"
+
+
 def isprime(value):
     integer = _exact_integer_value(value)
     if integer is None:
-        raise ValueError(f"{value} is not an integer")
+        raise ValueError(_not_integer_message(value))
     if integer < 2:
         return False
     return _native.is_prime(integer)
@@ -115,7 +122,7 @@ def isprime(value):
 def factorint(value):
     integer = _exact_integer_value(value)
     if integer is None:
-        raise ValueError(f"{value} is not an integer")
+        raise ValueError(_not_integer_message(value))
     if integer == 0:
         return {0: 1}
     factors = dict(_native.factorize(abs(integer)))

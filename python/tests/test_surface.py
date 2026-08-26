@@ -77,10 +77,52 @@ class SurfaceTests(unittest.TestCase):
                 self.calls += 1
                 return 2
 
+            def __str__(self):
+                self.calls += 1
+                return "2"
+
+            def __repr__(self):
+                self.calls += 1
+                return "2"
+
+            def __format__(self, format_spec):
+                del format_spec
+                self.calls += 1
+                return "2"
+
         lossy = LossyInteger()
         with self.assertRaises(ValueError):
             sympy.isprime(lossy)
+        with self.assertRaises(ValueError):
+            sympy.factorint(lossy)
+        with self.assertRaises(TypeError):
+            sympy.Integer(lossy)
+        with self.assertRaises(TypeError):
+            sympy.Rational(lossy, 1)
         self.assertEqual(lossy.calls, 0)
+
+        self.assertEqual(sympy.Integer(2.9), sympy.Integer(2))
+        self.assertEqual(sympy.Integer(True), sympy.Integer(1))
+        self.assertEqual(
+            sympy.Rational(1.9, 2),
+            sympy.Rational(4278419646001971, 4503599627370496),
+        )
+
+    def test_custom_symbol_variable_refuses_before_running_overrides(self):
+        effects = []
+
+        class EffectfulSymbol(sympy.Symbol):
+            @property
+            def name(self):
+                effects.append("name")
+                return "x"
+
+        variable = EffectfulSymbol("x")
+        with self.assertRaisesRegex(
+            NotImplementedError, "supervised Python override lane"
+        ):
+            sympy.diff(sympy.Symbol("x"), variable)
+        self.assertEqual(effects, [])
 
     def test_number_theory_wrappers_preserve_signed_and_zero_domains(self):
         self.assertTrue(sympy.isprime(sympy.Integer(2)))
