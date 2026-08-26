@@ -5,10 +5,15 @@
 #![forbid(unsafe_code)]
 
 use fsym_core::{Expr, Symbol};
-use fsym_simplify::simplify;
-use serde::{Deserialize, Serialize};
+use fsym_simplify::{SimplifyError, try_simplify};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 use thiserror::Error;
+
+const MAX_TENSOR_COMPONENTS: usize = 262_144;
+const MAX_COMPONENT_EXPRESSION_NODES: usize = 262_144;
+const MAX_COMPONENT_EXPRESSION_DEPTH: usize = 64;
+const MAX_COMPONENT_EXPRESSION_FANOUT: usize = 4_096;
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum TensorError {
@@ -27,6 +32,28 @@ pub enum TensorError {
         dimension: usize,
         rank: usize,
     },
+    #[error(
+        "Tensor component count for dimension {dimension} and rank {rank} exceeds the supported range"
+    )]
+    ComponentCountOverflow { dimension: usize, rank: usize },
+    #[error("Tensor has {0} components, exceeding the limit of {MAX_TENSOR_COMPONENTS}")]
+    ComponentLimitExceeded(usize),
+    #[error("Raising or lowering concrete tensor components requires an explicit metric")]
+    ConcreteVarianceChangeRequiresMetric,
+    #[error(
+        "Tensor component expression depth {actual} exceeds the limit of {MAX_COMPONENT_EXPRESSION_DEPTH}"
+    )]
+    ComponentExpressionDepthLimitExceeded { actual: usize },
+    #[error(
+        "Tensor component expressions exceed the aggregate node limit of {MAX_COMPONENT_EXPRESSION_NODES}"
+    )]
+    ComponentExpressionNodeLimitExceeded,
+    #[error(
+        "Tensor component expression fanout {actual} exceeds the limit of {MAX_COMPONENT_EXPRESSION_FANOUT}"
+    )]
+    ComponentExpressionFanoutLimitExceeded { actual: usize },
+    #[error(transparent)]
+    Simplification(#[from] SimplifyError),
 }
 
 /// Tensor index variance: Contravariant (upper index) or Covariant (lower index).
@@ -97,7 +124,7 @@ fn encode_multi_index(indices: &[usize], dim: usize) -> usize {
 }
 
 /// Symbolic tensor expression with named indices and optional concrete components.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TensorExpr {
     pub name: String,
     pub dimension: usize,
@@ -105,7 +132,150 @@ pub struct TensorExpr {
     pub components: Option<Vec<Expr>>,
 }
 
+#[derive(Serialize)]
+struct TensorExprWireRef<'a> {
+    name: &'a str,
+    dimension: usize,
+    indices: &'a [TensorIndex],
+    components: Option<&'a [Expr]>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TensorExprWire {
+    name: String,
+    dimension: usize,
+    indices: Vec<TensorIndex>,
+    components: Option<Vec<Expr>>,
+}
+
+impl Serialize for TensorExpr {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.validate_components()
+            .map_err(serde::ser::Error::custom)?;
+        TensorExprWireRef {
+            name: &self.name,
+            dimension: self.dimension,
+            indices: &self.indices,
+            components: self.components.as_deref(),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for TensorExpr {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = TensorExprWire::deserialize(deserializer)?;
+        let tensor = Self {
+            name: wire.name,
+            dimension: wire.dimension,
+            indices: wire.indices,
+            components: wire.components,
+        };
+        tensor
+            .validate_components()
+            .map_err(serde::de::Error::custom)?;
+        Ok(tensor)
+    }
+}
+
 impl TensorExpr {
+    fn expected_component_count(dimension: usize, rank: usize) -> Result<usize, TensorError> {
+        let count = if rank == 0 {
+            1
+        } else {
+            let exponent = u32::try_from(rank)
+                .map_err(|_| TensorError::ComponentCountOverflow { dimension, rank })?;
+            dimension
+                .checked_pow(exponent)
+                .ok_or(TensorError::ComponentCountOverflow { dimension, rank })?
+        };
+        if count > MAX_TENSOR_COMPONENTS {
+            return Err(TensorError::ComponentLimitExceeded(count));
+        }
+        Ok(count)
+    }
+
+    fn validate_components(&self) -> Result<(), TensorError> {
+        let Some(components) = &self.components else {
+            return Ok(());
+        };
+        let rank = self.rank();
+        let expected = Self::expected_component_count(self.dimension, rank)?;
+        if components.len() != expected {
+            return Err(TensorError::ComponentCountMismatch {
+                expected,
+                actual: components.len(),
+                dimension: self.dimension,
+                rank,
+            });
+        }
+        Self::validate_component_expressions(components)?;
+        Ok(())
+    }
+
+    fn validate_component_expressions(components: &[Expr]) -> Result<(), TensorError> {
+        let mut visited = 0usize;
+        let mut stack = Vec::new();
+
+        for root in components {
+            stack.push((root, 0usize));
+            while let Some((expr, depth)) = stack.pop() {
+                if depth > MAX_COMPONENT_EXPRESSION_DEPTH {
+                    return Err(TensorError::ComponentExpressionDepthLimitExceeded {
+                        actual: depth,
+                    });
+                }
+                visited = visited
+                    .checked_add(1)
+                    .ok_or(TensorError::ComponentExpressionNodeLimitExceeded)?;
+                if visited > MAX_COMPONENT_EXPRESSION_NODES {
+                    return Err(TensorError::ComponentExpressionNodeLimitExceeded);
+                }
+
+                let children: &[Expr] = match expr {
+                    Expr::Add(items) | Expr::Mul(items) | Expr::Function(_, items) => items,
+                    Expr::Pow(base, exponent) => {
+                        if depth == MAX_COMPONENT_EXPRESSION_DEPTH {
+                            return Err(TensorError::ComponentExpressionDepthLimitExceeded {
+                                actual: depth + 1,
+                            });
+                        }
+                        stack.push((exponent, depth + 1));
+                        stack.push((base, depth + 1));
+                        continue;
+                    }
+                    Expr::Sym(_) | Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_) => {
+                        continue;
+                    }
+                };
+
+                if children.len() > MAX_COMPONENT_EXPRESSION_FANOUT {
+                    return Err(TensorError::ComponentExpressionFanoutLimitExceeded {
+                        actual: children.len(),
+                    });
+                }
+                if !children.is_empty() && depth == MAX_COMPONENT_EXPRESSION_DEPTH {
+                    return Err(TensorError::ComponentExpressionDepthLimitExceeded {
+                        actual: depth + 1,
+                    });
+                }
+                if stack.len() > MAX_COMPONENT_EXPRESSION_NODES.saturating_sub(children.len()) {
+                    return Err(TensorError::ComponentExpressionNodeLimitExceeded);
+                }
+                stack.extend(children.iter().map(|child| (child, depth + 1)));
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn new(name: impl Into<String>, indices: Vec<TensorIndex>) -> Self {
         Self {
             name: name.into(),
@@ -122,18 +292,7 @@ impl TensorExpr {
         components: Vec<Expr>,
     ) -> Result<Self, TensorError> {
         let rank = indices.len();
-        let expected = if rank == 0 {
-            1
-        } else {
-            dimension
-                .checked_pow(rank as u32)
-                .ok_or(TensorError::ComponentCountMismatch {
-                    expected: usize::MAX,
-                    actual: components.len(),
-                    dimension,
-                    rank,
-                })?
-        };
+        let expected = Self::expected_component_count(dimension, rank)?;
         if components.len() != expected {
             return Err(TensorError::ComponentCountMismatch {
                 expected,
@@ -142,12 +301,14 @@ impl TensorExpr {
                 rank,
             });
         }
-        Ok(Self {
+        let tensor = Self {
             name: name.into(),
             dimension,
             indices,
             components: Some(components),
-        })
+        };
+        tensor.validate_components()?;
+        Ok(tensor)
     }
 
     pub fn rank(&self) -> usize {
@@ -160,6 +321,7 @@ impl TensorExpr {
         target_sym: &Symbol,
         new_name: impl Into<String>,
     ) -> Result<Self, TensorError> {
+        self.validate_components()?;
         let pos = self
             .indices
             .iter()
@@ -168,6 +330,10 @@ impl TensorExpr {
                 TensorError::IndexMismatch(format!("Index {} not found in tensor", target_sym))
             })?;
 
+        if self.components.is_some() {
+            return Err(TensorError::ConcreteVarianceChangeRequiresMetric);
+        }
+
         let mut new_indices = self.indices.clone();
         new_indices[pos] = new_indices[pos].flip_variance();
 
@@ -175,7 +341,7 @@ impl TensorExpr {
             name: new_name.into(),
             dimension: self.dimension,
             indices: new_indices,
-            components: self.components.clone(),
+            components: None,
         })
     }
 
@@ -185,30 +351,39 @@ impl TensorExpr {
         other: &Self,
         new_name: impl Into<String>,
     ) -> Result<Self, TensorError> {
-        if self.dimension != other.dimension
-            && self.components.is_some()
-            && other.components.is_some()
-        {
+        self.validate_components()?;
+        other.validate_components()?;
+        if self.dimension != other.dimension {
             return Err(TensorError::DimensionMismatch(
                 self.dimension,
                 other.dimension,
             ));
         }
-        let mut new_indices = self.indices.clone();
-        new_indices.extend(other.indices.clone());
+
+        let output_rank =
+            self.rank()
+                .checked_add(other.rank())
+                .ok_or(TensorError::ComponentCountOverflow {
+                    dimension: self.dimension,
+                    rank: usize::MAX,
+                })?;
 
         let new_components = match (&self.components, &other.components) {
             (Some(c1), Some(c2)) => {
-                let mut comp = Vec::with_capacity(c1.len() * c2.len());
+                let output_len = Self::expected_component_count(self.dimension, output_rank)?;
+                let mut comp = Vec::with_capacity(output_len);
                 for a in c1 {
                     for b in c2 {
-                        comp.push(simplify(&(a.clone() * b.clone())));
+                        comp.push(try_simplify(&(a.clone() * b.clone()))?);
                     }
                 }
                 Some(comp)
             }
             _ => None,
         };
+
+        let mut new_indices = self.indices.clone();
+        new_indices.extend(other.indices.clone());
 
         Ok(Self {
             name: new_name.into(),
@@ -225,6 +400,7 @@ impl TensorExpr {
         lower_sym: &Symbol,
         new_name: impl Into<String>,
     ) -> Result<Self, TensorError> {
+        self.validate_components()?;
         let up_pos = self
             .indices
             .iter()
@@ -258,11 +434,7 @@ impl TensorExpr {
         let out_rank = new_indices.len();
         let new_components = if let Some(components) = &self.components {
             let dim = self.dimension;
-            let out_len = if out_rank == 0 {
-                1
-            } else {
-                dim.pow(out_rank as u32)
-            };
+            let out_len = Self::expected_component_count(dim, out_rank)?;
             let in_rank = self.rank();
             let mut out_comp = Vec::with_capacity(out_len);
 
@@ -288,7 +460,7 @@ impl TensorExpr {
                 }
 
                 let sum_expr = Expr::Add(sum_terms);
-                out_comp.push(simplify(&sum_expr));
+                out_comp.push(try_simplify(&sum_expr)?);
             }
             Some(out_comp)
         } else {
@@ -454,5 +626,124 @@ mod tests {
             t3.outer_product(&t4, "P"),
             Err(TensorError::DimensionMismatch(3, 4))
         );
+
+        let symbolic4 = TensorExpr {
+            name: "S4".into(),
+            dimension: 4,
+            indices: vec![TensorIndex::lower("nu")],
+            components: None,
+        };
+        assert_eq!(
+            t3.outer_product(&symbolic4, "P"),
+            Err(TensorError::DimensionMismatch(3, 4))
+        );
+    }
+
+    #[test]
+    fn concrete_variance_changes_require_a_metric() {
+        let vector = TensorExpr::with_components(
+            "v",
+            2,
+            vec![TensorIndex::upper("i")],
+            vec![Expr::from_i64(1), Expr::from_i64(2)],
+        )
+        .unwrap();
+
+        assert_eq!(
+            vector.contract_index(&Symbol::new("i"), "lowered"),
+            Err(TensorError::ConcreteVarianceChangeRequiresMetric)
+        );
+    }
+
+    #[test]
+    fn malformed_public_component_storage_is_rejected_before_indexing_or_export() {
+        let malformed = TensorExpr {
+            name: "bad".into(),
+            dimension: 2,
+            indices: vec![TensorIndex::upper("i"), TensorIndex::lower("j")],
+            components: Some(vec![Expr::from_i64(1)]),
+        };
+
+        assert!(matches!(
+            malformed.self_contract(&Symbol::new("i"), &Symbol::new("j"), "trace"),
+            Err(TensorError::ComponentCountMismatch {
+                expected: 4,
+                actual: 1,
+                ..
+            })
+        ));
+        assert!(serde_json::to_string(&malformed).is_err());
+
+        let valid = TensorExpr::with_components(
+            "valid",
+            2,
+            vec![TensorIndex::upper("i"), TensorIndex::lower("j")],
+            vec![Expr::from_i64(1); 4],
+        )
+        .unwrap();
+        let mut wire = serde_json::to_value(valid).unwrap();
+        wire["components"].as_array_mut().unwrap().truncate(1);
+        let error = serde_json::from_value::<TensorExpr>(wire).unwrap_err();
+        assert!(error.to_string().contains("expected 4"));
+    }
+
+    #[test]
+    fn outer_product_refuses_component_amplification_before_allocating_output() {
+        let left = TensorExpr::with_components(
+            "left",
+            64,
+            vec![TensorIndex::upper("i"), TensorIndex::lower("j")],
+            vec![Expr::from_i64(1); 4_096],
+        )
+        .unwrap();
+        let right = TensorExpr::with_components(
+            "right",
+            64,
+            vec![TensorIndex::upper("k"), TensorIndex::lower("l")],
+            vec![Expr::from_i64(1); 4_096],
+        )
+        .unwrap();
+
+        assert_eq!(
+            left.outer_product(&right, "too_large"),
+            Err(TensorError::ComponentLimitExceeded(16_777_216))
+        );
+    }
+
+    #[test]
+    fn component_shape_limits_are_checked_before_recursive_work() {
+        let mut deep = Expr::from_i64(1);
+        for _ in 0..=(MAX_COMPONENT_EXPRESSION_DEPTH + 1) {
+            deep = Expr::Function("sin".into(), vec![deep]);
+        }
+        assert!(matches!(
+            TensorExpr::with_components(
+                "deep",
+                1,
+                vec![TensorIndex::upper("i")],
+                vec![deep.clone()],
+            ),
+            Err(TensorError::ComponentExpressionDepthLimitExceeded { .. })
+        ));
+
+        let deep_vector = TensorExpr {
+            name: "deep".into(),
+            dimension: 1,
+            indices: vec![TensorIndex::upper("i")],
+            components: Some(vec![deep]),
+        };
+        let scalar =
+            TensorExpr::with_components("one", 1, vec![], vec![Expr::from_i64(1)]).unwrap();
+
+        assert!(matches!(
+            deep_vector.outer_product(&scalar, "product"),
+            Err(TensorError::ComponentExpressionDepthLimitExceeded { .. })
+        ));
+
+        let wide = Expr::Add(vec![Expr::from_i64(1); MAX_COMPONENT_EXPRESSION_FANOUT + 1]);
+        assert!(matches!(
+            TensorExpr::with_components("wide", 1, vec![TensorIndex::upper("i")], vec![wide],),
+            Err(TensorError::ComponentExpressionFanoutLimitExceeded { .. })
+        ));
     }
 }

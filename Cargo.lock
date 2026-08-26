@@ -899,6 +899,7 @@ dependencies = [
  "fsym-simplify",
  "proptest",
  "serde",
+ "serde_json",
  "thiserror",
 ]
 
