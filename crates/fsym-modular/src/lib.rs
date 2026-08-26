@@ -16,8 +16,8 @@
 
 use fsym_bigint::{
     BigInt, NonZeroBigInt, extended_gcd, gcd, metered_add as metered_bigint_add,
-    metered_div_rem_nonzero, metered_extended_gcd, metered_gcd, metered_multiply as metered_mul,
-    metered_pow as metered_bigint_pow, metered_sqrt_floor,
+    metered_cmp as metered_bigint_cmp, metered_div_rem_nonzero, metered_extended_gcd, metered_gcd,
+    metered_multiply as metered_mul, metered_pow as metered_bigint_pow, metered_sqrt_floor,
     metered_subtract as metered_bigint_subtract, sqrt_floor,
 };
 #[cfg(test)]
@@ -994,14 +994,7 @@ fn metered_compare<M: BudgetMeter>(
     predicate: impl FnOnce(std::cmp::Ordering) -> bool,
     meter: &mut M,
 ) -> Result<bool, MeterError> {
-    meter.checkpoint()?;
-    meter.charge(
-        Dimension::ComputeSteps,
-        lhs.limb_count().max(rhs.limb_count()).max(1),
-    )?;
-    let result = predicate(lhs.cmp(rhs));
-    meter.checkpoint()?;
-    Ok(result)
+    metered_bigint_cmp(lhs, rhs, meter).map(predicate)
 }
 
 fn metered_add<M: BudgetMeter>(
@@ -3148,11 +3141,12 @@ mod tests {
         );
         // PRIME-TABLE-DIRECT-PUSH: the former one-header charge/direct Vec::push path reports a
         // smaller transcript and performs its reallocation after the final checkpoint.
-        // Candidates 8 through 11 perform thirteen one-limb Newton comparisons. The governed
-        // comparator charges sign, length, and digit work with four safe points, so replacing it
-        // with an opaque one-step/two-checkpoint comparison would reduce both totals by 26.
-        assert_eq!(measured.dimensions, [1_471, 1_280, 194, 0, 0]);
-        assert_eq!(measured.checkpoints, 1_663);
+        // Candidates 8 through 11 perform thirteen one-limb Newton comparisons and seven
+        // one-limb prime-versus-root comparisons. Both governed owners charge sign, length, and
+        // digit work with four safe points, so restoring either opaque comparator changes this
+        // transcript.
+        assert_eq!(measured.dimensions, [1_485, 1_280, 194, 0, 0]);
+        assert_eq!(measured.checkpoints, 1_677);
         assert_eq!(stream.emitted_capacity, 8);
         assert_eq!(stream.emitted.len(), 5);
         assert_eq!(stream.emitted.last(), Some(&BigInt::from(11)));
@@ -3342,17 +3336,20 @@ mod tests {
         });
         // sqrt(50) performs five one-limb Newton comparisons. The governed comparator charges
         // sign, length, and digit work with four safe points, so an opaque one-step/two-checkpoint
-        // comparison would reduce each reconstruction transcript by ten checkpoints.
+        // comparison would reduce each reconstruction transcript by ten checkpoints. The
+        // nonzero-refusal case also performs three governed one-limb reconstruction-bound
+        // comparisons, contributing six more checkpoints than the former modular wrapper.
         assert_terminal_checkpoint(Some((BigInt::zero(), BigInt::one())), 605, |meter| {
             metered_rational_reconstruct(&BigInt::zero(), &BigInt::from(101), meter)
         });
-        assert_terminal_checkpoint(None, 680, |meter| {
+        assert_terminal_checkpoint(None, 686, |meter| {
             metered_rational_reconstruct(&BigInt::from(8), &BigInt::from(101), meter)
         });
         assert_terminal_checkpoint(true, 603, |meter| {
             metered_is_probable_prime(&BigInt::from(41), meter)
         });
-        assert_terminal_checkpoint(false, 2_399, |meter| {
+        // The composite witness path performs three additional governed one-limb comparisons.
+        assert_terminal_checkpoint(false, 2_405, |meter| {
             metered_is_probable_prime(&BigInt::from(2_021), meter)
         });
     }
@@ -3583,8 +3580,9 @@ mod tests {
 
         // BATCH-INVERSE-PER-ELEMENT: replacing the one-inverse prefix/reverse lane with four
         // independent scalar inversions still returns these values but changes this transcript.
-        assert_eq!(measured.dimensions, [573, 1_176, 147, 0, 0]);
-        assert_eq!(measured.checkpoints, 748);
+        // The four membership checks each use the governed sign/length/digit comparator.
+        assert_eq!(measured.dimensions, [581, 1_176, 147, 0, 0]);
+        assert_eq!(measured.checkpoints, 756);
         assert_eq!(
             expected,
             values
@@ -4079,6 +4077,95 @@ mod tests {
                 .reason,
             UnluckyPrimeReason::InvalidPrimeCandidate
         );
+    }
+
+    #[test]
+    fn modular_comparison_uses_bigint_digit_accounting_and_safe_points() {
+        let deep_left = (BigInt::one() << 2_048u32) + 1i64;
+        let deep_right = (BigInt::one() << 2_048u32) + 2i64;
+        let shallow_right = (BigInt::from(2i64) << 2_048u32) + 1i64;
+
+        let mut deep_comparison = CountingMeter::default();
+        assert!(!metered_equal(&deep_left, &deep_right, &mut deep_comparison).unwrap());
+        assert_eq!(deep_comparison.dimensions, [67, 0, 0, 0, 0]);
+        assert_eq!(deep_comparison.checkpoints, 68);
+
+        let mut shallow_comparison = CountingMeter::default();
+        assert!(!metered_equal(&deep_left, &shallow_right, &mut shallow_comparison).unwrap());
+        assert_eq!(shallow_comparison.dimensions, [3, 0, 0, 0, 0]);
+        assert_eq!(shallow_comparison.checkpoints, 4);
+
+        let left_ring = ModularRing::new(deep_left).unwrap();
+        let right_ring = ModularRing::new(deep_right).unwrap();
+        let left = left_ring.one();
+        let right = right_ring.one();
+        let mut measured = CountingMeter::default();
+        assert_eq!(left.metered_add(&right, &mut measured).unwrap(), None);
+        // MODULAR-OPAQUE-CMP-RESTORE: the former aggregate charge plus lhs.cmp(rhs) admits this
+        // public refusal with 33 compute steps and only four total checkpoints.
+        assert_eq!(measured.dimensions, [67, 0, 0, 0, 0]);
+        assert_eq!(measured.checkpoints, 70);
+
+        let mut one_short_limits = BudgetLimits {
+            dimensions: measured.dimensions,
+            verifier_pool: 0,
+        };
+        one_short_limits.dimensions[Dimension::ComputeSteps.index()] -= 1;
+        let mut one_short = Budget::new(one_short_limits);
+        assert!(matches!(
+            left.metered_add(&right, &mut one_short),
+            Err(MeterError::Budget(BudgetError::Exhausted {
+                dimension: Dimension::ComputeSteps,
+                ..
+            }))
+        ));
+
+        let mut exact = Budget::new(BudgetLimits {
+            dimensions: measured.dimensions,
+            verifier_pool: 0,
+        });
+        assert_eq!(left.metered_add(&right, &mut exact).unwrap(), None);
+
+        for checkpoint in 1..=measured.checkpoints {
+            let mut cancelled = CheckpointMeter::cancelling_at(checkpoint);
+            assert_eq!(
+                left.metered_add(&right, &mut cancelled),
+                Err(MeterError::Cancelled),
+                "mismatched-ring comparison ignored checkpoint {checkpoint}"
+            );
+        }
+    }
+
+    #[test]
+    fn modular_comparison_predicates_match_integer_ordering_boundaries() {
+        let deep = (BigInt::one() << 2_048u32) + 1i64;
+        let cases = [
+            (BigInt::zero(), BigInt::zero()),
+            (BigInt::from(-1), BigInt::zero()),
+            (BigInt::zero(), BigInt::one()),
+            (-(BigInt::one() << 96u32), -(BigInt::one() << 64u32)),
+            (BigInt::one() << 96u32, BigInt::one() << 64u32),
+            (deep.clone(), deep + 1i64),
+        ];
+
+        for (lhs, rhs) in cases {
+            let expected = lhs.cmp(&rhs);
+            let mut meter = Unbounded;
+            assert_eq!(
+                metered_equal(&lhs, &rhs, &mut meter).unwrap(),
+                expected.is_eq()
+            );
+            let mut meter = Unbounded;
+            assert_eq!(
+                metered_greater(&lhs, &rhs, &mut meter).unwrap(),
+                expected.is_gt()
+            );
+            let mut meter = Unbounded;
+            assert_eq!(
+                metered_greater_or_equal(&lhs, &rhs, &mut meter).unwrap(),
+                expected.is_ge()
+            );
+        }
     }
 
     #[test]
