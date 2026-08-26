@@ -349,17 +349,23 @@ pub fn fourier_transform(expr: &Expr, t: &Symbol, omega: &Symbol) -> Result<Expr
             match name.as_str() {
                 "exp" => {
                     // Check for exp(-a * abs(t)) -> 2a / (a^2 + omega^2)
-                    if let Expr::Mul(factors) = arg
-                        && factors.len() == 2
-                        && factors.iter().any(|f| {
-                            matches!(f, Expr::Function(n, a) if n == "abs" && a.len() == 1 && a[0] == t_sym)
-                        })
-                    {
-                        let a_opt = factors
-                            .iter()
-                            .find(|f| !matches!(f, Expr::Function(n, _) if n == "abs"));
-                        if let Some(neg_a) = a_opt {
-                            let a = simplify(&(Expr::from_i64(-1) * neg_a.clone()));
+                    let abs_t_expr = Expr::Function("abs".to_string(), vec![t_sym.clone()]);
+                    if let Expr::Mul(factors) = arg {
+                        let mut non_abs = Vec::new();
+                        let mut has_abs = false;
+                        for f in factors {
+                            if f == &abs_t_expr {
+                                has_abs = true;
+                            } else if f.free_symbols().contains(t) {
+                                has_abs = false;
+                                break;
+                            } else {
+                                non_abs.push(f.clone());
+                            }
+                        }
+                        if has_abs {
+                            let neg_a = simplify(&Expr::Mul(non_abs));
+                            let a = simplify(&(Expr::from_i64(-1) * neg_a));
                             let two_a = Expr::Mul(vec![Expr::from_i64(2), a.clone()]);
                             let a_sq = Expr::Pow(Arc::new(a), Arc::new(Expr::from_i64(2)));
                             let w_sq = Expr::Pow(Arc::new(omega_sym), Arc::new(Expr::from_i64(2)));
