@@ -589,4 +589,43 @@ mod tests {
             Err(SolverError::InvalidSystem(_))
         ));
     }
+
+    #[test]
+    fn test_solve_higher_degree_poly_via_factorization() {
+        let x = Symbol::new("x");
+
+        // x^3 - 6x^2 + 11x - 6 = (x - 1)(x - 2)(x - 3) = 0
+        let p_cubic = UnivariatePoly::new(
+            x.clone(),
+            vec![
+                BigRational::from_integer(BigInt::from(-6)),
+                BigRational::from_integer(BigInt::from(11)),
+                BigRational::from_integer(BigInt::from(-6)),
+                BigRational::one(),
+            ],
+        );
+
+        let roots = solve_poly(&p_cubic).unwrap();
+        assert_eq!(roots.len(), 3);
+        assert!(roots.contains(&Expr::Integer(BigInt::from(1))));
+        assert!(roots.contains(&Expr::Integer(BigInt::from(2))));
+        assert!(roots.contains(&Expr::Integer(BigInt::from(3))));
+    }
+
+    #[test]
+    fn test_first_order_ode_solving_and_verification() {
+        let x = Symbol::new("x");
+        let c1 = Symbol::new("C1");
+
+        // y'(x) = x * y(x) -> y(x) = C1 * exp(x^2 / 2)
+        let f_x = Expr::Sym(x.clone());
+        let sol = dsolve_separable_linear(&f_x, &x, &c1).unwrap();
+        assert!(matches!(sol, Expr::Mul(_)));
+
+        // y'(x) + y(x) = 1 -> y(x) = 1 + C1 * exp(-x)
+        let p = Expr::from_i64(1);
+        let q = Expr::from_i64(1);
+        let lin_sol = dsolve_linear_first_order(&p, &q, &x, &c1).unwrap();
+        assert!(verify_first_order_linear_solution(&lin_sol, &p, &q, &x));
+    }
 }

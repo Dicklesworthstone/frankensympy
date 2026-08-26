@@ -287,9 +287,7 @@ mod tests {
         let x = Expr::symbol("x");
         let claim = Claim::equality(x.clone(), x.clone());
         let mut kernel = ProofKernel::new((*ImmutableAssumptionsSnapshot::empty()).clone());
-        let root = kernel
-            .prove_reflexivity(x.clone(), &mut Unbounded)
-            .unwrap();
+        let root = kernel.prove_reflexivity(x.clone(), &mut Unbounded).unwrap();
         let candidate = RemoteCandidate {
             worker_id: "worker-1".to_string(),
             task_id: 42,
@@ -348,9 +346,7 @@ mod tests {
         let error = coordinator.verify_remote_candidate(&candidate).unwrap_err();
         assert_eq!(
             error,
-            RemoteWorkerError::VerificationFailed(
-                RemoteVerificationFailure::ClaimDiscrepancy
-            )
+            RemoteWorkerError::VerificationFailed(RemoteVerificationFailure::ClaimDiscrepancy)
         );
         assert!(!error.to_string().contains("private_formula_name"));
     }
