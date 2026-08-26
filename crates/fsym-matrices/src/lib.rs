@@ -991,6 +991,348 @@ impl Matrix {
         verify_lu_certificate(self, &cert)?;
         Ok(cert)
     }
+
+    /// Solves exact linear system $A \cdot X = B$ for square matrix $A$ and right-hand side $B$.
+    pub fn solve(&self, b: &Matrix) -> Result<Matrix, MatrixError> {
+        self.validate_shape()?;
+        b.validate_shape()?;
+        if self.rows != self.cols {
+            return Err(MatrixError::NotSquare(self.rows, self.cols));
+        }
+        if self.rows != b.rows {
+            return Err(MatrixError::ShapeMismatch(
+                self.rows, self.cols, b.rows, b.cols,
+            ));
+        }
+        let n = self.rows;
+        let m = b.cols;
+        // Build augmented matrix [A | B] of shape n x (n + m)
+        let mut aug_data = Vec::with_capacity(n * (n + m));
+        for r in 0..n {
+            for c in 0..n {
+                aug_data.push(self.get(r, c)?.clone());
+            }
+            for c in 0..m {
+                aug_data.push(b.get(r, c)?.clone());
+            }
+        }
+        let aug_mat = Matrix::new(n, n + m, aug_data)?;
+        let (rref_aug, pivot_cols) = aug_mat.rref()?;
+        if pivot_cols.len() < n || pivot_cols.iter().any(|&c| c >= n) {
+            return Err(MatrixError::SingularMatrix);
+        }
+        // Extract solution X of shape n x m from right columns
+        let mut x_data = Vec::with_capacity(n * m);
+        for r in 0..n {
+            for c in 0..m {
+                x_data.push(rref_aug.get(r, n + c)?.clone());
+            }
+        }
+        let sol = Matrix::new(n, m, x_data)?;
+        let cert = LinearSystemCertificate {
+            solution: sol.clone(),
+        };
+        verify_linear_system_certificate(self, b, &cert)?;
+        Ok(sol)
+    }
+
+    /// Solves linear least-squares system $A^T A X = A^T B$.
+    pub fn solve_least_squares(&self, b: &Matrix) -> Result<Matrix, MatrixError> {
+        let at = self.transpose();
+        let ata = at.matmul(self)?;
+        let atb = at.matmul(b)?;
+        ata.solve(&atb)
+    }
+
+    /// Exact QR decomposition with orthogonal columns via Modified Gram-Schmidt: $A = Q \cdot R$.
+    ///
+    /// For an $m \times n$ matrix $A$ with linearly independent columns ($m \ge n$), computes:
+    /// - $Q$ ($m \times n$) whose columns are mutually orthogonal: $Q^T \cdot Q = D$ (diagonal with non-zero entries).
+    /// - $R$ ($n \times n$) which is unit upper-triangular with $R_{j, j} = 1$.
+    pub fn qr(&self) -> Result<QrCertificate, MatrixError> {
+        self.validate_shape()?;
+        let (m, n) = (self.rows, self.cols);
+        if m < n {
+            return Err(MatrixError::ShapeMismatch(m, n, n, n));
+        }
+
+        // Initialize column vectors v_j from A
+        let mut v = Vec::with_capacity(n);
+        for c in 0..n {
+            let mut col_vec = Vec::with_capacity(m);
+            for r in 0..m {
+                col_vec.push(self.get(r, c)?.clone());
+            }
+            v.push(col_vec);
+        }
+
+        let mut r_data = vec![Expr::from_i64(0); n * n];
+        let at_r = |r: usize, c: usize| r * n + c;
+
+        for j in 0..n {
+            r_data[at_r(j, j)] = Expr::from_i64(1);
+            // Compute norm squared <v_j, v_j>
+            let mut norm_sq = Expr::from_i64(0);
+            for k in 0..m {
+                let term = Self::exact_mul(&v[j][k], &v[j][k]);
+                norm_sq = Self::exact_add(&norm_sq, &term);
+            }
+            if norm_sq.is_zero() {
+                return Err(MatrixError::SingularMatrix);
+            }
+
+            for k in (j + 1)..n {
+                // Compute inner product <v_j, A_k>
+                let mut dot = Expr::from_i64(0);
+                for i in 0..m {
+                    let a_i_k = self.get(i, k)?;
+                    let term = Self::exact_mul(&v[j][i], a_i_k);
+                    dot = Self::exact_add(&dot, &term);
+                }
+                let proj = Self::exact_div(&dot, &norm_sq)?;
+                r_data[at_r(j, k)] = proj.clone();
+
+                // Subtract projection from v_k: v_k -= proj * v_j
+                for i in 0..m {
+                    let sub_term = Self::exact_mul(&proj, &v[j][i]);
+                    v[k][i] = Self::exact_sub(&v[k][i], &sub_term);
+                }
+            }
+        }
+
+        // Build Q matrix from columns v_0 .. v_{n-1}
+        let mut q_data = Vec::with_capacity(m * n);
+        for r in 0..m {
+            for c in 0..n {
+                q_data.push(v[c][r].clone());
+            }
+        }
+
+        let q_mat = Matrix::new(m, n, q_data)?;
+        let r_mat = Matrix::new(n, n, r_data)?;
+        let cert = QrCertificate { q: q_mat, r: r_mat };
+        verify_qr_certificate(self, &cert)?;
+        Ok(cert)
+    }
+
+    /// Exact $LDL^T$ decomposition for symmetric matrix $A$: $A = L \cdot D \cdot L^T$.
+    ///
+    /// Computes unit lower-triangular $L$ and diagonal $D$.
+    pub fn ldl(&self) -> Result<LdlCertificate, MatrixError> {
+        self.validate_shape()?;
+        if self.rows != self.cols {
+            return Err(MatrixError::NotSquare(self.rows, self.cols));
+        }
+        let n = self.rows;
+        // Check symmetry: A == A^T
+        for i in 0..n {
+            for j in (i + 1)..n {
+                if self.get(i, j)? != self.get(j, i)? {
+                    return Err(MatrixError::ResourceLimit(
+                        "LDL decomposition requires a symmetric matrix".to_string(),
+                    ));
+                }
+            }
+        }
+
+        let mut l_data = vec![Expr::from_i64(0); n * n];
+        let mut d_data = vec![Expr::from_i64(0); n * n];
+        let at = |r: usize, c: usize| r * n + c;
+
+        for j in 0..n {
+            l_data[at(j, j)] = Expr::from_i64(1);
+            // D_jj = A_jj - sum_{k=0}^{j-1} L_jk^2 * D_kk
+            let mut sum_d = Expr::from_i64(0);
+            for k in 0..j {
+                let l_j_k = &l_data[at(j, k)];
+                let d_k_k = &d_data[at(k, k)];
+                let l_sq = Self::exact_mul(l_j_k, l_j_k);
+                let term = Self::exact_mul(&l_sq, d_k_k);
+                sum_d = Self::exact_add(&sum_d, &term);
+            }
+            let a_j_j = self.get(j, j)?;
+            let d_j_j = Self::exact_sub(a_j_j, &sum_d);
+            if d_j_j.is_zero() {
+                return Err(MatrixError::SingularMatrix);
+            }
+            d_data[at(j, j)] = d_j_j.clone();
+
+            for i in (j + 1)..n {
+                // L_ij = (1 / D_jj) * (A_ij - sum_{k=0}^{j-1} L_ik * L_jk * D_kk)
+                let mut sum_l = Expr::from_i64(0);
+                for k in 0..j {
+                    let l_i_k = &l_data[at(i, k)];
+                    let l_j_k = &l_data[at(j, k)];
+                    let d_k_k = &d_data[at(k, k)];
+                    let prod = Self::exact_mul(l_i_k, l_j_k);
+                    let term = Self::exact_mul(&prod, d_k_k);
+                    sum_l = Self::exact_add(&sum_l, &term);
+                }
+                let a_i_j = self.get(i, j)?;
+                let num = Self::exact_sub(a_i_j, &sum_l);
+                let l_i_j = Self::exact_div(&num, &d_j_j)?;
+                l_data[at(i, j)] = l_i_j;
+            }
+        }
+
+        let l_mat = Matrix::new(n, n, l_data)?;
+        let d_mat = Matrix::new(n, n, d_data)?;
+        let cert = LdlCertificate { l: l_mat, d: d_mat };
+        verify_ldl_certificate(self, &cert)?;
+        Ok(cert)
+    }
+}
+
+/// Certificate for exact linear system solution $A \cdot X = B$.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LinearSystemCertificate {
+    pub solution: Matrix,
+}
+
+/// Independent verifier checking that $A \cdot X = B$.
+pub fn verify_linear_system_certificate(
+    a: &Matrix,
+    b: &Matrix,
+    cert: &LinearSystemCertificate,
+) -> Result<(), MatrixError> {
+    a.validate_shape()?;
+    b.validate_shape()?;
+    cert.solution.validate_shape()?;
+    if a.cols != cert.solution.rows || a.rows != b.rows || cert.solution.cols != b.cols {
+        return Err(MatrixError::ShapeMismatch(
+            a.rows,
+            a.cols,
+            cert.solution.rows,
+            cert.solution.cols,
+        ));
+    }
+    let ax = a.matmul(&cert.solution)?;
+    if ax != *b {
+        return Err(MatrixError::ResourceLimit(
+            "Linear system solution verification failed: A * X != B".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Certificate for exact QR decomposition: $A = Q \cdot R$.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QrCertificate {
+    pub q: Matrix,
+    pub r: Matrix,
+}
+
+/// Independent verifier checking that $A = Q \cdot R$, $R$ is unit upper-triangular, and $Q^T \cdot Q$ is diagonal.
+pub fn verify_qr_certificate(matrix: &Matrix, cert: &QrCertificate) -> Result<(), MatrixError> {
+    matrix.validate_shape()?;
+    cert.q.validate_shape()?;
+    cert.r.validate_shape()?;
+    let (m, n) = (matrix.rows, matrix.cols);
+    if cert.q.rows != m || cert.q.cols != n || cert.r.rows != n || cert.r.cols != n {
+        return Err(MatrixError::ShapeMismatch(m, n, cert.q.rows, cert.q.cols));
+    }
+    // Check R is upper-triangular with unit diagonal
+    for i in 0..n {
+        for j in 0..n {
+            let entry = cert.r.get(i, j)?;
+            if i == j {
+                if !entry.is_one() {
+                    return Err(MatrixError::ResourceLimit(
+                        "R diagonal entries must be 1 in unit upper-triangular QR".to_string(),
+                    ));
+                }
+            } else if i > j && !entry.is_zero() {
+                return Err(MatrixError::ResourceLimit(
+                    "R lower triangular entries must be 0".to_string(),
+                ));
+            }
+        }
+    }
+    // Check Q^T * Q is diagonal (columns of Q are mutually orthogonal)
+    let qt = cert.q.transpose();
+    let qt_q = qt.matmul(&cert.q)?;
+    for i in 0..n {
+        for j in 0..n {
+            let entry = qt_q.get(i, j)?;
+            if i != j && !entry.is_zero() {
+                return Err(MatrixError::ResourceLimit(
+                    "Q column vectors are not mutually orthogonal (Q^T * Q is not diagonal)"
+                        .to_string(),
+                ));
+            }
+            if i == j && entry.is_zero() {
+                return Err(MatrixError::ResourceLimit(
+                    "Q column vector norm is zero".to_string(),
+                ));
+            }
+        }
+    }
+    // Check Q * R == A
+    let qr = cert.q.matmul(&cert.r)?;
+    if qr != *matrix {
+        return Err(MatrixError::ResourceLimit(
+            "QR factorization check failed: Q * R != A".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Certificate for exact $LDL^T$ decomposition: $A = L \cdot D \cdot L^T$.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LdlCertificate {
+    pub l: Matrix,
+    pub d: Matrix,
+}
+
+/// Independent verifier checking that $A = L \cdot D \cdot L^T$, $L$ is unit lower-triangular, and $D$ is diagonal.
+pub fn verify_ldl_certificate(matrix: &Matrix, cert: &LdlCertificate) -> Result<(), MatrixError> {
+    matrix.validate_shape()?;
+    cert.l.validate_shape()?;
+    cert.d.validate_shape()?;
+    if matrix.rows != matrix.cols {
+        return Err(MatrixError::NotSquare(matrix.rows, matrix.cols));
+    }
+    let n = matrix.rows;
+    if cert.l.rows != n || cert.l.cols != n || cert.d.rows != n || cert.d.cols != n {
+        return Err(MatrixError::ShapeMismatch(n, n, cert.l.rows, cert.l.cols));
+    }
+    // Check L is unit lower-triangular
+    for i in 0..n {
+        for j in 0..n {
+            let entry = cert.l.get(i, j)?;
+            if i == j {
+                if !entry.is_one() {
+                    return Err(MatrixError::ResourceLimit(
+                        "L diagonal entries must be 1 in LDL decomposition".to_string(),
+                    ));
+                }
+            } else if j > i && !entry.is_zero() {
+                return Err(MatrixError::ResourceLimit(
+                    "L upper-triangular entries must be 0".to_string(),
+                ));
+            }
+        }
+    }
+    // Check D is diagonal
+    for i in 0..n {
+        for j in 0..n {
+            if i != j && !cert.d.get(i, j)?.is_zero() {
+                return Err(MatrixError::ResourceLimit(
+                    "D off-diagonal entries must be 0".to_string(),
+                ));
+            }
+        }
+    }
+    // Check L * D * L^T == A
+    let ld = cert.l.matmul(&cert.d)?;
+    let lt = cert.l.transpose();
+    let ldlt = ld.matmul(&lt)?;
+    if ldlt != *matrix {
+        return Err(MatrixError::ResourceLimit(
+            "LDL factorization check failed: L * D * L^T != A".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 /// Certificate for Matrix inverse.
@@ -1631,5 +1973,104 @@ mod tests {
         let (reduced, pivots) = empty.metered_rref(&mut budget).unwrap();
         assert_eq!(reduced, empty);
         assert!(pivots.is_empty());
+    }
+
+    #[test]
+    fn test_exact_linear_system_solve_and_verification() {
+        // [ [2, 1], [5, 7] ] * [x, y]^T = [11, 28]^T => x = 7, y = -3 (2*7 - 3 = 11, 5*7 - 21 = 14 != 28 -> let's compute exact: 2*x + y = 11, 5*x + 7*y = 28 -> det = 14-5=9. x = (77-28)/9 = 49/9, y = (56-55)/9 = 1/9)
+        let a = Matrix::new(2, 2, vec![num(2), num(1), num(5), num(7)]).unwrap();
+        let b = Matrix::new(2, 1, vec![num(11), num(28)]).unwrap();
+        let x = a.solve(&b).unwrap();
+        assert_eq!(
+            *x.get(0, 0).unwrap(),
+            Expr::Rational(BigRational::new(49.into(), 9.into()))
+        );
+        assert_eq!(
+            *x.get(1, 0).unwrap(),
+            Expr::Rational(BigRational::new(1.into(), 9.into()))
+        );
+        assert_eq!(a.matmul(&x).unwrap(), b);
+
+        // Singular matrix fails
+        let sing = Matrix::new(2, 2, vec![num(1), num(2), num(2), num(4)]).unwrap();
+        assert_eq!(sing.solve(&b).unwrap_err(), MatrixError::SingularMatrix);
+    }
+
+    #[test]
+    fn test_exact_least_squares_solve() {
+        // Overdetermined system: A is 3x2, b is 3x1
+        // A = [ [1, 1], [1, 2], [1, 3] ], b = [ [1], [2], [2] ]
+        let a = Matrix::new(3, 2, vec![num(1), num(1), num(1), num(2), num(1), num(3)]).unwrap();
+        let b = Matrix::new(3, 1, vec![num(1), num(2), num(2)]).unwrap();
+        let x = a.solve_least_squares(&b).unwrap();
+        // A^T A = [ [3, 6], [6, 14] ], A^T b = [ [5], [11] ]
+        // det = 42 - 36 = 6.
+        // x_0 = (70 - 66)/6 = 4/6 = 2/3, x_1 = (33 - 30)/6 = 3/6 = 1/2.
+        assert_eq!(
+            *x.get(0, 0).unwrap(),
+            Expr::Rational(BigRational::new(2.into(), 3.into()))
+        );
+        assert_eq!(
+            *x.get(1, 0).unwrap(),
+            Expr::Rational(BigRational::new(1.into(), 2.into()))
+        );
+    }
+
+    #[test]
+    fn test_exact_qr_decomposition_and_verification() {
+        let a = Matrix::new(3, 2, vec![num(1), num(2), num(0), num(1), num(1), num(0)]).unwrap();
+        let qr_cert = a.qr().unwrap();
+        verify_qr_certificate(&a, &qr_cert).unwrap();
+
+        // Mutants:
+        // 1. Tamper Q entry
+        let mut tampered_q = qr_cert.clone();
+        tampered_q.q.data[0] = num(99);
+        assert!(verify_qr_certificate(&a, &tampered_q).is_err());
+
+        // 2. Tamper R entry
+        let mut tampered_r = qr_cert;
+        tampered_r.r.data[0] = num(2); // must be 1 on unit diagonal
+        assert!(verify_qr_certificate(&a, &tampered_r).is_err());
+    }
+
+    #[test]
+    fn test_exact_ldl_decomposition_and_verification() {
+        // Symmetric positive definite matrix:
+        // [ [4, 12, -16], [12, 37, -43], [-16, -43, 98] ]
+        let a = Matrix::new(
+            3,
+            3,
+            vec![
+                num(4),
+                num(12),
+                num(-16),
+                num(12),
+                num(37),
+                num(-43),
+                num(-16),
+                num(-43),
+                num(98),
+            ],
+        )
+        .unwrap();
+        let ldl_cert = a.ldl().unwrap();
+        verify_ldl_certificate(&a, &ldl_cert).unwrap();
+
+        // D should have diagonal [4, 1, 9]
+        assert_eq!(*ldl_cert.d.get(0, 0).unwrap(), num(4));
+        assert_eq!(*ldl_cert.d.get(1, 1).unwrap(), num(1));
+        assert_eq!(*ldl_cert.d.get(2, 2).unwrap(), num(9));
+
+        // Mutants:
+        // 1. Tamper L
+        let mut tampered_l = ldl_cert.clone();
+        tampered_l.l.data[1] = num(99);
+        assert!(verify_ldl_certificate(&a, &tampered_l).is_err());
+
+        // 2. Tamper D off-diagonal
+        let mut tampered_d = ldl_cert;
+        tampered_d.d.data[1] = num(1);
+        assert!(verify_ldl_certificate(&a, &tampered_d).is_err());
     }
 }
