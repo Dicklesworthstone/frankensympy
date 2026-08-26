@@ -8,9 +8,11 @@
 //!   Decoded denominators must be positive and reduced; encoders emit
 //!   reduced rationals by construction.
 //!
-//! Decoding fails closed *before* allocation on any declared-size
-//! violation: a hostile length field can never cause an oversized buffer
-//! because the cap is checked against remaining input bytes first.
+//! Decoding first preflights the complete outer structure and every integer's canonical byte
+//! spelling before constructing any `BigInt`. A hostile length, trailing byte, truncated rational,
+//! negative/zero denominator, or other structural defect therefore cannot trigger a payload-sized
+//! numeric allocation before refusal. Rational coprimality is checked after materialization because
+//! it requires exact arithmetic over the admitted integer payloads.
 
 use crate::CoreError;
 use crate::{BigInt, BigRational};
@@ -21,6 +23,20 @@ use crate::{BigInt, BigRational};
 pub const MAX_SERIALIZED_BYTES: usize = 1024 * 1024;
 
 const INTEGER_HEADER_BYTES: usize = 1 + std::mem::size_of::<u64>();
+
+#[derive(Clone, Copy)]
+struct IntegerWire<'a> {
+    negative: bool,
+    magnitude_bytes: &'a [u8],
+}
+
+enum NumericWire<'a> {
+    Integer(IntegerWire<'a>),
+    Rational {
+        numer: IntegerWire<'a>,
+        denom: IntegerWire<'a>,
+    },
+}
 
 fn magnitude_len(n: &BigInt) -> Result<usize, CoreError> {
     usize::try_from(n.bits().div_ceil(8)).map_err(|_| {
@@ -46,7 +62,7 @@ fn push_integer(out: &mut Vec<u8>, n: &BigInt) {
     out.extend_from_slice(&magnitude_bytes);
 }
 
-fn read_integer(buf: &[u8], offset: &mut usize) -> Result<BigInt, CoreError> {
+fn read_integer_wire<'a>(buf: &'a [u8], offset: &mut usize) -> Result<IntegerWire<'a>, CoreError> {
     // Sign byte first, matching the writer.
     let Some(sign_byte) = buf.get(*offset).copied() else {
         return Err(CoreError::InvalidOperation(
@@ -100,13 +116,74 @@ fn read_integer(buf: &[u8], offset: &mut usize) -> Result<BigInt, CoreError> {
             "canonical integer: negative zero is not canonical".into(),
         ));
     }
-    let magnitude = BigInt::from_bytes_le(magnitude_bytes);
     *offset = magnitude_end;
 
-    Ok(match sign_byte {
-        0 => magnitude,
-        _ => -magnitude,
+    Ok(IntegerWire {
+        negative: sign_byte == 1,
+        magnitude_bytes,
     })
+}
+
+fn preflight_numeric_wire(buf: &[u8]) -> Result<NumericWire<'_>, CoreError> {
+    if buf.len() > MAX_SERIALIZED_BYTES {
+        return Err(CoreError::InvalidOperation(format!(
+            "canonical numeric payload: {} bytes exceeds {MAX_SERIALIZED_BYTES}-byte bound",
+            buf.len()
+        )));
+    }
+
+    match buf.first() {
+        Some(b'I') => {
+            let mut offset = 1usize;
+            let integer = read_integer_wire(buf, &mut offset)?;
+            require_end(buf, offset)?;
+            Ok(NumericWire::Integer(integer))
+        }
+        Some(b'Q') => {
+            let mut offset = 1usize;
+            let numer = read_integer_wire(buf, &mut offset)?;
+            let denom = read_integer_wire(buf, &mut offset)?;
+            require_end(buf, offset)?;
+            if denom.negative || denom.magnitude_bytes.is_empty() {
+                return Err(CoreError::InvalidOperation(
+                    "canonical rational: non-positive denominator".into(),
+                ));
+            }
+            Ok(NumericWire::Rational { numer, denom })
+        }
+        other => Err(CoreError::InvalidOperation(format!(
+            "unknown numeric tag {other:?}"
+        ))),
+    }
+}
+
+fn decode_numeric_with(
+    buf: &[u8],
+    mut materialize_integer: impl FnMut(bool, &[u8]) -> BigInt,
+) -> Result<crate::Expr, CoreError> {
+    let wire = preflight_numeric_wire(buf)?;
+    match wire {
+        NumericWire::Integer(integer) => Ok(crate::Expr::Integer(materialize_integer(
+            integer.negative,
+            integer.magnitude_bytes,
+        ))),
+        NumericWire::Rational { numer, denom } => {
+            let numer = materialize_integer(numer.negative, numer.magnitude_bytes);
+            let denom = materialize_integer(denom.negative, denom.magnitude_bytes);
+            let canonical = BigRational::new(numer.clone(), denom.clone());
+            if canonical.numer() != &numer || canonical.denom() != &denom {
+                return Err(CoreError::InvalidOperation(
+                    "canonical rational: not in reduced positive-denominator form".into(),
+                ));
+            }
+            Ok(crate::Expr::Rational(canonical))
+        }
+    }
+}
+
+fn materialize_integer(negative: bool, magnitude_bytes: &[u8]) -> BigInt {
+    let magnitude = BigInt::from_bytes_le(magnitude_bytes);
+    if negative { -magnitude } else { magnitude }
 }
 
 impl crate::Expr {
@@ -158,44 +235,10 @@ impl crate::Expr {
         Ok(out)
     }
 
-    /// Inverse of [`Self::to_canonical_numeric_bytes`]. All size checks
-    /// happen before allocation.
+    /// Inverse of [`Self::to_canonical_numeric_bytes`]. All size, outer-structure, and
+    /// per-integer canonical-byte checks happen before numeric materialization.
     pub fn from_canonical_numeric_bytes(buf: &[u8]) -> Result<Self, CoreError> {
-        if buf.len() > MAX_SERIALIZED_BYTES {
-            return Err(CoreError::InvalidOperation(format!(
-                "canonical numeric payload: {} bytes exceeds {MAX_SERIALIZED_BYTES}-byte bound",
-                buf.len()
-            )));
-        }
-        match buf.first() {
-            Some(b'I') => {
-                let mut offset = 1usize;
-                let integer = read_integer(buf, &mut offset)?;
-                require_end(buf, offset)?;
-                Ok(crate::Expr::Integer(integer))
-            }
-            Some(b'Q') => {
-                let mut offset = 1usize;
-                let numer = read_integer(buf, &mut offset)?;
-                let denom = read_integer(buf, &mut offset)?;
-                require_end(buf, offset)?;
-                if denom.is_zero() || denom.is_negative() {
-                    return Err(CoreError::InvalidOperation(
-                        "canonical rational: non-positive denominator".into(),
-                    ));
-                }
-                let canonical = BigRational::new(numer.clone(), denom.clone());
-                if canonical.numer() != &numer || canonical.denom() != &denom {
-                    return Err(CoreError::InvalidOperation(
-                        "canonical rational: not in reduced positive-denominator form".into(),
-                    ));
-                }
-                Ok(crate::Expr::Rational(canonical))
-            }
-            other => Err(CoreError::InvalidOperation(format!(
-                "unknown numeric tag {other:?}"
-            ))),
-        }
+        decode_numeric_with(buf, materialize_integer)
     }
 }
 
@@ -215,6 +258,25 @@ mod tests {
     use super::*;
     use crate::Expr;
     use proptest::prelude::*;
+    use std::cell::Cell;
+
+    fn assert_refuses_before_integer_materialization(buf: &[u8], expected_error: &str) {
+        let materializations = Cell::new(0usize);
+        let error = decode_numeric_with(buf, |_, _| {
+            materializations.set(materializations.get() + 1);
+            BigInt::zero()
+        })
+        .expect_err("malformed wire payload must be refused");
+        assert!(
+            error.to_string().contains(expected_error),
+            "unexpected decoder error: {error}"
+        );
+        assert_eq!(
+            materializations.get(),
+            0,
+            "complete wire preflight must precede every BigInt construction"
+        );
+    }
 
     #[test]
     fn integer_round_trip_and_sign_preservation() {
@@ -268,6 +330,72 @@ mod tests {
         let oversized = vec![0u8; MAX_SERIALIZED_BYTES + 1];
         let err = Expr::from_canonical_numeric_bytes(&oversized).unwrap_err();
         assert!(err.to_string().contains("exceeds"));
+    }
+
+    #[test]
+    fn complete_wire_preflight_precedes_integer_materialization() {
+        // A nearly maximum-sized, otherwise valid integer followed by one trailing byte used to
+        // construct the large BigInt before `require_end` rejected the payload.
+        let near_cap_magnitude_len = MAX_SERIALIZED_BYTES - 1 - INTEGER_HEADER_BYTES - 1;
+        let mut integer_with_trailing = Vec::with_capacity(MAX_SERIALIZED_BYTES);
+        integer_with_trailing.push(b'I');
+        integer_with_trailing.push(0);
+        integer_with_trailing.extend_from_slice(&(near_cap_magnitude_len as u64).to_le_bytes());
+        integer_with_trailing.resize(integer_with_trailing.len() + near_cap_magnitude_len, 0xff);
+        integer_with_trailing.push(0xaa);
+        assert_eq!(integer_with_trailing.len(), MAX_SERIALIZED_BYTES);
+        assert_refuses_before_integer_materialization(&integer_with_trailing, "trailing");
+
+        // A valid near-cap numerator followed by a truncated denominator used to materialize the
+        // numerator before discovering the missing denominator length.
+        let near_cap_numerator_len = MAX_SERIALIZED_BYTES - 1 - INTEGER_HEADER_BYTES - 1;
+        let mut truncated_rational = Vec::with_capacity(MAX_SERIALIZED_BYTES);
+        truncated_rational.push(b'Q');
+        truncated_rational.push(0);
+        truncated_rational.extend_from_slice(&(near_cap_numerator_len as u64).to_le_bytes());
+        truncated_rational.resize(truncated_rational.len() + near_cap_numerator_len, 0xff);
+        truncated_rational.push(0);
+        assert_eq!(truncated_rational.len(), MAX_SERIALIZED_BYTES);
+        assert_refuses_before_integer_materialization(&truncated_rational, "truncated length");
+
+        let mut rational_with_trailing = Expr::rational(3, 5)
+            .unwrap()
+            .to_canonical_numeric_bytes()
+            .unwrap();
+        rational_with_trailing.push(0xaa);
+        assert_refuses_before_integer_materialization(&rational_with_trailing, "trailing");
+
+        // Q(1, -2) has complete integer payloads, but denominator sign admission is still a wire
+        // check and must happen before either integer is materialized.
+        let negative_denominator = [
+            b'Q', 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 2,
+        ];
+        assert_refuses_before_integer_materialization(
+            &negative_denominator,
+            "non-positive denominator",
+        );
+
+        let mut zero_denominator = negative_denominator[..20].to_vec();
+        zero_denominator[11] = 0;
+        zero_denominator[12] = 0;
+        assert_refuses_before_integer_materialization(
+            &zero_denominator,
+            "non-positive denominator",
+        );
+    }
+
+    #[test]
+    fn admitted_wire_materializes_only_after_preflight() {
+        let expected = Expr::rational(-7, 11).unwrap();
+        let encoded = expected.to_canonical_numeric_bytes().unwrap();
+        let materializations = Cell::new(0usize);
+        let decoded = decode_numeric_with(&encoded, |negative, magnitude_bytes| {
+            materializations.set(materializations.get() + 1);
+            materialize_integer(negative, magnitude_bytes)
+        })
+        .unwrap();
+        assert_eq!(decoded, expected);
+        assert_eq!(materializations.get(), 2);
     }
 
     #[test]
