@@ -9,14 +9,23 @@
 use crate::ball::{BallError, RealBall};
 use crate::{BigInt, BigRational};
 use num_traits::{One, Zero};
-use serde::{Deserialize, Serialize};
+use serde::de::{SeqAccess, Visitor};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt;
 use thiserror::Error;
+
+const MAX_ALGEBRAIC_POLYNOMIAL_COEFFICIENTS: usize = 1_024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum AlgebraicError {
     #[error("Zero polynomial cannot define an algebraic number")]
     ZeroPolynomial,
+    #[error("Defining polynomial is not square-free")]
+    NonSquareFreePolynomial,
+    #[error(
+        "Defining polynomial has {0} coefficients, exceeding the supported limit of {MAX_ALGEBRAIC_POLYNOMIAL_COEFFICIENTS}"
+    )]
+    PolynomialCoefficientLimitExceeded(usize),
     #[error("Root isolating interval contains no root (or is not isolating): {0}")]
     InvalidIsolatingInterval(String),
     #[error("Target radius cannot be negative: {0}")]
@@ -166,24 +175,114 @@ pub fn count_real_roots_in_interval(
     roots
 }
 
+fn sturm_sequence_is_square_free(seq: &[Vec<BigRational>]) -> bool {
+    seq.last()
+        .is_some_and(|last| !poly_is_zero(last) && poly_degree(last) == 0)
+}
+
+fn deserialize_defining_polynomial<'de, D>(deserializer: D) -> Result<Vec<BigRational>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct CoefficientsVisitor;
+
+    impl<'de> Visitor<'de> for CoefficientsVisitor {
+        type Value = Vec<BigRational>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(
+                formatter,
+                "at most {MAX_ALGEBRAIC_POLYNOMIAL_COEFFICIENTS} rational coefficients"
+            )
+        }
+
+        fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+        where
+            A: SeqAccess<'de>,
+        {
+            if sequence
+                .size_hint()
+                .is_some_and(|size| size > MAX_ALGEBRAIC_POLYNOMIAL_COEFFICIENTS)
+            {
+                return Err(serde::de::Error::custom(format!(
+                    "defining polynomial exceeds the coefficient limit of {MAX_ALGEBRAIC_POLYNOMIAL_COEFFICIENTS}"
+                )));
+            }
+
+            let capacity = sequence
+                .size_hint()
+                .unwrap_or(0)
+                .min(MAX_ALGEBRAIC_POLYNOMIAL_COEFFICIENTS);
+            let mut coefficients = Vec::new();
+            coefficients.try_reserve_exact(capacity).map_err(|_| {
+                serde::de::Error::custom(format!(
+                    "could not reserve {capacity} defining-polynomial coefficients"
+                ))
+            })?;
+            while let Some(coefficient) = sequence.next_element()? {
+                if coefficients.len() == MAX_ALGEBRAIC_POLYNOMIAL_COEFFICIENTS {
+                    return Err(serde::de::Error::custom(format!(
+                        "defining polynomial exceeds the coefficient limit of {MAX_ALGEBRAIC_POLYNOMIAL_COEFFICIENTS}"
+                    )));
+                }
+                if coefficients.len() == coefficients.capacity() {
+                    coefficients.try_reserve(1).map_err(|_| {
+                        serde::de::Error::custom(
+                            "could not grow the defining-polynomial coefficient buffer",
+                        )
+                    })?;
+                }
+                coefficients.push(coefficient);
+            }
+            Ok(coefficients)
+        }
+    }
+
+    deserializer.deserialize_seq(CoefficientsVisitor)
+}
+
 /// Exact real algebraic number with certified root isolating ball.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 pub struct AlgebraicNumber {
     /// Coefficients in increasing degree: $c_0 + c_1 x + \dots + c_n x^n$.
-    min_poly_coeffs: Vec<BigRational>,
+    defining_poly_coeffs: Vec<BigRational>,
     /// Certified ball enclosing the unique target root.
     isolating_ball: RealBall,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AlgebraicNumberWire {
+    #[serde(deserialize_with = "deserialize_defining_polynomial")]
+    defining_poly_coeffs: Vec<BigRational>,
+    isolating_ball: RealBall,
+}
+
+impl<'de> Deserialize<'de> for AlgebraicNumber {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = AlgebraicNumberWire::deserialize(deserializer)?;
+        Self::new(wire.defining_poly_coeffs, wire.isolating_ball).map_err(serde::de::Error::custom)
+    }
 }
 
 impl AlgebraicNumber {
     /// Constructs an algebraic number with defining polynomial and certified root isolating ball.
     ///
-    /// Verifies via Sturm's theorem that the isolating interval contains exactly one real root.
+    /// Verifies that the defining polynomial is square-free and, via Sturm's
+    /// theorem, that the isolating interval contains exactly one real root.
     pub fn new(
-        min_poly_coeffs: Vec<BigRational>,
+        defining_poly_coeffs: Vec<BigRational>,
         isolating_ball: RealBall,
     ) -> Result<Self, AlgebraicError> {
-        let coeffs = poly_trim(min_poly_coeffs);
+        if defining_poly_coeffs.len() > MAX_ALGEBRAIC_POLYNOMIAL_COEFFICIENTS {
+            return Err(AlgebraicError::PolynomialCoefficientLimitExceeded(
+                defining_poly_coeffs.len(),
+            ));
+        }
+        let coeffs = poly_trim(defining_poly_coeffs);
         if poly_is_zero(&coeffs) {
             return Err(AlgebraicError::ZeroPolynomial);
         }
@@ -191,6 +290,9 @@ impl AlgebraicNumber {
         let low = isolating_ball.lower();
         let high = isolating_ball.upper();
         let sturm_seq = sturm_sequence(&coeffs);
+        if !sturm_sequence_is_square_free(&sturm_seq) {
+            return Err(AlgebraicError::NonSquareFreePolynomial);
+        }
         let root_count = count_real_roots_in_interval(&sturm_seq, &low, &high);
 
         if root_count != 1 {
@@ -201,14 +303,14 @@ impl AlgebraicNumber {
         }
 
         Ok(Self {
-            min_poly_coeffs: coeffs,
+            defining_poly_coeffs: coeffs,
             isolating_ball,
         })
     }
 
     /// Access the defining polynomial coefficients in ascending degree.
-    pub fn min_poly_coeffs(&self) -> &[BigRational] {
-        &self.min_poly_coeffs
+    pub fn defining_poly_coeffs(&self) -> &[BigRational] {
+        &self.defining_poly_coeffs
     }
 
     /// Access the certified root isolating ball.
@@ -219,7 +321,7 @@ impl AlgebraicNumber {
     /// Construct exact rational as a degree-1 algebraic number: $x - q = 0$.
     pub fn from_rational(q: BigRational) -> Self {
         Self {
-            min_poly_coeffs: vec![-q.clone(), BigRational::one()],
+            defining_poly_coeffs: vec![-q.clone(), BigRational::one()],
             isolating_ball: RealBall::exact(q),
         }
     }
@@ -231,7 +333,7 @@ impl AlgebraicNumber {
 
     /// Degree of defining polynomial.
     pub fn degree(&self) -> usize {
-        self.min_poly_coeffs.len() - 1
+        self.defining_poly_coeffs.len() - 1
     }
 
     /// Evaluates polynomial at a given rational point using Horner's method.
@@ -246,7 +348,7 @@ impl AlgebraicNumber {
     /// Evaluates polynomial over a certified ball using interval arithmetic.
     pub fn eval_ball(&self, ball: &RealBall) -> RealBall {
         let mut acc = RealBall::exact(BigRational::zero());
-        for c in self.min_poly_coeffs.iter().rev() {
+        for c in self.defining_poly_coeffs.iter().rev() {
             acc = acc.mul(ball).add(&RealBall::exact(c.clone()));
         }
         acc
@@ -258,13 +360,13 @@ impl AlgebraicNumber {
         let high = self.isolating_ball.upper();
         let mid = (&low + &high) / BigRational::from_integer(BigInt::from(2));
 
-        let p_mid = Self::eval_poly_at(&self.min_poly_coeffs, &mid);
+        let p_mid = Self::eval_poly_at(&self.defining_poly_coeffs, &mid);
         if p_mid.is_zero() {
             self.isolating_ball = RealBall::exact(mid);
             return;
         }
 
-        let p_low = Self::eval_poly_at(&self.min_poly_coeffs, &low);
+        let p_low = Self::eval_poly_at(&self.defining_poly_coeffs, &low);
         if &p_low * &p_mid <= BigRational::zero() {
             let new_mid = (&low + &mid) / BigRational::from_integer(BigInt::from(2));
             let new_rad = (&mid - &low) / BigRational::from_integer(BigInt::from(2));
@@ -304,7 +406,7 @@ impl AlgebraicNumber {
             return -1;
         }
         // Check if 0 is a root: P(0) == c_0 == 0
-        if self.min_poly_coeffs[0].is_zero() && self.isolating_ball.contains_zero() {
+        if self.defining_poly_coeffs[0].is_zero() && self.isolating_ball.contains_zero() {
             return 0;
         }
         // Refine until isolating interval excludes 0

@@ -7,7 +7,7 @@
 
 use crate::{BigInt, BigRational};
 use num_traits::{One, Signed, Zero};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt;
 use thiserror::Error;
 
@@ -20,10 +20,27 @@ pub enum BallError {
 }
 
 /// Certified real ball $\mathcal{B}(m, r) = [m - r, m + r]$.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 pub struct RealBall {
-    pub midpoint: BigRational,
-    pub radius: BigRational,
+    midpoint: BigRational,
+    radius: BigRational,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RealBallWire {
+    midpoint: BigRational,
+    radius: BigRational,
+}
+
+impl<'de> Deserialize<'de> for RealBall {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = RealBallWire::deserialize(deserializer)?;
+        Self::new(wire.midpoint, wire.radius).map_err(serde::de::Error::custom)
+    }
 }
 
 impl RealBall {

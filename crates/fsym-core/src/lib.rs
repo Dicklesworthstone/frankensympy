@@ -528,4 +528,86 @@ mod tests {
             Err(crate::algebraic::AlgebraicError::NegativeTargetRadius(_))
         ));
     }
+
+    #[test]
+    fn algebraic_number_rejects_repeated_root_before_refinement() {
+        // (x - 1)^2 has one distinct root in [0, 3], so root counting alone
+        // admits it. Sign-based bisection would then choose [3/2, 3] and
+        // discard that root because an even-multiplicity root does not change
+        // sign. The documented square-free precondition must be enforced at
+        // construction instead.
+        let repeated_root = vec![
+            BigRational::one(),
+            BigRational::from_integer(BigInt::from(-2)),
+            BigRational::one(),
+        ];
+        let interval = RealBall::new(
+            BigRational::new(BigInt::from(3), BigInt::from(2)),
+            BigRational::new(BigInt::from(3), BigInt::from(2)),
+        )
+        .unwrap();
+
+        assert!(matches!(
+            AlgebraicNumber::new(repeated_root, interval),
+            Err(crate::algebraic::AlgebraicError::NonSquareFreePolynomial)
+        ));
+    }
+
+    #[test]
+    fn certified_numeric_wire_decode_replays_constructor_invariants() {
+        let valid_ball = RealBall::new(
+            BigRational::from_integer(BigInt::from(2)),
+            BigRational::new(BigInt::from(1), BigInt::from(3)),
+        )
+        .unwrap();
+        let valid_ball_wire = serde_json::to_vec(&valid_ball).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<RealBall>(&valid_ball_wire).unwrap(),
+            valid_ball
+        );
+
+        let valid_algebraic = AlgebraicNumber::from_i64(2);
+        let valid_algebraic_wire = serde_json::to_vec(&valid_algebraic).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<AlgebraicNumber>(&valid_algebraic_wire).unwrap(),
+            valid_algebraic
+        );
+
+        let mut invalid_ball = serde_json::to_value(RealBall::from_i64(1)).unwrap();
+        invalid_ball["radius"] =
+            serde_json::to_value(BigRational::from_integer(BigInt::from(-1))).unwrap();
+        let ball_error = serde_json::from_value::<RealBall>(invalid_ball).unwrap_err();
+        assert!(ball_error.to_string().contains("Negative radius"));
+
+        let repeated_root = vec![
+            BigRational::one(),
+            BigRational::from_integer(BigInt::from(-2)),
+            BigRational::one(),
+        ];
+        let interval = RealBall::new(
+            BigRational::new(BigInt::from(3), BigInt::from(2)),
+            BigRational::new(BigInt::from(3), BigInt::from(2)),
+        )
+        .unwrap();
+        let mut invalid_algebraic = serde_json::to_value(AlgebraicNumber::from_i64(1)).unwrap();
+        invalid_algebraic["defining_poly_coeffs"] = serde_json::to_value(repeated_root).unwrap();
+        invalid_algebraic["isolating_ball"] = serde_json::to_value(interval).unwrap();
+        let algebraic_error =
+            serde_json::from_value::<AlgebraicNumber>(invalid_algebraic).unwrap_err();
+        assert!(algebraic_error.to_string().contains("not square-free"));
+    }
+
+    #[test]
+    fn algebraic_polynomial_size_is_bounded_before_root_work() {
+        let oversized = vec![BigRational::zero(); 1_025];
+        assert!(matches!(
+            AlgebraicNumber::new(oversized.clone(), RealBall::from_i64(0)),
+            Err(crate::algebraic::AlgebraicError::PolynomialCoefficientLimitExceeded(1_025))
+        ));
+
+        let mut wire = serde_json::to_value(AlgebraicNumber::from_i64(0)).unwrap();
+        wire["defining_poly_coeffs"] = serde_json::to_value(oversized).unwrap();
+        let error = serde_json::from_value::<AlgebraicNumber>(wire).unwrap_err();
+        assert!(error.to_string().contains("coefficient limit"));
+    }
 }
