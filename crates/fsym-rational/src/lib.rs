@@ -1313,6 +1313,82 @@ fn rational_to_f64(value: &BigRational) -> Option<f64> {
     ))
 }
 
+/// Converts a canonical exact rational to binary32 with round-to-nearest, ties-to-even.
+///
+/// The coefficient magnitudes are never converted independently: doing so can form
+/// `infinity / infinity` and turn an ordinary finite rational into `NaN`. Exact integer scaling
+/// instead computes the final normal or subnormal significand before constructing the float bits.
+fn rational_to_f32(value: &BigRational) -> Option<f32> {
+    const FRACTION_BITS: u32 = 23;
+    const SIGNIFICAND_FLOOR: u64 = 1u64 << FRACTION_BITS;
+    const SIGNIFICAND_CARRY: u64 = SIGNIFICAND_FLOOR << 1;
+    const MAX_NORMAL_EXPONENT: i128 = 127;
+    const MIN_NORMAL_EXPONENT: i128 = -126;
+    const HALF_MIN_SUBNORMAL_EXPONENT: i128 = -150;
+    const EXPONENT_BIAS: i128 = 127;
+    const SIGN_BIT: u32 = 1u32 << 31;
+    const INFINITY_BITS: u32 = 0x7f80_0000;
+
+    let negative = value.numer().is_negative();
+    let numerator = value.numer().abs();
+    if numerator.is_zero() {
+        return Some(0.0);
+    }
+    let denominator = value.denom();
+
+    let mut exponent = i128::from(numerator.bits()) - i128::from(denominator.bits());
+    if exponent > MAX_NORMAL_EXPONENT + 1 {
+        return Some(f32::from_bits(
+            INFINITY_BITS | if negative { SIGN_BIT } else { 0 },
+        ));
+    }
+    if exponent < HALF_MIN_SUBNORMAL_EXPONENT {
+        return Some(f32::from_bits(if negative { SIGN_BIT } else { 0 }));
+    }
+
+    let below_estimated_power = if exponent >= 0 {
+        numerator < (denominator << u32::try_from(exponent).ok()?)
+    } else {
+        (&numerator << u32::try_from(-exponent).ok()?) < *denominator
+    };
+    if below_estimated_power {
+        exponent -= 1;
+    }
+
+    let magnitude_bits = if exponent > MAX_NORMAL_EXPONENT {
+        INFINITY_BITS
+    } else if exponent < HALF_MIN_SUBNORMAL_EXPONENT {
+        0
+    } else if exponent < MIN_NORMAL_EXPONENT {
+        let significand = rounded_binary_quotient(&numerator, denominator, 149)?;
+        if significand > SIGNIFICAND_FLOOR {
+            return None;
+        }
+        u32::try_from(significand).ok()?
+    } else {
+        let binary_shift = i32::try_from(i128::from(FRACTION_BITS) - exponent).ok()?;
+        let mut significand = rounded_binary_quotient(&numerator, denominator, binary_shift)?;
+        if significand == SIGNIFICAND_CARRY {
+            significand = SIGNIFICAND_FLOOR;
+            exponent += 1;
+        }
+        if exponent > MAX_NORMAL_EXPONENT {
+            INFINITY_BITS
+        } else {
+            if !(SIGNIFICAND_FLOOR..SIGNIFICAND_CARRY).contains(&significand) {
+                return None;
+            }
+            let biased_exponent = u32::try_from(exponent + EXPONENT_BIAS).ok()?;
+            (biased_exponent << FRACTION_BITS)
+                | u32::try_from(significand - SIGNIFICAND_FLOOR).ok()?
+        }
+    };
+
+    Some(f32::from_bits(
+        magnitude_bits | if negative { SIGN_BIT } else { 0 },
+    ))
+}
+
 impl ToPrimitive for BigRational {
     fn to_i64(&self) -> Option<i64> {
         self.to_integer().to_i64()
@@ -1320,6 +1396,18 @@ impl ToPrimitive for BigRational {
 
     fn to_u64(&self) -> Option<u64> {
         self.to_integer().to_u64()
+    }
+
+    // fn to_i128(&self) -> Option<i128> {
+    //     self.to_integer().to_i128()
+    // }
+
+    fn to_u128(&self) -> Option<u128> {
+        self.to_integer().to_u128()
+    }
+
+    fn to_f32(&self) -> Option<f32> {
+        rational_to_f32(self)
     }
 
     fn to_f64(&self) -> Option<f64> {
@@ -1442,6 +1530,10 @@ mod tests {
 
     fn bigint_from_i128(value: i128) -> BigInt {
         BigInt::from_str_radix(&value.to_string(), 10).expect("an i128 decimal is a valid BigInt")
+    }
+
+    fn bigint_from_u128(value: u128) -> BigInt {
+        BigInt::from_str_radix(&value.to_string(), 10).expect("a u128 decimal is a valid BigInt")
     }
 
     #[derive(Debug, Default)]
@@ -1997,6 +2089,132 @@ mod tests {
             BigRational::from_integer(overflow_midpoint).to_f64(),
             Some(f64::INFINITY)
         );
+    }
+
+    #[test]
+    fn binary32_conversion_balances_large_coefficients_and_rounds_boundaries() {
+        let scale = &BigInt::one() << 2000u32;
+        let near_one = BigRational::new(&scale + 1i64, &scale - 1i64);
+        let negative_near_one = -near_one.clone();
+        assert_eq!(near_one.to_f32(), Some(1.0));
+        assert_eq!(negative_near_one.to_f32(), Some(-1.0));
+
+        let tie_denominator = &BigInt::one() << 24u32;
+        let tie_above_one = BigRational::new(&tie_denominator + 1i64, tie_denominator.clone());
+        assert_eq!(tie_above_one.to_f32(), Some(1.0));
+        let odd_tie_above_one = BigRational::new(&tie_denominator + 3i64, tie_denominator);
+        assert_eq!(
+            odd_tie_above_one.to_f32().map(f32::to_bits),
+            Some(1.0f32.to_bits() + 2)
+        );
+        let above_tie_denominator = &BigInt::one() << 25u32;
+        let above_tie = BigRational::new(&above_tie_denominator + 3i64, above_tie_denominator);
+        assert_eq!(
+            above_tie.to_f32().map(f32::to_bits),
+            Some(1.0f32.to_bits() + 1)
+        );
+
+        let min_subnormal_denominator = &BigInt::one() << 149u32;
+        let min_subnormal = BigRational::new(BigInt::one(), min_subnormal_denominator);
+        assert_eq!(min_subnormal.to_f32().map(f32::to_bits), Some(1));
+
+        let transition_denominator = &BigInt::one() << 150u32;
+        let transition_midpoint =
+            BigRational::new((&BigInt::one() << 24u32) - 1i64, transition_denominator);
+        assert_eq!(
+            transition_midpoint.to_f32().map(f32::to_bits),
+            Some(f32::MIN_POSITIVE.to_bits())
+        );
+
+        let half_subnormal_denominator = &BigInt::one() << 150u32;
+        let positive_half = BigRational::new(BigInt::one(), half_subnormal_denominator.clone());
+        let negative_half = BigRational::new(BigInt::from(-1), half_subnormal_denominator);
+        assert_eq!(positive_half.to_f32().map(f32::to_bits), Some(0));
+        assert_eq!(negative_half.to_f32().map(f32::to_bits), Some(1u32 << 31));
+        let below_half = BigRational::new(BigInt::from(-1), &BigInt::one() << 151u32);
+        assert_eq!(below_half.to_f32().map(f32::to_bits), Some(1u32 << 31));
+
+        let max_finite = ((&BigInt::one() << 24u32) - 1i64) << 104u32;
+        assert_eq!(
+            BigRational::from_integer(max_finite).to_f32(),
+            Some(f32::MAX)
+        );
+        assert_eq!(
+            BigRational::from_integer(&BigInt::one() << 128u32).to_f32(),
+            Some(f32::INFINITY)
+        );
+        assert_eq!(
+            BigRational::from_integer(-(&BigInt::one() << 129u32)).to_f32(),
+            Some(f32::NEG_INFINITY)
+        );
+        let overflow_midpoint = ((&BigInt::one() << 25u32) - 1i64) << 103u32;
+        assert_eq!(
+            BigRational::from_integer(&overflow_midpoint - 1i64).to_f32(),
+            Some(f32::MAX)
+        );
+        assert_eq!(
+            BigRational::from_integer(overflow_midpoint).to_f32(),
+            Some(f32::INFINITY)
+        );
+
+        let double_round_num = (&BigInt::one() << 54u32) + (&BigInt::one() << 30u32) + 1i64;
+        let double_round_den = &BigInt::one() << 54u32;
+        let double_round_rat = BigRational::new(double_round_num, double_round_den);
+        assert_eq!(
+            double_round_rat.to_f32().map(f32::to_bits),
+            Some(1.0f32.to_bits() + 1)
+        );
+    }
+
+    #[test]
+    fn integer_conversions_to_128_bit_primitives_preserve_endpoints_and_truncation() {
+        let i64_max_plus_one = BigRational::from_integer(bigint_from_i128(i64::MAX as i128 + 1));
+        assert_eq!(i64_max_plus_one.to_i128(), Some(i64::MAX as i128 + 1));
+        assert_eq!(i64_max_plus_one.to_u128(), Some(i64::MAX as u128 + 1));
+        assert_eq!(i64_max_plus_one.to_i64(), None);
+
+        let u64_max_plus_one = BigRational::from_integer(bigint_from_u128(u64::MAX as u128 + 1));
+        assert_eq!(u64_max_plus_one.to_u128(), Some(u64::MAX as u128 + 1));
+        assert_eq!(u64_max_plus_one.to_i128(), Some((u64::MAX as i128) + 1));
+        assert_eq!(u64_max_plus_one.to_u64(), None);
+
+        let i128_max = BigRational::from_integer(bigint_from_i128(i128::MAX));
+        assert_eq!(i128_max.to_i128(), Some(i128::MAX));
+        let i128_min = BigRational::from_integer(bigint_from_i128(i128::MIN));
+        assert_eq!(i128_min.to_i128(), Some(i128::MIN));
+
+        let u128_max = BigRational::from_integer(bigint_from_u128(u128::MAX));
+        assert_eq!(u128_max.to_u128(), Some(u128::MAX));
+        assert_eq!(u128_max.to_i128(), None);
+
+        let i128_max_plus_one = BigRational::from_integer(bigint_from_i128(i128::MAX) + 1i64);
+        assert_eq!(i128_max_plus_one.to_i128(), None);
+        let i128_min_minus_one = BigRational::from_integer(bigint_from_i128(i128::MIN) - 1i64);
+        assert_eq!(i128_min_minus_one.to_i128(), None);
+        let u128_max_plus_one = BigRational::from_integer(bigint_from_u128(u128::MAX) + 1i64);
+        assert_eq!(u128_max_plus_one.to_u128(), None);
+
+        let pos_frac = BigRational::new(
+            (bigint_from_u128(1u128 << 100) * 3i64) + 1i64,
+            BigInt::from(3),
+        );
+        assert_eq!(pos_frac.to_i128(), Some(1i128 << 100));
+        assert_eq!(pos_frac.to_u128(), Some(1u128 << 100));
+
+        let neg_frac = BigRational::new(
+            -(bigint_from_u128(1u128 << 100) * 3i64) - 1i64,
+            BigInt::from(3),
+        );
+        assert_eq!(neg_frac.to_i128(), Some(-(1i128 << 100)));
+        assert_eq!(neg_frac.to_u128(), None);
+
+        let neg_half = BigRational::new(BigInt::from(-1), BigInt::from(2));
+        assert_eq!(neg_half.to_i128(), Some(0));
+        assert_eq!(neg_half.to_u128(), Some(0));
+
+        let neg_one = BigRational::from_integer(BigInt::from(-1));
+        assert_eq!(neg_one.to_i128(), Some(-1));
+        assert_eq!(neg_one.to_u128(), None);
     }
 
     #[test]
@@ -2917,6 +3135,38 @@ mod tests {
                     prop_assert!(exponent.is_negative());
                 }
             }
+        }
+        #[test]
+        fn i128_and_u128_primitive_conversions_round_trip_exact_integers(
+            signed in any::<i128>(),
+            unsigned in any::<u128>(),
+        ) {
+            let signed_rational = BigRational::from_integer(bigint_from_i128(signed));
+            prop_assert_eq!(signed_rational.to_i128(), Some(signed));
+            if signed >= 0 {
+                prop_assert_eq!(signed_rational.to_u128(), Some(signed as u128));
+            } else {
+                prop_assert_eq!(signed_rational.to_u128(), None);
+            }
+
+            let unsigned_rational = BigRational::from_integer(bigint_from_u128(unsigned));
+            prop_assert_eq!(unsigned_rational.to_u128(), Some(unsigned));
+            if unsigned <= i128::MAX as u128 {
+                prop_assert_eq!(unsigned_rational.to_i128(), Some(unsigned as i128));
+            } else {
+                prop_assert_eq!(unsigned_rational.to_i128(), None);
+            }
+        }
+
+        #[test]
+        fn binary32_conversion_matches_small_float_ratios(
+            numerator in -100_000i64..=100_000,
+            denominator in (-100_000i64..=100_000).prop_filter("nonzero denominator", |v| *v != 0),
+        ) {
+            let rational = BigRational::new(BigInt::from(numerator), BigInt::from(denominator));
+            let expected = (numerator as f64 / denominator as f64) as f32;
+            let actual = rational.to_f32().expect("small rational converts to f32");
+            prop_assert_eq!(actual, expected);
         }
     }
 }
