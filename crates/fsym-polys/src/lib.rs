@@ -699,4 +699,45 @@ mod tests {
             .unwrap();
         assert!(verify_groebner_certificate(&initial, &tampered_witness_cert).is_err());
     }
+
+    #[test]
+    fn test_multivariate_gcd_and_verification() {
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+        let gens = vec![x.clone(), y.clone()];
+
+        // f = x^2 - y^2 = (x - y)(x + y)
+        let mut t1 = BTreeMap::new();
+        t1.insert(vec![2, 0], BigRational::one());
+        t1.insert(vec![0, 2], BigRational::from_integer(BigInt::from(-1)));
+        let f = MultivariatePoly::new(gens.clone(), t1);
+
+        // g = x^2 + 2*x*y + y^2 = (x + y)^2
+        let mut t2 = BTreeMap::new();
+        t2.insert(vec![2, 0], BigRational::one());
+        t2.insert(vec![1, 1], BigRational::from_integer(BigInt::from(2)));
+        t2.insert(vec![0, 2], BigRational::one());
+        let g = MultivariatePoly::new(gens.clone(), t2);
+
+        let gcd_cert = f.gcd_with_certificate(&g).unwrap();
+        // Expected gcd = x + y
+        let mut expected_gcd_terms = BTreeMap::new();
+        expected_gcd_terms.insert(vec![1, 0], BigRational::one());
+        expected_gcd_terms.insert(vec![0, 1], BigRational::one());
+        let expected_gcd = MultivariatePoly::new(gens, expected_gcd_terms);
+
+        assert_eq!(gcd_cert.gcd, expected_gcd);
+        assert!(verify_multivariate_gcd_certificate(&f, &g, &gcd_cert).is_ok());
+
+        // Mutants:
+        // 1. Tamper quotient
+        let mut tampered_cert = gcd_cert.clone();
+        tampered_cert.quotient_a = f.clone();
+        assert!(verify_multivariate_gcd_certificate(&f, &g, &tampered_cert).is_err());
+
+        // 2. Tamper gcd
+        let mut tampered_gcd = gcd_cert;
+        tampered_gcd.gcd = f.clone();
+        assert!(verify_multivariate_gcd_certificate(&f, &g, &tampered_gcd).is_err());
+    }
 }
