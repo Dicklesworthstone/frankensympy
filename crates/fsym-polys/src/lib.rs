@@ -428,7 +428,7 @@ mod tests {
         );
 
         let factorization = square_free_decomposition(&p).unwrap();
-        assert!(verify_factorization_certificate(&p, &factorization).is_ok());
+        assert!(verify_square_free_product_decomposition(&p, &factorization).is_ok());
         assert_eq!(factorization.factors.len(), 2);
     }
 
@@ -448,11 +448,11 @@ mod tests {
         let mut factorization = square_free_decomposition(&p).unwrap();
         // Tamper factor power
         factorization.factors[0].multiplicity = 99;
-        assert!(verify_factorization_certificate(&p, &factorization).is_err());
+        assert!(verify_square_free_product_decomposition(&p, &factorization).is_err());
     }
 
     #[test]
-    fn factorization_verifier_rejects_noncanonical_certificate_shapes() {
+    fn product_decomposition_checker_rejects_noncanonical_shapes() {
         let x = Symbol::new("x");
         let x_poly = UnivariatePoly::new(
             x.clone(),
@@ -472,7 +472,7 @@ mod tests {
                 multiplicity: 1,
             }],
         };
-        assert!(verify_factorization_certificate(&x_poly, &non_monic).is_err());
+        assert!(verify_square_free_product_decomposition(&x_poly, &non_monic).is_err());
 
         let one = UnivariatePoly::one(x.clone());
         let zero_multiplicity = FactorizationResult {
@@ -482,7 +482,7 @@ mod tests {
                 multiplicity: 0,
             }],
         };
-        assert!(verify_factorization_certificate(&one, &zero_multiplicity).is_err());
+        assert!(verify_square_free_product_decomposition(&one, &zero_multiplicity).is_err());
 
         #[cfg(target_pointer_width = "64")]
         {
@@ -493,7 +493,7 @@ mod tests {
                     multiplicity: (u32::MAX as usize) + 1,
                 }],
             };
-            assert!(verify_factorization_certificate(&one, &wrapped_multiplicity).is_err());
+            assert!(verify_square_free_product_decomposition(&one, &wrapped_multiplicity).is_err());
         }
     }
 
@@ -667,7 +667,7 @@ mod tests {
     }
 
     #[test]
-    fn test_factor_polynomial_complete() {
+    fn test_bounded_rational_root_decomposition() {
         let x = Symbol::new("x");
 
         // 1. Quadratic: x^2 - 1 = (x - 1)(x + 1)
@@ -679,10 +679,21 @@ mod tests {
                 BigRational::one(),
             ],
         );
-        let res1 = factor_polynomial(&p1).unwrap();
+        let res1 = bounded_rational_root_decomposition(&p1).unwrap();
         assert_eq!(res1.factors.len(), 2);
         assert_eq!(res1.scale, BigRational::one());
-        assert!(verify_factorization_certificate(&p1, &res1).is_ok());
+        assert!(verify_square_free_product_decomposition(&p1, &res1).is_ok());
+
+        // The checker proves an exact square-free product, not irreducibility. A single reducible
+        // square-free component is intentionally within its stated acceptance boundary.
+        let reducible_component = FactorizationResult {
+            scale: BigRational::one(),
+            factors: vec![FactorTerm {
+                poly: p1.clone(),
+                multiplicity: 1,
+            }],
+        };
+        assert!(verify_square_free_product_decomposition(&p1, &reducible_component).is_ok());
 
         // 2. Cubic with 3 roots: (x - 1)(x - 2)(x - 3) = x^3 - 6x^2 + 11x - 6
         let p2 = UnivariatePoly::new(
@@ -694,9 +705,9 @@ mod tests {
                 BigRational::one(),
             ],
         );
-        let res2 = factor_polynomial(&p2).unwrap();
+        let res2 = bounded_rational_root_decomposition(&p2).unwrap();
         assert_eq!(res2.factors.len(), 3);
-        assert!(verify_factorization_certificate(&p2, &res2).is_ok());
+        assert!(verify_square_free_product_decomposition(&p2, &res2).is_ok());
 
         // 3. Repeated roots: 3*(x - 2)^2 = 3*(x^2 - 4x + 4) = 3x^2 - 12x + 12
         let p3 = UnivariatePoly::new(
@@ -707,21 +718,51 @@ mod tests {
                 BigRational::from_integer(BigInt::from(3)),
             ],
         );
-        let res3 = factor_polynomial(&p3).unwrap();
+        let res3 = bounded_rational_root_decomposition(&p3).unwrap();
         assert_eq!(res3.scale, BigRational::from_integer(BigInt::from(3)));
         assert_eq!(res3.factors.len(), 1);
         assert_eq!(res3.factors[0].multiplicity, 2);
-        assert!(verify_factorization_certificate(&p3, &res3).is_ok());
+        assert!(verify_square_free_product_decomposition(&p3, &res3).is_ok());
 
-        // 4. Irreducible quadratic: x^2 + 1
+        // 4. A quadratic with no rational roots remains unsplit.
         let p4 = UnivariatePoly::new(
             x.clone(),
             vec![BigRational::one(), BigRational::zero(), BigRational::one()],
         );
-        let res4 = factor_polynomial(&p4).unwrap();
+        let res4 = bounded_rational_root_decomposition(&p4).unwrap();
         assert_eq!(res4.factors.len(), 1);
         assert_eq!(res4.factors[0].poly, p4);
-        assert!(verify_factorization_certificate(&p4, &res4).is_ok());
+        assert!(verify_square_free_product_decomposition(&p4, &res4).is_ok());
+
+        // 5. A reducible quartic with no rational roots also remains one component:
+        // (x^2 + 1)(x^2 + 2) = x^4 + 3*x^2 + 2. This pins the non-completeness contract.
+        let p5 = UnivariatePoly::new(
+            x,
+            vec![
+                BigRational::from_integer(BigInt::from(2)),
+                BigRational::zero(),
+                BigRational::from_integer(BigInt::from(3)),
+                BigRational::zero(),
+                BigRational::one(),
+            ],
+        );
+        let res5 = bounded_rational_root_decomposition(&p5).unwrap();
+        assert_eq!(res5.factors.len(), 1);
+        assert_eq!(res5.factors[0].poly, p5);
+        assert!(verify_square_free_product_decomposition(&p5, &res5).is_ok());
+
+        // 6. Trial division is bounded by attempted candidates, not by divisors found. This large
+        // prime coefficient previously caused billions of iterations in a path described as
+        // bounded (and could overflow the `d * d` loop condition in checked builds).
+        let large_prime = BigInt::from(18_446_744_073_709_551_557_u64);
+        let p6 = UnivariatePoly::new(
+            Symbol::new("x"),
+            vec![BigRational::from_integer(large_prime), BigRational::one()],
+        );
+        let res6 = bounded_rational_root_decomposition(&p6).unwrap();
+        assert_eq!(res6.factors.len(), 1);
+        assert_eq!(res6.factors[0].poly, p6);
+        assert!(verify_square_free_product_decomposition(&p6, &res6).is_ok());
     }
 
     #[test]

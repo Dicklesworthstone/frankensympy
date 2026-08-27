@@ -15,7 +15,10 @@ pub struct FactorTerm {
     pub multiplicity: usize,
 }
 
-/// Verifiable factorization result: $P(x) = \text{scale} \cdot \prod f_i(x)^{e_i}$.
+/// Exact product decomposition: $P(x) = \text{scale} \cdot \prod f_i(x)^{e_i}$.
+///
+/// The factors are not implicitly irreducible. Callers must not promote this representation to a
+/// complete factorization without separate irreducibility evidence for every factor.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FactorizationResult {
     pub scale: BigRational,
@@ -114,13 +117,16 @@ pub fn square_free_decomposition(poly: &UnivariatePoly) -> Result<FactorizationR
     Ok(FactorizationResult { scale: lc, factors })
 }
 
-/// Independently verify a polynomial factorization certificate.
+/// Checks an exact square-free product-decomposition witness.
 ///
 /// Acceptance criteria:
 /// 1. The product of factors $\text{scale} \cdot \prod f_i(x)^{e_i}$ equals $P(x)$ exactly.
 /// 2. Each factor $f_i(x)$ is monic and square-free ($\gcd(f_i, f_i') = 1$).
 /// 3. All factors $f_i(x), f_j(x)$ are pairwise coprime ($\gcd(f_i, f_j) = 1$ for $i \neq j$).
-pub fn verify_factorization_certificate(
+///
+/// Acceptance does not establish that any factor is irreducible or that the decomposition is a
+/// complete factorization into irreducibles.
+pub fn verify_square_free_product_decomposition(
     poly: &UnivariatePoly,
     factorization: &FactorizationResult,
 ) -> Result<(), PolyError> {
@@ -238,7 +244,7 @@ pub fn verify_factorization_certificate(
     Ok(())
 }
 
-fn integer_divisors(n: &BigInt, limit: usize) -> Vec<BigInt> {
+fn bounded_integer_divisors(n: &BigInt, max_trial_divisors: usize) -> Vec<BigInt> {
     let abs_n = if n < &BigInt::zero() {
         -n.clone()
     } else {
@@ -253,7 +259,8 @@ fn integer_divisors(n: &BigInt, limit: usize) -> Vec<BigInt> {
     if let Ok(val) = u64::try_from(abs_n.clone()) {
         let mut divs = Vec::new();
         let mut d = 1u64;
-        while d * d <= val && divs.len() < limit {
+        let mut trials = 0usize;
+        while d <= val / d && trials < max_trial_divisors {
             if val % d == 0 {
                 divs.push(BigInt::from(d));
                 if d * d != val {
@@ -261,6 +268,7 @@ fn integer_divisors(n: &BigInt, limit: usize) -> Vec<BigInt> {
                 }
             }
             d += 1;
+            trials += 1;
         }
         divs.sort();
         divs
@@ -269,7 +277,7 @@ fn integer_divisors(n: &BigInt, limit: usize) -> Vec<BigInt> {
     }
 }
 
-fn find_rational_roots(poly: &UnivariatePoly) -> Vec<BigRational> {
+fn find_bounded_rational_roots(poly: &UnivariatePoly) -> Vec<BigRational> {
     if poly.degree() == Some(0) || poly.is_zero() {
         return Vec::new();
     }
@@ -307,8 +315,8 @@ fn find_rational_roots(poly: &UnivariatePoly) -> Vec<BigRational> {
     }
     let a0 = &int_coeffs[0];
     let an = &int_coeffs[int_coeffs.len() - 1];
-    let p_divs = integer_divisors(a0, 500);
-    let q_divs = integer_divisors(an, 100);
+    let p_divs = bounded_integer_divisors(a0, 500);
+    let q_divs = bounded_integer_divisors(an, 100);
 
     for p in &p_divs {
         for q in &q_divs {
@@ -328,17 +336,18 @@ fn find_rational_roots(poly: &UnivariatePoly) -> Vec<BigRational> {
     roots
 }
 
-fn factor_square_free_monic(poly: &UnivariatePoly) -> Result<Vec<UnivariatePoly>, PolyError> {
+fn split_bounded_rational_roots(poly: &UnivariatePoly) -> Result<Vec<UnivariatePoly>, PolyError> {
     poly.validate_shape()?;
     if poly.degree() == Some(0) || poly.is_zero() {
         return Ok(Vec::new());
     }
     let mut factors = Vec::new();
     let mut rem = poly.clone();
-    let roots = find_rational_roots(&rem);
+    let roots = find_bounded_rational_roots(&rem);
     for r in roots {
         let linear = UnivariatePoly::new(rem.gen_sym.clone(), vec![-r, BigRational::one()]);
-        while let Ok((q, remainder)) = rem.div_rem(&linear) {
+        loop {
+            let (q, remainder) = rem.div_rem(&linear)?;
             if remainder.is_zero() {
                 factors.push(linear.clone());
                 rem = q;
@@ -384,9 +393,16 @@ fn factor_square_free_monic(poly: &UnivariatePoly) -> Result<Vec<UnivariatePoly>
     Ok(factors)
 }
 
-/// Computes the complete factorization of a univariate polynomial over $\mathbb{Q}[x]$:
-/// $P(x) = \text{scale} \cdot \prod f_i(x)^{e_i}$.
-pub fn factor_polynomial(poly: &UnivariatePoly) -> Result<FactorizationResult, PolyError> {
+/// Computes a bounded rational-root refinement of a square-free decomposition over
+/// $\mathbb{Q}[x]$.
+///
+/// The generator extracts rational linear factors found by its bounded divisor search and splits
+/// a remaining quadratic when its discriminant is a rational square. Any remaining square-free
+/// component is preserved as one factor. The result is therefore an exact product decomposition,
+/// but it is not a complete factorization into irreducibles.
+pub fn bounded_rational_root_decomposition(
+    poly: &UnivariatePoly,
+) -> Result<FactorizationResult, PolyError> {
     poly.validate_shape()?;
     if poly.is_zero() {
         return Ok(FactorizationResult {
@@ -398,13 +414,13 @@ pub fn factor_polynomial(poly: &UnivariatePoly) -> Result<FactorizationResult, P
     let mut factors_vec: Vec<FactorTerm> = Vec::new();
 
     for sqf_term in sqf.factors {
-        let irreducible = factor_square_free_monic(&sqf_term.poly)?;
-        for irr in irreducible {
-            if let Some(existing) = factors_vec.iter_mut().find(|f| f.poly == irr) {
+        let components = split_bounded_rational_roots(&sqf_term.poly)?;
+        for component in components {
+            if let Some(existing) = factors_vec.iter_mut().find(|f| f.poly == component) {
                 existing.multiplicity += sqf_term.multiplicity;
             } else {
                 factors_vec.push(FactorTerm {
-                    poly: irr,
+                    poly: component,
                     multiplicity: sqf_term.multiplicity,
                 });
             }
@@ -415,6 +431,6 @@ pub fn factor_polynomial(poly: &UnivariatePoly) -> Result<FactorizationResult, P
         scale: sqf.scale,
         factors: factors_vec,
     };
-    verify_factorization_certificate(poly, &res)?;
+    verify_square_free_product_decomposition(poly, &res)?;
     Ok(res)
 }

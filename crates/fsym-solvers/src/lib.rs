@@ -127,7 +127,7 @@ pub fn solve_poly(poly: &UnivariatePoly) -> Result<Vec<Expr>, SolverError> {
             Ok(vec![r1, r2])
         }
         Some(d) => {
-            if let Ok(factorization) = fsym_polys::factor_polynomial(poly)
+            if let Ok(factorization) = fsym_polys::bounded_rational_root_decomposition(poly)
                 && (factorization.factors.len() > 1
                     || factorization
                         .factors
