@@ -259,7 +259,7 @@ impl MultivariatePoly {
             lifted_exp.extend(exp.clone());
             tf_terms.insert(lifted_exp, coeff.clone());
         }
-        let tf_poly = MultivariatePoly::new(lifted_gens.clone(), tf_terms);
+        let tf_poly = MultivariatePoly::new(lifted_gens.clone(), tf_terms)?;
 
         // Lift g to (1 - t) * g = g - t * g
         let mut g_terms = BTreeMap::new();
@@ -274,7 +274,7 @@ impl MultivariatePoly {
             exp1.extend(exp.clone());
             g_terms.insert(exp1, -coeff.clone());
         }
-        let one_minus_t_g_poly = MultivariatePoly::new(lifted_gens.clone(), g_terms);
+        let one_minus_t_g_poly = MultivariatePoly::new(lifted_gens.clone(), g_terms)?;
 
         // Eliminate t under Lex order
         let elim_basis = crate::groebner::eliminate(&[tf_poly, one_minus_t_g_poly], &[t_sym])?;
@@ -300,7 +300,7 @@ impl MultivariatePoly {
             lcm_terms.insert(orig_exp, coeff.clone());
         }
         let lcm_poly =
-            MultivariatePoly::new(self.generators.clone(), lcm_terms).to_monic(TermOrder::Lex)?;
+            MultivariatePoly::new(self.generators.clone(), lcm_terms)?.to_monic(TermOrder::Lex)?;
 
         // gcd = (f * g) / lcm
         let fg = self.mul(other)?;

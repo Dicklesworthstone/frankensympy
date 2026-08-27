@@ -566,13 +566,13 @@ mod tests {
         let mut t1 = BTreeMap::new();
         t1.insert(vec![2, 0], BigRational::one());
         t1.insert(vec![0, 1], BigRational::one());
-        let f1 = MultivariatePoly::new(gens.clone(), t1);
+        let f1 = MultivariatePoly::new(gens.clone(), t1).unwrap();
 
         // f2 = x*y + x
         let mut t2 = BTreeMap::new();
         t2.insert(vec![1, 1], BigRational::one());
         t2.insert(vec![1, 0], BigRational::one());
-        let f2 = MultivariatePoly::new(gens.clone(), t2);
+        let f2 = MultivariatePoly::new(gens.clone(), t2).unwrap();
 
         let gb = groebner_basis(&[f1.clone(), f2.clone()], TermOrder::Lex).unwrap();
         assert!(!gb.is_empty());
@@ -586,7 +586,7 @@ mod tests {
         let mut tg = BTreeMap::new();
         tg.insert(vec![0, 1], BigRational::one());
         tg.insert(vec![0, 0], BigRational::from_integer(BigInt::from(5)));
-        let g = MultivariatePoly::new(gens.clone(), tg);
+        let g = MultivariatePoly::new(gens.clone(), tg).unwrap();
         assert!(!ideal_membership(&g, &gb, TermOrder::Lex).unwrap());
     }
 
@@ -605,13 +605,13 @@ mod tests {
         let mut t1 = BTreeMap::new();
         t1.insert(vec![1, 0, 0], BigRational::one());
         t1.insert(vec![0, 2, 0], BigRational::from_integer(BigInt::from(-1)));
-        let f1 = MultivariatePoly::new(gens.clone(), t1);
+        let f1 = MultivariatePoly::new(gens.clone(), t1).unwrap();
 
         // f2 = x - z
         let mut t2 = BTreeMap::new();
         t2.insert(vec![1, 0, 0], BigRational::one());
         t2.insert(vec![0, 0, 1], BigRational::from_integer(BigInt::from(-1)));
-        let f2 = MultivariatePoly::new(gens.clone(), t2);
+        let f2 = MultivariatePoly::new(gens.clone(), t2).unwrap();
 
         let elim = eliminate(&[f1, f2], std::slice::from_ref(&x)).unwrap();
         assert!(!elim.is_empty());
@@ -653,6 +653,43 @@ mod tests {
             TermOrder::DegRevLex.compare_monomials(&large, &smaller),
             std::cmp::Ordering::Greater
         );
+    }
+
+    #[test]
+    fn multivariate_construction_refuses_malformed_ring_shape() {
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+        let generators = vec![x.clone(), y.clone()];
+
+        let mut narrow = BTreeMap::new();
+        narrow.insert(vec![1], BigRational::one());
+        assert!(matches!(
+            MultivariatePoly::new(generators.clone(), narrow),
+            Err(PolyError::General(message))
+                if message.contains("width 1") && message.contains("generator count 2")
+        ));
+
+        let mut wide = BTreeMap::new();
+        wide.insert(vec![1, 0], BigRational::from_integer((-1).into()));
+        wide.insert(vec![1, 0, 7], BigRational::one());
+        assert!(matches!(
+            MultivariatePoly::new(generators.clone(), wide),
+            Err(PolyError::General(message))
+                if message.contains("width 3") && message.contains("generator count 2")
+        ));
+
+        let mut zero_term = BTreeMap::new();
+        zero_term.insert(vec![9, 4], BigRational::zero());
+        assert!(
+            MultivariatePoly::new(generators, zero_term)
+                .unwrap()
+                .is_zero()
+        );
+
+        assert!(matches!(
+            MultivariatePoly::new(vec![x.clone(), x], BTreeMap::new()),
+            Err(PolyError::General(message)) if message.contains("duplicate")
+        ));
     }
 
     #[test]
@@ -790,13 +827,13 @@ mod tests {
         let mut t1 = BTreeMap::new();
         t1.insert(vec![2, 0], BigRational::one());
         t1.insert(vec![0, 1], BigRational::one());
-        let f1 = MultivariatePoly::new(gens.clone(), t1);
+        let f1 = MultivariatePoly::new(gens.clone(), t1).unwrap();
 
         // f2 = x*y + x
         let mut t2 = BTreeMap::new();
         t2.insert(vec![1, 1], BigRational::one());
         t2.insert(vec![1, 0], BigRational::one());
-        let f2 = MultivariatePoly::new(gens, t2);
+        let f2 = MultivariatePoly::new(gens, t2).unwrap();
 
         let initial = vec![f1, f2];
         let cert = groebner_basis_with_certificate(&initial, TermOrder::DegLex).unwrap();
@@ -855,21 +892,21 @@ mod tests {
         let mut t1 = BTreeMap::new();
         t1.insert(vec![2, 0], BigRational::one());
         t1.insert(vec![0, 2], BigRational::from_integer(BigInt::from(-1)));
-        let f = MultivariatePoly::new(gens.clone(), t1);
+        let f = MultivariatePoly::new(gens.clone(), t1).unwrap();
 
         // g = x^2 + 2*x*y + y^2 = (x + y)^2
         let mut t2 = BTreeMap::new();
         t2.insert(vec![2, 0], BigRational::one());
         t2.insert(vec![1, 1], BigRational::from_integer(BigInt::from(2)));
         t2.insert(vec![0, 2], BigRational::one());
-        let g = MultivariatePoly::new(gens.clone(), t2);
+        let g = MultivariatePoly::new(gens.clone(), t2).unwrap();
 
         let divisibility_cert = f.gcd_candidate_with_divisibility_certificate(&g).unwrap();
         // Expected gcd = x + y
         let mut expected_gcd_terms = BTreeMap::new();
         expected_gcd_terms.insert(vec![1, 0], BigRational::one());
         expected_gcd_terms.insert(vec![0, 1], BigRational::one());
-        let expected_gcd = MultivariatePoly::new(gens, expected_gcd_terms);
+        let expected_gcd = MultivariatePoly::new(gens, expected_gcd_terms).unwrap();
 
         assert_eq!(divisibility_cert.divisor, expected_gcd);
         assert!(verify_multivariate_divisibility_certificate(&f, &g, &divisibility_cert).is_ok());
@@ -905,16 +942,16 @@ mod tests {
 
         let mut fa = BTreeMap::new();
         fa.insert(vec![0, 0], BigRational::from_integer(BigInt::from(6)));
-        let f = MultivariatePoly::new(gens.clone(), fa);
+        let f = MultivariatePoly::new(gens.clone(), fa).unwrap();
 
         let mut fb = BTreeMap::new();
         fb.insert(vec![0, 0], BigRational::from_integer(BigInt::from(35)));
-        let g = MultivariatePoly::new(gens.clone(), fb);
+        let g = MultivariatePoly::new(gens.clone(), fb).unwrap();
 
         let gcd = f.gcd(&g).unwrap();
         let mut one_terms = BTreeMap::new();
         one_terms.insert(vec![0, 0], BigRational::one());
-        let expected = MultivariatePoly::new(gens, one_terms);
+        let expected = MultivariatePoly::new(gens, one_terms).unwrap();
         assert_eq!(gcd, expected);
     }
 
@@ -928,16 +965,16 @@ mod tests {
         // f = x^2 * y, g = x * y^2 -> gcd = x * y (primitive).
         let mut fa = BTreeMap::new();
         fa.insert(vec![2, 1], BigRational::one());
-        let f = MultivariatePoly::new(gens.clone(), fa);
+        let f = MultivariatePoly::new(gens.clone(), fa).unwrap();
 
         let mut fb = BTreeMap::new();
         fb.insert(vec![1, 2], BigRational::one());
-        let g = MultivariatePoly::new(gens.clone(), fb);
+        let g = MultivariatePoly::new(gens.clone(), fb).unwrap();
 
         let gcd = f.gcd(&g).unwrap();
         let mut exp_terms = BTreeMap::new();
         exp_terms.insert(vec![1, 1], BigRational::one());
-        let expected = MultivariatePoly::new(gens, exp_terms);
+        let expected = MultivariatePoly::new(gens, exp_terms).unwrap();
         assert_eq!(gcd, expected);
     }
 
@@ -951,16 +988,16 @@ mod tests {
         // f = x, g = y -> gcd = 1
         let mut fa = BTreeMap::new();
         fa.insert(vec![1, 0], BigRational::one());
-        let f = MultivariatePoly::new(gens.clone(), fa);
+        let f = MultivariatePoly::new(gens.clone(), fa).unwrap();
 
         let mut fb = BTreeMap::new();
         fb.insert(vec![0, 1], BigRational::one());
-        let g = MultivariatePoly::new(gens.clone(), fb);
+        let g = MultivariatePoly::new(gens.clone(), fb).unwrap();
 
         let gcd = f.gcd(&g).unwrap();
         let mut one_terms = BTreeMap::new();
         one_terms.insert(vec![0, 0], BigRational::one());
-        let expected = MultivariatePoly::new(gens, one_terms);
+        let expected = MultivariatePoly::new(gens, one_terms).unwrap();
         assert_eq!(gcd, expected);
     }
 
@@ -973,7 +1010,7 @@ mod tests {
 
         let mut fa = BTreeMap::new();
         fa.insert(vec![3, 2], BigRational::from_integer(BigInt::from(7)));
-        let f = MultivariatePoly::new(gens.clone(), fa);
+        let f = MultivariatePoly::new(gens.clone(), fa).unwrap();
 
         let one = MultivariatePoly::one(gens.clone());
         let gcd = f.gcd(&one).unwrap();
@@ -991,12 +1028,12 @@ mod tests {
         let mut fa = BTreeMap::new();
         fa.insert(vec![1, 0], BigRational::from_integer(BigInt::from(2)));
         fa.insert(vec![0, 1], BigRational::from_integer(BigInt::from(2)));
-        let f = MultivariatePoly::new(gens.clone(), fa);
+        let f = MultivariatePoly::new(gens.clone(), fa).unwrap();
 
         let mut fb = BTreeMap::new();
         fb.insert(vec![1, 0], BigRational::from_integer(BigInt::from(3)));
         fb.insert(vec![0, 1], BigRational::from_integer(BigInt::from(3)));
-        let g = MultivariatePoly::new(gens.clone(), fb);
+        let g = MultivariatePoly::new(gens.clone(), fb).unwrap();
 
         let cert = f.gcd_candidate_with_divisibility_certificate(&g).unwrap();
         assert!(verify_multivariate_divisibility_certificate(&f, &g, &cert).is_ok());
@@ -1005,7 +1042,7 @@ mod tests {
         let mut bad_divisor_terms = BTreeMap::new();
         bad_divisor_terms.insert(vec![1, 0], BigRational::from_integer(BigInt::from(2)));
         bad_divisor_terms.insert(vec![0, 1], BigRational::from_integer(BigInt::from(2)));
-        let bad_divisor = MultivariatePoly::new(gens.clone(), bad_divisor_terms);
+        let bad_divisor = MultivariatePoly::new(gens.clone(), bad_divisor_terms).unwrap();
 
         let one_poly = MultivariatePoly::one(gens.clone());
         let mut three_halves_terms = BTreeMap::new();
@@ -1013,7 +1050,7 @@ mod tests {
             vec![0, 0],
             BigRational::new(BigInt::from(3), BigInt::from(2)),
         );
-        let three_halves = MultivariatePoly::new(gens, three_halves_terms);
+        let three_halves = MultivariatePoly::new(gens, three_halves_terms).unwrap();
         let bad_cert = MultivariateDivisibilityCertificate {
             divisor: bad_divisor,
             quotient_a: one_poly.clone(),
@@ -1035,11 +1072,11 @@ mod tests {
 
         let mut fa = BTreeMap::new();
         fa.insert(vec![1, 0], BigRational::one());
-        let f = MultivariatePoly::new(gens_xy.clone(), fa);
+        let f = MultivariatePoly::new(gens_xy.clone(), fa).unwrap();
 
         let mut fb = BTreeMap::new();
         fb.insert(vec![1, 0], BigRational::one());
-        let g = MultivariatePoly::new(gens_xy.clone(), fb);
+        let g = MultivariatePoly::new(gens_xy.clone(), fb).unwrap();
 
         let one = MultivariatePoly::one(gens_xyz);
         let bad_cert = MultivariateDivisibilityCertificate {

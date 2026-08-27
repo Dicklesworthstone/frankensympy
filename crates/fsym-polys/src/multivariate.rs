@@ -145,24 +145,36 @@ impl MultivariatePoly {
     }
 
     /// Creates a multivariate polynomial with canonicalized terms (dropping zeros).
-    pub fn new(generators: Vec<Symbol>, raw_terms: BTreeMap<Vec<u32>, BigRational>) -> Self {
-        let n_vars = generators.len();
+    ///
+    /// Every exponent vector must have exactly one entry per generator. Construction
+    /// refuses malformed widths rather than padding or truncating them, because either
+    /// repair would silently change the represented monomial.
+    pub fn new(
+        generators: Vec<Symbol>,
+        raw_terms: BTreeMap<Vec<u32>, BigRational>,
+    ) -> Result<Self, PolyError> {
+        validate_generators(&generators).map_err(PolyError::General)?;
+        if raw_terms.len() > MAX_MULTIVARIATE_TERMS {
+            return Err(PolyError::General(format!(
+                "multivariate polynomial exceeds the term limit of {MAX_MULTIVARIATE_TERMS}"
+            )));
+        }
+
+        let expected_width = generators.len();
         let mut terms = BTreeMap::new();
-        for (exp, coeff) in raw_terms {
-            if coeff.is_zero() {
+        for (exponents, coefficient) in raw_terms {
+            if exponents.len() != expected_width {
+                return Err(PolyError::General(format!(
+                    "multivariate exponent-vector width {} does not match the generator count {expected_width}",
+                    exponents.len()
+                )));
+            }
+            if coefficient.is_zero() {
                 continue;
             }
-            let mut normalized_exp = exp;
-            normalized_exp.resize(n_vars, 0);
-            let entry = terms
-                .entry(normalized_exp.clone())
-                .or_insert_with(BigRational::zero);
-            *entry += coeff;
-            if entry.is_zero() {
-                terms.remove(&normalized_exp);
-            }
+            terms.insert(exponents, coefficient);
         }
-        Self { generators, terms }
+        Ok(Self { generators, terms })
     }
 
     /// Construct constant polynomial 0.

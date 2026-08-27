@@ -106,7 +106,7 @@ impl MultivariatePoly {
                     // Add term to quotient q_i
                     let mut term_map = BTreeMap::new();
                     term_map.insert(diff_exp.clone(), q_coeff.clone());
-                    let term_poly = MultivariatePoly::new(self.generators.clone(), term_map);
+                    let term_poly = MultivariatePoly::new(self.generators.clone(), term_map)?;
 
                     quotients[i] = quotients[i].add(&term_poly)?;
 
@@ -131,7 +131,7 @@ impl MultivariatePoly {
 
         Ok((
             quotients,
-            MultivariatePoly::new(self.generators.clone(), remainder_terms),
+            MultivariatePoly::new(self.generators.clone(), remainder_terms)?,
         ))
     }
 
@@ -148,7 +148,7 @@ impl MultivariatePoly {
         for (exp, coeff) in &self.terms {
             monic_terms.insert(exp.clone(), coeff / &lc);
         }
-        Ok(Self::new(self.generators.clone(), monic_terms))
+        Self::new(self.generators.clone(), monic_terms)
     }
 }
 
@@ -208,11 +208,11 @@ pub fn s_polynomial(
 
     let mut term_f = BTreeMap::new();
     term_f.insert(f_shift, BigRational::one() / f_c);
-    let poly_f = MultivariatePoly::new(f.generators.clone(), term_f);
+    let poly_f = MultivariatePoly::new(f.generators.clone(), term_f)?;
 
     let mut term_g = BTreeMap::new();
     term_g.insert(g_shift, BigRational::one() / g_c);
-    let poly_g = MultivariatePoly::new(g.generators.clone(), term_g);
+    let poly_g = MultivariatePoly::new(g.generators.clone(), term_g)?;
 
     let t1 = poly_f.mul(f)?;
     let t2 = poly_g.mul(g)?;
@@ -325,7 +325,10 @@ struct TrackedPolynomial {
     input_coefficients: Vec<MultivariatePoly>,
 }
 
-fn scale_poly(poly: &MultivariatePoly, scalar: &BigRational) -> MultivariatePoly {
+fn scale_poly(
+    poly: &MultivariatePoly,
+    scalar: &BigRational,
+) -> Result<MultivariatePoly, PolyError> {
     let terms = poly
         .terms
         .iter()
@@ -348,7 +351,7 @@ fn make_tracked_monic(
             .input_coefficients
             .iter()
             .map(|coefficient| scale_poly(coefficient, &scale))
-            .collect(),
+            .collect::<Result<_, _>>()?,
     })
 }
 
@@ -397,14 +400,14 @@ fn tracked_s_polynomial(
         monomial_sub(&lcm_exp, f_exp),
         BigRational::one() / f_coefficient,
     );
-    let f_factor = MultivariatePoly::new(f.poly.generators.clone(), f_factor_terms);
+    let f_factor = MultivariatePoly::new(f.poly.generators.clone(), f_factor_terms)?;
 
     let mut g_factor_terms = BTreeMap::new();
     g_factor_terms.insert(
         monomial_sub(&lcm_exp, g_exp),
         BigRational::one() / g_coefficient,
     );
-    let g_factor = MultivariatePoly::new(g.poly.generators.clone(), g_factor_terms);
+    let g_factor = MultivariatePoly::new(g.poly.generators.clone(), g_factor_terms)?;
 
     let poly = f_factor.mul(&f.poly)?.sub(&g_factor.mul(&g.poly)?)?;
     let mut input_coefficients = Vec::with_capacity(f.input_coefficients.len());

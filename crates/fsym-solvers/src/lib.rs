@@ -559,13 +559,13 @@ mod tests {
         t1.insert(vec![1, 0], BigRational::one());
         t1.insert(vec![0, 1], BigRational::one());
         t1.insert(vec![0, 0], BigRational::from_integer((-5).into()));
-        let p1 = fsym_polys::multivariate::MultivariatePoly::new(gens.clone(), t1);
+        let p1 = fsym_polys::multivariate::MultivariatePoly::new(gens.clone(), t1).unwrap();
 
         let mut t2 = std::collections::BTreeMap::new();
         t2.insert(vec![1, 0], BigRational::one());
         t2.insert(vec![0, 1], BigRational::from_integer((-1).into()));
         t2.insert(vec![0, 0], BigRational::from_integer((-1).into()));
-        let p2 = fsym_polys::multivariate::MultivariatePoly::new(gens.clone(), t2);
+        let p2 = fsym_polys::multivariate::MultivariatePoly::new(gens.clone(), t2).unwrap();
 
         let sols = solve_2var_poly_system(&[p1, p2], &x, &y).unwrap();
         assert_eq!(sols.len(), 1);
@@ -612,11 +612,13 @@ mod tests {
         let mut x_squared_terms = std::collections::BTreeMap::new();
         x_squared_terms.insert(vec![2, 0], BigRational::one());
         let x_squared =
-            fsym_polys::multivariate::MultivariatePoly::new(generators.clone(), x_squared_terms);
+            fsym_polys::multivariate::MultivariatePoly::new(generators.clone(), x_squared_terms)
+                .unwrap();
 
         let mut y_terms = std::collections::BTreeMap::new();
         y_terms.insert(vec![0, 1], BigRational::one());
-        let y_equation = fsym_polys::multivariate::MultivariatePoly::new(generators, y_terms);
+        let y_equation =
+            fsym_polys::multivariate::MultivariatePoly::new(generators, y_terms).unwrap();
 
         assert_eq!(
             solve_2var_poly_system(&[x_squared, y_equation], &x, &y),
@@ -633,12 +635,12 @@ mod tests {
         let mut x_terms = std::collections::BTreeMap::new();
         x_terms.insert(vec![1, 0], BigRational::one());
         let x_equation =
-            fsym_polys::multivariate::MultivariatePoly::new(generators.clone(), x_terms);
+            fsym_polys::multivariate::MultivariatePoly::new(generators.clone(), x_terms).unwrap();
 
         let mut huge_y_terms = std::collections::BTreeMap::new();
         huge_y_terms.insert(vec![0, u32::MAX], BigRational::one());
         let huge_y_equation =
-            fsym_polys::multivariate::MultivariatePoly::new(generators, huge_y_terms);
+            fsym_polys::multivariate::MultivariatePoly::new(generators, huge_y_terms).unwrap();
 
         assert_eq!(
             solve_2var_poly_system(&[x_equation, huge_y_equation], &x, &y),
