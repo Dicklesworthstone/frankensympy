@@ -52,6 +52,8 @@ pub enum TensorError {
         "Tensor component expression fanout {actual} exceeds the limit of {MAX_COMPONENT_EXPRESSION_FANOUT}"
     )]
     ComponentExpressionFanoutLimitExceeded { actual: usize },
+    #[error("Tensor operation could not reserve storage for {requested} work items")]
+    AllocationFailure { requested: usize },
     #[error(transparent)]
     Simplification(#[from] SimplifyError),
 }
@@ -102,17 +104,31 @@ impl TensorIndex {
     }
 }
 
-fn decode_multi_index(flat_idx: usize, rank: usize, dim: usize) -> Vec<usize> {
+fn try_reserve<T>(items: &mut Vec<T>, additional: usize) -> Result<(), TensorError> {
+    let requested = items
+        .len()
+        .checked_add(additional)
+        .ok_or(TensorError::AllocationFailure {
+            requested: usize::MAX,
+        })?;
+    items
+        .try_reserve_exact(additional)
+        .map_err(|_| TensorError::AllocationFailure { requested })
+}
+
+fn decode_multi_index(flat_idx: usize, rank: usize, dim: usize) -> Result<Vec<usize>, TensorError> {
     if rank == 0 {
-        return Vec::new();
+        return Ok(Vec::new());
     }
-    let mut indices = vec![0; rank];
+    let mut indices = Vec::new();
+    try_reserve(&mut indices, rank)?;
+    indices.resize(rank, 0);
     let mut curr = flat_idx;
     for i in (0..rank).rev() {
         indices[i] = curr % dim;
         curr /= dim;
     }
-    indices
+    Ok(indices)
 }
 
 fn encode_multi_index(indices: &[usize], dim: usize) -> usize {
@@ -222,55 +238,50 @@ impl TensorExpr {
 
     fn validate_component_expressions(components: &[Expr]) -> Result<(), TensorError> {
         let mut visited = 0usize;
-        let mut stack = Vec::new();
 
         for root in components {
-            stack.push((root, 0usize));
-            while let Some((expr, depth)) = stack.pop() {
-                if depth > MAX_COMPONENT_EXPRESSION_DEPTH {
-                    return Err(TensorError::ComponentExpressionDepthLimitExceeded {
-                        actual: depth,
-                    });
-                }
-                visited = visited
-                    .checked_add(1)
-                    .ok_or(TensorError::ComponentExpressionNodeLimitExceeded)?;
-                if visited > MAX_COMPONENT_EXPRESSION_NODES {
-                    return Err(TensorError::ComponentExpressionNodeLimitExceeded);
-                }
+            Self::validate_component_expression(root, &mut visited)?;
+        }
 
-                let children: &[Expr] = match expr {
-                    Expr::Add(items) | Expr::Mul(items) | Expr::Function(_, items) => items,
-                    Expr::Pow(base, exponent) => {
-                        if depth == MAX_COMPONENT_EXPRESSION_DEPTH {
-                            return Err(TensorError::ComponentExpressionDepthLimitExceeded {
-                                actual: depth + 1,
-                            });
-                        }
-                        stack.push((exponent, depth + 1));
-                        stack.push((base, depth + 1));
-                        continue;
-                    }
-                    Expr::Sym(_) | Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_) => {
-                        continue;
-                    }
-                };
+        Ok(())
+    }
 
-                if children.len() > MAX_COMPONENT_EXPRESSION_FANOUT {
-                    return Err(TensorError::ComponentExpressionFanoutLimitExceeded {
-                        actual: children.len(),
-                    });
-                }
-                if !children.is_empty() && depth == MAX_COMPONENT_EXPRESSION_DEPTH {
-                    return Err(TensorError::ComponentExpressionDepthLimitExceeded {
-                        actual: depth + 1,
-                    });
-                }
-                if stack.len() > MAX_COMPONENT_EXPRESSION_NODES.saturating_sub(children.len()) {
-                    return Err(TensorError::ComponentExpressionNodeLimitExceeded);
-                }
-                stack.extend(children.iter().map(|child| (child, depth + 1)));
+    fn validate_component_expression(root: &Expr, visited: &mut usize) -> Result<(), TensorError> {
+        Self::validate_component_expression_at(root, 0, visited)
+    }
+
+    fn validate_component_expression_at(
+        expr: &Expr,
+        depth: usize,
+        visited: &mut usize,
+    ) -> Result<(), TensorError> {
+        if depth > MAX_COMPONENT_EXPRESSION_DEPTH {
+            return Err(TensorError::ComponentExpressionDepthLimitExceeded { actual: depth });
+        }
+        *visited = visited
+            .checked_add(1)
+            .ok_or(TensorError::ComponentExpressionNodeLimitExceeded)?;
+        if *visited > MAX_COMPONENT_EXPRESSION_NODES {
+            return Err(TensorError::ComponentExpressionNodeLimitExceeded);
+        }
+
+        let children: &[Expr] = match expr {
+            Expr::Add(items) | Expr::Mul(items) | Expr::Function(_, items) => items,
+            Expr::Pow(base, exponent) => {
+                Self::validate_component_expression_at(base, depth + 1, visited)?;
+                Self::validate_component_expression_at(exponent, depth + 1, visited)?;
+                return Ok(());
             }
+            Expr::Sym(_) | Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_) => return Ok(()),
+        };
+
+        if children.len() > MAX_COMPONENT_EXPRESSION_FANOUT {
+            return Err(TensorError::ComponentExpressionFanoutLimitExceeded {
+                actual: children.len(),
+            });
+        }
+        for child in children {
+            Self::validate_component_expression_at(child, depth + 1, visited)?;
         }
 
         Ok(())
@@ -334,7 +345,9 @@ impl TensorExpr {
             return Err(TensorError::ConcreteVarianceChangeRequiresMetric);
         }
 
-        let mut new_indices = self.indices.clone();
+        let mut new_indices = Vec::new();
+        try_reserve(&mut new_indices, self.indices.len())?;
+        new_indices.extend(self.indices.iter().cloned());
         new_indices[pos] = new_indices[pos].flip_variance();
 
         Ok(Self {
@@ -371,10 +384,14 @@ impl TensorExpr {
         let new_components = match (&self.components, &other.components) {
             (Some(c1), Some(c2)) => {
                 let output_len = Self::expected_component_count(self.dimension, output_rank)?;
-                let mut comp = Vec::with_capacity(output_len);
+                let mut comp = Vec::new();
+                try_reserve(&mut comp, output_len)?;
+                let mut output_nodes = 0usize;
                 for a in c1 {
                     for b in c2 {
-                        comp.push(try_simplify(&(a.clone() * b.clone()))?);
+                        let result = try_simplify(&(a.clone() * b.clone()))?;
+                        Self::validate_component_expression(&result, &mut output_nodes)?;
+                        comp.push(result);
                     }
                 }
                 Some(comp)
@@ -382,8 +399,10 @@ impl TensorExpr {
             _ => None,
         };
 
-        let mut new_indices = self.indices.clone();
-        new_indices.extend(other.indices.clone());
+        let mut new_indices = Vec::new();
+        try_reserve(&mut new_indices, output_rank)?;
+        new_indices.extend(self.indices.iter().cloned());
+        new_indices.extend(other.indices.iter().cloned());
 
         Ok(Self {
             name: new_name.into(),
@@ -425,6 +444,7 @@ impl TensorExpr {
         }
 
         let mut new_indices = Vec::new();
+        try_reserve(&mut new_indices, self.rank().saturating_sub(2))?;
         for (i, idx) in self.indices.iter().enumerate() {
             if i != up_pos && i != low_pos {
                 new_indices.push(idx.clone());
@@ -436,31 +456,38 @@ impl TensorExpr {
             let dim = self.dimension;
             let out_len = Self::expected_component_count(dim, out_rank)?;
             let in_rank = self.rank();
-            let mut out_comp = Vec::with_capacity(out_len);
+            let mut out_comp = Vec::new();
+            try_reserve(&mut out_comp, out_len)?;
+            let mut output_nodes = 0usize;
 
             for out_flat in 0..out_len {
-                let out_multi = decode_multi_index(out_flat, out_rank, dim);
-                let mut sum_terms = Vec::with_capacity(dim);
+                let out_multi = decode_multi_index(out_flat, out_rank, dim)?;
+                let mut sum_terms = Vec::new();
+                try_reserve(&mut sum_terms, dim)?;
+                let mut in_multi = Vec::new();
+                try_reserve(&mut in_multi, in_rank)?;
+                in_multi.resize(in_rank, 0);
+
+                let mut out_idx = 0;
+                for (i, slot) in in_multi.iter_mut().enumerate() {
+                    if i != up_pos && i != low_pos {
+                        *slot = out_multi[out_idx];
+                        out_idx += 1;
+                    }
+                }
 
                 for d in 0..dim {
-                    let mut in_multi = vec![0; in_rank];
                     in_multi[up_pos] = d;
                     in_multi[low_pos] = d;
-
-                    let mut out_idx = 0;
-                    for (i, slot) in in_multi.iter_mut().enumerate() {
-                        if i != up_pos && i != low_pos {
-                            *slot = out_multi[out_idx];
-                            out_idx += 1;
-                        }
-                    }
 
                     let in_flat = encode_multi_index(&in_multi, dim);
                     sum_terms.push(components[in_flat].clone());
                 }
 
                 let sum_expr = Expr::Add(sum_terms);
-                out_comp.push(try_simplify(&sum_expr)?);
+                let result = try_simplify(&sum_expr)?;
+                Self::validate_component_expression(&result, &mut output_nodes)?;
+                out_comp.push(result);
             }
             Some(out_comp)
         } else {
@@ -745,5 +772,37 @@ mod tests {
             TensorExpr::with_components("wide", 1, vec![TensorIndex::upper("i")], vec![wide],),
             Err(TensorError::ComponentExpressionFanoutLimitExceeded { .. })
         ));
+    }
+
+    #[test]
+    fn outer_product_preserves_the_aggregate_component_expression_limit() {
+        fn nested_function(prefix: &str, depth: usize) -> Expr {
+            let mut expr = Expr::symbol(format!("{prefix}_leaf"));
+            for level in 0..depth {
+                expr = Expr::Function(format!("{prefix}_{level}"), vec![expr]);
+            }
+            expr
+        }
+
+        let dimension = 87;
+        let left = TensorExpr::with_components(
+            "left",
+            dimension,
+            vec![TensorIndex::upper("i")],
+            vec![nested_function("left", 16); dimension],
+        )
+        .unwrap();
+        let right = TensorExpr::with_components(
+            "right",
+            dimension,
+            vec![TensorIndex::lower("j")],
+            vec![nested_function("right", 16); dimension],
+        )
+        .unwrap();
+
+        assert_eq!(
+            left.outer_product(&right, "too_many_expression_nodes"),
+            Err(TensorError::ComponentExpressionNodeLimitExceeded)
+        );
     }
 }

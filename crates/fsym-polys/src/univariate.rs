@@ -202,6 +202,11 @@ impl UnivariatePoly {
         self.coeffs.last().expect("coeffs is non-empty")
     }
 
+    /// Check if this polynomial is monic ($\text{LC}(P) = 1$ and not zero polynomial).
+    pub fn is_monic(&self) -> bool {
+        !self.is_zero() && self.leading_coeff().is_one()
+    }
+
     /// Evaluate polynomial at given point $x = v$.
     pub fn eval(&self, point: &BigRational) -> BigRational {
         // Horner's method: c_0 + x * (c_1 + x * (...))

@@ -743,6 +743,63 @@ impl Matrix {
         Ok(coeffs)
     }
 
+    /// Evaluates a polynomial $P(A) = \sum_{k=0}^d c_k A^k$ on this square matrix using Horner's method.
+    pub fn eval_poly(&self, poly: &UnivariatePoly) -> Result<Matrix, MatrixError> {
+        self.validate_shape()?;
+        if self.rows != self.cols {
+            return Err(MatrixError::NotSquare(self.rows, self.cols));
+        }
+        let n = self.rows;
+        if n == 0 {
+            return Matrix::new(0, 0, Vec::new());
+        }
+        if poly.is_zero() || poly.coeffs.is_empty() {
+            return Matrix::zeros(n, n);
+        }
+        let d = poly.coeffs.len() - 1;
+        // Horner's method: start with c_d * I
+        let mut res = Matrix::eye(n)?;
+        let c_lead = from_rational(poly.coeffs[d].clone());
+        for i in 0..n {
+            res.data[i * n + i] = c_lead.clone();
+        }
+        for k in (0..d).rev() {
+            res = res.matmul(self)?;
+            let c_k = from_rational(poly.coeffs[k].clone());
+            for i in 0..n {
+                let idx = i * n + i;
+                res.data[idx] = Self::exact_add(&res.data[idx], &c_k);
+            }
+        }
+        Ok(res)
+    }
+
+    /// Computes the characteristic polynomial as a [`UnivariatePoly`] over $\mathbb{Q}[\lambda]$.
+    pub fn char_poly_as_poly(&self, lambda_sym: &str) -> Result<UnivariatePoly, MatrixError> {
+        let coeffs = self.char_poly()?;
+        let mut rationals = Vec::with_capacity(coeffs.len());
+        for c in coeffs.iter().rev() {
+            match c {
+                Expr::Integer(i) => rationals.push(BigRational::from_integer(i.clone())),
+                Expr::Rational(r) => rationals.push(r.clone()),
+                _ => return Err(MatrixError::SymbolicCharacteristicPolynomial),
+            }
+        }
+        let gen_sym = Symbol::new(lambda_sym);
+        Ok(UnivariatePoly::new(gen_sym, rationals))
+    }
+
+    /// Computes the characteristic polynomial and validates its certificate.
+    pub fn char_poly_with_certificate(
+        &self,
+        lambda_sym: &str,
+    ) -> Result<CharpolyCertificate, MatrixError> {
+        let poly = self.char_poly_as_poly(lambda_sym)?;
+        let cert = CharpolyCertificate { poly };
+        verify_charpoly_certificate(self, &cert)?;
+        Ok(cert)
+    }
+
     /// Eigenvalues as exact expressions when decidable.
     ///
     /// Computes the characteristic polynomial and solves it exactly for
@@ -758,19 +815,7 @@ impl Matrix {
         if self.rows > 2 {
             return Err(MatrixError::EigenvaluesUnsupportedDegree(self.rows));
         }
-        let coeffs = self.char_poly()?;
-        // char_poly yields descending powers (c_n first); UnivariatePoly
-        // wants ascending, including the leading unit coefficient.
-        let mut rationals = Vec::with_capacity(coeffs.len());
-        for c in coeffs.iter().rev() {
-            match c {
-                Expr::Integer(i) => rationals.push(BigRational::from_integer(i.clone())),
-                Expr::Rational(r) => rationals.push(r.clone()),
-                _ => return Err(MatrixError::SymbolicCharacteristicPolynomial),
-            }
-        }
-        let gen_sym = fsym_core::Symbol::new("lambda");
-        let poly = UnivariatePoly::new(gen_sym, rationals);
+        let poly = self.char_poly_as_poly("lambda")?;
         match poly.degree() {
             None | Some(0) => Err(MatrixError::SingularMatrix),
             Some(d) if d > 2 => Err(MatrixError::EigenvaluesUnsupportedDegree(d)),
@@ -1683,6 +1728,88 @@ pub fn verify_lu_certificate(matrix: &Matrix, cert: &LuCertificate) -> Result<()
     Ok(())
 }
 
+/// Certificate candidate for an exact-rational matrix characteristic polynomial $P(\lambda) = \det(\lambda I - A)$.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CharpolyCertificate {
+    pub poly: UnivariatePoly,
+}
+
+/// Same-crate reference validator checking an exact-rational characteristic polynomial.
+///
+/// Acceptance criteria:
+/// 1. Matrix is square $n \times n$ with exact rational entries.
+/// 2. Polynomial degree equals $n$ and is monic ($\text{LC}(P) = 1$).
+/// 3. Subleading coefficient equals $-\text{trace}(A)$ (for $n \ge 1$).
+/// 4. Constant coefficient $P(0) = (-1)^n \det(A)$.
+/// 5. Cayley–Hamilton theorem holds: $P(A) = 0_{n \times n}$.
+pub fn verify_charpoly_certificate(
+    matrix: &Matrix,
+    cert: &CharpolyCertificate,
+) -> Result<(), MatrixError> {
+    matrix.validate_certificate_domain()?;
+    if matrix.rows != matrix.cols {
+        return Err(MatrixError::NotSquare(matrix.rows, matrix.cols));
+    }
+    let n = matrix.rows;
+    cert.poly
+        .validate_shape()
+        .map_err(|e| MatrixError::ResourceLimit(e.to_string()))?;
+    if cert.poly.degree() != Some(n) {
+        return Err(MatrixError::ResourceLimit(format!(
+            "characteristic polynomial degree {:?} does not match matrix dimension {}",
+            cert.poly.degree(),
+            n
+        )));
+    }
+    if !cert.poly.is_monic() {
+        return Err(MatrixError::ResourceLimit(
+            "characteristic polynomial must be monic".to_string(),
+        ));
+    }
+    // Check subleading coefficient matches -trace(A) for n >= 1
+    if n >= 1 {
+        let tr = matrix.trace()?;
+        let tr_rational = match Matrix::numeric(&tr) {
+            Some(r) => r,
+            None => return Err(MatrixError::SymbolicCharacteristicPolynomial),
+        };
+        let expected_subleading = -tr_rational;
+        if cert.poly.coeffs[n - 1] != expected_subleading {
+            return Err(MatrixError::ResourceLimit(
+                "subleading coefficient does not match -trace(A)".to_string(),
+            ));
+        }
+    }
+    // Check constant term matches (-1)^n * det(A)
+    let det = matrix.det()?;
+    let det_rational = match Matrix::numeric(&det) {
+        Some(r) => r,
+        None => return Err(MatrixError::SymbolicCharacteristicPolynomial),
+    };
+    let sign = if n.is_multiple_of(2) {
+        BigRational::one()
+    } else {
+        -BigRational::one()
+    };
+    let expected_constant = sign * det_rational;
+    if cert.poly.coeffs[0] != expected_constant {
+        return Err(MatrixError::ResourceLimit(
+            "constant term does not match (-1)^n * det(A)".to_string(),
+        ));
+    }
+    // Check Cayley-Hamilton: P(A) == 0_{n x n}
+    let pa = matrix.eval_poly(&cert.poly)?;
+    for entry in &pa.data {
+        if !entry.is_zero() {
+            return Err(MatrixError::ResourceLimit(
+                "Cayley-Hamilton evaluation failed: P(A) != 0".to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
 impl fmt::Display for Matrix {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "Matrix({}x{}):", self.rows, self.cols)?;
@@ -2390,5 +2517,118 @@ mod tests {
             verify_lu_certificate(&matrix, &forged),
             Err(MatrixError::InvalidPermutationMatrix)
         );
+    }
+
+    #[test]
+    fn charpoly_certificate_verifies_and_evaluates_cayley_hamilton() {
+        let matrix = Matrix::new(2, 2, vec![num(1), num(2), num(3), num(4)]).unwrap();
+
+        let cert = matrix.char_poly_with_certificate("lambda").unwrap();
+        assert_eq!(cert.poly.degree(), Some(2));
+        assert!(cert.poly.is_monic());
+        assert_eq!(cert.poly.coeffs[2], BigRational::one());
+        assert_eq!(cert.poly.coeffs[1], BigRational::from_integer((-5).into())); // -trace
+        assert_eq!(cert.poly.coeffs[0], BigRational::from_integer((-2).into())); // det = 1*4 - 2*3 = -2
+
+        assert!(verify_charpoly_certificate(&matrix, &cert).is_ok());
+
+        // 3x3 matrix test
+        let m3 = Matrix::new(
+            3,
+            3,
+            vec![
+                num(2),
+                num(-1),
+                num(0),
+                num(-1),
+                num(2),
+                num(-1),
+                num(0),
+                num(-1),
+                num(2),
+            ],
+        )
+        .unwrap();
+        let cert3 = m3.char_poly_with_certificate("lambda").unwrap();
+        assert_eq!(cert3.poly.degree(), Some(3));
+        assert!(verify_charpoly_certificate(&m3, &cert3).is_ok());
+
+        // 1x1 matrix test
+        let m1 = Matrix::new(1, 1, vec![num(7)]).unwrap();
+        let cert1 = m1.char_poly_with_certificate("lambda").unwrap();
+        assert_eq!(cert1.poly.degree(), Some(1));
+        assert!(verify_charpoly_certificate(&m1, &cert1).is_ok());
+
+        // 0x0 matrix test
+        let m0 = Matrix::zeros(0, 0).unwrap();
+        let cert0 = m0.char_poly_with_certificate("lambda").unwrap();
+        assert_eq!(cert0.poly.degree(), Some(0));
+        assert!(verify_charpoly_certificate(&m0, &cert0).is_ok());
+    }
+
+    #[test]
+    fn charpoly_verifier_rejects_mutants() {
+        let matrix = Matrix::new(2, 2, vec![num(1), num(2), num(3), num(4)]).unwrap();
+        let valid_cert = matrix.char_poly_with_certificate("lambda").unwrap();
+
+        // Mutant 1: Non-monic leading coefficient
+        let mut bad_coeffs = valid_cert.poly.coeffs.clone();
+        bad_coeffs[2] = BigRational::from_integer(2.into());
+        let bad_cert1 = CharpolyCertificate {
+            poly: UnivariatePoly::new(Symbol::new("lambda"), bad_coeffs),
+        };
+        assert!(verify_charpoly_certificate(&matrix, &bad_cert1).is_err());
+
+        // Mutant 2: Wrong degree
+        let mut bad_coeffs2 = valid_cert.poly.coeffs.clone();
+        bad_coeffs2.push(BigRational::one());
+        let bad_cert2 = CharpolyCertificate {
+            poly: UnivariatePoly::new(Symbol::new("lambda"), bad_coeffs2),
+        };
+        assert!(verify_charpoly_certificate(&matrix, &bad_cert2).is_err());
+
+        // Mutant 3: Wrong trace / subleading coefficient
+        let mut bad_coeffs3 = valid_cert.poly.coeffs.clone();
+        bad_coeffs3[1] = BigRational::zero();
+        let bad_cert3 = CharpolyCertificate {
+            poly: UnivariatePoly::new(Symbol::new("lambda"), bad_coeffs3),
+        };
+        assert!(verify_charpoly_certificate(&matrix, &bad_cert3).is_err());
+
+        // Mutant 4: Wrong constant term
+        let mut bad_coeffs4 = valid_cert.poly.coeffs.clone();
+        bad_coeffs4[0] = BigRational::zero();
+        let bad_cert4 = CharpolyCertificate {
+            poly: UnivariatePoly::new(Symbol::new("lambda"), bad_coeffs4),
+        };
+        assert!(verify_charpoly_certificate(&matrix, &bad_cert4).is_err());
+
+        // Mutant 5: Cayley-Hamilton failure (e.g. wrong intermediate coefficient on 3x3)
+        let m3 = Matrix::new(
+            3,
+            3,
+            vec![
+                num(1),
+                num(0),
+                num(0),
+                num(0),
+                num(2),
+                num(0),
+                num(0),
+                num(0),
+                num(3),
+            ],
+        )
+        .unwrap();
+        let cert3 = m3.char_poly_with_certificate("lambda").unwrap();
+        // trace = 6, det = 6. True poly: lambda^3 - 6 lambda^2 + 11 lambda - 6
+        // If we tamper the middle coefficient (11 -> 10), trace and det still match,
+        // but Cayley-Hamilton fails!
+        let mut tampered_coeffs = cert3.poly.coeffs.clone();
+        tampered_coeffs[1] = BigRational::from_integer(10.into());
+        let bad_cert5 = CharpolyCertificate {
+            poly: UnivariatePoly::new(Symbol::new("lambda"), tampered_coeffs),
+        };
+        assert!(verify_charpoly_certificate(&m3, &bad_cert5).is_err());
     }
 }
