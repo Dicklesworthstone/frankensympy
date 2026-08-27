@@ -2,9 +2,10 @@
 
 #![forbid(unsafe_code)]
 
-use crate::{CalculusError, integrate};
-use fsym_core::{BigInt, Expr, Symbol};
+use crate::{CalculusError, integrate, numeric_value};
+use fsym_core::{BigInt, BigRational, Constant, Expr, Symbol};
 use fsym_simplify::simplify;
+use num_traits::{Signed, Zero};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -379,59 +380,149 @@ pub fn laplace_transform(expr: &Expr, t: &Symbol, s: &Symbol) -> Result<Expr, Ca
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct LaplaceResult {
     pub transform: Expr,
+    /// Exact finite abscissa, `-Infinity` for an everywhere-convergent zero
+    /// transform, or `None` when the current catalog cannot establish one.
     pub roc_abscissa: Option<Expr>,
 }
 
-/// Computes the unilateral Laplace transform along with its Region of Convergence: $\text{Re}(s) > \sigma_0$.
+/// Computes the unilateral Laplace transform and, when established by the
+/// exact-real catalog, its convergence half-plane $\text{Re}(s) > \sigma_0$.
 pub fn laplace_transform_with_roc(
     expr: &Expr,
     t: &Symbol,
     s: &Symbol,
 ) -> Result<LaplaceResult, CalculusError> {
     let transform = laplace_transform(expr, t, s)?;
-    let roc_abscissa = compute_roc_abscissa(expr, t);
+    let roc_abscissa = if transform.is_zero() {
+        Some(Expr::Const(Constant::NegativeInfinity))
+    } else {
+        compute_roc_abscissa(expr, t).map(RocAbscissa::into_expr)
+    };
     Ok(LaplaceResult {
         transform,
         roc_abscissa,
     })
 }
 
-fn compute_roc_abscissa(expr: &Expr, t: &Symbol) -> Option<Expr> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RocAbscissa {
+    Entire,
+    Finite(BigRational),
+}
+
+impl RocAbscissa {
+    fn into_expr(self) -> Expr {
+        match self {
+            Self::Entire => Expr::Const(Constant::NegativeInfinity),
+            Self::Finite(value) if value.is_integer() => Expr::Integer(value.to_integer()),
+            Self::Finite(value) => Expr::Rational(value),
+        }
+    }
+}
+
+fn exact_real_linear_rate(arg: &Expr, t: &Symbol) -> Option<BigRational> {
+    let coefficient = linear_argument_coefficient(arg, t)?;
+    numeric_value(&coefficient)
+}
+
+fn zero_roc() -> RocAbscissa {
+    RocAbscissa::Finite(BigRational::from_integer(BigInt::from(0)))
+}
+
+fn compute_roc_abscissa(expr: &Expr, t: &Symbol) -> Option<RocAbscissa> {
     match expr {
         Expr::Function(name, args) if args.len() == 1 => {
             let arg = &args[0];
             match name.as_str() {
-                "exp" => linear_argument_coefficient(arg, t),
+                "exp" => Some(RocAbscissa::Finite(exact_real_linear_rate(arg, t)?)),
                 "sinh" | "cosh" => {
-                    let a = linear_argument_coefficient(arg, t)?;
-                    Some(Expr::Function("abs".to_string(), vec![a]))
+                    let rate = exact_real_linear_rate(arg, t)?;
+                    Some(RocAbscissa::Finite(rate.abs()))
                 }
-                "sin" | "cos" => Some(Expr::from_i64(0)),
+                "sin" | "cos" => {
+                    exact_real_linear_rate(arg, t)?;
+                    Some(zero_roc())
+                }
                 _ => None,
             }
         }
-        Expr::Pow(base, _) if base.as_ref() == &Expr::Sym(t.clone()) => Some(Expr::from_i64(0)),
-        Expr::Sym(sym) if sym == t => Some(Expr::from_i64(0)),
-        _ if !expr.free_symbols().contains(t) => Some(Expr::from_i64(0)),
+        Expr::Pow(base, exponent) if base.as_ref() == &Expr::Sym(t.clone()) => {
+            let Expr::Integer(power) = exponent.as_ref() else {
+                return None;
+            };
+            power
+                .to_u64()
+                .filter(|power| *power <= MAX_LAPLACE_POLYNOMIAL_DEGREE)?;
+            Some(zero_roc())
+        }
+        Expr::Sym(sym) if sym == t => Some(zero_roc()),
+        _ if !expr.free_symbols().contains(t) => {
+            let value = numeric_value(expr)?;
+            if value.is_zero() {
+                Some(RocAbscissa::Entire)
+            } else {
+                Some(zero_roc())
+            }
+        }
         Expr::Mul(factors) => {
-            for f in factors {
-                if let Expr::Function(name, args) = f
-                    && name == "exp"
-                    && args.len() == 1
-                {
-                    return linear_argument_coefficient(&args[0], t);
+            let mut coefficient = BigRational::from_integer(BigInt::from(1));
+            let mut t_factors = [None, None];
+            let mut t_factor_count = 0usize;
+            for factor in factors {
+                if factor.free_symbols().contains(t) {
+                    if t_factor_count == t_factors.len() {
+                        return None;
+                    }
+                    t_factors[t_factor_count] = Some(factor);
+                    t_factor_count += 1;
+                } else {
+                    coefficient *= numeric_value(factor)?;
                 }
             }
-            Some(Expr::from_i64(0))
-        }
-        Expr::Add(terms) => {
-            let mut max_abscissa = None;
-            for term in terms {
-                let roc = compute_roc_abscissa(term, t)?;
-                max_abscissa = Some(roc);
+            if coefficient.is_zero() {
+                return Some(RocAbscissa::Entire);
             }
-            max_abscissa
+            match t_factor_count {
+                0 => Some(zero_roc()),
+                1 => compute_roc_abscissa(t_factors[0]?, t),
+                2 => {
+                    let first = t_factors[0]?;
+                    let second = t_factors[1]?;
+                    for (shift_factor, base_factor) in [(first, second), (second, first)] {
+                        if let Expr::Function(name, args) = shift_factor
+                            && name == "exp"
+                            && args.len() == 1
+                        {
+                            let shift = exact_real_linear_rate(&args[0], t)?;
+                            return match compute_roc_abscissa(base_factor, t)? {
+                                RocAbscissa::Entire => Some(RocAbscissa::Entire),
+                                RocAbscissa::Finite(base) => {
+                                    Some(RocAbscissa::Finite(base + shift))
+                                }
+                            };
+                        }
+                    }
+                    let t_expr = Expr::Sym(t.clone());
+                    if first == &t_expr {
+                        compute_roc_abscissa(second, t)
+                    } else if second == &t_expr {
+                        compute_roc_abscissa(first, t)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            }
         }
+        Expr::Add(terms) => match terms.as_slice() {
+            [only] => compute_roc_abscissa(only, t),
+            _ => {
+                // Exact sum ROCs require ordered rate comparison and
+                // cancellation analysis. Returning a term's boundary would be
+                // order-dependent and can misstate the actual abscissa.
+                None
+            }
+        },
         _ => None,
     }
 }
@@ -497,19 +588,25 @@ pub fn fourier_transform(expr: &Expr, t: &Symbol, omega: &Symbol) -> Result<Expr
                     let abs_t_expr = Expr::Function("abs".to_string(), vec![t_sym.clone()]);
                     if let Expr::Mul(factors) = arg {
                         let mut non_abs = Vec::new();
-                        let mut has_abs = false;
+                        let mut abs_count = 0usize;
+                        let mut invalid_t_factor = false;
                         for f in factors {
                             if f == &abs_t_expr {
-                                has_abs = true;
+                                abs_count += 1;
                             } else if f.free_symbols().contains(t) {
-                                has_abs = false;
+                                invalid_t_factor = true;
                                 break;
                             } else {
                                 non_abs.push(f.clone());
                             }
                         }
-                        if has_abs {
+                        if !invalid_t_factor && abs_count == 1 {
                             let neg_a = simplify(&Expr::Mul(non_abs));
+                            if numeric_value(&neg_a).is_none_or(|value| !value.is_negative()) {
+                                return Err(CalculusError::IntegrationFailed(format!(
+                                    "Fourier decay rate is not a strictly negative exact number: {arg}"
+                                )));
+                            }
                             let a = simplify(&(Expr::from_i64(-1) * neg_a));
                             let two_a = Expr::Mul(vec![Expr::from_i64(2), a.clone()]);
                             let a_sq = Expr::Pow(Arc::new(a), Arc::new(Expr::from_i64(2)));
@@ -531,5 +628,94 @@ pub fn fourier_transform(expr: &Expr, t: &Symbol, omega: &Symbol) -> Result<Expr
         other => Err(CalculusError::IntegrationFailed(format!(
             "Fourier transform not implemented for {other}"
         ))),
+    }
+}
+
+#[cfg(test)]
+mod convergence_tests {
+    use super::*;
+
+    fn exp_rate(rate: i64, t: &Symbol) -> Expr {
+        Expr::Function(
+            "exp".to_string(),
+            vec![Expr::Mul(vec![Expr::from_i64(rate), Expr::Sym(t.clone())])],
+        )
+    }
+
+    #[test]
+    fn sum_roc_is_not_selected_by_term_order() {
+        let t = Symbol::new("t");
+        let s = Symbol::new("s");
+        let slow = exp_rate(1, &t);
+        let fast = exp_rate(3, &t);
+
+        for sum in [
+            Expr::Add(vec![slow.clone(), fast.clone()]),
+            Expr::Add(vec![fast, slow]),
+        ] {
+            assert_eq!(
+                laplace_transform_with_roc(&sum, &t, &s)
+                    .unwrap()
+                    .roc_abscissa,
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn product_roc_composes_exact_exponential_rates() {
+        let t = Symbol::new("t");
+        let s = Symbol::new("s");
+        let cancelled_growth = Expr::Mul(vec![exp_rate(1, &t), exp_rate(-1, &t)]);
+
+        let result = laplace_transform_with_roc(&cancelled_growth, &t, &s).unwrap();
+        assert_eq!(
+            result.transform,
+            Expr::Pow(Arc::new(Expr::Sym(s)), Arc::new(Expr::from_i64(-1)))
+        );
+        assert_eq!(result.roc_abscissa, Some(Expr::from_i64(0)));
+    }
+
+    #[test]
+    fn roc_requires_exact_real_rate_evidence() {
+        let t = Symbol::new("t");
+        let s = Symbol::new("s");
+        let a = Symbol::new("a");
+        let symbolic_exp = Expr::Function(
+            "exp".to_string(),
+            vec![Expr::Mul(vec![Expr::Sym(a), Expr::Sym(t.clone())])],
+        );
+
+        assert_eq!(
+            laplace_transform_with_roc(&symbolic_exp, &t, &s)
+                .unwrap()
+                .roc_abscissa,
+            None
+        );
+        assert_eq!(
+            laplace_transform_with_roc(&Expr::from_i64(0), &t, &s)
+                .unwrap()
+                .roc_abscissa,
+            Some(Expr::Const(Constant::NegativeInfinity))
+        );
+    }
+
+    #[test]
+    fn fourier_decay_catalog_rejects_unproved_or_nondecaying_rates() {
+        let t = Symbol::new("t");
+        let omega = Symbol::new("omega");
+        let a = Symbol::new("a");
+        let abs_t = Expr::Function("abs".to_string(), vec![Expr::Sym(t.clone())]);
+        let invalid_arguments = [
+            Expr::Mul(vec![Expr::from_i64(2), abs_t.clone()]),
+            Expr::Mul(vec![Expr::from_i64(0), abs_t.clone()]),
+            Expr::Mul(vec![Expr::from_i64(-1), abs_t.clone(), abs_t.clone()]),
+            Expr::Mul(vec![Expr::from_i64(-1), Expr::Sym(a), abs_t]),
+        ];
+
+        for argument in invalid_arguments {
+            let expr = Expr::Function("exp".to_string(), vec![argument]);
+            assert!(fourier_transform(&expr, &t, &omega).is_err());
+        }
     }
 }

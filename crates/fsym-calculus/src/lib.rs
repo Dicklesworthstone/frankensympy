@@ -926,20 +926,34 @@ mod tests {
         let l_damped = laplace_transform(&damped, &t, &s).unwrap();
         assert!(matches!(l_damped, Expr::Mul(_)));
 
-        // 4. Laplace with ROC
+        // 4. A symbolic rate has no established real ordering/domain, so ROC
+        // metadata stays unknown even though the formal transform is known.
         let res_roc = laplace_transform_with_roc(&damped, &t, &s).unwrap();
-        assert!(res_roc.roc_abscissa.is_some());
+        assert_eq!(res_roc.roc_abscissa, None);
+
+        // An exact real damping/frequency catalog entry does establish its ROC.
+        let numeric_damped = Expr::Mul(vec![
+            Expr::Function(
+                "exp".to_string(),
+                vec![Expr::Mul(vec![Expr::from_i64(3), Expr::Sym(t.clone())])],
+            ),
+            Expr::Function(
+                "sin".to_string(),
+                vec![Expr::Mul(vec![Expr::from_i64(2), Expr::Sym(t.clone())])],
+            ),
+        ]);
+        let numeric_roc = laplace_transform_with_roc(&numeric_damped, &t, &s).unwrap();
+        assert_eq!(numeric_roc.roc_abscissa, Some(Expr::from_i64(3)));
     }
 
     #[test]
     fn test_fourier_transform_catalog() {
         let t = Symbol::new("t");
         let omega = Symbol::new("omega");
-        let a = Symbol::new("a");
 
-        // F{exp(-a*|t|)} = 2*a / (a^2 + omega^2)
+        // F{exp(-2*|t|)} = 4 / (4 + omega^2)
         let abs_t = Expr::Function("abs".to_string(), vec![Expr::Sym(t.clone())]);
-        let neg_a_abs_t = Expr::Mul(vec![Expr::from_i64(-1), Expr::Sym(a.clone()), abs_t]);
+        let neg_a_abs_t = Expr::Mul(vec![Expr::from_i64(-2), abs_t]);
         let f_expr = Expr::Function("exp".to_string(), vec![neg_a_abs_t]);
         let f_trans = fourier_transform(&f_expr, &t, &omega).unwrap();
         assert!(matches!(f_trans, Expr::Mul(_)));
