@@ -5,7 +5,8 @@
 
 use crate::diff;
 use fsym_core::{BigInt, Constant, Expr, Symbol};
-use serde::{Deserialize, Serialize};
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use thiserror::Error;
 
@@ -43,6 +44,8 @@ pub enum CompileError {
     DimensionOverflow,
     #[error("Allocation failed during symbolic-to-numeric compilation")]
     AllocationFailure,
+    #[error("Compiler produced invalid bytecode: {0}")]
+    InvalidBytecode(EvalError),
 }
 
 /// Errors emitted during compiled numerical evaluation.
@@ -70,6 +73,12 @@ pub enum EvalError {
     DimensionOverflow,
     #[error("Allocation failed during compiled numerical evaluation")]
     AllocationFailure,
+    #[error("Compiled `{operation}` operation has invalid zero arity")]
+    InvalidReductionArity { operation: &'static str },
+    #[error("Compiled power exponent is not finite")]
+    NonFinitePowerExponent,
+    #[error("Compiled constant is NaN or negative zero, which is not a canonical compiler output")]
+    NonCanonicalConstant,
 }
 
 /// Fast compiled expression evaluator targeting numerical arrays.
@@ -94,12 +103,107 @@ pub enum CompiledOp {
 }
 
 /// Linear sequence of operations evaluating an expression to an f64 value.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct CompiledExpr {
-    pub ops: Vec<CompiledOp>,
+    ops: Vec<CompiledOp>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CompiledExprWire {
+    ops: Vec<CompiledOp>,
+}
+
+impl<'de> Deserialize<'de> for CompiledExpr {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = CompiledExprWire::deserialize(deserializer)?;
+        Self::try_from_ops(wire.ops).map_err(D::Error::custom)
+    }
 }
 
 impl CompiledExpr {
+    /// Builds a compiled expression from externally supplied bytecode.
+    ///
+    /// This is the trust boundary used by deserialization. It admits only
+    /// structurally valid stack programs and numeric parameters admitted by
+    /// the compiled format.
+    pub fn try_from_ops(ops: Vec<CompiledOp>) -> Result<Self, EvalError> {
+        Self::validate_ops(&ops)?;
+        Ok(Self { ops })
+    }
+
+    /// Returns the validated bytecode operations in evaluation order.
+    pub fn ops(&self) -> &[CompiledOp] {
+        &self.ops
+    }
+
+    fn validate_ops(ops: &[CompiledOp]) -> Result<(), EvalError> {
+        if ops.len() > MAX_COMPILE_OPS {
+            return Err(EvalError::OpLimitExceeded {
+                ops: ops.len(),
+                max: MAX_COMPILE_OPS,
+            });
+        }
+
+        let mut stack_depth = 0usize;
+        for op in ops {
+            match op {
+                CompiledOp::LoadConst(value) => {
+                    if value.is_nan() || (*value == 0.0 && value.is_sign_negative()) {
+                        return Err(EvalError::NonCanonicalConstant);
+                    }
+                    stack_depth += 1;
+                }
+                CompiledOp::LoadVar(_) => stack_depth += 1,
+                CompiledOp::Add(count) | CompiledOp::Mul(count) => {
+                    let operation = if matches!(op, CompiledOp::Add(_)) {
+                        "Add"
+                    } else {
+                        "Mul"
+                    };
+                    if *count == 0 {
+                        return Err(EvalError::InvalidReductionArity { operation });
+                    }
+                    if stack_depth < *count {
+                        return Err(EvalError::StackUnderflow);
+                    }
+                    stack_depth = stack_depth - *count + 1;
+                }
+                CompiledOp::Pow(exponent) => {
+                    if !exponent.is_finite() {
+                        return Err(EvalError::NonFinitePowerExponent);
+                    }
+                    if stack_depth == 0 {
+                        return Err(EvalError::StackUnderflow);
+                    }
+                }
+                CompiledOp::Neg
+                | CompiledOp::Sin
+                | CompiledOp::Cos
+                | CompiledOp::Tan
+                | CompiledOp::Sinh
+                | CompiledOp::Cosh
+                | CompiledOp::Tanh
+                | CompiledOp::Exp
+                | CompiledOp::Ln
+                | CompiledOp::Sqrt
+                | CompiledOp::Abs => {
+                    if stack_depth == 0 {
+                        return Err(EvalError::StackUnderflow);
+                    }
+                }
+            }
+        }
+
+        if stack_depth != 1 {
+            return Err(EvalError::StackRemaining(stack_depth));
+        }
+        Ok(())
+    }
+
     fn exact_exponent_component(component: &BigInt, exponent: &str) -> Result<f64, CompileError> {
         if component.bits() > MAX_EXACT_F64_INTEGER_BITS {
             return Err(CompileError::UnsupportedExponent(exponent.to_string()));
@@ -122,7 +226,7 @@ impl CompiledExpr {
     ) -> Result<Self, CompileError> {
         let mut ops = Vec::new();
         Self::compile_recursive(expr, var_map, &mut ops, 0)?;
-        Ok(Self { ops })
+        Self::try_from_ops(ops).map_err(CompileError::InvalidBytecode)
     }
 
     /// Convenience infallible compiler that panics on malformed or unmapped expressions.
@@ -165,12 +269,14 @@ impl CompiledExpr {
                 let denom_s = r.denom().to_string();
                 let numer = numer_s
                     .parse::<f64>()
-                    .map_err(|_| CompileError::NumericConversion(numer_s))?;
+                    .map_err(|_| CompileError::NumericConversion(numer_s.clone()))?;
                 let denom = denom_s
                     .parse::<f64>()
-                    .map_err(|_| CompileError::NumericConversion(denom_s))?;
-                if denom == 0.0 {
-                    return Err(CompileError::NumericConversion("division by zero".into()));
+                    .map_err(|_| CompileError::NumericConversion(denom_s.clone()))?;
+                if !numer.is_finite() || !denom.is_finite() || denom == 0.0 {
+                    return Err(CompileError::NumericConversion(format!(
+                        "{numer_s}/{denom_s}"
+                    )));
                 }
                 let val = numer / denom;
                 if !val.is_finite() {
@@ -728,7 +834,7 @@ mod tests {
         assert_eq!(
             CompiledExpr::try_compile(&boundary, &HashMap::new())
                 .unwrap()
-                .ops
+                .ops()
                 .len(),
             MAX_COMPILE_OPS
         );
@@ -798,46 +904,103 @@ mod tests {
     }
 
     #[test]
+    fn non_finite_rational_components_are_refused_before_underflow() {
+        let huge_denominator =
+            fsym_core::BigInt::parse_bytes("9".repeat(400).as_bytes(), 10).unwrap();
+        let nonzero = Expr::Rational(fsym_core::BigRational::new(
+            fsym_core::BigInt::from(1),
+            huge_denominator,
+        ));
+
+        assert!(matches!(
+            CompiledExpr::try_compile(&nonzero, &HashMap::new()),
+            Err(CompileError::NumericConversion(_))
+        ));
+    }
+
+    #[test]
+    fn malformed_bytecode_is_refused_at_the_construction_boundary() {
+        for (ops, expected) in [
+            (
+                vec![CompiledOp::Add(0)],
+                EvalError::InvalidReductionArity { operation: "Add" },
+            ),
+            (
+                vec![CompiledOp::Mul(0)],
+                EvalError::InvalidReductionArity { operation: "Mul" },
+            ),
+            (
+                vec![CompiledOp::LoadConst(1.0), CompiledOp::Pow(f64::NAN)],
+                EvalError::NonFinitePowerExponent,
+            ),
+            (
+                vec![CompiledOp::LoadConst(1.0), CompiledOp::Pow(f64::INFINITY)],
+                EvalError::NonFinitePowerExponent,
+            ),
+            (
+                vec![CompiledOp::LoadConst(f64::NAN)],
+                EvalError::NonCanonicalConstant,
+            ),
+            (
+                vec![CompiledOp::LoadConst(-0.0)],
+                EvalError::NonCanonicalConstant,
+            ),
+            (
+                vec![CompiledOp::LoadConst(1.0), CompiledOp::LoadConst(2.0)],
+                EvalError::StackRemaining(2),
+            ),
+            (vec![CompiledOp::Add(1)], EvalError::StackUnderflow),
+        ] {
+            assert_eq!(CompiledExpr::try_from_ops(ops), Err(expected));
+        }
+
+        let valid = CompiledExpr::try_from_ops(vec![
+            CompiledOp::LoadConst(2.0),
+            CompiledOp::LoadConst(3.0),
+            CompiledOp::Add(2),
+        ])
+        .unwrap();
+        assert_eq!(valid.try_eval(&[]), Ok(5.0));
+    }
+
+    #[test]
     fn failed_batch_evaluation_does_not_publish_partial_outputs() {
+        let valid = CompiledExpr::try_from_ops(vec![CompiledOp::LoadConst(1.0)]).unwrap();
+        let missing_variable = CompiledExpr::try_from_ops(vec![CompiledOp::LoadVar(0)]).unwrap();
         let system = CompiledResidualSystem {
             vars: Vec::new(),
             num_residuals: 2,
             num_vars: 1,
-            compiled_residuals: vec![
-                CompiledExpr {
-                    ops: vec![CompiledOp::LoadConst(1.0)],
-                },
-                CompiledExpr {
-                    ops: vec![CompiledOp::Add(1)],
-                },
-            ],
-            compiled_jacobian: vec![
-                CompiledExpr {
-                    ops: vec![CompiledOp::LoadConst(1.0)],
-                },
-                CompiledExpr {
-                    ops: vec![CompiledOp::Add(1)],
-                },
-            ],
+            compiled_residuals: vec![valid.clone(), missing_variable.clone()],
+            compiled_jacobian: vec![valid, missing_variable],
         };
 
         let mut residuals = [9.0, 9.0];
         assert_eq!(
             system.try_eval_residuals(&[], &mut residuals),
-            Err(EvalError::StackUnderflow)
+            Err(EvalError::VariableOutOfBounds {
+                index: 0,
+                slice_len: 0,
+            })
         );
         assert_eq!(residuals, [9.0, 9.0]);
 
         let mut jacobian = [9.0, 9.0];
         assert_eq!(
             system.try_eval_jacobian(&[], &mut jacobian),
-            Err(EvalError::StackUnderflow)
+            Err(EvalError::VariableOutOfBounds {
+                index: 0,
+                slice_len: 0,
+            })
         );
         assert_eq!(jacobian, [9.0, 9.0]);
 
         assert_eq!(
             system.try_eval_system(&[], &mut residuals, &mut jacobian),
-            Err(EvalError::StackUnderflow)
+            Err(EvalError::VariableOutOfBounds {
+                index: 0,
+                slice_len: 0,
+            })
         );
         assert_eq!(residuals, [9.0, 9.0]);
         assert_eq!(jacobian, [9.0, 9.0]);
@@ -861,11 +1024,8 @@ mod tests {
             Err(CompileError::DuplicateVariable(ref duplicate)) if duplicate == &x
         ));
 
-        let expression = CompiledExpr {
-            ops: vec![CompiledOp::LoadConst(1.0); MAX_COMPILE_OPS + 1],
-        };
         assert_eq!(
-            expression.try_eval(&[]),
+            CompiledExpr::try_from_ops(vec![CompiledOp::LoadConst(1.0); MAX_COMPILE_OPS + 1]),
             Err(EvalError::OpLimitExceeded {
                 ops: MAX_COMPILE_OPS + 1,
                 max: MAX_COMPILE_OPS,
