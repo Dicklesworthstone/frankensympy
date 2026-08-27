@@ -277,22 +277,25 @@ fn bounded_integer_divisors(n: &BigInt, max_trial_divisors: usize) -> Vec<BigInt
     }
 }
 
-fn find_bounded_rational_roots(poly: &UnivariatePoly) -> Vec<BigRational> {
+fn find_bounded_rational_roots(poly: &UnivariatePoly) -> Result<Vec<BigRational>, PolyError> {
     if poly.degree() == Some(0) || poly.is_zero() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let mut roots = Vec::new();
     let mut current = poly.clone();
-    if current.coeffs[0].is_zero() {
+    if current.coeffs.first().is_some_and(Zero::is_zero) {
         roots.push(BigRational::zero());
-        if let Ok(m) = UnivariatePoly::monomial(current.gen_sym.clone(), BigRational::one(), 1)
-            && let Ok((q, _)) = current.div_rem(&m)
-        {
-            current = q;
+        let monomial = UnivariatePoly::monomial(current.gen_sym.clone(), BigRational::one(), 1)?;
+        let (quotient, remainder) = current.div_rem(&monomial)?;
+        if !remainder.is_zero() {
+            return Err(PolyError::IdentityCheckFailed(
+                "zero constant coefficient did not divide exactly by the generator".to_string(),
+            ));
         }
+        current = quotient;
     }
     if current.degree() == Some(0) {
-        return roots;
+        return Ok(roots);
     }
     let mut denom_lcm = BigInt::one();
     for c in &current.coeffs {
@@ -311,10 +314,11 @@ fn find_bounded_rational_roots(poly: &UnivariatePoly) -> Vec<BigRational> {
         int_coeffs.pop();
     }
     if int_coeffs.len() <= 1 {
-        return roots;
+        return Ok(roots);
     }
-    let a0 = &int_coeffs[0];
-    let an = &int_coeffs[int_coeffs.len() - 1];
+    let (Some(a0), Some(an)) = (int_coeffs.first(), int_coeffs.last()) else {
+        return Ok(roots);
+    };
     let p_divs = bounded_integer_divisors(a0, 500);
     let q_divs = bounded_integer_divisors(an, 100);
 
@@ -333,7 +337,7 @@ fn find_bounded_rational_roots(poly: &UnivariatePoly) -> Vec<BigRational> {
             }
         }
     }
-    roots
+    Ok(roots)
 }
 
 fn split_bounded_rational_roots(poly: &UnivariatePoly) -> Result<Vec<UnivariatePoly>, PolyError> {
@@ -343,7 +347,7 @@ fn split_bounded_rational_roots(poly: &UnivariatePoly) -> Result<Vec<UnivariateP
     }
     let mut factors = Vec::new();
     let mut rem = poly.clone();
-    let roots = find_bounded_rational_roots(&rem);
+    let roots = find_bounded_rational_roots(&rem)?;
     for r in roots {
         let linear = UnivariatePoly::new(rem.gen_sym.clone(), vec![-r, BigRational::one()]);
         loop {
@@ -361,8 +365,16 @@ fn split_bounded_rational_roots(poly: &UnivariatePoly) -> Result<Vec<UnivariateP
     }
     if rem.degree() > Some(0) {
         if rem.degree() == Some(2) {
-            let b = &rem.coeffs[1];
-            let c = &rem.coeffs[0];
+            let b = rem.coeffs.get(1).ok_or_else(|| {
+                PolyError::General(
+                    "quadratic decomposition is missing its linear coefficient".to_string(),
+                )
+            })?;
+            let c = rem.coeffs.first().ok_or_else(|| {
+                PolyError::General(
+                    "quadratic decomposition is missing its constant coefficient".to_string(),
+                )
+            })?;
             let four = BigRational::from_integer(BigInt::from(4));
             let discr = b * b - four * c;
             if discr >= BigRational::zero()

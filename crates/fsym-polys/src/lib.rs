@@ -763,6 +763,20 @@ mod tests {
         assert_eq!(res6.factors.len(), 1);
         assert_eq!(res6.factors[0].poly, p6);
         assert!(verify_square_free_product_decomposition(&p6, &res6).is_ok());
+
+        // 7. A zero root is extracted through exact division; internal division failures are not
+        // silently treated as "no root".
+        let p7 = UnivariatePoly::new(
+            Symbol::new("x"),
+            vec![
+                BigRational::zero(),
+                BigRational::from_integer(BigInt::from(-1)),
+                BigRational::one(),
+            ],
+        );
+        let res7 = bounded_rational_root_decomposition(&p7).unwrap();
+        assert_eq!(res7.factors.len(), 2);
+        assert!(verify_square_free_product_decomposition(&p7, &res7).is_ok());
     }
 
     #[test]

@@ -78,6 +78,8 @@ pub enum SolverError {
 
 /// Solve a univariate polynomial equation `poly(x) = 0`.
 pub fn solve_poly(poly: &UnivariatePoly) -> Result<Vec<Expr>, SolverError> {
+    poly.validate_shape()
+        .map_err(|error| SolverError::InvalidSystem(error.to_string()))?;
     if poly.is_zero() {
         return Err(SolverError::InfiniteSolutions);
     }
@@ -86,8 +88,11 @@ pub fn solve_poly(poly: &UnivariatePoly) -> Result<Vec<Expr>, SolverError> {
         Some(0) => Err(SolverError::NoSolution), // c = 0 with c != 0
         Some(1) => {
             // c0 + c1 * x = 0 => x = -c0 / c1
-            let c0 = &poly.coeffs[0];
-            let c1 = &poly.coeffs[1];
+            let [c0, c1] = poly.coeffs.as_slice() else {
+                return Err(SolverError::InvalidSystem(
+                    "degree-one polynomial does not have exactly two coefficients".to_string(),
+                ));
+            };
             let root = -c0 / c1;
             let expr = if root.is_integer() {
                 Expr::Integer(root.to_integer())
@@ -99,9 +104,11 @@ pub fn solve_poly(poly: &UnivariatePoly) -> Result<Vec<Expr>, SolverError> {
         Some(2) => {
             // Quadratic equation: c0 + c1*x + c2*x^2 = 0
             // x = (-c1 ± sqrt(c1^2 - 4*c0*c2)) / (2*c2)
-            let c0 = &poly.coeffs[0];
-            let c1 = &poly.coeffs[1];
-            let c2 = &poly.coeffs[2];
+            let [c0, c1, c2] = poly.coeffs.as_slice() else {
+                return Err(SolverError::InvalidSystem(
+                    "degree-two polynomial does not have exactly three coefficients".to_string(),
+                ));
+            };
             let disc = c1 * c1 - BigRational::from_integer(4.into()) * c0 * c2;
             let neg_b = Expr::Rational(-c1.clone());
             let two_a = Expr::Rational(c2 * BigRational::from_integer(2.into()));
@@ -348,6 +355,28 @@ mod tests {
         let roots = solve_poly(&p).unwrap();
         assert_eq!(roots.len(), 1);
         assert_eq!(roots[0], Expr::from_i64(3));
+    }
+
+    #[test]
+    fn solve_poly_rejects_malformed_dense_representations() {
+        let x = Symbol::new("x");
+        let empty = UnivariatePoly {
+            gen_sym: x.clone(),
+            coeffs: Vec::new(),
+        };
+        assert!(matches!(
+            solve_poly(&empty),
+            Err(SolverError::InvalidSystem(_))
+        ));
+
+        let trailing_zero = UnivariatePoly {
+            gen_sym: x,
+            coeffs: vec![BigRational::one(), BigRational::zero()],
+        };
+        assert!(matches!(
+            solve_poly(&trailing_zero),
+            Err(SolverError::InvalidSystem(_))
+        ));
     }
 
     #[test]
