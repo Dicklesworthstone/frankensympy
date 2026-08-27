@@ -740,4 +740,150 @@ mod tests {
         tampered_gcd.gcd = f.clone();
         assert!(verify_multivariate_gcd_certificate(&f, &g, &tampered_gcd).is_err());
     }
+
+    /// Sanity: a constant coprime pair in $\mathbb{Q}[x, y]$ has GCD = 1.
+    #[test]
+    fn test_multivariate_gcd_constants_are_coprime() {
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+        let gens = vec![x, y];
+
+        let mut fa = BTreeMap::new();
+        fa.insert(vec![0, 0], BigRational::from_integer(BigInt::from(6)));
+        let f = MultivariatePoly::new(gens.clone(), fa);
+
+        let mut fb = BTreeMap::new();
+        fb.insert(vec![0, 0], BigRational::from_integer(BigInt::from(35)));
+        let g = MultivariatePoly::new(gens.clone(), fb);
+
+        let gcd = f.gcd(&g).unwrap();
+        let mut one_terms = BTreeMap::new();
+        one_terms.insert(vec![0, 0], BigRational::one());
+        let expected = MultivariatePoly::new(gens, one_terms);
+        assert_eq!(gcd, expected);
+    }
+
+    /// Sanity: a shared monomial factor $(x y)$ is recovered.
+    #[test]
+    fn test_multivariate_gcd_shared_monomial_factor() {
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+        let gens = vec![x.clone(), y.clone()];
+
+        // f = x^2 * y, g = x * y^2 -> gcd = x * y (primitive).
+        let mut fa = BTreeMap::new();
+        fa.insert(vec![2, 1], BigRational::one());
+        let f = MultivariatePoly::new(gens.clone(), fa);
+
+        let mut fb = BTreeMap::new();
+        fb.insert(vec![1, 2], BigRational::one());
+        let g = MultivariatePoly::new(gens.clone(), fb);
+
+        let gcd = f.gcd(&g).unwrap();
+        let mut exp_terms = BTreeMap::new();
+        exp_terms.insert(vec![1, 1], BigRational::one());
+        let expected = MultivariatePoly::new(gens, exp_terms);
+        assert_eq!(gcd, expected);
+    }
+
+    /// Sanity: disjoint generators (no common factor) have GCD = 1.
+    #[test]
+    fn test_multivariate_gcd_disjoint_irreducibles() {
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+        let gens = vec![x.clone(), y.clone()];
+
+        // f = x, g = y -> gcd = 1
+        let mut fa = BTreeMap::new();
+        fa.insert(vec![1, 0], BigRational::one());
+        let f = MultivariatePoly::new(gens.clone(), fa);
+
+        let mut fb = BTreeMap::new();
+        fb.insert(vec![0, 1], BigRational::one());
+        let g = MultivariatePoly::new(gens.clone(), fb);
+
+        let gcd = f.gcd(&g).unwrap();
+        let mut one_terms = BTreeMap::new();
+        one_terms.insert(vec![0, 0], BigRational::one());
+        let expected = MultivariatePoly::new(gens, one_terms);
+        assert_eq!(gcd, expected);
+    }
+
+    /// Sanity: any polynomial paired with 1 has GCD = 1.
+    #[test]
+    fn test_multivariate_gcd_with_one_is_one() {
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+        let gens = vec![x, y];
+
+        let mut fa = BTreeMap::new();
+        fa.insert(vec![3, 2], BigRational::from_integer(BigInt::from(7)));
+        let f = MultivariatePoly::new(gens.clone(), fa);
+
+        let one = MultivariatePoly::one(gens.clone());
+        let gcd = f.gcd(&one).unwrap();
+        assert_eq!(gcd, one);
+    }
+
+    /// Mutant: certificate verifier must reject a non-monic GCD.
+    #[test]
+    fn test_multivariate_gcd_certificate_rejects_non_monic() {
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+        let gens = vec![x.clone(), y.clone()];
+
+        // f = 2*(x+y), g = 3*(x+y)
+        let mut fa = BTreeMap::new();
+        fa.insert(vec![1, 0], BigRational::from_integer(BigInt::from(2)));
+        fa.insert(vec![0, 1], BigRational::from_integer(BigInt::from(2)));
+        let f = MultivariatePoly::new(gens.clone(), fa);
+
+        let mut fb = BTreeMap::new();
+        fb.insert(vec![1, 0], BigRational::from_integer(BigInt::from(3)));
+        fb.insert(vec![0, 1], BigRational::from_integer(BigInt::from(3)));
+        let g = MultivariatePoly::new(gens.clone(), fb);
+
+        let cert = f.gcd_with_certificate(&g).unwrap();
+        assert!(verify_multivariate_gcd_certificate(&f, &g, &cert).is_ok());
+
+        // Mutant: non-monic "gcd" 2*(x+y) with quotients 1, 1.
+        let mut bad_gcd_terms = BTreeMap::new();
+        bad_gcd_terms.insert(vec![1, 0], BigRational::from_integer(BigInt::from(2)));
+        bad_gcd_terms.insert(vec![0, 1], BigRational::from_integer(BigInt::from(2)));
+        let bad_gcd = MultivariatePoly::new(gens.clone(), bad_gcd_terms);
+
+        let one_poly = MultivariatePoly::one(gens.clone());
+        let bad_cert = MultivariateGcdCertificate {
+            gcd: bad_gcd,
+            quotient_a: one_poly.clone(),
+            quotient_b: one_poly,
+        };
+        assert!(verify_multivariate_gcd_certificate(&f, &g, &bad_cert).is_err());
+    }
+
+    /// Mutant: certificate with mismatched ring generators must be rejected.
+    #[test]
+    fn test_multivariate_gcd_certificate_rejects_incompatible_rings() {
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+        let z = Symbol::new("z");
+        let gens_xy = vec![x.clone(), y.clone()];
+        let gens_xyz = vec![x.clone(), y.clone(), z.clone()];
+
+        let mut fa = BTreeMap::new();
+        fa.insert(vec![1, 0], BigRational::one());
+        let f = MultivariatePoly::new(gens_xy.clone(), fa);
+
+        let mut fb = BTreeMap::new();
+        fb.insert(vec![1, 0], BigRational::one());
+        let g = MultivariatePoly::new(gens_xy.clone(), fb);
+
+        let one = MultivariatePoly::one(gens_xyz);
+        let bad_cert = MultivariateGcdCertificate {
+            gcd: one.clone(),
+            quotient_a: one.clone(),
+            quotient_b: one,
+        };
+        assert!(verify_multivariate_gcd_certificate(&f, &g, &bad_cert).is_err());
+    }
 }

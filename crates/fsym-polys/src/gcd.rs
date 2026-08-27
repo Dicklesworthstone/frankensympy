@@ -280,8 +280,8 @@ impl MultivariatePoly {
         other: &Self,
     ) -> Result<MultivariateGcdCertificate, PolyError> {
         let gcd = self.gcd(other)?;
-        let (q_a_vec, rem_a) = self.div_rem(&[gcd.clone()], TermOrder::Lex)?;
-        let (q_b_vec, rem_b) = other.div_rem(&[gcd.clone()], TermOrder::Lex)?;
+        let (q_a_vec, rem_a) = self.div_rem(std::slice::from_ref(&gcd), TermOrder::Lex)?;
+        let (q_b_vec, rem_b) = other.div_rem(std::slice::from_ref(&gcd), TermOrder::Lex)?;
         if !rem_a.is_zero() || !rem_b.is_zero() {
             return Err(PolyError::General(
                 "GCD certificate division failed".to_string(),
