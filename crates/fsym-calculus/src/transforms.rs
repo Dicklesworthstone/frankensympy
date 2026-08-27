@@ -9,6 +9,75 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 pub(crate) const MAX_LAPLACE_POLYNOMIAL_DEGREE: u64 = 4_096;
+const MAX_DEFINITE_POLYNOMIAL_POWER: u64 = 4_096;
+const MAX_DEFINITE_INTEGRAND_NODES: usize = 16_384;
+const MAX_DEFINITE_INTEGRAND_DEPTH: usize = 256;
+
+/// Admit only the bounded expression fragment that is structurally total on
+/// finite rational endpoints. This is deliberately narrower than
+/// [`integrate`]: an antiderivative rule alone does not establish that endpoint
+/// subtraction is valid across singularities or branch cuts.
+fn is_total_polynomial_fragment(expr: &Expr) -> bool {
+    let mut pending = Vec::new();
+    if pending.try_reserve(1).is_err() {
+        return false;
+    }
+    pending.push((expr, 1usize));
+    let mut visited = 0usize;
+
+    while let Some((node, depth)) = pending.pop() {
+        if depth > MAX_DEFINITE_INTEGRAND_DEPTH {
+            return false;
+        }
+        visited = match visited.checked_add(1) {
+            Some(count) if count <= MAX_DEFINITE_INTEGRAND_NODES => count,
+            _ => return false,
+        };
+
+        match node {
+            Expr::Integer(_) | Expr::Rational(_) | Expr::Sym(_) => {}
+            Expr::Add(children) | Expr::Mul(children) if !children.is_empty() => {
+                let Some(child_depth) = depth.checked_add(1) else {
+                    return false;
+                };
+                if pending.try_reserve(children.len()).is_err() {
+                    return false;
+                }
+                pending.extend(children.iter().map(|child| (child, child_depth)));
+            }
+            Expr::Pow(base, exponent) => {
+                let Expr::Integer(power) = exponent.as_ref() else {
+                    return false;
+                };
+                if power
+                    .to_u64()
+                    .is_none_or(|power| power > MAX_DEFINITE_POLYNOMIAL_POWER)
+                {
+                    return false;
+                }
+                let Some(child_depth) = depth.checked_add(1) else {
+                    return false;
+                };
+                if child_depth > MAX_DEFINITE_INTEGRAND_DEPTH {
+                    return false;
+                }
+                // The exponent is an expression child too, even though its
+                // integer shape was checked directly above.
+                visited = match visited.checked_add(1) {
+                    Some(count) if count <= MAX_DEFINITE_INTEGRAND_NODES => count,
+                    _ => return false,
+                };
+                if pending.try_reserve(1).is_err() {
+                    return false;
+                }
+                pending.push((base, child_depth));
+            }
+            _ => return false,
+        }
+    }
+
+    true
+}
 
 fn linear_argument_coefficient(arg: &Expr, t: &Symbol) -> Option<Expr> {
     let t_expr = Expr::Sym(t.clone());
@@ -33,13 +102,29 @@ fn linear_argument_coefficient(arg: &Expr, t: &Symbol) -> Option<Expr> {
     (t_count == 1).then(|| simplify(&Expr::Mul(coefficient_factors)))
 }
 
-/// Computes the definite integral $\int_a^b f(x) dx = F(b) - F(a)$ via the Fundamental Theorem of Calculus.
+/// Computes a definite integral by endpoint subtraction for the currently
+/// admitted structurally polynomial fragment.
+///
+/// Both endpoints must be exact finite integers or rationals. Powers must be
+/// non-negative integers no larger than 4096, and the input shape is bounded.
+/// Analytic functions, negative or rational powers, symbolic endpoints, and
+/// unbounded shapes are refused until singularity and branch evidence exists.
 pub fn integrate_definite(
     expr: &Expr,
     var: &Symbol,
     a: &Expr,
     b: &Expr,
 ) -> Result<Expr, CalculusError> {
+    let exact_finite_endpoint =
+        |endpoint: &Expr| matches!(endpoint, Expr::Integer(_) | Expr::Rational(_));
+    if !exact_finite_endpoint(a) || !exact_finite_endpoint(b) || !is_total_polynomial_fragment(expr)
+    {
+        return Err(CalculusError::IntegrationFailed(
+            "definite integration requires bounded polynomial input and exact finite rational endpoints"
+                .to_string(),
+        ));
+    }
+
     let anti = integrate(expr, var)?;
     let mut sub_b = HashMap::new();
     sub_b.insert(var.clone(), b.clone());
@@ -51,6 +136,66 @@ pub fn integrate_definite(
 
     let diff_expr = Expr::Add(vec![fb, Expr::Mul(vec![Expr::from_i64(-1), fa])]);
     Ok(simplify(&diff_expr))
+}
+
+#[cfg(test)]
+mod definite_integral_tests {
+    use super::*;
+
+    #[test]
+    fn rejects_singular_integrand_across_interval() {
+        let x = Symbol::new("x");
+        let reciprocal_square =
+            Expr::Pow(Arc::new(Expr::Sym(x.clone())), Arc::new(Expr::from_i64(-2)));
+
+        assert!(
+            integrate_definite(
+                &reciprocal_square,
+                &x,
+                &Expr::from_i64(-1),
+                &Expr::from_i64(1),
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn rejects_unadmitted_analytic_and_endpoint_cases() {
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+        let sin_x = Expr::Function("sin".to_string(), vec![Expr::Sym(x.clone())]);
+        let reciprocal = Expr::Pow(Arc::new(Expr::Sym(x.clone())), Arc::new(Expr::from_i64(-1)));
+
+        assert!(integrate_definite(&sin_x, &x, &Expr::from_i64(0), &Expr::from_i64(1)).is_err());
+        assert!(
+            integrate_definite(&Expr::Sym(x.clone()), &x, &Expr::from_i64(0), &Expr::Sym(y),)
+                .is_err()
+        );
+        assert!(
+            integrate_definite(&reciprocal, &x, &Expr::from_i64(1), &Expr::from_i64(2),).is_err()
+        );
+    }
+
+    #[test]
+    fn rejects_oversized_power_and_depth() {
+        let x = Symbol::new("x");
+        let oversized_power = Expr::Pow(
+            Arc::new(Expr::Sym(x.clone())),
+            Arc::new(Expr::from_i64(4_097)),
+        );
+        assert!(
+            integrate_definite(&oversized_power, &x, &Expr::from_i64(0), &Expr::from_i64(1),)
+                .is_err()
+        );
+
+        let mut too_deep = Expr::Sym(x.clone());
+        for _ in 0..MAX_DEFINITE_INTEGRAND_DEPTH {
+            too_deep = Expr::Add(vec![too_deep]);
+        }
+        assert!(
+            integrate_definite(&too_deep, &x, &Expr::from_i64(0), &Expr::from_i64(1),).is_err()
+        );
+    }
 }
 
 /// Exact unilateral Laplace transform: $\mathcal{L}\{f(t)\}(s) = \int_0^\infty e^{-st} f(t) dt$.
