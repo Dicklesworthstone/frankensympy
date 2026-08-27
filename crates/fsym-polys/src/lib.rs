@@ -324,6 +324,96 @@ mod tests {
     }
 
     #[test]
+    fn test_bezout_verifier_rejects_zero_gcd_for_nonzero_inputs() {
+        let x = Symbol::new("x");
+        let a = UnivariatePoly::new(x.clone(), vec![BigRational::one(), BigRational::one()]);
+        let b = UnivariatePoly::new(
+            x.clone(),
+            vec![
+                BigRational::from_integer(BigInt::from(2)),
+                BigRational::one(),
+            ],
+        );
+        let zero = UnivariatePoly::zero(x);
+        let forged = BezoutCertificate {
+            gcd: zero.clone(),
+            u: zero.clone(),
+            v: zero,
+        };
+
+        // The linear-combination identity alone is vacuous for this forgery: 0*A + 0*B = 0.
+        assert_eq!(
+            forged
+                .u
+                .mul(&a)
+                .unwrap()
+                .add(&forged.v.mul(&b).unwrap())
+                .unwrap(),
+            forged.gcd
+        );
+        assert!(verify_bezout_certificate(&a, &b, &forged).is_err());
+    }
+
+    #[test]
+    fn test_bezout_verifier_requires_canonical_monic_gcd() {
+        let x = Symbol::new("x");
+        let a = UnivariatePoly::new(
+            x.clone(),
+            vec![
+                BigRational::from_integer(BigInt::from(2)),
+                BigRational::from_integer(BigInt::from(-3)),
+                BigRational::one(),
+            ],
+        );
+        let b = UnivariatePoly::new(
+            x.clone(),
+            vec![
+                BigRational::from_integer(BigInt::from(6)),
+                BigRational::from_integer(BigInt::from(-5)),
+                BigRational::one(),
+            ],
+        );
+        let cert = a.extended_gcd(&b).unwrap();
+        let scale = UnivariatePoly::new(x, vec![BigRational::from_integer(BigInt::from(2))]);
+        let scaled = BezoutCertificate {
+            gcd: cert.gcd.mul(&scale).unwrap(),
+            u: cert.u.mul(&scale).unwrap(),
+            v: cert.v.mul(&scale).unwrap(),
+        };
+
+        // Scaling preserves both the Bezout identity and common-divisor property over Q[x], but
+        // the result is only an associate of the canonical monic GCD.
+        let combination = scaled
+            .u
+            .mul(&a)
+            .unwrap()
+            .add(&scaled.v.mul(&b).unwrap())
+            .unwrap();
+        assert_eq!(combination, scaled.gcd);
+        assert!(a.div_rem(&scaled.gcd).unwrap().1.is_zero());
+        assert!(b.div_rem(&scaled.gcd).unwrap().1.is_zero());
+        assert!(!scaled.gcd.leading_coeff().is_one());
+        assert!(verify_bezout_certificate(&a, &b, &scaled).is_err());
+    }
+
+    #[test]
+    fn test_bezout_verifier_accepts_zero_gcd_for_two_zero_inputs() {
+        let x = Symbol::new("x");
+        let zero = UnivariatePoly::zero(x);
+        let cert = BezoutCertificate {
+            gcd: zero.clone(),
+            u: zero.clone(),
+            v: zero.clone(),
+        };
+
+        assert!(verify_bezout_certificate(&zero, &zero, &cert).is_ok());
+
+        // Even the degenerate zero identity remains scoped to one polynomial ring.
+        let other_ring_zero = UnivariatePoly::zero(Symbol::new("y"));
+        assert!(verify_bezout_certificate(&zero, &other_ring_zero, &cert).is_err());
+    }
+
+    #[test]
     fn test_square_free_decomposition_and_verification() {
         let x = Symbol::new("x");
         // P(x) = (x - 1)^2 * (x + 2) = (x^2 - 2x + 1)*(x + 2) = x^3 - 3x + 2
@@ -701,7 +791,7 @@ mod tests {
     }
 
     #[test]
-    fn test_multivariate_gcd_and_verification() {
+    fn test_multivariate_gcd_candidate_and_divisibility_verification() {
         let x = Symbol::new("x");
         let y = Symbol::new("y");
         let gens = vec![x.clone(), y.clone()];
@@ -719,26 +809,36 @@ mod tests {
         t2.insert(vec![0, 2], BigRational::one());
         let g = MultivariatePoly::new(gens.clone(), t2);
 
-        let gcd_cert = f.gcd_with_certificate(&g).unwrap();
+        let divisibility_cert = f.gcd_candidate_with_divisibility_certificate(&g).unwrap();
         // Expected gcd = x + y
         let mut expected_gcd_terms = BTreeMap::new();
         expected_gcd_terms.insert(vec![1, 0], BigRational::one());
         expected_gcd_terms.insert(vec![0, 1], BigRational::one());
         let expected_gcd = MultivariatePoly::new(gens, expected_gcd_terms);
 
-        assert_eq!(gcd_cert.gcd, expected_gcd);
-        assert!(verify_multivariate_gcd_certificate(&f, &g, &gcd_cert).is_ok());
+        assert_eq!(divisibility_cert.divisor, expected_gcd);
+        assert!(verify_multivariate_divisibility_certificate(&f, &g, &divisibility_cert).is_ok());
+
+        // This verifier deliberately proves divisibility, not maximality: the unit polynomial is
+        // therefore a valid witness even though the generator happened to find a larger divisor.
+        let weak_but_valid = MultivariateDivisibilityCertificate {
+            divisor: MultivariatePoly::one(f.generators.clone()),
+            quotient_a: f.clone(),
+            quotient_b: g.clone(),
+        };
+        assert!(verify_multivariate_divisibility_certificate(&f, &g, &weak_but_valid).is_ok());
+        assert_ne!(weak_but_valid.divisor, expected_gcd);
 
         // Mutants:
         // 1. Tamper quotient
-        let mut tampered_cert = gcd_cert.clone();
+        let mut tampered_cert = divisibility_cert.clone();
         tampered_cert.quotient_a = f.clone();
-        assert!(verify_multivariate_gcd_certificate(&f, &g, &tampered_cert).is_err());
+        assert!(verify_multivariate_divisibility_certificate(&f, &g, &tampered_cert).is_err());
 
-        // 2. Tamper gcd
-        let mut tampered_gcd = gcd_cert;
-        tampered_gcd.gcd = f.clone();
-        assert!(verify_multivariate_gcd_certificate(&f, &g, &tampered_gcd).is_err());
+        // 2. Tamper divisor without changing the quotients.
+        let mut tampered_divisor = divisibility_cert;
+        tampered_divisor.divisor = f.clone();
+        assert!(verify_multivariate_divisibility_certificate(&f, &g, &tampered_divisor).is_err());
     }
 
     /// Sanity: a constant coprime pair in $\mathbb{Q}[x, y]$ has GCD = 1.
@@ -825,9 +925,9 @@ mod tests {
         assert_eq!(gcd, one);
     }
 
-    /// Mutant: certificate verifier must reject a non-monic GCD.
+    /// Mutant: the divisibility verifier must reject a non-monic representative.
     #[test]
-    fn test_multivariate_gcd_certificate_rejects_non_monic() {
+    fn test_multivariate_divisibility_certificate_rejects_non_monic() {
         let x = Symbol::new("x");
         let y = Symbol::new("y");
         let gens = vec![x.clone(), y.clone()];
@@ -843,27 +943,35 @@ mod tests {
         fb.insert(vec![0, 1], BigRational::from_integer(BigInt::from(3)));
         let g = MultivariatePoly::new(gens.clone(), fb);
 
-        let cert = f.gcd_with_certificate(&g).unwrap();
-        assert!(verify_multivariate_gcd_certificate(&f, &g, &cert).is_ok());
+        let cert = f.gcd_candidate_with_divisibility_certificate(&g).unwrap();
+        assert!(verify_multivariate_divisibility_certificate(&f, &g, &cert).is_ok());
 
-        // Mutant: non-monic "gcd" 2*(x+y) with quotients 1, 1.
-        let mut bad_gcd_terms = BTreeMap::new();
-        bad_gcd_terms.insert(vec![1, 0], BigRational::from_integer(BigInt::from(2)));
-        bad_gcd_terms.insert(vec![0, 1], BigRational::from_integer(BigInt::from(2)));
-        let bad_gcd = MultivariatePoly::new(gens.clone(), bad_gcd_terms);
+        // Mutant: non-monic divisor 2*(x+y). Both quotient identities are otherwise valid.
+        let mut bad_divisor_terms = BTreeMap::new();
+        bad_divisor_terms.insert(vec![1, 0], BigRational::from_integer(BigInt::from(2)));
+        bad_divisor_terms.insert(vec![0, 1], BigRational::from_integer(BigInt::from(2)));
+        let bad_divisor = MultivariatePoly::new(gens.clone(), bad_divisor_terms);
 
         let one_poly = MultivariatePoly::one(gens.clone());
-        let bad_cert = MultivariateGcdCertificate {
-            gcd: bad_gcd,
+        let mut three_halves_terms = BTreeMap::new();
+        three_halves_terms.insert(
+            vec![0, 0],
+            BigRational::new(BigInt::from(3), BigInt::from(2)),
+        );
+        let three_halves = MultivariatePoly::new(gens, three_halves_terms);
+        let bad_cert = MultivariateDivisibilityCertificate {
+            divisor: bad_divisor,
             quotient_a: one_poly.clone(),
-            quotient_b: one_poly,
+            quotient_b: three_halves,
         };
-        assert!(verify_multivariate_gcd_certificate(&f, &g, &bad_cert).is_err());
+        assert_eq!(bad_cert.divisor.mul(&bad_cert.quotient_a).unwrap(), f);
+        assert_eq!(bad_cert.divisor.mul(&bad_cert.quotient_b).unwrap(), g);
+        assert!(verify_multivariate_divisibility_certificate(&f, &g, &bad_cert).is_err());
     }
 
     /// Mutant: certificate with mismatched ring generators must be rejected.
     #[test]
-    fn test_multivariate_gcd_certificate_rejects_incompatible_rings() {
+    fn test_multivariate_divisibility_certificate_rejects_incompatible_rings() {
         let x = Symbol::new("x");
         let y = Symbol::new("y");
         let z = Symbol::new("z");
@@ -879,11 +987,11 @@ mod tests {
         let g = MultivariatePoly::new(gens_xy.clone(), fb);
 
         let one = MultivariatePoly::one(gens_xyz);
-        let bad_cert = MultivariateGcdCertificate {
-            gcd: one.clone(),
+        let bad_cert = MultivariateDivisibilityCertificate {
+            divisor: one.clone(),
             quotient_a: one.clone(),
             quotient_b: one,
         };
-        assert!(verify_multivariate_gcd_certificate(&f, &g, &bad_cert).is_err());
+        assert!(verify_multivariate_divisibility_certificate(&f, &g, &bad_cert).is_err());
     }
 }

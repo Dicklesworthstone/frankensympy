@@ -85,7 +85,9 @@ pub fn standard_rules() -> Vec<RewriteRule> {
             description: "x * 0 => 0 (when factors defined)",
             transform: |expr, _ctx| match expr {
                 Expr::Mul(factors) => {
-                    if factors.iter().any(|f| f.is_zero()) {
+                    if factors.iter().any(|f| f.is_zero())
+                        && factors.iter().all(crate::is_total_expr)
+                    {
                         let out = Expr::from_i64(0);
                         Some((
                             out.clone(),

@@ -295,6 +295,16 @@ impl BigRational {
         self.0.to_integer()
     }
 
+    /// Converts this rational to binary64 with round-to-nearest, ties-to-even.
+    pub fn to_f64(&self) -> Option<f64> {
+        rational_to_f64(self)
+    }
+
+    /// Converts this rational to binary32 with round-to-nearest, ties-to-even.
+    pub fn to_f32(&self) -> Option<f32> {
+        rational_to_f32(self)
+    }
+
     /// Returns the reciprocal.
     ///
     /// # Panics
@@ -1243,7 +1253,7 @@ fn rounded_binary_quotient(
 /// The coefficient magnitudes are never converted independently: doing so can form
 /// `infinity / infinity` and turn an ordinary finite rational into `NaN`. Exact integer scaling
 /// instead computes the final normal or subnormal significand before constructing the float bits.
-fn rational_to_f64(value: &BigRational) -> Option<f64> {
+pub(crate) fn rational_to_f64(value: &BigRational) -> Option<f64> {
     const FRACTION_BITS: u64 = 52;
     const SIGNIFICAND_FLOOR: u64 = 1u64 << FRACTION_BITS;
     const SIGNIFICAND_CARRY: u64 = SIGNIFICAND_FLOOR << 1;
@@ -1318,7 +1328,7 @@ fn rational_to_f64(value: &BigRational) -> Option<f64> {
 /// The coefficient magnitudes are never converted independently: doing so can form
 /// `infinity / infinity` and turn an ordinary finite rational into `NaN`. Exact integer scaling
 /// instead computes the final normal or subnormal significand before constructing the float bits.
-fn rational_to_f32(value: &BigRational) -> Option<f32> {
+pub(crate) fn rational_to_f32(value: &BigRational) -> Option<f32> {
     const FRACTION_BITS: u32 = 23;
     const SIGNIFICAND_FLOOR: u64 = 1u64 << FRACTION_BITS;
     const SIGNIFICAND_CARRY: u64 = SIGNIFICAND_FLOOR << 1;
@@ -1398,9 +1408,9 @@ impl ToPrimitive for BigRational {
         self.to_integer().to_u64()
     }
 
-    // fn to_i128(&self) -> Option<i128> {
-    //     self.to_integer().to_i128()
-    // }
+    fn to_i128(&self) -> Option<i128> {
+        self.to_integer().to_i128()
+    }
 
     fn to_u128(&self) -> Option<u128> {
         self.to_integer().to_u128()

@@ -19,11 +19,14 @@ pub struct BezoutCertificate {
     pub v: UnivariatePoly,
 }
 
-/// Certificate for multivariate polynomial GCD:
-/// $\gcd(A, B) = G$ where $G \mid A$ and $G \mid B$.
+/// Exact divisibility certificate for a monic multivariate common divisor.
+///
+/// This certificate proves only `divisor | A` and `divisor | B`. It does not prove that the
+/// divisor is greatest: multivariate maximality needs an additional domain-appropriate witness
+/// that this initial implementation does not provide.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MultivariateGcdCertificate {
-    pub gcd: MultivariatePoly,
+pub struct MultivariateDivisibilityCertificate {
+    pub divisor: MultivariatePoly,
     pub quotient_a: MultivariatePoly,
     pub quotient_b: MultivariatePoly,
 }
@@ -143,7 +146,7 @@ impl UnivariatePoly {
     }
 }
 
-/// Independently verify a Bezout certificate for $\gcd(A, B)$.
+/// Checks a Bezout certificate for $\gcd(A, B)$ using exact polynomial identities.
 pub fn verify_bezout_certificate(
     a: &UnivariatePoly,
     b: &UnivariatePoly,
@@ -154,6 +157,35 @@ pub fn verify_bezout_certificate(
     cert.gcd.validate_shape()?;
     cert.u.validate_shape()?;
     cert.v.validate_shape()?;
+
+    for polynomial in [b, &cert.gcd, &cert.u, &cert.v] {
+        if polynomial.gen_sym != a.gen_sym {
+            return Err(PolyError::IncompatibleGenerators(
+                a.gen_sym.name.clone(),
+                polynomial.gen_sym.name.clone(),
+            ));
+        }
+    }
+
+    // The zero polynomial is the gcd only when both inputs are zero. Without this admission,
+    // G = U = V = 0 would satisfy the linear-combination check for every input while the later
+    // divisibility checks were skipped.
+    if cert.gcd.is_zero() {
+        if a.is_zero() && b.is_zero() {
+            return Ok(());
+        }
+        return Err(PolyError::IdentityCheckFailed(
+            "zero cannot be the GCD of a nonzero polynomial".to_string(),
+        ));
+    }
+
+    // Over Q[x], nonzero associates differ by a unit. Monic normalization is therefore part of
+    // the exact GCD claim rather than presentation metadata.
+    if !cert.gcd.leading_coeff().is_one() {
+        return Err(PolyError::IdentityCheckFailed(
+            "GCD certificate must report a monic polynomial".to_string(),
+        ));
+    }
 
     // 1. Verify linear combination: U * A + V * B == GCD
     let ua = cert.u.mul(a)?;
@@ -166,23 +198,22 @@ pub fn verify_bezout_certificate(
         )));
     }
 
-    // 2. Verify that GCD divides A and B
-    if !cert.gcd.is_zero() {
-        let (_, rem_a) = a.div_rem(&cert.gcd)?;
-        if !rem_a.is_zero() {
-            return Err(PolyError::IdentityCheckFailed(format!(
-                "GCD `{}` does not divide A `{a}`: remainder `{rem_a}`",
-                cert.gcd
-            )));
-        }
+    // 2. Verify that GCD divides A and B. Together with the Bezout identity, every common divisor
+    // divides the reported GCD; the monic check above chooses the canonical associate.
+    let (_, rem_a) = a.div_rem(&cert.gcd)?;
+    if !rem_a.is_zero() {
+        return Err(PolyError::IdentityCheckFailed(format!(
+            "GCD `{}` does not divide A `{a}`: remainder `{rem_a}`",
+            cert.gcd
+        )));
+    }
 
-        let (_, rem_b) = b.div_rem(&cert.gcd)?;
-        if !rem_b.is_zero() {
-            return Err(PolyError::IdentityCheckFailed(format!(
-                "GCD `{}` does not divide B `{b}`: remainder `{rem_b}`",
-                cert.gcd
-            )));
-        }
+    let (_, rem_b) = b.div_rem(&cert.gcd)?;
+    if !rem_b.is_zero() {
+        return Err(PolyError::IdentityCheckFailed(format!(
+            "GCD `{}` does not divide B `{b}`: remainder `{rem_b}`",
+            cert.gcd
+        )));
     }
 
     Ok(())
@@ -257,7 +288,15 @@ impl MultivariatePoly {
         // Drop the t coordinate (which is 0) from lcm_candidate
         let mut lcm_terms = BTreeMap::new();
         for (exp, coeff) in &lcm_candidate.terms {
-            let orig_exp = exp[1..].to_vec();
+            let orig_exp = exp
+                .get(1..)
+                .ok_or_else(|| {
+                    PolyError::General(
+                        "elimination result is missing the auxiliary-variable coordinate"
+                            .to_string(),
+                    )
+                })?
+                .to_vec();
             lcm_terms.insert(orig_exp, coeff.clone());
         }
         let lcm_poly =
@@ -266,78 +305,97 @@ impl MultivariatePoly {
         // gcd = (f * g) / lcm
         let fg = self.mul(other)?;
         let (quotients, rem) = fg.div_rem(&[lcm_poly], TermOrder::Lex)?;
-        if !rem.is_zero() || quotients.is_empty() {
+        if !rem.is_zero() {
             return Err(PolyError::General(
                 "Exact GCD quotient division failed".to_string(),
             ));
         }
-        quotients[0].to_monic(TermOrder::Lex)
+        quotients
+            .into_iter()
+            .next()
+            .ok_or_else(|| PolyError::General("GCD quotient is missing".to_string()))?
+            .to_monic(TermOrder::Lex)
     }
 
-    /// Computes GCD with an independent certificate containing quotients.
-    pub fn gcd_with_certificate(
+    /// Computes a GCD candidate with an exact certificate that it divides both inputs.
+    ///
+    /// The candidate comes from [`Self::gcd`], but the certificate intentionally grants only the
+    /// weaker common-divisor claim. Callers must not promote it to a verified GCD until an
+    /// independent multivariate maximality criterion is implemented.
+    pub fn gcd_candidate_with_divisibility_certificate(
         &self,
         other: &Self,
-    ) -> Result<MultivariateGcdCertificate, PolyError> {
-        let gcd = self.gcd(other)?;
-        let (q_a_vec, rem_a) = self.div_rem(std::slice::from_ref(&gcd), TermOrder::Lex)?;
-        let (q_b_vec, rem_b) = other.div_rem(std::slice::from_ref(&gcd), TermOrder::Lex)?;
-        if !rem_a.is_zero() || !rem_b.is_zero() {
+    ) -> Result<MultivariateDivisibilityCertificate, PolyError> {
+        let divisor = self.gcd(other)?;
+        let (mut q_a_vec, rem_a) = self.div_rem(std::slice::from_ref(&divisor), TermOrder::Lex)?;
+        let (mut q_b_vec, rem_b) = other.div_rem(std::slice::from_ref(&divisor), TermOrder::Lex)?;
+        if !rem_a.is_zero() || !rem_b.is_zero() || q_a_vec.len() != 1 || q_b_vec.len() != 1 {
             return Err(PolyError::General(
-                "GCD certificate division failed".to_string(),
+                "common-divisor certificate division failed".to_string(),
             ));
         }
-        let cert = MultivariateGcdCertificate {
-            gcd,
-            quotient_a: q_a_vec.into_iter().next().unwrap(),
-            quotient_b: q_b_vec.into_iter().next().unwrap(),
+        let cert = MultivariateDivisibilityCertificate {
+            divisor,
+            quotient_a: q_a_vec.pop().ok_or_else(|| {
+                PolyError::General("missing first divisibility quotient".to_string())
+            })?,
+            quotient_b: q_b_vec.pop().ok_or_else(|| {
+                PolyError::General("missing second divisibility quotient".to_string())
+            })?,
         };
-        verify_multivariate_gcd_certificate(self, other, &cert)?;
+        verify_multivariate_divisibility_certificate(self, other, &cert)?;
         Ok(cert)
     }
 }
 
-/// Independently verify a multivariate polynomial GCD certificate.
-pub fn verify_multivariate_gcd_certificate(
+/// Checks that a monic multivariate polynomial divides both inputs using exact identities.
+///
+/// Acceptance does not establish that the divisor is greatest. In particular, the unit
+/// polynomial is a valid certificate for every pair in the same polynomial ring.
+pub fn verify_multivariate_divisibility_certificate(
     a: &MultivariatePoly,
     b: &MultivariatePoly,
-    cert: &MultivariateGcdCertificate,
+    cert: &MultivariateDivisibilityCertificate,
 ) -> Result<(), PolyError> {
     a.validate_shape()?;
     b.validate_shape()?;
-    cert.gcd.validate_shape()?;
+    cert.divisor.validate_shape()?;
     cert.quotient_a.validate_shape()?;
     cert.quotient_b.validate_shape()?;
 
-    if a.generators != b.generators || cert.gcd.generators != a.generators {
-        return Err(PolyError::IncompatibleGenerators(
-            format!("{:?}", a.generators),
-            format!("{:?}", cert.gcd.generators),
-        ));
-    }
-
-    // 1. Check G is monic
-    if !cert.gcd.is_zero() {
-        let lc = cert
-            .gcd
-            .leading_coeff(TermOrder::Lex)
-            .ok_or_else(|| PolyError::General("GCD has no leading coefficient".to_string()))?;
-        if !lc.is_one() {
-            return Err(PolyError::General("GCD must be monic".to_string()));
+    for polynomial in [b, &cert.divisor, &cert.quotient_a, &cert.quotient_b] {
+        if polynomial.generators != a.generators {
+            return Err(PolyError::IncompatibleGenerators(
+                format!("{:?}", a.generators),
+                format!("{:?}", polynomial.generators),
+            ));
         }
     }
 
-    // 2. Check G * quotient_a == A and G * quotient_b == B
-    let prod_a = cert.gcd.mul(&cert.quotient_a)?;
+    // 1. Check the common divisor is monic.
+    if !cert.divisor.is_zero() {
+        let lc = cert
+            .divisor
+            .leading_coeff(TermOrder::Lex)
+            .ok_or_else(|| PolyError::General("divisor has no leading coefficient".to_string()))?;
+        if !lc.is_one() {
+            return Err(PolyError::General(
+                "common divisor must be monic".to_string(),
+            ));
+        }
+    }
+
+    // 2. Check divisor * quotient_a == A and divisor * quotient_b == B.
+    let prod_a = cert.divisor.mul(&cert.quotient_a)?;
     if prod_a != *a {
         return Err(PolyError::IdentityCheckFailed(
-            "GCD certificate quotient check failed: G * Q_A != A".to_string(),
+            "common-divisor quotient check failed: D * Q_A != A".to_string(),
         ));
     }
-    let prod_b = cert.gcd.mul(&cert.quotient_b)?;
+    let prod_b = cert.divisor.mul(&cert.quotient_b)?;
     if prod_b != *b {
         return Err(PolyError::IdentityCheckFailed(
-            "GCD certificate quotient check failed: G * Q_B != B".to_string(),
+            "common-divisor quotient check failed: D * Q_B != B".to_string(),
         ));
     }
 

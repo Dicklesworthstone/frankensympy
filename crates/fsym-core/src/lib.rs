@@ -7,7 +7,7 @@
 
 pub use fsym_bigint::BigInt;
 pub use fsym_rational::BigRational;
-use num_traits::{One, ToPrimitive, Zero};
+use num_traits::{One, Zero};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;

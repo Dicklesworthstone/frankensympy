@@ -39,7 +39,7 @@ fn rational_expr(r: BigRational) -> Expr {
     }
 }
 
-fn is_total_expr(expr: &Expr) -> bool {
+pub(crate) fn is_total_expr(expr: &Expr) -> bool {
     match expr {
         Expr::Sym(_) | Expr::Integer(_) | Expr::Rational(_) => true,
         Expr::Const(fsym_core::Constant::Pi | fsym_core::Constant::E | fsym_core::Constant::I) => {
@@ -191,13 +191,10 @@ fn check_fanout(actual: usize) -> Result<(), SimplifyError> {
     }
 }
 
-fn unwrap_legacy(result: Result<Expr, SimplifyError>, checked_api: &str) -> Expr {
+fn unwrap_legacy(result: Result<Expr, SimplifyError>, fallback: &Expr) -> Expr {
     match result {
         Ok(e) => e,
-        Err(error) => panic!(
-            "legacy infallible symbolic operation refused the input: {error}; use {checked_api} \
-             for a typed refusal"
-        ),
+        Err(_) => fallback.clone(),
     }
 }
 
@@ -208,11 +205,11 @@ pub fn try_simplify(expr: &Expr) -> Result<Expr, SimplifyError> {
 
 /// Simplify an algebraic expression recursively.
 ///
-/// This compatibility convenience panics when fixed structural limits reject
-/// the input. Trust-boundary callers should use [`try_simplify`] or
-/// [`simplify_with`] instead.
+/// This compatibility convenience falls back to the original unsimplified expression
+/// when fixed structural limits reject the input. Trust-boundary callers should use
+/// [`try_simplify`] or [`simplify_with`] for typed refusals.
 pub fn simplify(expr: &Expr) -> Expr {
-    unwrap_legacy(try_simplify(expr), "try_simplify/simplify_with")
+    unwrap_legacy(try_simplify(expr), expr)
 }
 
 /// Simplify under a caller-owned budget/cancellation meter.
@@ -441,11 +438,11 @@ pub fn try_expand(expr: &Expr) -> Result<Expr, SimplifyError> {
 
 /// Expand polynomial products and powers into sum-of-products normal form.
 ///
-/// This compatibility convenience panics when fixed structural limits reject
-/// the input. Trust-boundary callers should use [`try_expand`] or
-/// [`expand_with`] instead.
+/// This compatibility convenience falls back to the original unexpanded expression
+/// when fixed structural limits reject the input. Trust-boundary callers should use
+/// [`try_expand`] or [`expand_with`] for typed refusals.
 pub fn expand(expr: &Expr) -> Expr {
-    unwrap_legacy(try_expand(expr), "try_expand/expand_with")
+    unwrap_legacy(try_expand(expr), expr)
 }
 
 /// Expand under a caller-owned budget/cancellation meter.
@@ -695,6 +692,20 @@ mod tests {
         let expr_mul_one = Expr::Mul(vec![x.clone(), Expr::from_i64(1)]);
         let (out_mul, _) = apply_step(&expr_mul_one, &rules, &context).unwrap();
         assert_eq!(out_mul, x);
+
+        let expr_mul_zero_total = Expr::Mul(vec![x.clone(), Expr::from_i64(0)]);
+        let (out_mul_zero, rule_zero) = apply_step(&expr_mul_zero_total, &rules, &context).unwrap();
+        assert_eq!(out_mul_zero, Expr::from_i64(0));
+        assert!(matches!(rule_zero, ProofRule::DefinitionalReduction { .. }));
+
+        let expr_mul_zero_partial = Expr::Mul(vec![
+            Expr::from_i64(0),
+            Expr::Const(fsym_core::Constant::Infinity),
+        ]);
+        assert!(
+            apply_step(&expr_mul_zero_partial, &rules, &context).is_none(),
+            "0 * Infinity must not be annihilated by mul_zero_annihilator"
+        );
     }
 
     #[test]
