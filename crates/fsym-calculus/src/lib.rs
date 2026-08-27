@@ -18,6 +18,11 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use thiserror::Error;
 
+const MAX_DIRECT_SUBSTITUTION_NODES: usize = 16_384;
+const MAX_DIRECT_SUBSTITUTION_DEPTH: usize = 128;
+const UNSAFE_DIRECT_SUBSTITUTION: &str =
+    "direct substitution encountered a literal pole or exceeded traversal limits";
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum CalculusError {
     #[error("Cannot differentiate non-differentiable term: {0}")]
@@ -138,6 +143,7 @@ fn carries_diff_sentinel(expr: &Expr) -> bool {
         Expr::Function(name, args) if name == "diff" && args.len() == 2 => true,
         Expr::Add(terms) | Expr::Mul(terms) => terms.iter().any(carries_diff_sentinel),
         Expr::Pow(b, e) => carries_diff_sentinel(b) || carries_diff_sentinel(e),
+        Expr::Function(_, args) => args.iter().any(carries_diff_sentinel),
         _ => false,
     }
 }
@@ -335,9 +341,24 @@ pub fn limit(expr: &Expr, var: &Symbol, to: &Expr) -> Result<Expr, CalculusError
             }))
         }
         point => {
-            let value = simplify(&expr.subs(&HashMap::from([(var.clone(), point.clone())])));
-            if !is_free_of(&value, var) || carries_diff_sentinel(&value) || divides_by_zero(&value)
-            {
+            if unsafe_direct_substitution(expr) || unsafe_direct_substitution(point) {
+                return Err(CalculusError::Undetermined(
+                    UNSAFE_DIRECT_SUBSTITUTION.to_string(),
+                ));
+            }
+            let substituted = expr.subs(&HashMap::from([(var.clone(), point.clone())]));
+            if unsafe_direct_substitution(&substituted) {
+                return Err(CalculusError::Undetermined(
+                    UNSAFE_DIRECT_SUBSTITUTION.to_string(),
+                ));
+            }
+            let value = simplify(&substituted);
+            if unsafe_direct_substitution(&value) {
+                return Err(CalculusError::Undetermined(
+                    UNSAFE_DIRECT_SUBSTITUTION.to_string(),
+                ));
+            }
+            if !is_free_of(&value, var) || carries_diff_sentinel(&value) {
                 return Err(CalculusError::Undetermined(value.to_string()));
             }
             Ok(value)
@@ -345,21 +366,66 @@ pub fn limit(expr: &Expr, var: &Symbol, to: &Expr) -> Result<Expr, CalculusError
     }
 }
 
-/// Structural detection of literal division by zero after substitution:
-/// any negative-integer power of an exactly-zero base.
-fn divides_by_zero(expr: &Expr) -> bool {
-    match expr {
-        Expr::Pow(base, exp) => {
-            let negative_exp = match exp.as_ref() {
-                Expr::Integer(n) => n.is_negative(),
-                Expr::Rational(value) => value < &BigRational::zero(),
-                _ => false,
-            };
-            (negative_exp && base.is_zero()) || divides_by_zero(base) || divides_by_zero(exp)
-        }
-        Expr::Add(terms) | Expr::Mul(terms) => terms.iter().any(divides_by_zero),
-        _ => false,
+/// Fail-closed preflight for direct substitution and Taylor coefficients.
+///
+/// Returns `true` for a literal pole (a negative numeric power of exact zero),
+/// an expression beyond the fixed traversal limits, or traversal allocation
+/// failure. The iterative walk prevents hostile function nesting from turning
+/// a typed refusal into stack overflow.
+fn unsafe_direct_substitution(expr: &Expr) -> bool {
+    let mut pending = Vec::new();
+    if pending.try_reserve(1).is_err() {
+        return true;
     }
+    pending.push((expr, 1usize));
+    let mut discovered = 1usize;
+
+    while let Some((node, depth)) = pending.pop() {
+        if depth > MAX_DIRECT_SUBSTITUTION_DEPTH {
+            return true;
+        }
+        let Some(child_depth) = depth.checked_add(1) else {
+            return true;
+        };
+
+        let children: &[Expr] = match node {
+            Expr::Pow(base, exp) => {
+                let negative_exp = match exp.as_ref() {
+                    Expr::Integer(n) => n.is_negative(),
+                    Expr::Rational(value) => value < &BigRational::zero(),
+                    _ => false,
+                };
+                if negative_exp && base.is_zero() {
+                    return true;
+                }
+                if discovered
+                    .checked_add(2)
+                    .is_none_or(|count| count > MAX_DIRECT_SUBSTITUTION_NODES)
+                    || pending.try_reserve(2).is_err()
+                {
+                    return true;
+                }
+                discovered += 2;
+                pending.push((exp, child_depth));
+                pending.push((base, child_depth));
+                continue;
+            }
+            Expr::Add(children) | Expr::Mul(children) | Expr::Function(_, children) => children,
+            _ => continue,
+        };
+
+        if discovered
+            .checked_add(children.len())
+            .is_none_or(|count| count > MAX_DIRECT_SUBSTITUTION_NODES)
+            || pending.try_reserve(children.len()).is_err()
+        {
+            return true;
+        }
+        discovered += children.len();
+        pending.extend(children.iter().map(|child| (child, child_depth)));
+    }
+
+    false
 }
 
 fn monomial_degree(expr: &Expr, var: &Symbol) -> Option<u64> {
@@ -412,6 +478,11 @@ pub fn taylor(expr: &Expr, var: &Symbol, at: &Expr, order: usize) -> Result<Expr
             "order {order} exceeds supported maximum {MAX_ORDER}"
         )));
     }
+    if unsafe_direct_substitution(expr) || unsafe_direct_substitution(at) {
+        return Err(CalculusError::NonDifferentiable(
+            UNSAFE_DIRECT_SUBSTITUTION.to_string(),
+        ));
+    }
     let x = Expr::Sym(var.clone());
     // No Sub impl on Expr: shift = x + (-1)*at, folded by simplify.
     let neg_at = simplify(&Expr::Mul(vec![Expr::from_i64(-1), at.clone()]));
@@ -423,11 +494,35 @@ pub fn taylor(expr: &Expr, var: &Symbol, at: &Expr, order: usize) -> Result<Expr
             factorial *= k as u64;
         }
         let deriv = diff_n(expr, var, k);
+        if unsafe_direct_substitution(&deriv) {
+            return Err(CalculusError::NonDifferentiable(
+                UNSAFE_DIRECT_SUBSTITUTION.to_string(),
+            ));
+        }
         let simplified = simplify(&deriv);
+        if unsafe_direct_substitution(&simplified) {
+            return Err(CalculusError::NonDifferentiable(
+                UNSAFE_DIRECT_SUBSTITUTION.to_string(),
+            ));
+        }
         if k > 0 && carries_diff_sentinel(&simplified) {
             return Err(CalculusError::NonDifferentiable(expr.to_string()));
         }
-        let value = simplified.subs(&HashMap::from([(var.clone(), at.clone())]));
+        let substituted = simplified.subs(&HashMap::from([(var.clone(), at.clone())]));
+        if unsafe_direct_substitution(&substituted) {
+            return Err(CalculusError::NonDifferentiable(
+                UNSAFE_DIRECT_SUBSTITUTION.to_string(),
+            ));
+        }
+        let value = simplify(&substituted);
+        if unsafe_direct_substitution(&value) {
+            return Err(CalculusError::NonDifferentiable(
+                UNSAFE_DIRECT_SUBSTITUTION.to_string(),
+            ));
+        }
+        if carries_diff_sentinel(&value) {
+            return Err(CalculusError::NonDifferentiable(value.to_string()));
+        }
         let scaled = if k == 0 {
             value
         } else {
@@ -684,6 +779,41 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn finite_limit_detects_poles_inside_function_arguments() {
+        let x = Symbol::new("x");
+        let reciprocal = Expr::Pow(Arc::new(Expr::Sym(x.clone())), Arc::new(Expr::from_i64(-1)));
+        let nested = Expr::Function("exp".to_string(), vec![reciprocal]);
+        let held_derivative = Expr::Function(
+            "exp".to_string(),
+            vec![Expr::Function(
+                "diff".to_string(),
+                vec![Expr::Sym(x.clone()), Expr::Sym(x.clone())],
+            )],
+        );
+
+        assert!(matches!(
+            limit(&nested, &x, &Expr::from_i64(0)),
+            Err(CalculusError::Undetermined(_))
+        ));
+        assert!(matches!(
+            limit(&held_derivative, &x, &Expr::from_i64(0)),
+            Err(CalculusError::Undetermined(_))
+        ));
+        assert!(limit(&nested, &x, &Expr::from_i64(1)).is_ok());
+
+        let mut too_deep = Expr::Sym(x.clone());
+        for _ in 0..MAX_DIRECT_SUBSTITUTION_DEPTH {
+            too_deep = Expr::Function("exp".to_string(), vec![too_deep]);
+        }
+        assert_eq!(
+            limit(&too_deep, &x, &Expr::from_i64(0)),
+            Err(CalculusError::Undetermined(
+                UNSAFE_DIRECT_SUBSTITUTION.to_string()
+            ))
+        );
+    }
+
     /// Metamorphic probe: truncated Taylor series approximates the original
     /// near the expansion point.
     fn assert_taylor_close(original: &Expr, var: &Symbol, at: i64, probe: f64, tol: f64) {
@@ -737,6 +867,21 @@ mod tests {
             taylor(&l, &x, &Expr::from_i64(1), 2),
             Err(CalculusError::NonDifferentiable(_))
         ));
+    }
+
+    #[test]
+    fn taylor_refuses_singular_coefficients() {
+        let x = Symbol::new("x");
+        let reciprocal = Expr::Pow(Arc::new(Expr::Sym(x.clone())), Arc::new(Expr::from_i64(-1)));
+        let nested = Expr::Function("exp".to_string(), vec![reciprocal.clone()]);
+
+        for expression in [&reciprocal, &nested] {
+            assert!(matches!(
+                taylor(expression, &x, &Expr::from_i64(0), 2),
+                Err(CalculusError::NonDifferentiable(_))
+            ));
+        }
+        assert!(taylor(&reciprocal, &x, &Expr::from_i64(1), 2).is_ok());
     }
 
     #[test]
