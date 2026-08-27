@@ -1204,7 +1204,11 @@ impl Signed for BigRational {
     }
 
     fn abs_sub(&self, other: &Self) -> Self {
-        Self(self.0.abs_sub(&other.0))
+        if self <= other {
+            Self::zero()
+        } else {
+            self - other
+        }
     }
 
     fn signum(&self) -> Self {
@@ -1717,6 +1721,48 @@ mod tests {
         independently_reduced.hash(&mut reduced_hasher);
         assert_eq!(canonical, independently_reduced);
         assert_eq!(canonical_hasher.finish(), reduced_hasher.finish());
+    }
+
+    #[test]
+    fn signed_abs_sub_uses_the_stack_safe_wrapper_ordering() {
+        let larger = BigRational::new(BigInt::from(3), BigInt::from(2));
+        let smaller = BigRational::new(BigInt::from(4), BigInt::from(3));
+        assert_eq!(
+            larger.abs_sub(&smaller),
+            BigRational::new(1.into(), 6.into())
+        );
+        assert_eq!(smaller.abs_sub(&larger), BigRational::zero());
+        assert_eq!(larger.abs_sub(&larger), BigRational::zero());
+
+        // Ratio::abs_sub compares through Ratio::cmp, whose reciprocal-remainder descent is
+        // recursive. Keep this wrapper operation on the iterative comparator already owned by
+        // BigRational, including on adversarial continued-fraction depth and a small stack.
+        let (f_n, f_n_plus_one) = fibonacci_pair(4_096);
+        let f_n_plus_two = &f_n + &f_n_plus_one;
+        let lhs = BigRational::new(f_n_plus_one.clone(), f_n);
+        let rhs = BigRational::new(f_n_plus_two, f_n_plus_one);
+        let ordering = cross_product_order(&lhs, &rhs);
+        let expected_lhs = if ordering == Ordering::Greater {
+            &lhs - &rhs
+        } else {
+            BigRational::zero()
+        };
+        let expected_rhs = if ordering == Ordering::Less {
+            &rhs - &lhs
+        } else {
+            BigRational::zero()
+        };
+
+        let worker = std::thread::Builder::new()
+            .name("stack-safe-rational-abs-sub".to_string())
+            .stack_size(128 * 1024)
+            .spawn(move || (lhs.abs_sub(&rhs), rhs.abs_sub(&lhs)))
+            .expect("absolute-subtraction worker thread must start");
+        let (actual_lhs, actual_rhs) = worker
+            .join()
+            .expect("iterative absolute subtraction must not exhaust the stack");
+        assert_eq!(actual_lhs, expected_lhs);
+        assert_eq!(actual_rhs, expected_rhs);
     }
 
     #[test]
