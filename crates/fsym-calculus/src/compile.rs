@@ -4,7 +4,7 @@
 #![forbid(unsafe_code)]
 
 use crate::diff;
-use fsym_core::{Constant, Expr, Symbol};
+use fsym_core::{BigInt, Constant, Expr, Symbol};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use thiserror::Error;
@@ -14,6 +14,11 @@ pub const MAX_COMPILE_DEPTH: usize = 128;
 
 /// Maximum number of compiled bytecode operations allowed for a single expression.
 pub const MAX_COMPILE_OPS: usize = 8192;
+
+/// Every integer whose magnitude uses at most this many bits is represented
+/// exactly by an IEEE-754 `f64`. Larger exponent components are refused rather
+/// than rounded into a different symbolic power.
+const MAX_EXACT_F64_INTEGER_BITS: u64 = 53;
 
 /// Errors emitted during symbolic-to-numeric expression and system compilation.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -95,6 +100,20 @@ pub struct CompiledExpr {
 }
 
 impl CompiledExpr {
+    fn exact_exponent_component(component: &BigInt, exponent: &str) -> Result<f64, CompileError> {
+        if component.bits() > MAX_EXACT_F64_INTEGER_BITS {
+            return Err(CompileError::UnsupportedExponent(exponent.to_string()));
+        }
+        let value = component
+            .to_string()
+            .parse::<f64>()
+            .map_err(|_| CompileError::UnsupportedExponent(exponent.to_string()))?;
+        if !value.is_finite() {
+            return Err(CompileError::UnsupportedExponent(exponent.to_string()));
+        }
+        Ok(value)
+    }
+
     /// Compiles a symbolic expression into bytecode given a variable index lookup map.
     /// Fails closed if any unmapped symbol, unsupported function, or complexity limit is reached.
     pub fn try_compile(
@@ -207,32 +226,17 @@ impl CompiledExpr {
                 Self::compile_recursive(base, var_map, ops, depth + 1)?;
                 match exp.as_ref() {
                     Expr::Integer(n) => {
-                        let p = n
-                            .to_string()
-                            .parse::<f64>()
-                            .map_err(|_| CompileError::UnsupportedExponent(n.to_string()))?;
-                        if !p.is_finite() {
-                            return Err(CompileError::UnsupportedExponent(n.to_string()));
-                        }
+                        let printed = n.to_string();
+                        let p = Self::exact_exponent_component(n, &printed)?;
                         Self::push_op(ops, CompiledOp::Pow(p))?;
                     }
                     Expr::Rational(r) => {
-                        let numer = r
-                            .numer()
-                            .to_string()
-                            .parse::<f64>()
-                            .map_err(|_| CompileError::UnsupportedExponent(r.to_string()))?;
-                        let denom = r
-                            .denom()
-                            .to_string()
-                            .parse::<f64>()
-                            .map_err(|_| CompileError::UnsupportedExponent(r.to_string()))?;
-                        if denom == 0.0 {
-                            return Err(CompileError::UnsupportedExponent("0 denominator".into()));
-                        }
+                        let printed = r.to_string();
+                        let numer = Self::exact_exponent_component(r.numer(), &printed)?;
+                        let denom = Self::exact_exponent_component(r.denom(), &printed)?;
                         let exponent = numer / denom;
                         if !exponent.is_finite() {
-                            return Err(CompileError::UnsupportedExponent(r.to_string()));
+                            return Err(CompileError::UnsupportedExponent(printed));
                         }
                         Self::push_op(ops, CompiledOp::Pow(exponent))?;
                     }
@@ -747,6 +751,40 @@ mod tests {
             Expr::Rational(fsym_core::BigRational::new(
                 huge,
                 fsym_core::BigInt::from(1),
+            )),
+        ] {
+            assert!(matches!(
+                CompiledExpr::try_compile(
+                    &Expr::Pow(base.clone(), Arc::new(exponent)),
+                    &HashMap::new(),
+                ),
+                Err(CompileError::UnsupportedExponent(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn inexact_f64_exponent_components_are_refused() {
+        let largest_safe =
+            fsym_core::BigInt::parse_bytes(b"9007199254740991", 10).expect("valid integer");
+        let rounded_odd =
+            fsym_core::BigInt::parse_bytes(b"9007199254740993", 10).expect("valid integer");
+        let rounded_denominator =
+            fsym_core::BigInt::parse_bytes(b"9007199254740992", 10).expect("valid integer");
+        let base = Arc::new(Expr::from_i64(-1));
+
+        let admitted = CompiledExpr::try_compile(
+            &Expr::Pow(base.clone(), Arc::new(Expr::Integer(largest_safe))),
+            &HashMap::new(),
+        )
+        .unwrap();
+        assert_eq!(admitted.try_eval(&[]), Ok(-1.0));
+
+        for exponent in [
+            Expr::Integer(rounded_odd.clone()),
+            Expr::Rational(fsym_core::BigRational::new(
+                rounded_odd,
+                rounded_denominator,
             )),
         ] {
             assert!(matches!(
