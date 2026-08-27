@@ -309,7 +309,26 @@ fn verify_rule_reduction_semantics(
                 }
             }
         }
-        _ => {}
+        RULE_DIFF_GENERAL => {
+            // Unsupported derivatives are represented by the unevaluated
+            // derivative term.  This establishes only reflexive equality; it
+            // must never certify an arbitrary caller-supplied right-hand side.
+            let expected_rhs = make_diff_term(expr, var);
+            if deriv != &expected_rhs {
+                return Err(KernelError::InvalidDefinitionalReduction {
+                    rule_name: rule_name.to_string(),
+                    reason: format!(
+                        "General derivative must remain unevaluated as {expected_rhs}, got {deriv}"
+                    ),
+                });
+            }
+        }
+        unknown => {
+            return Err(KernelError::InvalidDefinitionalReduction {
+                rule_name: unknown.to_string(),
+                reason: "Unknown differentiation reduction rule".to_string(),
+            });
+        }
     }
     Ok(())
 }
@@ -370,6 +389,36 @@ mod tests {
             rule_name: RULE_DIFF_CONST.to_string(),
         };
         assert!(verify_diff_derivation(&tampered_tree_rule, &expr, &x, &deriv).is_err());
+    }
+
+    #[test]
+    fn test_general_rule_only_verifies_the_unevaluated_derivative() {
+        let x = Symbol::new("x");
+        let expr = Expr::Function("log".to_string(), vec![Expr::symbol("x")]);
+        let diff_term = make_diff_term(&expr, &x);
+
+        let (unevaluated, tree) = verified_diff(&expr, &x);
+        assert_eq!(unevaluated, diff_term);
+        assert!(verify_diff_derivation(&tree, &expr, &x, &unevaluated).is_ok());
+
+        let forged_deriv = Expr::from_i64(42);
+        let forged_tree = DerivationTree {
+            steps: vec![DerivationStep {
+                id: StepId(1),
+                rule: ProofRule::DefinitionalReduction {
+                    lhs: diff_term.clone(),
+                    rhs: forged_deriv.clone(),
+                    rule_name: RULE_DIFF_GENERAL.to_string(),
+                },
+                claim: Claim::equality(diff_term, forged_deriv.clone()),
+            }],
+            root: StepId(1),
+        };
+
+        assert!(matches!(
+            verify_diff_derivation(&forged_tree, &expr, &x, &forged_deriv),
+            Err(KernelError::InvalidDefinitionalReduction { .. })
+        ));
     }
 
     #[test]
