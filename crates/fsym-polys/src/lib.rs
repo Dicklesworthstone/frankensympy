@@ -539,6 +539,7 @@ mod tests {
             coeffs: Vec::new(),
         };
         let one = UnivariatePoly::one(Symbol::new("x"));
+        assert!(!invalid.is_monic());
         assert!(invalid.add(&one).is_err());
         assert!(invalid.sub(&one).is_err());
         assert!(invalid.mul(&one).is_err());

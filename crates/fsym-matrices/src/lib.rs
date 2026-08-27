@@ -23,6 +23,7 @@ const MAX_MATRIX_DIMENSION: usize = MAX_MATRIX_ENTRIES;
 const MAX_DETERMINANT_DIMENSION: usize = 8;
 const MAX_CHARACTERISTIC_POLYNOMIAL_DIMENSION: usize = 32;
 const MAX_MATRIX_MULTIPLICATION_OPS: u128 = 10_000_000;
+const MAX_MATRIX_POLYNOMIAL_EVALUATION_OPS: u128 = 10_000_000;
 const MAX_RREF_OPS: u128 = 10_000_000;
 const MAX_NULLSPACE_BASIS_ENTRIES: usize = MAX_MATRIX_ENTRIES;
 // floor(sqrt(MAX_NULLSPACE_BASIS_ENTRIES)): a full nullspace basis has at
@@ -63,6 +64,10 @@ pub enum MatrixError {
     DivisionByZero,
     #[error("Matrix certificate verification currently supports exact rational entries only")]
     UnsupportedCertificateDomain,
+    #[error("Matrix certificate rejected: {0}")]
+    InvalidCertificate(String),
+    #[error("Invalid polynomial for matrix evaluation: {0}")]
+    InvalidPolynomial(String),
     #[error("LU certificate matrix P is not a 0/1 permutation matrix")]
     InvalidPermutationMatrix,
 }
@@ -749,14 +754,39 @@ impl Matrix {
         if self.rows != self.cols {
             return Err(MatrixError::NotSquare(self.rows, self.cols));
         }
+        poly.validate_shape()
+            .map_err(|error| MatrixError::InvalidPolynomial(error.to_string()))?;
         let n = self.rows;
         if n == 0 {
             return Matrix::new(0, 0, Vec::new());
         }
-        if poly.is_zero() || poly.coeffs.is_empty() {
+        if poly.is_zero() {
             return Matrix::zeros(n, n);
         }
         let d = poly.coeffs.len() - 1;
+        let matrix_multiply_ops = (n as u128)
+            .checked_mul(n as u128)
+            .and_then(|value| value.checked_mul(n as u128))
+            .and_then(|value| value.checked_mul(2))
+            .ok_or_else(|| {
+                MatrixError::ResourceLimit(
+                    "matrix polynomial operation count overflowed".to_string(),
+                )
+            })?;
+        let total_ops = matrix_multiply_ops
+            .checked_add(n as u128)
+            .and_then(|per_coefficient| per_coefficient.checked_mul(d as u128))
+            .and_then(|horner_ops| horner_ops.checked_add(n as u128))
+            .ok_or_else(|| {
+                MatrixError::ResourceLimit(
+                    "matrix polynomial operation count overflowed".to_string(),
+                )
+            })?;
+        if total_ops > MAX_MATRIX_POLYNOMIAL_EVALUATION_OPS {
+            return Err(MatrixError::ResourceLimit(format!(
+                "matrix polynomial evaluation requires {total_ops} scalar operations, exceeding the limit of {MAX_MATRIX_POLYNOMIAL_EVALUATION_OPS}"
+            )));
+        }
         // Horner's method: start with c_d * I
         let mut res = Matrix::eye(n)?;
         let c_lead = from_rational(poly.coeffs[d].clone());
@@ -1728,6 +1758,72 @@ pub fn verify_lu_certificate(matrix: &Matrix, cert: &LuCertificate) -> Result<()
     Ok(())
 }
 
+/// Computes `det(point * I - matrix)` through exact rational Gaussian elimination.
+///
+/// This deliberately does not call the Faddeev-LeVerrier characteristic-polynomial
+/// generator. It is the bounded reference lane used by the certificate validator.
+fn reference_shifted_determinant(
+    matrix: &Matrix,
+    point: &BigRational,
+) -> Result<BigRational, MatrixError> {
+    let n = matrix.rows;
+    if n == 0 {
+        return Ok(BigRational::one());
+    }
+
+    let entry_count = n.checked_mul(n).ok_or(MatrixError::ShapeOverflow(n, n))?;
+    let mut work = Vec::new();
+    work.try_reserve_exact(entry_count).map_err(|_| {
+        MatrixError::ResourceLimit(format!(
+            "reference determinant could not reserve {entry_count} rational entries"
+        ))
+    })?;
+    for row in 0..n {
+        for col in 0..n {
+            let entry = Matrix::numeric(&matrix.data[row * n + col])
+                .ok_or(MatrixError::UnsupportedCertificateDomain)?;
+            work.push(if row == col {
+                point.clone() - entry
+            } else {
+                -entry
+            });
+        }
+    }
+
+    let mut determinant = BigRational::one();
+    for pivot_col in 0..n {
+        let Some(pivot_row) = (pivot_col..n).find(|&row| !work[row * n + pivot_col].is_zero())
+        else {
+            return Ok(BigRational::zero());
+        };
+
+        if pivot_row != pivot_col {
+            for col in 0..n {
+                work.swap(pivot_row * n + col, pivot_col * n + col);
+            }
+            determinant = -determinant;
+        }
+
+        let pivot = work[pivot_col * n + pivot_col].clone();
+        determinant *= pivot.clone();
+        for row in (pivot_col + 1)..n {
+            let row_offset = row * n;
+            let leading = work[row_offset + pivot_col].clone();
+            if leading.is_zero() {
+                continue;
+            }
+            let factor = leading / pivot.clone();
+            work[row_offset + pivot_col] = BigRational::zero();
+            let pivot_offset = pivot_col * n;
+            for col in (pivot_col + 1)..n {
+                let correction = factor.clone() * work[pivot_offset + col].clone();
+                work[row_offset + col] -= correction;
+            }
+        }
+    }
+    Ok(determinant)
+}
+
 /// Certificate candidate for an exact-rational matrix characteristic polynomial $P(\lambda) = \det(\lambda I - A)$.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1740,71 +1836,63 @@ pub struct CharpolyCertificate {
 /// Acceptance criteria:
 /// 1. Matrix is square $n \times n$ with exact rational entries.
 /// 2. Polynomial degree equals $n$ and is monic ($\text{LC}(P) = 1$).
-/// 3. Subleading coefficient equals $-\text{trace}(A)$ (for $n \ge 1$).
-/// 4. Constant coefficient $P(0) = (-1)^n \det(A)$.
-/// 5. Cayley–Hamilton theorem holds: $P(A) = 0_{n \times n}$.
+/// 3. At each of `n + 1` distinct exact points, `P(t) = det(t I - A)` according
+///    to a rational-elimination reference lane independent of the generator.
+///
+/// Since both sides have degree at most `n`, agreement at `n + 1` distinct
+/// points establishes equality. Cayley-Hamilton plus trace/determinant anchors
+/// is not sufficient for matrices whose minimal polynomial has degree below `n`.
 pub fn verify_charpoly_certificate(
     matrix: &Matrix,
     cert: &CharpolyCertificate,
 ) -> Result<(), MatrixError> {
-    matrix.validate_certificate_domain()?;
+    matrix.validate_shape()?;
     if matrix.rows != matrix.cols {
         return Err(MatrixError::NotSquare(matrix.rows, matrix.cols));
     }
     let n = matrix.rows;
+    if n > MAX_CHARACTERISTIC_POLYNOMIAL_DIMENSION {
+        return Err(MatrixError::ResourceLimit(format!(
+            "characteristic polynomial verification supports dimensions up to {MAX_CHARACTERISTIC_POLYNOMIAL_DIMENSION}"
+        )));
+    }
+    if matrix
+        .data
+        .iter()
+        .any(|entry| !matches!(entry, Expr::Integer(_) | Expr::Rational(_)))
+    {
+        return Err(MatrixError::UnsupportedCertificateDomain);
+    }
     cert.poly
         .validate_shape()
-        .map_err(|e| MatrixError::ResourceLimit(e.to_string()))?;
+        .map_err(|error| MatrixError::InvalidCertificate(error.to_string()))?;
     if cert.poly.degree() != Some(n) {
-        return Err(MatrixError::ResourceLimit(format!(
+        return Err(MatrixError::InvalidCertificate(format!(
             "characteristic polynomial degree {:?} does not match matrix dimension {}",
             cert.poly.degree(),
             n
         )));
     }
     if !cert.poly.is_monic() {
-        return Err(MatrixError::ResourceLimit(
+        return Err(MatrixError::InvalidCertificate(
             "characteristic polynomial must be monic".to_string(),
         ));
     }
-    // Check subleading coefficient matches -trace(A) for n >= 1
-    if n >= 1 {
-        let tr = matrix.trace()?;
-        let tr_rational = match Matrix::numeric(&tr) {
-            Some(r) => r,
-            None => return Err(MatrixError::SymbolicCharacteristicPolynomial),
-        };
-        let expected_subleading = -tr_rational;
-        if cert.poly.coeffs[n - 1] != expected_subleading {
-            return Err(MatrixError::ResourceLimit(
-                "subleading coefficient does not match -trace(A)".to_string(),
-            ));
-        }
-    }
-    // Check constant term matches (-1)^n * det(A)
-    let det = matrix.det()?;
-    let det_rational = match Matrix::numeric(&det) {
-        Some(r) => r,
-        None => return Err(MatrixError::SymbolicCharacteristicPolynomial),
-    };
-    let sign = if n.is_multiple_of(2) {
-        BigRational::one()
-    } else {
-        -BigRational::one()
-    };
-    let expected_constant = sign * det_rational;
-    if cert.poly.coeffs[0] != expected_constant {
-        return Err(MatrixError::ResourceLimit(
-            "constant term does not match (-1)^n * det(A)".to_string(),
-        ));
-    }
-    // Check Cayley-Hamilton: P(A) == 0_{n x n}
-    let pa = matrix.eval_poly(&cert.poly)?;
-    for entry in &pa.data {
-        if !entry.is_zero() {
-            return Err(MatrixError::ResourceLimit(
-                "Cayley-Hamilton evaluation failed: P(A) != 0".to_string(),
-            ));
+
+    let sample_count = n
+        .checked_add(1)
+        .ok_or_else(|| MatrixError::ResourceLimit("sample count overflowed".to_string()))?;
+    for sample in 0..sample_count {
+        let sample_i64 = i64::try_from(sample).map_err(|_| {
+            MatrixError::ResourceLimit("sample point exceeds the supported i64 range".to_string())
+        })?;
+        let point = BigRational::from_integer(BigInt::from(sample_i64));
+        let claimed = cert.poly.eval(&point);
+        let expected = reference_shifted_determinant(matrix, &point)?;
+        if claimed != expected {
+            return Err(MatrixError::InvalidCertificate(format!(
+                "characteristic polynomial mismatch at reference sample {sample}"
+            )));
         }
     }
     Ok(())
@@ -2520,7 +2608,7 @@ mod tests {
     }
 
     #[test]
-    fn charpoly_certificate_verifies_and_evaluates_cayley_hamilton() {
+    fn charpoly_certificate_verifies_reference_evaluations() {
         let matrix = Matrix::new(2, 2, vec![num(1), num(2), num(3), num(4)]).unwrap();
 
         let cert = matrix.char_poly_with_certificate("lambda").unwrap();
@@ -2564,6 +2652,29 @@ mod tests {
         let cert0 = m0.char_poly_with_certificate("lambda").unwrap();
         assert_eq!(cert0.poly.degree(), Some(0));
         assert!(verify_charpoly_certificate(&m0, &cert0).is_ok());
+
+        // Hand-planted repeated-eigenvalue case, independent of the generator:
+        // det(lambda I - I_4) = (lambda - 1)^4.
+        let identity4 = Matrix::eye(4).unwrap();
+        let planted_identity4 = CharpolyCertificate {
+            poly: UnivariatePoly::new(
+                Symbol::new("lambda"),
+                vec![
+                    BigRational::one(),
+                    BigRational::from_integer((-4).into()),
+                    BigRational::from_integer(6.into()),
+                    BigRational::from_integer((-4).into()),
+                    BigRational::one(),
+                ],
+            ),
+        };
+        assert!(verify_charpoly_certificate(&identity4, &planted_identity4).is_ok());
+
+        // The reference lane is not restricted by the Laplace determinant's 8x8 cap.
+        let m9 = Matrix::zeros(9, 9).unwrap();
+        let cert9 = m9.char_poly_with_certificate("lambda").unwrap();
+        assert_eq!(cert9.poly.degree(), Some(9));
+        assert!(verify_charpoly_certificate(&m9, &cert9).is_ok());
     }
 
     #[test]
@@ -2630,5 +2741,43 @@ mod tests {
             poly: UnivariatePoly::new(Symbol::new("lambda"), tampered_coeffs),
         };
         assert!(verify_charpoly_certificate(&m3, &bad_cert5).is_err());
+
+        // Cayley-Hamilton, trace, and determinant anchors do not characterize the
+        // characteristic polynomial when the minimal polynomial has lower degree.
+        // For the zero matrix, lambda^3 + lambda satisfies every old check.
+        let zero3 = Matrix::zeros(3, 3).unwrap();
+        let old_verifier_bypass = CharpolyCertificate {
+            poly: UnivariatePoly::new(
+                Symbol::new("lambda"),
+                vec![
+                    BigRational::zero(),
+                    BigRational::one(),
+                    BigRational::zero(),
+                    BigRational::one(),
+                ],
+            ),
+        };
+        assert!(verify_charpoly_certificate(&zero3, &old_verifier_bypass).is_err());
+    }
+
+    #[test]
+    fn matrix_polynomial_evaluation_preflights_shape_and_aggregate_work() {
+        let malformed = UnivariatePoly {
+            gen_sym: Symbol::new("lambda"),
+            coeffs: Vec::new(),
+        };
+        let scalar = Matrix::new(1, 1, vec![num(1)]).unwrap();
+        assert!(matches!(
+            scalar.eval_poly(&malformed),
+            Err(MatrixError::InvalidPolynomial(_))
+        ));
+
+        let large_matrix = Matrix::zeros(100, 100).unwrap();
+        let high_degree =
+            UnivariatePoly::monomial(Symbol::new("lambda"), BigRational::one(), 1_000).unwrap();
+        assert!(matches!(
+            large_matrix.eval_poly(&high_degree),
+            Err(MatrixError::ResourceLimit(_))
+        ));
     }
 }
