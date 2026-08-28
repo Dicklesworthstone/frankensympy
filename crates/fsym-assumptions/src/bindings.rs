@@ -95,13 +95,8 @@ impl BinderNode {
     pub fn try_from_expr(expr: &Expr) -> Option<Self> {
         if let Expr::Function(name, args) = expr {
             match name.as_str() {
-                "Lambda" if args.len() == 2 => {
-                    if let Expr::Sym(param) = &args[0] {
-                        return Some(Self::Lambda {
-                            param: param.clone(),
-                            body: Box::new(args[1].clone()),
-                        });
-                    }
+                "Lambda" => {
+                    return try_parse_lambda(args);
                 }
                 "Integral" => {
                     if args.len() == 2
@@ -210,13 +205,88 @@ pub enum DeBruijnExpr {
     },
 }
 
+/// Helper to parse single-parameter, multi-parameter Tuple, and multi-argument Lambda forms.
+fn try_parse_lambda(args: &[Expr]) -> Option<BinderNode> {
+    if args.len() == 2 {
+        match &args[0] {
+            Expr::Sym(param) => Some(BinderNode::Lambda {
+                param: param.clone(),
+                body: Box::new(args[1].clone()),
+            }),
+            Expr::Function(tname, targs) if tname == "Tuple" => {
+                if targs.is_empty() {
+                    None
+                } else if targs.len() == 1 {
+                    if let Expr::Sym(param) = &targs[0] {
+                        Some(BinderNode::Lambda {
+                            param: param.clone(),
+                            body: Box::new(args[1].clone()),
+                        })
+                    } else {
+                        None
+                    }
+                } else if targs.iter().all(|a| matches!(a, Expr::Sym(_))) {
+                    if let Expr::Sym(first) = &targs[0] {
+                        let rest_tuple = if targs.len() == 2 {
+                            targs[1].clone()
+                        } else {
+                            Expr::Function("Tuple".to_string(), targs[1..].to_vec())
+                        };
+                        let inner_lambda =
+                            Expr::Function("Lambda".to_string(), vec![rest_tuple, args[1].clone()]);
+                        Some(BinderNode::Lambda {
+                            param: first.clone(),
+                            body: Box::new(inner_lambda),
+                        })
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    } else if args.len() > 2 {
+        if args[..args.len() - 1]
+            .iter()
+            .all(|a| matches!(a, Expr::Sym(_)))
+        {
+            if let Expr::Sym(first) = &args[0] {
+                let inner_lambda = if args.len() == 3 {
+                    Expr::Function("Lambda".to_string(), vec![args[1].clone(), args[2].clone()])
+                } else {
+                    let inner_args = args[1..].to_vec();
+                    Expr::Function("Lambda".to_string(), inner_args)
+                };
+                Some(BinderNode::Lambda {
+                    param: first.clone(),
+                    body: Box::new(inner_lambda),
+                })
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
+/// Maximum recursion depth allowed during binding traversal and substitution.
+pub const MAX_BINDING_DEPTH: usize = 256;
+
 /// Converts an expression into canonical De Bruijn indexed form.
 pub fn to_de_bruijn(expr: &Expr) -> DeBruijnExpr {
     let mut scope = Vec::new();
-    expr_to_de_bruijn(expr, &mut scope)
+    expr_to_de_bruijn(expr, &mut scope, 0)
 }
 
-fn expr_to_de_bruijn(expr: &Expr, scope: &mut Vec<Symbol>) -> DeBruijnExpr {
+fn expr_to_de_bruijn(expr: &Expr, scope: &mut Vec<Symbol>, depth: usize) -> DeBruijnExpr {
+    if depth > MAX_BINDING_DEPTH {
+        return DeBruijnExpr::Free(Symbol::new("__depth_limit_exceeded__"));
+    }
     match expr {
         Expr::Sym(s) => {
             if let Some(pos) = scope.iter().rev().position(|sym| sym == s) {
@@ -228,32 +298,38 @@ fn expr_to_de_bruijn(expr: &Expr, scope: &mut Vec<Symbol>) -> DeBruijnExpr {
         Expr::Integer(n) => DeBruijnExpr::Integer(n.clone()),
         Expr::Rational(q) => DeBruijnExpr::Rational(q.clone()),
         Expr::Const(c) => DeBruijnExpr::Const(*c),
-        Expr::Add(terms) => {
-            DeBruijnExpr::Add(terms.iter().map(|t| expr_to_de_bruijn(t, scope)).collect())
-        }
-        Expr::Mul(terms) => {
-            DeBruijnExpr::Mul(terms.iter().map(|t| expr_to_de_bruijn(t, scope)).collect())
-        }
+        Expr::Add(terms) => DeBruijnExpr::Add(
+            terms
+                .iter()
+                .map(|t| expr_to_de_bruijn(t, scope, depth + 1))
+                .collect(),
+        ),
+        Expr::Mul(terms) => DeBruijnExpr::Mul(
+            terms
+                .iter()
+                .map(|t| expr_to_de_bruijn(t, scope, depth + 1))
+                .collect(),
+        ),
         Expr::Pow(b, e) => DeBruijnExpr::Pow(
-            Box::new(expr_to_de_bruijn(b, scope)),
-            Box::new(expr_to_de_bruijn(e, scope)),
+            Box::new(expr_to_de_bruijn(b, scope, depth + 1)),
+            Box::new(expr_to_de_bruijn(e, scope, depth + 1)),
         ),
         Expr::Function(name, args) => {
             if let Some(binder) = BinderNode::try_from_expr(expr) {
                 match binder {
                     BinderNode::Lambda { param, body } => {
                         scope.push(param);
-                        let body_db = expr_to_de_bruijn(&body, scope);
+                        let body_db = expr_to_de_bruijn(&body, scope, depth + 1);
                         scope.pop();
                         return DeBruijnExpr::Binder("Lambda".into(), Box::new(body_db));
                     }
                     BinderNode::Integral { var, body, limits } => {
                         scope.push(var);
-                        let body_db = expr_to_de_bruijn(&body, scope);
+                        let body_db = expr_to_de_bruijn(&body, scope, depth + 1);
                         scope.pop();
                         if let Some((lower, upper)) = limits {
-                            let lower_db = expr_to_de_bruijn(&lower, scope);
-                            let upper_db = expr_to_de_bruijn(&upper, scope);
+                            let lower_db = expr_to_de_bruijn(&lower, scope, depth + 1);
+                            let upper_db = expr_to_de_bruijn(&upper, scope, depth + 1);
                             return DeBruijnExpr::BinderWithArguments {
                                 name: "Integral".into(),
                                 body: Box::new(body_db),
@@ -265,7 +341,7 @@ fn expr_to_de_bruijn(expr: &Expr, scope: &mut Vec<Symbol>) -> DeBruijnExpr {
                     }
                     BinderNode::Derivative { var, body } => {
                         scope.push(var);
-                        let body_db = expr_to_de_bruijn(&body, scope);
+                        let body_db = expr_to_de_bruijn(&body, scope, depth + 1);
                         scope.pop();
                         return DeBruijnExpr::Binder("Derivative".into(), Box::new(body_db));
                     }
@@ -273,7 +349,9 @@ fn expr_to_de_bruijn(expr: &Expr, scope: &mut Vec<Symbol>) -> DeBruijnExpr {
             }
             DeBruijnExpr::Function(
                 name.clone(),
-                args.iter().map(|a| expr_to_de_bruijn(a, scope)).collect(),
+                args.iter()
+                    .map(|a| expr_to_de_bruijn(a, scope, depth + 1))
+                    .collect(),
             )
         }
     }
@@ -283,7 +361,7 @@ fn expr_to_de_bruijn(expr: &Expr, scope: &mut Vec<Symbol>) -> DeBruijnExpr {
 pub fn free_symbols(expr: &Expr) -> BTreeSet<Symbol> {
     let mut free = BTreeSet::new();
     let mut bound_scope = BTreeSet::new();
-    collect_free_symbols(expr, &mut bound_scope, &mut free);
+    collect_free_symbols(expr, &mut bound_scope, &mut free, 0);
     free
 }
 
@@ -293,23 +371,26 @@ pub fn free_symbols(expr: &Expr) -> BTreeSet<Symbol> {
 /// inner binder name can change which declaration a renamed occurrence refers to.
 fn all_symbols(expr: &Expr) -> BTreeSet<Symbol> {
     let mut symbols = BTreeSet::new();
-    collect_all_symbols(expr, &mut symbols);
+    collect_all_symbols(expr, &mut symbols, 0);
     symbols
 }
 
-fn collect_all_symbols(expr: &Expr, symbols: &mut BTreeSet<Symbol>) {
+fn collect_all_symbols(expr: &Expr, symbols: &mut BTreeSet<Symbol>, depth: usize) {
+    if depth > MAX_BINDING_DEPTH {
+        return;
+    }
     match expr {
         Expr::Sym(symbol) => {
             symbols.insert(symbol.clone());
         }
         Expr::Add(args) | Expr::Mul(args) | Expr::Function(_, args) => {
             for arg in args {
-                collect_all_symbols(arg, symbols);
+                collect_all_symbols(arg, symbols, depth + 1);
             }
         }
         Expr::Pow(base, exponent) => {
-            collect_all_symbols(base, symbols);
-            collect_all_symbols(exponent, symbols);
+            collect_all_symbols(base, symbols, depth + 1);
+            collect_all_symbols(exponent, symbols, depth + 1);
         }
         Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_) => {}
     }
@@ -319,7 +400,11 @@ fn collect_free_symbols(
     expr: &Expr,
     bound_scope: &mut BTreeSet<Symbol>,
     free: &mut BTreeSet<Symbol>,
+    depth: usize,
 ) {
+    if depth > MAX_BINDING_DEPTH {
+        return;
+    }
     match expr {
         Expr::Sym(s) => {
             if !bound_scope.contains(s) {
@@ -328,18 +413,18 @@ fn collect_free_symbols(
         }
         Expr::Add(args) | Expr::Mul(args) => {
             for arg in args {
-                collect_free_symbols(arg, bound_scope, free);
+                collect_free_symbols(arg, bound_scope, free, depth + 1);
             }
         }
         Expr::Pow(b, e) => {
-            collect_free_symbols(b, bound_scope, free);
-            collect_free_symbols(e, bound_scope, free);
+            collect_free_symbols(b, bound_scope, free, depth + 1);
+            collect_free_symbols(e, bound_scope, free, depth + 1);
         }
         Expr::Function(_, args) => {
             if let Some(binder) = BinderNode::try_from_expr(expr) {
                 let var = binder.bound_variable();
                 let newly_bound = bound_scope.insert(var.clone());
-                collect_free_symbols(binder.body(), bound_scope, free);
+                collect_free_symbols(binder.body(), bound_scope, free, depth + 1);
                 if newly_bound {
                     bound_scope.remove(var);
                 }
@@ -348,14 +433,14 @@ fn collect_free_symbols(
                     ..
                 } = binder
                 {
-                    collect_free_symbols(&lower, bound_scope, free);
-                    collect_free_symbols(&upper, bound_scope, free);
+                    collect_free_symbols(&lower, bound_scope, free, depth + 1);
+                    collect_free_symbols(&upper, bound_scope, free, depth + 1);
                 }
                 return;
             }
 
             for arg in args {
-                collect_free_symbols(arg, bound_scope, free);
+                collect_free_symbols(arg, bound_scope, free, depth + 1);
             }
         }
         _ => {}
@@ -386,7 +471,7 @@ pub fn alpha_equivalent(a: &Expr, b: &Expr) -> bool {
 /// Performs capture-avoiding substitution: replaces occurrences of `target` with `replacement` in `expr`.
 pub fn capture_avoiding_subs(expr: &Expr, target: &Symbol, replacement: &Expr) -> Expr {
     let repl_free = free_symbols(replacement);
-    subs_internal(expr, target, replacement, &repl_free)
+    subs_internal(expr, target, replacement, &repl_free, 0)
 }
 
 fn subs_internal(
@@ -394,7 +479,11 @@ fn subs_internal(
     target: &Symbol,
     replacement: &Expr,
     repl_free: &BTreeSet<Symbol>,
+    depth: usize,
 ) -> Expr {
+    if depth > MAX_BINDING_DEPTH {
+        return expr.clone();
+    }
     match expr {
         Expr::Sym(s) => {
             if s == target {
@@ -405,17 +494,17 @@ fn subs_internal(
         }
         Expr::Add(args) => Expr::Add(
             args.iter()
-                .map(|a| subs_internal(a, target, replacement, repl_free))
+                .map(|a| subs_internal(a, target, replacement, repl_free, depth + 1))
                 .collect(),
         ),
         Expr::Mul(args) => Expr::Mul(
             args.iter()
-                .map(|a| subs_internal(a, target, replacement, repl_free))
+                .map(|a| subs_internal(a, target, replacement, repl_free, depth + 1))
                 .collect(),
         ),
         Expr::Pow(b, e) => Expr::Pow(
-            Arc::new(subs_internal(b, target, replacement, repl_free)),
-            Arc::new(subs_internal(e, target, replacement, repl_free)),
+            Arc::new(subs_internal(b, target, replacement, repl_free, depth + 1)),
+            Arc::new(subs_internal(e, target, replacement, repl_free, depth + 1)),
         ),
         Expr::Function(name, args) => {
             if let Some(binder) = BinderNode::try_from_expr(expr) {
@@ -433,8 +522,20 @@ fn subs_internal(
                             var,
                             body,
                             limits: Some((
-                                Box::new(subs_internal(&lower, target, replacement, repl_free)),
-                                Box::new(subs_internal(&upper, target, replacement, repl_free)),
+                                Box::new(subs_internal(
+                                    &lower,
+                                    target,
+                                    replacement,
+                                    repl_free,
+                                    depth + 1,
+                                )),
+                                Box::new(subs_internal(
+                                    &upper,
+                                    target,
+                                    replacement,
+                                    repl_free,
+                                    depth + 1,
+                                )),
                             )),
                         }
                         .to_expr(),
@@ -453,12 +554,18 @@ fn subs_internal(
                     avoid.insert(target.clone());
                     let fresh = fresh_symbol(&bound_var.name, &avoid);
                     let fresh_free = BTreeSet::from([fresh.clone()]);
-                    let renamed_body =
-                        subs_internal(body, &bound_var, &Expr::Sym(fresh.clone()), &fresh_free);
-                    let new_body = subs_internal(&renamed_body, target, replacement, repl_free);
+                    let renamed_body = subs_internal(
+                        body,
+                        &bound_var,
+                        &Expr::Sym(fresh.clone()),
+                        &fresh_free,
+                        depth + 1,
+                    );
+                    let new_body =
+                        subs_internal(&renamed_body, target, replacement, repl_free, depth + 1);
                     (fresh, new_body)
                 } else {
-                    let new_body = subs_internal(body, target, replacement, repl_free);
+                    let new_body = subs_internal(body, target, replacement, repl_free, depth + 1);
                     (bound_var, new_body)
                 };
 
@@ -480,8 +587,20 @@ fn subs_internal(
                     BinderNode::Integral { limits, .. } => {
                         let new_limits = limits.map(|(lower, upper)| {
                             (
-                                Box::new(subs_internal(&lower, target, replacement, repl_free)),
-                                Box::new(subs_internal(&upper, target, replacement, repl_free)),
+                                Box::new(subs_internal(
+                                    &lower,
+                                    target,
+                                    replacement,
+                                    repl_free,
+                                    depth + 1,
+                                )),
+                                Box::new(subs_internal(
+                                    &upper,
+                                    target,
+                                    replacement,
+                                    repl_free,
+                                    depth + 1,
+                                )),
                             )
                         });
                         return BinderNode::Integral {
@@ -497,7 +616,7 @@ fn subs_internal(
             Expr::Function(
                 name.clone(),
                 args.iter()
-                    .map(|a| subs_internal(a, target, replacement, repl_free))
+                    .map(|a| subs_internal(a, target, replacement, repl_free, depth + 1))
                     .collect(),
             )
         }
@@ -1002,5 +1121,150 @@ mod tests {
             Expr::Function("Lambda".into(), vec![Expr::symbol("a"), Expr::symbol("b")]),
         );
         assert!(outer_dependent.is_alpha_equivalent(&renamed));
+    }
+
+    #[test]
+    fn multi_parameter_lambda_tuple_and_multi_arg_alpha_equivalence() {
+        // Lambda((x, y), x + y)
+        let tuple_xy = Expr::Function(
+            "Lambda".into(),
+            vec![
+                Expr::Function("Tuple".into(), vec![Expr::symbol("x"), Expr::symbol("y")]),
+                Expr::Add(vec![Expr::symbol("x"), Expr::symbol("y")]),
+            ],
+        );
+        // Lambda((a, b), a + b)
+        let tuple_ab = Expr::Function(
+            "Lambda".into(),
+            vec![
+                Expr::Function("Tuple".into(), vec![Expr::symbol("a"), Expr::symbol("b")]),
+                Expr::Add(vec![Expr::symbol("a"), Expr::symbol("b")]),
+            ],
+        );
+        // Lambda(x, y, x + y) (multi-arg representation)
+        let multi_xy = Expr::Function(
+            "Lambda".into(),
+            vec![
+                Expr::symbol("x"),
+                Expr::symbol("y"),
+                Expr::Add(vec![Expr::symbol("x"), Expr::symbol("y")]),
+            ],
+        );
+        // Curried Lambda(a, Lambda(b, a + b))
+        let curried_ab = Expr::Function(
+            "Lambda".into(),
+            vec![
+                Expr::symbol("a"),
+                Expr::Function(
+                    "Lambda".into(),
+                    vec![
+                        Expr::symbol("b"),
+                        Expr::Add(vec![Expr::symbol("a"), Expr::symbol("b")]),
+                    ],
+                ),
+            ],
+        );
+
+        assert!(alpha_equivalent(&tuple_xy, &tuple_ab));
+        assert!(alpha_equivalent(&tuple_xy, &multi_xy));
+        assert!(alpha_equivalent(&tuple_xy, &curried_ab));
+        assert!(alpha_equivalent(&multi_xy, &curried_ab));
+
+        // 3-parameter tuple Lambda((x, y, z), x * y + z)
+        let tuple_3_xyz = Expr::Function(
+            "Lambda".into(),
+            vec![
+                Expr::Function(
+                    "Tuple".into(),
+                    vec![Expr::symbol("x"), Expr::symbol("y"), Expr::symbol("z")],
+                ),
+                Expr::Add(vec![
+                    Expr::Mul(vec![Expr::symbol("x"), Expr::symbol("y")]),
+                    Expr::symbol("z"),
+                ]),
+            ],
+        );
+        let tuple_3_abc = Expr::Function(
+            "Lambda".into(),
+            vec![
+                Expr::Function(
+                    "Tuple".into(),
+                    vec![Expr::symbol("a"), Expr::symbol("b"), Expr::symbol("c")],
+                ),
+                Expr::Add(vec![
+                    Expr::Mul(vec![Expr::symbol("a"), Expr::symbol("b")]),
+                    Expr::symbol("c"),
+                ]),
+            ],
+        );
+        let multi_3_xyz = Expr::Function(
+            "Lambda".into(),
+            vec![
+                Expr::symbol("x"),
+                Expr::symbol("y"),
+                Expr::symbol("z"),
+                Expr::Add(vec![
+                    Expr::Mul(vec![Expr::symbol("x"), Expr::symbol("y")]),
+                    Expr::symbol("z"),
+                ]),
+            ],
+        );
+        assert!(alpha_equivalent(&tuple_3_xyz, &tuple_3_abc));
+        assert!(alpha_equivalent(&tuple_3_xyz, &multi_3_xyz));
+    }
+
+    #[test]
+    fn multi_parameter_lambda_free_symbols_and_capture_avoiding_subs() {
+        // Lambda((x, y), x + y + z): free symbol is {z}
+        let expr = Expr::Function(
+            "Lambda".into(),
+            vec![
+                Expr::Function("Tuple".into(), vec![Expr::symbol("x"), Expr::symbol("y")]),
+                Expr::Add(vec![
+                    Expr::symbol("x"),
+                    Expr::symbol("y"),
+                    Expr::symbol("z"),
+                ]),
+            ],
+        );
+        let free = free_symbols(&expr);
+        assert_eq!(free.len(), 1);
+        assert!(free.contains(&Symbol::new("z")));
+
+        // Substitute z -> x + 1. Parameter x must be freshened to avoid capture!
+        let target = Symbol::new("z");
+        let replacement = Expr::Add(vec![Expr::symbol("x"), Expr::from_i64(1)]);
+        let substituted = capture_avoiding_subs(&expr, &target, &replacement);
+
+        // Substituted expression must still have free symbols {x}
+        let sub_free = free_symbols(&substituted);
+        assert_eq!(sub_free.len(), 1);
+        assert!(sub_free.contains(&Symbol::new("x")));
+
+        // Must be alpha-equivalent to Lambda((x_fresh, y), (x_fresh + y + (x + 1)))
+        let expected_alpha = Expr::Function(
+            "Lambda".into(),
+            vec![
+                Expr::Function("Tuple".into(), vec![Expr::symbol("x_1"), Expr::symbol("y")]),
+                Expr::Add(vec![
+                    Expr::symbol("x_1"),
+                    Expr::symbol("y"),
+                    Expr::Add(vec![Expr::symbol("x"), Expr::from_i64(1)]),
+                ]),
+            ],
+        );
+        assert!(alpha_equivalent(&substituted, &expected_alpha));
+    }
+
+    #[test]
+    fn bindings_recursion_depth_limit_fails_closed() {
+        let mut deep = Expr::symbol("x");
+        for _ in 0..MAX_BINDING_DEPTH + 10 {
+            deep = Expr::Add(vec![deep, Expr::from_i64(1)]);
+        }
+        // Free symbols and de bruijn traversal must terminate without stack overflow
+        let _ = free_symbols(&deep);
+        let db = to_de_bruijn(&deep);
+        assert!(matches!(db, DeBruijnExpr::Add(_)));
     }
 }
