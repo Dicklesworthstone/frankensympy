@@ -84,20 +84,34 @@ def _make_function_subclass(spec: dict) -> type:
     nargs declaration, and fdiff-based custom derivatives. The class object is
     created dynamically inside the oracle process so observations include real
     upstream metaclass behavior.
+
+    SymPy invokes ``cls.eval(*args)`` through a classmethod, so the function
+    must accept the class as the first argument. A bare ``eval(*a)`` wrapped
+    in ``classmethod`` sees ``a[0] is cls`` and never matches a numeric zero.
+    The class is also installed on its defining module so pickle can resolve
+    ``__main__.Name`` / ``oracle_runner.Name``.
     """
     name = spec["name"]
 
-    def eval(*a):  # noqa: ANN202 - SymPy calls this statically
+    def eval(cls, *a):  # noqa: ANN202 - SymPy calls this as a classmethod
+        del cls
         if spec.get("eval_zero_collapse") and len(a) == 2 and a[0] == 0:
             return sympy.S.Zero
         return None  # returning None keeps the applied, unevaluated form
 
+    def fdiff(self, argindex=1):
+        del self
+        return sympy.S.One / argindex
+
     namespace = {
         "eval": classmethod(eval),
         "nargs": tuple(spec.get("nargs", (2,))),
-        "fdiff": lambda self, argindex=1: sympy.S.One / argindex,
+        "fdiff": fdiff,
     }
     cls = type(name, (sympy.Function,), namespace)
+    module = sys.modules.get(cls.__module__)
+    if module is not None:
+        setattr(module, name, cls)
     _SUBCLASS_REGISTRY[name] = cls
     return cls
 

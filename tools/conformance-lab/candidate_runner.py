@@ -173,18 +173,27 @@ def _make_function_subclass(spec: dict, sympy_mod):
         raise NotImplementedError("candidate shell has no Function base class")
     name = spec["name"]
 
-    def eval(*a):  # noqa: ANN202 - mirror the oracle subclass contract
+    def eval(cls, *a):  # noqa: ANN202 - SymPy calls this as a classmethod
+        del cls
         if spec.get("eval_zero_collapse") and len(a) == 2 and a[0] == 0:
             zero = getattr(getattr(sympy_mod, "S", None), "Zero", 0)
             return zero
         return None
 
+    def fdiff(self, argindex=1):
+        del self
+        return 1 / argindex
+
     namespace = {
         "eval": classmethod(eval),
         "nargs": tuple(spec.get("nargs", (2,))),
-        "fdiff": lambda self, argindex=1: 1 / argindex,
+        "fdiff": fdiff,
     }
-    return type(name, (parent,), namespace)
+    cls = type(name, (parent,), namespace)
+    module = sys.modules.get(cls.__module__)
+    if module is not None:
+        setattr(module, name, cls)
+    return cls
 
 
 def env_fingerprint(sympy_mod, *, broken: bool) -> dict:
