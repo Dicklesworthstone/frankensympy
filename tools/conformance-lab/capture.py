@@ -784,6 +784,21 @@ def cmd_self_test(profile: dict, py: str) -> int:
             else:
                 return fail(f"comparator FAILED to reject mutant: {label} ({name})")
 
+    isolation = isolation_report(profile, py)
+    if isolation.get("status") != "passed":
+        return fail(f"isolation gate failed: {isolation}")
+
+    broken = capture_candidate_file(
+        profile, base / first_rel, candidate_python(None), broken=True
+    )
+    construction_hits = compare_construction_only(golden_first, broken)
+    if not construction_hits:
+        return fail("construction_only accepted the deliberately broken candidate shell")
+    if any(envelope["side"] != CANDIDATE_SIDE for envelope in broken):
+        return fail("broken candidate emitted a non-candidate observation side")
+    if any(envelope.get("observations", {}).get("type") != "BrokenCandidate" for envelope in broken):
+        return fail("broken candidate did not stamp BrokenCandidate construction identity")
+
     print(
         json.dumps(
             {
@@ -800,11 +815,185 @@ def cmd_self_test(profile: dict, py: str) -> int:
                 ),
                 "mutants_checked": checked_files,
                 "mutants_rejected": rejected,
+                "oracle_candidate_isolation": True,
+                "broken_candidate_rejected_by_construction_only": True,
+                "broken_candidate_fixtures_rejected": construction_hits,
             },
             indent=2,
         )
     )
     return 0
+
+
+ISOLATION_PROBE = r"""
+import json, sys
+report = {
+    "executable": sys.executable,
+    "prefix": sys.prefix,
+    "modules": sorted(
+        name
+        for name in sys.modules
+        if "sympy" in name or name.startswith("fsym") or "frankensympy" in name
+    ),
+}
+try:
+    import sympy
+    report["sympy_file"] = getattr(sympy, "__file__", None)
+    report["sympy_version"] = getattr(sympy, "__version__", None)
+except Exception as exc:  # noqa: BLE001
+    report["sympy_import"] = type(exc).__name__ + ": " + str(exc)[:200]
+print(json.dumps(report, sort_keys=True))
+"""
+
+
+def _probe_interpreter(py: str, env: dict[str, str]) -> dict:
+    proc = subprocess.run(
+        [py, "-P", "-s", "-c", ISOLATION_PROBE],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=60,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"isolation probe exited {proc.returncode}: {proc.stderr[-300:] or proc.stdout[-300:]}"
+        )
+    try:
+        report = json.loads(proc.stdout.splitlines()[-1])
+    except (json.JSONDecodeError, IndexError) as exc:
+        raise ValueError(f"isolation probe output is not JSON: {exc}") from exc
+    if not isinstance(report, dict):
+        raise TypeError("isolation probe must return an object")
+    return report
+
+
+def isolation_report(profile: dict, oracle_py: str) -> dict:
+    """Prove oracle, candidate, and harness do not share a sympy import."""
+    if "sympy" in sys.modules:
+        return {"status": "failed", "reason": "harness already imported sympy"}
+
+    oracle = _probe_interpreter(oracle_py, oracle_environment(profile))
+    candidate = _probe_interpreter(candidate_python(None), candidate_environment(profile))
+    oracle_file = oracle.get("sympy_file")
+    candidate_file = candidate.get("sympy_file")
+    if not isinstance(oracle_file, str) or not oracle_file:
+        return {"status": "failed", "reason": "oracle interpreter did not import sympy"}
+    if Path(oracle_file).resolve().is_relative_to(candidate_root() / "sympy"):
+        return {
+            "status": "failed",
+            "reason": "oracle interpreter imported the FrankenSymPy python shell",
+            "oracle_file": oracle_file,
+        }
+    if isinstance(candidate_file, str) and Path(candidate_file).resolve() == Path(
+        oracle_file
+    ).resolve():
+        return {
+            "status": "failed",
+            "reason": "candidate process imported the oracle sympy module",
+            "shared_file": oracle_file,
+        }
+
+    first_rel = profile["inventory"]["fixtures"][0]
+    fixture_path = Path(__file__).resolve().parent / first_rel
+    contaminated = subprocess.run(
+        [
+            oracle_py,
+            "-P",
+            "-s",
+            str(candidate_runner_path()),
+            str(fixture_path),
+            profile["profile_id"],
+        ],
+        capture_output=True,
+        text=True,
+        env=oracle_environment(profile),
+        timeout=60,
+        check=False,
+    )
+    if contaminated.returncode != 3 or "isolation_violation" not in contaminated.stdout:
+        return {
+            "status": "failed",
+            "reason": "candidate runner accepted the oracle interpreter",
+            "returncode": contaminated.returncode,
+            "stdout_head": contaminated.stdout[:300],
+        }
+    return {
+        "status": "passed",
+        "harness_imported_sympy": False,
+        "oracle_sympy_file": oracle_file,
+        "candidate_sympy_file": candidate_file,
+        "candidate_sympy_import": candidate.get("sympy_import"),
+        "oracle_interpreter_rejected_as_candidate": True,
+    }
+
+
+def cmd_isolation(profile: dict, oracle_py: str) -> int:
+    report = isolation_report(profile, oracle_py)
+    print(json.dumps(report, indent=2, sort_keys=True))
+    return 0 if report.get("status") == "passed" else 1
+
+
+def cmd_candidate(profile: dict, py: str, *, broken: bool = False) -> int:
+    base = Path(__file__).resolve().parent
+    captured: dict[str, list[dict]] = {}
+    for rel in profile["inventory"]["fixtures"]:
+        captured[golden_name_for(rel)] = capture_candidate_file(
+            profile, base / rel, py, broken=broken
+        )
+    total = sum(len(v) for v in captured.values())
+    print(
+        json.dumps(
+            {
+                "side": CANDIDATE_SIDE,
+                "broken": broken,
+                "fixture_files": len(captured),
+                "envelopes": total,
+                "outcome_classes": sorted(
+                    {
+                        envelope["outcome_class"]
+                        for envelopes in captured.values()
+                        for envelope in envelopes
+                    }
+                ),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+def cmd_diff(profile: dict, candidate_py: str, *, broken: bool = False) -> int:
+    from minimize import build_records
+
+    base = Path(__file__).resolve().parent
+    goldens = load_goldens(profile)
+    oracle_envs = [envelope for envelopes in goldens.values() for envelope in envelopes]
+    candidate_envs = []
+    for rel in profile["inventory"]["fixtures"]:
+        candidate_envs.extend(
+            capture_candidate_file(
+                profile, base / rel, candidate_py, broken=broken
+            )
+        )
+    records, paired = build_records(
+        oracle_envs,
+        candidate_envs,
+        comparator="construction_only",
+        severity="object",
+        fallback_profile_id=profile["profile_id"],
+        created_at_utc=datetime.now(UTC).isoformat(),
+    )
+    summary = {
+        "comparator": "construction_only",
+        "paired": paired,
+        "discrepancies": len(records),
+        "broken_candidate": broken,
+        "fixture_ids": [record["fixture_id"] for record in records],
+    }
+    print(json.dumps(summary, indent=2, sort_keys=True))
+    return 1 if records else 0
 
 
 INVENTORY_REQUIRED_KEYS = {
@@ -905,31 +1094,91 @@ def cmd_inventory(profile: dict, py: str) -> int:
     return 0
 
 
-def main() -> int:
-    args = sys.argv[1:]
-    if args in (["-h"], ["--help"]):
+def parse_cli(argv: list[str]) -> dict | int:
+    if argv in (["-h"], ["--help"]):
         print(__doc__)
         return 0
-    if len(args) not in {2, 4}:
+    if not argv:
         print(__doc__)
         return 2
-    mode = args[0]
-    if mode not in {"capture", "self-test", "inventory"}:
+    mode = argv[0]
+    known = {
+        "capture",
+        "self-test",
+        "inventory",
+        "candidate",
+        "diff",
+        "isolation",
+    }
+    if mode not in known:
         print(f"unknown mode: {mode}", file=sys.stderr)
         return 2
-    py = None
-    if len(args) == 4:
-        if args[2] != "--oracle-python" or not args[3]:
-            print(__doc__)
-            return 2
-        py = args[3]
+    rest = argv[1:]
+    if not rest:
+        print(__doc__)
+        return 2
+    profile_path = rest[0]
+    oracle_py = None
+    candidate_py = None
+    broken = False
+    index = 1
+    while index < len(rest):
+        token = rest[index]
+        if token == "--oracle-python":
+            if index + 1 >= len(rest) or not rest[index + 1]:
+                print(__doc__)
+                return 2
+            oracle_py = rest[index + 1]
+            index += 2
+            continue
+        if token == "--candidate-python":
+            if index + 1 >= len(rest) or not rest[index + 1]:
+                print(__doc__)
+                return 2
+            candidate_py = rest[index + 1]
+            index += 2
+            continue
+        if token == "--broken":
+            broken = True
+            index += 1
+            continue
+        print(__doc__)
+        return 2
+    return {
+        "mode": mode,
+        "profile_path": profile_path,
+        "oracle_python": oracle_py,
+        "candidate_python": candidate_py,
+        "broken": broken,
+    }
+
+
+def main() -> int:
+    parsed = parse_cli(sys.argv[1:])
+    if isinstance(parsed, int):
+        return parsed
     try:
-        profile = load_profile(Path(args[1]))
-        interpreter = oracle_python(py)
+        profile = load_profile(Path(parsed["profile_path"]))
+        mode = parsed["mode"]
+        if mode == "candidate":
+            return cmd_candidate(
+                profile,
+                candidate_python(parsed["candidate_python"]),
+                broken=parsed["broken"],
+            )
+        if mode == "diff":
+            return cmd_diff(
+                profile,
+                candidate_python(parsed["candidate_python"]),
+                broken=parsed["broken"],
+            )
+        interpreter = oracle_python(parsed["oracle_python"])
         if mode == "capture":
             return cmd_capture(profile, interpreter)
         if mode == "self-test":
             return cmd_self_test(profile, interpreter)
+        if mode == "isolation":
+            return cmd_isolation(profile, interpreter)
         return cmd_inventory(profile, interpreter)
     except (
         KeyError,
@@ -938,8 +1187,8 @@ def main() -> int:
         TypeError,
         ValueError,
         subprocess.TimeoutExpired,
-    ) as exc:
-        return fail(str(exc))
+    ) as extra:
+        return fail(str(extra))
 
 
 if __name__ == "__main__":
