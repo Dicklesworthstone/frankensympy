@@ -8,6 +8,19 @@
 use fsym_core::{Expr, Symbol};
 use std::collections::BTreeSet;
 use std::sync::Arc;
+use thiserror::Error;
+
+/// Refusal emitted when a binding operation cannot inspect the complete expression.
+///
+/// Binding operations must never return a partial semantic answer: an incomplete
+/// free-symbol set can make substitution capture a variable, and a truncated
+/// De Bruijn term can make distinct expressions compare as alpha-equivalent.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum BindingError {
+    /// The expression exceeds the maximum supported binding traversal depth.
+    #[error("binding traversal exceeds the maximum depth of {limit}")]
+    DepthExceeded { limit: usize },
+}
 
 /// Strongly typed representation of a binder construct.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -149,22 +162,22 @@ impl BinderNode {
     }
 
     /// Returns the free symbols of this binder.
-    pub fn free_symbols(&self) -> BTreeSet<Symbol> {
-        let mut free = free_symbols(self.body());
+    pub fn free_symbols(&self) -> Result<BTreeSet<Symbol>, BindingError> {
+        let mut free = free_symbols(self.body())?;
         free.remove(self.bound_variable());
         if let Self::Integral {
             limits: Some((lower, upper)),
             ..
         } = self
         {
-            free.extend(free_symbols(lower));
-            free.extend(free_symbols(upper));
+            free.extend(free_symbols(lower)?);
+            free.extend(free_symbols(upper)?);
         }
-        free
+        Ok(free)
     }
 
     /// Checks alpha equivalence against another binder node.
-    pub fn is_alpha_equivalent(&self, other: &Self) -> bool {
+    pub fn is_alpha_equivalent(&self, other: &Self) -> Result<bool, BindingError> {
         alpha_equivalent(&self.to_expr(), &other.to_expr())
     }
 }
@@ -277,17 +290,51 @@ fn try_parse_lambda(args: &[Expr]) -> Option<BinderNode> {
 /// Maximum recursion depth allowed during binding traversal and substitution.
 pub const MAX_BINDING_DEPTH: usize = 256;
 
+/// Checks raw expression depth before binder parsing clones any body expression.
+///
+/// The recursive helper is itself safe because it refuses before descending past
+/// [`MAX_BINDING_DEPTH`]. This preflight is necessary for a deeply nested body
+/// directly beneath a binder: parsing that binder into an owned [`BinderNode`]
+/// would otherwise clone the entire body before the traversal noticed its depth.
+fn preflight_binding_depth(expr: &Expr, depth: usize) -> Result<(), BindingError> {
+    if depth > MAX_BINDING_DEPTH {
+        return Err(BindingError::DepthExceeded {
+            limit: MAX_BINDING_DEPTH,
+        });
+    }
+    match expr {
+        Expr::Add(args) | Expr::Mul(args) | Expr::Function(_, args) => {
+            for arg in args {
+                preflight_binding_depth(arg, depth + 1)?;
+            }
+        }
+        Expr::Pow(base, exponent) => {
+            preflight_binding_depth(base, depth + 1)?;
+            preflight_binding_depth(exponent, depth + 1)?;
+        }
+        Expr::Sym(_) | Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_) => {}
+    }
+    Ok(())
+}
+
 /// Converts an expression into canonical De Bruijn indexed form.
-pub fn to_de_bruijn(expr: &Expr) -> DeBruijnExpr {
+pub fn to_de_bruijn(expr: &Expr) -> Result<DeBruijnExpr, BindingError> {
+    preflight_binding_depth(expr, 0)?;
     let mut scope = Vec::new();
     expr_to_de_bruijn(expr, &mut scope, 0)
 }
 
-fn expr_to_de_bruijn(expr: &Expr, scope: &mut Vec<Symbol>, depth: usize) -> DeBruijnExpr {
+fn expr_to_de_bruijn(
+    expr: &Expr,
+    scope: &mut Vec<Symbol>,
+    depth: usize,
+) -> Result<DeBruijnExpr, BindingError> {
     if depth > MAX_BINDING_DEPTH {
-        return DeBruijnExpr::Free(Symbol::new("__depth_limit_exceeded__"));
+        return Err(BindingError::DepthExceeded {
+            limit: MAX_BINDING_DEPTH,
+        });
     }
-    match expr {
+    Ok(match expr {
         Expr::Sym(s) => {
             if let Some(pos) = scope.iter().rev().position(|sym| sym == s) {
                 DeBruijnExpr::Bound(pos)
@@ -302,17 +349,17 @@ fn expr_to_de_bruijn(expr: &Expr, scope: &mut Vec<Symbol>, depth: usize) -> DeBr
             terms
                 .iter()
                 .map(|t| expr_to_de_bruijn(t, scope, depth + 1))
-                .collect(),
+                .collect::<Result<Vec<_>, _>>()?,
         ),
         Expr::Mul(terms) => DeBruijnExpr::Mul(
             terms
                 .iter()
                 .map(|t| expr_to_de_bruijn(t, scope, depth + 1))
-                .collect(),
+                .collect::<Result<Vec<_>, _>>()?,
         ),
         Expr::Pow(b, e) => DeBruijnExpr::Pow(
-            Box::new(expr_to_de_bruijn(b, scope, depth + 1)),
-            Box::new(expr_to_de_bruijn(e, scope, depth + 1)),
+            Box::new(expr_to_de_bruijn(b, scope, depth + 1)?),
+            Box::new(expr_to_de_bruijn(e, scope, depth + 1)?),
         ),
         Expr::Function(name, args) => {
             if let Some(binder) = BinderNode::try_from_expr(expr) {
@@ -321,29 +368,32 @@ fn expr_to_de_bruijn(expr: &Expr, scope: &mut Vec<Symbol>, depth: usize) -> DeBr
                         scope.push(param);
                         let body_db = expr_to_de_bruijn(&body, scope, depth + 1);
                         scope.pop();
-                        return DeBruijnExpr::Binder("Lambda".into(), Box::new(body_db));
+                        let body_db = body_db?;
+                        return Ok(DeBruijnExpr::Binder("Lambda".into(), Box::new(body_db)));
                     }
                     BinderNode::Integral { var, body, limits } => {
                         scope.push(var);
                         let body_db = expr_to_de_bruijn(&body, scope, depth + 1);
                         scope.pop();
+                        let body_db = body_db?;
                         if let Some((lower, upper)) = limits {
-                            let lower_db = expr_to_de_bruijn(&lower, scope, depth + 1);
-                            let upper_db = expr_to_de_bruijn(&upper, scope, depth + 1);
-                            return DeBruijnExpr::BinderWithArguments {
+                            let lower_db = expr_to_de_bruijn(&lower, scope, depth + 1)?;
+                            let upper_db = expr_to_de_bruijn(&upper, scope, depth + 1)?;
+                            return Ok(DeBruijnExpr::BinderWithArguments {
                                 name: "Integral".into(),
                                 body: Box::new(body_db),
                                 arguments: vec![lower_db, upper_db],
-                            };
+                            });
                         } else {
-                            return DeBruijnExpr::Binder("Integral".into(), Box::new(body_db));
+                            return Ok(DeBruijnExpr::Binder("Integral".into(), Box::new(body_db)));
                         }
                     }
                     BinderNode::Derivative { var, body } => {
                         scope.push(var);
                         let body_db = expr_to_de_bruijn(&body, scope, depth + 1);
                         scope.pop();
-                        return DeBruijnExpr::Binder("Derivative".into(), Box::new(body_db));
+                        let body_db = body_db?;
+                        return Ok(DeBruijnExpr::Binder("Derivative".into(), Box::new(body_db)));
                     }
                 }
             }
@@ -351,33 +401,40 @@ fn expr_to_de_bruijn(expr: &Expr, scope: &mut Vec<Symbol>, depth: usize) -> DeBr
                 name.clone(),
                 args.iter()
                     .map(|a| expr_to_de_bruijn(a, scope, depth + 1))
-                    .collect(),
+                    .collect::<Result<Vec<_>, _>>()?,
             )
         }
-    }
+    })
 }
 
 /// Extracts the set of free (unbound) symbols appearing in an expression.
-pub fn free_symbols(expr: &Expr) -> BTreeSet<Symbol> {
+pub fn free_symbols(expr: &Expr) -> Result<BTreeSet<Symbol>, BindingError> {
+    preflight_binding_depth(expr, 0)?;
     let mut free = BTreeSet::new();
     let mut bound_scope = BTreeSet::new();
-    collect_free_symbols(expr, &mut bound_scope, &mut free, 0);
-    free
+    collect_free_symbols(expr, &mut bound_scope, &mut free, 0)?;
+    Ok(free)
 }
 
 /// Extracts every symbol appearing in an expression, including binder declarations.
 ///
 /// Capture-avoiding freshening uses this stricter set because choosing an existing
 /// inner binder name can change which declaration a renamed occurrence refers to.
-fn all_symbols(expr: &Expr) -> BTreeSet<Symbol> {
+fn all_symbols(expr: &Expr) -> Result<BTreeSet<Symbol>, BindingError> {
     let mut symbols = BTreeSet::new();
-    collect_all_symbols(expr, &mut symbols, 0);
-    symbols
+    collect_all_symbols(expr, &mut symbols, 0)?;
+    Ok(symbols)
 }
 
-fn collect_all_symbols(expr: &Expr, symbols: &mut BTreeSet<Symbol>, depth: usize) {
+fn collect_all_symbols(
+    expr: &Expr,
+    symbols: &mut BTreeSet<Symbol>,
+    depth: usize,
+) -> Result<(), BindingError> {
     if depth > MAX_BINDING_DEPTH {
-        return;
+        return Err(BindingError::DepthExceeded {
+            limit: MAX_BINDING_DEPTH,
+        });
     }
     match expr {
         Expr::Sym(symbol) => {
@@ -385,15 +442,16 @@ fn collect_all_symbols(expr: &Expr, symbols: &mut BTreeSet<Symbol>, depth: usize
         }
         Expr::Add(args) | Expr::Mul(args) | Expr::Function(_, args) => {
             for arg in args {
-                collect_all_symbols(arg, symbols, depth + 1);
+                collect_all_symbols(arg, symbols, depth + 1)?;
             }
         }
         Expr::Pow(base, exponent) => {
-            collect_all_symbols(base, symbols, depth + 1);
-            collect_all_symbols(exponent, symbols, depth + 1);
+            collect_all_symbols(base, symbols, depth + 1)?;
+            collect_all_symbols(exponent, symbols, depth + 1)?;
         }
         Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_) => {}
     }
+    Ok(())
 }
 
 fn collect_free_symbols(
@@ -401,9 +459,11 @@ fn collect_free_symbols(
     bound_scope: &mut BTreeSet<Symbol>,
     free: &mut BTreeSet<Symbol>,
     depth: usize,
-) {
+) -> Result<(), BindingError> {
     if depth > MAX_BINDING_DEPTH {
-        return;
+        return Err(BindingError::DepthExceeded {
+            limit: MAX_BINDING_DEPTH,
+        });
     }
     match expr {
         Expr::Sym(s) => {
@@ -413,38 +473,40 @@ fn collect_free_symbols(
         }
         Expr::Add(args) | Expr::Mul(args) => {
             for arg in args {
-                collect_free_symbols(arg, bound_scope, free, depth + 1);
+                collect_free_symbols(arg, bound_scope, free, depth + 1)?;
             }
         }
         Expr::Pow(b, e) => {
-            collect_free_symbols(b, bound_scope, free, depth + 1);
-            collect_free_symbols(e, bound_scope, free, depth + 1);
+            collect_free_symbols(b, bound_scope, free, depth + 1)?;
+            collect_free_symbols(e, bound_scope, free, depth + 1)?;
         }
         Expr::Function(_, args) => {
             if let Some(binder) = BinderNode::try_from_expr(expr) {
                 let var = binder.bound_variable();
                 let newly_bound = bound_scope.insert(var.clone());
-                collect_free_symbols(binder.body(), bound_scope, free, depth + 1);
+                let body_result = collect_free_symbols(binder.body(), bound_scope, free, depth + 1);
                 if newly_bound {
                     bound_scope.remove(var);
                 }
+                body_result?;
                 if let BinderNode::Integral {
                     limits: Some((lower, upper)),
                     ..
                 } = binder
                 {
-                    collect_free_symbols(&lower, bound_scope, free, depth + 1);
-                    collect_free_symbols(&upper, bound_scope, free, depth + 1);
+                    collect_free_symbols(&lower, bound_scope, free, depth + 1)?;
+                    collect_free_symbols(&upper, bound_scope, free, depth + 1)?;
                 }
-                return;
+                return Ok(());
             }
 
             for arg in args {
-                collect_free_symbols(arg, bound_scope, free, depth + 1);
+                collect_free_symbols(arg, bound_scope, free, depth + 1)?;
             }
         }
         _ => {}
     }
+    Ok(())
 }
 
 /// Generates a deterministic fresh symbol not contained in the `avoid` set.
@@ -464,13 +526,18 @@ pub fn fresh_symbol(base: &str, avoid: &BTreeSet<Symbol>) -> Symbol {
 }
 
 /// Tests structural equivalence under alpha-renaming of bound variables.
-pub fn alpha_equivalent(a: &Expr, b: &Expr) -> bool {
-    to_de_bruijn(a) == to_de_bruijn(b)
+pub fn alpha_equivalent(a: &Expr, b: &Expr) -> Result<bool, BindingError> {
+    Ok(to_de_bruijn(a)? == to_de_bruijn(b)?)
 }
 
 /// Performs capture-avoiding substitution: replaces occurrences of `target` with `replacement` in `expr`.
-pub fn capture_avoiding_subs(expr: &Expr, target: &Symbol, replacement: &Expr) -> Expr {
-    let repl_free = free_symbols(replacement);
+pub fn capture_avoiding_subs(
+    expr: &Expr,
+    target: &Symbol,
+    replacement: &Expr,
+) -> Result<Expr, BindingError> {
+    preflight_binding_depth(expr, 0)?;
+    let repl_free = free_symbols(replacement)?;
     subs_internal(expr, target, replacement, &repl_free, 0)
 }
 
@@ -480,11 +547,13 @@ fn subs_internal(
     replacement: &Expr,
     repl_free: &BTreeSet<Symbol>,
     depth: usize,
-) -> Expr {
+) -> Result<Expr, BindingError> {
     if depth > MAX_BINDING_DEPTH {
-        return expr.clone();
+        return Err(BindingError::DepthExceeded {
+            limit: MAX_BINDING_DEPTH,
+        });
     }
-    match expr {
+    Ok(match expr {
         Expr::Sym(s) => {
             if s == target {
                 replacement.clone()
@@ -495,16 +564,16 @@ fn subs_internal(
         Expr::Add(args) => Expr::Add(
             args.iter()
                 .map(|a| subs_internal(a, target, replacement, repl_free, depth + 1))
-                .collect(),
+                .collect::<Result<Vec<_>, _>>()?,
         ),
         Expr::Mul(args) => Expr::Mul(
             args.iter()
                 .map(|a| subs_internal(a, target, replacement, repl_free, depth + 1))
-                .collect(),
+                .collect::<Result<Vec<_>, _>>()?,
         ),
         Expr::Pow(b, e) => Expr::Pow(
-            Arc::new(subs_internal(b, target, replacement, repl_free, depth + 1)),
-            Arc::new(subs_internal(e, target, replacement, repl_free, depth + 1)),
+            Arc::new(subs_internal(b, target, replacement, repl_free, depth + 1)?),
+            Arc::new(subs_internal(e, target, replacement, repl_free, depth + 1)?),
         ),
         Expr::Function(name, args) => {
             if let Some(binder) = BinderNode::try_from_expr(expr) {
@@ -513,7 +582,7 @@ fn subs_internal(
                     // The declaration shadows `target` only in its body. Definite
                     // integral limits remain in the surrounding scope and must
                     // still receive the substitution.
-                    return match binder {
+                    return Ok(match binder {
                         BinderNode::Integral {
                             var,
                             body,
@@ -528,28 +597,28 @@ fn subs_internal(
                                     replacement,
                                     repl_free,
                                     depth + 1,
-                                )),
+                                )?),
                                 Box::new(subs_internal(
                                     &upper,
                                     target,
                                     replacement,
                                     repl_free,
                                     depth + 1,
-                                )),
+                                )?),
                             )),
                         }
                         .to_expr(),
                         BinderNode::Lambda { .. }
                         | BinderNode::Integral { limits: None, .. }
                         | BinderNode::Derivative { .. } => expr.clone(),
-                    };
+                    });
                 }
                 let body = binder.body();
-                let target_occurs_in_body = free_symbols(body).contains(target);
+                let target_occurs_in_body = free_symbols(body)?.contains(target);
                 let (new_bound_var, new_body) = if !target_occurs_in_body {
                     (bound_var.clone(), body.clone())
                 } else if repl_free.contains(&bound_var) {
-                    let mut avoid = all_symbols(body);
+                    let mut avoid = all_symbols(body)?;
                     avoid.extend(repl_free.iter().cloned());
                     avoid.insert(target.clone());
                     let fresh = fresh_symbol(&bound_var.name, &avoid);
@@ -560,55 +629,57 @@ fn subs_internal(
                         &Expr::Sym(fresh.clone()),
                         &fresh_free,
                         depth + 1,
-                    );
+                    )?;
                     let new_body =
-                        subs_internal(&renamed_body, target, replacement, repl_free, depth + 1);
+                        subs_internal(&renamed_body, target, replacement, repl_free, depth + 1)?;
                     (fresh, new_body)
                 } else {
-                    let new_body = subs_internal(body, target, replacement, repl_free, depth + 1);
+                    let new_body = subs_internal(body, target, replacement, repl_free, depth + 1)?;
                     (bound_var, new_body)
                 };
 
                 match binder {
                     BinderNode::Lambda { .. } => {
-                        return BinderNode::Lambda {
+                        return Ok(BinderNode::Lambda {
                             param: new_bound_var,
                             body: Box::new(new_body),
                         }
-                        .to_expr();
+                        .to_expr());
                     }
                     BinderNode::Derivative { .. } => {
-                        return BinderNode::Derivative {
+                        return Ok(BinderNode::Derivative {
                             var: new_bound_var,
                             body: Box::new(new_body),
                         }
-                        .to_expr();
+                        .to_expr());
                     }
                     BinderNode::Integral { limits, .. } => {
-                        let new_limits = limits.map(|(lower, upper)| {
-                            (
-                                Box::new(subs_internal(
-                                    &lower,
-                                    target,
-                                    replacement,
-                                    repl_free,
-                                    depth + 1,
-                                )),
-                                Box::new(subs_internal(
-                                    &upper,
-                                    target,
-                                    replacement,
-                                    repl_free,
-                                    depth + 1,
-                                )),
-                            )
-                        });
-                        return BinderNode::Integral {
+                        let new_limits = limits
+                            .map(|(lower, upper)| {
+                                Ok::<_, BindingError>((
+                                    Box::new(subs_internal(
+                                        &lower,
+                                        target,
+                                        replacement,
+                                        repl_free,
+                                        depth + 1,
+                                    )?),
+                                    Box::new(subs_internal(
+                                        &upper,
+                                        target,
+                                        replacement,
+                                        repl_free,
+                                        depth + 1,
+                                    )?),
+                                ))
+                            })
+                            .transpose()?;
+                        return Ok(BinderNode::Integral {
                             var: new_bound_var,
                             body: Box::new(new_body),
                             limits: new_limits,
                         }
-                        .to_expr();
+                        .to_expr());
                     }
                 }
             }
@@ -617,16 +688,33 @@ fn subs_internal(
                 name.clone(),
                 args.iter()
                     .map(|a| subs_internal(a, target, replacement, repl_free, depth + 1))
-                    .collect(),
+                    .collect::<Result<Vec<_>, _>>()?,
             )
         }
         _ => expr.clone(),
-    }
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn free_symbols(expr: &Expr) -> BTreeSet<Symbol> {
+        super::free_symbols(expr).expect("test expression is within the binding depth limit")
+    }
+
+    fn to_de_bruijn(expr: &Expr) -> DeBruijnExpr {
+        super::to_de_bruijn(expr).expect("test expression is within the binding depth limit")
+    }
+
+    fn alpha_equivalent(a: &Expr, b: &Expr) -> bool {
+        super::alpha_equivalent(a, b).expect("test expressions are within the binding depth limit")
+    }
+
+    fn capture_avoiding_subs(expr: &Expr, target: &Symbol, replacement: &Expr) -> Expr {
+        super::capture_avoiding_subs(expr, target, replacement)
+            .expect("test expressions are within the binding depth limit")
+    }
 
     #[test]
     fn free_symbols_extraction_with_binders() {
@@ -753,7 +841,11 @@ mod tests {
             ),
         );
 
-        assert!(!genuine.is_alpha_equivalent(&opaque));
+        assert!(
+            !genuine
+                .is_alpha_equivalent(&opaque)
+                .expect("bounded binders")
+        );
 
         let renamed = BinderNode::lambda(
             Symbol::new("a"),
@@ -765,7 +857,11 @@ mod tests {
             )
             .to_expr(),
         );
-        assert!(genuine.is_alpha_equivalent(&renamed));
+        assert!(
+            genuine
+                .is_alpha_equivalent(&renamed)
+                .expect("bounded binders")
+        );
     }
 
     #[test]
@@ -1055,7 +1151,7 @@ mod tests {
         let parsed1 = BinderNode::try_from_expr(&expr1).expect("valid lambda binder");
         assert_eq!(parsed1, lambda1);
         assert_eq!(parsed1.bound_variable(), &x);
-        let free1 = parsed1.free_symbols();
+        let free1 = parsed1.free_symbols().expect("bounded binder");
         assert!(free1.contains(&y));
         assert!(!free1.contains(&x));
 
@@ -1063,7 +1159,11 @@ mod tests {
             z.clone(),
             Expr::Mul(vec![Expr::Sym(z.clone()), Expr::Sym(y.clone())]),
         );
-        assert!(lambda1.is_alpha_equivalent(&lambda2));
+        assert!(
+            lambda1
+                .is_alpha_equivalent(&lambda2)
+                .expect("bounded binders")
+        );
 
         // Definite integral binder
         let int1 = BinderNode::definite_integral(
@@ -1075,7 +1175,7 @@ mod tests {
         let int_expr = int1.to_expr();
         let parsed_int = BinderNode::try_from_expr(&int_expr).expect("valid definite integral");
         assert_eq!(parsed_int, int1);
-        let free_int = parsed_int.free_symbols();
+        let free_int = parsed_int.free_symbols().expect("bounded binder");
         assert!(free_int.contains(&y));
         assert!(free_int.contains(&z));
         assert!(!free_int.contains(&x));
@@ -1088,7 +1188,10 @@ mod tests {
         let deriv_expr = deriv1.to_expr();
         let parsed_deriv = BinderNode::try_from_expr(&deriv_expr).expect("valid derivative");
         assert_eq!(parsed_deriv, deriv1);
-        assert_eq!(parsed_deriv.free_symbols().len(), 0);
+        assert_eq!(
+            parsed_deriv.free_symbols().expect("bounded binder").len(),
+            0
+        );
     }
 
     #[test]
@@ -1110,7 +1213,9 @@ mod tests {
             Expr::Function("Lambda".into(), vec![Expr::symbol("a"), Expr::symbol("a")]),
         );
         assert!(
-            !outer_dependent.is_alpha_equivalent(&inner_shadow),
+            !outer_dependent
+                .is_alpha_equivalent(&inner_shadow)
+                .expect("bounded binders"),
             "shadowing inner binder that captures an outer free symbol must \
              not be alpha-equivalent to the non-shadowing version"
         );
@@ -1120,7 +1225,11 @@ mod tests {
             Symbol::new("b"),
             Expr::Function("Lambda".into(), vec![Expr::symbol("a"), Expr::symbol("b")]),
         );
-        assert!(outer_dependent.is_alpha_equivalent(&renamed));
+        assert!(
+            outer_dependent
+                .is_alpha_equivalent(&renamed)
+                .expect("bounded binders")
+        );
     }
 
     #[test]
@@ -1258,13 +1367,25 @@ mod tests {
 
     #[test]
     fn bindings_recursion_depth_limit_fails_closed() {
-        let mut deep = Expr::symbol("x");
+        let mut deep_x = Expr::symbol("x");
+        let mut deep_y = Expr::symbol("y");
         for _ in 0..MAX_BINDING_DEPTH + 10 {
-            deep = Expr::Add(vec![deep, Expr::from_i64(1)]);
+            deep_x = Expr::Add(vec![deep_x, Expr::from_i64(1)]);
+            deep_y = Expr::Add(vec![deep_y, Expr::from_i64(1)]);
         }
-        // Free symbols and de bruijn traversal must terminate without stack overflow
-        let _ = free_symbols(&deep);
-        let db = to_de_bruijn(&deep);
-        assert!(matches!(db, DeBruijnExpr::Add(_)));
+        let expected = BindingError::DepthExceeded {
+            limit: MAX_BINDING_DEPTH,
+        };
+
+        assert_eq!(super::free_symbols(&deep_x), Err(expected.clone()));
+        assert_eq!(super::to_de_bruijn(&deep_x), Err(expected.clone()));
+        assert_eq!(
+            super::alpha_equivalent(&deep_x, &deep_y),
+            Err(expected.clone())
+        );
+        assert_eq!(
+            super::capture_avoiding_subs(&deep_x, &Symbol::new("x"), &Expr::from_i64(1)),
+            Err(expected)
+        );
     }
 }

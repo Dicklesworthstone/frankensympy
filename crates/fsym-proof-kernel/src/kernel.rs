@@ -878,8 +878,10 @@ fn check_rule_application(
                 .ok_or(KernelError::UnknownStep(*step))?;
             match claim {
                 Claim::Equality { lhs, rhs } => {
-                    let lhs_subst = capture_avoiding_subs(template, var, lhs);
-                    let rhs_subst = capture_avoiding_subs(template, var, rhs);
+                    let lhs_subst = capture_avoiding_subs(template, var, lhs)
+                        .map_err(|error| KernelError::InvalidSubstitution(error.to_string()))?;
+                    let rhs_subst = capture_avoiding_subs(template, var, rhs)
+                        .map_err(|error| KernelError::InvalidSubstitution(error.to_string()))?;
                     Ok(Claim::equality(lhs_subst, rhs_subst))
                 }
                 _ => Err(KernelError::InvalidSubstitution(

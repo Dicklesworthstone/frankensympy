@@ -102,6 +102,16 @@ impl<'a, Caps> FsymCx<'a, Caps> {
         self.budget.merge_child(child.budget)
     }
 
+    /// Extracts the internal domain budget, consuming the context.
+    pub fn into_budget(self) -> Budget {
+        self.budget
+    }
+
+    /// Reconcile a completed child budget directly into its owning parent.
+    pub fn merge_child_budget(&mut self, child_budget: Budget) -> Result<(), BudgetError> {
+        self.budget.merge_child(child_budget)
+    }
+
     /// Remaining shared allowance along a dimension.
     pub fn remaining(&self, dimension: Dimension) -> u64 {
         self.budget.remaining(dimension)
