@@ -845,6 +845,14 @@ mod tests {
             Err(PrintingError::InvalidCIdentifier)
         );
         assert_eq!(
+            to_c_code(&sym("__implementation_reserved")),
+            Err(PrintingError::InvalidCIdentifier)
+        );
+        assert_eq!(
+            to_c_code(&sym("_ImplementationReserved")),
+            Err(PrintingError::InvalidCIdentifier)
+        );
+        assert_eq!(
             to_python_code(&Expr::Const(Constant::ComplexInfinity)),
             Err(PrintingError::UnsupportedPythonConstant(
                 Constant::ComplexInfinity

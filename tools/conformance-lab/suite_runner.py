@@ -15,6 +15,7 @@ Exit codes: 0 = receipt emitted (including a failing test file),
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -73,7 +74,7 @@ def main() -> int:
         return 2
     blob = target.read_bytes()
     digest = hashlib.sha256(blob).hexdigest()
-    if digest != expected_sha256:
+    if not hmac.compare_digest(digest, expected_sha256):
         print(
             json.dumps(
                 {

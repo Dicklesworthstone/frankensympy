@@ -1205,26 +1205,26 @@ def parse_cli(argv: list[str]) -> dict | int:
     test_path = None
     index = 1
     while index < len(rest):
-        token = rest[index]
-        if token == "--oracle-python":
+        arg = rest[index]
+        if arg == "--oracle-python":
             if index + 1 >= len(rest) or not rest[index + 1]:
                 print(__doc__)
                 return 2
             oracle_py = rest[index + 1]
             index += 2
             continue
-        if token == "--candidate-python":
+        if arg == "--candidate-python":
             if index + 1 >= len(rest) or not rest[index + 1]:
                 print(__doc__)
                 return 2
             candidate_py = rest[index + 1]
             index += 2
             continue
-        if token == "--broken":
+        if arg == "--broken":
             broken = True
             index += 1
             continue
-        if token == "--test-path":
+        if arg == "--test-path":
             if index + 1 >= len(rest) or not rest[index + 1]:
                 print(__doc__)
                 return 2

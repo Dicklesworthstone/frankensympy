@@ -246,6 +246,17 @@ fn c_keyword(identifier: &str) -> bool {
             | "void"
             | "volatile"
             | "while"
+            | "alignas"
+            | "alignof"
+            | "bool"
+            | "constexpr"
+            | "false"
+            | "nullptr"
+            | "static_assert"
+            | "thread_local"
+            | "true"
+            | "typeof"
+            | "typeof_unqual"
             | "_Alignas"
             | "_Alignof"
             | "_Atomic"
@@ -258,6 +269,7 @@ fn c_keyword(identifier: &str) -> bool {
             | "_Generic"
             | "_Imaginary"
             | "_Noreturn"
+            | "_Pragma"
             | "_Static_assert"
             | "_Thread_local"
     )
@@ -268,9 +280,15 @@ fn valid_c_identifier(identifier: &str) -> bool {
     let Some(first) = chars.next() else {
         return false;
     };
+    let implementation_reserved = identifier.starts_with("__")
+        || identifier
+            .strip_prefix('_')
+            .and_then(|rest| rest.chars().next())
+            .is_some_and(|second| second.is_ascii_uppercase());
     (first == '_' || first.is_ascii_alphabetic())
         && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
         && !c_keyword(identifier)
+        && !implementation_reserved
 }
 
 fn node_output_upper_bound(expr: &Expr, target: RenderTarget) -> Result<usize, PrintingError> {
