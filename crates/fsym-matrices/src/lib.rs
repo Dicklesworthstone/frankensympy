@@ -15,6 +15,7 @@ use num_traits::{One, Zero};
 use serde::de::{IgnoredAny, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
+use std::sync::Arc;
 use thiserror::Error;
 
 const MATRIX_SCHEMA_VERSION: u32 = 1;
@@ -822,7 +823,7 @@ impl Matrix {
             return Err(MatrixError::NotSquare(self.rows, self.cols));
         }
         if i >= self.rows || j >= self.cols {
-            return Err(MatrixError::IndexOutOfBounds(i, j, self.rows, self.cols));
+            return Err(MatrixError::OutOfBounds(i, j, self.rows, self.cols));
         }
         let sign = if (i + j).is_multiple_of(2) { 1 } else { -1 };
         let minor = self.minor_matrix(i, j)?.det()?;

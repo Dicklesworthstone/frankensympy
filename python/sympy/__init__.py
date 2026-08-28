@@ -10,6 +10,7 @@ from .core import (
     AtomicExpr,
     Basic,
     Derivative,
+    Dummy,
     Expr,
     Integer,
     Mul,
@@ -19,6 +20,7 @@ from .core import (
     Symbol,
     _native,
     _native_expr,
+    _native_symbol_key,
     _parse_result,
     _require_symbol,
     _wrap,
@@ -53,7 +55,7 @@ def integrate(expression, *variables):
         symbol = _require_symbol(variable)
         result = _native.integrate_definite_expr(
             str(_wrap(_native_expr(expression))),
-            symbol.name,
+            _native_symbol_key(symbol),
             str(_wrap(_native_expr(lower))),
             str(_wrap(_native_expr(upper))),
         )
@@ -61,7 +63,9 @@ def integrate(expression, *variables):
     if len(variables) == 1:
         symbol = _require_symbol(variables[0])
         return _parse_result(
-            _native.integrate_expr(str(_wrap(_native_expr(expression))), symbol.name)
+            _native.integrate_expr(
+                str(_wrap(_native_expr(expression))), _native_symbol_key(symbol)
+            )
         )
     if len(variables) == 3:
         variable, lower, upper = variables
@@ -74,7 +78,7 @@ def limit(expression, variable, point):
     return _parse_result(
         _native.limit_expr(
             str(_wrap(_native_expr(expression))),
-            symbol.name,
+            _native_symbol_key(symbol),
             str(_wrap(_native_expr(point))),
         )
     )
@@ -84,7 +88,7 @@ def solve(expression, variable):
     """Solve the implemented linear ``expression == 0`` case."""
     symbol = _require_symbol(variable)
     result = _native.solve_linear_expr(
-        str(_wrap(_native_expr(expression))), symbol.name
+        str(_wrap(_native_expr(expression))), _native_symbol_key(symbol)
     )
     return [_parse_result(result)]
 
@@ -150,6 +154,7 @@ __all__ = [
     "AtomicExpr",
     "Expr",
     "Symbol",
+    "Dummy",
     "Number",
     "Integer",
     "Rational",

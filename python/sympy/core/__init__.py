@@ -9,6 +9,9 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
+_DUMMY_PREFIX = "__fsymDummy_"
+_dummy_next = 1
+
 try:
     import fsym_python as _native
 except ImportError as exc:  # pragma: no cover - exercised in a subprocess gate
@@ -25,6 +28,7 @@ def _exact_surface_types():
         AtomicExpr,
         Expr,
         Symbol,
+        Dummy,
         Number,
         Integer,
         Rational,
@@ -52,11 +56,55 @@ def _native_expr(value: Any):
     raise TypeError(f"cannot convert {type(value).__name__} to a symbolic expression")
 
 
+def _dummy_intern_name(name: str, number: int) -> str:
+    return f"{_DUMMY_PREFIX}{number}_{name}"
+
+
+def _parse_dummy_intern_name(intern: str) -> tuple[int, str] | None:
+    if not intern.startswith(_DUMMY_PREFIX):
+        return None
+    rest = intern[len(_DUMMY_PREFIX) :]
+    number_s, separator, name = rest.partition("_")
+    if separator != "_" or not number_s.isdigit():
+        return None
+    return int(number_s), name
+
+
+def _note_dummy_number(number: int) -> None:
+    global _dummy_next
+    if number >= _dummy_next:
+        _dummy_next = number + 1
+
+
+def _allocate_dummy_number() -> int:
+    global _dummy_next
+    number = _dummy_next
+    _dummy_next += 1
+    return number
+
+
+def _symbol_from_intern_name(name: str) -> "Symbol":
+    parsed = _parse_dummy_intern_name(name)
+    if parsed is None:
+        return Symbol(name)
+    number, printed = parsed
+    return Dummy._from_intern(printed, number)
+
+
+def _native_symbol_key(symbol: "Symbol") -> str:
+    return str(_native_expr(symbol))
+
+
 def _wrap(value: Any) -> "Basic":
     if isinstance(value, Basic):
         return value
     if not isinstance(value, _native.Expr):
         raise TypeError(f"native expression required, got {type(value).__name__}")
+    if value.func_name == "Symbol":
+        parsed = _parse_dummy_intern_name(str(value))
+        if parsed is not None:
+            number, name = parsed
+            return Dummy._from_intern(name, number, value)
     cls = {
         "Symbol": Symbol,
         "Integer": Integer,
@@ -138,7 +186,7 @@ class Basic:
 
     @property
     def free_symbols(self) -> set["Symbol"]:
-        return {Symbol(name) for name in _native_expr(self).free_symbols}
+        return {_symbol_from_intern_name(name) for name in _native_expr(self).free_symbols}
 
     def has(self, pattern: Any) -> bool:
         return _native_expr(self).has(_native_expr(pattern))
@@ -176,6 +224,8 @@ class Basic:
         return self
 
     def __reduce__(self):
+        if type(self) is Dummy:
+            return _restore_dummy, (self.name, self._dummy_number)
         if isinstance(self, Symbol):
             return type(self), (self.name,)
         if isinstance(self, Integer):
@@ -301,6 +351,8 @@ class Symbol(AtomicExpr):
             raise NotImplementedError("symbol assumptions are not implemented in this profile")
         if not isinstance(name, str):
             raise TypeError("Symbol name must be a string")
+        if name.startswith(_DUMMY_PREFIX):
+            raise ValueError("Symbol name collides with Dummy intern encoding")
         self._value = _native.py_symbol(name)
 
     @property
@@ -309,6 +361,51 @@ class Symbol(AtomicExpr):
 
     def __repr__(self) -> str:
         return f"Symbol({self.name!r})"
+
+
+class Dummy(Symbol):
+    """Unique symbol identity. Two Dummy values with the same printed name
+    are not equal; native intern uses a reserved encoding so they cannot
+    collide with ordinary Symbol names.
+    """
+
+    __slots__ = ("_dummy_name", "_dummy_number")
+
+    def __init__(self, name: str = "Dummy", **assumptions: Any):
+        if assumptions:
+            raise NotImplementedError("symbol assumptions are not implemented in this profile")
+        if not isinstance(name, str):
+            raise TypeError("Dummy name must be a string")
+        number = _allocate_dummy_number()
+        self._dummy_name = name
+        self._dummy_number = number
+        self._value = _native.py_symbol(_dummy_intern_name(name, number))
+
+    @classmethod
+    def _from_intern(cls, name: str, number: int, value: Any = None) -> "Dummy":
+        dummy = object.__new__(cls)
+        dummy._dummy_name = name
+        dummy._dummy_number = number
+        dummy._value = (
+            value if value is not None else _native.py_symbol(_dummy_intern_name(name, number))
+        )
+        _note_dummy_number(number)
+        return dummy
+
+    @property
+    def name(self) -> str:
+        return self._dummy_name
+
+    @property
+    def dummy_index(self) -> int:
+        return self._dummy_number
+
+    def __repr__(self) -> str:
+        return f"Dummy({self.name!r})"
+
+
+def _restore_dummy(name: str, number: int) -> Dummy:
+    return Dummy._from_intern(name, number)
 
 
 class Number(AtomicExpr):
@@ -400,7 +497,7 @@ def symbols(names: str | Iterable[str], **assumptions: Any):
 
 
 def _require_symbol(value: Any) -> Symbol:
-    if type(value) is Symbol:
+    if type(value) is Symbol or type(value) is Dummy:
         return value
     if isinstance(value, Symbol):
         raise NotImplementedError(
@@ -416,7 +513,9 @@ def diff(expression: Any, *variables: Any) -> Expr:
     result = _wrap(_native_expr(expression))
     for variable in variables:
         symbol = _require_symbol(variable)
-        result = _parse_result(_native.diff_expr(str(result), symbol.name))
+        result = _parse_result(
+            _native.diff_expr(str(result), _native_symbol_key(symbol))
+        )
     return result
 
 
@@ -434,6 +533,7 @@ __all__ = [
     "AtomicExpr",
     "Expr",
     "Symbol",
+    "Dummy",
     "Number",
     "Integer",
     "Rational",
