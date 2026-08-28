@@ -34,6 +34,10 @@ comparator and prints discrepancy records. It does not rewrite goldens.
 `isolation` proves the oracle interpreter, candidate process, and harness
 do not share a sympy import.
 
+`suite-smoke` runs one inventoried upstream test file inside the oracle
+interpreter via the legacy SymPy runner and prints an execution receipt.
+It does not record FrankenSymPy port status.
+
 Exit codes: 0 = success, 1 = gate failure, 2 = misuse.
 """
 
@@ -243,6 +247,13 @@ def runner_path() -> Path:
 
 def candidate_runner_path() -> Path:
     path = Path(__file__).resolve().parent / "candidate_runner.py"
+    if not path.exists():
+        raise SystemExit(f"missing runner: {path}")
+    return path
+
+
+def suite_runner_path() -> Path:
+    path = Path(__file__).resolve().parent / "suite_runner.py"
     if not path.exists():
         raise SystemExit(f"missing runner: {path}")
     return path
@@ -1107,6 +1118,62 @@ def cmd_inventory(profile: dict, py: str) -> int:
     return 0
 
 
+def load_inventory_artifact(profile: dict) -> dict:
+    path = ARTIFACT_ROOT / profile["profile_id"] / "inventory" / "inventory.json"
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"missing inventory artifact {path}; run `capture.py inventory` first"
+        )
+    inventory = json.loads(path.read_text(encoding="utf-8"))
+    validate_inventory(inventory, profile)
+    return inventory
+
+
+def cmd_suite_smoke(profile: dict, py: str, test_path: str) -> int:
+    if not test_path or Path(test_path).is_absolute() or ".." in Path(test_path).parts:
+        return fail(f"unsafe test path: {test_path!r}")
+    inventory = load_inventory_artifact(profile)
+    files = inventory["upstream_test_tree"]["files"]
+    match = next((entry for entry in files if entry["path"] == test_path), None)
+    if match is None:
+        return fail(f"test path is not in the pinned inventory: {test_path}")
+    proc = subprocess.run(
+        [
+            py,
+            "-P",
+            "-s",
+            str(suite_runner_path()),
+            profile["profile_id"],
+            test_path,
+            match["sha256"],
+        ],
+        capture_output=True,
+        text=True,
+        env=oracle_environment(profile),
+        timeout=120,
+        check=False,
+    )
+    if proc.returncode not in {0, 3}:
+        return fail(
+            f"suite runner exited {proc.returncode}: "
+            f"{proc.stderr[-300:] or proc.stdout[-300:]}"
+        )
+    if proc.stderr.strip():
+        return fail(f"suite runner emitted unexpected stderr: {proc.stderr[-300:]}")
+    try:
+        payload = json.loads(proc.stdout.splitlines()[-1])
+    except (json.JSONDecodeError, IndexError) as exc:
+        return fail(f"suite runner output is not JSON: {exc}")
+    if proc.returncode == 3:
+        return fail(f"inventory digest mismatch: {payload}")
+    if payload.get("kind") != "oracle_suite_receipt":
+        return fail("suite runner did not emit an oracle_suite_receipt")
+    if "port_status" in payload:
+        return fail("suite receipt must not claim port status")
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0 if payload.get("legacy_return_true") else 1
+
+
 def parse_cli(argv: list[str]) -> dict | int:
     if argv in (["-h"], ["--help"]):
         print(__doc__)
@@ -1122,6 +1189,7 @@ def parse_cli(argv: list[str]) -> dict | int:
         "candidate",
         "diff",
         "isolation",
+        "suite-smoke",
     }
     if mode not in known:
         print(f"unknown mode: {mode}", file=sys.stderr)
@@ -1134,6 +1202,7 @@ def parse_cli(argv: list[str]) -> dict | int:
     oracle_py = None
     candidate_py = None
     broken = False
+    test_path = None
     index = 1
     while index < len(rest):
         token = rest[index]
@@ -1155,6 +1224,13 @@ def parse_cli(argv: list[str]) -> dict | int:
             broken = True
             index += 1
             continue
+        if token == "--test-path":
+            if index + 1 >= len(rest) or not rest[index + 1]:
+                print(__doc__)
+                return 2
+            test_path = rest[index + 1]
+            index += 2
+            continue
         print(__doc__)
         return 2
     return {
@@ -1163,6 +1239,7 @@ def parse_cli(argv: list[str]) -> dict | int:
         "oracle_python": oracle_py,
         "candidate_python": candidate_py,
         "broken": broken,
+        "test_path": test_path,
     }
 
 
@@ -1192,6 +1269,10 @@ def main() -> int:
             return cmd_self_test(profile, interpreter)
         if mode == "isolation":
             return cmd_isolation(profile, interpreter)
+        if mode == "suite-smoke":
+            if not parsed["test_path"]:
+                return fail("suite-smoke requires --test-path")
+            return cmd_suite_smoke(profile, interpreter, parsed["test_path"])
         return cmd_inventory(profile, interpreter)
     except (
         KeyError,
