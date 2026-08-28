@@ -100,6 +100,28 @@ impl BoolExpr {
         BoolExpr::Equivalent(Box::new(self), Box::new(other))
     }
 
+    /// Logical XOR (A ⊕ B).
+    pub fn xor(self, other: BoolExpr) -> Self {
+        self.clone()
+            .and(other.clone().not())
+            .or(self.not().and(other))
+    }
+
+    /// Logical NAND (¬(A ∧ B)).
+    pub fn nand(self, other: BoolExpr) -> Self {
+        self.and(other).not()
+    }
+
+    /// Logical NOR (¬(A ∨ B)).
+    pub fn nor(self, other: BoolExpr) -> Self {
+        self.or(other).not()
+    }
+
+    /// Logical XNOR (¬(A ⊕ B) ≡ A ↔ B).
+    pub fn xnor(self, other: BoolExpr) -> Self {
+        self.equiv(other)
+    }
+
     /// Evaluate expression under variable assignment.
     pub fn evaluate(&self, env: &HashMap<Symbol, bool>) -> Result<bool, LogicError> {
         match self {
@@ -1188,5 +1210,39 @@ mod tests {
             Err(LogicError::SolverInvariantViolation(message))
                 if message.contains("outside model length")
         ));
+    }
+
+    #[test]
+    fn test_xor_nand_nor_xnor() {
+        let p = BoolExpr::var("p");
+        let q = BoolExpr::var("q");
+        let env_tt = HashMap::from([(Symbol::new("p"), true), (Symbol::new("q"), true)]);
+        let env_tf = HashMap::from([(Symbol::new("p"), true), (Symbol::new("q"), false)]);
+        let env_ft = HashMap::from([(Symbol::new("p"), false), (Symbol::new("q"), true)]);
+        let env_ff = HashMap::from([(Symbol::new("p"), false), (Symbol::new("q"), false)]);
+
+        let xor = p.clone().xor(q.clone());
+        assert_eq!(xor.evaluate(&env_tt).unwrap(), false);
+        assert_eq!(xor.evaluate(&env_tf).unwrap(), true);
+        assert_eq!(xor.evaluate(&env_ft).unwrap(), true);
+        assert_eq!(xor.evaluate(&env_ff).unwrap(), false);
+
+        let nand = p.clone().nand(q.clone());
+        assert_eq!(nand.evaluate(&env_tt).unwrap(), false);
+        assert_eq!(nand.evaluate(&env_tf).unwrap(), true);
+        assert_eq!(nand.evaluate(&env_ft).unwrap(), true);
+        assert_eq!(nand.evaluate(&env_ff).unwrap(), true);
+
+        let nor = p.clone().nor(q.clone());
+        assert_eq!(nor.evaluate(&env_tt).unwrap(), false);
+        assert_eq!(nor.evaluate(&env_tf).unwrap(), false);
+        assert_eq!(nor.evaluate(&env_ft).unwrap(), false);
+        assert_eq!(nor.evaluate(&env_ff).unwrap(), true);
+
+        let xnor = p.xnor(q);
+        assert_eq!(xnor.evaluate(&env_tt).unwrap(), true);
+        assert_eq!(xnor.evaluate(&env_tf).unwrap(), false);
+        assert_eq!(xnor.evaluate(&env_ft).unwrap(), false);
+        assert_eq!(xnor.evaluate(&env_ff).unwrap(), true);
     }
 }
