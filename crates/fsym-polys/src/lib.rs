@@ -76,6 +76,51 @@ mod tests {
     }
 
     #[test]
+    fn test_univariate_integrate_and_discriminant() {
+        let x = Symbol::new("x");
+        // P(x) = 3*x^2 + 2*x + 1
+        let p = UnivariatePoly::new(
+            x.clone(),
+            vec![
+                BigRational::from_integer(BigInt::from(1)),
+                BigRational::from_integer(BigInt::from(2)),
+                BigRational::from_integer(BigInt::from(3)),
+            ],
+        );
+
+        // int P(x) dx + 5 = x^3 + x^2 + x + 5
+        let int_p = p
+            .integrate(BigRational::from_integer(BigInt::from(5)))
+            .unwrap();
+        assert_eq!(
+            int_p.coeffs,
+            vec![
+                BigRational::from_integer(BigInt::from(5)),
+                BigRational::from_integer(BigInt::from(1)),
+                BigRational::from_integer(BigInt::from(1)),
+                BigRational::from_integer(BigInt::from(1)),
+            ]
+        );
+        // derivative of integral is original polynomial
+        assert_eq!(int_p.derivative(), p);
+
+        // Discriminant of 3*x^2 + 2*x + 1 is 2^2 - 4*(3)*(1) = 4 - 12 = -8
+        let disc = p.discriminant().unwrap();
+        assert_eq!(disc, BigRational::from_integer(BigInt::from(-8)));
+
+        // Discriminant of x^2 - 5*x + 6 is (-5)^2 - 4*(1)*(6) = 25 - 24 = 1
+        let p2 = UnivariatePoly::new(
+            x,
+            vec![
+                BigRational::from_integer(BigInt::from(6)),
+                BigRational::from_integer(BigInt::from(-5)),
+                BigRational::from_integer(BigInt::from(1)),
+            ],
+        );
+        assert_eq!(p2.discriminant().unwrap(), BigRational::one());
+    }
+
+    #[test]
     fn test_multivariate_product_and_derivatives() {
         let x = Symbol::new("x");
         let y = Symbol::new("y");

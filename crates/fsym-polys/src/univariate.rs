@@ -230,6 +230,49 @@ impl UnivariatePoly {
         Self::new(self.gen_sym.clone(), deriv_coeffs)
     }
 
+    /// Indefinite integration with respect to the generator symbol, with integration constant $C$.
+    pub fn integrate(&self, constant: BigRational) -> Result<Self, PolyError> {
+        self.validate_shape()?;
+        let next_len = self
+            .coeffs
+            .len()
+            .checked_add(1)
+            .ok_or_else(|| PolyError::General("univariate integration degree overflow".to_string()))?;
+        if next_len > MAX_UNIVARIATE_COEFFICIENTS {
+            return Err(PolyError::General(format!(
+                "univariate integration exceeds coefficient limit of {MAX_UNIVARIATE_COEFFICIENTS}"
+            )));
+        }
+        let mut int_coeffs = Vec::with_capacity(next_len);
+        int_coeffs.push(constant);
+        for (i, c) in self.coeffs.iter().enumerate() {
+            let divisor = BigRational::from_integer(BigInt::from((i + 1) as i64));
+            int_coeffs.push(c / &divisor);
+        }
+        Ok(Self::new(self.gen_sym.clone(), int_coeffs))
+    }
+
+    /// Computes the polynomial discriminant.
+    ///
+    /// - Degree 2 ($a x^2 + b x + c$): $\Delta = b^2 - 4 a c$
+    /// - Degree 1 ($a x + b$): $\Delta = 1$
+    pub fn discriminant(&self) -> Result<BigRational, PolyError> {
+        self.validate_shape()?;
+        match self.degree() {
+            Some(2) => {
+                let c = &self.coeffs[0];
+                let b = &self.coeffs[1];
+                let a = &self.coeffs[2];
+                let four = BigRational::from_integer(BigInt::from(4));
+                Ok((b * b) - (four * a * c))
+            }
+            Some(1) => Ok(BigRational::one()),
+            _ => Err(PolyError::General(
+                "discriminant currently supported for degree 1 and 2 univariate polynomials".to_string(),
+            )),
+        }
+    }
+
     /// Addition of polynomials in the same generator.
     pub fn add(&self, other: &Self) -> Result<Self, PolyError> {
         self.validate_shape()?;

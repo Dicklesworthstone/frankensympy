@@ -102,9 +102,7 @@ impl BoolExpr {
 
     /// Logical XOR (A ⊕ B).
     pub fn xor(self, other: BoolExpr) -> Self {
-        self.clone()
-            .and(other.clone().not())
-            .or(self.not().and(other))
+        self.equiv(other).not()
     }
 
     /// Logical NAND (¬(A ∧ B)).
@@ -1214,6 +1212,19 @@ mod tests {
 
     #[test]
     fn test_xor_nand_nor_xnor() {
+        fn node_count(expr: &BoolExpr) -> usize {
+            match expr {
+                BoolExpr::Const(_) | BoolExpr::Var(_) => 1,
+                BoolExpr::Not(inner) => 1 + node_count(inner),
+                BoolExpr::And(terms) | BoolExpr::Or(terms) => {
+                    1 + terms.iter().map(node_count).sum::<usize>()
+                }
+                BoolExpr::Implies(left, right) | BoolExpr::Equivalent(left, right) => {
+                    1 + node_count(left) + node_count(right)
+                }
+            }
+        }
+
         let p = BoolExpr::var("p");
         let q = BoolExpr::var("q");
         let env_tt = HashMap::from([(Symbol::new("p"), true), (Symbol::new("q"), true)]);
@@ -1244,5 +1255,15 @@ mod tests {
         assert_eq!(xnor.evaluate(&env_tf).unwrap(), false);
         assert_eq!(xnor.evaluate(&env_ft).unwrap(), false);
         assert_eq!(xnor.evaluate(&env_ff).unwrap(), true);
+
+        let mut xor_chain = BoolExpr::var("x0");
+        for index in 1..=12 {
+            xor_chain = xor_chain.xor(BoolExpr::var(format!("x{index}")));
+        }
+        assert_eq!(
+            node_count(&xor_chain),
+            37,
+            "each XOR must retain one copy of each operand"
+        );
     }
 }
