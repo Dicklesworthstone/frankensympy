@@ -66,6 +66,11 @@ pub enum DagError {
         domain: TermDomain,
         reason: &'static str,
     },
+    #[error("malformed binder {name}: {reason}")]
+    MalformedBinder {
+        name: &'static str,
+        reason: &'static str,
+    },
     #[error("DAG allocation failed")]
     AllocationFailure,
 }
@@ -547,6 +552,48 @@ fn validate_node_limits(node: &TermNode, limits: DagLimits) -> Result<(), DagErr
     Ok(())
 }
 
+fn validate_lambda_surface(args: &[Expr]) -> Result<(), DagError> {
+    const NAME: &str = "Lambda";
+    if args.len() < 2 {
+        return Err(DagError::MalformedBinder {
+            name: NAME,
+            reason: "expected parameters followed by a body",
+        });
+    }
+    let parameters = &args[..args.len() - 1];
+    if parameters
+        .iter()
+        .all(|parameter| matches!(parameter, Expr::Sym(_)))
+    {
+        return Ok(());
+    }
+    if args.len() == 2
+        && let Expr::Function(name, tuple_args) = &args[0]
+        && name == "Tuple"
+    {
+        if tuple_args.is_empty() {
+            return Err(DagError::MalformedBinder {
+                name: NAME,
+                reason: "parameter tuple must be non-empty",
+            });
+        }
+        if tuple_args
+            .iter()
+            .all(|parameter| matches!(parameter, Expr::Sym(_)))
+        {
+            return Ok(());
+        }
+        return Err(DagError::MalformedBinder {
+            name: NAME,
+            reason: "parameter tuple entries must be symbols",
+        });
+    }
+    Err(DagError::MalformedBinder {
+        name: NAME,
+        reason: "parameters must be symbols or a tuple of symbols",
+    })
+}
+
 fn validate_expr_local_limits(expr: &Expr, limits: DagLimits) -> Result<(), DagError> {
     let arity = match expr {
         Expr::Add(terms) | Expr::Mul(terms) | Expr::Function(_, terms) => terms.len(),
@@ -965,9 +1012,12 @@ impl TermDag {
                 self.insert_node_tracking(TermNode::Pow(base_id, exponent_id), limits, inserted)
             }
             Expr::Function(name, args) => {
-                // Binders remain opaque until the kernel has a capture-avoiding,
-                // alpha-normalized representation. Name-based lowering would
-                // conflate surface spelling with semantic binding identity.
+                if name == "Lambda" {
+                    validate_lambda_surface(args)?;
+                }
+                // Well-formed binders remain opaque Functions until the DAG
+                // has capture-avoiding, alpha-normalized identity. Malformed
+                // Lambda surface is refused rather than interned as a function.
                 let ids = self.insert_expr_children(args, depth, limits, traversed, inserted)?;
                 self.insert_node_tracking(TermNode::Function(name.clone(), ids), limits, inserted)
             }
@@ -1589,6 +1639,70 @@ mod tests {
         let root = dag.insert_expr(&expression).unwrap();
         assert!(matches!(dag.get(root), Some(TermNode::Function(name, _)) if name == "Lambda"));
         assert_eq!(dag.to_expr(root).unwrap(), expression);
+
+        let tuple_lambda = Expr::Function(
+            "Lambda".to_string(),
+            vec![
+                Expr::Function(
+                    "Tuple".to_string(),
+                    vec![Expr::symbol("x"), Expr::symbol("y")],
+                ),
+                Expr::symbol("x"),
+            ],
+        );
+        let tuple_root = dag.insert_expr(&tuple_lambda).unwrap();
+        assert!(
+            matches!(dag.get(tuple_root), Some(TermNode::Function(name, _)) if name == "Lambda")
+        );
+        assert_eq!(dag.to_expr(tuple_root).unwrap(), tuple_lambda);
+    }
+
+    #[test]
+    fn malformed_lambda_surface_is_refused_instead_of_interned_as_function() {
+        let mut dag = TermDag::new();
+        let existing = dag.insert_node(TermNode::Sym(Symbol::new("keep"))).unwrap();
+        let before = dag.len();
+        let malformed = Expr::Function(
+            "Lambda".to_string(),
+            vec![Expr::Integer(BigInt::from(0)), Expr::symbol("x")],
+        );
+        assert_eq!(
+            dag.insert_expr(&malformed),
+            Err(DagError::MalformedBinder {
+                name: "Lambda",
+                reason: "parameters must be symbols or a tuple of symbols",
+            })
+        );
+        assert_eq!(dag.len(), before);
+        assert!(dag.get(existing).is_some());
+
+        assert_eq!(
+            dag.insert_expr(&Expr::Function(
+                "Lambda".to_string(),
+                vec![Expr::symbol("x")]
+            )),
+            Err(DagError::MalformedBinder {
+                name: "Lambda",
+                reason: "expected parameters followed by a body",
+            })
+        );
+        assert_eq!(
+            dag.insert_expr(&Expr::Function(
+                "Lambda".to_string(),
+                vec![
+                    Expr::Function(
+                        "Tuple".to_string(),
+                        vec![Expr::Integer(BigInt::from(1)), Expr::symbol("x")]
+                    ),
+                    Expr::symbol("x"),
+                ]
+            )),
+            Err(DagError::MalformedBinder {
+                name: "Lambda",
+                reason: "parameter tuple entries must be symbols",
+            })
+        );
+        assert_eq!(dag.len(), before);
     }
 
     #[test]
