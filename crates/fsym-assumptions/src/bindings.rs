@@ -973,7 +973,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "documents WS04 audit defect (3) (msg 9899): alpha_equiv_helper blindly overwrites the b_to_a entry when entering a new binder scope, so an inner binder that shadows an outer free symbol is reported equivalent to the non-shadowing version. Run with `cargo test -p fsym-assumptions -- --ignored` to confirm; remove the attribute after the guarded pre-insert fix lands."]
     fn alpha_equivalent_rejects_inner_binder_shadowing_outer_free() {
         // Audit counterexample: `Lambda(x, Lambda(y, x))` returns the outer x
         // (depends on the captured free variable). `Lambda(a, Lambda(a, a))`
