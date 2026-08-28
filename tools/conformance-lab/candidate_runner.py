@@ -23,6 +23,8 @@ violation, 4 = crash outside a fixture boundary.
 from __future__ import annotations
 
 import hashlib
+import importlib.machinery
+import importlib.util
 import json
 import os
 import pickle
@@ -123,11 +125,55 @@ def _assert_candidate_sympy(sympy_mod) -> str | None:
     return None
 
 
+def extension_search_dirs() -> list[Path]:
+    dirs: list[Path] = []
+    explicit = os.environ.get("FSYM_PYTHON_EXT_DIR")
+    if explicit:
+        dirs.append(Path(explicit))
+    cargo = os.environ.get("CARGO_TARGET_DIR")
+    if cargo:
+        dirs.append(Path(cargo) / "debug")
+        dirs.append(Path(cargo) / "release")
+    return dirs
+
+
+def preload_fsym_python() -> str | None:
+    """Load a cargo-built cdylib as fsym_python before importing the shell.
+
+    PyO3 writes `libfsym_python.so`; CPython imports `fsym_python.so`.
+    Preloading the lib-prefixed artifact into sys.modules avoids a  copy
+    and does not require maturin.
+    """
+    if "fsym_python" in sys.modules:
+        return None
+    names = ("fsym_python.so", "libfsym_python.so", "fsym_python.pyd", "libfsym_python.dylib")
+    for directory in extension_search_dirs():
+        for name in names:
+            so = directory / name
+            if not so.is_file():
+                continue
+            loader = importlib.machinery.ExtensionFileLoader(
+                "fsym_python", str(so.resolve())
+            )
+            spec = importlib.util.spec_from_loader("fsym_python", loader)
+            if spec is None or spec.loader is None:
+                continue
+            module = importlib.util.module_from_spec(spec)
+            sys.modules["fsym_python"] = module
+            spec.loader.exec_module(module)
+            return str(so.resolve())
+    return None
+
+
 def import_candidate_sympy():
     root = candidate_root()
     root_str = str(root)
     if root_str not in sys.path:
         sys.path.insert(0, root_str)
+    try:
+        preload_fsym_python()
+    except Exception as exc:  # noqa: BLE001
+        return None, "import", f"extension preload failed: {type(exc).__name__}: {exc}"[:400]
     try:
         import sympy
     except ImportError as exc:
