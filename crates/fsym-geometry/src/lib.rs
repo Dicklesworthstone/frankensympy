@@ -1634,4 +1634,27 @@ mod tests {
         let ray3_wire = serde_json::to_value(&ray3).unwrap();
         assert_eq!(serde_json::from_value::<Ray3D>(ray3_wire).unwrap(), ray3);
     }
+
+    #[test]
+    fn test_ray_symbolic_degeneracy_is_refused_undetermined() {
+        // A Ray cannot be constructed from a symbolic point whose difference
+        // from the source does not reduce to a known numeric value: the
+        // direction could be zero (the user just hasn't proved it yet), and
+        // the constructor must not silently accept an undetermined
+        // degeneracy. Both 2D and 3D refuse the same way.
+        let sym = Expr::symbol("x");
+        let s2 = Point2D::new(Expr::from_i64(0), Expr::from_i64(0));
+        let p2 = Point2D::new(sym.clone(), sym.clone());
+        assert_eq!(
+            Ray2D::new(s2, p2),
+            Err(GeometryError::SymbolicDegeneracyUndetermined)
+        );
+
+        let s3 = Point3D::new(Expr::from_i64(0), Expr::from_i64(0), Expr::from_i64(0));
+        let p3 = Point3D::new(sym.clone(), sym.clone(), sym);
+        assert_eq!(
+            Ray3D::new(s3, p3),
+            Err(GeometryError::SymbolicDegeneracyUndetermined)
+        );
+    }
 }
