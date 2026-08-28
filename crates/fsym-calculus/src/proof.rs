@@ -17,6 +17,9 @@ pub const RULE_DIFF_POW_INT: &str = "diff_power_integer";
 pub const RULE_DIFF_SIN: &str = "diff_sin";
 pub const RULE_DIFF_COS: &str = "diff_cos";
 pub const RULE_DIFF_EXP: &str = "diff_exp";
+pub const RULE_DIFF_SINH: &str = "diff_sinh";
+pub const RULE_DIFF_COSH: &str = "diff_cosh";
+pub const RULE_DIFF_LOG: &str = "diff_log";
 pub const RULE_DIFF_GENERAL: &str = "diff_general";
 
 /// Constructs the canonical diff application node: $\frac{\partial}{\partial \text{var}}(\text{expr})$.
@@ -46,6 +49,9 @@ pub fn classify_diff_rule(expr: &Expr, var: &Symbol) -> &'static str {
             ("sin", 1) => RULE_DIFF_SIN,
             ("cos", 1) => RULE_DIFF_COS,
             ("exp", 1) => RULE_DIFF_EXP,
+            ("sinh", 1) => RULE_DIFF_SINH,
+            ("cosh", 1) => RULE_DIFF_COSH,
+            ("log", 1) => RULE_DIFF_LOG,
             _ => RULE_DIFF_GENERAL,
         },
     }
@@ -309,6 +315,69 @@ fn verify_rule_reduction_semantics(
                 }
             }
         }
+        RULE_DIFF_SINH => {
+            if let Expr::Function(name, args) = expr
+                && name == "sinh"
+                && args.len() == 1
+            {
+                let u = &args[0];
+                let du = diff(u, var);
+                let expected_rhs = Expr::Mul(vec![
+                    Expr::Function("cosh".to_string(), vec![u.clone()]),
+                    du,
+                ]);
+                if deriv != &expected_rhs {
+                    return Err(KernelError::InvalidDefinitionalReduction {
+                        rule_name: rule_name.to_string(),
+                        reason: format!(
+                            "Sinh derivative mismatch: expected {expected_rhs}, got {deriv}"
+                        ),
+                    });
+                }
+            }
+        }
+        RULE_DIFF_COSH => {
+            if let Expr::Function(name, args) = expr
+                && name == "cosh"
+                && args.len() == 1
+            {
+                let u = &args[0];
+                let du = diff(u, var);
+                let expected_rhs = Expr::Mul(vec![
+                    Expr::Function("sinh".to_string(), vec![u.clone()]),
+                    du,
+                ]);
+                if deriv != &expected_rhs {
+                    return Err(KernelError::InvalidDefinitionalReduction {
+                        rule_name: rule_name.to_string(),
+                        reason: format!(
+                            "Cosh derivative mismatch: expected {expected_rhs}, got {deriv}"
+                        ),
+                    });
+                }
+            }
+        }
+        RULE_DIFF_LOG => {
+            if let Expr::Function(name, args) = expr
+                && name == "log"
+                && args.len() == 1
+            {
+                let u = &args[0];
+                let du = diff(u, var);
+                let expected_rhs = Expr::Mul(vec![
+                    Expr::Pow(Arc::new(u.clone()), Arc::new(Expr::from_i64(-1))),
+                    du,
+                ]);
+                if deriv != &expected_rhs {
+                    return Err(KernelError::InvalidDefinitionalReduction {
+                        rule_name: rule_name.to_string(),
+                        reason: format!(
+                            "Log derivative mismatch: expected {expected_rhs}, got {deriv}"
+                        ),
+                    });
+                }
+            }
+        }
         RULE_DIFF_GENERAL => {
             // Unsupported derivatives are represented by the unevaluated
             // derivative term.  This establishes only reflexive equality; it
@@ -357,6 +426,9 @@ mod tests {
             Expr::Function("sin".to_string(), vec![Expr::symbol("x")]),
             Expr::Function("cos".to_string(), vec![Expr::symbol("x")]),
             Expr::Function("exp".to_string(), vec![Expr::symbol("x")]),
+            Expr::Function("sinh".to_string(), vec![Expr::symbol("x")]),
+            Expr::Function("cosh".to_string(), vec![Expr::symbol("x")]),
+            Expr::Function("log".to_string(), vec![Expr::symbol("x")]),
         ] {
             let (deriv, tree) = verified_diff(&expr, &x);
             assert!(verify_diff_derivation(&tree, &expr, &x, &deriv).is_ok());
@@ -394,7 +466,7 @@ mod tests {
     #[test]
     fn test_general_rule_only_verifies_the_unevaluated_derivative() {
         let x = Symbol::new("x");
-        let expr = Expr::Function("log".to_string(), vec![Expr::symbol("x")]);
+        let expr = Expr::Function("unsupported_fn".to_string(), vec![Expr::symbol("x")]);
         let diff_term = make_diff_term(&expr, &x);
 
         let (unevaluated, tree) = verified_diff(&expr, &x);

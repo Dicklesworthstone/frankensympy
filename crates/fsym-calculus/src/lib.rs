@@ -109,6 +109,27 @@ pub fn diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
                 let u = &args[0];
                 let du = diff(u, var);
                 Expr::Mul(vec![Expr::Function("exp".to_string(), vec![u.clone()]), du])
+            } else if name == "sinh" && args.len() == 1 {
+                let u = &args[0];
+                let du = diff(u, var);
+                Expr::Mul(vec![
+                    Expr::Function("cosh".to_string(), vec![u.clone()]),
+                    du,
+                ])
+            } else if name == "cosh" && args.len() == 1 {
+                let u = &args[0];
+                let du = diff(u, var);
+                Expr::Mul(vec![
+                    Expr::Function("sinh".to_string(), vec![u.clone()]),
+                    du,
+                ])
+            } else if name == "log" && args.len() == 1 {
+                let u = &args[0];
+                let du = diff(u, var);
+                Expr::Mul(vec![
+                    Expr::Pow(Arc::new(u.clone()), Arc::new(Expr::from_i64(-1))),
+                    du,
+                ])
             } else {
                 Expr::Function(
                     "diff".to_string(),
@@ -925,8 +946,8 @@ mod tests {
     #[test]
     fn test_taylor_nondifferentiable_is_typed_error() {
         let x = Symbol::new("x");
-        // log(x) differentiation hits diff's unsupported-function sentinel.
-        let l = Expr::Function("log".to_string(), vec![Expr::symbol("x")]);
+        // Unknown function differentiation produces a diff sentinel term.
+        let l = Expr::Function("unsupported_fn".to_string(), vec![Expr::symbol("x")]);
         assert!(matches!(
             taylor(&l, &x, &Expr::from_i64(1), 2),
             Err(CalculusError::NonDifferentiable(_))
