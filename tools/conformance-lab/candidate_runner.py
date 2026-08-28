@@ -86,29 +86,23 @@ def _probe(fn, *a):
 
 
 def _printer_outputs(expr, sympy_mod) -> dict[str, object]:
-    def call(name: str, fn):
-        return _probe(fn)
-
     return {
-        "str": call("str", lambda: str(expr)),
-        "repr": call("repr", lambda: repr(expr)),
-        "srepr": call(
-            "srepr",
+        "str": _probe(lambda: str(expr)),
+        "repr": _probe(lambda: repr(expr)),
+        "srepr": _probe(
             lambda: sympy_mod.srepr(expr)
             if hasattr(sympy_mod, "srepr")
-            else (_ for _ in ()).throw(AttributeError("srepr unavailable")),
+            else (_ for _ in ()).throw(AttributeError("srepr unavailable"))
         ),
-        "latex": call(
-            "latex",
+        "latex": _probe(
             lambda: sympy_mod.latex(expr)
             if hasattr(sympy_mod, "latex")
-            else expr._repr_latex_(),
+            else expr._repr_latex_()
         ),
-        "pretty_ascii": call(
-            "pretty_ascii",
+        "pretty_ascii": _probe(
             lambda: str(sympy_mod.pretty(expr))
             if hasattr(sympy_mod, "pretty")
-            else (_ for _ in ()).throw(AttributeError("pretty unavailable")),
+            else (_ for _ in ()).throw(AttributeError("pretty unavailable"))
         ),
     }
 

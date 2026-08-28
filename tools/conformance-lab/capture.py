@@ -47,6 +47,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
@@ -893,9 +894,20 @@ def isolation_report(profile: dict, oracle_py: str) -> dict:
             "reason": "candidate process imported the oracle sympy module",
             "shared_file": oracle_file,
         }
+    if "fsym_python" in oracle.get("modules", []) or "fsym_python" in {
+        name.split(".")[0] for name in oracle.get("modules", [])
+    }:
+        return {
+            "status": "failed",
+            "reason": "oracle interpreter imported fsym_python",
+            "modules": oracle.get("modules"),
+        }
 
     first_rel = profile["inventory"]["fixtures"][0]
     fixture_path = Path(__file__).resolve().parent / first_rel
+    decoy = Path(tempfile.mkdtemp(prefix="fsym-empty-candidate-root-"))
+    decoy_env = oracle_environment(profile)
+    decoy_env["FSYM_CANDIDATE_ROOT"] = str(decoy)
     contaminated = subprocess.run(
         [
             oracle_py,
@@ -907,14 +919,14 @@ def isolation_report(profile: dict, oracle_py: str) -> dict:
         ],
         capture_output=True,
         text=True,
-        env=oracle_environment(profile),
+        env=decoy_env,
         timeout=60,
         check=False,
     )
     if contaminated.returncode != 3 or "isolation_violation" not in contaminated.stdout:
         return {
             "status": "failed",
-            "reason": "candidate runner accepted the oracle interpreter",
+            "reason": "candidate runner observed through oracle sympy when the candidate root had no shell",
             "returncode": contaminated.returncode,
             "stdout_head": contaminated.stdout[:300],
         }
@@ -924,7 +936,8 @@ def isolation_report(profile: dict, oracle_py: str) -> dict:
         "oracle_sympy_file": oracle_file,
         "candidate_sympy_file": candidate_file,
         "candidate_sympy_import": candidate.get("sympy_import"),
-        "oracle_interpreter_rejected_as_candidate": True,
+        "wrong_candidate_root_rejected": True,
+        "oracle_did_not_import_fsym_python": True,
     }
 
 
@@ -1187,8 +1200,8 @@ def main() -> int:
         TypeError,
         ValueError,
         subprocess.TimeoutExpired,
-    ) as extra:
-        return fail(str(extra))
+    ) as exc:
+        return fail(str(exc))
 
 
 if __name__ == "__main__":
