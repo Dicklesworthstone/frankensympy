@@ -152,27 +152,28 @@ fn verify_and_publish_candidate<Caps>(
 
     let verified_claim = match verify_derivation_independent(&winner.derivation, context) {
         Ok(claim) => claim,
-        Err(error) => {
+        Err(_) => {
             return Err(PortfolioError::WinnerVerificationFailed(format!(
-                "{name}: verifier rejected candidate from `{}`: {error}",
+                "{name}: verifier rejected candidate from `{}`",
                 winner.strategy_name
             )));
         }
     };
     if verified_claim != winner.claim {
         return Err(PortfolioError::WinnerVerificationFailed(format!(
-            "{name}: verifier established `{verified_claim}`, but `{}` requested publication of `{}`",
-            winner.strategy_name, winner.claim
+            "{name}: candidate `{}` requested publication of a claim not established by its derivation",
+            winner.strategy_name
         )));
     }
     if &verified_claim != requested_claim {
         return Err(PortfolioError::WinnerVerificationFailed(format!(
-            "{name}: verified claim `{verified_claim}` does not answer requested claim `{requested_claim}`"
+            "{name}: verified candidate `{}` does not answer requested claim",
+            winner.strategy_name
         )));
     }
     if portfolio_claimed_result(&verified_claim) != &winner.result {
         return Err(PortfolioError::WinnerVerificationFailed(format!(
-            "{name}: verified claim `{verified_claim}` does not bind the result returned by `{}`",
+            "{name}: verified claim does not bind the result returned by `{}`",
             winner.strategy_name
         )));
     }
@@ -548,7 +549,7 @@ mod tests {
 
         let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
         let x = Expr::symbol("x");
-        let y = Expr::symbol("y");
+        let y = Expr::symbol("private_formula_symbol_must_not_leak");
         let requested = Claim::equality(x.clone(), y.clone());
 
         let mismatched_strategy = Box::new(move |_cx: &mut FsymCx<'_, _>| {
@@ -571,11 +572,11 @@ mod tests {
             vec![("mismatched", mismatched_strategy)],
         );
 
-        assert!(matches!(
-            result,
-            Err(PortfolioError::WinnerVerificationFailed(message))
-                if message.contains("requested publication")
-        ));
+        let Err(PortfolioError::WinnerVerificationFailed(message)) = result else {
+            panic!("expected a typed winner-verification refusal");
+        };
+        assert!(message.contains("requested publication"));
+        assert!(!message.contains("private_formula_symbol_must_not_leak"));
     }
 
     #[test]
