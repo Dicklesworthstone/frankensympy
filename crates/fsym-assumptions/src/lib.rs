@@ -34,9 +34,7 @@ pub enum AssumptionError {
     UnknownSymbol(String),
 }
 
-/// Unique, content-addressed identifier for an immutable assumption context.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct ContextId(pub u64);
+pub use fsym_id::ContextId;
 
 /// An immutable, hierarchical, thread-safe assumption context with cryptographic digest and provenance.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -55,12 +53,12 @@ impl ImmutableAssumptionsSnapshot {
         let mut hasher = blake3::Hasher::new();
         hasher.update(b"fsym.context.empty.v1");
         let hash = *hasher.finalize().as_bytes();
-        let mut id_bytes = [0u8; 8];
-        id_bytes.copy_from_slice(&hash[0..8]);
+        let id_bytes: [u8; 8] = hash[..8].try_into().unwrap_or([1; 8]);
         let id_raw = u64::from_le_bytes(id_bytes);
 
         Arc::new(Self {
-            id: ContextId(if id_raw == 0 { 1 } else { id_raw }),
+            id: ContextId::new(if id_raw == 0 { 1 } else { id_raw })
+                .expect("non-zero context id payload"),
             digest: hash,
             parent: None,
             facts: HashMap::new(),
@@ -119,12 +117,12 @@ impl ImmutableAssumptionsSnapshot {
         }
 
         let hash = *hasher.finalize().as_bytes();
-        let mut id_bytes = [0u8; 8];
-        id_bytes.copy_from_slice(&hash[0..8]);
+        let id_bytes: [u8; 8] = hash[..8].try_into().unwrap_or([1; 8]);
         let id_raw = u64::from_le_bytes(id_bytes);
 
         Ok(Arc::new(Self {
-            id: ContextId(if id_raw == 0 { 1 } else { id_raw }),
+            id: ContextId::new(if id_raw == 0 { 1 } else { id_raw })
+                .expect("non-zero context id payload"),
             digest: hash,
             parent: Some(Arc::clone(self)),
             facts: additional_facts,

@@ -21,6 +21,7 @@
 
 #![forbid(unsafe_code)]
 
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 const MAX_DIAGNOSTIC_BYTES: usize = 128;
@@ -43,33 +44,60 @@ fn bounded_text(text: &str) -> String {
 
 fn bounded_binary_kind(bytes: &[u8]) -> String {
     let visible_len = bytes.len().min(MAX_DIAGNOSTIC_BYTES);
-    let visible = bytes.get(..visible_len).unwrap_or_default();
-    let lossy = String::from_utf8_lossy(visible);
-    let lossy_was_truncated = lossy.len() > MAX_DIAGNOSTIC_BYTES;
-    let mut summary = bounded_text(&lossy);
-    if visible.len() != bytes.len() && !lossy_was_truncated {
-        summary.push_str("…<truncated>");
+    let mut visible = String::with_capacity(visible_len + 16);
+    for byte in &bytes[..visible_len] {
+        if byte.is_ascii_graphic() {
+            visible.push(*byte as char);
+        } else {
+            visible.push('.');
+        }
     }
-    summary
+    if bytes.len() > visible_len {
+        visible.push_str("…<truncated>");
+    }
+    visible
 }
 
-/// Errors produced while validating or parsing typed identifiers.
+/// Errors arising from identifier construction, decoding, or cross-kind misuse.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IdError {
-    /// The textual prefix does not name any known identifier kind.
-    UnknownKind { found: String },
-    /// The payload after the prefix is not a valid `u64` counter.
-    MalformedPayload { found: String },
-    /// Identifier `0` is reserved; it is never a legal payload.
+    /// Payload value `0` is reserved and may not be used for a live entity.
     ReservedZero,
+
+    /// Identifier text did not start with the expected kind prefix followed by
+    /// `-` and a decimal integer payload.
+    UnknownKind { found: String },
+
+    /// The kind prefix matched, but the following payload was not valid decimal
+    /// or exceeded [`u64::MAX`].
+    InvalidPayload { found: String },
+
+    /// Binary frame had an unrecognized kind prefix, wrong length prefix, or
+    /// was truncated.
+    MalformedPayload { found: String },
 }
 
 impl fmt::Display for IdError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            IdError::UnknownKind { found } => write!(f, "unknown id kind: {found:?}"),
-            IdError::MalformedPayload { found } => write!(f, "malformed id payload: {found:?}"),
-            IdError::ReservedZero => write!(f, "identifier 0 is reserved"),
+            Self::ReservedZero => write!(f, "identifier payload 0 is reserved as a sentinel"),
+            Self::UnknownKind { found } => {
+                write!(f, "unknown identifier kind in \"{}\"", bounded_text(found))
+            }
+            Self::InvalidPayload { found } => {
+                write!(
+                    f,
+                    "invalid identifier payload in \"{}\"",
+                    bounded_text(found)
+                )
+            }
+            Self::MalformedPayload { found } => {
+                write!(
+                    f,
+                    "malformed binary identifier frame: {}",
+                    bounded_text(found)
+                )
+            }
         }
     }
 }
@@ -83,7 +111,7 @@ impl std::error::Error for IdError {}
 macro_rules! define_id {
     ($(#[$meta:meta])* $name:ident, $prefix:literal) => {
         $(#[$meta])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
         pub struct $name(u64);
 
         impl $name {

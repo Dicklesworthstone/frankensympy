@@ -693,6 +693,7 @@ dependencies = [
 name = "fsym-id"
 version = "0.1.0"
 dependencies = [
+ "serde",
  "trybuild",
 ]
 
