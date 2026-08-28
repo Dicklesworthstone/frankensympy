@@ -136,8 +136,7 @@ fn next_compiled_op_capacity(current: usize) -> Option<usize> {
         current
             .checked_mul(2)
             .unwrap_or(MAX_COMPILE_OPS)
-            .max(1)
-            .min(MAX_COMPILE_OPS),
+            .clamp(1, MAX_COMPILE_OPS),
     )
 }
 

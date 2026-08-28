@@ -568,11 +568,12 @@ mod tests {
             param: Symbol::new("t"),
             body: Box::new(Expr::Mul(vec![Expr::symbol("t"), Expr::from_i64(2)])),
         };
-        if let BinderNode::Lambda { param, body } = b {
-            assert_eq!(param.name, "t");
-            assert_eq!(*body, Expr::Mul(vec![Expr::symbol("t"), Expr::from_i64(2)]));
-        } else {
-            assert!(false, "Expected Lambda variant");
+        match b {
+            BinderNode::Lambda { param, body } => {
+                assert_eq!(param.name, "t");
+                assert_eq!(*body, Expr::Mul(vec![Expr::symbol("t"), Expr::from_i64(2)]));
+            }
+            _ => unreachable!("Expected Lambda variant"),
         }
     }
 
