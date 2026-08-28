@@ -9,7 +9,7 @@
 //! - Immutable assumptions context checking and side-condition verification;
 //! - Capture-safe substitution;
 //! - Definitional reductions and arithmetic evaluations;
-//! - Certificate lemma verification via trusted family dispatchers (e.g. `RealBall`), failing closed for unregistered families;
+//! - Fail-closed certificate lemma syntax pending a trusted family dispatcher;
 //! - Independent, stateless derivation tree verification.
 
 #![forbid(unsafe_code)]

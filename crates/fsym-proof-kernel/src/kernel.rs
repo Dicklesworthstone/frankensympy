@@ -963,119 +963,15 @@ fn check_rule_application(
             rule_name,
         } => check_definitional_reduction(lhs, rhs, rule_name),
 
-        ProofRule::CertificateLemma {
-            family,
-            claim,
-            receipt_digest,
-        } => dispatch_certificate_lemma(family, claim, receipt_digest, context),
-    }
-}
-
-/// Dispatches and verifies a certificate lemma from a registered, trusted family.
-fn dispatch_certificate_lemma(
-    family: &str,
-    claim: &Claim,
-    receipt_digest: &[u8; 32],
-    context: &ImmutableAssumptionsSnapshot,
-) -> Result<Claim, KernelError> {
-    match family {
-        "RealBall" => check_real_ball_certificate(claim, receipt_digest, context),
-        _ => Err(KernelError::UnverifiedCertificateLemma {
-            family: family.to_string(),
-        }),
-    }
-}
-
-/// Verifies a `RealBall` certificate lemma from certified real ball arithmetic (WS11).
-///
-/// Preconditions:
-/// 1. Receipt digest must be a valid, non-zero cryptographic receipt commitment.
-/// 2. For DomainMembership: domain must be Real (or Complex/Rational/Integer when appropriate).
-/// 3. For NonZero: rational constant must be non-zero or context facts must entail non-zero.
-/// 4. For Equality: lhs and rhs must be structurally equal or verified point-ball equivalent.
-fn check_real_ball_certificate(
-    claim: &Claim,
-    receipt_digest: &[u8; 32],
-    context: &ImmutableAssumptionsSnapshot,
-) -> Result<Claim, KernelError> {
-    if receipt_digest == &[0u8; 32] {
-        return Err(KernelError::RuleMismatch(
-            "RealBall certificate rejected: receipt digest cannot be zero".to_string(),
-        ));
-    }
-
-    match claim {
-        Claim::DomainMembership { expr, domain } => {
-            let is_admitted = match expr {
-                Expr::Integer(_) => Domain::ZZ.can_coerce_to(domain),
-                Expr::Rational(_) => Domain::QQ.can_coerce_to(domain),
-                Expr::Const(fsym_core::Constant::Pi | fsym_core::Constant::E) => {
-                    *domain == Domain::RR || *domain == Domain::CC
-                }
-                Expr::Const(fsym_core::Constant::I) => *domain == Domain::CC,
-                Expr::Sym(sym) => context
-                    .domain_of(sym)
-                    .map(|d| d.can_coerce_to(domain))
-                    .unwrap_or(false),
-                _ => false,
-            };
-
-            if is_admitted {
-                Ok(claim.clone())
-            } else {
-                Err(KernelError::DomainNotEntailed {
-                    expr: Box::new(expr.clone()),
-                    domain: domain.clone(),
-                })
-            }
+        // A digest identifies bytes; it neither supplies those bytes nor proves that a
+        // registered checker accepted them for this exact claim and context. Keep the
+        // constructor fail-closed until its schema carries a typed, bounded certificate
+        // that a family-specific verifier can decode and check here.
+        ProofRule::CertificateLemma { family, .. } => {
+            Err(KernelError::UnverifiedCertificateLemma {
+                family: family.clone(),
+            })
         }
-        Claim::NonZero(expr) => {
-            match expr {
-                Expr::Integer(n) => {
-                    if n == &BigInt::from(0) {
-                        return Err(KernelError::RuleMismatch(
-                            "RealBall NonZero claim rejected: integer value is zero".to_string(),
-                        ));
-                    }
-                }
-                Expr::Rational(q) => {
-                    if q == &BigRational::from_integer(BigInt::from(0)) {
-                        return Err(KernelError::RuleMismatch(
-                            "RealBall NonZero claim rejected: rational value is zero".to_string(),
-                        ));
-                    }
-                }
-                _ => {
-                    let tv = context.query(expr, Predicate::NonZero);
-                    if tv != TruthValue::EntailedTrue {
-                        let is_pos_or_neg = context.query(expr, Predicate::Positive)
-                            == TruthValue::EntailedTrue
-                            || context.query(expr, Predicate::Negative) == TruthValue::EntailedTrue;
-                        if !is_pos_or_neg {
-                            return Err(KernelError::PredicateNotEntailed {
-                                expr: Box::new(expr.clone()),
-                                predicate: Predicate::NonZero,
-                                got: format!("{tv:?}"),
-                            });
-                        }
-                    }
-                }
-            }
-            Ok(claim.clone())
-        }
-        Claim::Equality { lhs, rhs } => {
-            if lhs == rhs {
-                Ok(claim.clone())
-            } else {
-                Err(KernelError::ClaimDiscrepancy {
-                    expected: Box::new(claim.clone()),
-                    derived: Box::new(Claim::equality(lhs.clone(), lhs.clone())),
-                })
-            }
-        }
-        _ => Err(KernelError::RuleMismatch(format!(
-            "RealBall certificate does not support claim type: {claim:?}"
-        ))),
     }
 }
 

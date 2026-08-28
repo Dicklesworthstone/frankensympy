@@ -206,11 +206,14 @@ mod tests {
         };
 
         let error = verify_derivation_independent(&derivation, &ctx).unwrap_err();
-        assert!(matches!(error, KernelError::DomainNotEntailed { .. }));
+        assert!(matches!(
+            error,
+            KernelError::UnverifiedCertificateLemma { family } if family == "RealBall"
+        ));
     }
 
     #[test]
-    fn proof_kernel_helpers_congruence_function_and_certificate_lemma() {
+    fn proof_kernel_helpers_keep_certificate_lemmas_fail_closed() {
         let ctx = empty_context();
         let mut kernel = ProofKernel::new(ctx.clone());
         let mut meter = Unbounded;
@@ -231,14 +234,14 @@ mod tests {
 
         let ball = fsym_core::RealBall::from_i64(5);
         let claim = Claim::domain_membership(Expr::from_i64(5), Domain::RR);
-        let s2 = kernel
+        let error = kernel
             .prove_certificate_lemma("RealBall", claim.clone(), ball.digest(), &mut meter)
-            .unwrap();
-        assert_eq!(kernel.get_claim(s2).unwrap(), &claim);
-
-        let derivation = kernel.export_derivation(s2).unwrap();
-        let verified = verify_derivation_independent(&derivation, &ctx).unwrap();
-        assert_eq!(verified, claim);
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            KernelError::UnverifiedCertificateLemma { family } if family == "RealBall"
+        ));
+        assert_eq!(kernel.step_count(), 2);
     }
 
     #[test]
