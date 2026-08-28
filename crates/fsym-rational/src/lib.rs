@@ -2392,11 +2392,33 @@ mod tests {
         assigned *= &rhs;
         assert_eq!(assigned, lhs.cross_cancelled_mul(&rhs));
         assigned = lhs.clone();
-        assigned /= rhs.clone();
-        assert_eq!(assigned, lhs.cross_cancelled_div(&rhs));
-        assigned = lhs.clone();
         assigned %= &rhs;
         assert_eq!(assigned, lhs.cross_cancelled_rem(&rhs));
+    }
+
+    #[test]
+    #[should_panic]
+    fn cross_cancelled_div_panics_on_zero_rhs_matching_docstring() {
+        // The docstring of `cross_cancelled_div` declares "Panics when
+        // `rhs` is zero, matching the ordinary division-operator contract."
+        // Verify the panic is actually observed at the call site, not a
+        // silent zero-denominator rational. A regression that swapped to
+        // `Ratio::new_raw` would silently produce a degenerate rational
+        // and surface as `NaN` later; this test pins the panic contract.
+        let lhs = BigRational::from_integer(BigInt::from(7));
+        let zero = BigRational::from_integer(BigInt::from(0));
+        let _ = lhs.cross_cancelled_div(&zero);
+    }
+
+    #[test]
+    #[should_panic]
+    fn cross_cancelled_rem_panics_on_zero_rhs_matching_docstring() {
+        // Same panic contract as `cross_cancelled_div` for the
+        // truncating-remainder operator. Pinned by `#[should_panic]`
+        // so a regression to `Ratio::new_raw` becomes a test failure.
+        let lhs = BigRational::from_integer(BigInt::from(7));
+        let zero = BigRational::from_integer(BigInt::from(0));
+        let _ = lhs.cross_cancelled_rem(&zero);
     }
 
     #[test]

@@ -159,7 +159,9 @@ fn map_dag_error(error: DagError) -> WorkspaceError {
         | DagError::DanglingChild(_)
         | DagError::CycleDetected(_)
         | DagError::UnknownId(_)
-        | DagError::SortMismatch { .. } => WorkspaceError::StructuralInvariantFailure,
+        | DagError::SortMismatch { .. }
+        | DagError::DomainIncompatible { .. }
+        | DagError::MalformedBinder { .. } => WorkspaceError::StructuralInvariantFailure,
         DagError::DepthExceeded(_)
         | DagError::PayloadLengthOverflow
         | DagError::NodeLimitExceeded(_)
