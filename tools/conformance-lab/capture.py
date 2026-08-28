@@ -21,7 +21,18 @@ existing profile. Goldens include the environment fingerprint per envelope
 `self-test` is the harness-level mutation gate required by campaign stage C1:
 it captures fresh observations and asserts the exact comparator REJECTS
 deliberately weakened variants (printer flip, hash swap, dropped field). If
-tampering is NOT detected, the gate fails closed.
+tampering is NOT detected, the gate fails closed. It also runs the candidate
+isolation probe and a broken-candidate discrepancy gate.
+
+`candidate` runs the same fixtures in an isolated FrankenSymPy subprocess.
+`--broken` is the C1 mutant shell: it must not import sympy and must be
+rejected by construction_only.
+
+`diff` pairs oracle goldens with a fresh candidate capture under a named
+comparator and prints discrepancy records. It does not rewrite goldens.
+
+`isolation` proves the oracle interpreter, candidate process, and harness
+do not share a sympy import.
 
 Exit codes: 0 = success, 1 = gate failure, 2 = misuse.
 """
@@ -82,6 +93,12 @@ REQUIRED_OBSERVATION_KEYS_RAISED = {
     "exception_type",
     "message_head",
 }
+REQUIRED_OBSERVATION_KEYS_REFUSED = {
+    "reason",
+    "message_head",
+}
+ORACLE_SIDE = "upstream_oracle"
+CANDIDATE_SIDE = "frankensympy_candidate"
 MAX_FIXTURE_BYTES = 256 * 1024
 MAX_FIXTURES_PER_FILE = 4_096
 MAX_RUNNER_OUTPUT_BYTES = 8 * 1024 * 1024
@@ -223,6 +240,29 @@ def runner_path() -> Path:
     return path
 
 
+def candidate_runner_path() -> Path:
+    path = Path(__file__).resolve().parent / "candidate_runner.py"
+    if not path.exists():
+        raise SystemExit(f"missing runner: {path}")
+    return path
+
+
+def candidate_root() -> Path:
+    env = os.environ.get("FSYM_CANDIDATE_ROOT")
+    if env:
+        return Path(env).resolve()
+    return REPO_ROOT / "python"
+
+
+def candidate_python(explicit: str | None) -> str:
+    if explicit:
+        return explicit
+    env = os.environ.get("FSYM_CANDIDATE_PYTHON")
+    if env:
+        return env
+    return sys.executable
+
+
 def oracle_environment(
     profile: dict, *, pinned_hash_seed: bool = True
 ) -> dict[str, str]:
@@ -238,13 +278,26 @@ def oracle_environment(
     return env
 
 
-def validate_environment(fingerprint: object, profile: dict) -> None:
+def candidate_environment(
+    profile: dict, *, pinned_hash_seed: bool = True
+) -> dict[str, str]:
+    """Candidate child env: in-repo python shell first, never the oracle venv."""
+    env = oracle_environment(profile, pinned_hash_seed=pinned_hash_seed)
+    env["PYTHONPATH"] = str(candidate_root())
+    env["FSYM_CANDIDATE_ROOT"] = str(candidate_root())
+    env.pop("VIRTUAL_ENV", None)
+    return env
+
+
+def validate_environment(
+    fingerprint: object, profile: dict, *, pin_upstream_version: bool = True
+) -> None:
     if not isinstance(fingerprint, dict):
         raise TypeError("environment fingerprint must be an object")
     missing = REQUIRED_ENV_KEYS - fingerprint.keys()
     if missing:
         raise ValueError(f"environment fingerprint missing keys: {sorted(missing)}")
-    if fingerprint["sympy_version"] != profile["upstream"]["version"]:
+    if pin_upstream_version and fingerprint["sympy_version"] != profile["upstream"]["version"]:
         raise ValueError(
             "SymPy version mismatch: "
             f"required={profile['upstream']['version']!r} "
@@ -276,7 +329,9 @@ def validate_environment(fingerprint: object, profile: dict) -> None:
         raise ValueError("oracle SymPy path fingerprint must be a non-empty string")
 
 
-def validate_envelope(envelope: dict, profile: dict) -> None:
+def validate_envelope(
+    envelope: dict, profile: dict, *, expected_side: str = ORACLE_SIDE
+) -> None:
     if not isinstance(envelope, dict):
         raise TypeError("observation envelope must be an object")
     missing = REQUIRED_ENVELOPE_KEYS - envelope.keys()
@@ -289,11 +344,15 @@ def validate_envelope(envelope: dict, profile: dict) -> None:
         raise ValueError("unknown schema_version (fail closed)")
     if envelope["profile_id"] != profile["profile_id"]:
         raise ValueError(f"profile mismatch: {envelope['profile_id']!r}")
-    if envelope["side"] != "upstream_oracle":
+    if envelope["side"] != expected_side:
         raise ValueError(f"wrong observation side: {envelope['side']!r}")
     if not isinstance(envelope["fixture_id"], str) or not envelope["fixture_id"]:
         raise ValueError("fixture_id must be a non-empty string")
-    validate_environment(envelope["environment"], profile)
+    validate_environment(
+        envelope["environment"],
+        profile,
+        pin_upstream_version=expected_side == ORACLE_SIDE,
+    )
     observations = envelope["observations"]
     if not isinstance(observations, dict):
         raise TypeError("observations must be an object")
@@ -303,6 +362,11 @@ def validate_envelope(envelope: dict, profile: dict) -> None:
     elif envelope["outcome_class"] == "raised":
         if set(observations) != REQUIRED_OBSERVATION_KEYS_RAISED:
             raise ValueError("raised observation keys do not match schema version 1")
+    elif envelope["outcome_class"] == "refused":
+        if expected_side != CANDIDATE_SIDE:
+            raise ValueError("oracle envelopes cannot use outcome_class=refused")
+        if set(observations) != REQUIRED_OBSERVATION_KEYS_REFUSED:
+            raise ValueError("refused observation keys do not match schema version 1")
     else:
         raise ValueError(f"unknown outcome_class: {envelope['outcome_class']!r}")
 
@@ -345,15 +409,21 @@ def load_fixture_ids(fixture_path: Path) -> list[str]:
 
 
 def parse_capture_output(
-    stdout: str, stderr: str, expected_ids: list[str], profile: dict
+    stdout: str,
+    stderr: str,
+    expected_ids: list[str],
+    profile: dict,
+    *,
+    expected_side: str = ORACLE_SIDE,
+    label: str = "oracle",
 ) -> list[dict]:
     output_bytes = len(stdout.encode()) + len(stderr.encode())
     if output_bytes > MAX_RUNNER_OUTPUT_BYTES:
         raise ValueError(
-            f"oracle output is {output_bytes} bytes; maximum is {MAX_RUNNER_OUTPUT_BYTES}"
+            f"{label} output is {output_bytes} bytes; maximum is {MAX_RUNNER_OUTPUT_BYTES}"
         )
     if stderr.strip():
-        raise ValueError(f"oracle emitted unexpected stderr: {stderr[-400:]}")
+        raise ValueError(f"{label} emitted unexpected stderr: {stderr[-400:]}")
     envelopes = []
     for line_number, line in enumerate(stdout.splitlines(), start=1):
         if not line.strip():
@@ -362,14 +432,14 @@ def parse_capture_output(
             envelope = json.loads(line)
         except json.JSONDecodeError as exc:
             raise ValueError(
-                f"oracle output line {line_number} is not valid JSON: {exc}"
+                f"{label} output line {line_number} is not valid JSON: {exc}"
             ) from exc
-        validate_envelope(envelope, profile)
+        validate_envelope(envelope, profile, expected_side=expected_side)
         envelopes.append(envelope)
     actual_ids = [envelope["fixture_id"] for envelope in envelopes]
     if actual_ids != expected_ids:
         raise ValueError(
-            f"oracle fixture sequence mismatch: expected={expected_ids!r} actual={actual_ids!r}"
+            f"{label} fixture sequence mismatch: expected={expected_ids!r} actual={actual_ids!r}"
         )
     return envelopes
 
@@ -390,6 +460,48 @@ def capture_file(profile: dict, fixture_path: Path, py: str) -> list[dict]:
             f"runner exited {proc.returncode} for {fixture_path.name}: {proc.stderr[-400:]}"
         )
     return parse_capture_output(proc.stdout, proc.stderr, expected_ids, profile)
+
+
+def capture_candidate_file(
+    profile: dict,
+    fixture_path: Path,
+    py: str,
+    *,
+    broken: bool = False,
+) -> list[dict]:
+    """Runs one fixture file in a fresh isolated candidate subprocess."""
+    expected_ids = load_fixture_ids(fixture_path)
+    command = [
+        py,
+        "-P",
+        "-s",
+        str(candidate_runner_path()),
+        str(fixture_path),
+        profile["profile_id"],
+    ]
+    if broken:
+        command.append("--broken")
+    proc = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        env=candidate_environment(profile),
+        timeout=120,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"candidate runner exited {proc.returncode} for {fixture_path.name}: "
+            f"{proc.stderr[-400:] or proc.stdout[-400:]}"
+        )
+    return parse_capture_output(
+        proc.stdout,
+        proc.stderr,
+        expected_ids,
+        profile,
+        expected_side=CANDIDATE_SIDE,
+        label="candidate",
+    )
 
 
 def golden_name_for(fixture_rel: str) -> str:
