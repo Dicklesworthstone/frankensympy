@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import io
+import json
 import sys
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from capture import capture_candidate_file, load_profile  # noqa: E402
+from capture import (  # noqa: E402
+    capture_candidate_file,
+    cmd_diff,
+    load_profile,
+)
 
 LAB = Path(__file__).resolve().parent
 PROFILE_PATH = LAB / "profiles" / "sympy-1.14.0-cpython.toml"
@@ -53,6 +60,31 @@ class RealCandidateTests(unittest.TestCase):
         symbol = by_id["core/symbol/x_positive"]
         self.assertEqual(symbol["outcome_class"], "raised")
         self.assertEqual(symbol["observations"]["exception_type"], "NotImplementedError")
+
+    def test_construction_only_reports_module_drift_not_a_false_admit(self) -> None:
+        if not _extension_available():
+            self.skipTest("fsym_python cdylib not on CARGO_TARGET_DIR/FSYM_PYTHON_EXT_DIR")
+        profile = load_profile(PROFILE_PATH)
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            status = cmd_diff(
+                profile, sys.executable, broken=False, affected_claim="COMPAT-002"
+            )
+        self.assertEqual(status, 1)
+        summary = json.loads(buffer.getvalue())
+        self.assertEqual(summary["admitted"], 0)
+        self.assertEqual(summary["claims_promoted"], False)
+        self.assertEqual(summary["named_claims"], ["COMPAT-002"])
+        by_id = {row["fixture_id"]: row for row in summary["details"]}
+        integer = by_id["core/integer/42"]
+        self.assertNotIn("observations.type", integer["difference_paths"])
+        self.assertIn("observations.module", integer["difference_paths"])
+        self.assertIn("observations.func", integer["difference_paths"])
+        symbol = by_id["core/symbol/x_positive"]
+        self.assertEqual(
+            symbol["outcome_classes"],
+            {"oracle": "returned", "candidate": "raised"},
+        )
 
 
 if __name__ == "__main__":

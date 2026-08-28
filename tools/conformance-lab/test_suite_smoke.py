@@ -21,6 +21,7 @@ from capture import (  # noqa: E402
 LAB = Path(__file__).resolve().parent
 PROFILE_PATH = LAB / "profiles" / "sympy-1.14.0-cpython.toml"
 SMOKE_PATH = "utilities/tests/test_source.py"
+COMPAT_PATH = "core/tests/test_compatibility.py"
 
 
 def _oracle_python_or_skip() -> str:
@@ -78,6 +79,19 @@ class SuiteSmokeTests(unittest.TestCase):
         self.assertGreaterEqual(receipt["counts"]["passed"], 2)
         self.assertTrue(receipt["legacy_return_true"])
         self.assertFalse(receipt["pytest_installed"])
+
+    def test_live_oracle_compatibility_file_is_a_second_inventoried_receipt(self) -> None:
+        profile = load_profile(PROFILE_PATH)
+        py = _oracle_python_or_skip()
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            status = cmd_suite_smoke(profile, py, COMPAT_PATH)
+        self.assertEqual(status, 0, buffer.getvalue())
+        receipt = json.loads(buffer.getvalue())
+        self.assertEqual(receipt["test_path"], COMPAT_PATH)
+        self.assertNotEqual(receipt["test_path"], SMOKE_PATH)
+        self.assertNotIn("port_status", receipt)
+        self.assertGreaterEqual(receipt["counts"]["passed"], 1)
 
 
 if __name__ == "__main__":

@@ -1020,15 +1020,30 @@ def cmd_diff(
     named = sorted(
         {record.get("affected_claim") for record in records if record.get("affected_claim")}
     )
+    oracle_ids = {envelope["fixture_id"] for envelope in oracle_envs}
+    candidate_ids = {envelope["fixture_id"] for envelope in candidate_envs}
+    discrepancy_ids = {record["fixture_id"] for record in records}
+    admitted = sorted((oracle_ids & candidate_ids) - discrepancy_ids)
+    details = [
+        {
+            "fixture_id": record["fixture_id"],
+            "difference_paths": [diff["path"] for diff in record["differences"]],
+            "outcome_classes": record.get("outcome_classes"),
+        }
+        for record in records
+    ]
     summary = {
         "comparator": "construction_only",
         "paired": paired,
         "discrepancies": len(records),
+        "admitted": len(admitted),
+        "admitted_fixture_ids": admitted,
         "broken_candidate": broken,
         "affected_claim": affected_claim,
         "named_claims": named,
         "claims_promoted": False,
         "fixture_ids": [record["fixture_id"] for record in records],
+        "details": details,
     }
     print(json.dumps(summary, indent=2, sort_keys=True))
     return 1 if records else 0
