@@ -134,7 +134,7 @@ fn hash_integer(hasher: &mut blake3::Hasher, value: &BigInt) -> Result<(), DagEr
     hash_bytes(hasher, &value.to_bytes_le())
 }
 
-fn compute_term_id_unchecked(node: &TermNode) -> Result<TermId, DagError> {
+fn hash_term_preimage(node: &TermNode) -> Result<blake3::Hasher, DagError> {
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"fsym.term.v2\0");
     match node {
@@ -190,11 +190,35 @@ fn compute_term_id_unchecked(node: &TermNode) -> Result<TermId, DagError> {
             hasher.update(&body.raw().to_le_bytes());
         }
     }
-    let mut digest = hasher.finalize_xof();
+    Ok(hasher)
+}
+
+/// Full 32-byte BLAKE3 digest of the canonical term preimage.
+pub fn compute_term_digest(node: &TermNode) -> Result<[u8; 32], DagError> {
+    compute_term_digest_with_limits(node, DagLimits::default())
+}
+
+/// Full digest under caller-provided admission limits.
+pub fn compute_term_digest_with_limits(
+    node: &TermNode,
+    limits: DagLimits,
+) -> Result<[u8; 32], DagError> {
+    validate_node_limits(node, limits)?;
+    let (digest, _) = compute_term_identity_unchecked(node)?;
+    Ok(digest)
+}
+
+fn compute_term_identity_unchecked(node: &TermNode) -> Result<([u8; 32], TermId), DagError> {
+    let digest = *hash_term_preimage(node)?.finalize().as_bytes();
     let mut raw_bytes = [0u8; 8];
-    digest.fill(&mut raw_bytes);
-    let raw = u64::from_le_bytes(raw_bytes);
-    TermId::new(raw).map_err(|_| DagError::ZeroDigest)
+    raw_bytes.copy_from_slice(&digest[..8]);
+    let term_id = TermId::new(u64::from_le_bytes(raw_bytes)).map_err(|_| DagError::ZeroDigest)?;
+    Ok((digest, term_id))
+}
+
+fn compute_term_id_unchecked(node: &TermNode) -> Result<TermId, DagError> {
+    let (_, term_id) = compute_term_identity_unchecked(node)?;
+    Ok(term_id)
 }
 
 fn node_arity(node: &TermNode) -> Result<usize, DagError> {
@@ -389,6 +413,7 @@ pub fn compute_term_id_with_limits(node: &TermNode, limits: DagLimits) -> Result
 pub struct TermDag {
     nodes: HashMap<TermId, TermNode>,
     depths: HashMap<TermId, usize>,
+    digests: HashMap<TermId, [u8; 32]>,
     total_payload_bytes: usize,
 }
 
@@ -413,6 +438,11 @@ impl TermDag {
         self.total_payload_bytes
     }
 
+    /// Full 32-byte preimage digest stored beside the truncated [`TermId`].
+    pub fn term_digest(&self, id: TermId) -> Option<[u8; 32]> {
+        self.digests.get(&id).copied()
+    }
+
     /// Interns a [`TermNode`], returning its content-addressed [`TermId`].
     /// Fails closed if any child [`TermId`] is not already present in the DAG.
     pub fn insert_node(&mut self, node: TermNode) -> Result<TermId, DagError> {
@@ -428,9 +458,9 @@ impl TermDag {
         validate_node_limits(&node, limits)?;
         self.validate_child_links(&node)?;
         let node_depth = self.prospective_node_depth(&node, limits)?;
-        let term_id = compute_term_id_unchecked(&node)?;
+        let (digest, term_id) = compute_term_identity_unchecked(&node)?;
         let payload_bytes = node_payload_bytes(&node)?;
-        self.intern_prehashed_node(node, term_id, node_depth, payload_bytes, limits)
+        self.intern_prehashed_node(node, term_id, digest, node_depth, payload_bytes, limits)
     }
 
     fn validate_child_links(&self, node: &TermNode) -> Result<(), DagError> {
@@ -503,15 +533,23 @@ impl TermDag {
         &mut self,
         node: TermNode,
         term_id: TermId,
+        digest: [u8; 32],
         node_depth: usize,
         payload_bytes: usize,
         limits: DagLimits,
     ) -> Result<TermId, DagError> {
-        if let Some(existing) = self.nodes.get(&term_id) {
-            if existing != &node {
+        if let Some(existing_digest) = self.digests.get(&term_id) {
+            let existing = self
+                .nodes
+                .get(&term_id)
+                .ok_or(DagError::UnknownId(term_id))?;
+            if existing_digest != &digest || existing != &node {
                 return Err(DagError::HashCollision(term_id));
             }
         } else {
+            if self.nodes.contains_key(&term_id) {
+                return Err(DagError::HashCollision(term_id));
+            }
             if self.nodes.len() >= limits.max_nodes {
                 return Err(DagError::NodeLimitExceeded(limits.max_nodes));
             }
@@ -527,8 +565,12 @@ impl TermDag {
             self.depths
                 .try_reserve(1)
                 .map_err(|_| DagError::AllocationFailure)?;
+            self.digests
+                .try_reserve(1)
+                .map_err(|_| DagError::AllocationFailure)?;
             self.nodes.insert(term_id, node);
             self.depths.insert(term_id, node_depth);
+            self.digests.insert(term_id, digest);
             self.total_payload_bytes = next_total_payload;
         }
         Ok(term_id)
@@ -553,6 +595,7 @@ impl TermDag {
                 for id in inserted.into_iter().rev() {
                     let node = self.nodes.remove(&id).ok_or(DagError::UnknownId(id))?;
                     self.depths.remove(&id).ok_or(DagError::UnknownId(id))?;
+                    self.digests.remove(&id).ok_or(DagError::UnknownId(id))?;
                     let payload_bytes = node_payload_bytes(&node)?;
                     self.total_payload_bytes = self
                         .total_payload_bytes
@@ -625,7 +668,7 @@ impl TermDag {
         validate_node_limits(&node, limits)?;
         self.validate_child_links(&node)?;
         let node_depth = self.prospective_node_depth(&node, limits)?;
-        let expected_id = compute_term_id_unchecked(&node)?;
+        let (digest, expected_id) = compute_term_identity_unchecked(&node)?;
         let payload_bytes = node_payload_bytes(&node)?;
         let is_new = !self.nodes.contains_key(&expected_id);
         if is_new {
@@ -633,8 +676,14 @@ impl TermDag {
                 .try_reserve(1)
                 .map_err(|_| DagError::AllocationFailure)?;
         }
-        let actual_id =
-            self.intern_prehashed_node(node, expected_id, node_depth, payload_bytes, limits)?;
+        let actual_id = self.intern_prehashed_node(
+            node,
+            expected_id,
+            digest,
+            node_depth,
+            payload_bytes,
+            limits,
+        )?;
         if is_new {
             inserted.push(actual_id);
         }
@@ -972,6 +1021,39 @@ mod tests {
 
         assert_eq!(x_id1, x_id2);
         assert_eq!(y_id1, y_id2);
+    }
+
+    #[test]
+    fn interned_term_id_is_confirmed_by_full_preimage_digest() {
+        let mut dag = TermDag::new();
+        let x = dag.insert_node(TermNode::Sym(Symbol::new("x"))).unwrap();
+        let y = dag.insert_node(TermNode::Sym(Symbol::new("y"))).unwrap();
+        let x_again = dag.insert_node(TermNode::Sym(Symbol::new("x"))).unwrap();
+
+        let digest_x = dag.term_digest(x).expect("interned terms store a digest");
+        let digest_y = dag.term_digest(y).expect("interned terms store a digest");
+        assert_eq!(x, x_again);
+        assert_eq!(digest_x, dag.term_digest(x_again).unwrap());
+        assert_ne!(digest_x, digest_y);
+        assert_eq!(
+            x.raw(),
+            u64::from_le_bytes(digest_x[..8].try_into().unwrap())
+        );
+        assert_eq!(
+            digest_x,
+            compute_term_digest(&TermNode::Sym(Symbol::new("x"))).unwrap()
+        );
+
+        let colliding = TermNode::Sym(Symbol::new("y"));
+        let mut forged = digest_x;
+        forged[8] ^= 1;
+        let payload = node_payload_bytes(&colliding).unwrap();
+        assert_eq!(
+            dag.intern_prehashed_node(colliding, x, forged, 1, payload, DagLimits::default()),
+            Err(DagError::HashCollision(x))
+        );
+        assert_eq!(dag.term_digest(x), Some(digest_x));
+        assert_eq!(dag.get(x), Some(&TermNode::Sym(Symbol::new("x"))));
     }
 
     #[test]
