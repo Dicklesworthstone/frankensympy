@@ -54,6 +54,8 @@ pub enum TensorError {
     ComponentExpressionFanoutLimitExceeded { actual: usize },
     #[error("Tensor operation could not reserve storage for {requested} work items")]
     AllocationFailure { requested: usize },
+    #[error("Diagonal metric entry at index {index} is zero and cannot be inverted")]
+    ZeroDiagonalMetricEntry { index: usize },
     #[error(transparent)]
     Simplification(#[from] SimplifyError),
 }
@@ -577,9 +579,20 @@ impl MetricTensor {
         Self::diagonal(name, diag)
     }
 
-    /// Creates a diagonal metric from the given diagonal elements.
+    /// Creates a diagonal metric from the given nonzero diagonal elements.
+    ///
+    /// Exact integer and rational zero entries are refused before matrix storage is allocated or
+    /// a reciprocal is constructed. Symbolic entries retain a formal inverse because their
+    /// invertibility is not known at this layer.
     pub fn diagonal(name: impl Into<String>, diag_entries: Vec<Expr>) -> Result<Self, TensorError> {
         let dim = diag_entries.len();
+        if let Some((index, _)) = diag_entries
+            .iter()
+            .enumerate()
+            .find(|(_, entry)| entry.is_zero())
+        {
+            return Err(TensorError::ZeroDiagonalMetricEntry { index });
+        }
         let expected = dim
             .checked_mul(dim)
             .ok_or(TensorError::ComponentCountOverflow {
@@ -1139,6 +1152,50 @@ mod tests {
         assert_eq!(
             serde_json::from_value::<MetricTensor>(eta_wire).unwrap(),
             eta
+        );
+    }
+
+    #[test]
+    fn diagonal_metric_refuses_exact_zero_without_unwinding() {
+        for zero in [
+            Expr::from_i64(0),
+            Expr::Rational(BigRational::new(0.into(), 1.into())),
+        ] {
+            let result = std::panic::catch_unwind(|| {
+                MetricTensor::diagonal("singular", vec![Expr::from_i64(1), zero])
+            });
+            assert!(
+                result.is_ok(),
+                "exact-zero metric construction must not unwind"
+            );
+            if let Ok(result) = result {
+                assert_eq!(
+                    result,
+                    Err(TensorError::ZeroDiagonalMetricEntry { index: 1 })
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn diagonal_metric_inverts_nonunit_exact_entries() {
+        let metric = MetricTensor::diagonal(
+            "exact",
+            vec![
+                Expr::from_i64(2),
+                Expr::Rational(BigRational::new(2.into(), 3.into())),
+            ],
+        )
+        .expect("nonzero exact diagonal entries are invertible");
+
+        assert_eq!(
+            metric.inverse,
+            vec![
+                Expr::Rational(BigRational::new(1.into(), 2.into())),
+                Expr::from_i64(0),
+                Expr::from_i64(0),
+                Expr::Rational(BigRational::new(3.into(), 2.into())),
+            ]
         );
     }
 }

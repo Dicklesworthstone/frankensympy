@@ -6,7 +6,7 @@
 #![forbid(unsafe_code)]
 
 use fsym_core::{Expr, Symbol};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 /// Strongly typed representation of a binder construct.
@@ -228,43 +228,42 @@ fn expr_to_de_bruijn(expr: &Expr, scope: &mut Vec<Symbol>) -> DeBruijnExpr {
             Box::new(expr_to_de_bruijn(e, scope)),
         ),
         Expr::Function(name, args) => {
-            if name == "Lambda"
-                && args.len() == 2
-                && let Expr::Sym(param) = &args[0]
-            {
-                scope.push(param.clone());
-                let body_db = expr_to_de_bruijn(&args[1], scope);
-                scope.pop();
-                return DeBruijnExpr::Binder("Lambda".into(), Box::new(body_db));
+            if let Some(binder) = BinderNode::try_from_expr(expr) {
+                match binder {
+                    BinderNode::Lambda { param, body } => {
+                        scope.push(param);
+                        let body_db = expr_to_de_bruijn(&body, scope);
+                        scope.pop();
+                        return DeBruijnExpr::Binder("Lambda".into(), Box::new(body_db));
+                    }
+                    BinderNode::Integral { var, body, limits } => {
+                        scope.push(var);
+                        let body_db = expr_to_de_bruijn(&body, scope);
+                        scope.pop();
+                        if let Some((lower, upper)) = limits {
+                            let lower_db = expr_to_de_bruijn(&lower, scope);
+                            let upper_db = expr_to_de_bruijn(&upper, scope);
+                            return DeBruijnExpr::Function(
+                                "Integral".into(),
+                                vec![body_db, lower_db, upper_db],
+                            );
+                        } else {
+                            return DeBruijnExpr::Binder("Integral".into(), Box::new(body_db));
+                        }
+                    }
+                    BinderNode::Derivative { var, body } => {
+                        scope.push(var);
+                        let body_db = expr_to_de_bruijn(&body, scope);
+                        scope.pop();
+                        return DeBruijnExpr::Binder("Derivative".into(), Box::new(body_db));
+                    }
+                }
             }
             DeBruijnExpr::Function(
                 name.clone(),
                 args.iter().map(|a| expr_to_de_bruijn(a, scope)).collect(),
             )
         }
-    }
-}
-
-/// Identifies binder function semantics.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BinderKind {
-    /// Lambda(var, body): binds `var` inside `body`.
-    Lambda,
-    /// Integral(body, var): binds `var` inside `body`.
-    Integral,
-    /// Derivative(body, var): binds `var` inside `body`.
-    Derivative,
-}
-
-fn classify_binder(name: &str, args_len: usize) -> Option<BinderKind> {
-    if name == "Lambda" && args_len == 2 {
-        Some(BinderKind::Lambda)
-    } else if name == "Integral" && args_len >= 2 {
-        Some(BinderKind::Integral)
-    } else if name == "Derivative" && args_len == 2 {
-        Some(BinderKind::Derivative)
-    } else {
-        None
     }
 }
 
@@ -296,46 +295,23 @@ fn collect_free_symbols(
             collect_free_symbols(b, bound_scope, free);
             collect_free_symbols(e, bound_scope, free);
         }
-        Expr::Function(name, args) => {
-            if let Some(kind) = classify_binder(name, args.len()) {
-                match kind {
-                    BinderKind::Lambda => {
-                        // Lambda(var, body)
-                        if let Expr::Sym(var) = &args[0] {
-                            let newly_bound = bound_scope.insert(var.clone());
-                            collect_free_symbols(&args[1], bound_scope, free);
-                            if newly_bound {
-                                bound_scope.remove(var);
-                            }
-                            return;
-                        }
-                    }
-                    BinderKind::Integral => {
-                        // Integral(body, var, ...)
-                        if let Expr::Sym(var) = &args[1] {
-                            let newly_bound = bound_scope.insert(var.clone());
-                            collect_free_symbols(&args[0], bound_scope, free);
-                            if newly_bound {
-                                bound_scope.remove(var);
-                            }
-                            for limit in args.iter().skip(2) {
-                                collect_free_symbols(limit, bound_scope, free);
-                            }
-                            return;
-                        }
-                    }
-                    BinderKind::Derivative => {
-                        // Derivative(body, var)
-                        if let Expr::Sym(var) = &args[1] {
-                            let newly_bound = bound_scope.insert(var.clone());
-                            collect_free_symbols(&args[0], bound_scope, free);
-                            if newly_bound {
-                                bound_scope.remove(var);
-                            }
-                            return;
-                        }
-                    }
+        Expr::Function(_, args) => {
+            if let Some(binder) = BinderNode::try_from_expr(expr) {
+                let var = binder.bound_variable();
+                let newly_bound = bound_scope.insert(var.clone());
+                collect_free_symbols(binder.body(), bound_scope, free);
+                if newly_bound {
+                    bound_scope.remove(var);
                 }
+                if let BinderNode::Integral {
+                    limits: Some((lower, upper)),
+                    ..
+                } = binder
+                {
+                    collect_free_symbols(&lower, bound_scope, free);
+                    collect_free_symbols(&upper, bound_scope, free);
+                }
+                return;
             }
 
             for arg in args {
@@ -364,115 +340,7 @@ pub fn fresh_symbol(base: &str, avoid: &BTreeSet<Symbol>) -> Symbol {
 
 /// Tests structural equivalence under alpha-renaming of bound variables.
 pub fn alpha_equivalent(a: &Expr, b: &Expr) -> bool {
-    let mut a_to_b = BTreeMap::new();
-    let mut b_to_a = BTreeMap::new();
-    alpha_equiv_helper(a, b, &mut a_to_b, &mut b_to_a)
-}
-
-fn alpha_equiv_helper(
-    a: &Expr,
-    b: &Expr,
-    a_to_b: &mut BTreeMap<Symbol, Symbol>,
-    b_to_a: &mut BTreeMap<Symbol, Symbol>,
-) -> bool {
-    match (a, b) {
-        (Expr::Sym(s1), Expr::Sym(s2)) => {
-            if let Some(mapped) = a_to_b.get(s1) {
-                mapped == s2
-            } else if b_to_a.contains_key(s2) {
-                false
-            } else {
-                s1 == s2
-            }
-        }
-        (Expr::Integer(n1), Expr::Integer(n2)) => n1 == n2,
-        (Expr::Rational(q1), Expr::Rational(q2)) => q1 == q2,
-        (Expr::Const(c1), Expr::Const(c2)) => c1 == c2,
-        (Expr::Add(args1), Expr::Add(args2)) | (Expr::Mul(args1), Expr::Mul(args2)) => {
-            args1.len() == args2.len()
-                && args1
-                    .iter()
-                    .zip(args2.iter())
-                    .all(|(e1, e2)| alpha_equiv_helper(e1, e2, a_to_b, b_to_a))
-        }
-        (Expr::Pow(b1, e1), Expr::Pow(b2, e2)) => {
-            alpha_equiv_helper(b1, b2, a_to_b, b_to_a) && alpha_equiv_helper(e1, e2, a_to_b, b_to_a)
-        }
-        (Expr::Function(n1, a1), Expr::Function(n2, a2)) => {
-            if n1 != n2 || a1.len() != a2.len() {
-                return false;
-            }
-
-            if let (Some(k1), Some(k2)) =
-                (classify_binder(n1, a1.len()), classify_binder(n2, a2.len()))
-                && k1 == k2
-            {
-                match k1 {
-                    BinderKind::Lambda => {
-                        if let (Expr::Sym(v1), Expr::Sym(v2)) = (&a1[0], &a2[0]) {
-                            let old_ab = a_to_b.insert(v1.clone(), v2.clone());
-                            let old_ba = b_to_a.insert(v2.clone(), v1.clone());
-                            let body_eq = alpha_equiv_helper(&a1[1], &a2[1], a_to_b, b_to_a);
-                            match old_ab {
-                                Some(prev) => {
-                                    a_to_b.insert(v1.clone(), prev);
-                                }
-                                None => {
-                                    a_to_b.remove(v1);
-                                }
-                            }
-                            match old_ba {
-                                Some(prev) => {
-                                    b_to_a.insert(v2.clone(), prev);
-                                }
-                                None => {
-                                    b_to_a.remove(v2);
-                                }
-                            }
-                            return body_eq;
-                        }
-                    }
-                    BinderKind::Integral | BinderKind::Derivative => {
-                        if let (Expr::Sym(v1), Expr::Sym(v2)) = (&a1[1], &a2[1]) {
-                            let old_ab = a_to_b.insert(v1.clone(), v2.clone());
-                            let old_ba = b_to_a.insert(v2.clone(), v1.clone());
-                            let body_eq = alpha_equiv_helper(&a1[0], &a2[0], a_to_b, b_to_a);
-                            match old_ab {
-                                Some(prev) => {
-                                    a_to_b.insert(v1.clone(), prev);
-                                }
-                                None => {
-                                    a_to_b.remove(v1);
-                                }
-                            }
-                            match old_ba {
-                                Some(prev) => {
-                                    b_to_a.insert(v2.clone(), prev);
-                                }
-                                None => {
-                                    b_to_a.remove(v2);
-                                }
-                            }
-                            if !body_eq {
-                                return false;
-                            }
-                            for (l1, l2) in a1.iter().skip(2).zip(a2.iter().skip(2)) {
-                                if !alpha_equiv_helper(l1, l2, a_to_b, b_to_a) {
-                                    return false;
-                                }
-                            }
-                            return true;
-                        }
-                    }
-                }
-            }
-
-            a1.iter()
-                .zip(a2.iter())
-                .all(|(e1, e2)| alpha_equiv_helper(e1, e2, a_to_b, b_to_a))
-        }
-        _ => false,
-    }
+    to_de_bruijn(a) == to_de_bruijn(b)
 }
 
 /// Performs capture-avoiding substitution: replaces occurrences of `target` with `replacement` in `expr`.
@@ -510,84 +378,54 @@ fn subs_internal(
             Arc::new(subs_internal(e, target, replacement, repl_free)),
         ),
         Expr::Function(name, args) => {
-            if let Some(kind) = classify_binder(name, args.len()) {
-                match kind {
-                    BinderKind::Lambda => {
-                        if let Expr::Sym(bound_var) = &args[0] {
-                            if bound_var == target {
-                                return expr.clone(); // Shadowed
-                            }
-                            if repl_free.contains(bound_var) {
-                                // Variable capture would occur: rename bound variable
-                                let mut avoid = free_symbols(&args[1]);
-                                avoid.extend(repl_free.iter().cloned());
-                                avoid.insert(target.clone());
-                                let fresh = fresh_symbol(&bound_var.name, &avoid);
-                                let renamed_body = subs_internal(
-                                    &args[1],
-                                    bound_var,
-                                    &Expr::Sym(fresh.clone()),
-                                    &BTreeSet::new(),
-                                );
-                                let new_body =
-                                    subs_internal(&renamed_body, target, replacement, repl_free);
-                                return Expr::Function(
-                                    name.clone(),
-                                    vec![Expr::Sym(fresh), new_body],
-                                );
-                            } else {
-                                let new_body =
-                                    subs_internal(&args[1], target, replacement, repl_free);
-                                return Expr::Function(
-                                    name.clone(),
-                                    vec![args[0].clone(), new_body],
-                                );
-                            }
+            if let Some(binder) = BinderNode::try_from_expr(expr) {
+                let bound_var = binder.bound_variable();
+                if bound_var == target {
+                    return expr.clone(); // Shadowed
+                }
+                let body = binder.body();
+                let (new_bound_var, new_body) = if repl_free.contains(bound_var) {
+                    let mut avoid = free_symbols(body);
+                    avoid.extend(repl_free.iter().cloned());
+                    avoid.insert(target.clone());
+                    let fresh = fresh_symbol(&bound_var.name, &avoid);
+                    let renamed_body =
+                        subs_internal(body, bound_var, &Expr::Sym(fresh.clone()), &BTreeSet::new());
+                    let new_body = subs_internal(&renamed_body, target, replacement, repl_free);
+                    (fresh, new_body)
+                } else {
+                    let new_body = subs_internal(body, target, replacement, repl_free);
+                    (bound_var.clone(), new_body)
+                };
+
+                match binder {
+                    BinderNode::Lambda { .. } => {
+                        return BinderNode::Lambda {
+                            param: new_bound_var,
+                            body: Box::new(new_body),
                         }
+                        .to_expr();
                     }
-                    BinderKind::Integral | BinderKind::Derivative => {
-                        if let Expr::Sym(bound_var) = &args[1] {
-                            if bound_var == target {
-                                return expr.clone(); // Shadowed
-                            }
-                            if repl_free.contains(bound_var) {
-                                let mut avoid = free_symbols(&args[0]);
-                                avoid.extend(repl_free.iter().cloned());
-                                avoid.insert(target.clone());
-                                let fresh = fresh_symbol(&bound_var.name, &avoid);
-                                let renamed_body = subs_internal(
-                                    &args[0],
-                                    bound_var,
-                                    &Expr::Sym(fresh.clone()),
-                                    &BTreeSet::new(),
-                                );
-                                let new_body =
-                                    subs_internal(&renamed_body, target, replacement, repl_free);
-                                let mut new_args = vec![new_body, Expr::Sym(fresh)];
-                                for limit in args.iter().skip(2) {
-                                    new_args.push(subs_internal(
-                                        limit,
-                                        target,
-                                        replacement,
-                                        repl_free,
-                                    ));
-                                }
-                                return Expr::Function(name.clone(), new_args);
-                            } else {
-                                let new_body =
-                                    subs_internal(&args[0], target, replacement, repl_free);
-                                let mut new_args = vec![new_body, args[1].clone()];
-                                for limit in args.iter().skip(2) {
-                                    new_args.push(subs_internal(
-                                        limit,
-                                        target,
-                                        replacement,
-                                        repl_free,
-                                    ));
-                                }
-                                return Expr::Function(name.clone(), new_args);
-                            }
+                    BinderNode::Derivative { .. } => {
+                        return BinderNode::Derivative {
+                            var: new_bound_var,
+                            body: Box::new(new_body),
                         }
+                        .to_expr();
+                    }
+                    BinderNode::Integral { limits, .. } => {
+                        let new_limits = limits.map(|(lower, upper)| {
+                            (
+                                Box::new(subs_internal(&lower, target, replacement, repl_free)),
+                                Box::new(subs_internal(&upper, target, replacement, repl_free)),
+                            )
+                        });
+                        return BinderNode::Integral {
+                            var: new_bound_var,
+                            body: Box::new(new_body),
+                            limits: new_limits,
+                        }
+                        .to_expr();
                     }
                 }
             }
@@ -972,5 +810,37 @@ mod tests {
         let parsed_deriv = BinderNode::try_from_expr(&deriv_expr).expect("valid derivative");
         assert_eq!(parsed_deriv, deriv1);
         assert_eq!(parsed_deriv.free_symbols().len(), 0);
+    }
+
+    #[test]
+    fn alpha_equivalent_rejects_inner_binder_shadowing_outer_free() {
+        // Audit counterexample: `Lambda(x, Lambda(y, x))` returns the outer x
+        // (depends on the captured free variable). `Lambda(a, Lambda(a, a))`
+        // shadows its parameter and returns the constant a. They are NOT
+        // alpha-equivalent because shadowing the captured symbol changes
+        // meaning, but `alpha_equivalent` currently returns `true` because
+        // `alpha_equiv_helper` blindly overwrites the b_to_a entry when
+        // entering the inner Lambda scope (line 393) instead of detecting
+        // that `a` was already claimed by the outer `x -> a` mapping.
+        let outer_dependent = BinderNode::lambda(
+            Symbol::new("x"),
+            Expr::Function("Lambda".into(), vec![Expr::symbol("y"), Expr::symbol("x")]),
+        );
+        let inner_shadow = BinderNode::lambda(
+            Symbol::new("a"),
+            Expr::Function("Lambda".into(), vec![Expr::symbol("a"), Expr::symbol("a")]),
+        );
+        assert!(
+            !outer_dependent.is_alpha_equivalent(&inner_shadow),
+            "shadowing inner binder that captures an outer free symbol must \
+             not be alpha-equivalent to the non-shadowing version"
+        );
+
+        // Regression: a true alpha renaming must still be reported equivalent.
+        let renamed = BinderNode::lambda(
+            Symbol::new("b"),
+            Expr::Function("Lambda".into(), vec![Expr::symbol("a"), Expr::symbol("b")]),
+        );
+        assert!(outer_dependent.is_alpha_equivalent(&renamed));
     }
 }

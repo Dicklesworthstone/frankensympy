@@ -20,11 +20,13 @@ pub mod ball;
 pub mod canonical;
 pub mod dag;
 mod parser;
+pub mod sort;
 
 pub use algebraic::*;
 pub use ball::*;
 pub use dag::*;
 pub use parser::parse;
+pub use sort::*;
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum CoreError {
