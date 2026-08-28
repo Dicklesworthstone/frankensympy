@@ -197,6 +197,17 @@ pub enum DeBruijnExpr {
     Function(String, Vec<DeBruijnExpr>),
     /// Scoped binder (e.g. Lambda) with body in which index 0 refers to this binder.
     Binder(String, Box<DeBruijnExpr>),
+    /// Scoped binder whose additional arguments are evaluated outside its scope.
+    ///
+    /// Definite-integral limits use this form: index 0 is bound only in `body`,
+    /// while `arguments` retain the surrounding scope. Keeping a distinct node
+    /// prevents a genuine binder from colliding with an opaque function that
+    /// happens to use the same printed name and arity.
+    BinderWithArguments {
+        name: String,
+        body: Box<DeBruijnExpr>,
+        arguments: Vec<DeBruijnExpr>,
+    },
 }
 
 /// Converts an expression into canonical De Bruijn indexed form.
@@ -243,10 +254,11 @@ fn expr_to_de_bruijn(expr: &Expr, scope: &mut Vec<Symbol>) -> DeBruijnExpr {
                         if let Some((lower, upper)) = limits {
                             let lower_db = expr_to_de_bruijn(&lower, scope);
                             let upper_db = expr_to_de_bruijn(&upper, scope);
-                            return DeBruijnExpr::Function(
-                                "Integral".into(),
-                                vec![body_db, lower_db, upper_db],
-                            );
+                            return DeBruijnExpr::BinderWithArguments {
+                                name: "Integral".into(),
+                                body: Box::new(body_db),
+                                arguments: vec![lower_db, upper_db],
+                            };
                         } else {
                             return DeBruijnExpr::Binder("Integral".into(), Box::new(body_db));
                         }
@@ -273,6 +285,34 @@ pub fn free_symbols(expr: &Expr) -> BTreeSet<Symbol> {
     let mut bound_scope = BTreeSet::new();
     collect_free_symbols(expr, &mut bound_scope, &mut free);
     free
+}
+
+/// Extracts every symbol appearing in an expression, including binder declarations.
+///
+/// Capture-avoiding freshening uses this stricter set because choosing an existing
+/// inner binder name can change which declaration a renamed occurrence refers to.
+fn all_symbols(expr: &Expr) -> BTreeSet<Symbol> {
+    let mut symbols = BTreeSet::new();
+    collect_all_symbols(expr, &mut symbols);
+    symbols
+}
+
+fn collect_all_symbols(expr: &Expr, symbols: &mut BTreeSet<Symbol>) {
+    match expr {
+        Expr::Sym(symbol) => {
+            symbols.insert(symbol.clone());
+        }
+        Expr::Add(args) | Expr::Mul(args) | Expr::Function(_, args) => {
+            for arg in args {
+                collect_all_symbols(arg, symbols);
+            }
+        }
+        Expr::Pow(base, exponent) => {
+            collect_all_symbols(base, symbols);
+            collect_all_symbols(exponent, symbols);
+        }
+        Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_) => {}
+    }
 }
 
 fn collect_free_symbols(
@@ -379,23 +419,47 @@ fn subs_internal(
         ),
         Expr::Function(name, args) => {
             if let Some(binder) = BinderNode::try_from_expr(expr) {
-                let bound_var = binder.bound_variable();
-                if bound_var == target {
-                    return expr.clone(); // Shadowed
+                let bound_var = binder.bound_variable().clone();
+                if &bound_var == target {
+                    // The declaration shadows `target` only in its body. Definite
+                    // integral limits remain in the surrounding scope and must
+                    // still receive the substitution.
+                    return match binder {
+                        BinderNode::Integral {
+                            var,
+                            body,
+                            limits: Some((lower, upper)),
+                        } => BinderNode::Integral {
+                            var,
+                            body,
+                            limits: Some((
+                                Box::new(subs_internal(&lower, target, replacement, repl_free)),
+                                Box::new(subs_internal(&upper, target, replacement, repl_free)),
+                            )),
+                        }
+                        .to_expr(),
+                        BinderNode::Lambda { .. }
+                        | BinderNode::Integral { limits: None, .. }
+                        | BinderNode::Derivative { .. } => expr.clone(),
+                    };
                 }
                 let body = binder.body();
-                let (new_bound_var, new_body) = if repl_free.contains(bound_var) {
-                    let mut avoid = free_symbols(body);
+                let target_occurs_in_body = free_symbols(body).contains(target);
+                let (new_bound_var, new_body) = if !target_occurs_in_body {
+                    (bound_var.clone(), body.clone())
+                } else if repl_free.contains(&bound_var) {
+                    let mut avoid = all_symbols(body);
                     avoid.extend(repl_free.iter().cloned());
                     avoid.insert(target.clone());
                     let fresh = fresh_symbol(&bound_var.name, &avoid);
+                    let fresh_free = BTreeSet::from([fresh.clone()]);
                     let renamed_body =
-                        subs_internal(body, bound_var, &Expr::Sym(fresh.clone()), &BTreeSet::new());
+                        subs_internal(body, &bound_var, &Expr::Sym(fresh.clone()), &fresh_free);
                     let new_body = subs_internal(&renamed_body, target, replacement, repl_free);
                     (fresh, new_body)
                 } else {
                     let new_body = subs_internal(body, target, replacement, repl_free);
-                    (bound_var.clone(), new_body)
+                    (bound_var, new_body)
                 };
 
                 match binder {
@@ -548,6 +612,102 @@ mod tests {
         let db1 = to_de_bruijn(&l1);
         let db2 = to_de_bruijn(&l2);
         assert_eq!(db1, db2);
+    }
+
+    #[test]
+    fn definite_integral_de_bruijn_form_retains_its_scope_boundary() {
+        let genuine = BinderNode::lambda(
+            Symbol::new("x"),
+            BinderNode::definite_integral(
+                Symbol::new("y"),
+                Expr::symbol("y"),
+                Expr::from_i64(0),
+                Expr::from_i64(1),
+            )
+            .to_expr(),
+        );
+        let opaque = BinderNode::lambda(
+            Symbol::new("x"),
+            Expr::Function(
+                "Integral".into(),
+                vec![Expr::symbol("x"), Expr::from_i64(0), Expr::from_i64(1)],
+            ),
+        );
+
+        assert!(!genuine.is_alpha_equivalent(&opaque));
+
+        let renamed = BinderNode::lambda(
+            Symbol::new("a"),
+            BinderNode::definite_integral(
+                Symbol::new("b"),
+                Expr::symbol("b"),
+                Expr::from_i64(0),
+                Expr::from_i64(1),
+            )
+            .to_expr(),
+        );
+        assert!(genuine.is_alpha_equivalent(&renamed));
+    }
+
+    #[test]
+    fn absent_substitution_target_does_not_rename_nested_binders() {
+        let expr = BinderNode::lambda(
+            Symbol::new("x"),
+            BinderNode::lambda(Symbol::new("x_1"), Expr::symbol("x")).to_expr(),
+        )
+        .to_expr();
+
+        let substituted = capture_avoiding_subs(&expr, &Symbol::new("y"), &Expr::symbol("x"));
+
+        assert_eq!(substituted, expr);
+    }
+
+    #[test]
+    fn freshening_avoids_names_declared_by_nested_binders() {
+        let expr = BinderNode::lambda(
+            Symbol::new("x"),
+            BinderNode::lambda(
+                Symbol::new("x_1"),
+                Expr::Add(vec![Expr::symbol("y"), Expr::symbol("x")]),
+            )
+            .to_expr(),
+        )
+        .to_expr();
+
+        let substituted = capture_avoiding_subs(&expr, &Symbol::new("y"), &Expr::symbol("x"));
+        let expected = BinderNode::lambda(
+            Symbol::new("x_2"),
+            BinderNode::lambda(
+                Symbol::new("x_1"),
+                Expr::Add(vec![Expr::symbol("x"), Expr::symbol("x_2")]),
+            )
+            .to_expr(),
+        )
+        .to_expr();
+
+        assert_eq!(substituted, expected);
+    }
+
+    #[test]
+    fn shadowing_integral_binder_does_not_shadow_its_limits() {
+        let expr = BinderNode::definite_integral(
+            Symbol::new("x"),
+            Expr::symbol("x"),
+            Expr::from_i64(0),
+            Expr::symbol("x"),
+        )
+        .to_expr();
+
+        let substituted = capture_avoiding_subs(&expr, &Symbol::new("x"), &Expr::from_i64(1));
+        let expected = BinderNode::definite_integral(
+            Symbol::new("x"),
+            Expr::symbol("x"),
+            Expr::from_i64(0),
+            Expr::from_i64(1),
+        )
+        .to_expr();
+
+        assert_eq!(substituted, expected);
     }
 
     #[test]
