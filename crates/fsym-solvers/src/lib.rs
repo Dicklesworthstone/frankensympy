@@ -516,16 +516,47 @@ pub fn solve_quadratic(expr: &Expr, var: &Symbol) -> Result<Vec<Expr>, SolverErr
     ]);
     Ok(vec![r1, r2])
 }
-
 /// Generic univariate solver for `expr = 0` with respect to `var`.
 ///
-/// Automatically attempts linear and quadratic solution lanes.
+/// Dispatches in order:
+/// 1. linear lane (`a*var + b = 0`);
+/// 2. quadratic lane (`a*var^2 + b*var + c = 0`, exact or symbolic radical);
+/// 3. higher-degree polynomial lane via bounded rational-root factorization,
+///    which only succeeds when the polynomial factors into components whose
+///    rational roots are recoverable. The lane is non-completeness-honest:
+///    irreducible factors (e.g. `x^2 + x + 1`) intentionally remain unsolved
+///    and surface as [`SolverError::UnsupportedDegree`].
+///
+/// `NonLinear` is reserved for expressions the polynomial encoder cannot
+/// admit (transcendental functions, non-integer powers, unbounded shape).
 pub fn solve(expr: &Expr, var: &Symbol) -> Result<Vec<Expr>, SolverError> {
     match solve_linear(expr, var) {
         Ok(root) => Ok(vec![root]),
-        Err(SolverError::NonLinear) => solve_quadratic(expr, var),
+        Err(SolverError::NonLinear) => match solve_quadratic(expr, var) {
+            Ok(roots) => Ok(roots),
+            Err(SolverError::NonLinear) => solve_higher_degree(expr, var),
+            Err(e) => Err(e),
+        },
         Err(e) => Err(e),
     }
+}
+
+/// Try the bounded-rational-root factorization lane for a univariate
+/// polynomial that the linear/quadratic lanes have rejected. Fails closed
+/// with [`SolverError::UnsupportedDegree`] when the polynomial either does
+/// not encode as a univariate polynomial, or factors into components whose
+/// rational roots cannot be recovered.
+fn solve_higher_degree(expr: &Expr, var: &Symbol) -> Result<Vec<Expr>, SolverError> {
+    let poly = UnivariatePoly::from_expr(expr, var).map_err(|error| {
+        // Non-polynomial expressions (transcendental, non-integer powers,
+        // mixed generators) deliberately stay in the explicit `NonLinear`
+        // contract lane rather than masquerading as degree failure.
+        match error {
+            fsym_polys::PolyError::NonPolynomialExpression(_) => SolverError::NonLinear,
+            other => SolverError::InvalidSystem(other.to_string()),
+        }
+    })?;
+    solve_poly(&poly)
 }
 
 #[cfg(test)]
@@ -1076,12 +1107,46 @@ mod tests {
         ]);
         let rep_roots = solve(&eq_repeated, &x).unwrap();
         assert_eq!(rep_roots, vec![Expr::from_i64(4)]);
+        // Test non-linear rejection: the encoder refuses transcendental
+        // function calls (sin(x)) that the polynomial lane cannot admit.
+        let s = Expr::Function("sin".into(), vec![Expr::Sym(x.clone())]);
+        assert_eq!(solve(&s, &x), Err(SolverError::NonLinear));
 
-        // Test non-linear rejection for degree 3: x^3 - 1
+        // Test bounded higher-degree dispatch: x^3 - 1 factors as
+        // (x - 1)(x^2 + x + 1); the rational linear factor is recovered by
+        // bounded rational-root search and the remaining quadratic
+        // (discriminant -3 < 0) is solved via the existing symbolic
+        // quadratic lane, yielding 3 roots (1 real, 2 complex).
         let eq_cubic = Expr::Add(vec![
             Expr::Pow(Arc::new(Expr::Sym(x.clone())), Arc::new(Expr::from_i64(3))),
             Expr::from_i64(-1),
         ]);
-        assert_eq!(solve(&eq_cubic, &x), Err(SolverError::NonLinear));
+        let cubic_roots = solve(&eq_cubic, &x).unwrap();
+        assert_eq!(cubic_roots.len(), 3);
+        // The unique real root of x^3 - 1 is exactly 1.
+        assert!(cubic_roots.contains(&Expr::from_i64(1)));
+
+        // Test the higher-degree path solves a fully reducible cubic:
+        // x^3 - 6x^2 + 11x - 6 = (x - 1)(x - 2)(x - 3) -> {1, 2, 3}.
+        let eq_cubic_factorable = Expr::Add(vec![
+            Expr::Pow(Arc::new(Expr::Sym(x.clone())), Arc::new(Expr::from_i64(3))),
+            Expr::Mul(vec![
+                Expr::from_i64(-6),
+                Expr::Pow(Arc::new(Expr::Sym(x.clone())), Arc::new(Expr::from_i64(2))),
+            ]),
+            Expr::Mul(vec![Expr::from_i64(11), Expr::Sym(x.clone())]),
+            Expr::from_i64(-6),
+        ]);
+        let factorable_roots = solve(&eq_cubic_factorable, &x).unwrap();
+        let root_ints: Vec<i64> = factorable_roots
+            .iter()
+            .map(|r| match r {
+                Expr::Integer(n) => n.to_i64().expect("cubic root is small"),
+                other => panic!("unexpected non-integer cubic root: {other:?}"),
+            })
+            .collect();
+        let mut sorted = root_ints.clone();
+        sorted.sort_unstable();
+        assert_eq!(sorted, vec![1, 2, 3]);
     }
 }
