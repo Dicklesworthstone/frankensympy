@@ -159,17 +159,17 @@ fn preflight_numeric_wire(buf: &[u8]) -> Result<NumericWire<'_>, CoreError> {
 
 fn decode_numeric_with(
     buf: &[u8],
-    mut materialize_integer: impl FnMut(bool, &[u8]) -> BigInt,
+    mut materialize_integer: impl FnMut(bool, &[u8]) -> Result<BigInt, CoreError>,
 ) -> Result<crate::Expr, CoreError> {
     let wire = preflight_numeric_wire(buf)?;
     match wire {
         NumericWire::Integer(integer) => Ok(crate::Expr::Integer(materialize_integer(
             integer.negative,
             integer.magnitude_bytes,
-        ))),
+        )?)),
         NumericWire::Rational { numer, denom } => {
-            let numer = materialize_integer(numer.negative, numer.magnitude_bytes);
-            let denom = materialize_integer(denom.negative, denom.magnitude_bytes);
+            let numer = materialize_integer(numer.negative, numer.magnitude_bytes)?;
+            let denom = materialize_integer(denom.negative, denom.magnitude_bytes)?;
             let canonical = BigRational::new(numer.clone(), denom.clone());
             if canonical.numer() != &numer || canonical.denom() != &denom {
                 return Err(CoreError::InvalidOperation(
@@ -181,9 +181,10 @@ fn decode_numeric_with(
     }
 }
 
-fn materialize_integer(negative: bool, magnitude_bytes: &[u8]) -> BigInt {
-    let magnitude = BigInt::from_bytes_le(magnitude_bytes);
-    if negative { -magnitude } else { magnitude }
+fn materialize_integer(negative: bool, magnitude_bytes: &[u8]) -> Result<BigInt, CoreError> {
+    let magnitude = BigInt::try_from_bytes_le(magnitude_bytes)
+        .map_err(|error| CoreError::InvalidOperation(format!("canonical integer: {error}")))?;
+    Ok(if negative { -magnitude } else { magnitude })
 }
 
 impl crate::Expr {
@@ -264,7 +265,7 @@ mod tests {
         let materializations = Cell::new(0usize);
         let error = decode_numeric_with(buf, |_, _| {
             materializations.set(materializations.get() + 1);
-            BigInt::zero()
+            Ok(BigInt::zero())
         })
         .expect_err("malformed wire payload must be refused");
         assert!(

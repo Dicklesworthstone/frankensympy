@@ -128,6 +128,17 @@ fn admit_parsed_integer(value: BigInt) -> Result<BigInt, String> {
     Ok(value)
 }
 
+/// Maximum unsigned magnitude length a byte decoder will materialize.
+pub const MAX_DECODER_MAGNITUDE_BYTES: usize = MAX_SERDE_U32_DIGITS * std::mem::size_of::<u32>();
+
+fn preflight_magnitude_bytes(len: usize) -> Result<(), String> {
+    if len > MAX_DECODER_MAGNITUDE_BYTES {
+        Err(parser_magnitude_limit_error())
+    } else {
+        Ok(())
+    }
+}
+
 /// Magnitude size in u64 limbs (rounded up); zero for zero.
 #[inline]
 pub fn limb_count_u64(magnitude_bits: u64) -> u64 {
@@ -384,16 +395,38 @@ impl BigInt {
         self.0.magnitude().to_bytes_le()
     }
 
+    /// Constructs from little-endian unsigned magnitude bytes that already
+    /// passed an admission bound. Untrusted payloads must use
+    /// [`Self::try_from_bytes_le`].
     pub fn from_bytes_le(bytes: &[u8]) -> Self {
         Self(Substrate::from(BigUint::from_bytes_le(bytes)))
+    }
+
+    /// Fallible decoder for little-endian unsigned magnitude bytes.
+    ///
+    /// Oversize payloads are refused before the substrate materializes limbs.
+    pub fn try_from_bytes_le(bytes: &[u8]) -> Result<Self, String> {
+        preflight_magnitude_bytes(bytes.len())?;
+        admit_parsed_integer(Self(Substrate::from(BigUint::from_bytes_le(bytes))))
     }
 
     pub fn to_signed_bytes_be(&self) -> Vec<u8> {
         self.0.to_signed_bytes_be()
     }
 
+    /// Constructs from signed big-endian two's-complement bytes that already
+    /// passed an admission bound. Untrusted payloads must use
+    /// [`Self::try_from_signed_bytes_be`].
     pub fn from_signed_bytes_be(bytes: &[u8]) -> Self {
         Self(Substrate::from_signed_bytes_be(bytes))
+    }
+
+    /// Fallible decoder for signed big-endian two's-complement bytes.
+    ///
+    /// Oversize payloads are refused before the substrate materializes limbs.
+    pub fn try_from_signed_bytes_be(bytes: &[u8]) -> Result<Self, String> {
+        preflight_magnitude_bytes(bytes.len())?;
+        admit_parsed_integer(Self(Substrate::from_signed_bytes_be(bytes)))
     }
 
     /// Formats this integer in `radix`.
@@ -3656,6 +3689,35 @@ mod tests {
         assert_eq!(
             <BigInt as Num>::from_str_radix(&oversize, radix),
             Err(preflight_error)
+        );
+    }
+
+    #[test]
+    fn byte_decoders_refuse_oversize_payloads_before_substrate_parse() {
+        let at_limit = vec![0xff; MAX_DECODER_MAGNITUDE_BYTES];
+        let oversize = vec![0xff; MAX_DECODER_MAGNITUDE_BYTES + 1];
+
+        assert!(BigInt::try_from_bytes_le(&at_limit).is_ok());
+        let le_error = BigInt::try_from_bytes_le(&oversize)
+            .expect_err("oversize LE magnitude must be refused");
+        assert!(
+            le_error.contains(&MAX_SERDE_U32_DIGITS.to_string()),
+            "{le_error}"
+        );
+
+        assert!(BigInt::try_from_signed_bytes_be(&at_limit).is_ok());
+        let be_error = BigInt::try_from_signed_bytes_be(&oversize)
+            .expect_err("oversize signed BE payload must be refused");
+        assert_eq!(be_error, le_error);
+
+        assert_eq!(
+            preflight_magnitude_bytes(MAX_DECODER_MAGNITUDE_BYTES),
+            Ok(())
+        );
+        assert!(
+            preflight_magnitude_bytes(MAX_DECODER_MAGNITUDE_BYTES + 1)
+                .expect_err("limit plus one must be refused")
+                .contains(&MAX_SERDE_U32_DIGITS.to_string())
         );
     }
 
