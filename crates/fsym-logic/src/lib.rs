@@ -16,7 +16,7 @@ pub enum LogicError {
     UnassignedVariable(String),
     #[error("Truth table exceeds supported variable count: {0} > 20")]
     TableTooLarge(usize),
-    #[error("SAT solver resource limit exceeded for {resource}: {actual} > {limit}")]
+    #[error("Boolean logic resource limit exceeded for {resource}: {actual} > {limit}")]
     SolverLimitExceeded {
         resource: &'static str,
         actual: usize,
@@ -239,7 +239,9 @@ impl BoolExpr {
 
     /// Exhaustive truth table over the sorted variable set.
     ///
-    /// Fails with [`LogicError::TableTooLarge`] beyond 20 variables.
+    /// Fails with [`LogicError::TableTooLarge`] beyond 20 variables and with
+    /// [`LogicError::SolverLimitExceeded`] when the formula shape or the
+    /// worst-case evaluation work exceeds the native safety limits.
     pub fn truth_table(&self) -> Result<TruthTable, LogicError> {
         TruthTable::of(self)
     }
@@ -389,15 +391,32 @@ pub struct TruthRow {
 }
 
 impl TruthTable {
-    /// Build the table for `expr`, rejecting more than 20 variables.
+    /// Build the table for `expr`, rejecting structurally unsafe or excessive work.
     pub fn of(expr: &BoolExpr) -> Result<Self, LogicError> {
-        const MAX_VARS: usize = 20;
+        let formula_nodes = validate_formula_shape(expr)?;
         let vars = expr.variables();
-        if vars.len() > MAX_VARS {
+        if vars.len() > MAX_TRUTH_TABLE_VARIABLES {
             return Err(LogicError::TableTooLarge(vars.len()));
         }
-        let mut rows = Vec::with_capacity(1 << vars.len());
-        for mask in 0u32..(1u32 << vars.len()) {
+        let row_count = 1usize << vars.len();
+        let evaluation_work =
+            row_count
+                .checked_mul(formula_nodes)
+                .ok_or(LogicError::SolverLimitExceeded {
+                    resource: "truth-table evaluation work",
+                    actual: usize::MAX,
+                    limit: MAX_TRUTH_TABLE_EVALUATION_WORK,
+                })?;
+        if evaluation_work > MAX_TRUTH_TABLE_EVALUATION_WORK {
+            return Err(LogicError::SolverLimitExceeded {
+                resource: "truth-table evaluation work",
+                actual: evaluation_work,
+                limit: MAX_TRUTH_TABLE_EVALUATION_WORK,
+            });
+        }
+
+        let mut rows = Vec::with_capacity(row_count);
+        for mask in 0..row_count {
             let assignment: Vec<bool> = (0..vars.len()).map(|i| (mask >> i) & 1 == 1).collect();
             let env: HashMap<Symbol, bool> = vars
                 .iter()
@@ -421,23 +440,26 @@ impl TruthTable {
     }
 }
 
-const MAX_DPLL_DEPTH: usize = 256;
-const MAX_DPLL_FORMULA_NODES: usize = 65_536;
+const MAX_FORMULA_DEPTH: usize = 256;
+const MAX_FORMULA_NODES: usize = 65_536;
+const MAX_TRUTH_TABLE_VARIABLES: usize = 20;
+// Worst-case source-formula node visits across all assignments.
+const MAX_TRUTH_TABLE_EVALUATION_WORK: usize = 33_554_432;
 const MAX_DPLL_VARIABLES: usize = 256;
 const MAX_DPLL_CLAUSES: usize = 65_536;
 const MAX_DPLL_CLAUSE_LITERALS: usize = 65_536;
 const MAX_DPLL_SEARCH_WORK: usize = 16_777_216;
 
-fn validate_solver_input(expr: &BoolExpr) -> Result<(), LogicError> {
+fn validate_formula_shape(expr: &BoolExpr) -> Result<usize, LogicError> {
     let mut visited = 0usize;
     let mut stack = vec![(expr, 0usize)];
 
     while let Some((current, depth)) = stack.pop() {
-        if depth > MAX_DPLL_DEPTH {
+        if depth > MAX_FORMULA_DEPTH {
             return Err(LogicError::SolverLimitExceeded {
                 resource: "formula depth",
                 actual: depth,
-                limit: MAX_DPLL_DEPTH,
+                limit: MAX_FORMULA_DEPTH,
             });
         }
         visited = visited
@@ -445,13 +467,13 @@ fn validate_solver_input(expr: &BoolExpr) -> Result<(), LogicError> {
             .ok_or(LogicError::SolverLimitExceeded {
                 resource: "formula nodes",
                 actual: usize::MAX,
-                limit: MAX_DPLL_FORMULA_NODES,
+                limit: MAX_FORMULA_NODES,
             })?;
-        if visited > MAX_DPLL_FORMULA_NODES {
+        if visited > MAX_FORMULA_NODES {
             return Err(LogicError::SolverLimitExceeded {
                 resource: "formula nodes",
                 actual: visited,
-                limit: MAX_DPLL_FORMULA_NODES,
+                limit: MAX_FORMULA_NODES,
             });
         }
 
@@ -467,13 +489,13 @@ fn validate_solver_input(expr: &BoolExpr) -> Result<(), LogicError> {
             .ok_or(LogicError::SolverLimitExceeded {
                 resource: "formula nodes",
                 actual: usize::MAX,
-                limit: MAX_DPLL_FORMULA_NODES,
+                limit: MAX_FORMULA_NODES,
             })?;
-        if admitted_nodes > MAX_DPLL_FORMULA_NODES {
+        if admitted_nodes > MAX_FORMULA_NODES {
             return Err(LogicError::SolverLimitExceeded {
                 resource: "formula nodes",
                 actual: admitted_nodes,
-                limit: MAX_DPLL_FORMULA_NODES,
+                limit: MAX_FORMULA_NODES,
             });
         }
 
@@ -485,7 +507,7 @@ fn validate_solver_input(expr: &BoolExpr) -> Result<(), LogicError> {
             .ok_or(LogicError::SolverLimitExceeded {
                 resource: "formula depth",
                 actual: usize::MAX,
-                limit: MAX_DPLL_DEPTH,
+                limit: MAX_FORMULA_DEPTH,
             })?;
         match current {
             BoolExpr::Not(inner) => stack.push((inner, child_depth)),
@@ -500,7 +522,7 @@ fn validate_solver_input(expr: &BoolExpr) -> Result<(), LogicError> {
         }
     }
 
-    Ok(())
+    Ok(visited)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -595,11 +617,11 @@ impl<'a> TseitinEncoder<'a> {
     }
 
     fn encode(&mut self, expr: &'a BoolExpr, depth: usize) -> Result<SatVar, LogicError> {
-        if depth > MAX_DPLL_DEPTH {
+        if depth > MAX_FORMULA_DEPTH {
             return Err(LogicError::SolverLimitExceeded {
                 resource: "formula depth",
                 actual: depth,
-                limit: MAX_DPLL_DEPTH,
+                limit: MAX_FORMULA_DEPTH,
             });
         }
         if let Some(&variable) = self.memo.get(expr) {
@@ -741,7 +763,7 @@ impl<'a> TseitinEncoder<'a> {
 /// established UNSAT result, and a typed error when the solver's structural
 /// or search-work limits refuse the input.
 pub fn dpll_satisfiable(expr: &BoolExpr) -> Result<Option<HashMap<Symbol, bool>>, LogicError> {
-    validate_solver_input(expr)?;
+    validate_formula_shape(expr)?;
     let mut encoder = TseitinEncoder::new();
     let root = encoder.encode(expr, 0)?;
     encoder.push_clause(vec![SatLiteral::positive(root)])?;
@@ -1036,6 +1058,36 @@ mod tests {
     }
 
     #[test]
+    fn truth_table_preflights_formula_depth_and_evaluation_work() {
+        let mut too_deep = BoolExpr::Const(true);
+        for _ in 0..=MAX_FORMULA_DEPTH {
+            too_deep = BoolExpr::Not(Box::new(too_deep));
+        }
+        assert!(matches!(
+            too_deep.truth_table(),
+            Err(LogicError::SolverLimitExceeded {
+                resource: "formula depth",
+                actual,
+                limit: MAX_FORMULA_DEPTH,
+            }) if actual > MAX_FORMULA_DEPTH
+        ));
+
+        let mut terms: Vec<BoolExpr> = (0..MAX_TRUTH_TABLE_VARIABLES)
+            .map(|index| BoolExpr::var(format!("v{index}")))
+            .collect();
+        terms.extend(vec![BoolExpr::Const(true); 13]);
+        let excessive_work = BoolExpr::And(terms);
+        assert!(matches!(
+            excessive_work.truth_table(),
+            Err(LogicError::SolverLimitExceeded {
+                resource: "truth-table evaluation work",
+                actual,
+                limit: MAX_TRUTH_TABLE_EVALUATION_WORK,
+            }) if actual > MAX_TRUTH_TABLE_EVALUATION_WORK
+        ));
+    }
+
+    #[test]
     fn test_tautology_and_contradiction() {
         let p = BoolExpr::var("p");
         let taut = p.clone().or(!p.clone());
@@ -1161,7 +1213,7 @@ mod tests {
     #[test]
     fn dpll_preflights_formula_depth_and_node_count() {
         let mut too_deep = BoolExpr::Const(true);
-        for _ in 0..=MAX_DPLL_DEPTH {
+        for _ in 0..=MAX_FORMULA_DEPTH {
             too_deep = BoolExpr::Not(Box::new(too_deep));
         }
         assert!(matches!(
@@ -1169,18 +1221,18 @@ mod tests {
             Err(LogicError::SolverLimitExceeded {
                 resource: "formula depth",
                 actual,
-                limit: MAX_DPLL_DEPTH,
-            }) if actual > MAX_DPLL_DEPTH
+                limit: MAX_FORMULA_DEPTH,
+            }) if actual > MAX_FORMULA_DEPTH
         ));
 
-        let too_wide = BoolExpr::And(vec![BoolExpr::var("p"); MAX_DPLL_FORMULA_NODES]);
+        let too_wide = BoolExpr::And(vec![BoolExpr::var("p"); MAX_FORMULA_NODES]);
         assert!(matches!(
             dpll_satisfiable(&too_wide),
             Err(LogicError::SolverLimitExceeded {
                 resource: "formula nodes",
                 actual,
-                limit: MAX_DPLL_FORMULA_NODES,
-            }) if actual > MAX_DPLL_FORMULA_NODES
+                limit: MAX_FORMULA_NODES,
+            }) if actual > MAX_FORMULA_NODES
         ));
     }
 
