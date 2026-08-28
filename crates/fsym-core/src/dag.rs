@@ -8,6 +8,7 @@
 
 #![forbid(unsafe_code)]
 
+use crate::sort::Sort;
 use crate::{BigInt, BigRational};
 use crate::{Constant, Expr, Symbol};
 use fsym_id::TermId;
@@ -53,6 +54,11 @@ pub enum DagError {
     TotalPayloadLimitExceeded(usize),
     #[error("Term numeric payload bit limit exceeded ({0})")]
     NumericPayloadLimitExceeded(u64),
+    #[error("{operation} requires numeric scalar operands, found {actual}")]
+    SortMismatch {
+        operation: &'static str,
+        actual: Sort,
+    },
     #[error("DAG allocation failed")]
     AllocationFailure,
 }
@@ -347,6 +353,138 @@ fn charge_total_payload(total: &mut usize, amount: usize, limit: usize) -> Resul
     }
     *total = next;
     Ok(())
+}
+
+fn join_numeric_sorts(lhs: &Sort, rhs: &Sort) -> Option<Sort> {
+    fn rank(sort: &Sort) -> Option<u8> {
+        match sort {
+            Sort::Integer => Some(0),
+            Sort::Rational => Some(1),
+            Sort::Real => Some(2),
+            Sort::Complex => Some(3),
+            Sort::Scalar => Some(4),
+            Sort::Boolean
+            | Sort::Matrix { .. }
+            | Sort::Set
+            | Sort::Function { .. }
+            | Sort::Unknown => None,
+        }
+    }
+
+    match rank(lhs)?.max(rank(rhs)?) {
+        0 => Some(Sort::Integer),
+        1 => Some(Sort::Rational),
+        2 => Some(Sort::Real),
+        3 => Some(Sort::Complex),
+        4 => Some(Sort::Scalar),
+        _ => None,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExactRealSign {
+    Negative,
+    Zero,
+    Positive,
+}
+
+fn exact_real_sign(node: &TermNode) -> Option<ExactRealSign> {
+    let integer_sign = |value: &BigInt| {
+        if value.is_negative() {
+            ExactRealSign::Negative
+        } else if value.is_zero() {
+            ExactRealSign::Zero
+        } else {
+            ExactRealSign::Positive
+        }
+    };
+
+    match node {
+        TermNode::Integer(value) => Some(integer_sign(value)),
+        TermNode::Rational(value) => Some(integer_sign(value.numer())),
+        TermNode::Const(Constant::Pi | Constant::E | Constant::Infinity) => {
+            Some(ExactRealSign::Positive)
+        }
+        TermNode::Const(Constant::NegativeInfinity) => Some(ExactRealSign::Negative),
+        TermNode::Sym(_)
+        | TermNode::Const(Constant::I | Constant::ComplexInfinity | Constant::NaN)
+        | TermNode::Add(_)
+        | TermNode::Mul(_)
+        | TermNode::Pow(..)
+        | TermNode::Function(..)
+        | TermNode::Lambda(..) => None,
+    }
+}
+
+fn infer_power_sort(
+    base_sort: &Sort,
+    exponent_sort: &Sort,
+    base_node: &TermNode,
+    exponent_node: &TermNode,
+) -> Result<Sort, DagError> {
+    if !base_sort.is_numeric() {
+        return Err(DagError::SortMismatch {
+            operation: "power base",
+            actual: base_sort.clone(),
+        });
+    }
+    if !exponent_sort.is_numeric() {
+        return Err(DagError::SortMismatch {
+            operation: "power exponent",
+            actual: exponent_sort.clone(),
+        });
+    }
+
+    if exponent_sort == &Sort::Integer {
+        return Ok(match base_sort {
+            Sort::Integer if matches!(exponent_node, TermNode::Integer(value) if !value.is_negative()) => {
+                Sort::Integer
+            }
+            Sort::Integer => Sort::Rational,
+            Sort::Rational => Sort::Rational,
+            Sort::Real => Sort::Real,
+            Sort::Complex => Sort::Complex,
+            Sort::Scalar => Sort::Scalar,
+            Sort::Boolean
+            | Sort::Matrix { .. }
+            | Sort::Set
+            | Sort::Function { .. }
+            | Sort::Unknown => Sort::Scalar,
+        });
+    }
+
+    if matches!(exponent_sort, Sort::Rational | Sort::Real) {
+        return Ok(match base_sort {
+            Sort::Integer | Sort::Rational | Sort::Real => match exact_real_sign(base_node) {
+                Some(ExactRealSign::Positive) => Sort::Real,
+                Some(ExactRealSign::Negative) | None => Sort::Complex,
+                // Zero raised to an arbitrary exact real can be undefined when
+                // the exponent is non-positive, so no narrower sort is justified.
+                Some(ExactRealSign::Zero) => Sort::Scalar,
+            },
+            Sort::Complex => Sort::Complex,
+            Sort::Scalar => Sort::Scalar,
+            Sort::Boolean
+            | Sort::Matrix { .. }
+            | Sort::Set
+            | Sort::Function { .. }
+            | Sort::Unknown => Sort::Scalar,
+        });
+    }
+
+    Ok(match (base_sort, exponent_sort) {
+        (Sort::Scalar, _) | (_, Sort::Scalar) => Sort::Scalar,
+        (_, Sort::Complex) => Sort::Complex,
+        _ => Sort::Scalar,
+    })
+}
+
+struct SortInferenceState {
+    visiting: HashSet<TermId>,
+    memo: HashMap<TermId, Sort>,
+    traversed: usize,
+    traversed_payload_bytes: usize,
+    limits: DagLimits,
 }
 
 fn validate_node_limits(node: &TermNode, limits: DagLimits) -> Result<(), DagError> {
@@ -847,168 +985,141 @@ impl TermDag {
         Ok(depth)
     }
 
-    /// Infers the tightest mathematical sort for the interned term under default limits.
-    pub fn infer_sort(&self, id: TermId) -> Result<crate::sort::Sort, DagError> {
+    /// Infers a conservative mathematical sort for the interned term under default limits.
+    pub fn infer_sort(&self, id: TermId) -> Result<Sort, DagError> {
         self.infer_sort_with_limits(id, DagLimits::default())
     }
 
-    /// Infers the tightest mathematical sort for the interned term under caller-provided limits.
-    pub fn infer_sort_with_limits(
-        &self,
-        id: TermId,
-        limits: DagLimits,
-    ) -> Result<crate::sort::Sort, DagError> {
-        let mut visiting = HashSet::new();
-        let mut memo = HashMap::new();
-        let mut traversed = 0_usize;
-        self.infer_sort_internal(id, &mut visiting, &mut memo, &mut traversed, 0, limits)
+    /// Infers a conservative mathematical sort under caller-provided limits.
+    pub fn infer_sort_with_limits(&self, id: TermId, limits: DagLimits) -> Result<Sort, DagError> {
+        let mut state = SortInferenceState {
+            visiting: HashSet::new(),
+            memo: HashMap::new(),
+            traversed: 0,
+            traversed_payload_bytes: 0,
+            limits,
+        };
+        self.infer_sort_internal(id, &mut state, 0)
     }
 
     fn infer_sort_internal(
         &self,
         id: TermId,
-        visiting: &mut HashSet<TermId>,
-        memo: &mut HashMap<TermId, crate::sort::Sort>,
-        traversed: &mut usize,
+        state: &mut SortInferenceState,
         current_depth: usize,
-        limits: DagLimits,
-    ) -> Result<crate::sort::Sort, DagError> {
+    ) -> Result<Sort, DagError> {
+        let limits = state.limits;
         if current_depth > limits.max_depth {
             return Err(DagError::DepthExceeded(limits.max_depth));
         }
-        if let Some(sort) = memo.get(&id) {
+        let subtree_depth = self
+            .depths
+            .get(&id)
+            .copied()
+            .ok_or(DagError::UnknownId(id))?;
+        let deepest_level = current_depth
+            .checked_add(subtree_depth.saturating_sub(1))
+            .ok_or(DagError::DepthExceeded(limits.max_depth))?;
+        if deepest_level > limits.max_depth {
+            return Err(DagError::DepthExceeded(limits.max_depth));
+        }
+        if let Some(sort) = state.memo.get(&id) {
             return Ok(sort.clone());
         }
-        if *traversed >= limits.max_traversal_nodes {
+        if state.traversed >= limits.max_traversal_nodes {
             return Err(DagError::TraversalLimitExceeded(limits.max_traversal_nodes));
         }
-        *traversed += 1;
-        if visiting.contains(&id) {
+        state.traversed += 1;
+        if state.visiting.contains(&id) {
             return Err(DagError::CycleDetected(id));
         }
-        visiting
+        state
+            .visiting
             .try_reserve(1)
             .map_err(|_| DagError::AllocationFailure)?;
-        visiting.insert(id);
+        state.visiting.insert(id);
 
         let node = self.get(id).ok_or(DagError::UnknownId(id))?;
-        let child_depth = next_depth(current_depth, limits.max_depth)?;
+        validate_node_limits(node, limits)?;
+        charge_total_payload(
+            &mut state.traversed_payload_bytes,
+            node_payload_bytes(node)?,
+            limits.max_total_payload_bytes,
+        )?;
 
         let computed_sort = match node {
-            TermNode::Integer(_) => crate::sort::Sort::Integer,
-            TermNode::Rational(_) => crate::sort::Sort::Rational,
+            TermNode::Integer(_) => Sort::Integer,
+            TermNode::Rational(_) => Sort::Rational,
             TermNode::Const(c) => match c {
                 Constant::Pi | Constant::E | Constant::Infinity | Constant::NegativeInfinity => {
-                    crate::sort::Sort::Real
+                    Sort::Real
                 }
-                Constant::I | Constant::ComplexInfinity => crate::sort::Sort::Complex,
-                Constant::NaN => crate::sort::Sort::Scalar,
+                Constant::I | Constant::ComplexInfinity => Sort::Complex,
+                Constant::NaN => Sort::Scalar,
             },
-            TermNode::Sym(_) => crate::sort::Sort::Scalar,
+            TermNode::Sym(_) => Sort::Scalar,
             TermNode::Add(ids) | TermNode::Mul(ids) => {
-                let mut current = crate::sort::Sort::Integer;
+                let child_depth = if ids.is_empty() {
+                    current_depth
+                } else {
+                    next_depth(current_depth, limits.max_depth)?
+                };
+                let operation = if matches!(node, TermNode::Add(_)) {
+                    "addition"
+                } else {
+                    "multiplication"
+                };
+                let mut current = Sort::Integer;
                 for &child_id in ids {
-                    let child_sort = self.infer_sort_internal(
-                        child_id,
-                        visiting,
-                        memo,
-                        traversed,
-                        child_depth,
-                        limits,
+                    let child_sort = self.infer_sort_internal(child_id, state, child_depth)?;
+                    current = join_numeric_sorts(&current, &child_sort).ok_or(
+                        DagError::SortMismatch {
+                            operation,
+                            actual: child_sort,
+                        },
                     )?;
-                    if child_sort == crate::sort::Sort::Complex
-                        || current == crate::sort::Sort::Complex
-                    {
-                        current = crate::sort::Sort::Complex;
-                    } else if child_sort == crate::sort::Sort::Real
-                        || current == crate::sort::Sort::Real
-                    {
-                        current = crate::sort::Sort::Real;
-                    } else if child_sort == crate::sort::Sort::Rational
-                        || current == crate::sort::Sort::Rational
-                    {
-                        current = crate::sort::Sort::Rational;
-                    }
                 }
                 current
             }
             TermNode::Pow(base, exponent) => {
-                let base_sort = self.infer_sort_internal(
-                    *base,
-                    visiting,
-                    memo,
-                    traversed,
-                    child_depth,
-                    limits,
-                )?;
-                let exp_sort = self.infer_sort_internal(
-                    *exponent,
-                    visiting,
-                    memo,
-                    traversed,
-                    child_depth,
-                    limits,
-                )?;
-                if base_sort == crate::sort::Sort::Integer && exp_sort == crate::sort::Sort::Integer
-                {
-                    if let Some(TermNode::Integer(n)) = self.get(*exponent) {
-                        if n.is_negative() {
-                            crate::sort::Sort::Rational
-                        } else {
-                            crate::sort::Sort::Integer
-                        }
-                    } else {
-                        crate::sort::Sort::Rational
-                    }
-                } else if base_sort.is_subsort_of(&crate::sort::Sort::Real)
-                    && exp_sort.is_subsort_of(&crate::sort::Sort::Real)
-                {
-                    if let Some(TermNode::Integer(n)) = self.get(*base) {
-                        if n.is_negative() && exp_sort == crate::sort::Sort::Rational {
-                            crate::sort::Sort::Complex
-                        } else {
-                            crate::sort::Sort::Real
-                        }
-                    } else {
-                        crate::sort::Sort::Real
-                    }
-                } else {
-                    crate::sort::Sort::Scalar
-                }
+                let child_depth = next_depth(current_depth, limits.max_depth)?;
+                let base_sort = self.infer_sort_internal(*base, state, child_depth)?;
+                let exp_sort = self.infer_sort_internal(*exponent, state, child_depth)?;
+                let base_node = self.get(*base).ok_or(DagError::UnknownId(*base))?;
+                let exponent_node = self.get(*exponent).ok_or(DagError::UnknownId(*exponent))?;
+                infer_power_sort(&base_sort, &exp_sort, base_node, exponent_node)?
             }
             TermNode::Function(_, ids) => {
+                let child_depth = if ids.is_empty() {
+                    current_depth
+                } else {
+                    next_depth(current_depth, limits.max_depth)?
+                };
                 for &child_id in ids {
-                    self.infer_sort_internal(
-                        child_id,
-                        visiting,
-                        memo,
-                        traversed,
-                        child_depth,
-                        limits,
-                    )?;
+                    self.infer_sort_internal(child_id, state, child_depth)?;
                 }
-                crate::sort::Sort::Scalar
+                Sort::Scalar
             }
             TermNode::Lambda(params, body) => {
-                let body_sort = self.infer_sort_internal(
-                    *body,
-                    visiting,
-                    memo,
-                    traversed,
-                    child_depth,
-                    limits,
-                )?;
-                crate::sort::Sort::Function {
-                    dom: vec![crate::sort::Sort::Scalar; params.len()],
+                let child_depth = next_depth(current_depth, limits.max_depth)?;
+                let body_sort = self.infer_sort_internal(*body, state, child_depth)?;
+                let mut dom = Vec::new();
+                dom.try_reserve(params.len())
+                    .map_err(|_| DagError::AllocationFailure)?;
+                dom.resize(params.len(), Sort::Scalar);
+                Sort::Function {
+                    dom,
                     codom: Box::new(body_sort),
                 }
             }
         };
 
-        visiting.remove(&id);
-        memo.try_reserve(1)
+        state.visiting.remove(&id);
+        state
+            .memo
+            .try_reserve(1)
             .map_err(|_| DagError::AllocationFailure)?;
-        memo.insert(id, computed_sort.clone());
+        state.memo.insert(id, computed_sort.clone());
         Ok(computed_sort)
     }
 
@@ -1518,6 +1629,29 @@ mod tests {
     }
 
     #[test]
+    fn memoized_sort_inference_still_enforces_the_deeper_parent_path() {
+        let mut dag = TermDag::new();
+        let leaf = dag.insert_node(TermNode::Sym(Symbol::new("x"))).unwrap();
+        let tail_1 = dag.insert_node(TermNode::Add(vec![leaf])).unwrap();
+        let tail_2 = dag.insert_node(TermNode::Add(vec![tail_1])).unwrap();
+        let deep_1 = dag.insert_node(TermNode::Add(vec![tail_2])).unwrap();
+        let deep_2 = dag.insert_node(TermNode::Add(vec![deep_1])).unwrap();
+        let deep_3 = dag.insert_node(TermNode::Add(vec![deep_2])).unwrap();
+        let root = dag
+            .insert_node(TermNode::Add(vec![tail_2, deep_3]))
+            .unwrap();
+        let limits = DagLimits {
+            max_depth: 5,
+            ..DagLimits::default()
+        };
+
+        assert_eq!(
+            dag.infer_sort_with_limits(root, limits),
+            Err(DagError::DepthExceeded(5))
+        );
+    }
+
+    #[test]
     fn concurrent_interning_yields_identical_content_ids() {
         // WS04 acceptance: concurrent interning schedule exploration.
         // Four threads insert the same symbol set under different rotation
@@ -1568,11 +1702,12 @@ mod tests {
     }
 
     #[test]
-    fn test_infer_sort_and_intrinsic_sort() {
+    fn sort_inference_covers_numeric_tower_and_integer_powers() {
         let mut dag = TermDag::new();
         let i1 = dag
             .insert_node(TermNode::Integer(BigInt::from(42)))
             .unwrap();
+        let two = dag.insert_node(TermNode::Integer(BigInt::from(2))).unwrap();
         let i2 = dag
             .insert_node(TermNode::Integer(BigInt::from(-3)))
             .unwrap();
@@ -1609,13 +1744,161 @@ mod tests {
         );
 
         // Pow: 42^2 is Integer, 42^(-3) is Rational
-        let pow_pos = dag.insert_node(TermNode::Pow(i1, i1)).unwrap();
+        let pow_pos = dag.insert_node(TermNode::Pow(i1, two)).unwrap();
         assert_eq!(dag.infer_sort(pow_pos).unwrap(), crate::sort::Sort::Integer);
 
         let pow_neg = dag.insert_node(TermNode::Pow(i1, i2)).unwrap();
         assert_eq!(
             dag.infer_sort(pow_neg).unwrap(),
             crate::sort::Sort::Rational
+        );
+    }
+
+    #[test]
+    fn sort_inference_preserves_scalar_and_rejects_nonnumeric_operands() {
+        let mut dag = TermDag::new();
+        let x = dag.insert_node(TermNode::Sym(Symbol::new("x"))).unwrap();
+        let one = dag.insert_node(TermNode::Integer(BigInt::from(1))).unwrap();
+
+        let sum = dag.insert_node(TermNode::Add(vec![x, one])).unwrap();
+        let product = dag.insert_node(TermNode::Mul(vec![x, one])).unwrap();
+        assert_eq!(dag.infer_sort(sum).unwrap(), Sort::Scalar);
+        assert_eq!(dag.infer_sort(product).unwrap(), Sort::Scalar);
+
+        let lambda = dag
+            .insert_node(TermNode::Lambda(vec![Symbol::new("p")], one))
+            .unwrap();
+        let invalid = dag.insert_node(TermNode::Add(vec![lambda, one])).unwrap();
+        assert_eq!(
+            dag.infer_sort(invalid),
+            Err(DagError::SortMismatch {
+                operation: "addition",
+                actual: Sort::Function {
+                    dom: vec![Sort::Scalar],
+                    codom: Box::new(Sort::Integer),
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn power_sort_inference_respects_exact_sign_and_branch_uncertainty() {
+        let mut dag = TermDag::new();
+        let negative_half = dag
+            .insert_node(TermNode::Rational(BigRational::new(
+                BigInt::from(-1),
+                BigInt::from(2),
+            )))
+            .unwrap();
+        let positive_half = dag
+            .insert_node(TermNode::Rational(BigRational::new(
+                BigInt::from(1),
+                BigInt::from(2),
+            )))
+            .unwrap();
+        let square_root_of_negative = dag
+            .insert_node(TermNode::Pow(negative_half, positive_half))
+            .unwrap();
+        let square_root_of_positive = dag
+            .insert_node(TermNode::Pow(positive_half, positive_half))
+            .unwrap();
+
+        assert_eq!(
+            dag.infer_sort(square_root_of_negative).unwrap(),
+            Sort::Complex
+        );
+        assert_eq!(dag.infer_sort(square_root_of_positive).unwrap(), Sort::Real);
+
+        let minus_three = dag
+            .insert_node(TermNode::Integer(BigInt::from(-3)))
+            .unwrap();
+        let rational_integer_power = dag
+            .insert_node(TermNode::Pow(positive_half, minus_three))
+            .unwrap();
+        assert_eq!(
+            dag.infer_sort(rational_integer_power).unwrap(),
+            Sort::Rational
+        );
+
+        let pi = dag.insert_node(TermNode::Const(Constant::Pi)).unwrap();
+        let unknown_real_sign = dag
+            .insert_node(TermNode::Add(vec![pi, minus_three]))
+            .unwrap();
+        let branch_sensitive = dag
+            .insert_node(TermNode::Pow(unknown_real_sign, positive_half))
+            .unwrap();
+        assert_eq!(dag.infer_sort(branch_sensitive).unwrap(), Sort::Complex);
+    }
+
+    #[test]
+    fn sort_inference_enforces_local_and_aggregate_limits() {
+        let mut dag = TermDag::new();
+        let integer = dag.insert_node(TermNode::Integer(BigInt::from(2))).unwrap();
+        let add = dag.insert_node(TermNode::Add(vec![integer])).unwrap();
+        let symbol = dag.insert_node(TermNode::Sym(Symbol::new("xy"))).unwrap();
+        let lambda = dag
+            .insert_node(TermNode::Lambda(
+                vec![Symbol::new("a"), Symbol::new("b")],
+                integer,
+            ))
+            .unwrap();
+
+        assert_eq!(
+            dag.infer_sort_with_limits(
+                integer,
+                DagLimits {
+                    max_numeric_bits: 1,
+                    ..DagLimits::default()
+                }
+            ),
+            Err(DagError::NumericPayloadLimitExceeded(1))
+        );
+        assert_eq!(
+            dag.infer_sort_with_limits(
+                add,
+                DagLimits {
+                    max_arity: 0,
+                    ..DagLimits::default()
+                }
+            ),
+            Err(DagError::ArityLimitExceeded(0))
+        );
+        assert_eq!(
+            dag.infer_sort_with_limits(
+                lambda,
+                DagLimits {
+                    max_arity: 2,
+                    ..DagLimits::default()
+                }
+            ),
+            Err(DagError::ArityLimitExceeded(2))
+        );
+        assert_eq!(
+            dag.infer_sort_with_limits(
+                symbol,
+                DagLimits {
+                    max_payload_bytes: 1,
+                    ..DagLimits::default()
+                }
+            ),
+            Err(DagError::PayloadLimitExceeded(1))
+        );
+
+        let one_byte_symbol = dag.insert_node(TermNode::Sym(Symbol::new("z"))).unwrap();
+        let wrapper = dag
+            .insert_node(TermNode::Add(vec![one_byte_symbol]))
+            .unwrap();
+        assert_eq!(
+            dag.infer_sort_with_limits(
+                wrapper,
+                DagLimits {
+                    max_total_payload_bytes: TERM_ID_SLOT_CHARGE_BYTES,
+                    ..DagLimits::default()
+                }
+            ),
+            Err(DagError::TotalPayloadLimitExceeded(
+                TERM_ID_SLOT_CHARGE_BYTES
+            ))
         );
     }
 }
