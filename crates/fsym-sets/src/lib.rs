@@ -128,12 +128,12 @@ impl SymSet {
         }
     }
 
-    /// Construct a closed interval while validating numeric bounds.
+    /// Construct a closed interval while validating exact extended-real bounds.
     ///
-    /// Inverted numeric bounds yield [`SetError::InvalidInterval`]; symbolic
+    /// Inverted exact bounds yield [`SetError::InvalidInterval`]; symbolic
     /// bounds cannot be validated eagerly and are accepted.
     pub fn interval_checked(start: Expr, end: Expr) -> Result<Self, SetError> {
-        if let (Some(s), Some(e)) = (numeric_value(&start), numeric_value(&end))
+        if let (Some(s), Some(e)) = (exact_bound(&start), exact_bound(&end))
             && s > e
         {
             return Err(SetError::InvalidInterval(
@@ -180,14 +180,11 @@ impl SymSet {
                 right_open,
             } => {
                 use std::cmp::Ordering;
-                // Decide interval emptiness before inspecting the element.  An inverted
-                // numeric interval, or a zero-width interval with either endpoint open,
-                // contains nothing even when the candidate element is symbolic.
-                if let (Some(start_value), Some(end_value)) =
-                    (numeric_value(start), numeric_value(end))
-                    && (start_value > end_value
-                        || (start_value == end_value && (*left_open || *right_open)))
-                {
+                // Decide interval emptiness before inspecting the element. An inverted
+                // exact interval, an interval concentrated at infinity, or a zero-width
+                // finite interval with either endpoint open contains nothing even when the
+                // candidate element is symbolic.
+                if interval_empty_status(start, end, *left_open, *right_open) == Some(true) {
                     return Some(false);
                 }
                 let el = numeric_value(elem)?;
@@ -285,15 +282,8 @@ impl SymSet {
                 end,
                 left_open,
                 right_open,
-            } => {
-                if let (Some(s), Some(e)) = (numeric_value(start), numeric_value(end)) {
-                    Some(s > e || (s == e && (*left_open || *right_open)))
-                } else if start == end && (*left_open || *right_open) {
-                    Some(true)
-                } else {
-                    None
-                }
-            }
+            } => interval_empty_status(start, end, *left_open, *right_open)
+                .or_else(|| (start == end && (*left_open || *right_open)).then_some(true)),
             SymSet::Union(parts) => {
                 let mut all_empty = true;
                 for part in parts {
@@ -512,19 +502,15 @@ impl SymSet {
             SymSet::EmptySet => Some(Expr::from_i64(0)),
             SymSet::UniversalSet => Some(Expr::Const(Constant::Infinity)),
             SymSet::FiniteSet(_) => Some(Expr::from_i64(0)),
-            SymSet::Interval { start, end, .. } => {
-                if self.is_empty_set() == Some(true) {
-                    return Some(Expr::from_i64(0));
-                }
-                if start == &Expr::Const(Constant::NegativeInfinity)
-                    || end == &Expr::Const(Constant::Infinity)
-                {
-                    return Some(Expr::Const(Constant::Infinity));
-                }
-                if let (Some(s), Some(e)) = (numeric_value(start), numeric_value(end)) {
-                    if s >= e {
-                        Some(Expr::from_i64(0))
-                    } else {
+            SymSet::Interval {
+                start,
+                end,
+                left_open,
+                right_open,
+            } => match interval_empty_status(start, end, *left_open, *right_open) {
+                Some(true) => Some(Expr::from_i64(0)),
+                Some(false) => match (exact_bound(start), exact_bound(end)) {
+                    (Some(ExactBound::Finite(s)), Some(ExactBound::Finite(e))) => {
                         let diff = e - s;
                         if diff.is_integer() {
                             Some(Expr::Integer(diff.to_integer()))
@@ -532,13 +518,12 @@ impl SymSet {
                             Some(Expr::Rational(diff))
                         }
                     }
-                } else {
-                    Some(Expr::Add(vec![
-                        end.clone(),
-                        Expr::Mul(vec![Expr::from_i64(-1), start.clone()]),
-                    ]))
-                }
-            }
+                    (Some(_), Some(_)) => Some(Expr::Const(Constant::Infinity)),
+                    _ => None,
+                },
+                None if start == end => Some(Expr::from_i64(0)),
+                None => None,
+            },
             SymSet::Complement(inner) => match inner.as_ref() {
                 SymSet::EmptySet => Some(Expr::Const(Constant::Infinity)),
                 SymSet::UniversalSet => Some(Expr::from_i64(0)),
@@ -556,6 +541,44 @@ fn numeric_value(e: &Expr) -> Option<BigRational> {
         Expr::Rational(r) => Some(r.clone()),
         _ => None,
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum ExactBound {
+    NegativeInfinity,
+    Finite(BigRational),
+    Infinity,
+}
+
+/// Exact extended-real view of an interval endpoint.
+fn exact_bound(expr: &Expr) -> Option<ExactBound> {
+    match expr {
+        Expr::Integer(value) => Some(ExactBound::Finite(BigRational::from_integer(value.clone()))),
+        Expr::Rational(value) => Some(ExactBound::Finite(value.clone())),
+        Expr::Const(Constant::NegativeInfinity) => Some(ExactBound::NegativeInfinity),
+        Expr::Const(Constant::Infinity) => Some(ExactBound::Infinity),
+        _ => None,
+    }
+}
+
+/// Decides interval emptiness when both endpoints have exact extended-real order.
+/// Infinite endpoints are not themselves real members, so a zero-width interval
+/// at either infinity is empty even when both endpoint flags are closed.
+fn interval_empty_status(
+    start: &Expr,
+    end: &Expr,
+    left_open: bool,
+    right_open: bool,
+) -> Option<bool> {
+    let start = exact_bound(start)?;
+    let end = exact_bound(end)?;
+    Some(match start.cmp(&end) {
+        std::cmp::Ordering::Greater => true,
+        std::cmp::Ordering::Less => false,
+        std::cmp::Ordering::Equal => {
+            !matches!(start, ExactBound::Finite(_)) || left_open || right_open
+        }
+    })
 }
 
 /// Ordering of an exact element against an interval bound, including
@@ -685,6 +708,48 @@ mod tests {
         // an inverted numeric interval still has a decidable empty membership set.
         let inverted = SymSet::interval_closed(Expr::from_i64(5), Expr::from_i64(1));
         assert_eq!(inverted.contains(&symbolic_element), Some(false));
+    }
+
+    #[test]
+    fn interval_measure_requires_proven_extended_real_order() {
+        let x = Expr::symbol("x");
+        let zero = Expr::from_i64(0);
+        let negative_infinity = Expr::Const(Constant::NegativeInfinity);
+        let infinity = Expr::Const(Constant::Infinity);
+
+        assert_eq!(
+            SymSet::interval_closed(x.clone(), zero.clone()).measure(),
+            None,
+            "a conditional symbolic ordering must not produce an unguarded negative length"
+        );
+        assert_eq!(
+            SymSet::interval_closed(zero.clone(), x.clone()).measure(),
+            None
+        );
+        assert_eq!(
+            SymSet::interval_closed(x.clone(), x).measure(),
+            Some(zero.clone()),
+            "equal symbolic endpoints have zero measure regardless of singleton emptiness"
+        );
+
+        for point_at_infinity in [
+            SymSet::interval_closed(infinity.clone(), infinity.clone()),
+            SymSet::interval_closed(negative_infinity.clone(), negative_infinity.clone()),
+        ] {
+            assert_eq!(point_at_infinity.is_empty_set(), Some(true));
+            assert_eq!(point_at_infinity.contains(&Expr::symbol("y")), Some(false));
+            assert_eq!(point_at_infinity.measure(), Some(zero.clone()));
+        }
+
+        let all_reals = SymSet::interval_open(negative_infinity.clone(), infinity.clone());
+        assert_eq!(all_reals.is_empty_set(), Some(false));
+        assert_eq!(all_reals.contains(&zero), Some(true));
+        assert_eq!(all_reals.measure(), Some(infinity.clone()));
+
+        assert!(matches!(
+            SymSet::interval_checked(infinity, Expr::from_i64(1)),
+            Err(SetError::InvalidInterval(_, _))
+        ));
     }
 
     #[test]
