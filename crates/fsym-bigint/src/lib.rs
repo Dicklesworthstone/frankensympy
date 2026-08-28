@@ -61,6 +61,16 @@ const INITIAL_SERDE_U32_DIGIT_RESERVE: usize = 4_096;
 const MIN_STRING_RADIX: u32 = 2;
 const MAX_STRING_RADIX: u32 = 36;
 const UNSUPPORTED_RADIX_ERROR: &str = "radix must be in the range 2..=36";
+const MAX_PARSER_BITS: u64 = (MAX_SERDE_U32_DIGITS as u64) * u32::BITS as u64;
+/// `floor(MAX_PARSER_BITS / log2(radix)) + 1` for radix `2..=36`.
+/// Indexed by radix; unused slots are zero.
+const MAX_PARSER_DIGIT_CHARS: [u64; 37] = [
+    0, 0, 8_388_609, 5_292_623, 4_194_305, 3_612_777, 3_245_157, 2_988_083, 2_796_203, 2_646_312,
+    2_525_223, 2_424_852, 2_339_944, 2_266_922, 2_203_264, 2_147_132, 2_097_153, 2_052_278,
+    2_011_693, 1_974_754, 1_940_942, 1_909_837, 1_881_094, 1_854_426, 1_829_592, 1_806_389,
+    1_784_644, 1_764_208, 1_744_953, 1_726_769, 1_709_557, 1_693_233, 1_677_722, 1_662_957,
+    1_648_879, 1_635_435, 1_622_579,
+];
 
 #[inline]
 fn string_radix_is_supported(radix: u32) -> bool {
@@ -73,6 +83,49 @@ fn validate_string_radix(radix: u32) -> Result<(), String> {
     } else {
         Err(UNSUPPORTED_RADIX_ERROR.to_owned())
     }
+}
+
+fn parser_magnitude_limit_error() -> String {
+    format!("big integer magnitude exceeds {MAX_SERDE_U32_DIGITS} u32 digits")
+}
+
+fn max_parser_digit_chars(radix: u32) -> Result<u64, String> {
+    validate_string_radix(radix)?;
+    Ok(MAX_PARSER_DIGIT_CHARS[radix as usize])
+}
+
+fn parser_digit_prefix(src: &str) -> &str {
+    match src.as_bytes().first() {
+        Some(b'+' | b'-') => &src[1..],
+        _ => src,
+    }
+}
+
+/// Refuse a string-decoder payload that cannot fit the shared decoder bound.
+///
+/// The bound is the same u32-digit budget as the serde adapter. Callers must
+/// invoke this before asking the substrate parser to materialize limbs.
+pub fn preflight_parser_src(src: &str, radix: u32) -> Result<(), String> {
+    let limit = max_parser_digit_chars(radix)?;
+    let digits = parser_digit_prefix(src);
+    if u64::try_from(digits.len()).unwrap_or(u64::MAX) > limit {
+        return Err(parser_magnitude_limit_error());
+    }
+    Ok(())
+}
+
+/// Refuse a materialized integer whose bit height exceeds the decoder bound.
+pub fn decoder_integer_fits(value: &BigInt) -> Result<(), String> {
+    if value.bits() > MAX_PARSER_BITS {
+        Err(parser_magnitude_limit_error())
+    } else {
+        Ok(())
+    }
+}
+
+fn admit_parsed_integer(value: BigInt) -> Result<BigInt, String> {
+    decoder_integer_fits(&value)?;
+    Ok(value)
 }
 
 /// Magnitude size in u64 limbs (rounded up); zero for zero.
@@ -355,13 +408,15 @@ impl BigInt {
 
     /// Parses a signed integer in `radix`.
     ///
-    /// Returns an error when `radix` is outside `2..=36` or `src` is not a valid integer in the
-    /// requested radix.
+    /// Returns an error when `radix` is outside `2..=36`, `src` is not a valid integer in the
+    /// requested radix, or the magnitude would exceed the shared decoder bound. Oversize
+    /// payloads are refused before the substrate parser allocates limbs.
     pub fn from_str_radix(src: &str, radix: u32) -> Result<Self, String> {
-        validate_string_radix(radix)?;
-        Substrate::from_str_radix(src, radix)
+        preflight_parser_src(src, radix)?;
+        let parsed = Substrate::from_str_radix(src, radix)
             .map(Self)
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+        admit_parsed_integer(parsed)
     }
 }
 
@@ -508,7 +563,7 @@ impl fmt::Display for BigInt {
 impl FromStr for BigInt {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Substrate::from_str(s).map(Self).map_err(|e| e.to_string())
+        Self::from_str_radix(s, 10)
     }
 }
 
@@ -3537,6 +3592,9 @@ mod tests {
         assert_eq!(BigInt::parse_bytes(b"2", 2), None);
         assert!(BigInt::from_str_radix("2", 2).is_err());
         assert!(<BigInt as Num>::from_str_radix("2", 2).is_err());
+        assert_eq!(BigInt::from_str("1"), Ok(BigInt::from(1)));
+        assert_eq!(BigInt::from_str("+10"), Ok(BigInt::from(10)));
+        assert_eq!(BigInt::from_str("-10"), Ok(BigInt::from(-10)));
 
         for (value, radix, expected) in [
             (BigInt::from(-5), 2, "-101"),
@@ -3562,6 +3620,60 @@ mod tests {
 
     fn parsed_decimal(src: &str) -> BigInt {
         BigInt::from_str_radix(src, 10).expect("test decimal must parse")
+    }
+
+    #[test]
+    fn parser_digit_limits_match_shared_decoder_bit_budget() {
+        assert_eq!(max_parser_digit_chars(2), Ok(8_388_609));
+        assert_eq!(max_parser_digit_chars(10), Ok(2_525_223));
+        assert_eq!(max_parser_digit_chars(36), Ok(1_622_579));
+        assert_eq!(
+            max_parser_digit_chars(1),
+            Err(UNSUPPORTED_RADIX_ERROR.to_owned())
+        );
+    }
+
+    #[test]
+    fn string_decoders_refuse_oversize_payloads_before_substrate_parse() {
+        let radix = 36;
+        let limit = max_parser_digit_chars(radix).expect("radix 36 is supported");
+        let at_limit = "1".repeat(limit as usize);
+        let oversize = "1".repeat((limit as usize) + 1);
+
+        assert_eq!(preflight_parser_src(&at_limit, radix), Ok(()));
+        assert_eq!(preflight_parser_src("-1", radix), Ok(()));
+        let preflight_error =
+            preflight_parser_src(&oversize, radix).expect_err("limit plus one must be refused");
+        assert!(
+            preflight_error.contains(&MAX_SERDE_U32_DIGITS.to_string()),
+            "{preflight_error}"
+        );
+
+        let parse_error = BigInt::from_str_radix(&oversize, radix)
+            .expect_err("public parser must refuse before substrate materialization");
+        assert_eq!(parse_error, preflight_error);
+        assert_eq!(BigInt::parse_bytes(oversize.as_bytes(), radix), None);
+        assert_eq!(
+            <BigInt as Num>::from_str_radix(&oversize, radix),
+            Err(preflight_error)
+        );
+    }
+
+    #[test]
+    fn decoder_bit_admission_rejects_values_the_serde_adapter_also_refuses() {
+        let first_over_limit_bit = u32::try_from(
+            MAX_SERDE_U32_DIGITS
+                .checked_mul(u32::BITS as usize)
+                .expect("test limit product fits usize"),
+        )
+        .expect("test shift fits u32");
+        let over_limit_value = BigInt::one() << first_over_limit_bit;
+        let error = decoder_integer_fits(&over_limit_value)
+            .expect_err("bit height above the decoder bound must be refused");
+        assert!(error.contains(&MAX_SERDE_U32_DIGITS.to_string()));
+
+        let at_limit_value = (BigInt::one() << first_over_limit_bit) - BigInt::one();
+        assert_eq!(decoder_integer_fits(&at_limit_value), Ok(()));
     }
 
     fn reference_truncating_bigint_from_f64(value: f64) -> Option<BigInt> {

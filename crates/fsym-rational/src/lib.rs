@@ -1197,13 +1197,35 @@ impl Neg for &BigRational {
     }
 }
 
+fn preflight_rational_src(src: &str, radix: u32) -> Result<(), String> {
+    match src.split_once('/') {
+        None => fsym_bigint::preflight_parser_src(src, radix),
+        Some((numerator, denominator)) => {
+            if src.as_bytes().iter().filter(|byte| **byte == b'/').count() != 1 {
+                fsym_bigint::preflight_parser_src(src, radix)
+            } else {
+                fsym_bigint::preflight_parser_src(numerator, radix)?;
+                fsym_bigint::preflight_parser_src(denominator, radix)
+            }
+        }
+    }
+}
+
+fn admit_parsed_rational(value: BigRational) -> Result<BigRational, String> {
+    fsym_bigint::decoder_integer_fits(value.numer())?;
+    fsym_bigint::decoder_integer_fits(value.denom())?;
+    Ok(value)
+}
+
 impl Num for BigRational {
     type FromStrRadixErr = String;
 
     fn from_str_radix(src: &str, radix: u32) -> Result<Self, Self::FromStrRadixErr> {
-        num_rational::Ratio::from_str_radix(src, radix)
+        preflight_rational_src(src, radix)?;
+        let parsed = num_rational::Ratio::from_str_radix(src, radix)
             .map(Self)
-            .map_err(|error| error.to_string())
+            .map_err(|error| error.to_string())?;
+        admit_parsed_rational(parsed)
     }
 }
 
@@ -1636,6 +1658,23 @@ mod tests {
                 "malformed rational was accepted: {malformed}"
             );
         }
+    }
+
+    #[test]
+    fn rational_string_decoders_refuse_oversize_components_before_parse() {
+        let radix = 36;
+        // One past the radix-36 decoder digit bound in fsym-bigint.
+        let oversize = "1".repeat(1_622_580);
+        let error = BigRational::from_str_radix(&format!("{oversize}/1"), radix)
+            .expect_err("oversize numerator must be refused");
+        assert!(
+            error.contains("u32 digits"),
+            "expected decoder magnitude refusal, got {error}"
+        );
+        let denom_error = BigRational::from_str_radix(&format!("1/{oversize}"), radix)
+            .expect_err("oversize denominator must be refused");
+        assert!(denom_error.contains("u32 digits"));
+        assert!(BigRational::from_str(&oversize).is_err());
     }
 
     #[test]
