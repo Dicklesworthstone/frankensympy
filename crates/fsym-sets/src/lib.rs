@@ -320,6 +320,233 @@ impl SymSet {
             },
         }
     }
+
+    /// Determines whether `self` is a subset of `other` (`self ⊆ other`).
+    ///
+    /// Returns `Some(true)` if provably a subset, `Some(false)` if provably not,
+    /// and `None` if undetermined due to symbolic parameters.
+    pub fn is_subset(&self, other: &SymSet) -> Option<bool> {
+        if self == other {
+            return Some(true);
+        }
+        if let Some(true) = self.is_empty_set() {
+            return Some(true);
+        }
+        if let Some(true) = other.is_empty_set() {
+            return self.is_empty_set();
+        }
+
+        match (self, other) {
+            (SymSet::EmptySet, _) => Some(true),
+            (_, SymSet::UniversalSet) => Some(true),
+            (SymSet::UniversalSet, SymSet::EmptySet) => Some(false),
+            (SymSet::FiniteSet(a_elems), SymSet::FiniteSet(b_elems)) => {
+                let mut all_found = true;
+                for a in a_elems {
+                    if !b_elems.contains(a) {
+                        if let Some(a_num) = numeric_value(a) {
+                            let mut found_match = false;
+                            let mut has_symbolic = false;
+                            for b in b_elems {
+                                if let Some(b_num) = numeric_value(b) {
+                                    if a_num == b_num {
+                                        found_match = true;
+                                        break;
+                                    }
+                                } else {
+                                    has_symbolic = true;
+                                }
+                            }
+                            if !found_match && !has_symbolic {
+                                return Some(false);
+                            }
+                            if !found_match {
+                                all_found = false;
+                            }
+                        } else {
+                            all_found = false;
+                        }
+                    }
+                }
+                if all_found { Some(true) } else { None }
+            }
+            (SymSet::FiniteSet(elems), other_set) => {
+                let mut all_contained = true;
+                for elem in elems {
+                    match other_set.contains(elem) {
+                        Some(false) => return Some(false),
+                        Some(true) => {}
+                        None => all_contained = false,
+                    }
+                }
+                if all_contained { Some(true) } else { None }
+            }
+            (
+                SymSet::Interval {
+                    start: a_s,
+                    end: a_e,
+                    left_open: a_lo,
+                    right_open: a_ro,
+                },
+                SymSet::Interval {
+                    start: b_s,
+                    end: b_e,
+                    left_open: b_lo,
+                    right_open: b_ro,
+                },
+            ) => {
+                if let (Some(as_v), Some(ae_v), Some(bs_v), Some(be_v)) = (
+                    numeric_value(a_s),
+                    numeric_value(a_e),
+                    numeric_value(b_s),
+                    numeric_value(b_e),
+                ) {
+                    let start_ok = match bs_v.cmp(&as_v) {
+                        std::cmp::Ordering::Less => true,
+                        std::cmp::Ordering::Equal => !*b_lo || *a_lo,
+                        std::cmp::Ordering::Greater => false,
+                    };
+                    let end_ok = match ae_v.cmp(&be_v) {
+                        std::cmp::Ordering::Less => true,
+                        std::cmp::Ordering::Equal => !*b_ro || *a_ro,
+                        std::cmp::Ordering::Greater => false,
+                    };
+                    Some(start_ok && end_ok)
+                } else {
+                    None
+                }
+            }
+            (SymSet::Union(parts), other_set) => {
+                let mut all_subset = true;
+                for part in parts {
+                    match part.is_subset(other_set) {
+                        Some(false) => return Some(false),
+                        Some(true) => {}
+                        None => all_subset = false,
+                    }
+                }
+                if all_subset { Some(true) } else { None }
+            }
+            (self_set, SymSet::Intersection(parts)) => {
+                let mut all_subset = true;
+                for part in parts {
+                    match self_set.is_subset(part) {
+                        Some(false) => return Some(false),
+                        Some(true) => {}
+                        None => all_subset = false,
+                    }
+                }
+                if all_subset { Some(true) } else { None }
+            }
+            _ => None,
+        }
+    }
+
+    /// Determines whether `self` is a superset of `other` (`self ⊇ other`).
+    pub fn is_superset(&self, other: &SymSet) -> Option<bool> {
+        other.is_subset(self)
+    }
+
+    /// Determines whether `self` and `other` are disjoint (`self ∩ other = ∅`).
+    pub fn is_disjoint(&self, other: &SymSet) -> Option<bool> {
+        if self.is_empty_set() == Some(true) || other.is_empty_set() == Some(true) {
+            return Some(true);
+        }
+        match (self, other) {
+            (SymSet::FiniteSet(elems), other_set) | (other_set, SymSet::FiniteSet(elems)) => {
+                let mut all_disjoint = true;
+                for elem in elems {
+                    match other_set.contains(elem) {
+                        Some(true) => return Some(false),
+                        Some(false) => {}
+                        None => all_disjoint = false,
+                    }
+                }
+                if all_disjoint { Some(true) } else { None }
+            }
+            (
+                SymSet::Interval {
+                    start: a_s,
+                    end: a_e,
+                    left_open: a_lo,
+                    right_open: a_ro,
+                },
+                SymSet::Interval {
+                    start: b_s,
+                    end: b_e,
+                    left_open: b_lo,
+                    right_open: b_ro,
+                },
+            ) => {
+                if let (Some(as_v), Some(ae_v), Some(bs_v), Some(be_v)) = (
+                    numeric_value(a_s),
+                    numeric_value(a_e),
+                    numeric_value(b_s),
+                    numeric_value(b_e),
+                ) {
+                    let a_strictly_left_of_b = ae_v < bs_v || (ae_v == bs_v && (*a_ro || *b_lo));
+                    let b_strictly_left_of_a = be_v < as_v || (be_v == as_v && (*b_ro || *a_lo));
+                    Some(a_strictly_left_of_b || b_strictly_left_of_a)
+                } else {
+                    None
+                }
+            }
+            (SymSet::Union(parts), other_set) | (other_set, SymSet::Union(parts)) => {
+                let mut all_disjoint = true;
+                for part in parts {
+                    match part.is_disjoint(other_set) {
+                        Some(false) => return Some(false),
+                        Some(true) => {}
+                        None => all_disjoint = false,
+                    }
+                }
+                if all_disjoint { Some(true) } else { None }
+            }
+            _ => None,
+        }
+    }
+
+    /// Computes the 1D Lebesgue measure / length of the set.
+    pub fn measure(&self) -> Option<Expr> {
+        match self {
+            SymSet::EmptySet => Some(Expr::from_i64(0)),
+            SymSet::UniversalSet => Some(Expr::Const(Constant::Infinity)),
+            SymSet::FiniteSet(_) => Some(Expr::from_i64(0)),
+            SymSet::Interval { start, end, .. } => {
+                if self.is_empty_set() == Some(true) {
+                    return Some(Expr::from_i64(0));
+                }
+                if start == &Expr::Const(Constant::NegativeInfinity)
+                    || end == &Expr::Const(Constant::Infinity)
+                {
+                    return Some(Expr::Const(Constant::Infinity));
+                }
+                if let (Some(s), Some(e)) = (numeric_value(start), numeric_value(end)) {
+                    if s >= e {
+                        Some(Expr::from_i64(0))
+                    } else {
+                        let diff = e - s;
+                        if diff.is_integer() {
+                            Some(Expr::Integer(diff.to_integer()))
+                        } else {
+                            Some(Expr::Rational(diff))
+                        }
+                    }
+                } else {
+                    Some(Expr::Add(vec![
+                        end.clone(),
+                        Expr::Mul(vec![Expr::from_i64(-1), start.clone()]),
+                    ]))
+                }
+            }
+            SymSet::Complement(inner) => match inner.as_ref() {
+                SymSet::EmptySet => Some(Expr::Const(Constant::Infinity)),
+                SymSet::UniversalSet => Some(Expr::from_i64(0)),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
 }
 
 /// Exact numeric view of an expression, if it is a rational constant.
@@ -567,5 +794,76 @@ mod tests {
 
         let closed_point = SymSet::interval_closed(Expr::from_i64(2), Expr::from_i64(2));
         assert_eq!(closed_point.is_empty_set(), Some(false));
+    }
+
+    #[test]
+    fn test_subset_and_superset_relations() {
+        let empty = SymSet::EmptySet;
+        let univ = SymSet::UniversalSet;
+        let s12 = SymSet::finite(vec![Expr::from_i64(1), Expr::from_i64(2)]);
+        let s123 = SymSet::finite(vec![
+            Expr::from_i64(1),
+            Expr::from_i64(2),
+            Expr::from_i64(3),
+        ]);
+
+        assert_eq!(empty.is_subset(&s12), Some(true));
+        assert_eq!(s12.is_subset(&univ), Some(true));
+        assert_eq!(univ.is_subset(&empty), Some(false));
+
+        assert_eq!(s12.is_subset(&s123), Some(true));
+        assert_eq!(s123.is_subset(&s12), Some(false));
+        assert_eq!(s123.is_superset(&s12), Some(true));
+
+        let iv05 = SymSet::interval_closed(Expr::from_i64(0), Expr::from_i64(5));
+        let iv13 = SymSet::interval_closed(Expr::from_i64(1), Expr::from_i64(3));
+        let iv13_open = SymSet::interval_open(Expr::from_i64(1), Expr::from_i64(3));
+
+        assert_eq!(iv13.is_subset(&iv05), Some(true));
+        assert_eq!(iv05.is_subset(&iv13), Some(false));
+        assert_eq!(iv13_open.is_subset(&iv13), Some(true));
+        assert_eq!(iv13.is_subset(&iv13_open), Some(false));
+
+        // Finite set in interval
+        assert_eq!(s12.is_subset(&iv05), Some(true));
+        let s_outside = SymSet::finite(vec![Expr::from_i64(1), Expr::from_i64(10)]);
+        assert_eq!(s_outside.is_subset(&iv05), Some(false));
+    }
+
+    #[test]
+    fn test_disjoint_relations() {
+        let s12 = SymSet::finite(vec![Expr::from_i64(1), Expr::from_i64(2)]);
+        let s34 = SymSet::finite(vec![Expr::from_i64(3), Expr::from_i64(4)]);
+        let s23 = SymSet::finite(vec![Expr::from_i64(2), Expr::from_i64(3)]);
+
+        assert_eq!(s12.is_disjoint(&s34), Some(true));
+        assert_eq!(s12.is_disjoint(&s23), Some(false));
+
+        let iv02 = SymSet::interval_closed(Expr::from_i64(0), Expr::from_i64(2));
+        let iv35 = SymSet::interval_closed(Expr::from_i64(3), Expr::from_i64(5));
+        let iv25_open = SymSet::interval_open(Expr::from_i64(2), Expr::from_i64(5));
+        let iv25_closed = SymSet::interval_closed(Expr::from_i64(2), Expr::from_i64(5));
+
+        assert_eq!(iv02.is_disjoint(&iv35), Some(true));
+        assert_eq!(iv02.is_disjoint(&iv25_open), Some(true));
+        assert_eq!(iv02.is_disjoint(&iv25_closed), Some(false));
+    }
+
+    #[test]
+    fn test_set_measure() {
+        assert_eq!(SymSet::EmptySet.measure(), Some(Expr::from_i64(0)));
+        assert_eq!(
+            SymSet::UniversalSet.measure(),
+            Some(Expr::Const(Constant::Infinity))
+        );
+        let finite = SymSet::finite(vec![Expr::from_i64(1), Expr::from_i64(2)]);
+        assert_eq!(finite.measure(), Some(Expr::from_i64(0)));
+
+        let iv15 = SymSet::interval_closed(Expr::from_i64(1), Expr::from_i64(5));
+        assert_eq!(iv15.measure(), Some(Expr::from_i64(4)));
+
+        let iv_half =
+            SymSet::interval_open(Expr::rational(1, 2).unwrap(), Expr::rational(7, 2).unwrap());
+        assert_eq!(iv_half.measure(), Some(Expr::from_i64(3)));
     }
 }

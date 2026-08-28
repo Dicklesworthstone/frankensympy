@@ -17,10 +17,10 @@
 //! - [`Strategy::Toom3`] — explicit, non-default Toom-3 evaluation/interpolation lane.
 //! - [`Strategy::NativeSubstrate`] — delegates to the contained substrate multiplication.
 //!
-//! [`select_strategy`] currently fails closed to the scalar reference lane. Every optimized lane
-//! remains opt-in until a pinned architecture/profile benchmark and the registered admission gate
-//! establish crossover evidence. All explicit lanes are differential-tested against the scalar
-//! reference and contained substrate.
+//! [`select_strategy`] currently fails closed to the contained safe substrate lane. Every
+//! project-authored optimized lane remains opt-in until a pinned architecture/profile benchmark
+//! and the registered admission gate establish crossover evidence. All explicit lanes are
+//! differential-tested against the scalar reference and contained substrate.
 //!
 //! # Limb accounting and cooperative cancellation
 //!
@@ -182,10 +182,10 @@ pub const DEFAULT_STRATEGY_THRESHOLD_BITS: u64 = 256;
 ///
 /// The operand size remains an input so a future registry-backed policy can use the same explicit,
 /// testable boundary. Until that policy passes its architecture/profile correctness, performance,
-/// memory, cancellation, and rollback gates, no optimized project-authored lane is selected by
-/// default.
+/// memory, cancellation, and rollback gates, ordinary multiplication delegates to the contained
+/// safe substrate rather than selecting an unadmitted project-authored lane.
 pub fn select_strategy(_max_magnitude_bits: u64) -> Strategy {
-    Strategy::SchoolbookReference
+    Strategy::NativeSubstrate
 }
 
 /// Owned arbitrary-precision integer. The ONLY bigint type visible above this crate.
@@ -1172,7 +1172,7 @@ pub fn multiply_with_strategy(a: &BigInt, b: &BigInt, strategy: Strategy) -> Big
         Strategy::SchoolbookReference => schoolbook_reference(&a.0, &b.0),
         Strategy::Karatsuba => karatsuba_mul_internal(&a.0, &b.0),
         Strategy::Toom3 => toom3_mul_internal(&a.0, &b.0),
-        Strategy::NativeSubstrate => BigInt(a.0.clone() * b.0.clone()),
+        Strategy::NativeSubstrate => BigInt(&a.0 * &b.0),
     }
 }
 
@@ -4641,13 +4641,13 @@ mod tests {
             let max_bits = std::cmp::max(left.bits(), right.bits());
             assert_eq!(
                 select_strategy(max_bits),
-                Strategy::SchoolbookReference,
+                Strategy::NativeSubstrate,
                 "optimized default lacks registered admission for {regime} operands"
             );
             assert_eq!(
                 multiply(&left, &right),
-                multiply_with_strategy(&left, &right, Strategy::SchoolbookReference),
-                "ordinary multiplication must use the admitted reference for {regime} operands"
+                multiply_with_strategy(&left, &right, Strategy::NativeSubstrate),
+                "ordinary multiplication must use the contained substrate for {regime} operands"
             );
         }
     }
@@ -4810,7 +4810,7 @@ mod tests {
         let expected = multiply_with_strategy(&huge, &tiny, Strategy::NativeSubstrate);
         assert_eq!(
             select_strategy(huge.bits()),
-            Strategy::SchoolbookReference,
+            Strategy::NativeSubstrate,
             "operand size alone must not admit an optimized default"
         );
         assert_eq!(
