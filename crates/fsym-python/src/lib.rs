@@ -261,6 +261,7 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::expr::{bigint_to_python_int, exact_python_integer};
     use fsym_core::BigInt;
     use pyo3::types::PyInt;
 
@@ -350,6 +351,26 @@ mod tests {
                     .to_string()
                     .contains("exceeds the Python integer bridge limit")
             );
+
+            for expected in [
+                -(1_i128 << 100),
+                -129,
+                -128,
+                -127,
+                -1,
+                0,
+                1,
+                127,
+                128,
+                129,
+                1_i128 << 100,
+            ] {
+                let native = BigInt::from_signed_bytes_be(&expected.to_be_bytes());
+                let python = bigint_to_python_int(&native, py).unwrap();
+                assert!(python.is_exact_instance(&int_type));
+                assert_eq!(python.extract::<i128>().unwrap(), expected);
+                assert_eq!(exact_python_integer(&python, "round_trip").unwrap(), native);
+            }
         });
     }
 

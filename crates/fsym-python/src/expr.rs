@@ -22,7 +22,7 @@ use std::sync::Arc;
 /// unbounded temporary byte buffer across the boundary.
 pub(crate) const MAX_PYTHON_INTEGER_BITS: usize = 8 * 1024 * 1024;
 
-fn exact_python_integer(value: &Bound<'_, PyAny>, argument: &str) -> PyResult<BigInt> {
+pub(crate) fn exact_python_integer(value: &Bound<'_, PyAny>, argument: &str) -> PyResult<BigInt> {
     let py = value.py();
     if !value.is_exact_instance(&py.get_type::<PyInt>()) {
         return Err(PyTypeError::new_err(format!(
@@ -48,7 +48,10 @@ fn exact_python_integer(value: &Bound<'_, PyAny>, argument: &str) -> PyResult<Bi
     Ok(BigInt::from_signed_bytes_be(bytes.as_bytes()))
 }
 
-fn bigint_to_python_int<'py>(value: &BigInt, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+pub(crate) fn bigint_to_python_int<'py>(
+    value: &BigInt,
+    py: Python<'py>,
+) -> PyResult<Bound<'py, PyAny>> {
     let bit_length = usize::try_from(value.bits()).unwrap_or(usize::MAX);
     if bit_length > MAX_PYTHON_INTEGER_BITS {
         return Err(PyValueError::new_err(format!(

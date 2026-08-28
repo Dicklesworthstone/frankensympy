@@ -48,8 +48,12 @@ pub enum PrintingError {
     InvalidCIdentifier,
     #[error("numeric value exceeds the Rust emitter's supported i64 literal lane")]
     RustNumericValueOutOfRange,
+    #[error("numeric value exceeds the C emitter's supported i64 literal lane")]
+    CNumericValueOutOfRange,
     #[error("constant {0} is not supported by the real-valued Rust emitter")]
     UnsupportedRustConstant(Constant),
+    #[error("constant {0} is not supported by the Python emitter")]
+    UnsupportedPythonConstant(Constant),
     #[error("constant {0} is not supported by the real-valued C emitter")]
     UnsupportedCConstant(Constant),
 }
@@ -242,6 +246,20 @@ fn c_keyword(identifier: &str) -> bool {
             | "void"
             | "volatile"
             | "while"
+            | "_Alignas"
+            | "_Alignof"
+            | "_Atomic"
+            | "_BitInt"
+            | "_Bool"
+            | "_Complex"
+            | "_Decimal128"
+            | "_Decimal32"
+            | "_Decimal64"
+            | "_Generic"
+            | "_Imaginary"
+            | "_Noreturn"
+            | "_Static_assert"
+            | "_Thread_local"
     )
 }
 
@@ -283,8 +301,14 @@ fn node_output_upper_bound(expr: &Expr, target: RenderTarget) -> Result<usize, P
     let value = match expr {
         Expr::Sym(symbol) => name_bytes(&symbol.name)?.saturating_add(13),
         Expr::Integer(value) => {
-            if matches!(target, RenderTarget::Rust | RenderTarget::C) && value.to_i64().is_none() {
-                return Err(PrintingError::RustNumericValueOutOfRange);
+            if value.to_i64().is_none() {
+                match target {
+                    RenderTarget::Rust => {
+                        return Err(PrintingError::RustNumericValueOutOfRange);
+                    }
+                    RenderTarget::C => return Err(PrintingError::CNumericValueOutOfRange),
+                    RenderTarget::Latex | RenderTarget::Pretty | RenderTarget::Python => {}
+                }
             }
             let multiplier = usize::from(matches!(target, RenderTarget::Pretty)) * 2 + 1;
             decimal_digits_upper_bound(value)
@@ -292,10 +316,14 @@ fn node_output_upper_bound(expr: &Expr, target: RenderTarget) -> Result<usize, P
                 .saturating_add(16)
         }
         Expr::Rational(value) => {
-            if matches!(target, RenderTarget::Rust | RenderTarget::C)
-                && (value.numer().to_i64().is_none() || value.denom().to_i64().is_none())
-            {
-                return Err(PrintingError::RustNumericValueOutOfRange);
+            if value.numer().to_i64().is_none() || value.denom().to_i64().is_none() {
+                match target {
+                    RenderTarget::Rust => {
+                        return Err(PrintingError::RustNumericValueOutOfRange);
+                    }
+                    RenderTarget::C => return Err(PrintingError::CNumericValueOutOfRange),
+                    RenderTarget::Latex | RenderTarget::Pretty | RenderTarget::Python => {}
+                }
             }
             decimal_digits_upper_bound(value.numer())
                 .saturating_add(decimal_digits_upper_bound(value.denom()))
@@ -307,6 +335,11 @@ fn node_output_upper_bound(expr: &Expr, target: RenderTarget) -> Result<usize, P
                 && matches!(constant, Constant::I | Constant::ComplexInfinity)
             {
                 return Err(PrintingError::UnsupportedRustConstant(*constant));
+            }
+            if matches!(target, RenderTarget::Python)
+                && matches!(constant, Constant::ComplexInfinity)
+            {
+                return Err(PrintingError::UnsupportedPythonConstant(*constant));
             }
             if matches!(target, RenderTarget::C)
                 && matches!(constant, Constant::I | Constant::ComplexInfinity)

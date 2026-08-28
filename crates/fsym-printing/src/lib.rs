@@ -1,8 +1,8 @@
 //! # fsym-printing
 //!
-//! Bounded LaTeX, Unicode-math, and Rust-expression rendering for the native
-//! expression tree. These views are not semantic identity and do not claim
-//! SymPy-profile printer compatibility.
+//! Bounded LaTeX, Unicode-math, and Rust/Python/C expression rendering for the
+//! native expression tree. These views are not semantic identity and do not
+//! claim SymPy-profile printer compatibility.
 
 #![forbid(unsafe_code)]
 
@@ -467,14 +467,14 @@ fn python_code_unchecked(expr: &Expr) -> String {
     match expr {
         Expr::Sym(s) => s.name.clone(),
         Expr::Integer(n) => format!("{}", n),
-        Expr::Rational(r) => format!("({} / {})", r.numer(), r.denom()),
+        Expr::Rational(r) => format!("fractions.Fraction({}, {})", r.numer(), r.denom()),
         Expr::Const(Constant::Pi) => "math.pi".to_string(),
         Expr::Const(Constant::E) => "math.e".to_string(),
         Expr::Const(Constant::Infinity) => "float('inf')".to_string(),
         Expr::Const(Constant::NegativeInfinity) => "float('-inf')".to_string(),
         Expr::Const(Constant::NaN) => "float('nan')".to_string(),
         Expr::Const(Constant::I) => "1j".to_string(),
-        Expr::Const(Constant::ComplexInfinity) => "/* complex infinity */".to_string(),
+        Expr::Const(Constant::ComplexInfinity) => "complex(float('nan'), float('nan'))".to_string(),
         Expr::Add(terms) => {
             if terms.is_empty() {
                 return "0".to_string();
@@ -508,12 +508,23 @@ fn python_code_unchecked(expr: &Expr) -> String {
                 .map(python_code_unchecked)
                 .collect::<Vec<_>>()
                 .join(", ");
-            format!("math.{}({})", name, arg_str)
+            let callable = match name.as_str() {
+                "Abs" | "abs" => "abs".to_string(),
+                "acos" | "acosh" | "asin" | "asinh" | "atan" | "atanh" | "cos" | "cosh" | "erf"
+                | "erfc" | "exp" | "factorial" | "gamma" | "log" | "sin" | "sinh" | "sqrt"
+                | "tan" | "tanh" => format!("math.{name}"),
+                _ => name.clone(),
+            };
+            format!("{callable}({arg_str})")
         }
     }
 }
 
 /// Render a bounded Python expression.
+///
+/// The caller provides `math`, `fractions`, and any user-defined function names
+/// referenced by the returned expression. This function emits source only; it
+/// does not execute generated code.
 pub fn to_python_code(expr: &Expr) -> Result<String, PrintingError> {
     to_python_code_with_limits(expr, PrintingLimits::default())
 }
@@ -532,8 +543,8 @@ fn c_code_unchecked(expr: &Expr) -> String {
         Expr::Sym(s) => s.name.clone(),
         Expr::Integer(n) => format!("{}.0", n),
         Expr::Rational(r) => format!("({}.0 / {}.0)", r.numer(), r.denom()),
-        Expr::Const(Constant::Pi) => "M_PI".to_string(),
-        Expr::Const(Constant::E) => "M_E".to_string(),
+        Expr::Const(Constant::Pi) => "acos(-1.0)".to_string(),
+        Expr::Const(Constant::E) => "exp(1.0)".to_string(),
         Expr::Const(Constant::Infinity) => "INFINITY".to_string(),
         Expr::Const(Constant::NegativeInfinity) => "(-INFINITY)".to_string(),
         Expr::Const(Constant::NaN) => "NAN".to_string(),
@@ -808,9 +819,18 @@ mod tests {
         assert_eq!(to_python_code(&trig).unwrap(), "math.sin(x)");
         assert_eq!(to_c_code(&trig).unwrap(), "sin(x)");
 
+        let user_function = Expr::Function("f".to_string(), vec![sym("x")]);
+        assert_eq!(to_python_code(&user_function).unwrap(), "f(x)");
+
+        let rational = Expr::Rational(BigRational::new(BigInt::from(1), BigInt::from(3)));
+        assert_eq!(
+            to_python_code(&rational).unwrap(),
+            "fractions.Fraction(1, 3)"
+        );
+
         let pi_expr = Expr::Const(Constant::Pi);
         assert_eq!(to_python_code(&pi_expr).unwrap(), "math.pi");
-        assert_eq!(to_c_code(&pi_expr).unwrap(), "M_PI");
+        assert_eq!(to_c_code(&pi_expr).unwrap(), "acos(-1.0)");
 
         assert_eq!(
             to_python_code(&sym("def")),
@@ -821,8 +841,24 @@ mod tests {
             Err(PrintingError::InvalidCIdentifier)
         );
         assert_eq!(
+            to_c_code(&sym("_Atomic")),
+            Err(PrintingError::InvalidCIdentifier)
+        );
+        assert_eq!(
+            to_python_code(&Expr::Const(Constant::ComplexInfinity)),
+            Err(PrintingError::UnsupportedPythonConstant(
+                Constant::ComplexInfinity
+            ))
+        );
+        assert_eq!(
             to_c_code(&Expr::Const(Constant::I)),
             Err(PrintingError::UnsupportedCConstant(Constant::I))
+        );
+
+        let huge = Expr::Integer(BigInt::from(i64::MAX) + BigInt::from(1));
+        assert_eq!(
+            to_c_code(&huge),
+            Err(PrintingError::CNumericValueOutOfRange)
         );
     }
 }
