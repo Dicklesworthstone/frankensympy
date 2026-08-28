@@ -550,6 +550,77 @@ impl Matrix {
         Ok(simplify(&Expr::Add(diag)))
     }
 
+    /// Matrix addition: self + other.
+    pub fn add(&self, other: &Self) -> Result<Self, MatrixError> {
+        self.validate_shape()?;
+        other.validate_shape()?;
+        if self.rows != other.rows || self.cols != other.cols {
+            return Err(MatrixError::ShapeMismatch(
+                self.rows, self.cols, other.rows, other.cols,
+            ));
+        }
+        let total = self.data.len();
+        let mut data = Vec::with_capacity(total);
+        for i in 0..total {
+            data.push(simplify(&Expr::Add(vec![
+                self.data[i].clone(),
+                other.data[i].clone(),
+            ])));
+        }
+        Self::new(self.rows, self.cols, data)
+    }
+
+    /// Matrix subtraction: self - other.
+    pub fn sub(&self, other: &Self) -> Result<Self, MatrixError> {
+        self.validate_shape()?;
+        other.validate_shape()?;
+        if self.rows != other.rows || self.cols != other.cols {
+            return Err(MatrixError::ShapeMismatch(
+                self.rows, self.cols, other.rows, other.cols,
+            ));
+        }
+        let total = self.data.len();
+        let mut data = Vec::with_capacity(total);
+        for i in 0..total {
+            data.push(simplify(&Expr::Add(vec![
+                self.data[i].clone(),
+                Expr::Mul(vec![Expr::from_i64(-1), other.data[i].clone()]),
+            ])));
+        }
+        Self::new(self.rows, self.cols, data)
+    }
+
+    /// Scalar multiplication: scalar * self.
+    pub fn scalar_mul(&self, scalar: &Expr) -> Result<Self, MatrixError> {
+        self.validate_shape()?;
+        let total = self.data.len();
+        let mut data = Vec::with_capacity(total);
+        for entry in &self.data {
+            data.push(simplify(&Expr::Mul(vec![scalar.clone(), entry.clone()])));
+        }
+        Self::new(self.rows, self.cols, data)
+    }
+
+    /// Hadamard (elementwise) product: self .* other.
+    pub fn hadamard(&self, other: &Self) -> Result<Self, MatrixError> {
+        self.validate_shape()?;
+        other.validate_shape()?;
+        if self.rows != other.rows || self.cols != other.cols {
+            return Err(MatrixError::ShapeMismatch(
+                self.rows, self.cols, other.rows, other.cols,
+            ));
+        }
+        let total = self.data.len();
+        let mut data = Vec::with_capacity(total);
+        for i in 0..total {
+            data.push(simplify(&Expr::Mul(vec![
+                self.data[i].clone(),
+                other.data[i].clone(),
+            ])));
+        }
+        Self::new(self.rows, self.cols, data)
+    }
+
     /// Matrix multiplication: self * other.
     pub fn matmul(&self, other: &Self) -> Result<Self, MatrixError> {
         let mut meter = fsym_budget::Unbounded;
@@ -2885,5 +2956,46 @@ mod tests {
         assert!(!lower.is_upper_triangular());
         assert!(!lower.is_diagonal());
         assert!(!lower.is_symmetric());
+    }
+
+    #[test]
+    fn test_matrix_add_sub_scalar_mul_and_hadamard() {
+        let a = Matrix::new(2, 2, vec![num(1), num(2), num(3), num(4)]).unwrap();
+        let b = Matrix::new(2, 2, vec![num(5), num(6), num(7), num(8)]).unwrap();
+
+        // Addition: A + B
+        let a_plus_b = a.add(&b).unwrap();
+        assert_eq!(
+            a_plus_b.data(),
+            &[num(6), num(8), num(10), num(12)]
+        );
+
+        // Subtraction: B - A
+        let b_minus_a = b.sub(&a).unwrap();
+        assert_eq!(
+            b_minus_a.data(),
+            &[num(4), num(4), num(4), num(4)]
+        );
+
+        // Scalar multiplication: 3 * A
+        let three = num(3);
+        let scalar_a = a.scalar_mul(&three).unwrap();
+        assert_eq!(
+            scalar_a.data(),
+            &[num(3), num(6), num(9), num(12)]
+        );
+
+        // Hadamard elementwise product: A .* B
+        let had = a.hadamard(&b).unwrap();
+        assert_eq!(
+            had.data(),
+            &[num(5), num(12), num(21), num(32)]
+        );
+
+        // Shape mismatch rejection
+        let c = Matrix::new(2, 3, vec![num(1); 6]).unwrap();
+        assert!(matches!(a.add(&c), Err(MatrixError::ShapeMismatch(..))));
+        assert!(matches!(a.sub(&c), Err(MatrixError::ShapeMismatch(..))));
+        assert!(matches!(a.hadamard(&c), Err(MatrixError::ShapeMismatch(..))));
     }
 }
