@@ -9,7 +9,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from comparators import diff_envelopes, is_valid_discrepancy
-from minimize import build_records, record_identity, strict_json_loads
+from minimize import (
+    LEDGER_INDEX_FIELDS,
+    MAX_LEDGER_RECORD_BYTES,
+    _index_validated_records,
+    _validate_ledger_index_entry,
+    _validate_ledger_record_size,
+    build_records,
+    record_identity,
+    strict_json_loads,
+)
 
 PROFILE = "sympy-1.14.0-cpython"
 STAMP = "2026-08-26T00:00:00+00:00"
@@ -39,6 +48,68 @@ def records(oracle: list[dict], candidate: list[dict]) -> tuple[list[dict], int]
 
 
 class DiscrepancyMinimizerTests(unittest.TestCase):
+    def test_ledger_index_must_match_record_triage_fields(self) -> None:
+        record = records(
+            [envelope("fixture/a", side="upstream_oracle")],
+            [
+                envelope(
+                    "fixture/a",
+                    side="frankensympy_candidate",
+                    observed_type="Wrong",
+                )
+            ],
+        )[0][0]
+        index_entry = {field: record[field] for field in LEDGER_INDEX_FIELDS}
+
+        self.assertEqual(
+            _validate_ledger_index_entry(index_entry, record, line_number=1),
+            record["discrepancy_id"],
+        )
+        for field, replacement in (
+            ("severity", "security"),
+            ("status", "closed_verified"),
+        ):
+            with self.subTest(field=field):
+                mutant = copy.deepcopy(index_entry)
+                mutant[field] = replacement
+                with self.assertRaisesRegex(
+                    ValueError, rf"field {field!r} disagrees"
+                ):
+                    _validate_ledger_index_entry(mutant, record, line_number=1)
+
+    def test_ledger_publication_preflight_rejects_invalid_and_duplicate_records(
+        self,
+    ) -> None:
+        record = records(
+            [envelope("fixture/a", side="upstream_oracle")],
+            [
+                envelope(
+                    "fixture/a",
+                    side="frankensympy_candidate",
+                    observed_type="Wrong",
+                )
+            ],
+        )[0][0]
+
+        with self.assertRaisesRegex(ValueError, "duplicate incoming ledger record"):
+            _index_validated_records([record, copy.deepcopy(record)])
+
+        mutant = copy.deepcopy(record)
+        mutant["status"] = "silently_accepted"
+        with self.assertRaisesRegex(ValueError, "invalid incoming ledger record"):
+            _index_validated_records([mutant])
+
+    def test_ledger_record_size_is_admitted_before_read(self) -> None:
+        _validate_ledger_record_size(
+            MAX_LEDGER_RECORD_BYTES,
+            Path("disc-boundary.json"),
+        )
+        with self.assertRaisesRegex(ValueError, "exceeds the ledger record-size limit"):
+            _validate_ledger_record_size(
+                MAX_LEDGER_RECORD_BYTES + 1,
+                Path("disc-oversized.json"),
+            )
+
     def test_reordered_envelopes_pair_by_fixture_id(self) -> None:
         oracle = [
             envelope("fixture/a", side="upstream_oracle"),
@@ -120,6 +191,20 @@ class DiscrepancyMinimizerTests(unittest.TestCase):
 
         self.assertFalse(valid)
         self.assertIn("difference keys invalid", reason)
+
+    def test_record_validator_recomputes_content_id(self) -> None:
+        oracle = [envelope("fixture/a", side="upstream_oracle")]
+        candidate = [
+            envelope("fixture/a", side="frankensympy_candidate", observed_type="Wrong")
+        ]
+        found, _ = records(oracle, candidate)
+        mutant = copy.deepcopy(found[0])
+        mutant["discrepancy_id"] = "disc-" + "0" * 64
+
+        valid, reason = is_valid_discrepancy(mutant)
+
+        self.assertFalse(valid)
+        self.assertIn("does not match canonical content", reason)
 
     def test_exact_comparator_distinguishes_json_boolean_from_integer(self) -> None:
         oracle = envelope("fixture/a", side="upstream_oracle")

@@ -29,6 +29,7 @@ from comparators import REGISTRY, diff_envelopes, discrepancy_id, is_valid_discr
 MAX_ENVELOPE_FILE_BYTES = 64 * 1024 * 1024
 MAX_ENVELOPE_LINE_BYTES = 4 * 1024 * 1024
 MAX_ENVELOPES = 65_536
+MAX_LEDGER_RECORD_BYTES = MAX_ENVELOPE_FILE_BYTES
 REQUIRED_ENVELOPE_KEYS = {
     "schema_version",
     "profile_id",
@@ -40,6 +41,13 @@ REQUIRED_ENVELOPE_KEYS = {
 }
 ORACLE_SIDE = "upstream_oracle"
 CANDIDATE_SIDE = "frankensympy_candidate"
+LEDGER_INDEX_FIELDS = (
+    "discrepancy_id",
+    "fixture_id",
+    "comparator",
+    "severity",
+    "status",
+)
 
 
 def strict_json_loads(payload: str):
@@ -47,6 +55,13 @@ def strict_json_loads(payload: str):
         raise ValueError(f"non-finite JSON number is forbidden: {token}")
 
     return json.loads(payload, parse_constant=reject_constant)
+
+
+def _validate_ledger_record_size(size: int, record_path: Path) -> None:
+    if size > MAX_LEDGER_RECORD_BYTES:
+        raise ValueError(
+            f"ledger record {record_path} exceeds the ledger record-size limit"
+        )
 
 
 def load_envelopes(path: Path) -> list[dict]:
@@ -262,6 +277,39 @@ def record_identity(record: dict) -> dict:
     }
 
 
+def _index_validated_records(records: list[dict]) -> dict[str, dict]:
+    """Validate a publication batch and index it without collapsing duplicates."""
+    indexed = {}
+    for position, record in enumerate(records, start=1):
+        ok, reason = is_valid_discrepancy(record)
+        if not ok:
+            raise ValueError(f"invalid incoming ledger record {position}: {reason}")
+        discrepancy = record["discrepancy_id"]
+        if discrepancy in indexed:
+            raise ValueError(f"duplicate incoming ledger record: {discrepancy}")
+        indexed[discrepancy] = record
+    return indexed
+
+
+def _validate_ledger_index_entry(
+    entry: object, record: dict, *, line_number: int
+) -> str:
+    """Require every index projection to agree with its canonical record."""
+    if not isinstance(entry, dict) or set(entry) != set(LEDGER_INDEX_FIELDS):
+        raise ValueError(f"invalid ledger index line {line_number}")
+    discrepancy = entry["discrepancy_id"]
+    if not isinstance(discrepancy, str) or not re.fullmatch(
+        r"disc-[a-z0-9-]+", discrepancy
+    ):
+        raise TypeError(f"invalid ledger index line {line_number}")
+    for field in LEDGER_INDEX_FIELDS:
+        if entry[field] != record[field]:
+            raise ValueError(
+                f"ledger index field {field!r} disagrees with record {discrepancy}"
+            )
+    return discrepancy
+
+
 def load_ledger_index(ledger: Path) -> set[str]:
     index_path = ledger / "index.ndjson"
     indexed_ids = set()
@@ -271,7 +319,6 @@ def load_ledger_index(ledger: Path) -> set[str]:
         raise ValueError("ledger index must not be a symbolic link")
     if index_path.stat().st_size > MAX_ENVELOPE_FILE_BYTES:
         raise ValueError("ledger index exceeds the file-size limit")
-    required = {"discrepancy_id", "fixture_id", "comparator", "severity", "status"}
     with open(index_path, encoding="utf-8") as fh:
         for line_number, line in enumerate(fh, start=1):
             if not line.strip():
@@ -282,7 +329,7 @@ def load_ledger_index(ledger: Path) -> set[str]:
                 raise ValueError(
                     f"invalid ledger index line {line_number}: {exc}"
                 ) from exc
-            if not isinstance(entry, dict) or set(entry) != required:
+            if not isinstance(entry, dict) or set(entry) != set(LEDGER_INDEX_FIELDS):
                 raise ValueError(f"invalid ledger index line {line_number}")
             discrepancy = entry["discrepancy_id"]
             if not isinstance(discrepancy, str) or not re.fullmatch(
@@ -296,6 +343,7 @@ def load_ledger_index(ledger: Path) -> set[str]:
                 raise ValueError(
                     f"ledger index references missing record: {discrepancy}"
                 )
+            _validate_ledger_record_size(record_path.stat().st_size, record_path)
             try:
                 record = strict_json_loads(record_path.read_text(encoding="utf-8"))
             except ValueError as exc:
@@ -307,11 +355,7 @@ def load_ledger_index(ledger: Path) -> set[str]:
                 raise ValueError(
                     f"invalid existing ledger record {record_path}: {reason}"
                 )
-            for field in ("discrepancy_id", "fixture_id", "comparator"):
-                if entry[field] != record[field]:
-                    raise ValueError(
-                        f"ledger index field {field!r} disagrees with record {discrepancy}"
-                    )
+            _validate_ledger_index_entry(entry, record, line_number=line_number)
             indexed_ids.add(discrepancy)
             if len(indexed_ids) > MAX_ENVELOPES:
                 raise ValueError("ledger index exceeds the record-count limit")
@@ -319,12 +363,13 @@ def load_ledger_index(ledger: Path) -> set[str]:
 
 
 def persist_ledger(records: list[dict], ledger: Path) -> None:
+    records_by_id = _index_validated_records(records)
     if ledger.is_symlink() or (ledger.exists() and not ledger.is_dir()):
         raise ValueError(f"ledger path must be a real directory: {ledger}")
     ledger.mkdir(parents=True, exist_ok=True)
     indexed_ids = load_ledger_index(ledger)
     missing_records = []
-    for record in records:
+    for record in records_by_id.values():
         record_path = ledger / f"{record['discrepancy_id']}.json"
         if record_path.is_symlink():
             raise ValueError(
@@ -333,6 +378,7 @@ def persist_ledger(records: list[dict], ledger: Path) -> None:
         if not record_path.exists():
             missing_records.append((record_path, record))
             continue
+        _validate_ledger_record_size(record_path.stat().st_size, record_path)
         try:
             existing = strict_json_loads(record_path.read_text(encoding="utf-8"))
         except ValueError as exc:
@@ -355,20 +401,16 @@ def persist_ledger(records: list[dict], ledger: Path) -> None:
 
     index_path = ledger / "index.ndjson"
     additions = [
-        record for record in records if record["discrepancy_id"] not in indexed_ids
+        record
+        for discrepancy, record in records_by_id.items()
+        if discrepancy not in indexed_ids
     ]
     if additions:
         with open(index_path, "a", encoding="utf-8") as fh:
             for record in additions:
                 fh.write(
                     json.dumps(
-                        {
-                            "discrepancy_id": record["discrepancy_id"],
-                            "fixture_id": record["fixture_id"],
-                            "comparator": record["comparator"],
-                            "severity": record["severity"],
-                            "status": record["status"],
-                        },
+                        {field: record[field] for field in LEDGER_INDEX_FIELDS},
                         sort_keys=True,
                         allow_nan=False,
                     )

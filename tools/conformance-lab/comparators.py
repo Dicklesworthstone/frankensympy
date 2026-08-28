@@ -199,6 +199,14 @@ def is_valid_discrepancy(record: dict) -> tuple[bool, str]:
         path = diff.get("path")
         if not isinstance(path, str) or not path_re.fullmatch(path):
             return False, f"bad difference path: {path!r}"
+    expected_id = discrepancy_id(
+        profile_id=record["profile_id"],
+        fixture_id=record["fixture_id"],
+        comparator=record["comparator"],
+        differences=record["differences"],
+    )
+    if record["discrepancy_id"] != expected_id:
+        return False, "discrepancy_id does not match canonical content"
     outcome_classes = record.get("outcome_classes")
     if outcome_classes is not None and (
         not isinstance(outcome_classes, dict)
