@@ -114,6 +114,28 @@ pub fn preflight_parser_src(src: &str, radix: u32) -> Result<(), String> {
     Ok(())
 }
 
+fn preflight_parser_bytes(buf: &[u8], radix: u32) -> Result<(), String> {
+    let limit = max_parser_digit_chars(radix)?;
+    let digit_len = match buf.first() {
+        Some(b'+' | b'-') => buf.len().saturating_sub(1),
+        _ => buf.len(),
+    };
+    if u64::try_from(digit_len).unwrap_or(u64::MAX) > limit {
+        return Err(parser_magnitude_limit_error());
+    }
+    Ok(())
+}
+
+fn parse_bytes_with_utf8<'a>(
+    buf: &'a [u8],
+    radix: u32,
+    decode_utf8: impl FnOnce(&'a [u8]) -> Result<&'a str, std::str::Utf8Error>,
+) -> Option<BigInt> {
+    preflight_parser_bytes(buf, radix).ok()?;
+    let src = decode_utf8(buf).ok()?;
+    BigInt::from_str_radix(src, radix).ok()
+}
+
 /// Refuse a materialized integer whose bit height exceeds the decoder bound.
 pub fn decoder_integer_fits(value: &BigInt) -> Result<(), String> {
     if value.bits() > MAX_PARSER_BITS {
@@ -358,13 +380,10 @@ impl BigInt {
     /// Parses a signed integer from bytes in `radix`.
     ///
     /// Returns `None` when `radix` is outside `2..=36`, the bytes are not UTF-8, or the payload is
-    /// not a valid integer in the requested radix.
+    /// too large or not a valid integer in the requested radix. The size bound is checked before
+    /// UTF-8 validation so an oversized direct byte-decoder input is refused in constant time.
     pub fn parse_bytes(buf: &[u8], radix: u32) -> Option<Self> {
-        if !string_radix_is_supported(radix) {
-            return None;
-        }
-        let src = std::str::from_utf8(buf).ok()?;
-        Self::from_str_radix(src, radix).ok()
+        parse_bytes_with_utf8(buf, radix, std::str::from_utf8)
     }
 
     /// Magnitude size in bits (0 for zero).
@@ -1722,12 +1741,49 @@ fn metered_multiply_capped<M: BudgetMeter>(
     }
 }
 
+fn charge_substrate_product_lift<M: BudgetMeter>(
+    product: &[u32],
+    meter: &mut M,
+) -> Result<(), MeterError> {
+    // num-bigint stores one u64 digit inline on 64-bit targets. More than two canonical u32
+    // digits therefore make BigUint::new repack the product into a newly allocated Vec<u64>.
+    // Account for that otherwise-hidden allocation before it occurs. On 32-bit targets the
+    // substrate adopts the Vec<u32> directly, so there is no additional allocation to charge.
+    #[cfg(target_pointer_width = "64")]
+    {
+        let native_digits = product.len().div_ceil(2);
+        if native_digits > 1 {
+            meter.checkpoint()?;
+            meter.charge_batch(&[
+                (
+                    Dimension::MemoryBytes,
+                    u64::try_from(native_digits)
+                        .unwrap_or(u64::MAX)
+                        .saturating_mul(8),
+                ),
+                (Dimension::AllocationCount, 1),
+            ])?;
+            meter.checkpoint()?;
+        }
+    }
+
+    #[cfg(not(target_pointer_width = "64"))]
+    {
+        let _ = (product, meter);
+    }
+
+    Ok(())
+}
+
 /// Metered multiplication with safe points inside the limb-product loop.
 ///
 /// This cancellation-first lane deliberately uses a simple base-$2^{32}$ reference algorithm.
 /// Each input-copy and limb-product unit is charged and preceded by a checkpoint, so cancellation
-/// latency does not depend on an opaque substrate multiplication call. A final checkpoint occurs
-/// after the complete result exists and before it is published.
+/// latency does not depend on an opaque substrate multiplication call. On 64-bit targets, the
+/// final base-$2^{32}$ to native-limb repack is also charged and checkpointed before allocation.
+/// The contained substrate allocation itself is infallible; callers that require typed allocator
+/// refusal must use a controlled candidate lane. A final checkpoint occurs after the complete
+/// result exists and before it is published.
 pub fn metered_multiply<M: BudgetMeter>(
     a: &BigInt,
     b: &BigInt,
@@ -1796,6 +1852,7 @@ pub fn metered_multiply<M: BudgetMeter>(
     while product.last() == Some(&0) {
         product.pop();
     }
+    charge_substrate_product_lift(&product, meter)?;
     let magnitude = BigUint::new(product);
     let sign = if a.0.sign() == b.0.sign() {
         Sign::Plus
@@ -3610,6 +3667,7 @@ mod tests {
         for (src, radix, expected) in [
             ("-101", 2, BigInt::from(-5)),
             ("0", 2, BigInt::zero()),
+            ("+z", 36, BigInt::from(35)),
             ("z", 36, BigInt::from(35)),
             ("Z", 36, BigInt::from(35)),
         ] {
@@ -3690,6 +3748,34 @@ mod tests {
             <BigInt as Num>::from_str_radix(&oversize, radix),
             Err(preflight_error)
         );
+    }
+
+    #[test]
+    fn byte_parser_size_preflight_precedes_utf8_validation() {
+        let radix = 36;
+        let limit = usize::try_from(max_parser_digit_chars(radix).expect("supported radix"))
+            .expect("parser limit fits usize");
+        let oversized = vec![b'1'; limit + 1];
+        let utf8_calls = std::cell::Cell::new(0);
+
+        let refused = parse_bytes_with_utf8(&oversized, radix, |bytes| {
+            utf8_calls.set(utf8_calls.get() + 1);
+            std::str::from_utf8(bytes)
+        });
+        assert_eq!(refused, None);
+        assert_eq!(
+            utf8_calls.get(),
+            0,
+            "oversized bytes must be refused before a full UTF-8 scan"
+        );
+
+        let accepted = parse_bytes_with_utf8(b"+z", radix, |bytes| {
+            utf8_calls.set(utf8_calls.get() + 1);
+            std::str::from_utf8(bytes)
+        });
+        assert_eq!(accepted, Some(BigInt::from(35)));
+        assert_eq!(utf8_calls.get(), 1);
+        assert_eq!(BigInt::parse_bytes(&[0xff], radix), None);
     }
 
     #[test]
@@ -5761,6 +5847,50 @@ mod tests {
             }))
         );
         assert_eq!(budget.snapshot(), before);
+    }
+
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    fn metered_multiplication_charges_native_lift_before_publication() {
+        let factor = BigInt::one() << 32u32;
+
+        let mut refused_limits = BudgetLimits::uniform(1_000_000, 0);
+        refused_limits.dimensions[Dimension::MemoryBytes.index()] = 32;
+        refused_limits.dimensions[Dimension::AllocationCount.index()] = 3;
+        let mut refused_budget = Budget::new(refused_limits);
+        assert_eq!(
+            metered_multiply(&factor, &factor, &mut refused_budget),
+            Err(MeterError::Budget(fsym_budget::BudgetError::Exhausted {
+                dimension: Dimension::MemoryBytes,
+                requested: 16,
+                remaining: 0,
+            }))
+        );
+        assert_eq!(refused_budget.remaining(Dimension::MemoryBytes), 0);
+        assert_eq!(refused_budget.remaining(Dimension::AllocationCount), 0);
+
+        let mut admitted_limits = BudgetLimits::uniform(1_000_000, 0);
+        admitted_limits.dimensions[Dimension::MemoryBytes.index()] = 48;
+        admitted_limits.dimensions[Dimension::AllocationCount.index()] = 4;
+        let mut admitted_budget = Budget::new(admitted_limits);
+        assert_eq!(
+            metered_multiply(&factor, &factor, &mut admitted_budget),
+            Ok(BigInt::one() << 64u32)
+        );
+        assert_eq!(admitted_budget.remaining(Dimension::MemoryBytes), 0);
+        assert_eq!(admitted_budget.remaining(Dimension::AllocationCount), 0);
+
+        let inline_factor = BigInt::one() << 16u32;
+        let mut inline_limits = BudgetLimits::uniform(1_000_000, 0);
+        inline_limits.dimensions[Dimension::MemoryBytes.index()] = 16;
+        inline_limits.dimensions[Dimension::AllocationCount.index()] = 3;
+        let mut inline_budget = Budget::new(inline_limits);
+        assert_eq!(
+            metered_multiply(&inline_factor, &inline_factor, &mut inline_budget),
+            Ok(BigInt::one() << 32u32)
+        );
+        assert_eq!(inline_budget.remaining(Dimension::MemoryBytes), 0);
+        assert_eq!(inline_budget.remaining(Dimension::AllocationCount), 0);
     }
 
     #[test]
