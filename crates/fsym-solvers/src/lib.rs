@@ -13,6 +13,7 @@ use fsym_core::{BigRational, Expr, Symbol};
 use fsym_polys::UnivariatePoly;
 use num_traits::identities::{One, Zero};
 use std::ops::{Add, Mul};
+use std::sync::Arc;
 use thiserror::Error;
 
 const MAX_VERIFIER_INPUT_NODES: usize = 256;
@@ -177,74 +178,76 @@ pub fn solve_poly(poly: &UnivariatePoly) -> Result<Vec<Expr>, SolverError> {
 
 /// Interpret `expr` as a polynomial of degree <= 1 in `var`, returning `(a, b)`
 /// with `expr = a*var + b`. Numeric leaves are folded eagerly so common cases
+fn as_rational(e: &Expr) -> Option<BigRational> {
+    match e {
+        Expr::Integer(n) => Some(BigRational::from_integer(n.clone())),
+        Expr::Rational(r) => Some(r.clone()),
+        _ => None,
+    }
+}
+
+fn fold_expr(e: Expr) -> Expr {
+    if let Some(r) = as_rational(&e) {
+        if r.is_integer() {
+            return Expr::Integer(r.to_integer());
+        }
+        return Expr::Rational(r);
+    }
+    e
+}
+
+/// Add two expressions, folding numeric pairs and dropping zero identities.
+fn add_expr(x: Expr, y: Expr) -> Expr {
+    match (as_rational(&x), as_rational(&y)) {
+        (Some(a), Some(b)) => fold_expr(Expr::Rational(a + b)),
+        (Some(a), None) => {
+            if a.is_zero() {
+                fold_expr(y)
+            } else {
+                x.add(y)
+            }
+        }
+        (None, Some(b)) => {
+            if b.is_zero() {
+                fold_expr(x)
+            } else {
+                x.add(y)
+            }
+        }
+        (None, None) => x.add(y),
+    }
+}
+
+/// Multiply two expressions, folding numeric pairs and absorbing zero/one identities.
+fn mul_expr(x: Expr, y: Expr) -> Expr {
+    match (as_rational(&x), as_rational(&y)) {
+        (Some(a), Some(b)) => fold_expr(Expr::Rational(a * b)),
+        (Some(a), None) => {
+            if a.is_zero() {
+                Expr::from_i64(0)
+            } else if a.is_one() {
+                fold_expr(y)
+            } else {
+                x.mul(y)
+            }
+        }
+        (None, Some(b)) => {
+            if b.is_zero() {
+                Expr::from_i64(0)
+            } else if b.is_one() {
+                fold_expr(x)
+            } else {
+                x.mul(y)
+            }
+        }
+        (None, None) => x.mul(y),
+    }
+}
+
+/// Interpret `expr` as a polynomial of degree <= 1 in `var`, returning `(a, b)`
+/// with `expr = a*var + b`. Numeric leaves are folded eagerly so common cases
 /// stay canonical.
 fn linear_coeffs(expr: &Expr, var: &Symbol) -> Result<(Expr, Expr), SolverError> {
-    fn as_rational(e: &Expr) -> Option<BigRational> {
-        match e {
-            Expr::Integer(n) => Some(BigRational::from_integer(n.clone())),
-            Expr::Rational(r) => Some(r.clone()),
-            _ => None,
-        }
-    }
-
-    fn fold(e: Expr) -> Expr {
-        if let Some(r) = as_rational(&e) {
-            if r.is_integer() {
-                return Expr::Integer(r.to_integer());
-            }
-            return Expr::Rational(r);
-        }
-        e
-    }
-
-    /// Add two expressions, folding numeric pairs and dropping zero identities.
-    fn add(x: Expr, y: Expr) -> Expr {
-        match (as_rational(&x), as_rational(&y)) {
-            (Some(a), Some(b)) => fold(Expr::Rational(a + b)),
-            (Some(a), None) => {
-                if a.is_zero() {
-                    fold(y)
-                } else {
-                    x.add(y)
-                }
-            }
-            (None, Some(b)) => {
-                if b.is_zero() {
-                    fold(x)
-                } else {
-                    x.add(y)
-                }
-            }
-            (None, None) => x.add(y),
-        }
-    }
-
-    /// Multiply two expressions, folding numeric pairs and absorbing zero/one identities.
-    fn mul(x: Expr, y: Expr) -> Expr {
-        match (as_rational(&x), as_rational(&y)) {
-            (Some(a), Some(b)) => fold(Expr::Rational(a * b)),
-            (Some(a), None) => {
-                if a.is_zero() {
-                    Expr::from_i64(0)
-                } else if a.is_one() {
-                    fold(y)
-                } else {
-                    x.mul(y)
-                }
-            }
-            (None, Some(b)) => {
-                if b.is_zero() {
-                    Expr::from_i64(0)
-                } else if b.is_one() {
-                    fold(x)
-                } else {
-                    x.mul(y)
-                }
-            }
-            (None, None) => x.mul(y),
-        }
-    }
-
     let contains_var = |e: &Expr| e.free_symbols().iter().any(|s| s == var);
 
     match expr {
@@ -257,8 +260,8 @@ fn linear_coeffs(expr: &Expr, var: &Symbol) -> Result<(Expr, Expr), SolverError>
             let mut acc = (Expr::from_i64(0), Expr::from_i64(0));
             for t in terms {
                 let (a, b) = linear_coeffs(t, var)?;
-                acc.0 = add(acc.0, a);
-                acc.1 = add(acc.1, b);
+                acc.0 = add_expr(acc.0, a);
+                acc.1 = add_expr(acc.1, b);
             }
             Ok(acc)
         }
@@ -278,11 +281,11 @@ fn linear_coeffs(expr: &Expr, var: &Symbol) -> Result<(Expr, Expr), SolverError>
             }
             let k = constants
                 .into_iter()
-                .reduce(mul)
+                .reduce(mul_expr)
                 .unwrap_or_else(|| Expr::from_i64(1));
             match var_part {
                 None => Ok((Expr::from_i64(0), expr.clone())),
-                Some((a, b)) => Ok((mul(k.clone(), a), mul(k, b))),
+                Some((a, b)) => Ok((mul_expr(k.clone(), a), mul_expr(k, b))),
             }
         }
         Expr::Pow(base, exp) => {
@@ -300,6 +303,102 @@ fn linear_coeffs(expr: &Expr, var: &Symbol) -> Result<(Expr, Expr), SolverError>
                 return Err(SolverError::NonLinear);
             }
             Ok((Expr::from_i64(0), expr.clone()))
+        }
+    }
+}
+
+/// Interpret `expr` as a polynomial of degree <= 2 in `var`, returning `(a, b, c)`
+/// with `expr = a*var^2 + b*var + c`. Numeric leaves are folded eagerly.
+pub fn quadratic_coeffs(expr: &Expr, var: &Symbol) -> Result<(Expr, Expr, Expr), SolverError> {
+    let contains_var = |e: &Expr| e.free_symbols().iter().any(|s| s == var);
+
+    match expr {
+        Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_) => {
+            Ok((Expr::from_i64(0), Expr::from_i64(0), expr.clone()))
+        }
+        Expr::Sym(s) if s == var => Ok((Expr::from_i64(0), Expr::from_i64(1), Expr::from_i64(0))),
+        Expr::Sym(_) => Ok((Expr::from_i64(0), Expr::from_i64(0), expr.clone())),
+        Expr::Add(terms) => {
+            let mut acc = (Expr::from_i64(0), Expr::from_i64(0), Expr::from_i64(0));
+            for t in terms {
+                let (a, b, c) = quadratic_coeffs(t, var)?;
+                acc.0 = add_expr(acc.0, a);
+                acc.1 = add_expr(acc.1, b);
+                acc.2 = add_expr(acc.2, c);
+            }
+            Ok(acc)
+        }
+        Expr::Mul(factors) => {
+            let mut var_factors = Vec::new();
+            let mut constants = Vec::new();
+            for f in factors {
+                if contains_var(f) {
+                    var_factors.push(f);
+                } else {
+                    constants.push(f.clone());
+                }
+            }
+            let k = constants
+                .into_iter()
+                .reduce(mul_expr)
+                .unwrap_or_else(|| Expr::from_i64(1));
+
+            match var_factors.len() {
+                0 => Ok((Expr::from_i64(0), Expr::from_i64(0), expr.clone())),
+                1 => {
+                    let (a, b, c) = quadratic_coeffs(var_factors[0], var)?;
+                    Ok((
+                        mul_expr(k.clone(), a),
+                        mul_expr(k.clone(), b),
+                        mul_expr(k, c),
+                    ))
+                }
+                2 => {
+                    let (a1, b1, c1) = quadratic_coeffs(var_factors[0], var)?;
+                    let (a2, b2, c2) = quadratic_coeffs(var_factors[1], var)?;
+                    if !a1.is_zero() || !a2.is_zero() {
+                        return Err(SolverError::NonLinear);
+                    }
+                    let res_a = mul_expr(b1.clone(), b2.clone());
+                    let res_b = add_expr(mul_expr(b1, c2.clone()), mul_expr(b2, c1.clone()));
+                    let res_c = mul_expr(c1, c2);
+                    Ok((
+                        mul_expr(k.clone(), res_a),
+                        mul_expr(k.clone(), res_b),
+                        mul_expr(k, res_c),
+                    ))
+                }
+                _ => Err(SolverError::NonLinear),
+            }
+        }
+        Expr::Pow(base, exp) => {
+            if contains_var(base) {
+                let (a, b, c) = quadratic_coeffs(base, var)?;
+                if exp.as_ref() == &Expr::from_i64(1) {
+                    Ok((a, b, c))
+                } else if exp.as_ref() == &Expr::from_i64(2) {
+                    if !a.is_zero() {
+                        return Err(SolverError::NonLinear);
+                    }
+                    let res_a = mul_expr(b.clone(), b.clone());
+                    let res_b = mul_expr(Expr::from_i64(2), mul_expr(b, c.clone()));
+                    let res_c = mul_expr(c.clone(), c);
+                    Ok((res_a, res_b, res_c))
+                } else if exp.as_ref() == &Expr::from_i64(0) {
+                    Ok((Expr::from_i64(0), Expr::from_i64(0), Expr::from_i64(1)))
+                } else {
+                    Err(SolverError::NonLinear)
+                }
+            } else {
+                Ok((Expr::from_i64(0), Expr::from_i64(0), expr.clone()))
+            }
+        }
+        Expr::Function(_, args) => {
+            if args.iter().any(contains_var) {
+                Err(SolverError::NonLinear)
+            } else {
+                Ok((Expr::from_i64(0), Expr::from_i64(0), expr.clone()))
+            }
         }
     }
 }
@@ -329,14 +428,6 @@ pub fn solve_linear(expr: &Expr, var: &Symbol) -> Result<Expr, SolverError> {
     if b.is_zero() {
         return Ok(Expr::from_i64(0));
     }
-    // Fold when both coefficients are numeric.
-    fn as_rational(e: &Expr) -> Option<BigRational> {
-        match e {
-            Expr::Integer(n) => Some(BigRational::from_integer(n.clone())),
-            Expr::Rational(r) => Some(r.clone()),
-            _ => None,
-        }
-    }
     if let (Some(ra), Some(rb)) = (as_rational(&a), as_rational(&b)) {
         let root = -rb / ra;
         return Ok(if root.is_integer() {
@@ -350,6 +441,91 @@ pub fn solve_linear(expr: &Expr, var: &Symbol) -> Result<Expr, SolverError> {
         b,
         a.pow(Expr::from_i64(-1)),
     ]))
+}
+
+/// Solve `expr = 0` for `var`, where `expr` is at most quadratic (`a*var^2 + b*var + c`) in `var`.
+pub fn solve_quadratic(expr: &Expr, var: &Symbol) -> Result<Vec<Expr>, SolverError> {
+    let free = expr.free_symbols();
+    if !free.contains(var) {
+        if expr.is_zero() {
+            return Err(SolverError::InfiniteSolutions);
+        } else {
+            return Err(SolverError::NoSolution);
+        }
+    }
+    let (a, b, c) = quadratic_coeffs(expr, var)?;
+    if a.is_zero() {
+        let root = solve_linear(expr, var)?;
+        return Ok(vec![root]);
+    }
+    if let (Some(ra), Some(rb), Some(rc)) = (as_rational(&a), as_rational(&b), as_rational(&c)) {
+        let disc = &rb * &rb - BigRational::from_integer(4.into()) * &ra * &rc;
+        let two_a = &ra * BigRational::from_integer(2.into());
+        if let Some(sqrt_disc) = disc.exact_sqrt() {
+            let r1 = (-&rb + &sqrt_disc) / &two_a;
+            let r2 = (-&rb - &sqrt_disc) / &two_a;
+            let e1 = if r1.is_integer() {
+                Expr::Integer(r1.to_integer())
+            } else {
+                Expr::Rational(r1)
+            };
+            let e2 = if r2.is_integer() {
+                Expr::Integer(r2.to_integer())
+            } else {
+                Expr::Rational(r2)
+            };
+            if e1 == e2 {
+                return Ok(vec![e1]);
+            }
+            return Ok(vec![e1, e2]);
+        }
+        let neg_b = Expr::Rational(-rb);
+        let disc_expr = Expr::Rational(disc);
+        let two_a_expr = Expr::Rational(two_a);
+        let sqrt_disc = Expr::Pow(
+            Arc::new(disc_expr),
+            Arc::new(Expr::Rational(BigRational::new(1.into(), 2.into()))),
+        );
+        let r1 = Expr::Mul(vec![
+            Expr::Add(vec![neg_b.clone(), sqrt_disc.clone()]),
+            Expr::Pow(Arc::new(two_a_expr.clone()), Arc::new(Expr::from_i64(-1))),
+        ]);
+        let r2 = Expr::Mul(vec![
+            Expr::Add(vec![neg_b, Expr::Mul(vec![Expr::from_i64(-1), sqrt_disc])]),
+            Expr::Pow(Arc::new(two_a_expr), Arc::new(Expr::from_i64(-1))),
+        ]);
+        return Ok(vec![r1, r2]);
+    }
+
+    let neg_b = mul_expr(Expr::from_i64(-1), b.clone());
+    let two_a = mul_expr(Expr::from_i64(2), a.clone());
+    let b_sq = mul_expr(b.clone(), b);
+    let four_ac = mul_expr(Expr::from_i64(4), mul_expr(a, c));
+    let disc = add_expr(b_sq, mul_expr(Expr::from_i64(-1), four_ac));
+    let sqrt_disc = Expr::Pow(
+        Arc::new(disc),
+        Arc::new(Expr::Rational(BigRational::new(1.into(), 2.into()))),
+    );
+    let r1 = Expr::Mul(vec![
+        Expr::Add(vec![neg_b.clone(), sqrt_disc.clone()]),
+        Expr::Pow(Arc::new(two_a.clone()), Arc::new(Expr::from_i64(-1))),
+    ]);
+    let r2 = Expr::Mul(vec![
+        Expr::Add(vec![neg_b, Expr::Mul(vec![Expr::from_i64(-1), sqrt_disc])]),
+        Expr::Pow(Arc::new(two_a), Arc::new(Expr::from_i64(-1))),
+    ]);
+    Ok(vec![r1, r2])
+}
+
+/// Generic univariate solver for `expr = 0` with respect to `var`.
+///
+/// Automatically attempts linear and quadratic solution lanes.
+pub fn solve(expr: &Expr, var: &Symbol) -> Result<Vec<Expr>, SolverError> {
+    match solve_linear(expr, var) {
+        Ok(root) => Ok(vec![root]),
+        Err(SolverError::NonLinear) => solve_quadratic(expr, var),
+        Err(e) => Err(e),
+    }
 }
 
 #[cfg(test)]
@@ -865,5 +1041,47 @@ mod tests {
         assert_eq!(roots4.len(), 2);
         assert!(matches!(roots4[0], Expr::Mul(_)));
         assert!(matches!(roots4[1], Expr::Mul(_)));
+    }
+
+    #[test]
+    fn test_solve_quadratic_and_solve_dispatch() {
+        let x = Symbol::new("x");
+        // (x - 3)*(x + 2) = x^2 - x - 6 = 0
+        let eq_quad = Expr::Add(vec![
+            Expr::Pow(Arc::new(Expr::Sym(x.clone())), Arc::new(Expr::from_i64(2))),
+            Expr::Mul(vec![Expr::from_i64(-1), Expr::Sym(x.clone())]),
+            Expr::from_i64(-6),
+        ]);
+
+        let roots = solve_quadratic(&eq_quad, &x).unwrap();
+        assert_eq!(roots, vec![Expr::from_i64(3), Expr::from_i64(-2)]);
+
+        // Test generic solve dispatch on quadratic
+        let solve_roots = solve(&eq_quad, &x).unwrap();
+        assert_eq!(solve_roots, vec![Expr::from_i64(3), Expr::from_i64(-2)]);
+
+        // Test generic solve dispatch on linear: 5x - 15 = 0
+        let eq_lin = Expr::Add(vec![
+            Expr::Mul(vec![Expr::from_i64(5), Expr::Sym(x.clone())]),
+            Expr::from_i64(-15),
+        ]);
+        let solve_lin_roots = solve(&eq_lin, &x).unwrap();
+        assert_eq!(solve_lin_roots, vec![Expr::from_i64(3)]);
+
+        // Test repeated root: (x - 4)^2 = x^2 - 8x + 16 = 0 -> [4]
+        let eq_repeated = Expr::Add(vec![
+            Expr::Pow(Arc::new(Expr::Sym(x.clone())), Arc::new(Expr::from_i64(2))),
+            Expr::Mul(vec![Expr::from_i64(-8), Expr::Sym(x.clone())]),
+            Expr::from_i64(16),
+        ]);
+        let rep_roots = solve(&eq_repeated, &x).unwrap();
+        assert_eq!(rep_roots, vec![Expr::from_i64(4)]);
+
+        // Test non-linear rejection for degree 3: x^3 - 1
+        let eq_cubic = Expr::Add(vec![
+            Expr::Pow(Arc::new(Expr::Sym(x.clone())), Arc::new(Expr::from_i64(3))),
+            Expr::from_i64(-1),
+        ]);
+        assert_eq!(solve(&eq_cubic, &x), Err(SolverError::NonLinear));
     }
 }

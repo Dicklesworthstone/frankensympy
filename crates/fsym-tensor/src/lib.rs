@@ -4,7 +4,7 @@
 
 #![forbid(unsafe_code)]
 
-use fsym_core::{Expr, Symbol};
+use fsym_core::{BigInt, BigRational, Expr, Symbol};
 use fsym_simplify::{SimplifyError, try_simplify};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
@@ -516,6 +516,266 @@ impl fmt::Display for TensorExpr {
     }
 }
 
+/// Metric tensor $g_{\mu\nu}$ with dimension, covariant components, and inverse metric components.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MetricTensor {
+    pub name: String,
+    pub dimension: usize,
+    pub matrix: Vec<Expr>,
+    pub inverse: Vec<Expr>,
+}
+
+impl MetricTensor {
+    /// Creates a new metric tensor with validated dimension and component lengths.
+    pub fn new(
+        name: impl Into<String>,
+        dimension: usize,
+        matrix: Vec<Expr>,
+        inverse: Vec<Expr>,
+    ) -> Result<Self, TensorError> {
+        let expected = dimension
+            .checked_mul(dimension)
+            .ok_or(TensorError::ComponentCountOverflow { dimension, rank: 2 })?;
+        if matrix.len() != expected {
+            return Err(TensorError::ComponentCountMismatch {
+                expected,
+                actual: matrix.len(),
+                dimension,
+                rank: 2,
+            });
+        }
+        if inverse.len() != expected {
+            return Err(TensorError::ComponentCountMismatch {
+                expected,
+                actual: inverse.len(),
+                dimension,
+                rank: 2,
+            });
+        }
+        Ok(Self {
+            name: name.into(),
+            dimension,
+            matrix,
+            inverse,
+        })
+    }
+
+    /// Standard 4D Minkowski spacetime metric with signature (-, +, +, +): $\eta = \text{diag}(-1, 1, 1, 1)$.
+    pub fn minkowski_4d(name: impl Into<String>) -> Self {
+        let diag = vec![
+            Expr::from_i64(-1),
+            Expr::from_i64(1),
+            Expr::from_i64(1),
+            Expr::from_i64(1),
+        ];
+        Self::diagonal(name, diag).expect("valid 4D diagonal")
+    }
+
+    /// Euclidean metric of dimension $N$: $g = \text{diag}(1, \dots, 1)$.
+    pub fn euclidean(name: impl Into<String>, dimension: usize) -> Result<Self, TensorError> {
+        let diag = vec![Expr::from_i64(1); dimension];
+        Self::diagonal(name, diag)
+    }
+
+    /// Creates a diagonal metric from the given diagonal elements.
+    pub fn diagonal(name: impl Into<String>, diag_entries: Vec<Expr>) -> Result<Self, TensorError> {
+        let dim = diag_entries.len();
+        let expected = dim
+            .checked_mul(dim)
+            .ok_or(TensorError::ComponentCountOverflow {
+                dimension: dim,
+                rank: 2,
+            })?;
+        let mut mat = Vec::new();
+        let mut inv = Vec::new();
+        try_reserve(&mut mat, expected)?;
+        try_reserve(&mut inv, expected)?;
+
+        for (r, entry) in diag_entries.into_iter().enumerate() {
+            for c in 0..dim {
+                if r == c {
+                    mat.push(entry.clone());
+                    let inv_entry = match &entry {
+                        Expr::Integer(n) => {
+                            if n == &BigInt::from(1) {
+                                Expr::from_i64(1)
+                            } else if n == &BigInt::from(-1) {
+                                Expr::from_i64(-1)
+                            } else {
+                                let r = BigRational::new(1.into(), n.clone());
+                                Expr::Rational(r)
+                            }
+                        }
+                        Expr::Rational(r) => {
+                            let inv_r = r.recip();
+                            if inv_r.is_integer() {
+                                Expr::Integer(inv_r.to_integer())
+                            } else {
+                                Expr::Rational(inv_r)
+                            }
+                        }
+                        _ => try_simplify(&Expr::Pow(
+                            std::sync::Arc::new(entry.clone()),
+                            std::sync::Arc::new(Expr::from_i64(-1)),
+                        ))?,
+                    };
+                    inv.push(inv_entry);
+                } else {
+                    mat.push(Expr::from_i64(0));
+                    inv.push(Expr::from_i64(0));
+                }
+            }
+        }
+        Self::new(name, dim, mat, inv)
+    }
+
+    /// Lowers the upper index of a rank-1 contravariant vector: $V_\mu = g_{\mu\nu} V^\nu$.
+    pub fn lower_vector(&self, vec_tensor: &TensorExpr) -> Result<TensorExpr, TensorError> {
+        if vec_tensor.rank() != 1 {
+            return Err(TensorError::RankMismatch(1, vec_tensor.rank()));
+        }
+        if vec_tensor.indices[0].variance != IndexVariance::Upper {
+            return Err(TensorError::IndexMismatch(
+                "lower_vector requires a contravariant (upper index) vector".to_string(),
+            ));
+        }
+        if vec_tensor.dimension != self.dimension {
+            return Err(TensorError::DimensionMismatch(
+                self.dimension,
+                vec_tensor.dimension,
+            ));
+        }
+        let Some(comp) = &vec_tensor.components else {
+            return vec_tensor.contract_index(
+                &vec_tensor.indices[0].symbol,
+                format!("{}_low", vec_tensor.name),
+            );
+        };
+
+        let dim = self.dimension;
+        let mut out_comp = Vec::new();
+        try_reserve(&mut out_comp, dim)?;
+        let mut output_nodes = 0usize;
+
+        for r in 0..dim {
+            let mut sum_terms = Vec::new();
+            try_reserve(&mut sum_terms, dim)?;
+            for (c, v) in comp.iter().enumerate() {
+                let g_rc = &self.matrix[r * dim + c];
+                if !g_rc.is_zero() && !v.is_zero() {
+                    sum_terms.push(Expr::Mul(vec![g_rc.clone(), v.clone()]));
+                }
+            }
+            let sum_expr = if sum_terms.is_empty() {
+                Expr::from_i64(0)
+            } else {
+                Expr::Add(sum_terms)
+            };
+            let simplified = try_simplify(&sum_expr)?;
+            TensorExpr::validate_component_expression(&simplified, &mut output_nodes)?;
+            out_comp.push(simplified);
+        }
+
+        let new_indices = vec![vec_tensor.indices[0].flip_variance()];
+        TensorExpr::with_components(
+            format!("{}_low", vec_tensor.name),
+            dim,
+            new_indices,
+            out_comp,
+        )
+    }
+
+    /// Raises the lower index of a rank-1 covariant covector: $W^\mu = g^{\mu\nu} W_\nu$.
+    pub fn raise_covector(&self, covec_tensor: &TensorExpr) -> Result<TensorExpr, TensorError> {
+        if covec_tensor.rank() != 1 {
+            return Err(TensorError::RankMismatch(1, covec_tensor.rank()));
+        }
+        if covec_tensor.indices[0].variance != IndexVariance::Lower {
+            return Err(TensorError::IndexMismatch(
+                "raise_covector requires a covariant (lower index) covector".to_string(),
+            ));
+        }
+        if covec_tensor.dimension != self.dimension {
+            return Err(TensorError::DimensionMismatch(
+                self.dimension,
+                covec_tensor.dimension,
+            ));
+        }
+        let Some(comp) = &covec_tensor.components else {
+            return covec_tensor.contract_index(
+                &covec_tensor.indices[0].symbol,
+                format!("{}_up", covec_tensor.name),
+            );
+        };
+
+        let dim = self.dimension;
+        let mut out_comp = Vec::new();
+        try_reserve(&mut out_comp, dim)?;
+        let mut output_nodes = 0usize;
+
+        for r in 0..dim {
+            let mut sum_terms = Vec::new();
+            try_reserve(&mut sum_terms, dim)?;
+            for (c, w) in comp.iter().enumerate() {
+                let g_inv_rc = &self.inverse[r * dim + c];
+                if !g_inv_rc.is_zero() && !w.is_zero() {
+                    sum_terms.push(Expr::Mul(vec![g_inv_rc.clone(), w.clone()]));
+                }
+            }
+            let sum_expr = if sum_terms.is_empty() {
+                Expr::from_i64(0)
+            } else {
+                Expr::Add(sum_terms)
+            };
+            let simplified = try_simplify(&sum_expr)?;
+            TensorExpr::validate_component_expression(&simplified, &mut output_nodes)?;
+            out_comp.push(simplified);
+        }
+
+        let new_indices = vec![covec_tensor.indices[0].flip_variance()];
+        TensorExpr::with_components(
+            format!("{}_up", covec_tensor.name),
+            dim,
+            new_indices,
+            out_comp,
+        )
+    }
+
+    /// Computes the metric inner product of two contravariant vectors: $\langle u, v \rangle = g_{\mu\nu} u^\mu v^\nu$.
+    pub fn inner_product(&self, u: &TensorExpr, v: &TensorExpr) -> Result<Expr, TensorError> {
+        let u_low = self.lower_vector(u)?;
+        let Some(u_comp) = &u_low.components else {
+            return Err(TensorError::IndexMismatch(
+                "Vectors must have concrete components for inner product".to_string(),
+            ));
+        };
+        let Some(v_comp) = &v.components else {
+            return Err(TensorError::IndexMismatch(
+                "Vectors must have concrete components for inner product".to_string(),
+            ));
+        };
+        let dim = self.dimension;
+        let mut terms = Vec::new();
+        try_reserve(&mut terms, dim)?;
+        for i in 0..dim {
+            if !u_comp[i].is_zero() && !v_comp[i].is_zero() {
+                terms.push(Expr::Mul(vec![u_comp[i].clone(), v_comp[i].clone()]));
+            }
+        }
+        let sum_expr = if terms.is_empty() {
+            Expr::from_i64(0)
+        } else {
+            Expr::Add(terms)
+        };
+        Ok(try_simplify(&sum_expr)?)
+    }
+
+    /// Computes the metric norm squared of a contravariant vector: $\|v\|^2 = g_{\mu\nu} v^\mu v^\nu$.
+    pub fn norm_squared(&self, v: &TensorExpr) -> Result<Expr, TensorError> {
+        self.inner_product(v, v)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -803,6 +1063,82 @@ mod tests {
         assert_eq!(
             left.outer_product(&right, "too_many_expression_nodes"),
             Err(TensorError::ComponentExpressionNodeLimitExceeded)
+        );
+    }
+
+    #[test]
+    fn test_metric_tensor_raising_lowering_and_spacetime_interval() {
+        // 4D Minkowski Metric eta = diag(-1, 1, 1, 1)
+        let eta = MetricTensor::minkowski_4d("eta");
+        assert_eq!(eta.dimension, 4);
+
+        // 4-vector v^\mu = (c*t, x, y, z) = (5, 3, 0, 4)
+        let v = TensorExpr::with_components(
+            "v",
+            4,
+            vec![TensorIndex::upper("mu")],
+            vec![
+                Expr::from_i64(5),
+                Expr::from_i64(3),
+                Expr::from_i64(0),
+                Expr::from_i64(4),
+            ],
+        )
+        .unwrap();
+
+        // Lower index: v_\mu = g_{\mu\nu} v^\nu = (-5, 3, 0, 4)
+        let v_low = eta.lower_vector(&v).unwrap();
+        assert_eq!(v_low.indices[0].variance, IndexVariance::Lower);
+        let low_comp = v_low.components.as_ref().unwrap();
+        assert_eq!(low_comp[0], Expr::from_i64(-5));
+        assert_eq!(low_comp[1], Expr::from_i64(3));
+        assert_eq!(low_comp[2], Expr::from_i64(0));
+        assert_eq!(low_comp[3], Expr::from_i64(4));
+
+        // Raise index back: v^\mu = (-(-5), 3, 0, 4) = (5, 3, 0, 4)
+        let v_up = eta.raise_covector(&v_low).unwrap();
+        assert_eq!(v_up.indices[0].variance, IndexVariance::Upper);
+        let up_comp = v_up.components.unwrap();
+        assert_eq!(up_comp[0], Expr::from_i64(5));
+        assert_eq!(up_comp[1], Expr::from_i64(3));
+
+        // Spacetime interval norm squared: ||v||^2 = -5^2 + 3^2 + 0^2 + 4^2 = -25 + 9 + 16 = 0 (lightlike / null vector)
+        let norm_sq = eta.norm_squared(&v).unwrap();
+        assert_eq!(norm_sq, Expr::from_i64(0));
+
+        // Timelike vector u = (4, 1, 0, 0) -> norm^2 = -16 + 1 = -15
+        let u = TensorExpr::with_components(
+            "u",
+            4,
+            vec![TensorIndex::upper("mu")],
+            vec![
+                Expr::from_i64(4),
+                Expr::from_i64(1),
+                Expr::from_i64(0),
+                Expr::from_i64(0),
+            ],
+        )
+        .unwrap();
+        let u_norm = eta.norm_squared(&u).unwrap();
+        assert_eq!(u_norm, Expr::from_i64(-15));
+
+        // 3D Euclidean metric
+        let euc3 = MetricTensor::euclidean("g", 3).unwrap();
+        let e_vec = TensorExpr::with_components(
+            "r",
+            3,
+            vec![TensorIndex::upper("i")],
+            vec![Expr::from_i64(1), Expr::from_i64(2), Expr::from_i64(2)],
+        )
+        .unwrap();
+        let euc_norm = euc3.norm_squared(&e_vec).unwrap();
+        assert_eq!(euc_norm, Expr::from_i64(9)); // 1 + 4 + 4 = 9
+
+        // Serde roundtrip for MetricTensor
+        let eta_wire = serde_json::to_value(&eta).unwrap();
+        assert_eq!(
+            serde_json::from_value::<MetricTensor>(eta_wire).unwrap(),
+            eta
         );
     }
 }
