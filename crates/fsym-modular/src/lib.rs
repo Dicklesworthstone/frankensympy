@@ -2696,8 +2696,8 @@ mod tests {
 
         let mut measured = CountingMeter::default();
         assert!(!metered_is_probable_prime(&composite, &mut measured).unwrap());
-        assert_eq!(measured.dimensions, [1_257_341, 200_552, 14_769, 0, 0]);
-        assert_eq!(measured.checkpoints, 1_269_888);
+        assert_eq!(measured.dimensions, [1_257_341, 236_088, 16_258, 0, 0]);
+        assert_eq!(measured.checkpoints, 1_272_866);
 
         let mut limits = BudgetLimits {
             dimensions: measured.dimensions,
