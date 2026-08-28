@@ -288,7 +288,7 @@ class Integer(Expr):
 
     @property
     def p(self) -> int:
-        return int(str(self))
+        return self._value.exact_numerator()
 
     @property
     def q(self) -> int:
@@ -308,13 +308,11 @@ class Rational(Expr):
 
     @property
     def p(self) -> int:
-        text = str(self)
-        return int(text.split("/", 1)[0])
+        return self._value.exact_numerator()
 
     @property
     def q(self) -> int:
-        text = str(self)
-        return int(text.split("/", 1)[1]) if "/" in text else 1
+        return self._value.exact_denominator()
 
 
 class Add(Expr):

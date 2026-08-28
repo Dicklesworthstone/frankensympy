@@ -42,10 +42,16 @@ pub enum PrintingError {
     InvalidNameControlCharacter,
     #[error("symbol or function name is not a supported Rust identifier")]
     InvalidRustIdentifier,
+    #[error("symbol or function name is not a supported Python identifier")]
+    InvalidPythonIdentifier,
+    #[error("symbol or function name is not a supported C identifier")]
+    InvalidCIdentifier,
     #[error("numeric value exceeds the Rust emitter's supported i64 literal lane")]
     RustNumericValueOutOfRange,
     #[error("constant {0} is not supported by the real-valued Rust emitter")]
     UnsupportedRustConstant(Constant),
+    #[error("constant {0} is not supported by the real-valued C emitter")]
+    UnsupportedCConstant(Constant),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -53,6 +59,8 @@ pub(crate) enum RenderTarget {
     Latex,
     Pretty,
     Rust,
+    Python,
+    C,
 }
 
 fn decimal_digits_upper_bound(value: &BigInt) -> usize {
@@ -146,24 +154,136 @@ fn valid_rust_identifier(identifier: &str) -> bool {
         && !rust_keyword(identifier)
 }
 
+fn python_keyword(identifier: &str) -> bool {
+    matches!(
+        identifier,
+        "False"
+            | "None"
+            | "True"
+            | "and"
+            | "as"
+            | "assert"
+            | "async"
+            | "await"
+            | "break"
+            | "class"
+            | "continue"
+            | "def"
+            | "del"
+            | "elif"
+            | "else"
+            | "except"
+            | "finally"
+            | "for"
+            | "from"
+            | "global"
+            | "if"
+            | "import"
+            | "in"
+            | "is"
+            | "lambda"
+            | "nonlocal"
+            | "not"
+            | "or"
+            | "pass"
+            | "raise"
+            | "return"
+            | "try"
+            | "while"
+            | "with"
+            | "yield"
+    )
+}
+
+fn valid_python_identifier(identifier: &str) -> bool {
+    let mut chars = identifier.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    (first == '_' || first.is_ascii_alphabetic())
+        && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+        && !python_keyword(identifier)
+}
+
+fn c_keyword(identifier: &str) -> bool {
+    matches!(
+        identifier,
+        "auto"
+            | "break"
+            | "case"
+            | "char"
+            | "const"
+            | "continue"
+            | "default"
+            | "do"
+            | "double"
+            | "else"
+            | "enum"
+            | "extern"
+            | "float"
+            | "for"
+            | "goto"
+            | "if"
+            | "inline"
+            | "int"
+            | "long"
+            | "register"
+            | "restrict"
+            | "return"
+            | "short"
+            | "signed"
+            | "sizeof"
+            | "static"
+            | "struct"
+            | "switch"
+            | "typedef"
+            | "union"
+            | "unsigned"
+            | "void"
+            | "volatile"
+            | "while"
+    )
+}
+
+fn valid_c_identifier(identifier: &str) -> bool {
+    let mut chars = identifier.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    (first == '_' || first.is_ascii_alphabetic())
+        && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+        && !c_keyword(identifier)
+}
+
 fn node_output_upper_bound(expr: &Expr, target: RenderTarget) -> Result<usize, PrintingError> {
     let name_bytes = |name: &str| -> Result<usize, PrintingError> {
         if name.chars().any(char::is_control) {
             return Err(PrintingError::InvalidNameControlCharacter);
         }
-        if matches!(target, RenderTarget::Rust) && !valid_rust_identifier(name) {
-            return Err(PrintingError::InvalidRustIdentifier);
+        match target {
+            RenderTarget::Rust if !valid_rust_identifier(name) => {
+                return Err(PrintingError::InvalidRustIdentifier);
+            }
+            RenderTarget::Python if !valid_python_identifier(name) => {
+                return Err(PrintingError::InvalidPythonIdentifier);
+            }
+            RenderTarget::C if !valid_c_identifier(name) => {
+                return Err(PrintingError::InvalidCIdentifier);
+            }
+            _ => {}
         }
         Ok(match target {
             RenderTarget::Latex => latex_name_bytes(name),
-            RenderTarget::Pretty | RenderTarget::Rust => name.len(),
+            RenderTarget::Pretty | RenderTarget::Rust | RenderTarget::Python | RenderTarget::C => {
+                name.len()
+            }
         })
     };
 
     let value = match expr {
         Expr::Sym(symbol) => name_bytes(&symbol.name)?.saturating_add(13),
         Expr::Integer(value) => {
-            if matches!(target, RenderTarget::Rust) && value.to_i64().is_none() {
+            if matches!(target, RenderTarget::Rust | RenderTarget::C) && value.to_i64().is_none() {
                 return Err(PrintingError::RustNumericValueOutOfRange);
             }
             let multiplier = usize::from(matches!(target, RenderTarget::Pretty)) * 2 + 1;
@@ -172,7 +292,7 @@ fn node_output_upper_bound(expr: &Expr, target: RenderTarget) -> Result<usize, P
                 .saturating_add(16)
         }
         Expr::Rational(value) => {
-            if matches!(target, RenderTarget::Rust)
+            if matches!(target, RenderTarget::Rust | RenderTarget::C)
                 && (value.numer().to_i64().is_none() || value.denom().to_i64().is_none())
             {
                 return Err(PrintingError::RustNumericValueOutOfRange);
@@ -187,6 +307,11 @@ fn node_output_upper_bound(expr: &Expr, target: RenderTarget) -> Result<usize, P
                 && matches!(constant, Constant::I | Constant::ComplexInfinity)
             {
                 return Err(PrintingError::UnsupportedRustConstant(*constant));
+            }
+            if matches!(target, RenderTarget::C)
+                && matches!(constant, Constant::I | Constant::ComplexInfinity)
+            {
+                return Err(PrintingError::UnsupportedCConstant(*constant));
             }
             32
         }

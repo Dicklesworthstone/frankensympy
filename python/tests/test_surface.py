@@ -108,6 +108,21 @@ class SurfaceTests(unittest.TestCase):
             sympy.Rational(4278419646001971, 4503599627370496),
         )
 
+    def test_numeric_bridge_preserves_values_beyond_machine_and_decimal_limits(self):
+        huge = 1 << 20_000
+        integer = sympy.Integer(huge)
+        self.assertEqual(integer.p, huge)
+        self.assertEqual(integer.q, 1)
+
+        rational = sympy.Rational(huge, 3)
+        self.assertEqual(rational.p, huge)
+        self.assertEqual(rational.q, 3)
+        self.assertEqual(pickle.loads(pickle.dumps(rational)), rational)
+
+        normalized = sympy.Rational(-(1 << 63), -1)
+        self.assertEqual(normalized.p, 1 << 63)
+        self.assertEqual(normalized.q, 1)
+
     def test_custom_symbol_variable_refuses_before_running_overrides(self):
         effects = []
 

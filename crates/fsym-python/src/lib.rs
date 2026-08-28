@@ -228,8 +228,8 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyPow>()?;
     m.add_class::<PyDerivative>()?;
     m.add_function(wrap_pyfunction!(py_symbol, m)?)?;
-    m.add_function(wrap_pyfunction!(py_integer, m)?)?;
-    m.add_function(wrap_pyfunction!(py_rational, m)?)?;
+    m.add_function(wrap_pyfunction!(py_integer_from_python, m)?)?;
+    m.add_function(wrap_pyfunction!(py_rational_from_python, m)?)?;
     m.add_function(wrap_pyfunction!(py_add, m)?)?;
     m.add_function(wrap_pyfunction!(py_mul, m)?)?;
     m.add_function(wrap_pyfunction!(py_pow, m)?)?;
@@ -261,6 +261,8 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fsym_core::BigInt;
+    use pyo3::types::PyInt;
 
     #[test]
     fn test_py_expr_structural_args_and_properties() {
@@ -283,11 +285,14 @@ mod tests {
         let sym_cls = PySymbol::new("y");
         assert_eq!(sym_cls.name(), "y");
         let int_cls = PyInteger::new(42);
-        assert_eq!(int_cls.p(), 42);
         assert_eq!(int_cls.q(), 1);
         let rat_cls = PyRational::new(3, 4).unwrap();
-        assert_eq!(rat_cls.p(), 3);
-        assert_eq!(rat_cls.q(), 4);
+        Python::initialize();
+        Python::attach(|py| {
+            assert_eq!(int_cls.p(py).unwrap().extract::<i64>().unwrap(), 42);
+            assert_eq!(rat_cls.p(py).unwrap().extract::<i64>().unwrap(), 3);
+            assert_eq!(rat_cls.q(py).unwrap().extract::<i64>().unwrap(), 4);
+        });
 
         // evaluate=False held forms
         let held_add = PyAdd::new(vec![x.clone(), x.clone()], false);
@@ -307,6 +312,97 @@ mod tests {
             vec![x.clone(), two.clone()]
         );
         assert_eq!(PyMul::new(Vec::new(), true).as_expr(), py_integer(1));
+    }
+
+    #[test]
+    fn python_integer_bridge_preserves_arbitrary_precision_and_preflights_size() {
+        Python::initialize();
+        Python::attach(|py| {
+            let int_type = py.get_type::<PyInt>();
+            let two_to_100 = int_type
+                .call1(("1267650600228229401496703205376",))
+                .unwrap();
+            let three = PyInt::new(py, 3);
+
+            let integer = py_integer_from_python(&two_to_100).unwrap();
+            assert_eq!(integer.__str__(), "1267650600228229401496703205376");
+
+            let rational = py_rational_from_python(&two_to_100, &three).unwrap();
+            assert_eq!(rational.__str__(), "1267650600228229401496703205376/3");
+
+            // This exceeds CPython's default integer-to-decimal-string digit limit. The bridge
+            // must use bounded binary transit rather than depending on that interpreter setting.
+            let beyond_decimal_limit = PyInt::new(py, 1)
+                .call_method1("__lshift__", (20_000,))
+                .unwrap();
+            let bridged = py_integer_from_python(&beyond_decimal_limit).unwrap();
+            assert!(matches!(
+                bridged.inner,
+                Expr::Integer(ref value) if value.bits() == 20_001
+            ));
+
+            let oversized = PyInt::new(py, 1)
+                .call_method1("__lshift__", (MAX_PYTHON_INTEGER_BITS + 1,))
+                .unwrap();
+            let error = py_integer_from_python(&oversized).unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("exceeds the Python integer bridge limit")
+            );
+        });
+    }
+
+    #[test]
+    fn native_numeric_getters_do_not_launder_normalization_overflow() {
+        Python::initialize();
+        Python::attach(|py| {
+            let integer = PyInteger {
+                inner: PyExpr::from_expr(Expr::Integer(BigInt::from(i64::MAX) + BigInt::from(1))),
+            };
+            assert_eq!(
+                integer.p(py).unwrap().str().unwrap().to_str().unwrap(),
+                "9223372036854775808"
+            );
+
+            let wide_integer = PyInteger {
+                inner: PyExpr::from_expr(Expr::Integer(BigInt::from(1) << 20_000u32)),
+            };
+            assert_eq!(
+                wide_integer
+                    .p(py)
+                    .unwrap()
+                    .call_method0("bit_length")
+                    .unwrap()
+                    .extract::<usize>()
+                    .unwrap(),
+                20_001
+            );
+
+            let normalized_numerator = PyRational::new(i64::MIN, -1).unwrap();
+            assert_eq!(
+                normalized_numerator
+                    .p(py)
+                    .unwrap()
+                    .str()
+                    .unwrap()
+                    .to_str()
+                    .unwrap(),
+                "9223372036854775808"
+            );
+
+            let normalized_denominator = PyRational::new(-1, i64::MIN).unwrap();
+            assert_eq!(
+                normalized_denominator
+                    .q(py)
+                    .unwrap()
+                    .str()
+                    .unwrap()
+                    .to_str()
+                    .unwrap(),
+                "9223372036854775808"
+            );
+        });
     }
 
     #[test]

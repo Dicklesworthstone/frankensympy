@@ -463,6 +463,128 @@ pub fn to_rust_code_with_limits(
     Ok(rust_code_unchecked(expr))
 }
 
+fn python_code_unchecked(expr: &Expr) -> String {
+    match expr {
+        Expr::Sym(s) => s.name.clone(),
+        Expr::Integer(n) => format!("{}", n),
+        Expr::Rational(r) => format!("({} / {})", r.numer(), r.denom()),
+        Expr::Const(Constant::Pi) => "math.pi".to_string(),
+        Expr::Const(Constant::E) => "math.e".to_string(),
+        Expr::Const(Constant::Infinity) => "float('inf')".to_string(),
+        Expr::Const(Constant::NegativeInfinity) => "float('-inf')".to_string(),
+        Expr::Const(Constant::NaN) => "float('nan')".to_string(),
+        Expr::Const(Constant::I) => "1j".to_string(),
+        Expr::Const(Constant::ComplexInfinity) => "/* complex infinity */".to_string(),
+        Expr::Add(terms) => {
+            if terms.is_empty() {
+                return "0".to_string();
+            }
+            let s = terms
+                .iter()
+                .map(python_code_unchecked)
+                .collect::<Vec<_>>()
+                .join(" + ");
+            format!("({})", s)
+        }
+        Expr::Mul(factors) => {
+            if factors.is_empty() {
+                return "1".to_string();
+            }
+            let s = factors
+                .iter()
+                .map(python_code_unchecked)
+                .collect::<Vec<_>>()
+                .join(" * ");
+            format!("({})", s)
+        }
+        Expr::Pow(b, e) => format!(
+            "(({}) ** ({}))",
+            python_code_unchecked(b),
+            python_code_unchecked(e)
+        ),
+        Expr::Function(name, args) => {
+            let arg_str = args
+                .iter()
+                .map(python_code_unchecked)
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("math.{}({})", name, arg_str)
+        }
+    }
+}
+
+/// Render a bounded Python expression.
+pub fn to_python_code(expr: &Expr) -> Result<String, PrintingError> {
+    to_python_code_with_limits(expr, PrintingLimits::default())
+}
+
+/// Render a Python expression with caller-provided limits.
+pub fn to_python_code_with_limits(
+    expr: &Expr,
+    limits: PrintingLimits,
+) -> Result<String, PrintingError> {
+    validate_render(expr, RenderTarget::Python, limits)?;
+    Ok(python_code_unchecked(expr))
+}
+
+fn c_code_unchecked(expr: &Expr) -> String {
+    match expr {
+        Expr::Sym(s) => s.name.clone(),
+        Expr::Integer(n) => format!("{}.0", n),
+        Expr::Rational(r) => format!("({}.0 / {}.0)", r.numer(), r.denom()),
+        Expr::Const(Constant::Pi) => "M_PI".to_string(),
+        Expr::Const(Constant::E) => "M_E".to_string(),
+        Expr::Const(Constant::Infinity) => "INFINITY".to_string(),
+        Expr::Const(Constant::NegativeInfinity) => "(-INFINITY)".to_string(),
+        Expr::Const(Constant::NaN) => "NAN".to_string(),
+        Expr::Const(Constant::I) | Expr::Const(Constant::ComplexInfinity) => {
+            "/* complex constant */".to_string()
+        }
+        Expr::Add(terms) => {
+            if terms.is_empty() {
+                return "0.0".to_string();
+            }
+            let s = terms
+                .iter()
+                .map(c_code_unchecked)
+                .collect::<Vec<_>>()
+                .join(" + ");
+            format!("({})", s)
+        }
+        Expr::Mul(factors) => {
+            if factors.is_empty() {
+                return "1.0".to_string();
+            }
+            let s = factors
+                .iter()
+                .map(c_code_unchecked)
+                .collect::<Vec<_>>()
+                .join(" * ");
+            format!("({})", s)
+        }
+        Expr::Pow(b, e) => format!("pow({}, {})", c_code_unchecked(b), c_code_unchecked(e)),
+        Expr::Function(name, args) => {
+            let arg_str = args
+                .iter()
+                .map(c_code_unchecked)
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("{}({})", name, arg_str)
+        }
+    }
+}
+
+/// Render a bounded real-valued C expression.
+pub fn to_c_code(expr: &Expr) -> Result<String, PrintingError> {
+    to_c_code_with_limits(expr, PrintingLimits::default())
+}
+
+/// Render a C expression with caller-provided limits.
+pub fn to_c_code_with_limits(expr: &Expr, limits: PrintingLimits) -> Result<String, PrintingError> {
+    validate_render(expr, RenderTarget::C, limits)?;
+    Ok(c_code_unchecked(expr))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -669,6 +791,38 @@ mod tests {
         assert_eq!(
             pretty(&sym("x\ny")),
             Err(PrintingError::InvalidNameControlCharacter)
+        );
+    }
+
+    #[test]
+    fn test_python_and_c_code_emission() {
+        let e = add(vec![
+            pow(sym("x"), Expr::from_i64(2)),
+            mul(vec![Expr::from_i64(3), sym("x")]),
+            Expr::from_i64(5),
+        ]);
+        assert_eq!(to_python_code(&e).unwrap(), "(((x) ** (2)) + (3 * x) + 5)");
+        assert_eq!(to_c_code(&e).unwrap(), "(pow(x, 2.0) + (3.0 * x) + 5.0)");
+
+        let trig = Expr::Function("sin".to_string(), vec![sym("x")]);
+        assert_eq!(to_python_code(&trig).unwrap(), "math.sin(x)");
+        assert_eq!(to_c_code(&trig).unwrap(), "sin(x)");
+
+        let pi_expr = Expr::Const(Constant::Pi);
+        assert_eq!(to_python_code(&pi_expr).unwrap(), "math.pi");
+        assert_eq!(to_c_code(&pi_expr).unwrap(), "M_PI");
+
+        assert_eq!(
+            to_python_code(&sym("def")),
+            Err(PrintingError::InvalidPythonIdentifier)
+        );
+        assert_eq!(
+            to_c_code(&sym("while")),
+            Err(PrintingError::InvalidCIdentifier)
+        );
+        assert_eq!(
+            to_c_code(&Expr::Const(Constant::I)),
+            Err(PrintingError::UnsupportedCConstant(Constant::I))
         );
     }
 }

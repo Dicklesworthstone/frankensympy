@@ -10,17 +10,17 @@ use fsym_simplify::{expand_with, simplify_with};
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyInt, PyTuple};
+use pyo3::types::{PyBytes, PyDict, PyInt, PyTuple};
 use std::collections::{BTreeSet, HashMap};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 
-/// Maximum magnitude admitted by the Python integer bridge before decimal conversion.
+/// Maximum magnitude admitted by the Python integer bridge before byte conversion.
 ///
 /// This is a bridge resource policy, not a mathematical precision limit. Checking the exact
 /// built-in `int.bit_length()` first prevents an already-large Python integer from forcing an
-/// even larger temporary decimal string across the boundary.
-const MAX_PYTHON_INTEGER_BITS: usize = 8 * 1024 * 1024;
+/// unbounded temporary byte buffer across the boundary.
+pub(crate) const MAX_PYTHON_INTEGER_BITS: usize = 8 * 1024 * 1024;
 
 fn exact_python_integer(value: &Bound<'_, PyAny>, argument: &str) -> PyResult<BigInt> {
     let py = value.py();
@@ -37,15 +37,30 @@ fn exact_python_integer(value: &Bound<'_, PyAny>, argument: &str) -> PyResult<Bi
         )));
     }
 
-    let decimal = value.str()?;
-    decimal
-        .to_str()?
-        .parse::<BigInt>()
-        .map_err(PyValueError::new_err)
+    let byte_length = bit_length
+        .div_ceil(u8::BITS as usize)
+        .checked_add(1)
+        .ok_or_else(|| PyValueError::new_err("Python integer byte length overflow"))?;
+    let kwargs = PyDict::new(py);
+    kwargs.set_item("signed", true)?;
+    let encoded = value.call_method("to_bytes", (byte_length, "big"), Some(&kwargs))?;
+    let bytes = encoded.cast::<PyBytes>()?;
+    Ok(BigInt::from_signed_bytes_be(bytes.as_bytes()))
 }
 
 fn bigint_to_python_int<'py>(value: &BigInt, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-    py.get_type::<PyInt>().call1((value.to_string(),))
+    let bit_length = usize::try_from(value.bits()).unwrap_or(usize::MAX);
+    if bit_length > MAX_PYTHON_INTEGER_BITS {
+        return Err(PyValueError::new_err(format!(
+            "integer exceeds the Python integer bridge limit of {MAX_PYTHON_INTEGER_BITS} bits"
+        )));
+    }
+    let encoded = value.to_signed_bytes_be();
+    let bytes = PyBytes::new(py, &encoded);
+    let kwargs = PyDict::new(py);
+    kwargs.set_item("signed", true)?;
+    py.get_type::<PyInt>()
+        .call_method("from_bytes", (bytes, "big"), Some(&kwargs))
 }
 
 /// Python compatibility wrapper for native FrankenSymPy symbolic expressions.
@@ -176,6 +191,28 @@ impl PyExpr {
             &self.inner,
             Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_)
         )
+    }
+
+    /// Exact Python numerator for an Integer or Rational bridge value.
+    pub fn exact_numerator<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        match &self.inner {
+            Expr::Integer(value) => bigint_to_python_int(value, py),
+            Expr::Rational(value) => bigint_to_python_int(value.numer(), py),
+            _ => Err(PyValueError::new_err(
+                "exact numerator requires an Integer or Rational expression",
+            )),
+        }
+    }
+
+    /// Exact Python denominator for an Integer or Rational bridge value.
+    pub fn exact_denominator<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        match &self.inner {
+            Expr::Integer(_) => bigint_to_python_int(&BigInt::from(1), py),
+            Expr::Rational(value) => bigint_to_python_int(value.denom(), py),
+            _ => Err(PyValueError::new_err(
+                "exact denominator requires an Integer or Rational expression",
+            )),
+        }
     }
 
     pub fn __str__(&self) -> String {
@@ -404,10 +441,12 @@ impl PyInteger {
     }
 
     #[getter]
-    pub fn p(&self) -> i64 {
+    pub fn p<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         match &self.inner.inner {
-            Expr::Integer(n) => n.to_i64().unwrap_or(0),
-            _ => 0,
+            Expr::Integer(n) => bigint_to_python_int(n, py),
+            _ => Err(PyValueError::new_err(
+                "Integer wrapper does not contain an integer expression",
+            )),
         }
     }
 
@@ -421,7 +460,7 @@ impl PyInteger {
     }
 
     pub fn __repr__(&self) -> String {
-        format!("Integer({})", self.p())
+        format!("Integer({})", self.inner.__str__())
     }
 
     pub fn as_expr(&self) -> PyExpr {
@@ -450,20 +489,24 @@ impl PyRational {
     }
 
     #[getter]
-    pub fn p(&self) -> i64 {
+    pub fn p<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         match &self.inner.inner {
-            Expr::Rational(r) => r.numer().to_i64().unwrap_or(0),
-            Expr::Integer(n) => n.to_i64().unwrap_or(0),
-            _ => 0,
+            Expr::Rational(r) => bigint_to_python_int(r.numer(), py),
+            Expr::Integer(n) => bigint_to_python_int(n, py),
+            _ => Err(PyValueError::new_err(
+                "Rational wrapper does not contain an exact numeric expression",
+            )),
         }
     }
 
     #[getter]
-    pub fn q(&self) -> i64 {
+    pub fn q<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         match &self.inner.inner {
-            Expr::Rational(r) => r.denom().to_i64().unwrap_or(1),
-            Expr::Integer(_) => 1,
-            _ => 1,
+            Expr::Rational(r) => bigint_to_python_int(r.denom(), py),
+            Expr::Integer(_) => bigint_to_python_int(&BigInt::from(1), py),
+            _ => Err(PyValueError::new_err(
+                "Rational wrapper does not contain an exact numeric expression",
+            )),
         }
     }
 
@@ -472,7 +515,11 @@ impl PyRational {
     }
 
     pub fn __repr__(&self) -> String {
-        format!("Rational({}, {})", self.p(), self.q())
+        match &self.inner.inner {
+            Expr::Rational(r) => format!("Rational({}, {})", r.numer(), r.denom()),
+            Expr::Integer(n) => format!("Rational({n}, 1)"),
+            other => format!("Rational({other})"),
+        }
     }
 
     pub fn as_expr(&self) -> PyExpr {
@@ -610,19 +657,40 @@ pub fn py_symbol(name: &str) -> PyExpr {
 }
 
 /// Construct an Integer expression.
-#[pyfunction]
 pub fn py_integer(val: i64) -> PyExpr {
     PyExpr::from_expr(Expr::from_i64(val))
 }
 
+/// Construct an arbitrary-precision Integer expression from an exact Python `int`.
+#[pyfunction(name = "py_integer")]
+pub fn py_integer_from_python(value: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+    exact_python_integer(value, "value").map(|integer| PyExpr::from_expr(Expr::Integer(integer)))
+}
+
 /// Construct a Rational expression.
-#[pyfunction]
 pub fn py_rational(p: i64, q: i64) -> PyResult<PyExpr> {
     if q == 0 {
         return Err(PyValueError::new_err("Denominator cannot be zero"));
     }
     let r = BigRational::new(BigInt::from(p), BigInt::from(q));
     Ok(PyExpr::from_expr(Expr::Rational(r)))
+}
+
+/// Construct an arbitrary-precision Rational expression from exact Python `int` values.
+#[pyfunction(name = "py_rational")]
+pub fn py_rational_from_python(
+    numerator: &Bound<'_, PyAny>,
+    denominator: &Bound<'_, PyAny>,
+) -> PyResult<PyExpr> {
+    let numerator = exact_python_integer(numerator, "numerator")?;
+    let denominator = exact_python_integer(denominator, "denominator")?;
+    if denominator.is_zero() {
+        return Err(PyValueError::new_err("Denominator cannot be zero"));
+    }
+    Ok(PyExpr::from_expr(Expr::Rational(BigRational::new(
+        numerator,
+        denominator,
+    ))))
 }
 
 /// Construct an Add expression.
