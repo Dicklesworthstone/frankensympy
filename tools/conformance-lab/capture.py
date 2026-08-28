@@ -988,14 +988,33 @@ def cmd_candidate(profile: dict, py: str, *, broken: bool = False) -> int:
     return 0
 
 
+def classify_construction_diff(paths: list[str], outcome_classes: object) -> str:
+    """Name the construction_only miss without weakening the comparator."""
+    if outcome_classes:
+        return "outcome_mismatch"
+    path_set = set(paths)
+    if "observations.type" in path_set:
+        return "type_drift"
+    if "observations.exception_type" in path_set or "observations.exception_module" in path_set:
+        return "exception_identity"
+    if path_set and path_set <= {
+        "observations.module",
+        "observations.func",
+        "observations.args_repr",
+    }:
+        return "surface_identity_drift"
+    return "other"
+
+
 def cmd_diff(
     profile: dict,
     candidate_py: str,
     *,
     broken: bool = False,
     affected_claim: str | None = None,
+    ledger_dir: Path | None = None,
 ) -> int:
-    from minimize import build_records, load_claims_registry
+    from minimize import build_records, load_claims_registry, persist_ledger
 
     base = Path(__file__).resolve().parent
     goldens = load_goldens(profile)
@@ -1024,24 +1043,35 @@ def cmd_diff(
     candidate_ids = {envelope["fixture_id"] for envelope in candidate_envs}
     discrepancy_ids = {record["fixture_id"] for record in records}
     admitted = sorted((oracle_ids & candidate_ids) - discrepancy_ids)
-    details = [
-        {
-            "fixture_id": record["fixture_id"],
-            "difference_paths": [diff["path"] for diff in record["differences"]],
-            "outcome_classes": record.get("outcome_classes"),
-        }
-        for record in records
-    ]
+    details = []
+    by_kind: dict[str, int] = {}
+    for record in records:
+        paths = [diff["path"] for diff in record["differences"]]
+        kind = classify_construction_diff(paths, record.get("outcome_classes"))
+        by_kind[kind] = by_kind.get(kind, 0) + 1
+        details.append(
+            {
+                "fixture_id": record["fixture_id"],
+                "kind": kind,
+                "difference_paths": paths,
+                "outcome_classes": record.get("outcome_classes"),
+            }
+        )
+    if ledger_dir is not None:
+        persist_ledger(records, ledger_dir)
     summary = {
         "comparator": "construction_only",
         "paired": paired,
         "discrepancies": len(records),
         "admitted": len(admitted),
         "admitted_fixture_ids": admitted,
+        "by_kind": by_kind,
         "broken_candidate": broken,
         "affected_claim": affected_claim,
         "named_claims": named,
         "claims_promoted": False,
+        "ledger_dir": str(ledger_dir) if ledger_dir is not None else None,
+        "ledger_records": len(records) if ledger_dir is not None else 0,
         "fixture_ids": [record["fixture_id"] for record in records],
         "details": details,
     }
@@ -1233,6 +1263,7 @@ def parse_cli(argv: list[str]) -> dict | int:
     broken = False
     test_path = None
     affected_claim = None
+    ledger_dir = None
     index = 1
     while index < len(rest):
         arg = rest[index]
@@ -1268,6 +1299,13 @@ def parse_cli(argv: list[str]) -> dict | int:
             affected_claim = rest[index + 1]
             index += 2
             continue
+        if arg == "--ledger-dir":
+            if index + 1 >= len(rest) or not rest[index + 1]:
+                print(__doc__)
+                return 2
+            ledger_dir = Path(rest[index + 1])
+            index += 2
+            continue
         print(__doc__)
         return 2
     return {
@@ -1278,6 +1316,7 @@ def parse_cli(argv: list[str]) -> dict | int:
         "broken": broken,
         "test_path": test_path,
         "affected_claim": affected_claim,
+        "ledger_dir": ledger_dir,
     }
 
 
@@ -1300,6 +1339,7 @@ def main() -> int:
                 candidate_python(parsed["candidate_python"]),
                 broken=parsed["broken"],
                 affected_claim=parsed["affected_claim"],
+                ledger_dir=parsed["ledger_dir"],
             )
         interpreter = oracle_python(parsed["oracle_python"])
         if mode == "capture":
