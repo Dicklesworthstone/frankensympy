@@ -131,6 +131,75 @@ class DiscrepancyMinimizerTests(unittest.TestCase):
 
         self.assertEqual(differences[0]["path"], "observations.value")
 
+    def test_construction_comparator_rejects_exception_identity_drift(self) -> None:
+        oracle = envelope("fixture/a", side="upstream_oracle")
+        candidate = envelope("fixture/a", side="frankensympy_candidate")
+        oracle["outcome_class"] = "raised"
+        candidate["outcome_class"] = "raised"
+        oracle["observations"] = {
+            "exception_module": "builtins",
+            "exception_type": "ValueError",
+            "message_head": "oracle wording",
+        }
+        candidate["observations"] = {
+            "exception_module": "builtins",
+            "exception_type": "TypeError",
+            "message_head": "candidate wording",
+        }
+
+        differences = diff_envelopes(oracle, candidate, "construction_only")
+
+        self.assertEqual(
+            [difference["path"] for difference in differences],
+            ["observations.exception_type"],
+        )
+
+    def test_construction_comparator_requires_declared_observations(self) -> None:
+        oracle = envelope("fixture/a", side="upstream_oracle")
+        candidate = envelope("fixture/a", side="frankensympy_candidate")
+
+        differences = diff_envelopes(oracle, candidate, "construction_only")
+
+        self.assertEqual(
+            [difference["path"] for difference in differences],
+            [
+                "observations.module",
+                "observations.args_repr",
+                "observations.func",
+            ],
+        )
+
+    def test_construction_comparator_requires_exception_identity(self) -> None:
+        oracle = envelope("fixture/a", side="upstream_oracle")
+        candidate = envelope("fixture/a", side="frankensympy_candidate")
+        oracle["outcome_class"] = "raised"
+        candidate["outcome_class"] = "raised"
+        oracle["observations"] = {"message_head": "same wording"}
+        candidate["observations"] = {"message_head": "same wording"}
+
+        differences = diff_envelopes(oracle, candidate, "construction_only")
+
+        self.assertEqual(
+            [difference["path"] for difference in differences],
+            [
+                "observations.exception_module",
+                "observations.exception_type",
+            ],
+        )
+
+    def test_construction_comparator_refuses_unregistered_outcome_policy(self) -> None:
+        for outcome_class in ("timeout", "refused"):
+            with self.subTest(outcome_class=outcome_class):
+                oracle = envelope("fixture/a", side="upstream_oracle")
+                candidate = envelope("fixture/a", side="frankensympy_candidate")
+                oracle["outcome_class"] = outcome_class
+                candidate["outcome_class"] = outcome_class
+
+                with self.assertRaisesRegex(
+                    ValueError, "has no registered observation policy"
+                ):
+                    diff_envelopes(oracle, candidate, "construction_only")
+
     def test_volatile_metadata_does_not_change_record_identity(self) -> None:
         oracle = [envelope("fixture/a", side="upstream_oracle")]
         candidate = [

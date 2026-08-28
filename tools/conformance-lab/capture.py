@@ -630,6 +630,18 @@ def cmd_self_test(profile: dict, py: str) -> int:
     identity_drift[0]["observations"]["type"] = "WrongType"
     if not compare_construction_only(golden_first, identity_drift):
         return fail("construction_only accepted type identity drift")
+    raised_oracle = copy.deepcopy(golden_first[0])
+    raised_oracle["outcome_class"] = "raised"
+    raised_oracle["observations"] = {
+        "exception_module": "builtins",
+        "exception_type": "ValueError",
+        "message_head": "oracle wording",
+    }
+    raised_candidate = copy.deepcopy(raised_oracle)
+    raised_candidate["observations"]["exception_type"] = "TypeError"
+    raised_candidate["observations"]["message_head"] = "candidate wording"
+    if not compare_construction_only([raised_oracle], [raised_candidate]):
+        return fail("construction_only accepted exception identity drift")
 
     # Registry ids in code must stay aligned with the profile manifest.
     with open(
@@ -671,7 +683,9 @@ def cmd_self_test(profile: dict, py: str) -> int:
                 "immutable_golden_overwrite_rejected": True,
                 "hash_mutant_preserves_envelope_count": True,
                 "registry_matches_profile_manifest": True,
-                "construction_only_semantics": "accepts printer drift, rejects identity drift",
+                "construction_only_semantics": (
+                    "accepts printer drift, rejects returned and exception identity drift"
+                ),
                 "mutants_checked": checked_files,
                 "mutants_rejected": rejected,
             },

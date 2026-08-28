@@ -20,10 +20,12 @@ import json
 REGISTRY: dict[str, dict] = {
     # Full exact-surface comparison: every observed field must match.
     "exact_surface": {"fields": None},
-    # Construction contract only: identity and structure, not printers,
-    # hashes, or pickle bytes.
+    # Construction contract only: returned-object identity and structure, or
+    # raised-exception identity. Printer output, message wording, hashes, and
+    # pickle bytes are deliberately outside this comparator's contract.
     "construction_only": {
         "fields": ["type", "module", "args_repr", "func"],
+        "raised_fields": ["exception_module", "exception_type"],
     },
 }
 
@@ -48,6 +50,24 @@ def _walk(prefix: str, left, right, out: list[dict]) -> None:
                 _walk(f"{prefix}.{key}", left[key], right[key], out)
     elif left != right:
         out.append({"path": prefix, "oracle": left, "candidate": right})
+
+
+def _diff_required_fields(
+    prefix: str, left: dict, right: dict, fields: list[str], out: list[dict]
+) -> None:
+    """Compare registered fields and reject an omitted observation on either side."""
+    for key in fields:
+        path = f"{prefix}.{key}"
+        if key not in left or key not in right:
+            out.append(
+                {
+                    "path": path,
+                    "oracle": left.get(key, "<missing>"),
+                    "candidate": right.get(key, "<missing>"),
+                }
+            )
+            continue
+        _walk(path, left[key], right[key], out)
 
 
 def diff_envelopes(oracle: dict, candidate: dict, comparator_id: str) -> list[dict]:
@@ -82,15 +102,19 @@ def diff_envelopes(oracle: dict, candidate: dict, comparator_id: str) -> list[di
         )
         return differences
 
-    for key in spec["fields"]:
-        if o_obs.get(key) != c_obs.get(key):
-            differences.append(
-                {
-                    "path": f"observations.{key}",
-                    "oracle": o_obs.get(key),
-                    "candidate": c_obs.get(key),
-                }
-            )
+    outcome_class = oracle.get("outcome_class")
+    if outcome_class != candidate.get("outcome_class"):
+        return differences
+    if outcome_class == "returned":
+        fields = spec["fields"]
+    elif outcome_class == "raised":
+        fields = spec["raised_fields"]
+    else:
+        raise ValueError(
+            f"{comparator_id} has no registered observation policy for "
+            f"outcome_class={outcome_class!r}"
+        )
+    _diff_required_fields("observations", o_obs, c_obs, fields, differences)
     return differences
 
 
