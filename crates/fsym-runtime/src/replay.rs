@@ -94,6 +94,16 @@ impl ReplayLog {
         check_len(next_event_count, MAX_REPLAY_EVENTS, "event count")?;
         let event_name = name.into();
         check_text_len(event_name.len(), MAX_EVENT_NAME_BYTES, "event-name bytes")?;
+        // Every replay event must charge at least one dimension. An empty
+        // dimension_charges vec would record a "phantom" event with no
+        // accounting effect and no per-dimension integrity surface; reject
+        // it at the trust boundary so a wire-imported ReplayLog cannot
+        // smuggle zero-impact events past the integrity check.
+        if dimension_charges.is_empty() {
+            return Err(ReplayError::EmptyText {
+                resource: "dimension-charge count",
+            });
+        }
         check_len(
             dimension_charges.len(),
             MAX_EVENT_CHARGES,
@@ -192,23 +202,16 @@ impl ReplayLog {
                 MAX_EVENT_NAME_BYTES,
                 "event-name bytes",
             )?;
+            if event.dimension_charges.is_empty() {
+                return Err(ReplayError::EmptyText {
+                    resource: "dimension-charge count",
+                });
+            }
             check_len(
                 event.dimension_charges.len(),
                 MAX_EVENT_CHARGES,
                 "dimension-charge count",
             )?;
-            check_len(
-                event.payload.len(),
-                MAX_EVENT_PAYLOAD_BYTES,
-                "event-payload bytes",
-            )?;
-            if event
-                .dimension_charges
-                .iter()
-                .any(|(_, amount)| *amount == 0)
-            {
-                return Err(ReplayError::ZeroCharge);
-            }
             total_payload_bytes = total_payload_bytes
                 .checked_add(u64::try_from(event.payload.len()).map_err(|_| {
                     ReplayError::LimitExceeded {
@@ -362,6 +365,45 @@ mod tests {
             log.record_event("", vec![(Dimension::ComputeSteps, 1)], b"outcome"),
             Err(ReplayError::EmptyText {
                 resource: "event-name bytes",
+            })
+        );
+    }
+
+    #[test]
+    fn record_event_refuses_empty_dimension_charges() {
+        // An empty dimension_charges vec would be a "phantom" event that
+        // records a payload but charges nothing; the trust boundary
+        // refuses it so wire-imported ReplayLogs cannot smuggle
+        // zero-impact events past the integrity check.
+        let mut log = ReplayLog::new(11, "strategy").unwrap();
+        assert_eq!(
+            log.record_event("step", Vec::new(), b"outcome"),
+            Err(ReplayError::EmptyText {
+                resource: "dimension-charge count",
+            })
+        );
+    }
+
+    #[test]
+    fn validate_events_rejects_zero_impact_event_in_deserialized_log() {
+        // A wire-imported ReplayLog with an event whose dimension_charges
+        // was deserialized as an empty vec must fail verify_integrity so
+        // the rejection lives on the read path as well as the write path.
+        let mut log = ReplayLog::new(11, "strategy").unwrap();
+        // Hand-build a phantom event bypassing record_event so the test
+        // exercises the integrity gate independently of the input gate.
+        log.events.push(ReplayEvent {
+            step_index: 0,
+            event_name: "phantom".into(),
+            dimension_charges: Vec::new(),
+            payload: b"outcome".to_vec(),
+            outcome_digest: [0u8; 32],
+        });
+        assert!(!log.verify_integrity());
+        assert_eq!(
+            log.finalize(),
+            Err(ReplayError::EmptyText {
+                resource: "dimension-charge count",
             })
         );
     }
