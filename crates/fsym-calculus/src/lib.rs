@@ -218,6 +218,8 @@ fn integral_term(f: &Expr, var: &Symbol) -> Result<Expr, CalculusError> {
                             Expr::Function("cos".to_string(), vec![u.clone()]),
                         ])),
                         "cos" => Ok(Expr::Function("sin".to_string(), vec![u.clone()])),
+                        "sinh" => Ok(Expr::Function("cosh".to_string(), vec![u.clone()])),
+                        "cosh" => Ok(Expr::Function("sinh".to_string(), vec![u.clone()])),
                         other => Err(CalculusError::IntegrationFailed(format!("{other}({u})"))),
                     }
                 } else if numeric_value(&c).is_some_and(|value| !value.is_zero()) {
@@ -235,6 +237,14 @@ fn integral_term(f: &Expr, var: &Symbol) -> Result<Expr, CalculusError> {
                         "cos" => Ok(simplify(&Expr::Mul(vec![
                             inv_c,
                             Expr::Function("sin".to_string(), vec![u.clone()]),
+                        ]))),
+                        "sinh" => Ok(simplify(&Expr::Mul(vec![
+                            inv_c,
+                            Expr::Function("cosh".to_string(), vec![u.clone()]),
+                        ]))),
+                        "cosh" => Ok(simplify(&Expr::Mul(vec![
+                            inv_c,
+                            Expr::Function("sinh".to_string(), vec![u.clone()]),
                         ]))),
                         other => Err(CalculusError::IntegrationFailed(format!("{other}({u})"))),
                     }
@@ -578,6 +588,60 @@ mod tests {
         assert_eq!(
             d,
             Expr::Function("cos".to_string(), vec![Expr::symbol("x")])
+        );
+    }
+
+    #[test]
+    fn test_integrate_hyperbolic() {
+        let x = Symbol::new("x");
+        let x_expr = Expr::symbol("x");
+
+        // ∫sinh(x) dx = cosh(x)
+        let sinh_expr = Expr::Function("sinh".to_string(), vec![x_expr.clone()]);
+        assert_eq!(
+            integrate(&sinh_expr, &x).unwrap(),
+            Expr::Function("cosh".to_string(), vec![x_expr.clone()])
+        );
+
+        // ∫cosh(x) dx = sinh(x)
+        let cosh_expr = Expr::Function("cosh".to_string(), vec![x_expr.clone()]);
+        assert_eq!(
+            integrate(&cosh_expr, &x).unwrap(),
+            Expr::Function("sinh".to_string(), vec![x_expr.clone()])
+        );
+
+        // ∫sinh(2*x) dx = 2^-1 * cosh(2*x)
+        let sinh_2x = Expr::Function(
+            "sinh".to_string(),
+            vec![Expr::Mul(vec![Expr::from_i64(2), x_expr.clone()])],
+        );
+        let inv_2 = Expr::Pow(Arc::new(Expr::from_i64(2)), Arc::new(Expr::from_i64(-1)));
+        assert_eq!(
+            integrate(&sinh_2x, &x).unwrap(),
+            Expr::Mul(vec![
+                inv_2,
+                Expr::Function(
+                    "cosh".to_string(),
+                    vec![Expr::Mul(vec![Expr::from_i64(2), x_expr.clone()])]
+                ),
+            ])
+        );
+
+        // ∫cosh(3*x) dx = 3^-1 * sinh(3*x)
+        let cosh_3x = Expr::Function(
+            "cosh".to_string(),
+            vec![Expr::Mul(vec![Expr::from_i64(3), x_expr.clone()])],
+        );
+        let inv_3 = Expr::Pow(Arc::new(Expr::from_i64(3)), Arc::new(Expr::from_i64(-1)));
+        assert_eq!(
+            integrate(&cosh_3x, &x).unwrap(),
+            Expr::Mul(vec![
+                inv_3,
+                Expr::Function(
+                    "sinh".to_string(),
+                    vec![Expr::Mul(vec![Expr::from_i64(3), x_expr])]
+                ),
+            ])
         );
     }
 
