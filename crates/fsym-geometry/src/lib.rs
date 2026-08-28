@@ -184,7 +184,13 @@ impl Line2D {
         if p1 == p2 {
             return Err(GeometryError::CoincidentPoints);
         }
-        Ok(Self { p1, p2 })
+        let dx = coordinate_difference(&p2.x, &p1.x);
+        let dy = coordinate_difference(&p2.y, &p1.y);
+        match classify_zero_vector([&dx, &dy]) {
+            ZeroVectorStatus::Zero => Err(GeometryError::CoincidentPoints),
+            ZeroVectorStatus::NonZero => Ok(Self { p1, p2 }),
+            ZeroVectorStatus::Unknown => Err(GeometryError::SymbolicDegeneracyUndetermined),
+        }
     }
 
     pub fn p1(&self) -> &Point2D {
@@ -266,6 +272,40 @@ fn numeric_value(expr: &Expr) -> Option<BigRational> {
         Expr::Integer(value) => Some(BigRational::from_integer(value.clone())),
         Expr::Rational(value) => Some(value.clone()),
         _ => None,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ZeroVectorStatus {
+    Zero,
+    NonZero,
+    Unknown,
+}
+
+fn coordinate_difference(minuend: &Expr, subtrahend: &Expr) -> Expr {
+    Expr::Add(vec![
+        minuend.clone(),
+        Expr::Mul(vec![Expr::from_i64(-1), subtrahend.clone()]),
+    ])
+}
+
+/// Classifies whether an exact coordinate vector is zero without treating symbolic unknowns as
+/// proof of nonzero-ness. One exact nonzero component establishes the whole vector as nonzero;
+/// otherwise every component must reduce to an exact numeric zero to establish degeneracy.
+fn classify_zero_vector<'a>(components: impl IntoIterator<Item = &'a Expr>) -> ZeroVectorStatus {
+    let mut saw_unknown = false;
+    for component in components {
+        let simplified = simplify(component);
+        match numeric_value(&simplified) {
+            Some(value) if !value.numer().is_zero() => return ZeroVectorStatus::NonZero,
+            Some(_) => {}
+            None => saw_unknown = true,
+        }
+    }
+    if saw_unknown {
+        ZeroVectorStatus::Unknown
+    } else {
+        ZeroVectorStatus::Zero
     }
 }
 
@@ -745,7 +785,14 @@ impl Line3D {
         if p1 == p2 {
             return Err(GeometryError::CoincidentPoints);
         }
-        Ok(Self { p1, p2 })
+        let dx = coordinate_difference(&p2.x, &p1.x);
+        let dy = coordinate_difference(&p2.y, &p1.y);
+        let dz = coordinate_difference(&p2.z, &p1.z);
+        match classify_zero_vector([&dx, &dy, &dz]) {
+            ZeroVectorStatus::Zero => Err(GeometryError::CoincidentPoints),
+            ZeroVectorStatus::NonZero => Ok(Self { p1, p2 }),
+            ZeroVectorStatus::Unknown => Err(GeometryError::SymbolicDegeneracyUndetermined),
+        }
     }
 
     pub fn p1(&self) -> &Point3D {
@@ -806,16 +853,11 @@ impl<'de> Deserialize<'de> for Plane3D {
 
 impl Plane3D {
     pub fn new(point: Point3D, normal: Point3D) -> Result<Self, GeometryError> {
-        let nx_zero =
-            normal.x.is_zero() || numeric_value(&normal.x).is_some_and(|v| v.numer().is_zero());
-        let ny_zero =
-            normal.y.is_zero() || numeric_value(&normal.y).is_some_and(|v| v.numer().is_zero());
-        let nz_zero =
-            normal.z.is_zero() || numeric_value(&normal.z).is_some_and(|v| v.numer().is_zero());
-        if nx_zero && ny_zero && nz_zero {
-            return Err(GeometryError::DegeneratePlane);
+        match classify_zero_vector([&normal.x, &normal.y, &normal.z]) {
+            ZeroVectorStatus::Zero => Err(GeometryError::DegeneratePlane),
+            ZeroVectorStatus::NonZero => Ok(Self { point, normal }),
+            ZeroVectorStatus::Unknown => Err(GeometryError::SymbolicDegeneracyUndetermined),
         }
-        Ok(Self { point, normal })
     }
 
     pub fn from_three_points(p1: Point3D, p2: Point3D, p3: Point3D) -> Result<Self, GeometryError> {
@@ -1259,6 +1301,90 @@ mod tests {
             .expect_err("an impossible reservation must fail");
         assert!(error.to_string().contains("allocation refused"));
         assert!(vertices.is_empty());
+    }
+
+    #[test]
+    fn symbolic_line_and_plane_construction_requires_a_proven_nonzero_vector() {
+        let x = Expr::symbol("x");
+        let zero = Expr::from_i64(0);
+        let one = Expr::from_i64(1);
+
+        assert_eq!(
+            Line2D::new(
+                Point2D::new(zero.clone(), zero.clone()),
+                Point2D::new(x.clone(), zero.clone()),
+            ),
+            Err(GeometryError::SymbolicDegeneracyUndetermined)
+        );
+        assert!(
+            Line2D::new(
+                Point2D::new(x.clone(), zero.clone()),
+                Point2D::new(x.clone(), one.clone()),
+            )
+            .is_ok(),
+            "one exact nonzero coordinate difference proves distinctness"
+        );
+
+        assert_eq!(
+            Line3D::new(
+                Point3D::new(zero.clone(), zero.clone(), zero.clone()),
+                Point3D::new(x.clone(), zero.clone(), zero.clone()),
+            ),
+            Err(GeometryError::SymbolicDegeneracyUndetermined)
+        );
+        assert!(
+            Line3D::new(
+                Point3D::new(x.clone(), zero.clone(), zero.clone()),
+                Point3D::new(x.clone(), zero.clone(), one.clone()),
+            )
+            .is_ok(),
+            "one exact nonzero coordinate difference proves distinctness"
+        );
+
+        let origin = Point3D::new(zero.clone(), zero.clone(), zero.clone());
+        assert_eq!(
+            Plane3D::new(
+                origin.clone(),
+                Point3D::new(x.clone(), zero.clone(), zero.clone()),
+            ),
+            Err(GeometryError::SymbolicDegeneracyUndetermined)
+        );
+        assert!(
+            Plane3D::new(
+                origin.clone(),
+                Point3D::new(x.clone(), one.clone(), zero.clone()),
+            )
+            .is_ok(),
+            "one exact nonzero normal component proves a nonzero vector"
+        );
+
+        let symbolic_collinearity = Plane3D::from_three_points(
+            origin.clone(),
+            Point3D::new(x.clone(), zero.clone(), zero.clone()),
+            Point3D::new(zero.clone(), one, zero.clone()),
+        );
+        assert_eq!(
+            symbolic_collinearity,
+            Err(GeometryError::SymbolicDegeneracyUndetermined)
+        );
+
+        let cancelled = Expr::Add(vec![
+            x.clone(),
+            Expr::Mul(vec![Expr::from_i64(-1), x.clone()]),
+        ]);
+        assert_eq!(
+            Plane3D::new(origin, Point3D::new(cancelled, zero.clone(), zero.clone()),),
+            Err(GeometryError::DegeneratePlane),
+            "algebraically zero components remain a typed zero-vector refusal"
+        );
+
+        let uncertain_plane_wire = serde_json::json!({
+            "point": Point3D::new(zero.clone(), zero.clone(), zero.clone()),
+            "normal": Point3D::new(x, zero.clone(), zero),
+        });
+        let error = serde_json::from_value::<Plane3D>(uncertain_plane_wire)
+            .expect_err("wire decoding must replay the symbolic degeneracy check");
+        assert!(error.to_string().contains("undecidable"));
     }
 
     #[test]
