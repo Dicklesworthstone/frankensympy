@@ -24,6 +24,156 @@ pub enum BinderNode {
     Derivative { var: Symbol, body: Box<Expr> },
 }
 
+impl BinderNode {
+    /// Creates a lambda binder.
+    pub fn lambda(param: impl Into<Symbol>, body: Expr) -> Self {
+        Self::Lambda {
+            param: param.into(),
+            body: Box::new(body),
+        }
+    }
+
+    /// Creates an indefinite integral binder.
+    pub fn integral(var: impl Into<Symbol>, body: Expr) -> Self {
+        Self::Integral {
+            var: var.into(),
+            body: Box::new(body),
+            limits: None,
+        }
+    }
+
+    /// Creates a definite integral binder with lower and upper limits.
+    pub fn definite_integral(var: impl Into<Symbol>, body: Expr, lower: Expr, upper: Expr) -> Self {
+        Self::Integral {
+            var: var.into(),
+            body: Box::new(body),
+            limits: Some((Box::new(lower), Box::new(upper))),
+        }
+    }
+
+    /// Creates a derivative binder.
+    pub fn derivative(var: impl Into<Symbol>, body: Expr) -> Self {
+        Self::Derivative {
+            var: var.into(),
+            body: Box::new(body),
+        }
+    }
+
+    /// Converts this binder node into an expression tree.
+    pub fn to_expr(&self) -> Expr {
+        match self {
+            Self::Lambda { param, body } => Expr::Function(
+                "Lambda".to_string(),
+                vec![Expr::Sym(param.clone()), (**body).clone()],
+            ),
+            Self::Integral { var, body, limits } => {
+                if let Some((lower, upper)) = limits {
+                    Expr::Function(
+                        "Integral".to_string(),
+                        vec![
+                            (**body).clone(),
+                            Expr::Sym(var.clone()),
+                            (**lower).clone(),
+                            (**upper).clone(),
+                        ],
+                    )
+                } else {
+                    Expr::Function(
+                        "Integral".to_string(),
+                        vec![(**body).clone(), Expr::Sym(var.clone())],
+                    )
+                }
+            }
+            Self::Derivative { var, body } => Expr::Function(
+                "Derivative".to_string(),
+                vec![(**body).clone(), Expr::Sym(var.clone())],
+            ),
+        }
+    }
+
+    /// Attempts to parse a binder node from an expression tree.
+    pub fn try_from_expr(expr: &Expr) -> Option<Self> {
+        if let Expr::Function(name, args) = expr {
+            match name.as_str() {
+                "Lambda" if args.len() == 2 => {
+                    if let Expr::Sym(param) = &args[0] {
+                        return Some(Self::Lambda {
+                            param: param.clone(),
+                            body: Box::new(args[1].clone()),
+                        });
+                    }
+                }
+                "Integral" => {
+                    if args.len() == 2
+                        && let Expr::Sym(var) = &args[1]
+                    {
+                        return Some(Self::Integral {
+                            var: var.clone(),
+                            body: Box::new(args[0].clone()),
+                            limits: None,
+                        });
+                    } else if args.len() == 4
+                        && let Expr::Sym(var) = &args[1]
+                    {
+                        return Some(Self::Integral {
+                            var: var.clone(),
+                            body: Box::new(args[0].clone()),
+                            limits: Some((Box::new(args[2].clone()), Box::new(args[3].clone()))),
+                        });
+                    }
+                }
+                "Derivative" if args.len() == 2 => {
+                    if let Expr::Sym(var) = &args[1] {
+                        return Some(Self::Derivative {
+                            var: var.clone(),
+                            body: Box::new(args[0].clone()),
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
+    /// Returns the bound variable symbol.
+    pub fn bound_variable(&self) -> &Symbol {
+        match self {
+            Self::Lambda { param, .. } => param,
+            Self::Integral { var, .. } | Self::Derivative { var, .. } => var,
+        }
+    }
+
+    /// Returns the body expression.
+    pub fn body(&self) -> &Expr {
+        match self {
+            Self::Lambda { body, .. }
+            | Self::Integral { body, .. }
+            | Self::Derivative { body, .. } => body,
+        }
+    }
+
+    /// Returns the free symbols of this binder.
+    pub fn free_symbols(&self) -> BTreeSet<Symbol> {
+        let mut free = free_symbols(self.body());
+        free.remove(self.bound_variable());
+        if let Self::Integral {
+            limits: Some((lower, upper)),
+            ..
+        } = self
+        {
+            free.extend(free_symbols(lower));
+            free.extend(free_symbols(upper));
+        }
+        free
+    }
+
+    /// Checks alpha equivalence against another binder node.
+    pub fn is_alpha_equivalent(&self, other: &Self) -> bool {
+        alpha_equivalent(&self.to_expr(), &other.to_expr())
+    }
+}
+
 /// De Bruijn canonical indexed term for syntax-invariant alpha comparison.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum DeBruijnExpr {
@@ -771,5 +921,56 @@ mod tests {
         // Transitivity
         assert!(alpha_equivalent(&e1, &e2) && alpha_equivalent(&e2, &e3));
         assert!(alpha_equivalent(&e1, &e3));
+    }
+
+    #[test]
+    fn binder_node_conversions_and_alpha_equivalence() {
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+        let z = Symbol::new("z");
+
+        // Lambda binder
+        let lambda1 = BinderNode::lambda(
+            x.clone(),
+            Expr::Mul(vec![Expr::Sym(x.clone()), Expr::Sym(y.clone())]),
+        );
+        let expr1 = lambda1.to_expr();
+        let parsed1 = BinderNode::try_from_expr(&expr1).expect("valid lambda binder");
+        assert_eq!(parsed1, lambda1);
+        assert_eq!(parsed1.bound_variable(), &x);
+        let free1 = parsed1.free_symbols();
+        assert!(free1.contains(&y));
+        assert!(!free1.contains(&x));
+
+        let lambda2 = BinderNode::lambda(
+            z.clone(),
+            Expr::Mul(vec![Expr::Sym(z.clone()), Expr::Sym(y.clone())]),
+        );
+        assert!(lambda1.is_alpha_equivalent(&lambda2));
+
+        // Definite integral binder
+        let int1 = BinderNode::definite_integral(
+            x.clone(),
+            Expr::Mul(vec![Expr::Sym(x.clone()), Expr::Sym(y.clone())]),
+            Expr::from_i64(0),
+            Expr::Sym(z.clone()),
+        );
+        let int_expr = int1.to_expr();
+        let parsed_int = BinderNode::try_from_expr(&int_expr).expect("valid definite integral");
+        assert_eq!(parsed_int, int1);
+        let free_int = parsed_int.free_symbols();
+        assert!(free_int.contains(&y));
+        assert!(free_int.contains(&z));
+        assert!(!free_int.contains(&x));
+
+        // Derivative binder
+        let deriv1 = BinderNode::derivative(
+            x.clone(),
+            Expr::pow(Expr::Sym(x.clone()), Expr::from_i64(2)),
+        );
+        let deriv_expr = deriv1.to_expr();
+        let parsed_deriv = BinderNode::try_from_expr(&deriv_expr).expect("valid derivative");
+        assert_eq!(parsed_deriv, deriv1);
+        assert_eq!(parsed_deriv.free_symbols().len(), 0);
     }
 }
