@@ -3,7 +3,7 @@
 #![forbid(unsafe_code)]
 
 use fsym_calculus::diff;
-use fsym_core::{BigInt, BigRational, Expr, Symbol, parse};
+use fsym_core::{parse, BigInt, BigRational, Expr, Symbol};
 use fsym_printing::latex;
 use fsym_runtime::{Budget, BudgetLimits, FsymCx, RuntimeBudget};
 use fsym_simplify::{expand_with, simplify_with};
@@ -716,6 +716,19 @@ pub fn py_mul(args: Vec<PyExpr>) -> PyExpr {
 #[pyfunction]
 pub fn py_pow(base: PyExpr, exp: PyExpr) -> PyExpr {
     PyExpr::from_expr(Expr::Pow(Arc::new(base.inner), Arc::new(exp.inner)))
+}
+
+/// Construct a named function application.
+#[pyfunction]
+#[pyo3(signature = (name, *args))]
+pub fn py_function(name: String, args: Vec<PyExpr>) -> PyResult<PyExpr> {
+    if name.is_empty() {
+        return Err(PyValueError::new_err("Function name must be non-empty"));
+    }
+    Ok(PyExpr::from_expr(Expr::Function(
+        name,
+        args.into_iter().map(|arg| arg.inner).collect(),
+    )))
 }
 
 /// Construct a Derivative expression representation.

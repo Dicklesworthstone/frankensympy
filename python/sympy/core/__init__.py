@@ -36,6 +36,7 @@ def _exact_surface_types():
         Mul,
         Pow,
         Derivative,
+        AppliedUndef,
     )
 
 
@@ -113,7 +114,12 @@ def _wrap(value: Any) -> "Basic":
         "Mul": Mul,
         "Pow": Pow,
         "Derivative": Derivative,
-    }.get(value.func_name, Expr)
+        "Constant": Expr,
+    }.get(value.func_name)
+    if cls is None:
+        obj = object.__new__(AppliedUndef)
+        obj._value = value
+        return obj
     obj = object.__new__(cls)
     obj._value = value
     return obj
@@ -226,6 +232,8 @@ class Basic:
     def __reduce__(self):
         if type(self) is Dummy:
             return _restore_dummy, (self.name, self._dummy_number)
+        if type(self) is AppliedUndef:
+            return _restore_applied_undef, (self._value.func_name, self.args)
         if isinstance(self, Symbol):
             return type(self), (self.name,)
         if isinstance(self, Integer):
@@ -484,6 +492,56 @@ class Derivative(Expr):
         ).as_expr()
 
 
+class UndefinedFunction:
+    """Callable constructor returned by Function('name'). Not an expression."""
+
+    __slots__ = ("name",)
+
+    def __init__(self, name: str):
+        self.name = name
+
+    def __call__(self, *args: Any) -> "AppliedUndef":
+        return AppliedUndef(self.name, *args)
+
+    def __repr__(self) -> str:
+        return self.name
+
+    def __eq__(self, other: object) -> bool:
+        return type(other) is UndefinedFunction and self.name == other.name
+
+    def __hash__(self) -> int:
+        return hash(("UndefinedFunction", self.name))
+
+
+def Function(name: str) -> UndefinedFunction:
+    """Create an undefined function constructor."""
+    if not isinstance(name, str):
+        raise TypeError("Function name must be a string")
+    if not name:
+        raise ValueError("Function name must be non-empty")
+    return UndefinedFunction(name)
+
+
+class AppliedUndef(Expr):
+    """Applied undefined function f(x, ...)."""
+
+    __slots__ = ()
+
+    def __init__(self, name: str, *args: Any):
+        if not isinstance(name, str) or not name:
+            raise TypeError("applied function name must be a non-empty string")
+        native_args = [_native_expr(arg) for arg in args]
+        self._value = _native.py_function(name, *native_args)
+
+    @property
+    def func(self):
+        return Function(self._value.func_name)
+
+
+def _restore_applied_undef(name: str, args: tuple[Any, ...]) -> AppliedUndef:
+    return AppliedUndef(name, *args)
+
+
 def symbols(names: str | Iterable[str], **assumptions: Any):
     """Create one or more symbols without silently discarding assumptions."""
     if isinstance(names, str):
@@ -541,6 +599,9 @@ __all__ = [
     "Mul",
     "Pow",
     "Derivative",
+    "Function",
+    "UndefinedFunction",
+    "AppliedUndef",
     "symbols",
     "diff",
     "expand",

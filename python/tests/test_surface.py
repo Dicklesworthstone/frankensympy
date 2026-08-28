@@ -204,6 +204,28 @@ class SurfaceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             sympy.Symbol("__fsymDummy_1_x")
 
+    def test_undefined_function_application_round_trips(self):
+        x = sympy.Symbol("x")
+        f = sympy.Function("f")
+        applied = f(x)
+
+        self.assertIsInstance(applied, sympy.Expr)
+        self.assertEqual(applied.func, f)
+        self.assertEqual(applied.args, (x,))
+        self.assertEqual(applied.func(*applied.args), applied)
+        self.assertEqual(applied.free_symbols, {x})
+
+        summed = applied + 1
+        self.assertTrue(any(type(arg) is type(applied) for arg in summed.args))
+        restored = pickle.loads(pickle.dumps(applied))  # ubs:ignore — trusted in-process bytes
+        self.assertEqual(restored, applied)
+        self.assertEqual(restored.func, f)
+
+        with self.assertRaises(ValueError):
+            sympy.Function("")
+        with self.assertRaises(TypeError):
+            sympy.Function(1)
+
 
 if __name__ == "__main__":
     unittest.main()
