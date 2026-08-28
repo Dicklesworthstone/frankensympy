@@ -988,8 +988,14 @@ def cmd_candidate(profile: dict, py: str, *, broken: bool = False) -> int:
     return 0
 
 
-def cmd_diff(profile: dict, candidate_py: str, *, broken: bool = False) -> int:
-    from minimize import build_records
+def cmd_diff(
+    profile: dict,
+    candidate_py: str,
+    *,
+    broken: bool = False,
+    affected_claim: str | None = None,
+) -> int:
+    from minimize import build_records, load_claims_registry
 
     base = Path(__file__).resolve().parent
     goldens = load_goldens(profile)
@@ -1008,12 +1014,20 @@ def cmd_diff(profile: dict, candidate_py: str, *, broken: bool = False) -> int:
         severity="object",
         fallback_profile_id=profile["profile_id"],
         created_at_utc=datetime.now(UTC).isoformat(),
+        affected_claim=affected_claim,
+        claims_registry=load_claims_registry() if affected_claim else None,
+    )
+    named = sorted(
+        {record.get("affected_claim") for record in records if record.get("affected_claim")}
     )
     summary = {
         "comparator": "construction_only",
         "paired": paired,
         "discrepancies": len(records),
         "broken_candidate": broken,
+        "affected_claim": affected_claim,
+        "named_claims": named,
+        "claims_promoted": False,
         "fixture_ids": [record["fixture_id"] for record in records],
     }
     print(json.dumps(summary, indent=2, sort_keys=True))
@@ -1203,6 +1217,7 @@ def parse_cli(argv: list[str]) -> dict | int:
     candidate_py = None
     broken = False
     test_path = None
+    affected_claim = None
     index = 1
     while index < len(rest):
         arg = rest[index]
@@ -1231,6 +1246,13 @@ def parse_cli(argv: list[str]) -> dict | int:
             test_path = rest[index + 1]
             index += 2
             continue
+        if arg == "--claim":
+            if index + 1 >= len(rest) or not rest[index + 1]:
+                print(__doc__)
+                return 2
+            affected_claim = rest[index + 1]
+            index += 2
+            continue
         print(__doc__)
         return 2
     return {
@@ -1240,6 +1262,7 @@ def parse_cli(argv: list[str]) -> dict | int:
         "candidate_python": candidate_py,
         "broken": broken,
         "test_path": test_path,
+        "affected_claim": affected_claim,
     }
 
 
@@ -1261,6 +1284,7 @@ def main() -> int:
                 profile,
                 candidate_python(parsed["candidate_python"]),
                 broken=parsed["broken"],
+                affected_claim=parsed["affected_claim"],
             )
         interpreter = oracle_python(parsed["oracle_python"])
         if mode == "capture":

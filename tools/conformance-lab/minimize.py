@@ -22,6 +22,7 @@ import re
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+import tomllib
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from comparators import REGISTRY, diff_envelopes, discrepancy_id, is_valid_discrepancy
@@ -48,6 +49,10 @@ LEDGER_INDEX_FIELDS = (
     "severity",
     "status",
 )
+DEFAULT_CLAIMS_REGISTRY = (
+    Path(__file__).resolve().parents[2] / "registries" / "claims.toml"
+)
+WS01_ID = "WS01"
 
 
 def strict_json_loads(payload: str):
@@ -130,6 +135,59 @@ def index_envelopes(envelopes: list[dict], *, side: str) -> dict[str, dict]:
     return indexed
 
 
+def load_claims_registry(path: Path | None = None) -> dict[str, dict]:
+    """Load registries/claims.toml. Unknown files and malformed claims fail closed."""
+    registry_path = path or DEFAULT_CLAIMS_REGISTRY
+    if not registry_path.is_file():
+        raise FileNotFoundError(f"claims registry missing: {registry_path}")
+    with open(registry_path, "rb") as fh:
+        payload = tomllib.load(fh)
+    claims = payload.get("claims")
+    if not isinstance(claims, list) or not claims:
+        raise ValueError("claims registry has no [[claims]] entries")
+    indexed: dict[str, dict] = {}
+    for position, claim in enumerate(claims, start=1):
+        if not isinstance(claim, dict):
+            raise TypeError(f"claims registry entry {position} is not a table")
+        claim_id = claim.get("id")
+        if not isinstance(claim_id, str) or not claim_id:
+            raise ValueError(f"claims registry entry {position} has no id")
+        if claim_id in indexed:
+            raise ValueError(f"duplicate claims registry id: {claim_id}")
+        indexed[claim_id] = claim
+    return indexed
+
+
+def admit_affected_claim(claim_id: str, registry: dict[str, dict]) -> dict:
+    """Name a claim a discrepancy affects. Never promotes the claim.
+
+    The claim must exist, remain `planned`, forbid present-tense, and list
+    WS01 among its workstreams. Implemented or certified claims cannot be
+    attached from this harness.
+    """
+    if not isinstance(claim_id, str) or not claim_id:
+        raise ValueError("affected_claim must be a non-empty string")
+    claim = registry.get(claim_id)
+    if claim is None:
+        raise KeyError(f"unknown affected_claim: {claim_id}")
+    status = claim.get("status")
+    if status != "planned":
+        raise ValueError(
+            f"affected_claim {claim_id} has status {status!r}; "
+            "only planned claims may be named from the discrepancy ledger"
+        )
+    if claim.get("present_tense_allowed") is not False:
+        raise ValueError(
+            f"affected_claim {claim_id} allows present-tense; refusing to attach"
+        )
+    workstreams = claim.get("workstreams")
+    if not isinstance(workstreams, list) or WS01_ID not in workstreams:
+        raise ValueError(
+            f"affected_claim {claim_id} is not a WS01 claim: {workstreams!r}"
+        )
+    return claim
+
+
 def make_record(
     *,
     profile_id: str,
@@ -140,6 +198,7 @@ def make_record(
     environment: dict | None,
     outcome_classes: dict | None = None,
     created_at_utc: str,
+    affected_claim: str | None = None,
 ) -> dict:
     record = {
         "schema_version": 1,
@@ -161,6 +220,8 @@ def make_record(
         record["environment"] = environment
     if outcome_classes is not None:
         record["outcome_classes"] = outcome_classes
+    if affected_claim is not None:
+        record["affected_claim"] = affected_claim
     ok, reason = is_valid_discrepancy(record)
     if not ok:
         raise ValueError(f"invalid discrepancy record: {reason}")
@@ -175,7 +236,14 @@ def build_records(
     severity: str,
     fallback_profile_id: str,
     created_at_utc: str,
+    affected_claim: str | None = None,
+    claims_registry: dict[str, dict] | None = None,
 ) -> tuple[list[dict], int]:
+    admitted_claim = None
+    if affected_claim is not None:
+        registry = claims_registry if claims_registry is not None else load_claims_registry()
+        admit_affected_claim(affected_claim, registry)
+        admitted_claim = affected_claim
     oracle_by_id = index_envelopes(oracle_envs, side="oracle")
     candidate_by_id = index_envelopes(candidate_envs, side="candidate")
     wrong_oracle_profiles = sorted(
@@ -206,6 +274,7 @@ def build_records(
                     differences=differences,
                     environment=candidate["environment"],
                     created_at_utc=created_at_utc,
+                    affected_claim=admitted_claim,
                 )
             )
             continue
@@ -222,6 +291,7 @@ def build_records(
                     differences=differences,
                     environment=oracle["environment"],
                     created_at_utc=created_at_utc,
+                    affected_claim=admitted_claim,
                 )
             )
             continue
@@ -246,6 +316,7 @@ def build_records(
                 environment=oracle["environment"],
                 outcome_classes=outcome_classes,
                 created_at_utc=created_at_utc,
+                affected_claim=admitted_claim,
             )
         )
     return records, paired
@@ -445,11 +516,25 @@ def main() -> int:
         default=None,
         help="persist records as <dir>/<disc-id>.json + append to index.ndjson",
     )
+    parser.add_argument(
+        "--claim",
+        default=None,
+        help="planned WS01 claim id to name on each record; never promotes the claim",
+    )
+    parser.add_argument(
+        "--claims-registry",
+        type=Path,
+        default=None,
+        help="path to claims.toml (defaults to registries/claims.toml)",
+    )
     args = parser.parse_args()
 
     try:
         oracle_envs = load_envelopes(args.oracle)
         candidate_envs = load_envelopes(args.candidate)
+        registry = (
+            load_claims_registry(args.claims_registry) if args.claim else None
+        )
         records, pair_count = build_records(
             oracle_envs,
             candidate_envs,
@@ -457,6 +542,8 @@ def main() -> int:
             severity=args.severity,
             fallback_profile_id=args.profile_id,
             created_at_utc=datetime.now(UTC).isoformat(),
+            affected_claim=args.claim,
+            claims_registry=registry,
         )
     except (KeyError, OSError, TypeError, ValueError) as exc:
         print(f"FAIL: {exc}", file=sys.stderr)

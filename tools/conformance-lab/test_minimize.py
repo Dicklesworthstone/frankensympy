@@ -16,7 +16,9 @@ from minimize import (
     _validate_existing_ledger_record,
     _validate_ledger_index_entry,
     _validate_ledger_record_size,
+    admit_affected_claim,
     build_records,
+    load_claims_registry,
     record_identity,
     strict_json_loads,
 )
@@ -339,6 +341,60 @@ class DiscrepancyMinimizerTests(unittest.TestCase):
         valid, reason = is_valid_discrepancy(mutant)
         self.assertFalse(valid)
         self.assertIn("not strict JSON", reason)
+
+    def test_live_claims_registry_keeps_compat_planned(self) -> None:
+        registry = load_claims_registry()
+        claim = admit_affected_claim("COMPAT-002", registry)
+        self.assertEqual(claim["status"], "planned")
+        self.assertIs(claim["present_tense_allowed"], False)
+        self.assertIn("WS01", claim["workstreams"])
+
+    def test_unknown_and_non_ws01_claims_fail_closed(self) -> None:
+        registry = load_claims_registry()
+        with self.assertRaisesRegex(KeyError, "unknown affected_claim"):
+            admit_affected_claim("COMPAT-DOES-NOT-EXIST", registry)
+        with self.assertRaisesRegex(ValueError, "not a WS01 claim"):
+            admit_affected_claim("COMPAT-003", registry)
+
+    def test_implemented_claim_cannot_be_named(self) -> None:
+        with self.assertRaisesRegex(ValueError, "only planned claims"):
+            admit_affected_claim(
+                "FAKE-001",
+                {
+                    "FAKE-001": {
+                        "id": "FAKE-001",
+                        "status": "implemented",
+                        "present_tense_allowed": False,
+                        "workstreams": ["WS01"],
+                    }
+                },
+            )
+
+    def test_discrepancy_records_name_claim_without_promoting_it(self) -> None:
+        registry = load_claims_registry()
+        before = registry["COMPAT-002"]["status"]
+        found, paired = build_records(
+            [envelope("fixture/a", side="upstream_oracle")],
+            [
+                envelope(
+                    "fixture/a",
+                    side="frankensympy_candidate",
+                    observed_type="Wrong",
+                )
+            ],
+            comparator="exact_surface",
+            severity="object",
+            fallback_profile_id=PROFILE,
+            created_at_utc=STAMP,
+            affected_claim="COMPAT-002",
+            claims_registry=registry,
+        )
+        self.assertEqual(paired, 1)
+        self.assertEqual(found[0]["affected_claim"], "COMPAT-002")
+        self.assertEqual(found[0]["status"], "open")
+        reread = load_claims_registry()
+        self.assertEqual(reread["COMPAT-002"]["status"], before)
+        self.assertEqual(reread["COMPAT-002"]["status"], "planned")
 
 
 if __name__ == "__main__":
