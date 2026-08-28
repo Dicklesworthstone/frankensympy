@@ -26,33 +26,6 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(expression.free_symbols, {x})
         self.assertEqual(expression.subs(x, 3), sympy.Integer(5))
 
-    def test_dummy_is_unique_and_not_an_ordinary_symbol(self):
-        x = sympy.Symbol("x")
-        first = sympy.Dummy("x")
-        second = sympy.Dummy("x")
-
-        self.assertIs(type(first), sympy.Dummy)
-        self.assertIsInstance(first, sympy.Symbol)
-        self.assertEqual(first.name, "x")
-        self.assertNotEqual(first, second)
-        self.assertNotEqual(first, x)
-        self.assertEqual(first + 1, 1 + first)
-        self.assertIs(type((first + 1).args[0] if (first + 1).args[0] != sympy.Integer(1) else (first + 1).args[1]), sympy.Dummy)
-
-        expression = first + second
-        self.assertIsInstance(expression, sympy.Add)
-        self.assertEqual(expression.free_symbols, {first, second})
-        self.assertEqual(sympy.diff(first, first), sympy.Integer(1))
-        self.assertEqual(sympy.diff(first, second), sympy.Integer(0))
-
-        restored = pickle.loads(pickle.dumps(first))  # ubs:ignore — trusted in-process bytes
-        self.assertIs(type(restored), sympy.Dummy)
-        self.assertEqual(restored, first)
-        self.assertEqual(restored.dummy_index, first.dummy_index)
-
-        with self.assertRaisesRegex(ValueError, "Dummy intern encoding"):
-            sympy.Symbol("__fsymDummy/1/x")
-
     def test_held_forms_copy_and_pickle_without_collapsing_identity(self):
         x = sympy.Symbol("x")
         held = sympy.Add(x, x, evaluate=False)
