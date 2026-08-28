@@ -233,11 +233,9 @@ impl UnivariatePoly {
     /// Indefinite integration with respect to the generator symbol, with integration constant $C$.
     pub fn integrate(&self, constant: BigRational) -> Result<Self, PolyError> {
         self.validate_shape()?;
-        let next_len = self
-            .coeffs
-            .len()
-            .checked_add(1)
-            .ok_or_else(|| PolyError::General("univariate integration degree overflow".to_string()))?;
+        let next_len = self.coeffs.len().checked_add(1).ok_or_else(|| {
+            PolyError::General("univariate integration degree overflow".to_string())
+        })?;
         if next_len > MAX_UNIVARIATE_COEFFICIENTS {
             return Err(PolyError::General(format!(
                 "univariate integration exceeds coefficient limit of {MAX_UNIVARIATE_COEFFICIENTS}"
@@ -268,7 +266,8 @@ impl UnivariatePoly {
             }
             Some(1) => Ok(BigRational::one()),
             _ => Err(PolyError::General(
-                "discriminant currently supported for degree 1 and 2 univariate polynomials".to_string(),
+                "discriminant currently supported for degree 1 and 2 univariate polynomials"
+                    .to_string(),
             )),
         }
     }

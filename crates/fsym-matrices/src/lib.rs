@@ -438,6 +438,83 @@ impl Matrix {
         Self::new(rows, cols, vec![Expr::from_i64(0); entries])
     }
 
+    /// Create a diagonal matrix of size N x N from the given diagonal entries.
+    pub fn diag(entries: Vec<Expr>) -> Result<Self, MatrixError> {
+        let n = entries.len();
+        let total = Self::checked_element_count(n, n)?;
+        let mut data = Vec::with_capacity(total);
+        for (r, entry) in entries.into_iter().enumerate() {
+            for c in 0..n {
+                if r == c {
+                    data.push(entry.clone());
+                } else {
+                    data.push(Expr::from_i64(0));
+                }
+            }
+        }
+        Self::new(n, n, data)
+    }
+
+    /// Checks if this matrix is symmetric ($A = A^T$).
+    pub fn is_symmetric(&self) -> bool {
+        if self.rows != self.cols {
+            return false;
+        }
+        for r in 0..self.rows {
+            for c in 0..r {
+                if self.data[r * self.cols + c] != self.data[c * self.cols + r] {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    /// Checks if this matrix is a diagonal matrix (all non-diagonal entries are zero).
+    pub fn is_diagonal(&self) -> bool {
+        if self.rows != self.cols {
+            return false;
+        }
+        for r in 0..self.rows {
+            for c in 0..self.cols {
+                if r != c && !self.data[r * self.cols + c].is_zero() {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    /// Checks if this matrix is upper triangular (all entries below main diagonal are zero).
+    pub fn is_upper_triangular(&self) -> bool {
+        if self.rows != self.cols {
+            return false;
+        }
+        for r in 0..self.rows {
+            for c in 0..r {
+                if !self.data[r * self.cols + c].is_zero() {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    /// Checks if this matrix is lower triangular (all entries above main diagonal are zero).
+    pub fn is_lower_triangular(&self) -> bool {
+        if self.rows != self.cols {
+            return false;
+        }
+        for r in 0..self.rows {
+            for c in (r + 1)..self.cols {
+                if !self.data[r * self.cols + c].is_zero() {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
     /// Get element at (row, col).
     pub fn get(&self, r: usize, c: usize) -> Result<&Expr, MatrixError> {
         if r >= self.rows || c >= self.cols {
@@ -2779,5 +2856,34 @@ mod tests {
             large_matrix.eval_poly(&high_degree),
             Err(MatrixError::ResourceLimit(_))
         ));
+    }
+
+    #[test]
+    fn test_matrix_diag_and_shape_predicates() {
+        let diag_mat = Matrix::diag(vec![num(1), num(2), num(3)]).unwrap();
+        assert_eq!(diag_mat.rows(), 3);
+        assert_eq!(diag_mat.cols(), 3);
+        assert!(diag_mat.is_diagonal());
+        assert!(diag_mat.is_symmetric());
+        assert!(diag_mat.is_upper_triangular());
+        assert!(diag_mat.is_lower_triangular());
+
+        let sym_mat = Matrix::new(2, 2, vec![num(1), num(4), num(4), num(5)]).unwrap();
+        assert!(sym_mat.is_symmetric());
+        assert!(!sym_mat.is_diagonal());
+        assert!(!sym_mat.is_upper_triangular());
+        assert!(!sym_mat.is_lower_triangular());
+
+        let upper = Matrix::new(2, 2, vec![num(1), num(2), num(0), num(3)]).unwrap();
+        assert!(upper.is_upper_triangular());
+        assert!(!upper.is_lower_triangular());
+        assert!(!upper.is_diagonal());
+        assert!(!upper.is_symmetric());
+
+        let lower = Matrix::new(2, 2, vec![num(1), num(0), num(2), num(3)]).unwrap();
+        assert!(lower.is_lower_triangular());
+        assert!(!lower.is_upper_triangular());
+        assert!(!lower.is_diagonal());
+        assert!(!lower.is_symmetric());
     }
 }
