@@ -6,10 +6,14 @@ operations fail explicitly; upstream SymPy is never used as a fallback.
 
 from .core import (
     Add,
+    Atom,
+    AtomicExpr,
+    Basic,
     Derivative,
     Expr,
     Integer,
     Mul,
+    Number,
     Pow,
     Rational,
     Symbol,
@@ -141,8 +145,12 @@ def totient(value):
 
 
 __all__ = [
+    "Basic",
+    "Atom",
+    "AtomicExpr",
     "Expr",
     "Symbol",
+    "Number",
     "Integer",
     "Rational",
     "Add",

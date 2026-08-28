@@ -19,11 +19,24 @@ except ImportError as exc:  # pragma: no cover - exercised in a subprocess gate
 
 
 def _exact_surface_types():
-    return (Expr, Symbol, Integer, Rational, Add, Mul, Pow, Derivative)
+    return (
+        Basic,
+        Atom,
+        AtomicExpr,
+        Expr,
+        Symbol,
+        Number,
+        Integer,
+        Rational,
+        Add,
+        Mul,
+        Pow,
+        Derivative,
+    )
 
 
 def _native_expr(value: Any):
-    if isinstance(value, Expr):
+    if isinstance(value, Basic):
         if type(value) not in _exact_surface_types():
             raise NotImplementedError(
                 "custom symbolic subclasses require a Python override; "
@@ -39,8 +52,8 @@ def _native_expr(value: Any):
     raise TypeError(f"cannot convert {type(value).__name__} to a symbolic expression")
 
 
-def _wrap(value: Any) -> "Expr":
-    if isinstance(value, Expr):
+def _wrap(value: Any) -> "Basic":
+    if isinstance(value, Basic):
         return value
     if not isinstance(value, _native.Expr):
         raise TypeError(f"native expression required, got {type(value).__name__}")
@@ -98,13 +111,13 @@ def _exact_rational_argument(value: Any) -> tuple[int, int]:
     raise TypeError("exact built-in number, Integer, or Rational required")
 
 
-class Expr:
-    """Python-visible wrapper for a native exact expression."""
+class Basic:
+    """Base class for all SymPy objects in the compatibility shell."""
 
     __slots__ = ("_value",)
 
     def __init__(self, src: Any = None):
-        if isinstance(src, Expr):
+        if isinstance(src, Basic):
             self._value = src._value
         elif isinstance(src, _native.Expr):
             self._value = src
@@ -114,7 +127,7 @@ class Expr:
             self._value = _native_expr(src)
 
     @property
-    def args(self) -> tuple["Expr", ...]:
+    def args(self) -> tuple["Basic", ...]:
         return tuple(_wrap(arg) for arg in _native_expr(self).args)
 
     @property
@@ -126,6 +139,66 @@ class Expr:
     @property
     def free_symbols(self) -> set["Symbol"]:
         return {Symbol(name) for name in _native_expr(self).free_symbols}
+
+    def has(self, pattern: Any) -> bool:
+        return _native_expr(self).has(_native_expr(pattern))
+
+    def subs(self, old: Any, new: Any) -> "Basic":
+        return _wrap(_native_expr(self).subs(_native_expr(old), _native_expr(new)))
+
+    def _repr_latex_(self) -> str:
+        return self._value._repr_latex_()
+
+    def __str__(self) -> str:
+        return str(self._value)
+
+    def __repr__(self) -> str:
+        return repr(self._value)
+
+    def __hash__(self) -> int:
+        if type(self) not in _exact_surface_types():
+            return object.__hash__(self)
+        return hash(self._value)
+
+    def __eq__(self, other: object) -> bool:
+        if type(self) not in _exact_surface_types():
+            return self is other
+        try:
+            return self._value == _native_expr(other)
+        except (TypeError, NotImplementedError):
+            return False
+
+    def __ne__(self, other: object) -> bool:
+        return not self == other
+
+    def __deepcopy__(self, memo) -> "Basic":
+        del memo
+        return self
+
+    def __reduce__(self):
+        if isinstance(self, Symbol):
+            return type(self), (self.name,)
+        if isinstance(self, Integer):
+            return type(self), (self.p,)
+        if isinstance(self, Rational):
+            return type(self), (self.p, self.q)
+        if isinstance(self, (Add, Mul, Derivative)):
+            return _restore_nary, (type(self), self.args)
+        if isinstance(self, Pow):
+            return _restore_pow, (type(self), *self.args)
+        return type(self), (str(self),)
+
+
+class Atom(Basic):
+    """A basic object that has no subexpressions (args == ())."""
+
+    __slots__ = ()
+
+
+class Expr(Basic):
+    """Python-visible wrapper for a native exact mathematical expression."""
+
+    __slots__ = ()
 
     @property
     def is_integer(self) -> bool:
@@ -155,12 +228,6 @@ class Expr:
     def is_number(self) -> bool:
         return self._value.is_number
 
-    def has(self, pattern: Any) -> bool:
-        return _native_expr(self).has(_native_expr(pattern))
-
-    def subs(self, old: Any, new: Any) -> "Expr":
-        return _wrap(_native_expr(self).subs(_native_expr(old), _native_expr(new)))
-
     def diff(self, *variables: Any) -> "Expr":
         return diff(self, *variables)
 
@@ -172,31 +239,6 @@ class Expr:
 
     def evalf(self) -> float:
         return _native_expr(self).evalf()
-
-    def _repr_latex_(self) -> str:
-        return self._value._repr_latex_()
-
-    def __str__(self) -> str:
-        return str(self._value)
-
-    def __repr__(self) -> str:
-        return repr(self._value)
-
-    def __hash__(self) -> int:
-        if type(self) not in _exact_surface_types():
-            return object.__hash__(self)
-        return hash(self._value)
-
-    def __eq__(self, other: object) -> bool:
-        if type(self) not in _exact_surface_types():
-            return self is other
-        try:
-            return self._value == _native_expr(other)
-        except (TypeError, NotImplementedError):
-            return False
-
-    def __ne__(self, other: object) -> bool:
-        return not self == other
 
     def __lt__(self, other: Any) -> bool:
         return _native_expr(self) < _native_expr(other)
@@ -244,25 +286,14 @@ class Expr:
     def __neg__(self) -> "Expr":
         return _wrap(-_native_expr(self))
 
-    def __deepcopy__(self, memo) -> "Expr":
-        del memo
-        return self
 
-    def __reduce__(self):
-        if isinstance(self, Symbol):
-            return type(self), (self.name,)
-        if isinstance(self, Integer):
-            return type(self), (self.p,)
-        if isinstance(self, Rational):
-            return type(self), (self.p, self.q)
-        if isinstance(self, (Add, Mul, Derivative)):
-            return _restore_nary, (type(self), self.args)
-        if isinstance(self, Pow):
-            return _restore_pow, (type(self), *self.args)
-        return type(self), (str(self),)
+class AtomicExpr(Expr, Atom):
+    """An expression that is also an Atom."""
+
+    __slots__ = ()
 
 
-class Symbol(Expr):
+class Symbol(AtomicExpr):
     __slots__ = ()
 
     def __init__(self, name: str, **assumptions: Any):
@@ -280,22 +311,13 @@ class Symbol(Expr):
         return f"Symbol({self.name!r})"
 
 
-class Integer(Expr):
+class Number(AtomicExpr):
+    """Base class for exact numbers in the compatibility shell."""
+
     __slots__ = ()
 
-    def __init__(self, value: int):
-        self._value = _native.py_integer(_exact_integer_argument(value))
 
-    @property
-    def p(self) -> int:
-        return self._value.exact_numerator()
-
-    @property
-    def q(self) -> int:
-        return 1
-
-
-class Rational(Expr):
+class Rational(Number):
     __slots__ = ()
 
     def __init__(self, numerator: int, denominator: int):
@@ -313,6 +335,21 @@ class Rational(Expr):
     @property
     def q(self) -> int:
         return self._value.exact_denominator()
+
+
+class Integer(Rational):
+    __slots__ = ()
+
+    def __init__(self, value: int):
+        self._value = _native.py_integer(_exact_integer_argument(value))
+
+    @property
+    def p(self) -> int:
+        return self._value.exact_numerator()
+
+    @property
+    def q(self) -> int:
+        return 1
 
 
 class Add(Expr):
@@ -392,8 +429,12 @@ def simplify(expression: Any) -> Expr:
 
 
 __all__ = [
+    "Basic",
+    "Atom",
+    "AtomicExpr",
     "Expr",
     "Symbol",
+    "Number",
     "Integer",
     "Rational",
     "Add",
