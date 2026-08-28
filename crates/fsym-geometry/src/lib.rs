@@ -7,10 +7,19 @@
 
 use fsym_core::{BigRational, Expr};
 use fsym_simplify::simplify;
+use serde::de::{Error as _, IgnoredAny, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt;
 use std::sync::Arc;
 use thiserror::Error;
+
+/// Maximum number of vertices admitted into a single polygon.
+///
+/// This is a trust-boundary limit, not a claim about the mathematical maximum polygon size.
+pub const MAX_POLYGON_VERTICES: usize = 8_192;
+
+/// Initial allocation allowed from an untrusted Serde sequence length hint.
+const INITIAL_POLYGON_VERTEX_RESERVE: usize = 16;
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum GeometryError {
@@ -24,6 +33,8 @@ pub enum GeometryError {
     SymbolicDegeneracyUndetermined,
     #[error("A polygon must have at least 3 vertices")]
     DegeneratePolygon,
+    #[error("Polygon has {actual} vertices, exceeding the maximum of {max}")]
+    PolygonVertexLimitExceeded { actual: usize, max: usize },
     #[error("Normal vector cannot be zero")]
     DegeneratePlane,
 }
@@ -404,10 +415,105 @@ pub struct Polygon2D {
     vertices: Vec<Point2D>,
 }
 
+struct BoundedPolygonVertices(Vec<Point2D>);
+
+struct BoundedPolygonVerticesVisitor;
+
+fn try_reserve_polygon_vertices<E>(vertices: &mut Vec<Point2D>, additional: usize) -> Result<(), E>
+where
+    E: serde::de::Error,
+{
+    vertices
+        .try_reserve_exact(additional)
+        .map_err(|_| E::custom("polygon vertex allocation refused"))
+}
+
+fn next_polygon_vertex_capacity(current: usize) -> Option<usize> {
+    if current >= MAX_POLYGON_VERTICES {
+        return None;
+    }
+    Some(
+        current
+            .checked_mul(2)
+            .unwrap_or(MAX_POLYGON_VERTICES)
+            .clamp(1, MAX_POLYGON_VERTICES),
+    )
+}
+
+impl<'de> Deserialize<'de> for BoundedPolygonVertices {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer
+            .deserialize_seq(BoundedPolygonVerticesVisitor)
+            .map(Self)
+    }
+}
+
+impl<'de> Visitor<'de> for BoundedPolygonVerticesVisitor {
+    type Value = Vec<Point2D>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "at most {MAX_POLYGON_VERTICES} polygon vertices")
+    }
+
+    fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        let hint = sequence.size_hint();
+        if let Some(hint) = hint
+            && hint > MAX_POLYGON_VERTICES
+        {
+            return Err(A::Error::invalid_length(hint, &self));
+        }
+
+        let mut vertices = Vec::new();
+        let initial_reserve = hint
+            .unwrap_or(0)
+            .min(INITIAL_POLYGON_VERTEX_RESERVE)
+            .min(MAX_POLYGON_VERTICES);
+        if initial_reserve != 0 {
+            try_reserve_polygon_vertices::<A::Error>(&mut vertices, initial_reserve)?;
+        }
+
+        while vertices.len() < MAX_POLYGON_VERTICES {
+            let Some(vertex) = sequence.next_element::<Point2D>()? else {
+                return Ok(vertices);
+            };
+            if vertices.len() == vertices.capacity() {
+                let target_capacity = next_polygon_vertex_capacity(vertices.capacity())
+                    .ok_or_else(|| {
+                        A::Error::custom("polygon vertex capacity invariant violated")
+                    })?;
+                let additional = target_capacity.checked_sub(vertices.len()).ok_or_else(|| {
+                    A::Error::custom("polygon vertex capacity accounting overflow")
+                })?;
+                if additional == 0 {
+                    return Err(A::Error::custom(
+                        "polygon vertex capacity invariant violated",
+                    ));
+                }
+                try_reserve_polygon_vertices::<A::Error>(&mut vertices, additional)?;
+            }
+            vertices.push(vertex);
+        }
+
+        if sequence.next_element::<IgnoredAny>()?.is_some() {
+            return Err(A::Error::invalid_length(
+                MAX_POLYGON_VERTICES.saturating_add(1),
+                &self,
+            ));
+        }
+        Ok(vertices)
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Polygon2DWire {
-    vertices: Vec<Point2D>,
+    vertices: BoundedPolygonVertices,
 }
 
 impl<'de> Deserialize<'de> for Polygon2D {
@@ -416,7 +522,7 @@ impl<'de> Deserialize<'de> for Polygon2D {
         D: Deserializer<'de>,
     {
         let wire = Polygon2DWire::deserialize(deserializer)?;
-        Self::new(wire.vertices).map_err(serde::de::Error::custom)
+        Self::new(wire.vertices.0).map_err(D::Error::custom)
     }
 }
 
@@ -424,6 +530,12 @@ impl Polygon2D {
     pub fn new(vertices: Vec<Point2D>) -> Result<Self, GeometryError> {
         if vertices.len() < 3 {
             return Err(GeometryError::DegeneratePolygon);
+        }
+        if vertices.len() > MAX_POLYGON_VERTICES {
+            return Err(GeometryError::PolygonVertexLimitExceeded {
+                actual: vertices.len(),
+                max: MAX_POLYGON_VERTICES,
+            });
         }
         Ok(Self { vertices })
     }
@@ -866,6 +978,49 @@ impl fmt::Display for Plane3D {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde::de::DeserializeSeed;
+    use serde::de::value::Error as ValueError;
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    struct HintPointSeq {
+        remaining: usize,
+        claimed: Option<usize>,
+        next_calls: Rc<Cell<usize>>,
+        vertex: serde_json::Value,
+    }
+
+    impl HintPointSeq {
+        fn new(remaining: usize, claimed: Option<usize>, next_calls: Rc<Cell<usize>>) -> Self {
+            Self {
+                remaining,
+                claimed,
+                next_calls,
+                vertex: serde_json::to_value(Point2D::new(Expr::from_i64(0), Expr::from_i64(0)))
+                    .expect("test point must serialize"),
+            }
+        }
+    }
+
+    impl<'de> SeqAccess<'de> for HintPointSeq {
+        type Error = serde_json::Error;
+
+        fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
+        where
+            T: DeserializeSeed<'de>,
+        {
+            if self.remaining == 0 {
+                return Ok(None);
+            }
+            self.remaining -= 1;
+            self.next_calls.set(self.next_calls.get() + 1);
+            seed.deserialize(self.vertex.clone()).map(Some)
+        }
+
+        fn size_hint(&self) -> Option<usize> {
+            self.claimed
+        }
+    }
 
     #[test]
     fn test_point_distance() {
@@ -1033,6 +1188,77 @@ mod tests {
             serde_json::to_value(Expr::from_i64(-5)).unwrap(),
         );
         assert!(serde_json::from_value::<Sphere>(sphere_wire).is_err());
+    }
+
+    #[test]
+    fn polygon_vertex_limit_distrusts_sequence_hints_and_stops_early() {
+        let point = Point2D::new(Expr::from_i64(0), Expr::from_i64(0));
+        assert_eq!(
+            Polygon2D::new(vec![point; MAX_POLYGON_VERTICES + 1]),
+            Err(GeometryError::PolygonVertexLimitExceeded {
+                actual: MAX_POLYGON_VERTICES + 1,
+                max: MAX_POLYGON_VERTICES,
+            })
+        );
+
+        for hostile_hint in [Some(MAX_POLYGON_VERTICES + 1), Some(usize::MAX)] {
+            let next_calls = Rc::new(Cell::new(0));
+            let error = BoundedPolygonVerticesVisitor
+                .visit_seq(HintPointSeq::new(
+                    MAX_POLYGON_VERTICES + 2,
+                    hostile_hint,
+                    Rc::clone(&next_calls),
+                ))
+                .expect_err("an over-limit hint must fail before reading elements");
+            assert!(error.to_string().contains("at most 8192"));
+            assert_eq!(next_calls.get(), 0);
+        }
+
+        for underreported_hint in [None, Some(1), Some(MAX_POLYGON_VERTICES)] {
+            let next_calls = Rc::new(Cell::new(0));
+            let error = BoundedPolygonVerticesVisitor
+                .visit_seq(HintPointSeq::new(
+                    MAX_POLYGON_VERTICES + 2,
+                    underreported_hint,
+                    Rc::clone(&next_calls),
+                ))
+                .expect_err("an underreported sequence must not bypass the vertex limit");
+            assert!(error.to_string().contains("at most 8192"));
+            assert_eq!(
+                next_calls.get(),
+                MAX_POLYGON_VERTICES + 1,
+                "the decoder must stop after observing one excess element"
+            );
+        }
+
+        let next_calls = Rc::new(Cell::new(0));
+        let vertices = BoundedPolygonVerticesVisitor
+            .visit_seq(HintPointSeq::new(
+                MAX_POLYGON_VERTICES,
+                None,
+                Rc::clone(&next_calls),
+            ))
+            .expect("the exact vertex limit is admitted by the streaming decoder");
+        assert_eq!(vertices.len(), MAX_POLYGON_VERTICES);
+        assert_eq!(next_calls.get(), MAX_POLYGON_VERTICES);
+    }
+
+    #[test]
+    fn polygon_vertex_capacity_growth_and_allocation_failure_are_bounded() {
+        assert_eq!(next_polygon_vertex_capacity(0), Some(1));
+        assert_eq!(next_polygon_vertex_capacity(1), Some(2));
+        assert_eq!(next_polygon_vertex_capacity(2), Some(4));
+        assert_eq!(
+            next_polygon_vertex_capacity(MAX_POLYGON_VERTICES - 1),
+            Some(MAX_POLYGON_VERTICES)
+        );
+        assert_eq!(next_polygon_vertex_capacity(MAX_POLYGON_VERTICES), None);
+
+        let mut vertices = Vec::<Point2D>::new();
+        let error = try_reserve_polygon_vertices::<ValueError>(&mut vertices, usize::MAX)
+            .expect_err("an impossible reservation must fail");
+        assert!(error.to_string().contains("allocation refused"));
+        assert!(vertices.is_empty());
     }
 
     #[test]
