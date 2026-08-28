@@ -271,7 +271,7 @@ pub fn is_perfect_number(n: u64) -> Result<bool, NTheoryError> {
         return Ok(false);
     }
     let sum = divisor_sum(n, 1)?;
-    Ok(sum == 2 * n)
+    Ok(n.checked_mul(2).is_some_and(|twice_n| sum == twice_n))
 }
 
 /// Extended Euclidean Algorithm returning (gcd, x, y) such that a*x + b*y = gcd(a, b).
@@ -564,6 +564,14 @@ mod tests {
         assert_eq!(is_perfect_number(496), Ok(true));
         assert_eq!(is_perfect_number(12), Ok(false));
         assert_eq!(is_perfect_number(0), Ok(false));
+
+        // The largest u64 prime has a representable divisor sum p + 1, but
+        // 2p does not fit u64. Perfect-number classification must remain a
+        // total typed operation rather than panicking in debug builds.
+        const LARGEST_U64_PRIME: u64 = 18_446_744_073_709_551_557;
+        assert!(is_prime(LARGEST_U64_PRIME));
+        assert_eq!(divisor_sum(LARGEST_U64_PRIME, 1), Ok(LARGEST_U64_PRIME + 1));
+        assert_eq!(is_perfect_number(LARGEST_U64_PRIME), Ok(false));
     }
 
     #[test]
