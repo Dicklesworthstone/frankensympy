@@ -226,6 +226,80 @@ class SurfaceTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             sympy.Function(1)
 
+    def test_class_hierarchy_and_mro(self):
+        self.assertTrue(issubclass(sympy.Symbol, sympy.AtomicExpr))
+        self.assertTrue(issubclass(sympy.Dummy, sympy.Symbol))
+        self.assertTrue(issubclass(sympy.AtomicExpr, sympy.Expr))
+        self.assertTrue(issubclass(sympy.AtomicExpr, sympy.Atom))
+        self.assertTrue(issubclass(sympy.Atom, sympy.Basic))
+        self.assertTrue(issubclass(sympy.Expr, sympy.Basic))
+        self.assertTrue(issubclass(sympy.Number, sympy.AtomicExpr))
+        self.assertTrue(issubclass(sympy.Rational, sympy.Number))
+        self.assertTrue(issubclass(sympy.Integer, sympy.Rational))
+        self.assertTrue(issubclass(sympy.Add, sympy.Expr))
+        self.assertTrue(issubclass(sympy.Mul, sympy.Expr))
+        self.assertTrue(issubclass(sympy.Pow, sympy.Expr))
+        self.assertTrue(issubclass(sympy.Derivative, sympy.Expr))
+        self.assertTrue(issubclass(sympy.AppliedUndef, sympy.Expr))
+
+    def test_symbols_utility_function(self):
+        x, y, z = sympy.symbols("x y z")
+        self.assertIsInstance(x, sympy.Symbol)
+        self.assertIsInstance(y, sympy.Symbol)
+        self.assertIsInstance(z, sympy.Symbol)
+        self.assertEqual(x.name, "x")
+        self.assertEqual(y.name, "y")
+        self.assertEqual(z.name, "z")
+
+        a, b = sympy.symbols("a, b")
+        self.assertEqual(a.name, "a")
+        self.assertEqual(b.name, "b")
+
+        single = sympy.symbols("single")
+        self.assertIsInstance(single, sympy.Symbol)
+        self.assertEqual(single.name, "single")
+
+        with self.assertRaises(ValueError):
+            sympy.symbols("")
+        with self.assertRaises(ValueError):
+            sympy.symbols("  ")
+
+    def test_basic_methods_has_and_subs(self):
+        x, y = sympy.symbols("x y")
+        expr = x + 2 * y + 1
+
+        self.assertTrue(expr.has(x))
+        self.assertTrue(expr.has(y))
+        self.assertFalse(expr.has(sympy.Symbol("z")))
+
+        substituted = expr.subs(x, 2)
+        expected = sympy.Integer(2) + 2 * y + 1
+        self.assertEqual(substituted, expected)
+
+    def test_latex_and_evalf_representations(self):
+        x = sympy.Symbol("x")
+        expr = x / 2
+        latex_repr = expr._repr_latex_()
+        self.assertIsInstance(latex_repr, str)
+        self.assertTrue(len(latex_repr) > 0)
+
+        two = sympy.Integer(2)
+        self.assertAlmostEqual(two.evalf(), 2.0)
+        self.assertAlmostEqual(sympy.pi.evalf(), 3.1415926535, places=4)
+
+    def test_calculus_and_solvers_facades(self):
+        x = sympy.Symbol("x")
+        self.assertEqual(sympy.diff(x**3, x), 3 * x**2)
+        self.assertEqual(sympy.diff(x**3, x, x), 6 * x)
+        self.assertEqual(sympy.integrate(x**2, x), sympy.Rational(1, 3) * x**3)
+        self.assertEqual(sympy.integrate(x, (x, 0, 2)), sympy.Integer(2))
+        self.assertEqual(sympy.integrate(x, x, 0, 2), sympy.Integer(2))
+        with self.assertRaises(ValueError):
+            sympy.integrate(x, (x, 0))
+        with self.assertRaises(TypeError):
+            sympy.integrate(x, x, 0)
+
 
 if __name__ == "__main__":
     unittest.main()
+

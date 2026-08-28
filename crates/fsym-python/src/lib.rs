@@ -4,10 +4,10 @@
 //! module. Strings cross the boundary; everything inside is exact.
 
 use fsym_calculus::{diff, integrate, limit, taylor};
-use fsym_core::{parse, Expr, Symbol};
+use fsym_core::{Expr, Symbol, parse};
 use fsym_ntheory::{factorint, totient};
 use fsym_runtime::{Budget, BudgetLimits, FsymCx, RuntimeBudget};
-use fsym_simplify::{expand_with, simplify_with, SimplifyError};
+use fsym_simplify::{SimplifyError, expand_with, simplify_with};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
@@ -347,9 +347,11 @@ mod tests {
                 .call_method1("__lshift__", (MAX_PYTHON_INTEGER_BITS + 1,))
                 .unwrap();
             let error = py_integer_from_python(&oversized).unwrap_err();
-            assert!(error
-                .to_string()
-                .contains("exceeds the Python integer bridge limit"));
+            assert!(
+                error
+                    .to_string()
+                    .contains("exceeds the Python integer bridge limit")
+            );
 
             for expected in [
                 -(1_i128 << 100),

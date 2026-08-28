@@ -3,7 +3,7 @@
 #![forbid(unsafe_code)]
 
 use fsym_calculus::diff;
-use fsym_core::{parse, BigInt, BigRational, Expr, Symbol};
+use fsym_core::{BigInt, BigRational, Expr, Symbol, parse};
 use fsym_printing::latex;
 use fsym_runtime::{Budget, BudgetLimits, FsymCx, RuntimeBudget};
 use fsym_simplify::{expand_with, simplify_with};

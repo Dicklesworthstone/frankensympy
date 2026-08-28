@@ -6,6 +6,7 @@ operations fail explicitly; upstream SymPy is never used as a fallback.
 
 from .core import (
     Add,
+    AppliedUndef,
     Atom,
     AtomicExpr,
     Basic,
@@ -19,6 +20,7 @@ from .core import (
     Pow,
     Rational,
     Symbol,
+    UndefinedFunction,
     _native,
     _native_expr,
     _native_symbol_key,
@@ -157,6 +159,8 @@ __all__ = [
     "Symbol",
     "Dummy",
     "Function",
+    "UndefinedFunction",
+    "AppliedUndef",
     "Number",
     "Integer",
     "Rational",
