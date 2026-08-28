@@ -9,6 +9,10 @@ use std::mem::size_of;
 const COEFFICIENT_BITS: u32 = 16;
 const COEFFICIENT_MASK: u32 = 0xffff;
 
+// Keep zero-initialization cancellation latency bounded to at most 64 KiB of writes between
+// safe points. The total initialization work is still charged before allocation begins.
+const ZERO_INITIALIZATION_CHUNK_ELEMENTS: usize = 8 * 1024;
+
 // Both primes have primitive root 3. Their common power-of-two transform domain is 2^21.
 const PRIME_1: u64 = 998_244_353; // 119 * 2^23 + 1
 const PRIME_2: u64 = 1_004_535_809; // 479 * 2^21 + 1
@@ -119,11 +123,16 @@ fn try_zeroed_u64_vec<M: BudgetMeter>(
     meter: &mut M,
 ) -> Result<Vec<u64>, MeteredMultiplyError> {
     charge_allocation(capacity, size_of::<u64>(), capacity, meter)?;
+    meter.checkpoint()?;
     let mut values = Vec::new();
     values
         .try_reserve_exact(capacity)
         .map_err(|_| MeteredMultiplyError::AllocationFailure)?;
-    values.resize(capacity, 0);
+    while values.len() < capacity {
+        meter.checkpoint()?;
+        let initialized = (capacity - values.len()).min(ZERO_INITIALIZATION_CHUNK_ELEMENTS);
+        values.resize(values.len() + initialized, 0);
+    }
     Ok(values)
 }
 
@@ -499,7 +508,32 @@ fn multiply_u32_digits_inner<M: BudgetMeter>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fsym_budget::Unbounded;
+    use fsym_budget::{MeterError, Unbounded};
+
+    #[derive(Debug)]
+    struct CancelAtCheckpoint {
+        cancel_at: usize,
+        checkpoints: usize,
+    }
+
+    impl BudgetMeter for CancelAtCheckpoint {
+        fn charge(&mut self, _dimension: Dimension, _amount: u64) -> Result<(), MeterError> {
+            Ok(())
+        }
+
+        fn charge_batch(&mut self, _charges: &[(Dimension, u64)]) -> Result<(), MeterError> {
+            Ok(())
+        }
+
+        fn checkpoint(&mut self) -> Result<(), MeterError> {
+            self.checkpoints += 1;
+            if self.checkpoints >= self.cancel_at {
+                Err(MeterError::Cancelled)
+            } else {
+                Ok(())
+            }
+        }
+    }
 
     fn power(base: u64, exponent: u64, modulus: u64) -> u64 {
         mod_pow(base, exponent, modulus, &mut Unbounded).unwrap()
@@ -538,6 +572,32 @@ mod tests {
             assert_eq!(power(root, transform_len, prime), 1);
             assert_ne!(power(root, transform_len / 2, prime), 1);
         }
+    }
+
+    #[test]
+    fn zeroed_transform_buffer_observes_cancellation_after_allocation_charge() {
+        let mut meter = CancelAtCheckpoint {
+            cancel_at: 2,
+            checkpoints: 0,
+        };
+        assert_eq!(
+            try_zeroed_u64_vec(1, &mut meter),
+            Err(MeteredMultiplyError::Meter(MeterError::Cancelled))
+        );
+        assert_eq!(meter.checkpoints, 2);
+    }
+
+    #[test]
+    fn zeroed_transform_buffer_checks_between_initialization_chunks() {
+        let mut meter = CancelAtCheckpoint {
+            cancel_at: 4,
+            checkpoints: 0,
+        };
+        assert_eq!(
+            try_zeroed_u64_vec(ZERO_INITIALIZATION_CHUNK_ELEMENTS + 1, &mut meter),
+            Err(MeteredMultiplyError::Meter(MeterError::Cancelled))
+        );
+        assert_eq!(meter.checkpoints, 4);
     }
 
     #[test]
