@@ -20,7 +20,7 @@ pub mod workspace;
 
 pub use benchmarks::*;
 pub use checkpoint::*;
-pub use cx::FsymCx;
+pub use cx::{FsymCpuCx, FsymCx};
 pub use graph_index::*;
 pub use ledger::*;
 pub use portfolio::*;

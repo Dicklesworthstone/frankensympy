@@ -10,6 +10,7 @@
 //! [`Cx::detached_cancel_context`]).
 
 use asupersync::Cx;
+use asupersync::cx::CpuCx;
 use fsym_budget::{BudgetError, BudgetLimits, BudgetMeter, MeterError, VerifierLease};
 
 use crate::{Budget, ChargeReceipt, Dimension};
@@ -149,6 +150,77 @@ impl<Caps> BudgetMeter for FsymCx<'_, Caps> {
         } else {
             Ok(())
         }
+    }
+}
+
+/// Cancellation-aware generator context for one borrowed scoped CPU worker.
+///
+/// Unlike [`FsymCx`], this restricted context has no verifier capability and
+/// no escape hatch to spawn further work. Its checkpoints delegate to the
+/// [`CpuCx`] created by the owning `scoped_cpu` region, so owner cancellation,
+/// scope draining, and runtime task-budget exhaustion remain visible to generators.
+pub struct FsymCpuCx<'a, Caps> {
+    cx: &'a CpuCx<Caps>,
+    budget: &'a mut Budget,
+    limits: BudgetLimits,
+}
+
+impl<'a, Caps> FsymCpuCx<'a, Caps> {
+    pub(crate) fn new(cx: &'a CpuCx<Caps>, budget: &'a mut Budget, limits: BudgetLimits) -> Self {
+        Self { cx, budget, limits }
+    }
+
+    /// True once the owning task or scoped CPU region requests cancellation.
+    pub fn check_cancelled(&self) -> bool {
+        self.cx.is_cancel_requested()
+    }
+
+    /// Checks owner cancellation, scope draining, and the asupersync task budget.
+    pub fn checkpoint(&self) -> Result<(), Cancelled> {
+        self.cx.checkpoint().map_err(|_| Cancelled)
+    }
+
+    /// Charges a generator-accessible dimension.
+    pub fn charge(
+        &mut self,
+        dimension: Dimension,
+        amount: u64,
+    ) -> Result<ChargeReceipt, BudgetError> {
+        self.budget.try_charge(dimension, amount)
+    }
+
+    /// Atomically charges a coupled multi-dimension work unit.
+    pub fn charge_batch(&mut self, charges: &[(Dimension, u64)]) -> Result<(), BudgetError> {
+        self.budget.try_charge_batch(charges)
+    }
+
+    /// Remaining generator allowance along one dimension.
+    pub fn remaining(&self, dimension: Dimension) -> u64 {
+        self.budget.remaining(dimension)
+    }
+
+    /// Limits reserved for this worker.
+    pub fn limits(&self) -> BudgetLimits {
+        self.limits
+    }
+}
+
+impl<Caps> BudgetMeter for FsymCpuCx<'_, Caps> {
+    fn charge(&mut self, dimension: Dimension, amount: u64) -> Result<(), MeterError> {
+        self.budget
+            .try_charge(dimension, amount)
+            .map(|_| ())
+            .map_err(MeterError::Budget)
+    }
+
+    fn charge_batch(&mut self, charges: &[(Dimension, u64)]) -> Result<(), MeterError> {
+        self.budget
+            .try_charge_batch(charges)
+            .map_err(MeterError::Budget)
+    }
+
+    fn checkpoint(&mut self) -> Result<(), MeterError> {
+        self.cx.checkpoint().map_err(|_| MeterError::Cancelled)
     }
 }
 

@@ -8,7 +8,8 @@
 
 #![forbid(unsafe_code)]
 
-use crate::cx::FsymCx;
+use crate::cx::{FsymCpuCx, FsymCx};
+use asupersync::cx::ScopedCpuError;
 use fsym_assumptions::ImmutableAssumptionsSnapshot;
 use fsym_budget::{BudgetLimits, Dimension};
 use fsym_evidence::EvidenceEnvelope;
@@ -16,8 +17,7 @@ use fsym_proof_kernel::{
     Claim, DerivationTree, claim_verification_units, derivation_verification_units,
     expression_verification_units, verify_derivation_independent,
 };
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use thiserror::Error;
 
 const MAX_CANDIDATE_STRATEGY_NAME_BYTES: usize = 256;
@@ -39,6 +39,8 @@ pub enum PortfolioError {
     BudgetAccountingFailed(String),
     #[error("Invalid portfolio configuration: {0}")]
     InvalidPortfolio(String),
+    #[error("Structured portfolio execution failed: {0}")]
+    StructuredExecutionFailed(String),
 }
 
 /// A candidate produced by an algorithm generator in the portfolio.
@@ -91,15 +93,13 @@ pub type StrategyRunner<Caps> =
 /// A named strategy runner pair.
 pub type NamedStrategy<Caps> = (&'static str, StrategyRunner<Caps>);
 
-/// Named concurrent strategy runner pair for parallel racing.
-pub type ConcurrentStrategyRunner = Box<
-    dyn Fn(&mut FsymCx<'_, asupersync::cx::cap::None>) -> Result<PortfolioCandidate, PortfolioError>
-        + Send
-        + Sync,
+/// Candidate generator accepted by the scoped parallel lane.
+pub type ConcurrentStrategyRunner<Caps> = Box<
+    dyn Fn(&mut FsymCpuCx<'_, Caps>) -> Result<PortfolioCandidate, PortfolioError> + Send + Sync,
 >;
 
-/// A named concurrent strategy runner pair.
-pub type NamedConcurrentStrategy = (&'static str, ConcurrentStrategyRunner);
+/// A registered strategy name and its scoped parallel candidate generator.
+pub type NamedConcurrentStrategy<Caps> = (&'static str, ConcurrentStrategyRunner<Caps>);
 
 /// Performs the shared protected verification, claim binding, receipt issuance, and envelope construction
 /// on a generated candidate.
@@ -110,13 +110,13 @@ fn verify_and_publish_candidate<Caps>(
     name: &str,
     winner: PortfolioCandidate,
     initial_compute_remaining: u64,
-) -> Result<VerifiedPortfolioOutcome, String> {
+) -> Result<VerifiedPortfolioOutcome, PortfolioError> {
     if winner.strategy_name.is_empty()
         || winner.strategy_name.len() > MAX_CANDIDATE_STRATEGY_NAME_BYTES
     {
-        return Err(format!(
+        return Err(PortfolioError::WinnerVerificationFailed(format!(
             "{name}: candidate strategy name must contain 1..={MAX_CANDIDATE_STRATEGY_NAME_BYTES} bytes"
-        ));
+        )));
     }
     let verifier_units = match (
         claim_verification_units(&winner.claim),
@@ -128,60 +128,61 @@ fn verify_and_publish_candidate<Caps>(
             .and_then(|units| units.checked_add(derivation_units))
             .unwrap_or(u64::MAX),
         (Err(error), _, _) => {
-            return Err(format!(
+            return Err(PortfolioError::WinnerVerificationFailed(format!(
                 "{name}: verifier preflight rejected candidate from `{}`: {error}",
                 winner.strategy_name
-            ));
+            )));
         }
         (_, Err(error), _) | (_, _, Err(error)) => {
-            return Err(format!(
+            return Err(PortfolioError::WinnerVerificationFailed(format!(
                 "{name}: verifier preflight rejected candidate from `{}`: {error}",
                 winner.strategy_name
-            ));
+            )));
         }
     };
-    let mut verifier_charge = cx
-        .charge_verifier(1)
-        .map_err(|e| format!("{name}: verifier charge exhausted: {e}"))?;
+    let mut verifier_charge = cx.charge_verifier(1).map_err(|error| {
+        PortfolioError::BudgetExhausted(format!("{name}: verifier charge exhausted: {error}"))
+    })?;
     if verifier_units > 1 {
-        verifier_charge = cx
-            .charge_verifier(verifier_units - 1)
-            .map_err(|e| format!("{name}: verifier charge exhausted: {e}"))?;
+        verifier_charge = cx.charge_verifier(verifier_units - 1).map_err(|error| {
+            PortfolioError::BudgetExhausted(format!("{name}: verifier charge exhausted: {error}"))
+        })?;
     }
-    cx.checkpoint()
-        .map_err(|_| format!("{name}: cancelled during verifier charging"))?;
+    cx.checkpoint().map_err(|_| PortfolioError::Cancelled)?;
 
     let verified_claim = match verify_derivation_independent(&winner.derivation, context) {
         Ok(claim) => claim,
         Err(error) => {
-            return Err(format!(
+            return Err(PortfolioError::WinnerVerificationFailed(format!(
                 "{name}: verifier rejected candidate from `{}`: {error}",
                 winner.strategy_name
-            ));
+            )));
         }
     };
     if verified_claim != winner.claim {
-        return Err(format!(
+        return Err(PortfolioError::WinnerVerificationFailed(format!(
             "{name}: verifier established `{verified_claim}`, but `{}` requested publication of `{}`",
             winner.strategy_name, winner.claim
-        ));
+        )));
     }
     if &verified_claim != requested_claim {
-        return Err(format!(
+        return Err(PortfolioError::WinnerVerificationFailed(format!(
             "{name}: verified claim `{verified_claim}` does not answer requested claim `{requested_claim}`"
-        ));
+        )));
     }
     if portfolio_claimed_result(&verified_claim) != &winner.result {
-        return Err(format!(
+        return Err(PortfolioError::WinnerVerificationFailed(format!(
             "{name}: verified claim `{verified_claim}` does not bind the result returned by `{}`",
             winner.strategy_name
-        ));
+        )));
     }
-    cx.checkpoint()
-        .map_err(|_| format!("{name}: cancelled after claim verification"))?;
+    cx.checkpoint().map_err(|_| PortfolioError::Cancelled)?;
 
-    let receipt_id = fsym_id::ReceiptId::new(verifier_charge.seq())
-        .map_err(|error| format!("{name}: invalid verifier receipt sequence: {error}"))?;
+    let receipt_id = fsym_id::ReceiptId::new(verifier_charge.seq()).map_err(|error| {
+        PortfolioError::StructuredExecutionFailed(format!(
+            "{name}: invalid verifier receipt sequence: {error}"
+        ))
+    })?;
     let receipt = fsym_evidence::VerificationReceipt::issue(
         receipt_id,
         &winner.claim,
@@ -198,18 +199,18 @@ fn verify_and_publish_candidate<Caps>(
         Some(winner.derivation),
     );
     if !evidence.verify_integrity() {
-        return Err(format!(
+        return Err(PortfolioError::StructuredExecutionFailed(format!(
             "{name}: verified candidate produced an invalid structural evidence envelope"
-        ));
+        )));
     }
 
     let compute_remaining = cx.remaining(Dimension::ComputeSteps);
     let total_steps_consumed = initial_compute_remaining
         .checked_sub(compute_remaining)
         .ok_or_else(|| {
-            format!(
+            PortfolioError::BudgetAccountingFailed(format!(
                 "{name}: compute allowance increased from {initial_compute_remaining} to {compute_remaining}"
-            )
+            ))
         })?;
     Ok(VerifiedPortfolioOutcome {
         winning_strategy: winner.strategy_name,
@@ -275,7 +276,13 @@ pub fn run_portfolio_race<Caps>(
         let mut child_cx = cx
             .reserve_child(child_limits)
             .map_err(|error| PortfolioError::BudgetAccountingFailed(error.to_string()))?;
-        let generated = strategy(&mut child_cx);
+        let generated =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| strategy(&mut child_cx)))
+                .unwrap_or_else(|_| {
+                    Err(PortfolioError::StructuredExecutionFailed(format!(
+                        "{name}: candidate generator panicked"
+                    )))
+                });
         cx.merge_child(child_cx)
             .map_err(|error| PortfolioError::BudgetAccountingFailed(error.to_string()))?;
         cx.checkpoint().map_err(|_| PortfolioError::Cancelled)?;
@@ -298,9 +305,10 @@ pub fn run_portfolio_race<Caps>(
             initial_compute_remaining,
         ) {
             Ok(outcome) => return Ok(outcome),
-            Err(err_msg) => {
-                failure_reasons.push(err_msg);
+            Err(PortfolioError::WinnerVerificationFailed(message)) => {
+                failure_reasons.push(message);
             }
+            Err(error) => return Err(error),
         }
     }
 
@@ -312,20 +320,20 @@ pub fn run_portfolio_race<Caps>(
     }
 }
 
-/// Executes a concurrent portfolio race between two or more candidate generation strategies
-/// using asupersync scoped CPU execution, with zero-orphan drain semantics and mandatory protected
-/// verification of the winning candidate before publication.
+/// Generates candidates from two or more strategies in an asupersync scoped CPU region, drains
+/// every worker, then verifies candidates in deterministic registration order. Generator success
+/// never cancels a sibling or selects a winner: only protected verification can do that.
 pub fn run_portfolio_concurrent_race<Caps: Send + Sync + 'static>(
     cx: &mut FsymCx<'_, Caps>,
     context: &Arc<ImmutableAssumptionsSnapshot>,
     requested_claim: &Claim,
-    strategies: Vec<NamedConcurrentStrategy>,
+    strategies: Vec<NamedConcurrentStrategy<Caps>>,
 ) -> Result<VerifiedPortfolioOutcome, PortfolioError> {
     cx.checkpoint().map_err(|_| PortfolioError::Cancelled)?;
 
-    if strategies.is_empty() || strategies.len() > MAX_PORTFOLIO_STRATEGIES {
+    if strategies.len() < 2 || strategies.len() > MAX_PORTFOLIO_STRATEGIES {
         return Err(PortfolioError::InvalidPortfolio(format!(
-            "strategy count must be in 1..={MAX_PORTFOLIO_STRATEGIES}"
+            "concurrent strategy count must be in 2..={MAX_PORTFOLIO_STRATEGIES}"
         )));
     }
     if strategies
@@ -371,73 +379,97 @@ pub fn run_portfolio_concurrent_race<Caps: Send + Sync + 'static>(
         let child = cx
             .reserve_child(child_limits)
             .map_err(|error| PortfolioError::BudgetAccountingFailed(error.to_string()))?;
-        child_budgets.push(child.into_budget());
+        child_budgets.push(Arc::new(Mutex::new(child.into_budget())));
     }
 
     struct WorkerOutcome {
         idx: usize,
         name: &'static str,
         result: Result<PortfolioCandidate, PortfolioError>,
-        budget: fsym_budget::Budget,
     }
 
-    let shared_outcomes: Arc<std::sync::Mutex<Vec<WorkerOutcome>>> =
-        Arc::new(std::sync::Mutex::new(Vec::with_capacity(num_strategies)));
-    let winner_found = Arc::new(AtomicBool::new(false));
-
-    let detached_cancel_cx = asupersync::Cx::detached_cancel_context();
+    let shared_outcomes: Arc<Mutex<Vec<WorkerOutcome>>> =
+        Arc::new(Mutex::new(Vec::with_capacity(num_strategies)));
 
     let scoped_result = cx.asupersync().scoped_cpu(num_strategies, |scope| {
-        for (i, ((name, strategy), budget)) in strategies.into_iter().zip(child_budgets).enumerate()
-        {
+        for (i, (name, strategy)) in strategies.into_iter().enumerate() {
             let outcomes_ref = Arc::clone(&shared_outcomes);
-            let winner_found_ref = Arc::clone(&winner_found);
-            let detached_ref = &detached_cancel_cx;
+            let budget_ref = Arc::clone(&child_budgets[i]);
 
-            let _ = scope.spawn(move |cpu_child| {
-                let mut worker_cx = FsymCx::new(detached_ref, budget, child_limits);
-                if winner_found_ref.load(Ordering::Acquire) || cpu_child.checkpoint().is_err() {
-                    let mut lock = outcomes_ref.lock().unwrap();
-                    lock.push(WorkerOutcome {
-                        idx: i,
-                        name,
-                        result: Err(PortfolioError::Cancelled),
-                        budget: worker_cx.into_budget(),
-                    });
-                    return;
-                }
-
-                let gen_result = strategy(&mut worker_cx);
-                if gen_result.is_ok() {
-                    winner_found_ref.store(true, Ordering::Release);
-                }
-                let mut lock = outcomes_ref.lock().unwrap();
-                lock.push(WorkerOutcome {
+            if let Err(error) = scope.spawn(move |cpu_child| {
+                let gen_result = {
+                    let mut budget = budget_ref
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    let mut worker_cx = FsymCpuCx::new(cpu_child, &mut budget, child_limits);
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        strategy(&mut worker_cx)
+                    }))
+                    .unwrap_or_else(|_| {
+                        Err(PortfolioError::StructuredExecutionFailed(format!(
+                            "{name}: candidate generator panicked"
+                        )))
+                    })
+                };
+                let mut outcomes = outcomes_ref
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                outcomes.push(WorkerOutcome {
                     idx: i,
                     name,
                     result: gen_result,
-                    budget: worker_cx.into_budget(),
                 });
-            });
+            }) {
+                let mut outcomes = shared_outcomes
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                outcomes.push(WorkerOutcome {
+                    idx: i,
+                    name,
+                    result: Err(PortfolioError::StructuredExecutionFailed(format!(
+                        "{name}: scoped CPU spawn refused: {error}"
+                    ))),
+                });
+            }
         }
     });
 
-    let mut outcomes = std::mem::take(&mut *shared_outcomes.lock().unwrap());
+    let mut outcomes = std::mem::take(
+        &mut *shared_outcomes
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+    );
 
     // Sort outcomes by original strategy registration index to maintain deterministic winner priority
     outcomes.sort_by_key(|o| o.idx);
 
-    // Merge child budgets back so work is charged
-    for outcome in &mut outcomes {
-        // Replace with dummy empty budget while transferring ownership to parent
-        let dummy = fsym_budget::Budget::new(BudgetLimits::uniform(0, 0));
-        let outcome_budget = std::mem::replace(&mut outcome.budget, dummy);
-        cx.merge_child_budget(outcome_budget)
+    // The budget stays in this owned cell even if a generator panics, so every
+    // reservation can be reconciled after the scoped region has drained.
+    for budget in child_budgets {
+        let budget = Arc::try_unwrap(budget)
+            .map_err(|_| {
+                PortfolioError::BudgetAccountingFailed(
+                    "scoped CPU worker retained its child budget after drain".into(),
+                )
+            })?
+            .into_inner()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        cx.merge_child_budget(budget)
             .map_err(|error| PortfolioError::BudgetAccountingFailed(error.to_string()))?;
     }
 
-    if let Err(_e) = scoped_result {
-        return Err(PortfolioError::Cancelled);
+    match scoped_result {
+        Ok(()) => {}
+        Err(ScopedCpuError::Cancelled(_)) => return Err(PortfolioError::Cancelled),
+        Err(error) => {
+            return Err(PortfolioError::StructuredExecutionFailed(error.to_string()));
+        }
+    }
+    if outcomes.len() != num_strategies {
+        return Err(PortfolioError::StructuredExecutionFailed(format!(
+            "scoped CPU region produced {} outcomes for {num_strategies} strategies",
+            outcomes.len()
+        )));
     }
 
     cx.checkpoint().map_err(|_| PortfolioError::Cancelled)?;
@@ -463,9 +495,10 @@ pub fn run_portfolio_concurrent_race<Caps: Send + Sync + 'static>(
             initial_compute_remaining,
         ) {
             Ok(verified_outcome) => return Ok(verified_outcome),
-            Err(err_msg) => {
-                failure_reasons.push(err_msg);
+            Err(PortfolioError::WinnerVerificationFailed(message)) => {
+                failure_reasons.push(message);
             }
+            Err(error) => return Err(error),
         }
     }
 
@@ -637,6 +670,50 @@ mod tests {
     }
 
     #[test]
+    fn sequential_generator_panic_is_contained_and_budget_is_reconciled() {
+        let cx_raw = Cx::detached_cancel_context();
+        let limits = BudgetLimits::uniform(100, 10);
+        let mut fsym_cx = FsymCx::new(&cx_raw, Budget::new(limits), limits);
+        let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
+        let x = Expr::symbol("x");
+        let requested = Claim::equality(x.clone(), x.clone());
+
+        let panicking = Box::new(
+            |cx: &mut FsymCx<'_, asupersync::cx::cap::None>| -> Result<_, PortfolioError> {
+                cx.charge(Dimension::ComputeSteps, 7).unwrap();
+                panic!("planned sequential candidate-generator panic");
+            },
+        );
+
+        let accepted_x = x.clone();
+        let accepted = Box::new(move |cx: &mut FsymCx<'_, asupersync::cx::cap::None>| {
+            cx.charge(Dimension::ComputeSteps, 2).unwrap();
+            let mut kernel = ProofKernel::new((*ImmutableAssumptionsSnapshot::empty()).clone());
+            let root = kernel
+                .prove_reflexivity(accepted_x.clone(), &mut Unbounded)
+                .unwrap();
+            Ok(PortfolioCandidate {
+                strategy_name: "sequential-panic-fallback".into(),
+                result: accepted_x.clone(),
+                claim: Claim::equality(accepted_x.clone(), accepted_x.clone()),
+                derivation: kernel.export_derivation(root).unwrap(),
+            })
+        });
+
+        let outcome = run_portfolio_race(
+            &mut fsym_cx,
+            &context,
+            &requested,
+            vec![("panicking", panicking), ("fallback", accepted)],
+        )
+        .expect("a contained generator panic must not suppress a verified fallback");
+
+        assert_eq!(outcome.winning_strategy(), "sequential-panic-fallback");
+        assert_eq!(outcome.generator_steps_consumed(), 9);
+        assert_eq!(fsym_cx.remaining(Dimension::ComputeSteps), 91);
+    }
+
+    #[test]
     fn fallback_never_resets_parent_budget() {
         let cx_raw = Cx::detached_cancel_context();
         let limits = BudgetLimits::uniform(100, 10);
@@ -781,6 +858,39 @@ mod tests {
     }
 
     #[test]
+    fn verifier_pool_exhaustion_is_not_misreported_as_candidate_rejection() {
+        let cx_raw = Cx::detached_cancel_context();
+        let limits = BudgetLimits::uniform(100, 3);
+        let mut fsym_cx = FsymCx::new(&cx_raw, Budget::new(limits), limits);
+        let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
+        let x = Expr::symbol("x");
+        let requested = Claim::equality(x.clone(), x.clone());
+        let candidate_x = x.clone();
+        let strategy = Box::new(move |_cx: &mut FsymCx<'_, _>| {
+            let mut kernel = ProofKernel::new((*ImmutableAssumptionsSnapshot::empty()).clone());
+            let root = kernel
+                .prove_reflexivity(candidate_x.clone(), &mut Unbounded)
+                .unwrap();
+            Ok(PortfolioCandidate {
+                strategy_name: "verifier-budget-probe".into(),
+                result: candidate_x.clone(),
+                claim: Claim::equality(candidate_x.clone(), candidate_x.clone()),
+                derivation: kernel.export_derivation(root).unwrap(),
+            })
+        });
+
+        let result = run_portfolio_race(
+            &mut fsym_cx,
+            &context,
+            &requested,
+            vec![("verifier-budget-probe", strategy)],
+        );
+
+        assert!(matches!(result, Err(PortfolioError::BudgetExhausted(_))));
+        assert_eq!(fsym_cx.verifier_remaining(), 1);
+    }
+
+    #[test]
     fn empty_portfolio_is_a_typed_configuration_refusal() {
         let cx_raw = Cx::detached_cancel_context();
         let limits = BudgetLimits::uniform(100, 10);
@@ -811,7 +921,7 @@ mod tests {
         let requested = Claim::equality(x.clone(), x.clone());
 
         let slow_x = x.clone();
-        let slow_strategy = Box::new(move |cx: &mut FsymCx<'_, asupersync::cx::cap::None>| {
+        let slow_strategy = Box::new(move |cx: &mut FsymCpuCx<'_, asupersync::cx::cap::None>| {
             cx.charge(Dimension::ComputeSteps, 5).unwrap();
             std::thread::sleep(std::time::Duration::from_millis(50));
             let mut kernel = ProofKernel::new((*ImmutableAssumptionsSnapshot::empty()).clone());
@@ -827,7 +937,7 @@ mod tests {
         });
 
         let fast_x = x.clone();
-        let fast_strategy = Box::new(move |cx: &mut FsymCx<'_, asupersync::cx::cap::None>| {
+        let fast_strategy = Box::new(move |cx: &mut FsymCpuCx<'_, asupersync::cx::cap::None>| {
             cx.charge(Dimension::ComputeSteps, 2).unwrap();
             let mut kernel = ProofKernel::new((*ImmutableAssumptionsSnapshot::empty()).clone());
             let root = kernel
@@ -849,11 +959,195 @@ mod tests {
         )
         .expect("concurrent race should produce a verified winner");
 
-        assert!(outcome.winning_strategy() == "fast" || outcome.winning_strategy() == "slow");
+        assert_eq!(outcome.winning_strategy(), "slow");
         assert_eq!(outcome.result(), &x);
         assert_eq!(outcome.evidence().claim, requested);
         assert!(outcome.evidence().verify_integrity());
         assert!(fsym_cx.verifier_remaining() < 10);
+    }
+
+    #[test]
+    fn concurrent_race_verifies_before_selecting_a_fallback() {
+        let cx_raw = Cx::detached_cancel_context();
+        let limits = BudgetLimits::uniform(200, 20);
+        let mut fsym_cx = FsymCx::new(&cx_raw, Budget::new(limits), limits);
+        let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
+        let x = Expr::symbol("x");
+        let requested = Claim::equality(x.clone(), x.clone());
+
+        let rejected_x = x.clone();
+        let rejected = Box::new(move |_cx: &mut FsymCpuCx<'_, asupersync::cx::cap::None>| {
+            let mut kernel = ProofKernel::new((*ImmutableAssumptionsSnapshot::empty()).clone());
+            let root = kernel
+                .prove_reflexivity(rejected_x.clone(), &mut Unbounded)
+                .unwrap();
+            Ok(PortfolioCandidate {
+                strategy_name: "unverified-first".into(),
+                result: Expr::from_i64(999),
+                claim: Claim::equality(rejected_x.clone(), rejected_x.clone()),
+                derivation: kernel.export_derivation(root).unwrap(),
+            })
+        });
+
+        let accepted_x = x.clone();
+        let accepted = Box::new(move |_cx: &mut FsymCpuCx<'_, asupersync::cx::cap::None>| {
+            let mut kernel = ProofKernel::new((*ImmutableAssumptionsSnapshot::empty()).clone());
+            let root = kernel
+                .prove_reflexivity(accepted_x.clone(), &mut Unbounded)
+                .unwrap();
+            Ok(PortfolioCandidate {
+                strategy_name: "verified-fallback".into(),
+                result: accepted_x.clone(),
+                claim: Claim::equality(accepted_x.clone(), accepted_x.clone()),
+                derivation: kernel.export_derivation(root).unwrap(),
+            })
+        });
+
+        let outcome = run_portfolio_concurrent_race(
+            &mut fsym_cx,
+            &context,
+            &requested,
+            vec![
+                ("unverified-first", rejected),
+                ("verified-fallback", accepted),
+            ],
+        )
+        .expect("an unverified generator success must not suppress a valid fallback");
+
+        assert_eq!(outcome.winning_strategy(), "verified-fallback");
+        assert_eq!(outcome.result(), &x);
+    }
+
+    #[test]
+    fn concurrent_generator_panic_is_contained_and_budget_is_reconciled() {
+        let cx_raw = Cx::detached_cancel_context();
+        let limits = BudgetLimits::uniform(200, 20);
+        let mut fsym_cx = FsymCx::new(&cx_raw, Budget::new(limits), limits);
+        let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
+        let x = Expr::symbol("x");
+        let requested = Claim::equality(x.clone(), x.clone());
+
+        let panicking = Box::new(
+            |cx: &mut FsymCpuCx<'_, asupersync::cx::cap::None>| -> Result<_, PortfolioError> {
+                cx.charge(Dimension::ComputeSteps, 7).unwrap();
+                panic!("planned candidate-generator panic");
+            },
+        );
+
+        let accepted_x = x.clone();
+        let accepted = Box::new(move |cx: &mut FsymCpuCx<'_, asupersync::cx::cap::None>| {
+            cx.charge(Dimension::ComputeSteps, 2).unwrap();
+            let mut kernel = ProofKernel::new((*ImmutableAssumptionsSnapshot::empty()).clone());
+            let root = kernel
+                .prove_reflexivity(accepted_x.clone(), &mut Unbounded)
+                .unwrap();
+            Ok(PortfolioCandidate {
+                strategy_name: "panic-fallback".into(),
+                result: accepted_x.clone(),
+                claim: Claim::equality(accepted_x.clone(), accepted_x.clone()),
+                derivation: kernel.export_derivation(root).unwrap(),
+            })
+        });
+
+        let outcome = run_portfolio_concurrent_race(
+            &mut fsym_cx,
+            &context,
+            &requested,
+            vec![("panicking", panicking), ("panic-fallback", accepted)],
+        )
+        .expect("a contained generator panic must not suppress a verified fallback");
+
+        assert_eq!(outcome.winning_strategy(), "panic-fallback");
+        assert_eq!(outcome.generator_steps_consumed(), 9);
+        assert_eq!(fsym_cx.remaining(Dimension::ComputeSteps), 191);
+    }
+
+    #[test]
+    fn concurrent_worker_checkpoint_observes_owner_cancellation() {
+        let cx_raw = Cx::detached_cancel_context();
+        let cancel_cx = cx_raw.clone();
+        let limits = BudgetLimits::uniform(200, 20);
+        let mut fsym_cx = FsymCx::new(&cx_raw, Budget::new(limits), limits);
+        let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
+        let x = Expr::symbol("x");
+
+        let entered = Arc::new(AtomicBool::new(false));
+        let observed = Arc::new(AtomicBool::new(false));
+        let entered_in_worker = Arc::clone(&entered);
+        let observed_in_worker = Arc::clone(&observed);
+        let cancellation_sensitive =
+            Box::new(move |cx: &mut FsymCpuCx<'_, asupersync::cx::cap::None>| {
+                entered_in_worker.store(true, Ordering::Release);
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+                while std::time::Instant::now() < deadline {
+                    if cx.checkpoint().is_err() {
+                        observed_in_worker.store(true, Ordering::Release);
+                        return Err(PortfolioError::Cancelled);
+                    }
+                    std::hint::spin_loop();
+                }
+                Err(PortfolioError::StructuredExecutionFailed(
+                    "worker did not observe owner cancellation within its bounded loop".into(),
+                ))
+            });
+        let companion = Box::new(|_cx: &mut FsymCpuCx<'_, asupersync::cx::cap::None>| {
+            Err(PortfolioError::AllStrategiesFailed(
+                "planned companion refusal".into(),
+            ))
+        });
+
+        let entered_for_controller = Arc::clone(&entered);
+        let controller = std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while !entered_for_controller.load(Ordering::Acquire) {
+                if std::time::Instant::now() >= deadline {
+                    return false;
+                }
+                std::thread::yield_now();
+            }
+            cancel_cx.cancel_with(asupersync::CancelKind::User, Some("portfolio test"));
+            true
+        });
+
+        let result = run_portfolio_concurrent_race(
+            &mut fsym_cx,
+            &context,
+            &Claim::equality(x.clone(), x),
+            vec![
+                ("cancellation-sensitive", cancellation_sensitive),
+                ("companion", companion),
+            ],
+        );
+        assert!(controller.join().unwrap(), "worker never entered its body");
+
+        assert_eq!(result, Err(PortfolioError::Cancelled));
+        assert!(observed.load(Ordering::Acquire));
+        assert_eq!(fsym_cx.remaining(Dimension::ComputeSteps), 200);
+    }
+
+    #[test]
+    fn concurrent_singleton_is_a_typed_configuration_refusal() {
+        let cx_raw = Cx::detached_cancel_context();
+        let limits = BudgetLimits::uniform(100, 10);
+        let mut fsym_cx = FsymCx::new(&cx_raw, Budget::new(limits), limits);
+        let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
+        let x = Expr::symbol("x");
+        let strategy = Box::new(|_cx: &mut FsymCpuCx<'_, asupersync::cx::cap::None>| {
+            Err(PortfolioError::AllStrategiesFailed(
+                "must not execute".into(),
+            ))
+        });
+
+        assert!(matches!(
+            run_portfolio_concurrent_race(
+                &mut fsym_cx,
+                &context,
+                &Claim::equality(x.clone(), x),
+                vec![("singleton", strategy)],
+            ),
+            Err(PortfolioError::InvalidPortfolio(_))
+        ));
+        assert_eq!(fsym_cx.verifier_remaining(), 10);
     }
 
     #[test]
@@ -864,10 +1158,10 @@ mod tests {
         let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
         let x = Expr::symbol("x");
 
-        let s1 = Box::new(|_cx: &mut FsymCx<'_, asupersync::cx::cap::None>| {
+        let s1 = Box::new(|_cx: &mut FsymCpuCx<'_, asupersync::cx::cap::None>| {
             Err(PortfolioError::AllStrategiesFailed("failed s1".into()))
         });
-        let s2 = Box::new(|_cx: &mut FsymCx<'_, asupersync::cx::cap::None>| {
+        let s2 = Box::new(|_cx: &mut FsymCpuCx<'_, asupersync::cx::cap::None>| {
             Err(PortfolioError::AllStrategiesFailed("failed s2".into()))
         });
 
