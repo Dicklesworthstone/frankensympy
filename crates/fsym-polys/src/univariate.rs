@@ -252,11 +252,30 @@ impl UnivariatePoly {
 
     /// Computes the polynomial discriminant.
     ///
+    /// - Degree 3 ($a x^3 + b x^2 + c x + d$): $\Delta = b^2 c^2 - 4 a c^3 - 4 b^3 d - 27 a^2 d^2 + 18 a b c d$
     /// - Degree 2 ($a x^2 + b x + c$): $\Delta = b^2 - 4 a c$
     /// - Degree 1 ($a x + b$): $\Delta = 1$
+    /// - Degree 0 ($c$): $\Delta = 1$
     pub fn discriminant(&self) -> Result<BigRational, PolyError> {
         self.validate_shape()?;
         match self.degree() {
+            Some(3) => {
+                let d = &self.coeffs[0];
+                let c = &self.coeffs[1];
+                let b = &self.coeffs[2];
+                let a = &self.coeffs[3];
+                let four = BigRational::from_integer(BigInt::from(4));
+                let eighteen = BigRational::from_integer(BigInt::from(18));
+                let twenty_seven = BigRational::from_integer(BigInt::from(27));
+
+                let b2_c2 = (b * b) * (c * c);
+                let four_a_c3 = &four * a * (c * c * c);
+                let four_b3_d = &four * (b * b * b) * d;
+                let twenty_seven_a2_d2 = &twenty_seven * (a * a) * (d * d);
+                let eighteen_abcd = &eighteen * a * b * c * d;
+
+                Ok(b2_c2 - four_a_c3 - four_b3_d - twenty_seven_a2_d2 + eighteen_abcd)
+            }
             Some(2) => {
                 let c = &self.coeffs[0];
                 let b = &self.coeffs[1];
@@ -264,9 +283,9 @@ impl UnivariatePoly {
                 let four = BigRational::from_integer(BigInt::from(4));
                 Ok((b * b) - (four * a * c))
             }
-            Some(1) => Ok(BigRational::one()),
+            Some(1) | Some(0) => Ok(BigRational::one()),
             _ => Err(PolyError::General(
-                "discriminant currently supported for degree 1 and 2 univariate polynomials"
+                "discriminant currently supported for degrees 0, 1, 2, and 3 univariate polynomials"
                     .to_string(),
             )),
         }

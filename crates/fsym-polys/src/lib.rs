@@ -110,7 +110,7 @@ mod tests {
 
         // Discriminant of x^2 - 5*x + 6 is (-5)^2 - 4*(1)*(6) = 25 - 24 = 1
         let p2 = UnivariatePoly::new(
-            x,
+            x.clone(),
             vec![
                 BigRational::from_integer(BigInt::from(6)),
                 BigRational::from_integer(BigInt::from(-5)),
@@ -118,6 +118,33 @@ mod tests {
             ],
         );
         assert_eq!(p2.discriminant().unwrap(), BigRational::one());
+
+        // Discriminant of x^3 - x = x*(x-1)*(x+1) is 4
+        let p_cubic = UnivariatePoly::new(
+            x.clone(),
+            vec![
+                BigRational::zero(),
+                BigRational::from_integer(BigInt::from(-1)),
+                BigRational::zero(),
+                BigRational::one(),
+            ],
+        );
+        assert_eq!(
+            p_cubic.discriminant().unwrap(),
+            BigRational::from_integer(BigInt::from(4))
+        );
+
+        // Discriminant of (x-1)^2 * (x+2) = x^3 - 3*x + 2 is 0 (repeated root)
+        let p_rep = UnivariatePoly::new(
+            x,
+            vec![
+                BigRational::from_integer(BigInt::from(2)),
+                BigRational::from_integer(BigInt::from(-3)),
+                BigRational::zero(),
+                BigRational::one(),
+            ],
+        );
+        assert_eq!(p_rep.discriminant().unwrap(), BigRational::zero());
     }
 
     #[test]
