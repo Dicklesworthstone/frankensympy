@@ -117,7 +117,11 @@ class SurfaceTests(unittest.TestCase):
         rational = sympy.Rational(huge, 3)
         self.assertEqual(rational.p, huge)
         self.assertEqual(rational.q, 3)
-        self.assertEqual(pickle.loads(pickle.dumps(rational)), rational)
+        trusted_payload = pickle.dumps(rational)
+        self.assertEqual(
+            pickle.loads(trusted_payload),  # nosec B301  # ubs:ignore — trusted in-process bytes
+            rational,
+        )
 
         normalized = sympy.Rational(-(1 << 63), -1)
         self.assertEqual(normalized.p, 1 << 63)
