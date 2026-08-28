@@ -241,8 +241,20 @@ impl AssumptionsContext {
     }
 
     /// Records a predicate assumption for a symbol.
-    pub fn assume(&mut self, sym: Symbol, pred: Predicate) {
+    ///
+    /// Returns [`AssumptionError::Contradiction`] when the new predicate
+    /// contradicts a fact already deduced for `sym`. Unknown remains unknown;
+    /// this does not force a two-valued guess.
+    pub fn assume(&mut self, sym: Symbol, pred: Predicate) -> Result<(), AssumptionError> {
+        if self
+            .deductions(&sym)
+            .iter()
+            .any(|fact| Predicate::contradicts(*fact, pred))
+        {
+            return Err(AssumptionError::Contradiction);
+        }
         self.facts.entry(sym).or_default().push(pred);
+        Ok(())
     }
 
     /// Records an exact domain assignment for a symbol, emitting [`AssumptionError::DomainConflict`]
@@ -383,7 +395,7 @@ mod tests {
     fn test_assumptions_context() {
         let mut ctx = AssumptionsContext::new();
         let x = Symbol::new("x");
-        ctx.assume(x.clone(), Predicate::Positive);
+        ctx.assume(x.clone(), Predicate::Positive).unwrap();
         assert_eq!(
             ctx.is_true(&Expr::Sym(x.clone()), Predicate::Positive),
             Some(true)
@@ -397,6 +409,15 @@ mod tests {
             Some(false)
         );
         assert_eq!(ctx.is_true(&Expr::Sym(x.clone()), Predicate::Integer), None);
+        assert_eq!(
+            ctx.assume(x.clone(), Predicate::Negative),
+            Err(AssumptionError::Contradiction)
+        );
+        assert_eq!(
+            ctx.is_true(&Expr::Sym(x.clone()), Predicate::Positive),
+            Some(true)
+        );
+        assert_eq!(ctx.assume(x.clone(), Predicate::Positive), Ok(()));
     }
 
     #[test]
@@ -435,7 +456,7 @@ mod tests {
     fn immutable_snapshot_preserves_query_behavior() {
         let mut ctx = AssumptionsContext::new();
         let x = Symbol::new("x");
-        ctx.assume(x.clone(), Predicate::Positive);
+        ctx.assume(x.clone(), Predicate::Positive).unwrap();
         let snap = ctx.snapshot();
 
         assert_eq!(
@@ -498,7 +519,7 @@ mod tests {
         ];
 
         let mut base_ctx = AssumptionsContext::new();
-        base_ctx.assume(x.clone(), Predicate::Positive);
+        base_ctx.assume(x.clone(), Predicate::Positive).unwrap();
         let base_snap = Arc::new(base_ctx.snapshot());
 
         // Query all predicates on base
