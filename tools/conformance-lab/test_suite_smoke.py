@@ -39,14 +39,16 @@ class SuiteSmokeTests(unittest.TestCase):
     def test_unknown_inventory_path_fails_closed(self) -> None:
         profile = load_profile(PROFILE_PATH)
         py = _oracle_python_or_skip()
-        status = cmd_suite_smoke(profile, py, "not/a/real/test_file.py")
+        with mock.patch("sys.stderr", new=io.StringIO()):
+            status = cmd_suite_smoke(profile, py, "not/a/real/test_file.py")
         self.assertEqual(status, 1)
 
     def test_unsafe_path_fails_closed(self) -> None:
         profile = load_profile(PROFILE_PATH)
         py = _oracle_python_or_skip()
-        self.assertEqual(cmd_suite_smoke(profile, py, "../secret.py"), 1)
-        self.assertEqual(cmd_suite_smoke(profile, py, "/etc/passwd"), 1)
+        with mock.patch("sys.stderr", new=io.StringIO()):
+            self.assertEqual(cmd_suite_smoke(profile, py, "../secret.py"), 1)
+            self.assertEqual(cmd_suite_smoke(profile, py, "/etc/passwd"), 1)
 
     def test_digest_mismatch_fails_closed(self) -> None:
         profile = load_profile(PROFILE_PATH)
@@ -57,7 +59,8 @@ class SuiteSmokeTests(unittest.TestCase):
                     "files": [{"path": SMOKE_PATH, "sha256": "0" * 64, "bytes": 1}]
                 }
             }
-            status = cmd_suite_smoke(profile, py, SMOKE_PATH)
+            with mock.patch("sys.stderr", new=io.StringIO()):
+                status = cmd_suite_smoke(profile, py, SMOKE_PATH)
         self.assertEqual(status, 1)
 
     def test_live_oracle_source_tests_emit_receipt_without_port_status(self) -> None:

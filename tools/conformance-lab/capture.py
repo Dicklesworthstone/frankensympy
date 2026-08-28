@@ -1158,10 +1158,10 @@ def cmd_suite_smoke(profile: dict, py: str, test_path: str) -> int:
             f"suite runner exited {proc.returncode}: "
             f"{proc.stderr[-300:] or proc.stdout[-300:]}"
         )
-    if proc.stderr.strip():
-        return fail(f"suite runner emitted unexpected stderr: {proc.stderr[-300:]}")
     try:
-        payload = json.loads(proc.stdout.splitlines()[-1])
+        payload = json.loads(
+            next(line for line in reversed(proc.stdout.splitlines()) if line.strip())
+        )
     except (json.JSONDecodeError, IndexError) as exc:
         return fail(f"suite runner output is not JSON: {exc}")
     if proc.returncode == 3:

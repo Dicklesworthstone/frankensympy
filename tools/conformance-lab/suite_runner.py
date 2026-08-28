@@ -88,21 +88,33 @@ def main() -> int:
         )
         return 3
 
-    # Capture the runner's human summary from stdout while still emitting
-    # one JSON receipt as the last line.
-    from io import StringIO
-    from contextlib import redirect_stdout, redirect_stderr
+    # Tee the legacy runner's human summary so we can parse counts without
+    # replacing sys.stdout with an object missing encoding/isatty.
+    class _Tee:
+        def __init__(self, stream):
+            self._stream = stream
+            self.chunks: list[str] = []
 
-    class UTF8StringIO(StringIO):
-        encoding = "utf-8"
+        def write(self, data):
+            self.chunks.append(data)
+            return self._stream.write(data)
 
-    buffer = UTF8StringIO()
+        def flush(self):
+            return self._stream.flush()
+
+        def isatty(self):
+            return False
+
+        def __getattr__(self, name):
+            return getattr(self._stream, name)
+
+    tee = _Tee(sys.stdout)
+    previous = sys.stdout
     try:
-        with redirect_stdout(buffer), redirect_stderr(buffer):
-            passed = bool(
-                legacy_test(relpath, subprocess=False, verbose=False)
-            )
+        sys.stdout = tee
+        passed = bool(legacy_test(relpath, subprocess=False, verbose=False))
     except Exception as exc:  # noqa: BLE001
+        sys.stdout = previous
         print(
             json.dumps(
                 {
@@ -114,8 +126,8 @@ def main() -> int:
             )
         )
         return 4
-
-    text = buffer.getvalue()
+    sys.stdout = previous
+    text = "".join(tee.chunks)
     counts = {"passed": 0, "failed": 0, "skipped": 0}
     for line in text.splitlines():
         match = SUMMARY_RE.search(line)
