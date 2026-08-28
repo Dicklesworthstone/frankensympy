@@ -374,6 +374,72 @@ impl Segment2D {
     }
 }
 
+/// 2D Symbolic Ray emanating from `source` passing through `point`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Ray2D {
+    source: Point2D,
+    point: Point2D,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Ray2DWire {
+    source: Point2D,
+    point: Point2D,
+}
+
+impl<'de> Deserialize<'de> for Ray2D {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = Ray2DWire::deserialize(deserializer)?;
+        Self::new(wire.source, wire.point).map_err(serde::de::Error::custom)
+    }
+}
+
+impl Ray2D {
+    pub fn new(source: Point2D, point: Point2D) -> Result<Self, GeometryError> {
+        if source == point {
+            return Err(GeometryError::CoincidentPoints);
+        }
+        let dx = coordinate_difference(&point.x, &source.x);
+        let dy = coordinate_difference(&point.y, &source.y);
+        match classify_zero_vector([&dx, &dy]) {
+            ZeroVectorStatus::Zero => Err(GeometryError::CoincidentPoints),
+            ZeroVectorStatus::NonZero => Ok(Self { source, point }),
+            ZeroVectorStatus::Unknown => Err(GeometryError::SymbolicDegeneracyUndetermined),
+        }
+    }
+
+    pub fn source(&self) -> &Point2D {
+        &self.source
+    }
+
+    pub fn point(&self) -> &Point2D {
+        &self.point
+    }
+
+    /// Direction vector (dx, dy) = (point.x - source.x, point.y - source.y).
+    pub fn direction(&self) -> Point2D {
+        let dx = simplify(&Expr::Add(vec![
+            self.point.x.clone(),
+            Expr::Mul(vec![Expr::from_i64(-1), self.source.x.clone()]),
+        ]));
+        let dy = simplify(&Expr::Add(vec![
+            self.point.y.clone(),
+            Expr::Mul(vec![Expr::from_i64(-1), self.source.y.clone()]),
+        ]));
+        Point2D::new(dx, dy)
+    }
+}
+
+impl fmt::Display for Ray2D {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Ray2D({}, {})", self.source, self.point)
+    }
+}
+
 /// 2D Symbolic Triangle defined by three vertices.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Triangle2D {
@@ -824,6 +890,77 @@ impl Line3D {
 impl fmt::Display for Line3D {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Line3D({}, {})", self.p1, self.p2)
+    }
+}
+
+/// 3D Symbolic Ray emanating from `source` passing through `point`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Ray3D {
+    source: Point3D,
+    point: Point3D,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Ray3DWire {
+    source: Point3D,
+    point: Point3D,
+}
+
+impl<'de> Deserialize<'de> for Ray3D {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = Ray3DWire::deserialize(deserializer)?;
+        Self::new(wire.source, wire.point).map_err(serde::de::Error::custom)
+    }
+}
+
+impl Ray3D {
+    pub fn new(source: Point3D, point: Point3D) -> Result<Self, GeometryError> {
+        if source == point {
+            return Err(GeometryError::CoincidentPoints);
+        }
+        let dx = coordinate_difference(&point.x, &source.x);
+        let dy = coordinate_difference(&point.y, &source.y);
+        let dz = coordinate_difference(&point.z, &source.z);
+        match classify_zero_vector([&dx, &dy, &dz]) {
+            ZeroVectorStatus::Zero => Err(GeometryError::CoincidentPoints),
+            ZeroVectorStatus::NonZero => Ok(Self { source, point }),
+            ZeroVectorStatus::Unknown => Err(GeometryError::SymbolicDegeneracyUndetermined),
+        }
+    }
+
+    pub fn source(&self) -> &Point3D {
+        &self.source
+    }
+
+    pub fn point(&self) -> &Point3D {
+        &self.point
+    }
+
+    /// Direction vector (dx, dy, dz) = (point.x - source.x, point.y - source.y, point.z - source.z).
+    pub fn direction(&self) -> Point3D {
+        let dx = simplify(&Expr::Add(vec![
+            self.point.x.clone(),
+            Expr::Mul(vec![Expr::from_i64(-1), self.source.x.clone()]),
+        ]));
+        let dy = simplify(&Expr::Add(vec![
+            self.point.y.clone(),
+            Expr::Mul(vec![Expr::from_i64(-1), self.source.y.clone()]),
+        ]));
+        let dz = simplify(&Expr::Add(vec![
+            self.point.z.clone(),
+            Expr::Mul(vec![Expr::from_i64(-1), self.source.z.clone()]),
+        ]));
+        Point3D::new(dx, dy, dz)
+    }
+}
+
+impl fmt::Display for Ray3D {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Ray3D({}, {})", self.source, self.point)
     }
 }
 
@@ -1452,5 +1589,49 @@ mod tests {
         );
         let line_wire = serde_json::to_value(&line).unwrap();
         assert_eq!(serde_json::from_value::<Line3D>(line_wire).unwrap(), line);
+    }
+
+    #[test]
+    fn test_ray2d_and_ray3d_construction_direction_and_serde() {
+        // Ray2D
+        let s2 = Point2D::new(Expr::from_i64(1), Expr::from_i64(2));
+        let p2 = Point2D::new(Expr::from_i64(4), Expr::from_i64(6));
+        let ray2 = Ray2D::new(s2.clone(), p2.clone()).unwrap();
+        assert_eq!(ray2.source(), &s2);
+        assert_eq!(ray2.point(), &p2);
+        let dir2 = ray2.direction();
+        assert_eq!(dir2.x, Expr::from_i64(3));
+        assert_eq!(dir2.y, Expr::from_i64(4));
+
+        // Coincident points error
+        assert_eq!(
+            Ray2D::new(s2.clone(), s2.clone()),
+            Err(GeometryError::CoincidentPoints)
+        );
+
+        // Ray2D Serde roundtrip
+        let ray2_wire = serde_json::to_value(&ray2).unwrap();
+        assert_eq!(serde_json::from_value::<Ray2D>(ray2_wire).unwrap(), ray2);
+
+        // Ray3D
+        let s3 = Point3D::new(Expr::from_i64(1), Expr::from_i64(2), Expr::from_i64(3));
+        let p3 = Point3D::new(Expr::from_i64(3), Expr::from_i64(5), Expr::from_i64(7));
+        let ray3 = Ray3D::new(s3.clone(), p3.clone()).unwrap();
+        assert_eq!(ray3.source(), &s3);
+        assert_eq!(ray3.point(), &p3);
+        let dir3 = ray3.direction();
+        assert_eq!(dir3.x, Expr::from_i64(2));
+        assert_eq!(dir3.y, Expr::from_i64(3));
+        assert_eq!(dir3.z, Expr::from_i64(4));
+
+        // Coincident points error
+        assert_eq!(
+            Ray3D::new(s3.clone(), s3.clone()),
+            Err(GeometryError::CoincidentPoints)
+        );
+
+        // Ray3D Serde roundtrip
+        let ray3_wire = serde_json::to_value(&ray3).unwrap();
+        assert_eq!(serde_json::from_value::<Ray3D>(ray3_wire).unwrap(), ray3);
     }
 }
