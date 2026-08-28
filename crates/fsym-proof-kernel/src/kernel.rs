@@ -246,6 +246,22 @@ impl ProofKernel {
         self.add_step(ProofRule::CongruencePow { base, exp }, meter)
     }
 
+    /// Helper to prove congruence of function application: $a_i = b_i \implies f(a_1..a_n) = f(b_1..b_n)$.
+    pub fn prove_congruence_function(
+        &mut self,
+        name: impl Into<String>,
+        args: Vec<StepId>,
+        meter: &mut impl BudgetMeter,
+    ) -> Result<StepId, KernelError> {
+        self.add_step(
+            ProofRule::CongruenceFunction {
+                name: name.into(),
+                args,
+            },
+            meter,
+        )
+    }
+
     /// Helper to prove substitution: $a = b \implies T[x \mapsto a] = T[x \mapsto b]$.
     pub fn prove_substitution(
         &mut self,
@@ -297,6 +313,24 @@ impl ProofKernel {
                 lhs,
                 rhs,
                 rule_name: rule_name.into(),
+            },
+            meter,
+        )
+    }
+
+    /// Helper to prove a certificate lemma from an admitted family: family, claim, receipt_digest.
+    pub fn prove_certificate_lemma(
+        &mut self,
+        family: impl Into<String>,
+        claim: Claim,
+        receipt_digest: [u8; 32],
+        meter: &mut impl BudgetMeter,
+    ) -> Result<StepId, KernelError> {
+        self.add_step(
+            ProofRule::CertificateLemma {
+                family: family.into(),
+                claim,
+                receipt_digest,
             },
             meter,
         )
@@ -972,26 +1006,22 @@ fn check_real_ball_certificate(
 
     match claim {
         Claim::DomainMembership { expr, domain } => {
-            if *domain == Domain::RR || *domain == Domain::CC {
+            let is_admitted = match expr {
+                Expr::Integer(_) => Domain::ZZ.can_coerce_to(domain),
+                Expr::Rational(_) => Domain::QQ.can_coerce_to(domain),
+                Expr::Const(fsym_core::Constant::Pi | fsym_core::Constant::E) => {
+                    *domain == Domain::RR || *domain == Domain::CC
+                }
+                Expr::Const(fsym_core::Constant::I) => *domain == Domain::CC,
+                Expr::Sym(sym) => context
+                    .domain_of(sym)
+                    .map(|d| d.can_coerce_to(domain))
+                    .unwrap_or(false),
+                _ => false,
+            };
+
+            if is_admitted {
                 Ok(claim.clone())
-            } else if let Expr::Integer(_) = expr {
-                if *domain == Domain::ZZ || *domain == Domain::QQ {
-                    Ok(claim.clone())
-                } else {
-                    Err(KernelError::DomainNotEntailed {
-                        expr: Box::new(expr.clone()),
-                        domain: domain.clone(),
-                    })
-                }
-            } else if let Expr::Rational(_) = expr {
-                if *domain == Domain::QQ {
-                    Ok(claim.clone())
-                } else {
-                    Err(KernelError::DomainNotEntailed {
-                        expr: Box::new(expr.clone()),
-                        domain: domain.clone(),
-                    })
-                }
             } else {
                 Err(KernelError::DomainNotEntailed {
                     expr: Box::new(expr.clone()),

@@ -434,3 +434,62 @@ impl fmt::Display for AlgebraicNumber {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn q(i: i64) -> BigRational {
+        BigRational::from_integer(BigInt::from(i))
+    }
+
+    #[test]
+    fn from_i64_constructs_degree_one_algebraic_with_exact_ball() {
+        // from_i64 must produce an algebraic number whose isolating
+        // ball is the exact point [n, n] and whose degree is 1.
+        let a = AlgebraicNumber::from_i64(5);
+        assert_eq!(a.degree(), 1);
+        assert_eq!(a.isolating_ball().lower(), q(5));
+        assert_eq!(a.isolating_ball().upper(), q(5));
+        assert!(a.isolating_ball().radius().is_zero());
+    }
+
+    #[test]
+    fn from_rational_constructs_degree_one_algebraic_for_non_integer() {
+        // 1/3 is a degree-1 algebraic with isolating ball [1/3, 1/3].
+        let third = BigRational::new(1.into(), 3.into());
+        let a = AlgebraicNumber::from_rational(third.clone());
+        assert_eq!(a.degree(), 1);
+        assert_eq!(a.isolating_ball().lower(), third);
+        assert_eq!(a.isolating_ball().upper(), third);
+    }
+
+    #[test]
+    fn degree_reports_correct_value_for_exact_rationals() {
+        // Every exact rational is a linear algebraic number.
+        assert_eq!(AlgebraicNumber::from_i64(0).degree(), 1);
+        assert_eq!(AlgebraicNumber::from_i64(-7).degree(), 1);
+        let a = AlgebraicNumber::from_rational(BigRational::new(22.into(), 7.into()));
+        assert_eq!(a.degree(), 1);
+    }
+
+    #[test]
+    fn sturm_sequence_constant_polynomial_is_empty() {
+        // The constant polynomial 0 has no Sturm sequence; the
+        // function returns an empty Vec. This pins the boundary
+        // behavior expected by the broader certificate pipeline.
+        let poly = vec![q(0)];
+        assert!(sturm_sequence(&poly).is_empty());
+    }
+
+    #[test]
+    fn sturm_sequence_for_x_squared_minus_2_starts_with_polynomial_then_derivative() {
+        // For P(x) = x^2 - 2, the Sturm sequence starts with
+        // P_0 = x^2 - 2 and P_1 = P_0' = 2x.
+        let poly = vec![BigRational::from_integer(BigInt::from(-2)), q(0), q(1)];
+        let seq = sturm_sequence(&poly);
+        assert_eq!(seq.len(), 3);
+        assert_eq!(seq[0], poly);
+        assert_eq!(seq[1], vec![q(0), q(2)]);
+    }
+}

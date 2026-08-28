@@ -817,10 +817,71 @@ impl Matrix {
     }
 
     /// Cofactor C(i, j) = (-1)^(i+j) * minor(i, j).
-    fn cofactor(&self, i: usize, j: usize) -> Result<Expr, MatrixError> {
+    pub fn cofactor(&self, i: usize, j: usize) -> Result<Expr, MatrixError> {
+        if self.rows != self.cols {
+            return Err(MatrixError::NotSquare(self.rows, self.cols));
+        }
+        if i >= self.rows || j >= self.cols {
+            return Err(MatrixError::IndexOutOfBounds(i, j, self.rows, self.cols));
+        }
         let sign = if (i + j).is_multiple_of(2) { 1 } else { -1 };
         let minor = self.minor_matrix(i, j)?.det()?;
         Ok(Self::scaled_entry(Expr::from_i64(sign), &minor))
+    }
+
+    /// Computes the adjugate matrix (classical adjoint, transpose of the cofactor matrix): `adj(A)`.
+    ///
+    /// The adjugate satisfies `A * adj(A) = det(A) * I` for all square matrices.
+    pub fn adjugate(&self) -> Result<Self, MatrixError> {
+        if self.rows != self.cols {
+            return Err(MatrixError::NotSquare(self.rows, self.cols));
+        }
+        let mut data = Vec::with_capacity(Self::checked_element_count(self.rows, self.cols)?);
+        for r in 0..self.rows {
+            for c in 0..self.cols {
+                // Adjugate is the transpose of the cofactor matrix.
+                data.push(self.cofactor(c, r)?);
+            }
+        }
+        Self::new(self.rows, self.cols, data)
+    }
+
+    /// Computes the matrix power `self^n` for a square matrix using binary exponentiation.
+    pub fn pow(&self, mut n: usize) -> Result<Self, MatrixError> {
+        if self.rows != self.cols {
+            return Err(MatrixError::NotSquare(self.rows, self.cols));
+        }
+        if n == 0 {
+            return Self::eye(self.rows);
+        }
+        if n == 1 {
+            return Ok(self.clone());
+        }
+        let mut base = self.clone();
+        let mut result = Self::eye(self.rows)?;
+        while n > 0 {
+            if n % 2 == 1 {
+                result = result.matmul(&base)?;
+            }
+            if n > 1 {
+                base = base.matmul(&base)?;
+            }
+            n /= 2;
+        }
+        Ok(result)
+    }
+
+    /// Computes the squared Frobenius norm of the matrix: `\sum_{i,j} |A_{i,j}|^2`.
+    pub fn frobenius_norm_squared(&self) -> Result<Expr, MatrixError> {
+        self.validate_shape()?;
+        let mut sq_terms = Vec::with_capacity(self.data.len());
+        for entry in &self.data {
+            sq_terms.push(Expr::Pow(
+                Arc::new(entry.clone()),
+                Arc::new(Expr::from_i64(2)),
+            ));
+        }
+        Ok(simplify(&Expr::Add(sq_terms)))
     }
 
     /// Multiplicative inverse via the adjugate: `A^-1 = adj(A) / det(A)`.
@@ -2988,5 +3049,49 @@ mod tests {
             a.hadamard(&c),
             Err(MatrixError::ShapeMismatch(..))
         ));
+    }
+
+    #[test]
+    fn test_matrix_cofactor_adjugate_pow_and_frobenius_norm() {
+        // 2x2 matrix A = [[1, 2], [3, 4]]
+        // det(A) = 1*4 - 2*3 = -2
+        // C(0,0) = 4, C(0,1) = -3, C(1,0) = -2, C(1,1) = 1
+        // adj(A) = [[4, -2], [-3, 1]]
+        let a = Matrix::new(2, 2, vec![num(1), num(2), num(3), num(4)]).unwrap();
+        assert_eq!(a.cofactor(0, 0).unwrap(), num(4));
+        assert_eq!(a.cofactor(0, 1).unwrap(), num(-3));
+        assert_eq!(a.cofactor(1, 0).unwrap(), num(-2));
+        assert_eq!(a.cofactor(1, 1).unwrap(), num(1));
+
+        let adj = a.adjugate().unwrap();
+        assert_eq!(adj.data(), &[num(4), num(-2), num(-3), num(1)]);
+
+        // A * adj(A) = det(A) * I = -2 * I
+        let prod = a.matmul(&adj).unwrap();
+        assert_eq!(prod.data(), &[num(-2), num(0), num(0), num(-2)]);
+
+        // Matrix powers
+        let a_pow_0 = a.pow(0).unwrap();
+        assert_eq!(a_pow_0, Matrix::eye(2).unwrap());
+
+        let a_pow_1 = a.pow(1).unwrap();
+        assert_eq!(a_pow_1, a);
+
+        let a_pow_2 = a.pow(2).unwrap();
+        let a_sq = a.matmul(&a).unwrap();
+        assert_eq!(a_pow_2, a_sq);
+
+        let a_pow_3 = a.pow(3).unwrap();
+        let a_cube = a_sq.matmul(&a).unwrap();
+        assert_eq!(a_pow_3, a_cube);
+
+        // Frobenius norm squared: 1^2 + 2^2 + 3^2 + 4^2 = 1 + 4 + 9 + 16 = 30
+        let fnorm2 = a.frobenius_norm_squared().unwrap();
+        assert_eq!(fnorm2, num(30));
+
+        // Rectangular matrix power rejection
+        let rect = Matrix::new(2, 3, vec![num(1); 6]).unwrap();
+        assert!(matches!(rect.pow(2), Err(MatrixError::NotSquare(..))));
+        assert!(matches!(rect.adjugate(), Err(MatrixError::NotSquare(..))));
     }
 }

@@ -1389,3 +1389,47 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod nested_tuple_documentation_tests {
+    //! Nested-tuple Lambda is a known limitation of the current
+    //! `try_parse_lambda` parser. `Lambda(Tuple(Tuple(x,y), z), body)` returns
+    //! `None` from `BinderNode::try_from_expr` because the parameter-list
+    //! parser only accepts flat `Tuple`s of `Expr::Sym` entries.
+    //!
+    //! The test below documents the current behavior. It is marked
+    //! `#[ignore]` because lifting the limitation requires a recursive Tuple
+    //! parser; the curried form `Lambda(a, Lambda(Tuple(b, c), ...))` covers
+    //! the same surface and is the recommended workaround.
+    use super::*;
+
+    #[test]
+    #[ignore = "nested Tuple Lambda is rejected by try_parse_lambda; \
+                use curried Lambda(a, Lambda(Tuple(b,c), ...)) instead. \
+                Removing this attribute requires a recursive Tuple parser."]
+    fn nested_tuple_lambda_alpha_equivalence_and_substitution() {
+        // Lambda((Tuple(x, y), z), x + y + z)
+        let nested = Expr::Function(
+            "Lambda".into(),
+            vec![
+                Expr::Function(
+                    "Tuple".into(),
+                    vec![
+                        Expr::Function("Tuple".into(), vec![Expr::symbol("x"), Expr::symbol("y")]),
+                        Expr::symbol("z"),
+                    ],
+                ),
+                Expr::Add(vec![
+                    Expr::symbol("x"),
+                    Expr::symbol("y"),
+                    Expr::symbol("z"),
+                ]),
+            ],
+        );
+        // Currently rejected by try_from_expr.
+        assert!(
+            BinderNode::try_from_expr(&nested).is_none(),
+            "nested Tuple Lambda must be rejected by the current parser"
+        );
+    }
+}

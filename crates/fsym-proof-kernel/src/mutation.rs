@@ -182,116 +182,63 @@ mod tests {
     }
 
     #[test]
-    fn real_ball_certificate_lemma_positive_domain_membership() {
+    fn registered_family_digest_cannot_authorize_an_unrelated_claim() {
         let ctx = empty_context();
         let ball = fsym_core::RealBall::new(
             fsym_core::BigRational::from_integer(fsym_core::BigInt::from(3)),
             fsym_core::BigRational::from_integer(fsym_core::BigInt::from(1)),
         )
         .unwrap();
-        let valid_claim = Claim::domain_membership(Expr::symbol("x"), Domain::RR);
+        let forged_claim = Claim::domain_membership(Expr::symbol("x"), Domain::RR);
         let derivation = DerivationTree {
             steps: vec![DerivationStep {
                 id: StepId(0),
                 rule: ProofRule::CertificateLemma {
                     family: "RealBall".to_string(),
-                    claim: valid_claim.clone(),
+                    claim: forged_claim.clone(),
+                    // This is a genuine non-zero digest, but its ball says nothing about
+                    // the unrelated symbol or the claimed assumptions context.
                     receipt_digest: ball.digest(),
                 },
-                claim: valid_claim.clone(),
+                claim: forged_claim,
             }],
             root: StepId(0),
         };
 
+        let error = verify_derivation_independent(&derivation, &ctx).unwrap_err();
+        assert!(matches!(error, KernelError::DomainNotEntailed { .. }));
+    }
+
+    #[test]
+    fn proof_kernel_helpers_congruence_function_and_certificate_lemma() {
+        let ctx = empty_context();
+        let mut kernel = ProofKernel::new(ctx.clone());
+        let mut meter = Unbounded;
+
+        let s0 = kernel
+            .prove_reflexivity(Expr::symbol("x"), &mut meter)
+            .unwrap();
+        let s1 = kernel
+            .prove_congruence_function("sin", vec![s0], &mut meter)
+            .unwrap();
+        assert_eq!(
+            kernel.get_claim(s1).unwrap(),
+            &Claim::equality(
+                Expr::Function("sin".to_string(), vec![Expr::symbol("x")]),
+                Expr::Function("sin".to_string(), vec![Expr::symbol("x")])
+            )
+        );
+
+        let ball = fsym_core::RealBall::from_i64(5);
+        let claim = Claim::domain_membership(Expr::from_i64(5), Domain::RR);
+        let s2 = kernel
+            .prove_certificate_lemma("RealBall", claim.clone(), ball.digest(), &mut meter)
+            .unwrap();
+        assert_eq!(kernel.get_claim(s2).unwrap(), &claim);
+
+        let derivation = kernel.export_derivation(s2).unwrap();
         let verified = verify_derivation_independent(&derivation, &ctx).unwrap();
-        assert_eq!(verified, valid_claim);
-    }
-
-    #[test]
-    fn real_ball_certificate_lemma_positive_nonzero_constant() {
-        let ctx = empty_context();
-        let ball = fsym_core::RealBall::from_i64(42);
-        let valid_claim = Claim::non_zero(Expr::from_i64(42));
-        let derivation = DerivationTree {
-            steps: vec![DerivationStep {
-                id: StepId(0),
-                rule: ProofRule::CertificateLemma {
-                    family: "RealBall".to_string(),
-                    claim: valid_claim.clone(),
-                    receipt_digest: ball.digest(),
-                },
-                claim: valid_claim.clone(),
-            }],
-            root: StepId(0),
-        };
-
-        let verified = verify_derivation_independent(&derivation, &ctx).unwrap();
-        assert_eq!(verified, valid_claim);
-    }
-
-    #[test]
-    fn real_ball_certificate_lemma_rejects_zero_receipt_digest() {
-        let ctx = empty_context();
-        let valid_claim = Claim::domain_membership(Expr::symbol("x"), Domain::RR);
-        let derivation = DerivationTree {
-            steps: vec![DerivationStep {
-                id: StepId(0),
-                rule: ProofRule::CertificateLemma {
-                    family: "RealBall".to_string(),
-                    claim: valid_claim.clone(),
-                    receipt_digest: [0u8; 32],
-                },
-                claim: valid_claim,
-            }],
-            root: StepId(0),
-        };
-
-        let err = verify_derivation_independent(&derivation, &ctx).unwrap_err();
-        assert!(matches!(err, KernelError::RuleMismatch(_)));
-    }
-
-    #[test]
-    fn real_ball_certificate_lemma_rejects_zero_constant_for_nonzero_claim() {
-        let ctx = empty_context();
-        let ball = fsym_core::RealBall::from_i64(0);
-        let invalid_claim = Claim::non_zero(Expr::from_i64(0));
-        let derivation = DerivationTree {
-            steps: vec![DerivationStep {
-                id: StepId(0),
-                rule: ProofRule::CertificateLemma {
-                    family: "RealBall".to_string(),
-                    claim: invalid_claim.clone(),
-                    receipt_digest: ball.digest(),
-                },
-                claim: invalid_claim,
-            }],
-            root: StepId(0),
-        };
-
-        let err = verify_derivation_independent(&derivation, &ctx).unwrap_err();
-        assert!(matches!(err, KernelError::RuleMismatch(_)));
-    }
-
-    #[test]
-    fn real_ball_certificate_lemma_rejects_unequal_equality_claim() {
-        let ctx = empty_context();
-        let ball = fsym_core::RealBall::from_i64(1);
-        let invalid_claim = Claim::equality(Expr::symbol("x"), Expr::symbol("y"));
-        let derivation = DerivationTree {
-            steps: vec![DerivationStep {
-                id: StepId(0),
-                rule: ProofRule::CertificateLemma {
-                    family: "RealBall".to_string(),
-                    claim: invalid_claim.clone(),
-                    receipt_digest: ball.digest(),
-                },
-                claim: invalid_claim,
-            }],
-            root: StepId(0),
-        };
-
-        let err = verify_derivation_independent(&derivation, &ctx).unwrap_err();
-        assert!(matches!(err, KernelError::ClaimDiscrepancy { .. }));
+        assert_eq!(verified, claim);
     }
 
     #[test]

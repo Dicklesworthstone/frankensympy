@@ -3,9 +3,9 @@
 //! Subexpression sharing, arena interning, and structural deduplication
 //! indexed by stable content-addressed [`TermId`]. Child-before-parent insertion
 //! guarantees acyclicity. Declared [`TermDomain`] is intern identity, distinct
-//! from inferred [`Sort`]. Alpha-normalized binders are not produced by
-//! `insert_expr`, so arbitrary `Lambda` surface forms remain opaque functions
-//! when lowering from [`Expr`].
+//! from inferred [`Sort`]. Well-formed symbol-parameter `Lambda` surface lowers
+//! to name-preserving [`TermNode::Lambda`]; that is not yet alpha-normalized
+//! binder identity. Tuple-parameter `Lambda` remains an opaque function.
 
 #![forbid(unsafe_code)]
 
@@ -122,8 +122,9 @@ pub enum TermNode {
     Pow(TermId, TermId),
     /// Named function application with child term arguments.
     Function(String, Vec<TermId>),
-    /// Name-preserving Lambda placeholder. This variant is not yet an
-    /// alpha-normalized semantic binder and is not produced by `insert_expr`.
+    /// Name-preserving Lambda binder produced from well-formed symbol-parameter
+    /// surface. Parameter names are intern identity; this is not yet
+    /// alpha-normalized.
     Lambda(Vec<Symbol>, TermId),
 }
 
@@ -594,6 +595,25 @@ fn validate_lambda_surface(args: &[Expr]) -> Result<(), DagError> {
     })
 }
 
+/// Symbol-parameter Lambda surface that [`TermNode::Lambda`] can represent.
+/// Tuple-parameter surface returns `None` and stays an opaque function.
+fn lambda_symbol_parameters(args: &[Expr]) -> Result<Option<Vec<Symbol>>, DagError> {
+    if args.len() < 2 {
+        return Ok(None);
+    }
+    let mut parameters = Vec::new();
+    parameters
+        .try_reserve(args.len() - 1)
+        .map_err(|_| DagError::AllocationFailure)?;
+    for parameter in &args[..args.len() - 1] {
+        match parameter {
+            Expr::Sym(symbol) => parameters.push(symbol.clone()),
+            _ => return Ok(None),
+        }
+    }
+    Ok(Some(parameters))
+}
+
 fn validate_expr_local_limits(expr: &Expr, limits: DagLimits) -> Result<(), DagError> {
     let arity = match expr {
         Expr::Add(terms) | Expr::Mul(terms) | Expr::Function(_, terms) => terms.len(),
@@ -1014,10 +1034,28 @@ impl TermDag {
             Expr::Function(name, args) => {
                 if name == "Lambda" {
                     validate_lambda_surface(args)?;
+                    if let Some(parameters) = lambda_symbol_parameters(args)? {
+                        let body = args.last().ok_or(DagError::MalformedBinder {
+                            name: "Lambda",
+                            reason: "expected parameters followed by a body",
+                        })?;
+                        let child_depth = next_depth(depth, limits.max_depth)?;
+                        let body_id = self.insert_expr_internal(
+                            body,
+                            child_depth,
+                            limits,
+                            traversed,
+                            inserted,
+                        )?;
+                        return self.insert_node_tracking(
+                            TermNode::Lambda(parameters, body_id),
+                            limits,
+                            inserted,
+                        );
+                    }
+                    // Tuple-parameter surface is well-formed but not yet a
+                    // TermNode::Lambda spelling; intern as an opaque function.
                 }
-                // Well-formed binders remain opaque Functions until the DAG
-                // has capture-avoiding, alpha-normalized identity. Malformed
-                // Lambda surface is refused rather than interned as a function.
                 let ids = self.insert_expr_children(args, depth, limits, traversed, inserted)?;
                 self.insert_node_tracking(TermNode::Function(name.clone(), ids), limits, inserted)
             }
@@ -1630,16 +1668,48 @@ mod tests {
     }
 
     #[test]
-    fn surface_lambda_remains_opaque_until_binding_identity_exists() {
+    fn well_formed_symbol_lambda_lowers_to_binder_node() {
         let expression = Expr::Function(
             "Lambda".to_string(),
             vec![Expr::symbol("x"), Expr::symbol("x")],
         );
         let mut dag = TermDag::new();
         let root = dag.insert_expr(&expression).unwrap();
-        assert!(matches!(dag.get(root), Some(TermNode::Function(name, _)) if name == "Lambda"));
+        assert!(matches!(
+            dag.get(root),
+            Some(TermNode::Lambda(parameters, _)) if parameters == &vec![Symbol::new("x")]
+        ));
         assert_eq!(dag.to_expr(root).unwrap(), expression);
+        assert_eq!(
+            dag.infer_sort(root).unwrap(),
+            Sort::Function {
+                dom: vec![Sort::Scalar],
+                codom: Box::new(Sort::Scalar),
+            }
+        );
 
+        let mut direct = TermDag::new();
+        let body = direct.insert_node(TermNode::Sym(Symbol::new("x"))).unwrap();
+        let direct_root = direct
+            .insert_node(TermNode::Lambda(vec![Symbol::new("x")], body))
+            .unwrap();
+        assert_eq!(root, direct_root);
+
+        let two_param = Expr::Function(
+            "Lambda".to_string(),
+            vec![Expr::symbol("x"), Expr::symbol("y"), Expr::symbol("x")],
+        );
+        let two_root = dag.insert_expr(&two_param).unwrap();
+        assert!(matches!(
+            dag.get(two_root),
+            Some(TermNode::Lambda(parameters, _))
+                if parameters == &vec![Symbol::new("x"), Symbol::new("y")]
+        ));
+        assert_eq!(dag.to_expr(two_root).unwrap(), two_param);
+    }
+
+    #[test]
+    fn tuple_parameter_lambda_remains_opaque_function() {
         let tuple_lambda = Expr::Function(
             "Lambda".to_string(),
             vec![
@@ -1650,6 +1720,7 @@ mod tests {
                 Expr::symbol("x"),
             ],
         );
+        let mut dag = TermDag::new();
         let tuple_root = dag.insert_expr(&tuple_lambda).unwrap();
         assert!(
             matches!(dag.get(tuple_root), Some(TermNode::Function(name, _)) if name == "Lambda")
