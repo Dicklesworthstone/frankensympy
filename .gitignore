@@ -157,6 +157,7 @@ nohup.out
 
 # Ephemeral build & scratch artifacts
 *.rlib
+*.so
 rust_out
 **/local-target/
 .doctor/

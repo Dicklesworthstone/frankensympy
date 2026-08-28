@@ -1081,15 +1081,8 @@ mod tests {
 
     #[test]
     fn test_metric_index_raising_lowering_rejects_rank_variance_and_dimension() {
-        // lower_vector and raise_covector each have three preflight
-        // gates: rank, variance, and dimension. The positive test at
-        // test_metric_tensor_raising_lowering_and_spacetime_interval
-        // covers the happy path; pin each of the three failure modes
-        // here so a regression that drops a guard becomes a test
-        // failure rather than a silently-published wrong-rank tensor.
         let eta = MetricTensor::minkowski_4d("eta");
 
-        // Rank-2 input: lower_vector requires rank 1.
         let rank2 = TensorExpr::with_components(
             "T",
             4,
@@ -1123,8 +1116,6 @@ mod tests {
             Err(TensorError::RankMismatch(1, 2))
         );
 
-        // Wrong variance: lower_vector requires Upper; raise_covector
-        // requires Lower.
         let covec = TensorExpr::with_components(
             "w",
             4,
@@ -1147,12 +1138,7 @@ mod tests {
             eta.raise_covector(&vec),
             Err(TensorError::IndexMismatch(_))
         ));
-        // Dimension mismatch: a 3D rank-1 covector/vector with the
-        // WRONG variance still trips the variance gate first, because
-        // the preflight is rank -> variance -> dimension. Construct a
-        // 3D covector (lower) for lower_vector and a 3D vector (upper)
-        // for raise_covector so the variance gate passes and the
-        // dimension gate actually fires.
+
         let three_covec = TensorExpr::with_components(
             "u",
             3,
@@ -1161,13 +1147,13 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            eta.lower_vector(&three_covec),
+            eta.raise_covector(&three_covec),
             Err(TensorError::DimensionMismatch(4, 3))
         );
-        assert_eq!(
-            eta.raise_covector(&three_covec),
+        assert!(matches!(
+            eta.lower_vector(&three_covec),
             Err(TensorError::IndexMismatch(_))
-        );
+        ));
         let three_vec = TensorExpr::with_components(
             "v",
             3,
@@ -1176,11 +1162,11 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            eta.raise_covector(&three_vec),
+            eta.lower_vector(&three_vec),
             Err(TensorError::DimensionMismatch(4, 3))
         );
         assert!(matches!(
-            eta.lower_vector(&three_vec),
+            eta.raise_covector(&three_vec),
             Err(TensorError::IndexMismatch(_))
         ));
     }

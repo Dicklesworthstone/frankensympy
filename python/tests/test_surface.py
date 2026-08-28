@@ -156,7 +156,12 @@ class SurfaceTests(unittest.TestCase):
         environment = os.environ.copy()
         environment["PYTHONPATH"] = str(package_root)
         completed = subprocess.run(
-            [sys.executable, "-S", "-c", "import sympy"],
+            [
+                sys.executable,
+                "-S",
+                "-c",
+                "import sys; sys.modules['fsym_python'] = None; import sympy",
+            ],
             cwd=package_root,
             env=environment,
             text=True,
