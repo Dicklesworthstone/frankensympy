@@ -2,12 +2,14 @@
 //!
 //! Subexpression sharing, arena interning, and structural deduplication
 //! indexed by stable content-addressed [`TermId`]. Child-before-parent insertion
-//! guarantees acyclicity. Domain/sort/context typing and alpha-normalized binders
-//! are not implemented yet, so arbitrary `Lambda` surface forms remain opaque
-//! functions when lowering from [`Expr`].
+//! guarantees acyclicity. Declared [`TermDomain`] is intern identity, distinct
+//! from inferred [`Sort`]. Alpha-normalized binders are not produced by
+//! `insert_expr`, so arbitrary `Lambda` surface forms remain opaque functions
+//! when lowering from [`Expr`].
 
 #![forbid(unsafe_code)]
 
+use crate::domain::TermDomain;
 use crate::sort::Sort;
 use crate::{BigInt, BigRational};
 use crate::{Constant, Expr, Symbol};
@@ -58,6 +60,11 @@ pub enum DagError {
     SortMismatch {
         operation: &'static str,
         actual: Sort,
+    },
+    #[error("term is incompatible with declared domain {domain}: {reason}")]
+    DomainIncompatible {
+        domain: TermDomain,
+        reason: &'static str,
     },
     #[error("DAG allocation failed")]
     AllocationFailure,
@@ -165,9 +172,10 @@ fn hash_integer(hasher: &mut blake3::Hasher, value: &BigInt) -> Result<(), DagEr
     hash_bytes(hasher, &value.to_bytes_le())
 }
 
-fn hash_term_preimage(node: &TermNode) -> Result<blake3::Hasher, DagError> {
+fn hash_term_preimage(node: &TermNode, domain: TermDomain) -> Result<blake3::Hasher, DagError> {
     let mut hasher = blake3::Hasher::new();
-    hasher.update(b"fsym.term.v2\0");
+    hasher.update(b"fsym.term.v3\0");
+    hasher.update(&[domain.tag()]);
     match node {
         TermNode::Sym(s) => {
             hasher.update(&[0]);
@@ -224,31 +232,53 @@ fn hash_term_preimage(node: &TermNode) -> Result<blake3::Hasher, DagError> {
     Ok(hasher)
 }
 
-/// Full 32-byte BLAKE3 digest of the canonical term preimage.
+/// Full 32-byte BLAKE3 digest of the canonical term preimage in the
+/// default [`TermDomain::Expression`] intern universe.
 pub fn compute_term_digest(node: &TermNode) -> Result<[u8; 32], DagError> {
-    compute_term_digest_with_limits(node, DagLimits::default())
+    compute_term_digest_in_domain(node, TermDomain::Expression)
 }
 
-/// Full digest under caller-provided admission limits.
+/// Full digest of `node` interned in `domain`.
+pub fn compute_term_digest_in_domain(
+    node: &TermNode,
+    domain: TermDomain,
+) -> Result<[u8; 32], DagError> {
+    compute_term_digest_in_domain_with_limits(node, domain, DagLimits::default())
+}
+
+/// Full digest under caller-provided admission limits in the default
+/// expression universe.
 pub fn compute_term_digest_with_limits(
     node: &TermNode,
     limits: DagLimits,
 ) -> Result<[u8; 32], DagError> {
+    compute_term_digest_in_domain_with_limits(node, TermDomain::Expression, limits)
+}
+
+/// Full digest under caller-provided admission limits and declared domain.
+pub fn compute_term_digest_in_domain_with_limits(
+    node: &TermNode,
+    domain: TermDomain,
+    limits: DagLimits,
+) -> Result<[u8; 32], DagError> {
     validate_node_limits(node, limits)?;
-    let (digest, _) = compute_term_identity_unchecked(node)?;
+    let (digest, _) = compute_term_identity_unchecked(node, domain)?;
     Ok(digest)
 }
 
-fn compute_term_identity_unchecked(node: &TermNode) -> Result<([u8; 32], TermId), DagError> {
-    let digest = *hash_term_preimage(node)?.finalize().as_bytes();
+fn compute_term_identity_unchecked(
+    node: &TermNode,
+    domain: TermDomain,
+) -> Result<([u8; 32], TermId), DagError> {
+    let digest = *hash_term_preimage(node, domain)?.finalize().as_bytes();
     let mut raw_bytes = [0u8; 8];
     raw_bytes.copy_from_slice(&digest[..8]);
     let term_id = TermId::new(u64::from_le_bytes(raw_bytes)).map_err(|_| DagError::ZeroDigest)?;
     Ok((digest, term_id))
 }
 
-fn compute_term_id_unchecked(node: &TermNode) -> Result<TermId, DagError> {
-    let (_, term_id) = compute_term_identity_unchecked(node)?;
+fn compute_term_id_unchecked(node: &TermNode, domain: TermDomain) -> Result<TermId, DagError> {
+    let (_, term_id) = compute_term_identity_unchecked(node, domain)?;
     Ok(term_id)
 }
 
@@ -479,6 +509,15 @@ fn infer_power_sort(
     })
 }
 
+struct InternRequest {
+    term_id: TermId,
+    digest: [u8; 32],
+    domain: TermDomain,
+    node_depth: usize,
+    payload_bytes: usize,
+    limits: DagLimits,
+}
+
 struct SortInferenceState {
     visiting: HashSet<TermId>,
     memo: HashMap<TermId, Sort>,
@@ -561,14 +600,29 @@ fn next_depth(current: usize, limit: usize) -> Result<usize, DagError> {
 /// Computes a stable content-addressed [`TermId`] from an unambiguous,
 /// length-framed canonical preimage under default payload and arity limits.
 /// Independent of arena allocation order and pointer addresses.
+/// Uses the default [`TermDomain::Expression`] intern universe.
 pub fn compute_term_id(node: &TermNode) -> Result<TermId, DagError> {
-    compute_term_id_with_limits(node, DagLimits::default())
+    compute_term_id_in_domain(node, TermDomain::Expression)
+}
+
+/// Computes a stable content ID interned in `domain`.
+pub fn compute_term_id_in_domain(node: &TermNode, domain: TermDomain) -> Result<TermId, DagError> {
+    compute_term_id_in_domain_with_limits(node, domain, DagLimits::default())
 }
 
 /// Computes a stable content ID under caller-provided admission limits.
 pub fn compute_term_id_with_limits(node: &TermNode, limits: DagLimits) -> Result<TermId, DagError> {
+    compute_term_id_in_domain_with_limits(node, TermDomain::Expression, limits)
+}
+
+/// Computes a stable content ID under caller-provided limits and domain.
+pub fn compute_term_id_in_domain_with_limits(
+    node: &TermNode,
+    domain: TermDomain,
+    limits: DagLimits,
+) -> Result<TermId, DagError> {
     validate_node_limits(node, limits)?;
-    compute_term_id_unchecked(node)
+    compute_term_id_unchecked(node, domain)
 }
 
 /// An arena-interned Semantic Term DAG with stable identity and acyclicity invariants.
@@ -577,6 +631,7 @@ pub struct TermDag {
     nodes: HashMap<TermId, TermNode>,
     depths: HashMap<TermId, usize>,
     digests: HashMap<TermId, [u8; 32]>,
+    domains: HashMap<TermId, TermDomain>,
     total_payload_bytes: usize,
 }
 
@@ -606,10 +661,15 @@ impl TermDag {
         self.digests.get(&id).copied()
     }
 
-    /// Interns a [`TermNode`], returning its content-addressed [`TermId`].
+    /// Declared intern domain stored beside the truncated [`TermId`].
+    pub fn term_domain(&self, id: TermId) -> Option<TermDomain> {
+        self.domains.get(&id).copied()
+    }
+
+    /// Interns a [`TermNode`] in the default [`TermDomain::Expression`] universe.
     /// Fails closed if any child [`TermId`] is not already present in the DAG.
     pub fn insert_node(&mut self, node: TermNode) -> Result<TermId, DagError> {
-        self.insert_node_with_limits(node, DagLimits::default())
+        self.insert_node_in_domain(node, TermDomain::Expression)
     }
 
     /// Interns one node under caller-provided admission limits.
@@ -618,12 +678,42 @@ impl TermDag {
         node: TermNode,
         limits: DagLimits,
     ) -> Result<TermId, DagError> {
+        self.insert_node_in_domain_with_limits(node, TermDomain::Expression, limits)
+    }
+
+    /// Interns `node` in the declared intern universe `domain`.
+    pub fn insert_node_in_domain(
+        &mut self,
+        node: TermNode,
+        domain: TermDomain,
+    ) -> Result<TermId, DagError> {
+        self.insert_node_in_domain_with_limits(node, domain, DagLimits::default())
+    }
+
+    /// Interns `node` in `domain` under caller-provided admission limits.
+    pub fn insert_node_in_domain_with_limits(
+        &mut self,
+        node: TermNode,
+        domain: TermDomain,
+        limits: DagLimits,
+    ) -> Result<TermId, DagError> {
         validate_node_limits(&node, limits)?;
         self.validate_child_links(&node)?;
+        self.validate_declared_domain(&node, domain)?;
         let node_depth = self.prospective_node_depth(&node, limits)?;
-        let (digest, term_id) = compute_term_identity_unchecked(&node)?;
+        let (digest, term_id) = compute_term_identity_unchecked(&node, domain)?;
         let payload_bytes = node_payload_bytes(&node)?;
-        self.intern_prehashed_node(node, term_id, digest, node_depth, payload_bytes, limits)
+        self.intern_prehashed_node(
+            node,
+            InternRequest {
+                term_id,
+                digest,
+                domain,
+                node_depth,
+                payload_bytes,
+                limits,
+            },
+        )
     }
 
     fn validate_child_links(&self, node: &TermNode) -> Result<(), DagError> {
@@ -655,6 +745,54 @@ impl TermDag {
             }
         }
         Ok(())
+    }
+
+    fn validate_declared_domain(
+        &self,
+        node: &TermNode,
+        domain: TermDomain,
+    ) -> Result<(), DagError> {
+        match domain {
+            TermDomain::Expression => Ok(()),
+            TermDomain::Integer => match node {
+                TermNode::Integer(_) | TermNode::Sym(_) => Ok(()),
+                TermNode::Rational(value) if value.is_integer() => Ok(()),
+                TermNode::Pow(_base, exponent) => {
+                    let exponent_node =
+                        self.get(*exponent).ok_or(DagError::UnknownId(*exponent))?;
+                    match exponent_node {
+                        TermNode::Integer(value) if value.is_negative() => {
+                            Err(DagError::DomainIncompatible {
+                                domain,
+                                reason: "negative integer exponent is not closed in Integer",
+                            })
+                        }
+                        TermNode::Rational(value)
+                            if !value.is_integer() || value.numer().is_negative() =>
+                        {
+                            Err(DagError::DomainIncompatible {
+                                domain,
+                                reason: "non-natural rational exponent is not closed in Integer",
+                            })
+                        }
+                        TermNode::Const(_) => Err(DagError::DomainIncompatible {
+                            domain,
+                            reason: "constant exponent is not closed in Integer",
+                        }),
+                        _ => Ok(()),
+                    }
+                }
+                TermNode::Add(_) | TermNode::Mul(_) => Ok(()),
+                TermNode::Rational(_)
+                | TermNode::Const(_)
+                | TermNode::Function(..)
+                | TermNode::Lambda(..) => Err(DagError::DomainIncompatible {
+                    domain,
+                    reason: "operator payload is not an Integer inhabitant",
+                }),
+            },
+            TermDomain::Rational | TermDomain::Real | TermDomain::Complex => Ok(()),
+        }
     }
 
     fn prospective_node_depth(
@@ -695,18 +833,27 @@ impl TermDag {
     fn intern_prehashed_node(
         &mut self,
         node: TermNode,
-        term_id: TermId,
-        digest: [u8; 32],
-        node_depth: usize,
-        payload_bytes: usize,
-        limits: DagLimits,
+        request: InternRequest,
     ) -> Result<TermId, DagError> {
+        let InternRequest {
+            term_id,
+            digest,
+            domain,
+            node_depth,
+            payload_bytes,
+            limits,
+        } = request;
         if let Some(existing_digest) = self.digests.get(&term_id) {
             let existing = self
                 .nodes
                 .get(&term_id)
                 .ok_or(DagError::UnknownId(term_id))?;
-            if existing_digest != &digest || existing != &node {
+            let existing_domain = self
+                .domains
+                .get(&term_id)
+                .copied()
+                .ok_or(DagError::UnknownId(term_id))?;
+            if existing_digest != &digest || existing != &node || existing_domain != domain {
                 return Err(DagError::HashCollision(term_id));
             }
         } else {
@@ -731,9 +878,13 @@ impl TermDag {
             self.digests
                 .try_reserve(1)
                 .map_err(|_| DagError::AllocationFailure)?;
+            self.domains
+                .try_reserve(1)
+                .map_err(|_| DagError::AllocationFailure)?;
             self.nodes.insert(term_id, node);
             self.depths.insert(term_id, node_depth);
             self.digests.insert(term_id, digest);
+            self.domains.insert(term_id, domain);
             self.total_payload_bytes = next_total_payload;
         }
         Ok(term_id)
@@ -759,6 +910,7 @@ impl TermDag {
                     let node = self.nodes.remove(&id).ok_or(DagError::UnknownId(id))?;
                     self.depths.remove(&id).ok_or(DagError::UnknownId(id))?;
                     self.digests.remove(&id).ok_or(DagError::UnknownId(id))?;
+                    self.domains.remove(&id).ok_or(DagError::UnknownId(id))?;
                     let payload_bytes = node_payload_bytes(&node)?;
                     self.total_payload_bytes = self
                         .total_payload_bytes
@@ -830,8 +982,9 @@ impl TermDag {
     ) -> Result<TermId, DagError> {
         validate_node_limits(&node, limits)?;
         self.validate_child_links(&node)?;
+        self.validate_declared_domain(&node, TermDomain::Expression)?;
         let node_depth = self.prospective_node_depth(&node, limits)?;
-        let (digest, expected_id) = compute_term_identity_unchecked(&node)?;
+        let (digest, expected_id) = compute_term_identity_unchecked(&node, TermDomain::Expression)?;
         let payload_bytes = node_payload_bytes(&node)?;
         let is_new = !self.nodes.contains_key(&expected_id);
         if is_new {
@@ -841,11 +994,14 @@ impl TermDag {
         }
         let actual_id = self.intern_prehashed_node(
             node,
-            expected_id,
-            digest,
-            node_depth,
-            payload_bytes,
-            limits,
+            InternRequest {
+                term_id: expected_id,
+                digest,
+                domain: TermDomain::Expression,
+                node_depth,
+                payload_bytes,
+                limits,
+            },
         )?;
         if is_new {
             inserted.push(actual_id);
@@ -1350,10 +1506,21 @@ mod tests {
         forged[8] ^= 1;
         let payload = node_payload_bytes(&colliding).unwrap();
         assert_eq!(
-            dag.intern_prehashed_node(colliding, x, forged, 1, payload, DagLimits::default()),
+            dag.intern_prehashed_node(
+                colliding,
+                InternRequest {
+                    term_id: x,
+                    digest: forged,
+                    domain: TermDomain::Expression,
+                    node_depth: 1,
+                    payload_bytes: payload,
+                    limits: DagLimits::default(),
+                },
+            ),
             Err(DagError::HashCollision(x))
         );
         assert_eq!(dag.term_digest(x), Some(digest_x));
+        assert_eq!(dag.term_domain(x), Some(TermDomain::Expression));
         assert_eq!(dag.get(x), Some(&TermNode::Sym(Symbol::new("x"))));
     }
 
@@ -1899,6 +2066,107 @@ mod tests {
             Err(DagError::TotalPayloadLimitExceeded(
                 TERM_ID_SLOT_CHARGE_BYTES
             ))
+        );
+    }
+
+    #[test]
+    fn declared_domain_is_intern_identity_and_not_sort() {
+        let mut dag = TermDag::new();
+        let two = TermNode::Integer(BigInt::from(2));
+        let expression = dag.insert_node(two.clone()).unwrap();
+        let integer = dag
+            .insert_node_in_domain(two.clone(), TermDomain::Integer)
+            .unwrap();
+        let rational = dag
+            .insert_node_in_domain(two, TermDomain::Rational)
+            .unwrap();
+
+        assert_ne!(expression, integer);
+        assert_ne!(integer, rational);
+        assert_eq!(dag.term_domain(expression), Some(TermDomain::Expression));
+        assert_eq!(dag.term_domain(integer), Some(TermDomain::Integer));
+        assert_eq!(dag.term_domain(rational), Some(TermDomain::Rational));
+        assert_eq!(dag.infer_sort(expression).unwrap(), Sort::Integer);
+        assert_eq!(dag.infer_sort(integer).unwrap(), Sort::Integer);
+        assert_eq!(
+            compute_term_id_in_domain(&TermNode::Integer(BigInt::from(2)), TermDomain::Integer)
+                .unwrap(),
+            integer
+        );
+    }
+
+    #[test]
+    fn integer_domain_refuses_negative_integer_power_instead_of_widening() {
+        let mut dag = TermDag::new();
+        let base = dag
+            .insert_node_in_domain(TermNode::Integer(BigInt::from(42)), TermDomain::Integer)
+            .unwrap();
+        let negative = dag
+            .insert_node_in_domain(TermNode::Integer(BigInt::from(-3)), TermDomain::Integer)
+            .unwrap();
+        let two = dag
+            .insert_node_in_domain(TermNode::Integer(BigInt::from(2)), TermDomain::Integer)
+            .unwrap();
+
+        assert_eq!(
+            dag.insert_node_in_domain(TermNode::Pow(base, negative), TermDomain::Integer),
+            Err(DagError::DomainIncompatible {
+                domain: TermDomain::Integer,
+                reason: "negative integer exponent is not closed in Integer",
+            })
+        );
+        assert!(dag.get(base).is_some());
+        assert!(dag.get(negative).is_some());
+
+        let positive_power = dag
+            .insert_node_in_domain(TermNode::Pow(base, two), TermDomain::Integer)
+            .unwrap();
+        assert_eq!(dag.term_domain(positive_power), Some(TermDomain::Integer));
+        assert_eq!(dag.infer_sort(positive_power).unwrap(), Sort::Integer);
+
+        // Expression-domain intern still records the widening at sort inference;
+        // it does not pretend the power inhabits Integer.
+        let expr_base = dag
+            .insert_node(TermNode::Integer(BigInt::from(42)))
+            .unwrap();
+        let expr_neg = dag
+            .insert_node(TermNode::Integer(BigInt::from(-3)))
+            .unwrap();
+        let widened = dag.insert_node(TermNode::Pow(expr_base, expr_neg)).unwrap();
+        assert_eq!(dag.term_domain(widened), Some(TermDomain::Expression));
+        assert_eq!(dag.infer_sort(widened).unwrap(), Sort::Rational);
+    }
+
+    #[test]
+    fn integer_domain_refuses_non_integer_atoms() {
+        let mut dag = TermDag::new();
+        let half = TermNode::Rational(BigRational::new(BigInt::from(1), BigInt::from(2)));
+        assert_eq!(
+            dag.insert_node_in_domain(half, TermDomain::Integer),
+            Err(DagError::DomainIncompatible {
+                domain: TermDomain::Integer,
+                reason: "operator payload is not an Integer inhabitant",
+            })
+        );
+        assert_eq!(
+            dag.insert_node_in_domain(TermNode::Const(Constant::I), TermDomain::Integer),
+            Err(DagError::DomainIncompatible {
+                domain: TermDomain::Integer,
+                reason: "operator payload is not an Integer inhabitant",
+            })
+        );
+        let as_integer = dag
+            .insert_node_in_domain(
+                TermNode::Rational(BigRational::from_integer(BigInt::from(7))),
+                TermDomain::Integer,
+            )
+            .unwrap();
+        assert_eq!(dag.term_domain(as_integer), Some(TermDomain::Integer));
+        assert_eq!(
+            dag.get(as_integer),
+            Some(&TermNode::Rational(BigRational::from_integer(
+                BigInt::from(7)
+            )))
         );
     }
 }

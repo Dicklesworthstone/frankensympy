@@ -19,12 +19,14 @@ pub mod arith;
 pub mod ball;
 pub mod canonical;
 pub mod dag;
+pub mod domain;
 mod parser;
 pub mod sort;
 
 pub use algebraic::*;
 pub use ball::*;
 pub use dag::*;
+pub use domain::*;
 pub use parser::parse;
 pub use sort::*;
 
