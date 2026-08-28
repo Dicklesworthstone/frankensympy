@@ -2965,37 +2965,28 @@ mod tests {
 
         // Addition: A + B
         let a_plus_b = a.add(&b).unwrap();
-        assert_eq!(
-            a_plus_b.data(),
-            &[num(6), num(8), num(10), num(12)]
-        );
+        assert_eq!(a_plus_b.data(), &[num(6), num(8), num(10), num(12)]);
 
         // Subtraction: B - A
         let b_minus_a = b.sub(&a).unwrap();
-        assert_eq!(
-            b_minus_a.data(),
-            &[num(4), num(4), num(4), num(4)]
-        );
+        assert_eq!(b_minus_a.data(), &[num(4), num(4), num(4), num(4)]);
 
         // Scalar multiplication: 3 * A
         let three = num(3);
         let scalar_a = a.scalar_mul(&three).unwrap();
-        assert_eq!(
-            scalar_a.data(),
-            &[num(3), num(6), num(9), num(12)]
-        );
+        assert_eq!(scalar_a.data(), &[num(3), num(6), num(9), num(12)]);
 
         // Hadamard elementwise product: A .* B
         let had = a.hadamard(&b).unwrap();
-        assert_eq!(
-            had.data(),
-            &[num(5), num(12), num(21), num(32)]
-        );
+        assert_eq!(had.data(), &[num(5), num(12), num(21), num(32)]);
 
         // Shape mismatch rejection
         let c = Matrix::new(2, 3, vec![num(1); 6]).unwrap();
         assert!(matches!(a.add(&c), Err(MatrixError::ShapeMismatch(..))));
         assert!(matches!(a.sub(&c), Err(MatrixError::ShapeMismatch(..))));
-        assert!(matches!(a.hadamard(&c), Err(MatrixError::ShapeMismatch(..))));
+        assert!(matches!(
+            a.hadamard(&c),
+            Err(MatrixError::ShapeMismatch(..))
+        ));
     }
 }

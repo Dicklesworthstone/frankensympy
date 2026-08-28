@@ -8,12 +8,45 @@ use fsym_printing::latex;
 use fsym_runtime::{Budget, BudgetLimits, FsymCx, RuntimeBudget};
 use fsym_simplify::{expand_with, simplify_with};
 use pyo3::basic::CompareOp;
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::PyTuple;
+use pyo3::types::{PyInt, PyTuple};
 use std::collections::{BTreeSet, HashMap};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
+
+/// Maximum magnitude admitted by the Python integer bridge before decimal conversion.
+///
+/// This is a bridge resource policy, not a mathematical precision limit. Checking the exact
+/// built-in `int.bit_length()` first prevents an already-large Python integer from forcing an
+/// even larger temporary decimal string across the boundary.
+const MAX_PYTHON_INTEGER_BITS: usize = 8 * 1024 * 1024;
+
+fn exact_python_integer(value: &Bound<'_, PyAny>, argument: &str) -> PyResult<BigInt> {
+    let py = value.py();
+    if !value.is_exact_instance(&py.get_type::<PyInt>()) {
+        return Err(PyTypeError::new_err(format!(
+            "{argument} must be an exact built-in int"
+        )));
+    }
+
+    let bit_length = value.call_method0("bit_length")?.extract::<usize>()?;
+    if bit_length > MAX_PYTHON_INTEGER_BITS {
+        return Err(PyValueError::new_err(format!(
+            "{argument} exceeds the Python integer bridge limit of {MAX_PYTHON_INTEGER_BITS} bits"
+        )));
+    }
+
+    let decimal = value.str()?;
+    decimal
+        .to_str()?
+        .parse::<BigInt>()
+        .map_err(PyValueError::new_err)
+}
+
+fn bigint_to_python_int<'py>(value: &BigInt, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+    py.get_type::<PyInt>().call1((value.to_string(),))
+}
 
 /// Python compatibility wrapper for native FrankenSymPy symbolic expressions.
 #[pyclass(name = "Expr", module = "fsym_python", subclass)]
