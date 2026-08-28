@@ -215,6 +215,28 @@ pub enum CancellationPoint {
     BudgetRevoked,
 }
 
+impl CancellationPoint {
+    /// Registry identifier string. Mirror of the `as_str` pattern on
+    /// `EvidenceClass` and `NonEvidenceOutcome`.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CancellationPoint::RequestCancelled => "request_cancelled",
+            CancellationPoint::ParentCancelled => "parent_cancelled",
+            CancellationPoint::BudgetRevoked => "budget_revoked",
+        }
+    }
+
+    /// Parses a registry identifier. Unknown names fail closed.
+    pub fn parse(text: &str) -> Option<Self> {
+        Some(match text {
+            "request_cancelled" => Self::RequestCancelled,
+            "parent_cancelled" => Self::ParentCancelled,
+            "budget_revoked" => Self::BudgetRevoked,
+            _ => return None,
+        })
+    }
+}
+
 /// Coarse resource class reported when a budget is exhausted. The canonical
 /// budget dimensions live in `fsym-budget`; this is the L0 reporting view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -227,6 +249,34 @@ pub enum ResourceClass {
     TimeBudget,
 }
 
+impl ResourceClass {
+    /// Registry identifier string. Mirror of the `as_str` pattern on
+    /// `EvidenceClass` and `NonEvidenceOutcome`.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ResourceClass::MemoryBytes => "memory_bytes",
+            ResourceClass::ComputeSteps => "compute_steps",
+            ResourceClass::AllocationCount => "allocation_count",
+            ResourceClass::DepthLimit => "depth_limit",
+            ResourceClass::RandomDraws => "random_draws",
+            ResourceClass::TimeBudget => "time_budget",
+        }
+    }
+
+    /// Parses a registry identifier. Unknown names fail closed.
+    pub fn parse(text: &str) -> Option<Self> {
+        Some(match text {
+            "memory_bytes" => Self::MemoryBytes,
+            "compute_steps" => Self::ComputeSteps,
+            "allocation_count" => Self::AllocationCount,
+            "depth_limit" => Self::DepthLimit,
+            "random_draws" => Self::RandomDraws,
+            "time_budget" => Self::TimeBudget,
+            _ => return None,
+        })
+    }
+}
+
 /// Internal fault kinds that quarantine affected artifacts instead of ever
 /// returning a candidate as an accepted value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -234,6 +284,28 @@ pub enum InternalFaultKind {
     InvariantViolation,
     SchemaViolation,
     AssertionViolation,
+}
+
+impl InternalFaultKind {
+    /// Registry identifier string. Mirror of the `as_str` pattern on
+    /// `EvidenceClass` and `NonEvidenceOutcome`.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            InternalFaultKind::InvariantViolation => "invariant_violation",
+            InternalFaultKind::SchemaViolation => "schema_violation",
+            InternalFaultKind::AssertionViolation => "assertion_violation",
+        }
+    }
+
+    /// Parses a registry identifier. Unknown names fail closed.
+    pub fn parse(text: &str) -> Option<Self> {
+        Some(match text {
+            "invariant_violation" => Self::InvariantViolation,
+            "schema_violation" => Self::SchemaViolation,
+            "assertion_violation" => Self::AssertionViolation,
+            _ => return None,
+        })
+    }
 }
 
 /// The mathematical result of requested work, including honest refusals to
@@ -618,6 +690,53 @@ mod tests {
         for kind in all.iter() {
             assert_eq!(RefusalKind::parse(kind.as_str()), Some(kind.clone()));
         }
+        // Fail closed on unknown names and the empty string.
+        assert!(RefusalKind::parse("policy_breach").is_none());
         assert!(RefusalKind::parse("").is_none());
+    }
+
+    #[test]
+    fn cancellation_point_roundtrips_through_registry_identifier() {
+        let all = [
+            CancellationPoint::RequestCancelled,
+            CancellationPoint::ParentCancelled,
+            CancellationPoint::BudgetRevoked,
+        ];
+        for point in all.iter() {
+            assert_eq!(CancellationPoint::parse(point.as_str()), Some(*point));
+        }
+        assert!(CancellationPoint::parse("timeout").is_none());
+        assert!(CancellationPoint::parse("").is_none());
+    }
+
+    #[test]
+    fn resource_class_roundtrips_through_registry_identifier() {
+        let all = [
+            ResourceClass::MemoryBytes,
+            ResourceClass::ComputeSteps,
+            ResourceClass::AllocationCount,
+            ResourceClass::DepthLimit,
+            ResourceClass::RandomDraws,
+            ResourceClass::TimeBudget,
+        ];
+        for class in all.iter() {
+            assert_eq!(ResourceClass::parse(class.as_str()), Some(*class));
+        }
+        assert!(ResourceClass::parse("bytes").is_none());
+        assert!(ResourceClass::parse("").is_none());
+    }
+
+    #[test]
+    fn internal_fault_kind_roundtrips_through_registry_identifier() {
+        let all = [
+            InternalFaultKind::InvariantViolation,
+            InternalFaultKind::SchemaViolation,
+            InternalFaultKind::AssertionViolation,
+        ];
+        for kind in all.iter() {
+            assert_eq!(InternalFaultKind::parse(kind.as_str()), Some(*kind));
+        }
+        assert!(InternalFaultKind::parse("panic").is_none());
+        assert!(InternalFaultKind::parse("").is_none());
     }
 }
