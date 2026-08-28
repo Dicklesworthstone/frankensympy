@@ -8,10 +8,10 @@
 #![forbid(unsafe_code)]
 
 pub use fsym_bigint::{
-    BigInt, DEFAULT_STRATEGY_THRESHOLD_BITS, LIMB_BITS, NonZeroBigInt, Strategy as MulStrategy,
-    exact_div, extended_gcd, gcd, limb_count_u64, metered_div_rem, metered_div_rem_nonzero,
-    metered_exact_div, metered_extended_gcd, metered_gcd, metered_multiply as metered_mul,
-    multiply, multiply_with_strategy as mul_with_strategy, select_strategy,
+    BigInt, LIMB_BITS, NonZeroBigInt, Strategy as MulStrategy, exact_div, extended_gcd, gcd,
+    limb_count_u64, metered_div_rem, metered_div_rem_nonzero, metered_exact_div,
+    metered_extended_gcd, metered_gcd, metered_multiply as metered_mul, multiply,
+    multiply_with_strategy as mul_with_strategy, select_strategy,
 };
 pub use fsym_modular::{
     PrimeStream, PrimeStreamError, crt, crt_pair, is_probable_prime, jacobi_symbol,
