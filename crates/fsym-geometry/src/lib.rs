@@ -24,6 +24,8 @@ pub enum GeometryError {
     SymbolicDegeneracyUndetermined,
     #[error("A polygon must have at least 3 vertices")]
     DegeneratePolygon,
+    #[error("Normal vector cannot be zero")]
+    DegeneratePlane,
 }
 
 /// 2D Symbolic Point.
@@ -602,6 +604,265 @@ impl fmt::Display for Sphere {
     }
 }
 
+/// 3D Symbolic Line passing through two distinct points `p1` and `p2`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Line3D {
+    p1: Point3D,
+    p2: Point3D,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Line3DWire {
+    p1: Point3D,
+    p2: Point3D,
+}
+
+impl<'de> Deserialize<'de> for Line3D {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = Line3DWire::deserialize(deserializer)?;
+        Self::new(wire.p1, wire.p2).map_err(serde::de::Error::custom)
+    }
+}
+
+impl Line3D {
+    pub fn new(p1: Point3D, p2: Point3D) -> Result<Self, GeometryError> {
+        if p1 == p2 {
+            return Err(GeometryError::CoincidentPoints);
+        }
+        Ok(Self { p1, p2 })
+    }
+
+    pub fn p1(&self) -> &Point3D {
+        &self.p1
+    }
+
+    pub fn p2(&self) -> &Point3D {
+        &self.p2
+    }
+
+    /// Direction vector (dx, dy, dz) = (p2.x - p1.x, p2.y - p1.y, p2.z - p1.z).
+    pub fn direction(&self) -> Point3D {
+        let dx = simplify(&Expr::Add(vec![
+            self.p2.x.clone(),
+            Expr::Mul(vec![Expr::from_i64(-1), self.p1.x.clone()]),
+        ]));
+        let dy = simplify(&Expr::Add(vec![
+            self.p2.y.clone(),
+            Expr::Mul(vec![Expr::from_i64(-1), self.p1.y.clone()]),
+        ]));
+        let dz = simplify(&Expr::Add(vec![
+            self.p2.z.clone(),
+            Expr::Mul(vec![Expr::from_i64(-1), self.p1.z.clone()]),
+        ]));
+        Point3D::new(dx, dy, dz)
+    }
+}
+
+impl fmt::Display for Line3D {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Line3D({}, {})", self.p1, self.p2)
+    }
+}
+
+/// 3D Symbolic Plane passing through `point` with `normal` vector.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Plane3D {
+    point: Point3D,
+    normal: Point3D,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Plane3DWire {
+    point: Point3D,
+    normal: Point3D,
+}
+
+impl<'de> Deserialize<'de> for Plane3D {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = Plane3DWire::deserialize(deserializer)?;
+        Self::new(wire.point, wire.normal).map_err(serde::de::Error::custom)
+    }
+}
+
+impl Plane3D {
+    pub fn new(point: Point3D, normal: Point3D) -> Result<Self, GeometryError> {
+        let nx_zero =
+            normal.x.is_zero() || numeric_value(&normal.x).is_some_and(|v| v.numer().is_zero());
+        let ny_zero =
+            normal.y.is_zero() || numeric_value(&normal.y).is_some_and(|v| v.numer().is_zero());
+        let nz_zero =
+            normal.z.is_zero() || numeric_value(&normal.z).is_some_and(|v| v.numer().is_zero());
+        if nx_zero && ny_zero && nz_zero {
+            return Err(GeometryError::DegeneratePlane);
+        }
+        Ok(Self { point, normal })
+    }
+
+    pub fn from_three_points(p1: Point3D, p2: Point3D, p3: Point3D) -> Result<Self, GeometryError> {
+        // v1 = p2 - p1, v2 = p3 - p1
+        let v1x = simplify(&Expr::Add(vec![
+            p2.x.clone(),
+            Expr::Mul(vec![Expr::from_i64(-1), p1.x.clone()]),
+        ]));
+        let v1y = simplify(&Expr::Add(vec![
+            p2.y.clone(),
+            Expr::Mul(vec![Expr::from_i64(-1), p1.y.clone()]),
+        ]));
+        let v1z = simplify(&Expr::Add(vec![
+            p2.z.clone(),
+            Expr::Mul(vec![Expr::from_i64(-1), p1.z.clone()]),
+        ]));
+
+        let v2x = simplify(&Expr::Add(vec![
+            p3.x.clone(),
+            Expr::Mul(vec![Expr::from_i64(-1), p1.x.clone()]),
+        ]));
+        let v2y = simplify(&Expr::Add(vec![
+            p3.y.clone(),
+            Expr::Mul(vec![Expr::from_i64(-1), p1.y.clone()]),
+        ]));
+        let v2z = simplify(&Expr::Add(vec![
+            p3.z.clone(),
+            Expr::Mul(vec![Expr::from_i64(-1), p1.z.clone()]),
+        ]));
+
+        // cross product: n = v1 x v2
+        let nx = simplify(&Expr::Add(vec![
+            Expr::Mul(vec![v1y.clone(), v2z.clone()]),
+            Expr::Mul(vec![Expr::from_i64(-1), v1z.clone(), v2y.clone()]),
+        ]));
+        let ny = simplify(&Expr::Add(vec![
+            Expr::Mul(vec![v1z, v2x.clone()]),
+            Expr::Mul(vec![Expr::from_i64(-1), v1x.clone(), v2z]),
+        ]));
+        let nz = simplify(&Expr::Add(vec![
+            Expr::Mul(vec![v1x, v2y]),
+            Expr::Mul(vec![Expr::from_i64(-1), v1y, v2x]),
+        ]));
+
+        let normal = Point3D::new(nx, ny, nz);
+        Self::new(p1, normal)
+    }
+
+    pub fn point(&self) -> &Point3D {
+        &self.point
+    }
+
+    pub fn normal(&self) -> &Point3D {
+        &self.normal
+    }
+
+    /// Evaluates plane equation E(q) = n . (q - p). If 0, q is on the plane.
+    pub fn eval_at_point(&self, q: &Point3D) -> Expr {
+        let dx = Expr::Add(vec![
+            q.x.clone(),
+            Expr::Mul(vec![Expr::from_i64(-1), self.point.x.clone()]),
+        ]);
+        let dy = Expr::Add(vec![
+            q.y.clone(),
+            Expr::Mul(vec![Expr::from_i64(-1), self.point.y.clone()]),
+        ]);
+        let dz = Expr::Add(vec![
+            q.z.clone(),
+            Expr::Mul(vec![Expr::from_i64(-1), self.point.z.clone()]),
+        ]);
+
+        let dot = Expr::Add(vec![
+            Expr::Mul(vec![self.normal.x.clone(), dx]),
+            Expr::Mul(vec![self.normal.y.clone(), dy]),
+            Expr::Mul(vec![self.normal.z.clone(), dz]),
+        ]);
+        simplify(&dot)
+    }
+
+    /// Computes squared perpendicular distance from a 3D point to this plane:
+    /// d^2 = (n . (q - p))^2 / (nx^2 + ny^2 + nz^2).
+    pub fn distance_squared(&self, q: &Point3D) -> Expr {
+        let eval = self.eval_at_point(q);
+        let num = Expr::Pow(Arc::new(eval), Arc::new(Expr::from_i64(2)));
+        let nx2 = Expr::Pow(Arc::new(self.normal.x.clone()), Arc::new(Expr::from_i64(2)));
+        let ny2 = Expr::Pow(Arc::new(self.normal.y.clone()), Arc::new(Expr::from_i64(2)));
+        let nz2 = Expr::Pow(Arc::new(self.normal.z.clone()), Arc::new(Expr::from_i64(2)));
+        let den = simplify(&Expr::Add(vec![nx2, ny2, nz2]));
+        expr_div(simplify(&num), den)
+    }
+
+    /// Computes intersection point with a Line3D.
+    pub fn intersection_line(&self, line: &Line3D) -> Result<Point3D, GeometryError> {
+        let dir = line.direction();
+        // n . dir
+        let denom = simplify(&Expr::Add(vec![
+            Expr::Mul(vec![self.normal.x.clone(), dir.x.clone()]),
+            Expr::Mul(vec![self.normal.y.clone(), dir.y.clone()]),
+            Expr::Mul(vec![self.normal.z.clone(), dir.z.clone()]),
+        ]));
+
+        match numeric_value(&denom) {
+            Some(value) if value.numer().is_zero() => {
+                return Err(GeometryError::ParallelLines);
+            }
+            Some(_) => {}
+            None => {
+                if denom.is_zero() {
+                    return Err(GeometryError::ParallelLines);
+                }
+                return Err(GeometryError::SymbolicDegeneracyUndetermined);
+            }
+        }
+
+        // t = n . (p_plane - p_line1) / (n . dir)
+        let diff_x = Expr::Add(vec![
+            self.point.x.clone(),
+            Expr::Mul(vec![Expr::from_i64(-1), line.p1.x.clone()]),
+        ]);
+        let diff_y = Expr::Add(vec![
+            self.point.y.clone(),
+            Expr::Mul(vec![Expr::from_i64(-1), line.p1.y.clone()]),
+        ]);
+        let diff_z = Expr::Add(vec![
+            self.point.z.clone(),
+            Expr::Mul(vec![Expr::from_i64(-1), line.p1.z.clone()]),
+        ]);
+
+        let numer = simplify(&Expr::Add(vec![
+            Expr::Mul(vec![self.normal.x.clone(), diff_x]),
+            Expr::Mul(vec![self.normal.y.clone(), diff_y]),
+            Expr::Mul(vec![self.normal.z.clone(), diff_z]),
+        ]));
+
+        let t = expr_div(numer, denom);
+
+        let ix = simplify(&Expr::Add(vec![
+            line.p1.x.clone(),
+            Expr::Mul(vec![t.clone(), dir.x]),
+        ]));
+        let iy = simplify(&Expr::Add(vec![
+            line.p1.y.clone(),
+            Expr::Mul(vec![t.clone(), dir.y]),
+        ]));
+        let iz = simplify(&Expr::Add(vec![
+            line.p1.z.clone(),
+            Expr::Mul(vec![t, dir.z]),
+        ]));
+
+        Ok(Point3D::new(ix, iy, iz))
+    }
+}
+
+impl fmt::Display for Plane3D {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Plane3D(p={}, n={})", self.point, self.normal)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -772,5 +1033,72 @@ mod tests {
             serde_json::to_value(Expr::from_i64(-5)).unwrap(),
         );
         assert!(serde_json::from_value::<Sphere>(sphere_wire).is_err());
+    }
+
+    #[test]
+    fn test_line3d_and_plane3d_metrics_and_wire_invariants() {
+        // Line3D through (0,0,0) and (1,2,3)
+        let p1 = Point3D::new(Expr::from_i64(0), Expr::from_i64(0), Expr::from_i64(0));
+        let p2 = Point3D::new(Expr::from_i64(1), Expr::from_i64(2), Expr::from_i64(3));
+        let line = Line3D::new(p1.clone(), p2.clone()).unwrap();
+        let dir = line.direction();
+        assert_eq!(dir.x, Expr::from_i64(1));
+        assert_eq!(dir.y, Expr::from_i64(2));
+        assert_eq!(dir.z, Expr::from_i64(3));
+
+        // Coincident points rejected for Line3D
+        assert_eq!(
+            Line3D::new(p1.clone(), p1.clone()),
+            Err(GeometryError::CoincidentPoints)
+        );
+
+        // Plane3D from 3 points: (0,0,0), (1,0,0), (0,1,0) -> XY-plane, normal = (0,0,1)
+        let pt1 = Point3D::new(Expr::from_i64(0), Expr::from_i64(0), Expr::from_i64(0));
+        let pt2 = Point3D::new(Expr::from_i64(1), Expr::from_i64(0), Expr::from_i64(0));
+        let pt3 = Point3D::new(Expr::from_i64(0), Expr::from_i64(1), Expr::from_i64(0));
+        let xy_plane = Plane3D::from_three_points(pt1, pt2, pt3).unwrap();
+        assert_eq!(xy_plane.normal().z, Expr::from_i64(1));
+
+        // Point (0,0,5) has distance^2 = 25 to XY-plane
+        let q = Point3D::new(Expr::from_i64(0), Expr::from_i64(0), Expr::from_i64(5));
+        assert_eq!(xy_plane.distance_squared(&q), Expr::from_i64(25));
+
+        // Line from (0,0,5) to (1,1,4) intersects XY-plane at (5, 5, 0)
+        let l_intersect = Line3D::new(
+            Point3D::new(Expr::from_i64(0), Expr::from_i64(0), Expr::from_i64(5)),
+            Point3D::new(Expr::from_i64(1), Expr::from_i64(1), Expr::from_i64(4)),
+        )
+        .unwrap();
+        let inter_pt = xy_plane.intersection_line(&l_intersect).unwrap();
+        assert_eq!(inter_pt.x, Expr::from_i64(5));
+        assert_eq!(inter_pt.y, Expr::from_i64(5));
+        assert_eq!(inter_pt.z, Expr::from_i64(0));
+
+        // Parallel line (0,0,1) to (1,0,1) to XY plane returns ParallelLines error
+        let l_parallel = Line3D::new(
+            Point3D::new(Expr::from_i64(0), Expr::from_i64(0), Expr::from_i64(1)),
+            Point3D::new(Expr::from_i64(1), Expr::from_i64(0), Expr::from_i64(1)),
+        )
+        .unwrap();
+        assert_eq!(
+            xy_plane.intersection_line(&l_parallel),
+            Err(GeometryError::ParallelLines)
+        );
+
+        // Degenerate plane with zero normal rejected
+        let zero_normal = Point3D::new(Expr::from_i64(0), Expr::from_i64(0), Expr::from_i64(0));
+        assert_eq!(
+            Plane3D::new(p1.clone(), zero_normal),
+            Err(GeometryError::DegeneratePlane)
+        );
+
+        // Serde roundtrips
+        let plane_wire = serde_json::to_value(&xy_plane).unwrap();
+        assert_eq!(
+            serde_json::from_value::<Plane3D>(plane_wire).unwrap(),
+            xy_plane
+        );
+        let line_wire = serde_json::to_value(&line).unwrap();
+        assert_eq!(serde_json::from_value::<Line3D>(line_wire).unwrap(), line);
     }
 }

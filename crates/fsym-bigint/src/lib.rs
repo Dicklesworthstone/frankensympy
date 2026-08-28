@@ -12,15 +12,15 @@
 //! Multiplication offers four explicit strategies:
 //!
 //! - [`Strategy::SchoolbookReference`] — repeated-addition scalar reference lane,
-//!   O(log₂|min|) doublings; used below threshold for simple formal cross-checking.
+//!   O(log₂|min|) doublings; used for simple formal cross-checking.
 //! - [`Strategy::Karatsuba`] — pure-Rust recursive divide-and-conquer multiplication ($O(n^{1.585})$).
 //! - [`Strategy::Toom3`] — explicit, non-default Toom-3 evaluation/interpolation lane.
 //! - [`Strategy::NativeSubstrate`] — delegates to the contained substrate multiplication.
 //!
-//! [`select_strategy`] applies [`DEFAULT_STRATEGY_THRESHOLD_BITS`] only to the existing
-//! schoolbook/Karatsuba policy. Toom-3 remains opt-in until a pinned architecture/profile
-//! benchmark establishes crossover evidence. All explicit lanes are differential-tested against
-//! the scalar reference and contained substrate.
+//! [`select_strategy`] currently fails closed to the scalar reference lane. Every optimized lane
+//! remains opt-in until a pinned architecture/profile benchmark and the registered admission gate
+//! establish crossover evidence. All explicit lanes are differential-tested against the scalar
+//! reference and contained substrate.
 //!
 //! # Limb accounting and cooperative cancellation
 //!
@@ -175,16 +175,17 @@ impl From<MeterError> for MeteredMultiplyError {
     }
 }
 
-/// Bit-size at or above which multiplication uses [`Strategy::Karatsuba`].
+/// Former threshold bit-size for optimized multiplication strategies.
 pub const DEFAULT_STRATEGY_THRESHOLD_BITS: u64 = 256;
 
-/// Pure strategy policy: visible and unit-testable on its own.
-pub fn select_strategy(max_magnitude_bits: u64) -> Strategy {
-    if max_magnitude_bits >= DEFAULT_STRATEGY_THRESHOLD_BITS {
-        Strategy::Karatsuba
-    } else {
-        Strategy::SchoolbookReference
-    }
+/// Fail-closed default strategy policy for ordinary multiplication.
+///
+/// The operand size remains an input so a future registry-backed policy can use the same explicit,
+/// testable boundary. Until that policy passes its architecture/profile correctness, performance,
+/// memory, cancellation, and rollback gates, no optimized project-authored lane is selected by
+/// default.
+pub fn select_strategy(_max_magnitude_bits: u64) -> Strategy {
+    Strategy::SchoolbookReference
 }
 
 /// Owned arbitrary-precision integer. The ONLY bigint type visible above this crate.
@@ -1175,7 +1176,7 @@ pub fn multiply_with_strategy(a: &BigInt, b: &BigInt, strategy: Strategy) -> Big
     }
 }
 
-/// Applies [`select_strategy`] over the operands' larger bit height, then multiplies.
+/// Applies the fail-closed [`select_strategy`] policy, then multiplies.
 pub fn multiply(a: &BigInt, b: &BigInt) -> BigInt {
     let strategy = select_strategy(std::cmp::max(a.bits(), b.bits()));
     multiply_with_strategy(a, b, strategy)
@@ -4620,19 +4621,35 @@ mod tests {
     }
 
     #[test]
-    fn select_strategy_switches_at_the_documented_threshold() {
-        assert_eq!(
-            select_strategy(DEFAULT_STRATEGY_THRESHOLD_BITS - 1),
-            Strategy::SchoolbookReference
-        );
-        assert_eq!(
-            select_strategy(DEFAULT_STRATEGY_THRESHOLD_BITS),
-            Strategy::Karatsuba
-        );
-        assert_eq!(
-            select_strategy(DEFAULT_STRATEGY_THRESHOLD_BITS + 1),
-            Strategy::Karatsuba
-        );
+    fn default_selector_requires_admission_before_using_optimized_lanes() {
+        let former_boundary = BigInt::one() << 255;
+        let cases = [
+            (
+                "balanced",
+                former_boundary.clone() + 1,
+                former_boundary.clone() - 1,
+            ),
+            ("skewed", former_boundary.clone() + 1, BigInt::from(3)),
+            (
+                "square",
+                former_boundary.clone() + 1,
+                former_boundary.clone() + 1,
+            ),
+        ];
+
+        for (regime, left, right) in cases {
+            let max_bits = std::cmp::max(left.bits(), right.bits());
+            assert_eq!(
+                select_strategy(max_bits),
+                Strategy::SchoolbookReference,
+                "optimized default lacks registered admission for {regime} operands"
+            );
+            assert_eq!(
+                multiply(&left, &right),
+                multiply_with_strategy(&left, &right, Strategy::SchoolbookReference),
+                "ordinary multiplication must use the admitted reference for {regime} operands"
+            );
+        }
     }
 
     #[test]
@@ -4791,7 +4808,11 @@ mod tests {
         let huge = (BigInt::one() << 32_768) + (BigInt::one() << 16_383) + 1i64;
         let tiny = BigInt::from(-65_537);
         let expected = multiply_with_strategy(&huge, &tiny, Strategy::NativeSubstrate);
-        assert_eq!(select_strategy(huge.bits()), Strategy::Karatsuba);
+        assert_eq!(
+            select_strategy(huge.bits()),
+            Strategy::SchoolbookReference,
+            "operand size alone must not admit an optimized default"
+        );
         assert_eq!(
             multiply_with_strategy(&huge, &tiny, Strategy::Karatsuba),
             expected
@@ -5781,7 +5802,7 @@ mod tests {
         }
 
         #[test]
-        fn strategies_agree_across_the_threshold_boundary(
+        fn explicit_strategies_agree_across_the_former_threshold_boundary(
             shift in 254u32..258u32,
             sign_a in proptest::bool::ANY,
             sign_b in proptest::bool::ANY,
