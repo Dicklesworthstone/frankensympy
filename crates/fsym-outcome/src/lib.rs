@@ -183,6 +183,30 @@ pub enum RefusalKind {
     InputShapeRejected,
 }
 
+impl RefusalKind {
+    /// Registry identifier string. Mirror of the `as_str` pattern on
+    /// `EvidenceClass` and `NonEvidenceOutcome`.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            RefusalKind::PolicyForbidden => "policy_forbidden",
+            RefusalKind::CapabilityMissing => "capability_missing",
+            RefusalKind::DomainViolation => "domain_violation",
+            RefusalKind::InputShapeRejected => "input_shape_rejected",
+        }
+    }
+
+    /// Parses a registry identifier. Unknown names fail closed.
+    pub fn parse(text: &str) -> Option<Self> {
+        Some(match text {
+            "policy_forbidden" => Self::PolicyForbidden,
+            "capability_missing" => Self::CapabilityMissing,
+            "domain_violation" => Self::DomainViolation,
+            "input_shape_rejected" => Self::InputShapeRejected,
+            _ => return None,
+        })
+    }
+}
+
 /// Where in the structured-execution contract cancellation was observed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CancellationPoint {
@@ -581,5 +605,19 @@ mod tests {
         let sampled = MathOutcome::<u8>::candidate(3, EvidenceClass::UserAsserted).unwrap();
         assert_ne!(sampled.evidence(), Some(EvidenceClass::KernelProved));
         assert!(!sampled.evidence().unwrap().is_mathematical());
+    }
+
+    #[test]
+    fn refusal_kind_roundtrips_through_registry_identifier() {
+        let all = [
+            RefusalKind::PolicyForbidden,
+            RefusalKind::CapabilityMissing,
+            RefusalKind::DomainViolation,
+            RefusalKind::InputShapeRejected,
+        ];
+        for kind in all.iter() {
+            assert_eq!(RefusalKind::parse(kind.as_str()), Some(kind.clone()));
+        }
+        assert!(RefusalKind::parse("").is_none());
     }
 }
