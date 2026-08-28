@@ -6,7 +6,7 @@
 
 #![forbid(unsafe_code)]
 
-use fsym_core::{BigInt, Constant, Expr};
+use fsym_core::{BigInt, BigRational, Constant, Expr};
 
 /// Create a sine function expression: sin(x).
 pub fn sin(arg: Expr) -> Expr {
@@ -74,6 +74,24 @@ pub fn atan(arg: Expr) -> Expr {
     Expr::Function("atan".to_string(), vec![arg])
 }
 
+/// Create an arccotangent function expression: acot(x).
+pub fn acot(arg: Expr) -> Expr {
+    Expr::Function("acot".to_string(), vec![arg])
+}
+
+/// Create an arcsecant function expression: asec(x).
+pub fn asec(arg: Expr) -> Expr {
+    if arg.is_one() {
+        return Expr::from_i64(0);
+    }
+    Expr::Function("asec".to_string(), vec![arg])
+}
+
+/// Create an arccosecant function expression: acsc(x).
+pub fn acsc(arg: Expr) -> Expr {
+    Expr::Function("acsc".to_string(), vec![arg])
+}
+
 /// Create a hyperbolic sine function expression: sinh(x).
 pub fn sinh(arg: Expr) -> Expr {
     if arg.is_zero() {
@@ -96,6 +114,112 @@ pub fn tanh(arg: Expr) -> Expr {
         return Expr::from_i64(0);
     }
     Expr::Function("tanh".to_string(), vec![arg])
+}
+
+/// Create an inverse hyperbolic sine expression: asinh(x).
+pub fn asinh(arg: Expr) -> Expr {
+    if arg.is_zero() {
+        return Expr::from_i64(0);
+    }
+    Expr::Function("asinh".to_string(), vec![arg])
+}
+
+/// Create an inverse hyperbolic cosine expression: acosh(x).
+pub fn acosh(arg: Expr) -> Expr {
+    if arg.is_one() {
+        return Expr::from_i64(0);
+    }
+    Expr::Function("acosh".to_string(), vec![arg])
+}
+
+/// Create an inverse hyperbolic tangent expression: atanh(x).
+pub fn atanh(arg: Expr) -> Expr {
+    if arg.is_zero() {
+        return Expr::from_i64(0);
+    }
+    Expr::Function("atanh".to_string(), vec![arg])
+}
+
+/// Create an inverse hyperbolic cotangent expression: acoth(x).
+pub fn acoth(arg: Expr) -> Expr {
+    Expr::Function("acoth".to_string(), vec![arg])
+}
+
+/// Create an inverse hyperbolic secant expression: asech(x).
+pub fn asech(arg: Expr) -> Expr {
+    if arg.is_one() {
+        return Expr::from_i64(0);
+    }
+    Expr::Function("asech".to_string(), vec![arg])
+}
+
+/// Create an inverse hyperbolic cosecant expression: acsch(x).
+pub fn acsch(arg: Expr) -> Expr {
+    Expr::Function("acsch".to_string(), vec![arg])
+}
+
+/// Create an unnormalized sinc expression: sinc(x) = sin(x)/x with sinc(0) = 1.
+pub fn sinc(arg: Expr) -> Expr {
+    if arg.is_zero() {
+        return Expr::from_i64(1);
+    }
+    Expr::Function("sinc".to_string(), vec![arg])
+}
+
+/// Create an error function expression: erf(x).
+pub fn erf(arg: Expr) -> Expr {
+    if arg.is_zero() {
+        return Expr::from_i64(0);
+    }
+    Expr::Function("erf".to_string(), vec![arg])
+}
+
+/// Create a complementary error function expression: erfc(x).
+pub fn erfc(arg: Expr) -> Expr {
+    if arg.is_zero() {
+        return Expr::from_i64(1);
+    }
+    Expr::Function("erfc".to_string(), vec![arg])
+}
+
+/// Create an absolute value function expression: |x|.
+pub fn abs_val(arg: Expr) -> Expr {
+    if arg.is_zero() {
+        return Expr::from_i64(0);
+    }
+    if let Expr::Integer(n) = &arg {
+        return Expr::Integer(if n < &BigInt::from(0) {
+            -n.clone()
+        } else {
+            n.clone()
+        });
+    }
+    if let Expr::Rational(r) = &arg {
+        return Expr::Rational(if r < &BigRational::from_integer(0.into()) {
+            -r.clone()
+        } else {
+            r.clone()
+        });
+    }
+    Expr::Function("Abs".to_string(), vec![arg])
+}
+
+/// Create a signum function expression: sign(x).
+pub fn sign(arg: Expr) -> Expr {
+    if arg.is_zero() {
+        return Expr::from_i64(0);
+    }
+    if let Expr::Integer(n) = &arg {
+        return Expr::from_i64(if n > &BigInt::from(0) { 1 } else { -1 });
+    }
+    if let Expr::Rational(r) = &arg {
+        return Expr::from_i64(if r > &BigRational::from_integer(0.into()) {
+            1
+        } else {
+            -1
+        });
+    }
+    Expr::Function("sign".to_string(), vec![arg])
 }
 
 /// Create an exponential function expression: exp(x).
@@ -210,6 +334,57 @@ pub fn fibonacci(n: Expr) -> Expr {
     Expr::Function("fibonacci".to_string(), vec![n])
 }
 
+/// Create a Lucas number expression: L_n (L_0 = 2, L_1 = 1, L_n = L_{n-1} + L_{n-2}).
+pub fn lucas(n: Expr) -> Expr {
+    if n.is_zero() {
+        return Expr::from_i64(2);
+    }
+    if n.is_one() {
+        return Expr::from_i64(1);
+    }
+    if let Expr::Integer(ni) = &n
+        && ni > &BigInt::from(0)
+        && ni <= &BigInt::from(200)
+    {
+        let n_val = ni.to_u64().unwrap_or(0);
+        let mut a = BigInt::from(2);
+        let mut b = BigInt::from(1);
+        for _ in 2..=n_val {
+            let c = &a + &b;
+            a = b;
+            b = c;
+        }
+        return Expr::Integer(b);
+    }
+    Expr::Function("lucas".to_string(), vec![n])
+}
+
+/// Create a Harmonic number expression: H_n = Σ_{k=1}^n 1/k.
+pub fn harmonic(n: Expr) -> Expr {
+    if n.is_zero() {
+        return Expr::from_i64(0);
+    }
+    if n.is_one() {
+        return Expr::from_i64(1);
+    }
+    if let Expr::Integer(ni) = &n
+        && ni > &BigInt::from(0)
+        && ni <= &BigInt::from(100)
+    {
+        let n_val = ni.to_u64().unwrap_or(0);
+        let mut sum = BigRational::from_integer(0.into());
+        for k in 1..=n_val {
+            sum += BigRational::new(1.into(), (k as i64).into());
+        }
+        if sum.is_integer() {
+            return Expr::Integer(sum.to_integer());
+        } else {
+            return Expr::Rational(sum);
+        }
+    }
+    Expr::Function("harmonic".to_string(), vec![n])
+}
+
 /// Create a Riemann Zeta function expression: ζ(s).
 pub fn zeta(arg: Expr) -> Expr {
     Expr::Function("zeta".to_string(), vec![arg])
@@ -228,12 +403,37 @@ mod tests {
         assert_eq!(asin(Expr::from_i64(0)), Expr::from_i64(0));
         assert_eq!(acos(Expr::from_i64(1)), Expr::from_i64(0));
         assert_eq!(atan(Expr::from_i64(0)), Expr::from_i64(0));
+        assert_eq!(asec(Expr::from_i64(1)), Expr::from_i64(0));
         assert_eq!(sinh(Expr::from_i64(0)), Expr::from_i64(0));
         assert_eq!(cosh(Expr::from_i64(0)), Expr::from_i64(1));
         assert_eq!(tanh(Expr::from_i64(0)), Expr::from_i64(0));
+        assert_eq!(asinh(Expr::from_i64(0)), Expr::from_i64(0));
+        assert_eq!(acosh(Expr::from_i64(1)), Expr::from_i64(0));
+        assert_eq!(atanh(Expr::from_i64(0)), Expr::from_i64(0));
+        assert_eq!(asech(Expr::from_i64(1)), Expr::from_i64(0));
+        assert_eq!(sinc(Expr::from_i64(0)), Expr::from_i64(1));
+        assert_eq!(erf(Expr::from_i64(0)), Expr::from_i64(0));
+        assert_eq!(erfc(Expr::from_i64(0)), Expr::from_i64(1));
         assert_eq!(exp(Expr::from_i64(0)), Expr::from_i64(1));
         assert_eq!(log(Expr::from_i64(1)), Expr::from_i64(0));
         assert_eq!(log(Expr::Const(Constant::E)), Expr::from_i64(1));
+    }
+
+    #[test]
+    fn test_abs_and_sign() {
+        assert_eq!(abs_val(Expr::from_i64(0)), Expr::from_i64(0));
+        assert_eq!(abs_val(Expr::from_i64(5)), Expr::from_i64(5));
+        assert_eq!(abs_val(Expr::from_i64(-7)), Expr::from_i64(7));
+        assert_eq!(
+            abs_val(Expr::rational(-3, 4).unwrap()),
+            Expr::rational(3, 4).unwrap()
+        );
+
+        assert_eq!(sign(Expr::from_i64(0)), Expr::from_i64(0));
+        assert_eq!(sign(Expr::from_i64(42)), Expr::from_i64(1));
+        assert_eq!(sign(Expr::from_i64(-99)), Expr::from_i64(-1));
+        assert_eq!(sign(Expr::rational(5, 3).unwrap()), Expr::from_i64(1));
+        assert_eq!(sign(Expr::rational(-5, 3).unwrap()), Expr::from_i64(-1));
     }
 
     #[test]
@@ -263,5 +463,15 @@ mod tests {
         assert_eq!(fibonacci(Expr::from_i64(1)), Expr::from_i64(1));
         assert_eq!(fibonacci(Expr::from_i64(2)), Expr::from_i64(1));
         assert_eq!(fibonacci(Expr::from_i64(10)), Expr::from_i64(55));
+
+        assert_eq!(lucas(Expr::from_i64(0)), Expr::from_i64(2));
+        assert_eq!(lucas(Expr::from_i64(1)), Expr::from_i64(1));
+        assert_eq!(lucas(Expr::from_i64(2)), Expr::from_i64(3));
+        assert_eq!(lucas(Expr::from_i64(5)), Expr::from_i64(11));
+
+        assert_eq!(harmonic(Expr::from_i64(0)), Expr::from_i64(0));
+        assert_eq!(harmonic(Expr::from_i64(1)), Expr::from_i64(1));
+        assert_eq!(harmonic(Expr::from_i64(2)), Expr::rational(3, 2).unwrap());
+        assert_eq!(harmonic(Expr::from_i64(4)), Expr::rational(25, 12).unwrap());
     }
 }
