@@ -175,9 +175,6 @@ impl From<MeterError> for MeteredMultiplyError {
     }
 }
 
-/// Former threshold bit-size for optimized multiplication strategies.
-pub const DEFAULT_STRATEGY_THRESHOLD_BITS: u64 = 256;
-
 /// Fail-closed default strategy policy for ordinary multiplication.
 ///
 /// The operand size remains an input so a future registry-backed policy can use the same explicit,
