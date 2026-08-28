@@ -568,12 +568,11 @@ mod tests {
             param: Symbol::new("t"),
             body: Box::new(Expr::Mul(vec![Expr::symbol("t"), Expr::from_i64(2)])),
         };
-        match b {
-            BinderNode::Lambda { param, body } => {
-                assert_eq!(param.name, "t");
-                assert_eq!(*body, Expr::Mul(vec![Expr::symbol("t"), Expr::from_i64(2)]));
-            }
-            _ => panic!("Expected Lambda"),
+        if let BinderNode::Lambda { param, body } = b {
+            assert_eq!(param.name, "t");
+            assert_eq!(*body, Expr::Mul(vec![Expr::symbol("t"), Expr::from_i64(2)]));
+        } else {
+            assert!(false, "Expected Lambda variant");
         }
     }
 
@@ -608,5 +607,168 @@ mod tests {
                 sym
             );
         }
+    }
+
+    #[test]
+    fn nested_binder_multi_level_capture_avoidance() {
+        // Lambda(y, Lambda(z, x + y + z))
+        // Substitute x -> y + z
+        let inner = Expr::Function(
+            "Lambda".into(),
+            vec![
+                Expr::symbol("z"),
+                Expr::Add(vec![
+                    Expr::symbol("x"),
+                    Expr::symbol("y"),
+                    Expr::symbol("z"),
+                ]),
+            ],
+        );
+        let outer = Expr::Function("Lambda".into(), vec![Expr::symbol("y"), inner]);
+        let repl = Expr::Add(vec![Expr::symbol("y"), Expr::symbol("z")]);
+
+        let substituted = capture_avoiding_subs(&outer, &Symbol::new("x"), &repl);
+        let free = free_symbols(&substituted);
+
+        // y and z in replacement must remain free outside the binder
+        assert!(free.contains(&Symbol::new("y")));
+        assert!(free.contains(&Symbol::new("z")));
+        assert!(!free.contains(&Symbol::new("x")));
+
+        // Must be alpha-equivalent to Lambda(y_fresh, Lambda(z_fresh, (y + z) + y_fresh + z_fresh))
+        let expected = Expr::Function(
+            "Lambda".into(),
+            vec![
+                Expr::symbol("y_1"),
+                Expr::Function(
+                    "Lambda".into(),
+                    vec![
+                        Expr::symbol("z_1"),
+                        Expr::Add(vec![
+                            Expr::Add(vec![Expr::symbol("y"), Expr::symbol("z")]),
+                            Expr::symbol("y_1"),
+                            Expr::symbol("z_1"),
+                        ]),
+                    ],
+                ),
+            ],
+        );
+        assert!(alpha_equivalent(&substituted, &expected));
+    }
+
+    #[test]
+    fn integral_and_derivative_binder_capture_avoidance() {
+        // Integral(x * y, x, a, b): x is bound, y, a, b are free
+        let integral_expr = Expr::Function(
+            "Integral".into(),
+            vec![
+                Expr::Mul(vec![Expr::symbol("x"), Expr::symbol("y")]),
+                Expr::symbol("x"),
+                Expr::symbol("a"),
+                Expr::symbol("b"),
+            ],
+        );
+        let free_int = free_symbols(&integral_expr);
+        assert!(!free_int.contains(&Symbol::new("x")));
+        assert!(free_int.contains(&Symbol::new("y")));
+        assert!(free_int.contains(&Symbol::new("a")));
+        assert!(free_int.contains(&Symbol::new("b")));
+
+        // Substitute y -> x + 1 into Integral(x * y, x, a, b)
+        // Must rename bound x to avoid capturing the x in (x + 1)
+        let repl = Expr::Add(vec![Expr::symbol("x"), Expr::from_i64(1)]);
+        let substituted_int = capture_avoiding_subs(&integral_expr, &Symbol::new("y"), &repl);
+
+        let free_sub_int = free_symbols(&substituted_int);
+        assert!(free_sub_int.contains(&Symbol::new("x")));
+        assert!(!free_sub_int.contains(&Symbol::new("y")));
+
+        // Derivative(x * y, x): x is bound, y is free
+        let deriv_expr = Expr::Function(
+            "Derivative".into(),
+            vec![
+                Expr::Mul(vec![Expr::symbol("x"), Expr::symbol("y")]),
+                Expr::symbol("x"),
+            ],
+        );
+        let free_deriv = free_symbols(&deriv_expr);
+        assert!(!free_deriv.contains(&Symbol::new("x")));
+        assert!(free_deriv.contains(&Symbol::new("y")));
+
+        // Substitute y -> x into Derivative(x * y, x)
+        let substituted_deriv =
+            capture_avoiding_subs(&deriv_expr, &Symbol::new("y"), &Expr::symbol("x"));
+        let free_sub_deriv = free_symbols(&substituted_deriv);
+        assert!(free_sub_deriv.contains(&Symbol::new("x")));
+        assert!(!free_sub_deriv.contains(&Symbol::new("y")));
+    }
+
+    #[test]
+    fn substitution_preserves_domain_typing_invariants() {
+        use crate::domain::Domain;
+
+        // In an expression e in ZZ[x, y], substituting x -> 3 (in ZZ) yields an expression in ZZ[y]
+        let e = Expr::Add(vec![
+            Expr::Mul(vec![Expr::symbol("x"), Expr::symbol("x")]),
+            Expr::Mul(vec![Expr::symbol("x"), Expr::symbol("y")]),
+            Expr::from_i64(1),
+        ]);
+        let d_orig = Domain::of_expr(&e);
+        assert!(matches!(d_orig, Domain::PolyRing { .. }));
+
+        let substituted = capture_avoiding_subs(&e, &Symbol::new("x"), &Expr::from_i64(3));
+        let d_sub = Domain::of_expr(&substituted);
+
+        // Substituted domain ZZ[y] must coerce into original ZZ[x, y]
+        assert!(d_sub.can_coerce_to(&d_orig));
+
+        // Substituting x -> 1/2 (in QQ) yields an expression in QQ[y], which coerces into fraction field
+        let q_sub = capture_avoiding_subs(
+            &e,
+            &Symbol::new("x"),
+            &Expr::Rational(fsym_core::BigRational::new(
+                fsym_core::BigInt::from(1),
+                fsym_core::BigInt::from(2),
+            )),
+        );
+        let d_q = Domain::of_expr(&q_sub);
+        assert!(d_q.can_coerce_to(&Domain::FractionField {
+            base: Box::new(Domain::ZZ),
+            generators: vec![Symbol::new("x"), Symbol::new("y")],
+        }));
+    }
+
+    #[test]
+    fn alpha_equivalence_properties() {
+        let e1 = Expr::Function(
+            "Lambda".into(),
+            vec![
+                Expr::symbol("u"),
+                Expr::Mul(vec![Expr::symbol("u"), Expr::symbol("u")]),
+            ],
+        );
+        let e2 = Expr::Function(
+            "Lambda".into(),
+            vec![
+                Expr::symbol("v"),
+                Expr::Mul(vec![Expr::symbol("v"), Expr::symbol("v")]),
+            ],
+        );
+        let e3 = Expr::Function(
+            "Lambda".into(),
+            vec![
+                Expr::symbol("w"),
+                Expr::Mul(vec![Expr::symbol("w"), Expr::symbol("w")]),
+            ],
+        );
+
+        // Reflexivity
+        assert!(alpha_equivalent(&e1, &e1));
+        // Symmetry
+        assert!(alpha_equivalent(&e1, &e2));
+        assert!(alpha_equivalent(&e2, &e1));
+        // Transitivity
+        assert!(alpha_equivalent(&e1, &e2) && alpha_equivalent(&e2, &e3));
+        assert!(alpha_equivalent(&e1, &e3));
     }
 }

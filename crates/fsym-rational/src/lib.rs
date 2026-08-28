@@ -305,6 +305,23 @@ impl BigRational {
         rational_to_f32(self)
     }
 
+    /// If this rational is non-negative and both its numerator and denominator are perfect squares,
+    /// returns the exact positive square root. Otherwise returns `None`.
+    pub fn exact_sqrt(&self) -> Option<Self> {
+        if self.is_negative() {
+            return None;
+        }
+        let num = self.numer();
+        let den = self.denom();
+        let s_num = num.sqrt()?;
+        let s_den = den.sqrt()?;
+        if &s_num * &s_num == *num && &s_den * &s_den == *den {
+            Some(Self::new(s_num, s_den))
+        } else {
+            None
+        }
+    }
+
     /// Returns the reciprocal.
     ///
     /// # Panics
@@ -3223,6 +3240,24 @@ mod tests {
             let expected = (numerator as f64 / denominator as f64) as f32;
             let actual = rational.to_f32().expect("small rational converts to f32");
             prop_assert_eq!(actual, expected);
+        }
+
+        #[test]
+        fn exact_sqrt_tests(
+            num_root in 0u32..=10_000,
+            den_root in 1u32..=10_000,
+        ) {
+            let num = BigInt::from(num_root as u64) * BigInt::from(num_root as u64);
+            let den = BigInt::from(den_root as u64) * BigInt::from(den_root as u64);
+            let square = BigRational::new(num, den);
+            let expected_root = BigRational::new(BigInt::from(num_root), BigInt::from(den_root));
+            prop_assert_eq!(square.exact_sqrt(), Some(expected_root));
+
+            // Negative numbers have no real sqrt
+            if num_root > 0 {
+                let neg_square = -square.clone();
+                prop_assert_eq!(neg_square.exact_sqrt(), None);
+            }
         }
     }
 }

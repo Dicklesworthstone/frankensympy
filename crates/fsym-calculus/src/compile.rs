@@ -5,9 +5,10 @@
 
 use crate::diff;
 use fsym_core::{BigInt, Constant, Expr, Symbol};
-use serde::de::Error as _;
+use serde::de::{Error as _, IgnoredAny, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
+use std::fmt;
 use thiserror::Error;
 
 /// Maximum recursion depth allowed during expression compilation to avoid stack overflow.
@@ -15,6 +16,13 @@ pub const MAX_COMPILE_DEPTH: usize = 128;
 
 /// Maximum number of compiled bytecode operations allowed for a single expression.
 pub const MAX_COMPILE_OPS: usize = 8192;
+
+/// Initial operation-buffer reservation for untrusted compiled-expression input.
+///
+/// Serde sequence length hints are advisory and attacker-controlled, so even an
+/// in-range hint does not justify reserving the entire claimed sequence before
+/// observing any elements.
+const INITIAL_COMPILED_OP_RESERVE: usize = 16;
 
 /// Every integer whose magnitude uses at most this many bits is represented
 /// exactly by an IEEE-754 `f64`. Larger exponent components are refused rather
@@ -108,10 +116,108 @@ pub struct CompiledExpr {
     ops: Vec<CompiledOp>,
 }
 
+struct BoundedCompiledOps(Vec<CompiledOp>);
+
+struct BoundedCompiledOpsVisitor;
+
+fn try_reserve_compiled_ops<E>(ops: &mut Vec<CompiledOp>, additional: usize) -> Result<(), E>
+where
+    E: serde::de::Error,
+{
+    ops.try_reserve_exact(additional)
+        .map_err(|_| E::custom("compiled bytecode operation allocation refused"))
+}
+
+fn next_compiled_op_capacity(current: usize) -> Option<usize> {
+    if current >= MAX_COMPILE_OPS {
+        return None;
+    }
+    Some(
+        current
+            .checked_mul(2)
+            .unwrap_or(MAX_COMPILE_OPS)
+            .max(1)
+            .min(MAX_COMPILE_OPS),
+    )
+}
+
+impl<'de> Deserialize<'de> for BoundedCompiledOps {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer
+            .deserialize_seq(BoundedCompiledOpsVisitor)
+            .map(Self)
+    }
+}
+
+impl<'de> Visitor<'de> for BoundedCompiledOpsVisitor {
+    type Value = Vec<CompiledOp>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "at most {MAX_COMPILE_OPS} compiled bytecode operations"
+        )
+    }
+
+    fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        let hint = sequence.size_hint();
+        if let Some(hint) = hint
+            && hint > MAX_COMPILE_OPS
+        {
+            return Err(A::Error::invalid_length(hint, &self));
+        }
+
+        let mut ops = Vec::new();
+        let initial_reserve = hint
+            .unwrap_or(0)
+            .min(INITIAL_COMPILED_OP_RESERVE)
+            .min(MAX_COMPILE_OPS);
+        if initial_reserve != 0 {
+            try_reserve_compiled_ops::<A::Error>(&mut ops, initial_reserve)?;
+        }
+
+        while ops.len() < MAX_COMPILE_OPS {
+            let Some(op) = sequence.next_element::<CompiledOp>()? else {
+                return Ok(ops);
+            };
+            if ops.len() == ops.capacity() {
+                let target_capacity =
+                    next_compiled_op_capacity(ops.capacity()).ok_or_else(|| {
+                        A::Error::custom("compiled bytecode operation capacity invariant violated")
+                    })?;
+                let additional = target_capacity.checked_sub(ops.len()).ok_or_else(|| {
+                    A::Error::custom("compiled bytecode operation capacity accounting overflow")
+                })?;
+                if additional == 0 {
+                    return Err(A::Error::custom(
+                        "compiled bytecode operation capacity invariant violated",
+                    ));
+                }
+                try_reserve_compiled_ops::<A::Error>(&mut ops, additional)?;
+            }
+            ops.push(op);
+        }
+
+        if sequence.next_element::<IgnoredAny>()?.is_some() {
+            return Err(A::Error::invalid_length(
+                MAX_COMPILE_OPS.saturating_add(1),
+                &self,
+            ));
+        }
+        Ok(ops)
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CompiledExprWire {
-    ops: Vec<CompiledOp>,
+    ops: BoundedCompiledOps,
 }
 
 impl<'de> Deserialize<'de> for CompiledExpr {
@@ -120,7 +226,7 @@ impl<'de> Deserialize<'de> for CompiledExpr {
         D: Deserializer<'de>,
     {
         let wire = CompiledExprWire::deserialize(deserializer)?;
-        Self::try_from_ops(wire.ops).map_err(D::Error::custom)
+        Self::try_from_ops(wire.ops.0).map_err(D::Error::custom)
     }
 }
 
@@ -765,7 +871,127 @@ impl CompiledResidualSystem {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde::de::DeserializeSeed;
+    use serde::de::value::{Error as ValueError, StrDeserializer};
+    use std::cell::Cell;
+    use std::rc::Rc;
     use std::sync::Arc;
+
+    struct HintCompiledOpSeq {
+        remaining: usize,
+        claimed: Option<usize>,
+        next_calls: Rc<Cell<usize>>,
+    }
+
+    impl HintCompiledOpSeq {
+        fn new(remaining: usize, claimed: Option<usize>, next_calls: Rc<Cell<usize>>) -> Self {
+            Self {
+                remaining,
+                claimed,
+                next_calls,
+            }
+        }
+    }
+
+    impl<'de> SeqAccess<'de> for HintCompiledOpSeq {
+        type Error = ValueError;
+
+        fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
+        where
+            T: DeserializeSeed<'de>,
+        {
+            if self.remaining == 0 {
+                return Ok(None);
+            }
+            self.remaining -= 1;
+            self.next_calls.set(self.next_calls.get() + 1);
+            seed.deserialize(StrDeserializer::<ValueError>::new("Sin"))
+                .map(Some)
+        }
+
+        fn size_hint(&self) -> Option<usize> {
+            self.claimed
+        }
+    }
+
+    #[test]
+    fn compiled_expr_serde_round_trips_and_revalidates_the_wire() {
+        let expected =
+            CompiledExpr::try_from_ops(vec![CompiledOp::LoadConst(2.0), CompiledOp::Pow(3.0)])
+                .unwrap();
+        let wire = serde_json::to_value(&expected).unwrap();
+
+        assert_eq!(wire["ops"].as_array().map(Vec::len), Some(2));
+        assert_eq!(
+            serde_json::from_value::<CompiledExpr>(wire).unwrap(),
+            expected
+        );
+        let unknown_field = serde_json::from_str::<CompiledExpr>(
+            r#"{"ops":[{"LoadConst":1.0}],"unexpected":true}"#,
+        )
+        .expect_err("unknown compiled-expression fields must be refused");
+        assert!(unknown_field.to_string().contains("unknown field"));
+
+        let malformed = serde_json::from_str::<CompiledExpr>(r#"{"ops":[{"Add":0}]}"#)
+            .expect_err("deserialization must run the structural bytecode validator");
+        assert!(malformed.to_string().contains("invalid zero arity"));
+    }
+
+    #[test]
+    fn compiled_expr_serde_limit_distrusts_sequence_hints_and_stops_early() {
+        for hostile_hint in [Some(MAX_COMPILE_OPS + 1), Some(usize::MAX)] {
+            let next_calls = Rc::new(Cell::new(0));
+            let error = BoundedCompiledOpsVisitor
+                .visit_seq(HintCompiledOpSeq::new(
+                    MAX_COMPILE_OPS + 2,
+                    hostile_hint,
+                    Rc::clone(&next_calls),
+                ))
+                .expect_err("an over-limit hint must fail before reading elements");
+            assert!(error.to_string().contains("at most 8192"));
+            assert_eq!(next_calls.get(), 0);
+        }
+
+        for underreported_hint in [None, Some(1), Some(MAX_COMPILE_OPS)] {
+            let next_calls = Rc::new(Cell::new(0));
+            let error = BoundedCompiledOpsVisitor
+                .visit_seq(HintCompiledOpSeq::new(
+                    MAX_COMPILE_OPS + 2,
+                    underreported_hint,
+                    Rc::clone(&next_calls),
+                ))
+                .expect_err("an underreported sequence must not bypass the operation limit");
+            assert!(error.to_string().contains("at most 8192"));
+            assert_eq!(
+                next_calls.get(),
+                MAX_COMPILE_OPS + 1,
+                "the decoder must stop after observing one excess element"
+            );
+        }
+
+        let next_calls = Rc::new(Cell::new(0));
+        let ops = BoundedCompiledOpsVisitor
+            .visit_seq(HintCompiledOpSeq::new(
+                MAX_COMPILE_OPS,
+                None,
+                Rc::clone(&next_calls),
+            ))
+            .expect("the exact operation limit is admitted by the streaming decoder");
+        assert_eq!(ops.len(), MAX_COMPILE_OPS);
+        assert_eq!(next_calls.get(), MAX_COMPILE_OPS);
+    }
+
+    #[test]
+    fn compiled_expr_serde_capacity_growth_is_bounded() {
+        assert_eq!(next_compiled_op_capacity(0), Some(1));
+        assert_eq!(next_compiled_op_capacity(1), Some(2));
+        assert_eq!(next_compiled_op_capacity(2), Some(4));
+        assert_eq!(
+            next_compiled_op_capacity(MAX_COMPILE_OPS - 1),
+            Some(MAX_COMPILE_OPS)
+        );
+        assert_eq!(next_compiled_op_capacity(MAX_COMPILE_OPS), None);
+    }
 
     #[test]
     fn test_compile_rejection_of_unmapped_symbols() {

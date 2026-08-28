@@ -1,7 +1,7 @@
 //! # fsym-core
 //!
 //! Core symbolic expression AST, canonicalization primitives, and symbol registry
-//! for FrankenSymPy.
+//! for FrankenSymPy (WS04).
 
 #![forbid(unsafe_code)]
 

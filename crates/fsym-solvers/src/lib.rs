@@ -110,8 +110,24 @@ pub fn solve_poly(poly: &UnivariatePoly) -> Result<Vec<Expr>, SolverError> {
                 ));
             };
             let disc = c1 * c1 - BigRational::from_integer(4.into()) * c0 * c2;
+            let two_a_rat = c2 * BigRational::from_integer(2.into());
+            if let Some(sqrt_disc_rat) = disc.exact_sqrt() {
+                let r1_rat = (-c1 + &sqrt_disc_rat) / &two_a_rat;
+                let r2_rat = (-c1 - sqrt_disc_rat) / two_a_rat;
+                let e1 = if r1_rat.is_integer() {
+                    Expr::Integer(r1_rat.to_integer())
+                } else {
+                    Expr::Rational(r1_rat)
+                };
+                let e2 = if r2_rat.is_integer() {
+                    Expr::Integer(r2_rat.to_integer())
+                } else {
+                    Expr::Rational(r2_rat)
+                };
+                return Ok(vec![e1, e2]);
+            }
             let neg_b = Expr::Rational(-c1.clone());
-            let two_a = Expr::Rational(c2 * BigRational::from_integer(2.into()));
+            let two_a = Expr::Rational(two_a_rat);
             let disc_expr = Expr::Rational(disc);
             let sqrt_disc = Expr::Pow(
                 std::sync::Arc::new(disc_expr),
@@ -788,5 +804,66 @@ mod tests {
             &f_res_exp,
             &x
         ));
+    }
+
+    #[test]
+    fn test_solve_poly_quadratic_exact_and_symbolic() {
+        let x = Symbol::new("x");
+
+        // 1. Exact integer roots: x^2 - 5x + 6 = (x - 2)(x - 3) = 0
+        let p1 = UnivariatePoly::new(
+            x.clone(),
+            vec![
+                BigRational::from_integer(6.into()),
+                BigRational::from_integer((-5).into()),
+                BigRational::one(),
+            ],
+        );
+        let roots1 = solve_poly(&p1).unwrap();
+        assert_eq!(roots1, vec![Expr::from_i64(3), Expr::from_i64(2)]);
+
+        // 2. Exact rational roots: 4x^2 - 1 = (2x - 1)(2x + 1) = 0 -> x = ±1/2
+        let p2 = UnivariatePoly::new(
+            x.clone(),
+            vec![
+                BigRational::from_integer((-1).into()),
+                BigRational::zero(),
+                BigRational::from_integer(4.into()),
+            ],
+        );
+        let roots2 = solve_poly(&p2).unwrap();
+        assert_eq!(
+            roots2,
+            vec![
+                Expr::Rational(BigRational::new(1.into(), 2.into())),
+                Expr::Rational(BigRational::new((-1).into(), 2.into())),
+            ]
+        );
+
+        // 3. Repeated root (discriminant = 0): x^2 - 4x + 4 = (x - 2)^2 = 0
+        let p3 = UnivariatePoly::new(
+            x.clone(),
+            vec![
+                BigRational::from_integer(4.into()),
+                BigRational::from_integer((-4).into()),
+                BigRational::one(),
+            ],
+        );
+        let roots3 = solve_poly(&p3).unwrap();
+        assert_eq!(roots3, vec![Expr::from_i64(2), Expr::from_i64(2)]);
+
+        // 4. Non-perfect square discriminant (symbolic radical): x^2 - 2 = 0 -> x = ±sqrt(2)
+        let p4 = UnivariatePoly::new(
+            x.clone(),
+            vec![
+                BigRational::from_integer((-2).into()),
+                BigRational::zero(),
+                BigRational::one(),
+            ],
+        );
+        let roots4 = solve_poly(&p4).unwrap();
+        assert_eq!(roots4.len(), 2);
+        assert!(matches!(roots4[0], Expr::Mul(_)));
+        assert!(matches!(roots4[1], Expr::Mul(_)));
     }
 }

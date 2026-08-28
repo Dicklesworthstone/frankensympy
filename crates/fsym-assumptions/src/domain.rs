@@ -325,7 +325,8 @@ impl Domain {
                         kind: CoercionKind::FractionEmbedding,
                         is_exact: true,
                     })
-                } else if base.can_coerce_to(f_base)
+                } else if (base.can_coerce_to(f_base)
+                    || (**base == Domain::QQ && **f_base == Domain::ZZ))
                     && generators.iter().all(|g| f_gens.contains(g))
                 {
                     Some(CoercionReceipt {
@@ -349,7 +350,9 @@ impl Domain {
                     generators: g2,
                 },
             ) => {
-                if b1.can_coerce_to(b2) && g1.iter().all(|g| g2.contains(g)) {
+                if (b1.can_coerce_to(b2) || (**b1 == Domain::QQ && **b2 == Domain::ZZ))
+                    && g1.iter().all(|g| g2.contains(g))
+                {
                     Some(CoercionReceipt {
                         from: self.clone(),
                         to: target.clone(),
@@ -362,7 +365,10 @@ impl Domain {
             }
 
             (d, Domain::FractionField { base, .. }) => {
-                if d == base.as_ref() || d.can_coerce_to(base) {
+                if d == base.as_ref()
+                    || d.can_coerce_to(base)
+                    || (*d == Domain::QQ && **base == Domain::ZZ)
+                {
                     Some(CoercionReceipt {
                         from: self.clone(),
                         to: target.clone(),
