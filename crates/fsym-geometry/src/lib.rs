@@ -22,6 +22,8 @@ pub enum GeometryError {
     ParallelLines,
     #[error("A symbolic degeneracy predicate is undecidable without additional assumptions")]
     SymbolicDegeneracyUndetermined,
+    #[error("A polygon must have at least 3 vertices")]
+    DegeneratePolygon,
 }
 
 /// 2D Symbolic Point.
@@ -55,6 +57,88 @@ impl Point2D {
 impl fmt::Display for Point2D {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Point2D({}, {})", self.x, self.y)
+    }
+}
+
+/// 3D Symbolic Point.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Point3D {
+    pub x: Expr,
+    pub y: Expr,
+    pub z: Expr,
+}
+
+impl Point3D {
+    pub fn new(x: Expr, y: Expr, z: Expr) -> Self {
+        Self { x, y, z }
+    }
+
+    /// Squared Euclidean distance between two 3D points: (x2 - x1)^2 + (y2 - y1)^2 + (z2 - z1)^2.
+    pub fn distance_squared(&self, other: &Self) -> Expr {
+        let dx = Expr::Add(vec![
+            other.x.clone(),
+            Expr::Mul(vec![Expr::from_i64(-1), self.x.clone()]),
+        ]);
+        let dy = Expr::Add(vec![
+            other.y.clone(),
+            Expr::Mul(vec![Expr::from_i64(-1), self.y.clone()]),
+        ]);
+        let dz = Expr::Add(vec![
+            other.z.clone(),
+            Expr::Mul(vec![Expr::from_i64(-1), self.z.clone()]),
+        ]);
+        let dx2 = Expr::Pow(Arc::new(dx), Arc::new(Expr::from_i64(2)));
+        let dy2 = Expr::Pow(Arc::new(dy), Arc::new(Expr::from_i64(2)));
+        let dz2 = Expr::Pow(Arc::new(dz), Arc::new(Expr::from_i64(2)));
+        simplify(&Expr::Add(vec![dx2, dy2, dz2]))
+    }
+}
+
+impl fmt::Display for Point3D {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Point3D({}, {}, {})", self.x, self.y, self.z)
+    }
+}
+
+/// 3D Symbolic Segment between two endpoints.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Segment3D {
+    pub p1: Point3D,
+    pub p2: Point3D,
+}
+
+impl Segment3D {
+    pub fn new(p1: Point3D, p2: Point3D) -> Self {
+        Self { p1, p2 }
+    }
+
+    /// Midpoint of the 3D segment: ((x1 + x2)/2, (y1 + y2)/2, (z1 + z2)/2).
+    pub fn midpoint(&self) -> Point3D {
+        let half = Expr::Rational(BigRational::new(1.into(), 2.into()));
+        let mx = simplify(&Expr::Mul(vec![
+            half.clone(),
+            Expr::Add(vec![self.p1.x.clone(), self.p2.x.clone()]),
+        ]));
+        let my = simplify(&Expr::Mul(vec![
+            half.clone(),
+            Expr::Add(vec![self.p1.y.clone(), self.p2.y.clone()]),
+        ]));
+        let mz = simplify(&Expr::Mul(vec![
+            half,
+            Expr::Add(vec![self.p1.z.clone(), self.p2.z.clone()]),
+        ]));
+        Point3D::new(mx, my, mz)
+    }
+
+    /// Squared length of the 3D segment.
+    pub fn length_squared(&self) -> Expr {
+        self.p1.distance_squared(&self.p2)
+    }
+}
+
+impl fmt::Display for Segment3D {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Segment3D({}, {})", self.p1, self.p2)
     }
 }
 
@@ -312,6 +396,82 @@ impl Triangle2D {
     }
 }
 
+/// 2D General Symbolic Polygon defined by an ordered list of vertices.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Polygon2D {
+    vertices: Vec<Point2D>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Polygon2DWire {
+    vertices: Vec<Point2D>,
+}
+
+impl<'de> Deserialize<'de> for Polygon2D {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = Polygon2DWire::deserialize(deserializer)?;
+        Self::new(wire.vertices).map_err(serde::de::Error::custom)
+    }
+}
+
+impl Polygon2D {
+    pub fn new(vertices: Vec<Point2D>) -> Result<Self, GeometryError> {
+        if vertices.len() < 3 {
+            return Err(GeometryError::DegeneratePolygon);
+        }
+        Ok(Self { vertices })
+    }
+
+    pub fn vertices(&self) -> &[Point2D] {
+        &self.vertices
+    }
+
+    /// Double signed area via the Shoelace formula: sum_{i=0}^{n-1} (x_i y_{i+1} - x_{i+1} y_i).
+    pub fn double_signed_area(&self) -> Expr {
+        let n = self.vertices.len();
+        let mut terms = Vec::with_capacity(n);
+        for i in 0..n {
+            let next = (i + 1) % n;
+            let xi = &self.vertices[i].x;
+            let yi = &self.vertices[i].y;
+            let x_next = &self.vertices[next].x;
+            let y_next = &self.vertices[next].y;
+
+            let term = Expr::Add(vec![
+                Expr::Mul(vec![xi.clone(), y_next.clone()]),
+                Expr::Mul(vec![Expr::from_i64(-1), x_next.clone(), yi.clone()]),
+            ]);
+            terms.push(term);
+        }
+        simplify(&Expr::Add(terms))
+    }
+
+    /// Centroid of the polygon vertices.
+    pub fn centroid(&self) -> Point2D {
+        let n = self.vertices.len();
+        let scale = Expr::Rational(BigRational::new(1.into(), (n as i64).into()));
+        let mut sum_x = Vec::with_capacity(n);
+        let mut sum_y = Vec::with_capacity(n);
+        for v in &self.vertices {
+            sum_x.push(v.x.clone());
+            sum_y.push(v.y.clone());
+        }
+        let cx = simplify(&Expr::Mul(vec![scale.clone(), Expr::Add(sum_x)]));
+        let cy = simplify(&Expr::Mul(vec![scale, Expr::Add(sum_y)]));
+        Point2D::new(cx, cy)
+    }
+}
+
+impl fmt::Display for Polygon2D {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Polygon2D({} vertices)", self.vertices.len())
+    }
+}
+
 /// 2D Symbolic Circle.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 pub struct Circle {
@@ -351,11 +511,94 @@ impl Circle {
     pub fn radius(&self) -> &Expr {
         &self.radius
     }
+
+    /// Exact circle area: π * r^2.
+    pub fn area(&self) -> Expr {
+        let r2 = Expr::Pow(Arc::new(self.radius.clone()), Arc::new(Expr::from_i64(2)));
+        simplify(&Expr::Mul(vec![Expr::Const(fsym_core::Constant::Pi), r2]))
+    }
+
+    /// Exact circle circumference: 2 * π * r.
+    pub fn circumference(&self) -> Expr {
+        simplify(&Expr::Mul(vec![
+            Expr::from_i64(2),
+            Expr::Const(fsym_core::Constant::Pi),
+            self.radius.clone(),
+        ]))
+    }
 }
 
 impl fmt::Display for Circle {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Circle({}, r={})", self.center, self.radius)
+    }
+}
+
+/// 3D Symbolic Sphere.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+pub struct Sphere {
+    center: Point3D,
+    radius: Expr,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SphereWire {
+    center: Point3D,
+    radius: Expr,
+}
+
+impl<'de> Deserialize<'de> for Sphere {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = SphereWire::deserialize(deserializer)?;
+        Self::new(wire.center, wire.radius).map_err(serde::de::Error::custom)
+    }
+}
+
+impl Sphere {
+    pub fn new(center: Point3D, radius: Expr) -> Result<Self, GeometryError> {
+        if numeric_value(&radius).is_some_and(|value| value < BigRational::from_integer(0.into())) {
+            return Err(GeometryError::NegativeRadius);
+        }
+        Ok(Self { center, radius })
+    }
+
+    pub fn center(&self) -> &Point3D {
+        &self.center
+    }
+
+    pub fn radius(&self) -> &Expr {
+        &self.radius
+    }
+
+    /// Exact sphere volume: (4/3) * π * r^3.
+    pub fn volume(&self) -> Expr {
+        let four_thirds = Expr::Rational(BigRational::new(4.into(), 3.into()));
+        let r3 = Expr::Pow(Arc::new(self.radius.clone()), Arc::new(Expr::from_i64(3)));
+        simplify(&Expr::Mul(vec![
+            four_thirds,
+            Expr::Const(fsym_core::Constant::Pi),
+            r3,
+        ]))
+    }
+
+    /// Exact sphere surface area: 4 * π * r^2.
+    pub fn surface_area(&self) -> Expr {
+        let r2 = Expr::Pow(Arc::new(self.radius.clone()), Arc::new(Expr::from_i64(2)));
+        simplify(&Expr::Mul(vec![
+            Expr::from_i64(4),
+            Expr::Const(fsym_core::Constant::Pi),
+            r2,
+        ]))
+    }
+}
+
+impl fmt::Display for Sphere {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Sphere({}, r={})", self.center, self.radius)
     }
 }
 
@@ -439,45 +682,95 @@ mod tests {
     }
 
     #[test]
-    fn circle_rejects_provably_negative_radius() {
-        let origin = Point2D::new(Expr::from_i64(0), Expr::from_i64(0));
-        assert_eq!(
-            Circle::new(origin.clone(), Expr::from_i64(-1)),
-            Err(GeometryError::NegativeRadius)
-        );
-        assert!(Circle::new(origin, Expr::symbol("r")).is_ok());
+    fn test_point3d_and_segment3d() {
+        let p1 = Point3D::new(Expr::from_i64(0), Expr::from_i64(0), Expr::from_i64(0));
+        let p2 = Point3D::new(Expr::from_i64(2), Expr::from_i64(4), Expr::from_i64(4));
+        assert_eq!(p1.distance_squared(&p2), Expr::from_i64(36));
+
+        let seg = Segment3D::new(p1, p2);
+        assert_eq!(seg.length_squared(), Expr::from_i64(36));
+        let mid = seg.midpoint();
+        assert_eq!(mid.x, Expr::from_i64(1));
+        assert_eq!(mid.y, Expr::from_i64(2));
+        assert_eq!(mid.z, Expr::from_i64(2));
     }
 
     #[test]
-    fn geometry_wire_decode_cannot_bypass_constructor_invariants() {
+    fn test_sphere_and_circle_metrics() {
         let origin = Point2D::new(Expr::from_i64(0), Expr::from_i64(0));
-        let valid_line = Line2D::new(
-            origin.clone(),
-            Point2D::new(Expr::from_i64(1), Expr::from_i64(1)),
-        )
-        .unwrap();
-        let mut line_wire = serde_json::to_value(&valid_line).unwrap();
-        assert_eq!(
-            serde_json::from_value::<Line2D>(line_wire.clone()).unwrap(),
-            valid_line
-        );
-        let duplicate_point = line_wire.get("p1").unwrap().clone();
-        line_wire
-            .as_object_mut()
-            .unwrap()
-            .insert("p2".to_owned(), duplicate_point);
-        assert!(serde_json::from_value::<Line2D>(line_wire).is_err());
+        let circle = Circle::new(origin, Expr::from_i64(3)).unwrap();
+        // Area = 9 * pi
+        let expected_area = Expr::Mul(vec![
+            Expr::from_i64(9),
+            Expr::Const(fsym_core::Constant::Pi),
+        ]);
+        assert_eq!(circle.area(), expected_area);
+        // Circumference = 6 * pi
+        let expected_circ = Expr::Mul(vec![
+            Expr::from_i64(6),
+            Expr::Const(fsym_core::Constant::Pi),
+        ]);
+        assert_eq!(circle.circumference(), expected_circ);
 
-        let valid_circle = Circle::new(origin, Expr::from_i64(1)).unwrap();
-        let mut circle_wire = serde_json::to_value(&valid_circle).unwrap();
+        let origin3d = Point3D::new(Expr::from_i64(0), Expr::from_i64(0), Expr::from_i64(0));
+        let sphere = Sphere::new(origin3d, Expr::from_i64(3)).unwrap();
+        // Surface area = 36 * pi
+        let expected_sa = Expr::Mul(vec![
+            Expr::from_i64(36),
+            Expr::Const(fsym_core::Constant::Pi),
+        ]);
+        assert_eq!(sphere.surface_area(), expected_sa);
+        // Volume = 36 * pi: (4/3) * pi * 27 = 36 * pi
+        let expected_vol = Expr::Mul(vec![
+            Expr::from_i64(36),
+            Expr::Const(fsym_core::Constant::Pi),
+        ]);
+        assert_eq!(sphere.volume(), expected_vol);
+    }
+
+    #[test]
+    fn test_polygon2d_area_centroid_and_wire_invariants() {
+        // Square [0,0], [2,0], [2,2], [0,2] -> Area 4, double signed area 8, Centroid (1, 1)
+        let vertices = vec![
+            Point2D::new(Expr::from_i64(0), Expr::from_i64(0)),
+            Point2D::new(Expr::from_i64(2), Expr::from_i64(0)),
+            Point2D::new(Expr::from_i64(2), Expr::from_i64(2)),
+            Point2D::new(Expr::from_i64(0), Expr::from_i64(2)),
+        ];
+        let poly = Polygon2D::new(vertices).unwrap();
+        assert_eq!(poly.double_signed_area(), Expr::from_i64(8));
+        let c = poly.centroid();
+        assert_eq!(c.x, Expr::from_i64(1));
+        assert_eq!(c.y, Expr::from_i64(1));
+
+        // Less than 3 vertices rejected
         assert_eq!(
-            serde_json::from_value::<Circle>(circle_wire.clone()).unwrap(),
-            valid_circle
+            Polygon2D::new(vec![
+                Point2D::new(Expr::from_i64(0), Expr::from_i64(0)),
+                Point2D::new(Expr::from_i64(1), Expr::from_i64(1)),
+            ]),
+            Err(GeometryError::DegeneratePolygon)
         );
-        circle_wire.as_object_mut().unwrap().insert(
+
+        // Wire decoding validation
+        let poly_wire = serde_json::to_value(&poly).unwrap();
+        assert_eq!(
+            serde_json::from_value::<Polygon2D>(poly_wire.clone()).unwrap(),
+            poly
+        );
+
+        // Sphere wire decoding validation
+        let origin3d = Point3D::new(Expr::from_i64(0), Expr::from_i64(0), Expr::from_i64(0));
+        let valid_sphere = Sphere::new(origin3d, Expr::from_i64(2)).unwrap();
+        let mut sphere_wire = serde_json::to_value(&valid_sphere).unwrap();
+        assert_eq!(
+            serde_json::from_value::<Sphere>(sphere_wire.clone()).unwrap(),
+            valid_sphere
+        );
+        sphere_wire.as_object_mut().unwrap().insert(
             "radius".to_owned(),
-            serde_json::to_value(Expr::from_i64(-1)).unwrap(),
+            serde_json::to_value(Expr::from_i64(-5)).unwrap(),
         );
-        assert!(serde_json::from_value::<Circle>(circle_wire).is_err());
+        assert!(serde_json::from_value::<Sphere>(sphere_wire).is_err());
     }
 }

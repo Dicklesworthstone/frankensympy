@@ -230,6 +230,50 @@ pub fn jacobi_symbol(a: i64, n: u64) -> Result<i64, NTheoryError> {
         .ok_or(NTheoryError::InvalidJacobiDenominator)
 }
 
+/// Legendre symbol (a / p) for integer `a` and odd prime `p`.
+pub fn legendre_symbol(a: i64, p: u64) -> Result<i64, NTheoryError> {
+    if p <= 2 || !is_prime(p) {
+        return Err(NTheoryError::InvalidJacobiDenominator);
+    }
+    jacobi_symbol(a, p)
+}
+
+/// Checks if an integer is square-free (has no repeated prime factors).
+pub fn is_square_free(n: u64) -> Result<bool, NTheoryError> {
+    Ok(mobius(n)? != 0)
+}
+
+/// Little omega function: ω(n) = number of distinct prime factors of n.
+pub fn prime_omega(n: u64) -> Result<u32, NTheoryError> {
+    if n == 0 {
+        return Err(NTheoryError::ZeroFactorization);
+    }
+    if n == 1 {
+        return Ok(0);
+    }
+    u32::try_from(factorint(n)?.len()).map_err(|_| NTheoryError::ArithmeticOverflow("prime omega"))
+}
+
+/// Big omega function: Ω(n) = total number of prime factors of n with multiplicity.
+pub fn prime_big_omega(n: u64) -> Result<u32, NTheoryError> {
+    if n == 0 {
+        return Err(NTheoryError::ZeroFactorization);
+    }
+    if n == 1 {
+        return Ok(0);
+    }
+    Ok(factorint(n)?.values().sum())
+}
+
+/// Decides whether `n` is a perfect number: σ_1(n) == 2n.
+pub fn is_perfect_number(n: u64) -> Result<bool, NTheoryError> {
+    if n == 0 {
+        return Ok(false);
+    }
+    let sum = divisor_sum(n, 1)?;
+    Ok(sum == 2 * n)
+}
+
 /// Extended Euclidean Algorithm returning (gcd, x, y) such that a*x + b*y = gcd(a, b).
 pub fn egcd(a: &BigInt, b: &BigInt) -> (BigInt, BigInt, BigInt) {
     a.extended_gcd(b)
@@ -495,5 +539,54 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_omega_square_free_and_perfect_numbers() {
+        // 12 = 2^2 * 3: omega = 2, big omega = 3, not square-free
+        assert_eq!(prime_omega(12), Ok(2));
+        assert_eq!(prime_big_omega(12), Ok(3));
+        assert_eq!(is_square_free(12), Ok(false));
+
+        // 30 = 2 * 3 * 5: omega = 3, big omega = 3, square-free
+        assert_eq!(prime_omega(30), Ok(3));
+        assert_eq!(prime_big_omega(30), Ok(3));
+        assert_eq!(is_square_free(30), Ok(true));
+
+        // 1: omega = 0, big omega = 0, square-free
+        assert_eq!(prime_omega(1), Ok(0));
+        assert_eq!(prime_big_omega(1), Ok(0));
+        assert_eq!(is_square_free(1), Ok(true));
+
+        // Perfect numbers: 6 (1+2+3=6), 28 (1+2+4+7+14=28), 496
+        assert_eq!(is_perfect_number(6), Ok(true));
+        assert_eq!(is_perfect_number(28), Ok(true));
+        assert_eq!(is_perfect_number(496), Ok(true));
+        assert_eq!(is_perfect_number(12), Ok(false));
+        assert_eq!(is_perfect_number(0), Ok(false));
+    }
+
+    #[test]
+    fn test_legendre_symbol() {
+        // (2 / 7) = 1 (since 3^2 = 9 = 2 mod 7)
+        assert_eq!(legendre_symbol(2, 7), Ok(1));
+        // (3 / 7) = -1
+        assert_eq!(legendre_symbol(3, 7), Ok(-1));
+        // (7 / 7) = 0
+        assert_eq!(legendre_symbol(7, 7), Ok(0));
+
+        // Non-prime or even denominators are rejected
+        assert_eq!(
+            legendre_symbol(2, 4),
+            Err(NTheoryError::InvalidJacobiDenominator)
+        );
+        assert_eq!(
+            legendre_symbol(2, 2),
+            Err(NTheoryError::InvalidJacobiDenominator)
+        );
+        assert_eq!(
+            legendre_symbol(2, 9),
+            Err(NTheoryError::InvalidJacobiDenominator)
+        );
     }
 }

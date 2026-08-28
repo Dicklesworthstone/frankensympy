@@ -69,6 +69,24 @@ impl SymSet {
         }
     }
 
+    pub fn interval_left_open(start: Expr, end: Expr) -> Self {
+        SymSet::Interval {
+            start,
+            end,
+            left_open: true,
+            right_open: false,
+        }
+    }
+
+    pub fn interval_right_open(start: Expr, end: Expr) -> Self {
+        SymSet::Interval {
+            start,
+            end,
+            left_open: false,
+            right_open: true,
+        }
+    }
+
     pub fn finite(elements: impl IntoIterator<Item = Expr>) -> Self {
         let set: BTreeSet<Expr> = elements.into_iter().collect();
         if set.is_empty() {
@@ -246,6 +264,61 @@ impl SymSet {
     /// Set difference computed as `self ∩ otherᶜ`.
     pub fn difference(self, other: SymSet) -> Self {
         self.intersection(other.complement())
+    }
+
+    /// Symmetric difference computed as `(self \ other) ∪ (other \ self)`.
+    pub fn symmetric_difference(self, other: SymSet) -> Self {
+        self.clone()
+            .difference(other.clone())
+            .union(other.difference(self))
+    }
+
+    /// Decides whether the set is definitively empty (`Some(true)`), non-empty (`Some(false)`),
+    /// or undetermined under symbolic parameters (`None`).
+    pub fn is_empty_set(&self) -> Option<bool> {
+        match self {
+            SymSet::EmptySet => Some(true),
+            SymSet::UniversalSet => Some(false),
+            SymSet::FiniteSet(elems) => Some(elems.is_empty()),
+            SymSet::Interval {
+                start,
+                end,
+                left_open,
+                right_open,
+            } => {
+                if let (Some(s), Some(e)) = (numeric_value(start), numeric_value(end)) {
+                    Some(s > e || (s == e && (*left_open || *right_open)))
+                } else if start == end && (*left_open || *right_open) {
+                    Some(true)
+                } else {
+                    None
+                }
+            }
+            SymSet::Union(parts) => {
+                let mut all_empty = true;
+                for part in parts {
+                    match part.is_empty_set() {
+                        Some(false) => return Some(false),
+                        Some(true) => {}
+                        None => all_empty = false,
+                    }
+                }
+                if all_empty { Some(true) } else { None }
+            }
+            SymSet::Intersection(parts) => {
+                for part in parts {
+                    if part.is_empty_set() == Some(true) {
+                        return Some(true);
+                    }
+                }
+                None
+            }
+            SymSet::Complement(inner) => match inner.as_ref() {
+                SymSet::UniversalSet => Some(true),
+                SymSet::EmptySet => Some(false),
+                _ => None,
+            },
+        }
     }
 }
 
@@ -444,5 +517,55 @@ mod tests {
         ));
         // Symbolic bounds cannot be validated eagerly.
         assert!(SymSet::interval_checked(Expr::symbol("a"), Expr::symbol("b")).is_ok());
+    }
+
+    #[test]
+    fn test_half_open_intervals_and_symmetric_difference() {
+        let left_open = SymSet::interval_left_open(Expr::from_i64(0), Expr::from_i64(5));
+        assert_eq!(left_open.contains(&Expr::from_i64(0)), Some(false));
+        assert_eq!(left_open.contains(&Expr::from_i64(5)), Some(true));
+
+        let right_open = SymSet::interval_right_open(Expr::from_i64(0), Expr::from_i64(5));
+        assert_eq!(right_open.contains(&Expr::from_i64(0)), Some(true));
+        assert_eq!(right_open.contains(&Expr::from_i64(5)), Some(false));
+
+        // Symmetric difference of {1, 2, 3} and {2, 3, 4} is {1, 4}
+        let s1 = SymSet::finite(vec![
+            Expr::from_i64(1),
+            Expr::from_i64(2),
+            Expr::from_i64(3),
+        ]);
+        let s2 = SymSet::finite(vec![
+            Expr::from_i64(2),
+            Expr::from_i64(3),
+            Expr::from_i64(4),
+        ]);
+        let sym_diff = s1.symmetric_difference(s2);
+        assert_eq!(sym_diff.contains(&Expr::from_i64(1)), Some(true));
+        assert_eq!(sym_diff.contains(&Expr::from_i64(4)), Some(true));
+        assert_eq!(sym_diff.contains(&Expr::from_i64(2)), Some(false));
+        assert_eq!(sym_diff.contains(&Expr::from_i64(3)), Some(false));
+    }
+
+    #[test]
+    fn test_is_empty_set() {
+        assert_eq!(SymSet::EmptySet.is_empty_set(), Some(true));
+        assert_eq!(SymSet::UniversalSet.is_empty_set(), Some(false));
+        assert_eq!(
+            SymSet::finite(vec![Expr::from_i64(1), Expr::from_i64(2)]).is_empty_set(),
+            Some(false)
+        );
+
+        let valid_iv = SymSet::interval_closed(Expr::from_i64(1), Expr::from_i64(5));
+        assert_eq!(valid_iv.is_empty_set(), Some(false));
+
+        let inverted_iv = SymSet::interval_closed(Expr::from_i64(5), Expr::from_i64(1));
+        assert_eq!(inverted_iv.is_empty_set(), Some(true));
+
+        let open_point = SymSet::interval_open(Expr::from_i64(2), Expr::from_i64(2));
+        assert_eq!(open_point.is_empty_set(), Some(true));
+
+        let closed_point = SymSet::interval_closed(Expr::from_i64(2), Expr::from_i64(2));
+        assert_eq!(closed_point.is_empty_set(), Some(false));
     }
 }
