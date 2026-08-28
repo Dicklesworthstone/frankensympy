@@ -310,6 +310,16 @@ def _validate_ledger_index_entry(
     return discrepancy
 
 
+def _validate_existing_ledger_record(existing: dict, incoming: dict) -> None:
+    """Admit idempotent reruns without silently changing ledger triage state."""
+    discrepancy = incoming["discrepancy_id"]
+    if record_identity(existing) != record_identity(incoming):
+        raise ValueError(f"ledger collision on {discrepancy} with different identity")
+    for field in ("severity", "status"):
+        if existing[field] != incoming[field]:
+            raise ValueError(f"ledger record {discrepancy} conflicts on {field!r}")
+
+
 def load_ledger_index(ledger: Path) -> set[str]:
     index_path = ledger / "index.ndjson"
     indexed_ids = set()
@@ -388,10 +398,7 @@ def persist_ledger(records: list[dict], ledger: Path) -> None:
         ok, reason = is_valid_discrepancy(existing)
         if not ok:
             raise ValueError(f"invalid existing ledger record {record_path}: {reason}")
-        if record_identity(existing) != record_identity(record):
-            raise ValueError(
-                f"ledger collision on {record['discrepancy_id']} with different identity"
-            )
+        _validate_existing_ledger_record(existing, record)
 
     # Publish only after every existing record and the complete index pass
     # validation, so pre-existing corruption cannot cause a partial run.

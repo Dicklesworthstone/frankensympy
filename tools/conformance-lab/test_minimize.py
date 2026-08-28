@@ -13,6 +13,7 @@ from minimize import (
     LEDGER_INDEX_FIELDS,
     MAX_LEDGER_RECORD_BYTES,
     _index_validated_records,
+    _validate_existing_ledger_record,
     _validate_ledger_index_entry,
     _validate_ledger_record_size,
     build_records,
@@ -109,6 +110,33 @@ class DiscrepancyMinimizerTests(unittest.TestCase):
                 MAX_LEDGER_RECORD_BYTES + 1,
                 Path("disc-oversized.json"),
             )
+
+    def test_existing_ledger_record_cannot_silently_change_triage(self) -> None:
+        record = records(
+            [envelope("fixture/a", side="upstream_oracle")],
+            [
+                envelope(
+                    "fixture/a",
+                    side="frankensympy_candidate",
+                    observed_type="Wrong",
+                )
+            ],
+        )[0][0]
+        rerun = copy.deepcopy(record)
+        rerun["created_at_utc"] = "later"
+        _validate_existing_ledger_record(record, rerun)
+
+        for field, replacement in (
+            ("severity", "security"),
+            ("status", "closed_verified"),
+        ):
+            with self.subTest(field=field):
+                mutant = copy.deepcopy(rerun)
+                mutant[field] = replacement
+                with self.assertRaisesRegex(
+                    ValueError, rf"conflicts on {field!r}"
+                ):
+                    _validate_existing_ledger_record(record, mutant)
 
     def test_reordered_envelopes_pair_by_fixture_id(self) -> None:
         oracle = [
