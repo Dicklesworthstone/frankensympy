@@ -294,6 +294,17 @@ pub fn binomial(n: Expr, k: Expr) -> Expr {
     }
     if let (Expr::Integer(ni), Expr::Integer(ki)) = (&n, &k)
         && ki >= &BigInt::from(0)
+        && ni >= &BigInt::from(0)
+        && ki > ni
+    {
+        // For non-negative integer n < k, the binomial coefficient
+        // is 0 by the standard convention, not an unevaluated
+        // function. This matches the existing top-level "k is zero"
+        // and "n equals k" early-exit paths.
+        return Expr::from_i64(0);
+    }
+    if let (Expr::Integer(ni), Expr::Integer(ki)) = (&n, &k)
+        && ki >= &BigInt::from(0)
         && ni >= ki
         && ni <= &BigInt::from(100)
     {
@@ -457,6 +468,21 @@ mod tests {
         assert_eq!(
             binomial(Expr::from_i64(10), Expr::from_i64(10)),
             Expr::from_i64(1)
+        );
+        // k > n with both non-negative: standard convention is 0,
+        // not a deferred function. n = 0 / k = 1 covers the empty-set
+        // boundary; 5 / 6 covers a non-trivial k > n.
+        assert_eq!(
+            binomial(Expr::from_i64(0), Expr::from_i64(1)),
+            Expr::from_i64(0)
+        );
+        assert_eq!(
+            binomial(Expr::from_i64(5), Expr::from_i64(6)),
+            Expr::from_i64(0)
+        );
+        assert_eq!(
+            binomial(Expr::from_i64(10), Expr::from_i64(15)),
+            Expr::from_i64(0)
         );
 
         assert_eq!(fibonacci(Expr::from_i64(0)), Expr::from_i64(0));
