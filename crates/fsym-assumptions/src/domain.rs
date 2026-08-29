@@ -72,6 +72,58 @@ pub struct CoercionReceipt {
     pub is_exact: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExactRealSign {
+    Negative,
+    Zero,
+    Positive,
+}
+
+fn exact_real_sign(expr: &Expr) -> Option<ExactRealSign> {
+    let integer_sign = |value: &fsym_core::BigInt| {
+        if value.is_negative() {
+            ExactRealSign::Negative
+        } else if value.is_zero() {
+            ExactRealSign::Zero
+        } else {
+            ExactRealSign::Positive
+        }
+    };
+
+    match expr {
+        Expr::Integer(value) => Some(integer_sign(value)),
+        Expr::Rational(value) => Some(integer_sign(value.numer())),
+        Expr::Const(
+            fsym_core::Constant::Pi | fsym_core::Constant::E | fsym_core::Constant::Infinity,
+        ) => Some(ExactRealSign::Positive),
+        Expr::Const(fsym_core::Constant::NegativeInfinity) => Some(ExactRealSign::Negative),
+        Expr::Sym(_)
+        | Expr::Const(
+            fsym_core::Constant::I
+            | fsym_core::Constant::ComplexInfinity
+            | fsym_core::Constant::NaN,
+        )
+        | Expr::Add(_)
+        | Expr::Mul(_)
+        | Expr::Pow(..)
+        | Expr::Function(..) => None,
+    }
+}
+
+fn exact_integer_exponent_sign(expr: &Expr) -> Option<ExactRealSign> {
+    match expr {
+        Expr::Integer(_) => exact_real_sign(expr),
+        Expr::Rational(value) if value.is_integer() => exact_real_sign(expr),
+        Expr::Rational(_)
+        | Expr::Sym(_)
+        | Expr::Const(_)
+        | Expr::Add(_)
+        | Expr::Mul(_)
+        | Expr::Pow(..)
+        | Expr::Function(..) => None,
+    }
+}
+
 impl Domain {
     /// Canonical binary hashing for deterministic domain identity.
     pub fn hash_canonical(&self, hasher: &mut blake3::Hasher) {
@@ -384,7 +436,10 @@ impl Domain {
         }
     }
 
-    /// Infers the natural minimal domain of an exact expression.
+    /// Conservatively infers a containing domain from expression structure.
+    ///
+    /// This structural lane does not simplify the expression or discharge
+    /// assumptions, so it may return a wider domain than the value requires.
     pub fn of_expr(expr: &Expr) -> Domain {
         match expr {
             Expr::Integer(_) => Domain::ZZ,
@@ -409,20 +464,57 @@ impl Domain {
             Expr::Pow(b, e) => {
                 let b_dom = Domain::of_expr(b);
                 let e_dom = Domain::of_expr(e);
-                match (b_dom, e_dom) {
-                    (Domain::ZZ, Domain::ZZ) => match e.as_ref() {
-                        Expr::Integer(n) if !n.is_negative() => Domain::ZZ,
-                        _ => Domain::QQ,
-                    },
-                    (Domain::QQ, Domain::ZZ) => Domain::QQ,
-                    (Domain::RR, Domain::ZZ | Domain::QQ) => Domain::RR,
-                    (Domain::CC, _) | (_, Domain::CC) => Domain::CC,
-                    (Domain::PolyRing { base, generators }, Domain::ZZ) => match e.as_ref() {
-                        Expr::Integer(n) if !n.is_negative() => {
-                            Domain::PolyRing { base, generators }
+
+                // The current native term contract treats exact zero raised to
+                // a non-positive or unproved-sign exponent as undefined.  The
+                // catch-all expression domain is the only honest answer when
+                // this infallible prototype cannot establish definedness.
+                if matches!(exact_real_sign(b), Some(ExactRealSign::Zero))
+                    && !matches!(exact_real_sign(e), Some(ExactRealSign::Positive))
+                {
+                    return Domain::ExpressionDomain;
+                }
+
+                if let Some(exponent_sign) = exact_integer_exponent_sign(e) {
+                    return match b_dom {
+                        Domain::ZZ => {
+                            if exponent_sign == ExactRealSign::Negative {
+                                Domain::QQ
+                            } else {
+                                Domain::ZZ
+                            }
                         }
-                        _ => Domain::FractionField { base, generators },
-                    },
+                        Domain::QQ => Domain::QQ,
+                        Domain::RR => Domain::RR,
+                        Domain::CC => Domain::CC,
+                        Domain::PolyRing { base, generators } => {
+                            if exponent_sign == ExactRealSign::Negative {
+                                Domain::FractionField { base, generators }
+                            } else {
+                                Domain::PolyRing { base, generators }
+                            }
+                        }
+                        Domain::FractionField { .. }
+                        | Domain::FiniteField { .. }
+                        | Domain::ExpressionDomain => Domain::ExpressionDomain,
+                    };
+                }
+
+                match (b_dom, e_dom) {
+                    (Domain::ZZ, Domain::ZZ) => Domain::QQ,
+                    (Domain::QQ, Domain::ZZ) => Domain::QQ,
+                    (Domain::RR, Domain::ZZ) => Domain::RR,
+                    (Domain::ZZ | Domain::QQ | Domain::RR, Domain::QQ | Domain::RR) => {
+                        match exact_real_sign(b) {
+                            Some(ExactRealSign::Positive | ExactRealSign::Zero) => Domain::RR,
+                            Some(ExactRealSign::Negative) | None => Domain::CC,
+                        }
+                    }
+                    (Domain::CC, Domain::ZZ | Domain::QQ | Domain::RR | Domain::CC)
+                    | (Domain::ZZ | Domain::QQ | Domain::RR, Domain::CC) => Domain::CC,
+                    (Domain::PolyRing { base, generators }, Domain::ZZ) => {
+                        Domain::FractionField { base, generators }
+                    }
                     _ => Domain::ExpressionDomain,
                 }
             }
@@ -656,5 +748,89 @@ mod tests {
         // Power with negative exponent gives QQ, not ZZ
         let pow_neg = Expr::Pow(Arc::new(Expr::from_i64(2)), Arc::new(Expr::from_i64(-1)));
         assert_eq!(Domain::of_expr(&pow_neg), Domain::QQ);
+    }
+
+    #[test]
+    fn power_domain_inference_refuses_undefined_exact_zero_powers() {
+        for exponent in [Expr::from_i64(0), Expr::from_i64(-1)] {
+            let power = Expr::Pow(Arc::new(Expr::from_i64(0)), Arc::new(exponent));
+            assert_eq!(Domain::of_expr(&power), Domain::ExpressionDomain);
+        }
+
+        let structurally_unknown_integer = Expr::Add(vec![Expr::from_i64(1), Expr::from_i64(1)]);
+        let zero_to_unknown = Expr::Pow(
+            Arc::new(Expr::from_i64(0)),
+            Arc::new(structurally_unknown_integer),
+        );
+        assert_eq!(Domain::of_expr(&zero_to_unknown), Domain::ExpressionDomain);
+
+        let zero_squared = Expr::Pow(Arc::new(Expr::from_i64(0)), Arc::new(Expr::from_i64(2)));
+        assert_eq!(Domain::of_expr(&zero_squared), Domain::ZZ);
+    }
+
+    #[test]
+    fn power_domain_inference_respects_exact_sign_and_integrality() {
+        let half = Expr::rational(1, 2).unwrap();
+        let zero_to_half = Expr::Pow(Arc::new(Expr::from_i64(0)), Arc::new(half.clone()));
+        let positive_to_half = Expr::Pow(Arc::new(Expr::from_i64(4)), Arc::new(half.clone()));
+        let negative_to_half = Expr::Pow(Arc::new(Expr::from_i64(-4)), Arc::new(half.clone()));
+        let negative_infinity_to_half = Expr::Pow(
+            Arc::new(Expr::Const(fsym_core::Constant::NegativeInfinity)),
+            Arc::new(half),
+        );
+
+        assert_eq!(Domain::of_expr(&zero_to_half), Domain::RR);
+        assert_eq!(Domain::of_expr(&positive_to_half), Domain::RR);
+        assert_eq!(Domain::of_expr(&negative_to_half), Domain::CC);
+        assert_eq!(Domain::of_expr(&negative_infinity_to_half), Domain::CC);
+
+        let three_as_rational = Expr::Rational(fsym_core::BigRational::from_integer(
+            fsym_core::BigInt::from(3),
+        ));
+        let negative_one_as_rational = Expr::Rational(fsym_core::BigRational::from_integer(
+            fsym_core::BigInt::from(-1),
+        ));
+        let positive_integral = Expr::Pow(Arc::new(Expr::from_i64(2)), Arc::new(three_as_rational));
+        let negative_integral = Expr::Pow(
+            Arc::new(Expr::from_i64(2)),
+            Arc::new(negative_one_as_rational),
+        );
+        assert_eq!(Domain::of_expr(&positive_integral), Domain::ZZ);
+        assert_eq!(Domain::of_expr(&negative_integral), Domain::QQ);
+    }
+
+    #[test]
+    fn irrational_real_exponents_widen_only_branch_unsafe_bases() {
+        let positive = Expr::Pow(
+            Arc::new(Expr::from_i64(2)),
+            Arc::new(Expr::Const(fsym_core::Constant::Pi)),
+        );
+        let negative = Expr::Pow(
+            Arc::new(Expr::from_i64(-2)),
+            Arc::new(Expr::Const(fsym_core::Constant::Pi)),
+        );
+
+        assert_eq!(Domain::of_expr(&positive), Domain::RR);
+        assert_eq!(Domain::of_expr(&negative), Domain::CC);
+    }
+
+    #[test]
+    fn complex_power_inference_does_not_erase_symbolic_domains() {
+        let imaginary = Expr::Const(fsym_core::Constant::I);
+        let symbol = Expr::symbol("x");
+        let symbolic_base = Expr::Pow(Arc::new(symbol.clone()), Arc::new(imaginary.clone()));
+        let symbolic_exponent = Expr::Pow(Arc::new(imaginary.clone()), Arc::new(symbol));
+
+        assert_eq!(Domain::of_expr(&symbolic_base), Domain::ExpressionDomain);
+        assert_eq!(
+            Domain::of_expr(&symbolic_exponent),
+            Domain::ExpressionDomain
+        );
+
+        let exact_integer = Expr::Pow(Arc::new(imaginary.clone()), Arc::new(Expr::from_i64(2)));
+        let exact_rational =
+            Expr::Pow(Arc::new(imaginary), Arc::new(Expr::rational(1, 2).unwrap()));
+        assert_eq!(Domain::of_expr(&exact_integer), Domain::CC);
+        assert_eq!(Domain::of_expr(&exact_rational), Domain::CC);
     }
 }
