@@ -418,6 +418,28 @@ fn join_numeric_sorts(lhs: &Sort, rhs: &Sort) -> Option<Sort> {
     }
 }
 
+fn numeric_operand_domain_is_admissible(
+    declared_domain: TermDomain,
+    operand_domain: TermDomain,
+) -> bool {
+    // The child domain is part of its semantic identity, not a hint derived
+    // from the current payload.  Accept the numeric inclusion chain, but do
+    // not silently narrow a wider (or unrestricted) child without a recorded
+    // coercion decision.
+    match declared_domain {
+        TermDomain::Integer => operand_domain == TermDomain::Integer,
+        TermDomain::Rational => {
+            matches!(operand_domain, TermDomain::Integer | TermDomain::Rational)
+        }
+        TermDomain::Real => matches!(
+            operand_domain,
+            TermDomain::Integer | TermDomain::Rational | TermDomain::Real
+        ),
+        TermDomain::Complex => operand_domain.is_numeric(),
+        TermDomain::Expression => true,
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ExactRealSign {
     Negative,
@@ -985,7 +1007,47 @@ impl TermDag {
                 | TermNode::Function(..) => Ok(()),
             },
             TermDomain::Complex => Ok(()),
+        }?;
+        self.validate_numeric_operand_domains(node, domain)
+    }
+
+    fn validate_numeric_operand_domains(
+        &self,
+        node: &TermNode,
+        domain: TermDomain,
+    ) -> Result<(), DagError> {
+        let validate_operand = |operand: &TermId| {
+            let operand_domain = self
+                .term_domain(*operand)
+                .ok_or(DagError::UnknownId(*operand))?;
+            if numeric_operand_domain_is_admissible(domain, operand_domain) {
+                Ok(())
+            } else {
+                Err(DagError::DomainIncompatible {
+                    domain,
+                    reason: "operand declared domain is not contained in the parent domain",
+                })
+            }
+        };
+
+        match node {
+            TermNode::Add(operands) | TermNode::Mul(operands) => {
+                for operand in operands {
+                    validate_operand(operand)?;
+                }
+            }
+            TermNode::Pow(base, exponent) => {
+                validate_operand(base)?;
+                validate_operand(exponent)?;
+            }
+            TermNode::Sym(_)
+            | TermNode::Integer(_)
+            | TermNode::Rational(_)
+            | TermNode::Const(_)
+            | TermNode::Function(..)
+            | TermNode::Lambda(..) => {}
         }
+        Ok(())
     }
 
     fn prospective_node_depth(
@@ -2410,6 +2472,144 @@ mod tests {
                 .unwrap(),
             integer
         );
+    }
+
+    #[test]
+    fn numeric_operator_domains_reject_wider_or_expression_operands() {
+        const REASON: &str = "operand declared domain is not contained in the parent domain";
+
+        let mut dag = TermDag::new();
+        let integer = dag
+            .insert_node_in_domain(TermNode::Integer(BigInt::from(2)), TermDomain::Integer)
+            .unwrap();
+        let rational_integer = dag
+            .insert_node_in_domain(TermNode::Integer(BigInt::from(3)), TermDomain::Rational)
+            .unwrap();
+        let real_integer = dag
+            .insert_node_in_domain(TermNode::Integer(BigInt::from(4)), TermDomain::Real)
+            .unwrap();
+        let complex_integer = dag
+            .insert_node_in_domain(TermNode::Integer(BigInt::from(5)), TermDomain::Complex)
+            .unwrap();
+        let expression_integer = dag.insert_node(TermNode::Integer(BigInt::from(6))).unwrap();
+        let real_pi = dag
+            .insert_node_in_domain(TermNode::Const(Constant::Pi), TermDomain::Real)
+            .unwrap();
+        let before = dag.len();
+
+        assert_eq!(
+            dag.insert_node_in_domain(TermNode::Add(vec![real_pi]), TermDomain::Integer),
+            Err(DagError::DomainIncompatible {
+                domain: TermDomain::Integer,
+                reason: REASON,
+            })
+        );
+        assert_eq!(
+            dag.insert_node_in_domain(
+                TermNode::Mul(vec![integer, expression_integer]),
+                TermDomain::Rational,
+            ),
+            Err(DagError::DomainIncompatible {
+                domain: TermDomain::Rational,
+                reason: REASON,
+            })
+        );
+        assert_eq!(
+            dag.insert_node_in_domain(TermNode::Pow(real_pi, integer), TermDomain::Integer,),
+            Err(DagError::DomainIncompatible {
+                domain: TermDomain::Integer,
+                reason: REASON,
+            })
+        );
+        assert_eq!(
+            dag.insert_node_in_domain(
+                TermNode::Pow(integer, rational_integer),
+                TermDomain::Integer,
+            ),
+            Err(DagError::DomainIncompatible {
+                domain: TermDomain::Integer,
+                reason: REASON,
+            })
+        );
+        assert_eq!(
+            dag.insert_node_in_domain(
+                TermNode::Pow(rational_integer, real_integer),
+                TermDomain::Rational,
+            ),
+            Err(DagError::DomainIncompatible {
+                domain: TermDomain::Rational,
+                reason: REASON,
+            })
+        );
+        assert_eq!(
+            dag.insert_node_in_domain(TermNode::Add(vec![complex_integer]), TermDomain::Real,),
+            Err(DagError::DomainIncompatible {
+                domain: TermDomain::Real,
+                reason: REASON,
+            })
+        );
+        assert_eq!(
+            dag.insert_node_in_domain(
+                TermNode::Add(vec![expression_integer]),
+                TermDomain::Complex,
+            ),
+            Err(DagError::DomainIncompatible {
+                domain: TermDomain::Complex,
+                reason: REASON,
+            })
+        );
+        assert_eq!(dag.len(), before, "refused parents must not be interned");
+    }
+
+    #[test]
+    fn numeric_operator_domains_admit_same_and_narrower_operands() {
+        let mut dag = TermDag::new();
+        let integer = dag
+            .insert_node_in_domain(TermNode::Integer(BigInt::from(2)), TermDomain::Integer)
+            .unwrap();
+        let rational = dag
+            .insert_node_in_domain(
+                TermNode::Rational(BigRational::new(BigInt::from(1), BigInt::from(2))),
+                TermDomain::Rational,
+            )
+            .unwrap();
+        let real = dag
+            .insert_node_in_domain(TermNode::Const(Constant::Pi), TermDomain::Real)
+            .unwrap();
+        let complex = dag
+            .insert_node_in_domain(TermNode::Const(Constant::I), TermDomain::Complex)
+            .unwrap();
+
+        let integer_sum = dag
+            .insert_node_in_domain(TermNode::Add(vec![integer]), TermDomain::Integer)
+            .unwrap();
+        let rational_product = dag
+            .insert_node_in_domain(TermNode::Mul(vec![integer, rational]), TermDomain::Rational)
+            .unwrap();
+        let real_sum = dag
+            .insert_node_in_domain(
+                TermNode::Add(vec![integer, rational, real]),
+                TermDomain::Real,
+            )
+            .unwrap();
+        let complex_product = dag
+            .insert_node_in_domain(
+                TermNode::Mul(vec![integer, rational, real, complex]),
+                TermDomain::Complex,
+            )
+            .unwrap();
+        let rational_power = dag
+            .insert_node_in_domain(TermNode::Pow(rational, integer), TermDomain::Rational)
+            .unwrap();
+
+        assert_eq!(dag.term_domain(integer_sum), Some(TermDomain::Integer));
+        assert_eq!(
+            dag.term_domain(rational_product),
+            Some(TermDomain::Rational)
+        );
+        assert_eq!(dag.term_domain(real_sum), Some(TermDomain::Real));
+        assert_eq!(dag.term_domain(complex_product), Some(TermDomain::Complex));
+        assert_eq!(dag.term_domain(rational_power), Some(TermDomain::Rational));
     }
 
     #[test]
