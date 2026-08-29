@@ -806,6 +806,21 @@ mod tests {
     }
 
     #[test]
+    fn printing_limits_default_matches_the_harness_contract() {
+        // Pin the default PrintingLimits values so a future
+        // loosening of the harness contract is intentional, not
+        // accidental. These values are the budget the WS05/WS12
+        // renderers assume when callers do not pass an explicit
+        // PrintingLimits.
+        let defaults = PrintingLimits::default();
+        assert_eq!(defaults.max_depth, 256);
+        assert_eq!(defaults.max_nodes, 100_000);
+        assert_eq!(defaults.max_output_bytes, 1_048_576);
+        assert_eq!(defaults.max_lines, 1);
+        assert_eq!(defaults.max_line_bytes, 1_048_576);
+    }
+
+    #[test]
     fn test_python_and_c_code_emission() {
         let e = add(vec![
             pow(sym("x"), Expr::from_i64(2)),
