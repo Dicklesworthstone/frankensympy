@@ -669,6 +669,17 @@ fn subs_internal(
                                     operator: "Derivative",
                                 });
                             };
+                            if new_var != var && free_symbols(body)?.contains(new_var) {
+                                // `Derivative(y, x).subs(x, y)` cannot be represented
+                                // by merely rebuilding the derivative: doing so would
+                                // reinterpret the pre-existing free `y` as the new
+                                // differentiation variable.  A profile-compatible
+                                // shell can preserve this as an explicit `Subs` node;
+                                // the current native IR cannot, so fail closed.
+                                return Err(BindingError::NonAlphaRenamingRequired {
+                                    operator: "Derivative",
+                                });
+                            }
                             return Ok(BinderNode::Derivative {
                                 var: new_var.clone(),
                                 body: Box::new(subs_internal(
@@ -1771,6 +1782,41 @@ mod tests {
         )
         .to_expr();
         assert_eq!(renamed, expected);
+    }
+
+    #[test]
+    fn derivative_variable_substitution_refuses_existing_free_symbol_capture() {
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+
+        for body in [
+            Expr::Sym(y.clone()),
+            Expr::Add(vec![Expr::Sym(x.clone()), Expr::Sym(y.clone())]),
+        ] {
+            let derivative = BinderNode::derivative(x.clone(), body).to_expr();
+            assert_eq!(
+                super::capture_avoiding_subs(&derivative, &x, &Expr::Sym(y.clone())),
+                Err(BindingError::NonAlphaRenamingRequired {
+                    operator: "Derivative",
+                })
+            );
+        }
+
+        let derivative = BinderNode::derivative(y.clone(), Expr::Sym(y.clone())).to_expr();
+        let renamed = super::capture_avoiding_subs(&derivative, &y, &Expr::symbol("z"))
+            .expect("a fresh differentiation variable does not capture the body");
+        assert_eq!(
+            renamed,
+            BinderNode::derivative(Symbol::new("z"), Expr::symbol("z")).to_expr()
+        );
+
+        let constant = BinderNode::derivative(x.clone(), Expr::from_i64(1)).to_expr();
+        let renamed_constant = super::capture_avoiding_subs(&constant, &x, &Expr::Sym(y.clone()))
+            .expect("a variable absent from the body cannot be captured");
+        assert_eq!(
+            renamed_constant,
+            BinderNode::derivative(y, Expr::from_i64(1)).to_expr()
+        );
     }
 }
 

@@ -53,6 +53,8 @@ pub enum RemoteVerificationFailure {
     ClaimDiscrepancy,
     #[error("certificate lemma has no trusted verifier")]
     UnverifiedCertificateLemma,
+    #[error("invalid certificate lemma")]
+    InvalidCertificateLemma,
     #[error("derivation exceeds a trusted verifier limit")]
     DerivationLimitExceeded,
     #[error("proof step identifier space is exhausted")]
@@ -76,6 +78,7 @@ impl From<KernelError> for RemoteVerificationFailure {
             KernelError::InvalidDefinitionalReduction { .. } => Self::InvalidDefinitionalReduction,
             KernelError::ClaimDiscrepancy { .. } => Self::ClaimDiscrepancy,
             KernelError::UnverifiedCertificateLemma { .. } => Self::UnverifiedCertificateLemma,
+            KernelError::InvalidCertificateLemma { .. } => Self::InvalidCertificateLemma,
             KernelError::DerivationLimitExceeded { .. } => Self::DerivationLimitExceeded,
             KernelError::StepIdExhausted => Self::StepIdExhausted,
             KernelError::Budget(_) => Self::Budget,

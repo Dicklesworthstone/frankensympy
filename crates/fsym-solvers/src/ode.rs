@@ -530,3 +530,27 @@ pub fn verify_const_coeff_second_order_nonhomogeneous_solution(
     };
     try_simplify(&expanded).is_ok_and(|simplified| simplified.is_zero())
 }
+
+/// Exact residual checker for a candidate solution of a first-order linear ODE: $y'(x) + P(x) y(x) = Q(x)$.
+pub fn verify_linear_first_order_solution(
+    sol: &Expr,
+    p_expr: &Expr,
+    q_expr: &Expr,
+    x: &Symbol,
+) -> bool {
+    if !crate::verifier_inputs_within_bounds([sol, p_expr, q_expr]) {
+        return false;
+    }
+    let dy = diff(sol, x);
+    let py = Expr::Mul(vec![p_expr.clone(), sol.clone()]);
+    let mut terms = vec![dy, py];
+    if !q_expr.is_zero() {
+        terms.push(Expr::Mul(vec![Expr::from_i64(-1), q_expr.clone()]));
+    }
+    let residual = Expr::Add(terms);
+    let expanded = match try_expand(&residual) {
+        Ok(expanded) => expanded,
+        Err(_) => return false,
+    };
+    try_simplify(&expanded).is_ok_and(|simplified| simplified.is_zero())
+}

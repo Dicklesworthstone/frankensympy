@@ -9,7 +9,7 @@
 //! - Immutable assumptions context checking and side-condition verification;
 //! - Capture-safe substitution;
 //! - Definitional reductions and arithmetic evaluations;
-//! - Fail-closed certificate lemma syntax pending a trusted family dispatcher;
+//! - Certificate lemma verification with typed certificate payloads and trusted family dispatcher;
 //! - Independent, stateless derivation tree verification.
 
 #![forbid(unsafe_code)]
@@ -25,4 +25,4 @@ pub use kernel::{
     claim_verification_units, derivation_verification_units, expression_verification_units,
     verify_derivation_independent,
 };
-pub use rule::{ProofRule, StepId};
+pub use rule::{CertificatePayload, ProofRule, StepId};

@@ -51,6 +51,15 @@ pub enum ProofRule {
     CertificateLemma {
         family: String,
         claim: Claim,
-        receipt_digest: [u8; 32],
+        certificate: CertificatePayload,
     },
+}
+
+/// Typed certificate payload carried by a certificate lemma.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CertificatePayload {
+    /// Certified real ball enclosure $\mathcal{B}(m, r) = [m - r, m + r]$.
+    RealBall(fsym_core::RealBall),
+    /// Unverified or opaque receipt digest for external/unimplemented families.
+    Opaque { receipt_digest: [u8; 32] },
 }

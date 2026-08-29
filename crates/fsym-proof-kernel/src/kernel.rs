@@ -7,12 +7,12 @@
 #![forbid(unsafe_code)]
 
 use crate::claim::Claim;
-use crate::rule::{ProofRule, StepId};
+use crate::rule::{CertificatePayload, ProofRule, StepId};
 use fsym_assumptions::{
     Domain, ImmutableAssumptionsSnapshot, Predicate, TruthValue, capture_avoiding_subs,
 };
 use fsym_budget::{BudgetMeter, Dimension, MeterError};
-use fsym_core::{BigInt, BigRational, Constant, Expr, Symbol};
+use fsym_core::{BigInt, BigRational, Constant, Expr, RealBall, Symbol};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -36,7 +36,7 @@ pub enum KernelError {
     SymmetryRequiresEquality(Box<Claim>),
     #[error("Congruence error: {0}")]
     InvalidCongruence(String),
-    #[error("Substitution error: {0}")]
+    #[error("Invalid substitution: {0}")]
     InvalidSubstitution(String),
     #[error(
         "Context predicate `{predicate:?}` not entailed for `{expr}` (got truth value `{got}`)"
@@ -57,6 +57,8 @@ pub enum KernelError {
     },
     #[error("Certificate lemma family `{family}` has no trusted certificate-dispatch verifier")]
     UnverifiedCertificateLemma { family: String },
+    #[error("Invalid certificate lemma for family `{family}`: {reason}")]
+    InvalidCertificateLemma { family: String, reason: String },
     #[error("Derivation exceeds the trusted `{resource}` limit of {limit}")]
     DerivationLimitExceeded { resource: &'static str, limit: u64 },
     #[error("Proof kernel step identifier space is exhausted")]
@@ -318,19 +320,19 @@ impl ProofKernel {
         )
     }
 
-    /// Helper to prove a certificate lemma from an admitted family: family, claim, receipt_digest.
+    /// Helper to prove a certificate lemma from an admitted family: family, claim, certificate.
     pub fn prove_certificate_lemma(
         &mut self,
         family: impl Into<String>,
         claim: Claim,
-        receipt_digest: [u8; 32],
+        certificate: CertificatePayload,
         meter: &mut impl BudgetMeter,
     ) -> Result<StepId, KernelError> {
         self.add_step(
             ProofRule::CertificateLemma {
                 family: family.into(),
                 claim,
-                receipt_digest,
+                certificate,
             },
             meter,
         )
@@ -963,15 +965,240 @@ fn check_rule_application(
             rule_name,
         } => check_definitional_reduction(lhs, rhs, rule_name),
 
-        // A digest identifies bytes; it neither supplies those bytes nor proves that a
-        // registered checker accepted them for this exact claim and context. Keep the
-        // constructor fail-closed until its schema carries a typed, bounded certificate
-        // that a family-specific verifier can decode and check here.
-        ProofRule::CertificateLemma { family, .. } => {
-            Err(KernelError::UnverifiedCertificateLemma {
-                family: family.clone(),
+        ProofRule::CertificateLemma {
+            family,
+            claim,
+            certificate,
+        } => dispatch_certificate_lemma(family, claim, certificate, context),
+    }
+}
+
+/// Dispatches certificate lemma verification to registered trusted family verifiers.
+fn dispatch_certificate_lemma(
+    family: &str,
+    claim: &Claim,
+    certificate: &CertificatePayload,
+    context: &ImmutableAssumptionsSnapshot,
+) -> Result<Claim, KernelError> {
+    match family {
+        "RealBall" => check_real_ball_certificate(claim, certificate, context),
+        _ => Err(KernelError::UnverifiedCertificateLemma {
+            family: family.to_string(),
+        }),
+    }
+}
+
+/// Validates a typed RealBall certificate lemma against ground term arithmetic.
+fn check_real_ball_certificate(
+    claim: &Claim,
+    certificate: &CertificatePayload,
+    _context: &ImmutableAssumptionsSnapshot,
+) -> Result<Claim, KernelError> {
+    let ball = match certificate {
+        CertificatePayload::RealBall(ball) => ball,
+        CertificatePayload::Opaque { .. } => {
+            return Err(KernelError::InvalidCertificateLemma {
+                family: "RealBall".to_string(),
+                reason:
+                    "RealBall certificate requires typed CertificatePayload::RealBall, not Opaque"
+                        .to_string(),
+            });
+        }
+    };
+
+    match claim {
+        Claim::NonZero(expr) => {
+            let evaluated_ball = eval_real_ball(expr)?;
+            if !ball.contains_ball(&evaluated_ball) && &evaluated_ball != ball {
+                return Err(KernelError::InvalidCertificateLemma {
+                    family: "RealBall".to_string(),
+                    reason: format!(
+                        "expression evaluates to `{evaluated_ball}`, not enclosed by certificate ball `{ball}`"
+                    ),
+                });
+            }
+            if ball.contains_zero() {
+                return Err(KernelError::InvalidCertificateLemma {
+                    family: "RealBall".to_string(),
+                    reason: format!("ball `{ball}` contains zero, cannot establish NonZero"),
+                });
+            }
+            Ok(claim.clone())
+        }
+        Claim::PredicateHold { expr, predicate } => {
+            let evaluated_ball = eval_real_ball(expr)?;
+            if !ball.contains_ball(&evaluated_ball) && &evaluated_ball != ball {
+                return Err(KernelError::InvalidCertificateLemma {
+                    family: "RealBall".to_string(),
+                    reason: format!(
+                        "expression evaluates to `{evaluated_ball}`, not enclosed by certificate ball `{ball}`"
+                    ),
+                });
+            }
+            match predicate {
+                Predicate::Positive => {
+                    if !ball.is_positive() {
+                        return Err(KernelError::InvalidCertificateLemma {
+                            family: "RealBall".to_string(),
+                            reason: format!("ball `{ball}` is not strictly positive"),
+                        });
+                    }
+                    Ok(claim.clone())
+                }
+                Predicate::Negative => {
+                    if !ball.is_negative() {
+                        return Err(KernelError::InvalidCertificateLemma {
+                            family: "RealBall".to_string(),
+                            reason: format!("ball `{ball}` is not strictly negative"),
+                        });
+                    }
+                    Ok(claim.clone())
+                }
+                Predicate::NonZero => {
+                    if ball.contains_zero() {
+                        return Err(KernelError::InvalidCertificateLemma {
+                            family: "RealBall".to_string(),
+                            reason: format!("ball `{ball}` contains zero"),
+                        });
+                    }
+                    Ok(claim.clone())
+                }
+                Predicate::Real => Ok(claim.clone()),
+                other => Err(KernelError::InvalidCertificateLemma {
+                    family: "RealBall".to_string(),
+                    reason: format!("RealBall cannot establish predicate `{other:?}`"),
+                }),
+            }
+        }
+        Claim::DomainMembership { expr, domain } => {
+            if domain != &Domain::RR && domain != &Domain::CC {
+                return Err(KernelError::InvalidCertificateLemma {
+                    family: "RealBall".to_string(),
+                    reason: format!("RealBall only certifies real/complex domains, not `{domain}`"),
+                });
+            }
+            let evaluated_ball = eval_real_ball(expr)?;
+            if !ball.contains_ball(&evaluated_ball) && &evaluated_ball != ball {
+                return Err(KernelError::InvalidCertificateLemma {
+                    family: "RealBall".to_string(),
+                    reason: format!(
+                        "expression evaluates to `{evaluated_ball}`, not enclosed by certificate ball `{ball}`"
+                    ),
+                });
+            }
+            Ok(claim.clone())
+        }
+        Claim::Equality { lhs, rhs } => {
+            let eval_lhs = eval_real_ball(lhs)?;
+            let eval_rhs = eval_real_ball(rhs)?;
+            let zero = BigRational::from_integer(BigInt::from(0));
+            if eval_lhs.radius() == &zero
+                && eval_rhs.radius() == &zero
+                && eval_lhs.midpoint() == eval_rhs.midpoint()
+            {
+                Ok(claim.clone())
+            } else {
+                Err(KernelError::InvalidCertificateLemma {
+                    family: "RealBall".to_string(),
+                    reason: format!(
+                        "RealBall equality requires exact point agreement: LHS `{eval_lhs}`, RHS `{eval_rhs}`"
+                    ),
+                })
+            }
+        }
+        Claim::AlgebraicIdentity { .. } => Err(KernelError::InvalidCertificateLemma {
+            family: "RealBall".to_string(),
+            reason: "RealBall certificates apply to evaluated ground terms, not universal algebraic identities"
+                .to_string(),
+        }),
+    }
+}
+
+/// Recursively evaluates ground algebraic expressions using certified real ball arithmetic.
+fn eval_real_ball(expr: &Expr) -> Result<RealBall, KernelError> {
+    match expr {
+        Expr::Integer(n) => Ok(RealBall::exact(BigRational::from_integer(n.clone()))),
+        Expr::Rational(r) => Ok(RealBall::exact(r.clone())),
+        Expr::Const(Constant::Pi) => {
+            let mid = BigRational::new(3141592653589793_i64.into(), 1000000000000000_i64.into());
+            let rad = BigRational::new(1.into(), 1000000000000000_i64.into());
+            RealBall::new(mid, rad).map_err(|e| KernelError::InvalidCertificateLemma {
+                family: "RealBall".to_string(),
+                reason: e.to_string(),
             })
         }
+        Expr::Const(Constant::E) => {
+            let mid = BigRational::new(2718281828459045_i64.into(), 1000000000000000_i64.into());
+            let rad = BigRational::new(1.into(), 1000000000000000_i64.into());
+            RealBall::new(mid, rad).map_err(|e| KernelError::InvalidCertificateLemma {
+                family: "RealBall".to_string(),
+                reason: e.to_string(),
+            })
+        }
+        Expr::Add(terms) => {
+            let mut acc = RealBall::exact(BigRational::from_integer(BigInt::from(0)));
+            for term in terms {
+                let term_ball = eval_real_ball(term)?;
+                acc = acc.add(&term_ball);
+            }
+            Ok(acc)
+        }
+        Expr::Mul(factors) => {
+            let mut acc = RealBall::exact(BigRational::from_integer(BigInt::from(1)));
+            for factor in factors {
+                let factor_ball = eval_real_ball(factor)?;
+                acc = acc.mul(&factor_ball);
+            }
+            Ok(acc)
+        }
+        Expr::Pow(base, exp) => {
+            let base_ball = eval_real_ball(base)?;
+            match exp.as_ref() {
+                Expr::Integer(n) => {
+                    let one = BigRational::from_integer(BigInt::from(1));
+                    if n >= &BigInt::from(0) && n <= &BigInt::from(128) {
+                        let mut acc = RealBall::exact(one);
+                        let mut count = BigInt::from(0);
+                        while &count < n {
+                            acc = acc.mul(&base_ball);
+                            count += BigInt::from(1);
+                        }
+                        Ok(acc)
+                    } else if n >= &BigInt::from(-128) && n < &BigInt::from(0) {
+                        let inv_base =
+                            base_ball
+                                .inv()
+                                .map_err(|e| KernelError::InvalidCertificateLemma {
+                                    family: "RealBall".to_string(),
+                                    reason: e.to_string(),
+                                })?;
+                        let mut acc = RealBall::exact(one);
+                        let mut count = BigInt::from(0);
+                        let target = -n.clone();
+                        while count < target {
+                            acc = acc.mul(&inv_base);
+                            count += BigInt::from(1);
+                        }
+                        Ok(acc)
+                    } else {
+                        Err(KernelError::InvalidCertificateLemma {
+                            family: "RealBall".to_string(),
+                            reason: format!(
+                                "exponent `{n}` out of bounded range for RealBall evaluation"
+                            ),
+                        })
+                    }
+                }
+                _ => Err(KernelError::InvalidCertificateLemma {
+                    family: "RealBall".to_string(),
+                    reason: format!("non-integer exponent `{exp}` in RealBall evaluation"),
+                }),
+            }
+        }
+        other => Err(KernelError::InvalidCertificateLemma {
+            family: "RealBall".to_string(),
+            reason: format!("cannot evaluate non-ground/symbolic expression `{other}` to RealBall"),
+        }),
     }
 }
 
@@ -1502,11 +1729,11 @@ fn remap_rule(
         ProofRule::CertificateLemma {
             family,
             claim,
-            receipt_digest,
+            certificate,
         } => Ok(ProofRule::CertificateLemma {
             family: family.clone(),
             claim: claim.clone(),
-            receipt_digest: *receipt_digest,
+            certificate: certificate.clone(),
         }),
     }
 }

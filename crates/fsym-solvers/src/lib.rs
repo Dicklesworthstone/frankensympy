@@ -1149,4 +1149,31 @@ mod tests {
         sorted.sort_unstable();
         assert_eq!(sorted, vec![1, 2, 3]);
     }
+
+    #[test]
+    fn test_verify_linear_first_order_solution() {
+        let x = Symbol::new("x");
+        let c1 = Symbol::new("C1");
+
+        // dy/dx + 2*y = 4
+        // P(x) = 2, Q(x) = 4
+        // Solution: y(x) = 2 + C1 * exp(-2*x)
+        let p = Expr::from_i64(2);
+        let q = Expr::from_i64(4);
+        let sol = dsolve_linear_first_order(&p, &q, &x, &c1).unwrap();
+        assert!(verify_linear_first_order_solution(&sol, &p, &q, &x));
+
+        // Mutant / incorrect solution: y(x) = 3 + C1 * exp(-2*x)
+        let bad_sol = Expr::Add(vec![
+            Expr::from_i64(3),
+            Expr::Mul(vec![
+                Expr::Sym(c1.clone()),
+                Expr::Function(
+                    "exp".into(),
+                    vec![Expr::Mul(vec![Expr::from_i64(-2), Expr::Sym(x.clone())])],
+                ),
+            ]),
+        ]);
+        assert!(!verify_linear_first_order_solution(&bad_sol, &p, &q, &x));
+    }
 }

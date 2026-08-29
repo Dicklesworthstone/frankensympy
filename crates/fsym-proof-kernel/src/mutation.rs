@@ -210,6 +210,47 @@ mod tests {
     }
 
     #[test]
+    fn valid_real_ball_certificate_lemma_proves_ground_claims() {
+        let ctx = empty_context();
+        let mut kernel = ProofKernel::new(ctx.clone());
+        let mut meter = Unbounded;
+
+        // Positive test 1: Prove Predicate::Positive on ground expression 2 + 3
+        let expr = Expr::Add(vec![Expr::from_i64(2), Expr::from_i64(3)]);
+        let ball = fsym_core::RealBall::exact(fsym_core::BigRational::from_integer(
+            fsym_core::BigInt::from(5),
+        ));
+        let claim = Claim::predicate(expr, Predicate::Positive);
+        let s0 = kernel
+            .prove_certificate_lemma(
+                "RealBall",
+                claim.clone(),
+                crate::rule::CertificatePayload::RealBall(ball),
+                &mut meter,
+            )
+            .expect("valid RealBall certificate lemma step");
+
+        let derivation = kernel.export_derivation(s0).expect("export derivation");
+        let verified =
+            verify_derivation_independent(&derivation, &ctx).expect("independent verification");
+        assert_eq!(verified, claim);
+
+        // Positive test 2: Prove Domain::RR membership on ground value 42
+        let expr42 = Expr::from_i64(42);
+        let ball42 = fsym_core::RealBall::from_i64(42);
+        let claim42 = Claim::domain_membership(expr42, Domain::RR);
+        let s1 = kernel
+            .prove_certificate_lemma(
+                "RealBall",
+                claim42.clone(),
+                crate::rule::CertificatePayload::RealBall(ball42),
+                &mut meter,
+            )
+            .expect("valid RealBall domain step");
+        assert_eq!(kernel.get_claim(s1), Some(&claim42));
+    }
+
+    #[test]
     fn mutant_unchecked_certificate_lemma_killed() {
         let ctx = empty_context();
         let forged_claim = Claim::equality(Expr::symbol("x"), Expr::symbol("y"));
@@ -219,7 +260,9 @@ mod tests {
                 rule: ProofRule::CertificateLemma {
                     family: "unregistered-forged-family".to_string(),
                     claim: forged_claim.clone(),
-                    receipt_digest: [0x42; 32],
+                    certificate: crate::rule::CertificatePayload::Opaque {
+                        receipt_digest: [0x42; 32],
+                    },
                 },
                 claim: forged_claim,
             }],
@@ -234,7 +277,33 @@ mod tests {
     }
 
     #[test]
-    fn registered_family_digest_cannot_authorize_an_unrelated_claim() {
+    fn mutant_opaque_payload_for_real_ball_rejected() {
+        let ctx = empty_context();
+        let claim = Claim::predicate(Expr::from_i64(5), Predicate::Positive);
+        let derivation = DerivationTree {
+            steps: vec![DerivationStep {
+                id: StepId(0),
+                rule: ProofRule::CertificateLemma {
+                    family: "RealBall".to_string(),
+                    claim: claim.clone(),
+                    certificate: crate::rule::CertificatePayload::Opaque {
+                        receipt_digest: [0x42; 32],
+                    },
+                },
+                claim,
+            }],
+            root: StepId(0),
+        };
+
+        let error = verify_derivation_independent(&derivation, &ctx).unwrap_err();
+        assert!(matches!(
+            error,
+            KernelError::InvalidCertificateLemma { family, .. } if family == "RealBall"
+        ));
+    }
+
+    #[test]
+    fn registered_family_cannot_authorize_unrelated_symbol() {
         let ctx = empty_context();
         let ball = fsym_core::RealBall::new(
             fsym_core::BigRational::from_integer(fsym_core::BigInt::from(3)),
@@ -248,9 +317,7 @@ mod tests {
                 rule: ProofRule::CertificateLemma {
                     family: "RealBall".to_string(),
                     claim: forged_claim.clone(),
-                    // This is a genuine non-zero digest, but its ball says nothing about
-                    // the unrelated symbol or the claimed assumptions context.
-                    receipt_digest: ball.digest(),
+                    certificate: crate::rule::CertificatePayload::RealBall(ball),
                 },
                 claim: forged_claim,
             }],
@@ -260,40 +327,49 @@ mod tests {
         let error = verify_derivation_independent(&derivation, &ctx).unwrap_err();
         assert!(matches!(
             error,
-            KernelError::UnverifiedCertificateLemma { family } if family == "RealBall"
+            KernelError::InvalidCertificateLemma { family, .. } if family == "RealBall"
         ));
     }
 
     #[test]
-    fn proof_kernel_helpers_keep_certificate_lemmas_fail_closed() {
+    fn mutant_inconsistent_real_ball_claims_rejected() {
         let ctx = empty_context();
-        let mut kernel = ProofKernel::new(ctx.clone());
+        let mut kernel = ProofKernel::new(ctx);
         let mut meter = Unbounded;
 
-        let s0 = kernel
-            .prove_reflexivity(Expr::symbol("x"), &mut meter)
-            .unwrap();
-        let s1 = kernel
-            .prove_congruence_function("sin", vec![s0], &mut meter)
-            .unwrap();
-        assert_eq!(
-            kernel.get_claim(s1).unwrap(),
-            &Claim::equality(
-                Expr::Function("sin".to_string(), vec![Expr::symbol("x")]),
-                Expr::Function("sin".to_string(), vec![Expr::symbol("x")])
+        // Inconsistent claim 1: Negative number claimed to be Positive
+        let neg5 = Expr::from_i64(-5);
+        let ball_neg5 = fsym_core::RealBall::from_i64(-5);
+        let false_pos_claim = Claim::predicate(neg5, Predicate::Positive);
+        let err1 = kernel
+            .prove_certificate_lemma(
+                "RealBall",
+                false_pos_claim,
+                crate::rule::CertificatePayload::RealBall(ball_neg5),
+                &mut meter,
             )
-        );
-
-        let ball = fsym_core::RealBall::from_i64(5);
-        let claim = Claim::domain_membership(Expr::from_i64(5), Domain::RR);
-        let error = kernel
-            .prove_certificate_lemma("RealBall", claim.clone(), ball.digest(), &mut meter)
             .unwrap_err();
         assert!(matches!(
-            error,
-            KernelError::UnverifiedCertificateLemma { family } if family == "RealBall"
+            err1,
+            KernelError::InvalidCertificateLemma { family, .. } if family == "RealBall"
         ));
-        assert_eq!(kernel.step_count(), 2);
+
+        // Inconsistent claim 2: Zero claimed to be NonZero
+        let zero = Expr::from_i64(0);
+        let ball_zero = fsym_core::RealBall::from_i64(0);
+        let false_nz_claim = Claim::non_zero(zero);
+        let err2 = kernel
+            .prove_certificate_lemma(
+                "RealBall",
+                false_nz_claim,
+                crate::rule::CertificatePayload::RealBall(ball_zero),
+                &mut meter,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            err2,
+            KernelError::InvalidCertificateLemma { family, .. } if family == "RealBall"
+        ));
     }
 
     #[test]

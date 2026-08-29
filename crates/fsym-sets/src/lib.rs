@@ -532,6 +532,224 @@ impl SymSet {
             _ => None,
         }
     }
+
+    /// Returns the topological interior of the set in the standard topology on ℝ.
+    pub fn interior(&self) -> Option<SymSet> {
+        match self {
+            SymSet::EmptySet => Some(SymSet::EmptySet),
+            SymSet::UniversalSet => Some(SymSet::UniversalSet),
+            SymSet::FiniteSet(_) => Some(SymSet::EmptySet),
+            SymSet::Interval {
+                start,
+                end,
+                left_open,
+                right_open,
+            } => {
+                if interval_empty_status(start, end, *left_open, *right_open) == Some(true) {
+                    return Some(SymSet::EmptySet);
+                }
+                if start == end {
+                    return Some(SymSet::EmptySet);
+                }
+                Some(SymSet::interval_open(start.clone(), end.clone()))
+            }
+            SymSet::Intersection(parts) => {
+                let mut int_parts = Vec::with_capacity(parts.len());
+                for p in parts {
+                    int_parts.push(p.interior()?);
+                }
+                Some(SymSet::Intersection(int_parts))
+            }
+            _ => None,
+        }
+    }
+
+    /// Returns the topological closure of the set in the standard topology on ℝ.
+    pub fn closure(&self) -> Option<SymSet> {
+        match self {
+            SymSet::EmptySet => Some(SymSet::EmptySet),
+            SymSet::UniversalSet => Some(SymSet::UniversalSet),
+            SymSet::FiniteSet(elems) => Some(SymSet::FiniteSet(elems.clone())),
+            SymSet::Interval {
+                start,
+                end,
+                left_open,
+                right_open,
+            } => {
+                if interval_empty_status(start, end, *left_open, *right_open) == Some(true) {
+                    return Some(SymSet::EmptySet);
+                }
+                let s_b = exact_bound(start)?;
+                let e_b = exact_bound(end)?;
+                match (s_b, e_b) {
+                    (ExactBound::NegativeInfinity, ExactBound::Infinity) => {
+                        Some(SymSet::interval_open(start.clone(), end.clone()))
+                    }
+                    (ExactBound::NegativeInfinity, ExactBound::Finite(_)) => {
+                        Some(SymSet::interval_left_open(start.clone(), end.clone()))
+                    }
+                    (ExactBound::Finite(_), ExactBound::Infinity) => {
+                        Some(SymSet::interval_right_open(start.clone(), end.clone()))
+                    }
+                    (ExactBound::Finite(_), ExactBound::Finite(_)) => {
+                        Some(SymSet::interval_closed(start.clone(), end.clone()))
+                    }
+                    _ => None,
+                }
+            }
+            SymSet::Union(parts) => {
+                let mut cl_parts = Vec::with_capacity(parts.len());
+                for p in parts {
+                    cl_parts.push(p.closure()?);
+                }
+                Some(SymSet::Union(cl_parts))
+            }
+            _ => None,
+        }
+    }
+
+    /// Returns the topological boundary (∂S = Cl(S) \ Int(S)) of the set in ℝ.
+    pub fn boundary(&self) -> Option<SymSet> {
+        match self {
+            SymSet::EmptySet | SymSet::UniversalSet => Some(SymSet::EmptySet),
+            SymSet::FiniteSet(elems) => Some(SymSet::FiniteSet(elems.clone())),
+            SymSet::Interval {
+                start,
+                end,
+                left_open,
+                right_open,
+            } => {
+                if interval_empty_status(start, end, *left_open, *right_open) == Some(true) {
+                    return Some(SymSet::EmptySet);
+                }
+                let s_b = exact_bound(start)?;
+                let e_b = exact_bound(end)?;
+                match (s_b, e_b) {
+                    (ExactBound::NegativeInfinity, ExactBound::Infinity) => Some(SymSet::EmptySet),
+                    (ExactBound::NegativeInfinity, ExactBound::Finite(_)) => {
+                        Some(SymSet::finite(vec![end.clone()]))
+                    }
+                    (ExactBound::Finite(_), ExactBound::Infinity) => {
+                        Some(SymSet::finite(vec![start.clone()]))
+                    }
+                    (ExactBound::Finite(_), ExactBound::Finite(_)) => {
+                        if start == end {
+                            if !left_open && !right_open {
+                                Some(SymSet::finite(vec![start.clone()]))
+                            } else {
+                                Some(SymSet::EmptySet)
+                            }
+                        } else {
+                            Some(SymSet::finite(vec![start.clone(), end.clone()]))
+                        }
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Decides whether the set is topologically open in ℝ.
+    pub fn is_open(&self) -> Option<bool> {
+        match self {
+            SymSet::EmptySet | SymSet::UniversalSet => Some(true),
+            SymSet::FiniteSet(elems) => Some(elems.is_empty()),
+            SymSet::Interval {
+                start,
+                end,
+                left_open,
+                right_open,
+            } => {
+                if interval_empty_status(start, end, *left_open, *right_open) == Some(true) {
+                    return Some(true);
+                }
+                let s_b = exact_bound(start)?;
+                let e_b = exact_bound(end)?;
+                match (&s_b, &e_b) {
+                    (ExactBound::NegativeInfinity, ExactBound::Infinity) => Some(true),
+                    (ExactBound::NegativeInfinity, ExactBound::Finite(_)) => Some(*right_open),
+                    (ExactBound::Finite(_), ExactBound::Infinity) => Some(*left_open),
+                    (ExactBound::Finite(_), ExactBound::Finite(_)) => {
+                        if s_b == e_b {
+                            Some(*left_open || *right_open)
+                        } else {
+                            Some(*left_open && *right_open)
+                        }
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Decides whether the set is topologically closed in ℝ.
+    pub fn is_closed(&self) -> Option<bool> {
+        match self {
+            SymSet::EmptySet | SymSet::UniversalSet => Some(true),
+            SymSet::FiniteSet(_) => Some(true),
+            SymSet::Interval {
+                start,
+                end,
+                left_open,
+                right_open,
+            } => {
+                if interval_empty_status(start, end, *left_open, *right_open) == Some(true) {
+                    return Some(true);
+                }
+                let s_b = exact_bound(start)?;
+                let e_b = exact_bound(end)?;
+                match (&s_b, &e_b) {
+                    (ExactBound::NegativeInfinity, ExactBound::Infinity) => Some(true),
+                    (ExactBound::NegativeInfinity, ExactBound::Finite(_)) => Some(!*right_open),
+                    (ExactBound::Finite(_), ExactBound::Infinity) => Some(!*left_open),
+                    (ExactBound::Finite(_), ExactBound::Finite(_)) => {
+                        if s_b == e_b {
+                            Some(true)
+                        } else {
+                            Some(!*left_open && !*right_open)
+                        }
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Decides whether the set is compact in ℝ (closed and bounded).
+    pub fn is_compact(&self) -> Option<bool> {
+        match self {
+            SymSet::EmptySet => Some(true),
+            SymSet::UniversalSet => Some(false),
+            SymSet::FiniteSet(_) => Some(true),
+            SymSet::Interval {
+                start,
+                end,
+                left_open,
+                right_open,
+            } => {
+                if interval_empty_status(start, end, *left_open, *right_open) == Some(true) {
+                    return Some(true);
+                }
+                let s_b = exact_bound(start)?;
+                let e_b = exact_bound(end)?;
+                match (&s_b, &e_b) {
+                    (ExactBound::NegativeInfinity, _) | (_, ExactBound::Infinity) => Some(false),
+                    (ExactBound::Finite(_), ExactBound::Finite(_)) => {
+                        if s_b == e_b {
+                            Some(true)
+                        } else {
+                            Some(!*left_open && !*right_open)
+                        }
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
 }
 
 /// Exact numeric view of an expression, if it is a rational constant.
@@ -930,5 +1148,119 @@ mod tests {
         let iv_half =
             SymSet::interval_open(Expr::rational(1, 2).unwrap(), Expr::rational(7, 2).unwrap());
         assert_eq!(iv_half.measure(), Some(Expr::from_i64(3)));
+    }
+
+    #[test]
+    fn test_topological_interior_closure_and_boundary() {
+        let empty = SymSet::EmptySet;
+        let univ = SymSet::UniversalSet;
+        let finite = SymSet::finite(vec![Expr::from_i64(1), Expr::from_i64(3)]);
+
+        assert_eq!(empty.interior(), Some(SymSet::EmptySet));
+        assert_eq!(empty.closure(), Some(SymSet::EmptySet));
+        assert_eq!(empty.boundary(), Some(SymSet::EmptySet));
+
+        assert_eq!(univ.interior(), Some(SymSet::UniversalSet));
+        assert_eq!(univ.closure(), Some(SymSet::UniversalSet));
+        assert_eq!(univ.boundary(), Some(SymSet::EmptySet));
+
+        assert_eq!(finite.interior(), Some(SymSet::EmptySet));
+        assert_eq!(finite.closure(), Some(finite.clone()));
+        assert_eq!(finite.boundary(), Some(finite.clone()));
+
+        let closed = SymSet::interval_closed(Expr::from_i64(0), Expr::from_i64(5));
+        let open = SymSet::interval_open(Expr::from_i64(0), Expr::from_i64(5));
+        let left_open = SymSet::interval_left_open(Expr::from_i64(0), Expr::from_i64(5));
+        let right_open = SymSet::interval_right_open(Expr::from_i64(0), Expr::from_i64(5));
+
+        assert_eq!(closed.interior(), Some(open.clone()));
+        assert_eq!(open.interior(), Some(open.clone()));
+        assert_eq!(left_open.interior(), Some(open.clone()));
+        assert_eq!(right_open.interior(), Some(open.clone()));
+
+        assert_eq!(closed.closure(), Some(closed.clone()));
+        assert_eq!(open.closure(), Some(closed.clone()));
+        assert_eq!(left_open.closure(), Some(closed.clone()));
+        assert_eq!(right_open.closure(), Some(closed.clone()));
+
+        let endpoints = SymSet::finite(vec![Expr::from_i64(0), Expr::from_i64(5)]);
+        assert_eq!(closed.boundary(), Some(endpoints.clone()));
+        assert_eq!(open.boundary(), Some(endpoints.clone()));
+        assert_eq!(left_open.boundary(), Some(endpoints.clone()));
+        assert_eq!(right_open.boundary(), Some(endpoints));
+
+        // Infinite intervals
+        let neg_inf = Expr::Const(Constant::NegativeInfinity);
+        let pos_inf = Expr::Const(Constant::Infinity);
+        let ray_pos = SymSet::interval_open(Expr::from_i64(0), pos_inf.clone());
+        let ray_neg = SymSet::interval_open(neg_inf.clone(), Expr::from_i64(0));
+        let full_r = SymSet::interval_open(neg_inf.clone(), pos_inf.clone());
+
+        assert_eq!(
+            ray_pos.closure(),
+            Some(SymSet::interval_right_open(
+                Expr::from_i64(0),
+                pos_inf.clone()
+            ))
+        );
+        assert_eq!(
+            ray_neg.closure(),
+            Some(SymSet::interval_left_open(
+                neg_inf.clone(),
+                Expr::from_i64(0)
+            ))
+        );
+        assert_eq!(full_r.closure(), Some(full_r.clone()));
+
+        assert_eq!(
+            ray_pos.boundary(),
+            Some(SymSet::finite(vec![Expr::from_i64(0)]))
+        );
+        assert_eq!(
+            ray_neg.boundary(),
+            Some(SymSet::finite(vec![Expr::from_i64(0)]))
+        );
+        assert_eq!(full_r.boundary(), Some(SymSet::EmptySet));
+    }
+
+    #[test]
+    fn test_topological_open_closed_and_compact_predicates() {
+        let empty = SymSet::EmptySet;
+        let univ = SymSet::UniversalSet;
+        let finite = SymSet::finite(vec![Expr::from_i64(1), Expr::from_i64(2)]);
+
+        assert_eq!(empty.is_open(), Some(true));
+        assert_eq!(empty.is_closed(), Some(true));
+        assert_eq!(empty.is_compact(), Some(true));
+
+        assert_eq!(univ.is_open(), Some(true));
+        assert_eq!(univ.is_closed(), Some(true));
+        assert_eq!(univ.is_compact(), Some(false));
+
+        assert_eq!(finite.is_open(), Some(false));
+        assert_eq!(finite.is_closed(), Some(true));
+        assert_eq!(finite.is_compact(), Some(true));
+
+        let closed = SymSet::interval_closed(Expr::from_i64(0), Expr::from_i64(5));
+        let open = SymSet::interval_open(Expr::from_i64(0), Expr::from_i64(5));
+        let left_open = SymSet::interval_left_open(Expr::from_i64(0), Expr::from_i64(5));
+
+        assert_eq!(closed.is_open(), Some(false));
+        assert_eq!(closed.is_closed(), Some(true));
+        assert_eq!(closed.is_compact(), Some(true));
+
+        assert_eq!(open.is_open(), Some(true));
+        assert_eq!(open.is_closed(), Some(false));
+        assert_eq!(open.is_compact(), Some(false));
+
+        assert_eq!(left_open.is_open(), Some(false));
+        assert_eq!(left_open.is_closed(), Some(false));
+        assert_eq!(left_open.is_compact(), Some(false));
+
+        let pos_inf = Expr::Const(Constant::Infinity);
+        let unbounded_closed = SymSet::interval_right_open(Expr::from_i64(0), pos_inf);
+        assert_eq!(unbounded_closed.is_open(), Some(false));
+        assert_eq!(unbounded_closed.is_closed(), Some(true));
+        assert_eq!(unbounded_closed.is_compact(), Some(false));
     }
 }
