@@ -19,6 +19,8 @@ use thiserror::Error;
 const MAX_VERIFIER_INPUT_NODES: usize = 256;
 const MAX_VERIFIER_INPUT_DEPTH: usize = 64;
 const MAX_VERIFIER_INPUT_FANOUT: usize = 64;
+const MAX_VERIFIER_INPUT_NUMERIC_LIMBS: u64 = 4_096;
+pub(crate) const MAX_VERIFIER_INPUT_TEXT_BYTES: usize = 16_384;
 
 /// Iterative trust-boundary preflight used before recursive differentiation,
 /// substitution, expansion, or simplification in public residual verifiers.
@@ -34,11 +36,38 @@ pub(crate) fn verifier_inputs_within_bounds<'a>(
     }
 
     let mut visited = 0usize;
+    let mut numeric_limbs = 0u64;
+    let mut text_bytes = 0usize;
     while let Some((expression, depth)) = stack.pop() {
         if depth > MAX_VERIFIER_INPUT_DEPTH || visited == MAX_VERIFIER_INPUT_NODES {
             return false;
         }
         visited += 1;
+        let (expression_numeric_limbs, expression_text_bytes) = match expression {
+            Expr::Sym(symbol) => (0, symbol.name.len()),
+            Expr::Integer(value) => (value.limb_count(), 0),
+            Expr::Rational(value) => (
+                match value
+                    .numer()
+                    .limb_count()
+                    .checked_add(value.denom().limb_count())
+                {
+                    Some(limbs) => limbs,
+                    None => return false,
+                },
+                0,
+            ),
+            Expr::Function(name, _) => (0, name.len()),
+            Expr::Add(_) | Expr::Mul(_) | Expr::Pow(_, _) | Expr::Const(_) => (0, 0),
+        };
+        numeric_limbs = match numeric_limbs.checked_add(expression_numeric_limbs) {
+            Some(limbs) if limbs <= MAX_VERIFIER_INPUT_NUMERIC_LIMBS => limbs,
+            _ => return false,
+        };
+        text_bytes = match text_bytes.checked_add(expression_text_bytes) {
+            Some(bytes) if bytes <= MAX_VERIFIER_INPUT_TEXT_BYTES => bytes,
+            _ => return false,
+        };
         let children: &[Expr] = match expression {
             Expr::Add(terms) | Expr::Mul(terms) | Expr::Function(_, terms) => terms,
             Expr::Pow(base, exponent) => {
@@ -962,6 +991,11 @@ mod tests {
             ),
             Err(SolverError::InvalidSystem(_))
         ));
+        let oversized_constant = Symbol::new("C".repeat(MAX_VERIFIER_INPUT_TEXT_BYTES + 1));
+        assert!(matches!(
+            dsolve_const_coeff_second_order(1, 0, 1, &x, &oversized_constant, &c2),
+            Err(SolverError::InvalidSystem(_))
+        ));
 
         let infinity = Expr::Const(fsym_core::Constant::Infinity);
         assert!(!verify_first_order_linear_solution(
@@ -1029,6 +1063,28 @@ mod tests {
         ));
         assert!(!verify_const_coeff_second_order_solution(
             &too_deep, 1, 0, 0, &x,
+        ));
+
+        let oversized_integer = Expr::Integer(
+            BigInt::from(1)
+                << u32::try_from(MAX_VERIFIER_INPUT_NUMERIC_LIMBS * 64)
+                    .expect("the verifier limb limit fits the bigint shift API"),
+        );
+        assert!(!verify_linear_first_order_solution(
+            &Expr::from_i64(0),
+            &Expr::from_i64(0),
+            &oversized_integer,
+            &x,
+        ));
+
+        let oversized_symbol =
+            Expr::Sym(Symbol::new("x".repeat(MAX_VERIFIER_INPUT_TEXT_BYTES + 1)));
+        assert!(!verify_const_coeff_second_order_solution(
+            &oversized_symbol,
+            1,
+            0,
+            0,
+            &x,
         ));
     }
 
@@ -1220,11 +1276,17 @@ mod tests {
             Expr::from_i64(-6),
         ]);
         let factorable_roots = solve(&eq_cubic_factorable, &x).unwrap();
+        assert!(
+            factorable_roots
+                .iter()
+                .all(|root| matches!(root, Expr::Integer(value) if value.to_i64().is_some())),
+            "fully factorable cubic must return only small integer roots"
+        );
         let root_ints: Vec<i64> = factorable_roots
             .iter()
-            .map(|r| match r {
-                Expr::Integer(n) => n.to_i64().expect("cubic root is small"),
-                other => panic!("unexpected non-integer cubic root: {other:?}"),
+            .filter_map(|root| match root {
+                Expr::Integer(value) => value.to_i64(),
+                _ => None,
             })
             .collect();
         let mut sorted = root_ints.clone();

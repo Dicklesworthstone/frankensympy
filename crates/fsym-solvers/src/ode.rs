@@ -26,6 +26,17 @@ fn require_fresh_integration_constants(
     constants: &[&Symbol],
     inputs: &[&Expr],
 ) -> Result<(), SolverError> {
+    let identifier_bytes = constants.iter().try_fold(x.name.len(), |total, constant| {
+        total.checked_add(constant.name.len())
+    });
+    if !matches!(
+        identifier_bytes,
+        Some(bytes) if bytes <= crate::MAX_VERIFIER_INPUT_TEXT_BYTES
+    ) {
+        return Err(SolverError::InvalidSystem(
+            "ODE identifiers exceed the supported text bound".to_string(),
+        ));
+    }
     if !crate::verifier_inputs_within_bounds(inputs.iter().copied()) {
         return Err(SolverError::InvalidSystem(
             "ODE input exceeds the supported expression bounds".to_string(),
@@ -40,14 +51,31 @@ fn require_fresh_integration_constants(
         }
         if inputs
             .iter()
-            .any(|input| input.free_symbols().contains(*constant))
+            .any(|input| expression_contains_symbol(input, constant))
         {
-            return Err(SolverError::InvalidSystem(format!(
-                "integration constant `{constant}` already occurs in an ODE coefficient or forcing term"
-            )));
+            return Err(SolverError::InvalidSystem(
+                "an integration constant already occurs in an ODE coefficient or forcing term"
+                    .to_string(),
+            ));
         }
     }
     Ok(())
+}
+
+fn expression_contains_symbol(expr: &Expr, symbol: &Symbol) -> bool {
+    let mut stack = vec![expr];
+    while let Some(current) = stack.pop() {
+        match current {
+            Expr::Sym(candidate) if candidate == symbol => return true,
+            Expr::Add(terms) | Expr::Mul(terms) | Expr::Function(_, terms) => stack.extend(terms),
+            Expr::Pow(base, exponent) => {
+                stack.push(exponent);
+                stack.push(base);
+            }
+            Expr::Sym(_) | Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_) => {}
+        }
+    }
+    false
 }
 
 fn ode_expression_is_total(expr: &Expr) -> bool {
