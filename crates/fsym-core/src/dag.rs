@@ -425,6 +425,16 @@ enum ExactRealSign {
     Positive,
 }
 
+fn rational_exponent_is_non_positive_integer(node: &TermNode) -> bool {
+    match node {
+        TermNode::Integer(value) => value.is_zero() || value.is_negative(),
+        TermNode::Rational(value) => {
+            value.is_integer() && (value.numer().is_zero() || value.numer().is_negative())
+        }
+        _ => false,
+    }
+}
+
 fn exact_real_sign(node: &TermNode) -> Option<ExactRealSign> {
     let integer_sign = |value: &BigInt| {
         if value.is_negative() {
@@ -567,6 +577,7 @@ fn validate_lambda_surface(args: &[Expr]) -> Result<(), DagError> {
         .iter()
         .all(|parameter| matches!(parameter, Expr::Sym(_)))
     {
+        unique_binder_parameter_names(parameters)?;
         return Ok(());
     }
     if args.len() == 2
@@ -583,6 +594,7 @@ fn validate_lambda_surface(args: &[Expr]) -> Result<(), DagError> {
             .iter()
             .all(|parameter| matches!(parameter, Expr::Sym(_)))
         {
+            unique_binder_parameter_names(tuple_args)?;
             return Ok(());
         }
         return Err(DagError::MalformedBinder {
@@ -594,6 +606,23 @@ fn validate_lambda_surface(args: &[Expr]) -> Result<(), DagError> {
         name: NAME,
         reason: "parameters must be symbols or a tuple of symbols",
     })
+}
+
+fn unique_binder_parameter_names(parameters: &[Expr]) -> Result<(), DagError> {
+    let mut seen = HashSet::new();
+    seen.try_reserve(parameters.len())
+        .map_err(|_| DagError::AllocationFailure)?;
+    for parameter in parameters {
+        if let Expr::Sym(symbol) = parameter {
+            if !seen.insert(symbol.name.as_str()) {
+                return Err(DagError::MalformedBinder {
+                    name: "Lambda",
+                    reason: "parameter names must be unique",
+                });
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Binder parameters from well-formed Lambda surface.
@@ -844,9 +873,18 @@ impl TermDag {
             TermDomain::Integer => match node {
                 TermNode::Integer(_) | TermNode::Sym(_) => Ok(()),
                 TermNode::Rational(value) if value.is_integer() => Ok(()),
-                TermNode::Pow(_base, exponent) => {
+                TermNode::Pow(base, exponent) => {
+                    let base_node = self.get(*base).ok_or(DagError::UnknownId(*base))?;
                     let exponent_node =
                         self.get(*exponent).ok_or(DagError::UnknownId(*exponent))?;
+                    if matches!(exact_real_sign(base_node), Some(ExactRealSign::Zero))
+                        && matches!(exact_real_sign(exponent_node), Some(ExactRealSign::Zero))
+                    {
+                        return Err(DagError::DomainIncompatible {
+                            domain,
+                            reason: "zero to the power of zero is not an Integer inhabitant",
+                        });
+                    }
                     match exponent_node {
                         TermNode::Integer(value) if value.is_negative() => {
                             Err(DagError::DomainIncompatible {
@@ -866,6 +904,12 @@ impl TermDag {
                             domain,
                             reason: "constant exponent is not closed in Integer",
                         }),
+                        TermNode::Function(..) | TermNode::Lambda(..) => {
+                            Err(DagError::DomainIncompatible {
+                                domain,
+                                reason: "function or binder exponent is not closed in Integer",
+                            })
+                        }
                         _ => Ok(()),
                     }
                 }
@@ -880,9 +924,18 @@ impl TermDag {
             },
             TermDomain::Rational => match node {
                 TermNode::Integer(_) | TermNode::Rational(_) | TermNode::Sym(_) => Ok(()),
-                TermNode::Pow(_base, exponent) => {
+                TermNode::Pow(base, exponent) => {
+                    let base_node = self.get(*base).ok_or(DagError::UnknownId(*base))?;
                     let exponent_node =
                         self.get(*exponent).ok_or(DagError::UnknownId(*exponent))?;
+                    if matches!(exact_real_sign(base_node), Some(ExactRealSign::Zero))
+                        && rational_exponent_is_non_positive_integer(exponent_node)
+                    {
+                        return Err(DagError::DomainIncompatible {
+                            domain,
+                            reason: "zero to a non-positive integer power is not a Rational inhabitant",
+                        });
+                    }
                     match exponent_node {
                         TermNode::Rational(value) if !value.is_integer() => {
                             Err(DagError::DomainIncompatible {
@@ -894,6 +947,12 @@ impl TermDag {
                             domain,
                             reason: "constant exponent is not closed in Rational",
                         }),
+                        TermNode::Function(..) | TermNode::Lambda(..) => {
+                            Err(DagError::DomainIncompatible {
+                                domain,
+                                reason: "function or binder exponent is not closed in Rational",
+                            })
+                        }
                         _ => Ok(()),
                     }
                 }
@@ -912,6 +971,10 @@ impl TermDag {
                         reason: "complex constant is not a Real inhabitant",
                     })
                 }
+                TermNode::Lambda(..) => Err(DagError::DomainIncompatible {
+                    domain,
+                    reason: "binder is not a Real inhabitant",
+                }),
                 TermNode::Const(_)
                 | TermNode::Integer(_)
                 | TermNode::Rational(_)
@@ -919,8 +982,7 @@ impl TermDag {
                 | TermNode::Add(_)
                 | TermNode::Mul(_)
                 | TermNode::Pow(..)
-                | TermNode::Function(..)
-                | TermNode::Lambda(..) => Ok(()),
+                | TermNode::Function(..) => Ok(()),
             },
             TermDomain::Complex => Ok(()),
         }
@@ -2495,5 +2557,157 @@ mod tests {
             .insert_node_in_domain(TermNode::Const(Constant::Pi), TermDomain::Real)
             .unwrap();
         assert_eq!(dag.term_domain(pi), Some(TermDomain::Real));
+    }
+
+    #[test]
+    fn integer_domain_refuses_zero_to_the_power_of_zero() {
+        let mut dag = TermDag::new();
+        let zero = dag
+            .insert_node_in_domain(TermNode::Integer(BigInt::from(0)), TermDomain::Integer)
+            .unwrap();
+        assert_eq!(
+            dag.insert_node_in_domain(TermNode::Pow(zero, zero), TermDomain::Integer),
+            Err(DagError::DomainIncompatible {
+                domain: TermDomain::Integer,
+                reason: "zero to the power of zero is not an Integer inhabitant",
+            })
+        );
+        assert!(dag.get(zero).is_some());
+    }
+
+    #[test]
+    fn integer_domain_refuses_function_and_binder_exponents() {
+        let mut dag = TermDag::new();
+        let base = dag
+            .insert_node_in_domain(TermNode::Integer(BigInt::from(2)), TermDomain::Integer)
+            .unwrap();
+        let arg = dag.insert_node(TermNode::Integer(BigInt::from(1))).unwrap();
+        let sine = dag
+            .insert_node(TermNode::Function("sin".to_string(), vec![arg]))
+            .unwrap();
+        assert_eq!(
+            dag.insert_node_in_domain(TermNode::Pow(base, sine), TermDomain::Integer),
+            Err(DagError::DomainIncompatible {
+                domain: TermDomain::Integer,
+                reason: "function or binder exponent is not closed in Integer",
+            })
+        );
+
+        let body = dag.insert_node(TermNode::Sym(Symbol::new("x"))).unwrap();
+        let binder = dag
+            .insert_node(TermNode::Lambda(vec![Symbol::new("x")], body))
+            .unwrap();
+        assert_eq!(
+            dag.insert_node_in_domain(TermNode::Pow(base, binder), TermDomain::Integer),
+            Err(DagError::DomainIncompatible {
+                domain: TermDomain::Integer,
+                reason: "function or binder exponent is not closed in Integer",
+            })
+        );
+        assert!(dag.get(base).is_some());
+        assert!(dag.get(sine).is_some());
+        assert!(dag.get(binder).is_some());
+    }
+
+    #[test]
+    fn rational_domain_refuses_zero_to_a_negative_integer_power() {
+        let mut dag = TermDag::new();
+        let zero = dag
+            .insert_node_in_domain(TermNode::Integer(BigInt::from(0)), TermDomain::Rational)
+            .unwrap();
+        let negative = dag
+            .insert_node_in_domain(TermNode::Integer(BigInt::from(-1)), TermDomain::Rational)
+            .unwrap();
+        assert_eq!(
+            dag.insert_node_in_domain(TermNode::Pow(zero, negative), TermDomain::Rational),
+            Err(DagError::DomainIncompatible {
+                domain: TermDomain::Rational,
+                reason: "zero to a non-positive integer power is not a Rational inhabitant",
+            })
+        );
+
+        let two = dag
+            .insert_node_in_domain(TermNode::Integer(BigInt::from(2)), TermDomain::Rational)
+            .unwrap();
+        let admitted = dag
+            .insert_node_in_domain(TermNode::Pow(two, negative), TermDomain::Rational)
+            .unwrap();
+        assert_eq!(dag.term_domain(admitted), Some(TermDomain::Rational));
+        assert!(dag.get(zero).is_some());
+    }
+
+    #[test]
+    fn rational_domain_refuses_function_exponents() {
+        let mut dag = TermDag::new();
+        let base = dag
+            .insert_node_in_domain(TermNode::Integer(BigInt::from(3)), TermDomain::Rational)
+            .unwrap();
+        let arg = dag.insert_node(TermNode::Integer(BigInt::from(1))).unwrap();
+        let sine = dag
+            .insert_node(TermNode::Function("sin".to_string(), vec![arg]))
+            .unwrap();
+        assert_eq!(
+            dag.insert_node_in_domain(TermNode::Pow(base, sine), TermDomain::Rational),
+            Err(DagError::DomainIncompatible {
+                domain: TermDomain::Rational,
+                reason: "function or binder exponent is not closed in Rational",
+            })
+        );
+    }
+
+    #[test]
+    fn real_domain_refuses_lambda_binders() {
+        let mut dag = TermDag::new();
+        let body = dag.insert_node(TermNode::Sym(Symbol::new("x"))).unwrap();
+        assert_eq!(
+            dag.insert_node_in_domain(
+                TermNode::Lambda(vec![Symbol::new("x")], body),
+                TermDomain::Real
+            ),
+            Err(DagError::DomainIncompatible {
+                domain: TermDomain::Real,
+                reason: "binder is not a Real inhabitant",
+            })
+        );
+        assert!(dag.get(body).is_some());
+    }
+
+    #[test]
+    fn duplicate_lambda_parameter_names_are_refused() {
+        let mut dag = TermDag::new();
+        let existing = dag.insert_node(TermNode::Sym(Symbol::new("keep"))).unwrap();
+        let before = dag.len();
+        let duplicate = Expr::Function(
+            "Lambda".to_string(),
+            vec![Expr::symbol("x"), Expr::symbol("x"), Expr::symbol("x")],
+        );
+        assert_eq!(
+            dag.insert_expr(&duplicate),
+            Err(DagError::MalformedBinder {
+                name: "Lambda",
+                reason: "parameter names must be unique",
+            })
+        );
+        assert_eq!(dag.len(), before);
+        assert!(dag.get(existing).is_some());
+
+        let duplicate_tuple = Expr::Function(
+            "Lambda".to_string(),
+            vec![
+                Expr::Function(
+                    "Tuple".to_string(),
+                    vec![Expr::symbol("y"), Expr::symbol("y")],
+                ),
+                Expr::symbol("y"),
+            ],
+        );
+        assert_eq!(
+            dag.insert_expr(&duplicate_tuple),
+            Err(DagError::MalformedBinder {
+                name: "Lambda",
+                reason: "parameter names must be unique",
+            })
+        );
+        assert_eq!(dag.len(), before);
     }
 }
