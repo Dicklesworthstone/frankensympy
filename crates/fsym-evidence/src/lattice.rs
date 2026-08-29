@@ -85,12 +85,63 @@ mod tests {
         .unwrap_err();
         assert!(matches!(err, LatticeError::IllegalPromotion { .. }));
     }
-
     #[test]
     fn identical_classes_are_valid() {
         assert!(
             validate_evidence_transition(EvidenceClass::KernelProved, EvidenceClass::KernelProved)
                 .is_ok()
         );
+    }
+
+    #[test]
+    fn user_asserted_cannot_be_promoted_to_mathematical() {
+        // UserAsserted is non-mathematical by registry contract, so a
+        // transition into any mathematical class (KernelProved,
+        // CertificateVerified, ExactCrossChecked, CertifiedNumeric)
+        // is forbidden. Pin the general gate separately from the
+        // specific HeuristicCandidate / OracleConformant /
+        // CertifiedNumeric cases so a regression that swaps the
+        // registry field set is caught.
+        for to in [
+            EvidenceClass::KernelProved,
+            EvidenceClass::CertificateVerified,
+            EvidenceClass::ExactCrossChecked,
+            EvidenceClass::CertifiedNumeric,
+        ] {
+            let err = validate_evidence_transition(EvidenceClass::UserAsserted, to).unwrap_err();
+            assert!(matches!(err, LatticeError::IllegalPromotion { .. }));
+        }
+    }
+
+    #[test]
+    fn mathematical_to_mathematical_transitions_are_allowed() {
+        // Among the four mathematical classes, the lattice refuses
+        // two specific transitions (OracleConformant -> KernelProved
+        // and CertifiedNumeric -> KernelProved). Every other
+        // mathematical-to-mathematical pair (including self-loops)
+        // is allowed. Pin the matrix so a future tightening is
+        // intentional, not accidental.
+        let mathematical = [
+            EvidenceClass::KernelProved,
+            EvidenceClass::CertificateVerified,
+            EvidenceClass::ExactCrossChecked,
+            EvidenceClass::CertifiedNumeric,
+        ];
+        for &from in &mathematical {
+            for &to in &mathematical {
+                if matches!(
+                    (from, to),
+                    (EvidenceClass::OracleConformant, EvidenceClass::KernelProved)
+                        | (EvidenceClass::CertifiedNumeric, EvidenceClass::KernelProved)
+                ) {
+                    let err = validate_evidence_transition(from, to)
+                        .expect_err("this transition must remain forbidden");
+                    assert!(matches!(err, LatticeError::IllegalPromotion { .. }));
+                } else {
+                    validate_evidence_transition(from, to)
+                        .expect("mathematical-to-mathematical transition must be allowed");
+                }
+            }
+        }
     }
 }
