@@ -288,6 +288,43 @@ def observe_copy(fixture: dict, profile_id: str) -> dict:
     }
 
 
+def observe_reconstruct(fixture: dict, profile_id: str) -> dict:
+    try:
+        obj = _construct(fixture)
+        outcome = "returned"
+    except Exception:  # noqa: BLE001
+        return {
+            "schema_version": 1,
+            "kind": "reconstruction_observation",
+            "profile_id": profile_id,
+            "fixture_id": fixture["id"],
+            "side": "upstream_oracle",
+            "construction_outcome": "raised",
+            "original": None,
+            "reconstructed": None,
+        }
+    try:
+        func = getattr(obj, "func", None)
+        args = getattr(obj, "args", ())
+        rebuilt = func(*args)
+        recon_obs = _copy_result(obj, rebuilt)
+    except Exception as exc:  # noqa: BLE001
+        recon_obs = {
+            "error_class": type(exc).__module__ + "." + type(exc).__name__,
+            "message_head": str(exc)[:200],
+        }
+    return {
+        "schema_version": 1,
+        "kind": "reconstruction_observation",
+        "profile_id": profile_id,
+        "fixture_id": fixture["id"],
+        "side": "upstream_oracle",
+        "construction_outcome": outcome,
+        "original": _copy_surface(obj),
+        "reconstructed": recon_obs,
+    }
+
+
 def observe_warnings(fixture: dict, profile_id: str) -> dict:
     with warnings_mod.catch_warnings(record=True) as caught:
         warnings_mod.simplefilter("always")
@@ -376,17 +413,32 @@ def main() -> int:
     warnings_only = False
     pickle_roundtrip = False
     copy_roundtrip = False
-    if args and args[-1] in {"--warnings", "--pickle-roundtrip", "--copy-roundtrip"}:
+    reconstruct = False
+    if args and args[-1] in {
+        "--warnings",
+        "--pickle-roundtrip",
+        "--copy-roundtrip",
+        "--reconstruct",
+    }:
         flag = args.pop()
         warnings_only = flag == "--warnings"
         pickle_roundtrip = flag == "--pickle-roundtrip"
         copy_roundtrip = flag == "--copy-roundtrip"
+        reconstruct = flag == "--reconstruct"
     if len(args) != 2:
         print(json.dumps({"error_class": "harness_misuse"}))
         return 2
     fixture_path, profile_id = args
     with open(fixture_path, encoding="utf-8") as fh:
         fixtures = json.load(fh)
+    if reconstruct:
+        for fixture in fixtures:
+            sys.stdout.write(
+                json.dumps(observe_reconstruct(fixture, profile_id), sort_keys=True)
+                + "\n"
+            )
+            sys.stdout.flush()
+        return 0
     if copy_roundtrip:
         for fixture in fixtures:
             sys.stdout.write(

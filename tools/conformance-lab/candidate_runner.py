@@ -367,6 +367,56 @@ def observe_copy(fixture: dict, profile_id: str, sympy_mod) -> dict:
     }
 
 
+def observe_reconstruct(fixture: dict, profile_id: str, sympy_mod) -> dict:
+    try:
+        obj = _construct(fixture, sympy_mod)
+        outcome = "returned"
+    except Exception:  # noqa: BLE001
+        return {
+            "schema_version": 1,
+            "kind": "reconstruction_observation",
+            "profile_id": profile_id,
+            "fixture_id": fixture["id"],
+            "side": CANDIDATE_SIDE,
+            "construction_outcome": "raised",
+            "original": None,
+            "reconstructed": None,
+        }
+    try:
+        func = getattr(obj, "func", None)
+        args = getattr(obj, "args", ())
+        rebuilt = func(*args)
+        recon_obs = _copy_result(obj, rebuilt)
+    except Exception as exc:  # noqa: BLE001
+        recon_obs = {
+            "error_class": type(exc).__module__ + "." + type(exc).__name__,
+            "message_head": str(exc)[:200],
+        }
+    return {
+        "schema_version": 1,
+        "kind": "reconstruction_observation",
+        "profile_id": profile_id,
+        "fixture_id": fixture["id"],
+        "side": CANDIDATE_SIDE,
+        "construction_outcome": outcome,
+        "original": _copy_surface(obj),
+        "reconstructed": recon_obs,
+    }
+
+
+def observe_reconstruct_refused(fixture: dict, profile_id: str) -> dict:
+    return {
+        "schema_version": 1,
+        "kind": "reconstruction_observation",
+        "profile_id": profile_id,
+        "fixture_id": fixture["id"],
+        "side": CANDIDATE_SIDE,
+        "construction_outcome": "refused",
+        "original": None,
+        "reconstructed": None,
+    }
+
+
 def observe_copy_refused(fixture: dict, profile_id: str) -> dict:
     return {
         "schema_version": 1,
@@ -569,11 +619,13 @@ def main() -> int:
     warnings_only = False
     pickle_roundtrip = False
     copy_roundtrip = False
+    reconstruct = False
     while args and args[-1] in {
         "--broken",
         "--warnings",
         "--pickle-roundtrip",
         "--copy-roundtrip",
+        "--reconstruct",
     }:
         flag = args.pop()
         if flag == "--broken":
@@ -582,8 +634,10 @@ def main() -> int:
             warnings_only = True
         elif flag == "--pickle-roundtrip":
             pickle_roundtrip = True
-        else:
+        elif flag == "--copy-roundtrip":
             copy_roundtrip = True
+        else:
+            reconstruct = True
     if len(args) != 2:
         print(json.dumps({"error_class": "harness_misuse"}))
         return 2
@@ -602,7 +656,9 @@ def main() -> int:
     if error_kind == "isolation":
         return isolation_violation(error or "candidate sympy is not the FrankenSymPy shell")
     if sympy_mod is None:
-        if copy_roundtrip:
+        if reconstruct:
+            writer = observe_reconstruct_refused
+        elif copy_roundtrip:
             writer = observe_copy_refused
         elif pickle_roundtrip:
             writer = observe_pickle_refused
@@ -619,6 +675,17 @@ def main() -> int:
             sys.stdout.flush()
         return 0
 
+    if reconstruct:
+        for fixture in fixtures:
+            sys.stdout.write(
+                json.dumps(
+                    observe_reconstruct(fixture, profile_id, sympy_mod),
+                    sort_keys=True,
+                )
+                + "\n"
+            )
+            sys.stdout.flush()
+        return 0
     if copy_roundtrip:
         for fixture in fixtures:
             sys.stdout.write(

@@ -60,6 +60,9 @@ type/module identity, never writes goldens, and cannot certify.
 deepcopy preserves args_repr. Held forms must not canonicalize. It cannot
 certify.
 
+`reconstruct` calls obj.func(*obj.args) and compares reconstructed type/module
+plus whether args_repr is preserved. It cannot certify.
+
 Exit codes: 0 = success, 1 = gate failure, 2 = misuse.
 """
 
@@ -93,6 +96,11 @@ from pickle_records import (
     validate_restore_record,
 )
 from copy_records import diff_copy_records, make_copy_record, validate_copy_record
+from reconstruction_records import (
+    diff_reconstruction_records,
+    make_reconstruction_record,
+    validate_reconstruction_record,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ARTIFACT_ROOT = REPO_ROOT / "artifacts" / "conformance"
@@ -1063,6 +1071,139 @@ def cmd_copy_roundtrip(
     return 0
 
 
+def parse_reconstruction_output(
+    stdout: str,
+    stderr: str,
+    expected_ids: list[str],
+    profile: dict,
+    *,
+    expected_side: str,
+    label: str,
+) -> list[dict]:
+    output_bytes = len(stdout.encode()) + len(stderr.encode())
+    if output_bytes > MAX_RUNNER_OUTPUT_BYTES:
+        raise ValueError(f"{label} reconstruction output exceeds the harness limit")
+    if stderr.strip():
+        raise ValueError(
+            f"{label} reconstruction probe emitted unexpected stderr: {stderr[-400:]}"
+        )
+    records = []
+    for line_number, line in enumerate(stdout.splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"{label} reconstruction output line {line_number} is not JSON: {exc}"
+            ) from exc
+        expected_id = expected_ids[len(records)] if len(records) < len(expected_ids) else ""
+        validate_reconstruction_record(
+            record, profile, expected_side=expected_side, expected_id=expected_id
+        )
+        records.append(record)
+    actual_ids = [record["fixture_id"] for record in records]
+    if actual_ids != expected_ids:
+        raise ValueError(
+            f"{label} reconstruction sequence mismatch: "
+            f"expected={expected_ids!r} actual={actual_ids!r}"
+        )
+    return records
+
+
+def capture_reconstruction_file(
+    profile: dict, fixture_path: Path, py: str, *, side: str
+) -> list[dict]:
+    expected_ids = load_fixture_ids(fixture_path)
+    if side == ORACLE_SIDE:
+        command = [
+            py,
+            "-P",
+            "-s",
+            str(runner_path()),
+            str(fixture_path),
+            profile["profile_id"],
+            "--reconstruct",
+        ]
+        env = oracle_environment(profile)
+        label = "oracle-reconstruct"
+    elif side == CANDIDATE_SIDE:
+        command = [
+            py,
+            "-P",
+            "-s",
+            str(candidate_runner_path()),
+            str(fixture_path),
+            profile["profile_id"],
+            "--reconstruct",
+        ]
+        env = candidate_environment(profile)
+        label = "candidate-reconstruct"
+    else:
+        raise ValueError(f"unknown reconstruction observation side: {side!r}")
+    proc = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=120,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"{label} exited {proc.returncode} for {fixture_path.name}: "
+            f"{proc.stderr[-400:] or proc.stdout[-400:]}"
+        )
+    return parse_reconstruction_output(
+        proc.stdout,
+        proc.stderr,
+        expected_ids,
+        profile,
+        expected_side=side,
+        label=label,
+    )
+
+
+def cmd_reconstruct(
+    profile: dict, oracle_py: str, candidate_py: str, *, certify: bool = False
+) -> int:
+    if certify:
+        return fail("reconstruct lane cannot certify; refuse --certify")
+    before = golden_digest_map(profile)
+    base = Path(__file__).resolve().parent
+    oracle_records: list[dict] = []
+    candidate_records: list[dict] = []
+    for rel in profile["inventory"]["fixtures"]:
+        fixture_path = base / rel
+        oracle_records.extend(
+            capture_reconstruction_file(profile, fixture_path, oracle_py, side=ORACLE_SIDE)
+        )
+        candidate_records.extend(
+            capture_reconstruction_file(
+                profile, fixture_path, candidate_py, side=CANDIDATE_SIDE
+            )
+        )
+    details = diff_reconstruction_records(oracle_records, candidate_records)
+    if golden_digest_map(profile) != before:
+        return fail("reconstruct lane mutated immutable goldens")
+    receipt = {
+        "lane": "reconstruct",
+        "kind": "reconstruction_observation",
+        "certifies": False,
+        "can_certify": False,
+        "claims_promoted": False,
+        "goldens_written": False,
+        "golden_bytes_unchanged": True,
+        "profile_id": profile["profile_id"],
+        "paired": min(len(oracle_records), len(candidate_records)),
+        "discrepancies": len(details),
+        "details": details,
+        "note": "func(*args) reconstruction cannot certify the immutable profile",
+    }
+    print(json.dumps(receipt, indent=2, sort_keys=True))
+    return 0
+
+
 def golden_name_for(fixture_rel: str) -> str:
     return fixture_rel.removeprefix("fixtures/").removesuffix(".json") + ".ndjson"
 
@@ -1597,6 +1738,30 @@ def cmd_self_test(profile: dict, py: str) -> int:
     copy_drift = diff_copy_records(copy_oracle, copy_collapsed)
     if not copy_drift or copy_drift[0]["kind"] != "copy_identity_drift":
         return fail("copy-roundtrip missed planted deepcopy args collapse")
+    recon_oracle = [
+        make_reconstruction_record(
+            profile_id=profile["profile_id"],
+            fixture_id="held/mul_two_k",
+            side=ORACLE_SIDE,
+            construction_outcome="returned",
+            original={"type": "Mul", "module": "sympy.core.mul", "args_repr": ["2", "k"]},
+            reconstructed={
+                "type": "Mul",
+                "module": "sympy.core.mul",
+                "args_repr": ["2", "k"],
+                "is_original": False,
+            },
+        )
+    ]
+    recon_match = copy.deepcopy(recon_oracle)
+    recon_match[0]["side"] = CANDIDATE_SIDE
+    if diff_reconstruction_records(recon_oracle, recon_match):
+        return fail("reconstruct invented drift on matching reconstruction identity")
+    recon_eval = copy.deepcopy(recon_match)
+    recon_eval[0]["reconstructed"]["args_repr"] = ["2*k"]
+    recon_drift = diff_reconstruction_records(recon_oracle, recon_eval)
+    if not recon_drift or recon_drift[0]["kind"] != "reconstruction_identity_drift":
+        return fail("reconstruct missed planted args collapse")
     identity_drift = copy.deepcopy(drifted)
     identity_drift[0]["observations"]["type"] = "WrongType"
     if not compare_construction_only(golden_first, identity_drift):
@@ -1727,6 +1892,8 @@ def cmd_self_test(profile: dict, py: str) -> int:
                 "pickle_roundtrip_detects_restore_type_drift": True,
                 "copy_roundtrip_matching_copy_does_not_invent_drift": True,
                 "copy_roundtrip_detects_deepcopy_args_collapse": True,
+                "reconstruct_matching_does_not_invent_drift": True,
+                "reconstruct_detects_args_collapse": True,
                 "mutants_checked": checked_files,
                 "mutants_rejected": rejected,
                 "oracle_candidate_isolation": True,
@@ -2223,6 +2390,7 @@ def parse_cli(argv: list[str]) -> dict | int:
         "environment",
         "pickle-roundtrip",
         "copy-roundtrip",
+        "reconstruct",
     }
     if mode not in known:
         print(f"unknown mode: {mode}", file=sys.stderr)
@@ -2373,6 +2541,16 @@ def main() -> int:
             if parsed["certify"]:
                 return fail("copy-roundtrip lane cannot certify; refuse --certify")
             return cmd_copy_roundtrip(
+                profile,
+                oracle_python(parsed["oracle_python"]),
+                candidate_python(parsed["candidate_python"]),
+            )
+        if mode == "reconstruct":
+            if parsed["broken"]:
+                return fail("reconstruct does not accept --broken")
+            if parsed["certify"]:
+                return fail("reconstruct lane cannot certify; refuse --certify")
+            return cmd_reconstruct(
                 profile,
                 oracle_python(parsed["oracle_python"]),
                 candidate_python(parsed["candidate_python"]),
