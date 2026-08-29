@@ -1501,7 +1501,9 @@ fn check_definitional_reduction(
         "trig_zero_eval" | "elementary_zero_eval" => match lhs {
             Expr::Function(name, args) if args.len() == 1 && args[0].is_zero() => {
                 match name.as_str() {
-                    "sin" | "tan" | "sinh" | "tanh" if rhs.is_zero() => {
+                    "sin" | "tan" | "sinh" | "tanh" | "asin" | "atan" | "asinh" | "atanh"
+                        if rhs.is_zero() =>
+                    {
                         Ok(Claim::equality(lhs.clone(), rhs.clone()))
                     }
                     "cos" | "cosh" | "exp" if rhs.is_one() => {
@@ -1509,13 +1511,30 @@ fn check_definitional_reduction(
                     }
                     _ => Err(KernelError::InvalidDefinitionalReduction {
                         rule_name: rule_name.to_string(),
-                        reason: "trig_zero_eval target value mismatch".to_string(),
+                        reason: "elementary_zero_eval target value mismatch".to_string(),
                     }),
                 }
             }
             _ => Err(KernelError::InvalidDefinitionalReduction {
                 rule_name: rule_name.to_string(),
-                reason: "trig_zero_eval requires function of 0".to_string(),
+                reason: "elementary_zero_eval requires function of 0".to_string(),
+            }),
+        },
+        "elementary_one_eval" => match lhs {
+            Expr::Function(name, args) if args.len() == 1 && args[0].is_one() => {
+                match name.as_str() {
+                    "acos" | "acosh" | "ln" | "log" if rhs.is_zero() => {
+                        Ok(Claim::equality(lhs.clone(), rhs.clone()))
+                    }
+                    _ => Err(KernelError::InvalidDefinitionalReduction {
+                        rule_name: rule_name.to_string(),
+                        reason: "elementary_one_eval target value mismatch".to_string(),
+                    }),
+                }
+            }
+            _ => Err(KernelError::InvalidDefinitionalReduction {
+                rule_name: rule_name.to_string(),
+                reason: "elementary_one_eval requires function of 1".to_string(),
             }),
         },
         "simplify_normal_form" => check_polynomial_normal_form(lhs, rhs, rule_name)

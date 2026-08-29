@@ -431,8 +431,16 @@ fn simplify_at<M: BudgetMeter>(
             }
             if simplified_args.len() == 1 && simplified_args[0].is_zero() {
                 match name.as_str() {
-                    "sin" | "tan" | "sinh" | "tanh" => return Ok(Expr::from_i64(0)),
+                    "sin" | "tan" | "sinh" | "tanh" | "asin" | "atan" | "asinh" | "atanh" => {
+                        return Ok(Expr::from_i64(0));
+                    }
                     "cos" | "cosh" | "exp" => return Ok(Expr::from_i64(1)),
+                    _ => {}
+                }
+            }
+            if simplified_args.len() == 1 && simplified_args[0].is_one() {
+                match name.as_str() {
+                    "acos" | "acosh" | "ln" | "log" => return Ok(Expr::from_i64(0)),
                     _ => {}
                 }
             }
@@ -462,9 +470,29 @@ pub fn verified_simplify<M: BudgetMeter>(
             Expr::Function(name, args)
                 if args.len() == 1
                     && args[0].is_zero()
-                    && matches!(name.as_str(), "sin" | "cos" | "tan") =>
+                    && matches!(
+                        name.as_str(),
+                        "sin"
+                            | "cos"
+                            | "tan"
+                            | "sinh"
+                            | "cosh"
+                            | "tanh"
+                            | "exp"
+                            | "asin"
+                            | "atan"
+                            | "asinh"
+                            | "atanh"
+                    ) =>
             {
-                "trig_zero_eval"
+                "elementary_zero_eval"
+            }
+            Expr::Function(name, args)
+                if args.len() == 1
+                    && args[0].is_one()
+                    && matches!(name.as_str(), "acos" | "acosh" | "ln" | "log") =>
+            {
+                "elementary_one_eval"
             }
             _ => "simplify_normal_form",
         };
@@ -895,5 +923,38 @@ mod tests {
 
         let res = simplify_with(&complex, &mut budget);
         assert!(matches!(res, Err(SimplifyError::BudgetExhausted(_))));
+    }
+
+    #[test]
+    fn verified_simplify_supports_elementary_functions() {
+        let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
+        let mut meter = Unbounded;
+
+        // 1. asin(0) -> 0
+        let asin_zero = Expr::Function("asin".into(), vec![Expr::from_i64(0)]);
+        let (res_asin, env_asin) = verified_simplify(
+            &asin_zero,
+            &context,
+            ReceiptId::new(10).unwrap(),
+            &mut meter,
+        )
+        .unwrap();
+        assert_eq!(res_asin, Expr::from_i64(0));
+        assert!(env_asin.verify_integrity());
+
+        // 2. exp(0) -> 1
+        let exp_zero = Expr::Function("exp".into(), vec![Expr::from_i64(0)]);
+        let (res_exp, env_exp) =
+            verified_simplify(&exp_zero, &context, ReceiptId::new(11).unwrap(), &mut meter)
+                .unwrap();
+        assert_eq!(res_exp, Expr::from_i64(1));
+        assert!(env_exp.verify_integrity());
+
+        // 3. ln(1) -> 0
+        let ln_one = Expr::Function("ln".into(), vec![Expr::from_i64(1)]);
+        let (res_ln, env_ln) =
+            verified_simplify(&ln_one, &context, ReceiptId::new(12).unwrap(), &mut meter).unwrap();
+        assert_eq!(res_ln, Expr::from_i64(0));
+        assert!(env_ln.verify_integrity());
     }
 }
