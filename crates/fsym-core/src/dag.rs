@@ -609,6 +609,13 @@ struct SortInferenceState {
     limits: DagLimits,
 }
 
+struct LiftState<'a> {
+    visiting: &'a mut HashSet<TermId>,
+    expanded: &'a mut usize,
+    emitted_payload_bytes: &'a mut usize,
+    binders: &'a mut Vec<Vec<Symbol>>,
+}
+
 fn validate_node_limits(node: &TermNode, limits: DagLimits) -> Result<(), DagError> {
     if node_arity(node)? > limits.max_arity {
         return Err(DagError::ArityLimitExceeded(limits.max_arity));
@@ -1568,10 +1575,40 @@ impl TermDag {
                 None => id,
             },
             TermNode::Add(ids) => {
-                self.rewrite_children(id, ids, subst, shift, limits, inserted, memo, TermNode::Add)?
+                let mut new_ids = Vec::new();
+                new_ids
+                    .try_reserve(ids.len())
+                    .map_err(|_| DagError::AllocationFailure)?;
+                let mut changed = false;
+                for child in ids {
+                    let rewritten =
+                        self.rewrite_term(child, subst, shift, limits, inserted, memo)?;
+                    changed |= rewritten != child;
+                    new_ids.push(rewritten);
+                }
+                if changed {
+                    self.insert_node_tracking(TermNode::Add(new_ids), limits, inserted)?
+                } else {
+                    id
+                }
             }
             TermNode::Mul(ids) => {
-                self.rewrite_children(id, ids, subst, shift, limits, inserted, memo, TermNode::Mul)?
+                let mut new_ids = Vec::new();
+                new_ids
+                    .try_reserve(ids.len())
+                    .map_err(|_| DagError::AllocationFailure)?;
+                let mut changed = false;
+                for child in ids {
+                    let rewritten =
+                        self.rewrite_term(child, subst, shift, limits, inserted, memo)?;
+                    changed |= rewritten != child;
+                    new_ids.push(rewritten);
+                }
+                if changed {
+                    self.insert_node_tracking(TermNode::Mul(new_ids), limits, inserted)?
+                } else {
+                    id
+                }
             }
             TermNode::Function(name, ids) => {
                 let mut new_ids = Vec::new();
@@ -1958,44 +1995,44 @@ impl TermDag {
         let mut binders = Vec::new();
         self.to_expr_internal(
             id,
-            &mut visiting,
-            &mut expanded,
-            &mut emitted_payload_bytes,
             0,
             limits,
-            &mut binders,
+            &mut LiftState {
+                visiting: &mut visiting,
+                expanded: &mut expanded,
+                emitted_payload_bytes: &mut emitted_payload_bytes,
+                binders: &mut binders,
+            },
         )
     }
 
     fn to_expr_internal(
         &self,
         id: TermId,
-        visiting: &mut HashSet<TermId>,
-        expanded: &mut usize,
-        emitted_payload_bytes: &mut usize,
         current_depth: usize,
         limits: DagLimits,
-        binders: &mut Vec<Vec<Symbol>>,
+        state: &mut LiftState<'_>,
     ) -> Result<Expr, DagError> {
         if current_depth > limits.max_depth {
             return Err(DagError::DepthExceeded(limits.max_depth));
         }
-        if *expanded >= limits.max_expanded_nodes {
+        if *state.expanded >= limits.max_expanded_nodes {
             return Err(DagError::ExpansionLimitExceeded(limits.max_expanded_nodes));
         }
-        *expanded += 1;
-        if visiting.contains(&id) {
+        *state.expanded += 1;
+        if state.visiting.contains(&id) {
             return Err(DagError::CycleDetected(id));
         }
-        visiting
+        state
+            .visiting
             .try_reserve(1)
             .map_err(|_| DagError::AllocationFailure)?;
-        visiting.insert(id);
+        state.visiting.insert(id);
 
         let node = self.get(id).ok_or(DagError::UnknownId(id))?;
         validate_node_limits(node, limits)?;
         charge_total_payload(
-            emitted_payload_bytes,
+            state.emitted_payload_bytes,
             lifted_node_payload_bytes(node)?,
             limits.max_total_payload_bytes,
         )?;
@@ -2015,15 +2052,7 @@ impl TermDag {
                     .try_reserve(ids.len())
                     .map_err(|_| DagError::AllocationFailure)?;
                 for &child_id in ids {
-                    terms.push(self.to_expr_internal(
-                        child_id,
-                        visiting,
-                        expanded,
-                        emitted_payload_bytes,
-                        child_level,
-                        limits,
-                        binders,
-                    )?);
+                    terms.push(self.to_expr_internal(child_id, child_level, limits, state)?);
                 }
                 Ok(Expr::Add(terms))
             }
@@ -2038,38 +2067,14 @@ impl TermDag {
                     .try_reserve(ids.len())
                     .map_err(|_| DagError::AllocationFailure)?;
                 for &child_id in ids {
-                    factors.push(self.to_expr_internal(
-                        child_id,
-                        visiting,
-                        expanded,
-                        emitted_payload_bytes,
-                        child_level,
-                        limits,
-                        binders,
-                    )?);
+                    factors.push(self.to_expr_internal(child_id, child_level, limits, state)?);
                 }
                 Ok(Expr::Mul(factors))
             }
             TermNode::Pow(base, exponent) => {
                 let child_level = next_depth(current_depth, limits.max_depth)?;
-                let base = self.to_expr_internal(
-                    *base,
-                    visiting,
-                    expanded,
-                    emitted_payload_bytes,
-                    child_level,
-                    limits,
-                    binders,
-                )?;
-                let exponent = self.to_expr_internal(
-                    *exponent,
-                    visiting,
-                    expanded,
-                    emitted_payload_bytes,
-                    child_level,
-                    limits,
-                    binders,
-                )?;
+                let base = self.to_expr_internal(*base, child_level, limits, state)?;
+                let exponent = self.to_expr_internal(*exponent, child_level, limits, state)?;
                 Ok(Expr::Pow(Arc::new(base), Arc::new(exponent)))
             }
             TermNode::Function(name, ids) => {
@@ -2082,15 +2087,7 @@ impl TermDag {
                 args.try_reserve(ids.len())
                     .map_err(|_| DagError::AllocationFailure)?;
                 for &child_id in ids {
-                    args.push(self.to_expr_internal(
-                        child_id,
-                        visiting,
-                        expanded,
-                        emitted_payload_bytes,
-                        child_level,
-                        limits,
-                        binders,
-                    )?);
+                    args.push(self.to_expr_internal(child_id, child_level, limits, state)?);
                 }
                 Ok(Expr::Function(name.clone(), args))
             }
@@ -2105,27 +2102,20 @@ impl TermDag {
                 args.try_reserve(capacity)
                     .map_err(|_| DagError::AllocationFailure)?;
                 args.extend(names.iter().map(|parameter| Expr::Sym(parameter.clone())));
-                binders
+                state
+                    .binders
                     .try_reserve(1)
                     .map_err(|_| DagError::AllocationFailure)?;
-                binders.push(names);
-                let body = self.to_expr_internal(
-                    *body,
-                    visiting,
-                    expanded,
-                    emitted_payload_bytes,
-                    child_level,
-                    limits,
-                    binders,
-                )?;
-                binders.pop();
+                state.binders.push(names);
+                let body = self.to_expr_internal(*body, child_level, limits, state)?;
+                state.binders.pop();
                 args.push(body);
                 Ok(Expr::Function("Lambda".to_string(), args))
             }
-            TermNode::Bound(index) => Ok(Expr::Sym(resolve_bound(binders, *index)?)),
+            TermNode::Bound(index) => Ok(Expr::Sym(resolve_bound(state.binders, *index)?)),
         };
 
-        visiting.remove(&id);
+        state.visiting.remove(&id);
         result
     }
 }
