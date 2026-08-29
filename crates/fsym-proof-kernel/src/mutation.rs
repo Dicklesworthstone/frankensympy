@@ -10,8 +10,9 @@
 mod tests {
     use crate::claim::Claim;
     use crate::kernel::{
-        DerivationStep, DerivationTree, KernelError, MAX_DERIVATION_STEPS, ProofKernel,
-        derivation_verification_units, verify_derivation_independent,
+        DerivationStep, DerivationTree, KernelError, MAX_DERIVATION_NUMERIC_LIMBS,
+        MAX_DERIVATION_STEPS, ProofKernel, derivation_verification_units,
+        verify_derivation_independent,
     };
     use crate::rule::{ProofRule, StepId};
     use fsym_assumptions::{AssumptionsContext, BinderNode, Domain, Predicate};
@@ -369,6 +370,80 @@ mod tests {
         assert!(matches!(
             err2,
             KernelError::InvalidCertificateLemma { family, .. } if family == "RealBall"
+        ));
+    }
+
+    #[test]
+    fn mutant_real_ball_enclosure_check_deletion_killed() {
+        let mut kernel = ProofKernel::new(empty_context());
+        let mut meter = Unbounded;
+        let false_positive = Claim::predicate(Expr::from_i64(-5), Predicate::Positive);
+
+        let error = kernel
+            .prove_certificate_lemma(
+                "RealBall",
+                false_positive,
+                crate::rule::CertificatePayload::RealBall(fsym_core::RealBall::from_i64(5)),
+                &mut meter,
+            )
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            KernelError::InvalidCertificateLemma { family, .. } if family == "RealBall"
+        ));
+        assert_eq!(kernel.step_count(), 0);
+    }
+
+    #[test]
+    fn real_ball_refuses_equality_without_equality_specific_payload() {
+        let mut kernel = ProofKernel::new(empty_context());
+        let mut meter = Unbounded;
+        let true_equality = Claim::equality(Expr::from_i64(1), Expr::from_i64(1));
+
+        let error = kernel
+            .prove_certificate_lemma(
+                "RealBall",
+                true_equality,
+                crate::rule::CertificatePayload::RealBall(fsym_core::RealBall::from_i64(999)),
+                &mut meter,
+            )
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            KernelError::InvalidCertificateLemma { family, .. } if family == "RealBall"
+        ));
+        assert_eq!(kernel.step_count(), 0);
+    }
+
+    #[test]
+    fn oversized_real_ball_certificate_is_refused_by_preflight() {
+        let bit_count = u32::try_from(MAX_DERIVATION_NUMERIC_LIMBS * 64)
+            .expect("configured limb limit fits the bigint shift API");
+        let huge_midpoint = fsym_core::BigInt::from(1) << bit_count;
+        let certificate =
+            fsym_core::RealBall::exact(fsym_core::BigRational::from_integer(huge_midpoint));
+        let claim = Claim::predicate(Expr::from_i64(1), Predicate::Positive);
+        let derivation = DerivationTree {
+            steps: vec![DerivationStep {
+                id: StepId(0),
+                rule: ProofRule::CertificateLemma {
+                    family: "RealBall".to_string(),
+                    claim: claim.clone(),
+                    certificate: crate::rule::CertificatePayload::RealBall(certificate),
+                },
+                claim,
+            }],
+            root: StepId(0),
+        };
+
+        assert!(matches!(
+            derivation_verification_units(&derivation),
+            Err(KernelError::DerivationLimitExceeded {
+                resource: "numeric limbs",
+                ..
+            })
         ));
     }
 

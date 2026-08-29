@@ -108,7 +108,7 @@ const MAX_DERIVATION_EXPR_NODES: u64 = 262_144;
 const MAX_DERIVATION_EXPR_DEPTH: usize = 256;
 const MAX_DERIVATION_REFERENCES: u64 = 262_144;
 const MAX_DERIVATION_TEXT_BYTES: u64 = 1_048_576;
-const MAX_DERIVATION_NUMERIC_LIMBS: u64 = 262_144;
+pub(crate) const MAX_DERIVATION_NUMERIC_LIMBS: u64 = 262_144;
 const MAX_DERIVATION_DOMAIN_NODES: u64 = 4_096;
 const MAX_DERIVATION_DOMAIN_GENERATORS: u64 = 4_096;
 
@@ -165,6 +165,10 @@ impl ProofKernel {
         }
         let mut preflight = DerivationPreflight::default();
         preflight.visit_rule(&rule)?;
+        let rule_verification_units = preflight.work_units.div_ceil(64).max(1);
+        if rule_verification_units > 1 {
+            meter.charge(Dimension::ComputeSteps, rule_verification_units - 1)?;
+        }
 
         let current_index =
             u32::try_from(self.steps.len()).map_err(|_| KernelError::StepIdExhausted)?;
@@ -174,8 +178,11 @@ impl ProofKernel {
         let claim = check_rule_application(&rule, id, &self.claims, &self.context)?;
         preflight.visit_claim(&claim)?;
         let verification_units = preflight.work_units.div_ceil(64).max(1);
-        if verification_units > 1 {
-            meter.charge(Dimension::ComputeSteps, verification_units - 1)?;
+        if verification_units > rule_verification_units {
+            meter.charge(
+                Dimension::ComputeSteps,
+                verification_units - rule_verification_units,
+            )?;
         }
 
         let step = DerivationStep {
@@ -688,6 +695,18 @@ impl DerivationPreflight {
         }
     }
 
+    fn visit_certificate(&mut self, certificate: &CertificatePayload) -> Result<(), KernelError> {
+        match certificate {
+            CertificatePayload::RealBall(ball) => {
+                self.add_numeric_limbs(ball.midpoint().numer().limb_count())?;
+                self.add_numeric_limbs(ball.midpoint().denom().limb_count())?;
+                self.add_numeric_limbs(ball.radius().numer().limb_count())?;
+                self.add_numeric_limbs(ball.radius().denom().limb_count())
+            }
+            CertificatePayload::Opaque { .. } => self.add_work(1),
+        }
+    }
+
     fn visit_rule(&mut self, rule: &ProofRule) -> Result<(), KernelError> {
         match rule {
             ProofRule::Reflexivity(expr) => self.visit_expr(expr),
@@ -725,9 +744,14 @@ impl DerivationPreflight {
                 self.visit_expr(rhs)?;
                 self.add_text(rule_name)
             }
-            ProofRule::CertificateLemma { family, claim, .. } => {
+            ProofRule::CertificateLemma {
+                family,
+                claim,
+                certificate,
+            } => {
                 self.add_text(family)?;
-                self.visit_claim(claim)
+                self.visit_claim(claim)?;
+                self.visit_certificate(certificate)
             }
         }
     }
@@ -1088,24 +1112,11 @@ fn check_real_ball_certificate(
             }
             Ok(claim.clone())
         }
-        Claim::Equality { lhs, rhs } => {
-            let eval_lhs = eval_real_ball(lhs)?;
-            let eval_rhs = eval_real_ball(rhs)?;
-            let zero = BigRational::from_integer(BigInt::from(0));
-            if eval_lhs.radius() == &zero
-                && eval_rhs.radius() == &zero
-                && eval_lhs.midpoint() == eval_rhs.midpoint()
-            {
-                Ok(claim.clone())
-            } else {
-                Err(KernelError::InvalidCertificateLemma {
-                    family: "RealBall".to_string(),
-                    reason: format!(
-                        "RealBall equality requires exact point agreement: LHS `{eval_lhs}`, RHS `{eval_rhs}`"
-                    ),
-                })
-            }
-        }
+        Claim::Equality { .. } => Err(KernelError::InvalidCertificateLemma {
+            family: "RealBall".to_string(),
+            reason: "a single enclosure is not an equality certificate; use a typed equality-specific certificate"
+                .to_string(),
+        }),
         Claim::AlgebraicIdentity { .. } => Err(KernelError::InvalidCertificateLemma {
             family: "RealBall".to_string(),
             reason: "RealBall certificates apply to evaluated ground terms, not universal algebraic identities"
