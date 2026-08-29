@@ -39,12 +39,55 @@ pub enum PolyError {
 mod tests {
     use super::*;
     use fsym_assumptions::ImmutableAssumptionsSnapshot;
-    use fsym_budget::Unbounded;
+    use fsym_budget::{
+        Budget, BudgetLimits, BudgetMeter, DIMENSION_COUNT, Dimension, MeterError, Unbounded,
+    };
     use fsym_core::{BigInt, BigRational, Expr, Symbol};
     use fsym_proof_kernel::verify_derivation_independent;
     use num_traits::{One, Zero};
     use std::collections::BTreeMap;
     use std::sync::Arc;
+
+    #[derive(Debug, Default)]
+    struct EvaluationTestMeter {
+        dimensions: [u64; DIMENSION_COUNT],
+        checkpoints: usize,
+        cancel_at: Option<usize>,
+    }
+
+    impl EvaluationTestMeter {
+        fn cancelling_at(checkpoint: usize) -> Self {
+            Self {
+                cancel_at: Some(checkpoint),
+                ..Self::default()
+            }
+        }
+    }
+
+    impl BudgetMeter for EvaluationTestMeter {
+        fn charge(&mut self, dimension: Dimension, amount: u64) -> Result<(), MeterError> {
+            self.dimensions[dimension.index()] = self.dimensions[dimension.index()]
+                .checked_add(amount)
+                .expect("test meter charge must remain representable");
+            Ok(())
+        }
+
+        fn charge_batch(&mut self, charges: &[(Dimension, u64)]) -> Result<(), MeterError> {
+            for &(dimension, amount) in charges {
+                self.charge(dimension, amount)?;
+            }
+            Ok(())
+        }
+
+        fn checkpoint(&mut self) -> Result<(), MeterError> {
+            self.checkpoints = self.checkpoints.saturating_add(1);
+            if self.cancel_at == Some(self.checkpoints) {
+                Err(MeterError::Cancelled)
+            } else {
+                Ok(())
+            }
+        }
+    }
 
     #[test]
     fn test_univariate_div_rem_identity() {
@@ -185,6 +228,94 @@ mod tests {
         // even though negative powers of zero are rejected by BigRational.
         let zero_pt = vec![BigRational::zero(), BigRational::zero()];
         assert_eq!(poly.eval(&zero_pt).unwrap(), BigRational::zero());
+    }
+
+    #[test]
+    fn metered_multivariate_evaluation_matches_exact_result_and_honors_every_budget() {
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+        let generators = vec![x.clone(), y.clone()];
+        let expression = Expr::Add(vec![
+            Expr::Mul(vec![
+                Expr::from_i64(3),
+                Expr::Pow(Arc::new(Expr::Sym(x)), Arc::new(Expr::from_i64(5))),
+                Expr::Pow(Arc::new(Expr::Sym(y)), Arc::new(Expr::from_i64(2))),
+            ]),
+            Expr::from_i64(-7),
+        ]);
+        let polynomial = MultivariatePoly::from_expr(&expression, &generators).unwrap();
+        let point = [
+            BigRational::from_integer(BigInt::from(2)),
+            BigRational::from_integer(BigInt::from(-3)),
+        ];
+        let expected = BigRational::from_integer(BigInt::from(857));
+
+        let mut measured = EvaluationTestMeter::default();
+        assert_eq!(
+            polynomial.metered_eval(&point, &mut measured).unwrap(),
+            expected
+        );
+        assert!(measured.checkpoints > 0);
+        assert_eq!(measured.dimensions[Dimension::DepthLimit.index()], 0);
+        assert_eq!(measured.dimensions[Dimension::RandomDraws.index()], 0);
+
+        let exact_limits = BudgetLimits {
+            dimensions: measured.dimensions,
+            verifier_pool: 0,
+        };
+        let mut exact = Budget::new(exact_limits);
+        assert_eq!(
+            polynomial.metered_eval(&point, &mut exact).unwrap(),
+            expected
+        );
+        for dimension in Dimension::ALL {
+            assert_eq!(exact.remaining(dimension), 0);
+        }
+
+        for dimension in Dimension::ALL {
+            let used = measured.dimensions[dimension.index()];
+            if used == 0 {
+                continue;
+            }
+            let mut short_limits = exact_limits;
+            short_limits.dimensions[dimension.index()] = used - 1;
+            let mut short = Budget::new(short_limits);
+            assert!(matches!(
+                polynomial.metered_eval(&point, &mut short),
+                Err(PolyError::General(message))
+                    if message.contains(&format!("budget exhausted for {dimension}"))
+            ));
+        }
+
+        let mut terminal_cancelled = EvaluationTestMeter::cancelling_at(measured.checkpoints);
+        assert!(matches!(
+            polynomial.metered_eval(&point, &mut terminal_cancelled),
+            Err(PolyError::General(message)) if message.contains("region cancelled")
+        ));
+    }
+
+    #[test]
+    fn multivariate_evaluation_refuses_extreme_growth_and_unsupported_exponents() {
+        let x = Symbol::new("x");
+        let mut extreme_terms = BTreeMap::new();
+        extreme_terms.insert(vec![i32::MAX.unsigned_abs()], BigRational::one());
+        let extreme = MultivariatePoly::new(vec![x.clone()], extreme_terms).unwrap();
+        let two = [BigRational::from_integer(BigInt::from(2))];
+        assert!(matches!(
+            extreme.eval(&two),
+            Err(PolyError::General(message)) if message.contains("budget exhausted")
+        ));
+
+        let mut unsupported_terms = BTreeMap::new();
+        unsupported_terms.insert(vec![i32::MAX.unsigned_abs() + 1], BigRational::one());
+        let unsupported = MultivariatePoly::new(vec![x], unsupported_terms).unwrap();
+        let mut meter = Budget::new(BudgetLimits::uniform(u64::MAX, 0));
+        assert_eq!(
+            unsupported.metered_eval(&two, &mut meter),
+            Err(PolyError::General(
+                "polynomial evaluation exponent exceeds the supported i32 range".to_string()
+            ))
+        );
     }
 
     #[test]

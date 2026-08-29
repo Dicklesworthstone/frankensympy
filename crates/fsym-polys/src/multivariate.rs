@@ -3,7 +3,7 @@
 #![forbid(unsafe_code)]
 
 use crate::PolyError;
-use fsym_budget::{BudgetMeter, Dimension};
+use fsym_budget::{Budget, BudgetLimits, BudgetMeter, Dimension};
 use fsym_core::{BigInt, BigRational, Expr, Symbol};
 use num_traits::{One, Zero};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -17,6 +17,10 @@ const MAX_MULTIVARIATE_GENERATORS: usize = 256;
 const MAX_MULTIVARIATE_GENERATOR_NAME_BYTES: usize = 65_536;
 const MAX_MULTIVARIATE_EXPR_DEPTH: usize = 256;
 const MAX_MULTIVARIATE_EXPR_NODES: usize = 262_144;
+const DEFAULT_EVALUATION_COMPUTE_STEPS: u64 = 4_000_000;
+const DEFAULT_EVALUATION_MEMORY_BYTES: u64 = 64 * 1024 * 1024;
+const DEFAULT_EVALUATION_ALLOCATIONS: u64 = 262_144;
+const DEFAULT_EVALUATION_DEPTH: u64 = 256;
 
 /// Term ordering policy for multivariate monomials.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -244,8 +248,35 @@ impl MultivariatePoly {
             .unwrap_or(0)
     }
 
-    /// Evaluates the polynomial given values for all generators.
+    /// Evaluates the polynomial given values for all generators under a finite local budget.
+    ///
+    /// Callers that already own a request budget should use [`Self::metered_eval`] so evaluation
+    /// charges the same ledger as the surrounding operation. This convenience lane deliberately
+    /// refuses coefficient or exponent growth beyond its fixed limits rather than falling back to
+    /// unmetered arbitrary-precision arithmetic.
     pub fn eval(&self, values: &[BigRational]) -> Result<BigRational, PolyError> {
+        let mut limits = BudgetLimits::uniform(0, 0);
+        limits.dimensions[Dimension::ComputeSteps.index()] = DEFAULT_EVALUATION_COMPUTE_STEPS;
+        limits.dimensions[Dimension::MemoryBytes.index()] = DEFAULT_EVALUATION_MEMORY_BYTES;
+        limits.dimensions[Dimension::AllocationCount.index()] = DEFAULT_EVALUATION_ALLOCATIONS;
+        limits.dimensions[Dimension::DepthLimit.index()] = DEFAULT_EVALUATION_DEPTH;
+        let mut budget = Budget::new(limits);
+        self.metered_eval(values, &mut budget)
+    }
+
+    /// Cancellation-first exact evaluation charged to the caller's owning budget.
+    ///
+    /// Shape, arity, and the supported exponent range are checked before any exact coefficient
+    /// work. Coefficients are copied through metered addition, and every power, product, and sum
+    /// uses the governed rational lane. Results remain private until a final checkpoint succeeds.
+    pub fn metered_eval<M: BudgetMeter>(
+        &self,
+        values: &[BigRational],
+        meter: &mut M,
+    ) -> Result<BigRational, PolyError> {
+        meter
+            .checkpoint()
+            .map_err(polynomial_evaluation_meter_error)?;
         self.validate_shape()?;
         if values.len() != self.generators.len() {
             return Err(PolyError::General(format!(
@@ -254,27 +285,73 @@ impl MultivariatePoly {
                 values.len()
             )));
         }
+
+        let exponent_slots = self
+            .terms
+            .len()
+            .checked_mul(self.generators.len())
+            .and_then(|slots| slots.checked_add(values.len()))
+            .and_then(|slots| slots.checked_add(1))
+            .ok_or_else(|| {
+                PolyError::General(
+                    "polynomial evaluation structural work count overflowed".to_string(),
+                )
+            })?;
+        let structural_work = u64::try_from(exponent_slots).map_err(|_| {
+            PolyError::General("polynomial evaluation structural work exceeds u64".to_string())
+        })?;
+        meter
+            .charge(Dimension::ComputeSteps, structural_work)
+            .map_err(polynomial_evaluation_meter_error)?;
+        meter
+            .checkpoint()
+            .map_err(polynomial_evaluation_meter_error)?;
+
+        for exponents in self.terms.keys() {
+            meter
+                .checkpoint()
+                .map_err(polynomial_evaluation_meter_error)?;
+            if exponents
+                .iter()
+                .any(|&degree| degree > i32::MAX.unsigned_abs())
+            {
+                return Err(PolyError::General(
+                    "polynomial evaluation exponent exceeds the supported i32 range".to_string(),
+                ));
+            }
+        }
+
         let mut result = BigRational::zero();
         for (exp, coeff) in &self.terms {
-            let mut monomial_val = coeff.clone();
+            meter
+                .checkpoint()
+                .map_err(polynomial_evaluation_meter_error)?;
+            let mut monomial_val = BigRational::zero()
+                .metered_add(coeff, meter)
+                .map_err(polynomial_evaluation_arithmetic_error)?;
             for (v_idx, &deg) in exp.iter().enumerate() {
                 if deg > 0 {
                     let signed_degree = i32::try_from(deg).map_err(|_| {
                         PolyError::General(
-                            "polynomial evaluation exponent exceeds the supported i32 range"
+                            "preflighted polynomial evaluation exponent did not fit i32"
                                 .to_string(),
                         )
                     })?;
-                    let val_pow = values[v_idx].pow(signed_degree).map_err(|error| {
-                        PolyError::General(format!(
-                            "polynomial evaluation exponentiation failed: {error}"
-                        ))
-                    })?;
-                    monomial_val *= val_pow;
+                    let val_pow = values[v_idx]
+                        .metered_pow(signed_degree, meter)
+                        .map_err(polynomial_evaluation_arithmetic_error)?;
+                    monomial_val = monomial_val
+                        .metered_mul(&val_pow, meter)
+                        .map_err(polynomial_evaluation_arithmetic_error)?;
                 }
             }
-            result += monomial_val;
+            result = result
+                .metered_add(&monomial_val, meter)
+                .map_err(polynomial_evaluation_arithmetic_error)?;
         }
+        meter
+            .checkpoint()
+            .map_err(polynomial_evaluation_meter_error)?;
         Ok(result)
     }
 
@@ -645,6 +722,14 @@ impl MultivariatePoly {
         }
         Ok(())
     }
+}
+
+fn polynomial_evaluation_meter_error(error: fsym_budget::MeterError) -> PolyError {
+    PolyError::General(format!("polynomial evaluation refused: {error}"))
+}
+
+fn polynomial_evaluation_arithmetic_error(error: impl fmt::Display) -> PolyError {
+    PolyError::General(format!("polynomial evaluation arithmetic failed: {error}"))
 }
 
 fn validate_generators(generators: &[Symbol]) -> Result<(), String> {
