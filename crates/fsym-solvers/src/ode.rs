@@ -1,4 +1,4 @@
-//! Exact ordinary differential equation (ODE) solvers and solution certificate verification (WS19).
+//! Bounded ODE candidate generators and conservative exact residual checks (WS19).
 
 #![forbid(unsafe_code)]
 
@@ -12,13 +12,6 @@ use std::sync::Arc;
 fn square_root_if_exact(value: &BigInt) -> Option<BigInt> {
     let root = value.sqrt()?;
     (&root * &root == value.clone()).then_some(root)
-}
-
-fn half_power(value: BigInt) -> Expr {
-    Expr::Pow(
-        Arc::new(Expr::Integer(value)),
-        Arc::new(Expr::Rational(BigRational::new(1.into(), 2.into()))),
-    )
 }
 
 fn require_fresh_integration_constants(
@@ -183,6 +176,7 @@ pub fn dsolve_const_coeff_second_order(
             "second-order ODE leading coefficient must be nonzero".to_string(),
         ));
     }
+    let coefficients = (a, b, c);
     // Characteristic equation: a*r^2 + b*r + c = 0
     // r = (-b ± sqrt(b^2 - 4*a*c)) / (2*a)
     let a = BigInt::from(a);
@@ -195,57 +189,42 @@ pub fn dsolve_const_coeff_second_order(
     let c1_sym = Expr::Sym(c1.clone());
     let c2_sym = Expr::Sym(c2.clone());
 
-    if disc.is_zero() {
+    let solution = if disc.is_zero() {
         // Repeated real root r = -b / (2*a)
         let r = Expr::Rational(BigRational::new(neg_b.clone(), two_a.clone()));
         let exp_rx = Expr::Function("exp".into(), vec![Expr::Mul(vec![r, x_sym.clone()])]);
         // y(x) = (C1 + C2 * x) * exp(r*x)
         let term = Expr::Add(vec![c1_sym, Expr::Mul(vec![c2_sym, x_sym])]);
-        Ok(simplify(&Expr::Mul(vec![term, exp_rx])))
+        simplify(&Expr::Mul(vec![term, exp_rx]))
     } else if disc.is_positive() {
         // Two distinct real roots
-        if let Some(sqrt_disc) = square_root_if_exact(&disc) {
-            let r1 = Expr::Rational(BigRational::new(&neg_b + &sqrt_disc, two_a.clone()));
-            let r2 = Expr::Rational(BigRational::new(&neg_b - &sqrt_disc, two_a.clone()));
-            let exp1 = Expr::Function("exp".into(), vec![Expr::Mul(vec![r1, x_sym.clone()])]);
-            let exp2 = Expr::Function("exp".into(), vec![Expr::Mul(vec![r2, x_sym])]);
-            let sol = Expr::Add(vec![
-                Expr::Mul(vec![c1_sym, exp1]),
-                Expr::Mul(vec![c2_sym, exp2]),
-            ]);
-            Ok(simplify(&sol))
-        } else {
-            // General real roots with sqrt
-            let r1_num = Expr::Add(vec![Expr::Integer(neg_b.clone()), half_power(disc.clone())]);
-            let two_a_inv = Expr::Pow(Arc::new(Expr::Integer(two_a)), Arc::new(Expr::from_i64(-1)));
-            let r1 = Expr::Mul(vec![r1_num, two_a_inv.clone()]);
-            let r2_num = Expr::Add(vec![
-                Expr::Integer(neg_b),
-                Expr::Mul(vec![Expr::from_i64(-1), half_power(disc)]),
-            ]);
-            let r2 = Expr::Mul(vec![r2_num, two_a_inv]);
-
-            let exp1 = Expr::Function("exp".into(), vec![Expr::Mul(vec![r1, x_sym.clone()])]);
-            let exp2 = Expr::Function("exp".into(), vec![Expr::Mul(vec![r2, x_sym])]);
-            let sol = Expr::Add(vec![
-                Expr::Mul(vec![c1_sym, exp1]),
-                Expr::Mul(vec![c2_sym, exp2]),
-            ]);
-            Ok(simplify(&sol))
-        }
+        let sqrt_disc = square_root_if_exact(&disc).ok_or_else(|| {
+            SolverError::IncompleteSolutionSet(
+                "non-square characteristic radicals are not supported by the exact ODE verifier"
+                    .to_string(),
+            )
+        })?;
+        let r1 = Expr::Rational(BigRational::new(&neg_b + &sqrt_disc, two_a.clone()));
+        let r2 = Expr::Rational(BigRational::new(&neg_b - &sqrt_disc, two_a.clone()));
+        let exp1 = Expr::Function("exp".into(), vec![Expr::Mul(vec![r1, x_sym.clone()])]);
+        let exp2 = Expr::Function("exp".into(), vec![Expr::Mul(vec![r2, x_sym])]);
+        let sol = Expr::Add(vec![
+            Expr::Mul(vec![c1_sym, exp1]),
+            Expr::Mul(vec![c2_sym, exp2]),
+        ]);
+        simplify(&sol)
     } else {
         // Complex conjugate roots: alpha ± i*beta
         // alpha = -b / (2*a), beta = sqrt(-disc) / (2*a)
         let alpha = Expr::Rational(BigRational::new(neg_b, two_a.clone()));
         let pos_disc = -disc;
-        let beta = if let Some(sqrt_disc) = square_root_if_exact(&pos_disc) {
-            Expr::Rational(BigRational::new(sqrt_disc, two_a.clone()))
-        } else {
-            Expr::Mul(vec![
-                half_power(pos_disc),
-                Expr::Pow(Arc::new(Expr::Integer(two_a)), Arc::new(Expr::from_i64(-1))),
-            ])
-        };
+        let sqrt_disc = square_root_if_exact(&pos_disc).ok_or_else(|| {
+            SolverError::IncompleteSolutionSet(
+                "non-square characteristic radicals are not supported by the exact ODE verifier"
+                    .to_string(),
+            )
+        })?;
+        let beta = Expr::Rational(BigRational::new(sqrt_disc, two_a.clone()));
 
         let exp_ax = Expr::Function("exp".into(), vec![Expr::Mul(vec![alpha, x_sym.clone()])]);
         let cos_bx = Expr::Function(
@@ -259,7 +238,21 @@ pub fn dsolve_const_coeff_second_order(
             Expr::Mul(vec![c2_sym, sin_bx]),
         ]);
 
-        Ok(simplify(&Expr::Mul(vec![exp_ax, trig_part])))
+        simplify(&Expr::Mul(vec![exp_ax, trig_part]))
+    };
+
+    if verify_const_coeff_second_order_solution(
+        &solution,
+        coefficients.0,
+        coefficients.1,
+        coefficients.2,
+        x,
+    ) {
+        Ok(solution)
+    } else {
+        Err(SolverError::IncompleteSolutionSet(
+            "the generated ODE family did not pass exact residual verification".to_string(),
+        ))
     }
 }
 

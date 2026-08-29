@@ -44,8 +44,25 @@ class SurfaceTests(unittest.TestCase):
         self.assertIsInstance(sympy.simplify(x + 0), sympy.Expr)
         self.assertEqual(sympy.integrate(2 * x, (x, 0, 1)), sympy.Integer(1))
         self.assertEqual(sympy.solve(2 * x - 4, x), [sympy.Integer(2)])
+        self.assertEqual(sympy.solve(sympy.Eq(2 * x, 4), x), [sympy.Integer(2)])
         with self.assertRaises(NotImplementedError):
             sympy.dsolve(x)
+
+    def test_atoms_and_held_equality(self):
+        x, y = sympy.symbols("x y")
+        expr = x + 2 * y + 1
+        self.assertEqual(expr.atoms(sympy.Symbol), {x, y})
+        self.assertIn(sympy.Integer(1), expr.atoms(sympy.Integer))
+        self.assertTrue(all(arg.args == () for arg in expr.atoms()))
+
+        relation = sympy.Eq(x, 2)
+        self.assertIs(type(relation), sympy.Eq)
+        self.assertEqual(relation.lhs, x)
+        self.assertEqual(relation.rhs, sympy.Integer(2))
+        restored = pickle.loads(pickle.dumps(relation))  # ubs:ignore — trusted in-process bytes
+        self.assertIs(type(restored), sympy.Eq)
+        self.assertEqual(restored.lhs, x)
+        self.assertEqual(expr.atoms(sympy.Add), {expr})
 
     def test_constants_are_native_constants_not_spoofed_symbols(self):
         for constant in (sympy.pi, sympy.E, sympy.I, sympy.oo, sympy.zoo, sympy.nan):

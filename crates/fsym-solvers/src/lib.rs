@@ -1,7 +1,8 @@
 //! # fsym-solvers
 //!
-//! Algebraic equation solvers (`solve`, `solveset`), linear systems, polynomial systems,
-//! and differential equations (`dsolve`).
+//! Bounded algebraic, polynomial-system, and selected ODE solving routines.
+//!
+//! This crate does not yet provide the full SymPy `solveset` or `dsolve` surfaces.
 
 pub mod ode;
 pub mod system;
@@ -764,7 +765,11 @@ mod tests {
         ));
         assert!(dsolve_const_coeff_second_order(i64::MIN, 0, 0, &x, &c1, &c2).is_ok());
         assert!(dsolve_const_coeff_second_order(1, i64::MIN, 0, &x, &c1, &c2).is_ok());
-        assert!(dsolve_const_coeff_second_order(1, 0, i64::MAX, &x, &c1, &c2).is_ok());
+        assert!(matches!(
+            dsolve_const_coeff_second_order(1, 0, i64::MAX, &x, &c1, &c2),
+            Err(SolverError::IncompleteSolutionSet(message))
+                if message.contains("non-square characteristic radicals")
+        ));
 
         // The old sampled fallback substituted x=1 and accepted this nonzero
         // residual for the equation y=0.
@@ -794,6 +799,51 @@ mod tests {
             0,
             1,
             &x,
+        ));
+    }
+
+    #[test]
+    fn generated_constant_coefficient_families_are_exactly_verifiable() {
+        let x = Symbol::new("x");
+        let c1 = Symbol::new("C1");
+        let c2 = Symbol::new("C2");
+
+        for (a, b, c) in [
+            (1, -5, 6),
+            (1, -2, 1),
+            (1, 0, 4),
+            (-1, 0, -4),
+            (i64::MIN, 0, 0),
+            (1, i64::MIN, 0),
+        ] {
+            let solution = dsolve_const_coeff_second_order(a, b, c, &x, &c1, &c2)
+                .expect("the exact characteristic family must be supported");
+            assert!(
+                verify_const_coeff_second_order_solution(&solution, a, b, c, &x),
+                "the solver must not publish a family its verifier rejects for ({a}, {b}, {c})"
+            );
+        }
+
+        for (a, b, c) in [(1, 0, -2), (1, 0, 2)] {
+            assert!(matches!(
+                dsolve_const_coeff_second_order(a, b, c, &x, &c1, &c2),
+                Err(SolverError::IncompleteSolutionSet(message))
+                    if message.contains("non-square characteristic radicals")
+            ));
+        }
+
+        assert!(matches!(
+            dsolve_const_coeff_second_order_nonhomogeneous(
+                1,
+                0,
+                2,
+                &Expr::from_i64(1),
+                &x,
+                &c1,
+                &c2,
+            ),
+            Err(SolverError::IncompleteSolutionSet(message))
+                if message.contains("non-square characteristic radicals")
         ));
     }
 

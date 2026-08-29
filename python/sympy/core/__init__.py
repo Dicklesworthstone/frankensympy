@@ -67,7 +67,7 @@ except ImportError as exc:
 
 
 def _exact_surface_types():
-    return (
+    types = [
         Basic,
         Atom,
         AtomicExpr,
@@ -86,7 +86,11 @@ def _exact_surface_types():
         AppliedUndef,
         Application,
         Function,
-    )
+    ]
+    eq = globals().get("Eq")
+    if eq is not None:
+        types.append(eq)
+    return tuple(types)
 
 
 def _native_expr(value: Any):
@@ -175,6 +179,7 @@ def _wrap(value: Any) -> "Basic":
         "Mul": Mul,
         "Pow": Pow,
         "Derivative": Derivative,
+        "Eq": Eq,
         "Constant": Expr,
     }.get(value.func_name)
     if cls is None:
@@ -330,6 +335,26 @@ class Basic:
     def subs(self, old: Any, new: Any) -> "Basic":
         return _wrap(_native_expr(self).subs(_native_expr(old), _native_expr(new)))
 
+    def atoms(self, *types: type) -> set["Basic"]:
+        """Collect subexpressions. With no types, only atoms (empty args)."""
+        found: set[Basic] = set()
+        stack = [self]
+        while stack:
+            node = stack.pop()
+            if not isinstance(node, Basic):
+                continue
+            args = node.args
+            if types:
+                if isinstance(node, types):
+                    found.add(node)
+                stack.extend(args)
+                continue
+            if args:
+                stack.extend(args)
+            else:
+                found.add(node)
+        return found
+
     def xreplace(self, rule: Any) -> "Basic":
         """Replace exact nodes. Unlike ``subs``, this does not rewrite algebraically."""
         if isinstance(rule, dict):
@@ -439,6 +464,8 @@ class Basic:
             return _restore_nary, (type(self), self.args)
         if isinstance(self, Pow):
             return _restore_pow, (type(self), *self.args)
+        if type(self) is Eq:
+            return type(self), self.args
         return type(self), (str(self),)
 
 
@@ -840,6 +867,29 @@ class ComplexInfinity(AtomicExpr):
 zoo = ComplexInfinity("zoo")
 
 
+class Eq(Expr):
+    """Held equality. This is a relational node, not a Boolean proof."""
+
+    __slots__ = ()
+
+    def __init__(self, lhs: Any, rhs: Any):
+        self._value = _native.py_function("Eq", _native_expr(lhs), _native_expr(rhs))
+
+    @property
+    def lhs(self) -> Basic:
+        return self.args[0]
+
+    @property
+    def rhs(self) -> Basic:
+        return self.args[1]
+
+    def __repr__(self) -> str:
+        return f"Eq({self.lhs!r}, {self.rhs!r})"
+
+    def __str__(self) -> str:
+        return f"Eq({self.lhs}, {self.rhs})"
+
+
 class _SingletonRegistry:
     """Exact-atom registry. ``S(float)`` constructs compatibility ``Float``."""
 
@@ -1136,6 +1186,7 @@ Number.__module__ = "sympy.core.numbers"
 Rational.__module__ = "sympy.core.numbers"
 Integer.__module__ = "sympy.core.numbers"
 Float.__module__ = "sympy.core.numbers"
+Eq.__module__ = "sympy.core.relational"
 Add.__module__ = "sympy.core.add"
 Mul.__module__ = "sympy.core.mul"
 Pow.__module__ = "sympy.core.power"
@@ -1161,6 +1212,7 @@ for _mod_name, _mod_items in [
     ("sympy.core.expr", (Expr, AtomicExpr)),
     ("sympy.core.symbol", (Symbol, Dummy, symbols)),
     ("sympy.core.numbers", (Number, Rational, Integer, Float, ComplexInfinity, _restore_float)),
+    ("sympy.core.relational", (Eq,)),
     ("sympy.core.add", (Add,)),
     ("sympy.core.mul", (Mul,)),
     ("sympy.core.power", (Pow,)),
@@ -1190,6 +1242,7 @@ __all__ = [
     "ComplexInfinity",
     "Derivative",
     "Dummy",
+    "Eq",
     "Expr",
     "Float",
     "Function",

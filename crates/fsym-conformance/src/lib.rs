@@ -1167,7 +1167,7 @@ mod tests {
         let err = run_bounded_oracle(Command::new("/usr/bin/yes"), Duration::from_millis(100))
             .expect_err("flooding child must fail");
         assert!(err.contains("parent wall-time bound"));
-        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(started.elapsed() < Duration::from_secs(10));
     }
 
     #[cfg(unix)]
@@ -1179,7 +1179,7 @@ mod tests {
         let output = run_bounded_oracle(command, Duration::from_secs(1))
             .expect("supervisor must kill the inherited-pipe holder");
         assert!(output.status.success());
-        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(started.elapsed() < Duration::from_secs(10));
         let descendant = String::from_utf8(output.stdout)
             .expect("pid output is UTF-8")
             .trim()

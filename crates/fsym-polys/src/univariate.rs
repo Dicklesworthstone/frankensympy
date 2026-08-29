@@ -250,15 +250,78 @@ impl UnivariatePoly {
         Ok(Self::new(self.gen_sym.clone(), int_coeffs))
     }
 
+    /// Computes the resultant of two univariate polynomials $P(x)$ and $Q(x)$ via Sylvester matrix.
+    pub fn resultant(&self, other: &Self) -> Result<BigRational, PolyError> {
+        self.validate_shape()?;
+        other.validate_shape()?;
+        if self.gen_sym != other.gen_sym {
+            return Err(PolyError::IncompatibleGenerators(
+                self.gen_sym.name.clone(),
+                other.gen_sym.name.clone(),
+            ));
+        }
+        if self.is_zero() || other.is_zero() {
+            return Ok(BigRational::zero());
+        }
+        let n = self.degree().unwrap();
+        let m = other.degree().unwrap();
+        if n == 0 && m == 0 {
+            return Ok(BigRational::one());
+        }
+        if n == 0 {
+            let c = self.leading_coeff();
+            let mut res = BigRational::one();
+            for _ in 0..m {
+                res *= c;
+            }
+            return Ok(res);
+        }
+        if m == 0 {
+            let d = other.leading_coeff();
+            let mut res = BigRational::one();
+            for _ in 0..n {
+                res *= d;
+            }
+            return Ok(res);
+        }
+        let dim = n + m;
+        if dim > 128 {
+            return Err(PolyError::General(format!(
+                "resultant Sylvester matrix dimension {dim} exceeds bounded limit of 128"
+            )));
+        }
+        let mut mat = vec![vec![BigRational::zero(); dim]; dim];
+        for r in 0..m {
+            for (idx, coeff) in self.coeffs.iter().rev().enumerate() {
+                mat[r][r + idx] = coeff.clone();
+            }
+        }
+        for s in 0..n {
+            for (idx, coeff) in other.coeffs.iter().rev().enumerate() {
+                mat[m + s][s + idx] = coeff.clone();
+            }
+        }
+        Ok(rational_matrix_det(mat))
+    }
+
     /// Computes the polynomial discriminant.
     ///
-    /// - Degree 3 ($a x^3 + b x^2 + c x + d$): $\Delta = b^2 c^2 - 4 a c^3 - 4 b^3 d - 27 a^2 d^2 + 18 a b c d$
-    /// - Degree 2 ($a x^2 + b x + c$): $\Delta = b^2 - 4 a c$
-    /// - Degree 1 ($a x + b$): $\Delta = 1$
-    /// - Degree 0 ($c$): $\Delta = 1$
+    /// For degree $n \ge 2$ with leading coefficient $a_n$, $\Delta = (-1)^{n(n-1)/2} \frac{1}{a_n} \operatorname{Res}(P, P')$.
+    /// For degree 0 and 1, $\Delta = 1$.
     pub fn discriminant(&self) -> Result<BigRational, PolyError> {
         self.validate_shape()?;
         match self.degree() {
+            None => Err(PolyError::General(
+                "discriminant of zero polynomial is undefined".to_string(),
+            )),
+            Some(0) | Some(1) => Ok(BigRational::one()),
+            Some(2) => {
+                let c = &self.coeffs[0];
+                let b = &self.coeffs[1];
+                let a = &self.coeffs[2];
+                let four = BigRational::from_integer(BigInt::from(4));
+                Ok((b * b) - (four * a * c))
+            }
             Some(3) => {
                 let d = &self.coeffs[0];
                 let c = &self.coeffs[1];
@@ -276,18 +339,17 @@ impl UnivariatePoly {
 
                 Ok(b2_c2 - four_a_c3 - four_b3_d - twenty_seven_a2_d2 + eighteen_abcd)
             }
-            Some(2) => {
-                let c = &self.coeffs[0];
-                let b = &self.coeffs[1];
-                let a = &self.coeffs[2];
-                let four = BigRational::from_integer(BigInt::from(4));
-                Ok((b * b) - (four * a * c))
+            Some(n) => {
+                let p_prime = self.derivative();
+                let res = self.resultant(&p_prime)?;
+                let a_n = self.leading_coeff();
+                let sign = if (n * (n - 1) / 2) % 2 == 1 {
+                    -BigRational::one()
+                } else {
+                    BigRational::one()
+                };
+                Ok(sign * res / a_n)
             }
-            Some(1) | Some(0) => Ok(BigRational::one()),
-            _ => Err(PolyError::General(
-                "discriminant currently supported for degrees 0, 1, 2, and 3 univariate polynomials"
-                    .to_string(),
-            )),
         }
     }
 
@@ -655,4 +717,45 @@ impl fmt::Display for UnivariatePoly {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Poly({}, {})", self.to_expr(), self.gen_sym.name)
     }
+}
+
+fn rational_matrix_det(mut mat: Vec<Vec<BigRational>>) -> BigRational {
+    let n = mat.len();
+    if n == 0 {
+        return BigRational::one();
+    }
+    let mut sign = 1i64;
+    let mut det = BigRational::one();
+    for i in 0..n {
+        let mut pivot_row = i;
+        while pivot_row < n && mat[pivot_row][i].is_zero() {
+            pivot_row += 1;
+        }
+        if pivot_row == n {
+            return BigRational::zero();
+        }
+        if pivot_row != i {
+            mat.swap(i, pivot_row);
+            sign = -sign;
+        }
+        let pivot = mat[i][i].clone();
+        det *= &pivot;
+        let inv_pivot = BigRational::one() / &pivot;
+        let (left_rows, right_rows) = mat.split_at_mut(i + 1);
+        let pivot_row_slice = &left_rows[i];
+        for row in right_rows.iter_mut() {
+            if !row[i].is_zero() {
+                let factor = &row[i] * &inv_pivot;
+                for (target, pivot_elem) in row
+                    .iter_mut()
+                    .skip(i + 1)
+                    .zip(pivot_row_slice.iter().skip(i + 1))
+                {
+                    let sub = &factor * pivot_elem;
+                    *target = &*target - &sub;
+                }
+            }
+        }
+    }
+    if sign == -1 { -det } else { det }
 }

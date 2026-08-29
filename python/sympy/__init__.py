@@ -14,6 +14,7 @@ from .core import (
     ComplexInfinity,
     Derivative,
     Dummy,
+    Eq,
     Expr,
     Float,
     Function,
@@ -97,6 +98,8 @@ def limit(expression, variable, point):
 
 def solve(expression, variable):
     """Solve the implemented linear ``expression == 0`` case."""
+    if type(expression) is Eq:
+        expression = expression.lhs - expression.rhs
     symbol = _require_symbol(variable)
     result = _native.solve_linear_expr(
         str(_wrap(_native_expr(expression))), _native_symbol_key(symbol)
@@ -200,6 +203,7 @@ __all__ = [
     "Derivative",
     "Dummy",
     "E",
+    "Eq",
     "Expr",
     "Float",
     "Function",

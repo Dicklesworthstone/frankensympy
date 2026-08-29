@@ -1216,4 +1216,52 @@ mod tests {
             Err(PolyError::IncompatibleGenerators(..))
         ));
     }
+
+    #[test]
+    fn test_univariate_resultant_and_higher_degree_discriminant() {
+        let x = Symbol::new("x");
+
+        // 1. Res(x^2 - 1, x - 1) = 0 because they share root x = 1
+        let p = UnivariatePoly::new(
+            x.clone(),
+            vec![
+                BigRational::from_integer((-1).into()),
+                BigRational::zero(),
+                BigRational::one(),
+            ],
+        );
+        let q = UnivariatePoly::new(
+            x.clone(),
+            vec![BigRational::from_integer((-1).into()), BigRational::one()],
+        );
+        let res = p.resultant(&q).unwrap();
+        assert_eq!(res, BigRational::zero());
+
+        // 2. Res(x + 2, x + 3) = 1
+        let a = UnivariatePoly::new(
+            x.clone(),
+            vec![BigRational::from_integer(2.into()), BigRational::one()],
+        );
+        let b = UnivariatePoly::new(
+            x.clone(),
+            vec![BigRational::from_integer(3.into()), BigRational::one()],
+        );
+        assert_eq!(a.resultant(&b).unwrap(), BigRational::one());
+
+        // 3. Degree 4 polynomial discriminant:
+        // P(x) = x^4 - 1 = (x - 1)(x + 1)(x^2 + 1)
+        // Discriminant of x^4 - 1 is -256
+        let p4 = UnivariatePoly::new(
+            x.clone(),
+            vec![
+                BigRational::from_integer((-1).into()),
+                BigRational::zero(),
+                BigRational::zero(),
+                BigRational::zero(),
+                BigRational::one(),
+            ],
+        );
+        let disc_p4 = p4.discriminant().unwrap();
+        assert_eq!(disc_p4, BigRational::from_integer((-256).into()));
+    }
 }
