@@ -266,6 +266,134 @@ pub fn is_perfect_number(n: u64) -> Result<bool, NTheoryError> {
     Ok(n.checked_mul(2).is_some_and(|twice_n| sum == twice_n))
 }
 
+fn gcd_u64(mut a: u64, mut b: u64) -> u64 {
+    while b != 0 {
+        let t = b;
+        b = a % b;
+        a = t;
+    }
+    a
+}
+
+fn lcm_u64(a: u64, b: u64) -> Result<u64, NTheoryError> {
+    if a == 0 || b == 0 {
+        return Ok(0);
+    }
+    let g = gcd_u64(a, b);
+    let a_div = a / g;
+    a_div
+        .checked_mul(b)
+        .ok_or(NTheoryError::ArithmeticOverflow("lcm overflow"))
+}
+
+/// Carmichael function: λ(n) is the smallest positive integer m such that a^m ≡ 1 (mod n)
+/// for every integer a coprime to n.
+pub fn carmichael(n: u64) -> Result<u64, NTheoryError> {
+    if n == 0 {
+        return Err(NTheoryError::ZeroFactorization);
+    }
+    if n <= 2 {
+        return Ok(1);
+    }
+    let factors = factorint(n)?;
+    let mut lambda = 1u64;
+    for (p, exp) in factors {
+        let p_lambda = if p == 2 {
+            match exp {
+                1 => 1,
+                2 => 2,
+                e => 1u64
+                    .checked_shl(e - 2)
+                    .ok_or(NTheoryError::ArithmeticOverflow(
+                        "carmichael 2-power overflow",
+                    ))?,
+            }
+        } else {
+            let p_pow = p
+                .checked_pow(exp - 1)
+                .ok_or(NTheoryError::ArithmeticOverflow(
+                    "carmichael prime power overflow",
+                ))?;
+            p_pow
+                .checked_mul(p - 1)
+                .ok_or(NTheoryError::ArithmeticOverflow(
+                    "carmichael prime factor overflow",
+                ))?
+        };
+        lambda = lcm_u64(lambda, p_lambda)?;
+    }
+    Ok(lambda)
+}
+
+/// Computes integer floor k-th root: ⌊n^(1/k)⌋ for k >= 1.
+pub fn integer_nth_root(n: u64, k: u32) -> Result<u64, NTheoryError> {
+    if k == 0 {
+        return Err(NTheoryError::ArithmeticOverflow("k=0 root undefined"));
+    }
+    if n <= 1 || k == 1 {
+        return Ok(n);
+    }
+    if k >= 64 {
+        return Ok(1);
+    }
+    let mut low = 1u64;
+    let mut high = (1u64 << ((63 + k) / k)).min(n);
+    let mut ans = 1u64;
+    while low <= high {
+        let mid = low + (high - low) / 2;
+        match mid.checked_pow(k) {
+            Some(p) if p <= n => {
+                ans = mid;
+                low = mid + 1;
+            }
+            _ => {
+                if mid == 0 {
+                    break;
+                }
+                high = mid - 1;
+            }
+        }
+    }
+    Ok(ans)
+}
+
+/// Modular exponentiation for u64 arithmetic: (base^exp) % modulus.
+pub fn mod_pow_u64(base: u64, mut exp: u64, modulus: u64) -> u64 {
+    if modulus <= 1 {
+        return 0;
+    }
+    let mut result = 1u128;
+    let mut b = (base % modulus) as u128;
+    let m = modulus as u128;
+    while exp > 0 {
+        if exp % 2 == 1 {
+            result = (result * b) % m;
+        }
+        b = (b * b) % m;
+        exp /= 2;
+    }
+    result as u64
+}
+
+/// Decides whether `g` is a primitive root modulo an odd prime `p`.
+pub fn is_primitive_root(g: u64, p: u64) -> Result<bool, NTheoryError> {
+    if p <= 2 || !is_prime(p) {
+        return Ok(false);
+    }
+    if g == 0 || g.is_multiple_of(p) {
+        return Ok(false);
+    }
+    let p_minus_1 = p - 1;
+    let factors = factorint(p_minus_1)?;
+    for q in factors.keys() {
+        let exp = p_minus_1 / q;
+        if mod_pow_u64(g, exp, p) == 1 {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
 /// Extended Euclidean Algorithm returning (gcd, x, y) such that a*x + b*y = gcd(a, b).
 pub fn egcd(a: &BigInt, b: &BigInt) -> (BigInt, BigInt, BigInt) {
     a.extended_gcd(b)
@@ -621,5 +749,41 @@ mod tests {
             jacobi_symbol(2, 4),
             Err(NTheoryError::InvalidJacobiDenominator)
         );
+    }
+
+    #[test]
+    fn test_carmichael_integer_nth_root_and_primitive_roots() {
+        // Carmichael lambda
+        assert_eq!(carmichael(1), Ok(1));
+        assert_eq!(carmichael(2), Ok(1));
+        assert_eq!(carmichael(3), Ok(2));
+        assert_eq!(carmichael(4), Ok(2));
+        assert_eq!(carmichael(8), Ok(2));
+        assert_eq!(carmichael(15), Ok(4)); // lcm(phi(3), phi(5)) = lcm(2, 4) = 4
+        assert_eq!(carmichael(16), Ok(4)); // 2^(4-2) = 4
+        assert_eq!(carmichael(0), Err(NTheoryError::ZeroFactorization));
+
+        // integer_nth_root
+        assert_eq!(integer_nth_root(0, 2), Ok(0));
+        assert_eq!(integer_nth_root(1, 3), Ok(1));
+        assert_eq!(integer_nth_root(24, 2), Ok(4)); // 4^2 <= 24 < 5^2
+        assert_eq!(integer_nth_root(25, 2), Ok(5));
+        assert_eq!(integer_nth_root(27, 3), Ok(3));
+        assert_eq!(integer_nth_root(28, 3), Ok(3));
+        assert_eq!(integer_nth_root(1000, 3), Ok(10));
+        assert_eq!(integer_nth_root(1024, 10), Ok(2));
+
+        // mod_pow_u64
+        assert_eq!(mod_pow_u64(2, 10, 1000), 24);
+        assert_eq!(mod_pow_u64(3, 4, 7), 4); // 81 % 7 = 4
+
+        // is_primitive_root
+        // Modulo 7: primitive roots are 3 and 5 (phi(6)=2)
+        assert_eq!(is_primitive_root(3, 7), Ok(true));
+        assert_eq!(is_primitive_root(5, 7), Ok(true));
+        assert_eq!(is_primitive_root(2, 7), Ok(false)); // 2^3 = 8 = 1 mod 7
+        assert_eq!(is_primitive_root(4, 7), Ok(false));
+        // Non-prime
+        assert_eq!(is_primitive_root(3, 8), Ok(false));
     }
 }

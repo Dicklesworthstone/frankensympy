@@ -1256,6 +1256,162 @@ impl Plane3D {
 
         Ok(Point3D::new(ix, iy, iz))
     }
+
+    /// Checks whether two 3D planes are parallel: n1 x n2 = 0.
+    pub fn is_parallel(&self, other: &Self) -> Result<bool, GeometryError> {
+        let dx = simplify(&Expr::Add(vec![
+            Expr::Mul(vec![self.normal.y.clone(), other.normal.z.clone()]),
+            Expr::Mul(vec![
+                Expr::from_i64(-1),
+                self.normal.z.clone(),
+                other.normal.y.clone(),
+            ]),
+        ]));
+        let dy = simplify(&Expr::Add(vec![
+            Expr::Mul(vec![self.normal.z.clone(), other.normal.x.clone()]),
+            Expr::Mul(vec![
+                Expr::from_i64(-1),
+                self.normal.x.clone(),
+                other.normal.z.clone(),
+            ]),
+        ]));
+        let dz = simplify(&Expr::Add(vec![
+            Expr::Mul(vec![self.normal.x.clone(), other.normal.y.clone()]),
+            Expr::Mul(vec![
+                Expr::from_i64(-1),
+                self.normal.y.clone(),
+                other.normal.x.clone(),
+            ]),
+        ]));
+
+        match classify_zero_vector([&dx, &dy, &dz]) {
+            ZeroVectorStatus::Zero => Ok(true),
+            ZeroVectorStatus::NonZero => Ok(false),
+            ZeroVectorStatus::Unknown => Err(GeometryError::SymbolicDegeneracyUndetermined),
+        }
+    }
+
+    /// Checks whether two 3D planes are perpendicular: n1 . n2 = 0.
+    pub fn is_perpendicular(&self, other: &Self) -> Result<bool, GeometryError> {
+        let dot = simplify(&Expr::Add(vec![
+            Expr::Mul(vec![self.normal.x.clone(), other.normal.x.clone()]),
+            Expr::Mul(vec![self.normal.y.clone(), other.normal.y.clone()]),
+            Expr::Mul(vec![self.normal.z.clone(), other.normal.z.clone()]),
+        ]));
+
+        match classify_zero_vector([&dot]) {
+            ZeroVectorStatus::Zero => Ok(true),
+            ZeroVectorStatus::NonZero => Ok(false),
+            ZeroVectorStatus::Unknown => Err(GeometryError::SymbolicDegeneracyUndetermined),
+        }
+    }
+
+    /// Computes the intersection line of two 3D planes.
+    pub fn intersection_plane(&self, other: &Self) -> Result<Line3D, GeometryError> {
+        // Direction of intersection line: d = n1 x n2
+        let dx = simplify(&Expr::Add(vec![
+            Expr::Mul(vec![self.normal.y.clone(), other.normal.z.clone()]),
+            Expr::Mul(vec![
+                Expr::from_i64(-1),
+                self.normal.z.clone(),
+                other.normal.y.clone(),
+            ]),
+        ]));
+        let dy = simplify(&Expr::Add(vec![
+            Expr::Mul(vec![self.normal.z.clone(), other.normal.x.clone()]),
+            Expr::Mul(vec![
+                Expr::from_i64(-1),
+                self.normal.x.clone(),
+                other.normal.z.clone(),
+            ]),
+        ]));
+        let dz = simplify(&Expr::Add(vec![
+            Expr::Mul(vec![self.normal.x.clone(), other.normal.y.clone()]),
+            Expr::Mul(vec![
+                Expr::from_i64(-1),
+                self.normal.y.clone(),
+                other.normal.x.clone(),
+            ]),
+        ]));
+
+        match classify_zero_vector([&dx, &dy, &dz]) {
+            ZeroVectorStatus::Zero => return Err(GeometryError::ParallelLines),
+            ZeroVectorStatus::Unknown => return Err(GeometryError::SymbolicDegeneracyUndetermined),
+            ZeroVectorStatus::NonZero => {}
+        }
+
+        // d1 = n1 . p1, d2 = n2 . p2
+        let d1 = simplify(&Expr::Add(vec![
+            Expr::Mul(vec![self.normal.x.clone(), self.point.x.clone()]),
+            Expr::Mul(vec![self.normal.y.clone(), self.point.y.clone()]),
+            Expr::Mul(vec![self.normal.z.clone(), self.point.z.clone()]),
+        ]));
+        let d2 = simplify(&Expr::Add(vec![
+            Expr::Mul(vec![other.normal.x.clone(), other.point.x.clone()]),
+            Expr::Mul(vec![other.normal.y.clone(), other.point.y.clone()]),
+            Expr::Mul(vec![other.normal.z.clone(), other.point.z.clone()]),
+        ]));
+
+        // Select the coordinate with non-zero cross-product component
+        let p0 = if !dz.is_zero() && numeric_value(&dz).is_some_and(|v| !v.numer().is_zero()) {
+            let px = expr_div(
+                simplify(&Expr::Add(vec![
+                    Expr::Mul(vec![d1.clone(), other.normal.y.clone()]),
+                    Expr::Mul(vec![Expr::from_i64(-1), d2.clone(), self.normal.y.clone()]),
+                ])),
+                dz.clone(),
+            );
+            let py = expr_div(
+                simplify(&Expr::Add(vec![
+                    Expr::Mul(vec![self.normal.x.clone(), d2]),
+                    Expr::Mul(vec![Expr::from_i64(-1), other.normal.x.clone(), d1]),
+                ])),
+                dz.clone(),
+            );
+            Point3D::new(simplify(&px), simplify(&py), Expr::from_i64(0))
+        } else if !dy.is_zero() && numeric_value(&dy).is_some_and(|v| !v.numer().is_zero()) {
+            let neg_dy = Expr::Mul(vec![Expr::from_i64(-1), dy.clone()]);
+            let px = expr_div(
+                simplify(&Expr::Add(vec![
+                    Expr::Mul(vec![d1.clone(), other.normal.z.clone()]),
+                    Expr::Mul(vec![Expr::from_i64(-1), d2.clone(), self.normal.z.clone()]),
+                ])),
+                neg_dy.clone(),
+            );
+            let pz = expr_div(
+                simplify(&Expr::Add(vec![
+                    Expr::Mul(vec![self.normal.x.clone(), d2]),
+                    Expr::Mul(vec![Expr::from_i64(-1), other.normal.x.clone(), d1]),
+                ])),
+                neg_dy,
+            );
+            Point3D::new(simplify(&px), Expr::from_i64(0), simplify(&pz))
+        } else {
+            let py = expr_div(
+                simplify(&Expr::Add(vec![
+                    Expr::Mul(vec![d1.clone(), other.normal.z.clone()]),
+                    Expr::Mul(vec![Expr::from_i64(-1), d2.clone(), self.normal.z.clone()]),
+                ])),
+                dx.clone(),
+            );
+            let pz = expr_div(
+                simplify(&Expr::Add(vec![
+                    Expr::Mul(vec![self.normal.y.clone(), d2]),
+                    Expr::Mul(vec![Expr::from_i64(-1), other.normal.y.clone(), d1]),
+                ])),
+                dx.clone(),
+            );
+            Point3D::new(Expr::from_i64(0), simplify(&py), simplify(&pz))
+        };
+
+        let p1 = Point3D::new(
+            simplify(&Expr::Add(vec![p0.x.clone(), dx])),
+            simplify(&Expr::Add(vec![p0.y.clone(), dy])),
+            simplify(&Expr::Add(vec![p0.z.clone(), dz])),
+        );
+
+        Line3D::new(p0, p1)
+    }
 }
 
 impl fmt::Display for Plane3D {
@@ -1866,5 +2022,51 @@ mod tests {
         ])
         .unwrap();
         assert_eq!(sym_poly.is_convex(), None);
+    }
+
+    #[test]
+    fn test_plane3d_parallel_perpendicular_and_intersection() {
+        // Plane 1: xy-plane (z = 0) with normal (0, 0, 1) through (0, 0, 0)
+        let xy_plane = Plane3D::new(
+            Point3D::new(Expr::from_i64(0), Expr::from_i64(0), Expr::from_i64(0)),
+            Point3D::new(Expr::from_i64(0), Expr::from_i64(0), Expr::from_i64(1)),
+        )
+        .unwrap();
+
+        // Plane 2: parallel to xy-plane (z = 5) with normal (0, 0, 1) through (0, 0, 5)
+        let z5_plane = Plane3D::new(
+            Point3D::new(Expr::from_i64(0), Expr::from_i64(0), Expr::from_i64(5)),
+            Point3D::new(Expr::from_i64(0), Expr::from_i64(0), Expr::from_i64(1)),
+        )
+        .unwrap();
+
+        // Plane 3: yz-plane (x = 0) with normal (1, 0, 0) through (0, 0, 0)
+        let yz_plane = Plane3D::new(
+            Point3D::new(Expr::from_i64(0), Expr::from_i64(0), Expr::from_i64(0)),
+            Point3D::new(Expr::from_i64(1), Expr::from_i64(0), Expr::from_i64(0)),
+        )
+        .unwrap();
+
+        // Parallel test
+        assert_eq!(xy_plane.is_parallel(&z5_plane), Ok(true));
+        assert_eq!(xy_plane.is_parallel(&yz_plane), Ok(false));
+
+        // Perpendicular test
+        assert_eq!(xy_plane.is_perpendicular(&yz_plane), Ok(true));
+        assert_eq!(xy_plane.is_perpendicular(&z5_plane), Ok(false));
+
+        // Intersection of parallel planes must fail with ParallelLines
+        assert_eq!(
+            xy_plane.intersection_plane(&z5_plane).unwrap_err(),
+            GeometryError::ParallelLines
+        );
+
+        // Intersection of xy-plane (z=0) and yz-plane (x=0) is the y-axis (x=0, z=0)
+        let inter_line = xy_plane.intersection_plane(&yz_plane).unwrap();
+        // Points on inter_line must lie on both xy_plane and yz_plane
+        assert_eq!(xy_plane.eval_at_point(inter_line.p1()), Expr::from_i64(0));
+        assert_eq!(xy_plane.eval_at_point(inter_line.p2()), Expr::from_i64(0));
+        assert_eq!(yz_plane.eval_at_point(inter_line.p1()), Expr::from_i64(0));
+        assert_eq!(yz_plane.eval_at_point(inter_line.p2()), Expr::from_i64(0));
     }
 }

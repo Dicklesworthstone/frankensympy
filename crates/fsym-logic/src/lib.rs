@@ -763,10 +763,26 @@ impl<'a> TseitinEncoder<'a> {
 /// established UNSAT result, and a typed error when the solver's structural
 /// or search-work limits refuse the input.
 pub fn dpll_satisfiable(expr: &BoolExpr) -> Result<Option<HashMap<Symbol, bool>>, LogicError> {
+    dpll_with_root_value(expr, true)
+}
+
+/// Search for a model in which the source formula has `required_value`.
+///
+/// Constraining the encoder's existing root avoids materializing a transformed
+/// copy of the source formula and keeps SAT admission independent of wrapper
+/// syntax introduced by the caller.
+fn dpll_with_root_value(
+    expr: &BoolExpr,
+    required_value: bool,
+) -> Result<Option<HashMap<Symbol, bool>>, LogicError> {
     validate_formula_shape(expr)?;
     let mut encoder = TseitinEncoder::new();
     let root = encoder.encode(expr, 0)?;
-    encoder.push_clause(vec![SatLiteral::positive(root)])?;
+    encoder.push_clause(vec![if required_value {
+        SatLiteral::positive(root)
+    } else {
+        SatLiteral::negative(root)
+    }])?;
     let mut search_budget = SearchBudget::new(MAX_DPLL_SEARCH_WORK);
     let Some(model) = dpll(
         &encoder.clauses,
@@ -781,9 +797,9 @@ pub fn dpll_satisfiable(expr: &BoolExpr) -> Result<Option<HashMap<Symbol, bool>>
     for (symbol, variable) in encoder.original_variables {
         public_model.insert(symbol, model_value(&model, variable)?.unwrap_or(false));
     }
-    if !expr.evaluate(&public_model)? {
+    if expr.evaluate(&public_model)? != required_value {
         return Err(LogicError::SolverInvariantViolation(
-            "Tseitin/DPLL model does not satisfy the source formula".to_string(),
+            "Tseitin/DPLL model does not satisfy the required source-formula value".to_string(),
         ));
     }
     Ok(Some(public_model))
@@ -796,7 +812,7 @@ pub fn is_satisfiable(expr: &BoolExpr) -> Result<bool, LogicError> {
 
 /// Returns `true` if the formula is valid (a tautology), `false` otherwise.
 pub fn is_valid(expr: &BoolExpr) -> Result<bool, LogicError> {
-    Ok(dpll_satisfiable(&expr.clone().not())?.is_none())
+    Ok(dpll_with_root_value(expr, false)?.is_none())
 }
 
 /// Returns `true` if the formula is a contradiction (unsatisfiable), `false` otherwise.
@@ -1363,6 +1379,30 @@ mod tests {
                 actual,
                 limit: MAX_FORMULA_NODES,
             }) if actual > MAX_FORMULA_NODES
+        ));
+    }
+
+    #[test]
+    fn validity_uses_the_existing_tseitin_root_and_validates_the_source() {
+        let at_variable_limit = BoolExpr::And(
+            (0..(MAX_DPLL_VARIABLES - 1))
+                .map(|index| BoolExpr::var(format!("v{index}")))
+                .collect(),
+        );
+        assert!(dpll_satisfiable(&at_variable_limit).unwrap().is_some());
+        assert_eq!(is_valid(&at_variable_limit), Ok(false));
+
+        let mut too_deep = BoolExpr::Const(true);
+        for _ in 0..=MAX_FORMULA_DEPTH {
+            too_deep = BoolExpr::Not(Box::new(too_deep));
+        }
+        assert!(matches!(
+            is_valid(&too_deep),
+            Err(LogicError::SolverLimitExceeded {
+                resource: "formula depth",
+                actual,
+                limit: MAX_FORMULA_DEPTH,
+            }) if actual > MAX_FORMULA_DEPTH
         ));
     }
 

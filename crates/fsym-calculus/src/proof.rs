@@ -51,7 +51,7 @@ pub fn classify_diff_rule(expr: &Expr, var: &Symbol) -> &'static str {
             ("exp", 1) => RULE_DIFF_EXP,
             ("sinh", 1) => RULE_DIFF_SINH,
             ("cosh", 1) => RULE_DIFF_COSH,
-            ("log", 1) => RULE_DIFF_LOG,
+            ("log" | "ln", 1) => RULE_DIFF_LOG,
             _ => RULE_DIFF_GENERAL,
         },
     }
@@ -359,7 +359,7 @@ fn verify_rule_reduction_semantics(
         }
         RULE_DIFF_LOG => {
             if let Expr::Function(name, args) = expr
-                && name == "log"
+                && (name == "log" || name == "ln")
                 && args.len() == 1
             {
                 let u = &args[0];

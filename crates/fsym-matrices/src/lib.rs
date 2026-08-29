@@ -475,6 +475,24 @@ impl Matrix {
         true
     }
 
+    /// Checks if this matrix is skew-symmetric ($A^T = -A$).
+    pub fn is_skew_symmetric(&self) -> bool {
+        if self.rows != self.cols {
+            return false;
+        }
+        for r in 0..self.rows {
+            for c in 0..self.cols {
+                let elem_rc = &self.data[r * self.cols + c];
+                let elem_cr = &self.data[c * self.cols + r];
+                let sum = simplify(&Expr::Add(vec![elem_rc.clone(), elem_cr.clone()]));
+                if !sum.is_zero() {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
     /// Checks if this matrix is a diagonal matrix (all non-diagonal entries are zero).
     pub fn is_diagonal(&self) -> bool {
         if self.rows != self.cols {
@@ -696,6 +714,40 @@ impl Matrix {
             cols: other.cols,
             data: result_data,
         })
+    }
+
+    /// Kronecker product $A \otimes B$.
+    ///
+    /// For an $m \times n$ matrix $A$ and a $p \times q$ matrix $B$,
+    /// produces an $(m \cdot p) \times (n \cdot q)$ block matrix where
+    /// block $(i, j)$ is $a_{ij} B$.
+    pub fn kron(&self, other: &Self) -> Result<Self, MatrixError> {
+        self.validate_shape()?;
+        other.validate_shape()?;
+        let out_rows = self
+            .rows
+            .checked_mul(other.rows)
+            .ok_or(MatrixError::ShapeOverflow(self.rows, other.rows))?;
+        let out_cols = self
+            .cols
+            .checked_mul(other.cols)
+            .ok_or(MatrixError::ShapeOverflow(self.cols, other.cols))?;
+        let total = Self::checked_element_count(out_rows, out_cols)?;
+
+        let mut data = Vec::with_capacity(total);
+        for r_a in 0..self.rows {
+            for r_b in 0..other.rows {
+                for c_a in 0..self.cols {
+                    let a_elem = self.get(r_a, c_a)?;
+                    for c_b in 0..other.cols {
+                        let b_elem = other.get(r_b, c_b)?;
+                        let prod = simplify(&Expr::Mul(vec![a_elem.clone(), b_elem.clone()]));
+                        data.push(prod);
+                    }
+                }
+            }
+        }
+        Matrix::new(out_rows, out_cols, data)
     }
 
     /// Determinant computation for square matrix.
@@ -3190,5 +3242,46 @@ mod tests {
         let rect = Matrix::new(2, 3, vec![num(1); 6]).unwrap();
         assert!(matches!(rect.pow(2), Err(MatrixError::NotSquare(..))));
         assert!(matches!(rect.adjugate(), Err(MatrixError::NotSquare(..))));
+    }
+
+    #[test]
+    fn test_matrix_kron_and_skew_symmetric() {
+        // Skew-symmetric: [[0, 2], [-2, 0]]
+        let skew = Matrix::new(2, 2, vec![num(0), num(2), num(-2), num(0)]).unwrap();
+        assert!(skew.is_skew_symmetric());
+        assert!(!skew.is_symmetric());
+
+        let not_skew = Matrix::new(2, 2, vec![num(0), num(2), num(2), num(0)]).unwrap();
+        assert!(!not_skew.is_skew_symmetric());
+        assert!(not_skew.is_symmetric());
+
+        // Kronecker product: I_2 (x) [[1, 2], [3, 4]]
+        // = [[1, 2, 0, 0], [3, 4, 0, 0], [0, 0, 1, 2], [0, 0, 3, 4]]
+        let eye2 = Matrix::eye(2).unwrap();
+        let a = Matrix::new(2, 2, vec![num(1), num(2), num(3), num(4)]).unwrap();
+        let kron_prod = eye2.kron(&a).unwrap();
+        assert_eq!(kron_prod.rows(), 4);
+        assert_eq!(kron_prod.cols(), 4);
+        assert_eq!(
+            kron_prod.data(),
+            &[
+                num(1),
+                num(2),
+                num(0),
+                num(0),
+                num(3),
+                num(4),
+                num(0),
+                num(0),
+                num(0),
+                num(0),
+                num(1),
+                num(2),
+                num(0),
+                num(0),
+                num(3),
+                num(4),
+            ]
+        );
     }
 }

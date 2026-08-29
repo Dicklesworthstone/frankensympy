@@ -164,7 +164,7 @@ pub fn diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
                     ]),
                     du,
                 ])
-            } else if name == "log" && args.len() == 1 {
+            } else if (name == "log" || name == "ln") && args.len() == 1 {
                 let u = &args[0];
                 let du = diff(u, var);
                 Expr::Mul(vec![Expr::pow(u.clone(), Expr::from_i64(-1)), du])
@@ -176,6 +176,63 @@ pub fn diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
                     Expr::pow(u.clone(), Expr::from_i64(2)),
                 ]);
                 Expr::Mul(vec![Expr::pow(denom, Expr::from_i64(-1)), du])
+            } else if name == "asin" && args.len() == 1 {
+                let u = &args[0];
+                let du = diff(u, var);
+                let one_minus_u_sq = Expr::Add(vec![
+                    Expr::from_i64(1),
+                    Expr::Mul(vec![
+                        Expr::from_i64(-1),
+                        Expr::pow(u.clone(), Expr::from_i64(2)),
+                    ]),
+                ]);
+                let neg_half = Expr::Rational(BigRational::new(BigInt::from(-1), BigInt::from(2)));
+                Expr::Mul(vec![Expr::pow(one_minus_u_sq, neg_half), du])
+            } else if name == "acos" && args.len() == 1 {
+                let u = &args[0];
+                let du = diff(u, var);
+                let one_minus_u_sq = Expr::Add(vec![
+                    Expr::from_i64(1),
+                    Expr::Mul(vec![
+                        Expr::from_i64(-1),
+                        Expr::pow(u.clone(), Expr::from_i64(2)),
+                    ]),
+                ]);
+                let neg_half = Expr::Rational(BigRational::new(BigInt::from(-1), BigInt::from(2)));
+                Expr::Mul(vec![
+                    Expr::from_i64(-1),
+                    Expr::pow(one_minus_u_sq, neg_half),
+                    du,
+                ])
+            } else if name == "asinh" && args.len() == 1 {
+                let u = &args[0];
+                let du = diff(u, var);
+                let one_plus_u_sq = Expr::Add(vec![
+                    Expr::from_i64(1),
+                    Expr::pow(u.clone(), Expr::from_i64(2)),
+                ]);
+                let neg_half = Expr::Rational(BigRational::new(BigInt::from(-1), BigInt::from(2)));
+                Expr::Mul(vec![Expr::pow(one_plus_u_sq, neg_half), du])
+            } else if name == "acosh" && args.len() == 1 {
+                let u = &args[0];
+                let du = diff(u, var);
+                let u_sq_minus_one = Expr::Add(vec![
+                    Expr::pow(u.clone(), Expr::from_i64(2)),
+                    Expr::from_i64(-1),
+                ]);
+                let neg_half = Expr::Rational(BigRational::new(BigInt::from(-1), BigInt::from(2)));
+                Expr::Mul(vec![Expr::pow(u_sq_minus_one, neg_half), du])
+            } else if name == "atanh" && args.len() == 1 {
+                let u = &args[0];
+                let du = diff(u, var);
+                let one_minus_u_sq = Expr::Add(vec![
+                    Expr::from_i64(1),
+                    Expr::Mul(vec![
+                        Expr::from_i64(-1),
+                        Expr::pow(u.clone(), Expr::from_i64(2)),
+                    ]),
+                ]);
+                Expr::Mul(vec![Expr::pow(one_minus_u_sq, Expr::from_i64(-1)), du])
             } else {
                 Expr::Function(
                     "diff".to_string(),
@@ -1026,6 +1083,44 @@ mod tests {
         // Mutant test: tampered derivative claim is rejected
         let forged_deriv = Expr::from_i64(42);
         assert!(verify_diff_derivation(&tree, &expr, &x, &forged_deriv).is_err());
+    }
+
+    #[test]
+    fn test_diff_inverse_and_ln() {
+        let x = Symbol::new("x");
+
+        // ln(x)
+        let ln_x = Expr::Function("ln".into(), vec![Expr::symbol("x")]);
+        let d_ln = diff(&ln_x, &x);
+        assert_eq!(d_ln, Expr::pow(Expr::symbol("x"), Expr::from_i64(-1)));
+
+        let (deriv_ln, tree_ln) = verified_diff(&ln_x, &x);
+        assert!(verify_diff_derivation(&tree_ln, &ln_x, &x, &deriv_ln).is_ok());
+
+        // asin(x)
+        let asin_x = Expr::Function("asin".into(), vec![Expr::symbol("x")]);
+        let d_asin = diff(&asin_x, &x);
+        let expected_asin_denom = Expr::Add(vec![
+            Expr::from_i64(1),
+            Expr::Mul(vec![
+                Expr::from_i64(-1),
+                Expr::pow(Expr::symbol("x"), Expr::from_i64(2)),
+            ]),
+        ]);
+        let neg_half = Expr::Rational(BigRational::new(BigInt::from(-1), BigInt::from(2)));
+        assert_eq!(d_asin, simplify(&Expr::pow(expected_asin_denom, neg_half)));
+
+        // atan(x)
+        let atan_x = Expr::Function("atan".into(), vec![Expr::symbol("x")]);
+        let d_atan = diff(&atan_x, &x);
+        let expected_atan_denom = Expr::Add(vec![
+            Expr::from_i64(1),
+            Expr::pow(Expr::symbol("x"), Expr::from_i64(2)),
+        ]);
+        assert_eq!(
+            d_atan,
+            simplify(&Expr::pow(expected_atan_denom, Expr::from_i64(-1)))
+        );
     }
 
     #[test]

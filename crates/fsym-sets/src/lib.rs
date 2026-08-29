@@ -389,19 +389,31 @@ impl SymSet {
                 },
             ) => {
                 if let (Some(as_v), Some(ae_v), Some(bs_v), Some(be_v)) = (
-                    numeric_value(a_s),
-                    numeric_value(a_e),
-                    numeric_value(b_s),
-                    numeric_value(b_e),
+                    exact_bound(a_s),
+                    exact_bound(a_e),
+                    exact_bound(b_s),
+                    exact_bound(b_e),
                 ) {
                     let start_ok = match bs_v.cmp(&as_v) {
                         std::cmp::Ordering::Less => true,
-                        std::cmp::Ordering::Equal => !*b_lo || *a_lo,
+                        std::cmp::Ordering::Equal => {
+                            if matches!(bs_v, ExactBound::NegativeInfinity | ExactBound::Infinity) {
+                                true
+                            } else {
+                                !*b_lo || *a_lo
+                            }
+                        }
                         std::cmp::Ordering::Greater => false,
                     };
                     let end_ok = match ae_v.cmp(&be_v) {
                         std::cmp::Ordering::Less => true,
-                        std::cmp::Ordering::Equal => !*b_ro || *a_ro,
+                        std::cmp::Ordering::Equal => {
+                            if matches!(ae_v, ExactBound::NegativeInfinity | ExactBound::Infinity) {
+                                true
+                            } else {
+                                !*b_ro || *a_ro
+                            }
+                        }
                         std::cmp::Ordering::Greater => false,
                     };
                     Some(start_ok && end_ok)
@@ -472,10 +484,10 @@ impl SymSet {
                 },
             ) => {
                 if let (Some(as_v), Some(ae_v), Some(bs_v), Some(be_v)) = (
-                    numeric_value(a_s),
-                    numeric_value(a_e),
-                    numeric_value(b_s),
-                    numeric_value(b_e),
+                    exact_bound(a_s),
+                    exact_bound(a_e),
+                    exact_bound(b_s),
+                    exact_bound(b_e),
                 ) {
                     let a_strictly_left_of_b = ae_v < bs_v || (ae_v == bs_v && (*a_ro || *b_lo));
                     let b_strictly_left_of_a = be_v < as_v || (be_v == as_v && (*b_ro || *a_lo));
@@ -1523,5 +1535,31 @@ mod tests {
         assert_eq!(unbounded_closed.is_open(), Some(false));
         assert_eq!(unbounded_closed.is_closed(), Some(true));
         assert_eq!(unbounded_closed.is_compact(), Some(false));
+    }
+
+    #[test]
+    fn test_extended_real_subset_and_disjoint() {
+        let neg_inf = Expr::Const(Constant::NegativeInfinity);
+        let pos_inf = Expr::Const(Constant::Infinity);
+
+        let left_ray = SymSet::interval_left_open(neg_inf.clone(), Expr::from_i64(0)); // (-inf, 0]
+        let right_ray = SymSet::interval_right_open(Expr::from_i64(5), pos_inf.clone()); // [5, inf)
+        let bounded = SymSet::interval_closed(Expr::from_i64(0), Expr::from_i64(5)); // [0, 5]
+        let big_left_ray = SymSet::interval_left_open(neg_inf.clone(), Expr::from_i64(10)); // (-inf, 10]
+        let full_line = SymSet::interval_open(neg_inf, pos_inf); // (-inf, inf)
+
+        // Subset relations
+        assert_eq!(bounded.is_subset(&big_left_ray), Some(true));
+        assert_eq!(right_ray.is_subset(&big_left_ray), Some(false));
+        assert_eq!(bounded.is_subset(&full_line), Some(true));
+        assert_eq!(left_ray.is_subset(&full_line), Some(true));
+        assert_eq!(right_ray.is_subset(&full_line), Some(true));
+
+        // Disjoint relations
+        assert_eq!(left_ray.is_disjoint(&right_ray), Some(true));
+        assert_eq!(bounded.is_disjoint(&right_ray), Some(false)); // share endpoint 5
+        let open_right_ray =
+            SymSet::interval_open(Expr::from_i64(5), Expr::Const(Constant::Infinity));
+        assert_eq!(bounded.is_disjoint(&open_right_ray), Some(true)); // [0, 5] and (5, inf) are disjoint
     }
 }

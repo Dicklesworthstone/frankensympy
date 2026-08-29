@@ -202,6 +202,15 @@ pub fn abs_val(arg: Expr) -> Expr {
             r.clone()
         });
     }
+    if matches!(
+        arg,
+        Expr::Const(Constant::Pi | Constant::E | Constant::Infinity)
+    ) {
+        return arg;
+    }
+    if arg == Expr::Const(Constant::NegativeInfinity) {
+        return Expr::Const(Constant::Infinity);
+    }
     Expr::Function("Abs".to_string(), vec![arg])
 }
 
@@ -219,6 +228,15 @@ pub fn sign(arg: Expr) -> Expr {
         } else {
             -1
         });
+    }
+    if matches!(
+        arg,
+        Expr::Const(Constant::Pi | Constant::E | Constant::Infinity)
+    ) {
+        return Expr::from_i64(1);
+    }
+    if arg == Expr::Const(Constant::NegativeInfinity) {
+        return Expr::from_i64(-1);
     }
     Expr::Function("sign".to_string(), vec![arg])
 }
@@ -549,6 +567,18 @@ pub fn floor(arg: Expr) -> Expr {
         };
         return Expr::Integer(fl);
     }
+    if arg == Expr::Const(Constant::Pi) {
+        return Expr::from_i64(3);
+    }
+    if arg == Expr::Const(Constant::E) {
+        return Expr::from_i64(2);
+    }
+    if matches!(
+        arg,
+        Expr::Const(Constant::Infinity | Constant::NegativeInfinity)
+    ) {
+        return arg;
+    }
     Expr::Function("floor".to_string(), vec![arg])
 }
 
@@ -571,6 +601,18 @@ pub fn ceiling(arg: Expr) -> Expr {
             div
         };
         return Expr::Integer(ceil);
+    }
+    if arg == Expr::Const(Constant::Pi) {
+        return Expr::from_i64(4);
+    }
+    if arg == Expr::Const(Constant::E) {
+        return Expr::from_i64(3);
+    }
+    if matches!(
+        arg,
+        Expr::Const(Constant::Infinity | Constant::NegativeInfinity)
+    ) {
+        return arg;
     }
     Expr::Function("ceiling".to_string(), vec![arg])
 }
@@ -780,6 +822,12 @@ mod tests {
         assert_eq!(floor(Expr::rational(-7, 2).unwrap()), Expr::from_i64(-4));
         assert_eq!(floor(Expr::rational(6, 2).unwrap()), Expr::from_i64(3));
         assert_eq!(floor(Expr::rational(-6, 2).unwrap()), Expr::from_i64(-3));
+        assert_eq!(floor(Expr::Const(Constant::Pi)), Expr::from_i64(3));
+        assert_eq!(floor(Expr::Const(Constant::E)), Expr::from_i64(2));
+        assert_eq!(
+            floor(Expr::Const(Constant::Infinity)),
+            Expr::Const(Constant::Infinity)
+        );
         let x = Expr::symbol("x");
         assert_eq!(
             floor(x.clone()),
@@ -793,9 +841,29 @@ mod tests {
         assert_eq!(ceiling(Expr::rational(-7, 2).unwrap()), Expr::from_i64(-3));
         assert_eq!(ceiling(Expr::rational(6, 2).unwrap()), Expr::from_i64(3));
         assert_eq!(ceiling(Expr::rational(-6, 2).unwrap()), Expr::from_i64(-3));
+        assert_eq!(ceiling(Expr::Const(Constant::Pi)), Expr::from_i64(4));
+        assert_eq!(ceiling(Expr::Const(Constant::E)), Expr::from_i64(3));
+        assert_eq!(
+            ceiling(Expr::Const(Constant::Infinity)),
+            Expr::Const(Constant::Infinity)
+        );
         assert_eq!(
             ceiling(x.clone()),
             Expr::Function("ceiling".to_string(), vec![x])
+        );
+
+        assert_eq!(
+            abs_val(Expr::Const(Constant::Pi)),
+            Expr::Const(Constant::Pi)
+        );
+        assert_eq!(
+            abs_val(Expr::Const(Constant::NegativeInfinity)),
+            Expr::Const(Constant::Infinity)
+        );
+        assert_eq!(sign(Expr::Const(Constant::Pi)), Expr::from_i64(1));
+        assert_eq!(
+            sign(Expr::Const(Constant::NegativeInfinity)),
+            Expr::from_i64(-1)
         );
     }
 }
