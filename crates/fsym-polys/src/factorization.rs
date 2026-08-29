@@ -283,8 +283,10 @@ fn find_bounded_rational_roots(poly: &UnivariatePoly) -> Result<Vec<BigRational>
     }
     let mut roots = Vec::new();
     let mut current = poly.clone();
-    if current.coeffs.first().is_some_and(Zero::is_zero) {
-        roots.push(BigRational::zero());
+    while current.coeffs.first().is_some_and(Zero::is_zero) && current.degree() > Some(0) {
+        if !roots.contains(&BigRational::zero()) {
+            roots.push(BigRational::zero());
+        }
         let monomial = UnivariatePoly::monomial(current.gen_sym.clone(), BigRational::one(), 1)?;
         let (quotient, remainder) = current.div_rem(&monomial)?;
         if !remainder.is_zero() {
