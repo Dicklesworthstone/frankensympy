@@ -296,6 +296,9 @@ impl SymSet {
                 if all_empty { Some(true) } else { None }
             }
             SymSet::Intersection(parts) => {
+                if parts.is_empty() {
+                    return Some(false);
+                }
                 for part in parts {
                     if part.is_empty_set() == Some(true) {
                         return Some(true);
@@ -501,7 +504,19 @@ impl SymSet {
         match self {
             SymSet::EmptySet => Some(Expr::from_i64(0)),
             SymSet::UniversalSet => Some(Expr::Const(Constant::Infinity)),
-            SymSet::FiniteSet(_) => Some(Expr::from_i64(0)),
+            SymSet::FiniteSet(elements) => {
+                finite_set_is_admitted_real(elements).then(|| Expr::from_i64(0))
+            }
+            SymSet::Interval {
+                start,
+                end,
+                left_open,
+                right_open,
+            } if expression_contains_non_real_constant(start)
+                || expression_contains_non_real_constant(end) =>
+            {
+                None
+            }
             SymSet::Interval {
                 start,
                 end,
@@ -521,7 +536,12 @@ impl SymSet {
                     (Some(_), Some(_)) => Some(Expr::Const(Constant::Infinity)),
                     _ => None,
                 },
-                None if start == end => Some(Expr::from_i64(0)),
+                None if start == end
+                    && (matches!(start, Expr::Sym(_))
+                        || expression_is_provably_real_point(start)) =>
+                {
+                    Some(Expr::from_i64(0))
+                }
                 None => None,
             },
             SymSet::Complement(inner) => match inner.as_ref() {
@@ -529,6 +549,10 @@ impl SymSet {
                 SymSet::UniversalSet => Some(Expr::from_i64(0)),
                 _ => None,
             },
+            SymSet::Union(parts) if parts.is_empty() => Some(Expr::from_i64(0)),
+            SymSet::Intersection(parts) if parts.is_empty() => {
+                Some(Expr::Const(Constant::Infinity))
+            }
             _ => None,
         }
     }
@@ -538,28 +562,41 @@ impl SymSet {
         match self {
             SymSet::EmptySet => Some(SymSet::EmptySet),
             SymSet::UniversalSet => Some(SymSet::UniversalSet),
-            SymSet::FiniteSet(_) => Some(SymSet::EmptySet),
+            SymSet::FiniteSet(elements) => {
+                finite_set_is_admitted_real(elements).then_some(SymSet::EmptySet)
+            }
             SymSet::Interval {
                 start,
                 end,
                 left_open,
                 right_open,
             } => {
+                if expression_contains_non_real_constant(start)
+                    || expression_contains_non_real_constant(end)
+                {
+                    return None;
+                }
+                let start_bound = exact_bound(start)?;
+                let end_bound = exact_bound(end)?;
                 if interval_empty_status(start, end, *left_open, *right_open) == Some(true) {
                     return Some(SymSet::EmptySet);
                 }
-                if start == end {
+                if start_bound == end_bound {
                     return Some(SymSet::EmptySet);
                 }
                 Some(SymSet::interval_open(start.clone(), end.clone()))
             }
             SymSet::Intersection(parts) => {
+                if parts.is_empty() {
+                    return Some(SymSet::UniversalSet);
+                }
                 let mut int_parts = Vec::with_capacity(parts.len());
                 for p in parts {
                     int_parts.push(p.interior()?);
                 }
                 Some(SymSet::Intersection(int_parts))
             }
+            SymSet::Union(parts) if parts.is_empty() => Some(SymSet::EmptySet),
             _ => None,
         }
     }
@@ -569,7 +606,8 @@ impl SymSet {
         match self {
             SymSet::EmptySet => Some(SymSet::EmptySet),
             SymSet::UniversalSet => Some(SymSet::UniversalSet),
-            SymSet::FiniteSet(elems) => Some(SymSet::FiniteSet(elems.clone())),
+            SymSet::FiniteSet(elements) => finite_set_is_admitted_real(elements)
+                .then(|| SymSet::finite(elements.iter().cloned())),
             SymSet::Interval {
                 start,
                 end,
@@ -598,12 +636,16 @@ impl SymSet {
                 }
             }
             SymSet::Union(parts) => {
+                if parts.is_empty() {
+                    return Some(SymSet::EmptySet);
+                }
                 let mut cl_parts = Vec::with_capacity(parts.len());
                 for p in parts {
                     cl_parts.push(p.closure()?);
                 }
                 Some(SymSet::Union(cl_parts))
             }
+            SymSet::Intersection(parts) if parts.is_empty() => Some(SymSet::UniversalSet),
             _ => None,
         }
     }
@@ -612,7 +654,8 @@ impl SymSet {
     pub fn boundary(&self) -> Option<SymSet> {
         match self {
             SymSet::EmptySet | SymSet::UniversalSet => Some(SymSet::EmptySet),
-            SymSet::FiniteSet(elems) => Some(SymSet::FiniteSet(elems.clone())),
+            SymSet::FiniteSet(elements) => finite_set_is_admitted_real(elements)
+                .then(|| SymSet::finite(elements.iter().cloned())),
             SymSet::Interval {
                 start,
                 end,
@@ -646,6 +689,8 @@ impl SymSet {
                     _ => None,
                 }
             }
+            SymSet::Union(parts) if parts.is_empty() => Some(SymSet::EmptySet),
+            SymSet::Intersection(parts) if parts.is_empty() => Some(SymSet::EmptySet),
             _ => None,
         }
     }
@@ -654,7 +699,13 @@ impl SymSet {
     pub fn is_open(&self) -> Option<bool> {
         match self {
             SymSet::EmptySet | SymSet::UniversalSet => Some(true),
-            SymSet::FiniteSet(elems) => Some(elems.is_empty()),
+            SymSet::FiniteSet(elements) => {
+                if elements.is_empty() {
+                    Some(true)
+                } else {
+                    finite_set_is_admitted_real(elements).then_some(false)
+                }
+            }
             SymSet::Interval {
                 start,
                 end,
@@ -680,6 +731,7 @@ impl SymSet {
                     _ => None,
                 }
             }
+            SymSet::Union(parts) | SymSet::Intersection(parts) if parts.is_empty() => Some(true),
             _ => None,
         }
     }
@@ -688,7 +740,7 @@ impl SymSet {
     pub fn is_closed(&self) -> Option<bool> {
         match self {
             SymSet::EmptySet | SymSet::UniversalSet => Some(true),
-            SymSet::FiniteSet(_) => Some(true),
+            SymSet::FiniteSet(elements) => finite_set_is_admitted_real(elements).then_some(true),
             SymSet::Interval {
                 start,
                 end,
@@ -714,6 +766,7 @@ impl SymSet {
                     _ => None,
                 }
             }
+            SymSet::Union(parts) | SymSet::Intersection(parts) if parts.is_empty() => Some(true),
             _ => None,
         }
     }
@@ -723,7 +776,7 @@ impl SymSet {
         match self {
             SymSet::EmptySet => Some(true),
             SymSet::UniversalSet => Some(false),
-            SymSet::FiniteSet(_) => Some(true),
+            SymSet::FiniteSet(elements) => finite_set_is_admitted_real(elements).then_some(true),
             SymSet::Interval {
                 start,
                 end,
@@ -747,6 +800,8 @@ impl SymSet {
                     _ => None,
                 }
             }
+            SymSet::Union(parts) if parts.is_empty() => Some(true),
+            SymSet::Intersection(parts) if parts.is_empty() => Some(false),
             _ => None,
         }
     }
@@ -777,6 +832,127 @@ fn exact_bound(expr: &Expr) -> Option<ExactBound> {
         Expr::Const(Constant::Infinity) => Some(ExactBound::Infinity),
         _ => None,
     }
+}
+
+const MAX_TOPOLOGY_POINT_NODES: usize = 256;
+const MAX_TOPOLOGY_POINT_FANOUT: usize = 64;
+const MAX_TOPOLOGY_FINITE_POINTS: usize = 1_024;
+const MAX_TOPOLOGY_POINT_NUMERIC_LIMBS: u64 = 4_096;
+
+/// Conservative admission for an expression used as a point of a set whose
+/// topology is explicitly documented over the real line.
+fn expression_is_provably_real_point(expr: &Expr) -> bool {
+    let mut stack = vec![expr];
+    let mut visited = 0usize;
+    let mut numeric_limbs = 0u64;
+    while let Some(current) = stack.pop() {
+        if visited == MAX_TOPOLOGY_POINT_NODES {
+            return false;
+        }
+        visited += 1;
+        let children: &[Expr] = match current {
+            Expr::Integer(value) => {
+                numeric_limbs = match numeric_limbs.checked_add(value.limb_count()) {
+                    Some(limbs) if limbs <= MAX_TOPOLOGY_POINT_NUMERIC_LIMBS => limbs,
+                    _ => return false,
+                };
+                continue;
+            }
+            Expr::Rational(value) => {
+                let value_limbs = match value
+                    .numer()
+                    .limb_count()
+                    .checked_add(value.denom().limb_count())
+                {
+                    Some(limbs) => limbs,
+                    None => return false,
+                };
+                numeric_limbs = match numeric_limbs.checked_add(value_limbs) {
+                    Some(limbs) if limbs <= MAX_TOPOLOGY_POINT_NUMERIC_LIMBS => limbs,
+                    _ => return false,
+                };
+                continue;
+            }
+            Expr::Const(Constant::Pi | Constant::E) => {
+                continue;
+            }
+            Expr::Sym(_)
+            | Expr::Const(
+                Constant::I
+                | Constant::Infinity
+                | Constant::NegativeInfinity
+                | Constant::ComplexInfinity
+                | Constant::NaN,
+            ) => return false,
+            Expr::Add(terms) | Expr::Mul(terms) => terms,
+            Expr::Pow(base, exponent) => match exponent.as_ref() {
+                Expr::Integer(value) if !value.is_negative() => {
+                    if stack.len() == MAX_TOPOLOGY_POINT_NODES {
+                        return false;
+                    }
+                    stack.push(base);
+                    continue;
+                }
+                _ => return false,
+            },
+            Expr::Function(name, arguments)
+                if matches!(name.as_str(), "exp" | "sin" | "cos" | "sinh" | "cosh")
+                    && arguments.len() == 1 =>
+            {
+                arguments
+            }
+            Expr::Function(_, _) => return false,
+        };
+        if children.is_empty()
+            || children.len() > MAX_TOPOLOGY_POINT_FANOUT
+            || stack.len() > MAX_TOPOLOGY_POINT_NODES.saturating_sub(children.len())
+        {
+            return false;
+        }
+        stack.extend(children);
+    }
+    true
+}
+
+fn finite_set_is_admitted_real(elements: &BTreeSet<Expr>) -> bool {
+    elements.len() <= MAX_TOPOLOGY_FINITE_POINTS
+        && elements.iter().all(expression_is_provably_real_point)
+}
+
+fn expression_contains_non_real_constant(expr: &Expr) -> bool {
+    let mut stack = vec![expr];
+    let mut visited = 0usize;
+    while let Some(current) = stack.pop() {
+        if visited == MAX_TOPOLOGY_POINT_NODES {
+            return true;
+        }
+        visited += 1;
+        match current {
+            Expr::Const(Constant::I | Constant::ComplexInfinity | Constant::NaN) => return true,
+            Expr::Add(terms) | Expr::Mul(terms) | Expr::Function(_, terms) => {
+                if terms.len() > MAX_TOPOLOGY_POINT_FANOUT
+                    || stack.len() > MAX_TOPOLOGY_POINT_NODES.saturating_sub(terms.len())
+                {
+                    return true;
+                }
+                stack.extend(terms);
+            }
+            Expr::Pow(base, exponent) => {
+                if stack.len() > MAX_TOPOLOGY_POINT_NODES.saturating_sub(2) {
+                    return true;
+                }
+                stack.push(exponent);
+                stack.push(base);
+            }
+            Expr::Sym(_)
+            | Expr::Integer(_)
+            | Expr::Rational(_)
+            | Expr::Const(
+                Constant::Pi | Constant::E | Constant::Infinity | Constant::NegativeInfinity,
+            ) => {}
+        }
+    }
+    false
 }
 
 /// Decides interval emptiness when both endpoints have exact extended-real order.
@@ -1148,6 +1324,91 @@ mod tests {
         let iv_half =
             SymSet::interval_open(Expr::rational(1, 2).unwrap(), Expr::rational(7, 2).unwrap());
         assert_eq!(iv_half.measure(), Some(Expr::from_i64(3)));
+    }
+
+    #[test]
+    fn real_topology_refuses_non_real_or_unresolved_points() {
+        for set in [
+            SymSet::finite([Expr::Const(Constant::I)]),
+            SymSet::finite([Expr::symbol("x")]),
+        ] {
+            assert_eq!(set.measure(), None);
+            assert_eq!(set.interior(), None);
+            assert_eq!(set.closure(), None);
+            assert_eq!(set.boundary(), None);
+            assert_eq!(set.is_open(), None);
+            assert_eq!(set.is_closed(), None);
+            assert_eq!(set.is_compact(), None);
+        }
+
+        let non_real_interval =
+            SymSet::interval_closed(Expr::Const(Constant::I), Expr::Const(Constant::I));
+        assert_eq!(non_real_interval.measure(), None);
+        assert_eq!(non_real_interval.interior(), None);
+        assert_eq!(non_real_interval.closure(), None);
+        assert_eq!(non_real_interval.boundary(), None);
+        assert_eq!(non_real_interval.is_open(), None);
+        assert_eq!(non_real_interval.is_closed(), None);
+        assert_eq!(non_real_interval.is_compact(), None);
+
+        let unresolved_interval = SymSet::interval_closed(Expr::symbol("a"), Expr::symbol("b"));
+        assert_eq!(unresolved_interval.interior(), None);
+
+        let indeterminate_endpoint = Expr::Add(vec![
+            Expr::Const(Constant::Infinity),
+            Expr::Const(Constant::NegativeInfinity),
+        ]);
+        assert_eq!(
+            SymSet::interval_closed(indeterminate_endpoint.clone(), indeterminate_endpoint)
+                .measure(),
+            None
+        );
+
+        let oversized_finite = SymSet::finite(
+            (0..=u32::try_from(MAX_TOPOLOGY_FINITE_POINTS)
+                .expect("the finite topology limit fits u32"))
+                .map(|value| Expr::Integer(value.into())),
+        );
+        assert_eq!(oversized_finite.measure(), None);
+        assert_eq!(oversized_finite.is_closed(), None);
+    }
+
+    #[test]
+    fn empty_aggregate_variants_obey_set_identities() {
+        let finite = SymSet::FiniteSet(BTreeSet::new());
+        assert_eq!(finite.is_empty_set(), Some(true));
+        assert_eq!(finite.measure(), Some(Expr::from_i64(0)));
+        assert_eq!(finite.interior(), Some(SymSet::EmptySet));
+        assert_eq!(finite.closure(), Some(SymSet::EmptySet));
+        assert_eq!(finite.boundary(), Some(SymSet::EmptySet));
+        assert_eq!(finite.is_open(), Some(true));
+        assert_eq!(finite.is_closed(), Some(true));
+        assert_eq!(finite.is_compact(), Some(true));
+
+        let union = SymSet::Union(Vec::new());
+        assert_eq!(union.contains(&Expr::from_i64(0)), Some(false));
+        assert_eq!(union.is_empty_set(), Some(true));
+        assert_eq!(union.measure(), Some(Expr::from_i64(0)));
+        assert_eq!(union.interior(), Some(SymSet::EmptySet));
+        assert_eq!(union.closure(), Some(SymSet::EmptySet));
+        assert_eq!(union.boundary(), Some(SymSet::EmptySet));
+        assert_eq!(union.is_open(), Some(true));
+        assert_eq!(union.is_closed(), Some(true));
+        assert_eq!(union.is_compact(), Some(true));
+
+        let intersection = SymSet::Intersection(Vec::new());
+        assert_eq!(intersection.contains(&Expr::from_i64(0)), Some(true));
+        assert_eq!(intersection.is_empty_set(), Some(false));
+        assert_eq!(
+            intersection.measure(),
+            Some(Expr::Const(Constant::Infinity))
+        );
+        assert_eq!(intersection.interior(), Some(SymSet::UniversalSet));
+        assert_eq!(intersection.closure(), Some(SymSet::UniversalSet));
+        assert_eq!(intersection.boundary(), Some(SymSet::EmptySet));
+        assert_eq!(intersection.is_open(), Some(true));
+        assert_eq!(intersection.is_closed(), Some(true));
+        assert_eq!(intersection.is_compact(), Some(false));
     }
 
     #[test]

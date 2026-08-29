@@ -373,11 +373,8 @@ class SurfaceTests(unittest.TestCase):
         # Float is a Number, not a Rational.
         self.assertTrue(issubclass(sympy.Float, sympy.Number))
         self.assertFalse(issubclass(sympy.Float, sympy.Rational))
-        # Float is not a Rational so its p/q accessors return the
-        # underlying binary64 bits as num/den (e.g. 3/2 for 1.5).
+
         # Float is a Number, not a Rational.
-        self.assertTrue(issubclass(sympy.Float, sympy.Number))
-        self.assertFalse(issubclass(sympy.Float, sympy.Rational))
     def test_latex_and_evalf_representations(self) -> None:
         x = sympy.Symbol("x")
         expr = x / 2
