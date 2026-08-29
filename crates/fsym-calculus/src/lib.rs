@@ -73,22 +73,41 @@ pub fn diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
             Expr::Add(add_terms)
         }
         Expr::Pow(base, exp) => {
-            // d(u^v) = u^v * (v' * ln(u) + v * u' / u)
-            // Special case when exponent is constant integer n: d(u^n) = n * u^(n-1) * u'
-            if let Expr::Integer(n) = exp.as_ref() {
-                let n_minus_1 = n - BigInt::from(1);
-                let du = diff(base, var);
+            let du = diff(base, var);
+            let dv = diff(exp, var);
+            if du.is_zero() && dv.is_zero() {
+                Expr::from_i64(0)
+            } else if dv.is_zero() {
+                // u(x)^c where c does not depend on var: c * u^(c - 1) * u'
+                let exp_minus_1 = if let Expr::Integer(n) = exp.as_ref() {
+                    Expr::Integer(n - BigInt::from(1))
+                } else {
+                    Expr::Add(vec![exp.as_ref().clone(), Expr::from_i64(-1)])
+                };
                 Expr::Mul(vec![
-                    Expr::Integer(n.clone()),
-                    Expr::Pow(base.clone(), Arc::new(Expr::Integer(n_minus_1))),
+                    exp.as_ref().clone(),
+                    Expr::pow(base.as_ref().clone(), exp_minus_1),
                     du,
                 ])
+            } else if du.is_zero() {
+                // c^v(x) where c does not depend on var: c^v * ln(c) * v'
+                Expr::Mul(vec![
+                    expr.clone(),
+                    Expr::Function("log".to_string(), vec![base.as_ref().clone()]),
+                    dv,
+                ])
             } else {
-                // General chain rule fallback
-                Expr::Function(
-                    "diff".to_string(),
-                    vec![expr.clone(), Expr::Sym(var.clone())],
-                )
+                // General chain rule: u(x)^v(x) * (v' * ln(u) + v * u' / u)
+                let term1 = Expr::Mul(vec![
+                    dv,
+                    Expr::Function("log".to_string(), vec![base.as_ref().clone()]),
+                ]);
+                let term2 = Expr::Mul(vec![
+                    exp.as_ref().clone(),
+                    du,
+                    Expr::pow(base.as_ref().clone(), Expr::from_i64(-1)),
+                ]);
+                Expr::Mul(vec![expr.clone(), Expr::Add(vec![term1, term2])])
             }
         }
         Expr::Function(name, args) => {
@@ -105,6 +124,14 @@ pub fn diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
                     Expr::Function("sin".to_string(), vec![u.clone()]),
                     du,
                 ])
+            } else if name == "tan" && args.len() == 1 {
+                let u = &args[0];
+                let du = diff(u, var);
+                let tan_u_sq = Expr::pow(
+                    Expr::Function("tan".to_string(), vec![u.clone()]),
+                    Expr::from_i64(2),
+                );
+                Expr::Mul(vec![Expr::Add(vec![Expr::from_i64(1), tan_u_sq]), du])
             } else if name == "exp" && args.len() == 1 {
                 let u = &args[0];
                 let du = diff(u, var);
@@ -123,13 +150,32 @@ pub fn diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
                     Expr::Function("sinh".to_string(), vec![u.clone()]),
                     du,
                 ])
+            } else if name == "tanh" && args.len() == 1 {
+                let u = &args[0];
+                let du = diff(u, var);
+                let tanh_u_sq = Expr::pow(
+                    Expr::Function("tanh".to_string(), vec![u.clone()]),
+                    Expr::from_i64(2),
+                );
+                Expr::Mul(vec![
+                    Expr::Add(vec![
+                        Expr::from_i64(1),
+                        Expr::Mul(vec![Expr::from_i64(-1), tanh_u_sq]),
+                    ]),
+                    du,
+                ])
             } else if name == "log" && args.len() == 1 {
                 let u = &args[0];
                 let du = diff(u, var);
-                Expr::Mul(vec![
-                    Expr::Pow(Arc::new(u.clone()), Arc::new(Expr::from_i64(-1))),
-                    du,
-                ])
+                Expr::Mul(vec![Expr::pow(u.clone(), Expr::from_i64(-1)), du])
+            } else if name == "atan" && args.len() == 1 {
+                let u = &args[0];
+                let du = diff(u, var);
+                let denom = Expr::Add(vec![
+                    Expr::from_i64(1),
+                    Expr::pow(u.clone(), Expr::from_i64(2)),
+                ]);
+                Expr::Mul(vec![Expr::pow(denom, Expr::from_i64(-1)), du])
             } else {
                 Expr::Function(
                     "diff".to_string(),
@@ -1192,5 +1238,53 @@ mod tests {
         let c = Expr::from_i64(5);
         let f_c = fourier_transform(&c, &t, &omega).unwrap();
         assert!(matches!(f_c, Expr::Mul(_)));
+    }
+
+    #[test]
+    fn test_differentiation_elementary_and_powers() {
+        let x = Symbol::new("x");
+        let x_expr = Expr::Sym(x.clone());
+
+        // d/dx(tan(x)) = 1 + tan(x)^2
+        let tan_x = Expr::Function("tan".to_string(), vec![x_expr.clone()]);
+        let d_tan = diff(&tan_x, &x);
+        let expected_tan = simplify(&Expr::Add(vec![
+            Expr::from_i64(1),
+            Expr::pow(tan_x.clone(), Expr::from_i64(2)),
+        ]));
+        assert_eq!(d_tan, expected_tan);
+
+        // d/dx(tanh(x)) = 1 - tanh(x)^2
+        let tanh_x = Expr::Function("tanh".to_string(), vec![x_expr.clone()]);
+        let d_tanh = diff(&tanh_x, &x);
+        let expected_tanh = simplify(&Expr::Add(vec![
+            Expr::from_i64(1),
+            Expr::Mul(vec![
+                Expr::from_i64(-1),
+                Expr::pow(tanh_x.clone(), Expr::from_i64(2)),
+            ]),
+        ]));
+        assert_eq!(d_tanh, expected_tanh);
+
+        // d/dx(atan(x)) = (1 + x^2)^(-1)
+        let atan_x = Expr::Function("atan".to_string(), vec![x_expr.clone()]);
+        let d_atan = diff(&atan_x, &x);
+        let expected_atan = simplify(&Expr::pow(
+            Expr::Add(vec![
+                Expr::from_i64(1),
+                Expr::pow(x_expr.clone(), Expr::from_i64(2)),
+            ]),
+            Expr::from_i64(-1),
+        ));
+        assert_eq!(d_atan, expected_atan);
+
+        // d/dx(2^x) = 2^x * log(2)
+        let two_to_x = Expr::pow(Expr::from_i64(2), x_expr.clone());
+        let d_two_to_x = diff(&two_to_x, &x);
+        let expected_two_to_x = simplify(&Expr::Mul(vec![
+            two_to_x,
+            Expr::Function("log".to_string(), vec![Expr::from_i64(2)]),
+        ]));
+        assert_eq!(d_two_to_x, expected_two_to_x);
     }
 }
