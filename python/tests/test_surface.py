@@ -388,8 +388,18 @@ class SurfaceTests(unittest.TestCase):
         self.assertTrue(len(latex_repr) > 0)
 
         two = sympy.Integer(2)
-        self.assertAlmostEqual(two.evalf(), 2.0)
-        self.assertAlmostEqual(sympy.pi.evalf(), 3.1415926535, places=4)
+        self.assertIsInstance(two.evalf(), sympy.Float)
+        self.assertEqual(two.evalf(), sympy.Float(2.0))
+        self.assertAlmostEqual(float(sympy.pi.evalf()), 3.1415926535, places=4)
+        self.assertEqual(sympy.N(2), sympy.Float(2.0))
+        self.assertIsInstance(sympy.N(sympy.pi), sympy.Float)
+
+        x, y = sympy.symbols("x y")
+        ordered = sorted([y, sympy.Integer(1), x + 1, x], key=lambda expr: expr.sort_key())
+        self.assertEqual(ordered[0], sympy.Integer(1))
+        self.assertEqual({elt.name for elt in ordered[1:] if type(elt) is sympy.Symbol}, {"x", "y"})
+        self.assertLess(sympy.Integer(1).sort_key(), x.sort_key())
+        self.assertLess(x.sort_key(), (x + 1).sort_key())
 
         powered = x**2
         self.assertEqual(sympy.pretty(powered), "x²")

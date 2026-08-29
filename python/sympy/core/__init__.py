@@ -399,6 +399,25 @@ class Basic:
     def __ne__(self, other: object) -> bool:
         return not self == other
 
+    def sort_key(self, order: Any = None) -> tuple:
+        """Canonical ordering key. Not a mathematical comparison and not TermId."""
+        del order
+        if type(self) not in _exact_surface_types() and not isinstance(self, Function):
+            return (0, type(self).__name__)
+        ratio = _exact_ratio(self)
+        if ratio is not None:
+            return (1, ratio, type(self).__name__)
+        if type(self) is Float:
+            return (1, (str(self._as_python_float()),), "Float")
+        args = self.args
+        if not args:
+            return (2, type(self).__name__, (str(self),))
+        return (
+            3,
+            type(self).__name__,
+            tuple(arg.sort_key() for arg in args),
+        )
+
     def __deepcopy__(self, memo) -> "Basic":
         del memo
         return self
@@ -471,8 +490,10 @@ class Expr(Basic):
     def expand(self) -> "Expr":
         return expand(self)
 
-    def evalf(self) -> float:
-        return _native_expr(self).evalf()
+    def evalf(self, n: int = 15) -> "Float":
+        if type(n) is not int or n < 1:
+            raise TypeError("evalf dps must be a positive int")
+        return Float(_native_expr(self).evalf(), n)
 
     def __lt__(self, other: Any) -> bool:
         return _native_expr(self) < _native_expr(other)
@@ -716,11 +737,18 @@ class Float(Number):
     def is_symbol(self) -> bool:
         return False
 
-    def evalf(self) -> float:
-        return self._as_python_float()
+    def evalf(self, n: int = 15) -> "Float":
+        if type(n) is not int or n < 1:
+            raise TypeError("evalf dps must be a positive int")
+        if n == self._dps:
+            return self
+        return Float(self._as_python_float(), n)
 
     def __float__(self) -> float:
         return self._as_python_float()
+
+    def __abs__(self) -> "Float":
+        return Float(abs(self._as_python_float()), self._dps)
 
     def __str__(self) -> str:
         return format(self._as_python_float(), f".{self._dps}g")
@@ -1091,6 +1119,13 @@ def pretty(expression: Any) -> str:
     return _native_expr(expression).pretty()
 
 
+def N(expression: Any, n: int = 15) -> Basic:
+    """Evaluate to a compatibility Float. Not a certified enclosure."""
+    if isinstance(expression, Basic):
+        return expression.evalf(n)
+    return Float(_admitted_python_float(expression), n)
+
+
 Basic.__module__ = "sympy.core.basic"
 Atom.__module__ = "sympy.core.basic"
 Expr.__module__ = "sympy.core.expr"
@@ -1161,6 +1196,7 @@ __all__ = [
     "FunctionClass",
     "Integer",
     "Mul",
+    "N",
     "Number",
     "Pow",
     "Rational",
