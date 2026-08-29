@@ -1310,7 +1310,7 @@ mod tests {
 
         let large = BigRational::from_integer(BigInt::one() << 575_936u32);
         let lhs = UnivariatePoly::new(x.clone(), vec![large.clone(), BigRational::one()]);
-        let rhs = UnivariatePoly::new(x, vec![BigRational::one(), large]);
+        let rhs = UnivariatePoly::new(x.clone(), vec![BigRational::one(), large]);
         assert!(matches!(
             lhs.resultant(&rhs),
             Err(PolyError::General(message))
