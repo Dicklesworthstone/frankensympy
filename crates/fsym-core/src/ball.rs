@@ -17,7 +17,27 @@ pub enum BallError {
     DivisionByZero(String),
     #[error("Negative radius is invalid: {0}")]
     NegativeRadius(String),
+    #[error("Indeterminate integer power: {0}")]
+    IndeterminatePower(String),
+    #[error("Square root is not real over the complete ball: {0}")]
+    NonRealSquareRoot(String),
+    #[error(
+        "{operation} requires an estimated {required_bits} numeric work bits, exceeding the supported limit of {limit_bits}"
+    )]
+    ResourceLimitExceeded {
+        operation: &'static str,
+        required_bits: u64,
+        limit_bits: u64,
+    },
+    #[error("Canonical RealBall encoding failed: {0}")]
+    CanonicalEncoding(String),
 }
+
+/// Maximum estimated numeric width admitted by a single power or square-root operation.
+///
+/// This matches 16,384 64-bit charging limbs. It is a fixed fail-closed guard for this
+/// convenience API, not a substitute for the metered evaluator required by WS03/WS11.
+pub const MAX_REAL_BALL_WORK_BITS: u64 = 16_384 * 64;
 
 /// Certified real ball $\mathcal{B}(m, r) = [m - r, m + r]$.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
@@ -112,7 +132,8 @@ impl RealBall {
 
     /// Check if 0 is contained within the ball ($0 \in [m - r, m + r]$).
     pub fn contains_zero(&self) -> bool {
-        self.lower() <= BigRational::zero() && self.upper() >= BigRational::zero()
+        let magnitude = self.midpoint.abs();
+        magnitude <= self.radius
     }
 
     /// Strictly positive: lower bound > 0.
@@ -229,24 +250,43 @@ impl RealBall {
 
     /// Certified integer power $\mathcal{B}^k$.
     pub fn pow(&self, exp: i32) -> Result<Self, BallError> {
-        if exp < 0 {
-            if self.contains_zero() {
-                return Err(BallError::DivisionByZero(format!(
-                    "cannot raise ball containing zero to negative power {exp}"
-                )));
-            }
-            let pos_exp = exp.unsigned_abs();
-            return self.inv()?.pow(pos_exp as i32);
-        }
         if exp == 0 {
+            if self.contains_zero() {
+                return Err(BallError::IndeterminatePower(
+                    "zero exponent requires a base ball that excludes zero".to_string(),
+                ));
+            }
             return Ok(Self::from_i64(1));
         }
         if exp == 1 {
             return Ok(self.clone());
         }
-        let k = exp as usize;
+
+        let magnitude = exp.unsigned_abs();
+        if exp < 0 {
+            ensure_endpoint_construction_fits(self, "RealBall negative integer power")?;
+            return self.inv()?.pow_nonnegative(magnitude);
+        }
+        self.pow_nonnegative(magnitude)
+    }
+
+    fn pow_nonnegative(&self, exp: u32) -> Result<Self, BallError> {
+        debug_assert!(exp > 0);
+        let k = usize::try_from(exp).map_err(|_| BallError::ResourceLimitExceeded {
+            operation: "RealBall integer power",
+            required_bits: u64::MAX,
+            limit_bits: MAX_REAL_BALL_WORK_BITS,
+        })?;
+        ensure_endpoint_construction_fits(self, "RealBall integer power")?;
         let low = self.lower();
         let high = self.upper();
+        checked_work_bits(
+            "RealBall integer power",
+            [
+                rational_power_bit_bound(&low, exp),
+                rational_power_bit_bound(&high, exp),
+            ],
+        )?;
         let two = BigRational::from_integer(BigInt::from(2));
 
         if k % 2 == 1 || low >= BigRational::zero() {
@@ -280,39 +320,24 @@ impl RealBall {
 
     /// Certified square root $\sqrt{\mathcal{B}}$ with specified precision bits.
     pub fn sqrt(&self, precision_bits: u32) -> Result<Self, BallError> {
+        ensure_endpoint_construction_fits(self, "RealBall square root")?;
         let low = self.lower();
         let high = self.upper();
-        if high < BigRational::zero() {
-            return Err(BallError::NegativeRadius(format!(
-                "cannot compute square root of strictly negative ball {self}"
+        if low < BigRational::zero() {
+            return Err(BallError::NonRealSquareRoot(format!(
+                "cannot compute an unconditional real square root of ball {self}"
             )));
         }
-        let eff_low = low.max(BigRational::zero());
         if high.is_zero() {
             return Ok(Self::from_i64(0));
         }
 
-        let bound_sqrt = |val: &BigRational, is_upper: bool| -> BigRational {
-            if val.is_zero() {
-                return BigRational::zero();
-            }
-            let p = val.numer();
-            let q = val.denom();
-            let shift = precision_bits;
-            let p_scaled = p * (BigInt::one() << (2 * shift));
-            let num_prod = &p_scaled * q;
-            let s_floor = num_prod.sqrt().unwrap_or_else(BigInt::zero);
-            let s = if is_upper && &s_floor * &s_floor != num_prod {
-                &s_floor + BigInt::one()
-            } else {
-                s_floor
-            };
-            let denom_scaled = q * (BigInt::one() << shift);
-            BigRational::new(s, denom_scaled)
-        };
-
-        let l = bound_sqrt(&eff_low, false);
-        let u = bound_sqrt(&high, true);
+        let l = rational_sqrt_bound(&low, precision_bits, false)?;
+        let u = rational_sqrt_bound(&high, precision_bits, true)?;
+        checked_work_bits(
+            "RealBall square-root enclosure",
+            [l.height().max_bits(), u.height().max_bits()],
+        )?;
         let two = BigRational::from_integer(BigInt::from(2));
         let mid = (&l + &u) / &two;
         let rad = (&u - &l) / &two;
@@ -322,14 +347,116 @@ impl RealBall {
         })
     }
 
-    /// Computes the canonical BLAKE3 content digest of this certified ball.
-    pub fn digest(&self) -> [u8; 32] {
-        let serialized = serde_json::to_vec(self).expect("RealBall is serializable");
+    /// Computes the bounded canonical BLAKE3 content digest of this certified ball.
+    pub fn digest(&self) -> Result<[u8; 32], BallError> {
+        let midpoint = crate::canonical::canonical_rational_bytes(&self.midpoint)
+            .map_err(|error| BallError::CanonicalEncoding(error.to_string()))?;
+        let radius = crate::canonical::canonical_rational_bytes(&self.radius)
+            .map_err(|error| BallError::CanonicalEncoding(error.to_string()))?;
+        let midpoint_len = u64::try_from(midpoint.len()).map_err(|_| {
+            BallError::CanonicalEncoding("midpoint length exceeds u64 framing".to_string())
+        })?;
+        let radius_len = u64::try_from(radius.len()).map_err(|_| {
+            BallError::CanonicalEncoding("radius length exceeds u64 framing".to_string())
+        })?;
         let mut hasher = blake3::Hasher::new();
-        hasher.update(b"fsym.real_ball.v1:");
-        hasher.update(&serialized);
-        *hasher.finalize().as_bytes()
+        hasher.update(b"fsym.real_ball.v2\0");
+        hasher.update(&midpoint_len.to_le_bytes());
+        hasher.update(&midpoint);
+        hasher.update(&radius_len.to_le_bytes());
+        hasher.update(&radius);
+        Ok(*hasher.finalize().as_bytes())
     }
+}
+
+fn checked_work_bits(
+    operation: &'static str,
+    terms: impl IntoIterator<Item = u64>,
+) -> Result<u64, BallError> {
+    let required_bits = terms
+        .into_iter()
+        .try_fold(0u64, u64::checked_add)
+        .unwrap_or(u64::MAX);
+    if required_bits > MAX_REAL_BALL_WORK_BITS {
+        return Err(BallError::ResourceLimitExceeded {
+            operation,
+            required_bits,
+            limit_bits: MAX_REAL_BALL_WORK_BITS,
+        });
+    }
+    Ok(required_bits)
+}
+
+fn integer_power_bit_bound(value: &BigInt, exp: u32) -> u64 {
+    let bits = value.bits();
+    if bits <= 1 {
+        bits
+    } else {
+        bits.saturating_mul(u64::from(exp))
+    }
+}
+
+fn rational_power_bit_bound(value: &BigRational, exp: u32) -> u64 {
+    integer_power_bit_bound(value.numer(), exp).max(integer_power_bit_bound(value.denom(), exp))
+}
+
+fn ensure_endpoint_construction_fits(
+    ball: &RealBall,
+    operation: &'static str,
+) -> Result<(), BallError> {
+    checked_work_bits(
+        operation,
+        [
+            ball.midpoint.height().max_bits(),
+            ball.radius.height().max_bits(),
+        ],
+    )
+    .map(|_| ())
+}
+
+fn rational_sqrt_bound(
+    value: &BigRational,
+    precision_bits: u32,
+    is_upper: bool,
+) -> Result<BigRational, BallError> {
+    if value.is_zero() {
+        return Ok(BigRational::zero());
+    }
+
+    let shift = u64::from(precision_bits);
+    let doubled_shift = shift.saturating_mul(2);
+    checked_work_bits(
+        "RealBall square root",
+        [value.numer().bits(), value.denom().bits(), doubled_shift],
+    )?;
+    checked_work_bits(
+        "RealBall square-root denominator",
+        [value.denom().bits(), shift],
+    )?;
+
+    let doubled_shift = precision_bits
+        .checked_mul(2)
+        .ok_or(BallError::ResourceLimitExceeded {
+            operation: "RealBall square root",
+            required_bits: u64::MAX,
+            limit_bits: MAX_REAL_BALL_WORK_BITS,
+        })?;
+    let p = value.numer();
+    let q = value.denom();
+    let p_scaled = p * (BigInt::one() << doubled_shift);
+    let num_prod = &p_scaled * q;
+    let s_floor = num_prod.sqrt().ok_or_else(|| {
+        BallError::NonRealSquareRoot(
+            "internal square-root radicand unexpectedly became negative".to_string(),
+        )
+    })?;
+    let s = if is_upper && &s_floor * &s_floor != num_prod {
+        &s_floor + BigInt::one()
+    } else {
+        s_floor
+    };
+    let denom_scaled = q * (BigInt::one() << precision_bits);
+    Ok(BigRational::new(s, denom_scaled))
 }
 
 fn rational_pow(r: &BigRational, mut exp: usize) -> BigRational {
@@ -515,9 +642,22 @@ mod tests {
         let b1 = RealBall::new(q(1), q(2)).unwrap();
         let b2 = RealBall::new(q(1), q(2)).unwrap();
         let b3 = RealBall::new(q(1), q(3)).unwrap();
-        assert_eq!(b1.digest(), b2.digest());
-        assert_ne!(b1.digest(), b3.digest());
-        assert_ne!(b1.digest(), [0u8; 32]);
+        assert_eq!(b1.digest().unwrap(), b2.digest().unwrap());
+        assert_ne!(b1.digest().unwrap(), b3.digest().unwrap());
+        assert_ne!(b1.digest().unwrap(), [0u8; 32]);
+    }
+
+    #[test]
+    fn digest_refuses_oversized_canonical_numeric_payload() {
+        let oversized_bits = u32::try_from(crate::canonical::MAX_SERIALIZED_BYTES)
+            .unwrap()
+            .checked_mul(8)
+            .unwrap();
+        let oversized = RealBall::exact(BigRational::from_integer(BigInt::one() << oversized_bits));
+        assert!(matches!(
+            oversized.digest(),
+            Err(BallError::CanonicalEncoding(_))
+        ));
     }
 
     #[test]
@@ -557,5 +697,58 @@ mod tests {
         assert!(b_sqrt.upper() >= q(3));
         assert!(b_sqrt.contains(&q(2)));
         assert!(b_sqrt.contains(&q(3)));
+    }
+
+    #[test]
+    fn power_handles_extreme_signed_exponents_without_recursion() {
+        assert_eq!(
+            RealBall::from_i64(1).pow(i32::MIN).unwrap(),
+            RealBall::from_i64(1)
+        );
+        assert_eq!(
+            RealBall::from_i64(-1).pow(i32::MIN).unwrap(),
+            RealBall::from_i64(1)
+        );
+        assert!(matches!(
+            RealBall::from_i64(2).pow(i32::MIN),
+            Err(BallError::ResourceLimitExceeded {
+                operation: "RealBall integer power",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn zero_exponent_requires_ball_to_exclude_zero() {
+        let crossing = RealBall::new(q(0), q(1)).unwrap();
+        assert!(matches!(
+            crossing.pow(0),
+            Err(BallError::IndeterminatePower(_))
+        ));
+        assert_eq!(RealBall::from_i64(2).pow(0).unwrap(), RealBall::from_i64(1));
+    }
+
+    #[test]
+    fn square_root_requires_complete_nonnegative_domain() {
+        let crossing = RealBall::new(q(0), q(1)).unwrap();
+        assert!(matches!(
+            crossing.sqrt(8),
+            Err(BallError::NonRealSquareRoot(_))
+        ));
+        assert!(matches!(
+            RealBall::from_i64(-1).sqrt(8),
+            Err(BallError::NonRealSquareRoot(_))
+        ));
+    }
+
+    #[test]
+    fn square_root_refuses_extreme_precision_before_shifting() {
+        assert!(matches!(
+            RealBall::from_i64(2).sqrt(u32::MAX),
+            Err(BallError::ResourceLimitExceeded {
+                operation: "RealBall square root",
+                ..
+            })
+        ));
     }
 }

@@ -62,6 +62,40 @@ fn push_integer(out: &mut Vec<u8>, n: &BigInt) {
     out.extend_from_slice(&magnitude_bytes);
 }
 
+fn canonical_integer_bytes(value: &BigInt) -> Result<Vec<u8>, CoreError> {
+    let encoded_len = 1usize
+        .checked_add(encoded_integer_len(value)?)
+        .ok_or_else(|| CoreError::InvalidOperation("serialized length overflow".into()))?;
+    if encoded_len > MAX_SERIALIZED_BYTES {
+        return Err(CoreError::InvalidOperation("serialized too large".into()));
+    }
+
+    let mut out = Vec::with_capacity(encoded_len);
+    out.push(b'I');
+    push_integer(&mut out, value);
+    debug_assert_eq!(out.len(), encoded_len);
+    Ok(out)
+}
+
+pub(crate) fn canonical_rational_bytes(value: &BigRational) -> Result<Vec<u8>, CoreError> {
+    let numer_len = encoded_integer_len(value.numer())?;
+    let denom_len = encoded_integer_len(value.denom())?;
+    let encoded_len = 1usize
+        .checked_add(numer_len)
+        .and_then(|len| len.checked_add(denom_len))
+        .ok_or_else(|| CoreError::InvalidOperation("serialized length overflow".into()))?;
+    if encoded_len > MAX_SERIALIZED_BYTES {
+        return Err(CoreError::InvalidOperation("serialized too large".into()));
+    }
+
+    let mut out = Vec::with_capacity(encoded_len);
+    out.push(b'Q');
+    push_integer(&mut out, value.numer());
+    push_integer(&mut out, value.denom());
+    debug_assert_eq!(out.len(), encoded_len);
+    Ok(out)
+}
+
 fn read_integer_wire<'a>(buf: &'a [u8], offset: &mut usize) -> Result<IntegerWire<'a>, CoreError> {
     // Sign byte first, matching the writer.
     let Some(sign_byte) = buf.get(*offset).copied() else {
@@ -191,49 +225,13 @@ impl crate::Expr {
     /// Serializes an exact numeric leaf (`Integer` or `Rational`) into the
     /// canonical bounded wire form. Non-numeric expressions are rejected.
     pub fn to_canonical_numeric_bytes(&self) -> Result<Vec<u8>, CoreError> {
-        let encoded_len = match self {
-            crate::Expr::Integer(n) => 1usize
-                .checked_add(encoded_integer_len(n)?)
-                .ok_or_else(|| CoreError::InvalidOperation("serialized length overflow".into()))?,
-            crate::Expr::Rational(q) => {
-                let numer_len = encoded_integer_len(q.numer())?;
-                let denom_len = encoded_integer_len(q.denom())?;
-                1usize
-                    .checked_add(numer_len)
-                    .and_then(|len| len.checked_add(denom_len))
-                    .ok_or_else(|| {
-                        CoreError::InvalidOperation("serialized length overflow".into())
-                    })?
-            }
-            _ => {
-                return Err(CoreError::InvalidOperation(
-                    "only Integer/Rational serialize numerically".into(),
-                ));
-            }
-        };
-        if encoded_len > MAX_SERIALIZED_BYTES {
-            return Err(CoreError::InvalidOperation("serialized too large".into()));
-        }
-
-        let mut out = Vec::with_capacity(encoded_len);
         match self {
-            crate::Expr::Integer(n) => {
-                out.push(b'I');
-                push_integer(&mut out, n);
-            }
-            crate::Expr::Rational(q) => {
-                out.push(b'Q');
-                push_integer(&mut out, q.numer());
-                push_integer(&mut out, q.denom());
-            }
-            _ => {
-                return Err(CoreError::InvalidOperation(
-                    "only Integer/Rational serialize numerically".into(),
-                ));
-            }
+            crate::Expr::Integer(value) => canonical_integer_bytes(value),
+            crate::Expr::Rational(value) => canonical_rational_bytes(value),
+            _ => Err(CoreError::InvalidOperation(
+                "only Integer/Rational serialize numerically".into(),
+            )),
         }
-        debug_assert_eq!(out.len(), encoded_len);
-        Ok(out)
     }
 
     /// Inverse of [`Self::to_canonical_numeric_bytes`]. All size, outer-structure, and
