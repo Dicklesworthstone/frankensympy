@@ -255,7 +255,19 @@ pub enum DeBruijnExpr {
     },
 }
 
-/// Helper to parse single-parameter, multi-parameter Tuple, and multi-argument Lambda forms.
+/// Checks that one flat parameter list contains distinct symbols only.
+///
+/// Repeating a name inside one signature is malformed and must remain an
+/// opaque function. Shadowing in a separately nested Lambda remains valid.
+fn has_distinct_symbol_parameters(parameters: &[Expr]) -> bool {
+    let mut seen = BTreeSet::new();
+    parameters.iter().all(|parameter| match parameter {
+        Expr::Sym(symbol) => seen.insert(symbol),
+        _ => false,
+    })
+}
+
+/// Parses single-parameter, multi-parameter Tuple, and multi-argument Lambda forms.
 fn try_parse_lambda(args: &[Expr]) -> Option<BinderNode> {
     if args.len() == 2 {
         match &args[0] {
@@ -275,7 +287,7 @@ fn try_parse_lambda(args: &[Expr]) -> Option<BinderNode> {
                     } else {
                         None
                     }
-                } else if targs.iter().all(|a| matches!(a, Expr::Sym(_))) {
+                } else if has_distinct_symbol_parameters(targs) {
                     if let Expr::Sym(first) = &targs[0] {
                         let rest_tuple = if targs.len() == 2 {
                             targs[1].clone()
@@ -298,10 +310,7 @@ fn try_parse_lambda(args: &[Expr]) -> Option<BinderNode> {
             _ => None,
         }
     } else if args.len() > 2 {
-        if args[..args.len() - 1]
-            .iter()
-            .all(|a| matches!(a, Expr::Sym(_)))
-        {
+        if has_distinct_symbol_parameters(&args[..args.len() - 1]) {
             if let Expr::Sym(first) = &args[0] {
                 let inner_lambda = if args.len() == 3 {
                     Expr::Function("Lambda".to_string(), vec![args[1].clone(), args[2].clone()])
@@ -1615,6 +1624,44 @@ mod tests {
         );
         assert!(alpha_equivalent(&tuple_3_xyz, &tuple_3_abc));
         assert!(alpha_equivalent(&tuple_3_xyz, &multi_3_xyz));
+    }
+
+    #[test]
+    fn duplicate_parameters_remain_opaque_instead_of_becoming_binders() {
+        let duplicate_tuple = Expr::Function(
+            "Lambda".into(),
+            vec![
+                Expr::Function("Tuple".into(), vec![Expr::symbol("x"), Expr::symbol("x")]),
+                Expr::symbol("x"),
+            ],
+        );
+        let duplicate_multi_arg = Expr::Function(
+            "Lambda".into(),
+            vec![Expr::symbol("x"), Expr::symbol("x"), Expr::symbol("x")],
+        );
+        let renamed_duplicate_tuple = Expr::Function(
+            "Lambda".into(),
+            vec![
+                Expr::Function("Tuple".into(), vec![Expr::symbol("a"), Expr::symbol("a")]),
+                Expr::symbol("a"),
+            ],
+        );
+
+        for malformed in [&duplicate_tuple, &duplicate_multi_arg] {
+            assert!(BinderNode::try_from_expr(malformed).is_none());
+            assert_eq!(free_symbols(malformed), BTreeSet::from([Symbol::new("x")]));
+        }
+        assert!(!alpha_equivalent(
+            &duplicate_tuple,
+            &renamed_duplicate_tuple
+        ));
+
+        let legitimate_shadowing = BinderNode::lambda(
+            Symbol::new("x"),
+            BinderNode::lambda(Symbol::new("x"), Expr::symbol("x")).to_expr(),
+        )
+        .to_expr();
+        assert!(BinderNode::try_from_expr(&legitimate_shadowing).is_some());
     }
 
     #[test]
