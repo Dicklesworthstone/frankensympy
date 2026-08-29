@@ -144,4 +144,20 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn heuristic_candidate_to_terminal_non_mathematical_is_also_forbidden() {
+        // HeuristicCandidate is non-terminal; the lattice refuses
+        // every promotion to a terminal class. My previous test
+        // covered HeuristicCandidate -> KernelProved. Pin the
+        // remaining terminal non-mathematical targets (OracleConformant,
+        // UserAsserted) so a future relaxation cannot sneak past
+        // the HeuristicCandidate gate.
+        let heuristic = EvidenceClass::HeuristicCandidate;
+        for to in [EvidenceClass::OracleConformant, EvidenceClass::UserAsserted] {
+            let err = validate_evidence_transition(heuristic, to)
+                .expect_err("HeuristicCandidate cannot become a terminal class");
+            assert!(matches!(err, LatticeError::IllegalPromotion { .. }));
+        }
+    }
 }

@@ -4,7 +4,7 @@
 
 use crate::SolverError;
 use fsym_calculus::{diff, integrate};
-use fsym_core::{BigInt, BigRational, Expr, Symbol};
+use fsym_core::{BigInt, BigRational, Constant, Expr, Symbol};
 use fsym_simplify::{simplify, try_expand, try_simplify};
 use num_traits::Zero;
 use std::sync::Arc;
@@ -21,6 +21,89 @@ fn half_power(value: BigInt) -> Expr {
     )
 }
 
+fn require_fresh_integration_constants(
+    x: &Symbol,
+    constants: &[&Symbol],
+    inputs: &[&Expr],
+) -> Result<(), SolverError> {
+    if !crate::verifier_inputs_within_bounds(inputs.iter().copied()) {
+        return Err(SolverError::InvalidSystem(
+            "ODE input exceeds the supported expression bounds".to_string(),
+        ));
+    }
+    for (index, constant) in constants.iter().enumerate() {
+        if *constant == x || constants[..index].contains(constant) {
+            return Err(SolverError::InvalidSystem(
+                "integration constants must be pairwise distinct from the independent variable"
+                    .to_string(),
+            ));
+        }
+        if inputs
+            .iter()
+            .any(|input| input.free_symbols().contains(*constant))
+        {
+            return Err(SolverError::InvalidSystem(format!(
+                "integration constant `{constant}` already occurs in an ODE coefficient or forcing term"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn ode_expression_is_total(expr: &Expr) -> bool {
+    let mut stack = vec![expr];
+    while let Some(current) = stack.pop() {
+        match current {
+            Expr::Integer(_) | Expr::Rational(_) | Expr::Sym(_) => {}
+            Expr::Const(Constant::Pi | Constant::E | Constant::I) => {}
+            Expr::Const(
+                Constant::Infinity
+                | Constant::NegativeInfinity
+                | Constant::ComplexInfinity
+                | Constant::NaN,
+            ) => return false,
+            Expr::Add(terms) | Expr::Mul(terms) => {
+                if terms.is_empty() {
+                    return false;
+                }
+                stack.extend(terms);
+            }
+            Expr::Pow(base, exponent) => match exponent.as_ref() {
+                Expr::Integer(value) if value > &BigInt::zero() => stack.push(base),
+                _ => return false,
+            },
+            Expr::Function(name, args)
+                if matches!(name.as_str(), "exp" | "sin" | "cos" | "sinh" | "cosh")
+                    && args.len() == 1 =>
+            {
+                stack.extend(args);
+            }
+            Expr::Function(_, _) => return false,
+        }
+    }
+    true
+}
+
+fn ode_inputs_are_total(inputs: &[&Expr]) -> bool {
+    crate::verifier_inputs_within_bounds(inputs.iter().copied())
+        && inputs.iter().all(|input| ode_expression_is_total(input))
+}
+
+fn residual_is_exact_zero(residual: &Expr) -> bool {
+    if !ode_inputs_are_total(&[residual]) {
+        return false;
+    }
+    let expanded = match try_expand(residual) {
+        Ok(expanded) if ode_inputs_are_total(&[&expanded]) => expanded,
+        _ => return false,
+    };
+    let simplified = match try_simplify(&expanded) {
+        Ok(simplified) if ode_inputs_are_total(&[&simplified]) => simplified,
+        _ => return false,
+    };
+    simplified.is_zero()
+}
+
 /// Solves first-order linear ODE: $y'(x) + P(x) y(x) = Q(x)$.
 ///
 /// Solution: $y(x) = \frac{1}{\mu(x)} \left( \int \mu(x) Q(x) dx + C_1 \right)$ where $\mu(x) = \exp(\int P(x) dx)$.
@@ -30,6 +113,7 @@ pub fn dsolve_linear_first_order(
     x: &Symbol,
     c1: &Symbol,
 ) -> Result<Expr, SolverError> {
+    require_fresh_integration_constants(x, &[c1], &[p_expr, q_expr])?;
     // \int P(x) dx
     let int_p = integrate(p_expr, x).map_err(|error| {
         SolverError::IncompleteSolutionSet(format!(
@@ -65,6 +149,7 @@ pub fn dsolve_const_coeff_second_order(
     c1: &Symbol,
     c2: &Symbol,
 ) -> Result<Expr, SolverError> {
+    require_fresh_integration_constants(x, &[c1, c2], &[])?;
     if a == 0 {
         return Err(SolverError::InvalidSystem(
             "second-order ODE leading coefficient must be nonzero".to_string(),
@@ -157,36 +242,7 @@ pub fn verify_first_order_linear_solution(
     q_expr: &Expr,
     x: &Symbol,
 ) -> bool {
-    if !crate::verifier_inputs_within_bounds([sol, p_expr, q_expr]) {
-        return false;
-    }
-    let dy = diff(sol, x);
-    let py = Expr::Mul(vec![p_expr.clone(), sol.clone()]);
-    let residual = Expr::Add(vec![
-        dy,
-        py,
-        Expr::Mul(vec![Expr::from_i64(-1), q_expr.clone()]),
-    ]);
-    if let Ok(expanded) = try_expand(&residual)
-        && try_simplify(&expanded).is_ok_and(|s| s.is_zero())
-    {
-        return true;
-    }
-    if let Ok(expanded_sol) = try_expand(sol) {
-        let dy2 = diff(&expanded_sol, x);
-        let py2 = Expr::Mul(vec![p_expr.clone(), expanded_sol]);
-        let res2 = Expr::Add(vec![
-            dy2,
-            py2,
-            Expr::Mul(vec![Expr::from_i64(-1), q_expr.clone()]),
-        ]);
-        if let Ok(exp2) = try_expand(&res2)
-            && try_simplify(&exp2).is_ok_and(|s| s.is_zero())
-        {
-            return true;
-        }
-    }
-    try_simplify(&residual).is_ok_and(|simplified| simplified.is_zero())
+    verify_linear_first_order_solution(sol, p_expr, q_expr, x)
 }
 
 /// Solves separable ODE of the form $y'(x) = f(x) \cdot y(x)$:
@@ -196,6 +252,7 @@ pub fn dsolve_separable_linear(
     x: &Symbol,
     c1: &Symbol,
 ) -> Result<Expr, SolverError> {
+    require_fresh_integration_constants(x, &[c1], &[f_expr])?;
     let int_f = integrate(f_expr, x).map_err(|error| {
         SolverError::IncompleteSolutionSet(format!(
             "integrating separable ODE coefficient failed: {error}"
@@ -452,6 +509,7 @@ pub fn dsolve_const_coeff_second_order_nonhomogeneous(
     c1: &Symbol,
     c2: &Symbol,
 ) -> Result<Expr, SolverError> {
+    require_fresh_integration_constants(x, &[c1, c2], &[f_expr])?;
     let yh = dsolve_const_coeff_second_order(a, b, c, x, c1, c2)?;
     if f_expr.is_zero() {
         return Ok(yh);
@@ -503,7 +561,7 @@ pub fn verify_const_coeff_second_order_nonhomogeneous_solution(
     f_expr: &Expr,
     x: &Symbol,
 ) -> bool {
-    if !crate::verifier_inputs_within_bounds([sol, f_expr]) {
+    if !ode_inputs_are_total(&[sol, f_expr]) {
         return false;
     }
     let mut terms = Vec::with_capacity(4);
@@ -524,11 +582,7 @@ pub fn verify_const_coeff_second_order_nonhomogeneous_solution(
         terms.push(Expr::Mul(vec![Expr::from_i64(-1), f_expr.clone()]));
     }
 
-    let expanded = match try_expand(&Expr::Add(terms)) {
-        Ok(expanded) => expanded,
-        Err(_) => return false,
-    };
-    try_simplify(&expanded).is_ok_and(|simplified| simplified.is_zero())
+    residual_is_exact_zero(&Expr::Add(terms))
 }
 
 /// Exact residual checker for a candidate solution of a first-order linear ODE: $y'(x) + P(x) y(x) = Q(x)$.
@@ -538,7 +592,7 @@ pub fn verify_linear_first_order_solution(
     q_expr: &Expr,
     x: &Symbol,
 ) -> bool {
-    if !crate::verifier_inputs_within_bounds([sol, p_expr, q_expr]) {
+    if !ode_inputs_are_total(&[sol, p_expr, q_expr]) {
         return false;
     }
     let dy = diff(sol, x);
@@ -547,10 +601,5 @@ pub fn verify_linear_first_order_solution(
     if !q_expr.is_zero() {
         terms.push(Expr::Mul(vec![Expr::from_i64(-1), q_expr.clone()]));
     }
-    let residual = Expr::Add(terms);
-    let expanded = match try_expand(&residual) {
-        Ok(expanded) => expanded,
-        Err(_) => return false,
-    };
-    try_simplify(&expanded).is_ok_and(|simplified| simplified.is_zero())
+    residual_is_exact_zero(&Expr::Add(terms))
 }

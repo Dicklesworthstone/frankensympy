@@ -354,14 +354,13 @@ class SurfaceTests(unittest.TestCase):
         # future change to (a) the bit-packing, (b) the reserved name, or
         # (c) the dps validation would silently break the wire and persistence
         # contract. Pin each surface so any change is loud.
-        # Round-trip for canonical values.
+        # Round-trip: Float(value).evalf() returns the same Python float.
         for value in [0.0, 1.0, -1.0, 1.5, -1.5, 1.0e100, 1.0e-100, float("inf"), -float("inf")]:
-            restored = sympy.Float(value)._as_python_float()
-            if value != value:  # NaN
-                self.assertNotEqual(restored, restored)
-            else:
-                self.assertEqual(restored, value)
-        # dps must be a positive int.
+            self.assertEqual(float(sympy.Float(value).evalf()), float(value))
+        # The intern encoding stores IEEE binary64 bits in big-endian order.
+        import struct
+        for value, expected_bits in [(1.5, 0x3FF8000000000000), (0.0, 0), (-0.0, 0x8000000000000000), (float("inf"), 0x7FF0000000000000)]:
+            self.assertEqual(sympy.Float(value)._value.args[0].exact_numerator(), expected_bits)
         with self.assertRaises(TypeError):
             sympy.Float(1.0, dps=0)
         with self.assertRaises(TypeError):

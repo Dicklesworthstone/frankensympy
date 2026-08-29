@@ -928,6 +928,88 @@ mod tests {
     }
 
     #[test]
+    fn ode_constants_and_residual_verifiers_fail_closed() {
+        let x = Symbol::new("x");
+        let c1 = Symbol::new("C1");
+        let c2 = Symbol::new("C2");
+        let zero = Expr::from_i64(0);
+
+        assert!(matches!(
+            dsolve_linear_first_order(&zero, &zero, &x, &x),
+            Err(SolverError::InvalidSystem(_))
+        ));
+        assert!(matches!(
+            dsolve_linear_first_order(&Expr::Sym(c1.clone()), &zero, &x, &c1),
+            Err(SolverError::InvalidSystem(_))
+        ));
+        assert!(matches!(
+            dsolve_separable_linear(&zero, &x, &x),
+            Err(SolverError::InvalidSystem(_))
+        ));
+        assert!(matches!(
+            dsolve_const_coeff_second_order(1, 0, 1, &x, &c1, &c1),
+            Err(SolverError::InvalidSystem(_))
+        ));
+        assert!(matches!(
+            dsolve_const_coeff_second_order_nonhomogeneous(
+                1,
+                0,
+                1,
+                &Expr::Sym(c2.clone()),
+                &x,
+                &c1,
+                &c2,
+            ),
+            Err(SolverError::InvalidSystem(_))
+        ));
+
+        let infinity = Expr::Const(fsym_core::Constant::Infinity);
+        assert!(!verify_first_order_linear_solution(
+            &Expr::from_i64(1),
+            &infinity,
+            &infinity,
+            &x,
+        ));
+        assert!(!verify_linear_first_order_solution(
+            &Expr::from_i64(1),
+            &infinity,
+            &infinity,
+            &x,
+        ));
+
+        let reciprocal = Expr::Sym(x.clone()).pow(Expr::from_i64(-1));
+        assert!(!verify_linear_first_order_solution(
+            &Expr::from_i64(1),
+            &reciprocal,
+            &reciprocal,
+            &x,
+        ));
+
+        let unknown = Expr::Function("f".to_string(), vec![Expr::Sym(x.clone())]);
+        let derivative_sentinel = Expr::Function(
+            "diff".to_string(),
+            vec![unknown.clone(), Expr::Sym(x.clone())],
+        );
+        assert!(!verify_linear_first_order_solution(
+            &unknown,
+            &zero,
+            &derivative_sentinel,
+            &x,
+        ));
+        assert!(!verify_const_coeff_second_order_nonhomogeneous_solution(
+            &unknown,
+            0,
+            1,
+            0,
+            &derivative_sentinel,
+            &x,
+        ));
+        assert!(!verify_const_coeff_second_order_nonhomogeneous_solution(
+            &infinity, 0, 0, 1, &infinity, &x,
+        ));
+    }
+
+    #[test]
     fn residual_verifiers_fail_closed_on_oversized_candidates() {
         let x = Symbol::new("x");
         let mut too_deep = Expr::from_i64(1);
