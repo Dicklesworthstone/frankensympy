@@ -1048,6 +1048,42 @@ mod tests {
     }
 
     #[test]
+    fn taylor_operation_refuses_order_above_harness_maximum() {
+        // series_terms refuses orders > MAX_TAYLOR_ORDER so that the
+        // oracle call below is bounded. Pin the boundary at the
+        // boundary value (MAX_TAYLOR_ORDER is still allowed;
+        // MAX_TAYLOR_ORDER + 1 is refused) so a future change to
+        // MAX_TAYLOR_ORDER cannot silently loosen the gate.
+        assert_eq!(
+            sympy_operation(&CaseSpec {
+                case_id: "tay_at_max".to_string(),
+                input_expr: "exp(x)".to_string(),
+                var: "x".to_string(),
+                op: Op::Taylor {
+                    at: 0,
+                    order: MAX_TAYLOR_ORDER
+                },
+                expected_refusal: None,
+            })
+            .expect("max order is still admitted"),
+            format!("series(exp(x), x, 0, {}).removeO()", MAX_TAYLOR_ORDER + 1)
+        );
+
+        let err = sympy_operation(&CaseSpec {
+            case_id: "tay_over_max".to_string(),
+            input_expr: "exp(x)".to_string(),
+            var: "x".to_string(),
+            op: Op::Taylor {
+                at: 0,
+                order: MAX_TAYLOR_ORDER + 1,
+            },
+            expected_refusal: None,
+        })
+        .unwrap_err();
+        assert!(err.contains("exceeds harness maximum"));
+    }
+
+    #[test]
     fn duplicate_case_ids_fail_before_oracle_execution() {
         let duplicate = vec![case(false), case(true)];
         let err = validate_cases(&duplicate).expect_err("duplicate must fail");

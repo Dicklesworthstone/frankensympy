@@ -5,7 +5,8 @@
 //! guarantees acyclicity. Declared [`TermDomain`] is intern identity, distinct
 //! from inferred [`Sort`]. Well-formed symbol-parameter `Lambda` surface lowers
 //! to name-preserving [`TermNode::Lambda`]; that is not yet alpha-normalized
-//! binder identity. Tuple-parameter `Lambda` remains an opaque function.
+//! binder identity. Tuple-parameter `Lambda` intern as the same binder node as
+//! the multi-argument spelling. Lifting emits the multi-argument surface.
 
 #![forbid(unsafe_code)]
 
@@ -595,11 +596,31 @@ fn validate_lambda_surface(args: &[Expr]) -> Result<(), DagError> {
     })
 }
 
-/// Symbol-parameter Lambda surface that [`TermNode::Lambda`] can represent.
-/// Tuple-parameter surface returns `None` and stays an opaque function.
+/// Binder parameters from well-formed Lambda surface.
+///
+/// Multi-argument `Lambda(x, y, body)` and `Lambda(Tuple(x, y), body)` both
+/// yield `[x, y]`. Returns `None` for surface that has not passed
+/// [`validate_lambda_surface`].
 fn lambda_symbol_parameters(args: &[Expr]) -> Result<Option<Vec<Symbol>>, DagError> {
     if args.len() < 2 {
         return Ok(None);
+    }
+    if args.len() == 2 {
+        if let Expr::Function(name, tuple_args) = &args[0] {
+            if name == "Tuple" {
+                let mut parameters = Vec::new();
+                parameters
+                    .try_reserve(tuple_args.len())
+                    .map_err(|_| DagError::AllocationFailure)?;
+                for parameter in tuple_args {
+                    match parameter {
+                        Expr::Sym(symbol) => parameters.push(symbol.clone()),
+                        _ => return Ok(None),
+                    }
+                }
+                return Ok(Some(parameters));
+            }
+        }
     }
     let mut parameters = Vec::new();
     parameters
@@ -1078,27 +1099,29 @@ impl TermDag {
             Expr::Function(name, args) => {
                 if name == "Lambda" {
                     validate_lambda_surface(args)?;
-                    if let Some(parameters) = lambda_symbol_parameters(args)? {
-                        let body = args.last().ok_or(DagError::MalformedBinder {
+                    let parameters = lambda_symbol_parameters(args)?.ok_or(
+                        DagError::MalformedBinder {
                             name: "Lambda",
-                            reason: "expected parameters followed by a body",
-                        })?;
-                        let child_depth = next_depth(depth, limits.max_depth)?;
-                        let body_id = self.insert_expr_internal(
-                            body,
-                            child_depth,
-                            limits,
-                            traversed,
-                            inserted,
-                        )?;
-                        return self.insert_node_tracking(
-                            TermNode::Lambda(parameters, body_id),
-                            limits,
-                            inserted,
-                        );
-                    }
-                    // Tuple-parameter surface is well-formed but not yet a
-                    // TermNode::Lambda spelling; intern as an opaque function.
+                            reason: "parameters must be symbols or a tuple of symbols",
+                        },
+                    )?;
+                    let body = args.last().ok_or(DagError::MalformedBinder {
+                        name: "Lambda",
+                        reason: "expected parameters followed by a body",
+                    })?;
+                    let child_depth = next_depth(depth, limits.max_depth)?;
+                    let body_id = self.insert_expr_internal(
+                        body,
+                        child_depth,
+                        limits,
+                        traversed,
+                        inserted,
+                    )?;
+                    return self.insert_node_tracking(
+                        TermNode::Lambda(parameters, body_id),
+                        limits,
+                        inserted,
+                    );
                 }
                 let ids = self.insert_expr_children(args, depth, limits, traversed, inserted)?;
                 self.insert_node_tracking(TermNode::Function(name.clone(), ids), limits, inserted)
@@ -1753,7 +1776,7 @@ mod tests {
     }
 
     #[test]
-    fn tuple_parameter_lambda_remains_opaque_function() {
+    fn tuple_parameter_lambda_interns_as_the_same_binder_as_multi_arg() {
         let tuple_lambda = Expr::Function(
             "Lambda".to_string(),
             vec![
@@ -1764,12 +1787,22 @@ mod tests {
                 Expr::symbol("x"),
             ],
         );
+        let multi_arg = Expr::Function(
+            "Lambda".to_string(),
+            vec![Expr::symbol("x"), Expr::symbol("y"), Expr::symbol("x")],
+        );
         let mut dag = TermDag::new();
         let tuple_root = dag.insert_expr(&tuple_lambda).unwrap();
-        assert!(
-            matches!(dag.get(tuple_root), Some(TermNode::Function(name, _)) if name == "Lambda")
-        );
-        assert_eq!(dag.to_expr(tuple_root).unwrap(), tuple_lambda);
+        let multi_root = dag.insert_expr(&multi_arg).unwrap();
+        assert_eq!(tuple_root, multi_root);
+        assert!(matches!(
+            dag.get(tuple_root),
+            Some(TermNode::Lambda(parameters, _))
+                if parameters == &vec![Symbol::new("x"), Symbol::new("y")]
+        ));
+        // Lifting uses the multi-argument surface, not the Tuple spelling.
+        assert_eq!(dag.to_expr(tuple_root).unwrap(), multi_arg);
+        assert_ne!(dag.to_expr(tuple_root).unwrap(), tuple_lambda);
     }
 
     #[test]
