@@ -39,6 +39,50 @@ fn rational_expr(r: BigRational) -> Expr {
     }
 }
 
+/// Evaluates `0**exponent` only when the exponent's relevant class is explicit.
+///
+/// An uninterpreted expression may later be positive, negative, zero, or non-real,
+/// so treating every non-literal-negative exponent as positive would turn a
+/// conditional power into an unconditional zero.
+fn zero_base_power_value(exponent: &Expr) -> Option<Expr> {
+    use fsym_core::Constant;
+
+    match exponent {
+        Expr::Integer(value) => Some(if value.is_negative() {
+            Expr::Const(Constant::ComplexInfinity)
+        } else if value.is_zero() {
+            Expr::from_i64(1)
+        } else {
+            Expr::from_i64(0)
+        }),
+        Expr::Rational(value) => Some(if value.numer().is_negative() {
+            Expr::Const(Constant::ComplexInfinity)
+        } else if value.is_zero() {
+            Expr::from_i64(1)
+        } else {
+            Expr::from_i64(0)
+        }),
+        Expr::Const(Constant::Pi | Constant::E | Constant::Infinity) => Some(Expr::from_i64(0)),
+        Expr::Const(Constant::NegativeInfinity) => Some(Expr::Const(Constant::ComplexInfinity)),
+        Expr::Const(Constant::I | Constant::ComplexInfinity | Constant::NaN) => {
+            Some(Expr::Const(Constant::NaN))
+        }
+        _ => None,
+    }
+}
+
+fn is_explicitly_non_finite_exponent(exponent: &Expr) -> bool {
+    matches!(
+        exponent,
+        Expr::Const(
+            fsym_core::Constant::Infinity
+                | fsym_core::Constant::NegativeInfinity
+                | fsym_core::Constant::ComplexInfinity
+                | fsym_core::Constant::NaN
+        )
+    )
+}
+
 pub(crate) fn is_total_expr(expr: &Expr) -> bool {
     match expr {
         Expr::Sym(_) | Expr::Integer(_) | Expr::Rational(_) => true,
@@ -329,18 +373,16 @@ fn simplify_at<M: BudgetMeter>(
             } else if e.is_one() {
                 Ok(b)
             } else if b.is_zero() {
-                let is_neg = match &e {
-                    Expr::Integer(n) => n.is_negative(),
-                    Expr::Rational(r) => r.numer().is_negative(),
-                    _ => false,
-                };
-                if is_neg {
-                    Ok(Expr::Const(fsym_core::Constant::ComplexInfinity))
-                } else {
-                    Ok(Expr::from_i64(0))
-                }
+                Ok(
+                    zero_base_power_value(&e)
+                        .unwrap_or_else(|| Expr::Pow(Arc::new(b), Arc::new(e))),
+                )
             } else if b.is_one() {
-                Ok(Expr::from_i64(1))
+                if is_explicitly_non_finite_exponent(&e) {
+                    Ok(Expr::Const(fsym_core::Constant::NaN))
+                } else {
+                    Ok(Expr::from_i64(1))
+                }
             } else {
                 match (b, e) {
                     (Expr::Integer(bn), Expr::Integer(en)) => {
@@ -583,6 +625,81 @@ mod tests {
         let x = Expr::symbol("x");
         let expr = Expr::Mul(vec![Expr::from_i64(0), x.clone()]);
         assert_eq!(simplify(&expr), Expr::from_i64(0));
+    }
+
+    #[test]
+    fn power_simplification_requires_a_known_zero_base_exponent() {
+        let zero = Expr::from_i64(0);
+        let one = Expr::from_i64(1);
+        let x = Expr::symbol("x");
+
+        let conditional = Expr::Pow(Arc::new(zero.clone()), Arc::new(x.clone()));
+        assert_eq!(try_simplify(&conditional).unwrap(), conditional);
+        let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
+        let (verified, envelope) = verified_simplify(
+            &conditional,
+            &context,
+            ReceiptId::new(6).unwrap(),
+            &mut Unbounded,
+        )
+        .unwrap();
+        assert_eq!(verified, conditional);
+        assert!(
+            verify_derivation_independent(envelope.derivation.as_ref().unwrap(), &context).is_ok()
+        );
+
+        for (exponent, expected) in [
+            (Expr::from_i64(0), one.clone()),
+            (Expr::from_i64(3), zero.clone()),
+            (Expr::rational(1, 2).unwrap(), zero.clone()),
+            (Expr::Const(fsym_core::Constant::Pi), zero.clone()),
+            (Expr::Const(fsym_core::Constant::Infinity), zero.clone()),
+            (
+                Expr::from_i64(-3),
+                Expr::Const(fsym_core::Constant::ComplexInfinity),
+            ),
+            (
+                Expr::rational(-1, 2).unwrap(),
+                Expr::Const(fsym_core::Constant::ComplexInfinity),
+            ),
+            (
+                Expr::Const(fsym_core::Constant::NegativeInfinity),
+                Expr::Const(fsym_core::Constant::ComplexInfinity),
+            ),
+            (
+                Expr::Const(fsym_core::Constant::I),
+                Expr::Const(fsym_core::Constant::NaN),
+            ),
+            (
+                Expr::Const(fsym_core::Constant::ComplexInfinity),
+                Expr::Const(fsym_core::Constant::NaN),
+            ),
+            (
+                Expr::Const(fsym_core::Constant::NaN),
+                Expr::Const(fsym_core::Constant::NaN),
+            ),
+        ] {
+            let input = Expr::Pow(Arc::new(zero.clone()), Arc::new(exponent));
+            assert_eq!(try_simplify(&input).unwrap(), expected, "input: {input}");
+        }
+
+        assert_eq!(
+            try_simplify(&Expr::Pow(Arc::new(one.clone()), Arc::new(x),)).unwrap(),
+            one
+        );
+        for exponent in [
+            fsym_core::Constant::Infinity,
+            fsym_core::Constant::NegativeInfinity,
+            fsym_core::Constant::ComplexInfinity,
+            fsym_core::Constant::NaN,
+        ] {
+            let input = Expr::Pow(Arc::new(Expr::from_i64(1)), Arc::new(Expr::Const(exponent)));
+            assert_eq!(
+                try_simplify(&input).unwrap(),
+                Expr::Const(fsym_core::Constant::NaN),
+                "input: {input}"
+            );
+        }
     }
 
     #[test]
