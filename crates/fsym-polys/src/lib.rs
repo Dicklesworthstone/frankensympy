@@ -1263,5 +1263,52 @@ mod tests {
         );
         let disc_p4 = p4.discriminant().unwrap();
         assert_eq!(disc_p4, BigRational::from_integer((-256).into()));
+
+        // Res(P, Q) = (-1)^(deg(P)deg(Q)) Res(Q, P).
+        assert_eq!(a.resultant(&b).unwrap(), -b.resultant(&a).unwrap());
+
+        // Res(P, Q*R) = Res(P, Q) Res(P, R).
+        let r = UnivariatePoly::new(
+            x.clone(),
+            vec![BigRational::from_integer(5.into()), BigRational::one()],
+        );
+        let b_times_r = b.mul(&r).unwrap();
+        assert_eq!(
+            a.resultant(&b_times_r).unwrap(),
+            a.resultant(&b).unwrap() * a.resultant(&r).unwrap()
+        );
+    }
+
+    #[test]
+    fn resultant_refuses_unbounded_numeric_materialization_and_growth() {
+        let x = Symbol::new("x");
+
+        let constant = UnivariatePoly::new(x.clone(), vec![BigRational::from_integer(2.into())]);
+        let high_degree = UnivariatePoly::monomial(x.clone(), BigRational::one(), 129).unwrap();
+        assert!(matches!(
+            constant.resultant(&high_degree),
+            Err(PolyError::General(message)) if message.contains("dimension 129")
+        ));
+
+        let oversized = BigRational::from_integer(BigInt::one() << 1_048_576u32);
+        let oversized_input = UnivariatePoly::new(x.clone(), vec![oversized, BigRational::one()]);
+        let quadratic = UnivariatePoly::new(
+            x.clone(),
+            vec![BigRational::one(), BigRational::zero(), BigRational::one()],
+        );
+        assert!(matches!(
+            oversized_input.resultant(&quadratic),
+            Err(PolyError::General(message)) if message.contains("input scalar")
+        ));
+
+        let large = BigRational::from_integer(BigInt::one() << 575_936u32);
+        let lhs = UnivariatePoly::new(x.clone(), vec![large.clone(), BigRational::one()]);
+        let rhs = UnivariatePoly::new(x, vec![BigRational::one(), large]);
+        assert!(matches!(
+            lhs.resultant(&rhs),
+            Err(PolyError::General(message))
+                if message.contains("determinant scalar")
+                    || message.contains("elimination product scalar")
+        ));
     }
 }

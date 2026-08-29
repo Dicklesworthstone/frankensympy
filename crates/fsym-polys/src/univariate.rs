@@ -13,6 +13,9 @@ use std::sync::Arc;
 
 const MAX_UNIVARIATE_COEFFICIENTS: usize = 65_536;
 const MAX_UNIVARIATE_POWER: u32 = 65_535;
+const MAX_RESULTANT_DIMENSION: usize = 128;
+const MAX_RESULTANT_MATRIX_NUMERIC_LIMBS: u64 = 65_536;
+const MAX_RESULTANT_SCALAR_NUMERIC_LIMBS: u64 = 16_384;
 
 /// Univariate polynomial represented by dense coefficient vector:
 /// `c_0 + c_1 * x + ... + c_n * x^n`.
@@ -265,30 +268,23 @@ impl UnivariatePoly {
         }
         let n = self.degree().unwrap();
         let m = other.degree().unwrap();
+        let dim = n.checked_add(m).ok_or_else(|| {
+            PolyError::General("resultant Sylvester matrix dimension overflowed".to_string())
+        })?;
+        if dim > MAX_RESULTANT_DIMENSION {
+            return Err(PolyError::General(format!(
+                "resultant Sylvester matrix dimension {dim} exceeds bounded limit of {MAX_RESULTANT_DIMENSION}"
+            )));
+        }
+        preflight_resultant_coefficients(self, other, n, m)?;
         if n == 0 && m == 0 {
             return Ok(BigRational::one());
         }
         if n == 0 {
-            let c = self.leading_coeff();
-            let mut res = BigRational::one();
-            for _ in 0..m {
-                res *= c;
-            }
-            return Ok(res);
+            return bounded_resultant_power(self.leading_coeff(), m);
         }
         if m == 0 {
-            let d = other.leading_coeff();
-            let mut res = BigRational::one();
-            for _ in 0..n {
-                res *= d;
-            }
-            return Ok(res);
-        }
-        let dim = n + m;
-        if dim > 128 {
-            return Err(PolyError::General(format!(
-                "resultant Sylvester matrix dimension {dim} exceeds bounded limit of 128"
-            )));
+            return bounded_resultant_power(other.leading_coeff(), n);
         }
         let mut mat = vec![vec![BigRational::zero(); dim]; dim];
         for r in 0..m {
@@ -301,7 +297,7 @@ impl UnivariatePoly {
                 mat[m + s][s + idx] = coeff.clone();
             }
         }
-        Ok(rational_matrix_det(mat))
+        rational_matrix_det(mat)
     }
 
     /// Computes the polynomial discriminant.
@@ -719,10 +715,112 @@ impl fmt::Display for UnivariatePoly {
     }
 }
 
-fn rational_matrix_det(mut mat: Vec<Vec<BigRational>>) -> BigRational {
+fn rational_numeric_limbs(value: &BigRational) -> Result<u64, PolyError> {
+    value
+        .numer()
+        .limb_count()
+        .checked_add(value.denom().limb_count())
+        .ok_or_else(|| PolyError::General("resultant numeric-limb count overflowed".to_string()))
+}
+
+fn ensure_resultant_scalar_within_limit(
+    value: &BigRational,
+    phase: &'static str,
+) -> Result<(), PolyError> {
+    let limbs = rational_numeric_limbs(value)?;
+    if limbs > MAX_RESULTANT_SCALAR_NUMERIC_LIMBS {
+        return Err(PolyError::General(format!(
+            "resultant {phase} scalar uses {limbs} numeric limbs, exceeding the limit of {MAX_RESULTANT_SCALAR_NUMERIC_LIMBS}"
+        )));
+    }
+    Ok(())
+}
+
+fn preflight_resultant_coefficients(
+    lhs: &UnivariatePoly,
+    rhs: &UnivariatePoly,
+    lhs_degree: usize,
+    rhs_degree: usize,
+) -> Result<(), PolyError> {
+    fn weighted_polynomial_limbs(
+        polynomial: &UnivariatePoly,
+        copies: usize,
+    ) -> Result<u64, PolyError> {
+        let copies = u64::try_from(copies).map_err(|_| {
+            PolyError::General("resultant coefficient-copy count does not fit u64".to_string())
+        })?;
+        let mut limbs = 0u64;
+        for coefficient in &polynomial.coeffs {
+            if coefficient.is_zero() {
+                continue;
+            }
+            ensure_resultant_scalar_within_limit(coefficient, "input")?;
+            limbs = limbs
+                .checked_add(rational_numeric_limbs(coefficient)?)
+                .ok_or_else(|| {
+                    PolyError::General("resultant input numeric-limb count overflowed".to_string())
+                })?;
+        }
+        limbs.checked_mul(copies).ok_or_else(|| {
+            PolyError::General("resultant materialized numeric-limb count overflowed".to_string())
+        })
+    }
+
+    let lhs_limbs = weighted_polynomial_limbs(lhs, rhs_degree)?;
+    let rhs_limbs = weighted_polynomial_limbs(rhs, lhs_degree)?;
+    let materialized_limbs = lhs_limbs.checked_add(rhs_limbs).ok_or_else(|| {
+        PolyError::General("resultant materialized numeric-limb count overflowed".to_string())
+    })?;
+    if materialized_limbs > MAX_RESULTANT_MATRIX_NUMERIC_LIMBS {
+        return Err(PolyError::General(format!(
+            "resultant Sylvester matrix would materialize {materialized_limbs} numeric limbs, exceeding the limit of {MAX_RESULTANT_MATRIX_NUMERIC_LIMBS}"
+        )));
+    }
+    Ok(())
+}
+
+fn bounded_resultant_product(
+    lhs: &BigRational,
+    rhs: &BigRational,
+    phase: &'static str,
+) -> Result<BigRational, PolyError> {
+    let product = lhs * rhs;
+    ensure_resultant_scalar_within_limit(&product, phase)?;
+    Ok(product)
+}
+
+fn bounded_resultant_difference(
+    lhs: &BigRational,
+    rhs: &BigRational,
+) -> Result<BigRational, PolyError> {
+    let difference = lhs - rhs;
+    ensure_resultant_scalar_within_limit(&difference, "elimination")?;
+    Ok(difference)
+}
+
+fn bounded_resultant_power(
+    value: &BigRational,
+    mut exponent: usize,
+) -> Result<BigRational, PolyError> {
+    ensure_resultant_scalar_within_limit(value, "input")?;
+    let mut base = value.clone();
+    let mut result = BigRational::one();
+    while exponent > 0 {
+        if exponent % 2 == 1 {
+            result = bounded_resultant_product(&result, &base, "constant-power")?;
+        }
+        exponent /= 2;
+        if exponent > 0 {
+            base = bounded_resultant_product(&base, &base, "constant-power")?;
+        }
+    }
+    Ok(result)
+}
+
+fn rational_matrix_det(mut mat: Vec<Vec<BigRational>>) -> Result<BigRational, PolyError> {
     let n = mat.len();
     if n == 0 {
-        return BigRational::one();
+        return Ok(BigRational::one());
     }
     let mut sign = 1i64;
     let mut det = BigRational::one();
@@ -732,30 +830,32 @@ fn rational_matrix_det(mut mat: Vec<Vec<BigRational>>) -> BigRational {
             pivot_row += 1;
         }
         if pivot_row == n {
-            return BigRational::zero();
+            return Ok(BigRational::zero());
         }
         if pivot_row != i {
             mat.swap(i, pivot_row);
             sign = -sign;
         }
         let pivot = mat[i][i].clone();
-        det *= &pivot;
+        det = bounded_resultant_product(&det, &pivot, "determinant")?;
         let inv_pivot = BigRational::one() / &pivot;
         let (left_rows, right_rows) = mat.split_at_mut(i + 1);
         let pivot_row_slice = &left_rows[i];
         for row in right_rows.iter_mut() {
             if !row[i].is_zero() {
-                let factor = &row[i] * &inv_pivot;
+                let factor = bounded_resultant_product(&row[i], &inv_pivot, "elimination factor")?;
+                row[i] = BigRational::zero();
                 for (target, pivot_elem) in row
                     .iter_mut()
                     .skip(i + 1)
                     .zip(pivot_row_slice.iter().skip(i + 1))
                 {
-                    let sub = &factor * pivot_elem;
-                    *target = &*target - &sub;
+                    let sub =
+                        bounded_resultant_product(&factor, pivot_elem, "elimination product")?;
+                    *target = bounded_resultant_difference(target, &sub)?;
                 }
             }
         }
     }
-    if sign == -1 { -det } else { det }
+    Ok(if sign == -1 { -det } else { det })
 }
