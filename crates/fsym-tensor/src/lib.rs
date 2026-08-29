@@ -1172,6 +1172,23 @@ mod tests {
     }
 
     #[test]
+    fn test_index_variance_flip_is_an_involution() {
+        // IndexVariance::flip maps Upper <-> Lower, so flipping twice
+        // must be the identity. TensorIndex::flip_variance preserves
+        // the symbol and only flips the variance; a double flip
+        // therefore restores the original index byte-for-byte.
+        assert_eq!(IndexVariance::Upper.flip(), IndexVariance::Lower);
+        assert_eq!(IndexVariance::Lower.flip(), IndexVariance::Upper);
+        assert_eq!(IndexVariance::Upper.flip().flip(), IndexVariance::Upper);
+        assert_eq!(IndexVariance::Lower.flip().flip(), IndexVariance::Lower);
+
+        let upper = TensorIndex::upper("mu");
+        assert_eq!(upper.flip_variance().flip_variance(), upper);
+
+        let lower = TensorIndex::lower("nu");
+        assert_eq!(lower.flip_variance().flip_variance(), lower);
+    }
+    #[test]
     fn test_metric_tensor_raising_lowering_and_spacetime_interval() {
         // 4D Minkowski Metric eta = diag(-1, 1, 1, 1)
         let eta = MetricTensor::minkowski_4d("eta");
