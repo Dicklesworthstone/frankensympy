@@ -1696,22 +1696,14 @@ mod tests {
             Expr::Add(vec![Expr::symbol("x"), Expr::from_i64(1)]),
         )
         .to_expr();
-        let err = super::capture_avoiding_subs(
-            &deriv,
-            &Symbol::new("x"),
-            &Expr::from_i64(5),
-        )
-        .unwrap_err();
+        let err = super::capture_avoiding_subs(&deriv, &Symbol::new("x"), &Expr::from_i64(5))
+            .unwrap_err();
         assert!(matches!(
             err,
             BindingError::UnsupportedOperatorVariableReplacement { operator } if operator == "Derivative"
         ));
 
-        let integral = BinderNode::integral(
-            Symbol::new("x"),
-            Expr::symbol("x"),
-        )
-        .to_expr();
+        let integral = BinderNode::integral(Symbol::new("x"), Expr::symbol("x")).to_expr();
         let err = super::capture_avoiding_subs(
             &integral,
             &Symbol::new("x"),
@@ -1724,12 +1716,8 @@ mod tests {
         ));
 
         // The success path: substituting a fresh symbol is representable.
-        let renamed = super::capture_avoiding_subs(
-            &deriv,
-            &Symbol::new("x"),
-            &Expr::symbol("y"),
-        )
-        .expect("symbolic operator-variable substitution must succeed");
+        let renamed = super::capture_avoiding_subs(&deriv, &Symbol::new("x"), &Expr::symbol("y"))
+            .expect("symbolic operator-variable substitution must succeed");
         let expected = BinderNode::derivative(
             Symbol::new("y"),
             Expr::Add(vec![Expr::symbol("y"), Expr::from_i64(1)]),
