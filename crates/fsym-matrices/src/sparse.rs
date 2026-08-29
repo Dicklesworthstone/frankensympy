@@ -4,6 +4,7 @@
 
 use crate::{Matrix, MatrixError};
 use fsym_core::Expr;
+use fsym_simplify::simplify;
 use serde::de::{IgnoredAny, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::BTreeMap;
@@ -280,12 +281,25 @@ impl SparseMatrix {
         }
         let mut new_entries = self.entries.clone();
         for (&(r, c), val) in &other.entries {
-            let entry = new_entries
-                .entry((r, c))
-                .or_insert_with(|| Expr::from_i64(0));
-            *entry = Matrix::exact_add(entry, val);
-            if entry.is_zero() {
-                new_entries.remove(&(r, c));
+            let entry_count = new_entries.len();
+            match new_entries.entry((r, c)) {
+                std::collections::btree_map::Entry::Occupied(mut entry) => {
+                    let sum = Matrix::exact_add(entry.get(), val);
+                    if sum.is_zero() {
+                        entry.remove();
+                    } else {
+                        *entry.get_mut() = sum;
+                    }
+                }
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    let sum = Matrix::exact_add(&Expr::from_i64(0), val);
+                    if !sum.is_zero() {
+                        if entry_count == MAX_SPARSE_MATRIX_ENTRIES {
+                            return Err(MatrixError::EntryLimitExceeded(entry_count + 1));
+                        }
+                        entry.insert(sum);
+                    }
+                }
             }
         }
         Self::new(self.rows, self.cols, new_entries)
@@ -359,12 +373,25 @@ impl SparseMatrix {
         let mut new_entries = self.entries.clone();
         for (&(r, c), val) in &other.entries {
             let neg_val = Matrix::exact_mul(&neg_one, val);
-            let entry = new_entries
-                .entry((r, c))
-                .or_insert_with(|| Expr::from_i64(0));
-            *entry = Matrix::exact_add(entry, &neg_val);
-            if entry.is_zero() {
-                new_entries.remove(&(r, c));
+            let entry_count = new_entries.len();
+            match new_entries.entry((r, c)) {
+                std::collections::btree_map::Entry::Occupied(mut entry) => {
+                    let difference = Matrix::exact_add(entry.get(), &neg_val);
+                    if difference.is_zero() {
+                        entry.remove();
+                    } else {
+                        *entry.get_mut() = difference;
+                    }
+                }
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    let difference = Matrix::exact_add(&Expr::from_i64(0), &neg_val);
+                    if !difference.is_zero() {
+                        if entry_count == MAX_SPARSE_MATRIX_ENTRIES {
+                            return Err(MatrixError::EntryLimitExceeded(entry_count + 1));
+                        }
+                        entry.insert(difference);
+                    }
+                }
             }
         }
         Self::new(self.rows, self.cols, new_entries)
@@ -373,8 +400,12 @@ impl SparseMatrix {
     /// Scalar multiplication of sparse matrix.
     pub fn scalar_mul(&self, scalar: &Expr) -> Result<Self, MatrixError> {
         self.validate_shape()?;
-        if scalar.is_zero() {
-            return Ok(Self::zeros(self.rows, self.cols));
+        let has_implicit_zero = match self.rows.checked_mul(self.cols) {
+            Some(total_entries) => self.entries.len() < total_entries,
+            None => true,
+        };
+        if has_implicit_zero && !Matrix::exact_mul(&Expr::from_i64(0), scalar).is_zero() {
+            return Err(MatrixError::SparseImplicitZeroIndeterminate);
         }
         let mut new_entries = BTreeMap::new();
         for (&(r, c), val) in &self.entries {
@@ -392,12 +423,12 @@ impl SparseMatrix {
         if self.rows != self.cols {
             return Err(MatrixError::NotSquare(self.rows, self.cols));
         }
-        let mut acc = Expr::from_i64(0);
-        for i in 0..self.rows {
-            if let Some(val) = self.entries.get(&(i, i)) {
-                acc = Matrix::exact_add(&acc, val);
-            }
-        }
-        Ok(acc)
+        let diagonal = self
+            .entries
+            .iter()
+            .filter(|&(&(row, col), _)| row == col)
+            .map(|(_, value)| value.clone())
+            .collect();
+        Ok(simplify(&Expr::Add(diagonal)))
     }
 }

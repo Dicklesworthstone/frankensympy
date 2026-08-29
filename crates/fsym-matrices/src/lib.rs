@@ -55,6 +55,10 @@ pub enum MatrixError {
     InvalidStorageLength(usize, usize, usize, usize),
     #[error("Matrix has {0} entries, exceeding the limit of {MAX_MATRIX_ENTRIES}")]
     EntryLimitExceeded(usize),
+    #[error(
+        "Sparse scalar multiplication cannot represent indeterminate products at implicit zero entries"
+    )]
+    SparseImplicitZeroIndeterminate,
     #[error("Matrix shape {0}x{1} has a dimension exceeding the limit of {MAX_MATRIX_DIMENSION}")]
     DimensionLimitExceeded(usize, usize),
     #[error("Matrix operation exceeds a supported resource bound: {0}")]
@@ -2479,6 +2483,78 @@ mod tests {
         assert_eq!(s_scaled.to_dense().unwrap(), m.scalar_mul(&num(5)).unwrap());
         let s_zeroed = s.scalar_mul(&num(0)).unwrap();
         assert_eq!(s_zeroed.nnz(), 0);
+    }
+
+    #[test]
+    fn sparse_trace_scales_with_stored_entries_instead_of_declared_dimensions() {
+        let huge_empty = SparseMatrix::zeros(usize::MAX, usize::MAX);
+        assert_eq!(huge_empty.trace().unwrap(), num(0));
+
+        let mut far_diagonal = std::collections::BTreeMap::new();
+        far_diagonal.insert((usize::MAX - 1, usize::MAX - 1), num(7));
+        let huge_sparse = SparseMatrix::new(usize::MAX, usize::MAX, far_diagonal).unwrap();
+        assert_eq!(huge_sparse.trace().unwrap(), num(7));
+
+        let huge_rectangular = SparseMatrix::zeros(usize::MAX, usize::MAX - 1);
+        assert_eq!(
+            huge_rectangular.trace(),
+            Err(MatrixError::NotSquare(usize::MAX, usize::MAX - 1))
+        );
+    }
+
+    #[test]
+    fn sparse_operations_preserve_partial_entries_and_preflight_fill() {
+        let infinity = Expr::Const(fsym_core::Constant::Infinity);
+        let mut partial_entries = std::collections::BTreeMap::new();
+        partial_entries.insert((0, 0), infinity.clone());
+        let sparse_partial = SparseMatrix::new(2, 2, partial_entries).unwrap();
+
+        let sparse_zeroed = sparse_partial.scalar_mul(&num(0)).unwrap();
+        let dense_partial =
+            Matrix::new(2, 2, vec![infinity.clone(), num(0), num(0), num(0)]).unwrap();
+        let dense_zeroed = dense_partial.scalar_mul(&num(0)).unwrap();
+        assert_eq!(
+            sparse_zeroed.get(0, 0).unwrap(),
+            dense_zeroed.get(0, 0).unwrap().clone()
+        );
+        assert_eq!(sparse_zeroed.nnz(), 1);
+
+        let mut finite_entries = std::collections::BTreeMap::new();
+        finite_entries.insert((0, 0), num(1));
+        let sparse_finite = SparseMatrix::new(2, 2, finite_entries).unwrap();
+        assert_eq!(
+            sparse_finite.scalar_mul(&infinity),
+            Err(MatrixError::SparseImplicitZeroIndeterminate)
+        );
+
+        let mut full_entries = std::collections::BTreeMap::new();
+        full_entries.insert((0, 0), num(1));
+        let full_sparse = SparseMatrix::new(1, 1, full_entries).unwrap();
+        assert_eq!(
+            full_sparse
+                .scalar_mul(&infinity)
+                .unwrap()
+                .get(0, 0)
+                .unwrap(),
+            infinity
+        );
+
+        let mut capped_entries = std::collections::BTreeMap::new();
+        for col in 0..MAX_MATRIX_ENTRIES {
+            capped_entries.insert((0, col), num(1));
+        }
+        let capped = SparseMatrix::new(1, MAX_MATRIX_ENTRIES + 1, capped_entries).unwrap();
+        let mut disjoint_entry = std::collections::BTreeMap::new();
+        disjoint_entry.insert((0, MAX_MATRIX_ENTRIES), num(1));
+        let disjoint = SparseMatrix::new(1, MAX_MATRIX_ENTRIES + 1, disjoint_entry).unwrap();
+        assert_eq!(
+            capped.add(&disjoint),
+            Err(MatrixError::EntryLimitExceeded(MAX_MATRIX_ENTRIES + 1))
+        );
+        assert_eq!(
+            capped.sub(&disjoint),
+            Err(MatrixError::EntryLimitExceeded(MAX_MATRIX_ENTRIES + 1))
+        );
     }
 
     #[test]
