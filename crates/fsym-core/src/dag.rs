@@ -613,13 +613,13 @@ fn unique_binder_parameter_names(parameters: &[Expr]) -> Result<(), DagError> {
     seen.try_reserve(parameters.len())
         .map_err(|_| DagError::AllocationFailure)?;
     for parameter in parameters {
-        if let Expr::Sym(symbol) = parameter {
-            if !seen.insert(symbol.name.as_str()) {
-                return Err(DagError::MalformedBinder {
-                    name: "Lambda",
-                    reason: "parameter names must be unique",
-                });
-            }
+        if let Expr::Sym(symbol) = parameter
+            && !seen.insert(symbol.name.as_str())
+        {
+            return Err(DagError::MalformedBinder {
+                name: "Lambda",
+                reason: "parameter names must be unique",
+            });
         }
     }
     Ok(())
