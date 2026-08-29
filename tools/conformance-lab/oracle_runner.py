@@ -21,6 +21,7 @@ Exit codes: 0 = all fixtures observed (including per-fixture error classes),
 from __future__ import annotations
 
 import base64
+import copy as copy_mod
 import hashlib
 import json
 import os
@@ -228,6 +229,65 @@ def observe_pickle_dump(fixture: dict, profile_id: str) -> dict:
     }
 
 
+def _copy_surface(obj) -> dict:
+    return {
+        "type": type(obj).__name__,
+        "module": type(obj).__module__,
+        "args_repr": [repr(arg) for arg in getattr(obj, "args", ())],
+    }
+
+
+def _copy_result(obj, copied) -> dict:
+    surface = _copy_surface(copied)
+    surface["is_original"] = copied is obj
+    return surface
+
+
+def observe_copy(fixture: dict, profile_id: str) -> dict:
+    try:
+        obj = _construct(fixture)
+        outcome = "returned"
+    except Exception:  # noqa: BLE001
+        return {
+            "schema_version": 1,
+            "kind": "copy_observation",
+            "profile_id": profile_id,
+            "fixture_id": fixture["id"],
+            "side": "upstream_oracle",
+            "construction_outcome": "raised",
+            "original": None,
+            "copy": None,
+            "deepcopy": None,
+        }
+    try:
+        copied = copy_mod.copy(obj)
+        copy_obs = _copy_result(obj, copied)
+    except Exception as exc:  # noqa: BLE001
+        copy_obs = {
+            "error_class": type(exc).__module__ + "." + type(exc).__name__,
+            "message_head": str(exc)[:200],
+        }
+    try:
+        deep = copy_mod.deepcopy(obj)
+        deep_obs = _copy_result(obj, deep)
+    except Exception as exc:  # noqa: BLE001
+        deep_obs = {
+            "error_class": type(exc).__module__ + "." + type(exc).__name__,
+            "message_head": str(exc)[:200],
+        }
+    return {
+        "schema_version": 1,
+        "kind": "copy_observation",
+        "profile_id": profile_id,
+        "fixture_id": fixture["id"],
+        "side": "upstream_oracle",
+        "construction_outcome": outcome,
+        "original": _copy_surface(obj),
+        "copy": copy_obs,
+        "deepcopy": deep_obs,
+    }
+
+
 def observe_warnings(fixture: dict, profile_id: str) -> dict:
     with warnings_mod.catch_warnings(record=True) as caught:
         warnings_mod.simplefilter("always")
@@ -315,16 +375,25 @@ def main() -> int:
     args = sys.argv[1:]
     warnings_only = False
     pickle_roundtrip = False
-    if args and args[-1] in {"--warnings", "--pickle-roundtrip"}:
+    copy_roundtrip = False
+    if args and args[-1] in {"--warnings", "--pickle-roundtrip", "--copy-roundtrip"}:
         flag = args.pop()
         warnings_only = flag == "--warnings"
         pickle_roundtrip = flag == "--pickle-roundtrip"
+        copy_roundtrip = flag == "--copy-roundtrip"
     if len(args) != 2:
         print(json.dumps({"error_class": "harness_misuse"}))
         return 2
     fixture_path, profile_id = args
     with open(fixture_path, encoding="utf-8") as fh:
         fixtures = json.load(fh)
+    if copy_roundtrip:
+        for fixture in fixtures:
+            sys.stdout.write(
+                json.dumps(observe_copy(fixture, profile_id), sort_keys=True) + "\n"
+            )
+            sys.stdout.flush()
+        return 0
     if pickle_roundtrip:
         for fixture in fixtures:
             sys.stdout.write(

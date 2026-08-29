@@ -56,6 +56,10 @@ cannot certify.
 second process of the same interpreter family. It compares restored
 type/module identity, never writes goldens, and cannot certify.
 
+`copy-roundtrip` compares copy/deepcopy type/module identity and whether
+deepcopy preserves args_repr. Held forms must not canonicalize. It cannot
+certify.
+
 Exit codes: 0 = success, 1 = gate failure, 2 = misuse.
 """
 
@@ -88,6 +92,7 @@ from pickle_records import (
     validate_dump_record,
     validate_restore_record,
 )
+from copy_records import diff_copy_records, make_copy_record, validate_copy_record
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ARTIFACT_ROOT = REPO_ROOT / "artifacts" / "conformance"
@@ -934,6 +939,130 @@ def cmd_pickle_roundtrip(
     return 0
 
 
+def parse_copy_output(
+    stdout: str,
+    stderr: str,
+    expected_ids: list[str],
+    profile: dict,
+    *,
+    expected_side: str,
+    label: str,
+) -> list[dict]:
+    output_bytes = len(stdout.encode()) + len(stderr.encode())
+    if output_bytes > MAX_RUNNER_OUTPUT_BYTES:
+        raise ValueError(f"{label} copy output exceeds the harness limit")
+    if stderr.strip():
+        raise ValueError(f"{label} copy probe emitted unexpected stderr: {stderr[-400:]}")
+    records = []
+    for line_number, line in enumerate(stdout.splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"{label} copy output line {line_number} is not JSON: {exc}") from exc
+        expected_id = expected_ids[len(records)] if len(records) < len(expected_ids) else ""
+        validate_copy_record(
+            record, profile, expected_side=expected_side, expected_id=expected_id
+        )
+        records.append(record)
+    actual_ids = [record["fixture_id"] for record in records]
+    if actual_ids != expected_ids:
+        raise ValueError(
+            f"{label} copy sequence mismatch: expected={expected_ids!r} actual={actual_ids!r}"
+        )
+    return records
+
+
+def capture_copy_file(profile: dict, fixture_path: Path, py: str, *, side: str) -> list[dict]:
+    expected_ids = load_fixture_ids(fixture_path)
+    if side == ORACLE_SIDE:
+        command = [
+            py,
+            "-P",
+            "-s",
+            str(runner_path()),
+            str(fixture_path),
+            profile["profile_id"],
+            "--copy-roundtrip",
+        ]
+        env = oracle_environment(profile)
+        label = "oracle-copy"
+    elif side == CANDIDATE_SIDE:
+        command = [
+            py,
+            "-P",
+            "-s",
+            str(candidate_runner_path()),
+            str(fixture_path),
+            profile["profile_id"],
+            "--copy-roundtrip",
+        ]
+        env = candidate_environment(profile)
+        label = "candidate-copy"
+    else:
+        raise ValueError(f"unknown copy observation side: {side!r}")
+    proc = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=120,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"{label} exited {proc.returncode} for {fixture_path.name}: "
+            f"{proc.stderr[-400:] or proc.stdout[-400:]}"
+        )
+    return parse_copy_output(
+        proc.stdout,
+        proc.stderr,
+        expected_ids,
+        profile,
+        expected_side=side,
+        label=label,
+    )
+
+
+def cmd_copy_roundtrip(
+    profile: dict, oracle_py: str, candidate_py: str, *, certify: bool = False
+) -> int:
+    if certify:
+        return fail("copy-roundtrip lane cannot certify; refuse --certify")
+    before = golden_digest_map(profile)
+    base = Path(__file__).resolve().parent
+    oracle_records: list[dict] = []
+    candidate_records: list[dict] = []
+    for rel in profile["inventory"]["fixtures"]:
+        fixture_path = base / rel
+        oracle_records.extend(
+            capture_copy_file(profile, fixture_path, oracle_py, side=ORACLE_SIDE)
+        )
+        candidate_records.extend(
+            capture_copy_file(profile, fixture_path, candidate_py, side=CANDIDATE_SIDE)
+        )
+    details = diff_copy_records(oracle_records, candidate_records)
+    if golden_digest_map(profile) != before:
+        return fail("copy-roundtrip lane mutated immutable goldens")
+    receipt = {
+        "lane": "copy_roundtrip",
+        "kind": "copy_observation",
+        "certifies": False,
+        "can_certify": False,
+        "claims_promoted": False,
+        "goldens_written": False,
+        "golden_bytes_unchanged": True,
+        "profile_id": profile["profile_id"],
+        "paired": min(len(oracle_records), len(candidate_records)),
+        "discrepancies": len(details),
+        "details": details,
+        "note": "copy/deepcopy identity cannot certify the immutable profile",
+    }
+    print(json.dumps(receipt, indent=2, sort_keys=True))
+    return 0
+
+
 def golden_name_for(fixture_rel: str) -> str:
     return fixture_rel.removeprefix("fixtures/").removesuffix(".json") + ".ndjson"
 
@@ -1438,6 +1567,36 @@ def cmd_self_test(profile: dict, py: str) -> int:
     pickle_drift = diff_pickle_roundtrips(pickle_oracle, pickle_wrong)
     if not pickle_drift or pickle_drift[0]["kind"] != "pickle_restore_identity_drift":
         return fail("pickle-roundtrip missed planted restore type drift")
+    copy_oracle = [
+        make_copy_record(
+            profile_id=profile["profile_id"],
+            fixture_id="held/mul_two_k",
+            side=ORACLE_SIDE,
+            construction_outcome="returned",
+            original={"type": "Mul", "module": "sympy.core.mul", "args_repr": ["2", "k"]},
+            copied={
+                "type": "Mul",
+                "module": "sympy.core.mul",
+                "args_repr": ["2", "k"],
+                "is_original": False,
+            },
+            deepcopied={
+                "type": "Mul",
+                "module": "sympy.core.mul",
+                "args_repr": ["2", "k"],
+                "is_original": False,
+            },
+        )
+    ]
+    copy_match = copy.deepcopy(copy_oracle)
+    copy_match[0]["side"] = CANDIDATE_SIDE
+    if diff_copy_records(copy_oracle, copy_match):
+        return fail("copy-roundtrip invented drift on matching copy identity")
+    copy_collapsed = copy.deepcopy(copy_match)
+    copy_collapsed[0]["deepcopy"]["args_repr"] = ["2*k"]
+    copy_drift = diff_copy_records(copy_oracle, copy_collapsed)
+    if not copy_drift or copy_drift[0]["kind"] != "copy_identity_drift":
+        return fail("copy-roundtrip missed planted deepcopy args collapse")
     identity_drift = copy.deepcopy(drifted)
     identity_drift[0]["observations"]["type"] = "WrongType"
     if not compare_construction_only(golden_first, identity_drift):
@@ -1566,6 +1725,8 @@ def cmd_self_test(profile: dict, py: str) -> int:
                 "environment_build_detects_sympy_version_pin_drift": True,
                 "pickle_roundtrip_matching_restore_does_not_invent_drift": True,
                 "pickle_roundtrip_detects_restore_type_drift": True,
+                "copy_roundtrip_matching_copy_does_not_invent_drift": True,
+                "copy_roundtrip_detects_deepcopy_args_collapse": True,
                 "mutants_checked": checked_files,
                 "mutants_rejected": rejected,
                 "oracle_candidate_isolation": True,
@@ -2061,6 +2222,7 @@ def parse_cli(argv: list[str]) -> dict | int:
         "warnings",
         "environment",
         "pickle-roundtrip",
+        "copy-roundtrip",
     }
     if mode not in known:
         print(f"unknown mode: {mode}", file=sys.stderr)
@@ -2201,6 +2363,16 @@ def main() -> int:
             if parsed["certify"]:
                 return fail("pickle-roundtrip lane cannot certify; refuse --certify")
             return cmd_pickle_roundtrip(
+                profile,
+                oracle_python(parsed["oracle_python"]),
+                candidate_python(parsed["candidate_python"]),
+            )
+        if mode == "copy-roundtrip":
+            if parsed["broken"]:
+                return fail("copy-roundtrip does not accept --broken")
+            if parsed["certify"]:
+                return fail("copy-roundtrip lane cannot certify; refuse --certify")
+            return cmd_copy_roundtrip(
                 profile,
                 oracle_python(parsed["oracle_python"]),
                 candidate_python(parsed["candidate_python"]),
