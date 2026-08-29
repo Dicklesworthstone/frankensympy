@@ -107,20 +107,49 @@ mod tests {
         let mut meter = Unbounded;
 
         let x = Symbol::new("x");
+        let y = Symbol::new("y");
         let premise = kernel
             .prove_reflexivity(Expr::Sym(x.clone()), &mut meter)
             .expect("reflexivity premise");
         let template = BinderNode::derivative(
             x.clone(),
-            Expr::pow(Expr::Sym(x.clone()), Expr::from_i64(2)),
+            Expr::Mul(vec![Expr::Sym(x), Expr::Sym(y.clone())]),
         )
         .to_expr();
 
         let error = kernel
-            .prove_substitution(template, x, premise, &mut meter)
+            .prove_substitution(template, y, premise, &mut meter)
             .unwrap_err();
         assert!(matches!(error, KernelError::InvalidSubstitution(message)
                 if message.contains("non-alpha-equivalent variable rename")));
+    }
+
+    #[test]
+    fn substitution_renames_derivative_variable_when_symbolic() {
+        let ctx = empty_context();
+        let mut kernel = ProofKernel::new(ctx);
+        let mut meter = Unbounded;
+
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+        let premise = kernel
+            .prove_reflexivity(Expr::Sym(y.clone()), &mut meter)
+            .expect("reflexivity premise");
+        let step = kernel
+            .prove_substitution(
+                BinderNode::derivative(x.clone(), Expr::pow(Expr::Sym(x), Expr::from_i64(2)))
+                    .to_expr(),
+                Symbol::new("x"),
+                premise,
+                &mut meter,
+            )
+            .expect("symbolic operator-variable substitution is representable");
+        let renamed =
+            BinderNode::derivative(y.clone(), Expr::pow(Expr::Sym(y), Expr::from_i64(2))).to_expr();
+        assert_eq!(
+            kernel.get_claim(step),
+            Some(&Claim::equality(renamed.clone(), renamed))
+        );
     }
 
     #[test]

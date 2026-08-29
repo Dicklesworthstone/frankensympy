@@ -27,6 +27,11 @@ pub enum BindingError {
         "capture-safe substitution under {operator} requires a non-alpha-equivalent variable rename"
     )]
     NonAlphaRenamingRequired { operator: &'static str },
+    /// An operator variable can only be replaced directly by another symbol.
+    /// More general evaluation-point substitutions require an explicit node
+    /// that the current expression IR does not provide.
+    #[error("{operator} variable substitution requires a symbol replacement")]
+    UnsupportedOperatorVariableReplacement { operator: &'static str },
 }
 
 /// Strongly typed representation of a scoped or operator-variable construct.
@@ -649,10 +654,28 @@ fn subs_internal(
                 match &binder {
                     BinderNode::Derivative { var, body } => {
                         let target_occurs_in_body = free_symbols(body)?.contains(target);
+                        if var == target {
+                            let Expr::Sym(new_var) = replacement else {
+                                return Err(BindingError::UnsupportedOperatorVariableReplacement {
+                                    operator: "Derivative",
+                                });
+                            };
+                            return Ok(BinderNode::Derivative {
+                                var: new_var.clone(),
+                                body: Box::new(subs_internal(
+                                    body,
+                                    target,
+                                    replacement,
+                                    repl_free,
+                                    depth + 1,
+                                )?),
+                            }
+                            .to_expr());
+                        }
                         if !target_occurs_in_body {
                             return Ok(expr.clone());
                         }
-                        if var == target || repl_free.contains(var) {
+                        if repl_free.contains(var) {
                             return Err(BindingError::NonAlphaRenamingRequired {
                                 operator: "Derivative",
                             });
@@ -675,10 +698,24 @@ fn subs_internal(
                         limits: None,
                     } => {
                         let target_occurs_in_body = free_symbols(body)?.contains(target);
-                        if var == target || (target_occurs_in_body && repl_free.contains(var)) {
-                            return Err(BindingError::NonAlphaRenamingRequired {
-                                operator: "Integral",
-                            });
+                        if var == target {
+                            let Expr::Sym(new_var) = replacement else {
+                                return Err(BindingError::UnsupportedOperatorVariableReplacement {
+                                    operator: "Integral",
+                                });
+                            };
+                            return Ok(BinderNode::Integral {
+                                var: new_var.clone(),
+                                body: Box::new(subs_internal(
+                                    body,
+                                    target,
+                                    replacement,
+                                    repl_free,
+                                    depth + 1,
+                                )?),
+                                limits: None,
+                            }
+                            .to_expr());
                         }
                         if !target_occurs_in_body {
                             return Ok(expr.clone());
@@ -1230,7 +1267,7 @@ mod tests {
     }
 
     #[test]
-    fn non_alpha_operator_substitution_fails_closed_on_capture() {
+    fn operator_substitution_handles_symbol_renaming_and_refuses_derivative_capture() {
         let derivative = BinderNode::derivative(
             Symbol::new("x"),
             Expr::Mul(vec![Expr::symbol("x"), Expr::symbol("y")]),
@@ -1248,25 +1285,58 @@ mod tests {
                 operator: "Derivative",
             })
         );
+
+        let renamed_derivative =
+            super::capture_avoiding_subs(&derivative, &Symbol::new("x"), &Expr::symbol("z"))
+                .expect("a symbolic differentiation-variable rename is representable");
         assert_eq!(
-            super::capture_avoiding_subs(
-                &indefinite_integral,
-                &Symbol::new("y"),
-                &Expr::symbol("x"),
-            ),
-            Err(BindingError::NonAlphaRenamingRequired {
-                operator: "Integral",
-            })
+            renamed_derivative,
+            BinderNode::derivative(
+                Symbol::new("z"),
+                Expr::Mul(vec![Expr::symbol("z"), Expr::symbol("y")]),
+            )
+            .to_expr()
         );
+
+        let renamed_constant_derivative = super::capture_avoiding_subs(
+            &BinderNode::derivative(Symbol::new("x"), Expr::from_i64(1)).to_expr(),
+            &Symbol::new("x"),
+            &Expr::symbol("z"),
+        )
+        .expect("the declared variable is structurally substitutable even for a constant body");
         assert_eq!(
-            super::capture_avoiding_subs(
-                &indefinite_integral,
-                &Symbol::new("x"),
-                &Expr::symbol("z"),
-            ),
-            Err(BindingError::NonAlphaRenamingRequired {
-                operator: "Integral",
-            })
+            renamed_constant_derivative,
+            BinderNode::derivative(Symbol::new("z"), Expr::from_i64(1)).to_expr()
+        );
+
+        let substituted_integral = super::capture_avoiding_subs(
+            &indefinite_integral,
+            &Symbol::new("y"),
+            &Expr::symbol("x"),
+        )
+        .expect("an indefinite integral does not alpha-bind its variable");
+        assert_eq!(
+            substituted_integral,
+            BinderNode::integral(
+                Symbol::new("x"),
+                Expr::Mul(vec![Expr::symbol("x"), Expr::symbol("x")]),
+            )
+            .to_expr()
+        );
+
+        let renamed_integral = super::capture_avoiding_subs(
+            &indefinite_integral,
+            &Symbol::new("x"),
+            &Expr::symbol("z"),
+        )
+        .expect("a symbolic integration-variable rename is representable");
+        assert_eq!(
+            renamed_integral,
+            BinderNode::integral(
+                Symbol::new("z"),
+                Expr::Mul(vec![Expr::symbol("z"), Expr::symbol("y")]),
+            )
+            .to_expr()
         );
 
         let safe_derivative =
@@ -1280,6 +1350,16 @@ mod tests {
             )
             .to_expr()
         );
+
+        for (operator, expression) in [
+            ("Derivative", derivative),
+            ("Integral", indefinite_integral),
+        ] {
+            assert_eq!(
+                super::capture_avoiding_subs(&expression, &Symbol::new("x"), &Expr::from_i64(2),),
+                Err(BindingError::UnsupportedOperatorVariableReplacement { operator })
+            );
+        }
     }
 
     #[test]
