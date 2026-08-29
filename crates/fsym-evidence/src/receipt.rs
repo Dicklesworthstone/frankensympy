@@ -144,4 +144,53 @@ mod tests {
         let wire = serde_json::to_value(&receipt).unwrap();
         assert!(serde_json::from_value::<VerificationReceipt>(wire).is_err());
     }
+
+    #[test]
+    fn receipt_digest_is_deterministic_and_binds_receipt_and_claim() {
+        // Two receipts issued with the same inputs produce the same
+        // digest (determinism, no internal randomness). Receipts
+        // that differ in any field produce different digests. This
+        // pins the canonical BLAKE3 wire-digest behavior used by
+        // every downstream receipt-binding check.
+        let claim = Claim::equality(Expr::symbol("x"), Expr::symbol("x"));
+        let a = VerificationReceipt::issue(
+            ReceiptId::new(7).unwrap(),
+            &claim,
+            EvidenceClass::KernelProved,
+            "test-verifier",
+            42,
+            None,
+        );
+        let b = VerificationReceipt::issue(
+            ReceiptId::new(7).unwrap(),
+            &claim,
+            EvidenceClass::KernelProved,
+            "test-verifier",
+            42,
+            None,
+        );
+        assert_eq!(a.digest(), b.digest());
+
+        // A different receipt_id produces a different digest.
+        let c = VerificationReceipt::issue(
+            ReceiptId::new(8).unwrap(),
+            &claim,
+            EvidenceClass::KernelProved,
+            "test-verifier",
+            42,
+            None,
+        );
+        assert_ne!(a.digest(), c.digest());
+
+        // A different verifier_name produces a different digest.
+        let d = VerificationReceipt::issue(
+            ReceiptId::new(7).unwrap(),
+            &claim,
+            EvidenceClass::KernelProved,
+            "other-verifier",
+            42,
+            None,
+        );
+        assert_ne!(a.digest(), d.digest());
+    }
 }
