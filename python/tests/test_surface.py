@@ -348,7 +348,38 @@ class SurfaceTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             sympy.Float(LossyFloat())
 
-    def test_latex_and_evalf_representations(self):
+    def test_float_atom_pins_ieee_binary64_contract(self) -> None:
+        # Float is profile-compatible binary64. The intern encoding stores the
+        # IEEE binary64 bit pattern as a reserved function payload, so a
+        # future change to (a) the bit-packing, (b) the reserved name, or
+        # (c) the dps validation would silently break the wire and persistence
+        # contract. Pin each surface so any change is loud.
+        # Round-trip for canonical values.
+        for value in [0.0, 1.0, -1.0, 1.5, -1.5, 1.0e100, 1.0e-100, float("inf"), -float("inf")]:
+            restored = sympy.Float(value)._as_python_float()
+            if value != value:  # NaN
+                self.assertNotEqual(restored, restored)
+            else:
+                self.assertEqual(restored, value)
+        # dps must be a positive int.
+        with self.assertRaises(TypeError):
+            sympy.Float(1.0, dps=0)
+        with self.assertRaises(TypeError):
+            sympy.Float(1.0, dps=-1)
+        # Default dps is 15 (matches Python's repr(float) at full precision).
+        self.assertEqual(sympy.Float(1.0).dps, 15)
+        # __fsymFloat is the reserved intern name; user Function cannot collide.
+        with self.assertRaises(ValueError):
+            sympy.Function("__fsymFloat")
+        # Float is a Number, not a Rational.
+        self.assertTrue(issubclass(sympy.Float, sympy.Number))
+        self.assertFalse(issubclass(sympy.Float, sympy.Rational))
+        # Float is not a Rational so its p/q accessors return the
+        # underlying binary64 bits as num/den (e.g. 3/2 for 1.5).
+        self.assertEqual(sympy.Float(1.5).p, 3)
+        self.assertEqual(sympy.Float(1.5).q, 2)
+
+    def test_latex_and_evalf_representations(self) -> None:
         x = sympy.Symbol("x")
         expr = x / 2
         latex_repr = expr._repr_latex_()

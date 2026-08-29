@@ -448,6 +448,39 @@ mod tests {
     }
 
     #[test]
+    fn real_ball_power_growth_is_refused_before_oversized_multiplication() {
+        let base_limb_count = MAX_DERIVATION_NUMERIC_LIMBS / 24;
+        let bit_count = u32::try_from(base_limb_count * 64)
+            .expect("configured limb limit fits the bigint shift API");
+        let denominator = fsym_core::BigInt::from(1) << bit_count;
+        let base = Expr::Rational(fsym_core::BigRational::new(
+            fsym_core::BigInt::from(1),
+            denominator,
+        ));
+        let claim = Claim::predicate(base.pow(Expr::from_i64(3)), Predicate::Positive);
+        let mut kernel = ProofKernel::new(empty_context());
+        let mut meter = Unbounded;
+
+        let error = kernel
+            .prove_certificate_lemma(
+                "RealBall",
+                claim,
+                crate::rule::CertificatePayload::RealBall(fsym_core::RealBall::from_i64(1)),
+                &mut meter,
+            )
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            KernelError::DerivationLimitExceeded {
+                resource: "RealBall intermediate numeric limbs",
+                ..
+            }
+        ));
+        assert_eq!(kernel.step_count(), 0);
+    }
+
+    #[test]
     fn mutant_real_ball_zero_to_zero_admission_killed() {
         let ctx = empty_context();
         let undefined = Expr::from_i64(0).pow(Expr::from_i64(0));

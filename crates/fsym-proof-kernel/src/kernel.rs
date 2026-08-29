@@ -1029,6 +1029,7 @@ fn check_real_ball_certificate(
             });
         }
     };
+    ensure_real_ball_bounds_fit(ball)?;
 
     match claim {
         Claim::NonZero(expr) => {
@@ -1125,32 +1126,129 @@ fn check_real_ball_certificate(
     }
 }
 
+fn numeric_limb_limit_error() -> KernelError {
+    KernelError::DerivationLimitExceeded {
+        resource: "RealBall intermediate numeric limbs",
+        limit: MAX_DERIVATION_NUMERIC_LIMBS,
+    }
+}
+
+fn checked_limb_sum(lhs: u64, rhs: u64) -> Result<u64, KernelError> {
+    lhs.checked_add(rhs).ok_or_else(numeric_limb_limit_error)
+}
+
+fn projected_limb_count(
+    input_limbs: u64,
+    multiplier: u64,
+    overhead: u64,
+) -> Result<u64, KernelError> {
+    input_limbs
+        .checked_mul(multiplier)
+        .and_then(|value| value.checked_add(overhead))
+        .ok_or_else(numeric_limb_limit_error)
+}
+
+fn rational_limb_count(value: &BigRational) -> Result<u64, KernelError> {
+    checked_limb_sum(value.numer().limb_count(), value.denom().limb_count())
+}
+
+fn real_ball_limb_count(ball: &RealBall) -> Result<u64, KernelError> {
+    checked_limb_sum(
+        rational_limb_count(ball.midpoint())?,
+        rational_limb_count(ball.radius())?,
+    )
+}
+
+fn ensure_projected_limb_count(projected: u64) -> Result<(), KernelError> {
+    if projected > MAX_DERIVATION_NUMERIC_LIMBS {
+        Err(numeric_limb_limit_error())
+    } else {
+        Ok(())
+    }
+}
+
+fn ensure_real_ball_bounds_fit(ball: &RealBall) -> Result<(), KernelError> {
+    // For a/b +/- c/d, the result uses at most 2 * input limbs + 1. Bound this
+    // before lower/upper endpoint construction used by containment and sign checks.
+    let projected = projected_limb_count(real_ball_limb_count(ball)?, 2, 1)?;
+    ensure_projected_limb_count(projected)
+}
+
+fn checked_real_ball_add(lhs: &RealBall, rhs: &RealBall) -> Result<RealBall, KernelError> {
+    // Both midpoint and radius are rational additions. Each uses at most twice the
+    // combined input limbs plus one carry limb, for a total bound of 4*S + 2.
+    let input_limbs = checked_limb_sum(real_ball_limb_count(lhs)?, real_ball_limb_count(rhs)?)?;
+    ensure_projected_limb_count(projected_limb_count(input_limbs, 4, 2)?)?;
+    let result = lhs.add(rhs);
+    ensure_real_ball_bounds_fit(&result)?;
+    Ok(result)
+}
+
+fn checked_real_ball_mul(lhs: &RealBall, rhs: &RealBall) -> Result<RealBall, KernelError> {
+    // RealBall::mul forms four rational products and two rational sums. If S is
+    // the combined input limb count, every intermediate and the final ball fit
+    // within the conservative bound 11*S + 3.
+    let input_limbs = checked_limb_sum(real_ball_limb_count(lhs)?, real_ball_limb_count(rhs)?)?;
+    ensure_projected_limb_count(projected_limb_count(input_limbs, 11, 3)?)?;
+    let result = lhs.mul(rhs);
+    ensure_real_ball_bounds_fit(&result)?;
+    Ok(result)
+}
+
+fn checked_real_ball_inv(ball: &RealBall) -> Result<RealBall, KernelError> {
+    // Inversion constructs two endpoints, their reciprocals, and midpoint/radius
+    // sums. A conservative bound for all intermediates and the result is 16*B + 12.
+    ensure_projected_limb_count(projected_limb_count(real_ball_limb_count(ball)?, 16, 12)?)?;
+    let result = ball
+        .inv()
+        .map_err(|error| KernelError::InvalidCertificateLemma {
+            family: "RealBall".to_string(),
+            reason: error.to_string(),
+        })?;
+    ensure_real_ball_bounds_fit(&result)?;
+    Ok(result)
+}
+
 /// Recursively evaluates ground algebraic expressions using certified real ball arithmetic.
 fn eval_real_ball(expr: &Expr) -> Result<RealBall, KernelError> {
     match expr {
-        Expr::Integer(n) => Ok(RealBall::exact(BigRational::from_integer(n.clone()))),
-        Expr::Rational(r) => Ok(RealBall::exact(r.clone())),
+        Expr::Integer(n) => {
+            let result = RealBall::exact(BigRational::from_integer(n.clone()));
+            ensure_real_ball_bounds_fit(&result)?;
+            Ok(result)
+        }
+        Expr::Rational(r) => {
+            let result = RealBall::exact(r.clone());
+            ensure_real_ball_bounds_fit(&result)?;
+            Ok(result)
+        }
         Expr::Const(Constant::Pi) => {
             let mid = BigRational::new(3141592653589793_i64.into(), 1000000000000000_i64.into());
             let rad = BigRational::new(1.into(), 1000000000000000_i64.into());
-            RealBall::new(mid, rad).map_err(|e| KernelError::InvalidCertificateLemma {
-                family: "RealBall".to_string(),
-                reason: e.to_string(),
-            })
+            let result =
+                RealBall::new(mid, rad).map_err(|e| KernelError::InvalidCertificateLemma {
+                    family: "RealBall".to_string(),
+                    reason: e.to_string(),
+                })?;
+            ensure_real_ball_bounds_fit(&result)?;
+            Ok(result)
         }
         Expr::Const(Constant::E) => {
             let mid = BigRational::new(2718281828459045_i64.into(), 1000000000000000_i64.into());
             let rad = BigRational::new(1.into(), 1000000000000000_i64.into());
-            RealBall::new(mid, rad).map_err(|e| KernelError::InvalidCertificateLemma {
-                family: "RealBall".to_string(),
-                reason: e.to_string(),
-            })
+            let result =
+                RealBall::new(mid, rad).map_err(|e| KernelError::InvalidCertificateLemma {
+                    family: "RealBall".to_string(),
+                    reason: e.to_string(),
+                })?;
+            ensure_real_ball_bounds_fit(&result)?;
+            Ok(result)
         }
         Expr::Add(terms) => {
             let mut acc = RealBall::exact(BigRational::from_integer(BigInt::from(0)));
             for term in terms {
                 let term_ball = eval_real_ball(term)?;
-                acc = acc.add(&term_ball);
+                acc = checked_real_ball_add(&acc, &term_ball)?;
             }
             Ok(acc)
         }
@@ -1158,7 +1256,7 @@ fn eval_real_ball(expr: &Expr) -> Result<RealBall, KernelError> {
             let mut acc = RealBall::exact(BigRational::from_integer(BigInt::from(1)));
             for factor in factors {
                 let factor_ball = eval_real_ball(factor)?;
-                acc = acc.mul(&factor_ball);
+                acc = checked_real_ball_mul(&acc, &factor_ball)?;
             }
             Ok(acc)
         }
@@ -1178,23 +1276,17 @@ fn eval_real_ball(expr: &Expr) -> Result<RealBall, KernelError> {
                         let mut acc = RealBall::exact(one);
                         let mut count = BigInt::from(0);
                         while &count < n {
-                            acc = acc.mul(&base_ball);
+                            acc = checked_real_ball_mul(&acc, &base_ball)?;
                             count += BigInt::from(1);
                         }
                         Ok(acc)
                     } else if n >= &BigInt::from(-128) && n < &BigInt::from(0) {
-                        let inv_base =
-                            base_ball
-                                .inv()
-                                .map_err(|e| KernelError::InvalidCertificateLemma {
-                                    family: "RealBall".to_string(),
-                                    reason: e.to_string(),
-                                })?;
+                        let inv_base = checked_real_ball_inv(&base_ball)?;
                         let mut acc = RealBall::exact(one);
                         let mut count = BigInt::from(0);
                         let target = -n.clone();
                         while count < target {
-                            acc = acc.mul(&inv_base);
+                            acc = checked_real_ball_mul(&acc, &inv_base)?;
                             count += BigInt::from(1);
                         }
                         Ok(acc)
