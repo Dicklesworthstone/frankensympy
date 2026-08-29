@@ -262,6 +262,38 @@ class Basic:
     def subs(self, old: Any, new: Any) -> "Basic":
         return _wrap(_native_expr(self).subs(_native_expr(old), _native_expr(new)))
 
+    def xreplace(self, rule: Any) -> "Basic":
+        """Replace exact nodes. Unlike ``subs``, this does not rewrite algebraically."""
+        if isinstance(rule, dict):
+            mapping = rule
+        else:
+            try:
+                mapping = dict(rule)
+            except (TypeError, ValueError) as exc:
+                raise TypeError("xreplace mapping must be a dict or iterable of pairs") from exc
+        for old, new in mapping.items():
+            try:
+                if self == old:
+                    return _wrap(_native_expr(new))
+            except (TypeError, NotImplementedError):
+                continue
+        args = self.args
+        if not args:
+            return self
+        replaced = []
+        changed = False
+        for arg in args:
+            if isinstance(arg, Basic):
+                next_arg = arg.xreplace(mapping)
+                if next_arg != arg:
+                    changed = True
+                replaced.append(next_arg)
+            else:
+                replaced.append(arg)
+        if not changed:
+            return self
+        return self.func(*replaced)
+
     def _repr_latex_(self) -> str:
         return self._value._repr_latex_()
 
@@ -581,6 +613,71 @@ class ComplexInfinity(AtomicExpr):
 zoo = ComplexInfinity("zoo")
 
 
+class _SingletonRegistry:
+    """Exact-atom registry. ``S(float)`` is refused until compatibility Float exists."""
+
+    @property
+    def Zero(self) -> "Integer":
+        return Integer(0)
+
+    @property
+    def One(self) -> "Integer":
+        return Integer(1)
+
+    @property
+    def NegativeOne(self) -> "Integer":
+        return Integer(-1)
+
+    @property
+    def Half(self) -> "Rational":
+        return Rational(1, 2)
+
+    @property
+    def Infinity(self) -> Expr:
+        return Expr("oo")
+
+    @property
+    def NegativeInfinity(self) -> Expr:
+        return Expr("-oo")
+
+    @property
+    def ComplexInfinity(self) -> ComplexInfinity:
+        return zoo
+
+    @property
+    def NaN(self) -> Expr:
+        return Expr("nan")
+
+    @property
+    def Pi(self) -> Expr:
+        return Expr("pi")
+
+    @property
+    def Exp1(self) -> Expr:
+        return Expr("E")
+
+    @property
+    def ImaginaryUnit(self) -> Expr:
+        return Expr("I")
+
+    def __call__(self, value: Any) -> Basic:
+        if isinstance(value, Basic):
+            return value
+        if type(value) is bool:
+            return Integer(1 if value else 0)
+        if type(value) is int:
+            return Integer(value)
+        if type(value) is float:
+            raise NotImplementedError(
+                "compatibility Float is not implemented; "
+                "S() refuses Python float rather than silently forming a Rational"
+            )
+        raise TypeError(f"cannot convert {type(value).__name__} through S")
+
+
+S = _SingletonRegistry()
+
+
 class Add(Expr):
     __slots__ = ()
 
@@ -815,6 +912,8 @@ Function.__module__ = "sympy.core.function"
 UndefinedFunction.__module__ = "sympy.core.function"
 AppliedUndef.__module__ = "sympy.core.function"
 ComplexInfinity.__module__ = "sympy.core.numbers"
+_SingletonRegistry.__module__ = "sympy.core.singleton"
+S.__module__ = "sympy.core.singleton"
 _restore_nary.__module__ = "sympy.core.basic"
 _restore_pow.__module__ = "sympy.core.basic"
 _restore_dummy.__module__ = "sympy.core.basic"
@@ -839,6 +938,12 @@ for _mod_name, _mod_items in [
     for _item in _mod_items:
         setattr(_mod, getattr(_item, "__name__", str(_item)), _item)
 
+_singleton_mod = sys.modules.get("sympy.core.singleton")
+if _singleton_mod is None:
+    _singleton_mod = _types.ModuleType("sympy.core.singleton")
+    sys.modules["sympy.core.singleton"] = _singleton_mod
+_singleton_mod.S = S
+
 
 __all__ = [
     "Add",
@@ -858,6 +963,7 @@ __all__ = [
     "Number",
     "Pow",
     "Rational",
+    "S",
     "Symbol",
     "UndefinedFunction",
     "diff",

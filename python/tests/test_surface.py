@@ -276,6 +276,39 @@ class SurfaceTests(unittest.TestCase):
         expected = sympy.Integer(2) + 2 * y + 1
         self.assertEqual(substituted, expected)
 
+    def test_xreplace_replaces_exact_nodes_without_inventing_algebra(self):
+        x, y = sympy.symbols("x y")
+        expr = x + 1
+        self.assertEqual(expr.xreplace({expr: y}), y)
+        self.assertEqual(x.xreplace({x: y}), y)
+        self.assertEqual(x.xreplace({y: 1}), x)
+        self.assertEqual((x + 2).xreplace({x: sympy.Integer(3)}), sympy.Integer(5))
+
+        held = sympy.Add(x, x, evaluate=False)
+        unchanged = held.xreplace({y: 1})
+        self.assertIs(type(unchanged), sympy.Add)
+        self.assertEqual(len(unchanged.args), 2)
+
+        with self.assertRaises(TypeError):
+            x.xreplace(1)
+
+    def test_singleton_registry_exposes_exact_atoms_and_refuses_float(self):
+        self.assertEqual(sympy.S.Zero, sympy.Integer(0))
+        self.assertEqual(sympy.S.One, sympy.Integer(1))
+        self.assertEqual(sympy.S.NegativeOne, sympy.Integer(-1))
+        self.assertEqual(sympy.S.Half, sympy.Rational(1, 2))
+        self.assertEqual(sympy.S(2), sympy.Integer(2))
+        self.assertEqual(sympy.S(True), sympy.Integer(1))
+        one = sympy.S.One
+        self.assertIs(sympy.S(one), one)
+        self.assertEqual(str(sympy.S.Pi), "pi")
+        self.assertEqual(str(sympy.S.Infinity), "oo")
+        self.assertEqual(str(sympy.S.ComplexInfinity), "zoo")
+        with self.assertRaisesRegex(NotImplementedError, "compatibility Float"):
+            sympy.S(1.5)
+        with self.assertRaises(TypeError):
+            sympy.S(object())
+
     def test_latex_and_evalf_representations(self):
         x = sympy.Symbol("x")
         expr = x / 2
