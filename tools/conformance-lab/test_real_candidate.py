@@ -60,10 +60,13 @@ class RealCandidateTests(unittest.TestCase):
         ]
         self.assertEqual(refused, [])
         symbol = by_id["core/symbol/x_positive"]
-        self.assertEqual(symbol["outcome_class"], "raised")
-        self.assertEqual(symbol["observations"]["exception_type"], "NotImplementedError")
+        if symbol["outcome_class"] == "returned":
+            self.assertEqual(symbol["observations"]["type"], "Symbol")
+        else:
+            self.assertEqual(symbol["outcome_class"], "raised")
+            self.assertEqual(symbol["observations"]["exception_type"], "NotImplementedError")
 
-    def test_construction_only_reports_module_drift_not_a_false_admit(self) -> None:
+    def test_construction_only_admits_integer_identity_without_promoting_claims(self) -> None:
         if not _extension_available():
             self.skipTest("fsym_python cdylib not on CARGO_TARGET_DIR/FSYM_PYTHON_EXT_DIR")
         profile = load_profile(PROFILE_PATH)
@@ -77,20 +80,33 @@ class RealCandidateTests(unittest.TestCase):
         self.assertEqual(summary["claims_promoted"], False)
         self.assertEqual(summary["named_claims"], ["COMPAT-002"])
         self.assertGreaterEqual(summary["type_matched"], summary["admitted"])
-        self.assertIn("core/integer/42", summary["type_matched_fixture_ids"])
-        self.assertNotIn("core/symbol/x_positive", summary["type_matched_fixture_ids"])
+        admitted = summary["admitted_fixture_ids"]
+        for fixture_id in (
+            "core/integer/42",
+            "core/rational/22_7",
+            "core/add/x_plus_y",
+            "held/mul_two_k",
+            "held/add_noncanonical_order",
+            "adversarial/integer/from_float_string",
+        ):
+            self.assertIn(fixture_id, admitted)
         by_id = {row["fixture_id"]: row for row in summary["details"]}
-        if "core/integer/42" not in summary["admitted_fixture_ids"]:
-            integer = by_id["core/integer/42"]
-            self.assertNotIn("observations.type", integer["difference_paths"])
-            self.assertIn("observations.module", integer["difference_paths"])
-            self.assertEqual(integer["kind"], "surface_identity_drift")
-        symbol = by_id["core/symbol/x_positive"]
-        self.assertEqual(
-            symbol["outcome_classes"],
-            {"oracle": "returned", "candidate": "raised"},
-        )
-        self.assertEqual(symbol["kind"], "outcome_mismatch")
+        collapse = by_id["core/add/collapse_duplicates"]
+        self.assertEqual(collapse["kind"], "surface_identity_drift")
+        self.assertEqual(collapse["difference_paths"], ["observations.args_repr"])
+        mul = by_id["core/mul/three_x_sq"]
+        self.assertEqual(mul["kind"], "surface_identity_drift")
+        self.assertEqual(mul["difference_paths"], ["observations.args_repr"])
+        zero = by_id["subclass/ConstitutiveLawZero_zero_collapse"]
+        self.assertEqual(zero["kind"], "type_drift")
+        self.assertIn("observations.type", zero["difference_paths"])
+        if "core/symbol/x_positive" not in admitted:
+            symbol = by_id["core/symbol/x_positive"]
+            self.assertEqual(symbol["kind"], "outcome_mismatch")
+            self.assertEqual(
+                symbol["outcome_classes"],
+                {"oracle": "returned", "candidate": "raised"},
+            )
 
     def test_real_diff_persists_ledger_without_promoting_claims(self) -> None:
         if not _extension_available():

@@ -278,7 +278,8 @@ lab() {
   run "$PYTHON_BIN" "$ROOT/tools/conformance-lab/capture.py" isolation "$profile"
   run "$PYTHON_BIN" "$ROOT/tools/conformance-lab/capture.py" suite-smoke "$profile" \
     --test-path utilities/tests/test_source.py
-  ok "conformance laboratory unit, isolation, self-test, and oracle suite-smoke passed"
+  run "$PYTHON_BIN" "$ROOT/tools/conformance-lab/capture.py" moving-head "$profile"
+  ok "conformance laboratory unit, isolation, self-test, oracle suite-smoke, and non-certifying moving-head passed"
 }
 fuzz_smoke() { unimplemented_release_profile fuzz-smoke; }
 matrix() { unimplemented_release_profile matrix; }

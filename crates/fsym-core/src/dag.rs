@@ -605,22 +605,21 @@ fn lambda_symbol_parameters(args: &[Expr]) -> Result<Option<Vec<Symbol>>, DagErr
     if args.len() < 2 {
         return Ok(None);
     }
-    if args.len() == 2 {
-        if let Expr::Function(name, tuple_args) = &args[0] {
-            if name == "Tuple" {
-                let mut parameters = Vec::new();
-                parameters
-                    .try_reserve(tuple_args.len())
-                    .map_err(|_| DagError::AllocationFailure)?;
-                for parameter in tuple_args {
-                    match parameter {
-                        Expr::Sym(symbol) => parameters.push(symbol.clone()),
-                        _ => return Ok(None),
-                    }
-                }
-                return Ok(Some(parameters));
+    if args.len() == 2
+        && let Expr::Function(name, tuple_args) = &args[0]
+        && name == "Tuple"
+    {
+        let mut parameters = Vec::new();
+        parameters
+            .try_reserve(tuple_args.len())
+            .map_err(|_| DagError::AllocationFailure)?;
+        for parameter in tuple_args {
+            match parameter {
+                Expr::Sym(symbol) => parameters.push(symbol.clone()),
+                _ => return Ok(None),
             }
         }
+        return Ok(Some(parameters));
     }
     let mut parameters = Vec::new();
     parameters
@@ -1099,24 +1098,18 @@ impl TermDag {
             Expr::Function(name, args) => {
                 if name == "Lambda" {
                     validate_lambda_surface(args)?;
-                    let parameters = lambda_symbol_parameters(args)?.ok_or(
-                        DagError::MalformedBinder {
+                    let parameters =
+                        lambda_symbol_parameters(args)?.ok_or(DagError::MalformedBinder {
                             name: "Lambda",
                             reason: "parameters must be symbols or a tuple of symbols",
-                        },
-                    )?;
+                        })?;
                     let body = args.last().ok_or(DagError::MalformedBinder {
                         name: "Lambda",
                         reason: "expected parameters followed by a body",
                     })?;
                     let child_depth = next_depth(depth, limits.max_depth)?;
-                    let body_id = self.insert_expr_internal(
-                        body,
-                        child_depth,
-                        limits,
-                        traversed,
-                        inserted,
-                    )?;
+                    let body_id =
+                        self.insert_expr_internal(body, child_depth, limits, traversed, inserted)?;
                     return self.insert_node_tracking(
                         TermNode::Lambda(parameters, body_id),
                         limits,

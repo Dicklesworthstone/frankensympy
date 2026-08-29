@@ -631,12 +631,12 @@ mod tests {
             Expr::Function("sinh".to_string(), vec![x_expr.clone()])
         );
 
-        // ∫sinh(2*x) dx = 2^-1 * cosh(2*x)
+        // ∫sinh(2*x) dx = 1/2 * cosh(2*x)
         let sinh_2x = Expr::Function(
             "sinh".to_string(),
             vec![Expr::Mul(vec![Expr::from_i64(2), x_expr.clone()])],
         );
-        let inv_2 = Expr::Pow(Arc::new(Expr::from_i64(2)), Arc::new(Expr::from_i64(-1)));
+        let inv_2 = Expr::rational(1, 2).unwrap();
         assert_eq!(
             integrate(&sinh_2x, &x).unwrap(),
             Expr::Mul(vec![
@@ -648,12 +648,12 @@ mod tests {
             ])
         );
 
-        // ∫cosh(3*x) dx = 3^-1 * sinh(3*x)
+        // ∫cosh(3*x) dx = 1/3 * sinh(3*x)
         let cosh_3x = Expr::Function(
             "cosh".to_string(),
             vec![Expr::Mul(vec![Expr::from_i64(3), x_expr.clone()])],
         );
-        let inv_3 = Expr::Pow(Arc::new(Expr::from_i64(3)), Arc::new(Expr::from_i64(-1)));
+        let inv_3 = Expr::rational(1, 3).unwrap();
         assert_eq!(
             integrate(&cosh_3x, &x).unwrap(),
             Expr::Mul(vec![

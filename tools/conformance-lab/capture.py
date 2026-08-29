@@ -38,6 +38,12 @@ do not share a sympy import.
 interpreter via the legacy SymPy runner and prints an execution receipt.
 It does not record FrankenSymPy port status.
 
+`moving-head` recaptures the profile fixtures through an upstream interpreter
+and diffs them against the immutable goldens under exact_surface. It is a
+drift-observation lane only: it never writes goldens, never promotes claims,
+and `--certify` is refused. Zero discrepancies still do not certify the
+profile.
+
 Exit codes: 0 = success, 1 = gate failure, 2 = misuse.
 """
 
@@ -342,7 +348,11 @@ def validate_environment(
 
 
 def validate_envelope(
-    envelope: dict, profile: dict, *, expected_side: str = ORACLE_SIDE
+    envelope: dict,
+    profile: dict,
+    *,
+    expected_side: str = ORACLE_SIDE,
+    pin_upstream_version: bool | None = None,
 ) -> None:
     if not isinstance(envelope, dict):
         raise TypeError("observation envelope must be an object")
@@ -360,10 +370,12 @@ def validate_envelope(
         raise ValueError(f"wrong observation side: {envelope['side']!r}")
     if not isinstance(envelope["fixture_id"], str) or not envelope["fixture_id"]:
         raise ValueError("fixture_id must be a non-empty string")
+    if pin_upstream_version is None:
+        pin_upstream_version = expected_side == ORACLE_SIDE
     validate_environment(
         envelope["environment"],
         profile,
-        pin_upstream_version=expected_side == ORACLE_SIDE,
+        pin_upstream_version=pin_upstream_version,
     )
     observations = envelope["observations"]
     if not isinstance(observations, dict):
@@ -428,6 +440,7 @@ def parse_capture_output(
     *,
     expected_side: str = ORACLE_SIDE,
     label: str = "oracle",
+    pin_upstream_version: bool | None = None,
 ) -> list[dict]:
     output_bytes = len(stdout.encode()) + len(stderr.encode())
     if output_bytes > MAX_RUNNER_OUTPUT_BYTES:
@@ -446,7 +459,12 @@ def parse_capture_output(
             raise ValueError(
                 f"{label} output line {line_number} is not valid JSON: {exc}"
             ) from exc
-        validate_envelope(envelope, profile, expected_side=expected_side)
+        validate_envelope(
+            envelope,
+            profile,
+            expected_side=expected_side,
+            pin_upstream_version=pin_upstream_version,
+        )
         envelopes.append(envelope)
     actual_ids = [envelope["fixture_id"] for envelope in envelopes]
     if actual_ids != expected_ids:
@@ -456,7 +474,13 @@ def parse_capture_output(
     return envelopes
 
 
-def capture_file(profile: dict, fixture_path: Path, py: str) -> list[dict]:
+def capture_file(
+    profile: dict,
+    fixture_path: Path,
+    py: str,
+    *,
+    pin_upstream_version: bool = True,
+) -> list[dict]:
     """Runs one fixture file in a fresh isolated oracle subprocess."""
     expected_ids = load_fixture_ids(fixture_path)
     proc = subprocess.run(
@@ -471,7 +495,13 @@ def capture_file(profile: dict, fixture_path: Path, py: str) -> list[dict]:
         raise RuntimeError(
             f"runner exited {proc.returncode} for {fixture_path.name}: {proc.stderr[-400:]}"
         )
-    return parse_capture_output(proc.stdout, proc.stderr, expected_ids, profile)
+    return parse_capture_output(
+        proc.stdout,
+        proc.stderr,
+        expected_ids,
+        profile,
+        pin_upstream_version=pin_upstream_version,
+    )
 
 
 def capture_candidate_file(
@@ -559,6 +589,113 @@ def compare_construction_only(left: list[dict], right: list[dict]) -> list[str]:
         for lo, ro in zip(left, right)
         if diff_envelopes(lo, ro, "construction_only")
     ]
+
+
+def golden_digest_map(profile: dict) -> dict[str, str]:
+    golden_dir = ARTIFACT_ROOT / profile["profile_id"] / "goldens"
+    digests = {}
+    for rel in profile["inventory"]["fixtures"]:
+        name = golden_name_for(rel)
+        path = golden_dir / name
+        if path.is_file():
+            digests[name] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return digests
+
+
+def moving_head_receipt(
+    *,
+    profile: dict,
+    golden_envs: list[dict],
+    head_envs: list[dict],
+    head_python: str,
+) -> dict:
+    """Diff a moving-head capture against immutable goldens without certifying."""
+    golden_by_id = {envelope["fixture_id"]: envelope for envelope in golden_envs}
+    head_by_id = {envelope["fixture_id"]: envelope for envelope in head_envs}
+    details = []
+    paired = 0
+    for fixture_id in sorted(set(golden_by_id) | set(head_by_id)):
+        golden = golden_by_id.get(fixture_id)
+        head = head_by_id.get(fixture_id)
+        if golden is None or head is None:
+            details.append(
+                {
+                    "fixture_id": fixture_id,
+                    "kind": "coverage_gap",
+                    "difference_paths": ["fixture_id"],
+                }
+            )
+            continue
+        paired += 1
+        differences = diff_envelopes(golden, head, "exact_surface")
+        if differences:
+            details.append(
+                {
+                    "fixture_id": fixture_id,
+                    "kind": "upstream_surface_drift",
+                    "difference_paths": [item["path"] for item in differences],
+                }
+            )
+    head_versions = sorted(
+        {
+            envelope.get("environment", {}).get("sympy_version")
+            for envelope in head_envs
+            if isinstance(envelope.get("environment"), dict)
+        }
+    )
+    profile_version = profile["upstream"]["version"]
+    return {
+        "lane": "moving_head",
+        "kind": "drift_observation",
+        "comparator": "exact_surface",
+        "certifies": False,
+        "can_certify": False,
+        "claims_promoted": False,
+        "goldens_written": False,
+        "profile_id": profile["profile_id"],
+        "profile_status_unaffected": True,
+        "profile_sympy_version": profile_version,
+        "head_sympy_versions": head_versions,
+        "version_matches_profile": head_versions == [profile_version],
+        "head_python": head_python,
+        "paired": paired,
+        "discrepancies": len(details),
+        "drifted_fixture_ids": [row["fixture_id"] for row in details],
+        "details": details,
+        "note": "moving-head drift cannot certify the immutable profile",
+    }
+
+
+def cmd_moving_head(profile: dict, py: str, *, certify: bool = False) -> int:
+    """Observe upstream drift against goldens. Never a certification path."""
+    if certify:
+        return fail("moving-head lane cannot certify; refuse --certify")
+    goldens = load_goldens(profile)
+    before = golden_digest_map(profile)
+    base = Path(__file__).resolve().parent
+    head_envs: list[dict] = []
+    for rel in profile["inventory"]["fixtures"]:
+        head_envs.extend(
+            capture_file(
+                profile,
+                base / rel,
+                py,
+                pin_upstream_version=False,
+            )
+        )
+    golden_envs = [envelope for envelopes in goldens.values() for envelope in envelopes]
+    receipt = moving_head_receipt(
+        profile=profile,
+        golden_envs=golden_envs,
+        head_envs=head_envs,
+        head_python=py,
+    )
+    after = golden_digest_map(profile)
+    if before != after:
+        return fail("moving-head lane mutated immutable goldens")
+    receipt["golden_bytes_unchanged"] = True
+    print(json.dumps(receipt, indent=2, sort_keys=True))
+    return 0
 
 
 def cmd_capture(profile: dict, py: str) -> int:
@@ -811,6 +948,48 @@ def cmd_self_test(profile: dict, py: str) -> int:
     if any(envelope.get("observations", {}).get("type") != "BrokenCandidate" for envelope in broken):
         return fail("broken candidate did not stamp BrokenCandidate construction identity")
 
+    matching_head = moving_head_receipt(
+        profile=profile,
+        golden_envs=golden_first,
+        head_envs=fresh,
+        head_python=py,
+    )
+    if (
+        matching_head["certifies"]
+        or matching_head["can_certify"]
+        or matching_head["goldens_written"]
+        or matching_head["claims_promoted"]
+        or matching_head["discrepancies"] != 0
+    ):
+        return fail("moving-head certified, wrote goldens, or invented drift on a matching capture")
+    drifted_head = copy.deepcopy(fresh)
+    printers = drifted_head[0].get("observations", {}).get("printers")
+    if not isinstance(printers, dict) or "str" not in printers:
+        return fail("moving-head planted drift needs a returned printer observation")
+    printers["str"] = str(printers["str"]) + "DRIFT"
+    drifted_receipt = moving_head_receipt(
+        profile=profile,
+        golden_envs=golden_first,
+        head_envs=drifted_head,
+        head_python=py,
+    )
+    if drifted_receipt["discrepancies"] == 0:
+        return fail("moving-head missed planted printer drift")
+    if drifted_receipt["certifies"] or drifted_receipt["can_certify"]:
+        return fail("moving-head certified a drifted capture")
+    version_mutant = copy.deepcopy(fresh[0])
+    version_mutant["environment"]["sympy_version"] = "9.9.9"
+    try:
+        validate_envelope(version_mutant, profile, pin_upstream_version=False)
+    except ValueError as exc:
+        return fail(f"moving-head version pin is not optional: {exc}")
+    try:
+        validate_envelope(version_mutant, profile)
+    except ValueError:
+        pass
+    else:
+        return fail("oracle validator accepted a non-profile SymPy version as a golden")
+
     print(
         json.dumps(
             {
@@ -830,6 +1009,9 @@ def cmd_self_test(profile: dict, py: str) -> int:
                 "oracle_candidate_isolation": True,
                 "broken_candidate_rejected_by_construction_only": True,
                 "broken_candidate_fixtures_rejected": construction_hits,
+                "moving_head_matching_capture_does_not_certify": True,
+                "moving_head_detects_printer_drift": True,
+                "moving_head_version_is_not_a_golden": True,
             },
             indent=2,
         )
@@ -1255,6 +1437,7 @@ def parse_cli(argv: list[str]) -> dict | int:
         "diff",
         "isolation",
         "suite-smoke",
+        "moving-head",
     }
     if mode not in known:
         print(f"unknown mode: {mode}", file=sys.stderr)
@@ -1270,6 +1453,8 @@ def parse_cli(argv: list[str]) -> dict | int:
     test_path = None
     affected_claim = None
     ledger_dir = None
+    certify = False
+    head_python = None
     index = 1
     while index < len(rest):
         arg = rest[index]
@@ -1312,6 +1497,17 @@ def parse_cli(argv: list[str]) -> dict | int:
             ledger_dir = Path(rest[index + 1])
             index += 2
             continue
+        if arg == "--head-python":
+            if index + 1 >= len(rest) or not rest[index + 1]:
+                print(__doc__)
+                return 2
+            head_python = rest[index + 1]
+            index += 2
+            continue
+        if arg == "--certify":
+            certify = True
+            index += 1
+            continue
         print(__doc__)
         return 2
     return {
@@ -1323,6 +1519,8 @@ def parse_cli(argv: list[str]) -> dict | int:
         "test_path": test_path,
         "affected_claim": affected_claim,
         "ledger_dir": ledger_dir,
+        "certify": certify,
+        "head_python": head_python,
     }
 
 
@@ -1347,6 +1545,13 @@ def main() -> int:
                 affected_claim=parsed["affected_claim"],
                 ledger_dir=parsed["ledger_dir"],
             )
+        if mode == "moving-head":
+            if parsed["broken"]:
+                return fail("moving-head does not accept --broken")
+            if parsed["certify"]:
+                return fail("moving-head lane cannot certify; refuse --certify")
+            head_py = parsed["head_python"] or parsed["oracle_python"]
+            return cmd_moving_head(profile, oracle_python(head_py))
         interpreter = oracle_python(parsed["oracle_python"])
         if mode == "capture":
             return cmd_capture(profile, interpreter)

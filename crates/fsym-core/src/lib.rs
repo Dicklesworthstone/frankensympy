@@ -360,7 +360,31 @@ impl fmt::Display for Expr {
                 }
                 Ok(())
             }
-            Expr::Pow(b, e) => write!(f, "({}**{})", b, e),
+            Expr::Pow(b, e) => {
+                let need_b_paren = matches!(b.as_ref(), Expr::Mul(_));
+                if need_b_paren {
+                    f.write_str("(")?;
+                    b.fmt(f)?;
+                    f.write_str(")")?;
+                } else {
+                    b.fmt(f)?;
+                }
+                f.write_str("**")?;
+                let need_e_paren = match e.as_ref() {
+                    Expr::Integer(n) => n.is_negative(),
+                    Expr::Rational(r) => r.numer().is_negative(),
+                    Expr::Add(_) | Expr::Mul(_) => true,
+                    _ => false,
+                };
+                if need_e_paren {
+                    f.write_str("(")?;
+                    e.fmt(f)?;
+                    f.write_str(")")?;
+                } else {
+                    e.fmt(f)?;
+                }
+                Ok(())
+            }
             Expr::Function(name, args) => {
                 f.write_str(name)?;
                 f.write_str("(")?;

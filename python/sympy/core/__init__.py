@@ -75,6 +75,7 @@ def _exact_surface_types():
         Number,
         Integer,
         Rational,
+        ComplexInfinity,
         Add,
         Mul,
         Pow,
@@ -87,7 +88,7 @@ def _exact_surface_types():
 
 def _native_expr(value: Any):
     if isinstance(value, Basic):
-        if type(value) not in _exact_surface_types():
+        if type(value) not in _exact_surface_types() and not isinstance(value, Function):
             raise NotImplementedError(
                 "custom symbolic subclasses require a Python override; "
                 "the native fast path accepts exact built-in classes only"
@@ -95,25 +96,34 @@ def _native_expr(value: Any):
         return value._value
     if isinstance(value, _native.Expr):
         return value
-    if isinstance(value, bool):
-        raise TypeError("boolean coercion is not implemented")
     if isinstance(value, int):
         return _native.py_integer(value)
-    raise TypeError(f"cannot convert {type(value).__name__} to a symbolic expression")
+    if isinstance(value, float):
+        from fractions import Fraction
+
+        fract = Fraction(value)
+        return _native.py_rational(fract.numerator, fract.denominator)
+    if isinstance(value, str):
+        return _native.Expr(value)
+    raise TypeError(f"cannot convert {type(value).__name__} to native Expr")
 
 
 def _dummy_intern_name(name: str, number: int) -> str:
-    return f"{_DUMMY_PREFIX}{number}_{name}"
+    return f"{_DUMMY_PREFIX}_{number}_{name}"
 
 
-def _parse_dummy_intern_name(intern: str) -> tuple[int, str] | None:
-    if not intern.startswith(_DUMMY_PREFIX):
+def _parse_dummy_intern_name(name: str) -> tuple[int, str] | None:
+    if not name.startswith(_DUMMY_PREFIX + "_"):
         return None
-    rest = intern[len(_DUMMY_PREFIX) :]
-    number_s, separator, name = rest.partition("_")
-    if separator != "_" or not number_s.isdigit():
+    rest = name[len(_DUMMY_PREFIX) + 1 :]
+    parts = rest.split("_", 1)
+    if len(parts) != 2:
         return None
-    return int(number_s), name
+    try:
+        number = int(parts[0])
+    except ValueError:
+        return None
+    return number, parts[1]
 
 
 def _note_dummy_number(number: int) -> None:
@@ -151,6 +161,10 @@ def _wrap(value: Any) -> "Basic":
         if parsed is not None:
             number, name = parsed
             return Dummy._from_intern(name, number, value)
+    if value.func_name == "Constant":
+        if str(value) == "zoo":
+            return zoo
+        return Expr(str(value))
     cls = {
         "Symbol": Symbol,
         "Integer": Integer,
@@ -162,7 +176,8 @@ def _wrap(value: Any) -> "Basic":
         "Constant": Expr,
     }.get(value.func_name)
     if cls is None:
-        obj = object.__new__(AppliedUndef)
+        func_cls = Function(value.func_name)
+        obj = object.__new__(func_cls)
         obj._value = value
         return obj
     obj = object.__new__(cls)
@@ -260,12 +275,12 @@ class Basic:
         return repr(self._value)
 
     def __hash__(self) -> int:
-        if type(self) not in _exact_surface_types():
+        if type(self) not in _exact_surface_types() and not isinstance(self, Function):
             return object.__hash__(self)
         return hash(self._value)
 
     def __eq__(self, other: object) -> bool:
-        if type(self) not in _exact_surface_types():
+        if type(self) not in _exact_surface_types() and not isinstance(self, Function):
             return self is other
         try:
             return self._value == _native_expr(other)
@@ -282,7 +297,7 @@ class Basic:
     def __reduce__(self):
         if type(self) is Dummy:
             return _restore_dummy, (self.name, self._dummy_number)
-        if type(self) is AppliedUndef:
+        if isinstance(self, AppliedUndef):
             return _restore_applied_undef, (self._value.func_name, self.args)
         if isinstance(self, Symbol):
             return type(self), (self.name,)
@@ -409,9 +424,7 @@ class Symbol(AtomicExpr):
             raise TypeError("Symbol name must be a string")
         if name.startswith(_DUMMY_PREFIX):
             raise ValueError("Symbol name collides with Dummy intern encoding")
-        if assumptions:
-            raise NotImplementedError("symbol assumptions are not implemented in this profile")
-        self._assumptions = {}
+        self._assumptions = {k: v for k, v in assumptions.items() if v is not None}
         self._value = _native.py_symbol(name)
 
     @property
@@ -540,29 +553,81 @@ class Integer(Rational):
         return 1
 
 
+class ComplexInfinity(AtomicExpr):
+    """Complex infinity (zoo) singleton."""
+
+    __slots__ = ()
+
+    def __init__(self, name: str = "zoo"):
+        self._value = _native.Expr("zoo")
+
+    @property
+    def is_number(self) -> bool:
+        return True
+
+    def __repr__(self) -> str:
+        return "zoo"
+
+    def __str__(self) -> str:
+        return "zoo"
+
+    def _repr_latex_(self) -> str:
+        return r"\tilde{\infty}"
+
+    def _srepr(self) -> str:
+        return "zoo"
+
+
+zoo = ComplexInfinity("zoo")
+
+
 class Add(Expr):
     __slots__ = ()
 
-    def __init__(self, *args: Any, evaluate: bool = True):
+    def __new__(cls, *args: Any, evaluate: bool = True):
         native_args = [_native_expr(arg) for arg in args]
-        self._value = _native.Add(*native_args, evaluate=evaluate).as_expr()
+        val = _native.Add(*native_args, evaluate=evaluate).as_expr()
+        if evaluate:
+            return _wrap(val)
+        obj = object.__new__(cls)
+        obj._value = val
+        return obj
+
+    def __init__(self, *args: Any, evaluate: bool = True):
+        pass
 
 
 class Mul(Expr):
     __slots__ = ()
 
-    def __init__(self, *args: Any, evaluate: bool = True):
+    def __new__(cls, *args: Any, evaluate: bool = True):
         native_args = [_native_expr(arg) for arg in args]
-        self._value = _native.Mul(*native_args, evaluate=evaluate).as_expr()
+        val = _native.Mul(*native_args, evaluate=evaluate).as_expr()
+        if evaluate:
+            return _wrap(val)
+        obj = object.__new__(cls)
+        obj._value = val
+        return obj
+
+    def __init__(self, *args: Any, evaluate: bool = True):
+        pass
 
 
 class Pow(Expr):
     __slots__ = ()
 
-    def __init__(self, base: Any, exponent: Any, evaluate: bool = True):
-        self._value = _native.Pow(
+    def __new__(cls, base: Any, exponent: Any, evaluate: bool = True):
+        val = _native.Pow(
             _native_expr(base), _native_expr(exponent), evaluate=evaluate
         ).as_expr()
+        if evaluate:
+            return _wrap(val)
+        obj = object.__new__(cls)
+        obj._value = val
+        return obj
+
+    def __init__(self, base: Any, exponent: Any, evaluate: bool = True):
+        pass
 
 
 class Derivative(Expr):
@@ -588,29 +653,6 @@ class Application(Expr):
     __slots__ = ()
 
 
-class UndefinedFunction(FunctionClass):
-    """Metaclass/callable for undefined functions like Function('f')."""
-
-    def __new__(mcls, name: str, bases=(Expr,), namespace=None):
-        if namespace is None:
-            namespace = {}
-        cls = super().__new__(mcls, name, bases, namespace)
-        cls.__module__ = "sympy.core.function"
-        return cls
-
-    def __call__(cls, *args: Any, **options: Any) -> "AppliedUndef":
-        return AppliedUndef(cls.__name__, *args)
-
-    def __repr__(cls) -> str:
-        return cls.__name__
-
-    def __eq__(cls, other: object) -> bool:
-        return type(other) is UndefinedFunction and cls.__name__ == other.__name__
-
-    def __hash__(cls) -> int:
-        return hash(("UndefinedFunction", cls.__name__))
-
-
 class Function(Application, metaclass=FunctionClass):
     """Base class for applied mathematical functions."""
 
@@ -618,8 +660,10 @@ class Function(Application, metaclass=FunctionClass):
 
     def __new__(cls, *args: Any, **options: Any):
         if cls is Function:
-            if not args or not isinstance(args[0], str) or not args[0]:
-                raise TypeError("Function name must be a non-empty string")
+            if not args or not isinstance(args[0], str):
+                raise TypeError("Function name must be a string")
+            if not args[0]:
+                raise ValueError("Function name must be non-empty")
             name = args[0]
             return UndefinedFunction(name)
 
@@ -638,6 +682,9 @@ class Function(Application, metaclass=FunctionClass):
         obj._value = _native.py_function(name, *native_args)
         return obj
 
+    def __init__(self, *args: Any, **options: Any):
+        pass
+
     @property
     def args(self) -> tuple[Basic, ...]:
         if hasattr(self, "_args"):
@@ -649,8 +696,6 @@ class Function(Application, metaclass=FunctionClass):
         return type(self)
 
     def __repr__(self) -> str:
-        if type(self) is AppliedUndef:
-            return repr(self._value)
         arg_strs = ", ".join(repr(a) for a in self.args)
         return f"{type(self).__name__}({arg_strs})"
 
@@ -659,24 +704,48 @@ class Function(Application, metaclass=FunctionClass):
 
 
 class AppliedUndef(Function):
-    """Applied undefined function f(x, ...)."""
+    """Base class for applied undefined functions."""
 
     __slots__ = ()
 
-    def __init__(self, name: str, *args: Any):
-        if not isinstance(name, str) or not name:
-            raise TypeError("applied function name must be a non-empty string")
-        native_args = [_native_expr(arg) for arg in args]
-        self._value = _native.py_function(name, *native_args)
-        self._args = tuple(_wrap(arg) for arg in native_args)
+    def __new__(cls, *args: Any, **options: Any):
+        if cls is AppliedUndef:
+            if not args or not isinstance(args[0], str):
+                raise TypeError("AppliedUndef requires function name as first argument")
+            name = args[0]
+            fn = Function(name)
+            return fn(*args[1:])
+        return super().__new__(cls, *args, **options)
 
-    @property
-    def func(self):
-        return Function(self._value.func_name)
+
+_undefined_functions: dict[str, Any] = {}
+
+
+class UndefinedFunction(FunctionClass):
+    """Metaclass/callable for undefined functions like Function('f')."""
+
+    def __new__(mcls, name: str, bases=(AppliedUndef,), namespace=None):
+        if name in _undefined_functions:
+            return _undefined_functions[name]
+        if namespace is None:
+            namespace = {}
+        cls = super().__new__(mcls, name, bases, namespace)
+        cls.__module__ = "sympy.core.function"
+        _undefined_functions[name] = cls
+        return cls
+
+    def __repr__(cls) -> str:
+        return cls.__name__
+
+    def __eq__(cls, other: object) -> bool:
+        return type(other) is UndefinedFunction and cls.__name__ == other.__name__
+
+    def __hash__(cls) -> int:
+        return hash(("UndefinedFunction", cls.__name__))
 
 
 def _restore_applied_undef(name: str, args: tuple[Any, ...]) -> AppliedUndef:
-    return AppliedUndef(name, *args)
+    return Function(name)(*args)
 
 
 def symbols(names: str | Iterable[str], **assumptions: Any):
@@ -745,6 +814,7 @@ Application.__module__ = "sympy.core.function"
 Function.__module__ = "sympy.core.function"
 UndefinedFunction.__module__ = "sympy.core.function"
 AppliedUndef.__module__ = "sympy.core.function"
+ComplexInfinity.__module__ = "sympy.core.numbers"
 _restore_nary.__module__ = "sympy.core.basic"
 _restore_pow.__module__ = "sympy.core.basic"
 _restore_dummy.__module__ = "sympy.core.basic"
@@ -756,7 +826,7 @@ for _mod_name, _mod_items in [
     ("sympy.core.basic", (Basic, Atom, _restore_nary, _restore_pow, _restore_dummy, _restore_applied_undef)),
     ("sympy.core.expr", (Expr, AtomicExpr)),
     ("sympy.core.symbol", (Symbol, Dummy, symbols)),
-    ("sympy.core.numbers", (Number, Rational, Integer)),
+    ("sympy.core.numbers", (Number, Rational, Integer, ComplexInfinity)),
     ("sympy.core.add", (Add,)),
     ("sympy.core.mul", (Mul,)),
     ("sympy.core.power", (Pow,)),
@@ -777,6 +847,7 @@ __all__ = [
     "Atom",
     "AtomicExpr",
     "Basic",
+    "ComplexInfinity",
     "Derivative",
     "Dummy",
     "Expr",
@@ -794,4 +865,5 @@ __all__ = [
     "pretty",
     "simplify",
     "symbols",
+    "zoo",
 ]

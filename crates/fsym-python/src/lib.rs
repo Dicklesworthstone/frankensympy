@@ -318,7 +318,7 @@ mod tests {
         let evaluated_mul = PyMul::new(vec![x.clone(), two.clone()], true);
         assert_eq!(
             evaluated_mul.as_expr().raw_args(),
-            vec![x.clone(), two.clone()]
+            vec![two.clone(), x.clone()]
         );
         assert_eq!(PyMul::new(Vec::new(), true).as_expr(), py_integer(1));
     }
@@ -442,7 +442,7 @@ mod tests {
         let pow_expr = py_pow(x, three);
 
         let d = pow_expr.diff("x", vec![]);
-        assert_eq!(d.__str__(), "3*(x**2)");
+        assert_eq!(d.__str__(), "3*x**2");
         assert!(pow_expr._repr_latex_().unwrap().contains("x^{3}"));
         assert_eq!(pow_expr.pretty().unwrap(), "x³");
         assert_eq!(py_sin(py_integer(0)).__str__(), "0");
@@ -471,7 +471,12 @@ mod tests {
 
         // L{1}(s) = 1/s
         let lap = laplace_expr("1", "t", "s").unwrap();
-        assert!(lap.contains("s**-1") || lap.contains("s^(-1)"));
+        assert!(
+            lap.contains("s**-1")
+                || lap.contains("s^(-1)")
+                || lap.contains("s**(-1)")
+                || lap == "1/s"
+        );
     }
 
     #[test]

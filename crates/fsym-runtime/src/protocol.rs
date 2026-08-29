@@ -600,7 +600,7 @@ mod tests {
             (fsym_core::parse("pi").unwrap(), "pi"),
             (fsym_core::parse("x + 1").unwrap(), "(x + 1)"),
             (fsym_core::parse("2*x*y").unwrap(), "2*x*y"),
-            (fsym_core::parse("(x + 1)^2").unwrap(), "((x + 1)**2)"),
+            (fsym_core::parse("(x + 1)^2").unwrap(), "(x + 1)**2"),
             (fsym_core::parse("f(x, y + 1)").unwrap(), "f(x, (y + 1))"),
             (fsym_core::parse("f()").unwrap(), "f()"),
             (Expr::Add(Vec::new()), "()"),

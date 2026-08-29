@@ -124,25 +124,28 @@ fn collect_terms(terms: Vec<Expr>) -> Expr {
             }
         }
     }
-    let mut out: Vec<Expr> = Vec::new();
+    let mut out_pure: Vec<Expr> = Vec::new();
+    let mut out_scaled: Vec<Expr> = Vec::new();
     for (key, coeff) in collected {
         if coeff.is_zero() {
             continue;
         }
         if coeff.is_one() {
-            out.push(key);
+            out_pure.push(key);
         } else {
             match key {
                 Expr::Mul(factors) => {
                     let mut parts = Vec::with_capacity(factors.len() + 1);
                     parts.push(rational_expr(coeff));
                     parts.extend(factors);
-                    out.push(Expr::Mul(parts));
+                    out_scaled.push(Expr::Mul(parts));
                 }
-                other => out.push(Expr::Mul(vec![rational_expr(coeff), other])),
+                other => out_scaled.push(Expr::Mul(vec![rational_expr(coeff), other])),
             }
         }
     }
+    let mut out = out_pure;
+    out.extend(out_scaled);
     if !constant.is_zero() || out.is_empty() {
         out.push(rational_expr(constant));
     }
@@ -612,11 +615,11 @@ mod tests {
         let sq = Expr::Pow(Arc::new(sum), Arc::new(Expr::from_i64(2)));
         let exp = expand(&sq);
 
-        // Expected: 2*x*y + x^2 + y^2
+        // Expected: x^2 + y^2 + 2*x*y
         let expected = Expr::Add(vec![
-            Expr::Mul(vec![Expr::from_i64(2), x.clone(), y.clone()]),
             Expr::Pow(Arc::new(x.clone()), Arc::new(Expr::from_i64(2))),
             Expr::Pow(Arc::new(y.clone()), Arc::new(Expr::from_i64(2))),
+            Expr::Mul(vec![Expr::from_i64(2), x.clone(), y.clone()]),
         ]);
         assert_eq!(exp, expected);
     }

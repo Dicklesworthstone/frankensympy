@@ -1215,4 +1215,45 @@ mod tests {
         let err = validate_cases(&[executable]).expect_err("Rust grammar rejects Python source");
         assert!(err.contains("input failed parsing"));
     }
+
+    #[test]
+    fn op_and_case_spec_serde_roundtrip_preserves_wire_format() {
+        // The conformance corpus and remote oracle exchange
+        // CaseSpec through serde_json. Pin the wire format of every
+        // Op variant so a future refactor cannot silently change the
+        // tag content (which would invalidate stored corpus files
+        // and remote cache entries).
+        let cases = [
+            (Op::Simplify, r#"{"op":"Simplify","arg":null}"#),
+            (Op::Expand, r#"{"op":"Expand","arg":null}"#),
+            (Op::Diff, r#"{"op":"Diff","arg":null}"#),
+            (Op::Integrate, r#"{"op":"Integrate","arg":null}"#),
+            (
+                Op::Limit("oo".into()),
+                r#"{"op":"Limit","arg":"oo"}"#,
+            ),
+            (
+                Op::Taylor { at: 0, order: 6 },
+                r#"{"op":"Taylor","arg":{"at":0,"order":6}}"#,
+            ),
+        ];
+        for (op, expected_json) in cases {
+            assert_eq!(serde_json::to_string(&op).unwrap(), expected_json);
+            let round: Op = serde_json::from_str(expected_json).unwrap();
+            assert_eq!(round, op);
+        }
+
+        // CaseSpec: every field survives a round-trip including
+        // the optional expected_refusal.
+        let spec = CaseSpec {
+            case_id: "wire_001".to_string(),
+            input_expr: "x + x".to_string(),
+            var: "x".to_string(),
+            op: Op::Taylor { at: 2, order: 3 },
+            expected_refusal: Some(RefusalKind::IntegrationUnsupported),
+        };
+        let json = serde_json::to_string(&spec).unwrap();
+        let round: CaseSpec = serde_json::from_str(&json).unwrap();
+        assert_eq!(round, spec);
+    }
 }
