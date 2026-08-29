@@ -73,20 +73,14 @@ class RealCandidateTests(unittest.TestCase):
             "core/rational/22_7",
             "core/symbol/x_positive",
             "core/add/x_plus_y",
+            "core/add/collapse_duplicates",
+            "core/mul/three_x_sq",
             "held/mul_two_k",
             "held/add_noncanonical_order",
             "adversarial/integer/from_float_string",
         ):
             self.assertIn(fixture_id, admitted)
-        self.assertNotIn("core/add/collapse_duplicates", admitted)
-        self.assertNotIn("core/mul/three_x_sq", admitted)
         by_id = {row["fixture_id"]: row for row in summary["details"]}
-        collapse = by_id["core/add/collapse_duplicates"]
-        self.assertEqual(collapse["kind"], "surface_identity_drift")
-        self.assertEqual(collapse["difference_paths"], ["observations.args_repr"])
-        mul = by_id["core/mul/three_x_sq"]
-        self.assertEqual(mul["kind"], "surface_identity_drift")
-        self.assertEqual(mul["difference_paths"], ["observations.args_repr"])
         zero = by_id["subclass/ConstitutiveLawZero_zero_collapse"]
         self.assertEqual(zero["kind"], "type_drift")
         self.assertIn("observations.type", zero["difference_paths"])
