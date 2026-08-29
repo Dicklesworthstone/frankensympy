@@ -14,8 +14,8 @@ pub use fsym_bigint::{
     multiply_with_strategy as mul_with_strategy, select_strategy,
 };
 pub use fsym_modular::{
-    PrimeStream, PrimeStreamError, crt, crt_pair, is_probable_prime, jacobi_symbol,
-    legendre_symbol, metered_crt, metered_crt_pair, metered_is_probable_prime,
+    PrimeStream, PrimeStreamError, crt, crt_coprime_slices, crt_pair, is_probable_prime,
+    jacobi_symbol, legendre_symbol, metered_crt, metered_crt_pair, metered_is_probable_prime,
     metered_jacobi_symbol, metered_legendre_symbol, metered_mod_inverse,
     metered_rational_reconstruct, mod_inverse, rational_reconstruct,
 };

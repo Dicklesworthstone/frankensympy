@@ -139,15 +139,28 @@ pub fn crt_pair(
         return None;
     }
     let g = gcd(mod1, mod2);
+    crt_pair_with_gcd(rem1, mod1, rem2, mod2, &g)
+}
+
+fn crt_pair_with_gcd(
+    rem1: &BigInt,
+    mod1: &BigInt,
+    rem2: &BigInt,
+    mod2: &BigInt,
+    g: &BigInt,
+) -> Option<(BigInt, BigInt)> {
+    debug_assert!(mod1.is_positive());
+    debug_assert!(mod2.is_positive());
+    debug_assert!(g.is_positive());
     let diff = rem2 - rem1;
-    if (&diff % &g) != BigInt::zero() {
+    if (&diff % g) != BigInt::zero() {
         return None;
     }
-    let lcm = (mod1 / &g) * mod2;
-    let m1_div_g = mod1 / &g;
-    let m2_div_g = mod2 / &g;
+    let lcm = (mod1 / g) * mod2;
+    let m1_div_g = mod1 / g;
+    let m2_div_g = mod2 / g;
     let (_, u, _) = extended_gcd(&m1_div_g, &m2_div_g);
-    let shift = (diff / &g) * u * mod1;
+    let shift = (diff / g) * u * mod1;
     let mut x = (rem1 + shift) % &lcm;
     if x.is_negative() {
         x += &lcm;
@@ -197,24 +210,56 @@ pub fn metered_crt_pair<M: BudgetMeter>(
 
 /// Solves an arbitrary system of simultaneous congruences.
 pub fn crt(congruences: &[(BigInt, BigInt)]) -> Option<(BigInt, BigInt)> {
-    if congruences.is_empty() {
-        return Some((BigInt::zero(), BigInt::one()));
-    }
-    let mut congruence_iter = congruences.iter();
-    let (mut x, mut m) = congruence_iter.next()?.clone();
-    if !m.is_positive() {
+    if congruences
+        .iter()
+        .any(|(_remainder, modulus)| !modulus.is_positive())
+    {
         return None;
     }
-    x %= &m;
+    crt_refs(
+        congruences
+            .iter()
+            .map(|(remainder, modulus)| (remainder, modulus)),
+        false,
+    )
+}
+
+/// Solves a split-slice system whose moduli must be pairwise coprime.
+///
+/// This borrowed lane avoids materializing an owned `(remainder, modulus)` vector for facades
+/// that already store the two columns separately. Both empty slices return the CRT identity
+/// `(0, 1)`; unequal lengths, non-positive moduli, or non-coprime moduli return `None`.
+pub fn crt_coprime_slices(remainders: &[BigInt], moduli: &[BigInt]) -> Option<(BigInt, BigInt)> {
+    if remainders.len() != moduli.len() || moduli.iter().any(|modulus| !modulus.is_positive()) {
+        return None;
+    }
+    crt_refs(remainders.iter().zip(moduli), true)
+}
+
+fn crt_refs<'a>(
+    mut congruences: impl Iterator<Item = (&'a BigInt, &'a BigInt)>,
+    require_pairwise_coprime: bool,
+) -> Option<(BigInt, BigInt)> {
+    let Some((first_remainder, first_modulus)) = congruences.next() else {
+        return Some((BigInt::zero(), BigInt::one()));
+    };
+
+    let mut x = first_remainder % first_modulus;
     if x.is_negative() {
-        x += &m;
+        x += first_modulus;
     }
-    for (r_i, m_i) in congruence_iter {
-        let (next_x, next_m) = crt_pair(&x, &m, r_i, m_i)?;
+    let mut modulus = first_modulus.clone();
+
+    for (r_i, m_i) in congruences {
+        let g = gcd(&modulus, m_i);
+        if require_pairwise_coprime && !g.is_one() {
+            return None;
+        }
+        let (next_x, next_m) = crt_pair_with_gcd(&x, &modulus, r_i, m_i, &g)?;
         x = next_x;
-        m = next_m;
+        modulus = next_m;
     }
-    Some((x, m))
+    Some((x, modulus))
 }
 
 /// Cancellation-first arbitrary CRT fold.
@@ -229,6 +274,13 @@ pub fn metered_crt<M: BudgetMeter>(
     };
     if !first_modulus.is_positive() {
         return metered_finish(None, meter);
+    }
+    for (_remainder, modulus) in congruence_iter.clone() {
+        meter.checkpoint()?;
+        meter.charge(Dimension::ComputeSteps, 1)?;
+        if !modulus.is_positive() {
+            return metered_finish(None, meter);
+        }
     }
     let Some(first_modulus_divisor) = NonZeroBigInt::new(first_modulus) else {
         return metered_finish(None, meter);
@@ -2569,6 +2621,68 @@ mod tests {
     }
 
     #[test]
+    fn crt_preflights_late_moduli_before_owned_numeric_work() {
+        let large_remainder = (BigInt::one() << 4_096u32) + 1i64;
+        let congruences = [
+            (large_remainder, BigInt::from(3)),
+            (BigInt::from(1), BigInt::from(5)),
+            (BigInt::from(2), BigInt::zero()),
+        ];
+
+        assert_eq!(crt(&congruences), None);
+
+        let mut meter = CountingMeter::default();
+        assert_eq!(metered_crt(&congruences, &mut meter), Ok(None));
+        assert_eq!(
+            meter.dimensions,
+            [2, 0, 0, 0, 0],
+            "modulus preflight must not clone or normalize the large first remainder"
+        );
+        assert_eq!(meter.checkpoints, 4);
+
+        let mut cancelled = CheckpointMeter::cancelling_at(2);
+        assert_eq!(
+            metered_crt(&congruences, &mut cancelled),
+            Err(MeterError::Cancelled)
+        );
+    }
+
+    #[test]
+    fn coprime_split_crt_preserves_strict_and_generalized_boundaries() {
+        let remainders = [BigInt::from(-1), BigInt::from(3), BigInt::from(9)];
+        let moduli = [BigInt::from(5), BigInt::from(7), BigInt::from(11)];
+        let owned = remainders
+            .iter()
+            .cloned()
+            .zip(moduli.iter().cloned())
+            .collect::<Vec<_>>();
+        assert_eq!(crt_coprime_slices(&remainders, &moduli), crt(&owned));
+
+        let non_coprime_moduli = [BigInt::from(6), BigInt::from(35), BigInt::from(10)];
+        assert_eq!(
+            crt_coprime_slices(&remainders, &non_coprime_moduli),
+            None,
+            "the accumulated modulus must expose a factor shared with any prior modulus"
+        );
+
+        let generalized = [
+            (BigInt::from(1), BigInt::from(2)),
+            (BigInt::from(1), BigInt::from(4)),
+        ];
+        assert_eq!(crt(&generalized), Some((BigInt::from(1), BigInt::from(4))));
+        assert_eq!(
+            crt_coprime_slices(
+                &[BigInt::from(1), BigInt::from(1)],
+                &[BigInt::from(2), BigInt::from(4)]
+            ),
+            None
+        );
+        assert_eq!(crt_coprime_slices(&[], &[]), Some((0.into(), 1.into())));
+        assert_eq!(crt_coprime_slices(&[0.into()], &[]), None);
+        assert_eq!(crt_coprime_slices(&[0.into()], &[0.into()]), None);
+    }
+
+    #[test]
     fn rational_reconstruction_handles_zero_and_refuses_degenerate_moduli() {
         assert_eq!(
             rational_reconstruct(&BigInt::zero(), &BigInt::from(101)),
@@ -2999,6 +3113,40 @@ mod tests {
                 metered_crt(&congruences, &mut meter).unwrap(),
                 crt(&congruences)
             );
+        }
+
+        #[test]
+        fn coprime_split_crt_matches_pairwise_scalar_admission(
+            congruences in proptest::collection::vec((-500i64..500, 1u64..80), 0..7),
+        ) {
+            let pairwise_coprime = congruences.iter().enumerate().all(
+                |(index, (_remainder, modulus))| {
+                    congruences[..index]
+                        .iter()
+                        .all(|(_other_remainder, other_modulus)| {
+                            scalar_gcd(*modulus, *other_modulus) == 1
+                        })
+                },
+            );
+            let remainders = congruences
+                .iter()
+                .map(|(remainder, _modulus)| BigInt::from(*remainder))
+                .collect::<Vec<_>>();
+            let moduli = congruences
+                .iter()
+                .map(|(_remainder, modulus)| BigInt::from(*modulus))
+                .collect::<Vec<_>>();
+            let owned = remainders
+                .iter()
+                .cloned()
+                .zip(moduli.iter().cloned())
+                .collect::<Vec<_>>();
+            let expected = if pairwise_coprime {
+                crt(&owned)
+            } else {
+                None
+            };
+            prop_assert_eq!(crt_coprime_slices(&remainders, &moduli), expected);
         }
 
         #[test]

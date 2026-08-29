@@ -6,10 +6,12 @@
 
 #![forbid(unsafe_code)]
 
+#[cfg(test)]
+use fsym_core::arith::crt as exact_crt;
 use fsym_core::{
     BigInt,
     arith::{
-        crt as exact_crt, gcd as exact_gcd, is_probable_prime as exact_is_probable_prime,
+        crt_coprime_slices as exact_coprime_crt, is_probable_prime as exact_is_probable_prime,
         jacobi_symbol as exact_jacobi_symbol, mod_inverse as exact_mod_inverse,
     },
 };
@@ -55,20 +57,7 @@ pub fn crt(remainders: &[BigInt], moduli: &[BigInt]) -> Result<BigInt, NTheoryEr
             return Err(NTheoryError::InvalidCRTSystem);
         }
     }
-    for (index, modulus) in moduli.iter().enumerate() {
-        for other in &moduli[..index] {
-            if exact_gcd(modulus, other) != BigInt::from(1) {
-                return Err(NTheoryError::NonCoprimeModuli);
-            }
-        }
-    }
-
-    let congruences = remainders
-        .iter()
-        .cloned()
-        .zip(moduli.iter().cloned())
-        .collect::<Vec<_>>();
-    exact_crt(&congruences)
+    exact_coprime_crt(remainders, moduli)
         .map(|(result, _combined_modulus)| result)
         .ok_or(NTheoryError::NonCoprimeModuli)
 }
@@ -499,6 +488,14 @@ mod tests {
         assert_eq!(
             crt(&consistent_remainders, &consistent_non_coprime),
             Err(NTheoryError::NonCoprimeModuli)
+        );
+        assert_eq!(
+            crt(
+                &[BigInt::from(0), BigInt::from(1), BigInt::from(2)],
+                &[BigInt::from(6), BigInt::from(35), BigInt::from(10)]
+            ),
+            Err(NTheoryError::NonCoprimeModuli),
+            "a new modulus must be coprime to every earlier modulus, not only its predecessor"
         );
         assert_eq!(crt(&[], &[]), Err(NTheoryError::InvalidCRTSystem));
         assert_eq!(
