@@ -266,9 +266,12 @@ pub fn prime_big_omega(n: u64) -> Result<u32, NTheoryError> {
 }
 
 /// Decides whether `n` is a perfect number: σ_1(n) == 2n.
+///
+/// Returns `Err(ZeroFactorization)` for `n = 0`, matching the
+/// convention used by `mobius`, `divisor_count`, and `divisor_sum`.
 pub fn is_perfect_number(n: u64) -> Result<bool, NTheoryError> {
     if n == 0 {
-        return Ok(false);
+        return Err(NTheoryError::ZeroFactorization);
     }
     let sum = divisor_sum(n, 1)?;
     Ok(n.checked_mul(2).is_some_and(|twice_n| sum == twice_n))
@@ -559,11 +562,11 @@ mod tests {
         assert_eq!(is_square_free(1), Ok(true));
 
         // Perfect numbers: 6 (1+2+3=6), 28 (1+2+4+7+14=28), 496
+        assert_eq!(is_perfect_number(0), Err(NTheoryError::ZeroFactorization));
         assert_eq!(is_perfect_number(6), Ok(true));
         assert_eq!(is_perfect_number(28), Ok(true));
         assert_eq!(is_perfect_number(496), Ok(true));
         assert_eq!(is_perfect_number(12), Ok(false));
-        assert_eq!(is_perfect_number(0), Ok(false));
 
         // The largest u64 prime has a representable divisor sum p + 1, but
         // 2p does not fit u64. Perfect-number classification must remain a
