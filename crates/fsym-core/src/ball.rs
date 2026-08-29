@@ -208,6 +208,129 @@ impl RealBall {
         }
     }
 
+    /// Certified absolute value $|\mathcal{B}|$.
+    pub fn abs(&self) -> Self {
+        let low = self.lower();
+        let high = self.upper();
+        if low >= BigRational::zero() {
+            self.clone()
+        } else if high <= BigRational::zero() {
+            self.neg()
+        } else {
+            let max_val = (-low).max(high);
+            let two = BigRational::from_integer(BigInt::from(2));
+            let half = &max_val / &two;
+            Self {
+                midpoint: half.clone(),
+                radius: half,
+            }
+        }
+    }
+
+    /// Certified integer power $\mathcal{B}^k$.
+    pub fn pow(&self, exp: i32) -> Result<Self, BallError> {
+        if exp < 0 {
+            if self.contains_zero() {
+                return Err(BallError::DivisionByZero(format!(
+                    "cannot raise ball containing zero to negative power {exp}"
+                )));
+            }
+            let pos_exp = exp.unsigned_abs();
+            return self.inv()?.pow(pos_exp as i32);
+        }
+        if exp == 0 {
+            return Ok(Self::from_i64(1));
+        }
+        if exp == 1 {
+            return Ok(self.clone());
+        }
+        let k = exp as usize;
+        let low = self.lower();
+        let high = self.upper();
+        let two = BigRational::from_integer(BigInt::from(2));
+
+        if k % 2 == 1 {
+            let low_k = rational_pow(&low, k);
+            let high_k = rational_pow(&high, k);
+            let mid = (&low_k + &high_k) / &two;
+            let rad = (&high_k - &low_k) / &two;
+            Ok(Self {
+                midpoint: mid,
+                radius: rad,
+            })
+        } else if low >= BigRational::zero() {
+            let low_k = rational_pow(&low, k);
+            let high_k = rational_pow(&high, k);
+            let mid = (&low_k + &high_k) / &two;
+            let rad = (&high_k - &low_k) / &two;
+            Ok(Self {
+                midpoint: mid,
+                radius: rad,
+            })
+        } else if high <= BigRational::zero() {
+            let low_k = rational_pow(&high, k);
+            let high_k = rational_pow(&low, k);
+            let mid = (&low_k + &high_k) / &two;
+            let rad = (&high_k - &low_k) / &two;
+            Ok(Self {
+                midpoint: mid,
+                radius: rad,
+            })
+        } else {
+            let max_val = (-&low).max(high);
+            let high_k = rational_pow(&max_val, k);
+            let half = &high_k / &two;
+            Ok(Self {
+                midpoint: half.clone(),
+                radius: half,
+            })
+        }
+    }
+
+    /// Certified square root $\sqrt{\mathcal{B}}$ with specified precision bits.
+    pub fn sqrt(&self, precision_bits: u32) -> Result<Self, BallError> {
+        let low = self.lower();
+        let high = self.upper();
+        if high < BigRational::zero() {
+            return Err(BallError::NegativeRadius(format!(
+                "cannot compute square root of strictly negative ball {self}"
+            )));
+        }
+        let eff_low = low.max(BigRational::zero());
+        if high.is_zero() {
+            return Ok(Self::from_i64(0));
+        }
+
+        let bound_sqrt = |val: &BigRational, is_upper: bool| -> BigRational {
+            if val.is_zero() {
+                return BigRational::zero();
+            }
+            let p = val.numer();
+            let q = val.denom();
+            let shift = precision_bits;
+            let p_scaled = p * (BigInt::one() << (2 * shift));
+            let num_prod = &p_scaled * q;
+            let s_floor = num_prod.sqrt().unwrap_or_else(BigInt::zero);
+            let s = if is_upper && &s_floor * &s_floor != num_prod {
+                &s_floor + BigInt::one()
+            } else {
+                s_floor
+            };
+            let denom_scaled = q * (BigInt::one() << shift);
+            BigRational::new(s, denom_scaled)
+        };
+
+        let l = bound_sqrt(&eff_low, false);
+        let u = bound_sqrt(&high, true);
+        let two = BigRational::from_integer(BigInt::from(2));
+        let mid = (&l + &u) / &two;
+        let rad = (&u - &l) / &two;
+        Ok(Self {
+            midpoint: mid,
+            radius: rad,
+        })
+    }
+
     /// Computes the canonical BLAKE3 content digest of this certified ball.
     pub fn digest(&self) -> [u8; 32] {
         let serialized = serde_json::to_vec(self).expect("RealBall is serializable");
@@ -216,6 +339,24 @@ impl RealBall {
         hasher.update(&serialized);
         *hasher.finalize().as_bytes()
     }
+}
+
+fn rational_pow(r: &BigRational, mut exp: usize) -> BigRational {
+    if exp == 0 {
+        return BigRational::one();
+    }
+    let mut base = r.clone();
+    let mut acc = BigRational::one();
+    while exp > 0 {
+        if exp % 2 == 1 {
+            acc *= &base;
+        }
+        exp /= 2;
+        if exp > 0 {
+            base = &base * &base;
+        }
+    }
+    acc
 }
 
 impl fmt::Display for RealBall {
@@ -386,5 +527,44 @@ mod tests {
         assert_eq!(b1.digest(), b2.digest());
         assert_ne!(b1.digest(), b3.digest());
         assert_ne!(b1.digest(), [0u8; 32]);
+    }
+
+    #[test]
+    fn test_real_ball_abs_pow_sqrt() {
+        // 1. Abs of [-2, 3] is [0, 3]
+        let b = RealBall::new(
+            BigRational::new(1.into(), 2.into()),
+            BigRational::new(5.into(), 2.into()),
+        )
+        .unwrap();
+        assert_eq!(b.lower(), q(-2));
+        assert_eq!(b.upper(), q(3));
+        let b_abs = b.abs();
+        assert_eq!(b_abs.lower(), q(0));
+        assert_eq!(b_abs.upper(), q(3));
+
+        // 2. Square of [-2, 3] is [0, 9]
+        let b_sq = b.pow(2).unwrap();
+        assert_eq!(b_sq.lower(), q(0));
+        assert_eq!(b_sq.upper(), q(9));
+
+        // 3. Cube of [-2, 3] is [-8, 27]
+        let b_cube = b.pow(3).unwrap();
+        assert_eq!(b_cube.lower(), q(-8));
+        assert_eq!(b_cube.upper(), q(27));
+
+        // 4. Sqrt of [4, 9] is [2, 3]
+        let b_pos = RealBall::new(
+            BigRational::new(13.into(), 2.into()),
+            BigRational::new(5.into(), 2.into()),
+        )
+        .unwrap();
+        assert_eq!(b_pos.lower(), q(4));
+        assert_eq!(b_pos.upper(), q(9));
+        let b_sqrt = b_pos.sqrt(16).unwrap();
+        assert!(b_sqrt.lower() <= q(2));
+        assert!(b_sqrt.upper() >= q(3));
+        assert!(b_sqrt.contains(&q(2)));
+        assert!(b_sqrt.contains(&q(3)));
     }
 }

@@ -513,6 +513,62 @@ impl Triangle2D {
             numeric_value(&area).map(|value| value.numer().is_zero())
         }
     }
+
+    /// Squared side lengths: (|p2 - p1|^2, |p3 - p2|^2, |p1 - p3|^2).
+    pub fn side_lengths_squared(&self) -> (Expr, Expr, Expr) {
+        (
+            self.p1.distance_squared(&self.p2),
+            self.p2.distance_squared(&self.p3),
+            self.p3.distance_squared(&self.p1),
+        )
+    }
+
+    /// Decides whether the triangle is a right triangle when its squared side lengths are numeric.
+    ///
+    /// Returns `None` if any side length or collinearity check is symbolic/undecidable.
+    pub fn is_right(&self) -> Option<bool> {
+        if self.is_collinear()? {
+            return Some(false);
+        }
+        let (s1, s2, s3) = self.side_lengths_squared();
+        let a = numeric_value(&simplify(&s1))?;
+        let b = numeric_value(&simplify(&s2))?;
+        let c = numeric_value(&simplify(&s3))?;
+        if a.numer().is_zero() || b.numer().is_zero() || c.numer().is_zero() {
+            return Some(false);
+        }
+        Some(&a + &b == c || &b + &c == a || &c + &a == b)
+    }
+
+    /// Decides whether the triangle is isosceles (at least two equal sides) when side lengths are numeric.
+    pub fn is_isosceles(&self) -> Option<bool> {
+        if self.is_collinear()? {
+            return Some(false);
+        }
+        let (s1, s2, s3) = self.side_lengths_squared();
+        let a = numeric_value(&simplify(&s1))?;
+        let b = numeric_value(&simplify(&s2))?;
+        let c = numeric_value(&simplify(&s3))?;
+        if a.numer().is_zero() || b.numer().is_zero() || c.numer().is_zero() {
+            return Some(false);
+        }
+        Some(a == b || b == c || c == a)
+    }
+
+    /// Decides whether the triangle is equilateral (all three equal sides) when side lengths are numeric.
+    pub fn is_equilateral(&self) -> Option<bool> {
+        if self.is_collinear()? {
+            return Some(false);
+        }
+        let (s1, s2, s3) = self.side_lengths_squared();
+        let a = numeric_value(&simplify(&s1))?;
+        let b = numeric_value(&simplify(&s2))?;
+        let c = numeric_value(&simplify(&s3))?;
+        if a.numer().is_zero() || b.numer().is_zero() || c.numer().is_zero() {
+            return Some(false);
+        }
+        Some(a == b && b == c)
+    }
 }
 
 /// 2D General Symbolic Polygon defined by an ordered list of vertices.
@@ -683,6 +739,60 @@ impl Polygon2D {
         let cx = simplify(&Expr::Mul(vec![scale.clone(), Expr::Add(sum_x)]));
         let cy = simplify(&Expr::Mul(vec![scale, Expr::Add(sum_y)]));
         Point2D::new(cx, cy)
+    }
+
+    /// Returns the squared length of each edge in order: |v_{i+1} - v_i|^2.
+    pub fn edge_lengths_squared(&self) -> Vec<Expr> {
+        let n = self.vertices.len();
+        let mut lengths = Vec::with_capacity(n);
+        for i in 0..n {
+            let next = (i + 1) % n;
+            lengths.push(self.vertices[i].distance_squared(&self.vertices[next]));
+        }
+        lengths
+    }
+
+    /// Decides whether the polygon is strictly convex when its vertices have numeric coordinates.
+    ///
+    /// For general symbolic vertices where orientation cannot be established conclusively,
+    /// returns `None` to prevent unsound false positives.
+    pub fn is_convex(&self) -> Option<bool> {
+        let n = self.vertices.len();
+        if n < 3 {
+            return Some(false);
+        }
+        let mut sign: Option<i8> = None;
+        for i in 0..n {
+            let p1 = &self.vertices[i];
+            let p2 = &self.vertices[(i + 1) % n];
+            let p3 = &self.vertices[(i + 2) % n];
+
+            let dx1 = coordinate_difference(&p2.x, &p1.x);
+            let dy1 = coordinate_difference(&p2.y, &p1.y);
+            let dx2 = coordinate_difference(&p3.x, &p2.x);
+            let dy2 = coordinate_difference(&p3.y, &p2.y);
+
+            let cp = simplify(&Expr::Add(vec![
+                Expr::Mul(vec![dx1, dy2]),
+                Expr::Mul(vec![Expr::from_i64(-1), dy1, dx2]),
+            ]));
+
+            let val = numeric_value(&cp)?;
+            if val.numer().is_zero() {
+                continue;
+            }
+            let current_sign = if val > BigRational::from_integer(0.into()) {
+                1
+            } else {
+                -1
+            };
+            match sign {
+                None => sign = Some(current_sign),
+                Some(s) if s != current_sign => return Some(false),
+                _ => {}
+            }
+        }
+        Some(sign.is_some())
     }
 }
 
@@ -1677,5 +1787,84 @@ mod tests {
             Ray3D::new(s3, p3),
             Err(GeometryError::SymbolicDegeneracyUndetermined)
         );
+    }
+
+    #[test]
+    fn test_triangle_classifications() {
+        // Right triangle: (0,0), (3,0), (0,4) -> side lengths 3, 4, 5 (squared: 9, 25, 16)
+        let right_tri = Triangle2D::new(
+            Point2D::new(Expr::from_i64(0), Expr::from_i64(0)),
+            Point2D::new(Expr::from_i64(3), Expr::from_i64(0)),
+            Point2D::new(Expr::from_i64(0), Expr::from_i64(4)),
+        );
+        assert_eq!(right_tri.is_right(), Some(true));
+        assert_eq!(right_tri.is_isosceles(), Some(false));
+        assert_eq!(right_tri.is_equilateral(), Some(false));
+
+        // Isosceles right triangle: (0,0), (2,0), (0,2) -> side lengths 2, 2, 2*sqrt(2) (squared: 4, 8, 4)
+        let iso_tri = Triangle2D::new(
+            Point2D::new(Expr::from_i64(0), Expr::from_i64(0)),
+            Point2D::new(Expr::from_i64(2), Expr::from_i64(0)),
+            Point2D::new(Expr::from_i64(0), Expr::from_i64(2)),
+        );
+        assert_eq!(iso_tri.is_right(), Some(true));
+        assert_eq!(iso_tri.is_isosceles(), Some(true));
+        assert_eq!(iso_tri.is_equilateral(), Some(false));
+
+        // Collinear points: (0,0), (1,1), (2,2) -> not a valid triangle
+        let col_tri = Triangle2D::new(
+            Point2D::new(Expr::from_i64(0), Expr::from_i64(0)),
+            Point2D::new(Expr::from_i64(1), Expr::from_i64(1)),
+            Point2D::new(Expr::from_i64(2), Expr::from_i64(2)),
+        );
+        assert_eq!(col_tri.is_right(), Some(false));
+        assert_eq!(col_tri.is_isosceles(), Some(false));
+        assert_eq!(col_tri.is_equilateral(), Some(false));
+
+        // Symbolic triangle: undetermined
+        let sym_tri = Triangle2D::new(
+            Point2D::new(Expr::from_i64(0), Expr::from_i64(0)),
+            Point2D::new(Expr::symbol("x"), Expr::from_i64(0)),
+            Point2D::new(Expr::from_i64(0), Expr::symbol("y")),
+        );
+        assert_eq!(sym_tri.is_right(), None);
+    }
+
+    #[test]
+    fn test_polygon_edge_lengths_and_convexity() {
+        // Convex unit square: (0,0), (1,0), (1,1), (0,1)
+        let square = Polygon2D::new(vec![
+            Point2D::new(Expr::from_i64(0), Expr::from_i64(0)),
+            Point2D::new(Expr::from_i64(1), Expr::from_i64(0)),
+            Point2D::new(Expr::from_i64(1), Expr::from_i64(1)),
+            Point2D::new(Expr::from_i64(0), Expr::from_i64(1)),
+        ])
+        .unwrap();
+
+        let edge_sq = square.edge_lengths_squared();
+        assert_eq!(edge_sq.len(), 4);
+        for len in edge_sq {
+            assert_eq!(simplify(&len), Expr::from_i64(1));
+        }
+        assert_eq!(square.is_convex(), Some(true));
+
+        // Non-convex arrowhead / dart: (0,0), (2,1), (1,0), (2,-1)
+        let dart = Polygon2D::new(vec![
+            Point2D::new(Expr::from_i64(0), Expr::from_i64(0)),
+            Point2D::new(Expr::from_i64(2), Expr::from_i64(1)),
+            Point2D::new(Expr::from_i64(1), Expr::from_i64(0)),
+            Point2D::new(Expr::from_i64(2), Expr::from_i64(-1)),
+        ])
+        .unwrap();
+        assert_eq!(dart.is_convex(), Some(false));
+
+        // Symbolic polygon: orientation undetermined -> returns None
+        let sym_poly = Polygon2D::new(vec![
+            Point2D::new(Expr::from_i64(0), Expr::from_i64(0)),
+            Point2D::new(Expr::symbol("x"), Expr::from_i64(0)),
+            Point2D::new(Expr::symbol("x"), Expr::symbol("y")),
+        ])
+        .unwrap();
+        assert_eq!(sym_poly.is_convex(), None);
     }
 }

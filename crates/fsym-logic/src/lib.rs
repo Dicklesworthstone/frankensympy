@@ -789,6 +789,136 @@ pub fn dpll_satisfiable(expr: &BoolExpr) -> Result<Option<HashMap<Symbol, bool>>
     Ok(Some(public_model))
 }
 
+/// Returns `true` if the formula is satisfiable, `false` if unsatisfiable.
+pub fn is_satisfiable(expr: &BoolExpr) -> Result<bool, LogicError> {
+    Ok(dpll_satisfiable(expr)?.is_some())
+}
+
+/// Returns `true` if the formula is valid (a tautology), `false` otherwise.
+pub fn is_valid(expr: &BoolExpr) -> Result<bool, LogicError> {
+    Ok(dpll_satisfiable(&expr.clone().not())?.is_none())
+}
+
+/// Returns `true` if the formula is a contradiction (unsatisfiable), `false` otherwise.
+pub fn is_contradiction_sat(expr: &BoolExpr) -> Result<bool, LogicError> {
+    Ok(dpll_satisfiable(expr)?.is_none())
+}
+
+fn is_negation_of(a: &BoolExpr, b: &BoolExpr) -> bool {
+    match (a, b) {
+        (BoolExpr::Not(inner), other) | (other, BoolExpr::Not(inner)) => inner.as_ref() == other,
+        _ => false,
+    }
+}
+
+/// Algebraic simplification of propositional logic formulas.
+pub fn simplify_logic(expr: &BoolExpr) -> BoolExpr {
+    match expr {
+        BoolExpr::Const(b) => BoolExpr::Const(*b),
+        BoolExpr::Var(s) => BoolExpr::Var(s.clone()),
+        BoolExpr::Not(inner) => {
+            let simplified = simplify_logic(inner);
+            match simplified {
+                BoolExpr::Const(b) => BoolExpr::Const(!b),
+                BoolExpr::Not(sub) => *sub,
+                other => BoolExpr::Not(Box::new(other)),
+            }
+        }
+        BoolExpr::And(terms) => {
+            let mut flat = Vec::new();
+            for term in terms {
+                let s = simplify_logic(term);
+                match s {
+                    BoolExpr::And(sub) => flat.extend(sub),
+                    other => flat.push(other),
+                }
+            }
+            if flat.iter().any(|t| matches!(t, BoolExpr::Const(false))) {
+                return BoolExpr::Const(false);
+            }
+            flat.retain(|t| !matches!(t, BoolExpr::Const(true)));
+            if flat.is_empty() {
+                return BoolExpr::Const(true);
+            }
+            let mut deduped = Vec::new();
+            for item in flat {
+                if !deduped.contains(&item) {
+                    deduped.push(item);
+                }
+            }
+            for i in 0..deduped.len() {
+                for j in (i + 1)..deduped.len() {
+                    if is_negation_of(&deduped[i], &deduped[j]) {
+                        return BoolExpr::Const(false);
+                    }
+                }
+            }
+            if deduped.len() == 1 {
+                deduped.pop().unwrap()
+            } else {
+                BoolExpr::And(deduped)
+            }
+        }
+        BoolExpr::Or(terms) => {
+            let mut flat = Vec::new();
+            for term in terms {
+                let s = simplify_logic(term);
+                match s {
+                    BoolExpr::Or(sub) => flat.extend(sub),
+                    other => flat.push(other),
+                }
+            }
+            if flat.iter().any(|t| matches!(t, BoolExpr::Const(true))) {
+                return BoolExpr::Const(true);
+            }
+            flat.retain(|t| !matches!(t, BoolExpr::Const(false)));
+            if flat.is_empty() {
+                return BoolExpr::Const(false);
+            }
+            let mut deduped = Vec::new();
+            for item in flat {
+                if !deduped.contains(&item) {
+                    deduped.push(item);
+                }
+            }
+            for i in 0..deduped.len() {
+                for j in (i + 1)..deduped.len() {
+                    if is_negation_of(&deduped[i], &deduped[j]) {
+                        return BoolExpr::Const(true);
+                    }
+                }
+            }
+            if deduped.len() == 1 {
+                deduped.pop().unwrap()
+            } else {
+                BoolExpr::Or(deduped)
+            }
+        }
+        BoolExpr::Implies(a, b) => {
+            let sa = simplify_logic(a);
+            let sb = simplify_logic(b);
+            simplify_logic(&BoolExpr::Or(vec![BoolExpr::Not(Box::new(sa)), sb]))
+        }
+        BoolExpr::Equivalent(a, b) => {
+            let sa = simplify_logic(a);
+            let sb = simplify_logic(b);
+            if sa == sb {
+                return BoolExpr::Const(true);
+            }
+            if is_negation_of(&sa, &sb) {
+                return BoolExpr::Const(false);
+            }
+            match (&sa, &sb) {
+                (BoolExpr::Const(true), other) | (other, BoolExpr::Const(true)) => other.clone(),
+                (BoolExpr::Const(false), other) | (other, BoolExpr::Const(false)) => {
+                    simplify_logic(&BoolExpr::Not(Box::new(other.clone())))
+                }
+                _ => BoolExpr::Equivalent(Box::new(sa), Box::new(sb)),
+            }
+        }
+    }
+}
+
 struct SearchBudget {
     used: usize,
     limit: usize,
@@ -1317,5 +1447,92 @@ mod tests {
             37,
             "each XOR must retain one copy of each operand"
         );
+    }
+
+    #[test]
+    fn test_simplify_logic_algebraic_identities() {
+        let x = BoolExpr::var("x");
+        let y = BoolExpr::var("y");
+
+        // Double negation
+        assert_eq!(simplify_logic(&!(!x.clone())), x);
+
+        // Constants
+        assert_eq!(
+            simplify_logic(&BoolExpr::Const(true)),
+            BoolExpr::Const(true)
+        );
+        assert_eq!(
+            simplify_logic(&!BoolExpr::Const(true)),
+            BoolExpr::Const(false)
+        );
+
+        // And identities
+        assert_eq!(simplify_logic(&x.clone().and(BoolExpr::Const(true))), x);
+        assert_eq!(
+            simplify_logic(&x.clone().and(BoolExpr::Const(false))),
+            BoolExpr::Const(false)
+        );
+        assert_eq!(simplify_logic(&x.clone().and(x.clone())), x);
+        assert_eq!(
+            simplify_logic(&x.clone().and(!x.clone())),
+            BoolExpr::Const(false)
+        );
+
+        // Or identities
+        assert_eq!(simplify_logic(&x.clone().or(BoolExpr::Const(false))), x);
+        assert_eq!(
+            simplify_logic(&x.clone().or(BoolExpr::Const(true))),
+            BoolExpr::Const(true)
+        );
+        assert_eq!(simplify_logic(&x.clone().or(x.clone())), x);
+        assert_eq!(
+            simplify_logic(&x.clone().or(!x.clone())),
+            BoolExpr::Const(true)
+        );
+
+        // Implication
+        assert_eq!(
+            simplify_logic(&x.clone().implies(x.clone())),
+            BoolExpr::Const(true)
+        );
+        assert_eq!(
+            simplify_logic(&x.clone().implies(y.clone())),
+            (!x.clone()).or(y.clone())
+        );
+
+        // Equivalence
+        assert_eq!(
+            simplify_logic(&x.clone().equiv(x.clone())),
+            BoolExpr::Const(true)
+        );
+        assert_eq!(
+            simplify_logic(&x.clone().equiv(!x.clone())),
+            BoolExpr::Const(false)
+        );
+    }
+
+    #[test]
+    fn test_is_satisfiable_is_valid_and_is_contradiction() {
+        let x = BoolExpr::var("x");
+        let y = BoolExpr::var("y");
+
+        // Tautology: x | ~x
+        let tautology = x.clone().or(!x.clone());
+        assert_eq!(is_satisfiable(&tautology), Ok(true));
+        assert_eq!(is_valid(&tautology), Ok(true));
+        assert_eq!(is_contradiction_sat(&tautology), Ok(false));
+
+        // Contradiction: x & ~x
+        let contradiction = x.clone().and(!x.clone());
+        assert_eq!(is_satisfiable(&contradiction), Ok(false));
+        assert_eq!(is_valid(&contradiction), Ok(false));
+        assert_eq!(is_contradiction_sat(&contradiction), Ok(true));
+
+        // Contingency: x & y
+        let contingency = x.and(y);
+        assert_eq!(is_satisfiable(&contingency), Ok(true));
+        assert_eq!(is_valid(&contingency), Ok(false));
+        assert_eq!(is_contradiction_sat(&contingency), Ok(false));
     }
 }
