@@ -284,12 +284,39 @@ pub fn factorial(arg: Expr) -> Expr {
     Expr::Function("factorial".to_string(), vec![arg])
 }
 
+fn is_exact_negative_integer(expr: &Expr) -> bool {
+    match expr {
+        Expr::Integer(value) => value < &BigInt::from(0),
+        Expr::Rational(value) => value.is_integer() && value < &BigRational::from_integer(0.into()),
+        _ => false,
+    }
+}
+
+fn self_binomial_is_unconditionally_one(expr: &Expr) -> bool {
+    match expr {
+        Expr::Integer(value) => value >= &BigInt::from(0),
+        Expr::Rational(value) => {
+            !value.is_integer() || value >= &BigRational::from_integer(0.into())
+        }
+        Expr::Const(Constant::Pi | Constant::E | Constant::I) => true,
+        _ => false,
+    }
+}
+
 /// Create a binomial coefficient expression: (n choose k).
 pub fn binomial(n: Expr, k: Expr) -> Expr {
     if k.is_zero() {
         return Expr::from_i64(1);
     }
-    if n == k {
+    // The generalized binomial coefficient is zero for every exact negative
+    // integer lower index. This must precede the equal-argument shortcut:
+    // binomial(-1, -1) is zero, not one.
+    if is_exact_negative_integer(&k) {
+        return Expr::from_i64(0);
+    }
+    // x choose x is conditional for a symbolic x because x may be a negative
+    // integer. Fold only inputs whose concrete value rules that pole out.
+    if n == k && self_binomial_is_unconditionally_one(&n) {
         return Expr::from_i64(1);
     }
     if let (Expr::Integer(ni), Expr::Integer(ki)) = (&n, &k)
@@ -467,6 +494,51 @@ mod tests {
         );
         assert_eq!(
             binomial(Expr::from_i64(10), Expr::from_i64(10)),
+            Expr::from_i64(1)
+        );
+        assert_eq!(
+            binomial(Expr::from_i64(5), Expr::from_i64(-1)),
+            Expr::from_i64(0)
+        );
+        assert_eq!(
+            binomial(Expr::from_i64(-1), Expr::from_i64(-1)),
+            Expr::from_i64(0)
+        );
+
+        // A public Expr can contain an integer-valued Rational directly, so
+        // the negative-lower-index guard must not depend on constructor
+        // canonicalization.
+        let rational_negative_one = Expr::Rational(BigRational::from_integer(BigInt::from(-1)));
+        assert_eq!(
+            binomial(Expr::symbol("n"), rational_negative_one.clone()),
+            Expr::from_i64(0)
+        );
+        assert_eq!(
+            binomial(rational_negative_one.clone(), rational_negative_one),
+            Expr::from_i64(0)
+        );
+
+        let x = Expr::symbol("x");
+        assert_eq!(
+            binomial(x.clone(), x.clone()),
+            Expr::Function("binomial".to_string(), vec![x.clone(), x])
+        );
+        assert_eq!(
+            binomial(
+                Expr::Const(Constant::Infinity),
+                Expr::Const(Constant::Infinity),
+            ),
+            Expr::Function(
+                "binomial".to_string(),
+                vec![
+                    Expr::Const(Constant::Infinity),
+                    Expr::Const(Constant::Infinity),
+                ],
+            )
+        );
+        let negative_half = Expr::rational(-1, 2).unwrap();
+        assert_eq!(
+            binomial(negative_half.clone(), negative_half),
             Expr::from_i64(1)
         );
         // k > n with both non-negative: standard convention is 0,
