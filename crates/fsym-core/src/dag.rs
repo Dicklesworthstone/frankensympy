@@ -858,7 +858,51 @@ impl TermDag {
                     reason: "operator payload is not an Integer inhabitant",
                 }),
             },
-            TermDomain::Rational | TermDomain::Real | TermDomain::Complex => Ok(()),
+            TermDomain::Rational => match node {
+                TermNode::Integer(_) | TermNode::Rational(_) | TermNode::Sym(_) => Ok(()),
+                TermNode::Pow(_base, exponent) => {
+                    let exponent_node =
+                        self.get(*exponent).ok_or(DagError::UnknownId(*exponent))?;
+                    match exponent_node {
+                        TermNode::Rational(value) if !value.is_integer() => {
+                            Err(DagError::DomainIncompatible {
+                                domain,
+                                reason: "non-integer rational exponent is not closed in Rational",
+                            })
+                        }
+                        TermNode::Const(_) => Err(DagError::DomainIncompatible {
+                            domain,
+                            reason: "constant exponent is not closed in Rational",
+                        }),
+                        _ => Ok(()),
+                    }
+                }
+                TermNode::Add(_) | TermNode::Mul(_) => Ok(()),
+                TermNode::Const(_) | TermNode::Function(..) | TermNode::Lambda(..) => {
+                    Err(DagError::DomainIncompatible {
+                        domain,
+                        reason: "operator payload is not a Rational inhabitant",
+                    })
+                }
+            },
+            TermDomain::Real => match node {
+                TermNode::Const(Constant::I | Constant::ComplexInfinity) => {
+                    Err(DagError::DomainIncompatible {
+                        domain,
+                        reason: "complex constant is not a Real inhabitant",
+                    })
+                }
+                TermNode::Const(_)
+                | TermNode::Integer(_)
+                | TermNode::Rational(_)
+                | TermNode::Sym(_)
+                | TermNode::Add(_)
+                | TermNode::Mul(_)
+                | TermNode::Pow(..)
+                | TermNode::Function(..)
+                | TermNode::Lambda(..) => Ok(()),
+            },
+            TermDomain::Complex => Ok(()),
         }
     }
 
@@ -2353,5 +2397,77 @@ mod tests {
                 BigInt::from(7)
             )))
         );
+    }
+
+    #[test]
+    fn rational_domain_refuses_non_rational_payloads_and_powers() {
+        let mut dag = TermDag::new();
+        // Constants are not in Rational
+        assert_eq!(
+            dag.insert_node_in_domain(TermNode::Const(Constant::Pi), TermDomain::Rational),
+            Err(DagError::DomainIncompatible {
+                domain: TermDomain::Rational,
+                reason: "operator payload is not a Rational inhabitant",
+            })
+        );
+        assert_eq!(
+            dag.insert_node_in_domain(TermNode::Const(Constant::I), TermDomain::Rational),
+            Err(DagError::DomainIncompatible {
+                domain: TermDomain::Rational,
+                reason: "operator payload is not a Rational inhabitant",
+            })
+        );
+
+        // Power with non-integer rational exponent (e.g. x^(1/2)) is not closed in Rational
+        let base = dag
+            .insert_node_in_domain(TermNode::Integer(BigInt::from(2)), TermDomain::Rational)
+            .unwrap();
+        let half = dag
+            .insert_node_in_domain(
+                TermNode::Rational(BigRational::new(BigInt::from(1), BigInt::from(2))),
+                TermDomain::Rational,
+            )
+            .unwrap();
+        assert_eq!(
+            dag.insert_node_in_domain(TermNode::Pow(base, half), TermDomain::Rational),
+            Err(DagError::DomainIncompatible {
+                domain: TermDomain::Rational,
+                reason: "non-integer rational exponent is not closed in Rational",
+            })
+        );
+
+        // Integer powers (including negative integers) are closed in Rational
+        let neg_two = dag
+            .insert_node_in_domain(TermNode::Integer(BigInt::from(-2)), TermDomain::Rational)
+            .unwrap();
+        let power = dag
+            .insert_node_in_domain(TermNode::Pow(base, neg_two), TermDomain::Rational)
+            .unwrap();
+        assert_eq!(dag.term_domain(power), Some(TermDomain::Rational));
+    }
+
+    #[test]
+    fn real_domain_refuses_complex_constants() {
+        let mut dag = TermDag::new();
+        assert_eq!(
+            dag.insert_node_in_domain(TermNode::Const(Constant::I), TermDomain::Real),
+            Err(DagError::DomainIncompatible {
+                domain: TermDomain::Real,
+                reason: "complex constant is not a Real inhabitant",
+            })
+        );
+        assert_eq!(
+            dag.insert_node_in_domain(TermNode::Const(Constant::ComplexInfinity), TermDomain::Real),
+            Err(DagError::DomainIncompatible {
+                domain: TermDomain::Real,
+                reason: "complex constant is not a Real inhabitant",
+            })
+        );
+
+        // Real constants are admitted
+        let pi = dag
+            .insert_node_in_domain(TermNode::Const(Constant::Pi), TermDomain::Real)
+            .unwrap();
+        assert_eq!(dag.term_domain(pi), Some(TermDomain::Real));
     }
 }

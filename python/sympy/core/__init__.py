@@ -203,6 +203,9 @@ class Basic:
     def _repr_latex_(self) -> str:
         return self._value._repr_latex_()
 
+    def pretty(self) -> str:
+        return self._value.pretty()
+
     def __str__(self) -> str:
         return str(self._value)
 
@@ -585,6 +588,11 @@ def simplify(expression: Any) -> Expr:
     return _parse_result(_native.simplify_expr(str(_wrap(_native_expr(expression)))))
 
 
+def pretty(expression: Any) -> str:
+    """Unicode-math printer view. Not a semantic identity."""
+    return _native_expr(expression).pretty()
+
+
 __all__ = [
     "Basic",
     "Atom",
@@ -606,4 +614,5 @@ __all__ = [
     "diff",
     "expand",
     "simplify",
+    "pretty",
 ]

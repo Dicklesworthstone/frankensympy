@@ -287,6 +287,11 @@ class SurfaceTests(unittest.TestCase):
         self.assertAlmostEqual(two.evalf(), 2.0)
         self.assertAlmostEqual(sympy.pi.evalf(), 3.1415926535, places=4)
 
+        powered = x**2
+        self.assertEqual(sympy.pretty(powered), "x²")
+        self.assertEqual(powered.pretty(), "x²")
+        self.assertEqual(sympy.pretty(x - 1), "x − 1")
+
     def test_calculus_and_solvers_facades(self):
         x = sympy.Symbol("x")
         self.assertEqual(sympy.diff(x**3, x), 3 * x**2)

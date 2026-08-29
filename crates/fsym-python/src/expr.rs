@@ -4,7 +4,7 @@
 
 use fsym_calculus::diff;
 use fsym_core::{BigInt, BigRational, Expr, Symbol, parse};
-use fsym_printing::latex;
+use fsym_printing::{latex, pretty as render_pretty};
 use fsym_runtime::{Budget, BudgetLimits, FsymCx, RuntimeBudget};
 use fsym_simplify::{expand_with, simplify_with};
 use pyo3::basic::CompareOp;
@@ -230,6 +230,11 @@ impl PyExpr {
         latex(&self.inner)
             .map(|rendered| format!("${rendered}$"))
             .map_err(|error| PyValueError::new_err(error.to_string()))
+    }
+
+    /// Unicode-math pretty form. This is a printer view, not semantic identity.
+    pub fn pretty(&self) -> PyResult<String> {
+        render_pretty(&self.inner).map_err(|error| PyValueError::new_err(error.to_string()))
     }
 
     pub fn __hash__(&self) -> u64 {

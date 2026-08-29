@@ -437,6 +437,7 @@ mod tests {
         let d = pow_expr.diff("x", vec![]);
         assert_eq!(d.__str__(), "3*(x**2)");
         assert!(pow_expr._repr_latex_().unwrap().contains("x^{3}"));
+        assert_eq!(pow_expr.pretty().unwrap(), "x³");
     }
 
     #[test]

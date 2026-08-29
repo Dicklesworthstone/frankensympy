@@ -443,6 +443,40 @@ impl UnivariatePoly {
         Ok(res)
     }
 
+    /// Composes this polynomial with another polynomial in the same generator: `P(Q(x))`.
+    ///
+    /// Evaluates `self(inner)` using Horner's method.
+    pub fn compose(&self, inner: &Self) -> Result<Self, PolyError> {
+        self.validate_shape()?;
+        inner.validate_shape()?;
+        if self.gen_sym != inner.gen_sym {
+            return Err(PolyError::IncompatibleGenerators(
+                self.gen_sym.name.clone(),
+                inner.gen_sym.name.clone(),
+            ));
+        }
+        if self.is_zero() {
+            return Ok(Self::zero(self.gen_sym.clone()));
+        }
+        let mut result = Self::zero(self.gen_sym.clone());
+        for coeff in self.coeffs.iter().rev() {
+            result = result.mul(inner)?;
+            let constant = Self::new(self.gen_sym.clone(), vec![coeff.clone()]);
+            result = result.add(&constant)?;
+        }
+        Ok(result)
+    }
+
+    /// Computes the squared L2 norm (sum of squared coefficients): `\sum_i c_i^2`.
+    pub fn l2_norm_squared(&self) -> Result<BigRational, PolyError> {
+        self.validate_shape()?;
+        let mut sum = BigRational::zero();
+        for c in &self.coeffs {
+            sum += c * c;
+        }
+        Ok(sum)
+    }
+
     /// Polynomial division with remainder: `self = quotient * divisor + remainder`.
     pub fn div_rem(&self, divisor: &Self) -> Result<(Self, Self), PolyError> {
         self.validate_shape()?;

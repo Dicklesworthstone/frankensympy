@@ -1159,4 +1159,61 @@ mod tests {
         };
         assert!(verify_multivariate_divisibility_certificate(&f, &g, &bad_cert).is_err());
     }
+
+    #[test]
+    fn test_univariate_compose_and_l2_norm() {
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+        // P(x) = x^2 + 2x + 1 = (x + 1)^2
+        // coeffs: [1, 2, 1]
+        let p = UnivariatePoly::new(
+            x.clone(),
+            vec![
+                BigRational::from_integer(1.into()),
+                BigRational::from_integer(2.into()),
+                BigRational::from_integer(1.into()),
+            ],
+        );
+
+        // Q(x) = 2x + 3
+        // coeffs: [3, 2]
+        let q = UnivariatePoly::new(
+            x.clone(),
+            vec![
+                BigRational::from_integer(3.into()),
+                BigRational::from_integer(2.into()),
+            ],
+        );
+
+        // P(Q(x)) = (2x + 3)^2 + 2(2x + 3) + 1
+        //         = 4x^2 + 12x + 9 + 4x + 6 + 1
+        //         = 4x^2 + 16x + 16
+        // coeffs: [16, 16, 4]
+        let composed = p.compose(&q).unwrap();
+        assert_eq!(
+            composed.coeffs,
+            vec![
+                BigRational::from_integer(16.into()),
+                BigRational::from_integer(16.into()),
+                BigRational::from_integer(4.into()),
+            ]
+        );
+
+        // Squared L2 norm of P: 1^2 + 2^2 + 1^2 = 1 + 4 + 1 = 6
+        let norm_p = p.l2_norm_squared().unwrap();
+        assert_eq!(norm_p, BigRational::from_integer(6.into()));
+
+        // Incompatible generator error
+        let q_y = UnivariatePoly::new(
+            y,
+            vec![
+                BigRational::from_integer(3.into()),
+                BigRational::from_integer(2.into()),
+            ],
+        );
+        assert!(matches!(
+            p.compose(&q_y),
+            Err(PolyError::IncompatibleGenerators(..))
+        ));
+    }
 }

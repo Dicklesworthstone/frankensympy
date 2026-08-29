@@ -29,6 +29,7 @@ from .core import (
     _wrap,
     diff,
     expand,
+    pretty,
     simplify,
     symbols,
 )
@@ -172,6 +173,7 @@ __all__ = [
     "diff",
     "expand",
     "simplify",
+    "pretty",
     "integrate",
     "limit",
     "solve",
