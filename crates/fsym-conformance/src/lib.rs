@@ -1217,6 +1217,46 @@ mod tests {
     }
 
     #[test]
+    fn validate_cases_rejects_empty_oversized_and_unparseable_target() {
+        // The validate_cases() guards upstream of the oracle call:
+        // empty case_id, oversized fields, unparseable limit target,
+        // and unparseable input must all refuse before any side effect.
+        // Pin each guard so a future refactor that drops one of them
+        // becomes a test failure rather than a silent
+        // over-the-wire dependency.
+
+        // Empty case_id (whitespace-only counts as empty).
+        let mut blank = case(false);
+        blank.case_id = "   ".to_string();
+        let err = validate_cases(&[blank]).expect_err("blank case_id");
+        assert!(err.contains("case_id must not be empty"));
+
+        // Oversized case_id: 17 KiB exceeds the 16 KiB field limit.
+        let mut giant = case(false);
+        giant.case_id = "x".repeat(17 * 1_024);
+        let err = validate_cases(&[giant]).expect_err("oversized case_id");
+        assert!(err.contains("exceeds 16384 bytes"));
+
+        // Oversized input_expr: same limit applies to all three
+        // string fields (case_id, input_expr, var).
+        let mut giant_input = case(false);
+        giant_input.input_expr = "x".repeat(17 * 1_024);
+        let err = validate_cases(&[giant_input]).expect_err("oversized input");
+        assert!(err.contains("exceeds 16384 bytes"));
+
+        // Unparseable limit target: the case has valid structure
+        // but the Op::Limit target string fails to parse as Expr.
+        let bad_limit = CaseSpec {
+            case_id: "bad_limit".to_string(),
+            input_expr: "x".to_string(),
+            var: "x".to_string(),
+            op: Op::Limit("not-an-expression-%%%".into()),
+            expected_refusal: None,
+        };
+        let err = validate_cases(&[bad_limit]).expect_err("bad limit target");
+        assert!(err.contains("limit target failed parsing"));
+    }
+    #[test]
     fn op_and_case_spec_serde_roundtrip_preserves_wire_format() {
         // The conformance corpus and remote oracle exchange
         // CaseSpec through serde_json. Pin the wire format of every
