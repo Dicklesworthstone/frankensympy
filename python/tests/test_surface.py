@@ -322,7 +322,12 @@ class SurfaceTests(unittest.TestCase):
         self.assertFalse(value.is_integer)
         self.assertFalse(value.is_rational)
         self.assertAlmostEqual(value.evalf(), 1.5)
-        self.assertNotEqual(value, sympy.Rational(3, 2))
+        self.assertEqual(value, sympy.Rational(3, 2))
+        self.assertEqual(sympy.Float(1.0), sympy.Integer(1))
+        self.assertEqual(sympy.Integer(1), 1.0)
+        self.assertEqual(hash(sympy.Float(1.0)), hash(sympy.Integer(1)))
+        self.assertEqual(hash(sympy.Integer(1)), hash(1))
+        self.assertNotEqual(sympy.Float(0.1), sympy.Rational(1, 10))
         self.assertEqual(value, sympy.Float(1.5))
         self.assertEqual(sympy.Float(3) + sympy.Float(0.5), sympy.Float(3.5))
         self.assertEqual(sympy.Integer(sympy.Float(2.9)), sympy.Integer(2))
@@ -374,7 +379,7 @@ class SurfaceTests(unittest.TestCase):
         self.assertTrue(issubclass(sympy.Float, sympy.Number))
         self.assertFalse(issubclass(sympy.Float, sympy.Rational))
 
-        # Float is a Number, not a Rational.
+
     def test_latex_and_evalf_representations(self) -> None:
         x = sympy.Symbol("x")
         expr = x / 2

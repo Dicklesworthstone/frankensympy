@@ -240,6 +240,29 @@ def _maybe_python_float(value: Any) -> float | None:
         return None
 
 
+def _exact_ratio(value: Any) -> tuple[int, int] | None:
+    """Canonical (p, q) for admitted numeric atoms. Non-finite floats are None."""
+    if type(value) is bool:
+        return (1 if value else 0), 1
+    if type(value) is int:
+        return value, 1
+    if type(value) is Integer:
+        return value.p, 1
+    if type(value) is Rational:
+        return value.p, value.q
+    if type(value) is float:
+        try:
+            return value.as_integer_ratio()
+        except (OverflowError, ValueError):
+            return None
+    if type(value) is Float:
+        try:
+            return value._as_python_float().as_integer_ratio()
+        except (OverflowError, ValueError):
+            return None
+    return None
+
+
 def _exact_integer_argument(value: Any) -> int:
     """Apply the pinned built-in conversions without invoking user hooks."""
     if type(value) is int:
@@ -354,11 +377,20 @@ class Basic:
     def __hash__(self) -> int:
         if type(self) not in _exact_surface_types() and not isinstance(self, Function):
             return object.__hash__(self)
+        ratio = _exact_ratio(self)
+        if ratio is not None:
+            from fractions import Fraction
+
+            return hash(Fraction(ratio[0], ratio[1]))
         return hash(self._value)
 
     def __eq__(self, other: object) -> bool:
         if type(self) not in _exact_surface_types() and not isinstance(self, Function):
             return self is other
+        left = _exact_ratio(self)
+        right = _exact_ratio(other)
+        if left is not None and right is not None:
+            return left == right
         try:
             return self._value == _native_expr(other)
         except (TypeError, NotImplementedError):
