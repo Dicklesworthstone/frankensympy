@@ -270,7 +270,16 @@ unimplemented_release_profile() {
   refuse "profile '$1' is defined by the release contract but has no landed implementation evidence yet"
 }
 
-lab() { unimplemented_release_profile lab; }
+lab() {
+  require_python
+  local profile="$ROOT/tools/conformance-lab/profiles/sympy-1.14.0-cpython.toml"
+  run "$PYTHON_BIN" -m unittest discover -s "$ROOT/tools/conformance-lab" -p 'test_*.py'
+  run "$PYTHON_BIN" "$ROOT/tools/conformance-lab/capture.py" self-test "$profile"
+  run "$PYTHON_BIN" "$ROOT/tools/conformance-lab/capture.py" isolation "$profile"
+  run "$PYTHON_BIN" "$ROOT/tools/conformance-lab/capture.py" suite-smoke "$profile" \
+    --test-path utilities/tests/test_source.py
+  ok "conformance laboratory unit, isolation, self-test, and oracle suite-smoke passed"
+}
 fuzz_smoke() { unimplemented_release_profile fuzz-smoke; }
 matrix() { unimplemented_release_profile matrix; }
 reproducibility() { unimplemented_release_profile reproducibility; }

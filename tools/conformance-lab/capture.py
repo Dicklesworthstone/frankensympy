@@ -1045,10 +1045,13 @@ def cmd_diff(
     admitted = sorted((oracle_ids & candidate_ids) - discrepancy_ids)
     details = []
     by_kind: dict[str, int] = {}
+    type_matched = set(admitted)
     for record in records:
         paths = [diff["path"] for diff in record["differences"]]
         kind = classify_construction_diff(paths, record.get("outcome_classes"))
         by_kind[kind] = by_kind.get(kind, 0) + 1
+        if record.get("outcome_classes") is None and "observations.type" not in paths:
+            type_matched.add(record["fixture_id"])
         details.append(
             {
                 "fixture_id": record["fixture_id"],
@@ -1057,6 +1060,7 @@ def cmd_diff(
                 "outcome_classes": record.get("outcome_classes"),
             }
         )
+    type_matched = sorted(type_matched)
     if ledger_dir is not None:
         persist_ledger(records, ledger_dir)
     summary = {
@@ -1065,6 +1069,8 @@ def cmd_diff(
         "discrepancies": len(records),
         "admitted": len(admitted),
         "admitted_fixture_ids": admitted,
+        "type_matched": len(type_matched),
+        "type_matched_fixture_ids": type_matched,
         "by_kind": by_kind,
         "broken_candidate": broken,
         "affected_claim": affected_claim,

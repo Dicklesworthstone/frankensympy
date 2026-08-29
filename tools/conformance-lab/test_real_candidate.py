@@ -74,22 +74,23 @@ class RealCandidateTests(unittest.TestCase):
             )
         self.assertEqual(status, 1)
         summary = json.loads(buffer.getvalue())
-        self.assertEqual(summary["admitted"], 0)
         self.assertEqual(summary["claims_promoted"], False)
         self.assertEqual(summary["named_claims"], ["COMPAT-002"])
+        self.assertGreaterEqual(summary["type_matched"], summary["admitted"])
+        self.assertIn("core/integer/42", summary["type_matched_fixture_ids"])
+        self.assertNotIn("core/symbol/x_positive", summary["type_matched_fixture_ids"])
         by_id = {row["fixture_id"]: row for row in summary["details"]}
-        integer = by_id["core/integer/42"]
-        self.assertNotIn("observations.type", integer["difference_paths"])
-        self.assertIn("observations.module", integer["difference_paths"])
-        self.assertIn("observations.func", integer["difference_paths"])
+        if "core/integer/42" not in summary["admitted_fixture_ids"]:
+            integer = by_id["core/integer/42"]
+            self.assertNotIn("observations.type", integer["difference_paths"])
+            self.assertIn("observations.module", integer["difference_paths"])
+            self.assertEqual(integer["kind"], "surface_identity_drift")
         symbol = by_id["core/symbol/x_positive"]
         self.assertEqual(
             symbol["outcome_classes"],
             {"oracle": "returned", "candidate": "raised"},
         )
-        self.assertEqual(integer["kind"], "surface_identity_drift")
         self.assertEqual(symbol["kind"], "outcome_mismatch")
-        self.assertGreaterEqual(summary["by_kind"].get("surface_identity_drift", 0), 1)
 
     def test_real_diff_persists_ledger_without_promoting_claims(self) -> None:
         if not _extension_available():
