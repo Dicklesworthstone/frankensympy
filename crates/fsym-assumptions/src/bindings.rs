@@ -1,7 +1,8 @@
 //! Scoped variable binding, alpha-equivalence, and capture-avoiding substitution for WS04.
 //!
-//! Handles scoped symbols in calculus integrals, derivatives, and lambda binders,
-//! guaranteeing that substitution never unintentionally captures free variables.
+//! Handles scoped symbols in definite integrals and lambda binders, plus the
+//! related (but non-alpha-bound) variables of indefinite integrals and
+//! derivatives. Substitution never silently captures a free variable.
 
 #![forbid(unsafe_code)]
 
@@ -20,20 +21,32 @@ pub enum BindingError {
     /// The expression exceeds the maximum supported binding traversal depth.
     #[error("binding traversal exceeds the maximum depth of {limit}")]
     DepthExceeded { limit: usize },
+    /// Capture avoidance would require renaming an operator variable whose name
+    /// is semantically observable rather than alpha-bound.
+    #[error(
+        "capture-safe substitution under {operator} requires a non-alpha-equivalent variable rename"
+    )]
+    NonAlphaRenamingRequired { operator: &'static str },
 }
 
-/// Strongly typed representation of a binder construct.
+/// Strongly typed representation of a scoped or operator-variable construct.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BinderNode {
     /// Lambda abstraction over bound parameter.
     Lambda { param: Symbol, body: Box<Expr> },
-    /// Integral over integration variable with optional limits.
+    /// Integral over an integration variable with optional limits.
+    ///
+    /// The variable is alpha-bound in the body only for a definite integral.
+    /// In an indefinite integral it remains part of the observable result.
     Integral {
         var: Symbol,
         body: Box<Expr>,
         limits: Option<(Box<Expr>, Box<Expr>)>,
     },
     /// Derivative with respect to a differentiation variable.
+    ///
+    /// The variable controls differentiation but is not alpha-bound: renaming
+    /// it changes the expression's observable free-variable identity.
     Derivative { var: Symbol, body: Box<Expr> },
 }
 
@@ -46,7 +59,7 @@ impl BinderNode {
         }
     }
 
-    /// Creates an indefinite integral binder.
+    /// Creates an indefinite integral node.
     pub fn integral(var: impl Into<Symbol>, body: Expr) -> Self {
         Self::Integral {
             var: var.into(),
@@ -64,7 +77,7 @@ impl BinderNode {
         }
     }
 
-    /// Creates a derivative binder.
+    /// Creates a derivative node.
     pub fn derivative(var: impl Into<Symbol>, body: Expr) -> Self {
         Self::Derivative {
             var: var.into(),
@@ -144,7 +157,9 @@ impl BinderNode {
         None
     }
 
-    /// Returns the bound variable symbol.
+    /// Returns the construct's declared variable symbol.
+    ///
+    /// This variable is alpha-bound only for a Lambda or definite integral.
     pub fn bound_variable(&self) -> &Symbol {
         match self {
             Self::Lambda { param, .. } => param,
@@ -163,17 +178,34 @@ impl BinderNode {
 
     /// Returns the free symbols of this binder.
     pub fn free_symbols(&self) -> Result<BTreeSet<Symbol>, BindingError> {
-        let mut free = free_symbols(self.body())?;
-        free.remove(self.bound_variable());
-        if let Self::Integral {
-            limits: Some((lower, upper)),
-            ..
-        } = self
-        {
-            free.extend(free_symbols(lower)?);
-            free.extend(free_symbols(upper)?);
+        match self {
+            Self::Lambda { param, body } => {
+                let mut free = free_symbols(body)?;
+                free.remove(param);
+                Ok(free)
+            }
+            Self::Integral {
+                var,
+                body,
+                limits: Some((lower, upper)),
+            } => {
+                let mut free = free_symbols(body)?;
+                free.remove(var);
+                free.extend(free_symbols(lower)?);
+                free.extend(free_symbols(upper)?);
+                Ok(free)
+            }
+            Self::Integral {
+                var,
+                body,
+                limits: None,
+            } => {
+                let mut free = free_symbols(body)?;
+                free.insert(var.clone());
+                Ok(free)
+            }
+            Self::Derivative { body, .. } => free_symbols(body),
         }
-        Ok(free)
     }
 
     /// Checks alpha equivalence against another binder node.
@@ -371,29 +403,44 @@ fn expr_to_de_bruijn(
                         let body_db = body_db?;
                         return Ok(DeBruijnExpr::Binder("Lambda".into(), Box::new(body_db)));
                     }
-                    BinderNode::Integral { var, body, limits } => {
+                    BinderNode::Integral {
+                        var,
+                        body,
+                        limits: Some((lower, upper)),
+                    } => {
                         scope.push(var);
                         let body_db = expr_to_de_bruijn(&body, scope, depth + 1);
                         scope.pop();
                         let body_db = body_db?;
-                        if let Some((lower, upper)) = limits {
-                            let lower_db = expr_to_de_bruijn(&lower, scope, depth + 1)?;
-                            let upper_db = expr_to_de_bruijn(&upper, scope, depth + 1)?;
-                            return Ok(DeBruijnExpr::BinderWithArguments {
-                                name: "Integral".into(),
-                                body: Box::new(body_db),
-                                arguments: vec![lower_db, upper_db],
-                            });
-                        } else {
-                            return Ok(DeBruijnExpr::Binder("Integral".into(), Box::new(body_db)));
-                        }
+                        let lower_db = expr_to_de_bruijn(&lower, scope, depth + 1)?;
+                        let upper_db = expr_to_de_bruijn(&upper, scope, depth + 1)?;
+                        return Ok(DeBruijnExpr::BinderWithArguments {
+                            name: "Integral".into(),
+                            body: Box::new(body_db),
+                            arguments: vec![lower_db, upper_db],
+                        });
+                    }
+                    BinderNode::Integral {
+                        var,
+                        body,
+                        limits: None,
+                    } => {
+                        return Ok(DeBruijnExpr::Function(
+                            "Integral".into(),
+                            vec![
+                                expr_to_de_bruijn(&body, scope, depth + 1)?,
+                                expr_to_de_bruijn(&Expr::Sym(var), scope, depth + 1)?,
+                            ],
+                        ));
                     }
                     BinderNode::Derivative { var, body } => {
-                        scope.push(var);
-                        let body_db = expr_to_de_bruijn(&body, scope, depth + 1);
-                        scope.pop();
-                        let body_db = body_db?;
-                        return Ok(DeBruijnExpr::Binder("Derivative".into(), Box::new(body_db)));
+                        return Ok(DeBruijnExpr::Function(
+                            "Derivative".into(),
+                            vec![
+                                expr_to_de_bruijn(&body, scope, depth + 1)?,
+                                expr_to_de_bruijn(&Expr::Sym(var), scope, depth + 1)?,
+                            ],
+                        ));
                     }
                 }
             }
@@ -482,20 +529,42 @@ fn collect_free_symbols(
         }
         Expr::Function(_, args) => {
             if let Some(binder) = BinderNode::try_from_expr(expr) {
-                let var = binder.bound_variable();
-                let newly_bound = bound_scope.insert(var.clone());
-                let body_result = collect_free_symbols(binder.body(), bound_scope, free, depth + 1);
-                if newly_bound {
-                    bound_scope.remove(var);
-                }
-                body_result?;
-                if let BinderNode::Integral {
-                    limits: Some((lower, upper)),
-                    ..
-                } = binder
-                {
-                    collect_free_symbols(&lower, bound_scope, free, depth + 1)?;
-                    collect_free_symbols(&upper, bound_scope, free, depth + 1)?;
+                match binder {
+                    BinderNode::Lambda { param, body } => {
+                        let newly_bound = bound_scope.insert(param.clone());
+                        let body_result = collect_free_symbols(&body, bound_scope, free, depth + 1);
+                        if newly_bound {
+                            bound_scope.remove(&param);
+                        }
+                        body_result?;
+                    }
+                    BinderNode::Integral {
+                        var,
+                        body,
+                        limits: Some((lower, upper)),
+                    } => {
+                        let newly_bound = bound_scope.insert(var.clone());
+                        let body_result = collect_free_symbols(&body, bound_scope, free, depth + 1);
+                        if newly_bound {
+                            bound_scope.remove(&var);
+                        }
+                        body_result?;
+                        collect_free_symbols(&lower, bound_scope, free, depth + 1)?;
+                        collect_free_symbols(&upper, bound_scope, free, depth + 1)?;
+                    }
+                    BinderNode::Integral {
+                        var,
+                        body,
+                        limits: None,
+                    } => {
+                        collect_free_symbols(&body, bound_scope, free, depth + 1)?;
+                        if !bound_scope.contains(&var) {
+                            free.insert(var);
+                        }
+                    }
+                    BinderNode::Derivative { body, .. } => {
+                        collect_free_symbols(&body, bound_scope, free, depth + 1)?;
+                    }
                 }
                 return Ok(());
             }
@@ -577,6 +646,61 @@ fn subs_internal(
         ),
         Expr::Function(name, args) => {
             if let Some(binder) = BinderNode::try_from_expr(expr) {
+                match &binder {
+                    BinderNode::Derivative { var, body } => {
+                        let target_occurs_in_body = free_symbols(body)?.contains(target);
+                        if !target_occurs_in_body {
+                            return Ok(expr.clone());
+                        }
+                        if var == target || repl_free.contains(var) {
+                            return Err(BindingError::NonAlphaRenamingRequired {
+                                operator: "Derivative",
+                            });
+                        }
+                        return Ok(BinderNode::Derivative {
+                            var: var.clone(),
+                            body: Box::new(subs_internal(
+                                body,
+                                target,
+                                replacement,
+                                repl_free,
+                                depth + 1,
+                            )?),
+                        }
+                        .to_expr());
+                    }
+                    BinderNode::Integral {
+                        var,
+                        body,
+                        limits: None,
+                    } => {
+                        let target_occurs_in_body = free_symbols(body)?.contains(target);
+                        if var == target || (target_occurs_in_body && repl_free.contains(var)) {
+                            return Err(BindingError::NonAlphaRenamingRequired {
+                                operator: "Integral",
+                            });
+                        }
+                        if !target_occurs_in_body {
+                            return Ok(expr.clone());
+                        }
+                        return Ok(BinderNode::Integral {
+                            var: var.clone(),
+                            body: Box::new(subs_internal(
+                                body,
+                                target,
+                                replacement,
+                                repl_free,
+                                depth + 1,
+                            )?),
+                            limits: None,
+                        }
+                        .to_expr());
+                    }
+                    BinderNode::Lambda { .. }
+                    | BinderNode::Integral {
+                        limits: Some(_), ..
+                    } => {}
+                }
                 let bound_var = binder.bound_variable().clone();
                 if &bound_var == target {
                     // The declaration shadows `target` only in its body. Definite
@@ -865,6 +989,63 @@ mod tests {
     }
 
     #[test]
+    fn indefinite_integral_and_derivative_variables_are_not_alpha_bound() {
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+
+        let integral_x = BinderNode::integral(x.clone(), Expr::from_i64(1));
+        let integral_y = BinderNode::integral(y.clone(), Expr::from_i64(1));
+        assert_eq!(integral_x.free_symbols(), Ok(BTreeSet::from([x.clone()])));
+        assert_eq!(
+            super::free_symbols(&integral_x.to_expr()),
+            Ok(BTreeSet::from([x.clone()]))
+        );
+        assert!(
+            !integral_x
+                .is_alpha_equivalent(&integral_y)
+                .expect("bounded integrals")
+        );
+
+        let derivative_x = BinderNode::derivative(
+            x.clone(),
+            Expr::pow(Expr::Sym(x.clone()), Expr::from_i64(2)),
+        );
+        let derivative_y = BinderNode::derivative(
+            y.clone(),
+            Expr::pow(Expr::Sym(y.clone()), Expr::from_i64(2)),
+        );
+        assert_eq!(derivative_x.free_symbols(), Ok(BTreeSet::from([x.clone()])));
+        assert_eq!(
+            super::free_symbols(&derivative_x.to_expr()),
+            Ok(BTreeSet::from([x.clone()]))
+        );
+        assert!(
+            !derivative_x
+                .is_alpha_equivalent(&derivative_y)
+                .expect("bounded derivatives")
+        );
+
+        let constant_derivative = BinderNode::derivative(x.clone(), Expr::from_i64(1));
+        assert_eq!(constant_derivative.free_symbols(), Ok(BTreeSet::new()));
+        assert_eq!(
+            super::free_symbols(&constant_derivative.to_expr()),
+            Ok(BTreeSet::new())
+        );
+
+        // An operator variable may still refer to a genuine enclosing binder.
+        let nested_x = BinderNode::lambda(x, constant_derivative.to_expr());
+        let nested_y = BinderNode::lambda(
+            y.clone(),
+            BinderNode::derivative(y, Expr::from_i64(1)).to_expr(),
+        );
+        assert!(
+            nested_x
+                .is_alpha_equivalent(&nested_y)
+                .expect("bounded nested derivative")
+        );
+    }
+
+    #[test]
     fn absent_substitution_target_does_not_rename_nested_binders() {
         let expr = BinderNode::lambda(
             Symbol::new("x"),
@@ -1021,7 +1202,7 @@ mod tests {
     }
 
     #[test]
-    fn integral_and_derivative_binder_capture_avoidance() {
+    fn definite_integral_binder_capture_avoidance() {
         // Integral(x * y, x, a, b): x is bound, y, a, b are free
         let integral_expr = Expr::Function(
             "Integral".into(),
@@ -1046,25 +1227,59 @@ mod tests {
         let free_sub_int = free_symbols(&substituted_int);
         assert!(free_sub_int.contains(&Symbol::new("x")));
         assert!(!free_sub_int.contains(&Symbol::new("y")));
+    }
 
-        // Derivative(x * y, x): x is bound, y is free
-        let deriv_expr = Expr::Function(
-            "Derivative".into(),
-            vec![
-                Expr::Mul(vec![Expr::symbol("x"), Expr::symbol("y")]),
-                Expr::symbol("x"),
-            ],
+    #[test]
+    fn non_alpha_operator_substitution_fails_closed_on_capture() {
+        let derivative = BinderNode::derivative(
+            Symbol::new("x"),
+            Expr::Mul(vec![Expr::symbol("x"), Expr::symbol("y")]),
+        )
+        .to_expr();
+        let indefinite_integral = BinderNode::integral(
+            Symbol::new("x"),
+            Expr::Mul(vec![Expr::symbol("x"), Expr::symbol("y")]),
+        )
+        .to_expr();
+
+        assert_eq!(
+            super::capture_avoiding_subs(&derivative, &Symbol::new("y"), &Expr::symbol("x")),
+            Err(BindingError::NonAlphaRenamingRequired {
+                operator: "Derivative",
+            })
         );
-        let free_deriv = free_symbols(&deriv_expr);
-        assert!(!free_deriv.contains(&Symbol::new("x")));
-        assert!(free_deriv.contains(&Symbol::new("y")));
+        assert_eq!(
+            super::capture_avoiding_subs(
+                &indefinite_integral,
+                &Symbol::new("y"),
+                &Expr::symbol("x"),
+            ),
+            Err(BindingError::NonAlphaRenamingRequired {
+                operator: "Integral",
+            })
+        );
+        assert_eq!(
+            super::capture_avoiding_subs(
+                &indefinite_integral,
+                &Symbol::new("x"),
+                &Expr::symbol("z"),
+            ),
+            Err(BindingError::NonAlphaRenamingRequired {
+                operator: "Integral",
+            })
+        );
 
-        // Substitute y -> x into Derivative(x * y, x)
-        let substituted_deriv =
-            capture_avoiding_subs(&deriv_expr, &Symbol::new("y"), &Expr::symbol("x"));
-        let free_sub_deriv = free_symbols(&substituted_deriv);
-        assert!(free_sub_deriv.contains(&Symbol::new("x")));
-        assert!(!free_sub_deriv.contains(&Symbol::new("y")));
+        let safe_derivative =
+            super::capture_avoiding_subs(&derivative, &Symbol::new("y"), &Expr::symbol("z"))
+                .expect("replacement does not collide with the differentiation variable");
+        assert_eq!(
+            safe_derivative,
+            BinderNode::derivative(
+                Symbol::new("x"),
+                Expr::Mul(vec![Expr::symbol("x"), Expr::symbol("z")]),
+            )
+            .to_expr()
+        );
     }
 
     #[test]
@@ -1189,8 +1404,8 @@ mod tests {
         let parsed_deriv = BinderNode::try_from_expr(&deriv_expr).expect("valid derivative");
         assert_eq!(parsed_deriv, deriv1);
         assert_eq!(
-            parsed_deriv.free_symbols().expect("bounded binder").len(),
-            0
+            parsed_deriv.free_symbols().expect("bounded derivative"),
+            BTreeSet::from([x])
         );
     }
 

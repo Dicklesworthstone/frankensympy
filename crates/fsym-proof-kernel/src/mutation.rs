@@ -14,7 +14,7 @@ mod tests {
         derivation_verification_units, verify_derivation_independent,
     };
     use crate::rule::{ProofRule, StepId};
-    use fsym_assumptions::{AssumptionsContext, Domain, Predicate};
+    use fsym_assumptions::{AssumptionsContext, BinderNode, Domain, Predicate};
     use fsym_budget::{Budget, BudgetLimits, BudgetMeter, Dimension, MeterError, Unbounded};
     use fsym_core::{Constant, Expr, Symbol};
 
@@ -98,6 +98,29 @@ mod tests {
             err2,
             KernelError::InvalidStepReference(StepId(42))
         ));
+    }
+
+    #[test]
+    fn substitution_refuses_non_alpha_derivative_variable_renaming() {
+        let ctx = empty_context();
+        let mut kernel = ProofKernel::new(ctx);
+        let mut meter = Unbounded;
+
+        let x = Symbol::new("x");
+        let premise = kernel
+            .prove_reflexivity(Expr::Sym(x.clone()), &mut meter)
+            .expect("reflexivity premise");
+        let template = BinderNode::derivative(
+            x.clone(),
+            Expr::pow(Expr::Sym(x.clone()), Expr::from_i64(2)),
+        )
+        .to_expr();
+
+        let error = kernel
+            .prove_substitution(template, x, premise, &mut meter)
+            .unwrap_err();
+        assert!(matches!(error, KernelError::InvalidSubstitution(message)
+                if message.contains("non-alpha-equivalent variable rename")));
     }
 
     #[test]

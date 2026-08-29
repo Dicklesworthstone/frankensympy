@@ -3,7 +3,8 @@
 #![forbid(unsafe_code)]
 
 use fsym_calculus::diff;
-use fsym_core::{BigInt, BigRational, Expr, Symbol, parse};
+use fsym_core::{parse, BigInt, BigRational, Expr, Symbol};
+use fsym_functions::{cos as cos_expr, exp as exp_expr, log as log_expr, sin as sin_expr};
 use fsym_printing::{latex, pretty as render_pretty};
 use fsym_runtime::{Budget, BudgetLimits, FsymCx, RuntimeBudget};
 use fsym_simplify::{expand_with, simplify_with};
@@ -734,6 +735,30 @@ pub fn py_function(name: String, args: Vec<PyExpr>) -> PyResult<PyExpr> {
         name,
         args.into_iter().map(|arg| arg.inner).collect(),
     )))
+}
+
+/// Exact sine constructor, including the identity `sin(0) = 0`.
+#[pyfunction]
+pub fn py_sin(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(sin_expr(arg.inner))
+}
+
+/// Exact cosine constructor, including the identity `cos(0) = 1`.
+#[pyfunction]
+pub fn py_cos(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(cos_expr(arg.inner))
+}
+
+/// Exact exponential constructor, including the identity `exp(0) = 1`.
+#[pyfunction]
+pub fn py_exp(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(exp_expr(arg.inner))
+}
+
+/// Exact natural logarithm constructor, including `log(1) = 0`.
+#[pyfunction]
+pub fn py_log(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(log_expr(arg.inner))
 }
 
 /// Construct a Derivative expression representation.

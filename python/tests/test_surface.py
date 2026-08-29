@@ -304,6 +304,15 @@ class SurfaceTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             sympy.integrate(x, x, 0)
 
+    def test_elementary_functions_use_native_identity_folds(self):
+        x = sympy.Symbol("x")
+        self.assertEqual(sympy.sin(0), sympy.Integer(0))
+        self.assertEqual(sympy.cos(0), sympy.Integer(1))
+        self.assertEqual(sympy.exp(0), sympy.Integer(1))
+        self.assertEqual(sympy.log(1), sympy.Integer(0))
+        self.assertEqual(sympy.sin(x).func, sympy.Function("sin"))
+        self.assertEqual(sympy.sin(x).args, (x,))
+
 
 if __name__ == "__main__":
     unittest.main()

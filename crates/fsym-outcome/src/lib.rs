@@ -47,6 +47,30 @@ pub enum Discharge {
     No,
 }
 
+impl Discharge {
+    /// Registry identifier string. Mirrors the `as_str` pattern on
+    /// every other public enum in this crate.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Discharge::Yes => "yes",
+            Discharge::ClaimDependent => "claim_dependent",
+            Discharge::PolicyDependent => "policy_dependent",
+            Discharge::No => "no",
+        }
+    }
+
+    /// Parses a registry identifier. Unknown names fail closed.
+    pub fn parse(text: &str) -> Option<Self> {
+        Some(match text {
+            "yes" => Self::Yes,
+            "claim_dependent" => Self::ClaimDependent,
+            "policy_dependent" => Self::PolicyDependent,
+            "no" => Self::No,
+            _ => return None,
+        })
+    }
+}
+
 impl EvidenceClass {
     /// Registry identifier string.
     pub fn as_str(self) -> &'static str {
@@ -738,5 +762,20 @@ mod tests {
         }
         assert!(InternalFaultKind::parse("panic").is_none());
         assert!(InternalFaultKind::parse("").is_none());
+    }
+
+    #[test]
+    fn discharge_roundtrips_through_registry_identifier() {
+        let all = [
+            Discharge::Yes,
+            Discharge::ClaimDependent,
+            Discharge::PolicyDependent,
+            Discharge::No,
+        ];
+        for d in all.iter() {
+            assert_eq!(Discharge::parse(d.as_str()), Some(*d));
+        }
+        assert!(Discharge::parse("maybe").is_none());
+        assert!(Discharge::parse("").is_none());
     }
 }

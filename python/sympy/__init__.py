@@ -143,6 +143,22 @@ def factorint(value):
     return factors
 
 
+def sin(expression):
+    return _wrap(_native.py_sin(_native_expr(expression)))
+
+
+def cos(expression):
+    return _wrap(_native.py_cos(_native_expr(expression)))
+
+
+def exp(expression):
+    return _wrap(_native.py_exp(_native_expr(expression)))
+
+
+def log(expression):
+    return _wrap(_native.py_log(_native_expr(expression)))
+
+
 def totient(value):
     integer = _exact_integer_value(value)
     if integer is None:
@@ -181,6 +197,10 @@ __all__ = [
     "isprime",
     "factorint",
     "totient",
+    "sin",
+    "cos",
+    "exp",
+    "log",
     "pi",
     "E",
     "I",
