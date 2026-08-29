@@ -1157,6 +1157,13 @@ fn eval_real_ball(expr: &Expr) -> Result<RealBall, KernelError> {
                 Expr::Integer(n) => {
                     let one = BigRational::from_integer(BigInt::from(1));
                     if n >= &BigInt::from(0) && n <= &BigInt::from(128) {
+                        if n.is_zero() && base_ball.contains_zero() {
+                            return Err(KernelError::InvalidCertificateLemma {
+                                family: "RealBall".to_string(),
+                                reason: "zero exponent requires a base ball that excludes zero"
+                                    .to_string(),
+                            });
+                        }
                         let mut acc = RealBall::exact(one);
                         let mut count = BigInt::from(0);
                         while &count < n {

@@ -373,6 +373,47 @@ mod tests {
     }
 
     #[test]
+    fn mutant_real_ball_zero_to_zero_admission_killed() {
+        let ctx = empty_context();
+        let undefined = Expr::from_i64(0).pow(Expr::from_i64(0));
+        let forged_claim = Claim::non_zero(undefined);
+        let certificate = fsym_core::RealBall::from_i64(1);
+
+        let mut kernel = ProofKernel::new(ctx.clone());
+        let mut meter = Unbounded;
+        let online_error = kernel
+            .prove_certificate_lemma(
+                "RealBall",
+                forged_claim.clone(),
+                crate::rule::CertificatePayload::RealBall(certificate.clone()),
+                &mut meter,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            online_error,
+            KernelError::InvalidCertificateLemma { family, .. } if family == "RealBall"
+        ));
+
+        let derivation = DerivationTree {
+            steps: vec![DerivationStep {
+                id: StepId(0),
+                rule: ProofRule::CertificateLemma {
+                    family: "RealBall".to_string(),
+                    claim: forged_claim.clone(),
+                    certificate: crate::rule::CertificatePayload::RealBall(certificate),
+                },
+                claim: forged_claim,
+            }],
+            root: StepId(0),
+        };
+        let independent_error = verify_derivation_independent(&derivation, &ctx).unwrap_err();
+        assert!(matches!(
+            independent_error,
+            KernelError::InvalidCertificateLemma { family, .. } if family == "RealBall"
+        ));
+    }
+
+    #[test]
     fn mutant_broad_normal_form_claim_killed() {
         let ctx = empty_context();
         let mut kernel = ProofKernel::new(ctx);
