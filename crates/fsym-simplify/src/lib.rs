@@ -31,7 +31,7 @@ fn numeric_of(e: &Expr) -> Option<BigRational> {
     }
 }
 
-fn rational_expr(r: BigRational) -> Expr {
+pub(crate) fn rational_expr(r: BigRational) -> Expr {
     if r.is_integer() {
         Expr::Integer(r.to_integer())
     } else {
@@ -107,7 +107,7 @@ pub(crate) fn is_total_expr(expr: &Expr) -> bool {
 
 /// Split an additive term into `(coefficient, symbolic key)`, normalizing
 /// key factor order so `y*x` and `x*y` collect together.
-fn split_coeff(term: &Expr) -> (BigRational, Expr) {
+pub(crate) fn split_coeff(term: &Expr) -> (BigRational, Expr) {
     match term {
         Expr::Integer(n) => (BigRational::from_integer(n.clone()), Expr::from_i64(1)),
         Expr::Rational(r) => (r.clone(), Expr::from_i64(1)),
@@ -261,13 +261,23 @@ pub fn simplify(expr: &Expr) -> Expr {
 
 /// Simplify under a caller-owned budget/cancellation meter.
 pub fn simplify_with<M: BudgetMeter>(expr: &Expr, meter: &mut M) -> Result<Expr, SimplifyError> {
-    simplify_at(expr, 0, meter)
+    simplify_counting_folds(expr, meter).map(|(simplified, _)| simplified)
+}
+
+fn simplify_counting_folds<M: BudgetMeter>(
+    expr: &Expr,
+    m: &mut M,
+) -> Result<(Expr, u64), SimplifyError> {
+    let mut folds = 0u64;
+    let simplified = simplify_at(expr, 0, m, &mut folds)?;
+    Ok((simplified, folds))
 }
 
 fn simplify_at<M: BudgetMeter>(
     expr: &Expr,
     depth: usize,
     m: &mut M,
+    folds: &mut u64,
 ) -> Result<Expr, SimplifyError> {
     if depth > MAX_RECURSION_DEPTH {
         return Err(SimplifyError::DepthLimitExceeded(depth));
@@ -280,15 +290,25 @@ fn simplify_at<M: BudgetMeter>(
             check_fanout(terms.len())?;
             let mut simplified = Vec::with_capacity(terms.len());
             for t in terms {
-                simplified.push(simplify_at(t, depth + 1, m)?);
+                simplified.push(simplify_at(t, depth + 1, m, folds)?);
             }
-            Ok(collect_terms(simplified))
+            let collected = collect_terms(simplified);
+            let folded = match &collected {
+                Expr::Add(fold_terms) => {
+                    rewrite::fold_pythagorean_terms(fold_terms).map(|folded| {
+                        *folds += 1;
+                        collect_terms(folded)
+                    })
+                }
+                _ => None,
+            };
+            Ok(folded.unwrap_or(collected))
         }
         Expr::Mul(factors) => {
             check_fanout(factors.len())?;
             let mut simplified = Vec::with_capacity(factors.len());
             for f in factors {
-                simplified.push(simplify_at(f, depth + 1, m)?);
+                simplified.push(simplify_at(f, depth + 1, m, folds)?);
             }
             let mut coeff = BigRational::one();
             let mut rest: Vec<Expr> = Vec::new();
@@ -325,6 +345,7 @@ fn simplify_at<M: BudgetMeter>(
                     &Expr::Function("exp".to_string(), vec![sum_args]),
                     depth + 1,
                     m,
+                    folds,
                 )?;
                 if !simplified_exp.is_one() {
                     other_factors.push(simplified_exp);
@@ -356,7 +377,7 @@ fn simplify_at<M: BudgetMeter>(
                     parts.push(f);
                 } else {
                     let folded = Expr::Pow(Arc::new(f), Arc::new(Expr::from_i64(count as i64)));
-                    parts.push(simplify_at(&folded, depth + 1, m)?);
+                    parts.push(simplify_at(&folded, depth + 1, m, folds)?);
                 }
             }
             if parts.len() == 1 {
@@ -366,8 +387,8 @@ fn simplify_at<M: BudgetMeter>(
             }
         }
         Expr::Pow(base, exp) => {
-            let b = simplify_at(base, depth + 1, m)?;
-            let e = simplify_at(exp, depth + 1, m)?;
+            let b = simplify_at(base, depth + 1, m, folds)?;
+            let e = simplify_at(exp, depth + 1, m, folds)?;
             if e.is_zero() {
                 Ok(Expr::from_i64(1))
             } else if e.is_one() {
@@ -427,7 +448,7 @@ fn simplify_at<M: BudgetMeter>(
             check_fanout(args.len())?;
             let mut simplified_args = Vec::with_capacity(args.len());
             for a in args {
-                simplified_args.push(simplify_at(a, depth + 1, m)?);
+                simplified_args.push(simplify_at(a, depth + 1, m, folds)?);
             }
             if simplified_args.len() == 1 && simplified_args[0].is_zero() {
                 match name.as_str() {
@@ -457,7 +478,7 @@ pub fn verified_simplify<M: BudgetMeter>(
     receipt_id: ReceiptId,
     meter: &mut M,
 ) -> Result<(Expr, EvidenceEnvelope), SimplifyError> {
-    let simplified = simplify_with(expr, meter)?;
+    let (simplified, fold_count) = simplify_counting_folds(expr, meter)?;
     let claim = Claim::equality(expr.clone(), simplified.clone());
     let mut kernel = ProofKernel::new((**context).clone());
 
@@ -466,35 +487,42 @@ pub fn verified_simplify<M: BudgetMeter>(
             .prove_reflexivity(expr.clone(), meter)
             .map_err(|e| SimplifyError::ProofFailed(e.to_string()))?
     } else {
-        let rule_name = match expr {
-            Expr::Function(name, args)
-                if args.len() == 1
-                    && args[0].is_zero()
-                    && matches!(
-                        name.as_str(),
-                        "sin"
-                            | "cos"
-                            | "tan"
-                            | "sinh"
-                            | "cosh"
-                            | "tanh"
-                            | "exp"
-                            | "asin"
-                            | "atan"
-                            | "asinh"
-                            | "atanh"
-                    ) =>
-            {
-                "elementary_zero_eval"
+        let rule_name = if fold_count > 0 {
+            // Pythagorean pair cancellation is the only assumption-free
+            // identity reduction simplify_at performs beyond like-term
+            // collection, so its presence selects the dedicated kernel rule.
+            "pythagorean_identity"
+        } else {
+            match expr {
+                Expr::Function(name, args)
+                    if args.len() == 1
+                        && args[0].is_zero()
+                        && matches!(
+                            name.as_str(),
+                            "sin"
+                                | "cos"
+                                | "tan"
+                                | "sinh"
+                                | "cosh"
+                                | "tanh"
+                                | "exp"
+                                | "asin"
+                                | "atan"
+                                | "asinh"
+                                | "atanh"
+                        ) =>
+                {
+                    "elementary_zero_eval"
+                }
+                Expr::Function(name, args)
+                    if args.len() == 1
+                        && args[0].is_one()
+                        && matches!(name.as_str(), "acos" | "acosh" | "ln" | "log") =>
+                {
+                    "elementary_one_eval"
+                }
+                _ => "simplify_normal_form",
             }
-            Expr::Function(name, args)
-                if args.len() == 1
-                    && args[0].is_one()
-                    && matches!(name.as_str(), "acos" | "acosh" | "ln" | "log") =>
-            {
-                "elementary_one_eval"
-            }
-            _ => "simplify_normal_form",
         };
         kernel
             .prove_definitional_reduction(expr.clone(), simplified.clone(), rule_name, meter)
@@ -627,6 +655,8 @@ fn expand_at<M: BudgetMeter>(expr: &Expr, depth: usize, m: &mut M) -> Result<Exp
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fsym_assumptions::{AssumptionsContext, Predicate};
+    use fsym_core::Symbol;
     use fsym_proof_kernel::ProofRule;
 
     #[test]
@@ -956,5 +986,240 @@ mod tests {
             verified_simplify(&ln_one, &context, ReceiptId::new(12).unwrap(), &mut meter).unwrap();
         assert_eq!(res_ln, Expr::from_i64(0));
         assert!(env_ln.verify_integrity());
+    }
+    fn pythagorean_square(f: &str, u: &Expr) -> Expr {
+        Expr::Pow(
+            Arc::new(Expr::Function(f.to_string(), vec![u.clone()])),
+            Arc::new(Expr::from_i64(2)),
+        )
+    }
+
+    #[test]
+    fn simplify_folds_pythagorean_pairs() {
+        let x = Expr::symbol("x");
+        let y = Expr::symbol("y");
+        let coeff = |c: i64, t: Expr| Expr::Mul(vec![Expr::from_i64(c), t]);
+
+        // sin^2 + cos^2 -> 1
+        assert_eq!(
+            simplify(&Expr::Add(vec![
+                pythagorean_square("sin", &x),
+                pythagorean_square("cos", &x)
+            ])),
+            Expr::from_i64(1)
+        );
+        // scaled pair -> common coefficient
+        assert_eq!(
+            simplify(&Expr::Add(vec![
+                coeff(3, pythagorean_square("sin", &x)),
+                coeff(3, pythagorean_square("cos", &x))
+            ])),
+            Expr::from_i64(3)
+        );
+        // pair plus an existing constant
+        assert_eq!(
+            simplify(&Expr::Add(vec![
+                Expr::from_i64(1),
+                pythagorean_square("sin", &x),
+                pythagorean_square("cos", &x)
+            ])),
+            Expr::from_i64(2)
+        );
+        // pair inside a Mul child folds through recursion
+        assert_eq!(
+            simplify(&Expr::Mul(vec![
+                Expr::Add(vec![
+                    pythagorean_square("sin", &x),
+                    pythagorean_square("cos", &x)
+                ]),
+                y.clone()
+            ])),
+            y.clone()
+        );
+        // sec^2 - tan^2 -> 1
+        assert_eq!(
+            simplify(&Expr::Add(vec![
+                pythagorean_square("sec", &x),
+                coeff(-1, pythagorean_square("tan", &x))
+            ])),
+            Expr::from_i64(1)
+        );
+        // csc^2 - cot^2 -> 1
+        assert_eq!(
+            simplify(&Expr::Add(vec![
+                pythagorean_square("csc", &x),
+                coeff(-1, pythagorean_square("cot", &x))
+            ])),
+            Expr::from_i64(1)
+        );
+        // cosh^2 - sinh^2 -> 1
+        assert_eq!(
+            simplify(&Expr::Add(vec![
+                pythagorean_square("cosh", &x),
+                coeff(-1, pythagorean_square("sinh", &x))
+            ])),
+            Expr::from_i64(1)
+        );
+    }
+
+    #[test]
+    fn simplify_preserves_non_pythagorean_adds() {
+        let x = Expr::symbol("x");
+        let y = Expr::symbol("y");
+        let coeff = |c: i64, t: Expr| Expr::Mul(vec![Expr::from_i64(c), t]);
+
+        // Collection alone may reorder terms; a fold would change the term
+        // set, so compare order-insensitively.
+        let assert_same_terms = |expr: &Expr, expected_terms: &mut Vec<Expr>| {
+            let simplified = simplify(expr);
+            let mut actual = match simplified {
+                Expr::Add(terms) => terms,
+                other => vec![other],
+            };
+            actual.sort();
+            expected_terms.sort();
+            assert_eq!(actual, *expected_terms);
+        };
+
+        // unequal coefficients never fold
+        assert_same_terms(
+            &Expr::Add(vec![
+                coeff(3, pythagorean_square("sin", &x)),
+                coeff(2, pythagorean_square("cos", &x)),
+            ]),
+            &mut vec![
+                coeff(3, pythagorean_square("sin", &x)),
+                coeff(2, pythagorean_square("cos", &x)),
+            ],
+        );
+        // different arguments never fold
+        assert_same_terms(
+            &Expr::Add(vec![
+                pythagorean_square("sin", &x),
+                pythagorean_square("cos", &y),
+            ]),
+            &mut vec![pythagorean_square("sin", &x), pythagorean_square("cos", &y)],
+        );
+        // same-family wrong sign never folds
+        assert_same_terms(
+            &Expr::Add(vec![
+                pythagorean_square("sec", &x),
+                pythagorean_square("tan", &x),
+            ]),
+            &mut vec![pythagorean_square("sec", &x), pythagorean_square("tan", &x)],
+        );
+        // exponent other than exactly two never folds
+        assert_same_terms(
+            &Expr::Add(vec![
+                Expr::Pow(
+                    Arc::new(Expr::Function("sin".to_string(), vec![x.clone()])),
+                    Arc::new(Expr::from_i64(4)),
+                ),
+                pythagorean_square("cos", &x),
+            ]),
+            &mut vec![
+                Expr::Pow(
+                    Arc::new(Expr::Function("sin".to_string(), vec![x.clone()])),
+                    Arc::new(Expr::from_i64(4)),
+                ),
+                pythagorean_square("cos", &x),
+            ],
+        );
+    }
+
+    #[test]
+    fn verified_simplify_proves_pythagorean_folds_with_dedicated_rule() {
+        let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
+        let x = Expr::symbol("x");
+        let expr = Expr::Add(vec![
+            pythagorean_square("sin", &x),
+            pythagorean_square("cos", &x),
+        ]);
+
+        let (simplified, envelope) =
+            verified_simplify(&expr, &context, ReceiptId::new(30).unwrap(), &mut Unbounded)
+                .unwrap();
+        assert_eq!(simplified, Expr::from_i64(1));
+        assert_eq!(
+            verify_derivation_independent(envelope.derivation.as_ref().unwrap(), &context).unwrap(),
+            Claim::equality(expr, simplified)
+        );
+
+        // A nested fold behind a constant verifies end to end as well.
+        let nested = Expr::Add(vec![
+            Expr::from_i64(1),
+            pythagorean_square("sin", &x),
+            pythagorean_square("cos", &x),
+        ]);
+        let (simplified_nested, envelope_nested) = verified_simplify(
+            &nested,
+            &context,
+            ReceiptId::new(31).unwrap(),
+            &mut Unbounded,
+        )
+        .unwrap();
+        assert_eq!(simplified_nested, Expr::from_i64(2));
+        assert!(
+            verify_derivation_independent(envelope_nested.derivation.as_ref().unwrap(), &context)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn rewrite_catalog_carries_pythagorean_and_inverse_rules() {
+        let rules = standard_rules();
+        let empty = Arc::new(ImmutableAssumptionsSnapshot::empty());
+        let x = Expr::symbol("x");
+
+        // Root-level identity rule emits a typed DefinitionalReduction.
+        let (out, rule) = apply_step(
+            &Expr::Add(vec![
+                pythagorean_square("sin", &x),
+                pythagorean_square("cos", &x),
+            ]),
+            &rules,
+            &empty,
+        )
+        .unwrap();
+        assert_eq!(out, Expr::from_i64(1));
+        assert!(matches!(
+            rule,
+            ProofRule::DefinitionalReduction { ref rule_name, .. }
+                if rule_name == "pythagorean_identity"
+        ));
+
+        // exp(log(u)) folds only when u is provably Positive.
+        let log_x = Expr::Function("log".to_string(), vec![x.clone()]);
+        let exp_log_x = Expr::Function("exp".to_string(), vec![log_x]);
+        assert!(apply_step(&exp_log_x, &rules, &empty).is_none());
+
+        let mut positive_context = AssumptionsContext::new();
+        positive_context
+            .assume(Symbol::new("x"), Predicate::Positive)
+            .unwrap();
+        let positive = Arc::new(positive_context.snapshot());
+        let (out, _) = apply_step(&exp_log_x, &rules, &positive).unwrap();
+        assert_eq!(out, x);
+
+        // Literal positive arguments fold via inherent facts alone.
+        let exp_log_two = Expr::Function(
+            "exp".to_string(),
+            vec![Expr::Function("log".to_string(), vec![Expr::from_i64(2)])],
+        );
+        let (out, _) = apply_step(&exp_log_two, &rules, &empty).unwrap();
+        assert_eq!(out, Expr::from_i64(2));
+
+        // log(exp(u)) folds only when u is provably Real.
+        let exp_x = Expr::Function("exp".to_string(), vec![x.clone()]);
+        let log_exp_x = Expr::Function("ln".to_string(), vec![exp_x]);
+        assert!(apply_step(&log_exp_x, &rules, &empty).is_none());
+
+        let mut real_context = AssumptionsContext::new();
+        real_context
+            .assume(Symbol::new("x"), Predicate::Real)
+            .unwrap();
+        let real = Arc::new(real_context.snapshot());
+        let (out, _) = apply_step(&log_exp_x, &rules, &real).unwrap();
+        assert_eq!(out, x);
     }
 }

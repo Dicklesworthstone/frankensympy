@@ -1537,6 +1537,8 @@ fn check_definitional_reduction(
                 reason: "elementary_one_eval requires function of 1".to_string(),
             }),
         },
+        "pythagorean_identity" => check_pythagorean_identity(lhs, rhs, rule_name)
+            .map(|()| Claim::equality(lhs.clone(), rhs.clone())),
         "simplify_normal_form" => check_polynomial_normal_form(lhs, rhs, rule_name)
             .map(|()| Claim::equality(lhs.clone(), rhs.clone())),
         "polynomial_ring_equivalence" => {
@@ -1791,6 +1793,233 @@ fn check_polynomial_normal_form(
             rule_name: rule_name.to_string(),
             reason: "independent bounded polynomial normal forms differ".to_string(),
         })
+    }
+}
+
+/// Validates `pythagorean_identity` reductions: after cancelling exact
+/// Pythagorean identity pairs, lhs and rhs must agree as bounded polynomials
+/// whose atom basis additionally admits named function applications.
+///
+/// This is an independent re-derivation inside the verifier crate: it shares
+/// no folding logic with fsym-simplify and re-checks the claim from the raw
+/// lhs/rhs pair, mirroring the bounded reference-lane pattern used by the
+/// characteristic-polynomial validator.
+fn check_pythagorean_identity(lhs: &Expr, rhs: &Expr, rule_name: &str) -> Result<(), KernelError> {
+    let mut lhs_normal = normalize_function_polynomial(lhs).map_err(|reason| {
+        KernelError::InvalidDefinitionalReduction {
+            rule_name: rule_name.to_string(),
+            reason: format!("LHS normalization refused: {reason}"),
+        }
+    })?;
+    let rhs_normal = normalize_function_polynomial(rhs).map_err(|reason| {
+        KernelError::InvalidDefinitionalReduction {
+            rule_name: rule_name.to_string(),
+            reason: format!("RHS normalization refused: {reason}"),
+        }
+    })?;
+    cancel_pythagorean_pairs(&mut lhs_normal);
+    if lhs_normal == rhs_normal {
+        Ok(())
+    } else {
+        Err(KernelError::InvalidDefinitionalReduction {
+            rule_name: rule_name.to_string(),
+            reason: "pythagorean cancellation does not establish equality".to_string(),
+        })
+    }
+}
+
+/// Kernel-local Pythagorean family table (independent of fsym-simplify).
+///
+/// Family 0 satisfies `sin^2 + cos^2 = 1`; families 1, 2, and 3 satisfy
+/// `sec^2 - tan^2 = 1`, `csc^2 - cot^2 = 1`, and `cosh^2 - sinh^2 = 1`.
+fn pythagorean_slot(name: &str) -> Option<(u8, u8)> {
+    match name {
+        "sin" => Some((0, 0)),
+        "cos" => Some((0, 1)),
+        "sec" => Some((1, 0)),
+        "tan" => Some((1, 1)),
+        "csc" => Some((2, 0)),
+        "cot" => Some((2, 1)),
+        "cosh" => Some((3, 0)),
+        "sinh" => Some((3, 1)),
+        _ => None,
+    }
+}
+
+/// Whether coefficients `a` and `b` complete one identity cancellation for
+/// `family`.
+fn pythagorean_coefficients_cancel(family: u8, a: &BigRational, b: &BigRational) -> bool {
+    if family == 0 {
+        a == b
+    } else {
+        // `a == -b`, expressed additively to stay on the exact substrate.
+        let mut sum = a.clone();
+        sum += b.clone();
+        sum == rational_zero()
+    }
+}
+
+/// Cancellation candidate slots keyed by
+/// `(family, argument, residual monomial)`; `None` marks an ambiguous
+/// duplicate shape that must never cancel.
+type PythagoreanSlots =
+    BTreeMap<(u8, Expr, Monomial), Option<[Option<(BigRational, Monomial)>; 2]>>;
+
+/// Cancels completed Pythagorean pairs inside a normalized polynomial.
+///
+/// A pair is two monomials `(f(u), 2) ++ rest` and `(g(u), 2) ++ rest` with
+/// the same argument `u` and identical residual monomial `rest`, where
+/// `(f, g)` is a Pythagorean family and the monomial coefficients satisfy
+/// the family condition. Both monomials are removed and the common
+/// coefficient is merged into `rest` (or the constant term when `rest` is
+/// empty). A monomial that presents conflicting duplicate slots for one
+/// `(family, argument, rest)` key invalidates that key instead of folding.
+///
+/// Single pass by design: cancellation results are never re-cascaded, so
+/// exotic multi-family interleavings fail closed rather than fold.
+fn cancel_pythagorean_pairs(poly: &mut Polynomial) {
+    use std::collections::btree_map::Entry;
+
+    let mut slots = PythagoreanSlots::new();
+    for (monomial, coeff) in poly.iter() {
+        for (position, (atom, exponent)) in monomial.iter().enumerate() {
+            if *exponent != 2 {
+                continue;
+            }
+            let Expr::Function(name, args) = atom else {
+                continue;
+            };
+            if args.len() != 1 {
+                continue;
+            }
+            let Some((family, slot)) = pythagorean_slot(name) else {
+                continue;
+            };
+            let mut rest = monomial.clone();
+            rest.remove(position);
+            match slots.entry((family, args[0].clone(), rest)) {
+                Entry::Vacant(vacant) => {
+                    let mut pair: [Option<(BigRational, Monomial)>; 2] = [None, None];
+                    pair[slot as usize] = Some((coeff.clone(), monomial.clone()));
+                    vacant.insert(Some(pair));
+                }
+                Entry::Occupied(mut occupied) => {
+                    let conflict = matches!(
+                        occupied.get(),
+                        Some(pair) if pair[slot as usize].is_some()
+                    );
+                    if conflict {
+                        occupied.insert(None);
+                    } else if let Some(pair) = occupied.get_mut() {
+                        pair[slot as usize] = Some((coeff.clone(), monomial.clone()));
+                    }
+                }
+            }
+        }
+    }
+
+    let mut folded = false;
+    let mut removals: Vec<Monomial> = Vec::new();
+    let mut additions: Vec<(Monomial, BigRational)> = Vec::new();
+    for ((family, _argument, rest), pair) in &slots {
+        let Some(pair) = pair else { continue };
+        let (Some((a_coeff, a_monomial)), Some((b_coeff, b_monomial))) = (&pair[0], &pair[1])
+        else {
+            continue;
+        };
+        if pythagorean_coefficients_cancel(*family, a_coeff, b_coeff) {
+            removals.push(a_monomial.clone());
+            removals.push(b_monomial.clone());
+            additions.push((rest.clone(), a_coeff.clone()));
+            folded = true;
+        }
+    }
+    if !folded {
+        return;
+    }
+    for monomial in removals {
+        poly.remove(&monomial);
+    }
+    for (rest, coeff) in additions {
+        let entry = poly.entry(rest).or_insert_with(rational_zero);
+        *entry += coeff;
+    }
+    poly.retain(|_, value| *value != rational_zero());
+}
+
+/// Bounded polynomial normalization admitting named function applications
+/// (and Pi/E/I constants) as opaque atoms. Mirrors
+/// `normalize_polynomial_inner` semantics and bounds; only the atom rule
+/// differs, so hostile atom payloads stay bounded by the same node budget.
+fn normalize_function_polynomial(expr: &Expr) -> Result<Polynomial, String> {
+    normalize_function_polynomial_inner(expr, 0, &mut NormalizationBudget::new())
+}
+
+fn normalize_function_polynomial_inner(
+    expr: &Expr,
+    depth: usize,
+    budget: &mut NormalizationBudget,
+) -> Result<Polynomial, String> {
+    budget.visit(depth)?;
+    match expr {
+        Expr::Integer(value) => {
+            let coefficient = BigRational::from_integer(value.clone());
+            if coefficient_is_bounded(&coefficient) {
+                Ok(constant_polynomial(coefficient))
+            } else {
+                Err("normal-form coefficient bound exceeded".to_string())
+            }
+        }
+        Expr::Rational(value) => {
+            if coefficient_is_bounded(value) {
+                Ok(constant_polynomial(value.clone()))
+            } else {
+                Err("normal-form coefficient bound exceeded".to_string())
+            }
+        }
+        Expr::Add(terms) => {
+            let mut sum = Polynomial::new();
+            for term in terms {
+                sum = add_polynomials(
+                    sum,
+                    normalize_function_polynomial_inner(term, depth + 1, budget)?,
+                )?;
+            }
+            Ok(sum)
+        }
+        Expr::Mul(factors) => {
+            let mut product = constant_polynomial(rational_one());
+            for factor in factors {
+                product = multiply_polynomials(
+                    &product,
+                    &normalize_function_polynomial_inner(factor, depth + 1, budget)?,
+                )?;
+            }
+            Ok(product)
+        }
+        Expr::Pow(base, exponent) => {
+            if let Expr::Integer(integer_exponent) = exponent.as_ref()
+                && let Some(exponent) = integer_exponent.to_u64()
+                && exponent <= u64::from(MAX_NORMAL_FORM_EXPONENT)
+            {
+                return pow_polynomial(
+                    normalize_function_polynomial_inner(base, depth + 1, budget)?,
+                    u32::try_from(exponent).map_err(|_| {
+                        "bounded polynomial exponent failed u32 conversion".to_string()
+                    })?,
+                );
+            }
+            Err(
+                "only bounded non-negative integer powers belong to the polynomial fragment"
+                    .to_string(),
+            )
+        }
+        Expr::Sym(_)
+        | Expr::Const(Constant::Pi | Constant::E | Constant::I)
+        | Expr::Function(_, _) => Ok(atomic_polynomial(expr.clone())),
+        Expr::Const(_) => Err(
+            "non-finite or indeterminate constants are outside the polynomial fragment".to_string(),
+        ),
     }
 }
 

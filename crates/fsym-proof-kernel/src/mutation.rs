@@ -807,4 +807,172 @@ mod tests {
 
         assert_eq!(claim, Claim::equality(expected_lhs, expected_rhs));
     }
+    #[test]
+    fn pythagorean_identity_proves_folded_pairs_and_kills_mutants() {
+        let ctx = empty_context();
+        let sq = |f: &str, u: &Expr| {
+            Expr::Pow(
+                std::sync::Arc::new(Expr::Function(f.to_string(), vec![u.clone()])),
+                std::sync::Arc::new(Expr::from_i64(2)),
+            )
+        };
+        let coeff = |c: i64, t: Expr| Expr::Mul(vec![Expr::from_i64(c), t]);
+        let x = Expr::symbol("x");
+        let y = Expr::symbol("y");
+
+        let accepted = [
+            // sin^2(x) + cos^2(x) => 1
+            (
+                Expr::Add(vec![sq("sin", &x), sq("cos", &x)]),
+                Expr::from_i64(1),
+            ),
+            // scaled exact pair
+            (
+                Expr::Add(vec![coeff(3, sq("sin", &x)), coeff(3, sq("cos", &x))]),
+                Expr::from_i64(3),
+            ),
+            // multiplicative residual monomial survives cancellation
+            (
+                Expr::Add(vec![
+                    coeff(2, Expr::Mul(vec![y.clone(), sq("sin", &x)])),
+                    coeff(2, Expr::Mul(vec![y.clone(), sq("cos", &x)])),
+                ]),
+                Expr::Mul(vec![Expr::from_i64(2), y.clone()]),
+            ),
+            // hyperbolic opposite-sign pair
+            (
+                Expr::Add(vec![sq("cosh", &x), coeff(-1, sq("sinh", &x))]),
+                Expr::from_i64(1),
+            ),
+            // sec/tan opposite-sign pair
+            (
+                Expr::Add(vec![sq("sec", &x), coeff(-1, sq("tan", &x))]),
+                Expr::from_i64(1),
+            ),
+        ];
+        for (lhs, rhs) in accepted {
+            let mut kernel = ProofKernel::new(ctx.clone());
+            let step = kernel
+                .prove_definitional_reduction(
+                    lhs.clone(),
+                    rhs.clone(),
+                    "pythagorean_identity",
+                    &mut Unbounded,
+                )
+                .unwrap();
+            let derivation = kernel.export_derivation(step).unwrap();
+            assert_eq!(
+                verify_derivation_independent(&derivation, &ctx).unwrap(),
+                Claim::equality(lhs, rhs)
+            );
+        }
+
+        // Weakening mutants must be killed.
+        let rejected = [
+            // unequal coefficients do not satisfy the family condition
+            (
+                Expr::Add(vec![coeff(3, sq("sin", &x)), coeff(2, sq("cos", &x))]),
+                Expr::from_i64(3),
+            ),
+            // different arguments never pair
+            (
+                Expr::Add(vec![sq("sin", &x), sq("cos", &y)]),
+                Expr::from_i64(1),
+            ),
+            // sec^2 + tan^2 is not the sec^2 - tan^2 identity
+            (
+                Expr::Add(vec![sq("sec", &x), sq("tan", &x)]),
+                Expr::from_i64(1),
+            ),
+            // incomplete pair
+            (
+                Expr::Add(vec![sq("sin", &x), sq("sin", &y)]),
+                Expr::from_i64(1),
+            ),
+            // rhs value mismatch
+            (
+                Expr::Add(vec![sq("sin", &x), sq("cos", &x)]),
+                Expr::from_i64(2),
+            ),
+        ];
+        for (lhs, rhs) in rejected {
+            let mut kernel = ProofKernel::new(ctx.clone());
+            let error = kernel
+                .prove_definitional_reduction(lhs, rhs, "pythagorean_identity", &mut Unbounded)
+                .unwrap_err();
+            assert!(matches!(
+                error,
+                KernelError::InvalidDefinitionalReduction { .. }
+            ));
+        }
+    }
+
+    #[test]
+    fn pythagorean_identity_treats_other_functions_as_opaque_atoms() {
+        let ctx = empty_context();
+        let mut kernel = ProofKernel::new(ctx.clone());
+        let w = Expr::symbol("w");
+        let z = Expr::symbol("z");
+        let sq = |f: &str, u: &Expr| {
+            Expr::Pow(
+                std::sync::Arc::new(Expr::Function(f.to_string(), vec![u.clone()])),
+                std::sync::Arc::new(Expr::from_i64(2)),
+            )
+        };
+
+        // Non-participating function atoms stay opaque but do not block the fold.
+        let lhs = Expr::Add(vec![
+            Expr::Function("log".to_string(), vec![w.clone()]),
+            sq("sin", &z),
+            sq("cos", &z),
+        ]);
+        let rhs = Expr::Add(vec![
+            Expr::Function("log".to_string(), vec![w]),
+            Expr::from_i64(1),
+        ]);
+        let step = kernel
+            .prove_definitional_reduction(
+                lhs.clone(),
+                rhs.clone(),
+                "pythagorean_identity",
+                &mut Unbounded,
+            )
+            .unwrap();
+        let derivation = kernel.export_derivation(step).unwrap();
+        assert_eq!(
+            verify_derivation_independent(&derivation, &ctx).unwrap(),
+            Claim::equality(lhs, rhs)
+        );
+    }
+
+    #[test]
+    fn pythagorean_identity_refuses_non_polynomial_fragment_inputs() {
+        let ctx = empty_context();
+        let mut kernel = ProofKernel::new(ctx);
+        let x = Expr::symbol("x");
+        let sq = |f: &str, u: &Expr| {
+            Expr::Pow(
+                std::sync::Arc::new(Expr::Function(f.to_string(), vec![u.clone()])),
+                std::sync::Arc::new(Expr::from_i64(2)),
+            )
+        };
+
+        let lhs = Expr::Add(vec![
+            sq("sin", &x),
+            sq("cos", &x),
+            Expr::Const(Constant::Infinity),
+        ]);
+        let error = kernel
+            .prove_definitional_reduction(
+                lhs,
+                Expr::from_i64(1),
+                "pythagorean_identity",
+                &mut Unbounded,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            KernelError::InvalidDefinitionalReduction { .. }
+        ));
+    }
 }
