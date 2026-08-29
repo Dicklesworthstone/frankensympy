@@ -785,6 +785,31 @@ def weakened_variants(envelopes: list[dict]) -> dict[str, list[dict]]:
             break
     variants["hash-swapped"] = hash_swapped
 
+    pickle_swapped = copy.deepcopy(envelopes)
+    pickle_mutated = False
+    for envelope in pickle_swapped:
+        blob = envelope.get("observations", {}).get("pickle_v4")
+        if isinstance(blob, dict) and "sha256" in blob:
+            old = blob["sha256"]
+            blob["sha256"] = "a" * 64
+            if blob["sha256"] == old:
+                blob["sha256"] = "b" * 64
+            pickle_mutated = True
+            break
+    if pickle_mutated:
+        variants["pickle-digest-swapped"] = pickle_swapped
+
+    held_collapsed = copy.deepcopy(envelopes)
+    held_mutated = False
+    for envelope in held_collapsed:
+        observations = envelope.get("observations", {})
+        if envelope.get("outcome_class") == "returned" and "args_repr" in observations:
+            observations["args_repr"] = ["HELD_FORM_COLLAPSE"]
+            held_mutated = True
+            break
+    if held_mutated:
+        variants["held-form-args-collapsed"] = held_collapsed
+
     variants["dropped-field"] = [
         {k: v for k, v in e.items() if k != "environment"} for e in envelopes
     ]
@@ -887,6 +912,28 @@ def cmd_self_test(profile: dict, py: str) -> int:
         return fail("exact_surface accepted printer drift")
     if compare_construction_only(golden_first, drifted):
         return fail("construction_only rejected pure printer drift")
+    pickle_only = copy.deepcopy(fresh)
+    for envelope in pickle_only:
+        blob = envelope.get("observations", {}).get("pickle_v4")
+        if isinstance(blob, dict) and "sha256" in blob:
+            blob["sha256"] = "c" * 64
+            break
+    else:
+        return fail("pickle mutant needs a returned pickle_v4 digest")
+    if not compare(golden_first, pickle_only):
+        return fail("exact_surface accepted pickle digest drift")
+    if compare_construction_only(golden_first, pickle_only):
+        return fail("construction_only rejected pickle-only drift")
+    held_only = copy.deepcopy(fresh)
+    for envelope in held_only:
+        observations = envelope.get("observations", {})
+        if envelope.get("outcome_class") == "returned" and "args_repr" in observations:
+            observations["args_repr"] = ["HELD_FORM_COLLAPSE"]
+            break
+    else:
+        return fail("held-form mutant needs a returned args_repr observation")
+    if not compare_construction_only(golden_first, held_only):
+        return fail("construction_only accepted held-form args_repr drift")
     identity_drift = copy.deepcopy(drifted)
     identity_drift[0]["observations"]["type"] = "WrongType"
     if not compare_construction_only(golden_first, identity_drift):
@@ -1002,8 +1049,11 @@ def cmd_self_test(profile: dict, py: str) -> int:
                 "hash_mutant_preserves_envelope_count": True,
                 "registry_matches_profile_manifest": True,
                 "construction_only_semantics": (
-                    "accepts printer drift, rejects returned and exception identity drift"
+                    "accepts printer and pickle drift, rejects held-form args and identity drift"
                 ),
+                "exact_surface_rejects_pickle_digest_drift": True,
+                "construction_only_accepts_pickle_only_drift": True,
+                "construction_only_rejects_held_form_args_drift": True,
                 "mutants_checked": checked_files,
                 "mutants_rejected": rejected,
                 "oracle_candidate_isolation": True,

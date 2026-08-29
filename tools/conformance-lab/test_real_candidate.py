@@ -15,8 +15,13 @@ from capture import (  # noqa: E402
     capture_candidate_file,
     classify_construction_diff,
     cmd_diff,
+    compare,
+    compare_construction_only,
+    load_goldens,
     load_profile,
+    weakened_variants,
 )
+from extension import find_fsym_python_extension  # noqa: E402
 
 LAB = Path(__file__).resolve().parent
 PROFILE_PATH = LAB / "profiles" / "sympy-1.14.0-cpython.toml"
@@ -24,22 +29,7 @@ CORE = LAB / "fixtures" / "seed_core_atoms.json"
 
 
 def _extension_available() -> bool:
-    import os
-
-    names = ("fsym_python.so", "libfsym_python.so")
-    dirs = []
-    explicit = os.environ.get("FSYM_PYTHON_EXT_DIR")
-    if explicit:
-        dirs.append(Path(explicit))
-    cargo = os.environ.get("CARGO_TARGET_DIR")
-    if cargo:
-        dirs.append(Path(cargo) / "debug")
-        dirs.append(Path(cargo) / "release")
-    for directory in dirs:
-        for name in names:
-            if (directory / name).is_file():
-                return True
-    return False
+    return find_fsym_python_extension() is not None
 
 
 class RealCandidateTests(unittest.TestCase):
@@ -60,11 +50,8 @@ class RealCandidateTests(unittest.TestCase):
         ]
         self.assertEqual(refused, [])
         symbol = by_id["core/symbol/x_positive"]
-        if symbol["outcome_class"] == "returned":
-            self.assertEqual(symbol["observations"]["type"], "Symbol")
-        else:
-            self.assertEqual(symbol["outcome_class"], "raised")
-            self.assertEqual(symbol["observations"]["exception_type"], "NotImplementedError")
+        self.assertEqual(symbol["outcome_class"], "returned")
+        self.assertEqual(symbol["observations"]["type"], "Symbol")
 
     def test_construction_only_admits_integer_identity_without_promoting_claims(self) -> None:
         if not _extension_available():
@@ -84,25 +71,25 @@ class RealCandidateTests(unittest.TestCase):
         for fixture_id in (
             "core/integer/42",
             "core/rational/22_7",
+            "core/symbol/x_positive",
             "core/add/x_plus_y",
-            "core/add/collapse_duplicates",
-            "core/mul/three_x_sq",
             "held/mul_two_k",
             "held/add_noncanonical_order",
             "adversarial/integer/from_float_string",
         ):
             self.assertIn(fixture_id, admitted)
+        self.assertNotIn("core/add/collapse_duplicates", admitted)
+        self.assertNotIn("core/mul/three_x_sq", admitted)
         by_id = {row["fixture_id"]: row for row in summary["details"]}
+        collapse = by_id["core/add/collapse_duplicates"]
+        self.assertEqual(collapse["kind"], "surface_identity_drift")
+        self.assertEqual(collapse["difference_paths"], ["observations.args_repr"])
+        mul = by_id["core/mul/three_x_sq"]
+        self.assertEqual(mul["kind"], "surface_identity_drift")
+        self.assertEqual(mul["difference_paths"], ["observations.args_repr"])
         zero = by_id["subclass/ConstitutiveLawZero_zero_collapse"]
         self.assertEqual(zero["kind"], "type_drift")
         self.assertIn("observations.type", zero["difference_paths"])
-        if "core/symbol/x_positive" not in admitted:
-            symbol = by_id["core/symbol/x_positive"]
-            self.assertEqual(symbol["kind"], "outcome_mismatch")
-            self.assertEqual(
-                symbol["outcome_classes"],
-                {"oracle": "returned", "candidate": "raised"},
-            )
 
     def test_real_diff_persists_ledger_without_promoting_claims(self) -> None:
         if not _extension_available():
@@ -129,6 +116,17 @@ class RealCandidateTests(unittest.TestCase):
             self.assertEqual(first["status"], "open")
             self.assertEqual(summary["claims_promoted"], False)
 
+    def test_two_candidate_subprocesses_match(self) -> None:
+        if not _extension_available():
+            self.skipTest("fsym_python cdylib not on CARGO_TARGET_DIR/FSYM_PYTHON_EXT_DIR")
+        profile = load_profile(PROFILE_PATH)
+        first = capture_candidate_file(profile, CORE, sys.executable, broken=False)
+        second = capture_candidate_file(profile, CORE, sys.executable, broken=False)
+        self.assertEqual(
+            json.dumps(first, sort_keys=True),
+            json.dumps(second, sort_keys=True),
+        )
+
 
 class ConstructionDiffClassifyTests(unittest.TestCase):
     def test_kinds_do_not_collapse_type_into_module_drift(self) -> None:
@@ -150,6 +148,23 @@ class ConstructionDiffClassifyTests(unittest.TestCase):
             ),
             "outcome_mismatch",
         )
+
+
+class ComparatorFieldContractTests(unittest.TestCase):
+    def setUp(self) -> None:
+        profile = load_profile(PROFILE_PATH)
+        goldens = load_goldens(profile)
+        self.golden = goldens[next(iter(goldens))]
+        self.variants = weakened_variants(self.golden)
+
+    def test_pickle_digest_is_outside_construction_only(self) -> None:
+        mutated = self.variants["pickle-digest-swapped"]
+        self.assertTrue(compare(self.golden, mutated))
+        self.assertFalse(compare_construction_only(self.golden, mutated))
+
+    def test_held_form_args_are_inside_construction_only(self) -> None:
+        mutated = self.variants["held-form-args-collapsed"]
+        self.assertTrue(compare_construction_only(self.golden, mutated))
 
 
 if __name__ == "__main__":

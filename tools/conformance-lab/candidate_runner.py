@@ -52,6 +52,17 @@ if os.environ.get("PYTHONHASHSEED") != PROFILE_ENV["PYTHONHASHSEED"]:
     sys.exit(2)
 
 
+def _find_fsym_python_extension():
+    # python -P omits the script directory from sys.path, so load by file.
+    path = Path(__file__).resolve().parent / "extension.py"
+    spec = importlib.util.spec_from_file_location("_fsym_lab_extension", path)
+    if spec is None or spec.loader is None:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.find_fsym_python_extension()
+
+
 def candidate_root() -> Path:
     env = os.environ.get("FSYM_CANDIDATE_ROOT")
     if env:
@@ -125,18 +136,6 @@ def _assert_candidate_sympy(sympy_mod) -> str | None:
     return None
 
 
-def extension_search_dirs() -> list[Path]:
-    dirs: list[Path] = []
-    explicit = os.environ.get("FSYM_PYTHON_EXT_DIR")
-    if explicit:
-        dirs.append(Path(explicit))
-    cargo = os.environ.get("CARGO_TARGET_DIR")
-    if cargo:
-        dirs.append(Path(cargo) / "debug")
-        dirs.append(Path(cargo) / "release")
-    return dirs
-
-
 def preload_fsym_python() -> str | None:
     """Load a cargo-built cdylib as fsym_python before importing the shell.
 
@@ -146,23 +145,17 @@ def preload_fsym_python() -> str | None:
     """
     if "fsym_python" in sys.modules:
         return None
-    names = ("fsym_python.so", "libfsym_python.so", "fsym_python.pyd", "libfsym_python.dylib")
-    for directory in extension_search_dirs():
-        for name in names:
-            so = directory / name
-            if not so.is_file():
-                continue
-            loader = importlib.machinery.ExtensionFileLoader(
-                "fsym_python", str(so.resolve())
-            )
-            spec = importlib.util.spec_from_loader("fsym_python", loader)
-            if spec is None or spec.loader is None:
-                continue
-            module = importlib.util.module_from_spec(spec)
-            sys.modules["fsym_python"] = module
-            spec.loader.exec_module(module)
-            return str(so.resolve())
-    return None
+    so = _find_fsym_python_extension()
+    if so is None:
+        return None
+    loader = importlib.machinery.ExtensionFileLoader("fsym_python", str(so))
+    spec = importlib.util.spec_from_loader("fsym_python", loader)
+    if spec is None or spec.loader is None:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["fsym_python"] = module
+    spec.loader.exec_module(module)
+    return str(so)
 
 
 def import_candidate_sympy():
