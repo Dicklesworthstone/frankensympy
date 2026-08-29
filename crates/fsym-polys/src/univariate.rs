@@ -513,6 +513,57 @@ impl UnivariatePoly {
         Ok(sum)
     }
 
+    /// Returns the monic associate of the polynomial (divided by leading coefficient).
+    ///
+    /// If the polynomial is zero, returns an error.
+    pub fn make_monic(&self) -> Result<Self, PolyError> {
+        self.validate_shape()?;
+        if self.is_zero() {
+            return Err(PolyError::DivisionByZero);
+        }
+        let lc = self.leading_coeff();
+        if lc.is_one() {
+            return Ok(self.clone());
+        }
+        let new_coeffs = self.coeffs.iter().map(|c| c / lc).collect();
+        Ok(Self::new(self.gen_sym.clone(), new_coeffs))
+    }
+
+    /// Computes polynomial scaling $P(c \cdot x)$, multiplying the $k$-th coefficient by $c^k$.
+    pub fn scale_x(&self, c: &BigRational) -> Result<Self, PolyError> {
+        self.validate_shape()?;
+        if self.is_zero() || c.is_one() {
+            return Ok(self.clone());
+        }
+        let mut new_coeffs = Vec::with_capacity(self.coeffs.len());
+        let mut cur_scale = BigRational::one();
+        for coeff in &self.coeffs {
+            new_coeffs.push(coeff * &cur_scale);
+            cur_scale = &cur_scale * c;
+        }
+        Ok(Self::new(self.gen_sym.clone(), new_coeffs))
+    }
+
+    /// Computes the reversed (reciprocal) polynomial $x^{\deg(P)} P(1/x)$.
+    pub fn reverse(&self) -> Self {
+        if self.is_zero() {
+            return self.clone();
+        }
+        let mut rev = self.coeffs.clone();
+        rev.reverse();
+        Self::new(self.gen_sym.clone(), rev)
+    }
+
+    /// Computes the shifted polynomial $P(x + a)$.
+    pub fn shift(&self, a: &BigRational) -> Result<Self, PolyError> {
+        self.validate_shape()?;
+        if a.is_zero() || self.is_zero() {
+            return Ok(self.clone());
+        }
+        let inner = Self::new(self.gen_sym.clone(), vec![a.clone(), BigRational::one()]);
+        self.compose(&inner)
+    }
+
     /// Polynomial division with remainder: `self = quotient * divisor + remainder`.
     pub fn div_rem(&self, divisor: &Self) -> Result<(Self, Self), PolyError> {
         self.validate_shape()?;

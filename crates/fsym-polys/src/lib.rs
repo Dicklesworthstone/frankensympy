@@ -1462,4 +1462,64 @@ mod tests {
             Err(PolyError::General(message)) if message.contains("input scalar")
         ));
     }
+
+    #[test]
+    fn test_univariate_make_monic_scale_reverse_shift() {
+        let x = Symbol::new("x");
+        // P(x) = 6*x^2 + 4*x + 2
+        let p = UnivariatePoly::new(
+            x.clone(),
+            vec![
+                BigRational::from_integer(2.into()),
+                BigRational::from_integer(4.into()),
+                BigRational::from_integer(6.into()),
+            ],
+        );
+
+        // Monic: x^2 + (2/3)*x + (1/3)
+        let monic = p.make_monic().unwrap();
+        assert!(monic.is_monic());
+        assert_eq!(
+            monic.coeffs,
+            vec![
+                BigRational::new(1.into(), 3.into()),
+                BigRational::new(2.into(), 3.into()),
+                BigRational::one(),
+            ]
+        );
+
+        // Scale x by 2: P(2x) = 6*(2x)^2 + 4*(2x) + 2 = 24*x^2 + 8*x + 2
+        let scaled = p.scale_x(&BigRational::from_integer(2.into())).unwrap();
+        assert_eq!(
+            scaled.coeffs,
+            vec![
+                BigRational::from_integer(2.into()),
+                BigRational::from_integer(8.into()),
+                BigRational::from_integer(24.into()),
+            ]
+        );
+
+        // Reverse: 2*x^2 + 4*x + 6
+        let rev = p.reverse();
+        assert_eq!(
+            rev.coeffs,
+            vec![
+                BigRational::from_integer(6.into()),
+                BigRational::from_integer(4.into()),
+                BigRational::from_integer(2.into()),
+            ]
+        );
+
+        // Shift x by 1: P(x + 1) = 6*(x+1)^2 + 4*(x+1) + 2
+        // = 6*(x^2 + 2x + 1) + 4x + 4 + 2 = 6x^2 + 16x + 12
+        let shifted = p.shift(&BigRational::one()).unwrap();
+        assert_eq!(
+            shifted.coeffs,
+            vec![
+                BigRational::from_integer(12.into()),
+                BigRational::from_integer(16.into()),
+                BigRational::from_integer(6.into()),
+            ]
+        );
+    }
 }
