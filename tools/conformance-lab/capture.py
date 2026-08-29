@@ -44,6 +44,10 @@ drift-observation lane only: it never writes goldens, never promotes claims,
 and `--certify` is refused. Zero discrepancies still do not certify the
 profile.
 
+`warnings` compares warning-*class* identity (module + name) captured during
+fixture construction on the oracle and candidate. It is not a golden field and
+cannot certify. Message text is outside the contract.
+
 Exit codes: 0 = success, 1 = gate failure, 2 = misuse.
 """
 
@@ -65,6 +69,7 @@ import tomllib
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from comparators import REGISTRY, diff_envelopes
+from warning_records import diff_warning_records, validate_warning_record
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ARTIFACT_ROOT = REPO_ROOT / "artifacts" / "conformance"
@@ -565,6 +570,139 @@ def capture_candidate_file(
     )
 
 
+def parse_warning_output(
+    stdout: str,
+    stderr: str,
+    expected_ids: list[str],
+    profile: dict,
+    *,
+    expected_side: str,
+    label: str,
+) -> list[dict]:
+    output_bytes = len(stdout.encode()) + len(stderr.encode())
+    if output_bytes > MAX_RUNNER_OUTPUT_BYTES:
+        raise ValueError(
+            f"{label} warning output is {output_bytes} bytes; maximum is {MAX_RUNNER_OUTPUT_BYTES}"
+        )
+    if stderr.strip():
+        raise ValueError(f"{label} warning probe emitted unexpected stderr: {stderr[-400:]}")
+    records = []
+    for line_number, line in enumerate(stdout.splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"{label} warning output line {line_number} is not valid JSON: {exc}"
+            ) from exc
+        expected_id = expected_ids[len(records)] if len(records) < len(expected_ids) else ""
+        validate_warning_record(
+            record, profile, expected_side=expected_side, expected_id=expected_id
+        )
+        records.append(record)
+    actual_ids = [record["fixture_id"] for record in records]
+    if actual_ids != expected_ids:
+        raise ValueError(
+            f"{label} warning fixture sequence mismatch: "
+            f"expected={expected_ids!r} actual={actual_ids!r}"
+        )
+    return records
+
+
+def capture_warning_file(
+    profile: dict,
+    fixture_path: Path,
+    py: str,
+    *,
+    side: str,
+) -> list[dict]:
+    expected_ids = load_fixture_ids(fixture_path)
+    if side == ORACLE_SIDE:
+        command = [
+            py,
+            "-P",
+            "-s",
+            str(runner_path()),
+            str(fixture_path),
+            profile["profile_id"],
+            "--warnings",
+        ]
+        env = oracle_environment(profile)
+        label = "oracle-warnings"
+    elif side == CANDIDATE_SIDE:
+        command = [
+            py,
+            "-P",
+            "-s",
+            str(candidate_runner_path()),
+            str(fixture_path),
+            profile["profile_id"],
+            "--warnings",
+        ]
+        env = candidate_environment(profile)
+        label = "candidate-warnings"
+    else:
+        raise ValueError(f"unknown warning observation side: {side!r}")
+    proc = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=120,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"{label} exited {proc.returncode} for {fixture_path.name}: "
+            f"{proc.stderr[-400:] or proc.stdout[-400:]}"
+        )
+    return parse_warning_output(
+        proc.stdout,
+        proc.stderr,
+        expected_ids,
+        profile,
+        expected_side=side,
+        label=label,
+    )
+
+
+def cmd_warnings(profile: dict, oracle_py: str, candidate_py: str, *, certify: bool = False) -> int:
+    if certify:
+        return fail("warning lane cannot certify; refuse --certify")
+    goldens_before = golden_digest_map(profile)
+    base = Path(__file__).resolve().parent
+    oracle_records: list[dict] = []
+    candidate_records: list[dict] = []
+    for rel in profile["inventory"]["fixtures"]:
+        fixture_path = base / rel
+        oracle_records.extend(
+            capture_warning_file(profile, fixture_path, oracle_py, side=ORACLE_SIDE)
+        )
+        candidate_records.extend(
+            capture_warning_file(profile, fixture_path, candidate_py, side=CANDIDATE_SIDE)
+        )
+    details = diff_warning_records(oracle_records, candidate_records)
+    if golden_digest_map(profile) != goldens_before:
+        return fail("warning lane mutated immutable goldens")
+    receipt = {
+        "lane": "warnings",
+        "kind": "warning_observation",
+        "certifies": False,
+        "can_certify": False,
+        "claims_promoted": False,
+        "goldens_written": False,
+        "golden_bytes_unchanged": True,
+        "profile_id": profile["profile_id"],
+        "paired": min(len(oracle_records), len(candidate_records)),
+        "discrepancies": len(details),
+        "details": details,
+        "note": "warning-class identity cannot certify the immutable profile",
+    }
+    print(json.dumps(receipt, indent=2, sort_keys=True))
+    return 0
+
+
 def golden_name_for(fixture_rel: str) -> str:
     return fixture_rel.removeprefix("fixtures/").removesuffix(".json") + ".ndjson"
 
@@ -829,6 +967,17 @@ def weakened_variants(envelopes: list[dict]) -> dict[str, list[dict]]:
     if held_mutated:
         variants["held-form-args-collapsed"] = held_collapsed
 
+    mro_swapped = copy.deepcopy(envelopes)
+    mro_mutated = False
+    for envelope in mro_swapped:
+        mro = envelope.get("observations", {}).get("mro")
+        if isinstance(mro, list) and mro:
+            mro[0] = "mutant.WrongClass"
+            mro_mutated = True
+            break
+    if mro_mutated:
+        variants["mro-class-swapped"] = mro_swapped
+
     variants["dropped-field"] = [
         {k: v for k, v in e.items() if k != "environment"} for e in envelopes
     ]
@@ -953,6 +1102,47 @@ def cmd_self_test(profile: dict, py: str) -> int:
         return fail("held-form mutant needs a returned args_repr observation")
     if not compare_construction_only(golden_first, held_only):
         return fail("construction_only accepted held-form args_repr drift")
+    mro_only = copy.deepcopy(fresh)
+    for envelope in mro_only:
+        mro = envelope.get("observations", {}).get("mro")
+        if isinstance(mro, list) and mro:
+            mro[0] = "mutant.WrongClass"
+            break
+    else:
+        return fail("class mutant needs a returned mro observation")
+    if not compare(golden_first, mro_only):
+        return fail("exact_surface accepted mro/class identity drift")
+    if compare_construction_only(golden_first, mro_only):
+        return fail("construction_only rejected mro-only class drift")
+    warning_oracle = [
+        {
+            "schema_version": 1,
+            "kind": "warning_observation",
+            "profile_id": profile["profile_id"],
+            "fixture_id": "core/integer/42",
+            "side": ORACLE_SIDE,
+            "construction_outcome": "returned",
+            "warnings": [
+                {"module": "sympy.utilities.exceptions", "name": "SymPyDeprecationWarning"}
+            ],
+        }
+    ]
+    warning_match = copy.deepcopy(warning_oracle)
+    warning_match[0]["side"] = CANDIDATE_SIDE
+    if diff_warning_records(warning_oracle, warning_match):
+        return fail("warning lane invented drift on matching class identity")
+    warning_dropped = copy.deepcopy(warning_match)
+    warning_dropped[0]["warnings"] = []
+    dropped = diff_warning_records(warning_oracle, warning_dropped)
+    if not dropped or dropped[0]["kind"] != "warning_identity_drift":
+        return fail("warning lane missed planted warning-class drop")
+    warning_renamed = copy.deepcopy(warning_match)
+    warning_renamed[0]["warnings"] = [
+        {"module": "sympy.utilities.exceptions", "name": "WrongWarning"}
+    ]
+    renamed = diff_warning_records(warning_oracle, warning_renamed)
+    if not renamed or renamed[0]["kind"] != "warning_identity_drift":
+        return fail("warning lane missed planted warning-class rename")
     identity_drift = copy.deepcopy(drifted)
     identity_drift[0]["observations"]["type"] = "WrongType"
     if not compare_construction_only(golden_first, identity_drift):
@@ -1068,11 +1258,15 @@ def cmd_self_test(profile: dict, py: str) -> int:
                 "hash_mutant_preserves_envelope_count": True,
                 "registry_matches_profile_manifest": True,
                 "construction_only_semantics": (
-                    "accepts printer and pickle drift, rejects held-form args and identity drift"
+                    "accepts printer, pickle, and mro-only class drift; "
+                    "rejects held-form args and type identity drift"
                 ),
                 "exact_surface_rejects_pickle_digest_drift": True,
                 "construction_only_accepts_pickle_only_drift": True,
                 "construction_only_rejects_held_form_args_drift": True,
+                "exact_surface_rejects_mro_class_drift": True,
+                "construction_only_accepts_mro_only_class_drift": True,
+                "warning_lane_detects_class_identity_drift": True,
                 "mutants_checked": checked_files,
                 "mutants_rejected": rejected,
                 "oracle_candidate_isolation": True,
@@ -1565,6 +1759,7 @@ def parse_cli(argv: list[str]) -> dict | int:
         "isolation",
         "suite-smoke",
         "moving-head",
+        "warnings",
     }
     if mode not in known:
         print(f"unknown mode: {mode}", file=sys.stderr)
@@ -1679,6 +1874,16 @@ def main() -> int:
                 return fail("moving-head lane cannot certify; refuse --certify")
             head_py = parsed["head_python"] or parsed["oracle_python"]
             return cmd_moving_head(profile, oracle_python(head_py))
+        if mode == "warnings":
+            if parsed["broken"]:
+                return fail("warnings does not accept --broken")
+            if parsed["certify"]:
+                return fail("warning lane cannot certify; refuse --certify")
+            return cmd_warnings(
+                profile,
+                oracle_python(parsed["oracle_python"]),
+                candidate_python(parsed["candidate_python"]),
+            )
         interpreter = oracle_python(parsed["oracle_python"])
         if mode == "capture":
             return cmd_capture(profile, interpreter)

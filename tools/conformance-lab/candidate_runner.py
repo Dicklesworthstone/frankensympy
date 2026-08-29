@@ -30,6 +30,7 @@ import os
 import pickle
 import platform
 import sys
+import warnings as warnings_mod
 from pathlib import Path
 
 PROFILE_ENV = {
@@ -206,6 +207,49 @@ def _construct(spec: dict, sympy_mod):
     return constructors[kind]()
 
 
+def _unique_warning_classes(caught: list) -> list[dict[str, str]]:
+    out: list[dict[str, str]] = []
+    for item in caught:
+        record = {
+            "module": item.category.__module__,
+            "name": item.category.__name__,
+        }
+        if record not in out:
+            out.append(record)
+    return out
+
+
+def observe_warnings_real(fixture: dict, profile_id: str, sympy_mod) -> dict:
+    with warnings_mod.catch_warnings(record=True) as caught:
+        warnings_mod.simplefilter("always")
+        try:
+            _construct(fixture, sympy_mod)
+            outcome = "returned"
+        except Exception:  # noqa: BLE001 - construction outcome is the observation
+            outcome = "raised"
+    return {
+        "schema_version": 1,
+        "kind": "warning_observation",
+        "profile_id": profile_id,
+        "fixture_id": fixture["id"],
+        "side": CANDIDATE_SIDE,
+        "construction_outcome": outcome,
+        "warnings": _unique_warning_classes(caught),
+    }
+
+
+def observe_warnings_refused(fixture: dict, profile_id: str) -> dict:
+    return {
+        "schema_version": 1,
+        "kind": "warning_observation",
+        "profile_id": profile_id,
+        "fixture_id": fixture["id"],
+        "side": CANDIDATE_SIDE,
+        "construction_outcome": "refused",
+        "warnings": [],
+    }
+
+
 def _make_function_subclass(spec: dict, sympy_mod):
     parent = getattr(sympy_mod, "Function", None)
     if parent is None:
@@ -364,9 +408,13 @@ def observe_refused(fixture: dict, profile_id: str, reason: str) -> dict:
 def main() -> int:
     args = sys.argv[1:]
     broken = False
-    if args and args[-1] == "--broken":
-        broken = True
-        args = args[:-1]
+    warnings_only = False
+    while args and args[-1] in {"--broken", "--warnings"}:
+        flag = args.pop()
+        if flag == "--broken":
+            broken = True
+        else:
+            warnings_only = True
     if len(args) != 2:
         print(json.dumps({"error_class": "harness_misuse"}))
         return 2
@@ -385,10 +433,23 @@ def main() -> int:
     if error_kind == "isolation":
         return isolation_violation(error or "candidate sympy is not the FrankenSymPy shell")
     if sympy_mod is None:
+        writer = observe_warnings_refused if warnings_only else (
+            lambda fixture, profile_id: observe_refused(
+                fixture, profile_id, error or "import failed"
+            )
+        )
+        for fixture in fixtures:
+            sys.stdout.write(
+                json.dumps(writer(fixture, profile_id), sort_keys=True) + "\n"
+            )
+            sys.stdout.flush()
+        return 0
+
+    if warnings_only:
         for fixture in fixtures:
             sys.stdout.write(
                 json.dumps(
-                    observe_refused(fixture, profile_id, error or "import failed"),
+                    observe_warnings_real(fixture, profile_id, sympy_mod),
                     sort_keys=True,
                 )
                 + "\n"

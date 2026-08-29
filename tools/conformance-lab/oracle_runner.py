@@ -26,6 +26,7 @@ import os
 import pickle
 import platform
 import sys
+import warnings as warnings_mod
 
 import sympy
 
@@ -146,6 +147,37 @@ def _construct(spec: dict):
     return constructors[kind]()
 
 
+def _unique_warning_classes(caught: list) -> list[dict[str, str]]:
+    out: list[dict[str, str]] = []
+    for item in caught:
+        record = {
+            "module": item.category.__module__,
+            "name": item.category.__name__,
+        }
+        if record not in out:
+            out.append(record)
+    return out
+
+
+def observe_warnings(fixture: dict, profile_id: str) -> dict:
+    with warnings_mod.catch_warnings(record=True) as caught:
+        warnings_mod.simplefilter("always")
+        try:
+            _construct(fixture)
+            outcome = "returned"
+        except Exception:  # noqa: BLE001 - construction outcome is the observation
+            outcome = "raised"
+    return {
+        "schema_version": 1,
+        "kind": "warning_observation",
+        "profile_id": profile_id,
+        "fixture_id": fixture["id"],
+        "side": "upstream_oracle",
+        "construction_outcome": outcome,
+        "warnings": _unique_warning_classes(caught),
+    }
+
+
 def observe(fixture: dict, profile_id: str, env_fingerprint: dict) -> dict:
     envelope: dict[str, object] = {
         "schema_version": 1,
@@ -211,11 +243,24 @@ def observe(fixture: dict, profile_id: str, env_fingerprint: dict) -> dict:
 
 
 def main() -> int:
-    if len(sys.argv) != 3:
+    args = sys.argv[1:]
+    warnings_only = False
+    if args and args[-1] == "--warnings":
+        warnings_only = True
+        args = args[:-1]
+    if len(args) != 2:
         print(json.dumps({"error_class": "harness_misuse"}))
         return 2
-    with open(sys.argv[1], encoding="utf-8") as fh:
+    fixture_path, profile_id = args
+    with open(fixture_path, encoding="utf-8") as fh:
         fixtures = json.load(fh)
+    if warnings_only:
+        for fixture in fixtures:
+            sys.stdout.write(
+                json.dumps(observe_warnings(fixture, profile_id), sort_keys=True) + "\n"
+            )
+            sys.stdout.flush()
+        return 0
     env_fingerprint = {
         "sympy_version": sympy.__version__,
         "python": platform.python_version(),
@@ -225,7 +270,7 @@ def main() -> int:
         "env": {k: os.environ.get(k) for k in PROFILE_ENV},
     }
     for fixture in fixtures:
-        envelope = observe(fixture, sys.argv[2], env_fingerprint)
+        envelope = observe(fixture, profile_id, env_fingerprint)
         sys.stdout.write(json.dumps(envelope, sort_keys=True) + "\n")
         sys.stdout.flush()
     return 0

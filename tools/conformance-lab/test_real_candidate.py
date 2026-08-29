@@ -166,6 +166,11 @@ class ComparatorFieldContractTests(unittest.TestCase):
         mutated = self.variants["held-form-args-collapsed"]
         self.assertTrue(compare_construction_only(self.golden, mutated))
 
+    def test_mro_class_drift_is_exact_surface_only(self) -> None:
+        mutated = self.variants["mro-class-swapped"]
+        self.assertTrue(compare(self.golden, mutated))
+        self.assertFalse(compare_construction_only(self.golden, mutated))
+
 
 if __name__ == "__main__":
     unittest.main()
