@@ -22,6 +22,7 @@ violation, 4 = crash outside a fixture boundary.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import importlib.machinery
 import importlib.util
@@ -238,6 +239,89 @@ def observe_warnings_real(fixture: dict, profile_id: str, sympy_mod) -> dict:
     }
 
 
+MAX_PICKLE_BYTES = 256 * 1024
+
+
+def observe_pickle_dump(fixture: dict, profile_id: str, sympy_mod) -> dict:
+    try:
+        obj = _construct(fixture, sympy_mod)
+        outcome = "returned"
+    except Exception:  # noqa: BLE001
+        return {
+            "schema_version": 1,
+            "kind": "pickle_dump",
+            "profile_id": profile_id,
+            "fixture_id": fixture["id"],
+            "side": CANDIDATE_SIDE,
+            "construction_outcome": "raised",
+            "protocol": 4,
+            "pickle_sha256": None,
+            "pickle_b64": None,
+            "dump_error": None,
+        }
+    try:
+        blob = pickle.dumps(obj, protocol=4)
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "schema_version": 1,
+            "kind": "pickle_dump",
+            "profile_id": profile_id,
+            "fixture_id": fixture["id"],
+            "side": CANDIDATE_SIDE,
+            "construction_outcome": "returned",
+            "protocol": 4,
+            "pickle_sha256": None,
+            "pickle_b64": None,
+            "dump_error": {
+                "error_class": type(exc).__module__ + "." + type(exc).__name__,
+                "message_head": str(exc)[:200],
+            },
+        }
+    if len(blob) > MAX_PICKLE_BYTES:
+        return {
+            "schema_version": 1,
+            "kind": "pickle_dump",
+            "profile_id": profile_id,
+            "fixture_id": fixture["id"],
+            "side": CANDIDATE_SIDE,
+            "construction_outcome": "returned",
+            "protocol": 4,
+            "pickle_sha256": None,
+            "pickle_b64": None,
+            "dump_error": {
+                "error_class": "harness.pickle_too_large",
+                "message_head": f"{len(blob)} bytes exceeds {MAX_PICKLE_BYTES}",
+            },
+        }
+    return {
+        "schema_version": 1,
+        "kind": "pickle_dump",
+        "profile_id": profile_id,
+        "fixture_id": fixture["id"],
+        "side": CANDIDATE_SIDE,
+        "construction_outcome": "returned",
+        "protocol": 4,
+        "pickle_sha256": hashlib.sha256(blob).hexdigest(),
+        "pickle_b64": base64.b64encode(blob).decode("ascii"),
+        "dump_error": None,
+    }
+
+
+def observe_pickle_refused(fixture: dict, profile_id: str) -> dict:
+    return {
+        "schema_version": 1,
+        "kind": "pickle_dump",
+        "profile_id": profile_id,
+        "fixture_id": fixture["id"],
+        "side": CANDIDATE_SIDE,
+        "construction_outcome": "refused",
+        "protocol": 4,
+        "pickle_sha256": None,
+        "pickle_b64": None,
+        "dump_error": None,
+    }
+
+
 def observe_warnings_refused(fixture: dict, profile_id: str) -> dict:
     return {
         "schema_version": 1,
@@ -409,12 +493,15 @@ def main() -> int:
     args = sys.argv[1:]
     broken = False
     warnings_only = False
-    while args and args[-1] in {"--broken", "--warnings"}:
+    pickle_roundtrip = False
+    while args and args[-1] in {"--broken", "--warnings", "--pickle-roundtrip"}:
         flag = args.pop()
         if flag == "--broken":
             broken = True
-        else:
+        elif flag == "--warnings":
             warnings_only = True
+        else:
+            pickle_roundtrip = True
     if len(args) != 2:
         print(json.dumps({"error_class": "harness_misuse"}))
         return 2
@@ -433,11 +520,14 @@ def main() -> int:
     if error_kind == "isolation":
         return isolation_violation(error or "candidate sympy is not the FrankenSymPy shell")
     if sympy_mod is None:
-        writer = observe_warnings_refused if warnings_only else (
-            lambda fixture, profile_id: observe_refused(
+        if pickle_roundtrip:
+            writer = observe_pickle_refused
+        elif warnings_only:
+            writer = observe_warnings_refused
+        else:
+            writer = lambda fixture, profile_id: observe_refused(
                 fixture, profile_id, error or "import failed"
             )
-        )
         for fixture in fixtures:
             sys.stdout.write(
                 json.dumps(writer(fixture, profile_id), sort_keys=True) + "\n"
@@ -445,6 +535,17 @@ def main() -> int:
             sys.stdout.flush()
         return 0
 
+    if pickle_roundtrip:
+        for fixture in fixtures:
+            sys.stdout.write(
+                json.dumps(
+                    observe_pickle_dump(fixture, profile_id, sympy_mod),
+                    sort_keys=True,
+                )
+                + "\n"
+            )
+            sys.stdout.flush()
+        return 0
     if warnings_only:
         for fixture in fixtures:
             sys.stdout.write(

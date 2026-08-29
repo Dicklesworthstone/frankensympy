@@ -4,9 +4,11 @@
 //! indexed by stable content-addressed [`TermId`]. Child-before-parent insertion
 //! guarantees acyclicity. Declared [`TermDomain`] is intern identity, distinct
 //! from inferred [`Sort`]. Well-formed symbol-parameter `Lambda` surface lowers
-//! to name-preserving [`TermNode::Lambda`]; that is not yet alpha-normalized
-//! binder identity. Tuple-parameter `Lambda` intern as the same binder node as
-//! the multi-argument spelling. Lifting emits the multi-argument surface.
+//! to an alpha-normalized [`TermNode::Lambda`]: intern identity is arity plus
+//! a de Bruijn [`TermNode::Bound`] body. Parameter names are a lift sidecar,
+//! not intern identity. Tuple-parameter `Lambda` intern as the same binder
+//! node as the multi-argument spelling. Lifting emits the multi-argument
+//! surface using recorded or synthesized names.
 
 #![forbid(unsafe_code)]
 
@@ -72,6 +74,8 @@ pub enum DagError {
         name: &'static str,
         reason: &'static str,
     },
+    #[error("unbound de Bruijn index ({0})")]
+    UnboundIndex(u32),
     #[error("DAG allocation failed")]
     AllocationFailure,
 }
@@ -123,10 +127,12 @@ pub enum TermNode {
     Pow(TermId, TermId),
     /// Named function application with child term arguments.
     Function(String, Vec<TermId>),
-    /// Name-preserving Lambda binder produced from well-formed symbol-parameter
-    /// surface. Parameter names are intern identity; this is not yet
-    /// alpha-normalized.
-    Lambda(Vec<Symbol>, TermId),
+    /// Alpha-normalized Lambda binder. Intern identity is arity plus a
+    /// de Bruijn body; parameter names live in the DAG sidecar.
+    Lambda(usize, TermId),
+    /// Bound variable. Index `0` is the first parameter of the innermost
+    /// enclosing Lambda; indices then walk outward through enclosing arities.
+    Bound(u32),
 }
 
 impl TermNode {
@@ -143,11 +149,13 @@ impl TermNode {
                 Constant::NaN => crate::sort::Sort::Scalar,
             },
             TermNode::Sym(_) => crate::sort::Sort::Scalar,
-            TermNode::Add(_) | TermNode::Mul(_) | TermNode::Pow(..) | TermNode::Function(..) => {
-                crate::sort::Sort::Scalar
-            }
-            TermNode::Lambda(params, _) => crate::sort::Sort::Function {
-                dom: vec![crate::sort::Sort::Scalar; params.len()],
+            TermNode::Add(_)
+            | TermNode::Mul(_)
+            | TermNode::Pow(..)
+            | TermNode::Function(..)
+            | TermNode::Bound(_) => crate::sort::Sort::Scalar,
+            TermNode::Lambda(arity, _) => crate::sort::Sort::Function {
+                dom: vec![crate::sort::Sort::Scalar; *arity],
                 codom: Box::new(crate::sort::Sort::Scalar),
             },
         }
@@ -181,7 +189,7 @@ fn hash_integer(hasher: &mut blake3::Hasher, value: &BigInt) -> Result<(), DagEr
 
 fn hash_term_preimage(node: &TermNode, domain: TermDomain) -> Result<blake3::Hasher, DagError> {
     let mut hasher = blake3::Hasher::new();
-    hasher.update(b"fsym.term.v3\0");
+    hasher.update(b"fsym.term.v4\0");
     hasher.update(&[domain.tag()]);
     match node {
         TermNode::Sym(s) => {
@@ -227,13 +235,14 @@ fn hash_term_preimage(node: &TermNode, domain: TermDomain) -> Result<blake3::Has
             hash_bytes(&mut hasher, name.as_bytes())?;
             hash_ids(&mut hasher, ids)?;
         }
-        TermNode::Lambda(params, body) => {
+        TermNode::Lambda(arity, body) => {
             hasher.update(&[8]);
-            hash_len(&mut hasher, params.len())?;
-            for parameter in params {
-                hash_bytes(&mut hasher, parameter.name.as_bytes())?;
-            }
+            hash_len(&mut hasher, *arity)?;
             hasher.update(&body.raw().to_le_bytes());
+        }
+        TermNode::Bound(index) => {
+            hasher.update(&[9]);
+            hasher.update(&index.to_le_bytes());
         }
     }
     Ok(hasher)
@@ -293,11 +302,14 @@ fn node_arity(node: &TermNode) -> Result<usize, DagError> {
     Ok(match node {
         TermNode::Add(ids) | TermNode::Mul(ids) | TermNode::Function(_, ids) => ids.len(),
         TermNode::Pow(..) => 2,
-        TermNode::Lambda(parameters, _) => parameters
-            .len()
+        TermNode::Lambda(arity, _) => arity
             .checked_add(1)
             .ok_or(DagError::PayloadLengthOverflow)?,
-        TermNode::Sym(_) | TermNode::Integer(_) | TermNode::Rational(_) | TermNode::Const(_) => 0,
+        TermNode::Sym(_)
+        | TermNode::Integer(_)
+        | TermNode::Rational(_)
+        | TermNode::Const(_)
+        | TermNode::Bound(_) => 0,
     })
 }
 
@@ -329,17 +341,8 @@ fn node_payload_bytes(node: &TermNode) -> Result<usize, DagError> {
             name.len(),
             sequence_storage_bytes(ids.len(), TERM_ID_SLOT_CHARGE_BYTES)?,
         ),
-        TermNode::Lambda(parameters, _) => {
-            let parameter_storage =
-                sequence_storage_bytes(parameters.len(), SYMBOL_SLOT_CHARGE_BYTES)?;
-            parameters
-                .iter()
-                .try_fold(parameter_storage, |total, parameter| {
-                    total
-                        .checked_add(parameter.name.len())
-                        .ok_or(DagError::PayloadLengthOverflow)
-                })
-        }
+        TermNode::Lambda(arity, _) => sequence_storage_bytes(*arity, SYMBOL_SLOT_CHARGE_BYTES),
+        TermNode::Bound(_) => Ok(4),
         TermNode::Pow(..) | TermNode::Const(_) => Ok(0),
     }
 }
@@ -360,23 +363,19 @@ fn lifted_node_payload_bytes(node: &TermNode) -> Result<usize, DagError> {
             name.len(),
             sequence_storage_bytes(ids.len(), LIFTED_EXPR_SLOT_CHARGE_BYTES)?,
         ),
-        TermNode::Lambda(parameters, _) => {
-            let output_arity = parameters
-                .len()
+        TermNode::Lambda(arity, _) => {
+            let output_arity = arity
                 .checked_add(1)
                 .ok_or(DagError::PayloadLengthOverflow)?;
-            let expression_storage = add_payload_bytes(
+            add_payload_bytes(
                 sequence_storage_bytes(output_arity, LIFTED_EXPR_SLOT_CHARGE_BYTES)?,
-                LAMBDA_SURFACE_NAME_CHARGE_BYTES,
-            )?;
-            parameters
-                .iter()
-                .try_fold(expression_storage, |total, parameter| {
-                    total
-                        .checked_add(parameter.name.len())
-                        .ok_or(DagError::PayloadLengthOverflow)
-                })
+                add_payload_bytes(
+                    LAMBDA_SURFACE_NAME_CHARGE_BYTES,
+                    sequence_storage_bytes(*arity, SYMBOL_SLOT_CHARGE_BYTES)?,
+                )?,
+            )
         }
+        TermNode::Bound(_) => Ok(SYMBOL_SLOT_CHARGE_BYTES),
         TermNode::Const(_) => Ok(0),
     }
 }
@@ -471,7 +470,8 @@ fn exact_real_sign(node: &TermNode) -> Option<ExactRealSign> {
         | TermNode::Mul(_)
         | TermNode::Pow(..)
         | TermNode::Function(..)
-        | TermNode::Lambda(..) => None,
+        | TermNode::Lambda(..)
+        | TermNode::Bound(_) => None,
     }
 }
 
@@ -486,7 +486,8 @@ fn exact_integer_exponent_sign(node: &TermNode) -> Option<ExactRealSign> {
         | TermNode::Mul(_)
         | TermNode::Pow(..)
         | TermNode::Function(..)
-        | TermNode::Lambda(..) => None,
+        | TermNode::Lambda(..)
+        | TermNode::Bound(_) => None,
     }
 }
 
@@ -503,7 +504,8 @@ fn exact_integer_unit(node: &TermNode) -> bool {
         | TermNode::Mul(_)
         | TermNode::Pow(..)
         | TermNode::Function(..)
-        | TermNode::Lambda(..) => false,
+        | TermNode::Lambda(..)
+        | TermNode::Bound(_) => false,
     }
 }
 
@@ -689,6 +691,31 @@ fn unique_binder_parameter_names(parameters: &[Expr]) -> Result<(), DagError> {
     Ok(())
 }
 
+fn synthesized_lambda_names(arity: usize) -> Result<Vec<Symbol>, DagError> {
+    let mut names = Vec::new();
+    names
+        .try_reserve(arity)
+        .map_err(|_| DagError::AllocationFailure)?;
+    for index in 0..arity {
+        names.push(Symbol::new(format!("_b{index}")));
+    }
+    Ok(names)
+}
+
+fn resolve_bound(binders: &[Vec<Symbol>], index: u32) -> Result<Symbol, DagError> {
+    let mut remaining = usize::try_from(index).map_err(|_| DagError::PayloadLengthOverflow)?;
+    for frame in binders.iter().rev() {
+        if remaining < frame.len() {
+            return Ok(frame[remaining].clone());
+        }
+        remaining -= frame.len();
+    }
+    Err(DagError::MalformedBinder {
+        name: "Lambda",
+        reason: "dangling bound index",
+    })
+}
+
 /// Binder parameters from well-formed Lambda surface.
 ///
 /// Multi-argument `Lambda(x, y, body)` and `Lambda(Tuple(x, y), body)` both
@@ -812,6 +839,8 @@ pub struct TermDag {
     depths: HashMap<TermId, usize>,
     digests: HashMap<TermId, [u8; 32]>,
     domains: HashMap<TermId, TermDomain>,
+    /// Lift-only parameter names. Not mixed into intern identity.
+    lambda_names: HashMap<TermId, Vec<Symbol>>,
     total_payload_bytes: usize,
 }
 
@@ -844,6 +873,46 @@ impl TermDag {
     /// Declared intern domain stored beside the truncated [`TermId`].
     pub fn term_domain(&self, id: TermId) -> Option<TermDomain> {
         self.domains.get(&id).copied()
+    }
+
+    /// Lift sidecar parameter names for an interned Lambda, if recorded.
+    pub fn lambda_parameters(&self, id: TermId) -> Option<&[Symbol]> {
+        self.lambda_names.get(&id).map(Vec::as_slice)
+    }
+
+    fn lambda_lift_names(&self, id: TermId, arity: usize) -> Result<Vec<Symbol>, DagError> {
+        if let Some(names) = self.lambda_names.get(&id)
+            && names.len() == arity
+        {
+            return Ok(names.clone());
+        }
+        synthesized_lambda_names(arity)
+    }
+
+    /// Interns an alpha-normalized Lambda, recording `parameters` for lift only.
+    pub fn insert_lambda(
+        &mut self,
+        parameters: Vec<Symbol>,
+        body: TermId,
+    ) -> Result<TermId, DagError> {
+        self.insert_lambda_with_limits(parameters, body, DagLimits::default())
+    }
+
+    /// Interns an alpha-normalized Lambda under caller-provided limits.
+    pub fn insert_lambda_with_limits(
+        &mut self,
+        parameters: Vec<Symbol>,
+        body: TermId,
+        limits: DagLimits,
+    ) -> Result<TermId, DagError> {
+        let mut inserted = Vec::new();
+        match self.insert_lambda_tracking(parameters, body, limits, &mut inserted) {
+            Ok(root) => Ok(root),
+            Err(error) => {
+                self.rollback_inserted(inserted)?;
+                Err(error)
+            }
+        }
     }
 
     /// Interns a [`TermNode`] in the default [`TermDomain::Expression`] universe.
@@ -902,7 +971,8 @@ impl TermDag {
             TermNode::Sym(_)
             | TermNode::Integer(_)
             | TermNode::Rational(_)
-            | TermNode::Const(_) => {}
+            | TermNode::Const(_)
+            | TermNode::Bound(_) => {}
             TermNode::Add(ids) | TermNode::Mul(ids) | TermNode::Function(_, ids) => {
                 for id in ids {
                     if !self.nodes.contains_key(id) {
@@ -935,7 +1005,7 @@ impl TermDag {
         match domain {
             TermDomain::Expression => Ok(()),
             TermDomain::Integer => match node {
-                TermNode::Integer(_) | TermNode::Sym(_) => Ok(()),
+                TermNode::Integer(_) | TermNode::Sym(_) | TermNode::Bound(_) => Ok(()),
                 TermNode::Rational(value) if value.is_integer() => Ok(()),
                 TermNode::Pow(base, exponent) => {
                     let base_node = self.get(*base).ok_or(DagError::UnknownId(*base))?;
@@ -963,6 +1033,7 @@ impl TermDag {
                         TermNode::Integer(_)
                         | TermNode::Rational(_)
                         | TermNode::Sym(_)
+                        | TermNode::Bound(_)
                         | TermNode::Add(_)
                         | TermNode::Mul(_)
                         | TermNode::Pow(..) => {}
@@ -1000,7 +1071,10 @@ impl TermDag {
                 }),
             },
             TermDomain::Rational => match node {
-                TermNode::Integer(_) | TermNode::Rational(_) | TermNode::Sym(_) => Ok(()),
+                TermNode::Integer(_)
+                | TermNode::Rational(_)
+                | TermNode::Sym(_)
+                | TermNode::Bound(_) => Ok(()),
                 TermNode::Pow(base, exponent) => {
                     let base_node = self.get(*base).ok_or(DagError::UnknownId(*base))?;
                     let exponent_node =
@@ -1027,6 +1101,7 @@ impl TermDag {
                         TermNode::Integer(_)
                         | TermNode::Rational(_)
                         | TermNode::Sym(_)
+                        | TermNode::Bound(_)
                         | TermNode::Add(_)
                         | TermNode::Mul(_)
                         | TermNode::Pow(..) => {}
@@ -1084,6 +1159,7 @@ impl TermDag {
                 | TermNode::Integer(_)
                 | TermNode::Rational(_)
                 | TermNode::Sym(_)
+                | TermNode::Bound(_)
                 | TermNode::Add(_)
                 | TermNode::Mul(_)
                 | TermNode::Pow(..)
@@ -1137,7 +1213,8 @@ impl TermDag {
             | TermNode::Rational(_)
             | TermNode::Const(_)
             | TermNode::Function(..)
-            | TermNode::Lambda(..) => {}
+            | TermNode::Lambda(..)
+            | TermNode::Bound(_) => {}
         }
         Ok(())
     }
@@ -1228,7 +1305,8 @@ impl TermDag {
             TermNode::Sym(_)
             | TermNode::Integer(_)
             | TermNode::Rational(_)
-            | TermNode::Const(_) => 0,
+            | TermNode::Const(_)
+            | TermNode::Bound(_) => 0,
         };
         let node_depth = max_child_depth
             .checked_add(1)
@@ -1315,17 +1393,7 @@ impl TermDag {
         match self.insert_expr_internal(expr, 0, limits, &mut traversed, &mut inserted) {
             Ok(root) => Ok(root),
             Err(error) => {
-                for id in inserted.into_iter().rev() {
-                    let node = self.nodes.remove(&id).ok_or(DagError::UnknownId(id))?;
-                    self.depths.remove(&id).ok_or(DagError::UnknownId(id))?;
-                    self.digests.remove(&id).ok_or(DagError::UnknownId(id))?;
-                    self.domains.remove(&id).ok_or(DagError::UnknownId(id))?;
-                    let payload_bytes = node_payload_bytes(&node)?;
-                    self.total_payload_bytes = self
-                        .total_payload_bytes
-                        .checked_sub(payload_bytes)
-                        .ok_or(DagError::PayloadLengthOverflow)?;
-                }
+                self.rollback_inserted(inserted)?;
                 Err(error)
             }
         }
@@ -1388,16 +1456,185 @@ impl TermDag {
                     let child_depth = next_depth(depth, limits.max_depth)?;
                     let body_id =
                         self.insert_expr_internal(body, child_depth, limits, traversed, inserted)?;
-                    return self.insert_node_tracking(
-                        TermNode::Lambda(parameters, body_id),
-                        limits,
-                        inserted,
-                    );
+                    return self.insert_lambda_tracking(parameters, body_id, limits, inserted);
                 }
                 let ids = self.insert_expr_children(args, depth, limits, traversed, inserted)?;
                 self.insert_node_tracking(TermNode::Function(name.clone(), ids), limits, inserted)
             }
         }
+    }
+
+    fn rollback_inserted(&mut self, inserted: Vec<TermId>) -> Result<(), DagError> {
+        for id in inserted.into_iter().rev() {
+            let node = self.nodes.remove(&id).ok_or(DagError::UnknownId(id))?;
+            self.depths.remove(&id).ok_or(DagError::UnknownId(id))?;
+            self.digests.remove(&id).ok_or(DagError::UnknownId(id))?;
+            self.domains.remove(&id).ok_or(DagError::UnknownId(id))?;
+            self.lambda_names.remove(&id);
+            let payload_bytes = node_payload_bytes(&node)?;
+            self.total_payload_bytes = self
+                .total_payload_bytes
+                .checked_sub(payload_bytes)
+                .ok_or(DagError::PayloadLengthOverflow)?;
+        }
+        Ok(())
+    }
+
+    fn insert_lambda_tracking(
+        &mut self,
+        parameters: Vec<Symbol>,
+        body: TermId,
+        limits: DagLimits,
+        inserted: &mut Vec<TermId>,
+    ) -> Result<TermId, DagError> {
+        if parameters.is_empty() {
+            return Err(DagError::MalformedBinder {
+                name: "Lambda",
+                reason: "parameter list must be non-empty",
+            });
+        }
+        let mut seen = HashSet::new();
+        seen.try_reserve(parameters.len())
+            .map_err(|_| DagError::AllocationFailure)?;
+        for parameter in &parameters {
+            if !seen.insert(parameter.name.as_str()) {
+                return Err(DagError::MalformedBinder {
+                    name: "Lambda",
+                    reason: "parameter names must be unique",
+                });
+            }
+        }
+        if !self.nodes.contains_key(&body) {
+            return Err(DagError::DanglingChild(body));
+        }
+        let arity = parameters.len();
+        let rewritten = self.rebind_body(body, &parameters, 0, limits, inserted)?;
+        let term_id =
+            self.insert_node_tracking(TermNode::Lambda(arity, rewritten), limits, inserted)?;
+        if !self.lambda_names.contains_key(&term_id) {
+            self.lambda_names
+                .try_reserve(1)
+                .map_err(|_| DagError::AllocationFailure)?;
+            self.lambda_names.insert(term_id, parameters);
+        }
+        Ok(term_id)
+    }
+
+    fn rebind_body(
+        &mut self,
+        body: TermId,
+        parameters: &[Symbol],
+        shift: u32,
+        limits: DagLimits,
+        inserted: &mut Vec<TermId>,
+    ) -> Result<TermId, DagError> {
+        let mut subst = HashMap::new();
+        subst
+            .try_reserve(parameters.len())
+            .map_err(|_| DagError::AllocationFailure)?;
+        for (index, parameter) in parameters.iter().enumerate() {
+            let bound = u32::try_from(index).map_err(|_| DagError::PayloadLengthOverflow)?;
+            subst.insert(parameter.name.clone(), bound);
+        }
+        let mut memo = HashMap::new();
+        self.rewrite_term(body, &subst, shift, limits, inserted, &mut memo)
+    }
+
+    fn rewrite_term(
+        &mut self,
+        id: TermId,
+        subst: &HashMap<String, u32>,
+        shift: u32,
+        limits: DagLimits,
+        inserted: &mut Vec<TermId>,
+        memo: &mut HashMap<(TermId, u32), TermId>,
+    ) -> Result<TermId, DagError> {
+        if let Some(existing) = memo.get(&(id, shift)) {
+            return Ok(*existing);
+        }
+        let node = self.get(id).cloned().ok_or(DagError::UnknownId(id))?;
+        let rewritten = match node {
+            TermNode::Integer(_)
+            | TermNode::Rational(_)
+            | TermNode::Const(_)
+            | TermNode::Bound(_) => id,
+            TermNode::Sym(symbol) => match subst.get(&symbol.name) {
+                Some(index) => {
+                    let bound = index
+                        .checked_add(shift)
+                        .ok_or(DagError::PayloadLengthOverflow)?;
+                    self.insert_node_tracking(TermNode::Bound(bound), limits, inserted)?
+                }
+                None => id,
+            },
+            TermNode::Add(ids) => {
+                self.rewrite_children(id, ids, subst, shift, limits, inserted, memo, TermNode::Add)?
+            }
+            TermNode::Mul(ids) => {
+                self.rewrite_children(id, ids, subst, shift, limits, inserted, memo, TermNode::Mul)?
+            }
+            TermNode::Function(name, ids) => {
+                let mut new_ids = Vec::new();
+                new_ids
+                    .try_reserve(ids.len())
+                    .map_err(|_| DagError::AllocationFailure)?;
+                let mut changed = false;
+                for child in ids {
+                    let rewritten =
+                        self.rewrite_term(child, subst, shift, limits, inserted, memo)?;
+                    changed |= rewritten != child;
+                    new_ids.push(rewritten);
+                }
+                if changed {
+                    self.insert_node_tracking(TermNode::Function(name, new_ids), limits, inserted)?
+                } else {
+                    id
+                }
+            }
+            TermNode::Pow(base, exponent) => {
+                let new_base = self.rewrite_term(base, subst, shift, limits, inserted, memo)?;
+                let new_exponent =
+                    self.rewrite_term(exponent, subst, shift, limits, inserted, memo)?;
+                if new_base == base && new_exponent == exponent {
+                    id
+                } else {
+                    self.insert_node_tracking(
+                        TermNode::Pow(new_base, new_exponent),
+                        limits,
+                        inserted,
+                    )?
+                }
+            }
+            TermNode::Lambda(arity, body) => {
+                let inner_shift = shift
+                    .checked_add(u32::try_from(arity).map_err(|_| DagError::PayloadLengthOverflow)?)
+                    .ok_or(DagError::PayloadLengthOverflow)?;
+                let new_body =
+                    self.rewrite_term(body, subst, inner_shift, limits, inserted, memo)?;
+                if new_body == body {
+                    id
+                } else {
+                    let new_id = self.insert_node_tracking(
+                        TermNode::Lambda(arity, new_body),
+                        limits,
+                        inserted,
+                    )?;
+                    if let Some(names) = self.lambda_names.get(&id).cloned()
+                        && !self.lambda_names.contains_key(&new_id)
+                    {
+                        self.lambda_names
+                            .try_reserve(1)
+                            .map_err(|_| DagError::AllocationFailure)?;
+                        self.lambda_names.insert(new_id, names);
+                    }
+                    new_id
+                }
+            }
+        };
+        memo.try_reserve(1)
+            .map_err(|_| DagError::AllocationFailure)?;
+        memo.insert((id, shift), rewritten);
+        Ok(rewritten)
     }
 
     fn insert_node_tracking(
@@ -1518,7 +1755,8 @@ impl TermDag {
             TermNode::Sym(_)
             | TermNode::Integer(_)
             | TermNode::Rational(_)
-            | TermNode::Const(_) => 1,
+            | TermNode::Const(_)
+            | TermNode::Bound(_) => 1,
             TermNode::Add(ids) | TermNode::Mul(ids) | TermNode::Function(_, ids) => {
                 let mut max_child = 0;
                 let child_level = if ids.is_empty() {
@@ -1639,7 +1877,7 @@ impl TermDag {
                 Constant::I | Constant::ComplexInfinity => Sort::Complex,
                 Constant::NaN => Sort::Scalar,
             },
-            TermNode::Sym(_) => Sort::Scalar,
+            TermNode::Sym(_) | TermNode::Bound(_) => Sort::Scalar,
             TermNode::Add(ids) | TermNode::Mul(ids) => {
                 let child_depth = if ids.is_empty() {
                     current_depth
@@ -1682,13 +1920,13 @@ impl TermDag {
                 }
                 Sort::Scalar
             }
-            TermNode::Lambda(params, body) => {
+            TermNode::Lambda(arity, body) => {
                 let child_depth = next_depth(current_depth, limits.max_depth)?;
                 let body_sort = self.infer_sort_internal(*body, state, child_depth)?;
                 let mut dom = Vec::new();
-                dom.try_reserve(params.len())
+                dom.try_reserve(*arity)
                     .map_err(|_| DagError::AllocationFailure)?;
-                dom.resize(params.len(), Sort::Scalar);
+                dom.resize(*arity, Sort::Scalar);
                 Sort::Function {
                     dom,
                     codom: Box::new(body_sort),
@@ -1717,6 +1955,7 @@ impl TermDag {
         let mut visiting = HashSet::new();
         let mut expanded = 0_usize;
         let mut emitted_payload_bytes = 0_usize;
+        let mut binders = Vec::new();
         self.to_expr_internal(
             id,
             &mut visiting,
@@ -1724,6 +1963,7 @@ impl TermDag {
             &mut emitted_payload_bytes,
             0,
             limits,
+            &mut binders,
         )
     }
 
@@ -1735,6 +1975,7 @@ impl TermDag {
         emitted_payload_bytes: &mut usize,
         current_depth: usize,
         limits: DagLimits,
+        binders: &mut Vec<Vec<Symbol>>,
     ) -> Result<Expr, DagError> {
         if current_depth > limits.max_depth {
             return Err(DagError::DepthExceeded(limits.max_depth));
@@ -1781,6 +2022,7 @@ impl TermDag {
                         emitted_payload_bytes,
                         child_level,
                         limits,
+                        binders,
                     )?);
                 }
                 Ok(Expr::Add(terms))
@@ -1803,6 +2045,7 @@ impl TermDag {
                         emitted_payload_bytes,
                         child_level,
                         limits,
+                        binders,
                     )?);
                 }
                 Ok(Expr::Mul(factors))
@@ -1816,6 +2059,7 @@ impl TermDag {
                     emitted_payload_bytes,
                     child_level,
                     limits,
+                    binders,
                 )?;
                 let exponent = self.to_expr_internal(
                     *exponent,
@@ -1824,6 +2068,7 @@ impl TermDag {
                     emitted_payload_bytes,
                     child_level,
                     limits,
+                    binders,
                 )?;
                 Ok(Expr::Pow(Arc::new(base), Arc::new(exponent)))
             }
@@ -1844,24 +2089,26 @@ impl TermDag {
                         emitted_payload_bytes,
                         child_level,
                         limits,
+                        binders,
                     )?);
                 }
                 Ok(Expr::Function(name.clone(), args))
             }
-            TermNode::Lambda(parameters, body) => {
+            TermNode::Lambda(arity, body) => {
                 let child_level = next_depth(current_depth, limits.max_depth)?;
-                let capacity = parameters
+                let names = self.lambda_lift_names(id, *arity)?;
+                let capacity = names
                     .len()
                     .checked_add(1)
                     .ok_or(DagError::PayloadLengthOverflow)?;
                 let mut args = Vec::new();
                 args.try_reserve(capacity)
                     .map_err(|_| DagError::AllocationFailure)?;
-                args.extend(
-                    parameters
-                        .iter()
-                        .map(|parameter| Expr::Sym(parameter.clone())),
-                );
+                args.extend(names.iter().map(|parameter| Expr::Sym(parameter.clone())));
+                binders
+                    .try_reserve(1)
+                    .map_err(|_| DagError::AllocationFailure)?;
+                binders.push(names);
                 let body = self.to_expr_internal(
                     *body,
                     visiting,
@@ -1869,10 +2116,13 @@ impl TermDag {
                     emitted_payload_bytes,
                     child_level,
                     limits,
+                    binders,
                 )?;
+                binders.pop();
                 args.push(body);
                 Ok(Expr::Function("Lambda".to_string(), args))
             }
+            TermNode::Bound(index) => Ok(Expr::Sym(resolve_bound(binders, *index)?)),
         };
 
         visiting.remove(&id);
@@ -1962,11 +2212,10 @@ mod tests {
             compute_term_id(&absorbed_name).unwrap()
         );
 
-        // Comma delimiters likewise could not distinguish one parameter name
-        // containing a comma from two separate parameter names.
+        // Arity is intern identity for Lambda; names are not hashed.
         let body = TermId::new(1).unwrap();
-        let one_parameter = TermNode::Lambda(vec![Symbol::new("a,b")], body);
-        let two_parameters = TermNode::Lambda(vec![Symbol::new("a"), Symbol::new("b")], body);
+        let one_parameter = TermNode::Lambda(1, body);
+        let two_parameters = TermNode::Lambda(2, body);
         assert_ne!(
             compute_term_id(&one_parameter).unwrap(),
             compute_term_id(&two_parameters).unwrap()
@@ -2013,10 +2262,8 @@ mod tests {
         );
         let mut dag = TermDag::new();
         let root = dag.insert_expr(&expression).unwrap();
-        assert!(matches!(
-            dag.get(root),
-            Some(TermNode::Lambda(parameters, _)) if parameters == &vec![Symbol::new("x")]
-        ));
+        assert!(matches!(dag.get(root), Some(TermNode::Lambda(1, _))));
+        assert_eq!(dag.lambda_parameters(root), Some(&[Symbol::new("x")][..]));
         assert_eq!(dag.to_expr(root).unwrap(), expression);
         assert_eq!(
             dag.infer_sort(root).unwrap(),
@@ -2027,10 +2274,8 @@ mod tests {
         );
 
         let mut direct = TermDag::new();
-        let body = direct.insert_node(TermNode::Sym(Symbol::new("x"))).unwrap();
-        let direct_root = direct
-            .insert_node(TermNode::Lambda(vec![Symbol::new("x")], body))
-            .unwrap();
+        let body = direct.insert_node(TermNode::Bound(0)).unwrap();
+        let direct_root = direct.insert_node(TermNode::Lambda(1, body)).unwrap();
         assert_eq!(root, direct_root);
 
         let two_param = Expr::Function(
@@ -2038,11 +2283,7 @@ mod tests {
             vec![Expr::symbol("x"), Expr::symbol("y"), Expr::symbol("x")],
         );
         let two_root = dag.insert_expr(&two_param).unwrap();
-        assert!(matches!(
-            dag.get(two_root),
-            Some(TermNode::Lambda(parameters, _))
-                if parameters == &vec![Symbol::new("x"), Symbol::new("y")]
-        ));
+        assert!(matches!(dag.get(two_root), Some(TermNode::Lambda(2, _))));
         assert_eq!(dag.to_expr(two_root).unwrap(), two_param);
     }
 
@@ -2066,14 +2307,50 @@ mod tests {
         let tuple_root = dag.insert_expr(&tuple_lambda).unwrap();
         let multi_root = dag.insert_expr(&multi_arg).unwrap();
         assert_eq!(tuple_root, multi_root);
-        assert!(matches!(
-            dag.get(tuple_root),
-            Some(TermNode::Lambda(parameters, _))
-                if parameters == &vec![Symbol::new("x"), Symbol::new("y")]
-        ));
+        assert!(matches!(dag.get(tuple_root), Some(TermNode::Lambda(2, _))));
+        assert_eq!(
+            dag.lambda_parameters(tuple_root),
+            Some(&[Symbol::new("x"), Symbol::new("y")][..])
+        );
         // Lifting uses the multi-argument surface, not the Tuple spelling.
         assert_eq!(dag.to_expr(tuple_root).unwrap(), multi_arg);
         assert_ne!(dag.to_expr(tuple_root).unwrap(), tuple_lambda);
+    }
+
+    #[test]
+    fn alpha_equivalent_lambdas_share_intern_identity() {
+        let lambda_x = Expr::Function(
+            "Lambda".to_string(),
+            vec![
+                Expr::symbol("x"),
+                Expr::Add(vec![Expr::symbol("x"), Expr::from_i64(1)]),
+            ],
+        );
+        let lambda_y = Expr::Function(
+            "Lambda".to_string(),
+            vec![
+                Expr::symbol("y"),
+                Expr::Add(vec![Expr::symbol("y"), Expr::from_i64(1)]),
+            ],
+        );
+        let lambda_free = Expr::Function(
+            "Lambda".to_string(),
+            vec![
+                Expr::symbol("x"),
+                Expr::Add(vec![Expr::symbol("z"), Expr::from_i64(1)]),
+            ],
+        );
+        let mut dag = TermDag::new();
+        let x_root = dag.insert_expr(&lambda_x).unwrap();
+        let y_root = dag.insert_expr(&lambda_y).unwrap();
+        let free_root = dag.insert_expr(&lambda_free).unwrap();
+        assert_eq!(x_root, y_root);
+        assert_ne!(x_root, free_root);
+        assert!(matches!(dag.get(x_root), Some(TermNode::Lambda(1, _))));
+        // First intern wins the lift spelling.
+        assert_eq!(dag.to_expr(x_root).unwrap(), lambda_x);
+        assert_eq!(dag.to_expr(y_root).unwrap(), lambda_x);
+        assert_eq!(dag.to_expr(free_root).unwrap(), lambda_free);
     }
 
     #[test]
@@ -2229,9 +2506,7 @@ mod tests {
         let body = lambda_dag
             .insert_node(TermNode::Sym(Symbol::new("x")))
             .unwrap();
-        let lambda = lambda_dag
-            .insert_node(TermNode::Lambda(vec![Symbol::new("p")], body))
-            .unwrap();
+        let lambda = lambda_dag.insert_node(TermNode::Lambda(1, body)).unwrap();
         let omitted_name_would_fit = DagLimits {
             max_total_payload_bytes: 130,
             ..DagLimits::default()
@@ -2465,9 +2740,7 @@ mod tests {
         assert_eq!(dag.infer_sort(sum).unwrap(), Sort::Scalar);
         assert_eq!(dag.infer_sort(product).unwrap(), Sort::Scalar);
 
-        let lambda = dag
-            .insert_node(TermNode::Lambda(vec![Symbol::new("p")], one))
-            .unwrap();
+        let lambda = dag.insert_node(TermNode::Lambda(1, one)).unwrap();
         let invalid = dag.insert_node(TermNode::Add(vec![lambda, one])).unwrap();
         assert_eq!(
             dag.infer_sort(invalid),
@@ -2536,12 +2809,7 @@ mod tests {
         let integer = dag.insert_node(TermNode::Integer(BigInt::from(2))).unwrap();
         let add = dag.insert_node(TermNode::Add(vec![integer])).unwrap();
         let symbol = dag.insert_node(TermNode::Sym(Symbol::new("xy"))).unwrap();
-        let lambda = dag
-            .insert_node(TermNode::Lambda(
-                vec![Symbol::new("a"), Symbol::new("b")],
-                integer,
-            ))
-            .unwrap();
+        let lambda = dag.insert_node(TermNode::Lambda(2, integer)).unwrap();
 
         assert_eq!(
             dag.infer_sort_with_limits(
@@ -3192,9 +3460,7 @@ mod tests {
         );
 
         let body = dag.insert_node(TermNode::Sym(Symbol::new("x"))).unwrap();
-        let binder = dag
-            .insert_node(TermNode::Lambda(vec![Symbol::new("x")], body))
-            .unwrap();
+        let binder = dag.insert_node(TermNode::Lambda(1, body)).unwrap();
         assert_eq!(
             dag.insert_node_in_domain(TermNode::Pow(base, binder), TermDomain::Integer),
             Err(DagError::DomainIncompatible {
@@ -3258,10 +3524,7 @@ mod tests {
         let mut dag = TermDag::new();
         let body = dag.insert_node(TermNode::Sym(Symbol::new("x"))).unwrap();
         assert_eq!(
-            dag.insert_node_in_domain(
-                TermNode::Lambda(vec![Symbol::new("x")], body),
-                TermDomain::Real
-            ),
+            dag.insert_node_in_domain(TermNode::Lambda(1, body), TermDomain::Real),
             Err(DagError::DomainIncompatible {
                 domain: TermDomain::Real,
                 reason: "binder is not a Real inhabitant",

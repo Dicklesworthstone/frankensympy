@@ -52,6 +52,10 @@ cannot certify. Message text is outside the contract.
 native cdylib identity (path/size/digest). It does not write goldens and
 cannot certify.
 
+`pickle-roundtrip` dumps protocol-4 pickle in one process and loads it in a
+second process of the same interpreter family. It compares restored
+type/module identity, never writes goldens, and cannot certify.
+
 Exit codes: 0 = success, 1 = gate failure, 2 = misuse.
 """
 
@@ -76,6 +80,12 @@ from comparators import REGISTRY, diff_envelopes
 from warning_records import diff_warning_records, validate_warning_record
 from environment_records import extension_identity, make_environment_receipt
 from extension import find_fsym_python_extension
+from pickle_records import (
+    combine_roundtrip,
+    diff_pickle_roundtrips,
+    validate_dump_record,
+    validate_restore_record,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ARTIFACT_ROOT = REPO_ROOT / "artifacts" / "conformance"
@@ -283,6 +293,13 @@ def runner_path() -> Path:
 
 def candidate_runner_path() -> Path:
     path = Path(__file__).resolve().parent / "candidate_runner.py"
+    if not path.exists():
+        raise SystemExit(f"missing runner: {path}")
+    return path
+
+
+def pickle_loader_path() -> Path:
+    path = Path(__file__).resolve().parent / "pickle_loader.py"
     if not path.exists():
         raise SystemExit(f"missing runner: {path}")
     return path
@@ -740,6 +757,177 @@ def cmd_environment(
     if golden_digest_map(profile) != before:
         return fail("environment/build lane mutated immutable goldens")
     receipt["golden_bytes_unchanged"] = True
+    print(json.dumps(receipt, indent=2, sort_keys=True))
+    return 0
+
+
+def parse_pickle_dump_output(
+    stdout: str,
+    stderr: str,
+    expected_ids: list[str],
+    profile: dict,
+    *,
+    expected_side: str,
+    label: str,
+) -> list[dict]:
+    output_bytes = len(stdout.encode()) + len(stderr.encode())
+    if output_bytes > MAX_RUNNER_OUTPUT_BYTES:
+        raise ValueError(f"{label} pickle dump exceeds the harness limit")
+    if stderr.strip():
+        raise ValueError(f"{label} pickle dump emitted unexpected stderr: {stderr[-400:]}")
+    records = []
+    for line_number, line in enumerate(stdout.splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"{label} pickle dump line {line_number} is not JSON: {exc}") from exc
+        expected_id = expected_ids[len(records)] if len(records) < len(expected_ids) else ""
+        validate_dump_record(
+            record, profile, expected_side=expected_side, expected_id=expected_id
+        )
+        records.append(record)
+    actual_ids = [record["fixture_id"] for record in records]
+    if actual_ids != expected_ids:
+        raise ValueError(
+            f"{label} pickle dump sequence mismatch: expected={expected_ids!r} actual={actual_ids!r}"
+        )
+    return records
+
+
+def capture_pickle_dumps(
+    profile: dict, fixture_path: Path, py: str, *, side: str
+) -> list[dict]:
+    expected_ids = load_fixture_ids(fixture_path)
+    if side == ORACLE_SIDE:
+        command = [
+            py,
+            "-P",
+            "-s",
+            str(runner_path()),
+            str(fixture_path),
+            profile["profile_id"],
+            "--pickle-roundtrip",
+        ]
+        env = oracle_environment(profile)
+        label = "oracle-pickle-dump"
+    elif side == CANDIDATE_SIDE:
+        command = [
+            py,
+            "-P",
+            "-s",
+            str(candidate_runner_path()),
+            str(fixture_path),
+            profile["profile_id"],
+            "--pickle-roundtrip",
+        ]
+        env = candidate_environment(profile)
+        label = "candidate-pickle-dump"
+    else:
+        raise ValueError(f"unknown pickle dump side: {side!r}")
+    proc = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=120,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"{label} exited {proc.returncode} for {fixture_path.name}: "
+            f"{proc.stderr[-400:] or proc.stdout[-400:]}"
+        )
+    return parse_pickle_dump_output(
+        proc.stdout,
+        proc.stderr,
+        expected_ids,
+        profile,
+        expected_side=side,
+        label=label,
+    )
+
+
+def restore_pickle_dump(dump: dict, py: str, env: dict[str, str]) -> dict | None:
+    if dump["pickle_b64"] is None:
+        return None
+    proc = subprocess.run(
+        [py, "-P", "-s", str(pickle_loader_path())],
+        input=json.dumps(
+            {
+                "pickle_b64": dump["pickle_b64"],
+                "fixture_id": dump["fixture_id"],
+                "side": dump["side"],
+            },
+            sort_keys=True,
+        ),
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=60,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"pickle loader exited {proc.returncode}: "
+            f"{proc.stderr[-400:] or proc.stdout[-400:]}"
+        )
+    if proc.stderr.strip():
+        raise ValueError(f"pickle loader emitted unexpected stderr: {proc.stderr[-400:]}")
+    try:
+        restore = json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"pickle loader output is not JSON: {exc}") from exc
+    validate_restore_record(
+        restore, expected_side=dump["side"], expected_id=dump["fixture_id"]
+    )
+    return restore
+
+
+def cmd_pickle_roundtrip(
+    profile: dict, oracle_py: str, candidate_py: str, *, certify: bool = False
+) -> int:
+    if certify:
+        return fail("pickle-roundtrip lane cannot certify; refuse --certify")
+    before = golden_digest_map(profile)
+    base = Path(__file__).resolve().parent
+    oracle_obs: list[dict] = []
+    candidate_obs: list[dict] = []
+    oracle_env = oracle_environment(profile)
+    candidate_env = candidate_environment(profile)
+    for rel in profile["inventory"]["fixtures"]:
+        fixture_path = base / rel
+        oracle_dumps = capture_pickle_dumps(
+            profile, fixture_path, oracle_py, side=ORACLE_SIDE
+        )
+        candidate_dumps = capture_pickle_dumps(
+            profile, fixture_path, candidate_py, side=CANDIDATE_SIDE
+        )
+        for dump in oracle_dumps:
+            restore = restore_pickle_dump(dump, oracle_py, oracle_env)
+            oracle_obs.append(combine_roundtrip(dump, restore))
+        for dump in candidate_dumps:
+            restore = restore_pickle_dump(dump, candidate_py, candidate_env)
+            candidate_obs.append(combine_roundtrip(dump, restore))
+    details = diff_pickle_roundtrips(oracle_obs, candidate_obs)
+    if golden_digest_map(profile) != before:
+        return fail("pickle-roundtrip lane mutated immutable goldens")
+    receipt = {
+        "lane": "pickle_roundtrip",
+        "kind": "pickle_roundtrip",
+        "certifies": False,
+        "can_certify": False,
+        "claims_promoted": False,
+        "goldens_written": False,
+        "golden_bytes_unchanged": True,
+        "profile_id": profile["profile_id"],
+        "protocol": 4,
+        "paired": min(len(oracle_obs), len(candidate_obs)),
+        "discrepancies": len(details),
+        "details": details,
+        "note": "cross-process pickle restore cannot certify the immutable profile",
+    }
     print(json.dumps(receipt, indent=2, sort_keys=True))
     return 0
 

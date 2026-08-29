@@ -20,6 +20,7 @@ Exit codes: 0 = all fixtures observed (including per-fixture error classes),
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
@@ -159,6 +160,74 @@ def _unique_warning_classes(caught: list) -> list[dict[str, str]]:
     return out
 
 
+MAX_PICKLE_BYTES = 256 * 1024
+
+
+def observe_pickle_dump(fixture: dict, profile_id: str) -> dict:
+    try:
+        obj = _construct(fixture)
+        outcome = "returned"
+    except Exception:  # noqa: BLE001 - construction outcome is the observation
+        return {
+            "schema_version": 1,
+            "kind": "pickle_dump",
+            "profile_id": profile_id,
+            "fixture_id": fixture["id"],
+            "side": "upstream_oracle",
+            "construction_outcome": "raised",
+            "protocol": 4,
+            "pickle_sha256": None,
+            "pickle_b64": None,
+            "dump_error": None,
+        }
+    try:
+        blob = pickle.dumps(obj, protocol=4)
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "schema_version": 1,
+            "kind": "pickle_dump",
+            "profile_id": profile_id,
+            "fixture_id": fixture["id"],
+            "side": "upstream_oracle",
+            "construction_outcome": "returned",
+            "protocol": 4,
+            "pickle_sha256": None,
+            "pickle_b64": None,
+            "dump_error": {
+                "error_class": type(exc).__module__ + "." + type(exc).__name__,
+                "message_head": str(exc)[:200],
+            },
+        }
+    if len(blob) > MAX_PICKLE_BYTES:
+        return {
+            "schema_version": 1,
+            "kind": "pickle_dump",
+            "profile_id": profile_id,
+            "fixture_id": fixture["id"],
+            "side": "upstream_oracle",
+            "construction_outcome": "returned",
+            "protocol": 4,
+            "pickle_sha256": None,
+            "pickle_b64": None,
+            "dump_error": {
+                "error_class": "harness.pickle_too_large",
+                "message_head": f"{len(blob)} bytes exceeds {MAX_PICKLE_BYTES}",
+            },
+        }
+    return {
+        "schema_version": 1,
+        "kind": "pickle_dump",
+        "profile_id": profile_id,
+        "fixture_id": fixture["id"],
+        "side": "upstream_oracle",
+        "construction_outcome": "returned",
+        "protocol": 4,
+        "pickle_sha256": hashlib.sha256(blob).hexdigest(),
+        "pickle_b64": base64.b64encode(blob).decode("ascii"),
+        "dump_error": None,
+    }
+
+
 def observe_warnings(fixture: dict, profile_id: str) -> dict:
     with warnings_mod.catch_warnings(record=True) as caught:
         warnings_mod.simplefilter("always")
@@ -245,15 +314,24 @@ def observe(fixture: dict, profile_id: str, env_fingerprint: dict) -> dict:
 def main() -> int:
     args = sys.argv[1:]
     warnings_only = False
-    if args and args[-1] == "--warnings":
-        warnings_only = True
-        args = args[:-1]
+    pickle_roundtrip = False
+    if args and args[-1] in {"--warnings", "--pickle-roundtrip"}:
+        flag = args.pop()
+        warnings_only = flag == "--warnings"
+        pickle_roundtrip = flag == "--pickle-roundtrip"
     if len(args) != 2:
         print(json.dumps({"error_class": "harness_misuse"}))
         return 2
     fixture_path, profile_id = args
     with open(fixture_path, encoding="utf-8") as fh:
         fixtures = json.load(fh)
+    if pickle_roundtrip:
+        for fixture in fixtures:
+            sys.stdout.write(
+                json.dumps(observe_pickle_dump(fixture, profile_id), sort_keys=True) + "\n"
+            )
+            sys.stdout.flush()
+        return 0
     if warnings_only:
         for fixture in fixtures:
             sys.stdout.write(

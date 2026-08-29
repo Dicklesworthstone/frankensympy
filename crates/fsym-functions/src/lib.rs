@@ -2,7 +2,8 @@
 //!
 //! Constructors for sine, cosine, tangent, cotangent, secant, cosecant,
 //! inverse trigonometric, exponential, logarithm, hyperbolic, gamma,
-//! zeta, factorial, binomial, and fibonacci expressions, with exact identity values.
+//! zeta, factorial, binomial, fibonacci, lucas, harmonic, catalan,
+//! bernoulli, bell, subfactorial, floor, and ceiling expressions, with exact identity values.
 
 #![forbid(unsafe_code)]
 
@@ -423,6 +424,157 @@ pub fn harmonic(n: Expr) -> Expr {
     Expr::Function("harmonic".to_string(), vec![n])
 }
 
+/// Create a Catalan number expression: C_n = 1/(n+1) * (2n choose n).
+pub fn catalan(n: Expr) -> Expr {
+    if n.is_zero() || n.is_one() {
+        return Expr::from_i64(1);
+    }
+    if let Expr::Integer(ni) = &n
+        && ni > &BigInt::from(0)
+        && ni <= &BigInt::from(60)
+    {
+        let n_val = ni.to_u64().unwrap_or(0);
+        let mut c = BigInt::from(1);
+        for k in 0..n_val {
+            c = (c * BigInt::from(2 * (2 * k + 1))) / BigInt::from(k + 2);
+        }
+        return Expr::Integer(c);
+    }
+    Expr::Function("catalan".to_string(), vec![n])
+}
+
+/// Create a Bernoulli number expression: B_n (using the standard B_1 = -1/2 convention).
+pub fn bernoulli(n: Expr) -> Expr {
+    if n.is_zero() {
+        return Expr::from_i64(1);
+    }
+    if n.is_one() {
+        return Expr::rational(-1, 2).expect("valid rational -1/2");
+    }
+    if let Expr::Integer(ni) = &n {
+        if ni > &BigInt::from(1) && (ni % BigInt::from(2)) != BigInt::from(0) {
+            // All odd Bernoulli numbers > 1 are zero
+            return Expr::from_i64(0);
+        }
+        if ni > &BigInt::from(0) && ni <= &BigInt::from(60) {
+            let n_val = ni.to_u64().unwrap_or(0) as usize;
+            let mut a: Vec<BigRational> = (0..=n_val)
+                .map(|m| BigRational::new(1.into(), ((m + 1) as i64).into()))
+                .collect();
+            for j in 1..=n_val {
+                for m in 0..=(n_val - j) {
+                    let diff = &a[m] - &a[m + 1];
+                    a[m] = BigRational::from_integer(((m + 1) as i64).into()) * diff;
+                }
+            }
+            let b_n = a[0].clone();
+            return if b_n.is_integer() {
+                Expr::Integer(b_n.to_integer())
+            } else {
+                Expr::Rational(b_n)
+            };
+        }
+    }
+    Expr::Function("bernoulli".to_string(), vec![n])
+}
+
+/// Create a Bell number expression: B_n (number of partitions of a set of n elements).
+pub fn bell(n: Expr) -> Expr {
+    if n.is_zero() || n.is_one() {
+        return Expr::from_i64(1);
+    }
+    if let Expr::Integer(ni) = &n
+        && ni > &BigInt::from(0)
+        && ni <= &BigInt::from(60)
+    {
+        let n_val = ni.to_u64().unwrap_or(0) as usize;
+        let mut row = vec![BigInt::from(1)];
+        for _ in 1..=n_val {
+            let mut next_row = Vec::with_capacity(row.len() + 1);
+            next_row.push(row.last().unwrap().clone());
+            for j in 0..row.len() {
+                let sum = &next_row[j] + &row[j];
+                next_row.push(sum);
+            }
+            row = next_row;
+        }
+        return Expr::Integer(row.first().unwrap().clone());
+    }
+    Expr::Function("bell".to_string(), vec![n])
+}
+
+/// Create a subfactorial expression: !n (number of derangements of n elements).
+pub fn subfactorial(n: Expr) -> Expr {
+    if n.is_zero() {
+        return Expr::from_i64(1);
+    }
+    if n.is_one() {
+        return Expr::from_i64(0);
+    }
+    if let Expr::Integer(ni) = &n
+        && ni > &BigInt::from(0)
+        && ni <= &BigInt::from(60)
+    {
+        let n_val = ni.to_u64().unwrap_or(0);
+        let mut d_prev2 = BigInt::from(1); // !0 = 1
+        let mut d_prev1 = BigInt::from(0); // !1 = 0
+        let mut curr = BigInt::from(0);
+        for i in 2..=n_val {
+            curr = BigInt::from(i - 1) * (&d_prev1 + &d_prev2);
+            d_prev2 = d_prev1;
+            d_prev1 = curr.clone();
+        }
+        return Expr::Integer(curr);
+    }
+    Expr::Function("subfactorial".to_string(), vec![n])
+}
+
+/// Create a floor function expression: ⌊x⌋.
+pub fn floor(arg: Expr) -> Expr {
+    if arg.is_zero() {
+        return Expr::from_i64(0);
+    }
+    if let Expr::Integer(n) = &arg {
+        return Expr::Integer(n.clone());
+    }
+    if let Expr::Rational(r) = &arg {
+        let p = r.numer();
+        let q = r.denom();
+        let div = p / q;
+        let rem = p % q;
+        let fl = if rem < BigInt::from(0) {
+            div - BigInt::from(1)
+        } else {
+            div
+        };
+        return Expr::Integer(fl);
+    }
+    Expr::Function("floor".to_string(), vec![arg])
+}
+
+/// Create a ceiling function expression: ⌈x⌉.
+pub fn ceiling(arg: Expr) -> Expr {
+    if arg.is_zero() {
+        return Expr::from_i64(0);
+    }
+    if let Expr::Integer(n) = &arg {
+        return Expr::Integer(n.clone());
+    }
+    if let Expr::Rational(r) = &arg {
+        let p = r.numer();
+        let q = r.denom();
+        let div = p / q;
+        let rem = p % q;
+        let ceil = if rem > BigInt::from(0) {
+            div + BigInt::from(1)
+        } else {
+            div
+        };
+        return Expr::Integer(ceil);
+    }
+    Expr::Function("ceiling".to_string(), vec![arg])
+}
+
 /// Create a Riemann Zeta function expression: ζ(s).
 pub fn zeta(arg: Expr) -> Expr {
     Expr::Function("zeta".to_string(), vec![arg])
@@ -571,5 +723,79 @@ mod tests {
         assert_eq!(harmonic(Expr::from_i64(1)), Expr::from_i64(1));
         assert_eq!(harmonic(Expr::from_i64(2)), Expr::rational(3, 2).unwrap());
         assert_eq!(harmonic(Expr::from_i64(4)), Expr::rational(25, 12).unwrap());
+    }
+
+    #[test]
+    fn test_catalan_and_bernoulli_and_bell_and_subfactorial() {
+        assert_eq!(catalan(Expr::from_i64(0)), Expr::from_i64(1));
+        assert_eq!(catalan(Expr::from_i64(1)), Expr::from_i64(1));
+        assert_eq!(catalan(Expr::from_i64(2)), Expr::from_i64(2));
+        assert_eq!(catalan(Expr::from_i64(3)), Expr::from_i64(5));
+        assert_eq!(catalan(Expr::from_i64(4)), Expr::from_i64(14));
+        assert_eq!(catalan(Expr::from_i64(5)), Expr::from_i64(42));
+        let x = Expr::symbol("x");
+        assert_eq!(
+            catalan(x.clone()),
+            Expr::Function("catalan".to_string(), vec![x.clone()])
+        );
+
+        assert_eq!(bernoulli(Expr::from_i64(0)), Expr::from_i64(1));
+        assert_eq!(bernoulli(Expr::from_i64(1)), Expr::rational(-1, 2).unwrap());
+        assert_eq!(bernoulli(Expr::from_i64(2)), Expr::rational(1, 6).unwrap());
+        assert_eq!(bernoulli(Expr::from_i64(3)), Expr::from_i64(0));
+        assert_eq!(
+            bernoulli(Expr::from_i64(4)),
+            Expr::rational(-1, 30).unwrap()
+        );
+        assert_eq!(bernoulli(Expr::from_i64(5)), Expr::from_i64(0));
+        assert_eq!(bernoulli(Expr::from_i64(6)), Expr::rational(1, 42).unwrap());
+        assert_eq!(bernoulli(Expr::from_i64(7)), Expr::from_i64(0));
+        assert_eq!(
+            bernoulli(Expr::from_i64(8)),
+            Expr::rational(-1, 30).unwrap()
+        );
+
+        assert_eq!(bell(Expr::from_i64(0)), Expr::from_i64(1));
+        assert_eq!(bell(Expr::from_i64(1)), Expr::from_i64(1));
+        assert_eq!(bell(Expr::from_i64(2)), Expr::from_i64(2));
+        assert_eq!(bell(Expr::from_i64(3)), Expr::from_i64(5));
+        assert_eq!(bell(Expr::from_i64(4)), Expr::from_i64(15));
+        assert_eq!(bell(Expr::from_i64(5)), Expr::from_i64(52));
+
+        assert_eq!(subfactorial(Expr::from_i64(0)), Expr::from_i64(1));
+        assert_eq!(subfactorial(Expr::from_i64(1)), Expr::from_i64(0));
+        assert_eq!(subfactorial(Expr::from_i64(2)), Expr::from_i64(1));
+        assert_eq!(subfactorial(Expr::from_i64(3)), Expr::from_i64(2));
+        assert_eq!(subfactorial(Expr::from_i64(4)), Expr::from_i64(9));
+        assert_eq!(subfactorial(Expr::from_i64(5)), Expr::from_i64(44));
+        assert_eq!(subfactorial(Expr::from_i64(6)), Expr::from_i64(265));
+    }
+
+    #[test]
+    fn test_floor_and_ceiling() {
+        assert_eq!(floor(Expr::from_i64(0)), Expr::from_i64(0));
+        assert_eq!(floor(Expr::from_i64(5)), Expr::from_i64(5));
+        assert_eq!(floor(Expr::from_i64(-4)), Expr::from_i64(-4));
+        assert_eq!(floor(Expr::rational(7, 2).unwrap()), Expr::from_i64(3));
+        assert_eq!(floor(Expr::rational(-7, 2).unwrap()), Expr::from_i64(-4));
+        assert_eq!(floor(Expr::rational(6, 2).unwrap()), Expr::from_i64(3));
+        assert_eq!(floor(Expr::rational(-6, 2).unwrap()), Expr::from_i64(-3));
+        let x = Expr::symbol("x");
+        assert_eq!(
+            floor(x.clone()),
+            Expr::Function("floor".to_string(), vec![x.clone()])
+        );
+
+        assert_eq!(ceiling(Expr::from_i64(0)), Expr::from_i64(0));
+        assert_eq!(ceiling(Expr::from_i64(5)), Expr::from_i64(5));
+        assert_eq!(ceiling(Expr::from_i64(-4)), Expr::from_i64(-4));
+        assert_eq!(ceiling(Expr::rational(7, 2).unwrap()), Expr::from_i64(4));
+        assert_eq!(ceiling(Expr::rational(-7, 2).unwrap()), Expr::from_i64(-3));
+        assert_eq!(ceiling(Expr::rational(6, 2).unwrap()), Expr::from_i64(3));
+        assert_eq!(ceiling(Expr::rational(-6, 2).unwrap()), Expr::from_i64(-3));
+        assert_eq!(
+            ceiling(x.clone()),
+            Expr::Function("ceiling".to_string(), vec![x])
+        );
     }
 }
