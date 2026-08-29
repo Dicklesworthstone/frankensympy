@@ -561,6 +561,13 @@ mod tests {
         assert_eq!(prime_big_omega(1), Ok(0));
         assert_eq!(is_square_free(1), Ok(true));
 
+        // 0 has no prime factorization. is_square_free delegates to
+        // mobius(0), which returns Err(ZeroFactorization). Pin
+        // this so a future refactor of mobius (e.g. returning Ok(0)
+        // for n=0) does not silently change is_square_free(0)'s
+        // refusal.
+        assert_eq!(is_square_free(0), Err(NTheoryError::ZeroFactorization));
+
         // Perfect numbers: 6 (1+2+3=6), 28 (1+2+4+7+14=28), 496
         assert_eq!(is_perfect_number(0), Err(NTheoryError::ZeroFactorization));
         assert_eq!(is_perfect_number(6), Ok(true));
