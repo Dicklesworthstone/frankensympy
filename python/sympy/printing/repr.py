@@ -13,6 +13,7 @@ def srepr(expr: Any) -> str:
         Derivative,
         Dummy,
         Function,
+        Float,
         Integer,
         Mul,
         Pow,
@@ -31,6 +32,8 @@ def srepr(expr: Any) -> str:
             return f"Dummy({expr.name!r})"
         if type(expr) is Integer:
             return f"Integer({expr.p})"
+        if type(expr) is Float:
+            return expr._srepr()
         if type(expr) is Rational:
             return f"Rational({expr.p}, {expr.q})"
         if str(expr) in ("pi", "E", "I", "oo", "zoo", "nan"):

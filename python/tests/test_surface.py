@@ -236,6 +236,8 @@ class SurfaceTests(unittest.TestCase):
         self.assertTrue(issubclass(sympy.Number, sympy.AtomicExpr))
         self.assertTrue(issubclass(sympy.Rational, sympy.Number))
         self.assertTrue(issubclass(sympy.Integer, sympy.Rational))
+        self.assertTrue(issubclass(sympy.Float, sympy.Number))
+        self.assertFalse(issubclass(sympy.Float, sympy.Rational))
         self.assertTrue(issubclass(sympy.Add, sympy.Expr))
         self.assertTrue(issubclass(sympy.Mul, sympy.Expr))
         self.assertTrue(issubclass(sympy.Pow, sympy.Expr))
@@ -292,7 +294,7 @@ class SurfaceTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             x.xreplace(1)
 
-    def test_singleton_registry_exposes_exact_atoms_and_refuses_float(self):
+    def test_singleton_registry_exposes_exact_atoms_and_constructs_float(self):
         self.assertEqual(sympy.S.Zero, sympy.Integer(0))
         self.assertEqual(sympy.S.One, sympy.Integer(1))
         self.assertEqual(sympy.S.NegativeOne, sympy.Integer(-1))
@@ -304,10 +306,47 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(str(sympy.S.Pi), "pi")
         self.assertEqual(str(sympy.S.Infinity), "oo")
         self.assertEqual(str(sympy.S.ComplexInfinity), "zoo")
-        with self.assertRaisesRegex(NotImplementedError, "compatibility Float"):
-            sympy.S(1.5)
+        self.assertIsInstance(sympy.S(1.5), sympy.Float)
         with self.assertRaises(TypeError):
             sympy.S(object())
+
+    def test_float_is_a_number_atom_not_a_rational(self):
+        value = sympy.Float(1.5)
+        self.assertIs(type(value), sympy.Float)
+        self.assertIsInstance(value, sympy.Number)
+        self.assertNotIsInstance(value, sympy.Rational)
+        self.assertEqual(value.args, ())
+        self.assertIs(value.func, sympy.Float)
+        self.assertFalse(value.is_symbol)
+        self.assertTrue(value.is_number)
+        self.assertFalse(value.is_integer)
+        self.assertFalse(value.is_rational)
+        self.assertAlmostEqual(value.evalf(), 1.5)
+        self.assertNotEqual(value, sympy.Rational(3, 2))
+        self.assertEqual(value, sympy.Float(1.5))
+        self.assertEqual(sympy.Float(3) + sympy.Float(0.5), sympy.Float(3.5))
+        self.assertEqual(sympy.Integer(sympy.Float(2.9)), sympy.Integer(2))
+
+        x = sympy.Symbol("x")
+        summed = x + 1.5
+        self.assertIsInstance(summed, sympy.Add)
+        self.assertTrue(any(type(arg) is sympy.Float for arg in summed.args))
+
+        restored = pickle.loads(pickle.dumps(value))  # ubs:ignore — trusted in-process bytes
+        self.assertIs(type(restored), sympy.Float)
+        self.assertEqual(restored, value)
+
+        with self.assertRaises(TypeError):
+            sympy.Float(object())
+        with self.assertRaises(ValueError):
+            sympy.Function("__fsymFloat")
+
+        class LossyFloat:
+            def __float__(self):
+                return 1.5
+
+        with self.assertRaises(TypeError):
+            sympy.Float(LossyFloat())
 
     def test_latex_and_evalf_representations(self):
         x = sympy.Symbol("x")

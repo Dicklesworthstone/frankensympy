@@ -7,10 +7,12 @@ missing: importing an unusable symbolic shell would make capability checks lie.
 
 from __future__ import annotations
 
+import struct
 import sys
 from typing import Any, Iterable
 
 _DUMMY_PREFIX = "__fsymDummy_"
+_FLOAT_INTERN = "__fsymFloat"
 _dummy_next = 1
 
 try:
@@ -75,6 +77,7 @@ def _exact_surface_types():
         Number,
         Integer,
         Rational,
+        Float,
         ComplexInfinity,
         Add,
         Mul,
@@ -99,10 +102,7 @@ def _native_expr(value: Any):
     if isinstance(value, int):
         return _native.py_integer(value)
     if isinstance(value, float):
-        from fractions import Fraction
-
-        fract = Fraction(value)
-        return _native.py_rational(fract.numerator, fract.denominator)
+        return _float_intern(_ieee_bits(value))
     if isinstance(value, str):
         return _native.Expr(value)
     raise TypeError(f"cannot convert {type(value).__name__} to native Expr")
@@ -165,6 +165,8 @@ def _wrap(value: Any) -> "Basic":
         if str(value) == "zoo":
             return zoo
         return Expr(str(value))
+    if value.func_name == _FLOAT_INTERN:
+        return Float._from_native(value)
     cls = {
         "Symbol": Symbol,
         "Integer": Integer,
@@ -197,6 +199,47 @@ def _restore_pow(cls, base, exponent):
     return cls(base, exponent, evaluate=False)
 
 
+def _ieee_bits(value: float) -> int:
+    return int.from_bytes(struct.pack(">d", value), "big")
+
+
+def _bits_to_float(bits: int) -> float:
+    value = int(bits)
+    if value < 0 or value >= 1 << 64:
+        raise ValueError("malformed Float intern encoding")
+    return struct.unpack(">d", value.to_bytes(8, "big"))[0]
+
+
+def _float_intern(bits: int):
+    return _native.py_function(_FLOAT_INTERN, _native.py_integer(bits))
+
+
+def _admitted_python_float(value: Any) -> float:
+    """Pinned built-in conversions without invoking user ``__float__`` hooks."""
+    if type(value) is float:
+        return value
+    if type(value) is bool:
+        return 1.0 if value else 0.0
+    if type(value) is int:
+        return float(value)
+    if type(value) is str:
+        return float(value)
+    if type(value) is Integer:
+        return float(value.p)
+    if type(value) is Rational:
+        return value.p / value.q
+    if type(value) is Float:
+        return value._as_python_float()
+    raise TypeError("admitted built-in number, Integer, Rational, or Float required")
+
+
+def _maybe_python_float(value: Any) -> float | None:
+    try:
+        return _admitted_python_float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
 def _exact_integer_argument(value: Any) -> int:
     """Apply the pinned built-in conversions without invoking user hooks."""
     if type(value) is int:
@@ -209,6 +252,8 @@ def _exact_integer_argument(value: Any) -> int:
         return int(value)
     if type(value) is Integer:
         return value.p
+    if type(value) is Float:
+        return int(value._as_python_float())
     raise TypeError("admitted built-in number or Integer required")
 
 
@@ -335,6 +380,8 @@ class Basic:
             return type(self), (self.name,)
         if isinstance(self, Integer):
             return type(self), (self.p,)
+        if type(self) is Float:
+            return _restore_float, (self._as_python_float(), self.dps)
         if isinstance(self, Rational):
             return type(self), (self.p, self.q)
         if isinstance(self, (Add, Mul, Derivative)):
@@ -585,6 +632,126 @@ class Integer(Rational):
         return 1
 
 
+class Float(Number):
+    """Profile-compatible binary64 float. Distinct from Rational and from RealBall."""
+
+    __slots__ = ("_dps",)
+
+    def __init__(self, value: Any = 0, dps: int = 15):
+        if type(dps) is not int or dps < 1:
+            raise TypeError("Float dps must be a positive int")
+        self._dps = dps
+        self._value = _float_intern(_ieee_bits(_admitted_python_float(value)))
+
+    @classmethod
+    def _from_native(cls, value: Any) -> "Float":
+        obj = object.__new__(cls)
+        obj._value = value
+        obj._dps = 15
+        return obj
+
+    def _as_python_float(self) -> float:
+        payload = self._value.args
+        if len(payload) != 1:
+            raise ValueError("malformed Float intern encoding")
+        return _bits_to_float(payload[0].exact_numerator())
+
+    @property
+    def dps(self) -> int:
+        return self._dps
+
+    @property
+    def args(self) -> tuple:
+        return ()
+
+    @property
+    def func(self):
+        return Float
+
+    @property
+    def is_number(self) -> bool:
+        return True
+
+    @property
+    def is_integer(self) -> bool:
+        return False
+
+    @property
+    def is_rational(self) -> bool:
+        return False
+
+    @property
+    def is_symbol(self) -> bool:
+        return False
+
+    def evalf(self) -> float:
+        return self._as_python_float()
+
+    def __float__(self) -> float:
+        return self._as_python_float()
+
+    def __str__(self) -> str:
+        return format(self._as_python_float(), f".{self._dps}g")
+
+    def __repr__(self) -> str:
+        return f"Float({self._as_python_float()!r})"
+
+    def _srepr(self) -> str:
+        return f"Float({self._as_python_float()!r})"
+
+    def __add__(self, other: Any) -> "Expr":
+        rhs = _maybe_python_float(other)
+        if rhs is not None:
+            return Float(self._as_python_float() + rhs)
+        return Expr.__add__(self, other)
+
+    def __radd__(self, other: Any) -> "Expr":
+        rhs = _maybe_python_float(other)
+        if rhs is not None:
+            return Float(rhs + self._as_python_float())
+        return Expr.__radd__(self, other)
+
+    def __sub__(self, other: Any) -> "Expr":
+        rhs = _maybe_python_float(other)
+        if rhs is not None:
+            return Float(self._as_python_float() - rhs)
+        return Expr.__sub__(self, other)
+
+    def __rsub__(self, other: Any) -> "Expr":
+        rhs = _maybe_python_float(other)
+        if rhs is not None:
+            return Float(rhs - self._as_python_float())
+        return Expr.__rsub__(self, other)
+
+    def __mul__(self, other: Any) -> "Expr":
+        rhs = _maybe_python_float(other)
+        if rhs is not None:
+            return Float(self._as_python_float() * rhs)
+        return Expr.__mul__(self, other)
+
+    def __rmul__(self, other: Any) -> "Expr":
+        rhs = _maybe_python_float(other)
+        if rhs is not None:
+            return Float(rhs * self._as_python_float())
+        return Expr.__rmul__(self, other)
+
+    def __truediv__(self, other: Any) -> "Expr":
+        rhs = _maybe_python_float(other)
+        if rhs is not None:
+            return Float(self._as_python_float() / rhs)
+        return Expr.__truediv__(self, other)
+
+    def __rtruediv__(self, other: Any) -> "Expr":
+        rhs = _maybe_python_float(other)
+        if rhs is not None:
+            return Float(rhs / self._as_python_float())
+        return Expr.__rtruediv__(self, other)
+
+
+def _restore_float(value: float, dps: int) -> Float:
+    return Float(value, dps)
+
+
 class ComplexInfinity(AtomicExpr):
     """Complex infinity (zoo) singleton."""
 
@@ -614,7 +781,7 @@ zoo = ComplexInfinity("zoo")
 
 
 class _SingletonRegistry:
-    """Exact-atom registry. ``S(float)`` is refused until compatibility Float exists."""
+    """Exact-atom registry. ``S(float)`` constructs compatibility ``Float``."""
 
     @property
     def Zero(self) -> "Integer":
@@ -668,10 +835,7 @@ class _SingletonRegistry:
         if type(value) is int:
             return Integer(value)
         if type(value) is float:
-            raise NotImplementedError(
-                "compatibility Float is not implemented; "
-                "S() refuses Python float rather than silently forming a Rational"
-            )
+            return Float(value)
         raise TypeError(f"cannot convert {type(value).__name__} through S")
 
 
@@ -762,6 +926,8 @@ class Function(Application, metaclass=FunctionClass):
             if not args[0]:
                 raise ValueError("Function name must be non-empty")
             name = args[0]
+            if name == _FLOAT_INTERN or name.startswith(_DUMMY_PREFIX):
+                raise ValueError("Function name collides with native intern encoding")
             return UndefinedFunction(name)
 
         # Classmethod eval hook
@@ -902,6 +1068,7 @@ Dummy.__module__ = "sympy.core.symbol"
 Number.__module__ = "sympy.core.numbers"
 Rational.__module__ = "sympy.core.numbers"
 Integer.__module__ = "sympy.core.numbers"
+Float.__module__ = "sympy.core.numbers"
 Add.__module__ = "sympy.core.add"
 Mul.__module__ = "sympy.core.mul"
 Pow.__module__ = "sympy.core.power"
@@ -918,6 +1085,7 @@ _restore_nary.__module__ = "sympy.core.basic"
 _restore_pow.__module__ = "sympy.core.basic"
 _restore_dummy.__module__ = "sympy.core.basic"
 _restore_applied_undef.__module__ = "sympy.core.basic"
+_restore_float.__module__ = "sympy.core.numbers"
 
 import types as _types
 
@@ -925,7 +1093,7 @@ for _mod_name, _mod_items in [
     ("sympy.core.basic", (Basic, Atom, _restore_nary, _restore_pow, _restore_dummy, _restore_applied_undef)),
     ("sympy.core.expr", (Expr, AtomicExpr)),
     ("sympy.core.symbol", (Symbol, Dummy, symbols)),
-    ("sympy.core.numbers", (Number, Rational, Integer, ComplexInfinity)),
+    ("sympy.core.numbers", (Number, Rational, Integer, Float, ComplexInfinity, _restore_float)),
     ("sympy.core.add", (Add,)),
     ("sympy.core.mul", (Mul,)),
     ("sympy.core.power", (Pow,)),
@@ -956,6 +1124,7 @@ __all__ = [
     "Derivative",
     "Dummy",
     "Expr",
+    "Float",
     "Function",
     "FunctionClass",
     "Integer",
