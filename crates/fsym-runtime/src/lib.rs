@@ -134,6 +134,22 @@ mod tests {
     }
 
     #[test]
+    fn runtime_budget_default_matches_the_harness_contract() {
+        // RuntimeBudget::default is the budget the WS13 asupersync region race
+        // and the proof-kernel two-phase publication assume when callers do not
+        // pass an explicit RuntimeBudget. The four field values are part of the
+        // resource-control contract, not an implementation detail. Without a
+        // pin, a future change to the default budget would silently weaken
+        // the harness guarantee for every caller that does not specify its
+        // own budget.
+        let default = RuntimeBudget::default();
+        assert_eq!(default.max_eval_steps, 1_000_000);
+        assert_eq!(default.max_recursion_depth, 256);
+        assert_eq!(default.timeout, std::time::Duration::from_secs(30));
+        assert_eq!(default.mode, RuntimeMode::Strict);
+    }
+
+    #[test]
     fn test_typed_checkpoint_integrity() {
         let mut budget = BTreeMap::new();
         budget.insert(Dimension::ComputeSteps, 500);
