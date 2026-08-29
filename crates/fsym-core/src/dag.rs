@@ -447,16 +447,6 @@ enum ExactRealSign {
     Positive,
 }
 
-fn rational_exponent_is_non_positive_integer(node: &TermNode) -> bool {
-    match node {
-        TermNode::Integer(value) => value.is_zero() || value.is_negative(),
-        TermNode::Rational(value) => {
-            value.is_integer() && (value.numer().is_zero() || value.numer().is_negative())
-        }
-        _ => false,
-    }
-}
-
 fn exact_real_sign(node: &TermNode) -> Option<ExactRealSign> {
     let integer_sign = |value: &BigInt| {
         if value.is_negative() {
@@ -485,6 +475,38 @@ fn exact_real_sign(node: &TermNode) -> Option<ExactRealSign> {
     }
 }
 
+fn exact_integer_exponent_sign(node: &TermNode) -> Option<ExactRealSign> {
+    match node {
+        TermNode::Integer(_) => exact_real_sign(node),
+        TermNode::Rational(value) if value.is_integer() => exact_real_sign(node),
+        TermNode::Rational(_)
+        | TermNode::Sym(_)
+        | TermNode::Const(_)
+        | TermNode::Add(_)
+        | TermNode::Mul(_)
+        | TermNode::Pow(..)
+        | TermNode::Function(..)
+        | TermNode::Lambda(..) => None,
+    }
+}
+
+fn exact_integer_unit(node: &TermNode) -> bool {
+    match node {
+        TermNode::Integer(value) => value == &BigInt::from(1) || value == &BigInt::from(-1),
+        TermNode::Rational(value) if value.is_integer() => {
+            value.numer() == &BigInt::from(1) || value.numer() == &BigInt::from(-1)
+        }
+        TermNode::Rational(_)
+        | TermNode::Sym(_)
+        | TermNode::Const(_)
+        | TermNode::Add(_)
+        | TermNode::Mul(_)
+        | TermNode::Pow(..)
+        | TermNode::Function(..)
+        | TermNode::Lambda(..) => false,
+    }
+}
+
 fn infer_power_sort(
     base_sort: &Sort,
     exponent_sort: &Sort,
@@ -504,9 +526,21 @@ fn infer_power_sort(
         });
     }
 
-    if exponent_sort == &Sort::Integer {
+    let exact_integer_sign = exact_integer_exponent_sign(exponent_node);
+    if matches!(exact_real_sign(base_node), Some(ExactRealSign::Zero))
+        && !matches!(exact_integer_sign, Some(ExactRealSign::Positive))
+        && (exponent_sort == &Sort::Integer || exact_integer_sign.is_some())
+    {
+        return Ok(Sort::Scalar);
+    }
+    if exponent_sort == &Sort::Integer || exact_integer_sign.is_some() {
         return Ok(match base_sort {
-            Sort::Integer if matches!(exponent_node, TermNode::Integer(value) if !value.is_negative()) => {
+            Sort::Integer
+                if matches!(
+                    exact_integer_sign,
+                    Some(ExactRealSign::Zero | ExactRealSign::Positive)
+                ) =>
+            {
                 Sort::Integer
             }
             Sort::Integer => Sort::Rational,
@@ -527,8 +561,16 @@ fn infer_power_sort(
             Sort::Integer | Sort::Rational | Sort::Real => match exact_real_sign(base_node) {
                 Some(ExactRealSign::Positive) => Sort::Real,
                 Some(ExactRealSign::Negative) | None => Sort::Complex,
-                // Zero raised to an arbitrary exact real can be undefined when
-                // the exponent is non-positive, so no narrower sort is justified.
+                // A known-positive exact real exponent keeps zero on the real
+                // lane. Non-positive or unknown exponents can be undefined.
+                Some(ExactRealSign::Zero)
+                    if matches!(
+                        exact_real_sign(exponent_node),
+                        Some(ExactRealSign::Positive)
+                    ) =>
+                {
+                    Sort::Real
+                }
                 Some(ExactRealSign::Zero) => Sort::Scalar,
             },
             Sort::Complex => Sort::Complex,
@@ -899,40 +941,53 @@ impl TermDag {
                     let base_node = self.get(*base).ok_or(DagError::UnknownId(*base))?;
                     let exponent_node =
                         self.get(*exponent).ok_or(DagError::UnknownId(*exponent))?;
-                    if matches!(exact_real_sign(base_node), Some(ExactRealSign::Zero))
-                        && matches!(exact_real_sign(exponent_node), Some(ExactRealSign::Zero))
-                    {
-                        return Err(DagError::DomainIncompatible {
-                            domain,
-                            reason: "zero to the power of zero is not an Integer inhabitant",
-                        });
-                    }
                     match exponent_node {
-                        TermNode::Integer(value) if value.is_negative() => {
-                            Err(DagError::DomainIncompatible {
-                                domain,
-                                reason: "negative integer exponent is not closed in Integer",
-                            })
-                        }
-                        TermNode::Rational(value)
-                            if !value.is_integer() || value.numer().is_negative() =>
-                        {
-                            Err(DagError::DomainIncompatible {
+                        TermNode::Rational(value) if !value.is_integer() => {
+                            return Err(DagError::DomainIncompatible {
                                 domain,
                                 reason: "non-natural rational exponent is not closed in Integer",
-                            })
+                            });
                         }
-                        TermNode::Const(_) => Err(DagError::DomainIncompatible {
-                            domain,
-                            reason: "constant exponent is not closed in Integer",
-                        }),
+                        TermNode::Const(_) => {
+                            return Err(DagError::DomainIncompatible {
+                                domain,
+                                reason: "constant exponent is not closed in Integer",
+                            });
+                        }
                         TermNode::Function(..) | TermNode::Lambda(..) => {
-                            Err(DagError::DomainIncompatible {
+                            return Err(DagError::DomainIncompatible {
                                 domain,
                                 reason: "function or binder exponent is not closed in Integer",
-                            })
+                            });
                         }
-                        _ => Ok(()),
+                        TermNode::Integer(_)
+                        | TermNode::Rational(_)
+                        | TermNode::Sym(_)
+                        | TermNode::Add(_)
+                        | TermNode::Mul(_)
+                        | TermNode::Pow(..) => {}
+                    }
+                    match exact_integer_exponent_sign(exponent_node) {
+                        Some(ExactRealSign::Positive) => Ok(()),
+                        Some(ExactRealSign::Zero)
+                            if !matches!(exact_real_sign(base_node), Some(ExactRealSign::Zero)) =>
+                        {
+                            Ok(())
+                        }
+                        Some(ExactRealSign::Negative) if exact_integer_unit(base_node) => Ok(()),
+                        Some(ExactRealSign::Zero) => Err(DagError::DomainIncompatible {
+                            domain,
+                            reason: "zero to the power of zero is not an Integer inhabitant",
+                        }),
+                        Some(ExactRealSign::Negative) => Err(DagError::DomainIncompatible {
+                            domain,
+                            reason: "negative integer exponent is not closed in Integer",
+                        }),
+                        None if exact_integer_unit(base_node) => Ok(()),
+                        None => Err(DagError::DomainIncompatible {
+                            domain,
+                            reason: "exponent sign is not proven non-negative in Integer",
+                        }),
                     }
                 }
                 TermNode::Add(_) | TermNode::Mul(_) => Ok(()),
@@ -950,33 +1005,61 @@ impl TermDag {
                     let base_node = self.get(*base).ok_or(DagError::UnknownId(*base))?;
                     let exponent_node =
                         self.get(*exponent).ok_or(DagError::UnknownId(*exponent))?;
-                    if matches!(exact_real_sign(base_node), Some(ExactRealSign::Zero))
-                        && rational_exponent_is_non_positive_integer(exponent_node)
-                    {
-                        return Err(DagError::DomainIncompatible {
-                            domain,
-                            reason: "zero to a non-positive integer power is not a Rational inhabitant",
-                        });
-                    }
                     match exponent_node {
                         TermNode::Rational(value) if !value.is_integer() => {
-                            Err(DagError::DomainIncompatible {
+                            return Err(DagError::DomainIncompatible {
                                 domain,
                                 reason: "non-integer rational exponent is not closed in Rational",
-                            })
+                            });
                         }
-                        TermNode::Const(_) => Err(DagError::DomainIncompatible {
-                            domain,
-                            reason: "constant exponent is not closed in Rational",
-                        }),
+                        TermNode::Const(_) => {
+                            return Err(DagError::DomainIncompatible {
+                                domain,
+                                reason: "constant exponent is not closed in Rational",
+                            });
+                        }
                         TermNode::Function(..) | TermNode::Lambda(..) => {
-                            Err(DagError::DomainIncompatible {
+                            return Err(DagError::DomainIncompatible {
                                 domain,
                                 reason: "function or binder exponent is not closed in Rational",
-                            })
+                            });
                         }
-                        _ => Ok(()),
+                        TermNode::Integer(_)
+                        | TermNode::Rational(_)
+                        | TermNode::Sym(_)
+                        | TermNode::Add(_)
+                        | TermNode::Mul(_)
+                        | TermNode::Pow(..) => {}
                     }
+                    let exponent_domain = self
+                        .term_domain(*exponent)
+                        .ok_or(DagError::UnknownId(*exponent))?;
+                    let exponent_is_integral = exponent_domain == TermDomain::Integer
+                        || exact_integer_exponent_sign(exponent_node).is_some();
+                    if !exponent_is_integral {
+                        return Err(DagError::DomainIncompatible {
+                            domain,
+                            reason: "exponent is not proven integral in Rational",
+                        });
+                    }
+                    if matches!(exact_real_sign(base_node), Some(ExactRealSign::Zero)) {
+                        match exact_integer_exponent_sign(exponent_node) {
+                            Some(ExactRealSign::Positive) => {}
+                            Some(ExactRealSign::Negative | ExactRealSign::Zero) => {
+                                return Err(DagError::DomainIncompatible {
+                                    domain,
+                                    reason: "zero to a non-positive integer power is not a Rational inhabitant",
+                                });
+                            }
+                            None => {
+                                return Err(DagError::DomainIncompatible {
+                                    domain,
+                                    reason: "zero to an unknown-sign exponent is not a Rational inhabitant",
+                                });
+                            }
+                        }
+                    }
+                    Ok(())
                 }
                 TermNode::Add(_) | TermNode::Mul(_) => Ok(()),
                 TermNode::Const(_) | TermNode::Function(..) | TermNode::Lambda(..) => {
@@ -1008,7 +1091,16 @@ impl TermDag {
             },
             TermDomain::Complex => Ok(()),
         }?;
-        self.validate_numeric_operand_domains(node, domain)
+        self.validate_numeric_operand_domains(node, domain)?;
+        if let TermNode::Pow(base, exponent) = node {
+            match domain {
+                TermDomain::Real => self.validate_real_power(*base, *exponent),
+                TermDomain::Complex => self.validate_complex_power(*base, *exponent),
+                TermDomain::Integer | TermDomain::Rational | TermDomain::Expression => Ok(()),
+            }
+        } else {
+            Ok(())
+        }
     }
 
     fn validate_numeric_operand_domains(
@@ -1048,6 +1140,68 @@ impl TermDag {
             | TermNode::Lambda(..) => {}
         }
         Ok(())
+    }
+
+    fn validate_real_power(&self, base: TermId, exponent: TermId) -> Result<(), DagError> {
+        let base_node = self.get(base).ok_or(DagError::UnknownId(base))?;
+        let exponent_node = self.get(exponent).ok_or(DagError::UnknownId(exponent))?;
+        let exponent_domain = self
+            .term_domain(exponent)
+            .ok_or(DagError::UnknownId(exponent))?;
+        let exponent_is_integral = exponent_domain == TermDomain::Integer
+            || exact_integer_exponent_sign(exponent_node).is_some();
+
+        if exponent_is_integral {
+            if matches!(exact_real_sign(base_node), Some(ExactRealSign::Zero))
+                && !matches!(
+                    exact_real_sign(exponent_node),
+                    Some(ExactRealSign::Positive)
+                )
+            {
+                return Err(DagError::DomainIncompatible {
+                    domain: TermDomain::Real,
+                    reason: "zero to a non-positive or unknown-sign exponent is not a Real inhabitant",
+                });
+            }
+            return Ok(());
+        }
+
+        match exact_real_sign(base_node) {
+            Some(ExactRealSign::Positive) => Ok(()),
+            Some(ExactRealSign::Zero)
+                if matches!(
+                    exact_real_sign(exponent_node),
+                    Some(ExactRealSign::Positive)
+                ) =>
+            {
+                Ok(())
+            }
+            Some(ExactRealSign::Negative | ExactRealSign::Zero) | None => {
+                Err(DagError::DomainIncompatible {
+                    domain: TermDomain::Real,
+                    reason: "non-integer exponent requires a proven non-negative Real base",
+                })
+            }
+        }
+    }
+
+    fn validate_complex_power(&self, base: TermId, exponent: TermId) -> Result<(), DagError> {
+        let base_node = self.get(base).ok_or(DagError::UnknownId(base))?;
+        if !matches!(exact_real_sign(base_node), Some(ExactRealSign::Zero)) {
+            return Ok(());
+        }
+        let exponent_node = self.get(exponent).ok_or(DagError::UnknownId(exponent))?;
+        if matches!(
+            exact_real_sign(exponent_node),
+            Some(ExactRealSign::Positive)
+        ) {
+            Ok(())
+        } else {
+            Err(DagError::DomainIncompatible {
+                domain: TermDomain::Complex,
+                reason: "zero power requires a proven positive Real exponent",
+            })
+        }
     }
 
     fn prospective_node_depth(
@@ -2610,6 +2764,250 @@ mod tests {
         assert_eq!(dag.term_domain(real_sum), Some(TermDomain::Real));
         assert_eq!(dag.term_domain(complex_product), Some(TermDomain::Complex));
         assert_eq!(dag.term_domain(rational_power), Some(TermDomain::Rational));
+    }
+
+    #[test]
+    fn real_domain_refuses_branch_unsafe_powers() {
+        const NON_INTEGER_REASON: &str =
+            "non-integer exponent requires a proven non-negative Real base";
+        const ZERO_REASON: &str =
+            "zero to a non-positive or unknown-sign exponent is not a Real inhabitant";
+
+        let mut dag = TermDag::new();
+        let negative = dag
+            .insert_node_in_domain(
+                TermNode::Rational(BigRational::from_integer(BigInt::from(-1))),
+                TermDomain::Rational,
+            )
+            .unwrap();
+        let zero = dag
+            .insert_node_in_domain(TermNode::Integer(BigInt::from(0)), TermDomain::Integer)
+            .unwrap();
+        let negative_one = dag
+            .insert_node_in_domain(TermNode::Integer(BigInt::from(-1)), TermDomain::Integer)
+            .unwrap();
+        let zero_exponent = dag
+            .insert_node_in_domain(TermNode::Integer(BigInt::from(0)), TermDomain::Integer)
+            .unwrap();
+        let half = dag
+            .insert_node_in_domain(
+                TermNode::Rational(BigRational::new(BigInt::from(1), BigInt::from(2))),
+                TermDomain::Rational,
+            )
+            .unwrap();
+        let unknown_real = dag
+            .insert_node_in_domain(TermNode::Sym(Symbol::new("x")), TermDomain::Real)
+            .unwrap();
+        let unknown_integer = dag
+            .insert_node_in_domain(TermNode::Sym(Symbol::new("n")), TermDomain::Integer)
+            .unwrap();
+        let before = dag.len();
+
+        for (base, exponent, reason) in [
+            (negative, half, NON_INTEGER_REASON),
+            (unknown_real, half, NON_INTEGER_REASON),
+            (zero, negative_one, ZERO_REASON),
+            (zero, zero_exponent, ZERO_REASON),
+            (zero, unknown_integer, ZERO_REASON),
+        ] {
+            assert_eq!(
+                dag.insert_node_in_domain(TermNode::Pow(base, exponent), TermDomain::Real),
+                Err(DagError::DomainIncompatible {
+                    domain: TermDomain::Real,
+                    reason,
+                })
+            );
+        }
+        assert_eq!(dag.len(), before, "refused powers must not be interned");
+    }
+
+    #[test]
+    fn real_domain_admits_proven_real_powers() {
+        let mut dag = TermDag::new();
+        let positive = dag
+            .insert_node_in_domain(TermNode::Integer(BigInt::from(4)), TermDomain::Integer)
+            .unwrap();
+        let zero = dag
+            .insert_node_in_domain(TermNode::Integer(BigInt::from(0)), TermDomain::Integer)
+            .unwrap();
+        let negative = dag
+            .insert_node_in_domain(TermNode::Integer(BigInt::from(-8)), TermDomain::Integer)
+            .unwrap();
+        let half = dag
+            .insert_node_in_domain(
+                TermNode::Rational(BigRational::new(BigInt::from(1), BigInt::from(2))),
+                TermDomain::Rational,
+            )
+            .unwrap();
+        let three_as_rational = dag
+            .insert_node_in_domain(
+                TermNode::Rational(BigRational::from_integer(BigInt::from(3))),
+                TermDomain::Rational,
+            )
+            .unwrap();
+        let unknown_real = dag
+            .insert_node_in_domain(TermNode::Sym(Symbol::new("x")), TermDomain::Real)
+            .unwrap();
+        let unknown_integer = dag
+            .insert_node_in_domain(TermNode::Sym(Symbol::new("n")), TermDomain::Integer)
+            .unwrap();
+
+        let positive_half = dag
+            .insert_node_in_domain(TermNode::Pow(positive, half), TermDomain::Real)
+            .unwrap();
+        let zero_half = dag
+            .insert_node_in_domain(TermNode::Pow(zero, half), TermDomain::Real)
+            .unwrap();
+        let negative_integral = dag
+            .insert_node_in_domain(TermNode::Pow(negative, three_as_rational), TermDomain::Real)
+            .unwrap();
+        let positive_unknown_real = dag
+            .insert_node_in_domain(TermNode::Pow(positive, unknown_real), TermDomain::Real)
+            .unwrap();
+        let negative_unknown_integer = dag
+            .insert_node_in_domain(TermNode::Pow(negative, unknown_integer), TermDomain::Real)
+            .unwrap();
+
+        for id in [
+            positive_half,
+            zero_half,
+            negative_integral,
+            positive_unknown_real,
+            negative_unknown_integer,
+        ] {
+            assert_eq!(dag.term_domain(id), Some(TermDomain::Real));
+        }
+        assert_eq!(dag.infer_sort(positive_half).unwrap(), Sort::Real);
+        assert_eq!(dag.infer_sort(zero_half).unwrap(), Sort::Real);
+        assert_eq!(dag.infer_sort(negative_integral).unwrap(), Sort::Integer);
+    }
+
+    #[test]
+    fn integer_power_requires_a_nonnegative_exponent_or_unit_base() {
+        const REASON: &str = "exponent sign is not proven non-negative in Integer";
+
+        let mut dag = TermDag::new();
+        let two = dag
+            .insert_node_in_domain(TermNode::Integer(BigInt::from(2)), TermDomain::Integer)
+            .unwrap();
+        let one = dag
+            .insert_node_in_domain(TermNode::Integer(BigInt::from(1)), TermDomain::Integer)
+            .unwrap();
+        let negative_one = dag
+            .insert_node_in_domain(TermNode::Integer(BigInt::from(-1)), TermDomain::Integer)
+            .unwrap();
+        let unknown_integer = dag
+            .insert_node_in_domain(TermNode::Sym(Symbol::new("n")), TermDomain::Integer)
+            .unwrap();
+        let before = dag.len();
+
+        assert_eq!(
+            dag.insert_node_in_domain(TermNode::Pow(two, unknown_integer), TermDomain::Integer,),
+            Err(DagError::DomainIncompatible {
+                domain: TermDomain::Integer,
+                reason: REASON,
+            })
+        );
+        assert_eq!(dag.len(), before, "refused power must not be interned");
+
+        for unit in [one, negative_one] {
+            let power = dag
+                .insert_node_in_domain(TermNode::Pow(unit, unknown_integer), TermDomain::Integer)
+                .unwrap();
+            assert_eq!(dag.term_domain(power), Some(TermDomain::Integer));
+        }
+    }
+
+    #[test]
+    fn rational_power_requires_integrality_and_defined_zero_base() {
+        let mut dag = TermDag::new();
+        let two = dag
+            .insert_node_in_domain(TermNode::Integer(BigInt::from(2)), TermDomain::Rational)
+            .unwrap();
+        let zero = dag
+            .insert_node_in_domain(TermNode::Integer(BigInt::from(0)), TermDomain::Rational)
+            .unwrap();
+        let unknown_rational = dag
+            .insert_node_in_domain(TermNode::Sym(Symbol::new("q")), TermDomain::Rational)
+            .unwrap();
+        let unknown_integer = dag
+            .insert_node_in_domain(TermNode::Sym(Symbol::new("n")), TermDomain::Integer)
+            .unwrap();
+        let before = dag.len();
+
+        assert_eq!(
+            dag.insert_node_in_domain(TermNode::Pow(two, unknown_rational), TermDomain::Rational,),
+            Err(DagError::DomainIncompatible {
+                domain: TermDomain::Rational,
+                reason: "exponent is not proven integral in Rational",
+            })
+        );
+        assert_eq!(
+            dag.insert_node_in_domain(TermNode::Pow(zero, unknown_integer), TermDomain::Rational,),
+            Err(DagError::DomainIncompatible {
+                domain: TermDomain::Rational,
+                reason: "zero to an unknown-sign exponent is not a Rational inhabitant",
+            })
+        );
+        assert_eq!(dag.len(), before, "refused powers must not be interned");
+
+        let admitted = dag
+            .insert_node_in_domain(TermNode::Pow(two, unknown_integer), TermDomain::Rational)
+            .unwrap();
+        assert_eq!(dag.term_domain(admitted), Some(TermDomain::Rational));
+    }
+
+    #[test]
+    fn complex_zero_power_requires_a_proven_positive_real_exponent() {
+        const REASON: &str = "zero power requires a proven positive Real exponent";
+
+        let mut dag = TermDag::new();
+        let zero = dag
+            .insert_node_in_domain(TermNode::Integer(BigInt::from(0)), TermDomain::Complex)
+            .unwrap();
+        let half = dag
+            .insert_node_in_domain(
+                TermNode::Rational(BigRational::new(BigInt::from(1), BigInt::from(2))),
+                TermDomain::Rational,
+            )
+            .unwrap();
+        let unknown_integer = dag
+            .insert_node_in_domain(TermNode::Sym(Symbol::new("n")), TermDomain::Integer)
+            .unwrap();
+        let unknown_complex = dag
+            .insert_node_in_domain(TermNode::Sym(Symbol::new("z")), TermDomain::Complex)
+            .unwrap();
+        let before = dag.len();
+
+        for exponent in [unknown_integer, unknown_complex] {
+            assert_eq!(
+                dag.insert_node_in_domain(TermNode::Pow(zero, exponent), TermDomain::Complex),
+                Err(DagError::DomainIncompatible {
+                    domain: TermDomain::Complex,
+                    reason: REASON,
+                })
+            );
+        }
+        assert_eq!(dag.len(), before, "refused powers must not be interned");
+
+        let admitted = dag
+            .insert_node_in_domain(TermNode::Pow(zero, half), TermDomain::Complex)
+            .unwrap();
+        assert_eq!(dag.term_domain(admitted), Some(TermDomain::Complex));
+    }
+
+    #[test]
+    fn undefined_exact_zero_powers_do_not_receive_numeric_sorts() {
+        let mut dag = TermDag::new();
+        let zero = dag.insert_node(TermNode::Integer(BigInt::from(0))).unwrap();
+        let negative_one = dag
+            .insert_node(TermNode::Integer(BigInt::from(-1)))
+            .unwrap();
+        let zero_power_zero = dag.insert_node(TermNode::Pow(zero, zero)).unwrap();
+        let zero_power_negative = dag.insert_node(TermNode::Pow(zero, negative_one)).unwrap();
+
+        assert_eq!(dag.infer_sort(zero_power_zero).unwrap(), Sort::Scalar);
+        assert_eq!(dag.infer_sort(zero_power_negative).unwrap(), Sort::Scalar);
     }
 
     #[test]
