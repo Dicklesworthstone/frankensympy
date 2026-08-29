@@ -1,14 +1,23 @@
-"""Tests for conformance-lab pickle roundtrip records and validation."""
+"""Cross-process pickle restore cannot certify and cannot rewrite goldens."""
 
 from __future__ import annotations
 
-import unittest
-from pathlib import Path
+import io
 import sys
+import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from capture import load_profile
-from pickle_records import (
+from capture import (  # noqa: E402
+    CANDIDATE_SIDE,
+    ORACLE_SIDE,
+    cmd_pickle_roundtrip,
+    golden_digest_map,
+    load_profile,
+    parse_cli,
+)
+from pickle_records import (  # noqa: E402
     combine_roundtrip,
     diff_pickle_roundtrips,
     make_dump_record,
@@ -19,6 +28,26 @@ from pickle_records import (
 
 LAB = Path(__file__).resolve().parent
 PROFILE_PATH = LAB / "profiles" / "sympy-1.14.0-cpython.toml"
+
+
+def _roundtrip(side: str, *, restored_type: str = "Integer", module: str = "sympy.core.numbers"):
+    dump = make_dump_record(
+        profile_id="sympy-1.14.0-cpython",
+        fixture_id="core/integer/42",
+        side=side,
+        construction_outcome="returned",
+        pickle_sha256="a" * 64,
+        pickle_b64="QQ==",
+        dump_error=None,
+    )
+    restore = make_restore_record(
+        fixture_id="core/integer/42",
+        side=side,
+        status="returned",
+        restored_type=restored_type,
+        module=module,
+    )
+    return combine_roundtrip(dump, restore)
 
 
 class PickleRecordsTests(unittest.TestCase):
@@ -86,44 +115,50 @@ class PickleRecordsTests(unittest.TestCase):
         )
 
     def test_roundtrip_combination_and_diff(self) -> None:
-        dump_o = make_dump_record(
-            profile_id="sympy-1.14.0-cpython",
-            fixture_id="core/integer/42",
-            side="upstream_oracle",
-            construction_outcome="returned",
-            pickle_sha256="a" * 64,
-            pickle_b64="YnVsbGV0",
-            dump_error=None,
+        details = diff_pickle_roundtrips(
+            [_roundtrip(ORACLE_SIDE)], [_roundtrip(CANDIDATE_SIDE)]
         )
-        restore_o = make_restore_record(
-            fixture_id="core/integer/42",
-            side="upstream_oracle",
-            status="returned",
-            restored_type="Integer",
-            module="sympy.core.numbers",
-        )
-        combined_o = combine_roundtrip(dump_o, restore_o)
+        self.assertEqual(details, [])
 
-        dump_c = make_dump_record(
-            profile_id="sympy-1.14.0-cpython",
-            fixture_id="core/integer/42",
-            side="frankensympy_candidate",
-            construction_outcome="returned",
-            pickle_sha256="b" * 64,
-            pickle_b64="YnVsbGV0",
-            dump_error=None,
-        )
-        restore_c = make_restore_record(
-            fixture_id="core/integer/42",
-            side="frankensympy_candidate",
-            status="returned",
-            restored_type="Integer",
-            module="sympy.core.numbers",
-        )
-        combined_c = combine_roundtrip(dump_c, restore_c)
 
-        diffs = diff_pickle_roundtrips([combined_o], [combined_c])
-        self.assertEqual(diffs, [])
+class PickleRoundtripRecordTests(unittest.TestCase):
+    def test_matching_restore_is_not_a_certification(self) -> None:
+        details = diff_pickle_roundtrips(
+            [_roundtrip(ORACLE_SIDE)], [_roundtrip(CANDIDATE_SIDE)]
+        )
+        self.assertEqual(details, [])
+
+    def test_restored_type_drift_is_detected(self) -> None:
+        details = diff_pickle_roundtrips(
+            [_roundtrip(ORACLE_SIDE)],
+            [_roundtrip(CANDIDATE_SIDE, restored_type="Rational")],
+        )
+        self.assertEqual(details[0]["kind"], "pickle_restore_identity_drift")
+
+    def test_construction_outcome_mismatch_is_not_silent(self) -> None:
+        oracle = _roundtrip(ORACLE_SIDE)
+        candidate = _roundtrip(CANDIDATE_SIDE)
+        candidate["construction_outcome"] = "raised"
+        candidate["restore"] = None
+        details = diff_pickle_roundtrips([oracle], [candidate])
+        self.assertEqual(details[0]["kind"], "construction_outcome_mismatch")
+
+
+class PickleRoundtripCliTests(unittest.TestCase):
+    def test_certify_is_refused_without_touching_goldens(self) -> None:
+        parsed = parse_cli(["pickle-roundtrip", str(PROFILE_PATH), "--certify"])
+        self.assertEqual(parsed["mode"], "pickle-roundtrip")
+        self.assertTrue(parsed["certify"])
+        profile = load_profile(PROFILE_PATH)
+        before = golden_digest_map(profile)
+        stderr = io.StringIO()
+        stdout = io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            status = cmd_pickle_roundtrip(profile, "unused", "unused", certify=True)
+        self.assertEqual(status, 1)
+        self.assertIn("cannot certify", stderr.getvalue())
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertEqual(golden_digest_map(profile), before)
 
 
 if __name__ == "__main__":

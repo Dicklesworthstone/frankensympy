@@ -83,6 +83,8 @@ from extension import find_fsym_python_extension
 from pickle_records import (
     combine_roundtrip,
     diff_pickle_roundtrips,
+    make_dump_record,
+    make_restore_record,
     validate_dump_record,
     validate_restore_record,
 )
@@ -1406,6 +1408,36 @@ def cmd_self_test(profile: dict, py: str) -> int:
         return fail("environment/build missed planted sympy_version pin drift")
     if env_mismatch["certifies"]:
         return fail("environment/build certified a mismatched oracle pin")
+    pickle_dump = make_dump_record(
+        profile_id=profile["profile_id"],
+        fixture_id="core/integer/42",
+        side=ORACLE_SIDE,
+        construction_outcome="returned",
+        pickle_sha256="a" * 64,
+        pickle_b64="QQ==",
+        dump_error=None,
+    )
+    pickle_restore = make_restore_record(
+        fixture_id="core/integer/42",
+        side=ORACLE_SIDE,
+        status="returned",
+        restored_type="Integer",
+        module="sympy.core.numbers",
+    )
+    pickle_oracle = [combine_roundtrip(pickle_dump, pickle_restore)]
+    pickle_match = copy.deepcopy(pickle_oracle)
+    pickle_match[0]["side"] = CANDIDATE_SIDE
+    if diff_pickle_roundtrips(pickle_oracle, pickle_match):
+        return fail("pickle-roundtrip invented drift on matching restore identity")
+    pickle_wrong = copy.deepcopy(pickle_match)
+    pickle_wrong[0]["restore"] = {
+        "status": "returned",
+        "type": "WrongType",
+        "module": "sympy.core.numbers",
+    }
+    pickle_drift = diff_pickle_roundtrips(pickle_oracle, pickle_wrong)
+    if not pickle_drift or pickle_drift[0]["kind"] != "pickle_restore_identity_drift":
+        return fail("pickle-roundtrip missed planted restore type drift")
     identity_drift = copy.deepcopy(drifted)
     identity_drift[0]["observations"]["type"] = "WrongType"
     if not compare_construction_only(golden_first, identity_drift):
@@ -1532,6 +1564,8 @@ def cmd_self_test(profile: dict, py: str) -> int:
                 "warning_lane_detects_class_identity_drift": True,
                 "environment_build_matching_oracle_does_not_certify": True,
                 "environment_build_detects_sympy_version_pin_drift": True,
+                "pickle_roundtrip_matching_restore_does_not_invent_drift": True,
+                "pickle_roundtrip_detects_restore_type_drift": True,
                 "mutants_checked": checked_files,
                 "mutants_rejected": rejected,
                 "oracle_candidate_isolation": True,
@@ -2026,6 +2060,7 @@ def parse_cli(argv: list[str]) -> dict | int:
         "moving-head",
         "warnings",
         "environment",
+        "pickle-roundtrip",
     }
     if mode not in known:
         print(f"unknown mode: {mode}", file=sys.stderr)
@@ -2156,6 +2191,16 @@ def main() -> int:
             if parsed["certify"]:
                 return fail("environment/build lane cannot certify; refuse --certify")
             return cmd_environment(
+                profile,
+                oracle_python(parsed["oracle_python"]),
+                candidate_python(parsed["candidate_python"]),
+            )
+        if mode == "pickle-roundtrip":
+            if parsed["broken"]:
+                return fail("pickle-roundtrip does not accept --broken")
+            if parsed["certify"]:
+                return fail("pickle-roundtrip lane cannot certify; refuse --certify")
+            return cmd_pickle_roundtrip(
                 profile,
                 oracle_python(parsed["oracle_python"]),
                 candidate_python(parsed["candidate_python"]),
