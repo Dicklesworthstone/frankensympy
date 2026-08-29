@@ -113,6 +113,25 @@ CANDIDATE_SIDE = "frankensympy_candidate"
 MAX_FIXTURE_BYTES = 256 * 1024
 MAX_FIXTURES_PER_FILE = 4_096
 MAX_RUNNER_OUTPUT_BYTES = 8 * 1024 * 1024
+SUITE_RUNNER_ID = "sympy.testing.runtests.test"
+SUITE_STATUS_NOTE = (
+    "oracle execution receipt only; no FrankenSymPy port status is claimed"
+)
+SUITE_RECEIPT_KEYS = frozenset(
+    {
+        "schema_version",
+        "kind",
+        "profile_id",
+        "test_path",
+        "bytes",
+        "sha256",
+        "runner",
+        "pytest_installed",
+        "legacy_return_true",
+        "counts",
+        "status_note",
+    }
+)
 
 
 def fail(message: str) -> int:
@@ -1426,6 +1445,61 @@ def load_inventory_artifact(profile: dict) -> dict:
     return inventory
 
 
+def validate_suite_receipt(
+    payload: object, profile: dict, test_path: str, inventory_entry: dict
+) -> bool:
+    """Validate and bind an oracle suite receipt to its exact request."""
+    if not isinstance(payload, dict):
+        raise TypeError("suite receipt must be an object")
+    if "port_status" in payload:
+        raise ValueError("suite receipt must not claim port status")
+    if set(payload) != SUITE_RECEIPT_KEYS:
+        raise ValueError("suite receipt fields do not match the registered schema")
+
+    expected_values = {
+        "schema_version": 1,
+        "kind": "oracle_suite_receipt",
+        "profile_id": profile["profile_id"],
+        "test_path": test_path,
+        "bytes": inventory_entry["bytes"],
+        "sha256": inventory_entry["sha256"],
+        "runner": SUITE_RUNNER_ID,
+        "pytest_installed": False,
+        "status_note": SUITE_STATUS_NOTE,
+    }
+    for key, expected in expected_values.items():
+        actual = payload[key]
+        if isinstance(expected, bool):
+            has_expected_type = isinstance(actual, bool)
+        elif isinstance(expected, int):
+            has_expected_type = isinstance(actual, int) and not isinstance(actual, bool)
+        else:
+            has_expected_type = isinstance(actual, type(expected))
+        if not has_expected_type or actual != expected:
+            raise ValueError(f"suite receipt {key} does not match the request")
+
+    legacy_return_true = payload["legacy_return_true"]
+    if not isinstance(legacy_return_true, bool):
+        raise TypeError("suite receipt legacy_return_true must be boolean")
+
+    counts = payload["counts"]
+    count_keys = {"passed", "failed", "skipped"}
+    if not isinstance(counts, dict) or set(counts) != count_keys:
+        raise ValueError("suite receipt counts do not match the registered schema")
+    if any(
+        not isinstance(counts[key], int)
+        or isinstance(counts[key], bool)
+        or counts[key] < 0
+        for key in count_keys
+    ):
+        raise ValueError("suite receipt counts must be non-negative integers")
+    if sum(counts.values()) == 0:
+        raise ValueError("suite receipt must report at least one executed test")
+    if legacy_return_true and counts["failed"] != 0:
+        raise ValueError("successful suite receipt cannot report failed tests")
+    return legacy_return_true
+
+
 def cmd_suite_smoke(profile: dict, py: str, test_path: str) -> int:
     if not test_path or Path(test_path).is_absolute() or ".." in Path(test_path).parts:
         return fail(f"unsafe test path: {test_path!r}")
@@ -1450,6 +1524,9 @@ def cmd_suite_smoke(profile: dict, py: str, test_path: str) -> int:
         timeout=120,
         check=False,
     )
+    output_bytes = len(proc.stdout.encode()) + len(proc.stderr.encode())
+    if output_bytes > MAX_RUNNER_OUTPUT_BYTES:
+        return fail("suite runner output exceeds the harness limit")
     if proc.returncode not in {0, 3}:
         return fail(
             f"suite runner exited {proc.returncode}: "
@@ -1463,12 +1540,12 @@ def cmd_suite_smoke(profile: dict, py: str, test_path: str) -> int:
         return fail(f"suite runner output is not JSON: {exc}")
     if proc.returncode == 3:
         return fail(f"inventory digest mismatch: {payload}")
-    if payload.get("kind") != "oracle_suite_receipt":
-        return fail("suite runner did not emit an oracle_suite_receipt")
-    if "port_status" in payload:
-        return fail("suite receipt must not claim port status")
+    try:
+        legacy_return_true = validate_suite_receipt(payload, profile, test_path, match)
+    except (KeyError, TypeError, ValueError) as exc:
+        return fail(f"invalid suite receipt: {exc}")
     print(json.dumps(payload, indent=2, sort_keys=True))
-    return 0 if payload.get("legacy_return_true") else 1
+    return 0 if legacy_return_true else 1
 
 
 def parse_cli(argv: list[str]) -> dict | int:
