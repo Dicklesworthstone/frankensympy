@@ -604,4 +604,22 @@ mod tests {
             Err(NTheoryError::InvalidJacobiDenominator)
         );
     }
+
+    #[test]
+    fn test_jacobi_symbol_facade() {
+        // jacobi_symbol delegates to the exact-arithmetic owner and
+        // fails closed for invalid denominators. Pin a few
+        // representative inputs: positive, negative, larger than n,
+        // even n, and n=1.
+        assert_eq!(jacobi_symbol(1, 5), Ok(1));
+        assert_eq!(jacobi_symbol(2, 5), Ok(-1));
+        assert_eq!(jacobi_symbol(5, 3), Ok(-1)); // 5 mod 3 = 2, (2/3) = -1
+        assert_eq!(jacobi_symbol(7, 3), Ok(1)); // 7 mod 3 = 1, (1/3) = 1
+        assert_eq!(jacobi_symbol(0, 5), Ok(0));
+        // Invalid denominators: even and n=1.
+        assert_eq!(
+            jacobi_symbol(2, 4),
+            Err(NTheoryError::InvalidJacobiDenominator)
+        );
+    }
 }
