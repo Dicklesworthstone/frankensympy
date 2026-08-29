@@ -249,16 +249,7 @@ impl RealBall {
         let high = self.upper();
         let two = BigRational::from_integer(BigInt::from(2));
 
-        if k % 2 == 1 {
-            let low_k = rational_pow(&low, k);
-            let high_k = rational_pow(&high, k);
-            let mid = (&low_k + &high_k) / &two;
-            let rad = (&high_k - &low_k) / &two;
-            Ok(Self {
-                midpoint: mid,
-                radius: rad,
-            })
-        } else if low >= BigRational::zero() {
+        if k % 2 == 1 || low >= BigRational::zero() {
             let low_k = rational_pow(&low, k);
             let high_k = rational_pow(&high, k);
             let mid = (&low_k + &high_k) / &two;

@@ -2452,6 +2452,7 @@ mod tests {
         .unwrap();
 
         let s = m.to_sparse().unwrap();
+        assert_eq!(s.nnz(), 3);
         assert_eq!(s.entries().len(), 3);
         let m_roundtrip = s.to_dense().unwrap();
         assert_eq!(m, m_roundtrip);
@@ -2459,6 +2460,25 @@ mod tests {
         let s_eye = SparseMatrix::eye(3).unwrap();
         let s_prod = s.matmul(&s_eye).unwrap();
         assert_eq!(s_prod.to_dense().unwrap(), m);
+
+        // Transpose
+        let s_t = s.transpose().unwrap();
+        assert_eq!(s_t.to_dense().unwrap(), m.transpose());
+
+        // Trace
+        assert_eq!(s.trace().unwrap(), num(0));
+        assert_eq!(s_eye.trace().unwrap(), num(3));
+
+        // Subtraction: s - s = 0
+        let s_sub_self = s.sub(&s).unwrap();
+        assert_eq!(s_sub_self.nnz(), 0);
+        assert_eq!(s_sub_self.to_dense().unwrap(), Matrix::zeros(3, 3).unwrap());
+
+        // Scalar multiplication
+        let s_scaled = s.scalar_mul(&num(5)).unwrap();
+        assert_eq!(s_scaled.to_dense().unwrap(), m.scalar_mul(&num(5)).unwrap());
+        let s_zeroed = s.scalar_mul(&num(0)).unwrap();
+        assert_eq!(s_zeroed.nnz(), 0);
     }
 
     #[test]

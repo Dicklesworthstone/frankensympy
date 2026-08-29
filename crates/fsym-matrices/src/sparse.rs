@@ -330,4 +330,74 @@ impl SparseMatrix {
         }
         Self::new(self.rows, other.cols, result_entries)
     }
+
+    /// Number of stored non-zero entries.
+    pub fn nnz(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Transpose of the sparse matrix.
+    pub fn transpose(&self) -> Result<Self, MatrixError> {
+        self.validate_shape()?;
+        let mut transposed_entries = BTreeMap::new();
+        for (&(r, c), val) in &self.entries {
+            transposed_entries.insert((c, r), val.clone());
+        }
+        Self::new(self.cols, self.rows, transposed_entries)
+    }
+
+    /// Sparse matrix subtraction.
+    pub fn sub(&self, other: &Self) -> Result<Self, MatrixError> {
+        self.validate_shape()?;
+        other.validate_shape()?;
+        if self.rows != other.rows || self.cols != other.cols {
+            return Err(MatrixError::ShapeMismatch(
+                self.rows, self.cols, other.rows, other.cols,
+            ));
+        }
+        let neg_one = Expr::from_i64(-1);
+        let mut new_entries = self.entries.clone();
+        for (&(r, c), val) in &other.entries {
+            let neg_val = Matrix::exact_mul(&neg_one, val);
+            let entry = new_entries
+                .entry((r, c))
+                .or_insert_with(|| Expr::from_i64(0));
+            *entry = Matrix::exact_add(entry, &neg_val);
+            if entry.is_zero() {
+                new_entries.remove(&(r, c));
+            }
+        }
+        Self::new(self.rows, self.cols, new_entries)
+    }
+
+    /// Scalar multiplication of sparse matrix.
+    pub fn scalar_mul(&self, scalar: &Expr) -> Result<Self, MatrixError> {
+        self.validate_shape()?;
+        if scalar.is_zero() {
+            return Ok(Self::zeros(self.rows, self.cols));
+        }
+        let mut new_entries = BTreeMap::new();
+        for (&(r, c), val) in &self.entries {
+            let prod = Matrix::exact_mul(val, scalar);
+            if !prod.is_zero() {
+                new_entries.insert((r, c), prod);
+            }
+        }
+        Self::new(self.rows, self.cols, new_entries)
+    }
+
+    /// Trace (sum of diagonal entries) of a square sparse matrix.
+    pub fn trace(&self) -> Result<Expr, MatrixError> {
+        self.validate_shape()?;
+        if self.rows != self.cols {
+            return Err(MatrixError::NotSquare(self.rows, self.cols));
+        }
+        let mut acc = Expr::from_i64(0);
+        for i in 0..self.rows {
+            if let Some(val) = self.entries.get(&(i, i)) {
+                acc = Matrix::exact_add(&acc, val);
+            }
+        }
+        Ok(acc)
+    }
 }
