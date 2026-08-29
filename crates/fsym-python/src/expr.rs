@@ -3,7 +3,7 @@
 #![forbid(unsafe_code)]
 
 use fsym_calculus::diff;
-use fsym_core::{parse, BigInt, BigRational, Expr, Symbol};
+use fsym_core::{BigInt, BigRational, Expr, Symbol, parse};
 use fsym_functions::{cos as cos_expr, exp as exp_expr, log as log_expr, sin as sin_expr};
 use fsym_printing::{latex, pretty as render_pretty};
 use fsym_runtime::{Budget, BudgetLimits, FsymCx, RuntimeBudget};
@@ -550,11 +550,7 @@ impl PyAdd {
     pub fn new(args: Vec<PyExpr>, evaluate: bool) -> Self {
         let exprs: Vec<Expr> = args.into_iter().map(|a| a.inner).collect();
         let inner = if evaluate {
-            let mut terms = exprs.into_iter();
-            terms
-                .next()
-                .map(|first| terms.fold(first, |sum, term| sum + term))
-                .unwrap_or_else(|| Expr::from_i64(0))
+            fsym_simplify::simplify(&Expr::Add(exprs))
         } else {
             Expr::Add(exprs)
         };
@@ -582,11 +578,7 @@ impl PyMul {
     pub fn new(args: Vec<PyExpr>, evaluate: bool) -> Self {
         let exprs: Vec<Expr> = args.into_iter().map(|a| a.inner).collect();
         let inner = if evaluate {
-            let mut factors = exprs.into_iter();
-            factors
-                .next()
-                .map(|first| factors.fold(first, |product, factor| product * factor))
-                .unwrap_or_else(|| Expr::from_i64(1))
+            fsym_simplify::simplify(&Expr::Mul(exprs))
         } else {
             Expr::Mul(exprs)
         };
@@ -612,9 +604,14 @@ impl PyPow {
     #[new]
     #[pyo3(signature = (base, exp, evaluate=true))]
     pub fn new(base: PyExpr, exp: PyExpr, evaluate: bool) -> Self {
-        let _ = evaluate;
+        let raw = Expr::Pow(Arc::new(base.inner), Arc::new(exp.inner));
+        let inner = if evaluate {
+            fsym_simplify::simplify(&raw)
+        } else {
+            raw
+        };
         Self {
-            inner: PyExpr::from_expr(Expr::Pow(Arc::new(base.inner), Arc::new(exp.inner))),
+            inner: PyExpr::from_expr(inner),
         }
     }
 

@@ -313,7 +313,92 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(sympy.sin(x).func, sympy.Function("sin"))
         self.assertEqual(sympy.sin(x).args, (x,))
 
+    def test_matrix_surface_operations(self):
+        # 1. Constructor patterns
+        m = sympy.Matrix([[1, 2], [3, 4]])
+        self.assertEqual(m.shape, (2, 2))
+        self.assertEqual(m.rows, 2)
+        self.assertEqual(m.cols, 2)
+        self.assertTrue(m.is_square)
+        self.assertFalse(m.is_symmetric)
+        self.assertEqual(m[0, 0], sympy.Integer(1))
+        self.assertEqual(m[0, 1], sympy.Integer(2))
+        self.assertEqual(m[1, 0], sympy.Integer(3))
+        self.assertEqual(m[1, 1], sympy.Integer(4))
+
+        # 2. Transpose, Trace, Determinant
+        mt = m.T
+        self.assertEqual(mt[0, 1], sympy.Integer(3))
+        self.assertEqual(mt[1, 0], sympy.Integer(2))
+        self.assertEqual(m.trace(), sympy.Integer(5))
+        self.assertEqual(m.det(), sympy.Integer(-2))
+
+        # 3. Inverse and Adjugate
+        inv = m.inv()
+        self.assertEqual(inv.shape, (2, 2))
+        ident = m @ inv
+        self.assertEqual(ident[0, 0], sympy.Integer(1))
+        self.assertEqual(ident[0, 1], sympy.Integer(0))
+        self.assertEqual(ident[1, 0], sympy.Integer(0))
+        self.assertEqual(ident[1, 1], sympy.Integer(1))
+
+        adj = m.adjugate()
+        self.assertEqual(adj[0, 0], sympy.Integer(4))
+        self.assertEqual(adj[0, 1], sympy.Integer(-2))
+        self.assertEqual(adj[1, 0], sympy.Integer(-3))
+        self.assertEqual(adj[1, 1], sympy.Integer(1))
+
+        # 4. Arithmetic
+        m2 = m + m
+        self.assertEqual(m2[0, 0], sympy.Integer(2))
+        self.assertEqual(m2[1, 1], sympy.Integer(8))
+        diff_m = m - m
+        self.assertEqual(diff_m[0, 0], sympy.Integer(0))
+        self.assertEqual(diff_m[1, 1], sympy.Integer(0))
+
+        # Scalar multiplication
+        scaled = m * 2
+        self.assertEqual(scaled[0, 0], sympy.Integer(2))
+        self.assertEqual(scaled[1, 1], sympy.Integer(8))
+
+        # Matrix power
+        m_sq = m ** 2
+        m_mul = m @ m
+        self.assertEqual(m_sq.tolist(), m_mul.tolist())
+
+        # 5. Helpers: eye, zeros, diag
+        e = sympy.eye(3)
+        self.assertEqual(e.shape, (3, 3))
+        self.assertTrue(e.is_diagonal)
+        self.assertTrue(e.is_symmetric)
+        self.assertEqual(e.trace(), sympy.Integer(3))
+
+        z = sympy.zeros(2, 3)
+        self.assertEqual(z.shape, (2, 3))
+        self.assertEqual(z.rank(), 0)
+
+        d = sympy.diag(1, 2, 3)
+        self.assertEqual(d.shape, (3, 3))
+        self.assertTrue(d.is_diagonal)
+        self.assertEqual(d.det(), sympy.Integer(6))
+
+        # 6. RREF and Nullspace
+        sing = sympy.Matrix([[1, 2], [2, 4]])
+        self.assertEqual(sing.rank(), 1)
+        rref_m, pivots = sing.rref()
+        self.assertEqual(pivots, (0,))
+        ns = sing.nullspace()
+        self.assertEqual(len(ns), 1)
+        self.assertEqual((sing @ ns[0])[0, 0], sympy.Integer(0))
+        self.assertEqual((sing @ ns[0])[1, 0], sympy.Integer(0))
+
+        # 7. LaTeX rendering
+        latex_str = m._repr_latex_()
+        self.assertIn("begin{matrix}", latex_str)
+        self.assertIn("end{matrix}", latex_str)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

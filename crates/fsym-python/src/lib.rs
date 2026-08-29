@@ -4,10 +4,10 @@
 //! module. Strings cross the boundary; everything inside is exact.
 
 use fsym_calculus::{diff, integrate, limit, taylor};
-use fsym_core::{parse, Expr, Symbol};
+use fsym_core::{Expr, Symbol, parse};
 use fsym_ntheory::{factorint, totient};
 use fsym_runtime::{Budget, BudgetLimits, FsymCx, RuntimeBudget};
-use fsym_simplify::{expand_with, simplify_with, SimplifyError};
+use fsym_simplify::{SimplifyError, expand_with, simplify_with};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
@@ -208,7 +208,9 @@ fn jacobi_symbol_fn(a: i64, n: u64) -> PyResult<i64> {
 }
 
 pub mod expr;
+pub mod matrix;
 pub use expr::*;
+pub use matrix::*;
 
 /// Numeric evaluation of an expression string.
 #[pyfunction]
@@ -227,6 +229,7 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyMul>()?;
     m.add_class::<PyPow>()?;
     m.add_class::<PyDerivative>()?;
+    m.add_class::<PyMatrix>()?;
     m.add_function(wrap_pyfunction!(py_symbol, m)?)?;
     m.add_function(wrap_pyfunction!(py_integer_from_python, m)?)?;
     m.add_function(wrap_pyfunction!(py_rational_from_python, m)?)?;
@@ -351,9 +354,11 @@ mod tests {
                 .call_method1("__lshift__", (MAX_PYTHON_INTEGER_BITS + 1,))
                 .unwrap();
             let error = py_integer_from_python(&oversized).unwrap_err();
-            assert!(error
-                .to_string()
-                .contains("exceeds the Python integer bridge limit"));
+            assert!(
+                error
+                    .to_string()
+                    .contains("exceeds the Python integer bridge limit")
+            );
 
             for expected in [
                 -(1_i128 << 100),
@@ -488,5 +493,38 @@ mod tests {
             jacobi_symbol_fn(1, 2).unwrap_err().to_string(),
             "ValueError: n should be an odd positive integer"
         );
+    }
+
+    #[test]
+    fn test_py_matrix_operations() {
+        let eye2 = PyMatrix::eye(2).unwrap();
+        assert_eq!(eye2.shape(), (2, 2));
+        assert!(eye2.is_square());
+        assert!(eye2.is_symmetric());
+        assert!(eye2.is_diagonal());
+        assert_eq!(eye2.trace().unwrap().__str__(), "2");
+        assert_eq!(eye2.det().unwrap().__str__(), "1");
+
+        let m = PyMatrix::new(
+            2,
+            2,
+            vec![
+                PyExpr::from_expr(fsym_core::Expr::from_i64(1)),
+                PyExpr::from_expr(fsym_core::Expr::from_i64(2)),
+                PyExpr::from_expr(fsym_core::Expr::from_i64(3)),
+                PyExpr::from_expr(fsym_core::Expr::from_i64(4)),
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(m.det().unwrap().__str__(), "-2");
+        assert_eq!(m.trace().unwrap().__str__(), "5");
+        let inv = m.inv().unwrap();
+        assert_eq!(inv.shape(), (2, 2));
+        let prod = m.__matmul__(&inv).unwrap();
+        assert_eq!(prod.flat()[0].__str__(), "1");
+        assert_eq!(prod.flat()[1].__str__(), "0");
+        assert_eq!(prod.flat()[2].__str__(), "0");
+        assert_eq!(prod.flat()[3].__str__(), "1");
     }
 }

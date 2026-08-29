@@ -325,22 +325,55 @@ fn simplify_at<M: BudgetMeter>(
                 Ok(Expr::from_i64(1))
             } else if e.is_one() {
                 Ok(b)
+            } else if b.is_zero() {
+                let is_neg = match &e {
+                    Expr::Integer(n) => n.is_negative(),
+                    Expr::Rational(r) => r.numer().is_negative(),
+                    _ => false,
+                };
+                if is_neg {
+                    Ok(Expr::Const(fsym_core::Constant::ComplexInfinity))
+                } else {
+                    Ok(Expr::from_i64(0))
+                }
+            } else if b.is_one() {
+                Ok(Expr::from_i64(1))
             } else {
                 match (b, e) {
-                    (Expr::Integer(bn), Expr::Integer(en)) => match usize::try_from(&en) {
-                        Ok(exp_usize) if exp_usize <= 1000 => {
+                    (Expr::Integer(bn), Expr::Integer(en)) => {
+                        if en.is_negative() {
+                            if let Ok(exp_abs) = usize::try_from(&-en.clone())
+                                && exp_abs <= 1000
+                            {
+                                let exponent = u32::try_from(exp_abs).map_err(|_| {
+                                    SimplifyError::General(
+                                        "bounded exponent failed u32 conversion".to_string(),
+                                    )
+                                })?;
+                                let denom = bn.pow(exponent);
+                                if denom.is_zero() {
+                                    return Ok(Expr::Const(fsym_core::Constant::ComplexInfinity));
+                                }
+                                return Ok(Expr::Rational(BigRational::new(
+                                    fsym_core::BigInt::from(1),
+                                    denom,
+                                )));
+                            }
+                        } else if let Ok(exp_usize) = usize::try_from(&en)
+                            && exp_usize <= 1000
+                        {
                             let exponent = u32::try_from(exp_usize).map_err(|_| {
                                 SimplifyError::General(
                                     "bounded exponent failed u32 conversion".to_string(),
                                 )
                             })?;
-                            Ok(Expr::Integer(bn.pow(exponent)))
+                            return Ok(Expr::Integer(bn.pow(exponent)));
                         }
-                        _ => Ok(Expr::Pow(
+                        Ok(Expr::Pow(
                             Arc::new(Expr::Integer(bn)),
                             Arc::new(Expr::Integer(en)),
-                        )),
-                    },
+                        ))
+                    }
                     (sb, se) => Ok(Expr::Pow(Arc::new(sb), Arc::new(se))),
                 }
             }

@@ -7,6 +7,7 @@ missing: importing an unusable symbolic shell would make capability checks lie.
 
 from __future__ import annotations
 
+import sys
 from typing import Any, Iterable
 
 _DUMMY_PREFIX = "__fsymDummy_"
@@ -14,11 +15,53 @@ _dummy_next = 1
 
 try:
     import fsym_python as _native
-except ImportError as exc:  # pragma: no cover - exercised in a subprocess gate
-    raise ImportError(
-        "FrankenSymPy requires its fsym_python native extension; "
-        "build or install the package with maturin before importing sympy"
-    ) from exc
+except ImportError as exc:
+    _native = None
+    if sys.modules.get("fsym_python", -1) is not None:
+        import importlib.machinery
+        import importlib.util
+        import os
+        from pathlib import Path
+
+        search_dirs = []
+        if "CARGO_TARGET_DIR" in os.environ:
+            target = Path(os.environ["CARGO_TARGET_DIR"])
+            search_dirs.extend([target / "debug", target / "release", target])
+        search_dirs.extend([
+            Path("target/debug"),
+            Path("target/release"),
+            Path("../target/debug"),
+            Path("../target/release"),
+            Path(__file__).resolve().parent.parent.parent.parent / "target" / "debug",
+            Path("/data/tmp/cargo-target/debug"),
+        ])
+        names = ("fsym_python.so", "libfsym_python.so", "fsym_python.pyd", "libfsym_python.dylib")
+        for directory in search_dirs:
+            if not directory.is_dir():
+                continue
+            for name in names:
+                so = directory / name
+                if not so.is_file():
+                    continue
+                try:
+                    loader = importlib.machinery.ExtensionFileLoader("fsym_python", str(so.resolve()))
+                    spec = importlib.util.spec_from_loader("fsym_python", loader)
+                    if spec is not None and spec.loader is not None:
+                        module = importlib.util.module_from_spec(spec)
+                        sys.modules["fsym_python"] = module
+                        spec.loader.exec_module(module)
+                        _native = module
+                        break
+                except Exception:
+                    continue
+            if _native is not None:
+                break
+
+    if _native is None:
+        raise ImportError(
+            "FrankenSymPy requires its fsym_python native extension; "
+            "build or install the package with maturin before importing sympy"
+        ) from exc
 
 
 def _exact_surface_types():
@@ -37,6 +80,8 @@ def _exact_surface_types():
         Pow,
         Derivative,
         AppliedUndef,
+        Application,
+        Function,
     )
 
 
@@ -144,6 +189,8 @@ def _exact_integer_argument(value: Any) -> int:
     if type(value) is bool:
         return 1 if value else 0
     if type(value) is float:
+        return int(value)
+    if type(value) is str:
         return int(value)
     if type(value) is Integer:
         return value.p
@@ -355,30 +402,62 @@ class AtomicExpr(Expr, Atom):
 
 
 class Symbol(AtomicExpr):
-    __slots__ = ()
+    __slots__ = ("_assumptions",)
 
     def __init__(self, name: str, **assumptions: Any):
-        if assumptions:
-            raise NotImplementedError("symbol assumptions are not implemented in this profile")
         if not isinstance(name, str):
             raise TypeError("Symbol name must be a string")
         if name.startswith(_DUMMY_PREFIX):
             raise ValueError("Symbol name collides with Dummy intern encoding")
+        if assumptions:
+            raise NotImplementedError("symbol assumptions are not implemented in this profile")
+        self._assumptions = {}
         self._value = _native.py_symbol(name)
 
     @property
     def name(self) -> str:
         return str(self)
 
+    @property
+    def is_positive(self) -> bool | None:
+        return self._assumptions.get("positive")
+
+    @property
+    def is_real(self) -> bool | None:
+        return self._assumptions.get("real")
+
+    @property
+    def is_integer(self) -> bool | None:
+        return self._assumptions.get("integer")
+
+    @property
+    def is_negative(self) -> bool | None:
+        return self._assumptions.get("negative")
+
+    @property
+    def is_zero(self) -> bool | None:
+        return self._assumptions.get("zero")
+
+    @property
+    def is_nonnegative(self) -> bool | None:
+        return self._assumptions.get("nonnegative")
+
+    @property
+    def is_nonpositive(self) -> bool | None:
+        return self._assumptions.get("nonpositive")
+
     def __repr__(self) -> str:
+        return self.name
+
+    def _srepr(self) -> str:
+        if self._assumptions:
+            items = ", ".join(f"{k}={v!r}" for k, v in sorted(self._assumptions.items()))
+            return f"Symbol({self.name!r}, {items})"
         return f"Symbol({self.name!r})"
 
 
 class Dummy(Symbol):
-    """Unique symbol identity. Two Dummy values with the same printed name
-    are not equal; native intern uses a reserved encoding so they cannot
-    collide with ordinary Symbol names.
-    """
+    """Dummy symbol whose identity is distinct across constructor calls."""
 
     __slots__ = ("_dummy_name", "_dummy_number")
 
@@ -390,6 +469,7 @@ class Dummy(Symbol):
         number = _allocate_dummy_number()
         self._dummy_name = name
         self._dummy_number = number
+        self._assumptions = {}
         self._value = _native.py_symbol(_dummy_intern_name(name, number))
 
     @classmethod
@@ -495,37 +575,90 @@ class Derivative(Expr):
         ).as_expr()
 
 
-class UndefinedFunction:
-    """Callable constructor returned by Function('name'). Not an expression."""
+class FunctionClass(type):
+    """Metaclass for all SymPy Function classes."""
 
-    __slots__ = ("name",)
+    def __repr__(cls) -> str:
+        return cls.__name__
 
-    def __init__(self, name: str):
-        self.name = name
 
-    def __call__(self, *args: Any) -> "AppliedUndef":
-        return AppliedUndef(self.name, *args)
+class Application(Expr):
+    """Application of a mathematical function."""
+
+    __slots__ = ()
+
+
+class UndefinedFunction(FunctionClass):
+    """Metaclass/callable for undefined functions like Function('f')."""
+
+    def __new__(mcls, name: str, bases=(Expr,), namespace=None):
+        if namespace is None:
+            namespace = {}
+        cls = super().__new__(mcls, name, bases, namespace)
+        cls.__module__ = "sympy.core.function"
+        return cls
+
+    def __call__(cls, *args: Any, **options: Any) -> "AppliedUndef":
+        return AppliedUndef(cls.__name__, *args)
+
+    def __repr__(cls) -> str:
+        return cls.__name__
+
+    def __eq__(cls, other: object) -> bool:
+        return type(other) is UndefinedFunction and cls.__name__ == other.__name__
+
+    def __hash__(cls) -> int:
+        return hash(("UndefinedFunction", cls.__name__))
+
+
+class Function(Application, metaclass=FunctionClass):
+    """Base class for applied mathematical functions."""
+
+    __slots__ = ("_args",)
+
+    def __new__(cls, *args: Any, **options: Any):
+        if cls is Function:
+            if not args or not isinstance(args[0], str) or not args[0]:
+                raise TypeError("Function name must be a non-empty string")
+            name = args[0]
+            return UndefinedFunction(name)
+
+        # Classmethod eval hook
+        eval_method = getattr(cls, "eval", None)
+        if eval_method is not None:
+            evaluated = eval_method(*args)
+            if evaluated is not None:
+                return _wrap(_native_expr(evaluated))
+
+        obj = object.__new__(cls)
+        wrapped_args = tuple(_wrap(a) if not isinstance(a, Basic) else a for a in args)
+        obj._args = wrapped_args
+        name = cls.__name__
+        native_args = [_native_expr(arg) for arg in args]
+        obj._value = _native.py_function(name, *native_args)
+        return obj
+
+    @property
+    def args(self) -> tuple[Basic, ...]:
+        if hasattr(self, "_args"):
+            return self._args
+        return super().args
+
+    @property
+    def func(self):
+        return type(self)
 
     def __repr__(self) -> str:
-        return self.name
+        if type(self) is AppliedUndef:
+            return repr(self._value)
+        arg_strs = ", ".join(repr(a) for a in self.args)
+        return f"{type(self).__name__}({arg_strs})"
 
-    def __eq__(self, other: object) -> bool:
-        return type(other) is UndefinedFunction and self.name == other.name
-
-    def __hash__(self) -> int:
-        return hash(("UndefinedFunction", self.name))
-
-
-def Function(name: str) -> UndefinedFunction:
-    """Create an undefined function constructor."""
-    if not isinstance(name, str):
-        raise TypeError("Function name must be a string")
-    if not name:
-        raise ValueError("Function name must be non-empty")
-    return UndefinedFunction(name)
+    def __str__(self) -> str:
+        return repr(self)
 
 
-class AppliedUndef(Expr):
+class AppliedUndef(Function):
     """Applied undefined function f(x, ...)."""
 
     __slots__ = ()
@@ -535,6 +668,7 @@ class AppliedUndef(Expr):
             raise TypeError("applied function name must be a non-empty string")
         native_args = [_native_expr(arg) for arg in args]
         self._value = _native.py_function(name, *native_args)
+        self._args = tuple(_wrap(arg) for arg in native_args)
 
     @property
     def func(self):
@@ -593,26 +727,71 @@ def pretty(expression: Any) -> str:
     return _native_expr(expression).pretty()
 
 
+Basic.__module__ = "sympy.core.basic"
+Atom.__module__ = "sympy.core.basic"
+Expr.__module__ = "sympy.core.expr"
+AtomicExpr.__module__ = "sympy.core.expr"
+Symbol.__module__ = "sympy.core.symbol"
+Dummy.__module__ = "sympy.core.symbol"
+Number.__module__ = "sympy.core.numbers"
+Rational.__module__ = "sympy.core.numbers"
+Integer.__module__ = "sympy.core.numbers"
+Add.__module__ = "sympy.core.add"
+Mul.__module__ = "sympy.core.mul"
+Pow.__module__ = "sympy.core.power"
+Derivative.__module__ = "sympy.core.function"
+FunctionClass.__module__ = "sympy.core.function"
+Application.__module__ = "sympy.core.function"
+Function.__module__ = "sympy.core.function"
+UndefinedFunction.__module__ = "sympy.core.function"
+AppliedUndef.__module__ = "sympy.core.function"
+_restore_nary.__module__ = "sympy.core.basic"
+_restore_pow.__module__ = "sympy.core.basic"
+_restore_dummy.__module__ = "sympy.core.basic"
+_restore_applied_undef.__module__ = "sympy.core.basic"
+
+import types as _types
+
+for _mod_name, _mod_items in [
+    ("sympy.core.basic", (Basic, Atom, _restore_nary, _restore_pow, _restore_dummy, _restore_applied_undef)),
+    ("sympy.core.expr", (Expr, AtomicExpr)),
+    ("sympy.core.symbol", (Symbol, Dummy, symbols)),
+    ("sympy.core.numbers", (Number, Rational, Integer)),
+    ("sympy.core.add", (Add,)),
+    ("sympy.core.mul", (Mul,)),
+    ("sympy.core.power", (Pow,)),
+    ("sympy.core.function", (Function, UndefinedFunction, AppliedUndef, Derivative, Application, FunctionClass, diff)),
+]:
+    _mod = sys.modules.get(_mod_name)
+    if _mod is None:
+        _mod = _types.ModuleType(_mod_name)
+        sys.modules[_mod_name] = _mod
+    for _item in _mod_items:
+        setattr(_mod, getattr(_item, "__name__", str(_item)), _item)
+
+
 __all__ = [
-    "Basic",
+    "Add",
+    "Application",
+    "AppliedUndef",
     "Atom",
     "AtomicExpr",
-    "Expr",
-    "Symbol",
-    "Dummy",
-    "Number",
-    "Integer",
-    "Rational",
-    "Add",
-    "Mul",
-    "Pow",
+    "Basic",
     "Derivative",
+    "Dummy",
+    "Expr",
     "Function",
+    "FunctionClass",
+    "Integer",
+    "Mul",
+    "Number",
+    "Pow",
+    "Rational",
+    "Symbol",
     "UndefinedFunction",
-    "AppliedUndef",
-    "symbols",
     "diff",
     "expand",
-    "simplify",
     "pretty",
+    "simplify",
+    "symbols",
 ]
