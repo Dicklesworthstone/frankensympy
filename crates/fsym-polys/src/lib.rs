@@ -1285,8 +1285,15 @@ mod tests {
 
         let constant = UnivariatePoly::new(x.clone(), vec![BigRational::from_integer(2.into())]);
         let high_degree = UnivariatePoly::monomial(x.clone(), BigRational::one(), 129).unwrap();
+        assert_eq!(
+            constant.resultant(&high_degree).unwrap(),
+            BigRational::from_integer(BigInt::one() << 129u32)
+        );
+
+        let linear = UnivariatePoly::new(x.clone(), vec![BigRational::one(), BigRational::one()]);
+        let degree_128 = UnivariatePoly::monomial(x.clone(), BigRational::one(), 128).unwrap();
         assert!(matches!(
-            constant.resultant(&high_degree),
+            linear.resultant(&degree_128),
             Err(PolyError::General(message)) if message.contains("dimension 129")
         ));
 
@@ -1309,6 +1316,19 @@ mod tests {
             Err(PolyError::General(message))
                 if message.contains("determinant scalar")
                     || message.contains("elimination product scalar")
+        ));
+
+        let oversized_quadratic = UnivariatePoly::new(
+            x,
+            vec![
+                BigRational::one(),
+                BigRational::zero(),
+                oversized_input.coeffs[0].clone(),
+            ],
+        );
+        assert!(matches!(
+            oversized_quadratic.discriminant(),
+            Err(PolyError::General(message)) if message.contains("input scalar")
         ));
     }
 }

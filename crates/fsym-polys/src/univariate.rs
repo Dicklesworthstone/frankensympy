@@ -14,6 +14,7 @@ use std::sync::Arc;
 const MAX_UNIVARIATE_COEFFICIENTS: usize = 65_536;
 const MAX_UNIVARIATE_POWER: u32 = 65_535;
 const MAX_RESULTANT_DIMENSION: usize = 128;
+// Numeric limits use the 64-bit charging limbs reported by `BigInt::limb_count`.
 const MAX_RESULTANT_MATRIX_NUMERIC_LIMBS: u64 = 65_536;
 const MAX_RESULTANT_SCALAR_NUMERIC_LIMBS: u64 = 16_384;
 
@@ -268,15 +269,6 @@ impl UnivariatePoly {
         }
         let n = self.degree().unwrap();
         let m = other.degree().unwrap();
-        let dim = n.checked_add(m).ok_or_else(|| {
-            PolyError::General("resultant Sylvester matrix dimension overflowed".to_string())
-        })?;
-        if dim > MAX_RESULTANT_DIMENSION {
-            return Err(PolyError::General(format!(
-                "resultant Sylvester matrix dimension {dim} exceeds bounded limit of {MAX_RESULTANT_DIMENSION}"
-            )));
-        }
-        preflight_resultant_coefficients(self, other, n, m)?;
         if n == 0 && m == 0 {
             return Ok(BigRational::one());
         }
@@ -286,6 +278,15 @@ impl UnivariatePoly {
         if m == 0 {
             return bounded_resultant_power(other.leading_coeff(), n);
         }
+        let dim = n.checked_add(m).ok_or_else(|| {
+            PolyError::General("resultant Sylvester matrix dimension overflowed".to_string())
+        })?;
+        if dim > MAX_RESULTANT_DIMENSION {
+            return Err(PolyError::General(format!(
+                "resultant Sylvester matrix dimension {dim} exceeds bounded limit of {MAX_RESULTANT_DIMENSION}"
+            )));
+        }
+        preflight_resultant_coefficients(self, other, n, m)?;
         let mut mat = vec![vec![BigRational::zero(); dim]; dim];
         for r in 0..m {
             for (idx, coeff) in self.coeffs.iter().rev().enumerate() {
@@ -311,40 +312,17 @@ impl UnivariatePoly {
                 "discriminant of zero polynomial is undefined".to_string(),
             )),
             Some(0) | Some(1) => Ok(BigRational::one()),
-            Some(2) => {
-                let c = &self.coeffs[0];
-                let b = &self.coeffs[1];
-                let a = &self.coeffs[2];
-                let four = BigRational::from_integer(BigInt::from(4));
-                Ok((b * b) - (four * a * c))
-            }
-            Some(3) => {
-                let d = &self.coeffs[0];
-                let c = &self.coeffs[1];
-                let b = &self.coeffs[2];
-                let a = &self.coeffs[3];
-                let four = BigRational::from_integer(BigInt::from(4));
-                let eighteen = BigRational::from_integer(BigInt::from(18));
-                let twenty_seven = BigRational::from_integer(BigInt::from(27));
-
-                let b2_c2 = (b * b) * (c * c);
-                let four_a_c3 = &four * a * (c * c * c);
-                let four_b3_d = &four * (b * b * b) * d;
-                let twenty_seven_a2_d2 = &twenty_seven * (a * a) * (d * d);
-                let eighteen_abcd = &eighteen * a * b * c * d;
-
-                Ok(b2_c2 - four_a_c3 - four_b3_d - twenty_seven_a2_d2 + eighteen_abcd)
-            }
             Some(n) => {
+                preflight_resultant_polynomial_scalars(self)?;
                 let p_prime = self.derivative();
                 let res = self.resultant(&p_prime)?;
                 let a_n = self.leading_coeff();
-                let sign = if (n * (n - 1) / 2) % 2 == 1 {
-                    -BigRational::one()
+                let signed_res = if (n * (n - 1) / 2) % 2 == 1 {
+                    -res
                 } else {
-                    BigRational::one()
+                    res
                 };
-                Ok(sign * res / a_n)
+                bounded_resultant_quotient(&signed_res, a_n, "discriminant quotient")
             }
         }
     }
@@ -749,18 +727,7 @@ fn preflight_resultant_coefficients(
         let copies = u64::try_from(copies).map_err(|_| {
             PolyError::General("resultant coefficient-copy count does not fit u64".to_string())
         })?;
-        let mut limbs = 0u64;
-        for coefficient in &polynomial.coeffs {
-            if coefficient.is_zero() {
-                continue;
-            }
-            ensure_resultant_scalar_within_limit(coefficient, "input")?;
-            limbs = limbs
-                .checked_add(rational_numeric_limbs(coefficient)?)
-                .ok_or_else(|| {
-                    PolyError::General("resultant input numeric-limb count overflowed".to_string())
-                })?;
-        }
+        let limbs = preflight_resultant_polynomial_scalars(polynomial)?;
         limbs.checked_mul(copies).ok_or_else(|| {
             PolyError::General("resultant materialized numeric-limb count overflowed".to_string())
         })
@@ -777,6 +744,22 @@ fn preflight_resultant_coefficients(
         )));
     }
     Ok(())
+}
+
+fn preflight_resultant_polynomial_scalars(polynomial: &UnivariatePoly) -> Result<u64, PolyError> {
+    let mut limbs = 0u64;
+    for coefficient in &polynomial.coeffs {
+        if coefficient.is_zero() {
+            continue;
+        }
+        ensure_resultant_scalar_within_limit(coefficient, "input")?;
+        limbs = limbs
+            .checked_add(rational_numeric_limbs(coefficient)?)
+            .ok_or_else(|| {
+                PolyError::General("resultant input numeric-limb count overflowed".to_string())
+            })?;
+    }
+    Ok(limbs)
 }
 
 fn bounded_resultant_product(
@@ -796,6 +779,16 @@ fn bounded_resultant_difference(
     let difference = lhs - rhs;
     ensure_resultant_scalar_within_limit(&difference, "elimination")?;
     Ok(difference)
+}
+
+fn bounded_resultant_quotient(
+    numerator: &BigRational,
+    denominator: &BigRational,
+    phase: &'static str,
+) -> Result<BigRational, PolyError> {
+    let quotient = numerator / denominator;
+    ensure_resultant_scalar_within_limit(&quotient, phase)?;
+    Ok(quotient)
 }
 
 fn bounded_resultant_power(
