@@ -1231,6 +1231,27 @@ mod tests {
     }
 
     #[test]
+    fn test_parallel_lines_fail_intersection_with_typed_refusal() {
+        // Line2D::intersection must return Err(ParallelLines) when
+        // the two lines have exactly the same direction. The
+        // existing test_line_intersection covers the happy path;
+        // this pins the parallel rejection branch so a future
+        // change to the numeric_value path cannot silently swallow
+        // a parallel case into a None or a misleading error.
+        let l1 = Line2D::new(
+            Point2D::new(Expr::from_i64(0), Expr::from_i64(0)),
+            Point2D::new(Expr::from_i64(1), Expr::from_i64(1)),
+        )
+        .unwrap();
+        let l2 = Line2D::new(
+            Point2D::new(Expr::from_i64(0), Expr::from_i64(1)),
+            Point2D::new(Expr::from_i64(1), Expr::from_i64(2)),
+        )
+        .unwrap();
+        assert_eq!(l1.intersection(&l2), Err(GeometryError::ParallelLines));
+    }
+
+    #[test]
     fn test_triangle_centroid_and_collinearity() {
         let p1 = Point2D::new(Expr::from_i64(0), Expr::from_i64(0));
         let p2 = Point2D::new(Expr::from_i64(6), Expr::from_i64(0));
