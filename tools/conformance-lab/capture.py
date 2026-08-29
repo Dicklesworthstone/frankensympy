@@ -48,6 +48,10 @@ profile.
 fixture construction on the oracle and candidate. It is not a golden field and
 cannot certify. Message text is outside the contract.
 
+`environment` records the live oracle profile-pin check and the candidate
+native cdylib identity (path/size/digest). It does not write goldens and
+cannot certify.
+
 Exit codes: 0 = success, 1 = gate failure, 2 = misuse.
 """
 
@@ -70,6 +74,8 @@ import tomllib
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from comparators import REGISTRY, diff_envelopes
 from warning_records import diff_warning_records, validate_warning_record
+from environment_records import extension_identity, make_environment_receipt
+from extension import find_fsym_python_extension
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ARTIFACT_ROOT = REPO_ROOT / "artifacts" / "conformance"
@@ -703,6 +709,41 @@ def cmd_warnings(profile: dict, oracle_py: str, candidate_py: str, *, certify: b
     return 0
 
 
+def cmd_environment(
+    profile: dict,
+    oracle_py: str,
+    candidate_py: str,
+    *,
+    certify: bool = False,
+) -> int:
+    if certify:
+        return fail("environment/build lane cannot certify; refuse --certify")
+    before = golden_digest_map(profile)
+    base = Path(__file__).resolve().parent
+    first_rel = profile["inventory"]["fixtures"][0]
+    oracle_envs = capture_file(profile, base / first_rel, oracle_py)
+    candidate_env = None
+    try:
+        candidate_envs = capture_candidate_file(
+            profile, base / first_rel, candidate_py, broken=False
+        )
+        if candidate_envs:
+            candidate_env = candidate_envs[0].get("environment")
+    except (OSError, RuntimeError, TypeError, ValueError):
+        candidate_env = None
+    receipt = make_environment_receipt(
+        profile=profile,
+        oracle_environment=oracle_envs[0]["environment"],
+        candidate_environment=candidate_env if isinstance(candidate_env, dict) else None,
+        extension=extension_identity(find_fsym_python_extension()),
+    )
+    if golden_digest_map(profile) != before:
+        return fail("environment/build lane mutated immutable goldens")
+    receipt["golden_bytes_unchanged"] = True
+    print(json.dumps(receipt, indent=2, sort_keys=True))
+    return 0
+
+
 def golden_name_for(fixture_rel: str) -> str:
     return fixture_rel.removeprefix("fixtures/").removesuffix(".json") + ".ndjson"
 
@@ -1143,6 +1184,40 @@ def cmd_self_test(profile: dict, py: str) -> int:
     renamed = diff_warning_records(warning_oracle, warning_renamed)
     if not renamed or renamed[0]["kind"] != "warning_identity_drift":
         return fail("warning lane missed planted warning-class rename")
+    env_ok = make_environment_receipt(
+        profile=profile,
+        oracle_environment=fresh[0]["environment"],
+        candidate_environment=None,
+        extension={
+            "present": False,
+            "path": None,
+            "size": None,
+            "sha256": None,
+        },
+    )
+    if env_ok["certifies"] or env_ok["can_certify"] or env_ok["goldens_written"]:
+        return fail("environment/build receipt certified or wrote goldens")
+    if env_ok["mismatches"]:
+        return fail(f"environment/build invented oracle pin drift: {env_ok['mismatches']}")
+    if env_ok["extension"]["present"]:
+        return fail("synthetic missing-extension receipt marked the cdylib present")
+    env_bad = copy.deepcopy(fresh[0]["environment"])
+    env_bad["sympy_version"] = "0.0.0"
+    env_mismatch = make_environment_receipt(
+        profile=profile,
+        oracle_environment=env_bad,
+        candidate_environment=None,
+        extension={
+            "present": False,
+            "path": None,
+            "size": None,
+            "sha256": None,
+        },
+    )
+    if not any(item["field"] == "sympy_version" for item in env_mismatch["mismatches"]):
+        return fail("environment/build missed planted sympy_version pin drift")
+    if env_mismatch["certifies"]:
+        return fail("environment/build certified a mismatched oracle pin")
     identity_drift = copy.deepcopy(drifted)
     identity_drift[0]["observations"]["type"] = "WrongType"
     if not compare_construction_only(golden_first, identity_drift):
@@ -1267,6 +1342,8 @@ def cmd_self_test(profile: dict, py: str) -> int:
                 "exact_surface_rejects_mro_class_drift": True,
                 "construction_only_accepts_mro_only_class_drift": True,
                 "warning_lane_detects_class_identity_drift": True,
+                "environment_build_matching_oracle_does_not_certify": True,
+                "environment_build_detects_sympy_version_pin_drift": True,
                 "mutants_checked": checked_files,
                 "mutants_rejected": rejected,
                 "oracle_candidate_isolation": True,
@@ -1760,6 +1837,7 @@ def parse_cli(argv: list[str]) -> dict | int:
         "suite-smoke",
         "moving-head",
         "warnings",
+        "environment",
     }
     if mode not in known:
         print(f"unknown mode: {mode}", file=sys.stderr)
@@ -1880,6 +1958,16 @@ def main() -> int:
             if parsed["certify"]:
                 return fail("warning lane cannot certify; refuse --certify")
             return cmd_warnings(
+                profile,
+                oracle_python(parsed["oracle_python"]),
+                candidate_python(parsed["candidate_python"]),
+            )
+        if mode == "environment":
+            if parsed["broken"]:
+                return fail("environment does not accept --broken")
+            if parsed["certify"]:
+                return fail("environment/build lane cannot certify; refuse --certify")
+            return cmd_environment(
                 profile,
                 oracle_python(parsed["oracle_python"]),
                 candidate_python(parsed["candidate_python"]),
