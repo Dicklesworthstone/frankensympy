@@ -275,6 +275,74 @@ fn numeric_value(expr: &Expr) -> Option<BigRational> {
     }
 }
 
+fn exact_point_coordinates(point: &Point2D) -> Option<(BigRational, BigRational)> {
+    Some((
+        numeric_value(&simplify(&point.x))?,
+        numeric_value(&simplify(&point.y))?,
+    ))
+}
+
+fn exact_orientation(
+    first: &(BigRational, BigRational),
+    second: &(BigRational, BigRational),
+    third: &(BigRational, BigRational),
+) -> BigRational {
+    let first_dx = &second.0 - &first.0;
+    let first_dy = &second.1 - &first.1;
+    let second_dx = &third.0 - &first.0;
+    let second_dy = &third.1 - &first.1;
+    &first_dx * &second_dy - &first_dy * &second_dx
+}
+
+/// Returns the indices of the strict convex hull in counter-clockwise order.
+///
+/// Repeated points and points on a hull edge are deliberately omitted. Callers can therefore
+/// establish strict convexity by requiring the hull to contain every input point exactly once.
+fn strict_convex_hull_indices(points: &[(BigRational, BigRational)]) -> Vec<usize> {
+    let mut sorted: Vec<usize> = (0..points.len()).collect();
+    sorted.sort_by(|&left, &right| {
+        points[left]
+            .0
+            .cmp(&points[right].0)
+            .then_with(|| points[left].1.cmp(&points[right].1))
+    });
+    sorted.dedup_by(|left, right| points[*left] == points[*right]);
+
+    let zero = BigRational::from_integer(0.into());
+    let mut lower = Vec::with_capacity(sorted.len());
+    for &index in &sorted {
+        while lower.len() >= 2
+            && exact_orientation(
+                &points[lower[lower.len() - 2]],
+                &points[lower[lower.len() - 1]],
+                &points[index],
+            ) <= zero
+        {
+            lower.pop();
+        }
+        lower.push(index);
+    }
+
+    let mut upper = Vec::with_capacity(sorted.len());
+    for &index in sorted.iter().rev() {
+        while upper.len() >= 2
+            && exact_orientation(
+                &points[upper[upper.len() - 2]],
+                &points[upper[upper.len() - 1]],
+                &points[index],
+            ) <= zero
+        {
+            upper.pop();
+        }
+        upper.push(index);
+    }
+
+    lower.pop();
+    upper.pop();
+    lower.extend(upper);
+    lower
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ZeroVectorStatus {
     Zero,
@@ -761,38 +829,20 @@ impl Polygon2D {
         if n < 3 {
             return Some(false);
         }
-        let mut sign: Option<i8> = None;
-        for i in 0..n {
-            let p1 = &self.vertices[i];
-            let p2 = &self.vertices[(i + 1) % n];
-            let p3 = &self.vertices[(i + 2) % n];
-
-            let dx1 = coordinate_difference(&p2.x, &p1.x);
-            let dy1 = coordinate_difference(&p2.y, &p1.y);
-            let dx2 = coordinate_difference(&p3.x, &p2.x);
-            let dy2 = coordinate_difference(&p3.y, &p2.y);
-
-            let cp = simplify(&Expr::Add(vec![
-                Expr::Mul(vec![dx1, dy2]),
-                Expr::Mul(vec![Expr::from_i64(-1), dy1, dx2]),
-            ]));
-
-            let val = numeric_value(&cp)?;
-            if val.numer().is_zero() {
-                continue;
-            }
-            let current_sign = if val > BigRational::from_integer(0.into()) {
-                1
-            } else {
-                -1
-            };
-            match sign {
-                None => sign = Some(current_sign),
-                Some(s) if s != current_sign => return Some(false),
-                _ => {}
-            }
+        let points = self
+            .vertices
+            .iter()
+            .map(exact_point_coordinates)
+            .collect::<Option<Vec<_>>>()?;
+        let hull = strict_convex_hull_indices(&points);
+        if hull.len() != n {
+            return Some(false);
         }
-        Some(sign.is_some())
+
+        let start = hull.iter().position(|&index| index == 0)?;
+        let follows_counter_clockwise = (0..n).all(|offset| hull[(start + offset) % n] == offset);
+        let follows_clockwise = (0..n).all(|offset| hull[(start + n - offset) % n] == offset);
+        Some(follows_counter_clockwise || follows_clockwise)
     }
 }
 
@@ -2013,6 +2063,53 @@ mod tests {
         ])
         .unwrap();
         assert_eq!(dart.is_convex(), Some(false));
+
+        // Matching local turn signs do not establish a simple polygon. Every turn of this
+        // self-intersecting star is clockwise, but its vertex order is not the convex-hull cycle.
+        let star = Polygon2D::new(vec![
+            Point2D::new(Expr::from_i64(0), Expr::from_i64(3)),
+            Point2D::new(Expr::from_i64(2), Expr::from_i64(-3)),
+            Point2D::new(Expr::from_i64(-3), Expr::from_i64(1)),
+            Point2D::new(Expr::from_i64(3), Expr::from_i64(1)),
+            Point2D::new(Expr::from_i64(-2), Expr::from_i64(-3)),
+        ])
+        .unwrap();
+        assert_eq!(star.is_convex(), Some(false));
+
+        // Strict convexity excludes collinear boundary vertices and repeated vertices.
+        let collinear_boundary = Polygon2D::new(vec![
+            Point2D::new(Expr::from_i64(0), Expr::from_i64(0)),
+            Point2D::new(Expr::from_i64(1), Expr::from_i64(0)),
+            Point2D::new(Expr::from_i64(2), Expr::from_i64(0)),
+            Point2D::new(Expr::from_i64(2), Expr::from_i64(1)),
+            Point2D::new(Expr::from_i64(0), Expr::from_i64(1)),
+        ])
+        .unwrap();
+        assert_eq!(collinear_boundary.is_convex(), Some(false));
+
+        let repeated_vertex = Polygon2D::new(vec![
+            Point2D::new(Expr::from_i64(0), Expr::from_i64(0)),
+            Point2D::new(Expr::from_i64(1), Expr::from_i64(0)),
+            Point2D::new(Expr::from_i64(1), Expr::from_i64(1)),
+            Point2D::new(Expr::from_i64(1), Expr::from_i64(1)),
+            Point2D::new(Expr::from_i64(0), Expr::from_i64(1)),
+        ])
+        .unwrap();
+        assert_eq!(repeated_vertex.is_convex(), Some(false));
+
+        let clockwise_rational_triangle = Polygon2D::new(vec![
+            Point2D::new(Expr::from_i64(0), Expr::from_i64(0)),
+            Point2D::new(
+                Expr::from_i64(0),
+                Expr::Rational(BigRational::new(1.into(), 3.into())),
+            ),
+            Point2D::new(
+                Expr::Rational(BigRational::new(1.into(), 2.into())),
+                Expr::from_i64(0),
+            ),
+        ])
+        .unwrap();
+        assert_eq!(clockwise_rational_triangle.is_convex(), Some(true));
 
         // Symbolic polygon: orientation undetermined -> returns None
         let sym_poly = Polygon2D::new(vec![
