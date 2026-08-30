@@ -23,6 +23,7 @@ from __future__ import annotations
 import base64
 import copy as copy_mod
 import hashlib
+import importlib
 import json
 import os
 import pickle
@@ -325,6 +326,67 @@ def observe_reconstruct(fixture: dict, profile_id: str) -> dict:
     }
 
 
+def observe_isinstance(fixture: dict, profile_id: str) -> dict:
+    try:
+        obj = _construct(fixture)
+        outcome = "returned"
+    except Exception:  # noqa: BLE001
+        return {
+            "schema_version": 1,
+            "kind": "isinstance_observation",
+            "profile_id": profile_id,
+            "fixture_id": fixture["id"],
+            "side": "upstream_oracle",
+            "construction_outcome": "raised",
+            "isinstance_type": None,
+            "issubclass_type": None,
+            "module_class_importable": None,
+            "isinstance_module_class": None,
+            "issubclass_module_class": None,
+            "type_is_module_class": None,
+            "probe_error": None,
+        }
+    cls = type(obj)
+    try:
+        imported = getattr(importlib.import_module(cls.__module__), cls.__name__)
+        if not isinstance(imported, type):
+            raise TypeError(f"{cls.__module__}.{cls.__name__} is not a type")
+        return {
+            "schema_version": 1,
+            "kind": "isinstance_observation",
+            "profile_id": profile_id,
+            "fixture_id": fixture["id"],
+            "side": "upstream_oracle",
+            "construction_outcome": outcome,
+            "isinstance_type": isinstance(obj, cls),
+            "issubclass_type": issubclass(cls, cls),
+            "module_class_importable": True,
+            "isinstance_module_class": isinstance(obj, imported),
+            "issubclass_module_class": issubclass(cls, imported),
+            "type_is_module_class": cls is imported,
+            "probe_error": None,
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "schema_version": 1,
+            "kind": "isinstance_observation",
+            "profile_id": profile_id,
+            "fixture_id": fixture["id"],
+            "side": "upstream_oracle",
+            "construction_outcome": outcome,
+            "isinstance_type": isinstance(obj, cls),
+            "issubclass_type": issubclass(cls, cls),
+            "module_class_importable": False,
+            "isinstance_module_class": None,
+            "issubclass_module_class": None,
+            "type_is_module_class": None,
+            "probe_error": {
+                "error_class": type(exc).__module__ + "." + type(exc).__name__,
+                "message_head": str(exc)[:200],
+            },
+        }
+
+
 def observe_equality(fixture: dict, profile_id: str) -> dict:
     try:
         first = _construct(fixture)
@@ -469,12 +531,14 @@ def main() -> int:
     copy_roundtrip = False
     reconstruct = False
     equality = False
+    instancecheck = False
     if args and args[-1] in {
         "--warnings",
         "--pickle-roundtrip",
         "--copy-roundtrip",
         "--reconstruct",
         "--equality",
+        "--isinstance",
     }:
         flag = args.pop()
         warnings_only = flag == "--warnings"
@@ -482,12 +546,21 @@ def main() -> int:
         copy_roundtrip = flag == "--copy-roundtrip"
         reconstruct = flag == "--reconstruct"
         equality = flag == "--equality"
+        instancecheck = flag == "--isinstance"
     if len(args) != 2:
         print(json.dumps({"error_class": "harness_misuse"}))
         return 2
     fixture_path, profile_id = args
     with open(fixture_path, encoding="utf-8") as fh:
         fixtures = json.load(fh)
+    if instancecheck:
+        for fixture in fixtures:
+            sys.stdout.write(
+                json.dumps(observe_isinstance(fixture, profile_id), sort_keys=True)
+                + "\n"
+            )
+            sys.stdout.flush()
+        return 0
     if equality:
         for fixture in fixtures:
             sys.stdout.write(

@@ -25,6 +25,7 @@ from __future__ import annotations
 import base64
 import copy as copy_mod
 import hashlib
+import importlib
 import importlib.machinery
 import importlib.util
 import json
@@ -473,6 +474,85 @@ def observe_equality_refused(fixture: dict, profile_id: str) -> dict:
     }
 
 
+def observe_isinstance(fixture: dict, profile_id: str, sympy_mod) -> dict:
+    try:
+        obj = _construct(fixture, sympy_mod)
+        outcome = "returned"
+    except Exception:  # noqa: BLE001
+        return {
+            "schema_version": 1,
+            "kind": "isinstance_observation",
+            "profile_id": profile_id,
+            "fixture_id": fixture["id"],
+            "side": CANDIDATE_SIDE,
+            "construction_outcome": "raised",
+            "isinstance_type": None,
+            "issubclass_type": None,
+            "module_class_importable": None,
+            "isinstance_module_class": None,
+            "issubclass_module_class": None,
+            "type_is_module_class": None,
+            "probe_error": None,
+        }
+    cls = type(obj)
+    try:
+        imported = getattr(importlib.import_module(cls.__module__), cls.__name__)
+        if not isinstance(imported, type):
+            raise TypeError(f"{cls.__module__}.{cls.__name__} is not a type")
+        return {
+            "schema_version": 1,
+            "kind": "isinstance_observation",
+            "profile_id": profile_id,
+            "fixture_id": fixture["id"],
+            "side": CANDIDATE_SIDE,
+            "construction_outcome": outcome,
+            "isinstance_type": isinstance(obj, cls),
+            "issubclass_type": issubclass(cls, cls),
+            "module_class_importable": True,
+            "isinstance_module_class": isinstance(obj, imported),
+            "issubclass_module_class": issubclass(cls, imported),
+            "type_is_module_class": cls is imported,
+            "probe_error": None,
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "schema_version": 1,
+            "kind": "isinstance_observation",
+            "profile_id": profile_id,
+            "fixture_id": fixture["id"],
+            "side": CANDIDATE_SIDE,
+            "construction_outcome": outcome,
+            "isinstance_type": isinstance(obj, cls),
+            "issubclass_type": issubclass(cls, cls),
+            "module_class_importable": False,
+            "isinstance_module_class": None,
+            "issubclass_module_class": None,
+            "type_is_module_class": None,
+            "probe_error": {
+                "error_class": type(exc).__module__ + "." + type(exc).__name__,
+                "message_head": str(exc)[:200],
+            },
+        }
+
+
+def observe_isinstance_refused(fixture: dict, profile_id: str) -> dict:
+    return {
+        "schema_version": 1,
+        "kind": "isinstance_observation",
+        "profile_id": profile_id,
+        "fixture_id": fixture["id"],
+        "side": CANDIDATE_SIDE,
+        "construction_outcome": "refused",
+        "isinstance_type": None,
+        "issubclass_type": None,
+        "module_class_importable": None,
+        "isinstance_module_class": None,
+        "issubclass_module_class": None,
+        "type_is_module_class": None,
+        "probe_error": None,
+    }
+
+
 def observe_reconstruct_refused(fixture: dict, profile_id: str) -> dict:
     return {
         "schema_version": 1,
@@ -690,6 +770,7 @@ def main() -> int:
     copy_roundtrip = False
     reconstruct = False
     equality = False
+    instancecheck = False
     while args and args[-1] in {
         "--broken",
         "--warnings",
@@ -697,6 +778,7 @@ def main() -> int:
         "--copy-roundtrip",
         "--reconstruct",
         "--equality",
+        "--isinstance",
     }:
         flag = args.pop()
         if flag == "--broken":
@@ -709,8 +791,10 @@ def main() -> int:
             copy_roundtrip = True
         elif flag == "--reconstruct":
             reconstruct = True
-        else:
+        elif flag == "--equality":
             equality = True
+        else:
+            instancecheck = True
     if len(args) != 2:
         print(json.dumps({"error_class": "harness_misuse"}))
         return 2
@@ -729,7 +813,9 @@ def main() -> int:
     if error_kind == "isolation":
         return isolation_violation(error or "candidate sympy is not the FrankenSymPy shell")
     if sympy_mod is None:
-        if equality:
+        if instancecheck:
+            writer = observe_isinstance_refused
+        elif equality:
             writer = observe_equality_refused
         elif reconstruct:
             writer = observe_reconstruct_refused
@@ -750,6 +836,17 @@ def main() -> int:
             sys.stdout.flush()
         return 0
 
+    if instancecheck:
+        for fixture in fixtures:
+            sys.stdout.write(
+                json.dumps(
+                    observe_isinstance(fixture, profile_id, sympy_mod),
+                    sort_keys=True,
+                )
+                + "\n"
+            )
+            sys.stdout.flush()
+        return 0
     if equality:
         for fixture in fixtures:
             sys.stdout.write(
