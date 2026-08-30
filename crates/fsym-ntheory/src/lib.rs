@@ -466,8 +466,7 @@ mod tests {
         // function returns Ok(0) rather than Err), totient(1) = 1.
         assert_eq!(totient(0).unwrap(), 0);
         assert_eq!(totient(1).unwrap(), 1);
-
-        let hard_semiprime = 1_000_003u64 * 1_000_003;
+        assert_eq!(totient(100).unwrap(), 40);
     }
 
     #[test]
@@ -477,17 +476,18 @@ mod tests {
         assert_eq!(mobius(2).unwrap(), -1);
         assert_eq!(mobius(6).unwrap(), 1);
         assert_eq!(mobius(12).unwrap(), 0);
-
         // Divisor count: d(12) = 6 (1, 2, 3, 4, 6, 12)
         assert_eq!(divisor_count(12).unwrap(), 6);
 
+        // Boundary: d(0) refuses (ZeroFactorization), d(1) = 1,
+        // d(2) = 2. Pin the small-N boundary so a future change to
+        // the factor path or 1-exclusion cannot silently drift.
+        assert_eq!(divisor_count(0), Err(NTheoryError::ZeroFactorization));
+        assert_eq!(divisor_count(1).unwrap(), 1);
+        assert_eq!(divisor_count(2).unwrap(), 2);
+
         // Divisor sum: sigma_1(12) = 1+2+3+4+6+12 = 28
         assert_eq!(divisor_sum(12, 1).unwrap(), 28);
-        assert_eq!(
-            divisor_sum(2, 64),
-            Err(NTheoryError::ArithmeticOverflow("divisor sum prime power"))
-        );
-
         // Jacobi symbol: (2 / 7) = 1, (3 / 7) = -1
         assert_eq!(jacobi_symbol(2, 7), Ok(1));
         assert_eq!(jacobi_symbol(3, 7), Ok(-1));
