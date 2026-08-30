@@ -1370,4 +1370,35 @@ mod tests {
         ]);
         assert!(!verify_linear_first_order_solution(&bad_sol, &p, &q, &x));
     }
+
+    #[test]
+    fn test_dsolve_cauchy_euler_and_verification() {
+        let x = Symbol::new("x");
+        let c1 = Symbol::new("C1");
+        let c2 = Symbol::new("C2");
+
+        // x^2 * y'' - 2*x * y' + 2*y = 0
+        // a = 1, b = -2, c = 2
+        // Char eq: m^2 + (-2 - 1)*m + 2 = m^2 - 3m + 2 = (m - 1)(m - 2) = 0
+        // m1 = 2, m2 = 1 => y(x) = C1 * x^2 + C2 * x
+        let sol = dsolve_cauchy_euler(1, -2, 2, &x, &c1, &c2).unwrap();
+        assert!(verify_cauchy_euler_solution(&sol, 1, -2, 2, &x));
+
+        // Repeated root: x^2 * y'' + x * y' = 0
+        // a = 1, b = 1, c = 0
+        // Char eq: m^2 + (1 - 1)*m + 0 = m^2 = 0 => m = 0
+        // y(x) = C1 + C2 * ln(x)
+        let sol_rep = dsolve_cauchy_euler(1, 1, 0, &x, &c1, &c2).unwrap();
+        assert!(verify_cauchy_euler_solution(&sol_rep, 1, 1, 0, &x));
+
+        // Invalid: leading coefficient a = 0
+        assert!(matches!(
+            dsolve_cauchy_euler(0, 1, 1, &x, &c1, &c2),
+            Err(SolverError::InvalidSystem(_))
+        ));
+
+        // Mutant solution verification check
+        let bad_sol = Expr::Add(vec![Expr::Sym(c1), Expr::Sym(x.clone())]);
+        assert!(!verify_cauchy_euler_solution(&bad_sol, 1, -2, 2, &x));
+    }
 }

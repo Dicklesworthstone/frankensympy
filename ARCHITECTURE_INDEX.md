@@ -1,6 +1,6 @@
 # FrankenSymPy architecture index
 
-**Repository status:** planning and architecture  
+**Repository status:** implementation in progress (pre-certification)  
 **Current normative revision:** 2026-08-20  
 **Implementation claims:** none unless backed by the claim/evidence registries and landed code
 

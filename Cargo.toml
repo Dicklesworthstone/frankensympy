@@ -6,13 +6,13 @@ license-file = "LICENSE"
 repository = "https://github.com/Dicklesworthstone/frankensympy"
 homepage = "https://github.com/Dicklesworthstone/frankensympy"
 readme = "README.md"
-description = "Planning-stage clean-room, memory-safe Rust reimplementation of SymPy with differential oracle conformance"
+description = "Clean-room, memory-safe Rust reimplementation of SymPy with differential oracle conformance (implementation in progress, pre-certification)"
 keywords = ["sympy", "cas", "symbolic", "mathematics", "computer-algebra"]
 categories = ["science", "mathematics", "data-structures", "algorithms"]
 publish = false
 
 [package.metadata.frankensympy]
-implementation_status = "planning"
+implementation_status = "implemented_uncertified"
 architecture_index = "ARCHITECTURE_INDEX.md"
 architecture_document_registry = "registries/architecture_documents.toml"
 architecture_review = "docs/ARCHITECTURE_REVIEW_ROUND_3.md"

@@ -598,16 +598,16 @@ def validate_package_status() -> None:
         error("Cargo.toml: missing `[package]` table")
         return
     description = package.get("description", "")
-    if not isinstance(description, str) or "planning" not in description.lower():
-        error("Cargo.toml: package description must explicitly state planning-stage status")
+    if not isinstance(description, str) or "pre-certification" not in description.lower():
+        error("Cargo.toml: package description must explicitly state pre-certification status")
     if package.get("publish") is not False:
         error("Cargo.toml: planning-stage package must set `publish = false`")
     metadata = package.get("metadata", {}).get("frankensympy", {})
     if not isinstance(metadata, dict):
         error("Cargo.toml: missing `[package.metadata.frankensympy]` table")
     else:
-        if metadata.get("implementation_status") != "planning":
-            error("Cargo.toml: implementation status must remain `planning`")
+        if metadata.get("implementation_status") != "implemented_uncertified":
+            error("Cargo.toml: implementation status must be `implemented_uncertified`")
         for key in (
             "claims_registry",
             "compatibility_profile_registry",
@@ -617,8 +617,8 @@ def validate_package_status() -> None:
             if not isinstance(value, str) or not (ROOT / value).is_file():
                 error(f"Cargo.toml: metadata path `{key}` is missing or invalid")
     lib_source = (ROOT / "src/lib.rs").read_text(encoding="utf-8")
-    if 'IMPLEMENTATION_STATUS: &str = "planning"' not in lib_source:
-        error("src/lib.rs: machine-readable implementation status is not `planning`")
+    if 'IMPLEMENTATION_STATUS: &str = "implemented_uncertified"' not in lib_source:
+        error("src/lib.rs: machine-readable implementation status is not `implemented_uncertified`")
 
 
 def validate_document_references(
@@ -639,10 +639,10 @@ def validate_status_language() -> None:
     plan = (ROOT / "COMPREHENSIVE_PLAN_FOR_FRANKENSYMPY.md").read_text(
         encoding="utf-8"
     )
-    if "Current status: architecture and implementation plan." not in readme:
+    if "Current status: implementation in progress, pre-certification." not in readme:
         error("README.md: missing exact current-status statement")
-    if "runtime capabilities are not yet implemented or certified" not in plan:
-        error("comprehensive plan: missing explicit non-implementation status")
+    if "runtime capabilities are implemented-uncertified and not certified" not in plan:
+        error("comprehensive plan: missing explicit implemented-uncertified status statement")
     for forbidden in (
         "[![CI]",
         "[![Conformance]",

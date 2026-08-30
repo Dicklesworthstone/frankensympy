@@ -256,6 +256,128 @@ pub fn dsolve_const_coeff_second_order(
     }
 }
 
+fn rational_to_expr(r: BigRational) -> Expr {
+    if r.denom() == &BigInt::one() {
+        Expr::Integer(r.numer().clone())
+    } else {
+        Expr::Rational(r)
+    }
+}
+
+/// Solves homogeneous Cauchy-Euler ODE: $a x^2 y''(x) + b x y'(x) + c y(x) = 0$.
+pub fn dsolve_cauchy_euler(
+    a: i64,
+    b: i64,
+    c: i64,
+    x: &Symbol,
+    c1: &Symbol,
+    c2: &Symbol,
+) -> Result<Expr, SolverError> {
+    require_fresh_integration_constants(x, &[c1, c2], &[])?;
+    if a == 0 {
+        return Err(SolverError::InvalidSystem(
+            "Cauchy-Euler ODE leading coefficient must be nonzero".to_string(),
+        ));
+    }
+    let coefficients = (a, b, c);
+    let a_int = BigInt::from(a);
+    let b_minus_a = BigInt::from(b - a);
+    let c_int = BigInt::from(c);
+    let disc = &b_minus_a * &b_minus_a - BigInt::from(4) * &a_int * &c_int;
+    let neg_b_minus_a = -&b_minus_a;
+    let two_a = BigInt::from(2) * &a_int;
+    let x_sym = Expr::Sym(x.clone());
+    let c1_sym = Expr::Sym(c1.clone());
+    let c2_sym = Expr::Sym(c2.clone());
+
+    let solution = if disc.is_zero() {
+        // Repeated root m = -(b-a) / (2a)
+        let m = rational_to_expr(BigRational::new(neg_b_minus_a, two_a));
+        let x_pow_m = Expr::pow(x_sym.clone(), m);
+        let ln_x = Expr::Function("ln".into(), vec![x_sym]);
+        let term = Expr::Add(vec![c1_sym, Expr::Mul(vec![c2_sym, ln_x])]);
+        simplify(&Expr::Mul(vec![x_pow_m, term]))
+    } else if disc.is_positive() {
+        // Two distinct real roots
+        let sqrt_disc = square_root_if_exact(&disc).ok_or_else(|| {
+            SolverError::IncompleteSolutionSet(
+                "non-square characteristic radicals are not supported by the exact ODE verifier"
+                    .to_string(),
+            )
+        })?;
+        let m1 = rational_to_expr(BigRational::new(&neg_b_minus_a + &sqrt_disc, two_a.clone()));
+        let m2 = rational_to_expr(BigRational::new(&neg_b_minus_a - &sqrt_disc, two_a));
+        let term1 = Expr::Mul(vec![c1_sym, Expr::pow(x_sym.clone(), m1)]);
+        let term2 = Expr::Mul(vec![c2_sym, Expr::pow(x_sym, m2)]);
+        simplify(&Expr::Add(vec![term1, term2]))
+    } else {
+        // Complex conjugate roots: alpha ± i*beta
+        let alpha = rational_to_expr(BigRational::new(neg_b_minus_a, two_a.clone()));
+        let pos_disc = -disc;
+        let sqrt_disc = square_root_if_exact(&pos_disc).ok_or_else(|| {
+            SolverError::IncompleteSolutionSet(
+                "non-square characteristic radicals are not supported by the exact ODE verifier"
+                    .to_string(),
+            )
+        })?;
+        let beta = rational_to_expr(BigRational::new(sqrt_disc, two_a));
+
+        let x_pow_alpha = Expr::pow(x_sym.clone(), alpha);
+        let ln_x = Expr::Function("ln".into(), vec![x_sym.clone()]);
+        let beta_ln_x = Expr::Mul(vec![beta, ln_x]);
+        let cos_part = Expr::Function("cos".into(), vec![beta_ln_x.clone()]);
+        let sin_part = Expr::Function("sin".into(), vec![beta_ln_x]);
+
+        let trig_part = Expr::Add(vec![
+            Expr::Mul(vec![c1_sym, cos_part]),
+            Expr::Mul(vec![c2_sym, sin_part]),
+        ]);
+        simplify(&Expr::Mul(vec![x_pow_alpha, trig_part]))
+    };
+
+    if verify_cauchy_euler_solution(&solution, coefficients.0, coefficients.1, coefficients.2, x) {
+        Ok(solution)
+    } else {
+        Err(SolverError::IncompleteSolutionSet(
+            "Cauchy-Euler solution failed independent residual verification".to_string(),
+        ))
+    }
+}
+
+/// Independent verifier for homogeneous Cauchy-Euler differential equation:
+/// $a x^2 y''(x) + b x y'(x) + c y(x) = 0$.
+pub fn verify_cauchy_euler_solution(solution: &Expr, a: i64, b: i64, c: i64, x: &Symbol) -> bool {
+    let mut terms = Vec::new();
+    let x_sym = Expr::Sym(x.clone());
+    if a != 0 {
+        let dy = diff(solution, x);
+        let d2y = diff(&dy, x);
+        let x_sq = Expr::pow(x_sym.clone(), Expr::from_i64(2));
+        terms.push(Expr::Mul(vec![Expr::from_i64(a), x_sq, d2y]));
+    }
+    if b != 0 {
+        let dy = diff(solution, x);
+        terms.push(Expr::Mul(vec![Expr::from_i64(b), x_sym, dy]));
+    }
+    if c != 0 {
+        terms.push(Expr::Mul(vec![Expr::from_i64(c), solution.clone()]));
+    }
+
+    if terms.is_empty() {
+        return true;
+    }
+    let residual = Expr::Add(terms);
+    let expanded = match try_expand(&residual) {
+        Ok(e) => e,
+        Err(_) => return false,
+    };
+    let simplified = match try_simplify(&expanded) {
+        Ok(s) => s,
+        Err(_) => simplify(&expanded),
+    };
+    simplified.is_zero()
+}
+
 /// Exact residual checker for a candidate solution of $y'(x) + P(x) y(x) = Q(x)$.
 pub fn verify_first_order_linear_solution(
     sol: &Expr,

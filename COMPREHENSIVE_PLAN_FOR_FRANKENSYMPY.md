@@ -2,27 +2,26 @@
 
 **Version:** 1.0 planning baseline  
 **Date:** 2026-08-19  
-**Status:** public architecture and implementation plan; runtime capabilities are not yet implemented or certified  
+**Status:** public architecture and implementation plan; core implementation landed and green, runtime capabilities are implemented-uncertified and not certified  
 **Target:** an independently implemented, memory-safe, agent-native symbolic mathematics system and a certified drop-in replacement for named SymPy profiles
 
 ---
 
 ## 0. Current reality
 
-This repository currently contains a skeleton Rust workspace plus the architecture, governance, compatibility, proof, runtime, conformance, security, implementation, and research plan described here.
+This repository contains a substantial, tested implementation workspace together with the architecture, governance, compatibility, proof, runtime, conformance, security, and research plan described here. As of 2026-08-29 the workspace spans 25 crates (~66k lines) with green workspace tests, a Python compatibility shell slice, a live SymPy 1.14.0 differential conformance lane, and landed proof/evidence/runtime substrates.
 
 It does **not** currently contain:
 
-- a working replacement for SymPy;
-- a certified Python compatibility profile;
-- the proposed native term kernel or arithmetic stack;
-- proof-producing algebra/calculus engines;
-- demonstrated speedups;
+- a certified replacement for SymPy (no compatibility profile is certified);
+- certified Python object-model conformance (the shell is a slice with an open differential-gate obligation);
+- complete proof-producing algebra/calculus coverage to the planned portfolio breadth;
+- demonstrated speedups over the live incumbent;
 - live FrankenSQLite, FrankenGraphDB, FrankenNumPy, or FrankenSciPy integrations;
-- production RaptorQ checkpoint repair;
+- production RaptorQ checkpoint repair or a closed repair evidence bundle;
 - live conformal/e-process monitoring.
 
-Capability status is machine-readable in [`registries/claims.toml`](registries/claims.toml). With the exception of the existence of the planning package itself, capability claims remain `planned` and cannot be rendered as shipped behavior.
+Capability status is machine-readable in [`registries/claims.toml`](registries/claims.toml). Claims with landed implementation are marked `implemented_uncertified` with named artifacts; every `validated`/`certified` claim remains open behind its gate bundle.
 
 This explicit separation between target architecture and implementation reality is part of the design, not a disclaimer to be removed later.
 

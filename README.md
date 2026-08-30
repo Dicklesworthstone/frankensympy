@@ -3,7 +3,7 @@
 **A planned memory-safe, proof-carrying, agent-native symbolic mathematics system—and an independently implemented drop-in replacement for named SymPy profiles.**
 
 > [!IMPORTANT]
-> **Current status: architecture and implementation plan.** The repository does not yet contain a working SymPy replacement, certified compatibility profile, native symbolic kernel, or demonstrated performance win. Capability status is tracked in [`registries/claims.toml`](registries/claims.toml); all runtime capabilities currently remain `planned`.
+> **Current status: implementation in progress, pre-certification.** The repository now contains a substantial Rust implementation workspace (exact arithmetic, semantic term DAG, proof kernel, evidence system, polynomial/linear-algebra/calculus engines, portfolio runtime, conformance laboratory) with green workspace tests, a Python compatibility shell slice, and a live SymPy 1.14.0 differential oracle. It is **not** a certified SymPy replacement: no compatibility profile is certified, no performance win is demonstrated, and all `validated`/`certified` gates remain open. Capability status is tracked in [`registries/claims.toml`](registries/claims.toml).
 
 The complete design is in [`COMPREHENSIVE_PLAN_FOR_FRANKENSYMPY.md`](COMPREHENSIVE_PLAN_FOR_FRANKENSYMPY.md).
 
@@ -274,7 +274,7 @@ WS22  Performance and architecture optimization
 WS23  Packaging, release, and 1.0 certification
 ```
 
-All currently remain `planned`.
+All 24 remain `planned` at the closure level; substantial slices have landed inside several workstreams (see [`registries/claims.toml`](registries/claims.toml) for per-claim implementation status).
 
 See [`docs/WORKSTREAM_GRAPH.md`](docs/WORKSTREAM_GRAPH.md) and [`registries/workstreams.toml`](registries/workstreams.toml).
 

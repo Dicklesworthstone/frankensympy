@@ -1,10 +1,10 @@
 //! # FrankenSymPy
 //!
-//! Planning-stage crate for an independently implemented, memory-safe Rust and Python
+//! Implementation workspace for an independently implemented, memory-safe Rust and Python
 //! replacement for named SymPy compatibility profiles.
 //!
-//! The architecture and implementation program are public, but the symbolic engine and
-//! compatibility profiles described by that plan are not implemented or certified yet.
+//! The core implementation is landed and tested, but the compatibility profiles described by
+//! the plan are implemented-uncertified: no profile is certified yet.
 
 #![forbid(unsafe_code)]
 
@@ -12,4 +12,4 @@
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Machine-readable implementation status for the current crate.
-pub const IMPLEMENTATION_STATUS: &str = "planning";
+pub const IMPLEMENTATION_STATUS: &str = "implemented_uncertified";

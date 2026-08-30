@@ -13,7 +13,7 @@ pub use transforms::*;
 use fsym_budget::Unbounded;
 use fsym_core::{BigInt, BigRational, Constant, Expr, Symbol};
 use fsym_simplify::{expand_with, simplify};
-use num_traits::{Signed, Zero};
+use num_traits::{One, Signed, Zero};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use thiserror::Error;
@@ -243,9 +243,37 @@ pub fn diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
     }
 }
 
+fn eliminate_zero_products(expr: &Expr) -> Expr {
+    match expr {
+        Expr::Add(terms) => {
+            let non_zero: Vec<Expr> = terms
+                .iter()
+                .map(eliminate_zero_products)
+                .filter(|t| !t.is_zero())
+                .collect();
+            match non_zero.len() {
+                0 => Expr::from_i64(0),
+                1 => non_zero.into_iter().next().expect("len checked"),
+                _ => Expr::Add(non_zero),
+            }
+        }
+        Expr::Mul(factors) => {
+            if factors.iter().any(|f| f.is_zero()) {
+                Expr::from_i64(0)
+            } else {
+                let mapped: Vec<Expr> = factors.iter().map(eliminate_zero_products).collect();
+                Expr::Mul(mapped)
+            }
+        }
+        _ => expr.clone(),
+    }
+}
+
 /// Compute the symbolic derivative of an expression with respect to a symbol: ∂expr / ∂var.
 pub fn diff(expr: &Expr, var: &Symbol) -> Expr {
-    simplify(&diff_unsimplified(expr, var))
+    let unsimplified = diff_unsimplified(expr, var);
+    let cleaned = eliminate_zero_products(&unsimplified);
+    simplify(&cleaned)
 }
 
 /// Compute the N-th derivative: d^n(expr) / d(var)^n.
@@ -390,6 +418,258 @@ fn integral_term(f: &Expr, var: &Symbol) -> Result<Expr, CalculusError> {
     }
 }
 
+/// Maximum polynomial degree admitted by the integration-by-parts rule.
+const MAX_BY_PARTS_DEGREE: usize = 8;
+
+/// Ascending exact-rational coefficient view of a polynomial in `var`.
+///
+/// Returns `None` for anything that is not a bounded polynomial with exact
+/// rational coefficients: negative, symbolic, or degree-capped exponents
+/// and non-polynomial leaves all refuse rather than misclassify.
+fn polynomial_coeffs(expr: &Expr, var: &Symbol) -> Option<Vec<BigRational>> {
+    let x = Expr::Sym(var.clone());
+    match expr {
+        Expr::Integer(n) => Some(vec![BigRational::from_integer(n.clone())]),
+        Expr::Rational(r) => Some(vec![r.clone()]),
+        Expr::Sym(s) if s == var => Some(vec![BigRational::zero(), BigRational::one()]),
+        Expr::Pow(base, exp) if base.as_ref() == &x => {
+            let Expr::Integer(n) = exp.as_ref() else {
+                return None;
+            };
+            let n = n.to_u64()? as usize;
+            if n == 0 || n > MAX_BY_PARTS_DEGREE {
+                return None;
+            }
+            let mut coeffs = vec![BigRational::zero(); n];
+            coeffs.push(BigRational::one());
+            Some(coeffs)
+        }
+        Expr::Add(terms) => {
+            let mut total = vec![BigRational::zero()];
+            for term in terms {
+                let t = polynomial_coeffs(term, var)?;
+                if t.len() - 1 > MAX_BY_PARTS_DEGREE {
+                    return None;
+                }
+                if t.len() > total.len() {
+                    total.resize(t.len(), BigRational::zero());
+                }
+                for (i, c) in t.iter().enumerate() {
+                    total[i] += c.clone();
+                }
+            }
+            Some(total)
+        }
+        Expr::Mul(factors) => {
+            let mut product = vec![BigRational::one()];
+            for factor in factors {
+                let f = polynomial_coeffs(factor, var)?;
+                let new_degree = (product.len() - 1) + (f.len() - 1);
+                if new_degree > MAX_BY_PARTS_DEGREE {
+                    return None;
+                }
+                let mut next = vec![BigRational::zero(); new_degree + 1];
+                for (i, a) in product.iter().enumerate() {
+                    for (j, b) in f.iter().enumerate() {
+                        let mut ab = a.clone();
+                        ab *= b.clone();
+                        next[i + j] += ab;
+                    }
+                }
+                product = next;
+            }
+            Some(product)
+        }
+        _ => None,
+    }
+}
+
+/// d/dvar of an ascending coefficient array.
+fn derivative_coeffs(coeffs: &[BigRational]) -> Vec<BigRational> {
+    coeffs
+        .iter()
+        .enumerate()
+        .skip(1)
+        .map(|(i, c)| {
+            let mut scaled = c.clone();
+            scaled *= BigRational::from_integer(BigInt::from(i as i64));
+            scaled
+        })
+        .collect()
+}
+
+/// Exact slope of a strictly-linear argument `a * var`, or `None`.
+///
+/// Mirrors the linearity classification in [`integral_term`]: the bare
+/// variable or a product of exactly one variable factor with exact numeric
+/// constants. A zero slope refuses so the antiderivative never silently
+/// divides by zero.
+fn linear_argument_slope(u: &Expr, var: &Symbol) -> Option<BigRational> {
+    let x = Expr::Sym(var.clone());
+    if u == &x {
+        return Some(BigRational::one());
+    }
+    let Expr::Mul(factors) = u else {
+        return None;
+    };
+    let mut var_count = 0usize;
+    let mut slope = BigRational::one();
+    for factor in factors {
+        if factor == &x {
+            var_count += 1;
+        } else {
+            let q = numeric_value(factor)?;
+            slope *= q;
+        }
+    }
+    if var_count == 1 && !slope.is_zero() {
+        Some(slope)
+    } else {
+        None
+    }
+}
+
+/// Antiderivative cycle of `g(a*x)` for the by-parts tableau: entry `m`
+/// holds the `(m+1)`-th antiderivative of `g`.
+fn antiderivative_cycle(name: &str, ax: &Expr) -> Option<Vec<Expr>> {
+    let applied = |n: &str| Expr::Function(n.to_string(), vec![ax.clone()]);
+    let negated = |e: Expr| Expr::Mul(vec![Expr::from_i64(-1), e]);
+    match name {
+        "exp" => Some(vec![applied("exp")]),
+        "sin" => Some(vec![
+            negated(applied("cos")),
+            negated(applied("sin")),
+            applied("cos"),
+            applied("sin"),
+        ]),
+        "cos" => Some(vec![
+            applied("sin"),
+            negated(applied("cos")),
+            negated(applied("sin")),
+            applied("cos"),
+        ]),
+        "sinh" => Some(vec![applied("cosh"), applied("sinh")]),
+        "cosh" => Some(vec![applied("sinh"), applied("cosh")]),
+        _ => None,
+    }
+}
+
+/// Canonical expression for an exact rational coefficient.
+fn coefficient_expr(q: &BigRational) -> Expr {
+    if q.is_integer() {
+        Expr::Integer(q.to_integer())
+    } else {
+        Expr::Rational(q.clone())
+    }
+}
+
+/// Ascending-coefficient polynomial expression in `var` (zero terms dropped).
+fn polynomial_expr(coeffs: &[BigRational], var: &Symbol) -> Expr {
+    let x = Expr::Sym(var.clone());
+    let mut terms: Vec<Expr> = Vec::new();
+    for (i, c) in coeffs.iter().enumerate() {
+        if c.is_zero() {
+            continue;
+        }
+        let power = match i {
+            0 => None,
+            1 => Some(x.clone()),
+            _ => Some(Expr::Pow(
+                Arc::new(x.clone()),
+                Arc::new(Expr::from_i64(i as i64)),
+            )),
+        };
+        match power {
+            None => terms.push(coefficient_expr(c)),
+            Some(p) => {
+                if *c == BigRational::one() {
+                    terms.push(p);
+                } else {
+                    terms.push(Expr::Mul(vec![coefficient_expr(c), p]));
+                }
+            }
+        }
+    }
+    match terms.len() {
+        0 => Expr::from_i64(0),
+        1 => terms.into_iter().next().expect("len checked"),
+        _ => Expr::Add(terms),
+    }
+}
+
+/// Integrates `p(var) * g(a*var)` by bounded tabular parts:
+/// `sum_k (-1)^k p^(k)(var) * G_{k+1}(a*var) / a^{k+1}` where `G` walks the
+/// antiderivative cycle of `g`. The sum is finite because the polynomial
+/// derivative chain terminates.
+///
+/// Returns `None` unless the factor list is exactly one bounded polynomial
+/// plus one linear-argument analytic factor; the caller keeps its typed
+/// refusal for every other shape.
+fn try_integrate_by_parts(var_parts: &[Expr], var: &Symbol) -> Option<Expr> {
+    const ANALYTIC_NAMES: [&str; 5] = ["exp", "sin", "cos", "sinh", "cosh"];
+    if var_parts.len() != 2 {
+        return None;
+    }
+    let classify = |part: &Expr| -> Option<bool> {
+        if let Expr::Function(name, args) = part {
+            if args.len() == 1 && ANALYTIC_NAMES.contains(&name.as_str()) {
+                // Analytic factors only participate with linear arguments.
+                return if linear_argument_slope(&args[0], var).is_some() {
+                    Some(true)
+                } else {
+                    None
+                };
+            }
+            return None;
+        }
+        if polynomial_coeffs(part, var).is_some() {
+            Some(false)
+        } else {
+            None
+        }
+    };
+    let (func_part, poly_part) = match (classify(&var_parts[0]), classify(&var_parts[1])) {
+        (Some(true), Some(false)) => (&var_parts[0], &var_parts[1]),
+        (Some(false), Some(true)) => (&var_parts[1], &var_parts[0]),
+        _ => return None,
+    };
+    let Expr::Function(name, args) = func_part else {
+        return None;
+    };
+    let a = linear_argument_slope(&args[0], var)?;
+    let p = polynomial_coeffs(poly_part, var)?;
+    if p.len() < 2 {
+        // Degree-zero factors are peeled as constants by `integrate`.
+        return None;
+    }
+    let x = Expr::Sym(var.clone());
+    let ax = simplify(&Expr::Mul(vec![coefficient_expr(&a), x]));
+    let cycle = antiderivative_cycle(name, &ax)?;
+    let mut terms: Vec<Expr> = Vec::new();
+    let mut derivative = p.clone();
+    let mut a_power = BigRational::one();
+    for k in 0..p.len() {
+        if derivative.iter().any(|c| !c.is_zero()) {
+            a_power *= a.clone();
+            let mut coeff = Expr::Rational(a_power.recip());
+            if k % 2 == 1 {
+                coeff = Expr::Mul(vec![Expr::from_i64(-1), coeff]);
+            }
+            let next_antiderivative = cycle[k % cycle.len()].clone();
+            terms.push(simplify(&Expr::Mul(vec![
+                coeff,
+                polynomial_expr(&derivative, var),
+                next_antiderivative,
+            ])));
+        }
+        derivative = derivative_coeffs(&derivative);
+    }
+    if terms.is_empty() {
+        return None;
+    }
+    Some(simplify(&Expr::Add(terms)))
+}
+
 /// Indefinite integral of `expr` with respect to `var` (no `+ C`).
 ///
 /// Handles sums, constant factors, and every case in
@@ -419,8 +699,12 @@ pub fn integrate(expr: &Expr, var: &Symbol) -> Result<Expr, CalculusError> {
                 return Ok(simplify(&(c * Expr::Sym(var.clone()))));
             }
             if var_parts.len() > 1 {
-                // Products of variable terms (x*sin(x), x*log(x), ...) have
-                // no rule yet: typed refusal instead of unbounded recursion.
+                // Bounded products of one exact polynomial and one
+                // linear-argument analytic factor integrate by parts;
+                // everything else stays a typed refusal.
+                if let Some(anti) = try_integrate_by_parts(&var_parts, var) {
+                    return Ok(simplify(&(c * anti)));
+                }
                 return Err(CalculusError::IntegrationFailed(format!(
                     "{}",
                     simplify(&Expr::Mul(var_parts))
@@ -814,17 +1098,102 @@ mod tests {
     }
 
     #[test]
-    fn test_integrate_typed_refusal_on_product() {
+    fn test_integrate_typed_refusal_on_unsupported_product() {
         let x = Symbol::new("x");
-        // x * sin(x) has no rule yet: typed refusal, never a guess.
+        // x * log(x) has no rule yet: typed refusal, never a guess.
         let e = Expr::Mul(vec![
             Expr::symbol("x"),
-            Expr::Function("sin".to_string(), vec![Expr::symbol("x")]),
+            Expr::Function("log".to_string(), vec![Expr::symbol("x")]),
         ]);
         assert!(matches!(
             integrate(&e, &x),
             Err(CalculusError::IntegrationFailed(_))
         ));
+    }
+
+    #[test]
+    fn integration_by_parts_roundtrips_polynomial_analytic_products() {
+        let x = Symbol::new("x");
+        let analytic = |name: &str, u: Expr| Expr::Function(name.to_string(), vec![u]);
+        let x_pow = |n: i64| Expr::Pow(Arc::new(Expr::symbol("x")), Arc::new(Expr::from_i64(n)));
+        let roundtrip = |integrand: &Expr| {
+            let anti = integrate(integrand, &x).expect("by-parts integral expected");
+            assert_eq!(simplify(&diff(&anti, &x)), simplify(integrand));
+        };
+
+        roundtrip(&Expr::Mul(vec![
+            Expr::symbol("x"),
+            analytic("sin", Expr::symbol("x")),
+        ]));
+        roundtrip(&Expr::Mul(vec![
+            x_pow(2),
+            analytic("exp", Expr::symbol("x")),
+        ]));
+        roundtrip(&Expr::Mul(vec![
+            Expr::from_i64(3),
+            x_pow(2),
+            analytic("exp", Expr::symbol("x")),
+        ]));
+        roundtrip(&Expr::Mul(vec![
+            Expr::symbol("x"),
+            analytic("cos", Expr::Mul(vec![Expr::from_i64(2), Expr::symbol("x")])),
+        ]));
+        roundtrip(&Expr::Mul(vec![
+            Expr::symbol("x"),
+            analytic("sinh", Expr::symbol("x")),
+        ]));
+        roundtrip(&Expr::Mul(vec![
+            x_pow(4),
+            analytic("sin", Expr::symbol("x")),
+        ]));
+
+        // Exact closed form for the canonical case: x*exp(x) -> exp(x)*(x-1).
+        let anti = integrate(
+            &Expr::Mul(vec![Expr::symbol("x"), analytic("exp", Expr::symbol("x"))]),
+            &x,
+        )
+        .unwrap();
+        let expected = Expr::Mul(vec![
+            analytic("exp", Expr::symbol("x")),
+            Expr::Add(vec![Expr::from_i64(-1), Expr::symbol("x")]),
+        ]);
+        assert_eq!(
+            fsym_simplify::expand(&anti),
+            fsym_simplify::expand(&expected)
+        );
+    }
+
+    #[test]
+    fn integration_by_parts_refusals_stay_typed() {
+        let x = Symbol::new("x");
+        let refused = |integrand: &Expr| {
+            assert!(matches!(
+                integrate(integrand, &x),
+                Err(CalculusError::IntegrationFailed(_))
+            ));
+        };
+        // Nonlinear analytic argument.
+        refused(&Expr::Mul(vec![
+            Expr::symbol("x"),
+            Expr::Function(
+                "sin".to_string(),
+                vec![Expr::Pow(
+                    Arc::new(Expr::symbol("x")),
+                    Arc::new(Expr::from_i64(2)),
+                )],
+            ),
+        ]));
+        // Two analytic factors.
+        refused(&Expr::Mul(vec![
+            Expr::symbol("x"),
+            Expr::Function("sin".to_string(), vec![Expr::symbol("x")]),
+            Expr::Function("exp".to_string(), vec![Expr::symbol("x")]),
+        ]));
+        // Polynomial degree above the bounded cap.
+        refused(&Expr::Mul(vec![
+            Expr::Pow(Arc::new(Expr::symbol("x")), Arc::new(Expr::from_i64(9))),
+            Expr::Function("sin".to_string(), vec![Expr::symbol("x")]),
+        ]));
     }
 
     #[test]

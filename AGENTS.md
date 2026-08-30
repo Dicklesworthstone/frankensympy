@@ -30,7 +30,7 @@ If implementation pressure conflicts with a constitutional rule, stop and surfac
 
 ## 2. Current repository reality
 
-The repository currently contains a skeleton workspace and a detailed public architecture/implementation package. It is **not** yet a working or certified SymPy replacement.
+The repository contains a substantial implementation workspace (Rust crates for exact arithmetic, terms, proofs, algebra, calculus, runtime, and conformance, plus a Python compatibility shell slice) alongside the architecture package. It is **not** yet a working or certified SymPy replacement: no profile is certified, no performance win is demonstrated, and `validated`/`certified` gates remain open.
 
 Agents must not claim that the repository currently has:
 

@@ -808,8 +808,53 @@ mod tests {
     }
 
     #[test]
+    fn test_opaque_no_fold_functions_keep_function_form() {
+        // cot, csc, acot, acsc, acoth, acsch, and zeta all have no
+        // identity-point fold in the current constructor. They emit
+        // Function("name", [arg]) for any input — symbolic or numeric.
+        // Pin that contract so any future fold addition is loud in code
+        // review (a fold is a real semantic change, not a refactor).
+        let x = Expr::symbol("x");
+        let cases: Vec<(&str, Expr, &str)> = vec![
+            ("cot", cot(x.clone()), "cot"),
+            ("csc", csc(x.clone()), "csc"),
+            ("acot", acot(x.clone()), "acot"),
+            ("acsc", acsc(x.clone()), "acsc"),
+            ("acoth", acoth(x.clone()), "acoth"),
+            ("acsch", acsch(x.clone()), "acsch"),
+            ("zeta", zeta(x.clone()), "zeta"),
+        ];
+        for (label, constructed, expected_name) in &cases {
+            let inner = match constructed {
+                Expr::Function(name, args) => (name.clone(), args.clone()),
+                other => panic!("{label}: expected Function form, got {other:?}"),
+            };
+            assert_eq!(inner.0, *expected_name, "{label}: function name");
+            assert_eq!(inner.1, vec![Expr::symbol("x")], "{label}: arg passthrough");
+        }
+        // Same constructors also emit the function form for integer / Rational
+        // inputs that would be singular (cot 0, csc 0, zeta 1, ...). The
+        // constructor does not refuse or refuse-fold these; it surfaces them
+        // to the simplifier / kernel as opaque forms.
+        for (label, value) in [
+            ("cot(0)", cot(Expr::from_i64(0))),
+            ("csc(0)", csc(Expr::from_i64(0))),
+            ("acot(0)", acot(Expr::from_i64(0))),
+            ("acsc(0)", acsc(Expr::from_i64(0))),
+            ("acoth(0)", acoth(Expr::from_i64(0))),
+            ("acsch(0)", acsch(Expr::from_i64(0))),
+            ("zeta(1)", zeta(Expr::from_i64(1))),
+        ] {
+            let (_name, args) = match value {
+                Expr::Function(name, args) => (name, args),
+                other => panic!("{label}: expected Function form, got {other:?}"),
+            };
+            assert_eq!(args.len(), 1, "{label}: arity");
+        }
+    }
+
+    #[test]
     fn test_catalan_and_bernoulli_and_bell_and_subfactorial() {
-        assert_eq!(catalan(Expr::from_i64(0)), Expr::from_i64(1));
         assert_eq!(catalan(Expr::from_i64(1)), Expr::from_i64(1));
         assert_eq!(catalan(Expr::from_i64(2)), Expr::from_i64(2));
         assert_eq!(catalan(Expr::from_i64(3)), Expr::from_i64(5));

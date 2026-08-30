@@ -362,28 +362,55 @@ fn simplify_at<M: BudgetMeter>(
                 return Ok(rational_expr(coeff));
             }
             let mut parts: Vec<Expr> = Vec::new();
-            if !coeff.is_one() {
-                parts.push(rational_expr(coeff));
-            }
-            rest.sort();
-            let mut iter = rest.into_iter().peekable();
-            while let Some(f) = iter.next() {
-                let mut count = 1usize;
-                while iter.peek() == Some(&f) {
-                    count += 1;
-                    iter.next();
-                }
-                if count == 1 {
-                    parts.push(f);
+
+            // Group factors by base: b^p1 * b^p2 -> b^(p1 + p2)
+            let mut base_powers: BTreeMap<Expr, Vec<Expr>> = BTreeMap::new();
+            for f in rest {
+                if let Expr::Pow(base, exp) = f {
+                    base_powers
+                        .entry((*base).clone())
+                        .or_default()
+                        .push((*exp).clone());
                 } else {
-                    let folded = Expr::Pow(Arc::new(f), Arc::new(Expr::from_i64(count as i64)));
-                    parts.push(simplify_at(&folded, depth + 1, m, folds)?);
+                    base_powers.entry(f).or_default().push(Expr::from_i64(1));
                 }
             }
-            if parts.len() == 1 {
-                Ok(parts.pop().expect("len checked"))
+
+            for (base, powers) in base_powers {
+                let total_exp = if powers.len() == 1 {
+                    powers[0].clone()
+                } else {
+                    let sum = collect_terms(powers);
+                    simplify_at(&sum, depth + 1, m, folds)?
+                };
+
+                if total_exp.is_zero() {
+                    // base^0 = 1
+                    continue;
+                } else if total_exp.is_one() {
+                    parts.push(base);
+                } else {
+                    let folded = Expr::Pow(Arc::new(base), Arc::new(total_exp));
+                    let simplified_pow = simplify_at(&folded, depth + 1, m, folds)?;
+                    if !simplified_pow.is_one() {
+                        parts.push(simplified_pow);
+                    }
+                }
+            }
+
+            parts.sort();
+            let mut final_parts: Vec<Expr> = Vec::with_capacity(parts.len() + 1);
+            if !coeff.is_one() {
+                final_parts.push(rational_expr(coeff));
+            }
+            final_parts.extend(parts);
+
+            if final_parts.is_empty() {
+                Ok(Expr::from_i64(1))
+            } else if final_parts.len() == 1 {
+                Ok(final_parts.pop().expect("len checked"))
             } else {
-                Ok(Expr::Mul(parts))
+                Ok(Expr::Mul(final_parts))
             }
         }
         Expr::Pow(base, exp) => {

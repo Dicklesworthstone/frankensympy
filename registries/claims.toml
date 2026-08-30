@@ -94,102 +94,107 @@ evidence_artifacts = ["UNSET"]
 id = "SEMANTIC-001"
 kind = "semantic"
 statement = "Native semantic terms have deterministic content identity independent of Python hashes, process-local handles, persistence rows, and task scheduling."
-status = "planned"
 present_tense_allowed = false
+status = "implemented_uncertified"
 minimum_evidence = "validated"
 workstreams = ["WS02", "WS03", "WS04"]
 gate = "gate://deterministic-term-identity"
-evidence_artifacts = ["UNSET"]
-
+evidence_artifacts = ["crates/fsym-core/src/dag.rs", "crates/fsym-id/src/lib.rs", "artifacts/audit/ws04_dag_claims_fresh_eyes_audit_FINAL_SYNTHESIS.md"]
+notes = "implemented_uncertified 2026-08-29: content-addressed term interning with BLAKE3 preimages and 32-byte digest confirmation landed (WS04 audits); cross-architecture identity fixture gates remain open."
 [[claims]]
 id = "SEMANTIC-002"
 kind = "semantic"
 statement = "Surface objects, semantic terms, and derivation evidence are represented separately without silently erasing profile-visible form."
-status = "planned"
 present_tense_allowed = false
+status = "implemented_uncertified"
 minimum_evidence = "validated"
 workstreams = ["WS04", "WS05", "WS06"]
 gate = "gate://three-graph-vertical-slice"
-evidence_artifacts = ["UNSET"]
-
+evidence_artifacts = ["crates/fsym-core/src/dag.rs", "crates/fsym-proof-kernel/src/kernel.rs", "python/sympy/core/__init__.py"]
+notes = "implemented_uncertified 2026-08-29: surface shell, semantic TermDAG, and evidence/proof crates exist as separate layers; the three-graph vertical-slice gate has not yet been executed."
 [[claims]]
 id = "MATH-001"
 kind = "mathematical"
 statement = "Native accepted exact transformations expose kernel-checked proofs or claim-specific independently verified certificates."
-status = "planned"
 present_tense_allowed = false
+status = "implemented_uncertified"
 minimum_evidence = "kernel_proved_or_certificate_verified"
 workstreams = ["WS06", "WS07", "WS08", "WS09", "WS10", "WS12", "WS17", "WS18", "WS19"]
 gate = "gate://proof-producing-transformations"
-evidence_artifacts = ["UNSET"]
-notes = "This claim never implies that every API result has the same evidence class."
+evidence_artifacts = ["crates/fsym-proof-kernel/src/kernel.rs", "crates/fsym-evidence/src/lattice.rs", "crates/fsym-simplify/src/lib.rs"]
+notes = "This claim never implies that every API result has the same evidence class. implemented_uncertified 2026-08-29: kernel-checked proofs and evidence promotion lattice landed; per-family certificate gates remain open."
 
 [[claims]]
 id = "MATH-002"
 kind = "mathematical"
 statement = "Requested polynomial factorization claims are independently certificate-verified for the declared domain, normalization, multiplicity, and irreducibility level."
-status = "planned"
+status = "implemented_uncertified"
 present_tense_allowed = false
 minimum_evidence = "certificate_verified"
 workstreams = ["WS06", "WS08", "WS09"]
 gate = "gate://ws09-factorization"
-evidence_artifacts = ["UNSET"]
+evidence_artifacts = ["crates/fsym-polys/src/factorization.rs", "crates/fsym-polys/src/gcd.rs", "crates/fsym-proof-kernel/src/kernel.rs"]
+notes = "implemented_uncertified 2026-08-29: square-free/product factorization with Bezout certificates landed; full irreducibility/multiplicity certificate and mutation gates remain open."
 
 [[claims]]
 id = "MATH-003"
 kind = "mathematical"
 statement = "Certified numeric results use directed-rounding enclosures with claim-specific verification."
-status = "planned"
+status = "implemented_uncertified"
 present_tense_allowed = false
 minimum_evidence = "certified_numeric"
 workstreams = ["WS03", "WS04", "WS06", "WS11"]
 gate = "gate://ws11-certified-numeric"
-evidence_artifacts = ["UNSET"]
+evidence_artifacts = ["crates/fsym-core/src/ball.rs"]
+notes = "implemented_uncertified 2026-08-29: RealBall interval substrate with bounded power/sqrt landed; directed-rounding enclosures and claim-specific verification gates remain open."
 
 [[claims]]
 id = "MATH-004"
 kind = "mathematical"
 statement = "Generated residual, Jacobian, and Hessian programs retain verified symbolic provenance and agree with exact or certified reference lanes."
-status = "planned"
+status = "implemented_uncertified"
 present_tense_allowed = false
 minimum_evidence = "kernel_proved_or_certificate_verified"
 workstreams = ["WS06", "WS07", "WS10", "WS11", "WS12"]
 gate = "gate://ws12-certified-jacobian"
-evidence_artifacts = ["UNSET"]
+evidence_artifacts = ["crates/fsym-matrices/src/lib.rs", "crates/fsym-calculus/src/compile.rs", "crates/fsym-calculus/src/proof.rs"]
+notes = "implemented_uncertified 2026-08-29: exact Jacobian, verified differentiation, and compiled residual systems landed; verified numeric-program consumption gates remain open."
 
 [[claims]]
 id = "RUNTIME-001"
 kind = "operational"
 statement = "Controlled FrankenSymPy work is region-owned, cancellation drains children, and no controlled orphan work survives return."
-status = "planned"
+status = "implemented_uncertified"
 present_tense_allowed = false
 minimum_evidence = "validated"
 workstreams = ["WS02", "WS13"]
 gate = "gate://no-orphan-work"
-evidence_artifacts = ["UNSET"]
+evidence_artifacts = ["crates/fsym-runtime/src/portfolio.rs", "crates/fsym-runtime/src/cx.rs"]
 notes = "Arbitrary non-cooperative Python or foreign callbacks are outside any universal cancellation-latency claim."
 
 [[claims]]
 id = "RUNTIME-002"
 kind = "operational"
 statement = "Speculative candidates cannot publish as accepted results or verified cache entries before independent verification."
-status = "planned"
+status = "implemented_uncertified"
 present_tense_allowed = false
 minimum_evidence = "validated"
 workstreams = ["WS06", "WS13", "WS15"]
 gate = "gate://two-phase-verified-publication"
-evidence_artifacts = ["UNSET"]
+evidence_artifacts = ["crates/fsym-evidence/src/lattice.rs", "crates/fsym-runtime/src/portfolio.rs"]
+notes = "implemented_uncertified 2026-08-29: claim-bound publication and the evidence promotion lattice landed; the two-phase publication gate bundle remains open."
 
 [[claims]]
 id = "RUNTIME-003"
 kind = "operational"
 statement = "Declared deterministic and replay modes reproduce their scoped semantic or byte-level terminal contracts."
-status = "planned"
+status = "implemented_uncertified"
 present_tense_allowed = false
 minimum_evidence = "validated"
 workstreams = ["WS02", "WS13", "WS14", "WS15"]
 gate = "gate://deterministic-replay"
-evidence_artifacts = ["UNSET"]
+evidence_artifacts = ["crates/fsym-runtime/src/replay.rs", "crates/fsym-runtime/src/checkpoint.rs"]
+notes = "implemented_uncertified 2026-08-29: replay recording and typed checkpoint integrity landed; scoped terminal-contract gates remain open."
 
 [[claims]]
 id = "DURABILITY-001"
@@ -285,24 +290,25 @@ notes = "Monitor output cannot certify or refute an individual mathematical clai
 id = "SECURITY-001"
 kind = "security"
 statement = "Ordinary native FrankenSymPy crates are memory-safe Rust and prohibit C/C++ CAS or arbitrary-precision FFI."
-status = "planned"
+status = "implemented_uncertified"
 present_tense_allowed = false
 minimum_evidence = "source_and_dependency_audit"
 workstreams = ["WS00", "WS02", "WS03", "WS23"]
 gate = "gate://memory-safe-native-core"
-evidence_artifacts = ["UNSET"]
+evidence_artifacts = ["Cargo.toml", "artifacts/audit/dependency_safety.json"]
 notes = "This claim does not cover CPython itself or arbitrary third-party Python/C extensions."
 
 [[claims]]
 id = "SECURITY-002"
 kind = "security"
 statement = "Native/protocol decoders preflight untrusted sizes and fail closed on unknown proof, identity, capability, and resource schemas."
-status = "planned"
+status = "implemented_uncertified"
 present_tense_allowed = false
 minimum_evidence = "fuzz_and_adversarial_validation"
 workstreams = ["WS02", "WS04", "WS06", "WS14", "WS15"]
 gate = "gate://bounded-decoders"
-evidence_artifacts = ["UNSET"]
+evidence_artifacts = ["crates/fsym-core/src/parser.rs", "crates/fsym-printing/src/bounded.rs"]
+notes = "implemented_uncertified 2026-08-29: bounded parser (size/depth preflight) and bounded printers landed; systematic fuzz and adversarial decoder gates remain open."
 
 [[claims]]
 id = "PLATFORM-001"

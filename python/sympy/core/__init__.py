@@ -7,6 +7,7 @@ missing: importing an unusable symbolic shell would make capability checks lie.
 
 from __future__ import annotations
 
+import math
 import struct
 import sys
 from typing import Any, Iterable
@@ -278,6 +279,74 @@ def _is_numeric_coeff(value: Any, rational: bool) -> bool:
     if type(value) is Integer or type(value) is Rational:
         return True
     return (not rational) and type(value) is Float
+
+
+def _combine_mul(factors: list["Expr"]) -> "Expr":
+    if not factors:
+        return Integer(1)
+    if len(factors) == 1:
+        return factors[0]
+    return Mul(*factors)
+
+
+def _combine_add(terms: list["Expr"]) -> "Expr":
+    if not terms:
+        return Integer(0)
+    if len(terms) == 1:
+        return terms[0]
+    return Add(*terms)
+
+
+def _raise_integer_power(base: "Expr", power: int) -> "Expr":
+    """Raise a split numerator/denominator. Fold ±1 and 0 so we don't emit 1**n."""
+    if power == 1:
+        return base
+    if type(base) is Integer:
+        value = base.p
+        if value == 0:
+            return Integer(0)
+        if value == 1:
+            return Integer(1)
+        if value == -1:
+            return Integer(-1 if power % 2 else 1)
+    return base**power
+
+
+def _unsigned_term(term: "Expr") -> tuple["Expr", int]:
+    """Peel a numeric leading minus. Returns (unsigned term, +1/-1)."""
+    coeff, rest = term.as_coeff_Mul(rational=False)
+    ratio = _exact_ratio(coeff)
+    if ratio is None:
+        return term, 1
+    numer, denom = ratio
+    if numer == 0:
+        return term, 1
+    if (numer < 0) == (denom < 0):
+        return term, 1
+    abs_numer, abs_denom = abs(numer), abs(denom)
+    if type(coeff) is Float:
+        positive: Expr = Float(abs(coeff._as_python_float()))
+    elif type(coeff) is Integer or abs_denom == 1:
+        positive = Integer(abs_numer)
+    else:
+        positive = Rational(abs_numer, abs_denom)
+    if rest == Integer(1):
+        return positive, -1
+    if positive == Integer(1):
+        return rest, -1
+    return positive * rest, -1
+
+
+def _add_sign_sort_key(expr: "Expr", flip: bool = False) -> tuple:
+    """Canonical Add key: unsigned term keys with sign last, matching x-y over y-x."""
+    keys = []
+    for term in expr.args:
+        unsigned, sign = _unsigned_term(term)
+        if flip:
+            sign = -sign
+        keys.append((unsigned.sort_key(), sign))
+    keys.sort()
+    return tuple(keys)
 
 
 def _exact_integer_argument(value: Any) -> int:
@@ -613,6 +682,79 @@ class Expr(Basic):
             base, exp = self.args
             return base, exp
         return self, Integer(1)
+
+    def as_numer_denom(self) -> tuple["Expr", "Expr"]:
+        """Split into ``(numerator, denominator)``. Conservative on mixed-denominator Adds."""
+        if isinstance(self, Rational):
+            return Integer(self.p), Integer(self.q)
+        if type(self) is Float:
+            return self, Integer(1)
+        if type(self) is Pow:
+            base, exp = self.args
+            ratio = _exact_ratio(exp)
+            if ratio is None or ratio[1] != 1:
+                return self, Integer(1)
+            numer, denom = base.as_numer_denom()
+            power = ratio[0]
+            if power < 0:
+                numer, denom = denom, numer
+                power = -power
+            if power == 0:
+                return Integer(1), Integer(1)
+            return _raise_integer_power(numer, power), _raise_integer_power(denom, power)
+        if type(self) is Mul:
+            numers: list[Expr] = []
+            denoms: list[Expr] = []
+            for arg in self.args:
+                numer, denom = arg.as_numer_denom()
+                numers.append(numer)
+                denoms.append(denom)
+            return _combine_mul(numers), _combine_mul(denoms)
+        if type(self) is Add:
+            parts = [arg.as_numer_denom() for arg in self.args]
+            denoms = [denom for _, denom in parts]
+            if denoms and all(d == denoms[0] for d in denoms[1:]):
+                return _combine_add([numer for numer, _ in parts]), denoms[0]
+            if denoms and all(type(denom) is Integer for denom in denoms):
+                lcm = math.lcm(*(abs(denom.p) for denom in denoms))
+                if lcm == 0:
+                    return self, Integer(1)
+                scaled: list[Expr] = []
+                for numer, denom in parts:
+                    scale = lcm // abs(denom.p)
+                    if denom.p < 0:
+                        scale = -scale
+                    if scale == 1:
+                        scaled.append(numer)
+                    else:
+                        scaled.append(numer * Integer(scale))
+                return _combine_add(scaled), Integer(lcm)
+            return self, Integer(1)
+        return self, Integer(1)
+
+    def could_extract_minus_sign(self) -> bool:
+        """True when a leading numeric factor is negative, or an Add is majority-negative."""
+        if type(self) is Integer or type(self) is Rational or type(self) is Float:
+            ratio = _exact_ratio(self)
+            if ratio is None:
+                return False
+            numer, denom = ratio
+            return (numer < 0) != (denom < 0)
+        if type(self) is Mul:
+            coeff, _rest = self.as_coeff_Mul(rational=False)
+            return coeff.could_extract_minus_sign()
+        if type(self) is Add:
+            args = self.args
+            if not args:
+                return False
+            negative_args = sum(1 for arg in args if arg.could_extract_minus_sign())
+            positive_args = len(args) - negative_args
+            if positive_args > negative_args:
+                return False
+            if positive_args < negative_args:
+                return True
+            return _add_sign_sort_key(self) < _add_sign_sort_key(self, flip=True)
+        return False
 
     def __lt__(self, other: Any) -> bool:
         return _native_expr(self) < _native_expr(other)

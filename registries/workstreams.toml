@@ -25,7 +25,7 @@ independent_gate_owner_required = true
 [[workstreams]]
 id = "WS01"
 title = "Conformance laboratory foundation"
-status = "planned"
+status = "in_progress"
 milestone = "M2"
 dependencies = ["WS00"]
 closure_gate = "gate://ws01-conformance-lab"
@@ -43,7 +43,7 @@ independent_gate_owner_required = true
 [[workstreams]]
 id = "WS03"
 title = "Exact arithmetic substrate"
-status = "planned"
+status = "in_progress"
 milestone = "M1"
 dependencies = ["WS02"]
 closure_gate = "gate://ws03-exact-arithmetic"
@@ -70,8 +70,8 @@ independent_gate_owner_required = true
 [[workstreams]]
 id = "WS06"
 title = "Proof kernel and evidence system"
-status = "planned"
 milestone = "M1"
+status = "in_progress"
 dependencies = ["WS02", "WS03", "WS04"]
 closure_gate = "gate://ws06-proof-kernel"
 independent_gate_owner_required = true
@@ -133,7 +133,7 @@ independent_gate_owner_required = true
 [[workstreams]]
 id = "WS13"
 title = "Structured portfolios, cancellation, and replay"
-status = "planned"
+status = "in_progress"
 milestone = "M3"
 dependencies = ["WS02", "WS04", "WS06"]
 closure_gate = "gate://ws13-portfolio-runtime"
