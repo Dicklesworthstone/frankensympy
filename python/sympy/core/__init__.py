@@ -87,9 +87,10 @@ def _exact_surface_types():
         Application,
         Function,
     ]
-    eq = globals().get("Eq")
-    if eq is not None:
-        types.append(eq)
+    for name in ("Relational", "Eq", "Ne", "Lt", "Le", "Gt", "Ge"):
+        cls = globals().get(name)
+        if cls is not None:
+            types.append(cls)
     return tuple(types)
 
 
@@ -180,6 +181,11 @@ def _wrap(value: Any) -> "Basic":
         "Pow": Pow,
         "Derivative": Derivative,
         "Eq": Eq,
+        "Ne": Ne,
+        "Lt": Lt,
+        "Le": Le,
+        "Gt": Gt,
+        "Ge": Ge,
         "Constant": Expr,
     }.get(value.func_name)
     if cls is None:
@@ -355,6 +361,21 @@ class Basic:
                 found.add(node)
         return found
 
+    def doit(self, **hints: Any) -> "Basic":
+        """Evaluate held constructors one layer. Derivative evaluates; relationals stay held."""
+        del hints
+        if type(self) is Derivative:
+            args = self.args
+            if len(args) < 2:
+                return self
+            return Derivative(args[0], *args[1:], evaluate=True)
+        if isinstance(self, Relational) or not self.args:
+            return self
+        new_args = tuple(arg.doit() if isinstance(arg, Basic) else arg for arg in self.args)
+        if new_args == self.args:
+            return self
+        return self.func(*new_args)
+
     def xreplace(self, rule: Any) -> "Basic":
         """Replace exact nodes. Unlike ``subs``, this does not rewrite algebraically."""
         if isinstance(rule, dict):
@@ -464,7 +485,7 @@ class Basic:
             return _restore_nary, (type(self), self.args)
         if isinstance(self, Pow):
             return _restore_pow, (type(self), *self.args)
-        if type(self) is Eq:
+        if isinstance(self, Relational):
             return type(self), self.args
         return type(self), (str(self),)
 
@@ -521,6 +542,12 @@ class Expr(Basic):
         if type(n) is not int or n < 1:
             raise TypeError("evalf dps must be a positive int")
         return Float(_native_expr(self).evalf(), n)
+
+    def as_ordered_terms(self) -> tuple["Expr", ...]:
+        """Addends in sort_key order. Non-Add expressions are a one-term tuple."""
+        if type(self) is Add:
+            return tuple(sorted(self.args, key=lambda term: term.sort_key()))
+        return (self,)
 
     def __lt__(self, other: Any) -> bool:
         return _native_expr(self) < _native_expr(other)
@@ -867,13 +894,14 @@ class ComplexInfinity(AtomicExpr):
 zoo = ComplexInfinity("zoo")
 
 
-class Eq(Expr):
-    """Held equality. This is a relational node, not a Boolean proof."""
+class Relational(Expr):
+    """Held comparison. Not a Boolean proof and not a mathematical order."""
 
     __slots__ = ()
+    rel_op = "=="
 
     def __init__(self, lhs: Any, rhs: Any):
-        self._value = _native.py_function("Eq", _native_expr(lhs), _native_expr(rhs))
+        self._value = _native.py_function(type(self).__name__, _native_expr(lhs), _native_expr(rhs))
 
     @property
     def lhs(self) -> Basic:
@@ -884,10 +912,34 @@ class Eq(Expr):
         return self.args[1]
 
     def __repr__(self) -> str:
-        return f"Eq({self.lhs!r}, {self.rhs!r})"
+        return f"{type(self).__name__}({self.lhs!r}, {self.rhs!r})"
 
     def __str__(self) -> str:
-        return f"Eq({self.lhs}, {self.rhs})"
+        return f"{type(self).__name__}({self.lhs}, {self.rhs})"
+
+
+class Eq(Relational):
+    rel_op = "=="
+
+
+class Ne(Relational):
+    rel_op = "!="
+
+
+class Lt(Relational):
+    rel_op = "<"
+
+
+class Le(Relational):
+    rel_op = "<="
+
+
+class Gt(Relational):
+    rel_op = ">"
+
+
+class Ge(Relational):
+    rel_op = ">="
 
 
 class _SingletonRegistry:
@@ -1186,7 +1238,13 @@ Number.__module__ = "sympy.core.numbers"
 Rational.__module__ = "sympy.core.numbers"
 Integer.__module__ = "sympy.core.numbers"
 Float.__module__ = "sympy.core.numbers"
+Relational.__module__ = "sympy.core.relational"
 Eq.__module__ = "sympy.core.relational"
+Ne.__module__ = "sympy.core.relational"
+Lt.__module__ = "sympy.core.relational"
+Le.__module__ = "sympy.core.relational"
+Gt.__module__ = "sympy.core.relational"
+Ge.__module__ = "sympy.core.relational"
 Add.__module__ = "sympy.core.add"
 Mul.__module__ = "sympy.core.mul"
 Pow.__module__ = "sympy.core.power"
@@ -1212,7 +1270,7 @@ for _mod_name, _mod_items in [
     ("sympy.core.expr", (Expr, AtomicExpr)),
     ("sympy.core.symbol", (Symbol, Dummy, symbols)),
     ("sympy.core.numbers", (Number, Rational, Integer, Float, ComplexInfinity, _restore_float)),
-    ("sympy.core.relational", (Eq,)),
+    ("sympy.core.relational", (Relational, Eq, Ne, Lt, Le, Gt, Ge)),
     ("sympy.core.add", (Add,)),
     ("sympy.core.mul", (Mul,)),
     ("sympy.core.power", (Pow,)),
@@ -1247,8 +1305,13 @@ __all__ = [
     "Float",
     "Function",
     "FunctionClass",
+    "Ge",
+    "Gt",
     "Integer",
+    "Le",
+    "Lt",
     "Mul",
+    "Ne",
     "N",
     "Number",
     "Pow",

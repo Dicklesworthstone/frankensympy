@@ -64,6 +64,22 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(restored.lhs, x)
         self.assertEqual(expr.atoms(sympy.Add), {expr})
 
+        unequal = sympy.Ne(x, y)
+        self.assertIs(type(unequal), sympy.Ne)
+        self.assertEqual(unequal.lhs, x)
+        self.assertEqual(sympy.Lt(x, 1).rel_op, "<")
+        self.assertEqual(sympy.Le(x, 1).rel_op, "<=")
+        self.assertEqual(sympy.Gt(x, 1).rel_op, ">")
+        self.assertEqual(sympy.Ge(x, 1).rel_op, ">=")
+        restored_ne = pickle.loads(pickle.dumps(unequal))  # ubs:ignore — trusted in-process bytes
+        self.assertIs(type(restored_ne), sympy.Ne)
+
+        held = sympy.Derivative(x**2, x, evaluate=False)
+        self.assertEqual(held.doit(), 2 * x)
+        terms = sympy.Add(y, x, sympy.Integer(1), evaluate=False).as_ordered_terms()
+        self.assertEqual(set(terms), {x, y, sympy.Integer(1)})
+        self.assertEqual(terms, tuple(sorted(terms, key=lambda term: term.sort_key())))
+
     def test_constants_are_native_constants_not_spoofed_symbols(self):
         for constant in (sympy.pi, sympy.E, sympy.I, sympy.oo, sympy.zoo, sympy.nan):
             self.assertIsInstance(constant, sympy.Expr)
