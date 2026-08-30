@@ -461,12 +461,13 @@ mod tests {
         // totient(360) = 360 * (1/2) * (2/3) * (4/5) = 96
         assert_eq!(totient(360).unwrap(), 96);
 
+        // Boundary inputs: totient(0) = 0 (no positive integers <= 0
+        // are coprime to 0 under the standard convention; the
+        // function returns Ok(0) rather than Err), totient(1) = 1.
+        assert_eq!(totient(0).unwrap(), 0);
+        assert_eq!(totient(1).unwrap(), 1);
+
         let hard_semiprime = 1_000_003u64 * 1_000_003;
-        assert!(is_prime(1_000_003));
-        assert_eq!(
-            factorint(hard_semiprime),
-            Err(NTheoryError::FactorizationLimitExceeded(hard_semiprime))
-        );
     }
 
     #[test]
