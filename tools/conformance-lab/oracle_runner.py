@@ -326,6 +326,69 @@ def observe_reconstruct(fixture: dict, profile_id: str) -> dict:
     }
 
 
+ASSUMPTION_QUERIES = (
+    "is_positive",
+    "is_negative",
+    "is_zero",
+    "is_real",
+    "is_rational",
+    "is_integer",
+    "is_commutative",
+    "is_number",
+)
+
+
+def _encode_assumption(value: object) -> object:
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    if value is None:
+        return "none"
+    return {
+        "error_class": "harness.non_tri_state",
+        "message_head": type(value).__module__ + "." + type(value).__name__,
+    }
+
+
+def _query_assumptions(obj) -> dict:
+    queries = {}
+    for name in ASSUMPTION_QUERIES:
+        try:
+            queries[name] = _encode_assumption(getattr(obj, name))
+        except Exception as exc:  # noqa: BLE001
+            queries[name] = {
+                "error_class": type(exc).__module__ + "." + type(exc).__name__,
+                "message_head": str(exc)[:200],
+            }
+    return queries
+
+
+def observe_assumptions(fixture: dict, profile_id: str) -> dict:
+    try:
+        obj = _construct(fixture)
+        outcome = "returned"
+    except Exception:  # noqa: BLE001
+        return {
+            "schema_version": 1,
+            "kind": "assumptions_observation",
+            "profile_id": profile_id,
+            "fixture_id": fixture["id"],
+            "side": "upstream_oracle",
+            "construction_outcome": "raised",
+            "queries": None,
+        }
+    return {
+        "schema_version": 1,
+        "kind": "assumptions_observation",
+        "profile_id": profile_id,
+        "fixture_id": fixture["id"],
+        "side": "upstream_oracle",
+        "construction_outcome": outcome,
+        "queries": _query_assumptions(obj),
+    }
+
+
 def observe_isinstance(fixture: dict, profile_id: str) -> dict:
     try:
         obj = _construct(fixture)
@@ -532,6 +595,7 @@ def main() -> int:
     reconstruct = False
     equality = False
     instancecheck = False
+    assumptions = False
     if args and args[-1] in {
         "--warnings",
         "--pickle-roundtrip",
@@ -539,6 +603,7 @@ def main() -> int:
         "--reconstruct",
         "--equality",
         "--isinstance",
+        "--assumptions",
     }:
         flag = args.pop()
         warnings_only = flag == "--warnings"
@@ -547,12 +612,21 @@ def main() -> int:
         reconstruct = flag == "--reconstruct"
         equality = flag == "--equality"
         instancecheck = flag == "--isinstance"
+        assumptions = flag == "--assumptions"
     if len(args) != 2:
         print(json.dumps({"error_class": "harness_misuse"}))
         return 2
     fixture_path, profile_id = args
     with open(fixture_path, encoding="utf-8") as fh:
         fixtures = json.load(fh)
+    if assumptions:
+        for fixture in fixtures:
+            sys.stdout.write(
+                json.dumps(observe_assumptions(fixture, profile_id), sort_keys=True)
+                + "\n"
+            )
+            sys.stdout.flush()
+        return 0
     if instancecheck:
         for fixture in fixtures:
             sys.stdout.write(

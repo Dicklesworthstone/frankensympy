@@ -474,6 +474,81 @@ def observe_equality_refused(fixture: dict, profile_id: str) -> dict:
     }
 
 
+ASSUMPTION_QUERIES = (
+    "is_positive",
+    "is_negative",
+    "is_zero",
+    "is_real",
+    "is_rational",
+    "is_integer",
+    "is_commutative",
+    "is_number",
+)
+
+
+def _encode_assumption(value: object) -> object:
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    if value is None:
+        return "none"
+    return {
+        "error_class": "harness.non_tri_state",
+        "message_head": type(value).__module__ + "." + type(value).__name__,
+    }
+
+
+def _query_assumptions(obj) -> dict:
+    queries = {}
+    for name in ASSUMPTION_QUERIES:
+        try:
+            queries[name] = _encode_assumption(getattr(obj, name))
+        except Exception as exc:  # noqa: BLE001
+            queries[name] = {
+                "error_class": type(exc).__module__ + "." + type(exc).__name__,
+                "message_head": str(exc)[:200],
+            }
+    return queries
+
+
+def observe_assumptions(fixture: dict, profile_id: str, sympy_mod) -> dict:
+    try:
+        obj = _construct(fixture, sympy_mod)
+        outcome = "returned"
+    except Exception:  # noqa: BLE001
+        return {
+            "schema_version": 1,
+            "kind": "assumptions_observation",
+            "profile_id": profile_id,
+            "fixture_id": fixture["id"],
+            "side": CANDIDATE_SIDE,
+            "construction_outcome": "raised",
+            "queries": None,
+        }
+    return {
+        "schema_version": 1,
+        "kind": "assumptions_observation",
+        "profile_id": profile_id,
+        "fixture_id": fixture["id"],
+        "side": CANDIDATE_SIDE,
+        "construction_outcome": outcome,
+        "queries": _query_assumptions(obj),
+    }
+
+
+def observe_assumptions_refused(fixture: dict, profile_id: str) -> dict:
+    return {
+        "schema_version": 1,
+        "kind": "assumptions_observation",
+        "profile_id": profile_id,
+        "fixture_id": fixture["id"],
+        "side": CANDIDATE_SIDE,
+        "construction_outcome": "refused",
+        "queries": None,
+    }
+
+
 def observe_isinstance(fixture: dict, profile_id: str, sympy_mod) -> dict:
     try:
         obj = _construct(fixture, sympy_mod)
@@ -771,6 +846,7 @@ def main() -> int:
     reconstruct = False
     equality = False
     instancecheck = False
+    assumptions = False
     while args and args[-1] in {
         "--broken",
         "--warnings",
@@ -779,6 +855,7 @@ def main() -> int:
         "--reconstruct",
         "--equality",
         "--isinstance",
+        "--assumptions",
     }:
         flag = args.pop()
         if flag == "--broken":
@@ -793,8 +870,10 @@ def main() -> int:
             reconstruct = True
         elif flag == "--equality":
             equality = True
-        else:
+        elif flag == "--isinstance":
             instancecheck = True
+        else:
+            assumptions = True
     if len(args) != 2:
         print(json.dumps({"error_class": "harness_misuse"}))
         return 2
@@ -813,7 +892,9 @@ def main() -> int:
     if error_kind == "isolation":
         return isolation_violation(error or "candidate sympy is not the FrankenSymPy shell")
     if sympy_mod is None:
-        if instancecheck:
+        if assumptions:
+            writer = observe_assumptions_refused
+        elif instancecheck:
             writer = observe_isinstance_refused
         elif equality:
             writer = observe_equality_refused
@@ -836,6 +917,17 @@ def main() -> int:
             sys.stdout.flush()
         return 0
 
+    if assumptions:
+        for fixture in fixtures:
+            sys.stdout.write(
+                json.dumps(
+                    observe_assumptions(fixture, profile_id, sympy_mod),
+                    sort_keys=True,
+                )
+                + "\n"
+            )
+            sys.stdout.flush()
+        return 0
     if instancecheck:
         for fixture in fixtures:
             sys.stdout.write(

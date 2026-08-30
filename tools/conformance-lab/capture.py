@@ -69,6 +69,9 @@ agreement, and object identity. Actual hash values stay on exact_surface.
 `isinstance` checks isinstance/issubclass against type(obj) and against the
 class imported from type(obj).__module__. It cannot certify.
 
+`assumptions` queries is_positive/is_integer/etc as true/false/none. Unknown
+must stay none. It cannot certify.
+
 Exit codes: 0 = success, 1 = gate failure, 2 = misuse.
 """
 
@@ -116,6 +119,11 @@ from isinstance_records import (
     diff_isinstance_records,
     make_isinstance_record,
     validate_isinstance_record,
+)
+from assumptions_records import (
+    diff_assumptions_records,
+    make_assumptions_record,
+    validate_assumptions_record,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -1481,6 +1489,139 @@ def cmd_isinstance(
     return 0
 
 
+def parse_assumptions_output(
+    stdout: str,
+    stderr: str,
+    expected_ids: list[str],
+    profile: dict,
+    *,
+    expected_side: str,
+    label: str,
+) -> list[dict]:
+    output_bytes = len(stdout.encode()) + len(stderr.encode())
+    if output_bytes > MAX_RUNNER_OUTPUT_BYTES:
+        raise ValueError(f"{label} assumptions output exceeds the harness limit")
+    if stderr.strip():
+        raise ValueError(
+            f"{label} assumptions probe emitted unexpected stderr: {stderr[-400:]}"
+        )
+    records = []
+    for line_number, line in enumerate(stdout.splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"{label} assumptions output line {line_number} is not JSON: {exc}"
+            ) from exc
+        expected_id = expected_ids[len(records)] if len(records) < len(expected_ids) else ""
+        validate_assumptions_record(
+            record, profile, expected_side=expected_side, expected_id=expected_id
+        )
+        records.append(record)
+    actual_ids = [record["fixture_id"] for record in records]
+    if actual_ids != expected_ids:
+        raise ValueError(
+            f"{label} assumptions sequence mismatch: "
+            f"expected={expected_ids!r} actual={actual_ids!r}"
+        )
+    return records
+
+
+def capture_assumptions_file(
+    profile: dict, fixture_path: Path, py: str, *, side: str
+) -> list[dict]:
+    expected_ids = load_fixture_ids(fixture_path)
+    if side == ORACLE_SIDE:
+        command = [
+            py,
+            "-P",
+            "-s",
+            str(runner_path()),
+            str(fixture_path),
+            profile["profile_id"],
+            "--assumptions",
+        ]
+        env = oracle_environment(profile)
+        label = "oracle-assumptions"
+    elif side == CANDIDATE_SIDE:
+        command = [
+            py,
+            "-P",
+            "-s",
+            str(candidate_runner_path()),
+            str(fixture_path),
+            profile["profile_id"],
+            "--assumptions",
+        ]
+        env = candidate_environment(profile)
+        label = "candidate-assumptions"
+    else:
+        raise ValueError(f"unknown assumptions observation side: {side!r}")
+    proc = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=120,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"{label} exited {proc.returncode} for {fixture_path.name}: "
+            f"{proc.stderr[-400:] or proc.stdout[-400:]}"
+        )
+    return parse_assumptions_output(
+        proc.stdout,
+        proc.stderr,
+        expected_ids,
+        profile,
+        expected_side=side,
+        label=label,
+    )
+
+
+def cmd_assumptions(
+    profile: dict, oracle_py: str, candidate_py: str, *, certify: bool = False
+) -> int:
+    if certify:
+        return fail("assumptions lane cannot certify; refuse --certify")
+    before = golden_digest_map(profile)
+    base = Path(__file__).resolve().parent
+    oracle_records: list[dict] = []
+    candidate_records: list[dict] = []
+    for rel in profile["inventory"]["fixtures"]:
+        fixture_path = base / rel
+        oracle_records.extend(
+            capture_assumptions_file(profile, fixture_path, oracle_py, side=ORACLE_SIDE)
+        )
+        candidate_records.extend(
+            capture_assumptions_file(
+                profile, fixture_path, candidate_py, side=CANDIDATE_SIDE
+            )
+        )
+    details = diff_assumptions_records(oracle_records, candidate_records)
+    if golden_digest_map(profile) != before:
+        return fail("assumptions lane mutated immutable goldens")
+    receipt = {
+        "lane": "assumptions",
+        "kind": "assumptions_observation",
+        "certifies": False,
+        "can_certify": False,
+        "claims_promoted": False,
+        "goldens_written": False,
+        "golden_bytes_unchanged": True,
+        "profile_id": profile["profile_id"],
+        "paired": min(len(oracle_records), len(candidate_records)),
+        "discrepancies": len(details),
+        "details": details,
+        "note": "three-valued assumptions queries cannot certify the immutable profile",
+    }
+    print(json.dumps(receipt, indent=2, sort_keys=True))
+    return 0
+
+
 def golden_name_for(fixture_rel: str) -> str:
     return fixture_rel.removeprefix("fixtures/").removesuffix(".json") + ".ndjson"
 
@@ -2087,6 +2228,34 @@ def cmd_self_test(profile: dict, py: str) -> int:
     isa_drift = diff_isinstance_records(isa_oracle, isa_miss)
     if not isa_drift or isa_drift[0]["kind"] != "isinstance_identity_drift":
         return fail("isinstance missed planted module-class identity miss")
+    assume_queries = {
+        "is_positive": "true",
+        "is_negative": "false",
+        "is_zero": "false",
+        "is_real": "true",
+        "is_rational": "true",
+        "is_integer": "true",
+        "is_commutative": "true",
+        "is_number": "true",
+    }
+    assume_oracle = [
+        make_assumptions_record(
+            profile_id=profile["profile_id"],
+            fixture_id="core/integer/42",
+            side=ORACLE_SIDE,
+            construction_outcome="returned",
+            queries=dict(assume_queries),
+        )
+    ]
+    assume_match = copy.deepcopy(assume_oracle)
+    assume_match[0]["side"] = CANDIDATE_SIDE
+    if diff_assumptions_records(assume_oracle, assume_match):
+        return fail("assumptions invented drift on matching tri-state queries")
+    assume_unknown = copy.deepcopy(assume_match)
+    assume_unknown[0]["queries"]["is_positive"] = "none"
+    assume_drift = diff_assumptions_records(assume_oracle, assume_unknown)
+    if not assume_drift or assume_drift[0]["kind"] != "assumptions_identity_drift":
+        return fail("assumptions missed planted true-vs-none is_positive")
     identity_drift = copy.deepcopy(drifted)
     identity_drift[0]["observations"]["type"] = "WrongType"
     if not compare_construction_only(golden_first, identity_drift):
@@ -2223,6 +2392,8 @@ def cmd_self_test(profile: dict, py: str) -> int:
                 "equality_detects_twin_inequality": True,
                 "isinstance_matching_module_class_does_not_invent_drift": True,
                 "isinstance_detects_module_class_miss": True,
+                "assumptions_matching_queries_do_not_invent_drift": True,
+                "assumptions_detects_true_vs_none": True,
                 "mutants_checked": checked_files,
                 "mutants_rejected": rejected,
                 "oracle_candidate_isolation": True,
@@ -2722,6 +2893,7 @@ def parse_cli(argv: list[str]) -> dict | int:
         "reconstruct",
         "equality",
         "isinstance",
+        "assumptions",
     }
     if mode not in known:
         print(f"unknown mode: {mode}", file=sys.stderr)
@@ -2902,6 +3074,16 @@ def main() -> int:
             if parsed["certify"]:
                 return fail("isinstance lane cannot certify; refuse --certify")
             return cmd_isinstance(
+                profile,
+                oracle_python(parsed["oracle_python"]),
+                candidate_python(parsed["candidate_python"]),
+            )
+        if mode == "assumptions":
+            if parsed["broken"]:
+                return fail("assumptions does not accept --broken")
+            if parsed["certify"]:
+                return fail("assumptions lane cannot certify; refuse --certify")
+            return cmd_assumptions(
                 profile,
                 oracle_python(parsed["oracle_python"]),
                 candidate_python(parsed["candidate_python"]),
