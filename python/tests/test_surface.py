@@ -80,6 +80,17 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(set(terms), {x, y, sympy.Integer(1)})
         self.assertEqual(terms, tuple(sorted(terms, key=lambda term: term.sort_key())))
 
+        coeff, rest = (2 * x * y).as_coeff_Mul()
+        self.assertEqual(coeff, sympy.Integer(2))
+        self.assertEqual(rest, x * y)
+        add_coeff, add_rest = (x + 3).as_coeff_Add()
+        self.assertEqual(add_coeff, sympy.Integer(3))
+        self.assertEqual(add_rest, x)
+        self.assertEqual((x**2).as_base_exp(), (x, sympy.Integer(2)))
+        self.assertEqual(x.as_base_exp(), (x, sympy.Integer(1)))
+        self.assertEqual(expr.find(sympy.Symbol), {x, y})
+        self.assertEqual(expr.find(x), {x})
+
     def test_constants_are_native_constants_not_spoofed_symbols(self):
         for constant in (sympy.pi, sympy.E, sympy.I, sympy.oo, sympy.zoo, sympy.nan):
             self.assertIsInstance(constant, sympy.Expr)

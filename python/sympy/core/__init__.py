@@ -274,6 +274,12 @@ def _exact_ratio(value: Any) -> tuple[int, int] | None:
     return None
 
 
+def _is_numeric_coeff(value: Any, rational: bool) -> bool:
+    if type(value) is Integer or type(value) is Rational:
+        return True
+    return (not rational) and type(value) is Float
+
+
 def _exact_integer_argument(value: Any) -> int:
     """Apply the pinned built-in conversions without invoking user hooks."""
     if type(value) is int:
@@ -375,6 +381,20 @@ class Basic:
         if new_args == self.args:
             return self
         return self.func(*new_args)
+
+    def find(self, query: Any) -> set["Basic"]:
+        """Collect nodes matching a type or an exact expression."""
+        found: set[Basic] = set()
+        stack: list[Basic] = [self]
+        while stack:
+            node = stack.pop()
+            if isinstance(query, type):
+                if isinstance(node, query):
+                    found.add(node)
+            elif node == query:
+                found.add(node)
+            stack.extend(arg for arg in node.args if isinstance(arg, Basic))
+        return found
 
     def xreplace(self, rule: Any) -> "Basic":
         """Replace exact nodes. Unlike ``subs``, this does not rewrite algebraically."""
@@ -548,6 +568,51 @@ class Expr(Basic):
         if type(self) is Add:
             return tuple(sorted(self.args, key=lambda term: term.sort_key()))
         return (self,)
+
+    def as_coeff_Mul(self, rational: bool = True) -> tuple["Expr", "Expr"]:
+        """Split a numeric multiplicative coefficient from the rest."""
+        if type(self) is Mul:
+            coeff: Expr = Integer(1)
+            rest: list[Expr] = []
+            for arg in self.args:
+                if _is_numeric_coeff(arg, rational):
+                    coeff = coeff * arg
+                else:
+                    rest.append(arg)
+            if not rest:
+                return coeff, Integer(1)
+            if len(rest) == 1:
+                return coeff, rest[0]
+            return coeff, Mul(*rest, evaluate=False)
+        if _is_numeric_coeff(self, rational):
+            return self, Integer(1)
+        return Integer(1), self
+
+    def as_coeff_Add(self, rational: bool = True) -> tuple["Expr", "Expr"]:
+        """Split a numeric additive coefficient from the rest."""
+        if type(self) is Add:
+            coeff: Expr = Integer(0)
+            rest: list[Expr] = []
+            for arg in self.args:
+                if _is_numeric_coeff(arg, rational):
+                    coeff = coeff + arg
+                else:
+                    rest.append(arg)
+            if not rest:
+                return coeff, Integer(0)
+            if len(rest) == 1:
+                return coeff, rest[0]
+            return coeff, Add(*rest, evaluate=False)
+        if _is_numeric_coeff(self, rational):
+            return self, Integer(0)
+        return Integer(0), self
+
+    def as_base_exp(self) -> tuple["Expr", "Expr"]:
+        """Split a power into ``(base, exp)``. Non-Pow expressions are ``(self, 1)``."""
+        if type(self) is Pow:
+            base, exp = self.args
+            return base, exp
+        return self, Integer(1)
 
     def __lt__(self, other: Any) -> bool:
         return _native_expr(self) < _native_expr(other)
