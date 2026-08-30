@@ -63,6 +63,9 @@ certify.
 `reconstruct` calls obj.func(*obj.args) and compares reconstructed type/module
 plus whether args_repr is preserved. It cannot certify.
 
+`equality` constructs each fixture twice and compares equal-to-twin, hash
+agreement, and object identity. Actual hash values stay on exact_surface.
+
 Exit codes: 0 = success, 1 = gate failure, 2 = misuse.
 """
 
@@ -100,6 +103,11 @@ from reconstruction_records import (
     diff_reconstruction_records,
     make_reconstruction_record,
     validate_reconstruction_record,
+)
+from equality_records import (
+    diff_equality_records,
+    make_equality_record,
+    validate_equality_record,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -1204,6 +1212,134 @@ def cmd_reconstruct(
     return 0
 
 
+def parse_equality_output(
+    stdout: str,
+    stderr: str,
+    expected_ids: list[str],
+    profile: dict,
+    *,
+    expected_side: str,
+    label: str,
+) -> list[dict]:
+    output_bytes = len(stdout.encode()) + len(stderr.encode())
+    if output_bytes > MAX_RUNNER_OUTPUT_BYTES:
+        raise ValueError(f"{label} equality output exceeds the harness limit")
+    if stderr.strip():
+        raise ValueError(f"{label} equality probe emitted unexpected stderr: {stderr[-400:]}")
+    records = []
+    for line_number, line in enumerate(stdout.splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"{label} equality output line {line_number} is not JSON: {exc}"
+            ) from exc
+        expected_id = expected_ids[len(records)] if len(records) < len(expected_ids) else ""
+        validate_equality_record(
+            record, profile, expected_side=expected_side, expected_id=expected_id
+        )
+        records.append(record)
+    actual_ids = [record["fixture_id"] for record in records]
+    if actual_ids != expected_ids:
+        raise ValueError(
+            f"{label} equality sequence mismatch: expected={expected_ids!r} actual={actual_ids!r}"
+        )
+    return records
+
+
+def capture_equality_file(
+    profile: dict, fixture_path: Path, py: str, *, side: str
+) -> list[dict]:
+    expected_ids = load_fixture_ids(fixture_path)
+    if side == ORACLE_SIDE:
+        command = [
+            py,
+            "-P",
+            "-s",
+            str(runner_path()),
+            str(fixture_path),
+            profile["profile_id"],
+            "--equality",
+        ]
+        env = oracle_environment(profile)
+        label = "oracle-equality"
+    elif side == CANDIDATE_SIDE:
+        command = [
+            py,
+            "-P",
+            "-s",
+            str(candidate_runner_path()),
+            str(fixture_path),
+            profile["profile_id"],
+            "--equality",
+        ]
+        env = candidate_environment(profile)
+        label = "candidate-equality"
+    else:
+        raise ValueError(f"unknown equality observation side: {side!r}")
+    proc = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=120,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"{label} exited {proc.returncode} for {fixture_path.name}: "
+            f"{proc.stderr[-400:] or proc.stdout[-400:]}"
+        )
+    return parse_equality_output(
+        proc.stdout,
+        proc.stderr,
+        expected_ids,
+        profile,
+        expected_side=side,
+        label=label,
+    )
+
+
+def cmd_equality(
+    profile: dict, oracle_py: str, candidate_py: str, *, certify: bool = False
+) -> int:
+    if certify:
+        return fail("equality lane cannot certify; refuse --certify")
+    before = golden_digest_map(profile)
+    base = Path(__file__).resolve().parent
+    oracle_records: list[dict] = []
+    candidate_records: list[dict] = []
+    for rel in profile["inventory"]["fixtures"]:
+        fixture_path = base / rel
+        oracle_records.extend(
+            capture_equality_file(profile, fixture_path, oracle_py, side=ORACLE_SIDE)
+        )
+        candidate_records.extend(
+            capture_equality_file(profile, fixture_path, candidate_py, side=CANDIDATE_SIDE)
+        )
+    details = diff_equality_records(oracle_records, candidate_records)
+    if golden_digest_map(profile) != before:
+        return fail("equality lane mutated immutable goldens")
+    receipt = {
+        "lane": "equality",
+        "kind": "equality_observation",
+        "certifies": False,
+        "can_certify": False,
+        "claims_promoted": False,
+        "goldens_written": False,
+        "golden_bytes_unchanged": True,
+        "profile_id": profile["profile_id"],
+        "paired": min(len(oracle_records), len(candidate_records)),
+        "discrepancies": len(details),
+        "details": details,
+        "note": "equality/hash twins cannot certify the immutable profile",
+    }
+    print(json.dumps(receipt, indent=2, sort_keys=True))
+    return 0
+
+
 def golden_name_for(fixture_rel: str) -> str:
     return fixture_rel.removeprefix("fixtures/").removesuffix(".json") + ".ndjson"
 
@@ -1762,6 +1898,29 @@ def cmd_self_test(profile: dict, py: str) -> int:
     recon_drift = diff_reconstruction_records(recon_oracle, recon_eval)
     if not recon_drift or recon_drift[0]["kind"] != "reconstruction_identity_drift":
         return fail("reconstruct missed planted args collapse")
+    eq_oracle = [
+        make_equality_record(
+            profile_id=profile["profile_id"],
+            fixture_id="core/integer/42",
+            side=ORACLE_SIDE,
+            construction_outcome="returned",
+            equal_to_twin=True,
+            hashes_agree=True,
+            is_same_object=True,
+            probe_error=None,
+        )
+    ]
+    eq_match = copy.deepcopy(eq_oracle)
+    eq_match[0]["side"] = CANDIDATE_SIDE
+    if diff_equality_records(eq_oracle, eq_match):
+        return fail("equality invented drift on matching twin identity")
+    eq_unequal = copy.deepcopy(eq_match)
+    eq_unequal[0]["equal_to_twin"] = False
+    eq_unequal[0]["hashes_agree"] = False
+    eq_unequal[0]["is_same_object"] = False
+    eq_drift = diff_equality_records(eq_oracle, eq_unequal)
+    if not eq_drift or eq_drift[0]["kind"] != "equality_identity_drift":
+        return fail("equality missed planted twin inequality")
     identity_drift = copy.deepcopy(drifted)
     identity_drift[0]["observations"]["type"] = "WrongType"
     if not compare_construction_only(golden_first, identity_drift):
@@ -1894,6 +2053,8 @@ def cmd_self_test(profile: dict, py: str) -> int:
                 "copy_roundtrip_detects_deepcopy_args_collapse": True,
                 "reconstruct_matching_does_not_invent_drift": True,
                 "reconstruct_detects_args_collapse": True,
+                "equality_matching_twins_do_not_invent_drift": True,
+                "equality_detects_twin_inequality": True,
                 "mutants_checked": checked_files,
                 "mutants_rejected": rejected,
                 "oracle_candidate_isolation": True,
@@ -2391,6 +2552,7 @@ def parse_cli(argv: list[str]) -> dict | int:
         "pickle-roundtrip",
         "copy-roundtrip",
         "reconstruct",
+        "equality",
     }
     if mode not in known:
         print(f"unknown mode: {mode}", file=sys.stderr)
@@ -2551,6 +2713,16 @@ def main() -> int:
             if parsed["certify"]:
                 return fail("reconstruct lane cannot certify; refuse --certify")
             return cmd_reconstruct(
+                profile,
+                oracle_python(parsed["oracle_python"]),
+                candidate_python(parsed["candidate_python"]),
+            )
+        if mode == "equality":
+            if parsed["broken"]:
+                return fail("equality does not accept --broken")
+            if parsed["certify"]:
+                return fail("equality lane cannot certify; refuse --certify")
+            return cmd_equality(
                 profile,
                 oracle_python(parsed["oracle_python"]),
                 candidate_python(parsed["candidate_python"]),

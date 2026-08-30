@@ -81,6 +81,8 @@ class RealCandidateTests(unittest.TestCase):
         ):
             self.assertIn(fixture_id, admitted)
         by_id = {row["fixture_id"]: row for row in summary["details"]}
+        self.assertNotIn("core/add/collapse_duplicates", by_id)
+        self.assertNotIn("core/mul/three_x_sq", by_id)
         zero = by_id["subclass/ConstitutiveLawZero_zero_collapse"]
         self.assertEqual(zero["kind"], "type_drift")
         self.assertIn("observations.type", zero["difference_paths"])

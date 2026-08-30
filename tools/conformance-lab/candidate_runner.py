@@ -404,6 +404,75 @@ def observe_reconstruct(fixture: dict, profile_id: str, sympy_mod) -> dict:
     }
 
 
+def observe_equality(fixture: dict, profile_id: str, sympy_mod) -> dict:
+    try:
+        first = _construct(fixture, sympy_mod)
+        outcome = "returned"
+    except Exception:  # noqa: BLE001
+        return {
+            "schema_version": 1,
+            "kind": "equality_observation",
+            "profile_id": profile_id,
+            "fixture_id": fixture["id"],
+            "side": CANDIDATE_SIDE,
+            "construction_outcome": "raised",
+            "equal_to_twin": None,
+            "hashes_agree": None,
+            "is_same_object": None,
+            "probe_error": None,
+        }
+    try:
+        second = _construct(fixture, sympy_mod)
+        equal = first == second
+        if type(equal) is not bool:
+            raise TypeError(
+                f"equality probe produced {type(equal).__module__}.{type(equal).__name__}"
+            )
+        return {
+            "schema_version": 1,
+            "kind": "equality_observation",
+            "profile_id": profile_id,
+            "fixture_id": fixture["id"],
+            "side": CANDIDATE_SIDE,
+            "construction_outcome": outcome,
+            "equal_to_twin": equal,
+            "hashes_agree": hash(first) == hash(second),
+            "is_same_object": first is second,
+            "probe_error": None,
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "schema_version": 1,
+            "kind": "equality_observation",
+            "profile_id": profile_id,
+            "fixture_id": fixture["id"],
+            "side": CANDIDATE_SIDE,
+            "construction_outcome": outcome,
+            "equal_to_twin": None,
+            "hashes_agree": None,
+            "is_same_object": None,
+            "probe_error": {
+                "error_class": type(exc).__module__ + "." + type(exc).__name__,
+                "message_head": str(exc)[:200],
+            },
+        }
+
+
+def observe_equality_refused(fixture: dict, profile_id: str) -> dict:
+    return {
+        "schema_version": 1,
+        "kind": "equality_observation",
+        "profile_id": profile_id,
+        "fixture_id": fixture["id"],
+        "side": CANDIDATE_SIDE,
+        "construction_outcome": "refused",
+        "equal_to_twin": None,
+        "hashes_agree": None,
+        "is_same_object": None,
+        "probe_error": None,
+    }
+
+
 def observe_reconstruct_refused(fixture: dict, profile_id: str) -> dict:
     return {
         "schema_version": 1,
@@ -620,12 +689,14 @@ def main() -> int:
     pickle_roundtrip = False
     copy_roundtrip = False
     reconstruct = False
+    equality = False
     while args and args[-1] in {
         "--broken",
         "--warnings",
         "--pickle-roundtrip",
         "--copy-roundtrip",
         "--reconstruct",
+        "--equality",
     }:
         flag = args.pop()
         if flag == "--broken":
@@ -636,8 +707,10 @@ def main() -> int:
             pickle_roundtrip = True
         elif flag == "--copy-roundtrip":
             copy_roundtrip = True
-        else:
+        elif flag == "--reconstruct":
             reconstruct = True
+        else:
+            equality = True
     if len(args) != 2:
         print(json.dumps({"error_class": "harness_misuse"}))
         return 2
@@ -656,7 +729,9 @@ def main() -> int:
     if error_kind == "isolation":
         return isolation_violation(error or "candidate sympy is not the FrankenSymPy shell")
     if sympy_mod is None:
-        if reconstruct:
+        if equality:
+            writer = observe_equality_refused
+        elif reconstruct:
             writer = observe_reconstruct_refused
         elif copy_roundtrip:
             writer = observe_copy_refused
@@ -675,6 +750,17 @@ def main() -> int:
             sys.stdout.flush()
         return 0
 
+    if equality:
+        for fixture in fixtures:
+            sys.stdout.write(
+                json.dumps(
+                    observe_equality(fixture, profile_id, sympy_mod),
+                    sort_keys=True,
+                )
+                + "\n"
+            )
+            sys.stdout.flush()
+        return 0
     if reconstruct:
         for fixture in fixtures:
             sys.stdout.write(
