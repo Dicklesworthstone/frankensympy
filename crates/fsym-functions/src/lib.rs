@@ -768,6 +768,46 @@ mod tests {
     }
 
     #[test]
+    fn test_fibonacci_lucas_and_harmonic() {
+        // The constructors fold specific integer inputs to the exact value
+        // (F_n, L_n, H_n) and return an opaque function form for non-integer
+        // inputs. Pin both the fold-to-value contract and the no-fold
+        // contract for symbolic inputs so any change is loud in code review.
+        // Fibonacci: F_0 = 0, F_1 = 1, F_n = F_{n-1} + F_{n-2}.
+        assert_eq!(fibonacci(Expr::from_i64(0)), Expr::from_i64(0));
+        assert_eq!(fibonacci(Expr::from_i64(1)), Expr::from_i64(1));
+        assert_eq!(fibonacci(Expr::from_i64(2)), Expr::from_i64(1));
+        assert_eq!(fibonacci(Expr::from_i64(3)), Expr::from_i64(2));
+        assert_eq!(fibonacci(Expr::from_i64(10)), Expr::from_i64(55));
+        // Lucas: L_0 = 2, L_1 = 1, L_n = L_{n-1} + L_{n-2}.
+        assert_eq!(lucas(Expr::from_i64(0)), Expr::from_i64(2));
+        assert_eq!(lucas(Expr::from_i64(1)), Expr::from_i64(1));
+        assert_eq!(lucas(Expr::from_i64(2)), Expr::from_i64(3));
+        assert_eq!(lucas(Expr::from_i64(3)), Expr::from_i64(4));
+        assert_eq!(lucas(Expr::from_i64(10)), Expr::from_i64(123));
+        // Harmonic: H_0 = 0, H_1 = 1, H_n = Σ_{k=1}^n 1/k.
+        assert_eq!(harmonic(Expr::from_i64(0)), Expr::from_i64(0));
+        assert_eq!(harmonic(Expr::from_i64(1)), Expr::from_i64(1));
+        assert_eq!(harmonic(Expr::from_i64(2)), Expr::rational(3, 2).unwrap());
+        assert_eq!(harmonic(Expr::from_i64(3)), Expr::rational(11, 6).unwrap());
+        assert_eq!(harmonic(Expr::from_i64(4)), Expr::rational(25, 12).unwrap());
+        // Symbolic inputs return the opaque function form (no fold).
+        let x = Expr::symbol("x");
+        assert_eq!(
+            fibonacci(x.clone()),
+            Expr::Function("fibonacci".to_string(), vec![x.clone()])
+        );
+        assert_eq!(
+            lucas(x.clone()),
+            Expr::Function("lucas".to_string(), vec![x.clone()])
+        );
+        assert_eq!(
+            harmonic(x.clone()),
+            Expr::Function("harmonic".to_string(), vec![x.clone()])
+        );
+    }
+
+    #[test]
     fn test_catalan_and_bernoulli_and_bell_and_subfactorial() {
         assert_eq!(catalan(Expr::from_i64(0)), Expr::from_i64(1));
         assert_eq!(catalan(Expr::from_i64(1)), Expr::from_i64(1));
