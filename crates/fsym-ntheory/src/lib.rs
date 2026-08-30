@@ -693,7 +693,6 @@ mod tests {
         // for n=0) does not silently change is_square_free(0)'s
         // refusal.
         assert_eq!(is_square_free(0), Err(NTheoryError::ZeroFactorization));
-
         // Perfect numbers: 6 (1+2+3=6), 28 (1+2+4+7+14=28), 496
         assert_eq!(is_perfect_number(0), Err(NTheoryError::ZeroFactorization));
         assert_eq!(is_perfect_number(6), Ok(true));
@@ -701,6 +700,11 @@ mod tests {
         assert_eq!(is_perfect_number(496), Ok(true));
         assert_eq!(is_perfect_number(12), Ok(false));
 
+        // is_perfect_number(1) = false: divisors of 1 are {1}, sum is
+        // 1, 2*1 = 2 ≠ 1, so 1 is not perfect. Pin this so a
+        // future change to the sum path or the comparison cannot
+        // silently start classifying 1 as perfect.
+        assert_eq!(is_perfect_number(1), Ok(false));
         // The largest u64 prime has a representable divisor sum p + 1, but
         // 2p does not fit u64. Perfect-number classification must remain a
         // total typed operation rather than panicking in debug builds.
