@@ -675,6 +675,7 @@ name = "fsym-functions"
 version = "0.1.0"
 dependencies = [
  "fsym-core",
+ "serde_json",
 ]
 
 [[package]]
@@ -2397,6 +2398,16 @@ checksum = "32e45ad4206f6d2479085147f02bc2ef834ac85886624a23575ae137c8aa8156"
 dependencies = [
  "libc",
  "rustix",
+]
+
+[[package]]
+name = "xtask"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "fsym-conformance",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
