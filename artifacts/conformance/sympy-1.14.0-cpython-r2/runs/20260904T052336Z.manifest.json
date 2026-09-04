@@ -1,0 +1,25 @@
+{
+  "captured_at_utc": "2026-09-04T05:23:36.743444+00:00",
+  "declared_upstream_commit": "16fa855354eb7bcabd3fe10993841e03b1382692",
+  "envelopes": 14,
+  "fixture_files": 3,
+  "golden_digests": {
+    "seed_core_atoms.ndjson": "c579634013b41eccc4c63ec35bcedfdf0fcaa0bf638033241fd1175227e56870",
+    "seed_function_subclass.ndjson": "3d4a6165d9c1c35e48810a398bdc8208178b8bb0a3db760e05b563682fdfa126",
+    "seed_held_forms.ndjson": "b2ac29f4b01566960cb98589ad18b60960cdac46338d9e27461434d6562399ef"
+  },
+  "golden_dir": "artifacts/conformance/sympy-1.14.0-cpython-r2/goldens",
+  "oracle_environment": {
+    "env": {
+      "PYTHONDONTWRITEBYTECODE": "1",
+      "PYTHONHASHSEED": "0"
+    },
+    "implementation": "CPython",
+    "platform": "Linux-7.0.0-30-generic-x86_64-with-glibc2.43",
+    "python": "3.14.4",
+    "sympy_path": "/home/ubuntu/.venvs/fsym-oracle-sympy-1.14.0/lib/python3.14/site-packages/sympy/__init__.py",
+    "sympy_version": "1.14.0"
+  },
+  "profile_id": "sympy-1.14.0-cpython-r2",
+  "raised_outcomes": 1
+}

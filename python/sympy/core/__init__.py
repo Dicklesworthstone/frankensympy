@@ -10,6 +10,7 @@ from __future__ import annotations
 import math
 import struct
 import sys
+from fractions import Fraction
 from typing import Any, Iterable
 
 _DUMMY_PREFIX = "__fsymDummy_"
@@ -84,6 +85,7 @@ def _exact_surface_types():
         Mul,
         Pow,
         Derivative,
+        Zero,
         AppliedUndef,
         Application,
         Function,
@@ -196,6 +198,8 @@ def _wrap(value: Any) -> "Basic":
         return obj
     obj = object.__new__(cls)
     obj._value = value
+    if cls is Integer and obj.p == 0:
+        return _ZERO
     return obj
 
 
@@ -251,9 +255,10 @@ def _maybe_python_float(value: Any) -> float | None:
     except (TypeError, ValueError, OverflowError):
         return None
 
-
 def _exact_ratio(value: Any) -> tuple[int, int] | None:
     """Canonical (p, q) for admitted numeric atoms. Non-finite floats are None."""
+    if type(value) is Zero:
+        return 0, 1
     if type(value) is bool:
         return (1 if value else 0), 1
     if type(value) is int:
@@ -337,16 +342,63 @@ def _unsigned_term(term: "Expr") -> tuple["Expr", int]:
     return positive * rest, -1
 
 
-def _add_sign_sort_key(expr: "Expr", flip: bool = False) -> tuple:
-    """Canonical Add key: unsigned term keys with sign last, matching x-y over y-x."""
-    keys = []
-    for term in expr.args:
-        unsigned, sign = _unsigned_term(term)
-        if flip:
-            sign = -sign
-        keys.append((unsigned.sort_key(), sign))
-    keys.sort()
-    return tuple(keys)
+def _add_tie_term_key(term: "Expr") -> tuple:
+    """Term key emulating the pinned SymPy 1.14 tie-break ordering.
+
+    Upstream resolves Add sign ties through sort_key() whose term order flows
+    through as_terms()/monomial-key: degree DESCENDING, then generator names
+    ascending, numeric coefficient (sign) last. Validated against the pinned
+    oracle on: x-1, 1-x, x-y, y-x, 3-sqrt(2), -3+sqrt(2), x-sqrt(2),
+    sqrt(2)-x, x-3, 3-x.
+    """
+    if isinstance(term, Number):
+        ratio = _exact_ratio(term)
+        coeff = Fraction(ratio[0], ratio[1]) if ratio else Fraction(0)
+        return (0, (), coeff)
+    if type(term) is Symbol or type(term) is Dummy:
+        return (1, (term.name,), Fraction(1))
+    if type(term) is Pow:
+        base, exp = term.as_base_exp()
+        base_degree, base_names, _ = _add_tie_term_key(base)
+        exp_ratio = _exact_ratio(exp) if isinstance(exp, Number) else None
+        degree = base_degree + (exp_ratio[0] // exp_ratio[1] if exp_ratio and exp_ratio[1] != 0 else 0)
+        return (degree, base_names + (str(exp),), Fraction(1))
+    if type(term) is Mul:
+        coeff = Fraction(1)
+        degree = 0
+        names: tuple[str, ...] = ()
+        for a in term.args:
+            if isinstance(a, Number):
+                r = _exact_ratio(a)
+                if r:
+                    coeff *= Fraction(r[0], r[1])
+            else:
+                d, nm, c = _add_tie_term_key(a)
+                degree += d
+                names += nm
+                coeff *= c
+        return (degree, names, coeff)
+    return (1, (str(term),), Fraction(1))
+
+def _add_tie_less(expr: "Expr") -> bool:
+    """bool(expr.sort_key() < (-expr).sort_key()) as the pinned oracle computes it."""
+    negated = Add(*(-arg for arg in expr.args))
+    self_keys = sorted((-k[0], k[1], k[2]) for k in (_add_tie_term_key(a) for a in expr.args))
+    neg_keys = sorted((-k[0], k[1], k[2]) for k in (_add_tie_term_key(a) for a in negated.args))
+    return self_keys < neg_keys
+
+
+def _number_is_extended_negative(n: "Expr") -> bool:
+    """SymPy 1.14 Number.is_extended_negative semantics for concrete numbers.
+
+    Rational keeps canonical q > 0, so p < 0 decides; Float follows binary64
+    comparison (so -0.0 is not negative, matching upstream).
+    """
+    if type(n) is Float:
+        return n._as_python_float() < 0.0
+    if isinstance(n, Rational):
+        return n.p < 0
+    return False
 
 
 def _exact_integer_argument(value: Any) -> int:
@@ -733,27 +785,37 @@ class Expr(Basic):
         return self, Integer(1)
 
     def could_extract_minus_sign(self) -> bool:
-        """True when a leading numeric factor is negative, or an Add is majority-negative."""
-        if type(self) is Integer or type(self) is Rational or type(self) is Float:
-            ratio = _exact_ratio(self)
-            if ratio is None:
-                return False
-            numer, denom = ratio
-            return (numer < 0) != (denom < 0)
+        """Profile-correct vs SymPy 1.14.0.
+
+        Mirrors sympy/core/numbers.py (Number -> extended negativity),
+        sympy/core/mul.py (leading Number factor, zoo self-negation guard), and
+        sympy/core/add.py:_could_extract_minus_sign (majority count with
+        sort_key tie-break against the negated form). Default False.
+        """
         if type(self) is Mul:
-            coeff, _rest = self.as_coeff_Mul(rational=False)
-            return coeff.could_extract_minus_sign()
-        if type(self) is Add:
-            args = self.args
-            if not args:
+            if self == (-self):
                 return False
-            negative_args = sum(1 for arg in args if arg.could_extract_minus_sign())
-            positive_args = len(args) - negative_args
+            # Upstream canonical Mul carries its Number coefficient in args[0];
+            # the native kernel may keep it in any slot, so fold all Number
+            # factors (product sign == coefficient sign, magnitude irrelevant).
+            saw_number = False
+            coefficient_negative = False
+            for a in self.args:
+                if isinstance(a, Number):
+                    saw_number = True
+                    if _number_is_extended_negative(a):
+                        coefficient_negative = not coefficient_negative
+            return saw_number and coefficient_negative
+        if type(self) is Add:
+            negative_args = sum(1 for i in self.args if i.could_extract_minus_sign())
+            positive_args = len(self.args) - negative_args
             if positive_args > negative_args:
                 return False
             if positive_args < negative_args:
                 return True
-            return _add_sign_sort_key(self) < _add_sign_sort_key(self, flip=True)
+            return _add_tie_less(self)
+        if isinstance(self, Number):
+            return _number_is_extended_negative(self)
         return False
 
     def __lt__(self, other: Any) -> bool:
@@ -945,6 +1007,33 @@ class Integer(Rational):
     def q(self) -> int:
         return 1
 
+
+
+class Zero(Integer):
+    """The singleton integer zero (SymPy 1.14: sympy.core.numbers.Zero).
+
+    Profile identity: type name ``Zero``, module ``sympy.core.numbers``,
+    ``is_Zero`` True, repr ``0``. Arithmetic results are not required to stay
+    in this class; the registry hands out this single instance.
+    """
+
+    __slots__ = ()
+    is_Zero = True
+
+    def __new__(cls):
+        obj = object.__new__(cls)
+        obj._value = _native.py_integer(0)
+        return obj
+
+    def __init__(self):
+        pass
+
+    def __reduce__(self):
+        return Zero, ()
+
+
+Zero.__module__ = "sympy.core.numbers"
+_ZERO = Zero()
 
 class Float(Number):
     """Profile-compatible binary64 float. Distinct from Rational and from RealBall."""
@@ -1149,12 +1238,13 @@ class Ge(Relational):
     rel_op = ">="
 
 
+
 class _SingletonRegistry:
     """Exact-atom registry. ``S(float)`` constructs compatibility ``Float``."""
 
     @property
-    def Zero(self) -> "Integer":
-        return Integer(0)
+    def Zero(self) -> "Zero":
+        return _ZERO
 
     @property
     def One(self) -> "Integer":
@@ -1211,6 +1301,8 @@ class _SingletonRegistry:
 S = _SingletonRegistry()
 
 
+
+
 class Add(Expr):
     __slots__ = ()
 
@@ -1225,6 +1317,11 @@ class Add(Expr):
 
     def __init__(self, *args: Any, evaluate: bool = True):
         pass
+
+    def __neg__(self) -> "Expr":
+        # Profile-correct vs SymPy 1.14.0 Add.__neg__: distribute over terms.
+        # -(x - 1) must canonicalize to (1, -x), never an unfolded Mul(-1, Add).
+        return Add(*(-arg for arg in self.args))
 
 
 class Mul(Expr):
@@ -1241,6 +1338,16 @@ class Mul(Expr):
 
     def __init__(self, *args: Any, evaluate: bool = True):
         pass
+
+    def __neg__(self) -> "Expr":
+        # Profile-correct vs SymPy 1.14.0 Mul.__neg__: flip the leading Number
+        # factor; a leading zoo self-negates (zoo == -zoo); otherwise prepend -1.
+        args = self.args
+        if args and args[0] is zoo:
+            return self
+        if args and isinstance(args[0], Number):
+            return Mul(-args[0], *args[1:])
+        return Mul(Integer(-1), *args)
 
 
 class Pow(Expr):

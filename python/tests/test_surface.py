@@ -604,6 +604,41 @@ class SurfaceTests(unittest.TestCase):
         self.assertIn("begin{matrix}", latex_str)
         self.assertIn("end{matrix}", latex_str)
 
+    def test_zero_singleton_identity_and_module(self):
+        z = sympy.S.Zero
+        self.assertIs(z, sympy.S.Zero)
+        self.assertEqual(type(z).__name__, "Zero")
+        self.assertEqual(type(z).__module__, "sympy.core.numbers")
+        self.assertTrue(type(z).is_Zero)
+        self.assertEqual(z, sympy.Integer(0))
+        self.assertEqual(z, 0)
+        self.assertEqual(hash(z), hash(0))
+        self.assertEqual(repr(z), "0")
+        self.assertEqual(str(z * 5), "0")
+
+    def test_custom_subclass_zero_collapse_matches_oracle(self):
+        # Mirrors tools/conformance-lab fixture subclass/ConstitutiveLawZero_zero_collapse:
+        # eval folds on literal-zero first arg and keeps the applied form otherwise.
+        x, k = sympy.Symbol("x"), sympy.Symbol("k")
+
+        def eval_(cls, *a):
+            if len(a) == 2 and a[0] == 0:
+                return sympy.S.Zero
+            return None
+
+        cls = type(
+            "ConstitutiveLawZeroPin",
+            (sympy.Function,),
+            {"eval": classmethod(eval_), "nargs": (2,)},
+        )
+        collapsed = cls(0, k)
+        self.assertEqual(type(collapsed).__name__, "Zero")
+        self.assertEqual(collapsed, 0)
+        applied = cls(x, k)
+        self.assertEqual(applied.func.__name__, "ConstitutiveLawZeroPin")
+        self.assertEqual(applied.args, (x, k))
+
+
 
 if __name__ == "__main__":
     unittest.main()
