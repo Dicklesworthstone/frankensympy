@@ -233,6 +233,14 @@ def _restore_pow(cls, base, exponent):
     return cls(base, exponent, evaluate=False)
 
 
+def _is_sympy_operand(value: Any) -> bool:
+    """True for objects that are themselves SymPy-surface values (shell
+    expressions, matrices, ...) — their reflected operators deserve a
+    NotImplemented round-trip instead of a hard TypeError (finding 4)."""
+    return isinstance(value, Basic) or hasattr(value, "_value") or hasattr(value, "_native")
+    return cls(base, exponent, evaluate=False)
+
+
 def _admitted_exact_int(value: Any) -> int | None:
     """Non-raising exact-integer probe for construction folds (returns None
     for anything that is not a shell Integer or a built-in int)."""
@@ -477,6 +485,12 @@ class Basic:
         else:
             self._value = _native_expr(src)
 
+    def __bool__(self) -> bool:
+        # SymPy 1.14.0: bool(expr) is False only when the expression is
+        # *definitely* zero; unknown (None) stays truthy (finding 5).
+        is_zero = getattr(self, "is_zero", None)
+        return is_zero is not True
+
     @property
     def args(self) -> tuple["Basic", ...]:
         return tuple(_wrap(arg) for arg in _native_expr(self).args)
@@ -624,7 +638,11 @@ class Basic:
         if ratio is not None:
             return (1, ratio, type(self).__name__)
         if type(self) is Float:
-            return (1, (str(self._as_python_float()),), "Float")
+            # Non-finite floats reach here (finite ones returned a ratio
+            # above). Use the numeric value itself in a 1-tuple so the key
+            # stays comparable with the finite (p, q) 2-tuples (finding 11:
+            # the old str-tuple crashed mixed sorts).
+            return (1, (self._as_python_float(),), "Float")
         args = self.args
         if not args:
             return (2, type(self).__name__, (str(self),))
@@ -860,30 +878,70 @@ class Expr(Basic):
         return _native_expr(self) >= _native_expr(other)
 
     def __add__(self, other: Any) -> "Expr":
-        return _wrap(_native_expr(self) + _native_expr(other))
+        try:
+            return _wrap(_native_expr(self) + _native_expr(other))
+        except TypeError:
+            if _is_sympy_operand(other):
+                return NotImplemented
+            raise
 
     def __radd__(self, other: Any) -> "Expr":
-        return _wrap(_native_expr(other) + _native_expr(self))
+        try:
+            return _wrap(_native_expr(other) + _native_expr(self))
+        except TypeError:
+            if _is_sympy_operand(other):
+                return NotImplemented
+            raise
 
     def __sub__(self, other: Any) -> "Expr":
-        return _wrap(_native_expr(self) - _native_expr(other))
+        try:
+            return _wrap(_native_expr(self) - _native_expr(other))
+        except TypeError:
+            if _is_sympy_operand(other):
+                return NotImplemented
+            raise
 
     def __rsub__(self, other: Any) -> "Expr":
-        return _wrap(_native_expr(other) - _native_expr(self))
+        try:
+            return _wrap(_native_expr(other) - _native_expr(self))
+        except TypeError:
+            if _is_sympy_operand(other):
+                return NotImplemented
+            raise
 
     def __mul__(self, other: Any) -> "Expr":
-        return _wrap(_native_expr(self) * _native_expr(other))
+        try:
+            return _wrap(_native_expr(self) * _native_expr(other))
+        except TypeError:
+            if _is_sympy_operand(other):
+                return NotImplemented
+            raise
 
     def __rmul__(self, other: Any) -> "Expr":
-        return _wrap(_native_expr(other) * _native_expr(self))
+        try:
+            return _wrap(_native_expr(other) * _native_expr(self))
+        except TypeError:
+            if _is_sympy_operand(other):
+                return NotImplemented
+            raise
 
     def __truediv__(self, other: Any) -> "Expr":
-        reciprocal = _native.py_pow(_native_expr(other), _native.py_integer(-1))
-        return _wrap(_native_expr(self) * reciprocal)
+        try:
+            reciprocal = _native.py_pow(_native_expr(other), _native.py_integer(-1))
+            return _wrap(_native_expr(self) * reciprocal)
+        except TypeError:
+            if _is_sympy_operand(other):
+                return NotImplemented
+            raise
 
     def __rtruediv__(self, other: Any) -> "Expr":
-        reciprocal = _native.py_pow(_native_expr(self), _native.py_integer(-1))
-        return _wrap(_native_expr(other) * reciprocal)
+        try:
+            reciprocal = _native.py_pow(_native_expr(self), _native.py_integer(-1))
+            return _wrap(_native_expr(other) * reciprocal)
+        except TypeError:
+            if _is_sympy_operand(other):
+                return NotImplemented
+            raise
 
     def __pow__(self, exponent: Any, modulo: Any = None) -> "Expr":
         if modulo is not None:
@@ -1055,6 +1113,20 @@ class Rational(Number):
             obj._value = _native.py_rational(num, den)
             return obj
         return object.__new__(cls)
+    @property
+    def p(self) -> int:
+        return self._value.exact_numerator()
+
+    @property
+    def q(self) -> int:
+        return self._value.exact_denominator()
+
+    def __float__(self) -> float:
+        # Truncating int division matches SymPy 1.14 float(Rational(-3, 2)).
+        return float(self.p) / float(self.q)
+
+    def __int__(self) -> int:
+        return int(float(self))
 
     def __init__(self, *args: Any, **kwargs: Any):
         # __new__ builds the native value (or routes to a promoted singleton);
@@ -1321,6 +1393,10 @@ class Float(Number):
 
     def __float__(self) -> float:
         return self._as_python_float()
+
+    def __int__(self) -> int:
+        # Truncates toward zero like SymPy 1.14; nan/inf raise via float().
+        return int(self._as_python_float())
 
     def __abs__(self) -> "Float":
         return Float(abs(self._as_python_float()), self._dps)
@@ -1646,18 +1722,30 @@ class Function(Application, metaclass=FunctionClass):
                 raise ValueError("Function name collides with native intern encoding")
             return UndefinedFunction(name)
 
-        # Classmethod eval hook
+        # Sympify raw Python values first (fresh-eyes finding 3): upstream
+        # sympifies every argument before dispatch, so user eval hooks and
+        # the native lane both see shell expressions, never raw ints/floats.
+        sympified = tuple(
+            a
+            if isinstance(a, Basic)
+            else _wrap(_native_expr(a))
+            if isinstance(a, (int, float, str))
+            else a
+            for a in args
+        )
+        evaluate = options.get("evaluate", True)
+
+        # Classmethod eval hook — skipped for evaluate=False (finding 8).
         eval_method = getattr(cls, "eval", None)
-        if eval_method is not None:
-            evaluated = eval_method(*args)
+        if eval_method is not None and evaluate:
+            evaluated = eval_method(*sympified)
             if evaluated is not None:
                 return _wrap(_native_expr(evaluated))
 
         obj = object.__new__(cls)
-        wrapped_args = tuple(_wrap(a) if not isinstance(a, Basic) else a for a in args)
-        obj._args = wrapped_args
+        obj._args = sympified
         name = cls.__name__
-        native_args = [_native_expr(arg) for arg in args]
+        native_args = [_native_expr(arg) for arg in sympified]
         obj._value = _native.py_function(name, *native_args)
         return obj
 
@@ -1775,10 +1863,93 @@ def pretty(expression: Any) -> str:
     return _native_expr(expression).pretty()
 
 
+def _machin_pi_scaled(digits: int) -> int:
+    """floor(pi * 10**(digits-1)) via Machin's formula in pure integer
+    arithmetic with 15 guard digits (bead
+    fra-fra-native-evalf-precision-honesty-ke8). Truncation (not rounding)
+    keeps every printed digit exact for the requested significant count.
+    """
+    guard = 15
+    scale = 10 ** (digits + guard)
+    def atan_inv(x: int) -> int:
+        total = 0
+        k = 0
+        term = scale // x
+        x2 = x * x
+        while term != 0:
+            total += term if k % 2 == 0 else -term
+            k += 1
+            term = scale // ((2 * k + 1) * x * x2 ** k)
+        return total
+    return (16 * atan_inv(5) - 4 * atan_inv(239)) // 10 ** guard
+
+
+_MAX_HONEST_DIGITS = 10_000
+_F64_HONEST_DIGITS = 15
+
+
+class _ExactDecimalFloat(Float):
+    """A Float carrying its exact decimal rendering (precision-honest N of
+    symbolic constants). Arithmetic re-enters the binary64 backend, so the
+    exact digits describe THIS value only — matching the documented
+    not-a-certified-enclosure contract."""
+
+    __slots__ = ("_decimal",)
+
+    def __init__(self, decimal: str, dps: int):
+        self._decimal = decimal
+        self._dps = dps
+        self._value = _float_intern(_ieee_bits(_admitted_python_float(float(decimal))))
+
+    def __str__(self) -> str:
+        return self._decimal
+
+    def __repr__(self) -> str:
+        return self._decimal
+
+    def _srepr(self) -> str:
+        return f"Float('{self._decimal}', precision={self._dps})"
+
+
 def N(expression: Any, n: int = 15) -> Basic:
-    """Evaluate to a compatibility Float. Not a certified enclosure."""
+    """Evaluate to a compatibility Float. Precision-honest (bead
+    fra-fra-native-evalf-precision-honesty-ke8): ``N(pi, d)`` computes the
+    true decimal digits via a Machin series for 1 <= d <= 10_000; every other
+    expression beyond the binary64-honest 15 significant digits raises
+    NotImplementedError naming the limit — an f64 is never extended with
+    unjustified digits. Not a certified enclosure."""
+    if isinstance(n, bool) or not isinstance(n, int):
+        raise TypeError(f"N precision must be an integer, got {type(n).__name__}")
+    if n < 1:
+        raise ValueError(f"N precision must be >= 1, got {n}")
+    is_pi = isinstance(expression, Expr) and str(expression) == "pi"
+    if is_pi:
+        if n > _MAX_HONEST_DIGITS:
+            raise NotImplementedError(
+                f"precision-honest N: pi is computed via a bounded Machin "
+                f"series supporting at most {_MAX_HONEST_DIGITS} significant "
+                f"digits; requested {n}"
+            )
+        if n == 1:
+            return Float(3.0, 1)
+        scaled = _machin_pi_scaled(n)
+        digits = str(scaled)
+        decimal = digits[0] + "." + digits[1:]
+        return _ExactDecimalFloat(decimal, n)
+    if isinstance(expression, Basic) and n > _F64_HONEST_DIGITS:
+        raise NotImplementedError(
+            f"precision-honest N: this shell evaluates through binary64 and "
+            f"is honest to at most {_F64_HONEST_DIGITS} significant digits; "
+            f"requested {n}. Refusing to emit unjustified digits."
+        )
     if isinstance(expression, Basic):
         return expression.evalf(n)
+    if n > _F64_HONEST_DIGITS:
+        raise NotImplementedError(
+            f"precision-honest N: this shell evaluates through binary64 and "
+            f"is honest to at most {_F64_HONEST_DIGITS} significant digits; "
+            f"requested {n}. Refusing to emit unjustified digits."
+        )
     return Float(_admitted_python_float(expression), n)
 
 

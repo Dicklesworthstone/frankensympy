@@ -46,6 +46,7 @@ from .core import (
     symbols,
 )
 from .printing import srepr
+from .core import zoo as _core_zoo
 
 __version__ = _native.version()
 
@@ -54,7 +55,7 @@ pi = Expr("pi")
 E = Expr("E")
 I = Expr("I")
 oo = Expr("oo")
-zoo = Expr("zoo")
+zoo = _core_zoo  # the ComplexInfinity singleton, not a plain Expr (finding 9)
 nan = Expr("nan")
 
 

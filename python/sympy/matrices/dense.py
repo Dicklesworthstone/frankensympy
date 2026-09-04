@@ -217,8 +217,20 @@ class Matrix(MatrixBase):
 
 DenseMatrix = Matrix
 MutableDenseMatrix = Matrix
-ImmutableMatrix = Matrix
-ImmutableDenseMatrix = Matrix
+
+
+class ImmutableDenseMatrix(Matrix):
+    """Hashable immutable dense matrix (SymPy 1.14 semantics, finding 13).
+
+    Upstream immutable matrices are hashable content-addressed values; the
+    mutable base stays unhashable exactly as in modern SymPy.
+    """
+
+    def __hash__(self):
+        return hash((self.shape, tuple(self._native.flat())))
+
+
+ImmutableMatrix = ImmutableDenseMatrix
 
 
 def eye(n):

@@ -21,6 +21,11 @@ def srepr(expr: Any) -> str:
         Symbol,
     )
 
+    # Dummy must be checked BEFORE the inherited Symbol._srepr hook, which
+    # would otherwise report it as a plain Symbol and break round-tripping
+    # (finding 10). Oracle format: Dummy('d', dummy_index=<n>).
+    if type(expr).__name__ == "Dummy":
+        return f"Dummy({expr.name!r}, dummy_index={expr.dummy_index})"
     if hasattr(expr, "_srepr"):
         return expr._srepr()
 

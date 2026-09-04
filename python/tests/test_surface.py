@@ -712,7 +712,49 @@ class SurfaceTests(unittest.TestCase):
         self.assertIsNone(nan.is_zero)
         self.assertIsNone(nan.is_integer)
 
+    def test_seam_pack_findings_are_closed(self):
+        # Gauntlet bead fra-fra-shell-seams-pack-c9g (fresh-eyes findings
+        # 3, 4, 5, 6, 8, 9, 10, 11; finding 12 verified fixed externally).
+        x = sympy.Symbol("x")
+        # 3 + 8: raw args sympified; eval hook sympified + honors evaluate.
+        self.assertEqual(str(sympy.Function("f")(3)), "f(3)")
+        log = []
+
+        class Traced(sympy.Function):
+            @classmethod
+            def eval(cls, *a):
+                log.append(a)
+                return None
+
+        traced = Traced(x, evaluate=False)
+        self.assertEqual(log, [])  # evaluate=False skips the hook
+        fired = Traced(3)
+        self.assertEqual(len(log), 1)
+        self.assertEqual(type(log[0][0]).__name__, "Integer")
+        self.assertEqual(str(fired), "Traced(3)")
+        # 4: reflected matrix ops via NotImplemented.
+        m = sympy.Matrix([[1, 2], [3, 4]])
+        self.assertEqual(2 * m, m * 2)
+        # 5: truthiness honors numeric zero.
+        self.assertFalse(bool(sympy.Integer(0)))
+        self.assertTrue(bool(sympy.Symbol("x")))
+        # 6: numeric conversions.
+        self.assertEqual(float(sympy.Rational(3, 2)), 1.5)
+        self.assertEqual(int(sympy.Rational(-3, 2)), -1)
+        self.assertEqual(float(sympy.Integer(2)), 2.0)
+        self.assertEqual(int(sympy.Float(2.5)), 2)
+        # 9: zoo is the ComplexInfinity singleton.
+        self.assertIs(sympy.zoo, sympy.S.ComplexInfinity)
+        self.assertEqual(type(sympy.zoo).__name__, "ComplexInfinity")
+        # 10: Dummy survives srepr.
+        self.assertIn("Dummy", sympy.srepr(sympy.Dummy("d")))
+        # 11: mixed finite/non-finite sorts do not crash.
+        ordered = sorted(
+            [sympy.Float(2.0), sympy.Float(float("inf"))],
+            key=lambda e: e.sort_key(),
+        )
+        self.assertEqual([str(v) for v in ordered], ["2", "inf"])
+
 
 if __name__ == "__main__":
     unittest.main()
-
