@@ -280,6 +280,16 @@ lab() {
     --test-path utilities/tests/test_source.py
   run "$PYTHON_BIN" "$ROOT/tools/conformance-lab/capture.py" moving-head "$profile"
   ok "conformance laboratory unit, isolation, self-test, oracle suite-smoke, and non-certifying moving-head passed"
+  # Corpus determinism + registered harness-mutant kills (fra-conformance-corpus-200-b75)
+  run python3 "$ROOT/tools/conformance-lab/generate_corpus.py"
+  sha_before="$(sha256sum "$ROOT/tools/conformance-lab/fixtures/generated_corpus_r2.json" | cut -d' ' -f1)"
+  run python3 "$ROOT/tools/conformance-lab/generate_corpus.py"
+  sha_after="$(sha256sum "$ROOT/tools/conformance-lab/fixtures/generated_corpus_r2.json" | cut -d' ' -f1)"
+  if [[ "$sha_before" != "$sha_after" ]]; then
+    fail "corpus generator is not deterministic (seeded run diverged)"
+  fi
+  ok "corpus generator deterministic (sha ${sha_before:0:12})"
+  run "$PYTHON_BIN" -m unittest discover -s "$ROOT/tools/conformance-lab" -p 'test_registered_mutants.py'
 }
 
 packaging_consistency() {
@@ -290,6 +300,13 @@ packaging_consistency() {
   run bash "$ROOT/scripts/build_python_extension.sh"
   run env -u FSYM_PYTHON_EXT_DIR PYTHONPATH="$ROOT/python" "$interpreter" -c "import sympy; x = sympy.Symbol('x'); print(sympy.diff(x**3, x))"
   ok "packaging consistency: fsym_python cdylib matches pyproject module-name and imports cleanly"
+}
+
+lab_corpus() {
+  # Differential corpus gate: exit 0 iff every observed drift is LEDGERED-open;
+  # any unledgered drift fails the gate. Ledger items close only with landed
+  # fixes (never comparator weakening).
+  run "$PYTHON_BIN" "$ROOT/tools/conformance-lab/corpus_gate.py"
 }
 fuzz_smoke() { unimplemented_release_profile fuzz-smoke; }
 matrix() { unimplemented_release_profile matrix; }
@@ -323,12 +340,11 @@ case "$PROFILE" in
   format) format ;;
   architecture) architecture ;;
   registries) registries ;;
-  metadata) metadata ;;
+  lab) lab ;;
+  lab-corpus) lab_corpus ;;
   audit) write_audits ;;
   unit) unit ;;
   conformance) conformance ;;
-  portable-verifiers) portable_verifiers ;;
-  lab) lab ;;
   packaging-consistency) packaging_consistency ;;
   bench-smoke) bench_smoke ;;
   fuzz-smoke) fuzz_smoke ;;
@@ -339,7 +355,7 @@ case "$PROFILE" in
   release-candidate) release_candidate ;;
   all) release_candidate ;;
   *)
-    printf 'usage: %s {source-clean|format|architecture|registries|metadata|audit|unit|conformance|portable-verifiers|bench-smoke|lab|packaging-consistency|fuzz-smoke|matrix|reproducibility|package|sign|release-candidate|all}\n' "$0" >&2
+    printf 'usage: %s {source-clean|format|architecture|registries|metadata|audit|unit|conformance|portable-verifiers|bench-smoke|lab|lab-corpus|packaging-consistency|fuzz-smoke|matrix|reproducibility|package|sign|release-candidate|all}\n' "$0" >&2
     exit 2
     ;;
 esac

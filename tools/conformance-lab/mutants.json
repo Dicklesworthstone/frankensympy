@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "description": "Registered weakening mutants of the conformance harness lane. Each mutant is a transformation a cheating agent could apply to a candidate observation envelope to disguise a mismatch. Every mutant MUST be killed: test_registered_mutants.py applies it to a real golden envelope pair and asserts the exact_surface comparator reports a discrepancy. Killing a mutant means the harness can detect that class of weakening.",
+  "mutants": [
+    {"id": "treat-expected-refusal-as-pass", "applies_to": "outcome envelope", "weakening": "flip construction_outcome 'raised' to 'returned'"},
+    {"id": "drop-type-drift-class", "applies_to": "observations", "weakening": "replace observed type name with the oracle's"},
+    {"id": "loosen-pickle-byte-compare", "applies_to": "pickle_dump envelope", "weakening": "alter recorded pickle bytes/protocol"},
+    {"id": "accept-oracle-version-mismatch", "applies_to": "environment fingerprint", "weakening": "replace sympy version string"},
+    {"id": "drop-warning-class", "applies_to": "warning_observation envelope", "weakening": "drop a recorded warning class"},
+    {"id": "swap-hash-value", "applies_to": "equality_observation envelope", "weakening": "alter recorded hash value"},
+    {"id": "shrink-args-tuple", "applies_to": "observations", "weakening": "drop an arg from args_repr/args"}
+  ]
+}

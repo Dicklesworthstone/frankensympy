@@ -1,0 +1,27 @@
+{
+  "captured_at_utc": "2026-09-04T05:47:44.434485+00:00",
+  "declared_upstream_commit": "16fa855354eb7bcabd3fe10993841e03b1382692",
+  "envelopes": 230,
+  "fixture_files": 5,
+  "golden_digests": {
+    "adversarial_corpus_r2.ndjson": "a132d0a19ee8273a9dff8dc23b1c1437b31a40fad3cab75a662dacbb37d7ae01",
+    "generated_corpus_r2.ndjson": "1d153f3713b91adbd99f35ff6b857948a048aba7783a0b3b9d147fd848647d6e",
+    "seed_core_atoms.ndjson": "b65cec260a9d4162591405b8ad176f180eaa120ecd02dede2e7c0acc490020ec",
+    "seed_function_subclass.ndjson": "bde2147bd2f87f0dea8bf8c49f0e80ea9a0e93e3bf4b3699856c29da38c2b1a4",
+    "seed_held_forms.ndjson": "b71e022ca110bf304f285316f980b587636207267297497f9ce237657c8d4822"
+  },
+  "golden_dir": "artifacts/conformance/sympy-1.14.0-cpython-r2-corpus/goldens",
+  "oracle_environment": {
+    "env": {
+      "PYTHONDONTWRITEBYTECODE": "1",
+      "PYTHONHASHSEED": "0"
+    },
+    "implementation": "CPython",
+    "platform": "Linux-7.0.0-30-generic-x86_64-with-glibc2.43",
+    "python": "3.14.4",
+    "sympy_path": "/home/ubuntu/.venvs/fsym-oracle-sympy-1.14.0/lib/python3.14/site-packages/sympy/__init__.py",
+    "sympy_version": "1.14.0"
+  },
+  "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+  "raised_outcomes": 39
+}

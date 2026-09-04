@@ -346,7 +346,9 @@ for c in payload["cases"]:
         print(json.dumps({
             "kind": "case",
             "id": c["id"],
+            "lane": "rust_native",
             "verdict": verdict,
+            "comparator": "native_math_exact",
             "expected": expected,
             "detail": detail,
         }), flush=True)
@@ -354,7 +356,9 @@ for c in payload["cases"]:
         print(json.dumps({
             "kind": "case",
             "id": c["id"],
+            "lane": "rust_native",
             "verdict": "oracle_error",
+            "comparator": "native_math_exact",
             "expected": None,
             "detail": f"{type(exc).__name__}: {exc}",
         }), flush=True)
@@ -1298,5 +1302,61 @@ mod tests {
         assert_eq!(round.var, spec.var);
         assert_eq!(round.op, spec.op);
         assert_eq!(round.expected_refusal, spec.expected_refusal);
+    }
+}
+
+#[cfg(test)]
+mod verdict_schema_alignment {
+    use crate::ORACLE_SCRIPT;
+    /// The emitted oracle-script verdict records must carry every required
+    /// field of the SHARED verdict schema (tools/conformance-lab/schema/
+    /// verdict.schema.json) so drift counts are comparable across lanes
+    /// (fra-conformance-corpus-200-b75; Art. XXII documentation law).
+    const SCHEMA: &str = include_str!("../../../tools/conformance-lab/schema/verdict.schema.json");
+
+    #[test]
+    fn oracle_script_emits_shared_schema_required_fields() {
+        let schema: serde_json::Value = serde_json::from_str(SCHEMA)
+            .expect("shared verdict schema must be valid JSON");
+        let required = schema["required"]
+            .as_array()
+            .expect("schema.required must be an array")
+            .iter()
+            .map(|v| v.as_str().expect("required entries are strings"))
+            .collect::<Vec<_>>();
+        assert!(required.contains(&"lane"));
+        assert!(required.contains(&"comparator"));
+        assert!(required.contains(&"verdict"));
+        for field in &required {
+            let needle = format!("\"{field}\":");
+            assert!(
+                ORACLE_SCRIPT.contains(&needle),
+                "ORACLE_SCRIPT verdict records miss shared-schema field {field}"
+            );
+        }
+        let lane = schema["properties"]["lane"]["enum"]
+            .as_array()
+            .expect("lane enum")
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert!(lane.contains(&"rust_native"), "schema must know the rust_native lane");
+    }
+
+    #[test]
+    fn emitted_verdict_values_are_in_shared_vocabulary() {
+        let schema: serde_json::Value = serde_json::from_str(SCHEMA).unwrap();
+        let allowed: Vec<&str> = schema["properties"]["verdict"]["enum"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        for emitted in ["pass", "mismatch", "oracle_error", "expectation_only"] {
+            assert!(
+                allowed.contains(&emitted),
+                "emitted verdict {emitted} missing from shared verdict vocabulary"
+            );
+        }
     }
 }

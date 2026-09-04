@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FrankenSymPy shared conformance verdict record",
+  "description": "One NDJSON verdict record from EITHER differential lane: the Python conformance laboratory (tools/conformance-lab, lane 'python_lab') or the Rust native-math corpus (crates/fsym-conformance, lane 'rust_native'). One shared verdict vocabulary and field space so drift counts are comparable across lanes (fra-conformance-corpus-200-b75). Producers must emit exactly these fields; consumers reject unknown fields (fail closed).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "id", "lane", "verdict", "comparator", "detail"],
+  "properties": {
+    "kind": {"const": "case"},
+    "id": {
+      "type": "string",
+      "description": "Fixture or case id within the lane's corpus."
+    },
+    "lane": {
+      "enum": ["python_lab", "rust_native"],
+      "description": "Which differential lane produced the record."
+    },
+    "verdict": {
+      "enum": ["pass", "mismatch", "expected_refusal", "oracle_error", "expectation_only"],
+      "description": "Shared verdict vocabulary. ExpectedRefusal is NEVER a pass; oracle failures are evidence, never a pass."
+    },
+    "comparator": {
+      "type": "string",
+      "description": "Registry id of the comparator that produced this verdict (e.g. exact_surface, construction_only, native_math_exact)."
+    },
+    "detail": {
+      "type": ["string", "null"],
+      "description": "Bounded diagnostic; null when the verdict needs no explanation."
+    },
+    "expected": {
+      "type": ["string", "null"],
+      "description": "rust_native lane only: the oracle's exact string answer for the case; null elsewhere."
+    }
+  }
+}

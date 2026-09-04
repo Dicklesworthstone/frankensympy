@@ -1,0 +1,1782 @@
+[
+ {
+  "args": [
+   0
+  ],
+  "id": "gen/int/0_0",
+  "kind": "integer"
+ },
+ {
+  "args": [
+   1
+  ],
+  "id": "gen/int/1_1",
+  "kind": "integer"
+ },
+ {
+  "args": [
+   -1
+  ],
+  "id": "gen/int/2_-1",
+  "kind": "integer"
+ },
+ {
+  "args": [
+   2
+  ],
+  "id": "gen/int/3_2",
+  "kind": "integer"
+ },
+ {
+  "args": [
+   -5
+  ],
+  "id": "gen/int/4_-5",
+  "kind": "integer"
+ },
+ {
+  "args": [
+   7
+  ],
+  "id": "gen/int/5_7",
+  "kind": "integer"
+ },
+ {
+  "args": [
+   42
+  ],
+  "id": "gen/int/6_42",
+  "kind": "integer"
+ },
+ {
+  "args": [
+   -100
+  ],
+  "id": "gen/int/7_-100",
+  "kind": "integer"
+ },
+ {
+  "args": [
+   2147483648
+  ],
+  "id": "gen/int/8_2147483648",
+  "kind": "integer"
+ },
+ {
+  "args": [
+   9007199254740993
+  ],
+  "id": "gen/int/9_9007199254740993",
+  "kind": "integer"
+ },
+ {
+  "args": [
+   10000000000000000000
+  ],
+  "id": "gen/int/10_10000000000000000000",
+  "kind": "integer"
+ },
+ {
+  "args": [
+   -1000000000000000000
+  ],
+  "id": "gen/int/11_-1000000000000000000",
+  "kind": "integer"
+ },
+ {
+  "args": [
+   123456789
+  ],
+  "id": "gen/int/12_123456789",
+  "kind": "integer"
+ },
+ {
+  "args": [
+   -7
+  ],
+  "id": "gen/int/13_-7",
+  "kind": "integer"
+ },
+ {
+  "args": [
+   6
+  ],
+  "id": "gen/int/14_6",
+  "kind": "integer"
+ },
+ {
+  "args": [
+   1,
+   2
+  ],
+  "id": "gen/rat/0_1_2",
+  "kind": "rational"
+ },
+ {
+  "args": [
+   -1,
+   2
+  ],
+  "id": "gen/rat/1_-1_2",
+  "kind": "rational"
+ },
+ {
+  "args": [
+   2,
+   4
+  ],
+  "id": "gen/rat/2_2_4",
+  "kind": "rational"
+ },
+ {
+  "args": [
+   22,
+   7
+  ],
+  "id": "gen/rat/3_22_7",
+  "kind": "rational"
+ },
+ {
+  "args": [
+   -22,
+   7
+  ],
+  "id": "gen/rat/4_-22_7",
+  "kind": "rational"
+ },
+ {
+  "args": [
+   0,
+   5
+  ],
+  "id": "gen/rat/5_0_5",
+  "kind": "rational"
+ },
+ {
+  "args": [
+   10,
+   4
+  ],
+  "id": "gen/rat/6_10_4",
+  "kind": "rational"
+ },
+ {
+  "args": [
+   7,
+   1
+  ],
+  "id": "gen/rat/7_7_1",
+  "kind": "rational"
+ },
+ {
+  "args": [
+   -7,
+   1
+  ],
+  "id": "gen/rat/8_-7_1",
+  "kind": "rational"
+ },
+ {
+  "args": [
+   355,
+   113
+  ],
+  "id": "gen/rat/9_355_113",
+  "kind": "rational"
+ },
+ {
+  "args": [
+   2,
+   3
+  ],
+  "id": "gen/rat/10_2_3",
+  "kind": "rational"
+ },
+ {
+  "args": [
+   100,
+   7
+  ],
+  "id": "gen/rat/11_100_7",
+  "kind": "rational"
+ },
+ {
+  "args": [
+   9,
+   8
+  ],
+  "id": "gen/rat/12_9_8",
+  "kind": "rational"
+ },
+ {
+  "args": [
+   6,
+   4
+  ],
+  "id": "gen/rat/13_6_4",
+  "kind": "rational"
+ },
+ {
+  "args": [
+   13,
+   11
+  ],
+  "id": "gen/rat/14_13_11",
+  "kind": "rational"
+ },
+ {
+  "args": [
+   {
+    "sym": "x"
+   }
+  ],
+  "id": "gen/sym/0_x",
+  "kind": "symbol"
+ },
+ {
+  "args": [
+   {
+    "sym": "y"
+   }
+  ],
+  "id": "gen/sym/1_y",
+  "kind": "symbol",
+  "kwargs": {
+   "positive": true
+  }
+ },
+ {
+  "args": [
+   {
+    "sym": "z"
+   }
+  ],
+  "id": "gen/sym/2_z",
+  "kind": "symbol",
+  "kwargs": {
+   "negative": true
+  }
+ },
+ {
+  "args": [
+   {
+    "sym": "w"
+   }
+  ],
+  "id": "gen/sym/3_w",
+  "kind": "symbol",
+  "kwargs": {
+   "real": true
+  }
+ },
+ {
+  "args": [
+   {
+    "sym": "p"
+   }
+  ],
+  "id": "gen/sym/4_p",
+  "kind": "symbol",
+  "kwargs": {
+   "integer": true
+  }
+ },
+ {
+  "args": [
+   {
+    "sym": "q"
+   }
+  ],
+  "id": "gen/sym/5_q",
+  "kind": "symbol",
+  "kwargs": {
+   "nonnegative": true
+  }
+ },
+ {
+  "args": [
+   {
+    "sym": "r"
+   }
+  ],
+  "id": "gen/sym/6_r",
+  "kind": "symbol",
+  "kwargs": {
+   "nonpositive": true
+  }
+ },
+ {
+  "args": [
+   {
+    "sym": "s"
+   }
+  ],
+  "id": "gen/sym/7_s",
+  "kind": "symbol",
+  "kwargs": {
+   "zero": true
+  }
+ },
+ {
+  "args": [
+   {
+    "sym": "t"
+   }
+  ],
+  "id": "gen/sym/8_t",
+  "kind": "symbol",
+  "kwargs": {
+   "nonzero": true
+  }
+ },
+ {
+  "args": [
+   {
+    "sym": "u"
+   }
+  ],
+  "id": "gen/sym/9_u",
+  "kind": "symbol",
+  "kwargs": {
+   "even": true
+  }
+ },
+ {
+  "args": [
+   -8,
+   {
+    "sym": "w"
+   }
+  ],
+  "id": "gen/arith/0_add",
+  "kind": "add"
+ },
+ {
+  "args": [
+   {
+    "sym": "w"
+   },
+   {
+    "sym": "w"
+   }
+  ],
+  "id": "gen/arith/1_mul",
+  "kind": "mul"
+ },
+ {
+  "args": [
+   {
+    "sym": "z"
+   },
+   2
+  ],
+  "id": "gen/arith/2_pow",
+  "kind": "pow"
+ },
+ {
+  "args": [
+   {
+    "sym": "z"
+   },
+   {
+    "sym": "y"
+   }
+  ],
+  "id": "gen/arith/3_add",
+  "kind": "add"
+ },
+ {
+  "args": [
+   0,
+   {
+    "sym": "z"
+   }
+  ],
+  "id": "gen/arith/4_mul",
+  "kind": "mul"
+ },
+ {
+  "args": [
+   {
+    "sym": "x"
+   },
+   5
+  ],
+  "id": "gen/arith/5_pow",
+  "kind": "pow"
+ },
+ {
+  "args": [
+   4,
+   {
+    "sym": "x"
+   }
+  ],
+  "id": "gen/arith/6_add",
+  "kind": "add"
+ },
+ {
+  "args": [
+   {
+    "sym": "y"
+   },
+   {
+    "sym": "w"
+   }
+  ],
+  "id": "gen/arith/7_mul",
+  "kind": "mul"
+ },
+ {
+  "args": [
+   {
+    "sym": "z"
+   },
+   2
+  ],
+  "id": "gen/arith/8_pow",
+  "kind": "pow"
+ },
+ {
+  "args": [
+   {
+    "sym": "x"
+   },
+   {
+    "sym": "w"
+   }
+  ],
+  "id": "gen/arith/9_add",
+  "kind": "add"
+ },
+ {
+  "args": [
+   -2,
+   {
+    "sym": "w"
+   }
+  ],
+  "id": "gen/arith/10_mul",
+  "kind": "mul"
+ },
+ {
+  "args": [
+   {
+    "sym": "z"
+   },
+   5
+  ],
+  "id": "gen/arith/11_pow",
+  "kind": "pow"
+ },
+ {
+  "args": [
+   -5,
+   {
+    "sym": "y"
+   }
+  ],
+  "id": "gen/arith/12_add",
+  "kind": "add"
+ },
+ {
+  "args": [
+   {
+    "sym": "w"
+   },
+   {
+    "sym": "x"
+   }
+  ],
+  "id": "gen/arith/13_mul",
+  "kind": "mul"
+ },
+ {
+  "args": [
+   {
+    "sym": "w"
+   },
+   2
+  ],
+  "id": "gen/arith/14_pow",
+  "kind": "pow"
+ },
+ {
+  "args": [
+   {
+    "sym": "z"
+   },
+   {
+    "sym": "x"
+   }
+  ],
+  "id": "gen/arith/15_add",
+  "kind": "add"
+ },
+ {
+  "args": [
+   5,
+   {
+    "sym": "y"
+   }
+  ],
+  "id": "gen/arith/16_mul",
+  "kind": "mul"
+ },
+ {
+  "args": [
+   {
+    "sym": "w"
+   },
+   2
+  ],
+  "id": "gen/arith/17_pow",
+  "kind": "pow"
+ },
+ {
+  "args": [
+   -3,
+   {
+    "sym": "z"
+   }
+  ],
+  "id": "gen/arith/18_add",
+  "kind": "add"
+ },
+ {
+  "args": [
+   {
+    "sym": "x"
+   },
+   {
+    "sym": "z"
+   }
+  ],
+  "id": "gen/arith/19_mul",
+  "kind": "mul"
+ },
+ {
+  "args": [
+   {
+    "sym": "y"
+   },
+   4
+  ],
+  "id": "gen/nest/0",
+  "kind": "mul"
+ },
+ {
+  "args": [
+   {
+    "sym": "x"
+   },
+   10
+  ],
+  "id": "gen/nest/1",
+  "kind": "mul"
+ },
+ {
+  "args": [
+   {
+    "sym": "z"
+   },
+   10
+  ],
+  "id": "gen/nest/2",
+  "kind": "add"
+ },
+ {
+  "args": [
+   {
+    "sym": "y"
+   },
+   10
+  ],
+  "id": "gen/nest/3",
+  "kind": "add"
+ },
+ {
+  "args": [
+   {
+    "sym": "z"
+   },
+   8
+  ],
+  "id": "gen/nest/4",
+  "kind": "mul"
+ },
+ {
+  "args": [
+   {
+    "sym": "z"
+   },
+   2
+  ],
+  "id": "gen/nest/5",
+  "kind": "mul"
+ },
+ {
+  "args": [
+   {
+    "sym": "x"
+   },
+   8
+  ],
+  "id": "gen/nest/6",
+  "kind": "add"
+ },
+ {
+  "args": [
+   {
+    "sym": "y"
+   },
+   4
+  ],
+  "id": "gen/nest/7",
+  "kind": "add"
+ },
+ {
+  "args": [
+   {
+    "sym": "z"
+   },
+   2
+  ],
+  "id": "gen/nest/8",
+  "kind": "mul"
+ },
+ {
+  "args": [
+   {
+    "sym": "z"
+   },
+   4
+  ],
+  "id": "gen/nest/9",
+  "kind": "mul"
+ },
+ {
+  "args": [
+   {
+    "sym": "w"
+   },
+   2
+  ],
+  "id": "gen/nest/10",
+  "kind": "add"
+ },
+ {
+  "args": [
+   {
+    "sym": "y"
+   },
+   4
+  ],
+  "id": "gen/nest/11",
+  "kind": "add"
+ },
+ {
+  "args": [
+   {
+    "sym": "x"
+   },
+   2
+  ],
+  "id": "gen/nest/12",
+  "kind": "mul"
+ },
+ {
+  "args": [
+   {
+    "sym": "y"
+   },
+   10
+  ],
+  "id": "gen/nest/13",
+  "kind": "mul"
+ },
+ {
+  "args": [
+   {
+    "sym": "w"
+   },
+   2
+  ],
+  "id": "gen/nest/14",
+  "kind": "add"
+ },
+ {
+  "args": [
+   {
+    "sym": "x"
+   },
+   2
+  ],
+  "id": "gen/nest/15",
+  "kind": "add"
+ },
+ {
+  "args": [
+   {
+    "sym": "y"
+   },
+   4
+  ],
+  "id": "gen/nest/16",
+  "kind": "mul"
+ },
+ {
+  "args": [
+   {
+    "sym": "w"
+   },
+   4
+  ],
+  "id": "gen/nest/17",
+  "kind": "mul"
+ },
+ {
+  "args": [
+   {
+    "sym": "x"
+   },
+   10
+  ],
+  "id": "gen/nest/18",
+  "kind": "add"
+ },
+ {
+  "args": [
+   {
+    "sym": "x"
+   },
+   6
+  ],
+  "id": "gen/nest/19",
+  "kind": "add"
+ },
+ {
+  "args": [
+   {
+    "sym": "x"
+   },
+   {
+    "sym": "x"
+   }
+  ],
+  "id": "gen/held/0_add_collapsible",
+  "kind": "held_add"
+ },
+ {
+  "args": [
+   {
+    "sym": "x"
+   },
+   {
+    "sym": "y"
+   },
+   -3
+  ],
+  "id": "gen/held/0_add_uneval",
+  "kind": "held_add"
+ },
+ {
+  "args": [
+   {
+    "sym": "x"
+   },
+   -3,
+   {
+    "sym": "y"
+   }
+  ],
+  "id": "gen/held/0_mul_uneval",
+  "kind": "held_mul"
+ },
+ {
+  "args": [
+   {
+    "sym": "z"
+   },
+   {
+    "sym": "z"
+   }
+  ],
+  "id": "gen/held/1_add_collapsible",
+  "kind": "held_add"
+ },
+ {
+  "args": [
+   {
+    "sym": "z"
+   },
+   {
+    "sym": "w"
+   },
+   -2
+  ],
+  "id": "gen/held/1_add_uneval",
+  "kind": "held_add"
+ },
+ {
+  "args": [
+   {
+    "sym": "z"
+   },
+   -2,
+   {
+    "sym": "w"
+   }
+  ],
+  "id": "gen/held/1_mul_uneval",
+  "kind": "held_mul"
+ },
+ {
+  "args": [
+   {
+    "sym": "w"
+   },
+   {
+    "sym": "w"
+   }
+  ],
+  "id": "gen/held/2_add_collapsible",
+  "kind": "held_add"
+ },
+ {
+  "args": [
+   {
+    "sym": "w"
+   },
+   {
+    "sym": "x"
+   },
+   -3
+  ],
+  "id": "gen/held/2_add_uneval",
+  "kind": "held_add"
+ },
+ {
+  "args": [
+   {
+    "sym": "w"
+   },
+   -3,
+   {
+    "sym": "x"
+   }
+  ],
+  "id": "gen/held/2_mul_uneval",
+  "kind": "held_mul"
+ },
+ {
+  "args": [
+   {
+    "sym": "y"
+   },
+   {
+    "sym": "y"
+   }
+  ],
+  "id": "gen/held/3_add_collapsible",
+  "kind": "held_add"
+ },
+ {
+  "args": [
+   {
+    "sym": "y"
+   },
+   {
+    "sym": "z"
+   },
+   1
+  ],
+  "id": "gen/held/3_add_uneval",
+  "kind": "held_add"
+ },
+ {
+  "args": [
+   {
+    "sym": "y"
+   },
+   1,
+   {
+    "sym": "z"
+   }
+  ],
+  "id": "gen/held/3_mul_uneval",
+  "kind": "held_mul"
+ },
+ {
+  "args": [
+   {
+    "sym": "y"
+   },
+   {
+    "sym": "y"
+   }
+  ],
+  "id": "gen/held/4_add_collapsible",
+  "kind": "held_add"
+ },
+ {
+  "args": [
+   {
+    "sym": "y"
+   },
+   {
+    "sym": "y"
+   },
+   -4
+  ],
+  "id": "gen/held/4_add_uneval",
+  "kind": "held_add"
+ },
+ {
+  "args": [
+   {
+    "sym": "y"
+   },
+   -4,
+   {
+    "sym": "y"
+   }
+  ],
+  "id": "gen/held/4_mul_uneval",
+  "kind": "held_mul"
+ },
+ {
+  "args": [
+   {
+    "sym": "y"
+   },
+   {
+    "sym": "y"
+   }
+  ],
+  "id": "gen/held/5_add_collapsible",
+  "kind": "held_add"
+ },
+ {
+  "args": [
+   {
+    "sym": "y"
+   },
+   {
+    "sym": "z"
+   },
+   4
+  ],
+  "id": "gen/held/5_add_uneval",
+  "kind": "held_add"
+ },
+ {
+  "args": [
+   {
+    "sym": "y"
+   },
+   4,
+   {
+    "sym": "z"
+   }
+  ],
+  "id": "gen/held/5_mul_uneval",
+  "kind": "held_mul"
+ },
+ {
+  "args": [
+   {
+    "sym": "x"
+   },
+   {
+    "sym": "x"
+   }
+  ],
+  "id": "gen/held/6_add_collapsible",
+  "kind": "held_add"
+ },
+ {
+  "args": [
+   {
+    "sym": "x"
+   },
+   {
+    "sym": "w"
+   },
+   -2
+  ],
+  "id": "gen/held/6_add_uneval",
+  "kind": "held_add"
+ },
+ {
+  "args": [
+   {
+    "sym": "x"
+   },
+   -2,
+   {
+    "sym": "w"
+   }
+  ],
+  "id": "gen/held/6_mul_uneval",
+  "kind": "held_mul"
+ },
+ {
+  "args": [
+   {
+    "sym": "w"
+   },
+   {
+    "sym": "w"
+   }
+  ],
+  "id": "gen/held/7_add_collapsible",
+  "kind": "held_add"
+ },
+ {
+  "args": [
+   {
+    "sym": "w"
+   },
+   {
+    "sym": "w"
+   },
+   4
+  ],
+  "id": "gen/held/7_add_uneval",
+  "kind": "held_add"
+ },
+ {
+  "args": [
+   {
+    "sym": "w"
+   },
+   4,
+   {
+    "sym": "w"
+   }
+  ],
+  "id": "gen/held/7_mul_uneval",
+  "kind": "held_mul"
+ },
+ {
+  "args": [
+   {
+    "sym": "z"
+   },
+   {
+    "sym": "z"
+   }
+  ],
+  "id": "gen/held/8_add_collapsible",
+  "kind": "held_add"
+ },
+ {
+  "args": [
+   {
+    "sym": "z"
+   },
+   {
+    "sym": "w"
+   },
+   0
+  ],
+  "id": "gen/held/8_add_uneval",
+  "kind": "held_add"
+ },
+ {
+  "args": [
+   {
+    "sym": "z"
+   },
+   0,
+   {
+    "sym": "w"
+   }
+  ],
+  "id": "gen/held/8_mul_uneval",
+  "kind": "held_mul"
+ },
+ {
+  "args": [
+   {
+    "sym": "x"
+   },
+   {
+    "sym": "x"
+   }
+  ],
+  "id": "gen/held/9_add_collapsible",
+  "kind": "held_add"
+ },
+ {
+  "args": [
+   {
+    "sym": "x"
+   },
+   {
+    "sym": "w"
+   },
+   -3
+  ],
+  "id": "gen/held/9_add_uneval",
+  "kind": "held_add"
+ },
+ {
+  "args": [
+   {
+    "sym": "x"
+   },
+   -3,
+   {
+    "sym": "w"
+   }
+  ],
+  "id": "gen/held/9_mul_uneval",
+  "kind": "held_mul"
+ },
+ {
+  "args": [
+   2,
+   {
+    "sym": "x"
+   },
+   3
+  ],
+  "id": "gen/held2/0",
+  "kind": "held_add"
+ },
+ {
+  "args": [
+   1,
+   {
+    "sym": "x"
+   },
+   1
+  ],
+  "id": "gen/held2/1",
+  "kind": "held_add"
+ },
+ {
+  "args": [
+   0,
+   {
+    "sym": "x"
+   },
+   2
+  ],
+  "id": "gen/held2/2",
+  "kind": "held_add"
+ },
+ {
+  "args": [
+   -2,
+   {
+    "sym": "x"
+   },
+   2
+  ],
+  "id": "gen/held2/3",
+  "kind": "held_add"
+ },
+ {
+  "args": [
+   2,
+   {
+    "sym": "y"
+   },
+   3
+  ],
+  "id": "gen/held2/4",
+  "kind": "held_add"
+ },
+ {
+  "args": [
+   1,
+   {
+    "sym": "y"
+   },
+   1
+  ],
+  "id": "gen/held2/5",
+  "kind": "held_add"
+ },
+ {
+  "args": [
+   0,
+   {
+    "sym": "y"
+   },
+   2
+  ],
+  "id": "gen/held2/6",
+  "kind": "held_add"
+ },
+ {
+  "args": [
+   -2,
+   {
+    "sym": "y"
+   },
+   2
+  ],
+  "id": "gen/held2/7",
+  "kind": "held_add"
+ },
+ {
+  "args": [
+   2,
+   {
+    "sym": "z"
+   },
+   3
+  ],
+  "id": "gen/held2/8",
+  "kind": "held_add"
+ },
+ {
+  "args": [
+   1,
+   {
+    "sym": "z"
+   },
+   1
+  ],
+  "id": "gen/held2/9",
+  "kind": "held_add"
+ },
+ {
+  "args": [
+   0,
+   {
+    "sym": "z"
+   },
+   2
+  ],
+  "id": "gen/held2/10",
+  "kind": "held_add"
+ },
+ {
+  "args": [
+   -2,
+   {
+    "sym": "z"
+   },
+   2
+  ],
+  "id": "gen/held2/11",
+  "kind": "held_add"
+ },
+ {
+  "args": [
+   2,
+   {
+    "sym": "w"
+   },
+   3
+  ],
+  "id": "gen/held2/12",
+  "kind": "held_add"
+ },
+ {
+  "args": [
+   1,
+   {
+    "sym": "w"
+   },
+   1
+  ],
+  "id": "gen/held2/13",
+  "kind": "held_add"
+ },
+ {
+  "args": [
+   {
+    "sym": "cx0a"
+   }
+  ],
+  "id": "gen/symc/0a",
+  "kind": "symbol",
+  "kwargs": {
+   "positive": true
+  }
+ },
+ {
+  "args": [
+   {
+    "sym": "cx0b"
+   }
+  ],
+  "id": "gen/symc/0b",
+  "kind": "symbol",
+  "kwargs": {
+   "negative": true
+  }
+ },
+ {
+  "args": [
+   {
+    "sym": "cx1a"
+   }
+  ],
+  "id": "gen/symc/1a",
+  "kind": "symbol",
+  "kwargs": {
+   "real": true
+  }
+ },
+ {
+  "args": [
+   {
+    "sym": "cx1b"
+   }
+  ],
+  "id": "gen/symc/1b",
+  "kind": "symbol",
+  "kwargs": {
+   "integer": true
+  }
+ },
+ {
+  "args": [
+   {
+    "sym": "cx2a"
+   }
+  ],
+  "id": "gen/symc/2a",
+  "kind": "symbol",
+  "kwargs": {
+   "nonneg": true
+  }
+ },
+ {
+  "args": [
+   {
+    "sym": "cx2b"
+   }
+  ],
+  "id": "gen/symc/2b",
+  "kind": "symbol",
+  "kwargs": {
+   "nonpos": true
+  }
+ },
+ {
+  "args": [
+   {
+    "sym": "cx3a"
+   }
+  ],
+  "id": "gen/symc/3a",
+  "kind": "symbol",
+  "kwargs": {
+   "zero": true
+  }
+ },
+ {
+  "args": [
+   {
+    "sym": "cx3b"
+   }
+  ],
+  "id": "gen/symc/3b",
+  "kind": "symbol",
+  "kwargs": {
+   "nonzero": true
+  }
+ },
+ {
+  "args": [
+   {
+    "sym": "cx4a"
+   }
+  ],
+  "id": "gen/symc/4a",
+  "kind": "symbol",
+  "kwargs": {
+   "even": true
+  }
+ },
+ {
+  "args": [
+   {
+    "sym": "cx4b"
+   }
+  ],
+  "id": "gen/symc/4b",
+  "kind": "symbol",
+  "kwargs": {
+   "nonzero": true
+  }
+ },
+ {
+  "args": [
+   {
+    "sym": "cx5a"
+   }
+  ],
+  "id": "gen/symc/5a",
+  "kind": "symbol",
+  "kwargs": {
+   "positive": true
+  }
+ },
+ {
+  "args": [
+   {
+    "sym": "cx5b"
+   }
+  ],
+  "id": "gen/symc/5b",
+  "kind": "symbol",
+  "kwargs": {
+   "real": true
+  }
+ },
+ {
+  "args": [
+   {
+    "sym": "cx6a"
+   }
+  ],
+  "id": "gen/symc/6a",
+  "kind": "symbol",
+  "kwargs": {
+   "integer": true
+  }
+ },
+ {
+  "args": [
+   {
+    "sym": "cx6b"
+   }
+  ],
+  "id": "gen/symc/6b",
+  "kind": "symbol",
+  "kwargs": {
+   "integer": true
+  }
+ },
+ {
+  "args": [
+   {
+    "sym": "cx7a"
+   }
+  ],
+  "id": "gen/symc/7a",
+  "kind": "symbol",
+  "kwargs": {
+   "real": true
+  }
+ },
+ {
+  "args": [
+   {
+    "sym": "cx7b"
+   }
+  ],
+  "id": "gen/symc/7b",
+  "kind": "symbol",
+  "kwargs": {
+   "positive": true
+  }
+ },
+ {
+  "args": [
+   {
+    "sym": "cx8a"
+   }
+  ],
+  "id": "gen/symc/8a",
+  "kind": "symbol",
+  "kwargs": {
+   "negative": true
+  }
+ },
+ {
+  "args": [
+   {
+    "sym": "cx8b"
+   }
+  ],
+  "id": "gen/symc/8b",
+  "kind": "symbol",
+  "kwargs": {
+   "nonpositive": true
+  }
+ },
+ {
+  "args": [
+   {
+    "sym": "cx9a"
+   }
+  ],
+  "id": "gen/symc/9a",
+  "kind": "symbol",
+  "kwargs": {
+   "nonzero": true
+  }
+ },
+ {
+  "args": [
+   {
+    "sym": "cx9b"
+   }
+  ],
+  "id": "gen/symc/9b",
+  "kind": "symbol",
+  "kwargs": {
+   "positive": true
+  }
+ },
+ {
+  "args": [
+   {
+    "sym": "cx10a"
+   }
+  ],
+  "id": "gen/symc/10a",
+  "kind": "symbol",
+  "kwargs": {
+   "commutative": true
+  }
+ },
+ {
+  "args": [
+   {
+    "sym": "cx10b"
+   }
+  ],
+  "id": "gen/symc/10b",
+  "kind": "symbol",
+  "kwargs": {
+   "commutative": true
+  }
+ },
+ {
+  "args": [
+   {
+    "sym": "cx11a"
+   }
+  ],
+  "id": "gen/symc/11a",
+  "kind": "symbol",
+  "kwargs": {
+   "finite": true
+  }
+ },
+ {
+  "args": [
+   {
+    "sym": "cx11b"
+   }
+  ],
+  "id": "gen/symc/11b",
+  "kind": "symbol",
+  "kwargs": {
+   "real": true
+  }
+ },
+ {
+  "args": [
+   2,
+   3
+  ],
+  "id": "meta/0/a",
+  "kind": "add"
+ },
+ {
+  "args": [
+   5
+  ],
+  "id": "meta/0/b",
+  "kind": "integer"
+ },
+ {
+  "args": [
+   2,
+   4
+  ],
+  "id": "meta/1/a",
+  "kind": "rational"
+ },
+ {
+  "args": [
+   1,
+   2
+  ],
+  "id": "meta/1/b",
+  "kind": "rational"
+ },
+ {
+  "args": [
+   1,
+   2,
+   {
+    "sym": "x"
+   }
+  ],
+  "id": "meta/2/a",
+  "kind": "mul"
+ },
+ {
+  "args": [
+   2,
+   {
+    "sym": "x"
+   }
+  ],
+  "id": "meta/2/b",
+  "kind": "mul"
+ },
+ {
+  "args": [
+   {
+    "sym": "x"
+   },
+   1
+  ],
+  "id": "meta/3/a",
+  "kind": "pow"
+ },
+ {
+  "args": [
+   {
+    "sym": "x"
+   }
+  ],
+  "id": "meta/3/b",
+  "kind": "symbol"
+ },
+ {
+  "args": [
+   {
+    "sym": "x"
+   },
+   0
+  ],
+  "id": "meta/4/a",
+  "kind": "add"
+ },
+ {
+  "args": [
+   {
+    "sym": "x"
+   }
+  ],
+  "id": "meta/4/b",
+  "kind": "symbol"
+ },
+ {
+  "args": [
+   {
+    "sym": "x"
+   },
+   1
+  ],
+  "id": "meta/5/a",
+  "kind": "mul"
+ },
+ {
+  "args": [
+   {
+    "sym": "x"
+   }
+  ],
+  "id": "meta/5/b",
+  "kind": "symbol"
+ },
+ {
+  "args": [
+   7
+  ],
+  "id": "meta/6/a",
+  "kind": "integer"
+ },
+ {
+  "args": [
+   7,
+   1
+  ],
+  "id": "meta/6/b",
+  "kind": "rational"
+ },
+ {
+  "args": [
+   -1,
+   1
+  ],
+  "id": "meta/7/a",
+  "kind": "add"
+ },
+ {
+  "args": [
+   0
+  ],
+  "id": "meta/7/b",
+  "kind": "integer"
+ },
+ {
+  "args": [
+   3,
+   2
+  ],
+  "id": "meta/8/a",
+  "kind": "mul"
+ },
+ {
+  "args": [
+   6
+  ],
+  "id": "meta/8/b",
+  "kind": "integer"
+ },
+ {
+  "args": [
+   -6,
+   -4
+  ],
+  "id": "meta/9/a",
+  "kind": "rational"
+ },
+ {
+  "args": [
+   3,
+   2
+  ],
+  "id": "meta/9/b",
+  "kind": "rational"
+ },
+ {
+  "args": [
+   2,
+   3
+  ],
+  "id": "meta/10/a",
+  "kind": "pow"
+ },
+ {
+  "args": [
+   8
+  ],
+  "id": "meta/10/b",
+  "kind": "integer"
+ },
+ {
+  "args": [
+   0,
+   {
+    "sym": "x"
+   }
+  ],
+  "id": "meta/11/a",
+  "kind": "mul"
+ },
+ {
+  "args": [
+   0
+  ],
+  "id": "meta/11/b",
+  "kind": "integer"
+ }
+]

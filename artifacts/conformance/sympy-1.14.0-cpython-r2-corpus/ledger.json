@@ -1,0 +1,515 @@
+{
+ "records": [
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.func",
+    "observations.type"
+   ],
+   "discrepancy_id": "disc-1140d0f8a922",
+   "fixture_id": "adv/held/pow_one_x",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.func",
+    "observations.type"
+   ],
+   "discrepancy_id": "disc-195078fbffa8",
+   "fixture_id": "adv/held/pow_x_zero",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.func",
+    "observations.type"
+   ],
+   "discrepancy_id": "disc-4272c1734821",
+   "fixture_id": "adv/held/pow_zero_zero",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.func",
+    "observations.type"
+   ],
+   "discrepancy_id": "disc-81154d887bbf",
+   "fixture_id": "adv/held/rat_neg_zero_num",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.func",
+    "observations.type"
+   ],
+   "discrepancy_id": "disc-fa793caebf74",
+   "fixture_id": "adv/held/rat_one",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "outcome_class"
+   ],
+   "discrepancy_id": "disc-24f735df9a92",
+   "fixture_id": "adv/held/rat_zero_denom",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.args_repr"
+   ],
+   "discrepancy_id": "disc-95af8c12b8b3",
+   "fixture_id": "adv/held/sub_like_names",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "outcome_class"
+   ],
+   "discrepancy_id": "disc-d91668ebd092",
+   "fixture_id": "adv/subclass/no_collapse_0",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "outcome_class"
+   ],
+   "discrepancy_id": "disc-e7c9c5dec150",
+   "fixture_id": "adv/subclass/no_collapse_2",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "outcome_class"
+   ],
+   "discrepancy_id": "disc-417aef6e0f2e",
+   "fixture_id": "adv/subclass/no_collapse_3",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "outcome_class"
+   ],
+   "discrepancy_id": "disc-299e1a8e37a0",
+   "fixture_id": "adv/subclass/no_collapse_4",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "outcome_class"
+   ],
+   "discrepancy_id": "disc-c034ceb036ab",
+   "fixture_id": "adv/subclass/zero_collapse_4",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.args_repr",
+    "observations.func",
+    "observations.module",
+    "observations.type"
+   ],
+   "discrepancy_id": "disc-384cfde38a8f",
+   "fixture_id": "adv/subclass/zero_collapse_6",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "outcome_class"
+   ],
+   "discrepancy_id": "disc-7209a60b7c02",
+   "fixture_id": "adv/subclass/zero_collapse_7",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.args_repr"
+   ],
+   "discrepancy_id": "disc-bdc5da5e01ac",
+   "fixture_id": "gen/arith/0_add",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.args_repr"
+   ],
+   "discrepancy_id": "disc-ee3d502e3c31",
+   "fixture_id": "gen/arith/12_add",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.args_repr"
+   ],
+   "discrepancy_id": "disc-3c2e7d12ff6d",
+   "fixture_id": "gen/arith/18_add",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.args_repr"
+   ],
+   "discrepancy_id": "disc-676f48607071",
+   "fixture_id": "gen/arith/6_add",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.type"
+   ],
+   "discrepancy_id": "disc-965a5fc83ef9",
+   "fixture_id": "gen/int/0_0",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.func",
+    "observations.type"
+   ],
+   "discrepancy_id": "disc-183c03c9219d",
+   "fixture_id": "gen/int/1_1",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.func",
+    "observations.type"
+   ],
+   "discrepancy_id": "disc-91771d571632",
+   "fixture_id": "gen/int/2_-1",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.args_repr"
+   ],
+   "discrepancy_id": "disc-c34e8d1f908e",
+   "fixture_id": "gen/nest/10",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.args_repr"
+   ],
+   "discrepancy_id": "disc-cecdccd630d4",
+   "fixture_id": "gen/nest/11",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.args_repr"
+   ],
+   "discrepancy_id": "disc-627f0ca90b3b",
+   "fixture_id": "gen/nest/14",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.args_repr"
+   ],
+   "discrepancy_id": "disc-d7ccf2cd693a",
+   "fixture_id": "gen/nest/15",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.args_repr"
+   ],
+   "discrepancy_id": "disc-aa89f34e54de",
+   "fixture_id": "gen/nest/18",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.args_repr"
+   ],
+   "discrepancy_id": "disc-a5a68e2bd1af",
+   "fixture_id": "gen/nest/19",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.args_repr"
+   ],
+   "discrepancy_id": "disc-26465402bda5",
+   "fixture_id": "gen/nest/2",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.args_repr"
+   ],
+   "discrepancy_id": "disc-a3a37168529c",
+   "fixture_id": "gen/nest/3",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.args_repr"
+   ],
+   "discrepancy_id": "disc-5114dc409f74",
+   "fixture_id": "gen/nest/6",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.args_repr"
+   ],
+   "discrepancy_id": "disc-1f377aa6a286",
+   "fixture_id": "gen/nest/7",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.func",
+    "observations.type"
+   ],
+   "discrepancy_id": "disc-c37d3914dfa9",
+   "fixture_id": "gen/rat/0_1_2",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.func",
+    "observations.type"
+   ],
+   "discrepancy_id": "disc-9290a7d8a7fd",
+   "fixture_id": "gen/rat/2_2_4",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.func",
+    "observations.type"
+   ],
+   "discrepancy_id": "disc-a43df0a8f78e",
+   "fixture_id": "gen/rat/5_0_5",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.func",
+    "observations.type"
+   ],
+   "discrepancy_id": "disc-1cf874797d8c",
+   "fixture_id": "gen/rat/7_7_1",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.func",
+    "observations.type"
+   ],
+   "discrepancy_id": "disc-ac190c845945",
+   "fixture_id": "gen/rat/8_-7_1",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.func",
+    "observations.type"
+   ],
+   "discrepancy_id": "disc-7d2d8d46e4c9",
+   "fixture_id": "meta/1/a",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.func",
+    "observations.type"
+   ],
+   "discrepancy_id": "disc-5f3d018f8027",
+   "fixture_id": "meta/1/b",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.type"
+   ],
+   "discrepancy_id": "disc-9adffd132934",
+   "fixture_id": "meta/11/b",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.func",
+    "observations.type"
+   ],
+   "discrepancy_id": "disc-89d132c542a1",
+   "fixture_id": "meta/6/b",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.type"
+   ],
+   "discrepancy_id": "disc-72c74633fa95",
+   "fixture_id": "meta/7/b",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  }
+ ],
+ "schema_version": 1
+}

@@ -91,15 +91,18 @@ def diff_envelopes(oracle: dict, candidate: dict, comparator_id: str) -> list[di
     o_obs = oracle.get("observations", {})
     c_obs = candidate.get("observations", {})
     if spec["fields"] is None:
-        # Exact surface: every observed field plus the full environment
-        # fingerprint must match.
+        # Exact surface: every observed field plus the identity-relevant
+        # environment fields must match. Machine-local provenance (host
+        # kernel string in `platform`, absolute `sympy_path`) is capture
+        # provenance, not a compatibility dimension: goldens move between
+        # hosts/kernel updates and must stay valid (comparator refinement
+        # recorded in fra-conformance-corpus-200-b75; sympy_version, python,
+        # implementation, locale and pinned env remain compared).
+        provenance = {"platform", "sympy_path"}
+        o_env = {k: v for k, v in oracle.get("environment", {}).items() if k not in provenance}
+        c_env = {k: v for k, v in candidate.get("environment", {}).items() if k not in provenance}
         _walk("observations", o_obs, c_obs, differences)
-        _walk(
-            "environment",
-            oracle.get("environment"),
-            candidate.get("environment"),
-            differences,
-        )
+        _walk("environment", o_env, c_env, differences)
         return differences
 
     outcome_class = oracle.get("outcome_class")

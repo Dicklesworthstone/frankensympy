@@ -1,0 +1,518 @@
+[
+ {
+  "call_args": [
+   0,
+   {
+    "sym": "k"
+   }
+  ],
+  "id": "adv/subclass/zero_collapse_0",
+  "kind": "function_subclass",
+  "subclass": {
+   "eval_zero_collapse": true,
+   "name": "AdvLaw0",
+   "nargs": [
+    2
+   ]
+  }
+ },
+ {
+  "call_args": [
+   {
+    "sym": "x"
+   },
+   {
+    "sym": "k"
+   }
+  ],
+  "id": "adv/subclass/zero_collapse_1",
+  "kind": "function_subclass",
+  "subclass": {
+   "eval_zero_collapse": true,
+   "name": "AdvLaw1",
+   "nargs": [
+    2
+   ]
+  }
+ },
+ {
+  "call_args": [
+   0,
+   0
+  ],
+  "id": "adv/subclass/zero_collapse_2",
+  "kind": "function_subclass",
+  "subclass": {
+   "eval_zero_collapse": true,
+   "name": "AdvLaw2",
+   "nargs": [
+    2
+   ]
+  }
+ },
+ {
+  "call_args": [
+   0,
+   {
+    "sym": "x"
+   }
+  ],
+  "id": "adv/subclass/zero_collapse_3",
+  "kind": "function_subclass",
+  "subclass": {
+   "eval_zero_collapse": true,
+   "name": "AdvLaw3",
+   "nargs": [
+    2
+   ]
+  }
+ },
+ {
+  "call_args": [
+   1,
+   {
+    "sym": "k"
+   }
+  ],
+  "id": "adv/subclass/zero_collapse_4",
+  "kind": "function_subclass",
+  "subclass": {
+   "eval_zero_collapse": true,
+   "name": "AdvLaw4",
+   "nargs": [
+    2
+   ]
+  }
+ },
+ {
+  "call_args": [
+   0,
+   {
+    "sym": "k"
+   }
+  ],
+  "id": "adv/subclass/zero_collapse_5",
+  "kind": "function_subclass",
+  "subclass": {
+   "eval_zero_collapse": true,
+   "name": "AdvLaw5",
+   "nargs": [
+    2
+   ]
+  }
+ },
+ {
+  "call_args": [
+   0.0,
+   {
+    "sym": "k"
+   }
+  ],
+  "id": "adv/subclass/zero_collapse_6",
+  "kind": "function_subclass",
+  "subclass": {
+   "eval_zero_collapse": true,
+   "name": "AdvLaw6",
+   "nargs": [
+    2
+   ]
+  }
+ },
+ {
+  "call_args": [
+   {
+    "sym": "x"
+   },
+   0
+  ],
+  "id": "adv/subclass/zero_collapse_7",
+  "kind": "function_subclass",
+  "subclass": {
+   "eval_zero_collapse": true,
+   "name": "AdvLaw7",
+   "nargs": [
+    2
+   ]
+  }
+ },
+ {
+  "call_args": [
+   0,
+   {
+    "sym": "k"
+   }
+  ],
+  "id": "adv/subclass/no_collapse_0",
+  "kind": "function_subclass",
+  "subclass": {
+   "eval_zero_collapse": false,
+   "name": "AdvKeep0",
+   "nargs": [
+    2
+   ]
+  }
+ },
+ {
+  "call_args": [
+   {
+    "sym": "x"
+   },
+   {
+    "sym": "k"
+   }
+  ],
+  "id": "adv/subclass/no_collapse_1",
+  "kind": "function_subclass",
+  "subclass": {
+   "eval_zero_collapse": false,
+   "name": "AdvKeep1",
+   "nargs": [
+    2
+   ]
+  }
+ },
+ {
+  "call_args": [
+   0,
+   0
+  ],
+  "id": "adv/subclass/no_collapse_2",
+  "kind": "function_subclass",
+  "subclass": {
+   "eval_zero_collapse": false,
+   "name": "AdvKeep2",
+   "nargs": [
+    2
+   ]
+  }
+ },
+ {
+  "call_args": [
+   0,
+   {
+    "sym": "x"
+   }
+  ],
+  "id": "adv/subclass/no_collapse_3",
+  "kind": "function_subclass",
+  "subclass": {
+   "eval_zero_collapse": false,
+   "name": "AdvKeep3",
+   "nargs": [
+    2
+   ]
+  }
+ },
+ {
+  "call_args": [
+   1,
+   {
+    "sym": "k"
+   }
+  ],
+  "id": "adv/subclass/no_collapse_4",
+  "kind": "function_subclass",
+  "subclass": {
+   "eval_zero_collapse": false,
+   "name": "AdvKeep4",
+   "nargs": [
+    2
+   ]
+  }
+ },
+ {
+  "args": [
+   {
+    "sym": "x"
+   },
+   0
+  ],
+  "id": "adv/held/mul_x_zero",
+  "kind": "mul"
+ },
+ {
+  "args": [
+   0,
+   {
+    "sym": "x"
+   }
+  ],
+  "id": "adv/held/mul_zero_x",
+  "kind": "mul"
+ },
+ {
+  "args": [
+   {
+    "sym": "x"
+   },
+   0
+  ],
+  "id": "adv/held/add_x_zero",
+  "kind": "add"
+ },
+ {
+  "args": [
+   {
+    "sym": "x"
+   },
+   1
+  ],
+  "id": "adv/held/mul_x_one",
+  "kind": "mul"
+ },
+ {
+  "args": [
+   {
+    "sym": "x"
+   },
+   0
+  ],
+  "id": "adv/held/pow_x_zero",
+  "kind": "pow"
+ },
+ {
+  "args": [
+   {
+    "sym": "x"
+   },
+   1
+  ],
+  "id": "adv/held/pow_x_one",
+  "kind": "pow"
+ },
+ {
+  "args": [
+   1,
+   {
+    "sym": "x"
+   }
+  ],
+  "id": "adv/held/pow_one_x",
+  "kind": "pow"
+ },
+ {
+  "args": [
+   0,
+   0
+  ],
+  "id": "adv/held/pow_zero_zero",
+  "kind": "pow"
+ },
+ {
+  "args": [
+   -2,
+   2
+  ],
+  "id": "adv/held/pow_neg_base_even",
+  "kind": "pow"
+ },
+ {
+  "args": [
+   -2,
+   3
+  ],
+  "id": "adv/held/pow_neg_base_odd",
+  "kind": "pow"
+ },
+ {
+  "args": [
+   0,
+   -1
+  ],
+  "id": "adv/held/pow_zero_neg",
+  "kind": "pow"
+ },
+ {
+  "args": [
+   1,
+   -2
+  ],
+  "id": "adv/held/rat_negative_denom",
+  "kind": "rational"
+ },
+ {
+  "args": [
+   1,
+   0
+  ],
+  "id": "adv/held/rat_zero_denom",
+  "kind": "rational"
+ },
+ {
+  "args": [
+   -1,
+   -1,
+   {
+    "sym": "x"
+   }
+  ],
+  "id": "adv/held/mul_double_neg",
+  "kind": "mul"
+ },
+ {
+  "args": [
+   3,
+   -1,
+   {
+    "sym": "x"
+   },
+   -2
+  ],
+  "id": "adv/held/add_mixed_signs",
+  "kind": "add"
+ },
+ {
+  "args": [
+   {
+    "sym": "x"
+   },
+   32
+  ],
+  "id": "adv/held/big_pow",
+  "kind": "pow"
+ },
+ {
+  "args": [
+   355,
+   113
+  ],
+  "id": "adv/held/rat_high",
+  "kind": "rational"
+ },
+ {
+  "args": [
+   -9223372036854775808
+  ],
+  "id": "adv/held/int_min",
+  "kind": "integer"
+ },
+ {
+  "args": [
+   {
+    "sym": "x"
+   },
+   2
+  ],
+  "id": "adv/held/nested_pow",
+  "kind": "pow"
+ },
+ {
+  "args": [
+   {
+    "sym": "x"
+   },
+   {
+    "sym": "y"
+   },
+   {
+    "sym": "z"
+   }
+  ],
+  "id": "adv/held/mul_triple_symbols",
+  "kind": "mul"
+ },
+ {
+  "args": [
+   {
+    "sym": "x"
+   },
+   {
+    "frac": [
+     1,
+     2
+    ]
+   }
+  ],
+  "id": "adv/held/mul_unit_frac",
+  "kind": "mul"
+ },
+ {
+  "args": [
+   4,
+   2
+  ],
+  "id": "adv/held/pow_frac_exp",
+  "kind": "pow"
+ },
+ {
+  "args": [
+   1,
+   2,
+   3,
+   -6
+  ],
+  "id": "adv/held/add_all_numbers",
+  "kind": "add"
+ },
+ {
+  "args": [
+   2,
+   3,
+   4
+  ],
+  "id": "adv/held/mul_all_numbers",
+  "kind": "mul"
+ },
+ {
+  "args": [
+   {
+    "sym": "x"
+   },
+   {
+    "sym": "xx"
+   },
+   -1
+  ],
+  "id": "adv/held/sub_like_names",
+  "kind": "add"
+ },
+ {
+  "args": [
+   2,
+   10
+  ],
+  "id": "adv/held/pow_nested_int",
+  "kind": "pow"
+ },
+ {
+  "args": [
+   -3,
+   {
+    "sym": "y"
+   }
+  ],
+  "id": "adv/held/mul_neg_coeff",
+  "kind": "mul"
+ },
+ {
+  "args": [
+   0,
+   2
+  ],
+  "id": "adv/held/zero_pow_zero_int",
+  "kind": "pow"
+ },
+ {
+  "args": [
+   4,
+   4
+  ],
+  "id": "adv/held/rat_one",
+  "kind": "rational"
+ },
+ {
+  "args": [
+   0,
+   7
+  ],
+  "id": "adv/held/rat_neg_zero_num",
+  "kind": "rational"
+ },
+ {
+  "args": [
+   4503599627370497
+  ],
+  "id": "adv/held/int_float_edge",
+  "kind": "integer"
+ }
+]
