@@ -673,8 +673,46 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("REFUSED", proc.stdout)
 
+    def test_wrap_recovered_symbols_carry_assumptions(self):
+        # Gauntlet bead fra-shell-atom-assumptions-bypasses-7o3: symbols and
+        # dummies recovered from native results bypass __init__ and previously
+        # left the _assumptions slot unset, crashing srepr and is_* access.
+        x = sympy.Symbol("x")
+        recovered = sympy.simplify(x + x - x)
+        self.assertEqual(sympy.srepr(recovered), "Symbol('x')")
+        d = sympy.Dummy("d")
+        expr = d + x
+        for atom in expr.free_symbols:
+            if isinstance(atom, sympy.Dummy):
+                # Exact Dummy srepr form is finding 10 (seams bead); this pin
+                # only requires the recovered Dummy to answer is_* and srepr
+                # without AttributeError.
+                self.assertIsInstance(atom.is_integer, (bool, type(None)))
+                # Must not raise; exact form is finding 10 (seams bead).
+                sympy.srepr(atom)
+
+    def test_number_assumption_properties_match_oracle(self):
+        # Tri-valued semantics pinned against SymPy 1.14.0 (fresh-eyes
+        # finding 7): concrete numbers answer concretely, nan answers None.
+        self.assertTrue(sympy.Integer(5).is_positive)
+        self.assertFalse(sympy.Integer(0).is_positive)
+        self.assertTrue(sympy.Integer(0).is_zero)
+        self.assertTrue(sympy.Integer(-7).is_negative)
+        self.assertTrue(sympy.Integer(-7).is_nonpositive)
+        self.assertTrue(sympy.Rational(1, 2).is_positive)
+        self.assertFalse(sympy.Rational(1, 2).is_integer)
+        self.assertTrue(sympy.Integer(3).is_integer)
+        self.assertTrue(sympy.Rational(1, 2).is_real)
+        self.assertTrue(sympy.Float(2.5).is_positive)
+        self.assertFalse(sympy.Float(2.5).is_integer)
+        self.assertTrue(sympy.Float(0.0).is_integer)
+        self.assertTrue(sympy.Float(0.0).is_zero)
+        nan = sympy.Float("nan")
+        self.assertIsNone(nan.is_positive)
+        self.assertIsNone(nan.is_zero)
+        self.assertIsNone(nan.is_integer)
+
 
 if __name__ == "__main__":
     unittest.main()
-
 

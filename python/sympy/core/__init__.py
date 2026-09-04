@@ -198,6 +198,14 @@ def _wrap(value: Any) -> "Basic":
         return obj
     obj = object.__new__(cls)
     obj._value = value
+    if isinstance(obj, Symbol):
+        # Symbols recovered from native results bypass Symbol.__init__; the
+        # native kernel carries no assumption payload, so the recovered atom
+        # is assumption-free (oracle: Symbol('x').is_positive is None and
+        # srepr prints plain Symbol('x')). Leaving the slot unset made every
+        # _srepr/is_* access raise AttributeError (gauntlet bead
+        # fra-shell-atom-assumptions-bypasses-7o3).
+        obj._assumptions = {}
     if cls is Integer and obj.p == 0:
         return _ZERO
     return obj
@@ -959,8 +967,17 @@ class Dummy(Symbol):
     def dummy_index(self) -> int:
         return self._dummy_number
 
-    def __repr__(self) -> str:
-        return f"Dummy({self.name!r})"
+    @classmethod
+    def _from_intern(cls, name: str, number: int, value: Any = None) -> "Dummy":
+        dummy = object.__new__(cls)
+        dummy._dummy_name = name
+        dummy._dummy_number = number
+        dummy._assumptions = {}
+        dummy._value = (
+            value if value is not None else _native.py_symbol(_dummy_intern_name(name, number))
+        )
+        _note_dummy_number(number)
+        return dummy
 
 
 def _restore_dummy(name: str, number: int) -> Dummy:
@@ -990,6 +1007,39 @@ class Rational(Number):
 
     @property
     def q(self) -> int:
+        return self._value.exact_denominator()
+
+    # Tri-valued assumption properties, pinned against SymPy 1.14.0 for
+    # concrete rationals (gauntlet bead fra-shell-atom-assumptions-bypasses-7o3,
+    # fresh-eyes finding 7): the native value is exact, so every answer is a
+    # concrete True/False — never None.
+    @property
+    def is_positive(self) -> bool:
+        return self.p > 0
+
+    @property
+    def is_negative(self) -> bool:
+        return self.p < 0
+
+    @property
+    def is_zero(self) -> bool:
+        return self.p == 0
+
+    @property
+    def is_nonnegative(self) -> bool:
+        return self.p >= 0
+
+    @property
+    def is_nonpositive(self) -> bool:
+        return self.p <= 0
+
+    @property
+    def is_real(self) -> bool:
+        return True
+
+    @property
+    def is_integer(self) -> bool:
+        return self.q == 1
         return self._value.exact_denominator()
 
 
@@ -1059,6 +1109,43 @@ class Float(Number):
             raise ValueError("malformed Float intern encoding")
         return _bits_to_float(payload[0].exact_numerator())
 
+    # Tri-valued assumption properties pinned against SymPy 1.14.0: a nan
+    # answers None for everything; every other binary64 value answers
+    # concretely (Float(0.0).is_integer is True, Float(2.5).is_integer False).
+    @property
+    def is_positive(self) -> bool | None:
+        value = self._as_python_float()
+        return None if math.isnan(value) else value > 0
+
+    @property
+    def is_negative(self) -> bool | None:
+        value = self._as_python_float()
+        return None if math.isnan(value) else value < 0
+
+    @property
+    def is_zero(self) -> bool | None:
+        value = self._as_python_float()
+        return None if math.isnan(value) else value == 0.0
+
+    @property
+    def is_real(self) -> bool | None:
+        return None if math.isnan(self._as_python_float()) else True
+
+    @property
+    def is_nonnegative(self) -> bool | None:
+        value = self._as_python_float()
+        return None if math.isnan(value) else value >= 0
+
+    @property
+    def is_nonpositive(self) -> bool | None:
+        value = self._as_python_float()
+        return None if math.isnan(value) else value <= 0
+
+    @property
+    def is_integer(self) -> bool | None:
+        value = self._as_python_float()
+        return None if math.isnan(value) else value.is_integer()
+
     @property
     def dps(self) -> int:
         return self._dps
@@ -1074,10 +1161,6 @@ class Float(Number):
     @property
     def is_number(self) -> bool:
         return True
-
-    @property
-    def is_integer(self) -> bool:
-        return False
 
     @property
     def is_rational(self) -> bool:
