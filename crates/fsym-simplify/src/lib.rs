@@ -1337,7 +1337,7 @@ mod tests {
             }
         }
         coeffs.sort_unstable();
-        coeffs.into_iter().map(|(d, c)| c).collect()
+        coeffs.into_iter().map(|(_d, c)| c).collect()
     }
 
     #[test]
