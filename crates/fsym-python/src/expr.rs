@@ -9,7 +9,7 @@ use fsym_printing::{latex, pretty as render_pretty};
 use fsym_runtime::{Budget, BudgetLimits, FsymCx, RuntimeBudget};
 use fsym_simplify::{expand_with, simplify_with};
 use pyo3::basic::CompareOp;
-use pyo3::exceptions::{PyTypeError, PyValueError};
+use pyo3::exceptions::{PyRecursionError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyInt, PyTuple};
 use std::collections::{BTreeSet, HashMap};
@@ -22,6 +22,30 @@ use std::sync::Arc;
 /// built-in `int.bit_length()` first prevents an already-large Python integer from forcing an
 /// unbounded temporary byte buffer across the boundary.
 pub(crate) const MAX_PYTHON_INTEGER_BITS: usize = 8 * 1024 * 1024;
+
+/// Effective depth bound for bridge arithmetic, overridable via
+/// `FSYM_MAX_EXPR_DEPTH` for callers who genuinely need deeper trees.
+fn max_expr_depth() -> usize {
+    std::env::var("FSYM_MAX_EXPR_DEPTH")
+        .ok()
+        .and_then(|raw| raw.parse::<usize>().ok())
+        .filter(|limit| *limit > 0)
+        .unwrap_or(fsym_core::MAX_EXPR_DEPTH)
+}
+
+/// Typed refusal for trees whose clone/drop/display recursion would exhaust
+/// the native stack (gauntlet bead fra-native-drop-depth-bound-9mk).
+pub(crate) fn ensure_admissible_depth(expr: &Expr) -> PyResult<()> {
+    let limit = max_expr_depth();
+    let depth = expr.nesting_depth();
+    if depth > limit {
+        return Err(PyRecursionError::new_err(format!(
+            "expression nesting depth {depth} exceeds the bridge bound {limit} \
+             (FSYM_MAX_EXPR_DEPTH); refusing instead of risking a native stack overflow"
+        )));
+    }
+    Ok(())
+}
 
 pub(crate) fn exact_python_integer(value: &Bound<'_, PyAny>, argument: &str) -> PyResult<BigInt> {
     let py = value.py();
@@ -255,41 +279,59 @@ impl PyExpr {
         }
     }
 
-    pub fn __add__(&self, other: &PyExpr) -> PyExpr {
-        PyExpr::from_expr(self.inner.clone() + other.inner.clone())
+    pub fn __add__(&self, other: &PyExpr) -> PyResult<PyExpr> {
+        ensure_admissible_depth(&self.inner)?;
+        ensure_admissible_depth(&other.inner)?;
+        Ok(PyExpr::from_expr(self.inner.clone() + other.inner.clone()))
     }
 
-    pub fn __radd__(&self, other: &PyExpr) -> PyExpr {
-        PyExpr::from_expr(other.inner.clone() + self.inner.clone())
+    pub fn __radd__(&self, other: &PyExpr) -> PyResult<PyExpr> {
+        ensure_admissible_depth(&other.inner)?;
+        ensure_admissible_depth(&self.inner)?;
+        Ok(PyExpr::from_expr(other.inner.clone() + self.inner.clone()))
     }
 
-    pub fn __sub__(&self, other: &PyExpr) -> PyExpr {
-        PyExpr::from_expr(self.inner.clone() + (other.inner.clone() * Expr::from_i64(-1)))
-    }
-
-    pub fn __rsub__(&self, other: &PyExpr) -> PyExpr {
-        PyExpr::from_expr(other.inner.clone() + (self.inner.clone() * Expr::from_i64(-1)))
-    }
-
-    pub fn __mul__(&self, other: &PyExpr) -> PyExpr {
-        PyExpr::from_expr(self.inner.clone() * other.inner.clone())
-    }
-
-    pub fn __rmul__(&self, other: &PyExpr) -> PyExpr {
-        PyExpr::from_expr(other.inner.clone() * self.inner.clone())
-    }
-
-    pub fn __neg__(&self) -> PyExpr {
-        PyExpr::from_expr(self.inner.clone() * Expr::from_i64(-1))
-    }
-
-    pub fn __pow__(&self, other: &PyExpr, _modulo: Option<Py<PyAny>>) -> PyExpr {
-        PyExpr::from_expr(Expr::Pow(
-            Arc::new(self.inner.clone()),
-            Arc::new(other.inner.clone()),
+    pub fn __sub__(&self, other: &PyExpr) -> PyResult<PyExpr> {
+        ensure_admissible_depth(&self.inner)?;
+        ensure_admissible_depth(&other.inner)?;
+        Ok(PyExpr::from_expr(
+            self.inner.clone() + (other.inner.clone() * Expr::from_i64(-1)),
         ))
     }
 
+    pub fn __rsub__(&self, other: &PyExpr) -> PyResult<PyExpr> {
+        ensure_admissible_depth(&other.inner)?;
+        ensure_admissible_depth(&self.inner)?;
+        Ok(PyExpr::from_expr(
+            other.inner.clone() + (self.inner.clone() * Expr::from_i64(-1)),
+        ))
+    }
+
+    pub fn __mul__(&self, other: &PyExpr) -> PyResult<PyExpr> {
+        ensure_admissible_depth(&self.inner)?;
+        ensure_admissible_depth(&other.inner)?;
+        Ok(PyExpr::from_expr(self.inner.clone() * other.inner.clone()))
+    }
+
+    pub fn __rmul__(&self, other: &PyExpr) -> PyResult<PyExpr> {
+        ensure_admissible_depth(&other.inner)?;
+        ensure_admissible_depth(&self.inner)?;
+        Ok(PyExpr::from_expr(other.inner.clone() * self.inner.clone()))
+    }
+
+    pub fn __neg__(&self) -> PyResult<PyExpr> {
+        ensure_admissible_depth(&self.inner)?;
+        Ok(PyExpr::from_expr(self.inner.clone() * Expr::from_i64(-1)))
+    }
+
+    pub fn __pow__(&self, other: &PyExpr, _modulo: Option<Py<PyAny>>) -> PyResult<PyExpr> {
+        ensure_admissible_depth(&self.inner)?;
+        ensure_admissible_depth(&other.inner)?;
+        Ok(PyExpr::from_expr(Expr::Pow(
+            Arc::new(self.inner.clone()),
+            Arc::new(other.inner.clone()),
+        )))
+    }
     /// Substitute sub-expression: `expr.subs(old, new)`.
     pub fn subs(&self, old: &PyExpr, new: &PyExpr) -> PyResult<PyExpr> {
         match &old.inner {

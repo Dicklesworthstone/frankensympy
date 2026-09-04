@@ -638,6 +638,40 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(applied.func.__name__, "ConstitutiveLawZeroPin")
         self.assertEqual(applied.args, (x, k))
 
+    def test_deep_chain_refuses_instead_of_crashing(self):
+        # Gauntlet bead fra-native-drop-depth-bound-9mk: a deep exact-arithmetic
+        # chain used to SIGSEGV the interpreter (recursive derived Clone in the
+        # native kernel at depth ~8000). The bridge now refuses beyond
+        # FSYM_MAX_EXPR_DEPTH with RecursionError and the process survives.
+        a = sympy.Integer(2)
+        with self.assertRaises(RecursionError):
+            for i in range(1, 6000):
+                a = a * sympy.Integer(i) + sympy.Rational(1, i)
+        # The interpreter is alive and ordinary arithmetic still works at
+        # moderate depth.
+        b = sympy.Integer(2)
+        for i in range(1, 500):
+            b = b * sympy.Integer(i) + sympy.Rational(1, i)
+        self.assertGreater(len(str(b)), 1000)
+
+    def test_depth_bound_env_override(self):
+        # The bound is configurable; a bound of 1 refuses any compound operand
+        # (depth 2 > 1).
+        env = dict(os.environ, FSYM_MAX_EXPR_DEPTH="1")
+        code = (
+            "import sympy\n"
+            "x = sympy.Symbol('x')\n"
+            "try:\n"
+            "    e = (x + 1) + (x + 2)\n"
+            "    print('NO-REFUSAL', e)\n"
+            "except RecursionError:\n"
+            "    print('REFUSED')\n"
+        )
+        proc = subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True, env=env
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("REFUSED", proc.stdout)
 
 
 if __name__ == "__main__":

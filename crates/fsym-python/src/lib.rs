@@ -277,7 +277,7 @@ mod tests {
     fn test_py_expr_structural_args_and_properties() {
         let x = py_symbol("x");
         let two = py_integer(2);
-        let expr = x.__mul__(&two);
+        let expr = x.__mul__(&two).unwrap();
 
         assert_eq!(expr.func_name(), "Mul");
         assert_eq!(expr.raw_args().len(), 2);
@@ -456,7 +456,7 @@ mod tests {
         // x + 5 where x -> 10
         let x = py_symbol("x");
         let five = py_integer(5);
-        let expr = x.__add__(&five);
+        let expr = x.__add__(&five).unwrap();
 
         let ten = py_integer(10);
         let res = expr.subs(&x, &ten).unwrap();

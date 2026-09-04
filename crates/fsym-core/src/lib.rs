@@ -60,6 +60,14 @@ impl fmt::Display for Symbol {
     }
 }
 
+/// Maximum expression nesting depth admitted by the Python bridge before it
+/// returns a typed refusal. The derived `Clone`/`Drop`/`Display` recursion is
+/// linear in tree depth (observed ~3.4 stack frames per level for `Clone`);
+/// 4096 keeps those recursions inside a >=2x stack-safety margin on 8 MiB
+/// threads in debug builds. The bridge exposes an `FSYM_MAX_EXPR_DEPTH`
+/// override for callers who genuinely need deeper trees.
+pub const MAX_EXPR_DEPTH: usize = 4096;
+
 /// Core symbolic expression enum.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum Expr {
@@ -178,6 +186,32 @@ impl Expr {
                 Expr::Function(name.clone(), args.iter().map(|a| a.subs(map)).collect())
             }
         }
+    }
+
+    /// Maximum nesting depth of this expression tree, computed with an
+    /// explicit stack so it is safe at any depth (the derived recursive
+    /// `Clone`/`Drop`/`Display` impls overflow the stack on deep chains).
+    pub fn nesting_depth(&self) -> usize {
+        let mut max_depth = 0usize;
+        let mut stack: Vec<(&Expr, usize)> = vec![(self, 1)];
+        while let Some((expr, depth)) = stack.pop() {
+            if depth > max_depth {
+                max_depth = depth;
+            }
+            match expr {
+                Expr::Add(terms) | Expr::Mul(terms) | Expr::Function(_, terms) => {
+                    for t in terms {
+                        stack.push((t, depth + 1));
+                    }
+                }
+                Expr::Pow(base, exponent) => {
+                    stack.push((base, depth + 1));
+                    stack.push((exponent, depth + 1));
+                }
+                Expr::Sym(_) | Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_) => {}
+            }
+        }
+        max_depth
     }
 
     /// Collect all free symbols in this expression.
@@ -637,5 +671,33 @@ mod tests {
         wire["defining_poly_coeffs"] = serde_json::to_value(oversized).unwrap();
         let error = serde_json::from_value::<AlgebraicNumber>(wire).unwrap_err();
         assert!(error.to_string().contains("coefficient limit"));
+    }
+    #[test]
+    fn nesting_depth_measures_shallow_trees() {
+        let x = Expr::symbol("x");
+        assert_eq!(x.nesting_depth(), 1);
+        let sum = x.clone() + Expr::from_i64(2);
+        assert_eq!(sum.nesting_depth(), 2);
+        let product = sum.clone() * x.clone();
+        // Mul nests the Add one level deeper.
+        assert_eq!(product.nesting_depth(), 3);
+        let power = Expr::Pow(Arc::new(x.clone()), Arc::new(sum.clone()));
+        assert_eq!(power.nesting_depth(), 3);
+    }
+    #[test]
+    fn nesting_depth_is_iterative_on_deep_chains() {
+        // Mirrors the gauntlet SIGSEGV repro shape.
+        let mut chain = Expr::symbol("x");
+        for i in 1..=600i64 {
+            let recip = Expr::Rational(BigRational::from_integer(BigInt::from(i)).recip());
+            chain = chain * Expr::from_i64(i) + recip;
+        }
+        // `chain * integer + rational` grows the tree by two levels per step.
+        // Building is ownership-based (flat); only the measurement itself must
+        // stay non-recursive, so this is safe at depths that would overflow a
+        // recursive walk.
+        // Depth grows by exactly two levels per iteration (Mul then Add wrap).
+        assert_eq!(chain.nesting_depth(), 2 * 600 + 1);
+        assert!(chain.nesting_depth() < MAX_EXPR_DEPTH * 2);
     }
 }
