@@ -684,6 +684,90 @@ class Atom(Basic):
     __slots__ = ()
 
 
+def _str_number(value: "Rational") -> tuple[bool, str]:
+    """(is_negative, unsigned_body) for exact numbers."""
+    p, q = value.p, value.q
+    if q == 1:
+        return p < 0, str(abs(p))
+    return p < 0, f"{abs(p)}/{q}"
+
+
+def _str_float_value(raw: float) -> str:
+    # SymPy 1.14 str(Float): fixed decimal in the human range, otherwise
+    # e-notation with the full 15-digit payload.
+    if raw == 0:
+        return "0" if math.copysign(1.0, raw) > 0 else "-0.000000000000000"
+    if 1e-4 <= abs(raw) < 1e16:
+        text = f"{raw:.15f}"
+        return text
+    return f"{raw:.14e}".replace("e-", "e-").replace("e+", "e+")
+
+
+def _str_parenthesize(text: str, expr: "Expr") -> str:
+    if (
+        type(expr) is Add
+        or type(expr) is Mul
+        or (isinstance(expr, Rational) and (value := _str_number(expr))[0])
+    ):
+        return f"({text})"
+    if isinstance(expr, Rational) and expr.q != 1:
+        return f"({text})"
+    return text
+
+
+def _str_expr(expr: "Expr") -> str:
+    """SymPy 1.14.0-faithful plain str printer (printer-parity bead qxr)."""
+    neg, body = _str_term(expr)
+    return ("-" + body) if neg else body
+
+
+def _str_term(expr: "Expr") -> tuple[bool, str]:
+    """Render one additive term as (negative, unsigned_body)."""
+    if isinstance(expr, Rational):
+        return _str_number(expr)
+    if type(expr) is Float:
+        text = _str_float_value(expr._as_python_float())
+        return text.startswith("-"), text.lstrip("-")
+    if type(expr) is Pow:
+        base, exp = expr.args
+        return False, f"{_str_parenthesize(_str_expr(base), base)}**{_str_parenthesize(_str_expr(exp), exp)}"
+    if type(expr) is Mul:
+        coeff, rest = expr.as_coeff_Mul()
+        rest_strs = [
+            _str_parenthesize(_str_expr(a), a)
+            for a in sorted(rest.args, key=sort_key_of := (lambda a: a.sort_key()))
+        ]
+        body = "*".join(rest_strs)
+        neg, ctext = _str_number(coeff) if isinstance(coeff, Rational) else (False, _str_expr(coeff))
+        if ctext == "1":
+            return neg, body
+        if ctext == "-1" or (neg and ctext == "1"):
+            return True, body
+        q = coeff.q if isinstance(coeff, Rational) else 1
+        ap = abs(coeff.p) if isinstance(coeff, Rational) else None
+        if q == 1:
+            return neg, f"{ap}*{body}"
+        if ap == 1:
+            return neg, f"{body}/{q}"
+        return neg, f"{ap}*{body}/{q}"
+    if type(expr) is Add:
+        const, rest_add = expr.as_coeff_Add()
+        terms = sorted(rest_add.args, key=lambda a: a.sort_key(), reverse=True)
+        rendered = [_str_term(t) for t in terms]
+        out = rendered[0][1]
+        for neg, body in rendered[1:]:
+            out += (f" - {body}") if neg else (f" + {body}")
+        if const.p != 0 or not rendered:
+            cneg, cbody = _str_number(const)
+            out += (f" - {cbody}") if cneg else (f" + {cbody}")
+        return False, out
+    return False, str(_native_expr(expr))
+
+
+def sort_key_of(a):
+    return a.sort_key()
+
+
 class Expr(Basic):
     """Python-visible wrapper for a native exact mathematical expression."""
 
@@ -1863,14 +1947,12 @@ def pretty(expression: Any) -> str:
     return _native_expr(expression).pretty()
 
 
-def _machin_pi_scaled(digits: int) -> int:
-    """floor(pi * 10**(digits-1)) via Machin's formula in pure integer
+def _machin_pi_floor(total_digits: int) -> int:
+    """floor(pi * 10**total_digits) via Machin's formula in pure integer
     arithmetic with 15 guard digits (bead
-    fra-fra-native-evalf-precision-honesty-ke8). Truncation (not rounding)
-    keeps every printed digit exact for the requested significant count.
-    """
+    fra-fra-native-evalf-precision-honesty-ke8)."""
     guard = 15
-    scale = 10 ** (digits + guard)
+    scale = 10 ** (total_digits + guard)
     def atan_inv(x: int) -> int:
         total = 0
         k = 0
@@ -1911,13 +1993,21 @@ class _ExactDecimalFloat(Float):
         return f"Float('{self._decimal}', precision={self._dps})"
 
 
-def N(expression: Any, n: int = 15) -> Basic:
+_ExactDecimalFloat.__name__ = "Float"
+_ExactDecimalFloat.__qualname__ = "Float"
+_ExactDecimalFloat.__module__ = "sympy.core.numbers"
+
+
+def N(expression: Any, n: Any = None) -> Basic:
     """Evaluate to a compatibility Float. Precision-honest (bead
     fra-fra-native-evalf-precision-honesty-ke8): ``N(pi, d)`` computes the
     true decimal digits via a Machin series for 1 <= d <= 10_000; every other
     expression beyond the binary64-honest 15 significant digits raises
     NotImplementedError naming the limit — an f64 is never extended with
     unjustified digits. Not a certified enclosure."""
+    explicit = n is not None
+    if not explicit:
+        n = _F64_HONEST_DIGITS
     if isinstance(n, bool) or not isinstance(n, int):
         raise TypeError(f"N precision must be an integer, got {type(n).__name__}")
     if n < 1:
@@ -1930,10 +2020,12 @@ def N(expression: Any, n: int = 15) -> Basic:
                 f"series supporting at most {_MAX_HONEST_DIGITS} significant "
                 f"digits; requested {n}"
             )
-        if n == 1:
-            return Float(3.0, 1)
-        scaled = _machin_pi_scaled(n)
-        digits = str(scaled)
+        # Upstream convention (pinned oracle): d significant digits, ROUNDED.
+        m = _machin_pi_floor(n)
+        rounded = (m + 5) // 10
+        digits = str(rounded)
+        if len(digits) != n:
+            raise ValueError(f"pi digit stream length {len(digits)} != {n}")
         decimal = digits[0] + "." + digits[1:]
         return _ExactDecimalFloat(decimal, n)
     if isinstance(expression, Basic) and n > _F64_HONEST_DIGITS:
