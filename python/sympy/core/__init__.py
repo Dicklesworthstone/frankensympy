@@ -86,6 +86,8 @@ def _exact_surface_types():
         Pow,
         Derivative,
         Zero,
+        One,
+        NegativeOne,
         AppliedUndef,
         Application,
         Function,
@@ -206,8 +208,16 @@ def _wrap(value: Any) -> "Basic":
         # _srepr/is_* access raise AttributeError (gauntlet bead
         # fra-shell-atom-assumptions-bypasses-7o3).
         obj._assumptions = {}
-    if cls is Integer and obj.p == 0:
-        return _ZERO
+    if cls is Integer:
+        # Native-recovered integers route to the same singletons the
+        # constructors produce (bead fra-shell-number-canonical-construction-qf6).
+        p = obj.p
+        if p == 0:
+            return _ZERO
+        if p == 1:
+            return _ONE
+        if p == -1:
+            return _NEGATIVE_ONE
     return obj
 
 
@@ -222,6 +232,17 @@ def _restore_nary(cls, args):
 def _restore_pow(cls, base, exponent):
     return cls(base, exponent, evaluate=False)
 
+
+def _admitted_exact_int(value: Any) -> int | None:
+    """Non-raising exact-integer probe for construction folds (returns None
+    for anything that is not a shell Integer or a built-in int)."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, Integer):
+        return int(value.p)
+    if isinstance(value, int):
+        return value
+    return None
 
 def _ieee_bits(value: float) -> int:
     return int.from_bytes(struct.pack(">d", value), "big")
@@ -265,15 +286,15 @@ def _maybe_python_float(value: Any) -> float | None:
 
 def _exact_ratio(value: Any) -> tuple[int, int] | None:
     """Canonical (p, q) for admitted numeric atoms. Non-finite floats are None."""
-    if type(value) is Zero:
+    if isinstance(value, Zero):
         return 0, 1
-    if type(value) is bool:
+    if isinstance(value, bool):
         return (1 if value else 0), 1
-    if type(value) is int:
-        return value, 1
-    if type(value) is Integer:
+    if isinstance(value, int):
+        return int(value), 1
+    if isinstance(value, Integer):
         return value.p, 1
-    if type(value) is Rational:
+    if isinstance(value, Rational):
         return value.p, value.q
     if type(value) is float:
         try:
@@ -867,6 +888,23 @@ class Expr(Basic):
     def __pow__(self, exponent: Any, modulo: Any = None) -> "Expr":
         if modulo is not None:
             raise TypeError("modular symbolic exponentiation is not implemented")
+        # SymPy 1.14.0 power identities (bead
+        # fra-shell-number-canonical-construction-qf6): the native lane keeps
+        # Pow(x, 0) etc. applied, the oracle folds them at construction.
+        base_int = _admitted_exact_int(self)
+        exp_int = _admitted_exact_int(exponent)
+        if exp_int is not None:
+            if exp_int == 0:
+                return _ONE
+            if exp_int == 1:
+                return self
+            if base_int is not None:
+                if base_int == 1:
+                    return _ONE
+                if base_int == 0:
+                    if exp_int > 0:
+                        return _ZERO
+                    return zoo
         return _wrap(_native.py_pow(_native_expr(self), _native_expr(exponent)))
 
     def __neg__(self) -> "Expr":
@@ -993,13 +1031,36 @@ class Number(AtomicExpr):
 class Rational(Number):
     __slots__ = ()
 
-    def __init__(self, numerator: int, denominator: int):
-        numerator_p, numerator_q = _exact_rational_argument(numerator)
-        denominator_p, denominator_q = _exact_rational_argument(denominator)
-        self._value = _native.py_rational(
-            numerator_p * denominator_q,
-            numerator_q * denominator_p,
-        )
+    def __new__(cls, numerator: int, denominator: int):
+        if cls is Rational:
+            # SymPy 1.14.0 construction semantics (bead
+            # fra-shell-number-canonical-construction-qf6): zero denominator
+            # is zoo; exact integers promote to Integer (routing the 0/1/-1
+            # singletons); everything else normalizes sign into the numerator.
+            numerator_p, numerator_q = _exact_rational_argument(numerator)
+            denominator_p, denominator_q = _exact_rational_argument(denominator)
+            num = numerator_p * denominator_q
+            den = numerator_q * denominator_p
+            if den == 0:
+                return zoo
+            common = math.gcd(abs(num), abs(den))
+            if common:
+                num //= common
+                den //= common
+            if den < 0:
+                num, den = -num, -den
+            if den == 1:
+                return Integer(num)
+            obj = object.__new__(cls)
+            obj._value = _native.py_rational(num, den)
+            return obj
+        return object.__new__(cls)
+
+    def __init__(self, *args: Any, **kwargs: Any):
+        # __new__ builds the native value (or routes to a promoted singleton);
+        # type(instance).__init__ receives the ORIGINAL caller args regardless
+        # of which class __new__ returned, so this must accept anything.
+        pass
 
     @property
     def p(self) -> int:
@@ -1040,14 +1101,31 @@ class Rational(Number):
     @property
     def is_integer(self) -> bool:
         return self.q == 1
-        return self._value.exact_denominator()
 
 
 class Integer(Rational):
     __slots__ = ()
 
-    def __init__(self, value: int):
-        self._value = _native.py_integer(_exact_integer_argument(value))
+    def __new__(cls, value: int):
+        if cls is Integer:
+            # Construction routing to the SymPy 1.14.0 integer singletons
+            # (bead fra-shell-number-canonical-construction-qf6).
+            v = _exact_integer_argument(value)
+            if v == 0:
+                return _ZERO
+            if v == 1:
+                return _ONE
+            if v == -1:
+                return _NEGATIVE_ONE
+        obj = object.__new__(cls)
+        obj._value = _native.py_integer(_exact_integer_argument(value))
+        return obj
+
+    def __init__(self, *args: Any, **kwargs: Any):
+        # __new__ sets the native value (or routes to a promoted singleton);
+        # type(instance).__init__ gets the ORIGINAL caller args regardless of
+        # which class __new__ returned, so this must accept anything.
+        pass
 
     @property
     def p(self) -> int:
@@ -1056,8 +1134,6 @@ class Integer(Rational):
     @property
     def q(self) -> int:
         return 1
-
-
 
 class Zero(Integer):
     """The singleton integer zero (SymPy 1.14: sympy.core.numbers.Zero).
@@ -1075,15 +1151,82 @@ class Zero(Integer):
         obj._value = _native.py_integer(0)
         return obj
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
         pass
 
     def __reduce__(self):
-        return Zero, ()
+        return _restore_zero, ()
+
+    def _srepr(self) -> str:
+        # Oracle parity: sympy.srepr(S.Zero) == "Integer(0)".
+        return "Integer(0)"
 
 
 Zero.__module__ = "sympy.core.numbers"
 _ZERO = Zero()
+
+
+class One(Integer):
+    """The singleton integer one (SymPy 1.14: sympy.core.numbers.One)."""
+
+    __slots__ = ()
+    is_One = True
+
+    def __new__(cls):
+        obj = object.__new__(cls)
+        obj._value = _native.py_integer(1)
+        return obj
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def __reduce__(self):
+        return _restore_one, ()
+
+    def _srepr(self) -> str:
+        # Oracle parity: sympy.srepr(S.One) == "Integer(1)".
+        return "Integer(1)"
+
+One.__module__ = "sympy.core.numbers"
+_ONE = One()
+
+
+class NegativeOne(Integer):
+    """The singleton integer minus one (SymPy 1.14: NegativeOne)."""
+
+    __slots__ = ()
+    is_NegativeOne = True
+
+    def __new__(cls):
+        obj = object.__new__(cls)
+        obj._value = _native.py_integer(-1)
+        return obj
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def __reduce__(self):
+        return _restore_negative_one, ()
+
+    def _srepr(self) -> str:
+        # Oracle parity: sympy.srepr(S.NegativeOne) == "Integer(-1)".
+        return "Integer(-1)"
+
+
+NegativeOne.__module__ = "sympy.core.numbers"
+_NEGATIVE_ONE = NegativeOne()
+
+
+def _restore_zero():
+    return _ZERO
+
+
+def _restore_one():
+    return _ONE
+
+
+def _restore_negative_one():
+    return _NEGATIVE_ONE
 
 class Float(Number):
     """Profile-compatible binary64 float. Distinct from Rational and from RealBall."""
@@ -1140,7 +1283,6 @@ class Float(Number):
     def is_nonpositive(self) -> bool | None:
         value = self._as_python_float()
         return None if math.isnan(value) else value <= 0
-
     @property
     def is_integer(self) -> bool | None:
         value = self._as_python_float()
@@ -1330,12 +1472,12 @@ class _SingletonRegistry:
         return _ZERO
 
     @property
-    def One(self) -> "Integer":
-        return Integer(1)
+    def One(self) -> "One":
+        return _ONE
 
     @property
-    def NegativeOne(self) -> "Integer":
-        return Integer(-1)
+    def NegativeOne(self) -> "NegativeOne":
+        return _NEGATIVE_ONE
 
     @property
     def Half(self) -> "Rational":
@@ -1352,7 +1494,6 @@ class _SingletonRegistry:
     @property
     def ComplexInfinity(self) -> ComplexInfinity:
         return zoo
-
     @property
     def NaN(self) -> Expr:
         return Expr("nan")
@@ -1437,6 +1578,22 @@ class Pow(Expr):
     __slots__ = ()
 
     def __new__(cls, base: Any, exponent: Any, evaluate: bool = True):
+        if evaluate:
+            # SymPy 1.14.0 construction folds (bead
+            # fra-shell-number-canonical-construction-qf6): 1**x -> 1,
+            # x**0 -> 1, 0**0 -> 1, 0**positive -> 0, 0**negative -> zoo.
+            base_int = _admitted_exact_int(base)
+            exp_int = _admitted_exact_int(exponent)
+            if base_int is not None and exp_int is not None:
+                if base_int == 1:
+                    return _ONE
+                if exp_int == 0:
+                    return _ONE
+                if base_int == 0:
+                    if exp_int > 0:
+                        return _ZERO
+                    if exp_int < 0:
+                        return zoo
         val = _native.Pow(
             _native_expr(base), _native_expr(exponent), evaluate=evaluate
         ).as_expr()
@@ -1666,7 +1823,7 @@ for _mod_name, _mod_items in [
     ("sympy.core.basic", (Basic, Atom, _restore_nary, _restore_pow, _restore_dummy, _restore_applied_undef)),
     ("sympy.core.expr", (Expr, AtomicExpr)),
     ("sympy.core.symbol", (Symbol, Dummy, symbols)),
-    ("sympy.core.numbers", (Number, Rational, Integer, Float, ComplexInfinity, _restore_float)),
+    ("sympy.core.numbers", (Number, Rational, Integer, Zero, One, NegativeOne, Float, ComplexInfinity, _restore_float, _restore_zero, _restore_one, _restore_negative_one)),
     ("sympy.core.relational", (Relational, Eq, Ne, Lt, Le, Gt, Ge)),
     ("sympy.core.add", (Add,)),
     ("sympy.core.mul", (Mul,)),
