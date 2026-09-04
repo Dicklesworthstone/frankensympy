@@ -35,7 +35,7 @@ donor_source_registry = "registries/donor_sources.toml"
 workstream_registry = "registries/workstreams.toml"
 
 [workspace]
-members = ["crates/*"]
+members = ["crates/*", "xtask"]
 resolver = "3"
 
 [workspace.package]

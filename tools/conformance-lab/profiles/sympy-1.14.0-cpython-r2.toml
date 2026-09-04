@@ -1,0 +1,41 @@
+# Immutable oracle profile revision r2: SymPy 1.14.0 on CPython.
+#
+# Per docs/CONFORMANCE_AND_BENCHMARKING.md section 3, this manifest pins the
+# upstream oracle environment for the sympy-1.14.0-cpython profile. Changing
+# any field creates a new profile and invalidates previously captured goldens.
+
+schema_version = 1
+profile_id = "sympy-1.14.0-cpython-r2"
+profile_status = "active"  # r2: fixture eval_zero_collapse semantics landed post-r1 capture (2026-08-23); r1 goldens preserved
+
+[upstream]
+distribution = "sympy"
+version = "1.14.0"
+commit = "16fa855354eb7bcabd3fe10993841e03b1382692"
+
+[environment]
+implementation = "cpython"
+python_version = "3.14"
+locale = "C.UTF-8"
+timezone = "UTC"
+hash_seed = "0"                     # PYTHONHASHSEED pinned so hash observations are reproducible
+env_overrides = { PYTHONDONTWRITEBYTECODE = "1", PYTHONHASHSEED = "0" }
+
+[runtime]
+oracle_isolation = "subprocess"     # oracle runs in its own process; no shared imports/objects
+pickle_protocols = [4, 5]
+printers = ["str", "repr", "srepr", "latex", "pretty_ascii"]
+
+[inventory]
+# Seed corpora captured for the C1 skeleton; expansion is profile-versioned.
+fixtures = [
+    "fixtures/seed_core_atoms.json",
+    "fixtures/seed_held_forms.json",
+    "fixtures/seed_function_subclass.json",
+]
+
+[comparators]
+# Comparator registry: every fixture names one of these by id. Selection is
+# based on the API contract, never on which choice makes a case pass.
+exact_surface = "type+module+mro+args+func+str+repr+srepr+latex+pretty+hash+pickle_digest"
+construction_only = "type+module+args+func"

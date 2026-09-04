@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "gate": "foundation",
+  "profile_id": "sympy-1.14.0-cpython",
+  "status": "passed",
+  "commit": "4d981909e0f60224f24afe6856cfac998971e849",
+  "checks": [
+    {
+      "name": "workspace-forbids-unsafe",
+      "status": "passed",
+      "detail": "workspace lints forbid unsafe_code"
+    },
+    {
+      "name": "tests-fsym-id",
+      "status": "passed",
+      "detail": "exit=0"
+    },
+    {
+      "name": "tests-fsym-budget",
+      "status": "passed",
+      "detail": "exit=0"
+    },
+    {
+      "name": "tests-fsym-outcome",
+      "status": "passed",
+      "detail": "exit=0"
+    },
+    {
+      "name": "tests-fsym-bigint",
+      "status": "passed",
+      "detail": "exit=0"
+    },
+    {
+      "name": "tests-fsym-rational",
+      "status": "passed",
+      "detail": "exit=0"
+    },
+    {
+      "name": "tests-fsym-modular",
+      "status": "passed",
+      "detail": "exit=0"
+    }
+  ],
+  "checks_digest": "104f777c9d03eee14adceb7b5aa432d34960df7108e7dae707767b8b5739aac9"
+}

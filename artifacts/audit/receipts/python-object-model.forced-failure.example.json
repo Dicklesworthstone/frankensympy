@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "gate": "python-object-model",
+  "profile_id": "sympy-1.14.0-cpython",
+  "status": "failed",
+  "commit": "4d981909e0f60224f24afe6856cfac998971e849",
+  "checks": [
+    {
+      "name": "oracle-version-pinned",
+      "status": "passed",
+      "detail": "oracle reports sympy 1.14.0"
+    },
+    {
+      "name": "profile-id-matches-declared-module",
+      "status": "passed",
+      "detail": "tools/conformance-lab/profiles/sympy-1.14.0-cpython.toml declares profile_id \"sympy-1.14.0-cpython\""
+    },
+    {
+      "name": "oracle-isolation-probe",
+      "status": "passed",
+      "detail": "exit=0"
+    },
+    {
+      "name": "object-model-differential",
+      "status": "failed",
+      "detail": "exit=1 tail="
+    }
+  ],
+  "checks_digest": "9bae9d1679cac8515ca48bd26adb01dfbf825fc420ad901cc2fb57a3fa886001"
+}

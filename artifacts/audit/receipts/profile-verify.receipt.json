@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "gate": "profile-verify",
+  "profile_id": "sympy-1.14.0-cpython-r2",
+  "status": "passed",
+  "commit": "4d981909e0f60224f24afe6856cfac998971e849",
+  "checks": [
+    {
+      "name": "profile-id-matches-declared-module",
+      "status": "passed",
+      "detail": "tools/conformance-lab/profiles/sympy-1.14.0-cpython-r2.toml declares profile_id \"sympy-1.14.0-cpython-r2\""
+    },
+    {
+      "name": "registry-validators",
+      "status": "passed",
+      "detail": "exit=0"
+    },
+    {
+      "name": "workspace-forbids-unsafe",
+      "status": "passed",
+      "detail": "workspace lints forbid unsafe_code"
+    }
+  ],
+  "checks_digest": "2a8d2fe3985a46d0a712ff0a72e00e17874bf37db1ea35012a443b5a4f0005bc"
+}
