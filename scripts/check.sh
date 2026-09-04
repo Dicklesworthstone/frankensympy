@@ -281,6 +281,16 @@ lab() {
   run "$PYTHON_BIN" "$ROOT/tools/conformance-lab/capture.py" moving-head "$profile"
   ok "conformance laboratory unit, isolation, self-test, oracle suite-smoke, and non-certifying moving-head passed"
 }
+
+packaging_consistency() {
+  # The candidate shell is unusable without an importable fsym_python artifact.
+  # This gate fails closed when the built cdylib does not carry the pyproject
+  # module name or when plain `import sympy` needs any workaround.
+  local interpreter="${FSYM_PYTHON:-$ROOT/.venv-conformance/bin/python}"
+  run bash "$ROOT/scripts/build_python_extension.sh"
+  run env -u FSYM_PYTHON_EXT_DIR PYTHONPATH="$ROOT/python" "$interpreter" -c "import sympy; x = sympy.Symbol('x'); print(sympy.diff(x**3, x))"
+  ok "packaging consistency: fsym_python cdylib matches pyproject module-name and imports cleanly"
+}
 fuzz_smoke() { unimplemented_release_profile fuzz-smoke; }
 matrix() { unimplemented_release_profile matrix; }
 reproducibility() { unimplemented_release_profile reproducibility; }
@@ -292,9 +302,9 @@ release_candidate() {
   release_readiness || refuse "release readiness preconditions are not satisfied"
   registries
   format
-  unit
   conformance
   portable_verifiers
+  packaging_consistency
   lab
   fuzz_smoke
   bench_smoke
@@ -318,8 +328,9 @@ case "$PROFILE" in
   unit) unit ;;
   conformance) conformance ;;
   portable-verifiers) portable_verifiers ;;
-  bench-smoke) bench_smoke ;;
   lab) lab ;;
+  packaging-consistency) packaging_consistency ;;
+  bench-smoke) bench_smoke ;;
   fuzz-smoke) fuzz_smoke ;;
   matrix) matrix ;;
   reproducibility) reproducibility ;;
@@ -328,7 +339,7 @@ case "$PROFILE" in
   release-candidate) release_candidate ;;
   all) release_candidate ;;
   *)
-    printf 'usage: %s {source-clean|format|architecture|registries|metadata|audit|unit|conformance|portable-verifiers|bench-smoke|lab|fuzz-smoke|matrix|reproducibility|package|sign|release-candidate|all}\n' "$0" >&2
+    printf 'usage: %s {source-clean|format|architecture|registries|metadata|audit|unit|conformance|portable-verifiers|bench-smoke|lab|packaging-consistency|fuzz-smoke|matrix|reproducibility|package|sign|release-candidate|all}\n' "$0" >&2
     exit 2
     ;;
 esac
