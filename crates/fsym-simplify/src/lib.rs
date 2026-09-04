@@ -228,6 +228,13 @@ const NODE_STEP: u64 = 1;
 const MAX_INPUT_FANOUT: usize = 262_144;
 const MAX_EXPANDED_TERMS: usize = 4_096;
 
+/// Highest integer power of an expanded Add that `expand` will multiply out.
+/// (x+1)**20 (the gauntlet divergence) yields 21 terms; the term-limit guard
+/// still bounds every input, and integer powers beyond this envelope get a
+/// TYPED refusal instead of silently returning the unexpanded input
+/// (bead fra-fra-ws18-expand-typed-refusal-7c1).
+const MAX_EXPAND_POWER: usize = 64;
+
 fn check_fanout(actual: usize) -> Result<(), SimplifyError> {
     if actual > MAX_INPUT_FANOUT {
         Err(SimplifyError::General(format!(
@@ -655,7 +662,16 @@ fn expand_at<M: BudgetMeter>(expr: &Expr, depth: usize, m: &mut M) -> Result<Exp
                             .push(simplify_with(&Expr::Mul(vec![a.clone(), b.clone()]), m)?);
                     }
                 }
-                current = product_terms;
+                // Collect like terms after EVERY factor: naive repeated
+                // multiplication doubles the term count ((x+1)**20 -> 2**20
+                // raw terms) and trips the limit, silently falling back to the
+                // unexpanded input. Polynomial multiplication keeps the working
+                // set at the monomial count ((x+1)**20 -> 21 terms)
+                // (bead fra-fra-ws18-expand-typed-refusal-7c1).
+                current = match collect_terms(product_terms) {
+                    Expr::Add(ts) => ts,
+                    other => vec![other],
+                };
             }
             Ok(collect_terms(current))
         }
@@ -663,17 +679,29 @@ fn expand_at<M: BudgetMeter>(expr: &Expr, depth: usize, m: &mut M) -> Result<Exp
             let eb = expand_at(base, depth + 1, m)?;
             let ee = expand_at(exp, depth + 1, m)?;
             if let Expr::Integer(n) = &ee
-                && let Ok(k) = usize::try_from(n)
-                && (2..=16).contains(&k)
+                && matches!(eb, Expr::Add(_))
             {
-                let mut factors = Vec::with_capacity(k);
-                for _ in 0..k {
-                    factors.push(eb.clone());
+                match usize::try_from(n) {
+                    Ok(0) => return Ok(Expr::from_i64(1)),
+                    Ok(1) => return Ok(eb),
+                    Ok(k) if k <= MAX_EXPAND_POWER => {
+                        let mut factors = Vec::with_capacity(k);
+                        for _ in 0..k {
+                            factors.push(eb.clone());
+                        }
+                        return expand_at(&Expr::Mul(factors), depth + 1, m);
+                    }
+                    Ok(k) => {
+                        return Err(SimplifyError::General(format!(
+                            "binomial expansion of integer power {k} exceeds the power envelope of {MAX_EXPAND_POWER}; the unexpanded form is never returned silently"
+                        )));
+                    }
+                    // Negative or symbolic-exponent overflow: keep the power
+                    // symbolic (profile-consistent with upstream expand).
+                    Err(_) => {}
                 }
-                expand_at(&Expr::Mul(factors), depth + 1, m)
-            } else {
-                Ok(Expr::Pow(Arc::new(eb), Arc::new(ee)))
             }
+            Ok(Expr::Pow(Arc::new(eb), Arc::new(ee)))
         }
         _ => Ok(expr.clone()),
     }
@@ -1248,5 +1276,130 @@ mod tests {
         let real = Arc::new(real_context.snapshot());
         let (out, _) = apply_step(&log_exp_x, &rules, &real).unwrap();
         assert_eq!(out, x);
+    }
+
+    // ---- fra-fra-ws18-expand-typed-refusal-7c1: binomial envelope ----
+
+    fn eval_at_x(expr: &Expr, x_value: i64) -> Option<i64> {
+        match expr {
+            Expr::Integer(v) => v.to_i64(),
+            Expr::Sym(sym) => (sym.name == "x").then_some(x_value),
+            Expr::Add(ts) => ts.iter().try_fold(0i64, |acc, t| Some(acc + eval_at_x(t, x_value)?)),
+            Expr::Mul(fs) => fs.iter().try_fold(1i64, |acc, f| Some(acc * eval_at_x(f, x_value)?)),
+            Expr::Pow(b, e) => {
+                let b = eval_at_x(b, x_value)?;
+                let e = eval_at_x(e, x_value)?;
+                Some(b.checked_pow(u32::try_from(e).ok()?)?)
+            }
+            _ => None,
+        }
+    }
+
+    /// Extract [c_0, c_1, ...] polynomial coefficients over x from an
+    /// expanded Add; panics on any term that is not a polynomial monomial.
+    fn poly_coefficients_over_x(expr: &Expr) -> Vec<i64> {
+        let terms = match expr {
+            Expr::Add(ts) => ts.clone(),
+            single => vec![single.clone()],
+        };
+        let mut coeffs: Vec<(usize, i64)> = Vec::new();
+        for t in &terms {
+            match t {
+                Expr::Integer(v) => coeffs.push((0, v.to_i64().expect("small constant"))),
+                Expr::Sym(sym) if sym.name == "x" => coeffs.push((1, 1)),
+                Expr::Pow(b, e) => {
+                    let (Expr::Sym(sym), Expr::Integer(k)) = (b.as_ref(), e.as_ref()) else {
+                        panic!("non-monomial term {t:?}");
+                    };
+                    assert_eq!(sym.name, "x");
+                    coeffs.push((k.to_i64().expect("degree") as usize, 1));
+                }
+                Expr::Mul(fs) => {
+                    let mut degree = 0usize;
+                    let mut coeff = 1i64;
+                    for f in fs {
+                        match f {
+                            Expr::Integer(v) => coeff *= v.to_i64().expect("small coefficient"),
+                            Expr::Sym(sym) if sym.name == "x" => degree += 1,
+                            Expr::Pow(b, e) => {
+                                let (Expr::Sym(sym), Expr::Integer(k)) = (b.as_ref(), e.as_ref()) else {
+                                    panic!("non-monomial factor {f:?}");
+                                };
+                                assert_eq!(sym.name, "x");
+                                degree += k.to_i64().expect("degree") as usize;
+                            }
+                            other => panic!("non-monomial factor {other:?}"),
+                        }
+                    }
+                    coeffs.push((degree, coeff));
+                }
+                other => panic!("non-polynomial term {other:?}"),
+            }
+        }
+        coeffs.sort_unstable();
+        coeffs.into_iter().map(|(d, c)| c).collect()
+    }
+
+    #[test]
+    fn expand_binomial_power_twenty_matches_binomial_row() {
+        let x = Expr::symbol("x");
+        let base = Expr::Add(vec![x.clone(), Expr::from_i64(1)]);
+        let expr = Expr::Pow(Arc::new(base), Arc::new(Expr::from_i64(20)));
+        let expanded = expand(&expr);
+        // (x+1)^20 has exactly 21 terms with the 21st binomial-row coefficients.
+        let expected: Vec<i64> = (0..=20)
+            .map(|k| {
+                let mut c: i128 = 1;
+                for j in 0..k {
+                    c = c * (20 - j as i128) / (j as i128 + 1);
+                }
+                c as i64
+            })
+            .collect();
+        assert_eq!(poly_coefficients_over_x(&expanded), expected);
+        // Two-point evaluation identity.
+        assert_eq!(eval_at_x(&expanded, 2), Some(3i64.pow(20)));
+        assert_eq!(eval_at_x(&expanded, 3), Some(4i64.pow(20)));
+    }
+
+    #[test]
+    fn expand_binomial_beyond_envelope_is_typed_refusal() {
+        let x = Expr::symbol("x");
+        let base = Expr::Add(vec![x.clone(), Expr::from_i64(1)]);
+        let expr = Expr::Pow(Arc::new(base), Arc::new(Expr::from_i64(65)));
+        match try_expand(&expr) {
+            Err(SimplifyError::General(msg)) => {
+                assert!(msg.contains("power envelope"), "refusal must name the envelope: {msg}");
+            }
+            Err(other) => panic!("wrong refusal variant: {other:?}"),
+            Ok(Expr::Pow(_, _)) => {
+                panic!("silent unexpanded return is the defect this bead fixes");
+            }
+            Ok(other) => panic!("unexpected expansion result {other:?}"),
+        }
+    }
+
+    #[test]
+    fn expand_symbolic_exponent_stays_symbolic() {
+        let x = Expr::symbol("x");
+        let y = Expr::symbol("y");
+        let base = Expr::Add(vec![x.clone(), Expr::from_i64(1)]);
+        let expr = Expr::Pow(Arc::new(base), Arc::new(y));
+        match expand(&expr) {
+            Expr::Pow(b, e) => {
+                assert!(matches!(b.as_ref(), Expr::Add(_)));
+                assert!(matches!(e.as_ref(), Expr::Sym(s) if s.name == "y"));
+            }
+            other => panic!("symbolic power must stay a Pow, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn expand_small_powers_still_fold() {
+        let x = Expr::symbol("x");
+        let base = Expr::Add(vec![x.clone(), Expr::from_i64(1)]);
+        let expr = Expr::Pow(Arc::new(base), Arc::new(Expr::from_i64(3)));
+        // (x+1)^3 = x^3 + 3x^2 + 3x + 1
+        assert_eq!(poly_coefficients_over_x(&expand(&expr)), vec![1, 3, 3, 1]);
     }
 }
