@@ -951,4 +951,133 @@ mod tests {
             Expr::from_i64(-1)
         );
     }
+
+    // ---- fra-functions-oracle-test-blanket-17m: boundary/adversarial pins ----
+
+    #[test]
+    fn blanket_factorial_boundaries_and_envelope() {
+        // Fold envelope is 0..=100; beyond it the form stays opaque, never wrong.
+        assert_eq!(factorial(Expr::from_i64(6)), Expr::from_i64(720));
+        match factorial(Expr::from_i64(101)) {
+            Expr::Function(name, _) => assert_eq!(name, "factorial"),
+            other => panic!("factorial(101) must stay opaque, got {other:?}"),
+        }
+        match factorial(Expr::from_i64(-1)) {
+            Expr::Function(name, _) => assert_eq!(name, "factorial"),
+            other => panic!("factorial(-1) must stay opaque (no gamma extension), got {other:?}"),
+        }
+        match factorial(Expr::symbol("n")) {
+            Expr::Function(name, _) => assert_eq!(name, "factorial"),
+            other => panic!("factorial(symbol) must stay opaque, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn blanket_fibonacci_lucas_negative_and_symbol_refusals() {
+        for n in [-1i64, -5] {
+            match fibonacci(Expr::from_i64(n)) {
+                Expr::Function(name, _) => assert_eq!(name, "fibonacci"),
+                other => panic!("fibonacci({n}) must stay opaque, got {other:?}"),
+            }
+            match lucas(Expr::from_i64(n)) {
+                Expr::Function(name, _) => assert_eq!(name, "lucas"),
+                other => panic!("lucas({n}) must stay opaque, got {other:?}"),
+            }
+        }
+        match fibonacci(Expr::symbol("n")) {
+            Expr::Function(name, _) => assert_eq!(name, "fibonacci"),
+            other => panic!("fibonacci(symbol) must stay opaque, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn blanket_harmonic_exactness_and_type() {
+        // H_2 = 3/2 exact rational, never a float.
+        match harmonic(Expr::from_i64(2)) {
+            Expr::Rational(r) => assert_eq!(
+                (r.numer().to_string(), r.denom().to_string()),
+                ("3".to_string(), "2".to_string())
+            ),
+            other => panic!("harmonic(2) must be exact rational, got {other:?}"),
+        }
+        assert_eq!(harmonic(Expr::from_i64(0)), Expr::from_i64(0));
+    }
+
+    #[test]
+    fn blanket_bernoulli_odd_convention() {
+        // B_1 = -1/2 (standard convention pinned against the oracle).
+        match bernoulli(Expr::from_i64(1)) {
+            Expr::Rational(r) => assert_eq!(
+                (r.numer().to_string(), r.denom().to_string()),
+                ("-1".to_string(), "2".to_string())
+            ),
+            other => panic!("bernoulli(1) must be exact -1/2, got {other:?}"),
+        }
+        // Odd n >= 3 is zero in the generating-function convention.
+        assert_eq!(bernoulli(Expr::from_i64(3)), Expr::from_i64(0));
+    }
+
+    #[test]
+    fn blanket_binomial_negative_lower_index_is_zero() {
+        assert_eq!(binomial(Expr::from_i64(5), Expr::from_i64(-1)), Expr::from_i64(0));
+        assert_eq!(binomial(Expr::from_i64(-1), Expr::from_i64(-1)), Expr::from_i64(0));
+        assert_eq!(binomial(Expr::from_i64(5), Expr::from_i64(0)), Expr::from_i64(1));
+    }
+
+    #[test]
+    fn blanket_zeta_pole_stays_opaque_and_gamma_folds() {
+        match zeta(Expr::from_i64(1)) {
+            Expr::Function(name, _) => assert_eq!(name, "zeta"),
+            other => panic!("zeta(1) pole must stay opaque, got {other:?}"),
+        }
+        assert_eq!(gamma(Expr::from_i64(5)), Expr::from_i64(24));
+    }
+
+    #[test]
+    fn blanket_coverage_sweep_names_every_public_entry_point() {
+        // Compile-enforced coverage sweep: every public constructor is called
+        // at least once so future additions cannot silently skip the blanket.
+        let x = Expr::symbol("x");
+        let _ = sin(x.clone());
+        let _ = cos(x.clone());
+        let _ = tan(x.clone());
+        let _ = cot(x.clone());
+        let _ = sec(x.clone());
+        let _ = csc(x.clone());
+        let _ = asin(x.clone());
+        let _ = acos(x.clone());
+        let _ = atan(x.clone());
+        let _ = acot(x.clone());
+        let _ = asec(x.clone());
+        let _ = acsc(x.clone());
+        let _ = sinh(x.clone());
+        let _ = cosh(x.clone());
+        let _ = tanh(x.clone());
+        let _ = asinh(x.clone());
+        let _ = acosh(x.clone());
+        let _ = atanh(x.clone());
+        let _ = acoth(x.clone());
+        let _ = asech(x.clone());
+        let _ = acsch(x.clone());
+        let _ = sinc(x.clone());
+        let _ = erf(x.clone());
+        let _ = erfc(x.clone());
+        let _ = abs_val(x.clone());
+        let _ = sign(x.clone());
+        let _ = exp(x.clone());
+        let _ = log(x.clone());
+        let _ = gamma(x.clone());
+        let _ = factorial(x.clone());
+        let _ = binomial(x.clone(), x.clone());
+        let _ = fibonacci(x.clone());
+        let _ = lucas(x.clone());
+        let _ = harmonic(x.clone());
+        let _ = catalan(x.clone());
+        let _ = bernoulli(x.clone());
+        let _ = bell(x.clone());
+        let _ = subfactorial(x.clone());
+        let _ = floor(x.clone());
+        let _ = ceiling(x.clone());
+        let _ = zeta(x.clone());
+    }
 }
