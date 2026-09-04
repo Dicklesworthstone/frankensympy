@@ -67,6 +67,8 @@ gate = "gate://ws05-python-object-model"
 evidence_artifacts = ["UNSET"]
 profile_id = "sympy-1.14.0-cpython"
 
+notes = "2026-09-04: shell slice progressed - Zero singleton identity (S.Zero type/module parity), custom-subclass eval collapse matches pinned oracle, surface pins 27/27 (python/tests/test_surface.py), r2 differential 14/14 admitted (tools/conformance-lab/profiles/sympy-1.14.0-cpython-r2.toml). Known ledgered infidelities remain open (r2-corpus ledger.json, 41 records); status stays planned pending gate://ws05-python-object-model bundle."
+
 [[claims]]
 id = "COMPAT-003"
 kind = "compatibility"
@@ -78,6 +80,8 @@ workstreams = ["WS05", "WS21"]
 gate = "gate://ws05-python-object-model"
 evidence_artifacts = ["UNSET"]
 profile_id = "sympy-1.14.0-cpython"
+
+notes = "2026-09-04: r2-corpus differential corpus (216 fixtures) run: 189/230 admitted, 41 drifts ledgered-open (artifacts/conformance/sympy-1.14.0-cpython-r2-corpus/ledger.json) incl. Add/Mul/Pow is_* family gaps, Dummy wrap identity, Integer(0) constructor interning, Pow repr precedence; comparator refinement recorded (machine-local provenance excluded from exact_surface). Status stays planned pending gate bundle."
 
 [[claims]]
 id = "COMPAT-004"
