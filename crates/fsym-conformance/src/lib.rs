@@ -210,16 +210,23 @@ pub fn corpus() -> Vec<CaseSpec> {
         mk("int_002", "3*x^2 + 2*x", "x", Op::Integrate),
         mk("int_003", "cos(x)", "x", Op::Integrate),
         mk("int_004", "exp(x)", "x", Op::Integrate),
+        // Integration by parts (capability outgrew the old int_refusal_001
+        // expectation; residual d/dx[-x*cos(x) + sin(x)] == x*sin(x) verified
+        // against the pinned oracle lane).
+        mk("int_005", "x * sin(x)", "x", Op::Integrate),
         mk("lim_001", "2*x + 1", "x", Op::Limit("oo".into())),
         mk("lim_002", "-x^5", "x", Op::Limit("-oo".into())),
         mk("lim_003", "x + 4", "x", Op::Limit("5".into())),
         mk("tay_001", "exp(x)", "x", Op::Taylor { at: 0, order: 6 }),
         mk("tay_002", "cos(x)", "x", Op::Taylor { at: 0, order: 4 }),
     ];
-    // Known engine limitations: these must refuse, never guess.
+    // Known engine limitations: these must refuse, never guess. `x*exp(x^2)`
+    // has no elementary antiderivative and the engine's integrator refuses it
+    // (live-verified 2026-09-04); the refusal lane must keep at least one such
+    // genuinely unsupported form.
     v.push(CaseSpec {
         case_id: "int_refusal_001".to_string(),
-        input_expr: "x * sin(x)".to_string(),
+        input_expr: "x * exp(x^2)".to_string(),
         var: "x".to_string(),
         op: Op::Integrate,
         expected_refusal: Some(RefusalKind::IntegrationUnsupported),
@@ -376,6 +383,8 @@ enum OracleRecord {
     },
     Case {
         id: String,
+        lane: String,
+        comparator: Option<String>,
         verdict: String,
         expected: Option<String>,
         detail: Option<String>,
@@ -567,6 +576,8 @@ fn parse_oracle_stdout(stdout: &str) -> Result<(String, HashMap<String, OracleLi
             }
             OracleRecord::Case {
                 id,
+                lane: _,
+                comparator: _,
                 verdict,
                 expected,
                 detail,
@@ -1098,8 +1109,8 @@ mod tests {
     fn oracle_protocol_rejects_duplicate_and_missing_results() {
         let duplicate = concat!(
             "{\"kind\":\"meta\",\"schema_version\":1,\"profile_id\":\"native-math-corpus-v1\",\"sympy_version\":\"1.14.0\"}\n",
-            "{\"kind\":\"case\",\"id\":\"planted_001\",\"verdict\":\"pass\",\"expected\":\"2*x\",\"detail\":null}\n",
-            "{\"kind\":\"case\",\"id\":\"planted_001\",\"verdict\":\"pass\",\"expected\":\"2*x\",\"detail\":null}\n"
+            "{\"kind\":\"case\",\"id\":\"planted_001\",\"lane\":\"rust_native\",\"comparator\":null,\"verdict\":\"pass\",\"expected\":\"2*x\",\"detail\":null}\n",
+            "{\"kind\":\"case\",\"id\":\"planted_001\",\"lane\":\"rust_native\",\"comparator\":null,\"verdict\":\"pass\",\"expected\":\"2*x\",\"detail\":null}\n"
         );
         assert!(
             parse_oracle_stdout(duplicate)
@@ -1133,7 +1144,7 @@ mod tests {
 
         let invalid = concat!(
             "{\"kind\":\"meta\",\"schema_version\":1,\"profile_id\":\"native-math-corpus-v1\",\"sympy_version\":\"1.14.0\"}\n",
-            "{\"kind\":\"case\",\"id\":\"planted_001\",\"verdict\":\"pass\",\"expected\":null,\"detail\":null}\n"
+            "{\"kind\":\"case\",\"id\":\"planted_001\",\"lane\":\"rust_native\",\"comparator\":null,\"verdict\":\"pass\",\"expected\":null,\"detail\":null}\n"
         );
         assert!(
             parse_oracle_stdout(invalid)
