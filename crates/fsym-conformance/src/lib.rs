@@ -1316,8 +1316,8 @@ mod verdict_schema_alignment {
 
     #[test]
     fn oracle_script_emits_shared_schema_required_fields() {
-        let schema: serde_json::Value = serde_json::from_str(SCHEMA)
-            .expect("shared verdict schema must be valid JSON");
+        let schema: serde_json::Value =
+            serde_json::from_str(SCHEMA).expect("shared verdict schema must be valid JSON");
         let required = schema["required"]
             .as_array()
             .expect("schema.required must be an array")
@@ -1340,7 +1340,10 @@ mod verdict_schema_alignment {
             .iter()
             .map(|v| v.as_str().unwrap())
             .collect::<Vec<_>>();
-        assert!(lane.contains(&"rust_native"), "schema must know the rust_native lane");
+        assert!(
+            lane.contains(&"rust_native"),
+            "schema must know the rust_native lane"
+        );
     }
 
     #[test]
