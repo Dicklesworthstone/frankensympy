@@ -202,7 +202,9 @@ class Matrix(MatrixBase):
         return f"Matrix({self.tolist()})"
 
     def __str__(self):
-        return str(self._native)
+        # Oracle parity: str(Matrix(...)) is the single-line form (finding 6,
+        # printer-parity bead qxr); the native multi-line pretty is not str.
+        return f"Matrix({self.tolist()})"
 
     def _repr_latex_(self):
         return self._native._repr_latex_()

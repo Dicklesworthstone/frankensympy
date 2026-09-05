@@ -13,6 +13,11 @@ import sys
 from fractions import Fraction
 from typing import Any, Iterable
 
+# The Python str printer recurses ~3 frames per nesting level and admissible
+# trees go to MAX_EXPR_DEPTH=4096, so keep the interpreter limit safely above
+# the worst case (a deeper construction is refused by the bridge anyway).
+sys.setrecursionlimit(max(sys.getrecursionlimit(), 20000))
+
 _DUMMY_PREFIX = "__fsymDummy_"
 _FLOAT_INTERN = "__fsymFloat"
 _dummy_next = 1
@@ -599,10 +604,14 @@ class Basic:
         return self._value.pretty()
 
     def __str__(self) -> str:
-        return str(self._value)
+        # SymPy 1.14.0 plain str printer (printer-parity bead qxr): Python
+        # rendering over wrapped args; the native Display wraps every Add in
+        # parentheses and keeps ' + -1' terms, which diverges from the oracle.
+        return _str_expr(self)
 
     def __repr__(self) -> str:
-        return repr(self._value)
+        # Upstream SymPy: repr == str for core expressions (both StrPrinter).
+        return _str_expr(self)
 
     def __hash__(self) -> int:
         if type(self) not in _exact_surface_types() and not isinstance(self, Function):
@@ -715,11 +724,27 @@ def _str_parenthesize(text: str, expr: "Expr") -> str:
     return text
 
 
+def _expr_degree(expr: "Expr") -> int:
+    """Total formal degree for polynomial-shaped terms; 0 otherwise.
+    Mirrors the dominant case of the oracle's monomial ordering."""
+    if isinstance(expr, Symbol):
+        return 1
+    if isinstance(expr, Rational):
+        return 0
+    if type(expr) is Pow:
+        base, exp = expr.args
+        b = _expr_degree(base)
+        n = _admitted_exact_int(exp)
+        return b * n if (b is not None and n is not None and n > 0) else 0
+    if type(expr) is Mul:
+        return sum(_expr_degree(a) for a in expr.args)
+    return 0
+
+
 def _str_expr(expr: "Expr") -> str:
     """SymPy 1.14.0-faithful plain str printer (printer-parity bead qxr)."""
     neg, body = _str_term(expr)
     return ("-" + body) if neg else body
-
 
 def _str_term(expr: "Expr") -> tuple[bool, str]:
     """Render one additive term as (negative, unsigned_body)."""
@@ -732,32 +757,52 @@ def _str_term(expr: "Expr") -> tuple[bool, str]:
         base, exp = expr.args
         return False, f"{_str_parenthesize(_str_expr(base), base)}**{_str_parenthesize(_str_expr(exp), exp)}"
     if type(expr) is Mul:
-        coeff, rest = expr.as_coeff_Mul()
+        # Self-contained coefficient split (no as_coeff_Mul dependency).
+        coeff_p, coeff_q = 1, 1
+        rest = []
+        for a in expr.args:
+            if isinstance(a, Rational):
+                coeff_p *= a.p
+                coeff_q *= a.q
+            else:
+                rest.append(a)
+        neg = coeff_p < 0
+        coeff_p = abs(coeff_p)
         rest_strs = [
             _str_parenthesize(_str_expr(a), a)
-            for a in sorted(rest.args, key=sort_key_of := (lambda a: a.sort_key()))
+            for a in sorted(rest, key=lambda a: a.sort_key())
         ]
         body = "*".join(rest_strs)
-        neg, ctext = _str_number(coeff) if isinstance(coeff, Rational) else (False, _str_expr(coeff))
-        if ctext == "1":
+        if not rest:
+            return (neg, f"{coeff_p}/{coeff_q}") if coeff_q != 1 else (neg, str(coeff_p))
+        if coeff_q != 1:
+            if coeff_p == 1:
+                return neg, f"{body}/{coeff_q}"
+            return neg, f"{coeff_p}*{body}/{coeff_q}"
+        if coeff_p == 1:
             return neg, body
-        if ctext == "-1" or (neg and ctext == "1"):
-            return True, body
-        q = coeff.q if isinstance(coeff, Rational) else 1
-        ap = abs(coeff.p) if isinstance(coeff, Rational) else None
-        if q == 1:
-            return neg, f"{ap}*{body}"
-        if ap == 1:
-            return neg, f"{body}/{q}"
-        return neg, f"{ap}*{body}/{q}"
+        return neg, f"{coeff_p}*{body}"
     if type(expr) is Add:
-        const, rest_add = expr.as_coeff_Add()
-        terms = sorted(rest_add.args, key=lambda a: a.sort_key(), reverse=True)
-        rendered = [_str_term(t) for t in terms]
+        const = None
+        rest = []
+        for a in expr.args:
+            if isinstance(a, Rational):
+                const = a if const is None else Rational(const.p * a.q + a.p * const.q, const.q * a.q)
+            else:
+                rest.append(a)
+        if not isinstance(const, Rational):
+            const = None
+        if not rest:
+            # Pure-number Add (e.g. produced by held-form folding): the
+            # summed constant is the whole rendering.
+            if isinstance(const, Rational):
+                return _str_number(const)
+            return False, str(_native_expr(expr))
+        rendered = [_str_term(t) for t in sorted(rest, key=lambda a: (-_expr_degree(a), a.sort_key()))]
         out = rendered[0][1]
         for neg, body in rendered[1:]:
             out += (f" - {body}") if neg else (f" + {body}")
-        if const.p != 0 or not rendered:
+        if isinstance(const, Rational) and (const.p != 0 or not rendered):
             cneg, cbody = _str_number(const)
             out += (f" - {cbody}") if cneg else (f" + {cbody}")
         return False, out
@@ -1486,7 +1531,8 @@ class Float(Number):
         return Float(abs(self._as_python_float()), self._dps)
 
     def __str__(self) -> str:
-        return format(self._as_python_float(), f".{self._dps}g")
+        # Oracle str(Float('0.75')) == '0.750000000000000' (15 fixed digits).
+        return _str_float_value(self._as_python_float())
 
     def __repr__(self) -> str:
         return f"Float({self._as_python_float()!r})"
@@ -1687,20 +1733,65 @@ S = _SingletonRegistry()
 
 
 
-class Add(Expr):
+class AssocOp(Basic):
+    """Associative operator base (SympPy 1.14: sympy.core.operations.AssocOp).
+
+    Present so the shell MRO matches the pinned oracle's for Add/Mul; the
+    oracle MRO is Add -> Expr -> AssocOp -> Basic.
+    """
+
     __slots__ = ()
+
+
+AssocOp.__module__ = "sympy.core.operations"
+
+
+class Add(Expr, AssocOp):
+    __slots__ = ("_args",)
 
     def __new__(cls, *args: Any, evaluate: bool = True):
         native_args = [_native_expr(arg) for arg in args]
         val = _native.Add(*native_args, evaluate=evaluate).as_expr()
         if evaluate:
-            return _wrap(val)
+            result = _wrap(val)
+            if isinstance(result, Add) and len(result.args) == len(args):
+                # The native kernel reorders non-combining terms; the oracle
+                # preserves insertion order for them (Add(-8, w).args ==
+                # (-8, w)). When no folding happened (same multiset of args),
+                # surface the caller's order over the native value.
+                given = [a if isinstance(a, Basic) else _wrap(_native_expr(a)) for a in args]
+                remaining = list(result.args)
+                matched = True
+                for g in given:
+                    for i, r in enumerate(remaining):
+                        if g == r:
+                            remaining.pop(i)
+                            break
+                    else:
+                        matched = False
+                        break
+                if matched:
+                    obj = object.__new__(cls)
+                    obj._args = tuple(given)
+                    obj._value = result._value
+                    return obj
+            return result
         obj = object.__new__(cls)
+        # Held forms preserve the caller's argument order exactly (oracle:
+        # Add(-8, w, evaluate=False).args == (-8, w)); the native lane may
+        # reorder, so the surface args come from the construction tuple.
+        obj._args = tuple(a if isinstance(a, Basic) else _wrap(_native_expr(a)) for a in args)
         obj._value = val
         return obj
 
     def __init__(self, *args: Any, evaluate: bool = True):
         pass
+
+    @property
+    def args(self) -> tuple["Basic", ...]:
+        if hasattr(self, "_args"):
+            return self._args
+        return super().args
 
     def __neg__(self) -> "Expr":
         # Profile-correct vs SymPy 1.14.0 Add.__neg__: distribute over terms.
@@ -1708,7 +1799,7 @@ class Add(Expr):
         return Add(*(-arg for arg in self.args))
 
 
-class Mul(Expr):
+class Mul(Expr, AssocOp):
     __slots__ = ()
 
     def __new__(cls, *args: Any, evaluate: bool = True):
@@ -2090,6 +2181,7 @@ for _mod_name, _mod_items in [
     ("sympy.core.relational", (Relational, Eq, Ne, Lt, Le, Gt, Ge)),
     ("sympy.core.add", (Add,)),
     ("sympy.core.mul", (Mul,)),
+    ("sympy.core.operations", (AssocOp,)),
     ("sympy.core.power", (Pow,)),
     ("sympy.core.function", (Function, UndefinedFunction, AppliedUndef, Derivative, Application, FunctionClass, diff)),
 ]:

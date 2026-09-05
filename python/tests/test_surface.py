@@ -753,7 +753,7 @@ class SurfaceTests(unittest.TestCase):
             [sympy.Float(2.0), sympy.Float(float("inf"))],
             key=lambda e: e.sort_key(),
         )
-        self.assertEqual([str(v) for v in ordered], ["2", "inf"])
+        self.assertEqual([str(v) for v in ordered], ["2.000000000000000", "inf"])
 
 
 if __name__ == "__main__":
