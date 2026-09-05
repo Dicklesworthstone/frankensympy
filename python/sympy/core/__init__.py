@@ -846,6 +846,34 @@ class Expr(Basic):
     def is_number(self) -> bool:
         return self._value.is_number
 
+    # Tri-valued assumption family at the base: symbolic compounds (Add/Mul/
+    # Pow) answer None exactly like the pinned oracle; concrete numbers and
+    # Symbols override with definite / assumption-driven answers.
+    # (bead fra-fra-shell-atom-assumptions-bypasses-7o3)
+    @property
+    def is_positive(self) -> bool | None:
+        return None
+
+    @property
+    def is_negative(self) -> bool | None:
+        return None
+
+    @property
+    def is_zero(self) -> bool | None:
+        return None
+
+    @property
+    def is_real(self) -> bool | None:
+        return None
+
+    @property
+    def is_nonnegative(self) -> bool | None:
+        return None
+
+    @property
+    def is_nonpositive(self) -> bool | None:
+        return None
+
     def diff(self, *variables: Any) -> "Expr":
         return diff(self, *variables)
 
@@ -1178,6 +1206,7 @@ class Dummy(Symbol):
         dummy = object.__new__(cls)
         dummy._dummy_name = name
         dummy._dummy_number = number
+        dummy._assumptions = {}
         dummy._value = (
             value if value is not None else _native.py_symbol(_dummy_intern_name(name, number))
         )
@@ -1191,6 +1220,10 @@ class Dummy(Symbol):
     @property
     def dummy_index(self) -> int:
         return self._dummy_number
+
+    def _srepr(self) -> str:
+        # SymPy 1.14.0 prints the dummy identity, never a plain Symbol.
+        return f"Dummy({self._dummy_name!r}, dummy_index={self._dummy_number})"
 
     @classmethod
     def _from_intern(cls, name: str, number: int, value: Any = None) -> "Dummy":
