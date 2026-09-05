@@ -310,9 +310,11 @@ mod tests {
 
         // Evaluated n-ary constructors use identities only for empty input.
         let evaluated_add = PyAdd::new(vec![x.clone(), two.clone()], true);
+        // Canonical args order: exact numbers precede symbols
+        // (fra-add-args-canonical-order-o1i).
         assert_eq!(
             evaluated_add.as_expr().raw_args(),
-            vec![x.clone(), two.clone()]
+            vec![two.clone(), x.clone()]
         );
         assert_eq!(PyAdd::new(Vec::new(), true).as_expr(), py_integer(0));
         let evaluated_mul = PyMul::new(vec![x.clone(), two.clone()], true);

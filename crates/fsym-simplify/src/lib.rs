@@ -188,11 +188,16 @@ fn collect_terms(terms: Vec<Expr>) -> Expr {
             }
         }
     }
-    let mut out = out_pure;
-    out.extend(out_scaled);
-    if !constant.is_zero() || out.is_empty() {
+    // Pinned SymPy 1.14.0 Add args order: the fused constant leads
+    // (x + 2*y + 1 reads (3, x, 2*y)) — matching the native subs path so
+    // structural equality is construction-path independent
+    // (fra-add-args-canonical-order-o1i).
+    let mut out = Vec::new();
+    if !constant.is_zero() || (out_pure.is_empty() && out_scaled.is_empty()) {
         out.push(rational_expr(constant));
     }
+    out.extend(out_pure);
+    out.extend(out_scaled);
     if out.len() == 1 {
         out.pop().expect("len checked")
     } else {
@@ -724,11 +729,13 @@ mod tests {
             Expr::from_i64(2),
         ]);
         let s = simplify(&expr);
+        // Canonical args order (fra-add-args-canonical-order-o1i): the fused
+        // constant (rank 0) precedes the compound term (rank 2).
         assert_eq!(
             s,
             Expr::Add(vec![
-                Expr::Mul(vec![Expr::from_i64(2), x.clone()]),
                 Expr::from_i64(5),
+                Expr::Mul(vec![Expr::from_i64(2), x.clone()]),
             ])
         );
     }
@@ -831,7 +838,7 @@ mod tests {
             let wrapped = Expr::Add(vec![Expr::from_i64(1), input.clone()]);
             assert_eq!(
                 simplify(&wrapped),
-                Expr::Add(vec![input, Expr::from_i64(1)]),
+                Expr::Add(vec![Expr::from_i64(1), input]),
                 "an additive parent must not erase the retained partial product"
             );
         }

@@ -1599,8 +1599,10 @@ mod tests {
         let l_exp = laplace_transform(&exp_3t, &t, &s).unwrap();
         assert_eq!(
             l_exp,
+            // Canonical Add args: exact numbers precede symbols
+            // (fra-add-args-canonical-order-o1i).
             Expr::Pow(
-                Arc::new(Expr::Add(vec![Expr::Sym(s.clone()), Expr::from_i64(-3),])),
+                Arc::new(Expr::Add(vec![Expr::from_i64(-3), Expr::Sym(s.clone())])),
                 Arc::new(Expr::from_i64(-1)),
             )
         );

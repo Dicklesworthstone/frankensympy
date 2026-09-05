@@ -338,16 +338,19 @@ impl std::ops::Add for Expr {
         match (self, other) {
             (Expr::Add(mut terms_a), Expr::Add(terms_b)) => {
                 terms_a.extend(terms_b);
+                fuse_numeric_terms(&mut terms_a);
                 canonicalize_add_args(&mut terms_a);
                 Expr::Add(terms_a)
             }
             (Expr::Add(mut terms), single) | (single, Expr::Add(mut terms)) => {
                 terms.push(single);
+                fuse_numeric_terms(&mut terms);
                 canonicalize_add_args(&mut terms);
                 Expr::Add(terms)
             }
             (a, b) => {
                 let mut terms = vec![a, b];
+                fuse_numeric_terms(&mut terms);
                 canonicalize_add_args(&mut terms);
                 Expr::Add(terms)
             }
@@ -359,6 +362,36 @@ impl std::ops::Add for Expr {
 /// pinned SymPy 1.14.0 convention: exact numbers first (by value), then
 /// symbols (by name), then compound terms (by rendered form)
 /// (bead fra-add-args-canonical-order-o1i).
+/// Sums every exact numeric term into a single leading constant, matching
+/// pinned SymPy 1.14.0 Add construction (x + 2*y + 1 reads (3, x, y))
+/// (bead fra-add-args-canonical-order-o1i).
+fn fuse_numeric_terms(terms: &mut Vec<Expr>) {
+    let mut constant = BigRational::zero();
+    let mut saw_constant = false;
+    terms.retain(|t| match t {
+        Expr::Integer(v) => {
+            constant += BigRational::from_integer(v.clone());
+            saw_constant = true;
+            false
+        }
+        Expr::Rational(r) => {
+            constant += r.clone();
+            saw_constant = true;
+            false
+        }
+        _ => true,
+    });
+    if saw_constant {
+        // Integer-valued sums stay Integers (upstream: x + 3*4 -> x + 12).
+        let term = if constant.denom() == &BigInt::from(1) {
+            Expr::Integer(constant.numer().clone())
+        } else {
+            Expr::Rational(constant)
+        };
+        terms.insert(0, term);
+    }
+}
+
 fn add_arg_rank(e: &Expr) -> u8 {
     match e {
         Expr::Integer(_) | Expr::Rational(_) => 0,
