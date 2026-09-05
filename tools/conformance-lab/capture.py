@@ -2630,6 +2630,10 @@ def cmd_diff(
                 "kind": kind,
                 "difference_paths": paths,
                 "outcome_classes": record.get("outcome_classes"),
+                # Self-diagnosing drifts: carry the actual differing values so
+                # a flaky or real drift can be triaged without re-running the
+                # lane (fra-conformance-corpus-200-b75 infrastructure).
+                "value_differences": record.get("differences", []),
             }
         )
     type_matched = sorted(type_matched)
