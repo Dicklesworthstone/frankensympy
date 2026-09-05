@@ -353,6 +353,12 @@ impl std::ops::Mul for Expr {
     type Output = Expr;
 
     fn mul(self, other: Expr) -> Expr {
+        // Exact-zero absorption: 0 * e = 0 in the exact ring. Without this,
+        // Mul(0, x) stays unexpanded on the compatibility surface
+        // (ledgered r2-corpus drift adv/held/mul_x_zero; WS07 workstream).
+        if self.is_zero() || other.is_zero() {
+            return Expr::from_i64(0);
+        }
         match (self, other) {
             (Expr::Integer(a), Expr::Integer(b)) => Expr::Integer(a * b),
             (Expr::Mul(mut factors_a), Expr::Mul(factors_b)) => {

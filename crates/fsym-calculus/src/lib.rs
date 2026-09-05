@@ -1302,12 +1302,42 @@ mod tests {
     #[test]
     fn infinity_limit_reports_expansion_cap_as_typed_refusal() {
         let x = Symbol::new("x");
-        let factor = Expr::Add(vec![Expr::symbol("x"), Expr::from_i64(1)]);
-        let expansion_bomb = Expr::Mul(vec![factor; 13]);
+        // A genuinely WIDE product (13 distinct binomials -> 8192 raw terms,
+        // none collectable) still trips the expansion cap: typed refusal.
+        let factors: Vec<Expr> = (0..13)
+            .map(|i| {
+                Expr::Add(vec![
+                    Expr::symbol(&format!("x{i}")),
+                    Expr::from_i64(1),
+                ])
+            })
+            .collect();
+        let genuine_bomb = Expr::Mul(factors);
         assert!(matches!(
-            limit(&expansion_bomb, &x, &Expr::Const(Constant::Infinity)),
+            limit(&genuine_bomb, &x, &Expr::Const(Constant::Infinity)),
             Err(CalculusError::Undetermined(_))
         ));
+    }
+
+    #[test]
+    fn infinity_limit_of_expandable_polynomial_evaluates_to_infinity() {
+        // (x+1)**13 at +oo is +oo: since like-term collection landed
+        // (fra-fra-ws18-expand-typed-refusal-7c1) the polynomial expands
+        // (21 -> 14 terms) and the limit is COMPUTED, matching upstream
+        // limit((x+1)**13, x, oo) = oo. The old cap refusal for this shape
+        // pinned the pre-collection silent-passthrough behavior.
+        let x = Symbol::new("x");
+        let factor = Expr::Add(vec![Expr::symbol("x"), Expr::from_i64(1)]);
+        let polynomial = Expr::Pow(Arc::new(factor), Arc::new(Expr::from_i64(13)));
+        let outcome = limit(&polynomial, &x, &Expr::Const(Constant::Infinity));
+        match outcome {
+            Ok(value) => assert_eq!(
+                value,
+                Expr::Const(Constant::Infinity),
+                "limit of a positive leading polynomial at +oo must be +oo"
+            ),
+            Err(err) => panic!("expandable polynomial limit must evaluate, got {err:?}"),
+        }
     }
 
     #[test]
