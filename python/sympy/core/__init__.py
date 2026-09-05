@@ -601,7 +601,7 @@ class Basic:
         return self._value._repr_latex_()
 
     def pretty(self) -> str:
-        return self._value.pretty()
+        return "\n".join(_ascii_pretty_lines(self))
 
     def __str__(self) -> str:
         # SymPy 1.14.0 plain str printer (printer-parity bead qxr): Python
@@ -799,7 +799,8 @@ def _str_term(expr: "Expr") -> tuple[bool, str]:
                 return _str_number(const)
             return False, str(_native_expr(expr))
         rendered = [_str_term(t) for t in sorted(rest, key=lambda a: (-_expr_degree(a), a.sort_key()))]
-        out = rendered[0][1]
+        first_neg, first_body = rendered[0]
+        out = ("-" + first_body) if first_neg else first_body
         for neg, body in rendered[1:]:
             out += (f" - {body}") if neg else (f" + {body}")
         if isinstance(const, Rational) and (const.p != 0 or not rendered):
@@ -2066,9 +2067,25 @@ def simplify(expression: Any) -> Expr:
     return _parse_result(_native.simplify_expr(str(_wrap(_native_expr(expression)))))
 
 
+def _ascii_pretty_lines(expression: Any) -> list[str]:
+    """ASCII pretty lines: nonneg-integer powers lay the exponent above the
+    base; everything else renders as the linear ASCII form. No unicode."""
+    expr = expression
+    if isinstance(expr, Expr) and type(expr) is Pow:
+        base, exp = expr.args
+        exp_text = str(exp)
+        if exp_text.lstrip("-").isdigit() and int(exp_text) > 0:
+            base_lines = _ascii_pretty_lines(base)
+            width = max(len(line) for line in base_lines) + 1
+            lines = [exp_text.rjust(width)]
+            lines.extend(line.ljust(width) for line in base_lines)
+            return lines
+    return [str(expr)]
+
+
 def pretty(expression: Any) -> str:
-    """Unicode-math printer view. Not a semantic identity."""
-    return _native_expr(expression).pretty()
+    """ASCII printer view (pinned-oracle default). Not a semantic identity."""
+    return "\n".join(_ascii_pretty_lines(expression))
 
 
 def _machin_pi_floor(total_digits: int) -> int:

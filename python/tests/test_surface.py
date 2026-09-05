@@ -495,9 +495,11 @@ class SurfaceTests(unittest.TestCase):
         self.assertLess(x.sort_key(), (x + 1).sort_key())
 
         powered = x**2
-        self.assertEqual(sympy.pretty(powered), "x²")
-        self.assertEqual(powered.pretty(), "x²")
-        self.assertEqual(sympy.pretty(x - 1), "x − 1")
+        # Pinned oracle: pretty() is ASCII multi-line, linear forms use the
+        # ASCII hyphen-minus (bead fra-fra-shell-printer-parity-pack-qxr).
+        self.assertEqual(sympy.pretty(powered), " 2\nx ")
+        self.assertEqual(powered.pretty(), " 2\nx ")
+        self.assertEqual(sympy.pretty(x - 1), "x - 1")
 
     def test_calculus_and_solvers_facades(self):
         x = sympy.Symbol("x")

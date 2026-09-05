@@ -368,6 +368,51 @@ impl std::ops::Mul for Expr {
     }
 }
 
+impl Expr {
+    /// True when the rendered form carries a leading minus (negative integer
+    /// or rational literal, or a Mul whose first factor is one of those).
+    /// Sign-aware Add/Mul rendering depends on this
+    /// (bead fra-fra-shell-printer-parity-pack-qxr, divergence vi).
+    fn is_negative_leading(&self) -> bool {
+        fn numeric_negative(e: &Expr) -> bool {
+            match e {
+                Expr::Integer(n) => n.is_negative(),
+                Expr::Rational(r) => r.numer().is_negative(),
+                _ => false,
+            }
+        }
+        match self {
+            Expr::Integer(_) | Expr::Rational(_) => numeric_negative(self),
+            Expr::Mul(factors) => factors.first().is_some_and(numeric_negative),
+            _ => false,
+        }
+    }
+
+    /// Renders `self` with any leading minus folded into `f` as "-" and the
+    /// magnitude rendered signless (the signless negation of a Mul flips the
+    /// leading numeric factor).
+    fn fmt_magnitude(self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self {
+            Expr::Integer(n) => write!(f, "{}", -n),
+            Expr::Rational(r) => write!(f, "{}", -r),
+            Expr::Mul(factors) => {
+                let mut flipped: Vec<Expr> = Vec::with_capacity(factors.len());
+                for factor in factors {
+                    if let Expr::Integer(n) = factor {
+                        flipped.push(Expr::Integer(-n));
+                    } else if let Expr::Rational(r) = factor {
+                        flipped.push(Expr::Rational(-r));
+                    } else {
+                        flipped.push(factor.clone());
+                    }
+                }
+                fmt::Display::fmt(&Expr::Mul(flipped), f)
+            }
+            other => fmt::Display::fmt(other, f),
+        }
+    }
+}
+
 impl fmt::Display for Expr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -379,9 +424,21 @@ impl fmt::Display for Expr {
                 f.write_str("(")?;
                 for (index, term) in terms.iter().enumerate() {
                     if index > 0 {
-                        f.write_str(" + ")?;
+                        // Sign-aware join: negative-leading terms render as
+                        // "- magnitude", never "+ -magnitude".
+                        if term.is_negative_leading() {
+                            f.write_str(" - ")?;
+                            term.clone().fmt_magnitude(f)?;
+                        } else {
+                            f.write_str(" + ")?;
+                            term.fmt(f)?;
+                        }
+                    } else if term.is_negative_leading() {
+                        f.write_str("-")?;
+                        term.clone().fmt_magnitude(f)?;
+                    } else {
+                        term.fmt(f)?;
                     }
-                    term.fmt(f)?;
                 }
                 f.write_str(")")
             }

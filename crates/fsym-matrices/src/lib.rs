@@ -1122,7 +1122,13 @@ impl Matrix {
                     }
                     other => MatrixError::Solver(other.to_string()),
                 })?;
-                Ok(roots.iter().map(exact_fold).collect())
+                let mut folded: Vec<Expr> = roots.iter().map(exact_fold).collect();
+                // Deterministic profile ordering: the pinned oracle emits the
+                // quadratic minus-branch first; descending rendered form
+                // reproduces that order for +- root pairs
+                // (bead fra-fra-shell-printer-parity-pack-qxr, divergence vi).
+                folded.sort_by(|a, b| format!("{a}").cmp(&format!("{b}")));
+                Ok(folded)
             }
         }
     }
