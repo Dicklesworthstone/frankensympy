@@ -1,6 +1,7 @@
 {
  "records": [
   {
+   "closure_evidence": "no longer reproduces at HEAD 22d9c62f274c37bf332aff655781ba73b5242e7f after shell fixes d4aa9b4/a603a09/seams+printer lands; corpus diff 2026-09-05: admitted 211/230, drift 19",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.func",
@@ -11,9 +12,10 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
+   "closure_evidence": "no longer reproduces at HEAD 22d9c62f274c37bf332aff655781ba73b5242e7f after shell fixes d4aa9b4/a603a09/seams+printer lands; corpus diff 2026-09-05: admitted 211/230, drift 19",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.func",
@@ -24,9 +26,10 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
+   "closure_evidence": "no longer reproduces at HEAD 22d9c62f274c37bf332aff655781ba73b5242e7f after shell fixes d4aa9b4/a603a09/seams+printer lands; corpus diff 2026-09-05: admitted 211/230, drift 19",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.func",
@@ -37,9 +40,10 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
+   "closure_evidence": "no longer reproduces at HEAD 22d9c62f274c37bf332aff655781ba73b5242e7f after shell fixes d4aa9b4/a603a09/seams+printer lands; corpus diff 2026-09-05: admitted 211/230, drift 19",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.func",
@@ -50,9 +54,10 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
+   "closure_evidence": "no longer reproduces at HEAD 22d9c62f274c37bf332aff655781ba73b5242e7f after shell fixes d4aa9b4/a603a09/seams+printer lands; corpus diff 2026-09-05: admitted 211/230, drift 19",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.func",
@@ -63,9 +68,10 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
+   "closure_evidence": "no longer reproduces at HEAD 22d9c62f274c37bf332aff655781ba73b5242e7f after shell fixes d4aa9b4/a603a09/seams+printer lands; corpus diff 2026-09-05: admitted 211/230, drift 19",
    "comparator": "construction_only",
    "difference_paths": [
     "outcome_class"
@@ -75,7 +81,7 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
    "comparator": "construction_only",
@@ -90,6 +96,7 @@
    "status": "open"
   },
   {
+   "closure_evidence": "no longer reproduces at HEAD 22d9c62f274c37bf332aff655781ba73b5242e7f after shell fixes d4aa9b4/a603a09/seams+printer lands; corpus diff 2026-09-05: admitted 211/230, drift 19",
    "comparator": "construction_only",
    "difference_paths": [
     "outcome_class"
@@ -99,9 +106,10 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
+   "closure_evidence": "no longer reproduces at HEAD 22d9c62f274c37bf332aff655781ba73b5242e7f after shell fixes d4aa9b4/a603a09/seams+printer lands; corpus diff 2026-09-05: admitted 211/230, drift 19",
    "comparator": "construction_only",
    "difference_paths": [
     "outcome_class"
@@ -111,9 +119,10 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
+   "closure_evidence": "no longer reproduces at HEAD 22d9c62f274c37bf332aff655781ba73b5242e7f after shell fixes d4aa9b4/a603a09/seams+printer lands; corpus diff 2026-09-05: admitted 211/230, drift 19",
    "comparator": "construction_only",
    "difference_paths": [
     "outcome_class"
@@ -123,9 +132,10 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
+   "closure_evidence": "no longer reproduces at HEAD 22d9c62f274c37bf332aff655781ba73b5242e7f after shell fixes d4aa9b4/a603a09/seams+printer lands; corpus diff 2026-09-05: admitted 211/230, drift 19",
    "comparator": "construction_only",
    "difference_paths": [
     "outcome_class"
@@ -135,9 +145,10 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
+   "closure_evidence": "no longer reproduces at HEAD 22d9c62f274c37bf332aff655781ba73b5242e7f after shell fixes d4aa9b4/a603a09/seams+printer lands; corpus diff 2026-09-05: admitted 211/230, drift 19",
    "comparator": "construction_only",
    "difference_paths": [
     "outcome_class"
@@ -147,7 +158,7 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
    "comparator": "construction_only",
@@ -165,6 +176,7 @@
    "status": "open"
   },
   {
+   "closure_evidence": "no longer reproduces at HEAD 22d9c62f274c37bf332aff655781ba73b5242e7f after shell fixes d4aa9b4/a603a09/seams+printer lands; corpus diff 2026-09-05: admitted 211/230, drift 19",
    "comparator": "construction_only",
    "difference_paths": [
     "outcome_class"
@@ -174,9 +186,10 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
+   "closure_evidence": "no longer reproduces at HEAD 22d9c62f274c37bf332aff655781ba73b5242e7f after shell fixes d4aa9b4/a603a09/seams+printer lands; corpus diff 2026-09-05: admitted 211/230, drift 19",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.args_repr"
@@ -186,9 +199,10 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
+   "closure_evidence": "no longer reproduces at HEAD 22d9c62f274c37bf332aff655781ba73b5242e7f after shell fixes d4aa9b4/a603a09/seams+printer lands; corpus diff 2026-09-05: admitted 211/230, drift 19",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.args_repr"
@@ -198,9 +212,10 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
+   "closure_evidence": "no longer reproduces at HEAD 22d9c62f274c37bf332aff655781ba73b5242e7f after shell fixes d4aa9b4/a603a09/seams+printer lands; corpus diff 2026-09-05: admitted 211/230, drift 19",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.args_repr"
@@ -210,9 +225,10 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
+   "closure_evidence": "no longer reproduces at HEAD 22d9c62f274c37bf332aff655781ba73b5242e7f after shell fixes d4aa9b4/a603a09/seams+printer lands; corpus diff 2026-09-05: admitted 211/230, drift 19",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.args_repr"
@@ -222,9 +238,10 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
+   "closure_evidence": "no longer reproduces at HEAD 22d9c62f274c37bf332aff655781ba73b5242e7f after shell fixes d4aa9b4/a603a09/seams+printer lands; corpus diff 2026-09-05: admitted 211/230, drift 19",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.type"
@@ -234,9 +251,10 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
+   "closure_evidence": "no longer reproduces at HEAD 22d9c62f274c37bf332aff655781ba73b5242e7f after shell fixes d4aa9b4/a603a09/seams+printer lands; corpus diff 2026-09-05: admitted 211/230, drift 19",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.func",
@@ -247,9 +265,10 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
+   "closure_evidence": "no longer reproduces at HEAD 22d9c62f274c37bf332aff655781ba73b5242e7f after shell fixes d4aa9b4/a603a09/seams+printer lands; corpus diff 2026-09-05: admitted 211/230, drift 19",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.func",
@@ -260,7 +279,7 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
    "comparator": "construction_only",
@@ -409,6 +428,7 @@
    "status": "open"
   },
   {
+   "closure_evidence": "no longer reproduces at HEAD 22d9c62f274c37bf332aff655781ba73b5242e7f after shell fixes d4aa9b4/a603a09/seams+printer lands; corpus diff 2026-09-05: admitted 211/230, drift 19",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.func",
@@ -419,9 +439,10 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
+   "closure_evidence": "no longer reproduces at HEAD 22d9c62f274c37bf332aff655781ba73b5242e7f after shell fixes d4aa9b4/a603a09/seams+printer lands; corpus diff 2026-09-05: admitted 211/230, drift 19",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.func",
@@ -432,9 +453,10 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
+   "closure_evidence": "no longer reproduces at HEAD 22d9c62f274c37bf332aff655781ba73b5242e7f after shell fixes d4aa9b4/a603a09/seams+printer lands; corpus diff 2026-09-05: admitted 211/230, drift 19",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.func",
@@ -445,7 +467,7 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
    "comparator": "construction_only",
@@ -474,6 +496,7 @@
    "status": "open"
   },
   {
+   "closure_evidence": "no longer reproduces at HEAD 22d9c62f274c37bf332aff655781ba73b5242e7f after shell fixes d4aa9b4/a603a09/seams+printer lands; corpus diff 2026-09-05: admitted 211/230, drift 19",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.type"
@@ -483,9 +506,10 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
+   "closure_evidence": "no longer reproduces at HEAD 22d9c62f274c37bf332aff655781ba73b5242e7f after shell fixes d4aa9b4/a603a09/seams+printer lands; corpus diff 2026-09-05: admitted 211/230, drift 19",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.func",
@@ -496,15 +520,55 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
+   "closure_evidence": "no longer reproduces at HEAD 22d9c62f274c37bf332aff655781ba73b5242e7f after shell fixes d4aa9b4/a603a09/seams+printer lands; corpus diff 2026-09-05: admitted 211/230, drift 19",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.type"
    ],
    "discrepancy_id": "disc-72c74633fa95",
    "fixture_id": "meta/7/b",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "closed_verified"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.args_repr"
+   ],
+   "discrepancy_id": "disc-13569596d167",
+   "fixture_id": "gen/arith/15_add",
+   "note": "new drift 2026-09-05: native Add eval keeps construction order; upstream canonicalizes args by sort_key (root cause of args_repr divergence on symbol-pair adds)",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.args_repr"
+   ],
+   "discrepancy_id": "disc-2b49a42121f3",
+   "fixture_id": "gen/arith/3_add",
+   "note": "new drift 2026-09-05: native Add eval keeps construction order; upstream canonicalizes args by sort_key (root cause of args_repr divergence on symbol-pair adds)",
+   "profile_id": "sympy-1.14.0-cpython-r2-corpus",
+   "schema_version": 1,
+   "severity": "object",
+   "status": "open"
+  },
+  {
+   "comparator": "construction_only",
+   "difference_paths": [
+    "observations.args_repr"
+   ],
+   "discrepancy_id": "disc-44a9c345fa87",
+   "fixture_id": "gen/arith/9_add",
+   "note": "new drift 2026-09-05: native Add eval keeps construction order; upstream canonicalizes args by sort_key (root cause of args_repr divergence on symbol-pair adds)",
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
