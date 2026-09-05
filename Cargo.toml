@@ -95,3 +95,14 @@ unsafe_code = "forbid"
 unsafe_code = "forbid"
 
 [dependencies]
+
+[profile.release-perf]
+# Keep-gate build profile for WS22 live-incumbent benchmarks (bead
+# fra-fra-ws22-paired-incumbent-adoption-lfx): speed-optimized, framed for
+# profiler attribution. NOT a workspace-wide default.
+inherits = "release"
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+debug = "line-tables-only"
+strip = false
