@@ -592,7 +592,18 @@ impl PyAdd {
     pub fn new(args: Vec<PyExpr>, evaluate: bool) -> Self {
         let exprs: Vec<Expr> = args.into_iter().map(|a| a.inner).collect();
         let inner = if evaluate {
-            fsym_simplify::simplify(&Expr::Add(exprs))
+            // Canonical args order after folding (bead
+            // fra-add-args-canonical-order-o1i): the pinned oracle sorts Add
+            // args in every case — Add(-8, w) and Add(w, -8) both read
+            // (-8, w); Add(z, y) and Add(y, z) both read (y, z).
+            let folded = fsym_simplify::simplify(&Expr::Add(exprs));
+            match folded {
+                Expr::Add(mut terms) => {
+                    fsym_core::canonicalize_add_args(&mut terms);
+                    Expr::Add(terms)
+                }
+                other => other,
+            }
         } else {
             Expr::Add(exprs)
         };
@@ -745,7 +756,8 @@ pub fn py_rational_from_python(
 #[pyfunction]
 #[pyo3(signature = (*args))]
 pub fn py_add(args: Vec<PyExpr>) -> PyExpr {
-    let exprs: Vec<Expr> = args.into_iter().map(|a| a.inner).collect();
+    let mut exprs: Vec<Expr> = args.into_iter().map(|a| a.inner).collect();
+    fsym_core::canonicalize_add_args(&mut exprs);
     PyExpr::from_expr(Expr::Add(exprs))
 }
 

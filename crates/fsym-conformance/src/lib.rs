@@ -383,7 +383,9 @@ enum OracleRecord {
     },
     Case {
         id: String,
+        #[allow(dead_code)]
         lane: String,
+        #[allow(dead_code)]
         comparator: Option<String>,
         verdict: String,
         expected: Option<String>,

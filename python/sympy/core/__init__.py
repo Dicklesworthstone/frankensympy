@@ -1859,29 +1859,12 @@ class Add(Expr, AssocOp):
         native_args = [_native_expr(arg) for arg in args]
         val = _native.Add(*native_args, evaluate=evaluate).as_expr()
         if evaluate:
-            result = _wrap(val)
-            if isinstance(result, Add) and len(result.args) == len(args):
-                # The native kernel reorders non-combining terms; the oracle
-                # preserves insertion order for them (Add(-8, w).args ==
-                # (-8, w)). When no folding happened (same multiset of args),
-                # surface the caller's order over the native value.
-                given = [a if isinstance(a, Basic) else _wrap(_native_expr(a)) for a in args]
-                remaining = list(result.args)
-                matched = True
-                for g in given:
-                    for i, r in enumerate(remaining):
-                        if g == r:
-                            remaining.pop(i)
-                            break
-                    else:
-                        matched = False
-                        break
-                if matched:
-                    obj = object.__new__(cls)
-                    obj._args = tuple(given)
-                    obj._value = result._value
-                    return obj
-            return result
+            # Canonical args order (bead fra-add-args-canonical-order-o1i):
+            # the pinned oracle sorts Add args in EVERY case — Add(-8, w)
+            # and Add(w, -8) both read (-8, w); Add(z, y) and Add(y, z) both
+            # read (y, z). The native kernel now canonicalizes too, so the
+            # no-fold path surfaces the native (canonical) order directly.
+            return _wrap(val)
         obj = object.__new__(cls)
         # Held forms preserve the caller's argument order exactly (oracle:
         # Add(-8, w, evaluate=False).args == (-8, w)); the native lane may

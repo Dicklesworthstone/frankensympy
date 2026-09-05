@@ -338,15 +338,55 @@ impl std::ops::Add for Expr {
         match (self, other) {
             (Expr::Add(mut terms_a), Expr::Add(terms_b)) => {
                 terms_a.extend(terms_b);
+                canonicalize_add_args(&mut terms_a);
                 Expr::Add(terms_a)
             }
             (Expr::Add(mut terms), single) | (single, Expr::Add(mut terms)) => {
                 terms.push(single);
+                canonicalize_add_args(&mut terms);
                 Expr::Add(terms)
             }
-            (a, b) => Expr::Add(vec![a, b]),
+            (a, b) => {
+                let mut terms = vec![a, b];
+                canonicalize_add_args(&mut terms);
+                Expr::Add(terms)
+            }
         }
     }
+}
+
+/// Classification rank for canonical Add argument order, mirroring the
+/// pinned SymPy 1.14.0 convention: exact numbers first (by value), then
+/// symbols (by name), then compound terms (by rendered form)
+/// (bead fra-add-args-canonical-order-o1i).
+fn add_arg_rank(e: &Expr) -> u8 {
+    match e {
+        Expr::Integer(_) | Expr::Rational(_) => 0,
+        Expr::Sym(_) => 1,
+        _ => 2,
+    }
+}
+
+/// Total order over Add arguments implementing `add_arg_rank` + per-class
+/// tie-breaking (numeric value, symbol name, rendered form).
+pub fn cmp_add_args(a: &Expr, b: &Expr) -> std::cmp::Ordering {
+    let (ra, rb) = (add_arg_rank(a), add_arg_rank(b));
+    if ra != rb {
+        return ra.cmp(&rb);
+    }
+    match (a, b) {
+        (Expr::Integer(x), Expr::Integer(y)) => x.cmp(y),
+        (Expr::Integer(x), Expr::Rational(y)) => BigRational::from_integer(x.clone()).cmp(y),
+        (Expr::Rational(x), Expr::Integer(y)) => x.cmp(&BigRational::from_integer(y.clone())),
+        (Expr::Rational(x), Expr::Rational(y)) => x.cmp(y),
+        (Expr::Sym(x), Expr::Sym(y)) => x.name.cmp(&y.name),
+        _ => format!("{a}").cmp(&format!("{b}")),
+    }
+}
+
+/// Sorts Add arguments into canonical order in place.
+pub fn canonicalize_add_args(terms: &mut [Expr]) {
+    terms.sort_by(cmp_add_args);
 }
 
 impl std::ops::Mul for Expr {

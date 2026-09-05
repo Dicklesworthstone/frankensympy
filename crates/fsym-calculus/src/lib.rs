@@ -1305,12 +1305,7 @@ mod tests {
         // A genuinely WIDE product (13 distinct binomials -> 8192 raw terms,
         // none collectable) still trips the expansion cap: typed refusal.
         let factors: Vec<Expr> = (0..13)
-            .map(|i| {
-                Expr::Add(vec![
-                    Expr::symbol(&format!("x{i}")),
-                    Expr::from_i64(1),
-                ])
-            })
+            .map(|i| Expr::Add(vec![Expr::symbol(format!("x{i}")), Expr::from_i64(1)]))
             .collect();
         let genuine_bomb = Expr::Mul(factors);
         assert!(matches!(

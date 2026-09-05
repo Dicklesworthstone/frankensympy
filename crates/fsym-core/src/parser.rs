@@ -406,7 +406,9 @@ mod tests {
         // Integer products fold even inside symbolic sums.
         assert_eq!(
             parse("x+3*4").unwrap(),
-            Expr::Add(vec![Expr::symbol("x"), Expr::from_i64(12)])
+            // Canonical Add order (fra-add-args-canonical-order-o1i): exact
+            // numbers precede symbols, matching pinned SymPy 1.14.0 args.
+            Expr::Add(vec![Expr::from_i64(12), Expr::symbol("x")])
         );
         // ^ is right-associative: 2^3^2 = 2^(3^2).
         assert_eq!(
