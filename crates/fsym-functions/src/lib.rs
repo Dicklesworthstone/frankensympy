@@ -1019,9 +1019,18 @@ mod tests {
 
     #[test]
     fn blanket_binomial_negative_lower_index_is_zero() {
-        assert_eq!(binomial(Expr::from_i64(5), Expr::from_i64(-1)), Expr::from_i64(0));
-        assert_eq!(binomial(Expr::from_i64(-1), Expr::from_i64(-1)), Expr::from_i64(0));
-        assert_eq!(binomial(Expr::from_i64(5), Expr::from_i64(0)), Expr::from_i64(1));
+        assert_eq!(
+            binomial(Expr::from_i64(5), Expr::from_i64(-1)),
+            Expr::from_i64(0)
+        );
+        assert_eq!(
+            binomial(Expr::from_i64(-1), Expr::from_i64(-1)),
+            Expr::from_i64(0)
+        );
+        assert_eq!(
+            binomial(Expr::from_i64(5), Expr::from_i64(0)),
+            Expr::from_i64(1)
+        );
     }
 
     #[test]

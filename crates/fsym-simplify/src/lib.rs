@@ -1284,8 +1284,12 @@ mod tests {
         match expr {
             Expr::Integer(v) => v.to_i64(),
             Expr::Sym(sym) => (sym.name == "x").then_some(x_value),
-            Expr::Add(ts) => ts.iter().try_fold(0i64, |acc, t| Some(acc + eval_at_x(t, x_value)?)),
-            Expr::Mul(fs) => fs.iter().try_fold(1i64, |acc, f| Some(acc * eval_at_x(f, x_value)?)),
+            Expr::Add(ts) => ts
+                .iter()
+                .try_fold(0i64, |acc, t| Some(acc + eval_at_x(t, x_value)?)),
+            Expr::Mul(fs) => fs
+                .iter()
+                .try_fold(1i64, |acc, f| Some(acc * eval_at_x(f, x_value)?)),
             Expr::Pow(b, e) => {
                 let b = eval_at_x(b, x_value)?;
                 let e = eval_at_x(e, x_value)?;
@@ -1322,7 +1326,8 @@ mod tests {
                             Expr::Integer(v) => coeff *= v.to_i64().expect("small coefficient"),
                             Expr::Sym(sym) if sym.name == "x" => degree += 1,
                             Expr::Pow(b, e) => {
-                                let (Expr::Sym(sym), Expr::Integer(k)) = (b.as_ref(), e.as_ref()) else {
+                                let (Expr::Sym(sym), Expr::Integer(k)) = (b.as_ref(), e.as_ref())
+                                else {
                                     panic!("non-monomial factor {f:?}");
                                 };
                                 assert_eq!(sym.name, "x");
@@ -1369,7 +1374,10 @@ mod tests {
         let expr = Expr::Pow(Arc::new(base), Arc::new(Expr::from_i64(65)));
         match try_expand(&expr) {
             Err(SimplifyError::General(msg)) => {
-                assert!(msg.contains("power envelope"), "refusal must name the envelope: {msg}");
+                assert!(
+                    msg.contains("power envelope"),
+                    "refusal must name the envelope: {msg}"
+                );
             }
             Err(other) => panic!("wrong refusal variant: {other:?}"),
             Ok(Expr::Pow(_, _)) => {

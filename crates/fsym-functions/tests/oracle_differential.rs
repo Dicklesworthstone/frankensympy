@@ -8,12 +8,12 @@
 //! covered by unit boundary tests in lib.rs. The oracle is the pinned venv;
 //! wrong version fails closed.
 
+use fsym_core::Expr;
 use fsym_functions::{
-    abs_val, acosh, asin, asinh, atan, atanh, bell, bernoulli, binomial, catalan, ceiling, cos,
-    acos, cosh, cot, csc, erf, erfc, exp, factorial, fibonacci, floor, gamma, harmonic, log, lucas,
+    abs_val, acos, acosh, asin, asinh, atan, atanh, bell, bernoulli, binomial, catalan, ceiling,
+    cos, cosh, cot, csc, erf, erfc, exp, factorial, fibonacci, floor, gamma, harmonic, log, lucas,
     sec, sign, sin, sinc, sinh, subfactorial, tan, tanh, zeta,
 };
-use fsym_core::Expr;
 
 const ORACLE_PY: &str = "/home/ubuntu/.venvs/fsym-oracle-sympy-1.14.0/bin/python";
 
@@ -29,46 +29,206 @@ struct Case {
 fn cases() -> Vec<Case> {
     let i = Expr::from_i64;
     vec![
-        Case { name: "factorial_0", native: factorial(i(0)), oracle: "factorial(0)" },
-        Case { name: "factorial_1", native: factorial(i(1)), oracle: "factorial(1)" },
-        Case { name: "factorial_5", native: factorial(i(5)), oracle: "factorial(5)" },
-        Case { name: "factorial_10", native: factorial(i(10)), oracle: "factorial(10)" },
-        Case { name: "factorial_25", native: factorial(i(25)), oracle: "factorial(25)" },
-        Case { name: "fibonacci_0", native: fibonacci(i(0)), oracle: "fibonacci(0)" },
-        Case { name: "fibonacci_1", native: fibonacci(i(1)), oracle: "fibonacci(1)" },
-        Case { name: "fibonacci_10", native: fibonacci(i(10)), oracle: "fibonacci(10)" },
-        Case { name: "fibonacci_30", native: fibonacci(i(30)), oracle: "fibonacci(30)" },
-        Case { name: "lucas_0", native: lucas(i(0)), oracle: "lucas(0)" },
-        Case { name: "lucas_1", native: lucas(i(1)), oracle: "lucas(1)" },
-        Case { name: "lucas_10", native: lucas(i(10)), oracle: "lucas(10)" },
-        Case { name: "harmonic_1", native: harmonic(i(1)), oracle: "harmonic(1)" },
-        Case { name: "harmonic_2", native: harmonic(i(2)), oracle: "harmonic(2)" },
-        Case { name: "harmonic_10", native: harmonic(i(10)), oracle: "harmonic(10)" },
-        Case { name: "catalan_0", native: catalan(i(0)), oracle: "catalan(0)" },
-        Case { name: "catalan_5", native: catalan(i(5)), oracle: "catalan(5)" },
-        Case { name: "catalan_10", native: catalan(i(10)), oracle: "catalan(10)" },
-        Case { name: "bernoulli_0", native: bernoulli(i(0)), oracle: "bernoulli(0)" },
-        Case { name: "bernoulli_2", native: bernoulli(i(2)), oracle: "bernoulli(2)" },
-        Case { name: "bernoulli_4", native: bernoulli(i(4)), oracle: "bernoulli(4)" },
-        Case { name: "bell_0", native: bell(i(0)), oracle: "bell(0)" },
-        Case { name: "bell_1", native: bell(i(1)), oracle: "bell(1)" },
-        Case { name: "bell_5", native: bell(i(5)), oracle: "bell(5)" },
-        Case { name: "subfactorial_0", native: subfactorial(i(0)), oracle: "subfactorial(0)" },
-        Case { name: "subfactorial_1", native: subfactorial(i(1)), oracle: "subfactorial(1)" },
-        Case { name: "subfactorial_5", native: subfactorial(i(5)), oracle: "subfactorial(5)" },
-        Case { name: "binomial_5_2", native: binomial(i(5), i(2)), oracle: "binomial(5, 2)" },
-        Case { name: "binomial_10_0", native: binomial(i(10), i(0)), oracle: "binomial(10, 0)" },
-        Case { name: "binomial_6_3", native: binomial(i(6), i(3)), oracle: "binomial(6, 3)" },
-        Case { name: "gamma_5", native: gamma(i(5)), oracle: "gamma(5)" },
-        Case { name: "gamma_1", native: gamma(i(1)), oracle: "gamma(1)" },
-        Case { name: "sin_0", native: sin(i(0)), oracle: "sin(0)" },
-        Case { name: "cos_0", native: cos(i(0)), oracle: "cos(0)" },
-        Case { name: "tan_0", native: tan(i(0)), oracle: "tan(0)" },
-        Case { name: "exp_0", native: exp(i(0)), oracle: "exp(0)" },
-        Case { name: "log_1", native: log(i(1)), oracle: "log(1)" },
-        Case { name: "abs_neg5", native: abs_val(i(-5)), oracle: "Abs(-5)" },
-        Case { name: "floor_ratio", native: floor(Expr::rational(7, 2).unwrap()), oracle: "floor(sympy.Rational(7, 2))" },
-        Case { name: "ceiling_ratio", native: ceiling(Expr::rational(7, 2).unwrap()), oracle: "ceiling(sympy.Rational(7, 2))" },
+        Case {
+            name: "factorial_0",
+            native: factorial(i(0)),
+            oracle: "factorial(0)",
+        },
+        Case {
+            name: "factorial_1",
+            native: factorial(i(1)),
+            oracle: "factorial(1)",
+        },
+        Case {
+            name: "factorial_5",
+            native: factorial(i(5)),
+            oracle: "factorial(5)",
+        },
+        Case {
+            name: "factorial_10",
+            native: factorial(i(10)),
+            oracle: "factorial(10)",
+        },
+        Case {
+            name: "factorial_25",
+            native: factorial(i(25)),
+            oracle: "factorial(25)",
+        },
+        Case {
+            name: "fibonacci_0",
+            native: fibonacci(i(0)),
+            oracle: "fibonacci(0)",
+        },
+        Case {
+            name: "fibonacci_1",
+            native: fibonacci(i(1)),
+            oracle: "fibonacci(1)",
+        },
+        Case {
+            name: "fibonacci_10",
+            native: fibonacci(i(10)),
+            oracle: "fibonacci(10)",
+        },
+        Case {
+            name: "fibonacci_30",
+            native: fibonacci(i(30)),
+            oracle: "fibonacci(30)",
+        },
+        Case {
+            name: "lucas_0",
+            native: lucas(i(0)),
+            oracle: "lucas(0)",
+        },
+        Case {
+            name: "lucas_1",
+            native: lucas(i(1)),
+            oracle: "lucas(1)",
+        },
+        Case {
+            name: "lucas_10",
+            native: lucas(i(10)),
+            oracle: "lucas(10)",
+        },
+        Case {
+            name: "harmonic_1",
+            native: harmonic(i(1)),
+            oracle: "harmonic(1)",
+        },
+        Case {
+            name: "harmonic_2",
+            native: harmonic(i(2)),
+            oracle: "harmonic(2)",
+        },
+        Case {
+            name: "harmonic_10",
+            native: harmonic(i(10)),
+            oracle: "harmonic(10)",
+        },
+        Case {
+            name: "catalan_0",
+            native: catalan(i(0)),
+            oracle: "catalan(0)",
+        },
+        Case {
+            name: "catalan_5",
+            native: catalan(i(5)),
+            oracle: "catalan(5)",
+        },
+        Case {
+            name: "catalan_10",
+            native: catalan(i(10)),
+            oracle: "catalan(10)",
+        },
+        Case {
+            name: "bernoulli_0",
+            native: bernoulli(i(0)),
+            oracle: "bernoulli(0)",
+        },
+        Case {
+            name: "bernoulli_2",
+            native: bernoulli(i(2)),
+            oracle: "bernoulli(2)",
+        },
+        Case {
+            name: "bernoulli_4",
+            native: bernoulli(i(4)),
+            oracle: "bernoulli(4)",
+        },
+        Case {
+            name: "bell_0",
+            native: bell(i(0)),
+            oracle: "bell(0)",
+        },
+        Case {
+            name: "bell_1",
+            native: bell(i(1)),
+            oracle: "bell(1)",
+        },
+        Case {
+            name: "bell_5",
+            native: bell(i(5)),
+            oracle: "bell(5)",
+        },
+        Case {
+            name: "subfactorial_0",
+            native: subfactorial(i(0)),
+            oracle: "subfactorial(0)",
+        },
+        Case {
+            name: "subfactorial_1",
+            native: subfactorial(i(1)),
+            oracle: "subfactorial(1)",
+        },
+        Case {
+            name: "subfactorial_5",
+            native: subfactorial(i(5)),
+            oracle: "subfactorial(5)",
+        },
+        Case {
+            name: "binomial_5_2",
+            native: binomial(i(5), i(2)),
+            oracle: "binomial(5, 2)",
+        },
+        Case {
+            name: "binomial_10_0",
+            native: binomial(i(10), i(0)),
+            oracle: "binomial(10, 0)",
+        },
+        Case {
+            name: "binomial_6_3",
+            native: binomial(i(6), i(3)),
+            oracle: "binomial(6, 3)",
+        },
+        Case {
+            name: "gamma_5",
+            native: gamma(i(5)),
+            oracle: "gamma(5)",
+        },
+        Case {
+            name: "gamma_1",
+            native: gamma(i(1)),
+            oracle: "gamma(1)",
+        },
+        Case {
+            name: "sin_0",
+            native: sin(i(0)),
+            oracle: "sin(0)",
+        },
+        Case {
+            name: "cos_0",
+            native: cos(i(0)),
+            oracle: "cos(0)",
+        },
+        Case {
+            name: "tan_0",
+            native: tan(i(0)),
+            oracle: "tan(0)",
+        },
+        Case {
+            name: "exp_0",
+            native: exp(i(0)),
+            oracle: "exp(0)",
+        },
+        Case {
+            name: "log_1",
+            native: log(i(1)),
+            oracle: "log(1)",
+        },
+        Case {
+            name: "abs_neg5",
+            native: abs_val(i(-5)),
+            oracle: "Abs(-5)",
+        },
+        Case {
+            name: "floor_ratio",
+            native: floor(Expr::rational(7, 2).unwrap()),
+            oracle: "floor(sympy.Rational(7, 2))",
+        },
+        Case {
+            name: "ceiling_ratio",
+            native: ceiling(Expr::rational(7, 2).unwrap()),
+            oracle: "ceiling(sympy.Rational(7, 2))",
+        },
     ]
 }
 
@@ -97,9 +257,7 @@ fn inverse_and_hyperbolic_identities_match_oracle_at_trivial_points() {
     ];
     // zeta(1) is a genuine pole: oracle raises, native refuses via opaque
     // function form. Handled specially below.
-    let mut script = String::from(
-        "import json, sympy\nout = {}\n",
-    );
+    let mut script = String::from("import json, sympy\nout = {}\n");
     for (name, _, oracle) in &oracle_pairs {
         if *name == "zeta_refusal_shape" {
             continue;
@@ -112,7 +270,11 @@ fn inverse_and_hyperbolic_identities_match_oracle_at_trivial_points() {
         .arg(&script)
         .output()
         .expect("pinned oracle venv must be present (gate universe)");
-    assert!(output.status.success(), "oracle probe failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "oracle probe failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).expect("oracle NDJSON");
     assert_eq!(
         parsed["__version__"].as_str().unwrap_or("1.14.0"),
