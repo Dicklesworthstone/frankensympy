@@ -739,12 +739,84 @@ def _expr_degree(expr: "Expr") -> int:
     if type(expr) is Mul:
         return sum(_expr_degree(a) for a in expr.args)
     return 0
-
-
 def _str_expr(expr: "Expr") -> str:
     """SymPy 1.14.0-faithful plain str printer (printer-parity bead qxr)."""
     neg, body = _str_term(expr)
     return ("-" + body) if neg else body
+
+
+
+
+_FUNCTION_CLASS_RANK = {
+    "exp": 10, "log": 11, "sin": 20, "cos": 21, "tan": 22, "cot": 23,
+    "sinh": 30, "cosh": 31, "tanh": 32, "coth": 33,
+    "conjugate": 40, "re": 41, "im": 42, "arg": 43,
+}
+
+
+def _gen_sort_key(gen: "Expr") -> tuple:
+    """Mirror of upstream default_sort_key for gen bases: Symbol family (2)
+    before applied functions (family 4, ranked per upstream
+    Function.class_key's hardcoded table), names/args compared recursively."""
+    if isinstance(gen, Symbol):
+        return (2, 0, "Symbol", 0, ((1, (gen.name,)),))
+    name = type(gen).__name__
+    if isinstance(gen, Function):
+        # Upstream: fixed-nargs functions rank 0, variable/unknown rank 10000;
+        # shell applied-undefined functions are fixed-arity, so rank 0.
+        rank = _FUNCTION_CLASS_RANK.get(name, 0)
+        return (4, rank, name, 0, tuple(_gen_sort_key(a) for a in gen.args))
+    if type(gen) is Pow:
+        base, _ = gen.args
+        return _gen_sort_key(base)
+    return (5, 0, name, 0, ())
+
+
+def _term_decompose(term: "Expr") -> tuple[int, int, dict]:
+    """Split an additive term into (coeff_p, coeff_q, {gen: exponent})."""
+    coeff_p, coeff_q = 1, 1
+    gmap: dict = {}
+    factors = term.args if type(term) is Mul else (term,)
+    for f in factors:
+        if isinstance(f, Rational):
+            coeff_p *= f.p
+            coeff_q *= f.q
+            continue
+        base, expn = f, 1
+        if type(f) is Pow:
+            b, e2 = f.args
+            if isinstance(e2, Rational) and e2.q == 1:
+                base, expn = b, e2.p
+            elif isinstance(e2, Rational):
+                base, expn = b, e2.p / e2.q
+        gmap[base] = gmap.get(base, 0) + expn
+    return coeff_p, coeff_q, gmap
+
+
+def _add_ordered_terms(expr: "Expr") -> list["Expr"]:
+    """Port of upstream Add as_terms + as_ordered_terms(order=None):
+    terms sort ascending by negated monomial (lex over gens sorted by
+    _gen_sort_key), tie-breaking on the rational coefficient. All-zero
+    monoms (pure constants) therefore land last."""
+    if type(expr) is not Add:
+        return [expr]
+    terms = []
+    all_gens: dict = {}
+    for a in expr.args:
+        coeff_p, coeff_q, gmap = _term_decompose(a)
+        terms.append((coeff_p, coeff_q, gmap, a))
+        for g in gmap:
+            all_gens[g] = None
+    gens = sorted(all_gens, key=_gen_sort_key)
+    index = {g: i for i, g in enumerate(gens)}
+
+    def _key(t):
+        monom = [0] * len(gens)
+        for g, e in t[2].items():
+            monom[index[g]] = e
+        return tuple(-m for m in monom), t[0] / t[1]
+
+    return [t[3] for t in sorted(terms, key=_key)]
 
 def _str_term(expr: "Expr") -> tuple[bool, str]:
     """Render one additive term as (negative, unsigned_body)."""
@@ -798,7 +870,7 @@ def _str_term(expr: "Expr") -> tuple[bool, str]:
             if isinstance(const, Rational):
                 return _str_number(const)
             return False, str(_native_expr(expr))
-        rendered = [_str_term(t) for t in sorted(rest, key=lambda a: (-_expr_degree(a), a.sort_key()))]
+        rendered = [_str_term(t) for t in _add_ordered_terms(expr) if t in rest]
         first_neg, first_body = rendered[0]
         out = ("-" + first_body) if first_neg else first_body
         for neg, body in rendered[1:]:
