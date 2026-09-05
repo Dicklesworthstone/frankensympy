@@ -93,6 +93,7 @@ def _exact_surface_types():
         Zero,
         One,
         NegativeOne,
+        Half,
         AppliedUndef,
         Application,
         Function,
@@ -223,6 +224,10 @@ def _wrap(value: Any) -> "Basic":
             return _ONE
         if p == -1:
             return _NEGATIVE_ONE
+    if cls is Rational and obj.p == 1 and obj.q == 2:
+        # Native Rational(1, 2) is the Half singleton for the surface
+        # (oracle func parity; printer-parity bead qxr).
+        return _HALF
     return obj
 
 
@@ -1342,6 +1347,8 @@ class Rational(Number):
                 den //= common
             if den < 0:
                 num, den = -num, -den
+            if den == 2 and num == 1:
+                return _HALF
             if den == 1:
                 return Integer(num)
             obj = object.__new__(cls)
@@ -1535,6 +1542,38 @@ def _restore_one():
 def _restore_negative_one():
     return _NEGATIVE_ONE
 
+
+class Half(Rational):
+    """The singleton rational one-half (SymPy 1.14: sympy.core.numbers.Half).
+
+    Oracle semantics: Rational(1, 2), Rational(2, 4), Rational(3, 6) are ALL
+    this singleton; negative one-half stays a plain Rational.
+    """
+
+    __slots__ = ()
+
+    def __new__(cls):
+        obj = object.__new__(cls)
+        obj._value = _native.py_rational(1, 2)
+        return obj
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def __reduce__(self):
+        return _restore_half, ()
+
+    def _srepr(self) -> str:
+        # Oracle parity: sympy.srepr(S.Half) == "Rational(1, 2)".
+        return "Rational(1, 2)"
+
+
+Half.__module__ = "sympy.core.numbers"
+_HALF = Half()
+
+
+def _restore_half():
+    return _HALF
 class Float(Number):
     """Profile-compatible binary64 float. Distinct from Rational and from RealBall."""
 
@@ -1792,8 +1831,8 @@ class _SingletonRegistry:
         return _NEGATIVE_ONE
 
     @property
-    def Half(self) -> "Rational":
-        return Rational(1, 2)
+    def Half(self) -> "Half":
+        return _HALF
 
     @property
     def Infinity(self) -> Expr:
@@ -2282,7 +2321,7 @@ for _mod_name, _mod_items in [
     ("sympy.core.basic", (Basic, Atom, _restore_nary, _restore_pow, _restore_dummy, _restore_applied_undef)),
     ("sympy.core.expr", (Expr, AtomicExpr)),
     ("sympy.core.symbol", (Symbol, Dummy, symbols)),
-    ("sympy.core.numbers", (Number, Rational, Integer, Zero, One, NegativeOne, Float, ComplexInfinity, _restore_float, _restore_zero, _restore_one, _restore_negative_one)),
+    ("sympy.core.numbers", (Number, Rational, Integer, Zero, One, NegativeOne, Half, Float, ComplexInfinity, _restore_float, _restore_zero, _restore_one, _restore_negative_one, _restore_half)),
     ("sympy.core.relational", (Relational, Eq, Ne, Lt, Le, Gt, Ge)),
     ("sympy.core.add", (Add,)),
     ("sympy.core.mul", (Mul,)),
