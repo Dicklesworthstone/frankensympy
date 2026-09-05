@@ -1,0 +1,388 @@
+{
+  "schema": "gauntlet.paired_bench.v1",
+  "date": "2026-09-05T02:03:37Z",
+  "subject_head": "956b65463fdb4005bda6ec3967b5d8da407f326b",
+  "rounds": 9,
+  "cases": {
+    "symbol_construct": {
+      "case": "symbol_construct",
+      "status": "admitted",
+      "subject_ms_median": 79.5891,
+      "oracle_ms_median": 203.4974,
+      "subject_cv_pct": 25.53,
+      "oracle_cv_pct": 13.3,
+      "subject_samples": [
+        22.5632,
+        79.5891,
+        78.2912,
+        77.6787,
+        80.3918,
+        94.0441,
+        79.701,
+        76.0907,
+        82.6585
+      ],
+      "oracle_samples": [
+        188.6276,
+        236.5293,
+        210.3563,
+        192.2931,
+        192.3947,
+        232.4562,
+        280.113,
+        203.4974,
+        194.0716
+      ],
+      "ratio_oracle_over_subject": 2.557
+    },
+    "integer_arith_rational": {
+      "case": "integer_arith_rational",
+      "status": "error",
+      "subject_error": "RecursionError: expression nesting depth 4097 exceeds the bridge bound 4096 (FSYM_MAX_EXPR_DEPTH); refusing instead of risking a native stack overflow",
+      "oracle_error": "ValueError: Exceeds the limit (4300 digits) for integer string conversion; use sys.set_int_max_str_digits() to increase the limit"
+    },
+    "poly_build_deg12": {
+      "case": "poly_build_deg12",
+      "status": "admitted",
+      "subject_ms_median": 479.783,
+      "oracle_ms_median": 253.0934,
+      "subject_cv_pct": 19.01,
+      "oracle_cv_pct": 13.61,
+      "subject_samples": [
+        218.4425,
+        475.3159,
+        456.1431,
+        508.6487,
+        479.8188,
+        479.783,
+        530.5024,
+        466.8701,
+        494.2999
+      ],
+      "oracle_samples": [
+        238.1045,
+        250.5033,
+        260.9638,
+        252.4072,
+        353.8847,
+        291.9661,
+        306.0936,
+        232.9593,
+        253.0934
+      ],
+      "ratio_oracle_over_subject": 0.528
+    },
+    "expand_sq20": {
+      "case": "expand_sq20",
+      "status": "admitted",
+      "subject_ms_median": 1840.2229,
+      "oracle_ms_median": 209.7827,
+      "subject_cv_pct": 30.17,
+      "oracle_cv_pct": 17.32,
+      "subject_samples": [
+        256.1351,
+        1872.9402,
+        1866.3778,
+        1739.4972,
+        1980.1005,
+        1840.2229,
+        1784.9373,
+        1839.6607,
+        1866.4874
+      ],
+      "oracle_samples": [
+        209.7827,
+        205.7014,
+        208.2664,
+        212.0733,
+        287.6551,
+        239.7833,
+        305.5826,
+        187.8724,
+        193.2812
+      ],
+      "ratio_oracle_over_subject": 0.114
+    },
+    "diff_poly": {
+      "case": "diff_poly",
+      "status": "admitted",
+      "subject_ms_median": 1851.02,
+      "oracle_ms_median": 367.0582,
+      "subject_cv_pct": 21.49,
+      "oracle_cv_pct": 17.77,
+      "subject_samples": [
+        702.4523,
+        1869.7316,
+        1818.2088,
+        1769.6912,
+        1856.0454,
+        2051.8891,
+        1763.4425,
+        1851.02,
+        1879.6561
+      ],
+      "oracle_samples": [
+        338.4593,
+        331.3614,
+        380.9504,
+        367.0582,
+        452.1747,
+        490.3837,
+        526.5678,
+        322.6096,
+        356.4819
+      ],
+      "ratio_oracle_over_subject": 0.198
+    },
+    "simplify_rational_cancel": {
+      "case": "simplify_rational_cancel",
+      "status": "divergence",
+      "subject_result": "(x**2 - 1)*(x - 1)**(-1)",
+      "oracle_result": "x + 1"
+    },
+    "solve_linear": {
+      "case": "solve_linear",
+      "status": "admitted",
+      "subject_ms_median": 376.4829,
+      "oracle_ms_median": 855.0517,
+      "subject_cv_pct": 22.79,
+      "oracle_cv_pct": 5.29,
+      "subject_samples": [
+        148.8901,
+        427.0505,
+        390.5027,
+        360.9534,
+        361.2629,
+        376.4829,
+        395.9401,
+        466.404,
+        366.6867
+      ],
+      "oracle_samples": [
+        852.7351,
+        911.0895,
+        822.3369,
+        860.8506,
+        855.0517,
+        855.4714,
+        981.9484,
+        832.9856,
+        850.759
+      ],
+      "ratio_oracle_over_subject": 2.271
+    },
+    "factorint_mersenne": {
+      "case": "factorint_mersenne",
+      "status": "admitted",
+      "subject_ms_median": 261.7319,
+      "oracle_ms_median": 226.5985,
+      "subject_cv_pct": 11.07,
+      "oracle_cv_pct": 12.01,
+      "subject_samples": [
+        261.7319,
+        252.9523,
+        256.1036,
+        241.517,
+        270.4102,
+        348.2595,
+        248.9312,
+        278.6041,
+        267.278
+      ],
+      "oracle_samples": [
+        199.8289,
+        253.7694,
+        196.1418,
+        233.4022,
+        215.8146,
+        248.3546,
+        268.8853,
+        184.2697,
+        226.5985
+      ],
+      "ratio_oracle_over_subject": 0.866
+    },
+    "isprime_mersenne31": {
+      "case": "isprime_mersenne31",
+      "status": "admitted",
+      "subject_ms_median": 1226.724,
+      "oracle_ms_median": 222.1111,
+      "subject_cv_pct": 4.58,
+      "oracle_cv_pct": 13.74,
+      "subject_samples": [
+        1295.2634,
+        1192.7097,
+        1272.4827,
+        1215.0697,
+        1143.0774,
+        1289.9334,
+        1138.4347,
+        1265.8661,
+        1226.724
+      ],
+      "oracle_samples": [
+        209.6687,
+        292.4994,
+        229.6353,
+        267.5141,
+        220.8768,
+        222.1111,
+        285.111,
+        199.256,
+        213.1142
+      ],
+      "ratio_oracle_over_subject": 0.181
+    },
+    "trig_build": {
+      "case": "trig_build",
+      "status": "divergence",
+      "subject_result": "cos(x) + exp(x) + sin(x)",
+      "oracle_result": "exp(x) + sin(x) + cos(x)"
+    },
+    "srepr_print": {
+      "case": "srepr_print",
+      "status": "admitted",
+      "subject_ms_median": 600.1966,
+      "oracle_ms_median": 334.3567,
+      "subject_cv_pct": 7.07,
+      "oracle_cv_pct": 15.13,
+      "subject_samples": [
+        567.8821,
+        682.1331,
+        649.6691,
+        578.3685,
+        538.0546,
+        622.7353,
+        615.7488,
+        600.1966,
+        567.2228
+      ],
+      "oracle_samples": [
+        287.0783,
+        366.3248,
+        334.3567,
+        428.862,
+        300.8957,
+        402.9387,
+        407.5169,
+        290.3505,
+        304.1266
+      ],
+      "ratio_oracle_over_subject": 0.557
+    },
+    "hash_roundtrip": {
+      "case": "hash_roundtrip",
+      "status": "divergence",
+      "subject_result": "570218480",
+      "oracle_result": "671260876"
+    },
+    "matrix_det4": {
+      "case": "matrix_det4",
+      "status": "admitted",
+      "subject_ms_median": 51.9631,
+      "oracle_ms_median": 293.816,
+      "subject_cv_pct": 10.21,
+      "oracle_cv_pct": 9.97,
+      "subject_samples": [
+        52.2523,
+        51.6587,
+        50.8967,
+        51.6477,
+        55.0482,
+        57.9772,
+        51.9631,
+        68.7624,
+        49.8224
+      ],
+      "oracle_samples": [
+        293.816,
+        301.839,
+        256.3497,
+        320.8746,
+        328.8237,
+        263.9437,
+        329.0077,
+        256.7794,
+        267.1076
+      ],
+      "ratio_oracle_over_subject": 5.654
+    },
+    "str_print": {
+      "case": "str_print",
+      "status": "admitted",
+      "subject_ms_median": 37.6472,
+      "oracle_ms_median": 236.7241,
+      "subject_cv_pct": 13.54,
+      "oracle_cv_pct": 11.65,
+      "subject_samples": [
+        41.8628,
+        53.1223,
+        35.0464,
+        36.5021,
+        36.5199,
+        37.6472,
+        38.6401,
+        41.5131,
+        34.9575
+      ],
+      "oracle_samples": [
+        258.6326,
+        252.9172,
+        223.9132,
+        242.8743,
+        221.3801,
+        202.268,
+        300.6138,
+        212.529,
+        236.7241
+      ],
+      "ratio_oracle_over_subject": 6.288
+    },
+    "evalf_pi": {
+      "case": "evalf_pi",
+      "status": "admitted",
+      "subject_ms_median": 10.5247,
+      "oracle_ms_median": 194.283,
+      "subject_cv_pct": 18.75,
+      "oracle_cv_pct": 6.93,
+      "subject_samples": [
+        10.1175,
+        11.1075,
+        10.2642,
+        10.5247,
+        10.4275,
+        10.0872,
+        11.3085,
+        17.2197,
+        10.8599
+      ],
+      "oracle_samples": [
+        191.1586,
+        196.6772,
+        194.283,
+        183.3328,
+        189.8128,
+        224.1699,
+        213.5637,
+        180.033,
+        207.8102
+      ],
+      "ratio_oracle_over_subject": 18.46
+    }
+  },
+  "summary": {
+    "cases_total": 15,
+    "admitted": 11,
+    "divergences": [
+      "simplify_rational_cancel",
+      "trig_build",
+      "hash_roundtrip"
+    ],
+    "errors": [
+      "integer_arith_rational"
+    ],
+    "low_noise_admitted": 0,
+    "geomean_ratio_oracle_over_subject": null,
+    "noise_note": "ratio>1 means subject faster; ratio<1 means oracle faster; cv>5 cases excluded from geomean but retained above"
+  }
+}
