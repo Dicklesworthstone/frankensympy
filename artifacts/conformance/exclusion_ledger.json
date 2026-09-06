@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": 1,
+  "ledger_id": "fsym-conformance-exclusion-ledger-v1",
+  "profile_id": "sympy-1.14.0-cpython",
+  "generated_at": "2026-09-06T18:00:00Z",
+  "authority": "docs/COMPATIBILITY_CONTRACT.md",
+  "exclusions": [
+    {
+      "exclusion_id": "EXCL-001",
+      "category": "safety_resource_bound",
+      "feature": "Expression nesting recursion depth",
+      "divergence_summary": "Deeply nested binary expression trees exceeding 4096 levels refuse with RecursionError instead of risking native thread stack overflow.",
+      "source_evidence": {
+        "file": "crates/fsym-python/src/lib.rs",
+        "symbol": "FSYM_MAX_EXPR_DEPTH",
+        "bound": 4096,
+        "constitutional_rule": "CONSTITUTION.md Article XXI (Security and resource bounds)"
+      },
+      "rationale": "Mandatory safety bound; untrusted input cannot trigger uncontrolled stack exhaustion or memory unsafety.",
+      "status": "documented_exclusion",
+      "owner": "WS21",
+      "severity": "intentional_safety_bound"
+    },
+    {
+      "exclusion_id": "EXCL-002",
+      "category": "deterministic_identity",
+      "feature": "builtins.hash(expr)",
+      "divergence_summary": "Built-in Python hash(expr) produces a deterministic 64-bit fold of the 32-byte BLAKE3 TermId rather than CPython SymPy's tuple hash.",
+      "source_evidence": {
+        "file": "crates/fsym-core/src/dag.rs",
+        "symbol": "TermNode::hash_term",
+        "hash_algorithm": "BLAKE3",
+        "constitutional_rule": "CONSTITUTION.md Article III (Stable identity)"
+      },
+      "rationale": "Term identity is invariant across processes, architectures, and sessions, excluding pointer addresses and hash seeds.",
+      "status": "documented_exclusion",
+      "owner": "WS21",
+      "severity": "intentional_identity_contract"
+    },
+    {
+      "exclusion_id": "EXCL-003",
+      "category": "printer_canonical_order",
+      "feature": "srepr(Add(...))",
+      "divergence_summary": "srepr() prints terms in native canonical TermDAG order (sorted by TermId) rather than Python SymPy's Add._compare_pretty order.",
+      "source_evidence": {
+        "file": "crates/fsym-printing/src/lib.rs",
+        "symbol": "print_srepr",
+        "ordering": "canonical_term_order"
+      },
+      "rationale": "Internal TermDAG representation enforces deterministic serialization across distributed nodes and fresh processes.",
+      "status": "documented_exclusion",
+      "owner": "WS21",
+      "severity": "nonblocking_profile_debt"
+    },
+    {
+      "exclusion_id": "EXCL-004",
+      "category": "algebraic_simplification",
+      "feature": "simplify((x**2 - 1)/(x - 1))",
+      "divergence_summary": "In the Python shell layer, simplify() on rational powers does not automatically invoke multivariate GCD cancellation without explicit cancel().",
+      "source_evidence": {
+        "file": "python/sympy/simplify/simplify.py",
+        "symbol": "simplify",
+        "native_equivalent": "fsym_simplify::try_simplify"
+      },
+      "rationale": "Pre-1.0 shell vertical slice debt; native polynomial cancellation is fully available via fsym-polys / fsym-simplify.",
+      "status": "documented_exclusion",
+      "owner": "WS21",
+      "severity": "profile_debt_open"
+    },
+    {
+      "exclusion_id": "EXCL-005",
+      "category": "honest_refusal",
+      "feature": "integrate(x*exp(x^2), x)",
+      "divergence_summary": "Integrands outside the current table and heuristic scope return a typed IntegrationUnsupported refusal rather than spinning indefinitely.",
+      "source_evidence": {
+        "file": "crates/fsym-conformance/src/lib.rs",
+        "symbol": "int_refusal_001",
+        "verdict": "ExpectedRefusal"
+      },
+      "rationale": "Honest refusal by construction per AGENTS.md section 14; generators do not pretend to solve unsupported forms without verifier certificates.",
+      "status": "documented_exclusion",
+      "owner": "WS21",
+      "severity": "intentional_honest_refusal"
+    },
+    {
+      "exclusion_id": "EXCL-006",
+      "category": "serialization_security",
+      "feature": "pickle.dumps(expr)",
+      "divergence_summary": "Pickle serialization is treated as an explicit unsafe capability requiring isolation rather than a trusted network wire format.",
+      "source_evidence": {
+        "file": "crates/fsym-runtime/src/protocol.rs",
+        "constitutional_rule": "CONSTITUTION.md Article XVIII (Python boundary and serialization)"
+      },
+      "rationale": "Prevents arbitrary code execution vulnerabilities during remote candidate transport and session restore.",
+      "status": "documented_exclusion",
+      "owner": "WS21",
+      "severity": "intentional_security_contract"
+    },
+    {
+      "exclusion_id": "EXCL-007",
+      "category": "certified_enclosure",
+      "feature": "Float evaluation and ball arithmetic",
+      "divergence_summary": "Float evaluations use RealBall interval bounds with directed rounding to provide certified enclosures rather than unguaranteed IEEE-754 approximations.",
+      "source_evidence": {
+        "file": "crates/fsym-core/src/ball.rs",
+        "symbol": "RealBall",
+        "constitutional_rule": "CONSTITUTION.md Article V (Evidence and certified enclosures)"
+      },
+      "rationale": "Prevents silent numerical drift; enclosure guarantees are tracked in the evidence promotion lattice.",
+      "status": "documented_exclusion",
+      "owner": "WS21",
+      "severity": "certified_evidence_contract"
+    }
+  ]
+}

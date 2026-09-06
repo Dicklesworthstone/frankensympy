@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "gate": "ws21-profile-closure",
+  "profile_id": "sympy-1.14.0-cpython",
+  "status": "passed",
+  "commit": "92928f91c92882d285c60dcdc066c7fd0585a802",
+  "checks": [
+    {
+      "name": "workspace-forbids-unsafe",
+      "status": "passed",
+      "detail": "workspace lints forbid unsafe_code"
+    },
+    {
+      "name": "registry-validators",
+      "status": "passed",
+      "detail": "exit=0"
+    },
+    {
+      "name": "tests-fsym-conformance",
+      "status": "passed",
+      "detail": "exit=0"
+    },
+    {
+      "name": "corpus-gate",
+      "status": "passed",
+      "detail": "exit=0"
+    },
+    {
+      "name": "exclusion-ledger-verification",
+      "status": "passed",
+      "detail": "artifacts/conformance/exclusion_ledger.json schema and source evidence valid"
+    }
+  ],
+  "checks_digest": "597487a072da91d1a7f74058c77e5186f973c921c956b684650d9f689167a1b0"
+}

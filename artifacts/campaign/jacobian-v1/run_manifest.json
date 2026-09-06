@@ -2,8 +2,8 @@
   "schema_version": 1,
   "campaign_name": "Certified Jacobian Pipeline",
   "status": "passed",
-  "start_time": "2026-09-06T17:56:27Z",
-  "end_time": "2026-09-06T17:58:01Z",
+  "start_time": "2026-09-06T17:54:34Z",
+  "end_time": "2026-09-06T17:59:54Z",
   "commit": "d3fa70aa6deb063fdbed966d754828c5ecefa91b",
   "platform": {
     "system": "Linux",

@@ -560,9 +560,63 @@ fn cmd_gate_ws22_performance() -> Receipt {
     finish("ws22-performance", "sympy-1.14.0-cpython", checks)
 }
 
+fn check_exclusion_ledger(checks: &mut Vec<Check>) {
+    let ledger_path = "artifacts/conformance/exclusion_ledger.json";
+    let content = std::fs::read_to_string(ledger_path).unwrap_or_default();
+    let json: Result<serde_json::Value, _> = serde_json::from_str(&content);
+    let ok = match json {
+        Ok(v) => {
+            v.get("schema_version") == Some(&serde_json::json!(1))
+                && v.get("profile_id") == Some(&serde_json::json!("sympy-1.14.0-cpython"))
+                && v.get("exclusions")
+                    .and_then(|e| e.as_array())
+                    .is_some_and(|arr| {
+                        !arr.is_empty()
+                            && arr.iter().all(|ex| {
+                                ex.get("exclusion_id").is_some()
+                                    && ex.get("category").is_some()
+                                    && ex.get("feature").is_some()
+                                    && ex.get("divergence_summary").is_some()
+                                    && ex.get("source_evidence").is_some()
+                                    && ex.get("rationale").is_some()
+                                    && ex.get("status").is_some()
+                            })
+                    })
+        }
+        Err(_) => false,
+    };
+    checks.push(Check {
+        name: "exclusion-ledger-verification".into(),
+        status: if ok { "passed" } else { "failed" }.into(),
+        detail: if ok {
+            format!("{ledger_path} schema and source evidence valid")
+        } else {
+            format!("{ledger_path} missing or invalid")
+        },
+    });
+}
+
+fn cmd_gate_ws21_profile_closure() -> Receipt {
+    let mut checks = Vec::new();
+    check_workspace_no_unsafe(&mut checks);
+    check_registry_sync(&mut checks);
+
+    let mut c1 = cargo();
+    c1.args(["test", "-p", "fsym-conformance", "--quiet"]);
+    run_command("tests-fsym-conformance", c1, &mut checks);
+
+    let mut c2 = Command::new("python3");
+    c2.args(["tools/conformance-lab/corpus_gate.py"]);
+    run_command("corpus-gate", c2, &mut checks);
+
+    check_exclusion_ledger(&mut checks);
+
+    finish("ws21-profile-closure", "sympy-1.14.0-cpython", checks)
+}
+
 fn print_usage() -> i32 {
     eprintln!(
-        "usage: xtask profile verify <profile-id> | xtask gate foundation | xtask gate deterministic-term-identity | xtask gate ws09-factorization | xtask gate ws10-exact-linear | xtask gate ws11-certified-numeric | xtask gate ws12-certified-jacobian | xtask gate ws13-portfolio-runtime | xtask gate ws14-agent-protocol | xtask gate ws15-persistence-repair | xtask gate ws16-distribution-index | xtask gate ws17-groebner | xtask gate ws18-analytic-calculus | xtask gate ws19-solvers | xtask gate ws20-structured-domains | xtask gate ws22-performance | xtask gate python-object-model --profile <profile-id>"
+        "usage: xtask profile verify <profile-id> | xtask gate foundation | xtask gate deterministic-term-identity | xtask gate ws09-factorization | xtask gate ws10-exact-linear | xtask gate ws11-certified-numeric | xtask gate ws12-certified-jacobian | xtask gate ws13-portfolio-runtime | xtask gate ws14-agent-protocol | xtask gate ws15-persistence-repair | xtask gate ws16-distribution-index | xtask gate ws17-groebner | xtask gate ws18-analytic-calculus | xtask gate ws19-solvers | xtask gate ws20-structured-domains | xtask gate ws21-profile-closure | xtask gate ws22-performance | xtask gate python-object-model --profile <profile-id>"
     );
     2
 }
@@ -595,6 +649,7 @@ fn main() -> std::process::ExitCode {
         [a, b] if a == "gate" && b == "ws20-structured-domains" => {
             cmd_gate_ws20_structured_domains()
         }
+        [a, b] if a == "gate" && b == "ws21-profile-closure" => cmd_gate_ws21_profile_closure(),
         [a, b] if a == "gate" && b == "ws22-performance" => cmd_gate_ws22_performance(),
         [a, b, flag, profile]
             if a == "gate" && b == "python-object-model" && flag == "--profile" =>

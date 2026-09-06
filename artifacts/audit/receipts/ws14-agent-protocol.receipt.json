@@ -3,7 +3,7 @@
   "gate": "ws14-agent-protocol",
   "profile_id": "sympy-1.14.0-cpython",
   "status": "passed",
-  "commit": "d3fa70aa6deb063fdbed966d754828c5ecefa91b",
+  "commit": "92928f91c92882d285c60dcdc066c7fd0585a802",
   "checks": [
     {
       "name": "workspace-forbids-unsafe",

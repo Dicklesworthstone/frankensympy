@@ -11,8 +11,8 @@
 #![forbid(unsafe_code)]
 
 use fsym_runtime::benchmarks::{
-    run_aa_control_benchmark, run_paired_benchmark,
-    run_paired_benchmark_rounds, run_standard_ws22_suite, BenchmarkError,
+    BenchmarkError, run_aa_control_benchmark, run_paired_benchmark, run_paired_benchmark_rounds,
+    run_standard_ws22_suite,
 };
 
 #[test]
@@ -179,5 +179,8 @@ fn test_ws22_adversarial_tampered_samples_digest_refusal() {
         tampered_hasher.update(&s.to_le_bytes());
     }
     let tampered_digest = *tampered_hasher.finalize().as_bytes();
-    assert_ne!(res.receipt_digest, tampered_digest, "tampered sample must alter digest");
+    assert_ne!(
+        res.receipt_digest, tampered_digest,
+        "tampered sample must alter digest"
+    );
 }
