@@ -214,6 +214,52 @@ fn cmd_gate_python_object_model(profile: &str) -> Receipt {
     finish("python-object-model", profile, checks)
 }
 
+fn cmd_gate_deterministic_term_identity() -> Receipt {
+    let mut checks = Vec::new();
+    check_workspace_no_unsafe(&mut checks);
+
+    let mut c1 = cargo();
+    c1.args([
+        "test",
+        "-p",
+        "fsym-core",
+        "--test",
+        "fresh_process_id_stability",
+        "--quiet",
+    ]);
+    run_command("test-fresh-process-id-stability", c1, &mut checks);
+
+    let fixture_path = "artifacts/conformance/fixtures/deterministic_term_identity_v1.json";
+    let ok_fixture = match std::fs::read_to_string(fixture_path) {
+        Ok(raw) => match serde_json::from_str::<serde_json::Value>(&raw) {
+            Ok(v) => v["terms"].as_object().map(|t| t.len()).unwrap_or(0) >= 20,
+            Err(_) => false,
+        },
+        Err(_) => false,
+    };
+    checks.push(Check {
+        name: "cross-architecture-fixture-closure".into(),
+        status: if ok_fixture { "passed" } else { "failed" }.into(),
+        detail: if ok_fixture {
+            format!("{fixture_path} valid with >= 20 canonical terms")
+        } else {
+            format!("{fixture_path} missing or invalid")
+        },
+    });
+
+    for crate_name in ["fsym-core", "fsym-assumptions", "fsym-id"] {
+        let mut c = cargo();
+        c.args(["test", "-p", crate_name, "--quiet"]);
+        run_command(&format!("tests-{crate_name}"), c, &mut checks);
+    }
+
+    finish(
+        "deterministic-term-identity",
+        "sympy-1.14.0-cpython",
+        checks,
+    )
+}
+
 fn finish(gate: &str, profile_id: &str, checks: Vec<Check>) -> Receipt {
     let all_passed = checks.iter().all(|c| c.status == "passed");
     let receipt = Receipt {
@@ -241,7 +287,7 @@ fn write_receipt(receipt: &Receipt) {
 
 fn print_usage() -> i32 {
     eprintln!(
-        "usage: xtask profile verify <profile-id> | xtask gate foundation | xtask gate python-object-model --profile <profile-id>"
+        "usage: xtask profile verify <profile-id> | xtask gate foundation | xtask gate deterministic-term-identity | xtask gate python-object-model --profile <profile-id>"
     );
     2
 }
@@ -251,6 +297,9 @@ fn main() -> std::process::ExitCode {
     let receipt = match args.as_slice() {
         [a, b, profile] if a == "profile" && b == "verify" => cmd_profile_verify(profile),
         [a, b] if a == "gate" && b == "foundation" => cmd_gate_foundation(),
+        [a, b] if a == "gate" && b == "deterministic-term-identity" => {
+            cmd_gate_deterministic_term_identity()
+        }
         [a, b, flag, profile]
             if a == "gate" && b == "python-object-model" && flag == "--profile" =>
         {

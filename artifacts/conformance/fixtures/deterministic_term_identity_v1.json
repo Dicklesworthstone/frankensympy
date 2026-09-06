@@ -1,0 +1,142 @@
+{
+  "schema_version": 1,
+  "profile_id": "deterministic-term-identity-v1",
+  "hasher": "blake3-256",
+  "terms": {
+    "add_x_1": {
+      "digest_hex": "7860c0f9af8fe351199055799d8bf4bb61676ca16c0789581c2792630dba557c",
+      "domain": "Expression",
+      "term_id_raw": 5900717922757664888
+    },
+    "add_x_y": {
+      "digest_hex": "4c79800b9e2c8c70c1b4c34a3bae788fd49fd802473f528368d423307ba26845",
+      "domain": "Expression",
+      "term_id_raw": 8109906086296844620
+    },
+    "add_y_1": {
+      "digest_hex": "da110e6d8dedec33ac4add2dbe2a6d8066806c68564e582f126098477ef20ed5",
+      "domain": "Expression",
+      "term_id_raw": 3741626582113849818
+    },
+    "const_e": {
+      "digest_hex": "22faab5a213dcc471addf76d78cec4065e3c6834d2b0ccc663b104804f77b61b",
+      "domain": "Expression",
+      "term_id_raw": 5173577285406292514
+    },
+    "const_i": {
+      "digest_hex": "2ba24e6166c2276be3a6ddde206ad77a77b885831f0f342fa28368f8308a9d6a",
+      "domain": "Expression",
+      "term_id_raw": 7721353831125000747
+    },
+    "const_inf": {
+      "digest_hex": "f7761a5f4f7e153566afd2ed64ab39a9c506fbd196938a3a58f3db00c101ffcf",
+      "domain": "Expression",
+      "term_id_raw": 3825102337884190455
+    },
+    "const_pi": {
+      "digest_hex": "b18c511f2b29d30af3754d959313500279a6e997d3993843b90b735b776697cc",
+      "domain": "Expression",
+      "term_id_raw": 780012425650998449
+    },
+    "fn_cos_x_y": {
+      "digest_hex": "cfc39596cd36d8376006726c2ba2694e16a4542c169034b56dc1d60932601a47",
+      "domain": "Expression",
+      "term_id_raw": 4024026523678131151
+    },
+    "fn_sin_x": {
+      "digest_hex": "618874017cac6287fdab3102759b8e47f8e489ce63c65fcb5be2185a3adb04b0",
+      "domain": "Expression",
+      "term_id_raw": 9755549391438252129
+    },
+    "int_0": {
+      "digest_hex": "b7263b2dda2bf9d8350ae3c3392b6f82274e146ee401006d78d3179dab7abdeb",
+      "domain": "Expression",
+      "term_id_raw": 15634575797455103671
+    },
+    "int_1": {
+      "digest_hex": "00f672d2a25aab8e6b4718b997d7477cc274143717eb38913c6b4c45e0c0e82a",
+      "domain": "Expression",
+      "term_id_raw": 10280410229765240320
+    },
+    "int_2": {
+      "digest_hex": "1066b04f2c4bd5582bc0dfa3238e244ff5b0a4f13704795665bf46e56e187e8d",
+      "domain": "Expression",
+      "term_id_raw": 6401105099064632848
+    },
+    "int_3": {
+      "digest_hex": "2bfd90ef3ee4db041de8b56821a600f04fbc70d688f3a2e0350881aaed10c204",
+      "domain": "Expression",
+      "term_id_raw": 350124355009707307
+    },
+    "int_42": {
+      "digest_hex": "a80a7c00c7488f3e78537f55c81f476fdc0d6cd2e4340ea0122067e9bd2c4114",
+      "domain": "Expression",
+      "term_id_raw": 4507901771564976808
+    },
+    "int_big": {
+      "digest_hex": "3c14fb6501a1f75304571d5c30a5c5a7354d011b996336a3278c04c6cac31183",
+      "domain": "Expression",
+      "term_id_raw": 6050481651773543484
+    },
+    "int_neg_1": {
+      "digest_hex": "6f0863ef0a336cc9d55445c22e9aa34443ab2e71625e3cc0f48e9187c19e17a1",
+      "domain": "Expression",
+      "term_id_raw": 14514031821167200367
+    },
+    "lambda_x_plus_1": {
+      "digest_hex": "902fef11aaad88e880c95a67ae8f6a1d4e7172aad701486830738a6eff02dff5",
+      "domain": "Expression",
+      "term_id_raw": 16755833359588863888
+    },
+    "lambda_y_plus_1": {
+      "digest_hex": "902fef11aaad88e880c95a67ae8f6a1d4e7172aad701486830738a6eff02dff5",
+      "domain": "Expression",
+      "term_id_raw": 16755833359588863888
+    },
+    "mul_2_x": {
+      "digest_hex": "cc52cd4c71ab604eefaa659eba5a4595fac0e798887e02dddfce342f9670ce0b",
+      "domain": "Expression",
+      "term_id_raw": 5647702435830780620
+    },
+    "mul_x_y": {
+      "digest_hex": "1011d51935d5a99fb9d969953dc31261fda9d42232bce9b01c5cc23d7419608c",
+      "domain": "Expression",
+      "term_id_raw": 11504961147138019600
+    },
+    "pow_x_2": {
+      "digest_hex": "a2e3d7e0c68ca4da5f72d68e3a0c4c5489eb9d03c8fe5545511759ed468a5b3d",
+      "domain": "Expression",
+      "term_id_raw": 15754872182252495778
+    },
+    "pow_x_plus_1_cubed": {
+      "digest_hex": "b5afa18650e071ae9910dd197f9f899470bb2d271d1dbe051d9ac465a151e4da",
+      "domain": "Expression",
+      "term_id_raw": 12570074671428513717
+    },
+    "rat_half": {
+      "digest_hex": "aa6b8550602c7f09624f5f436d1ecc7b94769c7bca6746872cea9c057a44363e",
+      "domain": "Expression",
+      "term_id_raw": 684314460563008426
+    },
+    "rat_neg_22_7": {
+      "digest_hex": "4db35b105e64727af8d9c25f2b4f1f8c2071aabe58b4982d2fa09e62f81216ec",
+      "domain": "Expression",
+      "term_id_raw": 8823224975136371533
+    },
+    "sym_x": {
+      "digest_hex": "fe01bab39fe4f7057029e497c41995eb0e903e75dd0de8a144d2bbd198e07b53",
+      "domain": "Expression",
+      "term_id_raw": 430063664003416574
+    },
+    "sym_y": {
+      "digest_hex": "41fa3e8cec9cbb189bab61d259c0b44df0792f0abbe86c497e36435ae0cf8d05",
+      "domain": "Expression",
+      "term_id_raw": 1782190617334315585
+    },
+    "sym_z": {
+      "digest_hex": "d2fbf2311b0f94d12a5348a775538412b0c36023a2b913d9eaa0d0b36602115a",
+      "domain": "Expression",
+      "term_id_raw": 15101712059956657106
+    }
+  }
+}

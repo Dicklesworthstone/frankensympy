@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "gate": "foundation",
+  "gate": "deterministic-term-identity",
   "profile_id": "sympy-1.14.0-cpython",
   "status": "passed",
   "commit": "794cf58d974b3680b0058a683b051d342c095f16",
@@ -11,35 +11,30 @@
       "detail": "workspace lints forbid unsafe_code"
     },
     {
+      "name": "test-fresh-process-id-stability",
+      "status": "passed",
+      "detail": "exit=0"
+    },
+    {
+      "name": "cross-architecture-fixture-closure",
+      "status": "passed",
+      "detail": "artifacts/conformance/fixtures/deterministic_term_identity_v1.json valid with >= 20 canonical terms"
+    },
+    {
+      "name": "tests-fsym-core",
+      "status": "passed",
+      "detail": "exit=0"
+    },
+    {
+      "name": "tests-fsym-assumptions",
+      "status": "passed",
+      "detail": "exit=0"
+    },
+    {
       "name": "tests-fsym-id",
-      "status": "passed",
-      "detail": "exit=0"
-    },
-    {
-      "name": "tests-fsym-budget",
-      "status": "passed",
-      "detail": "exit=0"
-    },
-    {
-      "name": "tests-fsym-outcome",
-      "status": "passed",
-      "detail": "exit=0"
-    },
-    {
-      "name": "tests-fsym-bigint",
-      "status": "passed",
-      "detail": "exit=0"
-    },
-    {
-      "name": "tests-fsym-rational",
-      "status": "passed",
-      "detail": "exit=0"
-    },
-    {
-      "name": "tests-fsym-modular",
       "status": "passed",
       "detail": "exit=0"
     }
   ],
-  "checks_digest": "104f777c9d03eee14adceb7b5aa432d34960df7108e7dae707767b8b5739aac9"
+  "checks_digest": "d7bffa67c881af0bf1b6052cb791a6f4beca8821fe2406e4015a34f03996ff10"
 }

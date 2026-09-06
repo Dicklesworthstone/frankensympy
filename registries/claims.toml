@@ -103,8 +103,8 @@ status = "implemented_uncertified"
 minimum_evidence = "validated"
 workstreams = ["WS02", "WS03", "WS04"]
 gate = "gate://deterministic-term-identity"
-evidence_artifacts = ["crates/fsym-core/src/dag.rs", "crates/fsym-id/src/lib.rs", "artifacts/audit/ws04_dag_claims_fresh_eyes_audit_FINAL_SYNTHESIS.md"]
-notes = "implemented_uncertified 2026-08-29: content-addressed term interning with BLAKE3 preimages and 32-byte digest confirmation landed (WS04 audits); cross-architecture identity fixture gates remain open."
+evidence_artifacts = ["crates/fsym-core/src/dag.rs", "crates/fsym-id/src/lib.rs", "artifacts/audit/ws04_terms_domains_audit.md", "artifacts/audit/receipts/deterministic-term-identity.receipt.json"]
+notes = "implemented_uncertified 2026-09-06: content-addressed term interning with BLAKE3 preimages and 32-byte digest confirmation verified; fresh-process stability and cross-architecture golden fixture gate://deterministic-term-identity validated."
 [[claims]]
 id = "SEMANTIC-002"
 kind = "semantic"

@@ -3,7 +3,7 @@
   "gate": "profile-verify",
   "profile_id": "sympy-1.14.0-cpython",
   "status": "passed",
-  "commit": "e09df9306dadfb1851b931ab28d575fdd18ba87d",
+  "commit": "794cf58d974b3680b0058a683b051d342c095f16",
   "checks": [
     {
       "name": "profile-id-matches-declared-module",
