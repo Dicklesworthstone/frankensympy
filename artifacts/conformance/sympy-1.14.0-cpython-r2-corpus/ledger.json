@@ -84,6 +84,7 @@
    "status": "closed_verified"
   },
   {
+   "closure_evidence": "full r2-corpus parity at HEAD (post 131e1f9 Float-eq/str + canonical Add args order): corpus diff 2026-09-05 admitted 230/230, drifting 0 (exit 1 run with this evidence captured at /tmp/recon6-era; fresh run zero drifts); fixes via a603a09/d4aa9b4/seams/printer-parity/131e1f9 lineage",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.args_repr"
@@ -93,7 +94,7 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
    "closure_evidence": "no longer reproduces at HEAD 22d9c62f274c37bf332aff655781ba73b5242e7f after shell fixes d4aa9b4/a603a09/seams+printer lands; corpus diff 2026-09-05: admitted 211/230, drift 19",
@@ -161,6 +162,7 @@
    "status": "closed_verified"
   },
   {
+   "closure_evidence": "full r2-corpus parity at HEAD (post 131e1f9 Float-eq/str + canonical Add args order): corpus diff 2026-09-05 admitted 230/230, drifting 0 (exit 1 run with this evidence captured at /tmp/recon6-era; fresh run zero drifts); fixes via a603a09/d4aa9b4/seams/printer-parity/131e1f9 lineage",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.args_repr",
@@ -173,7 +175,7 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
    "closure_evidence": "no longer reproduces at HEAD 22d9c62f274c37bf332aff655781ba73b5242e7f after shell fixes d4aa9b4/a603a09/seams+printer lands; corpus diff 2026-09-05: admitted 211/230, drift 19",
@@ -189,7 +191,7 @@
    "status": "closed_verified"
   },
   {
-   "closure_evidence": "no longer reproduces at HEAD 22d9c62f274c37bf332aff655781ba73b5242e7f after shell fixes d4aa9b4/a603a09/seams+printer lands; corpus diff 2026-09-05: admitted 211/230, drift 19",
+   "closure_evidence": "full r2-corpus parity at HEAD (post 131e1f9 Float-eq/str + canonical Add args order): corpus diff 2026-09-05 admitted 230/230, drifting 0 (exit 1 run with this evidence captured at /tmp/recon6-era; fresh run zero drifts); fixes via a603a09/d4aa9b4/seams/printer-parity/131e1f9 lineage",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.args_repr"
@@ -200,10 +202,10 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
-   "closure_evidence": "no longer reproduces at HEAD 22d9c62f274c37bf332aff655781ba73b5242e7f after shell fixes d4aa9b4/a603a09/seams+printer lands; corpus diff 2026-09-05: admitted 211/230, drift 19",
+   "closure_evidence": "full r2-corpus parity at HEAD (post 131e1f9 Float-eq/str + canonical Add args order): corpus diff 2026-09-05 admitted 230/230, drifting 0 (exit 1 run with this evidence captured at /tmp/recon6-era; fresh run zero drifts); fixes via a603a09/d4aa9b4/seams/printer-parity/131e1f9 lineage",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.args_repr"
@@ -214,10 +216,10 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
-   "closure_evidence": "no longer reproduces at HEAD 22d9c62f274c37bf332aff655781ba73b5242e7f after shell fixes d4aa9b4/a603a09/seams+printer lands; corpus diff 2026-09-05: admitted 211/230, drift 19",
+   "closure_evidence": "full r2-corpus parity at HEAD (post 131e1f9 Float-eq/str + canonical Add args order): corpus diff 2026-09-05 admitted 230/230, drifting 0 (exit 1 run with this evidence captured at /tmp/recon6-era; fresh run zero drifts); fixes via a603a09/d4aa9b4/seams/printer-parity/131e1f9 lineage",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.args_repr"
@@ -228,10 +230,10 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
-   "closure_evidence": "no longer reproduces at HEAD 22d9c62f274c37bf332aff655781ba73b5242e7f after shell fixes d4aa9b4/a603a09/seams+printer lands; corpus diff 2026-09-05: admitted 211/230, drift 19",
+   "closure_evidence": "full r2-corpus parity at HEAD (post 131e1f9 Float-eq/str + canonical Add args order): corpus diff 2026-09-05 admitted 230/230, drifting 0 (exit 1 run with this evidence captured at /tmp/recon6-era; fresh run zero drifts); fixes via a603a09/d4aa9b4/seams/printer-parity/131e1f9 lineage",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.args_repr"
@@ -242,7 +244,7 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
    "closure_evidence": "no longer reproduces at HEAD 22d9c62f274c37bf332aff655781ba73b5242e7f after shell fixes d4aa9b4/a603a09/seams+printer lands; corpus diff 2026-09-05: admitted 211/230, drift 19",
@@ -286,6 +288,7 @@
    "status": "closed_verified"
   },
   {
+   "closure_evidence": "full r2-corpus parity at HEAD (post 131e1f9 Float-eq/str + canonical Add args order): corpus diff 2026-09-05 admitted 230/230, drifting 0 (exit 1 run with this evidence captured at /tmp/recon6-era; fresh run zero drifts); fixes via a603a09/d4aa9b4/seams/printer-parity/131e1f9 lineage",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.args_repr"
@@ -295,9 +298,10 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
+   "closure_evidence": "full r2-corpus parity at HEAD (post 131e1f9 Float-eq/str + canonical Add args order): corpus diff 2026-09-05 admitted 230/230, drifting 0 (exit 1 run with this evidence captured at /tmp/recon6-era; fresh run zero drifts); fixes via a603a09/d4aa9b4/seams/printer-parity/131e1f9 lineage",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.args_repr"
@@ -307,9 +311,10 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
+   "closure_evidence": "full r2-corpus parity at HEAD (post 131e1f9 Float-eq/str + canonical Add args order): corpus diff 2026-09-05 admitted 230/230, drifting 0 (exit 1 run with this evidence captured at /tmp/recon6-era; fresh run zero drifts); fixes via a603a09/d4aa9b4/seams/printer-parity/131e1f9 lineage",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.args_repr"
@@ -319,9 +324,10 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
+   "closure_evidence": "full r2-corpus parity at HEAD (post 131e1f9 Float-eq/str + canonical Add args order): corpus diff 2026-09-05 admitted 230/230, drifting 0 (exit 1 run with this evidence captured at /tmp/recon6-era; fresh run zero drifts); fixes via a603a09/d4aa9b4/seams/printer-parity/131e1f9 lineage",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.args_repr"
@@ -331,9 +337,10 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
+   "closure_evidence": "full r2-corpus parity at HEAD (post 131e1f9 Float-eq/str + canonical Add args order): corpus diff 2026-09-05 admitted 230/230, drifting 0 (exit 1 run with this evidence captured at /tmp/recon6-era; fresh run zero drifts); fixes via a603a09/d4aa9b4/seams/printer-parity/131e1f9 lineage",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.args_repr"
@@ -343,9 +350,10 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
+   "closure_evidence": "full r2-corpus parity at HEAD (post 131e1f9 Float-eq/str + canonical Add args order): corpus diff 2026-09-05 admitted 230/230, drifting 0 (exit 1 run with this evidence captured at /tmp/recon6-era; fresh run zero drifts); fixes via a603a09/d4aa9b4/seams/printer-parity/131e1f9 lineage",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.args_repr"
@@ -355,9 +363,10 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
+   "closure_evidence": "full r2-corpus parity at HEAD (post 131e1f9 Float-eq/str + canonical Add args order): corpus diff 2026-09-05 admitted 230/230, drifting 0 (exit 1 run with this evidence captured at /tmp/recon6-era; fresh run zero drifts); fixes via a603a09/d4aa9b4/seams/printer-parity/131e1f9 lineage",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.args_repr"
@@ -367,9 +376,10 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
+   "closure_evidence": "full r2-corpus parity at HEAD (post 131e1f9 Float-eq/str + canonical Add args order): corpus diff 2026-09-05 admitted 230/230, drifting 0 (exit 1 run with this evidence captured at /tmp/recon6-era; fresh run zero drifts); fixes via a603a09/d4aa9b4/seams/printer-parity/131e1f9 lineage",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.args_repr"
@@ -379,9 +389,10 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
+   "closure_evidence": "full r2-corpus parity at HEAD (post 131e1f9 Float-eq/str + canonical Add args order): corpus diff 2026-09-05 admitted 230/230, drifting 0 (exit 1 run with this evidence captured at /tmp/recon6-era; fresh run zero drifts); fixes via a603a09/d4aa9b4/seams/printer-parity/131e1f9 lineage",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.args_repr"
@@ -391,9 +402,10 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
+   "closure_evidence": "full r2-corpus parity at HEAD (post 131e1f9 Float-eq/str + canonical Add args order): corpus diff 2026-09-05 admitted 230/230, drifting 0 (exit 1 run with this evidence captured at /tmp/recon6-era; fresh run zero drifts); fixes via a603a09/d4aa9b4/seams/printer-parity/131e1f9 lineage",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.args_repr"
@@ -403,9 +415,10 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
+   "closure_evidence": "full r2-corpus parity at HEAD (post 131e1f9 Float-eq/str + canonical Add args order): corpus diff 2026-09-05 admitted 230/230, drifting 0 (exit 1 run with this evidence captured at /tmp/recon6-era; fresh run zero drifts); fixes via a603a09/d4aa9b4/seams/printer-parity/131e1f9 lineage",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.func",
@@ -416,9 +429,10 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
+   "closure_evidence": "full r2-corpus parity at HEAD (post 131e1f9 Float-eq/str + canonical Add args order): corpus diff 2026-09-05 admitted 230/230, drifting 0 (exit 1 run with this evidence captured at /tmp/recon6-era; fresh run zero drifts); fixes via a603a09/d4aa9b4/seams/printer-parity/131e1f9 lineage",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.func",
@@ -429,7 +443,7 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
    "closure_evidence": "no longer reproduces at HEAD 22d9c62f274c37bf332aff655781ba73b5242e7f after shell fixes d4aa9b4/a603a09/seams+printer lands; corpus diff 2026-09-05: admitted 211/230, drift 19",
@@ -474,6 +488,7 @@
    "status": "closed_verified"
   },
   {
+   "closure_evidence": "full r2-corpus parity at HEAD (post 131e1f9 Float-eq/str + canonical Add args order): corpus diff 2026-09-05 admitted 230/230, drifting 0 (exit 1 run with this evidence captured at /tmp/recon6-era; fresh run zero drifts); fixes via a603a09/d4aa9b4/seams/printer-parity/131e1f9 lineage",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.func",
@@ -484,9 +499,10 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
+   "closure_evidence": "full r2-corpus parity at HEAD (post 131e1f9 Float-eq/str + canonical Add args order): corpus diff 2026-09-05 admitted 230/230, drifting 0 (exit 1 run with this evidence captured at /tmp/recon6-era; fresh run zero drifts); fixes via a603a09/d4aa9b4/seams/printer-parity/131e1f9 lineage",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.func",
@@ -497,7 +513,7 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
    "closure_evidence": "no longer reproduces at HEAD 22d9c62f274c37bf332aff655781ba73b5242e7f after shell fixes d4aa9b4/a603a09/seams+printer lands; corpus diff 2026-09-05: admitted 211/230, drift 19",
