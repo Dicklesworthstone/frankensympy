@@ -422,6 +422,43 @@ pub fn canonicalize_add_args(terms: &mut [Expr]) {
     terms.sort_by(cmp_add_args);
 }
 
+/// Folds and orders Mul factors into canonical form in place, matching
+/// pinned SymPy 1.14.0 Mul construction (bead fra-add-args-canonical-order-
+/// o1i follow-up): exact-numeric factors multiply into one leading
+/// coefficient (Integer when integral), unit factors drop, zero collapses
+/// the whole product, and remaining factors order numbers-first.
+/// Returns true when the product collapsed to the single constant.
+pub fn canonicalize_mul_args(factors: &mut Vec<Expr>) -> bool {
+    let mut coeff = BigRational::from_integer(BigInt::from(1));
+    let mut rest: Vec<Expr> = Vec::with_capacity(factors.len());
+    for f in factors.drain(..) {
+        match f {
+            Expr::Integer(v) => coeff *= BigRational::from_integer(v),
+            Expr::Rational(r) => coeff *= r,
+            other => rest.push(other),
+        }
+    }
+    if coeff.is_zero() && !rest.is_empty() {
+        factors.push(Expr::Integer(BigInt::from(0)));
+        return true;
+    }
+    let empty = rest.is_empty();
+    if coeff == BigRational::from_integer(BigInt::from(1)) {
+        *factors = rest;
+        return empty;
+    }
+    // General coefficient: integer-valued sums stay Integers, everything
+    // else stays an exact Rational — the coefficient is NEVER dropped.
+    let term = if coeff.denom() == &BigInt::from(1) {
+        Expr::Integer(coeff.numer().clone())
+    } else {
+        Expr::Rational(coeff)
+    };
+    factors.push(term);
+    factors.extend(rest);
+    false
+}
+
 impl std::ops::Mul for Expr {
     type Output = Expr;
 
@@ -432,17 +469,30 @@ impl std::ops::Mul for Expr {
         if self.is_zero() || other.is_zero() {
             return Expr::from_i64(0);
         }
+        // Unit identity: e * 1 = e (pinned oracle: x*1.args == ()).
+        if self.is_numeric_one() {
+            return other;
+        }
+        if other.is_numeric_one() {
+            return self;
+        }
         match (self, other) {
             (Expr::Integer(a), Expr::Integer(b)) => Expr::Integer(a * b),
             (Expr::Mul(mut factors_a), Expr::Mul(factors_b)) => {
                 factors_a.extend(factors_b);
+                canonicalize_mul_args(&mut factors_a);
                 Expr::Mul(factors_a)
             }
             (Expr::Mul(mut factors), single) | (single, Expr::Mul(mut factors)) => {
                 factors.push(single);
+                canonicalize_mul_args(&mut factors);
                 Expr::Mul(factors)
             }
-            (a, b) => Expr::Mul(vec![a, b]),
+            (a, b) => {
+                let mut factors = vec![a, b];
+                canonicalize_mul_args(&mut factors);
+                Expr::Mul(factors)
+            }
         }
     }
 }
@@ -452,6 +502,14 @@ impl Expr {
     /// or rational literal, or a Mul whose first factor is one of those).
     /// Sign-aware Add/Mul rendering depends on this
     /// (bead fra-fra-shell-printer-parity-pack-qxr, divergence vi).
+    fn is_numeric_one(&self) -> bool {
+        match self {
+            Expr::Integer(n) => n == &BigInt::from(1),
+            Expr::Rational(r) => r == &BigRational::from_integer(BigInt::from(1)),
+            _ => false,
+        }
+    }
+
     fn is_negative_leading(&self) -> bool {
         fn numeric_negative(e: &Expr) -> bool {
             match e {
@@ -832,8 +890,10 @@ mod tests {
         // Building is ownership-based (flat); only the measurement itself must
         // stay non-recursive, so this is safe at depths that would overflow a
         // recursive walk.
-        // Depth grows by exactly two levels per iteration (Mul then Add wrap).
-        assert_eq!(chain.nesting_depth(), 2 * 600 + 1);
+        // Depth grows by two levels per iteration except the first (x*1 folds
+        // to x under canonical Mul identity — fra-add-args-canonical-order-o1i),
+        // so the depth is one less than the pre-canonical 2*600 + 1.
+        assert_eq!(chain.nesting_depth(), 1200);
         assert!(chain.nesting_depth() < MAX_EXPR_DEPTH * 2);
     }
 }

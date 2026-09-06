@@ -540,6 +540,7 @@
    "status": "closed_verified"
   },
   {
+   "closure_evidence": "symbol-pair args canonical order landed (fsym-core add_arg_rank/cmp_add_args/canonicalize_add_args + impl Add fuse, commit c65e52b lineage); corpus diff 2026-09-05: gen/arith/{3,9,15}_add no longer reproduce",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.args_repr"
@@ -550,9 +551,10 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
+   "closure_evidence": "symbol-pair args canonical order landed (fsym-core add_arg_rank/cmp_add_args/canonicalize_add_args + impl Add fuse, commit c65e52b lineage); corpus diff 2026-09-05: gen/arith/{3,9,15}_add no longer reproduce",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.args_repr"
@@ -563,9 +565,10 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   },
   {
+   "closure_evidence": "symbol-pair args canonical order landed (fsym-core add_arg_rank/cmp_add_args/canonicalize_add_args + impl Add fuse, commit c65e52b lineage); corpus diff 2026-09-05: gen/arith/{3,9,15}_add no longer reproduce",
    "comparator": "construction_only",
    "difference_paths": [
     "observations.args_repr"
@@ -576,7 +579,7 @@
    "profile_id": "sympy-1.14.0-cpython-r2-corpus",
    "schema_version": 1,
    "severity": "object",
-   "status": "open"
+   "status": "closed_verified"
   }
  ],
  "schema_version": 1
