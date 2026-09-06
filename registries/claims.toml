@@ -125,8 +125,14 @@ status = "implemented_uncertified"
 minimum_evidence = "kernel_proved_or_certificate_verified"
 workstreams = ["WS06", "WS07", "WS08", "WS09", "WS10", "WS12", "WS17", "WS18", "WS19"]
 gate = "gate://proof-producing-transformations"
-evidence_artifacts = ["crates/fsym-proof-kernel/src/kernel.rs", "crates/fsym-evidence/src/lattice.rs", "crates/fsym-simplify/src/lib.rs"]
-notes = "This claim never implies that every API result has the same evidence class. implemented_uncertified 2026-08-29: kernel-checked proofs and evidence promotion lattice landed; per-family certificate gates remain open."
+evidence_artifacts = [
+    "crates/fsym-proof-kernel/src/kernel.rs",
+    "crates/fsym-evidence/src/lattice.rs",
+    "crates/fsym-simplify/src/lib.rs",
+    "crates/fsym-matrices/src/lib.rs",
+    "artifacts/audit/receipts/ws10-exact-linear.receipt.json",
+]
+notes = "This claim never implies that every API result has the same evidence class. implemented_uncertified 2026-09-06: kernel-checked proofs, evidence promotion lattice, and exact matrix certificate verifiers (LU, QR, LDL, Inverse, Nullspace, Charpoly, Sturm-path Eigenvalues) landed; per-family certificate gates remain open."
 
 [[claims]]
 id = "MATH-002"

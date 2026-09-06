@@ -7,11 +7,14 @@
 pub mod sparse;
 pub use sparse::*;
 
+use fsym_core::algebraic::{AlgebraicNumber, count_real_roots_in_interval, sturm_sequence};
+use fsym_core::ball::RealBall;
 use fsym_core::{BigInt, BigRational, Expr, Symbol};
 use fsym_polys::UnivariatePoly;
+use fsym_polys::factorization::square_free_decomposition;
 use fsym_simplify::simplify;
 use fsym_solvers::{SolverError, solve_poly};
-use num_traits::{One, Zero};
+use num_traits::{One, Signed, Zero};
 use serde::de::{IgnoredAny, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
@@ -1096,6 +1099,83 @@ impl Matrix {
         Ok(cert)
     }
 
+    /// Computes certified real eigenvalues using square-free decomposition and Sturm root isolation.
+    ///
+    /// Returns an [`EigenvalueCertificate`] containing the verified characteristic polynomial,
+    /// certified real roots as [`AlgebraicNumber`]s, algebraic multiplicities, and root counts.
+    pub fn eigenvalues_with_sturm_certificate(
+        &self,
+        lambda_sym: &str,
+    ) -> Result<EigenvalueCertificate, MatrixError> {
+        let charpoly = self.char_poly_as_poly(lambda_sym)?;
+        let charpoly_cert = CharpolyCertificate {
+            poly: charpoly.clone(),
+        };
+        verify_charpoly_certificate(self, &charpoly_cert)?;
+
+        let sqf = square_free_decomposition(&charpoly)
+            .map_err(|e| MatrixError::InvalidCertificate(e.to_string()))?;
+
+        let mut all_eigenvalues: Vec<CertifiedEigenvalue> = Vec::new();
+        let mut total_algebraic_multiplicity = 0;
+
+        for factor in &sqf.factors {
+            let deg = factor.poly.degree().unwrap_or(0);
+            if deg == 0 {
+                continue;
+            }
+            let factor_roots = isolate_real_roots_sturm(&factor.poly)?;
+            for root in factor_roots {
+                total_algebraic_multiplicity += factor.multiplicity;
+                all_eigenvalues.push(CertifiedEigenvalue {
+                    root,
+                    multiplicity: factor.multiplicity,
+                });
+            }
+        }
+
+        // Pairwise refine any overlapping isolating balls until all balls are strictly disjoint
+        for i in 0..all_eigenvalues.len() {
+            for j in (i + 1)..all_eigenvalues.len() {
+                const MAX_REFINE: usize = 100;
+                let mut steps = 0;
+                while !(all_eigenvalues[i].root.isolating_ball().upper()
+                    < all_eigenvalues[j].root.isolating_ball().lower()
+                    || all_eigenvalues[j].root.isolating_ball().upper()
+                        < all_eigenvalues[i].root.isolating_ball().lower())
+                {
+                    all_eigenvalues[i].root.refine_step();
+                    all_eigenvalues[j].root.refine_step();
+                    steps += 1;
+                    if steps > MAX_REFINE {
+                        return Err(MatrixError::ResourceLimit(
+                            "failed to separate eigenvalue isolating balls".to_string(),
+                        ));
+                    }
+                }
+            }
+        }
+
+        // Sort eigenvalues by lower bound of their now-disjoint isolating balls
+        all_eigenvalues.sort_by(|a, b| {
+            a.root
+                .isolating_ball()
+                .lower()
+                .cmp(&b.root.isolating_ball().lower())
+        });
+
+        let total_real_roots = all_eigenvalues.len();
+        let cert = EigenvalueCertificate {
+            charpoly,
+            eigenvalues: all_eigenvalues,
+            total_real_roots,
+            total_algebraic_multiplicity,
+        };
+
+        verify_eigenvalue_certificate(self, &cert)?;
+        Ok(cert)
+    }
+
     /// Eigenvalues as exact expressions when decidable.
     ///
     /// Computes the characteristic polynomial and solves it exactly for
@@ -2167,6 +2247,280 @@ pub fn verify_charpoly_certificate(
             )));
         }
     }
+    Ok(())
+}
+
+/// Certified real eigenvalue paired with its algebraic multiplicity.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CertifiedEigenvalue {
+    pub root: AlgebraicNumber,
+    pub multiplicity: usize,
+}
+
+/// Certificate candidate for the exact real eigenvalues of a matrix.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EigenvalueCertificate {
+    pub charpoly: UnivariatePoly,
+    pub eigenvalues: Vec<CertifiedEigenvalue>,
+    pub total_real_roots: usize,
+    pub total_algebraic_multiplicity: usize,
+}
+
+/// Computes a strict upper bound on the absolute value of all roots of a univariate polynomial.
+pub fn cauchy_root_bound(coeffs: &[BigRational]) -> Result<BigRational, MatrixError> {
+    if coeffs.is_empty() {
+        return Err(MatrixError::InvalidCertificate(
+            "empty polynomial coefficient vector".to_string(),
+        ));
+    }
+    let lead = coeffs.last().unwrap();
+    if lead.is_zero() {
+        return Err(MatrixError::InvalidCertificate(
+            "leading coefficient is zero".to_string(),
+        ));
+    }
+    let deg = coeffs.len() - 1;
+    if deg == 0 {
+        return Ok(BigRational::one());
+    }
+    let abs_lead = lead.abs();
+    let mut max_ratio = BigRational::zero();
+    for coeff in &coeffs[..deg] {
+        let ratio = coeff.abs() / &abs_lead;
+        if ratio > max_ratio {
+            max_ratio = ratio;
+        }
+    }
+    Ok(BigRational::one() + max_ratio)
+}
+
+/// Isolates all distinct real roots of a square-free univariate polynomial using Sturm bisection.
+pub fn isolate_real_roots_sturm(
+    poly: &UnivariatePoly,
+) -> Result<Vec<AlgebraicNumber>, MatrixError> {
+    poly.validate_shape()
+        .map_err(|e| MatrixError::InvalidCertificate(e.to_string()))?;
+    if matches!(poly.degree(), None | Some(0)) {
+        return Ok(Vec::new());
+    }
+    let bound = cauchy_root_bound(&poly.coeffs)?;
+    let upper_bound = bound + BigRational::one();
+    let lower_bound = -upper_bound.clone();
+
+    let seq = sturm_sequence(&poly.coeffs);
+    let total_roots = count_real_roots_in_interval(&seq, &lower_bound, &upper_bound);
+    if total_roots == 0 {
+        return Ok(Vec::new());
+    }
+
+    let mut queue = std::collections::VecDeque::new();
+    queue.push_back((lower_bound, upper_bound));
+
+    let two = BigRational::from_integer(BigInt::from(2));
+    let four = BigRational::from_integer(BigInt::from(4));
+    let mut isolated: Vec<(BigRational, BigRational)> = Vec::with_capacity(total_roots);
+
+    const MAX_BISECTIONS: usize = 10_000;
+    let mut bisections = 0;
+
+    while let Some((u, v)) = queue.pop_front() {
+        bisections += 1;
+        if bisections > MAX_BISECTIONS {
+            return Err(MatrixError::ResourceLimit(
+                "root isolation bisection limit exceeded".to_string(),
+            ));
+        }
+
+        let count = count_real_roots_in_interval(&seq, &u, &v);
+        if count == 0 {
+            continue;
+        }
+        if count == 1 {
+            isolated.push((u, v));
+            continue;
+        }
+
+        // count > 1: find split point m in (u, v) where P(m) != 0
+        let mut m = (&u + &v) / &two;
+        let mut shift = (&v - &u) / &four;
+        let mut attempts = 0;
+        while AlgebraicNumber::eval_poly_at(&seq[0], &m).is_zero() {
+            m = &m + &shift;
+            shift = &shift / &two;
+            attempts += 1;
+            if attempts > 20 {
+                return Err(MatrixError::ResourceLimit(
+                    "failed to find non-root split point in interval".to_string(),
+                ));
+            }
+        }
+
+        queue.push_back((u, m.clone()));
+        queue.push_back((m, v));
+    }
+
+    isolated.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let mut roots = Vec::with_capacity(isolated.len());
+    let quarter = BigRational::new(BigInt::from(1), BigInt::from(4));
+    for (u, v) in isolated {
+        let mid = (&u + &v) / &two;
+        let rad = (&v - &u) / &two;
+        let ball =
+            RealBall::new(mid, rad).map_err(|e| MatrixError::InvalidCertificate(e.to_string()))?;
+        let mut alg = AlgebraicNumber::new(poly.coeffs.clone(), ball)
+            .map_err(|e| MatrixError::InvalidCertificate(e.to_string()))?;
+        let mut refine_limit = 0;
+        while alg.isolating_ball().radius() > &quarter && refine_limit < 50 {
+            alg.refine_step();
+            refine_limit += 1;
+        }
+        roots.push(alg);
+    }
+
+    Ok(roots)
+}
+
+/// Independent reference verifier checking an exact-rational matrix eigenvalue certificate.
+///
+/// Acceptance criteria:
+/// 1. Matrix is square with exact rational entries.
+/// 2. `cert.charpoly` is a valid, independently verified characteristic polynomial of `matrix`.
+/// 3. Square-free decomposition of `cert.charpoly` produces factors $(f_k, m_k)$.
+/// 4. Every certified eigenvalue corresponds to a verified square-free factor $f_k$ with
+///    matching algebraic multiplicity $m_k$.
+/// 5. Every eigenvalue root is an exact [`AlgebraicNumber`] whose isolating ball contains
+///    exactly 1 real root of its defining polynomial.
+/// 6. All eigenvalue isolating balls are strictly separated and ordered in ascending real order:
+///    `balls[i].upper() < balls[i+1].lower()`.
+/// 7. Total real roots and total algebraic multiplicity match the independent Sturm count
+///    over the full real line.
+pub fn verify_eigenvalue_certificate(
+    matrix: &Matrix,
+    cert: &EigenvalueCertificate,
+) -> Result<(), MatrixError> {
+    // 1. Validate characteristic polynomial against the matrix
+    let charpoly_cert = CharpolyCertificate {
+        poly: cert.charpoly.clone(),
+    };
+    verify_charpoly_certificate(matrix, &charpoly_cert)?;
+
+    // 2. Square-free decomposition of charpoly
+    let sqf = square_free_decomposition(&cert.charpoly)
+        .map_err(|e| MatrixError::InvalidCertificate(e.to_string()))?;
+
+    // 3. Independent Sturm real-root accounting across all factors
+    let mut total_expected_distinct_real_roots = 0;
+    let mut total_expected_algebraic_multiplicity = 0;
+
+    for factor in &sqf.factors {
+        let deg = factor.poly.degree().unwrap_or(0);
+        if deg == 0 {
+            continue;
+        }
+        let bound = cauchy_root_bound(&factor.poly.coeffs)?;
+        let upper = bound + BigRational::one();
+        let lower = -upper.clone();
+        let seq = sturm_sequence(&factor.poly.coeffs);
+        let factor_real_roots = count_real_roots_in_interval(&seq, &lower, &upper);
+        total_expected_distinct_real_roots += factor_real_roots;
+        total_expected_algebraic_multiplicity += factor_real_roots * factor.multiplicity;
+    }
+
+    if cert.total_real_roots != total_expected_distinct_real_roots {
+        return Err(MatrixError::InvalidCertificate(format!(
+            "total_real_roots {} does not match reference Sturm count {}",
+            cert.total_real_roots, total_expected_distinct_real_roots
+        )));
+    }
+    if cert.eigenvalues.len() != total_expected_distinct_real_roots {
+        return Err(MatrixError::InvalidCertificate(format!(
+            "number of certified eigenvalues {} does not match reference Sturm count {}",
+            cert.eigenvalues.len(),
+            total_expected_distinct_real_roots
+        )));
+    }
+    if cert.total_algebraic_multiplicity != total_expected_algebraic_multiplicity {
+        return Err(MatrixError::InvalidCertificate(format!(
+            "total_algebraic_multiplicity {} does not match reference multiplicity sum {}",
+            cert.total_algebraic_multiplicity, total_expected_algebraic_multiplicity
+        )));
+    }
+
+    let mut actual_multiplicity_sum = 0;
+    for (i, ev) in cert.eigenvalues.iter().enumerate() {
+        if ev.multiplicity == 0 {
+            return Err(MatrixError::InvalidCertificate(
+                "eigenvalue multiplicity must be positive".to_string(),
+            ));
+        }
+        actual_multiplicity_sum += ev.multiplicity;
+
+        // Verify defining polynomial divides charpoly
+        let def_coeffs = ev.root.defining_poly_coeffs();
+        let def_poly = UnivariatePoly::new(cert.charpoly.gen_sym.clone(), def_coeffs.to_vec());
+        let (_, rem) = cert
+            .charpoly
+            .div_rem(&def_poly)
+            .map_err(|e| MatrixError::InvalidCertificate(e.to_string()))?;
+        if !rem.is_zero() {
+            return Err(MatrixError::InvalidCertificate(
+                "eigenvalue defining polynomial does not divide characteristic polynomial"
+                    .to_string(),
+            ));
+        }
+
+        // Verify root isolation in ball
+        let ball = ev.root.isolating_ball();
+        let seq = sturm_sequence(def_coeffs);
+        let count = count_real_roots_in_interval(&seq, &ball.lower(), &ball.upper());
+        if count != 1 {
+            return Err(MatrixError::InvalidCertificate(format!(
+                "eigenvalue isolating ball does not contain exactly 1 root (contains {count})"
+            )));
+        }
+
+        // Verify matching square-free factor and multiplicity
+        let mut matched = false;
+        for factor in &sqf.factors {
+            if factor.poly.coeffs == def_coeffs {
+                if factor.multiplicity != ev.multiplicity {
+                    return Err(MatrixError::InvalidCertificate(format!(
+                        "eigenvalue multiplicity {} does not match factor multiplicity {}",
+                        ev.multiplicity, factor.multiplicity
+                    )));
+                }
+                matched = true;
+                break;
+            }
+        }
+        if !matched {
+            return Err(MatrixError::InvalidCertificate(
+                "eigenvalue defining polynomial does not match any square-free factor".to_string(),
+            ));
+        }
+
+        // Verify strictly ascending and non-overlapping balls
+        if i + 1 < cert.eigenvalues.len() {
+            let next_ev = &cert.eigenvalues[i + 1];
+            if ev.root.isolating_ball().upper() >= next_ev.root.isolating_ball().lower() {
+                return Err(MatrixError::InvalidCertificate(
+                    "eigenvalue isolating balls must be strictly separated and sorted in ascending order"
+                        .to_string(),
+                ));
+            }
+        }
+    }
+
+    if actual_multiplicity_sum != cert.total_algebraic_multiplicity {
+        return Err(MatrixError::InvalidCertificate(
+            "sum of eigenvalue multiplicities does not match total_algebraic_multiplicity"
+                .to_string(),
+        ));
+    }
+
     Ok(())
 }
 
@@ -3289,5 +3643,197 @@ mod tests {
                 num(4),
             ]
         );
+    }
+
+    #[test]
+    fn test_eigenvalues_with_sturm_certificate_2x2_diagonal() {
+        let m = Matrix::new(2, 2, vec![num(2), num(0), num(0), num(5)]).unwrap();
+        let cert = m.eigenvalues_with_sturm_certificate("lambda").unwrap();
+        assert_eq!(cert.total_real_roots, 2);
+        assert_eq!(cert.total_algebraic_multiplicity, 2);
+        assert_eq!(cert.eigenvalues.len(), 2);
+        assert_eq!(cert.eigenvalues[0].multiplicity, 1);
+        assert_eq!(cert.eigenvalues[1].multiplicity, 1);
+
+        let two = BigRational::from_integer(BigInt::from(2));
+        let five = BigRational::from_integer(BigInt::from(5));
+        assert!(cert.eigenvalues[0].root.isolating_ball().lower() <= two);
+        assert!(two <= cert.eigenvalues[0].root.isolating_ball().upper());
+        assert!(cert.eigenvalues[1].root.isolating_ball().lower() <= five);
+        assert!(five <= cert.eigenvalues[1].root.isolating_ball().upper());
+        verify_eigenvalue_certificate(&m, &cert).unwrap();
+
+        // Serde wire round-trip
+        let json = serde_json::to_string(&cert).unwrap();
+        let deser: EigenvalueCertificate = serde_json::from_str(&json).unwrap();
+        assert_eq!(cert, deser);
+        verify_eigenvalue_certificate(&m, &deser).unwrap();
+    }
+
+    #[test]
+    fn test_eigenvalues_with_sturm_certificate_2x2_repeated() {
+        let m = Matrix::new(2, 2, vec![num(3), num(0), num(0), num(3)]).unwrap();
+        let cert = m.eigenvalues_with_sturm_certificate("lambda").unwrap();
+        assert_eq!(cert.total_real_roots, 1);
+        assert_eq!(cert.total_algebraic_multiplicity, 2);
+        assert_eq!(cert.eigenvalues.len(), 1);
+        assert_eq!(cert.eigenvalues[0].multiplicity, 2);
+
+        let three = BigRational::from_integer(BigInt::from(3));
+        assert!(cert.eigenvalues[0].root.isolating_ball().lower() <= three);
+        assert!(three <= cert.eigenvalues[0].root.isolating_ball().upper());
+        verify_eigenvalue_certificate(&m, &cert).unwrap();
+    }
+
+    #[test]
+    fn test_eigenvalues_with_sturm_certificate_2x2_rotation_no_real_roots() {
+        let m = Matrix::new(2, 2, vec![num(0), num(-1), num(1), num(0)]).unwrap();
+        let cert = m.eigenvalues_with_sturm_certificate("lambda").unwrap();
+        assert_eq!(cert.total_real_roots, 0);
+        assert_eq!(cert.total_algebraic_multiplicity, 0);
+        assert!(cert.eigenvalues.is_empty());
+        verify_eigenvalue_certificate(&m, &cert).unwrap();
+    }
+
+    #[test]
+    fn test_eigenvalues_with_sturm_certificate_3x3_distinct() {
+        let m = Matrix::new(
+            3,
+            3,
+            vec![
+                num(1),
+                num(2),
+                num(0),
+                num(0),
+                num(2),
+                num(1),
+                num(0),
+                num(0),
+                num(3),
+            ],
+        )
+        .unwrap();
+        let cert = m.eigenvalues_with_sturm_certificate("lambda").unwrap();
+        assert_eq!(cert.total_real_roots, 3);
+        assert_eq!(cert.total_algebraic_multiplicity, 3);
+        assert_eq!(cert.eigenvalues.len(), 3);
+        for ev in &cert.eigenvalues {
+            assert_eq!(ev.multiplicity, 1);
+        }
+
+        let one = BigRational::from_integer(BigInt::from(1));
+        let two = BigRational::from_integer(BigInt::from(2));
+        let three = BigRational::from_integer(BigInt::from(3));
+        assert!(cert.eigenvalues[0].root.isolating_ball().lower() <= one);
+        assert!(one <= cert.eigenvalues[0].root.isolating_ball().upper());
+        assert!(cert.eigenvalues[1].root.isolating_ball().lower() <= two);
+        assert!(two <= cert.eigenvalues[1].root.isolating_ball().upper());
+        assert!(cert.eigenvalues[2].root.isolating_ball().lower() <= three);
+        assert!(three <= cert.eigenvalues[2].root.isolating_ball().upper());
+        verify_eigenvalue_certificate(&m, &cert).unwrap();
+    }
+
+    #[test]
+    fn test_eigenvalues_with_sturm_certificate_3x3_companion_cubic() {
+        let m = Matrix::new(
+            3,
+            3,
+            vec![
+                num(0),
+                num(0),
+                num(2),
+                num(1),
+                num(0),
+                num(0),
+                num(0),
+                num(1),
+                num(0),
+            ],
+        )
+        .unwrap();
+        let cert = m.eigenvalues_with_sturm_certificate("lambda").unwrap();
+        assert_eq!(cert.total_real_roots, 1);
+        assert_eq!(cert.total_algebraic_multiplicity, 1);
+        assert_eq!(cert.eigenvalues.len(), 1);
+        assert_eq!(cert.eigenvalues[0].multiplicity, 1);
+
+        let ball = cert.eigenvalues[0].root.isolating_ball();
+        assert!(ball.lower() >= BigRational::one());
+        assert!(ball.upper() <= BigRational::from_integer(BigInt::from(2)));
+        verify_eigenvalue_certificate(&m, &cert).unwrap();
+    }
+
+    #[test]
+    fn test_eigenvalues_with_sturm_certificate_4x4_repeated() {
+        let m = Matrix::diag(vec![num(1), num(1), num(4), num(4)]).unwrap();
+        let cert = m.eigenvalues_with_sturm_certificate("lambda").unwrap();
+        assert_eq!(cert.total_real_roots, 2);
+        assert_eq!(cert.total_algebraic_multiplicity, 4);
+        assert_eq!(cert.eigenvalues.len(), 2);
+        assert_eq!(cert.eigenvalues[0].multiplicity, 2);
+        assert_eq!(cert.eigenvalues[1].multiplicity, 2);
+        verify_eigenvalue_certificate(&m, &cert).unwrap();
+    }
+
+    #[test]
+    fn test_eigenvalues_sturm_certificate_adversarial_tampering() {
+        let m = Matrix::new(2, 2, vec![num(2), num(0), num(0), num(5)]).unwrap();
+        let cert = m.eigenvalues_with_sturm_certificate("lambda").unwrap();
+
+        // 1. Mutated charpoly
+        let mut bad_charpoly = cert.clone();
+        bad_charpoly.charpoly.coeffs[0] += BigRational::one();
+        assert!(verify_eigenvalue_certificate(&m, &bad_charpoly).is_err());
+
+        // 2. Inflated multiplicity
+        let mut bad_mult = cert.clone();
+        bad_mult.eigenvalues[0].multiplicity = 2;
+        bad_mult.total_algebraic_multiplicity = 3;
+        assert!(verify_eigenvalue_certificate(&m, &bad_mult).is_err());
+
+        // 3. Forged total_real_roots
+        let mut bad_roots_count = cert.clone();
+        bad_roots_count.total_real_roots = 3;
+        assert!(verify_eigenvalue_certificate(&m, &bad_roots_count).is_err());
+
+        // 4. Forged total_algebraic_multiplicity
+        let mut bad_total_mult = cert.clone();
+        bad_total_mult.total_algebraic_multiplicity = 5;
+        assert!(verify_eigenvalue_certificate(&m, &bad_total_mult).is_err());
+
+        // 5. Omitted eigenvalue (dropped root)
+        let mut dropped_ev = cert.clone();
+        dropped_ev.eigenvalues.pop();
+        assert!(verify_eigenvalue_certificate(&m, &dropped_ev).is_err());
+
+        // 6. Duplicate eigenvalue
+        let mut dup_ev = cert.clone();
+        dup_ev.eigenvalues.push(dup_ev.eigenvalues[0].clone());
+        assert!(verify_eigenvalue_certificate(&m, &dup_ev).is_err());
+
+        // 7. Swapped eigenvalue order (violates ascending order)
+        let mut swapped_ev = cert.clone();
+        swapped_ev.eigenvalues.swap(0, 1);
+        assert!(verify_eigenvalue_certificate(&m, &swapped_ev).is_err());
+
+        // 8. Zero multiplicity
+        let mut zero_mult = cert.clone();
+        zero_mult.eigenvalues[0].multiplicity = 0;
+        assert!(verify_eigenvalue_certificate(&m, &zero_mult).is_err());
+
+        // 9. Non-square matrix
+        let non_square = Matrix::new(2, 3, vec![num(1); 6]).unwrap();
+        assert!(matches!(
+            verify_eigenvalue_certificate(&non_square, &cert),
+            Err(MatrixError::NotSquare(2, 3))
+        ));
+
+        // 10. Symbolic entries
+        let sym_matrix =
+            Matrix::new(2, 2, vec![num(2), Expr::symbol("x"), num(0), num(5)]).unwrap();
+        assert!(matches!(
+            verify_eigenvalue_certificate(&sym_matrix, &cert),
+            Err(MatrixError::UnsupportedCertificateDomain)
+        ));
     }
 }

@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "gate": "ws10-exact-linear",
+  "profile_id": "sympy-1.14.0-cpython",
+  "status": "passed",
+  "commit": "359480430f1de7fa5e241eb60d3410b96182a9cf",
+  "checks": [
+    {
+      "name": "workspace-forbids-unsafe",
+      "status": "passed",
+      "detail": "workspace lints forbid unsafe_code"
+    },
+    {
+      "name": "tests-fsym-matrices",
+      "status": "passed",
+      "detail": "exit=0"
+    }
+  ],
+  "checks_digest": "acfb170a48ace87cae7c263d0b277cbe1e6e701c139e59fe3e9ebc26bd09764c"
+}
