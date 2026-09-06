@@ -229,13 +229,19 @@ notes = "implemented_uncertified 2026-08-29: replay recording and typed checkpoi
 id = "DURABILITY-001"
 kind = "durability"
 statement = "Selected valuable checkpoints and replay/proof bundles can recover from the declared symbol-loss envelope and resume after digest, schema, dependency, and evidence validation."
-status = "planned"
+status = "implemented_uncertified"
 present_tense_allowed = false
 minimum_evidence = "repair_and_reverification_bundle"
 workstreams = ["WS15"]
 gate = "gate://ws15-persistence-repair"
-evidence_artifacts = ["UNSET"]
-notes = "RaptorQ restores candidate bytes; it does not establish integrity, authenticity, schema validity, or mathematical truth."
+evidence_artifacts = [
+    "crates/fsym-runtime/src/checkpoint.rs",
+    "crates/fsym-runtime/src/repair.rs",
+    "crates/fsym-runtime/src/ledger.rs",
+    "crates/fsym-runtime/tests/c9_persistence_repair_gate.rs",
+    "artifacts/audit/receipts/ws15-persistence-repair.receipt.json",
+]
+notes = "implemented_uncertified 2026-09-06: RaptorQ multi-loss repair envelope, checkpoint crash injection, schema/digest validation, ephemeral ledger hash chains, and separate independent derivation reverification verified by ws15-persistence-repair gate; full certification remains open."
 
 [[claims]]
 id = "DISTRIBUTION-001"

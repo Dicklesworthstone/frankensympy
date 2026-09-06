@@ -13,7 +13,7 @@
 use std::collections::BTreeMap;
 use std::process::Command;
 
-const KNOWN_GATES: [&str; 12] = [
+const KNOWN_GATES: [&str; 13] = [
     "profile-verify",
     "foundation",
     "python-object-model",
@@ -23,6 +23,7 @@ const KNOWN_GATES: [&str; 12] = [
     "ws12-certified-jacobian",
     "ws13-portfolio-runtime",
     "ws14-agent-protocol",
+    "ws15-persistence-repair",
     "ws17-groebner",
     "ws18-analytic-calculus",
     "ws19-solvers",
