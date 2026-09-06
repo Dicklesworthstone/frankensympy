@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "gate": "ws18-analytic-calculus",
+  "profile_id": "sympy-1.14.0-cpython",
+  "status": "passed",
+  "commit": "5fbc35c30445b77c673d4d0704d76d4f6d7d11a1",
+  "checks": [
+    {
+      "name": "workspace-forbids-unsafe",
+      "status": "passed",
+      "detail": "workspace lints forbid unsafe_code"
+    },
+    {
+      "name": "tests-fsym-calculus",
+      "status": "passed",
+      "detail": "exit=0"
+    }
+  ],
+  "checks_digest": "280a3874cf7caecfa13663c99cb48292324c91065860d0bcc8fea26a6a00a8cc"
+}

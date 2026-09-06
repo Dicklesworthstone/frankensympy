@@ -363,6 +363,17 @@ fn cmd_gate_ws17_groebner() -> Receipt {
     finish("ws17-groebner", "sympy-1.14.0-cpython", checks)
 }
 
+fn cmd_gate_ws18_analytic_calculus() -> Receipt {
+    let mut checks = Vec::new();
+    check_workspace_no_unsafe(&mut checks);
+
+    let mut c1 = cargo();
+    c1.args(["test", "-p", "fsym-calculus", "--quiet"]);
+    run_command("tests-fsym-calculus", c1, &mut checks);
+
+    finish("ws18-analytic-calculus", "sympy-1.14.0-cpython", checks)
+}
+
 fn finish(gate: &str, profile_id: &str, checks: Vec<Check>) -> Receipt {
     let all_passed = checks.iter().all(|c| c.status == "passed");
     let receipt = Receipt {
@@ -390,7 +401,7 @@ fn write_receipt(receipt: &Receipt) {
 
 fn print_usage() -> i32 {
     eprintln!(
-        "usage: xtask profile verify <profile-id> | xtask gate foundation | xtask gate deterministic-term-identity | xtask gate ws10-exact-linear | xtask gate ws11-certified-numeric | xtask gate ws12-certified-jacobian | xtask gate ws13-portfolio-runtime | xtask gate ws17-groebner | xtask gate python-object-model --profile <profile-id>"
+        "usage: xtask profile verify <profile-id> | xtask gate foundation | xtask gate deterministic-term-identity | xtask gate ws10-exact-linear | xtask gate ws11-certified-numeric | xtask gate ws12-certified-jacobian | xtask gate ws13-portfolio-runtime | xtask gate ws17-groebner | xtask gate ws18-analytic-calculus | xtask gate python-object-model --profile <profile-id>"
     );
     2
 }
@@ -410,6 +421,7 @@ fn main() -> std::process::ExitCode {
         }
         [a, b] if a == "gate" && b == "ws13-portfolio-runtime" => cmd_gate_ws13_portfolio_runtime(),
         [a, b] if a == "gate" && b == "ws17-groebner" => cmd_gate_ws17_groebner(),
+        [a, b] if a == "gate" && b == "ws18-analytic-calculus" => cmd_gate_ws18_analytic_calculus(),
         [a, b, flag, profile]
             if a == "gate" && b == "python-object-model" && flag == "--profile" =>
         {
