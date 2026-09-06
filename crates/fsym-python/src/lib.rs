@@ -183,6 +183,34 @@ fn dsolve_const_coeff_second_order_expr(a: i64, b: i64, c: i64, x_var: &str) -> 
         .map_err(to_value_error)
 }
 
+/// Exact Cauchy-Euler 2nd-order ODE solver: a*x^2*y'' + b*x*y' + c*y = 0.
+#[pyfunction]
+fn dsolve_cauchy_euler_expr(a: i64, b: i64, c: i64, x_var: &str) -> PyResult<String> {
+    let c1 = Symbol::new("C1");
+    let c2 = Symbol::new("C2");
+    fsym_solvers::dsolve_cauchy_euler(a, b, c, &Symbol::new(x_var), &c1, &c2)
+        .map(|v| v.to_string())
+        .map_err(to_value_error)
+}
+
+/// Algebraic equation solver (linear, quadratic, factorable higher-degree polynomial).
+#[pyfunction]
+fn solve_expr(src: &str, var: &str) -> PyResult<Vec<String>> {
+    let e = parse_expr(src)?;
+    fsym_solvers::solve(&e, &Symbol::new(var))
+        .map(|roots| roots.into_iter().map(|r| r.to_string()).collect())
+        .map_err(to_value_error)
+}
+
+/// Fourier transform of `src(t)` to `omega`.
+#[pyfunction]
+fn fourier_expr(src: &str, t_var: &str, omega_var: &str) -> PyResult<String> {
+    let e = parse_expr(src)?;
+    fsym_calculus::fourier_transform(&e, &Symbol::new(t_var), &Symbol::new(omega_var))
+        .map(|v| v.to_string())
+        .map_err(to_value_error)
+}
+
 /// Mobius function μ(n).
 #[pyfunction]
 fn mobius_fn(n: u64) -> PyResult<i64> {
@@ -239,6 +267,17 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_function, m)?)?;
     m.add_function(wrap_pyfunction!(py_sin, m)?)?;
     m.add_function(wrap_pyfunction!(py_cos, m)?)?;
+    m.add_function(wrap_pyfunction!(py_tan, m)?)?;
+    m.add_function(wrap_pyfunction!(py_asin, m)?)?;
+    m.add_function(wrap_pyfunction!(py_atan, m)?)?;
+    m.add_function(wrap_pyfunction!(py_sinh, m)?)?;
+    m.add_function(wrap_pyfunction!(py_cosh, m)?)?;
+    m.add_function(wrap_pyfunction!(py_tanh, m)?)?;
+    m.add_function(wrap_pyfunction!(py_floor, m)?)?;
+    m.add_function(wrap_pyfunction!(py_ceiling, m)?)?;
+    m.add_function(wrap_pyfunction!(py_factorial, m)?)?;
+    m.add_function(wrap_pyfunction!(py_gamma, m)?)?;
+    m.add_function(wrap_pyfunction!(py_fibonacci, m)?)?;
     m.add_function(wrap_pyfunction!(py_exp, m)?)?;
     m.add_function(wrap_pyfunction!(py_log, m)?)?;
     m.add_function(wrap_pyfunction!(py_derivative, m)?)?;
@@ -253,11 +292,14 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(integrate_expr, m)?)?;
     m.add_function(wrap_pyfunction!(integrate_definite_expr, m)?)?;
     m.add_function(wrap_pyfunction!(laplace_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(fourier_expr, m)?)?;
     m.add_function(wrap_pyfunction!(limit_expr, m)?)?;
     m.add_function(wrap_pyfunction!(taylor_expr, m)?)?;
     m.add_function(wrap_pyfunction!(solve_linear_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(solve_expr, m)?)?;
     m.add_function(wrap_pyfunction!(dsolve_linear_first_order_expr, m)?)?;
     m.add_function(wrap_pyfunction!(dsolve_const_coeff_second_order_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(dsolve_cauchy_euler_expr, m)?)?;
     m.add_function(wrap_pyfunction!(mobius_fn, m)?)?;
     m.add_function(wrap_pyfunction!(divisor_count_fn, m)?)?;
     m.add_function(wrap_pyfunction!(divisor_sum_fn, m)?)?;

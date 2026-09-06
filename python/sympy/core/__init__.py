@@ -983,6 +983,10 @@ class Expr(Basic):
     def expand(self) -> "Expr":
         return expand(self)
 
+    def series(self, x: Any = None, x0: Any = 0, n: int = 6) -> "Expr":
+        import sympy
+        return sympy.series(self, x, x0, n)
+
     def evalf(self, n: int = 15) -> "Float":
         if type(n) is not int or n < 1:
             raise TypeError("evalf dps must be a positive int")

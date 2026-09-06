@@ -792,6 +792,95 @@ class SurfaceTests(unittest.TestCase):
         )
         self.assertEqual([str(v) for v in ordered], ["2.00000000000000", "oo"])
 
+    def test_extended_solvers_transforms_functions_and_submodules(self):
+        x, t, s, w = sympy.symbols("x t s w")
+
+        # 1. Quadratic solving and auto-variable detection
+        solutions = sympy.solve(x**2 - 4, x)
+        self.assertEqual(set(solutions), {sympy.Integer(2), sympy.Integer(-2)})
+        auto_sol = sympy.solve(2 * x - 6)
+        self.assertEqual(auto_sol, [sympy.Integer(3)])
+
+        # 2. Series expansion (module-level and method-level)
+        sin_series = sympy.series(sympy.sin(x), x, 0, 4)
+        self.assertEqual(sin_series, sympy.sin(x).series(x, 0, 4))
+        self.assertEqual(str(sin_series), "x - (x**3/6)")
+
+        # 3. Integral transforms
+        laplace_res = sympy.laplace_transform(sympy.exp(t), t, s)
+        self.assertEqual(str(laplace_res), "(s - 1)**(-1)")
+        fourier_res = sympy.fourier_transform(sympy.Integer(5), t, w)
+        self.assertEqual(str(fourier_res), "10*pi*dirac(w)")
+
+        # 4. Number theory functions
+        self.assertEqual(sympy.mobius(1), 1)
+        self.assertEqual(sympy.mobius(6), 1)
+        self.assertEqual(sympy.mobius(4), 0)
+        self.assertEqual(sympy.divisor_count(12), 6)
+        self.assertEqual(sympy.divisor_sigma(12, 1), 28)
+        self.assertEqual(sympy.jacobi_symbol(2, 5), -1)
+
+        # 5. Functions
+        self.assertEqual(sympy.tan(0), sympy.Integer(0))
+        self.assertEqual(sympy.asin(0), sympy.Integer(0))
+        self.assertEqual(sympy.atan(0), sympy.Integer(0))
+        self.assertEqual(sympy.sinh(0), sympy.Integer(0))
+        self.assertEqual(sympy.cosh(0), sympy.Integer(1))
+        self.assertEqual(sympy.tanh(0), sympy.Integer(0))
+        self.assertEqual(sympy.floor(sympy.Rational(5, 2)), sympy.Integer(2))
+        self.assertEqual(sympy.ceiling(sympy.Rational(5, 2)), sympy.Integer(3))
+        self.assertEqual(sympy.factorial(5), sympy.Integer(120))
+        self.assertEqual(sympy.gamma(5), sympy.Integer(24))
+        self.assertEqual(sympy.fibonacci(10), sympy.Integer(55))
+
+        # 6. Submodule imports
+        from sympy.solvers import dsolve as sol_dsolve, solve as sol_solve
+        from sympy.functions import (
+            asin as f_asin,
+            atan as f_atan,
+            ceiling as f_ceiling,
+            cos as f_cos,
+            cosh as f_cosh,
+            exp as f_exp,
+            factorial as f_factorial,
+            fibonacci as f_fibonacci,
+            floor as f_floor,
+            gamma as f_gamma,
+            log as f_log,
+            sin as f_sin,
+            sinh as f_sinh,
+            tan as f_tan,
+            tanh as f_tanh,
+        )
+        from sympy.ntheory import (
+            divisor_count as n_divisor_count,
+            divisor_sigma as n_divisor_sigma,
+            factorint as n_factorint,
+            isprime as n_isprime,
+            jacobi_symbol as n_jacobi_symbol,
+            mobius as n_mobius,
+            totient as n_totient,
+        )
+        from sympy.series import limit as ser_limit, series as ser_series
+        from sympy.integrals import (
+            fourier_transform as int_fourier,
+            integrate as int_integrate,
+            laplace_transform as int_laplace,
+        )
+
+        self.assertIs(sol_solve, sympy.solve)
+        self.assertIs(sol_dsolve, sympy.dsolve)
+        self.assertIs(f_tan, sympy.tan)
+        self.assertIs(n_mobius, sympy.mobius)
+        self.assertIs(ser_series, sympy.series)
+        self.assertIs(int_integrate, sympy.integrate)
+
+        # Module-level package access
+        self.assertIs(sympy.solvers.solve, sympy.solve)
+        self.assertIs(sympy.functions.tan, sympy.tan)
+        self.assertIs(sympy.ntheory.mobius, sympy.mobius)
+        self.assertIs(sympy.integrals.integrate, sympy.integrate)
+
 
 if __name__ == "__main__":
     unittest.main()

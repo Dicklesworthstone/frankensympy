@@ -4,7 +4,12 @@
 
 use fsym_calculus::diff;
 use fsym_core::{BigInt, BigRational, Expr, Symbol, parse};
-use fsym_functions::{cos as cos_expr, exp as exp_expr, log as log_expr, sin as sin_expr};
+use fsym_functions::{
+    asin as asin_expr, atan as atan_expr, ceiling as ceiling_expr, cos as cos_expr,
+    cosh as cosh_expr, exp as exp_expr, factorial as factorial_expr, fibonacci as fibonacci_expr,
+    floor as floor_expr, gamma as gamma_expr, log as log_expr, sin as sin_expr, sinh as sinh_expr,
+    tan as tan_expr, tanh as tanh_expr,
+};
 use fsym_printing::{latex, pretty as render_pretty};
 use fsym_runtime::{Budget, BudgetLimits, FsymCx, RuntimeBudget};
 use fsym_simplify::{expand_with, simplify_with};
@@ -810,6 +815,72 @@ pub fn py_exp(arg: PyExpr) -> PyExpr {
 #[pyfunction]
 pub fn py_log(arg: PyExpr) -> PyExpr {
     PyExpr::from_expr(log_expr(arg.inner))
+}
+
+/// Exact tangent constructor, including tan(0) = 0.
+#[pyfunction]
+pub fn py_tan(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(tan_expr(arg.inner))
+}
+
+/// Exact arcsine constructor, including asin(0) = 0.
+#[pyfunction]
+pub fn py_asin(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(asin_expr(arg.inner))
+}
+
+/// Exact arctangent constructor, including atan(0) = 0.
+#[pyfunction]
+pub fn py_atan(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(atan_expr(arg.inner))
+}
+
+/// Exact hyperbolic sine constructor, including sinh(0) = 0.
+#[pyfunction]
+pub fn py_sinh(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(sinh_expr(arg.inner))
+}
+
+/// Exact hyperbolic cosine constructor, including cosh(0) = 1.
+#[pyfunction]
+pub fn py_cosh(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(cosh_expr(arg.inner))
+}
+
+/// Exact hyperbolic tangent constructor, including tanh(0) = 0.
+#[pyfunction]
+pub fn py_tanh(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(tanh_expr(arg.inner))
+}
+
+/// Exact floor constructor.
+#[pyfunction]
+pub fn py_floor(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(floor_expr(arg.inner))
+}
+
+/// Exact ceiling constructor.
+#[pyfunction]
+pub fn py_ceiling(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(ceiling_expr(arg.inner))
+}
+
+/// Exact factorial constructor.
+#[pyfunction]
+pub fn py_factorial(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(factorial_expr(arg.inner))
+}
+
+/// Exact gamma constructor.
+#[pyfunction]
+pub fn py_gamma(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(gamma_expr(arg.inner))
+}
+
+/// Exact fibonacci constructor.
+#[pyfunction]
+pub fn py_fibonacci(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(fibonacci_expr(arg.inner))
 }
 
 /// Construct a Derivative expression representation.
