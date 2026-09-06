@@ -3,7 +3,7 @@
   "gate": "foundation",
   "profile_id": "sympy-1.14.0-cpython",
   "status": "passed",
-  "commit": "4d981909e0f60224f24afe6856cfac998971e849",
+  "commit": "e09df9306dadfb1851b931ab28d575fdd18ba87d",
   "checks": [
     {
       "name": "workspace-forbids-unsafe",

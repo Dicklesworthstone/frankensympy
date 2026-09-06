@@ -67,7 +67,7 @@ gate = "gate://ws05-python-object-model"
 evidence_artifacts = ["UNSET"]
 profile_id = "sympy-1.14.0-cpython"
 
-notes = "2026-09-04: shell slice progressed - Zero singleton identity (S.Zero type/module parity), custom-subclass eval collapse matches pinned oracle, surface pins 27/27 (python/tests/test_surface.py), r2 differential 14/14 admitted (tools/conformance-lab/profiles/sympy-1.14.0-cpython-r2.toml). Known ledgered infidelities remain open (r2-corpus ledger.json, 41 records); status stays planned pending gate://ws05-python-object-model bundle."
+notes = "2026-09-05: full r2-corpus parity achieved — 230/230 admitted, all 44 ledger records closed_verified (commit dc5d637); seed corpus recap 14/14 parity (commit e09df93); surface suite 40/40 passing. Status stays planned pending formal release gate://ws05-python-object-model bundle."
 
 [[claims]]
 id = "COMPAT-003"
@@ -81,7 +81,7 @@ gate = "gate://ws05-python-object-model"
 evidence_artifacts = ["UNSET"]
 profile_id = "sympy-1.14.0-cpython"
 
-notes = "2026-09-04: r2-corpus differential corpus (216 fixtures) run: 189/230 admitted, 41 drifts ledgered-open (artifacts/conformance/sympy-1.14.0-cpython-r2-corpus/ledger.json) incl. Add/Mul/Pow is_* family gaps, Dummy wrap identity, Integer(0) constructor interning, Pow repr precedence; comparator refinement recorded (machine-local provenance excluded from exact_surface). Status stays planned pending gate bundle."
+notes = "2026-09-05: full r2-corpus parity achieved (230/230 admitted) across Add, Mul, Pow, Float, and Matrix surface forms; all 44 ledger records closed_verified in artifacts/conformance/sympy-1.14.0-cpython-r2-corpus/ledger.json. Status stays planned pending formal release gate bundle."
 
 [[claims]]
 id = "COMPAT-004"

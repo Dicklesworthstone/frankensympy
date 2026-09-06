@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
   "gate": "profile-verify",
-  "profile_id": "sympy-1.14.0-cpython-r2",
+  "profile_id": "sympy-1.14.0-cpython",
   "status": "passed",
-  "commit": "4d981909e0f60224f24afe6856cfac998971e849",
+  "commit": "e09df9306dadfb1851b931ab28d575fdd18ba87d",
   "checks": [
     {
       "name": "profile-id-matches-declared-module",
       "status": "passed",
-      "detail": "tools/conformance-lab/profiles/sympy-1.14.0-cpython-r2.toml declares profile_id \"sympy-1.14.0-cpython-r2\""
+      "detail": "tools/conformance-lab/profiles/sympy-1.14.0-cpython.toml declares profile_id \"sympy-1.14.0-cpython\""
     },
     {
       "name": "registry-validators",
@@ -21,5 +21,5 @@
       "detail": "workspace lints forbid unsafe_code"
     }
   ],
-  "checks_digest": "2a8d2fe3985a46d0a712ff0a72e00e17874bf37db1ea35012a443b5a4f0005bc"
+  "checks_digest": "20dbb4b4c158a56266f36ba23cff53b073cf8ce66e32edc9bc68c1d793dd069e"
 }

@@ -15,7 +15,18 @@ use fsym_functions::{
     sec, sign, sin, sinc, sinh, subfactorial, tan, tanh, zeta,
 };
 
-const ORACLE_PY: &str = "/home/ubuntu/.venvs/fsym-oracle-sympy-1.14.0/bin/python";
+fn oracle_python() -> String {
+    if let Ok(env) = std::env::var("FSYM_ORACLE_PYTHON")
+        && std::path::Path::new(&env).exists()
+    {
+        return env;
+    }
+    let venv = "/home/ubuntu/.venvs/fsym-oracle-sympy-1.14.0/bin/python";
+    if std::path::Path::new(venv).exists() {
+        return venv.to_string();
+    }
+    "python3".to_string()
+}
 
 /// One differential case: native computation vs oracle expression.
 struct Case {
@@ -257,7 +268,7 @@ fn inverse_and_hyperbolic_identities_match_oracle_at_trivial_points() {
     ];
     // zeta(1) is a genuine pole: oracle raises, native refuses via opaque
     // function form. Handled specially below.
-    let mut script = String::from("import json, sympy\nout = {}\n");
+    let mut script = String::from("import json, sympy\nout = {'__version__': sympy.__version__}\n");
     for (name, _, oracle) in &oracle_pairs {
         if *name == "zeta_refusal_shape" {
             continue;
@@ -265,7 +276,7 @@ fn inverse_and_hyperbolic_identities_match_oracle_at_trivial_points() {
         script.push_str(&format!("out['{name}'] = str(sympy.{oracle})\n"));
     }
     script.push_str("print(json.dumps(out))\n");
-    let output = std::process::Command::new(ORACLE_PY)
+    let output = std::process::Command::new(oracle_python())
         .arg("-c")
         .arg(&script)
         .output()
@@ -325,7 +336,7 @@ fn differential_blanket_matches_pinned_oracle() {
         script.push_str(&format!("out['{}'] = str(sympy.{})\n", c.name, c.oracle));
     }
     script.push_str("print(json.dumps(out))\n");
-    let output = std::process::Command::new(ORACLE_PY)
+    let output = std::process::Command::new(oracle_python())
         .arg("-c")
         .arg(&script)
         .output()

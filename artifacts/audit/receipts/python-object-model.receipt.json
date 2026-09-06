@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "gate": "python-object-model",
-  "profile_id": "sympy-1.14.0-cpython-r2",
+  "profile_id": "sympy-1.14.0-cpython-recap",
   "status": "passed",
-  "commit": "4d981909e0f60224f24afe6856cfac998971e849",
+  "commit": "e09df9306dadfb1851b931ab28d575fdd18ba87d",
   "checks": [
     {
       "name": "oracle-version-pinned",
@@ -13,7 +13,7 @@
     {
       "name": "profile-id-matches-declared-module",
       "status": "passed",
-      "detail": "tools/conformance-lab/profiles/sympy-1.14.0-cpython-r2.toml declares profile_id \"sympy-1.14.0-cpython-r2\""
+      "detail": "tools/conformance-lab/profiles/sympy-1.14.0-cpython-recap.toml declares profile_id \"sympy-1.14.0-cpython-recap\""
     },
     {
       "name": "oracle-isolation-probe",
@@ -26,5 +26,5 @@
       "detail": "exit=0"
     }
   ],
-  "checks_digest": "806ad05ed8cea4c16e951d091284cd7081289ff9b7b0dd56d8b386ce141f3fe9"
+  "checks_digest": "160e72813db8204e4a1c046ed9ffb7b5d1201315841effca4388b4468820cc02"
 }
