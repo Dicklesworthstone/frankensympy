@@ -76,6 +76,20 @@ class SurfaceTests(unittest.TestCase):
 
         held = sympy.Derivative(x**2, x, evaluate=False)
         self.assertEqual(held.doit(), 2 * x)
+        evaluated = sympy.Derivative(x**2, x, evaluate=True)
+        self.assertEqual(evaluated, 2 * x)
+        self.assertNotEqual(type(evaluated), sympy.Derivative)
+
+        # 0-ary and 1-ary Add and Mul (oracle parity)
+        self.assertEqual(sympy.Add(), sympy.Integer(0))
+        self.assertEqual(sympy.Add(x), x)
+        self.assertEqual(sympy.Add(x, evaluate=False), x)
+        self.assertEqual(sympy.Mul(), sympy.Integer(1))
+        self.assertEqual(sympy.Mul(x), x)
+        self.assertEqual(sympy.Mul(x, evaluate=False), x)
+        held_mul = sympy.Mul(x, sympy.Integer(2), evaluate=False)
+        self.assertEqual(held_mul.args, (x, sympy.Integer(2)))
+
         terms = sympy.Add(y, x, sympy.Integer(1), evaluate=False).as_ordered_terms()
         self.assertEqual(set(terms), {x, y, sympy.Integer(1)})
         self.assertEqual(terms, tuple(sorted(terms, key=lambda term: term.sort_key())))
@@ -569,10 +583,27 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(diff_m[0, 0], sympy.Integer(0))
         self.assertEqual(diff_m[1, 1], sympy.Integer(0))
 
-        # Scalar multiplication
+        # Negation
+        neg_m = -m
+        self.assertEqual(neg_m[0, 0], sympy.Integer(-1))
+        self.assertEqual(neg_m[1, 1], sympy.Integer(-4))
+        self.assertEqual(m + neg_m, sympy.zeros(2, 2))
+
+        # Scalar multiplication and right-multiplication
         scaled = m * 2
+        r_scaled = 2 * m
         self.assertEqual(scaled[0, 0], sympy.Integer(2))
         self.assertEqual(scaled[1, 1], sympy.Integer(8))
+        self.assertEqual(scaled, r_scaled)
+
+        # Scalar division
+        div_m = m / 2
+        self.assertEqual(div_m[0, 0], sympy.Rational(1, 2))
+        self.assertEqual(div_m[0, 1], sympy.Integer(1))
+
+        # Equality
+        self.assertEqual(m, sympy.Matrix([[1, 2], [3, 4]]))
+        self.assertNotEqual(m, sympy.Matrix([[1, 2], [3, 5]]))
 
         # Matrix power
         m_sq = m ** 2

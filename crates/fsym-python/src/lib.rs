@@ -533,5 +533,29 @@ mod tests {
         assert_eq!(prod.flat()[1].__str__(), "0");
         assert_eq!(prod.flat()[2].__str__(), "0");
         assert_eq!(prod.flat()[3].__str__(), "1");
+
+        let neg = m.__neg__().unwrap();
+        assert_eq!(neg.flat()[0].__str__(), "-1");
+        assert_eq!(neg.flat()[3].__str__(), "-4");
+
+        Python::initialize();
+        Python::attach(|py| {
+            let m_bound = Bound::new(py, m.clone()).unwrap();
+            let eq_res = m
+                .__richcmp__(m_bound.as_any(), pyo3::basic::CompareOp::Eq)
+                .unwrap();
+            assert!(eq_res);
+
+            let two = PyInt::new(py, 2);
+            let scaled = m.__mul__(two.as_any()).unwrap();
+            assert_eq!(scaled.flat()[0].__str__(), "2");
+
+            let r_scaled = m.__rmul__(two.as_any()).unwrap();
+            assert_eq!(r_scaled.flat()[0].__str__(), "2");
+
+            let div = m.__truediv__(two.as_any()).unwrap();
+            assert_eq!(div.flat()[0].__str__(), "1/2");
+            assert_eq!(div.flat()[1].__str__(), "1");
+        });
     }
 }

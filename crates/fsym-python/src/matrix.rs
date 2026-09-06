@@ -2,13 +2,14 @@
 
 #![forbid(unsafe_code)]
 
-use fsym_core::Expr;
+use fsym_core::{BigInt, BigRational, Expr};
 use fsym_matrices::{Matrix, MatrixError};
-use pyo3::exceptions::{PyIndexError, PyTypeError, PyValueError};
+use pyo3::basic::CompareOp;
+use pyo3::exceptions::{PyIndexError, PyTypeError, PyValueError, PyZeroDivisionError};
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
 
-use crate::expr::PyExpr;
+use crate::expr::{PyExpr, exact_python_integer};
 
 fn matrix_err(err: MatrixError) -> PyErr {
     match err {
@@ -222,6 +223,28 @@ impl PyMatrix {
         Ok(evals.into_iter().map(PyExpr::from_expr).collect())
     }
 
+    pub fn __richcmp__(&self, other: &Bound<'_, PyAny>, op: CompareOp) -> PyResult<bool> {
+        match op {
+            CompareOp::Eq => {
+                if let Ok(other_mat) = other.extract::<PyRef<Self>>() {
+                    Ok(self.inner == other_mat.inner)
+                } else {
+                    Ok(false)
+                }
+            }
+            CompareOp::Ne => {
+                if let Ok(other_mat) = other.extract::<PyRef<Self>>() {
+                    Ok(self.inner != other_mat.inner)
+                } else {
+                    Ok(true)
+                }
+            }
+            _ => Err(PyTypeError::new_err(
+                "Ordering comparisons not supported for Matrix",
+            )),
+        }
+    }
+
     /// Matrix addition.
     pub fn __add__(&self, other: &Self) -> PyResult<Self> {
         let res = self.inner.add(&other.inner).map_err(matrix_err)?;
@@ -231,6 +254,13 @@ impl PyMatrix {
     /// Matrix subtraction.
     pub fn __sub__(&self, other: &Self) -> PyResult<Self> {
         let res = self.inner.sub(&other.inner).map_err(matrix_err)?;
+        Ok(Self { inner: res })
+    }
+
+    /// Matrix negation: -self.
+    pub fn __neg__(&self) -> PyResult<Self> {
+        let neg_one = Expr::from_i64(-1);
+        let res = self.inner.scalar_mul(&neg_one).map_err(matrix_err)?;
         Ok(Self { inner: res })
     }
 
@@ -258,9 +288,42 @@ impl PyMatrix {
             let res = self.inner.scalar_mul(&scalar).map_err(matrix_err)?;
             return Ok(Self { inner: res });
         }
+        if let Ok(bigint) = exact_python_integer(other, "scalar") {
+            let scalar = Expr::Integer(bigint);
+            let res = self.inner.scalar_mul(&scalar).map_err(matrix_err)?;
+            return Ok(Self { inner: res });
+        }
         Err(PyTypeError::new_err(
             "Multiplication unsupported between Matrix and the given operand",
         ))
+    }
+
+    /// Right scalar multiplication: other * self.
+    pub fn __rmul__(&self, other: &Bound<'_, PyAny>) -> PyResult<Self> {
+        self.__mul__(other)
+    }
+
+    /// Scalar division: self / other.
+    pub fn __truediv__(&self, other: &Bound<'_, PyAny>) -> PyResult<Self> {
+        let scalar_recip = if let Ok(scalar_expr) = other.extract::<PyRef<PyExpr>>() {
+            Expr::pow(scalar_expr.inner.clone(), Expr::from_i64(-1))
+        } else if let Ok(int_val) = other.extract::<i64>() {
+            if int_val == 0 {
+                return Err(PyZeroDivisionError::new_err("division by zero"));
+            }
+            Expr::rational(1, int_val).map_err(|e| PyValueError::new_err(e.to_string()))?
+        } else if let Ok(bigint) = exact_python_integer(other, "divisor") {
+            if bigint == BigInt::from(0) {
+                return Err(PyZeroDivisionError::new_err("division by zero"));
+            }
+            Expr::Rational(BigRational::new(BigInt::from(1), bigint))
+        } else {
+            return Err(PyTypeError::new_err(
+                "Division unsupported between Matrix and the given operand",
+            ));
+        };
+        let res = self.inner.scalar_mul(&scalar_recip).map_err(matrix_err)?;
+        Ok(Self { inner: res })
     }
 
     /// Matrix integer power: self ** n.

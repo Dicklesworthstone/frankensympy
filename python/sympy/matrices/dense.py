@@ -1,6 +1,6 @@
 """Dense matrix implementations for FrankenSymPy compatibility (WS05, WS10)."""
 
-from ..core import Basic, Expr, _native, _native_expr, _wrap
+from ..core import Basic, Expr, Rational, _native, _native_expr, _wrap
 
 _NativeMatrix = _native.Matrix
 
@@ -178,6 +178,9 @@ class Matrix(MatrixBase):
             raise TypeError(f"Cannot subtract {type(other)} from Matrix")
         return Matrix(self._native - other._native)
 
+    def __neg__(self):
+        return self * -1
+
     def __matmul__(self, other):
         if not isinstance(other, Matrix):
             raise TypeError(f"Cannot matmul Matrix and {type(other)}")
@@ -186,12 +189,19 @@ class Matrix(MatrixBase):
     def __mul__(self, other):
         if isinstance(other, Matrix):
             return Matrix(self._native @ other._native)
-        if isinstance(other, (Expr, int)):
+        if isinstance(other, (Expr, Basic, int, float)):
             return Matrix(self._native * _native_expr(other))
         raise TypeError(f"Cannot multiply Matrix and {type(other)}")
 
     def __rmul__(self, other):
         return self.__mul__(other)
+
+    def __truediv__(self, other):
+        if isinstance(other, int):
+            return self * Rational(1, other)
+        if isinstance(other, (Expr, Basic, float)):
+            return self * (other ** -1)
+        raise TypeError(f"Cannot divide Matrix by {type(other)}")
 
     def __pow__(self, n):
         if not isinstance(n, int) or n < 0:

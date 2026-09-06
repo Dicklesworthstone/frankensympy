@@ -1940,6 +1940,10 @@ class Add(Expr, AssocOp):
     __slots__ = ("_args",)
 
     def __new__(cls, *args: Any, evaluate: bool = True):
+        if not args:
+            return _ZERO
+        if len(args) == 1:
+            return args[0] if isinstance(args[0], Basic) else _wrap(_native_expr(args[0]))
         native_args = [_native_expr(arg) for arg in args]
         val = _native.Add(*native_args, evaluate=evaluate).as_expr()
         if evaluate:
@@ -1973,19 +1977,30 @@ class Add(Expr, AssocOp):
 
 
 class Mul(Expr, AssocOp):
-    __slots__ = ()
+    __slots__ = ("_args",)
 
     def __new__(cls, *args: Any, evaluate: bool = True):
+        if not args:
+            return _ONE
+        if len(args) == 1:
+            return args[0] if isinstance(args[0], Basic) else _wrap(_native_expr(args[0]))
         native_args = [_native_expr(arg) for arg in args]
         val = _native.Mul(*native_args, evaluate=evaluate).as_expr()
         if evaluate:
             return _wrap(val)
         obj = object.__new__(cls)
+        obj._args = tuple(a if isinstance(a, Basic) else _wrap(_native_expr(a)) for a in args)
         obj._value = val
         return obj
 
     def __init__(self, *args: Any, evaluate: bool = True):
         pass
+
+    @property
+    def args(self) -> tuple["Basic", ...]:
+        if hasattr(self, "_args"):
+            return self._args
+        return super().args
 
     def __neg__(self) -> "Expr":
         # Profile-correct vs SymPy 1.14.0 Mul.__neg__: flip the leading Number
@@ -2034,11 +2049,19 @@ class Pow(Expr):
 class Derivative(Expr):
     __slots__ = ()
 
-    def __init__(self, expression: Any, *variables: Any, evaluate: bool = False):
+    def __new__(cls, expression: Any, *variables: Any, evaluate: bool = False):
         native_vars = [_native_expr(var) for var in variables]
-        self._value = _native.Derivative(
+        val = _native.Derivative(
             _native_expr(expression), *native_vars, evaluate=evaluate
         ).as_expr()
+        if evaluate:
+            return _wrap(val)
+        obj = object.__new__(cls)
+        obj._value = val
+        return obj
+
+    def __init__(self, expression: Any, *variables: Any, evaluate: bool = False):
+        pass
 
 
 class FunctionClass(type):
