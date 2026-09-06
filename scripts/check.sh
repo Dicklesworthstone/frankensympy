@@ -340,11 +340,13 @@ case "$PROFILE" in
   format) format ;;
   architecture) architecture ;;
   registries) registries ;;
+  metadata) metadata ;;
   lab) lab ;;
   lab-corpus) lab_corpus ;;
   audit) write_audits ;;
   unit) unit ;;
   conformance) conformance ;;
+  portable-verifiers) portable_verifiers ;;
   packaging-consistency) packaging_consistency ;;
   bench-smoke) bench_smoke ;;
   fuzz-smoke) fuzz_smoke ;;
