@@ -286,6 +286,28 @@ fn cmd_gate_ws11_certified_numeric() -> Receipt {
     finish("ws11-certified-numeric", "sympy-1.14.0-cpython", checks)
 }
 
+fn cmd_gate_ws13_portfolio_runtime() -> Receipt {
+    let mut checks = Vec::new();
+    check_workspace_no_unsafe(&mut checks);
+
+    let mut c1 = cargo();
+    c1.args([
+        "test",
+        "-p",
+        "fsym-runtime",
+        "--test",
+        "cancellation_injection",
+        "--quiet",
+    ]);
+    run_command("test-cancellation-injection", c1, &mut checks);
+
+    let mut c2 = cargo();
+    c2.args(["test", "-p", "fsym-runtime", "--quiet"]);
+    run_command("tests-fsym-runtime", c2, &mut checks);
+
+    finish("ws13-portfolio-runtime", "sympy-1.14.0-cpython", checks)
+}
+
 fn finish(gate: &str, profile_id: &str, checks: Vec<Check>) -> Receipt {
     let all_passed = checks.iter().all(|c| c.status == "passed");
     let receipt = Receipt {
@@ -313,7 +335,7 @@ fn write_receipt(receipt: &Receipt) {
 
 fn print_usage() -> i32 {
     eprintln!(
-        "usage: xtask profile verify <profile-id> | xtask gate foundation | xtask gate deterministic-term-identity | xtask gate ws11-certified-numeric | xtask gate python-object-model --profile <profile-id>"
+        "usage: xtask profile verify <profile-id> | xtask gate foundation | xtask gate deterministic-term-identity | xtask gate ws11-certified-numeric | xtask gate ws13-portfolio-runtime | xtask gate python-object-model --profile <profile-id>"
     );
     2
 }
@@ -327,6 +349,7 @@ fn main() -> std::process::ExitCode {
             cmd_gate_deterministic_term_identity()
         }
         [a, b] if a == "gate" && b == "ws11-certified-numeric" => cmd_gate_ws11_certified_numeric(),
+        [a, b] if a == "gate" && b == "ws13-portfolio-runtime" => cmd_gate_ws13_portfolio_runtime(),
         [a, b, flag, profile]
             if a == "gate" && b == "python-object-model" && flag == "--profile" =>
         {

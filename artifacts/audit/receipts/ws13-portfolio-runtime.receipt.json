@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "gate": "ws13-portfolio-runtime",
+  "profile_id": "sympy-1.14.0-cpython",
+  "status": "passed",
+  "commit": "3ec96404aa6ccf922f2cb42ecb5301a01d00373e",
+  "checks": [
+    {
+      "name": "workspace-forbids-unsafe",
+      "status": "passed",
+      "detail": "workspace lints forbid unsafe_code"
+    },
+    {
+      "name": "test-cancellation-injection",
+      "status": "passed",
+      "detail": "exit=0"
+    },
+    {
+      "name": "tests-fsym-runtime",
+      "status": "passed",
+      "detail": "exit=0"
+    }
+  ],
+  "checks_digest": "add391e0d271ffecb4a4b322a829cfababc0efcbc777528ec8fea0c1204a0a62"
+}
