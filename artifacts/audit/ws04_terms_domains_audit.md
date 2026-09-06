@@ -1,8 +1,8 @@
 # WS04 Semantic Universe — Deterministic Identity, Domains, & Assumptions Audit
 
-**Author:** PearlTower (Antigravity / Gemini 3.8 Flash)  
-**Date:** 2026-09-06  
-**Bead:** `fra-ws04-terms-domains-906`  
+**Author:** PearlTower (Antigravity / Gemini 3.8 Flash)
+**Date:** 2026-09-06
+**Bead:** `fra-ws04-terms-domains-906`
 **Audit Scope:** Verification of the Semantic Term DAG (`fsym-core`), content-addressed deterministic identity (`SEMANTIC-001`), domain separation, 4-valued assumptions (`fsym-assumptions`), typed identifiers (`fsym-id`), and `gate://deterministic-term-identity`.
 
 ---

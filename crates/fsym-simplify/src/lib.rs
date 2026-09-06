@@ -990,16 +990,84 @@ mod tests {
 
         let (_, envelope) =
             verified_simplify(&expr, &context, ReceiptId::new(5).unwrap(), &mut meter).unwrap();
-        let mut tree = envelope.derivation.unwrap();
+        let mut forged_tree = envelope.derivation.clone().unwrap();
 
         // Mutate the final step claim to forged claim x + x = x
-        tree.steps.last_mut().unwrap().claim = Claim::equality(expr.clone(), x.clone());
+        forged_tree.steps.last_mut().unwrap().claim = Claim::equality(expr.clone(), x.clone());
 
-        let res = verify_derivation_independent(&tree, &context);
+        let res = verify_derivation_independent(&forged_tree, &context);
         assert!(
             res.is_err(),
             "Independent verifier must kill mutant tampered claim"
         );
+    }
+
+    #[test]
+    fn test_verified_simplify_mul_zero_with_derivation_and_mutants_killed() {
+        let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
+        let mut meter = Unbounded;
+        let x = Expr::symbol("x");
+        let y = Expr::symbol("y");
+        let zero = Expr::from_i64(0);
+
+        // 1. x * 0 evaluates to 0 with kernel-verified derivation
+        for expr in [
+            Expr::Mul(vec![x.clone(), zero.clone()]),
+            Expr::Mul(vec![zero.clone(), x.clone()]),
+            Expr::Mul(vec![x.clone(), y.clone(), zero.clone()]),
+            Expr::Mul(vec![zero.clone(), Expr::from_i64(5), x.clone()]),
+        ] {
+            let (simplified, envelope) =
+                verified_simplify(&expr, &context, ReceiptId::new(100).unwrap(), &mut meter)
+                    .expect("verified_simplify on mul with zero must succeed");
+            assert_eq!(simplified, zero);
+            assert_eq!(envelope.claim.lhs().unwrap(), &expr);
+            assert_eq!(envelope.claim.rhs().unwrap(), &zero);
+
+            let derivation = envelope
+                .derivation
+                .as_ref()
+                .expect("derivation tree must be present");
+            let verified_claim = verify_derivation_independent(derivation, &context)
+                .expect("independent verifier must accept derivation");
+            assert_eq!(verified_claim, Claim::equality(expr.clone(), zero.clone()));
+            assert!(envelope.verify_integrity());
+        }
+
+        // 2. Mutant: forged claim x * 0 = 1 in derivation tree is killed
+        let expr = Expr::Mul(vec![x.clone(), zero.clone()]);
+        let (_, envelope) =
+            verified_simplify(&expr, &context, ReceiptId::new(101).unwrap(), &mut meter).unwrap();
+        let mut forged_tree = envelope.derivation.clone().unwrap();
+        forged_tree.steps.last_mut().unwrap().claim =
+            Claim::equality(expr.clone(), Expr::from_i64(1));
+        assert!(
+            verify_derivation_independent(&forged_tree, &context).is_err(),
+            "Mutant (forged x*0 = 1) must be killed by independent verifier"
+        );
+
+        // 3. Mutant: non-zero RHS in envelope receipt is killed
+        let mut tampered_envelope = envelope.clone();
+        tampered_envelope.claim = Claim::equality(expr.clone(), Expr::from_i64(1));
+        assert!(
+            !tampered_envelope.verify_integrity(),
+            "Mutant (tampered claim in envelope) must fail integrity check"
+        );
+
+        // 4. Mutant: indeterminate zero factors (0 * Inf, 0 * NaN, 0 * 1/x) must NOT evaluate to 0
+        for indeterminate in [
+            Expr::Const(fsym_core::Constant::Infinity),
+            Expr::Const(fsym_core::Constant::NaN),
+            Expr::Const(fsym_core::Constant::ComplexInfinity),
+            x.clone().pow(Expr::from_i64(-1)),
+        ] {
+            let ind_expr = Expr::Mul(vec![zero.clone(), indeterminate.clone()]);
+            let s = simplify(&ind_expr);
+            assert_ne!(
+                s, zero,
+                "0 * indeterminate must not simplify to 0: {ind_expr}"
+            );
+        }
     }
 
     #[test]

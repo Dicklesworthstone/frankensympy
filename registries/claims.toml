@@ -149,8 +149,13 @@ present_tense_allowed = false
 minimum_evidence = "certified_numeric"
 workstreams = ["WS03", "WS04", "WS06", "WS11"]
 gate = "gate://ws11-certified-numeric"
-evidence_artifacts = ["crates/fsym-core/src/ball.rs"]
-notes = "implemented_uncertified 2026-08-29: RealBall interval substrate with bounded power/sqrt landed; directed-rounding enclosures and claim-specific verification gates remain open."
+evidence_artifacts = [
+    "crates/fsym-core/src/ball.rs",
+    "crates/fsym-core/src/algebraic.rs",
+    "crates/fsym-core/tests/directed_rounding_mutation.rs",
+    "artifacts/audit/receipts/ws11-certified-numeric.receipt.json",
+]
+notes = "implemented_uncertified 2026-09-06: RealBall interval substrate and AlgebraicNumber Sturm root isolation verified; 16 directed-rounding and enclosure weakening mutants registered and killed in directed_rounding_mutation.rs; ws11-certified-numeric gate verified."
 
 [[claims]]
 id = "MATH-004"

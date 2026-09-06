@@ -1,8 +1,8 @@
 # WS05 Python Compatibility Shell Vertical Slice — Differential & Surface Audit
 
-**Author:** PearlTower (Antigravity / Gemini 3.8 Flash)  
-**Date:** 2026-09-06  
-**Bead:** `fra-ws05-python-shell-sl7`  
+**Author:** PearlTower (Antigravity / Gemini 3.8 Flash)
+**Date:** 2026-09-06
+**Bead:** `fra-ws05-python-shell-sl7`
 **Audit Scope:** Verification of the SymPy-compatible Python shell (`python/sympy`), PyO3 bridge (`crates/fsym-python`), surface test suite (`python/tests`), and differential conformance lab (`tools/conformance-lab`).
 
 ---
