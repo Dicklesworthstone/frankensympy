@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "gate": "ws14-agent-protocol",
+  "profile_id": "sympy-1.14.0-cpython",
+  "status": "passed",
+  "commit": "0342464251000fd1dc1ddf1af6367f9336a26678",
+  "checks": [
+    {
+      "name": "workspace-forbids-unsafe",
+      "status": "passed",
+      "detail": "workspace lints forbid unsafe_code"
+    },
+    {
+      "name": "test-c10-protocol-gate",
+      "status": "passed",
+      "detail": "exit=0"
+    },
+    {
+      "name": "tests-fsym-runtime",
+      "status": "passed",
+      "detail": "exit=0"
+    }
+  ],
+  "checks_digest": "532c0edf758dc899bb1e24751d3949abb8f5b10ee37f16b9cac7b2b1ec3e168e"
+}

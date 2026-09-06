@@ -418,9 +418,31 @@ fn write_receipt(receipt: &Receipt) {
     std::fs::rename(&tmp, final_path).expect("atomic receipt rename");
 }
 
+fn cmd_gate_ws14_agent_protocol() -> Receipt {
+    let mut checks = Vec::new();
+    check_workspace_no_unsafe(&mut checks);
+
+    let mut c1 = cargo();
+    c1.args([
+        "test",
+        "-p",
+        "fsym-runtime",
+        "--test",
+        "c10_protocol_gate",
+        "--quiet",
+    ]);
+    run_command("test-c10-protocol-gate", c1, &mut checks);
+
+    let mut c2 = cargo();
+    c2.args(["test", "-p", "fsym-runtime", "--quiet"]);
+    run_command("tests-fsym-runtime", c2, &mut checks);
+
+    finish("ws14-agent-protocol", "sympy-1.14.0-cpython", checks)
+}
+
 fn print_usage() -> i32 {
     eprintln!(
-        "usage: xtask profile verify <profile-id> | xtask gate foundation | xtask gate deterministic-term-identity | xtask gate ws10-exact-linear | xtask gate ws11-certified-numeric | xtask gate ws12-certified-jacobian | xtask gate ws13-portfolio-runtime | xtask gate ws17-groebner | xtask gate ws18-analytic-calculus | xtask gate ws19-solvers | xtask gate python-object-model --profile <profile-id>"
+        "usage: xtask profile verify <profile-id> | xtask gate foundation | xtask gate deterministic-term-identity | xtask gate ws10-exact-linear | xtask gate ws11-certified-numeric | xtask gate ws12-certified-jacobian | xtask gate ws13-portfolio-runtime | xtask gate ws14-agent-protocol | xtask gate ws17-groebner | xtask gate ws18-analytic-calculus | xtask gate ws19-solvers | xtask gate python-object-model --profile <profile-id>"
     );
     2
 }
@@ -439,6 +461,7 @@ fn main() -> std::process::ExitCode {
             cmd_gate_ws12_certified_jacobian()
         }
         [a, b] if a == "gate" && b == "ws13-portfolio-runtime" => cmd_gate_ws13_portfolio_runtime(),
+        [a, b] if a == "gate" && b == "ws14-agent-protocol" => cmd_gate_ws14_agent_protocol(),
         [a, b] if a == "gate" && b == "ws17-groebner" => cmd_gate_ws17_groebner(),
         [a, b] if a == "gate" && b == "ws18-analytic-calculus" => cmd_gate_ws18_analytic_calculus(),
         [a, b] if a == "gate" && b == "ws19-solvers" => cmd_gate_ws19_solvers(),
