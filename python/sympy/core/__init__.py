@@ -2057,12 +2057,12 @@ class Derivative(Expr):
     __slots__ = ()
 
     def __new__(cls, expression: Any, *variables: Any, evaluate: bool = False):
+        if evaluate:
+            return diff(expression, *variables)
         native_vars = [_native_expr(var) for var in variables]
         val = _native.Derivative(
-            _native_expr(expression), *native_vars, evaluate=evaluate
+            _native_expr(expression), *native_vars, evaluate=False
         ).as_expr()
-        if evaluate:
-            return _wrap(val)
         obj = object.__new__(cls)
         obj._value = val
         return obj
@@ -2215,13 +2215,62 @@ def _require_symbol(value: Any) -> Symbol:
     raise TypeError("differentiation variable must be a Symbol")
 
 
-def diff(expression: Any, *variables: Any) -> Expr:
-    """Differentiate through the implemented exact native rule set."""
+def _exact_integer_value(value: Any) -> int | None:
+    if type(value) is int:
+        return value
+    if type(value) is Integer:
+        return value.p
+    return None
+
+
+def _normalize_diff_args(*variables: Any) -> list[Symbol]:
+    """Normalize differentiation variable specifications into a list of Symbols.
+
+    Supports:
+    - diff(expr, x)
+    - diff(expr, x, 2)
+    - diff(expr, (x, 2))
+    - diff(expr, x, y)
+    - diff(expr, x, 2, y, 3)
+    - diff(expr, (x, 2), (y, 3))
+    - diff(expr, x, 0)
+    """
     if not variables:
         raise TypeError("at least one differentiation variable is required")
+    res: list[Symbol] = []
+    i = 0
+    while i < len(variables):
+        v = variables[i]
+        if isinstance(v, tuple):
+            if len(v) != 2:
+                raise ValueError(f"tuple variable spec must be (symbol, count), got {v}")
+            sym = _require_symbol(v[0])
+            count = _exact_integer_value(v[1])
+            if count is None or count < 0:
+                raise TypeError(f"differentiation order must be a non-negative integer, got {v[1]}")
+            res.extend([sym] * count)
+            i += 1
+        elif type(v) is int or isinstance(v, Integer):
+            raise TypeError("differentiation order must follow a variable symbol")
+        else:
+            sym = _require_symbol(v)
+            if i + 1 < len(variables) and (type(variables[i + 1]) is int or isinstance(variables[i + 1], Integer)):
+                count = _exact_integer_value(variables[i + 1])
+                if count is None or count < 0:
+                    raise TypeError(f"differentiation order must be a non-negative integer, got {variables[i + 1]}")
+                res.extend([sym] * count)
+                i += 2
+            else:
+                res.append(sym)
+                i += 1
+    return res
+
+
+def diff(expression: Any, *variables: Any) -> Expr:
+    """Differentiate through the implemented exact native rule set."""
+    normalized_vars = _normalize_diff_args(*variables)
     result = _wrap(_native_expr(expression))
-    for variable in variables:
-        symbol = _require_symbol(variable)
+    for symbol in normalized_vars:
         result = _parse_result(
             _native.diff_expr(str(result), _native_symbol_key(symbol))
         )

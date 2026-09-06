@@ -41,6 +41,11 @@ class SurfaceTests(unittest.TestCase):
         x = sympy.Symbol("x")
 
         self.assertEqual(sympy.diff(x**2, x), 2 * x)
+        self.assertEqual(sympy.diff(x**4, x, 2), 12 * x**2)
+        self.assertEqual(sympy.diff(x**4, (x, 2)), 12 * x**2)
+        self.assertEqual(sympy.diff(x**4, x, 0), x**4)
+        self.assertEqual((x**4).diff(x, 2), 12 * x**2)
+        self.assertEqual(sympy.Derivative(x**4, x, 2, evaluate=True), 12 * x**2)
         self.assertIsInstance(sympy.simplify(x + 0), sympy.Expr)
         self.assertEqual(sympy.integrate(2 * x, (x, 0, 1)), sympy.Integer(1))
         self.assertEqual(sympy.solve(2 * x - 4, x), [sympy.Integer(2)])
