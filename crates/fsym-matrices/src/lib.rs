@@ -566,8 +566,12 @@ impl Matrix {
 
     /// Matrix trace: sum of diagonal elements.
     pub fn trace(&self) -> Result<Expr, MatrixError> {
+        self.validate_shape()?;
         if self.rows != self.cols {
             return Err(MatrixError::NotSquare(self.rows, self.cols));
+        }
+        if self.rows == 0 {
+            return Ok(Expr::from_i64(0));
         }
         let mut diag = Vec::with_capacity(self.rows);
         for i in 0..self.rows {
@@ -3556,6 +3560,18 @@ mod tests {
             a.hadamard(&c),
             Err(MatrixError::ShapeMismatch(..))
         ));
+    }
+
+    #[test]
+    fn test_matrix_trace() {
+        let a = Matrix::new(2, 2, vec![num(1), num(2), num(3), num(4)]).unwrap();
+        assert_eq!(a.trace().unwrap(), num(5));
+
+        let empty = Matrix::new(0, 0, vec![]).unwrap();
+        assert_eq!(empty.trace().unwrap(), num(0));
+
+        let rect = Matrix::new(2, 3, vec![num(1); 6]).unwrap();
+        assert_eq!(rect.trace(), Err(MatrixError::NotSquare(2, 3)));
     }
 
     #[test]

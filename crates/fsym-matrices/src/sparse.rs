@@ -423,12 +423,15 @@ impl SparseMatrix {
         if self.rows != self.cols {
             return Err(MatrixError::NotSquare(self.rows, self.cols));
         }
-        let diagonal = self
+        let diagonal: Vec<Expr> = self
             .entries
             .iter()
             .filter(|&(&(row, col), _)| row == col)
             .map(|(_, value)| value.clone())
             .collect();
+        if diagonal.is_empty() {
+            return Ok(Expr::from_i64(0));
+        }
         Ok(simplify(&Expr::Add(diagonal)))
     }
 }

@@ -353,7 +353,7 @@ pub fn dsolve_cauchy_euler(
 /// Independent verifier for homogeneous Cauchy-Euler differential equation:
 /// $a x^2 y''(x) + b x y'(x) + c y(x) = 0$.
 pub fn verify_cauchy_euler_solution(solution: &Expr, a: i64, b: i64, c: i64, x: &Symbol) -> bool {
-    if !ode_inputs_are_total(&[solution]) {
+    if !crate::verifier_inputs_within_bounds([solution]) {
         return false;
     }
     let mut terms = Vec::with_capacity(3);
@@ -374,7 +374,19 @@ pub fn verify_cauchy_euler_solution(solution: &Expr, a: i64, b: i64, c: i64, x: 
         terms.push(Expr::Mul(vec![Expr::from_i64(c), solution.clone()]));
     }
 
-    residual_is_exact_zero(&Expr::Add(terms))
+    if terms.is_empty() {
+        return true;
+    }
+    let residual = Expr::Add(terms);
+    let expanded = match try_expand(&residual) {
+        Ok(e) => e,
+        Err(_) => return false,
+    };
+    let simplified = match try_simplify(&expanded) {
+        Ok(s) => s,
+        Err(_) => simplify(&expanded),
+    };
+    simplified.is_zero()
 }
 
 /// Exact residual checker for a candidate solution of $y'(x) + P(x) y(x) = Q(x)$.

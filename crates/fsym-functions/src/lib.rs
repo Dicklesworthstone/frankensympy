@@ -208,8 +208,14 @@ pub fn abs_val(arg: Expr) -> Expr {
     ) {
         return arg;
     }
-    if arg == Expr::Const(Constant::NegativeInfinity) {
+    if matches!(
+        arg,
+        Expr::Const(Constant::NegativeInfinity | Constant::ComplexInfinity)
+    ) {
         return Expr::Const(Constant::Infinity);
+    }
+    if arg == Expr::Const(Constant::NaN) {
+        return Expr::Const(Constant::NaN);
     }
     Expr::Function("Abs".to_string(), vec![arg])
 }
@@ -237,6 +243,9 @@ pub fn sign(arg: Expr) -> Expr {
     }
     if arg == Expr::Const(Constant::NegativeInfinity) {
         return Expr::from_i64(-1);
+    }
+    if arg == Expr::Const(Constant::NaN) {
+        return Expr::Const(Constant::NaN);
     }
     Expr::Function("sign".to_string(), vec![arg])
 }
@@ -575,7 +584,12 @@ pub fn floor(arg: Expr) -> Expr {
     }
     if matches!(
         arg,
-        Expr::Const(Constant::Infinity | Constant::NegativeInfinity)
+        Expr::Const(
+            Constant::Infinity
+                | Constant::NegativeInfinity
+                | Constant::ComplexInfinity
+                | Constant::NaN
+        )
     ) {
         return arg;
     }
@@ -610,7 +624,12 @@ pub fn ceiling(arg: Expr) -> Expr {
     }
     if matches!(
         arg,
-        Expr::Const(Constant::Infinity | Constant::NegativeInfinity)
+        Expr::Const(
+            Constant::Infinity
+                | Constant::NegativeInfinity
+                | Constant::ComplexInfinity
+                | Constant::NaN
+        )
     ) {
         return arg;
     }
@@ -779,6 +798,7 @@ mod tests {
         assert_eq!(fibonacci(Expr::from_i64(2)), Expr::from_i64(1));
         assert_eq!(fibonacci(Expr::from_i64(3)), Expr::from_i64(2));
         assert_eq!(fibonacci(Expr::from_i64(10)), Expr::from_i64(55));
+
         // Lucas: L_0 = 2, L_1 = 1, L_n = L_{n-1} + L_{n-2}.
         assert_eq!(lucas(Expr::from_i64(0)), Expr::from_i64(2));
         assert_eq!(lucas(Expr::from_i64(1)), Expr::from_i64(1));
