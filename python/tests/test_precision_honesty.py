@@ -78,10 +78,11 @@ class PrecisionHonestN(unittest.TestCase):
 
     def test_small_precision_non_pi_still_evaluates(self):
         # Within the f64-honest envelope non-pi evaluation keeps working.
-        # (Trailing-zero RENDERING divergence vs oracle '2.00' is the
-        # printer pack's ledgered item; the VALUE is what this pin checks.)
+        # Pinned-oracle equality: Float vs Integer/Rational is type-sensitive
+        # (False), so the value pins compare through float().
         self.assertEqual(sympy.N(2.5, 3), sympy.Float(2.5, 3))
-        self.assertEqual(sympy.N(2, 3), sympy.Integer(2))
+        self.assertEqual(float(sympy.N(2, 3)), 2.0)
+        self.assertNotEqual(sympy.N(2, 3), sympy.Integer(2))
 
 
 if __name__ == "__main__":
