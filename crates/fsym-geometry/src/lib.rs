@@ -794,9 +794,50 @@ impl Polygon2D {
         simplify(&Expr::Add(terms))
     }
 
-    /// Centroid of the polygon vertices.
+    /// Planar area centroid of the polygon (matching SymPy Polygon.centroid).
+    ///
+    /// For non-degenerate polygons with nonzero area:
+    ///   C_x = \frac{1}{6A} \sum_{i=0}^{n-1} (x_i + x_{i+1}) (x_i y_{i+1} - x_{i+1} y_i)
+    ///   C_y = \frac{1}{6A} \sum_{i=0}^{n-1} (y_i + y_{i+1}) (x_i y_{i+1} - x_{i+1} y_i)
+    /// where 2A = double_signed_area.
+    /// When the polygon area collapses to zero, falls back to the vertex arithmetic mean.
     pub fn centroid(&self) -> Point2D {
         let n = self.vertices.len();
+        let double_area = self.double_signed_area();
+        if !double_area.is_zero() {
+            let denom = simplify(&Expr::Mul(vec![Expr::from_i64(3), double_area]));
+            if !denom.is_zero() {
+                let mut cx_terms = Vec::with_capacity(n);
+                let mut cy_terms = Vec::with_capacity(n);
+                for i in 0..n {
+                    let next = (i + 1) % n;
+                    let xi = &self.vertices[i].x;
+                    let yi = &self.vertices[i].y;
+                    let x_next = &self.vertices[next].x;
+                    let y_next = &self.vertices[next].y;
+
+                    let cross = Expr::Add(vec![
+                        Expr::Mul(vec![xi.clone(), y_next.clone()]),
+                        Expr::Mul(vec![Expr::from_i64(-1), x_next.clone(), yi.clone()]),
+                    ]);
+                    cx_terms.push(Expr::Mul(vec![
+                        Expr::Add(vec![xi.clone(), x_next.clone()]),
+                        cross.clone(),
+                    ]));
+                    cy_terms.push(Expr::Mul(vec![
+                        Expr::Add(vec![yi.clone(), y_next.clone()]),
+                        cross,
+                    ]));
+                }
+                let cx_num = simplify(&Expr::Add(cx_terms));
+                let cy_num = simplify(&Expr::Add(cy_terms));
+                let cx = expr_div(cx_num, denom.clone());
+                let cy = expr_div(cy_num, denom);
+                return Point2D::new(cx, cy);
+            }
+        }
+
+        // Fallback for zero-area degenerate polygons: vertex arithmetic mean
         let scale = Expr::Rational(BigRational::new(1.into(), (n as i64).into()));
         let mut sum_x = Vec::with_capacity(n);
         let mut sum_y = Vec::with_capacity(n);
@@ -1674,6 +1715,19 @@ mod tests {
         let c = poly.centroid();
         assert_eq!(c.x, Expr::from_i64(1));
         assert_eq!(c.y, Expr::from_i64(1));
+
+        // Non-symmetric quadrilateral matching SymPy Polygon.centroid doctest:
+        // [(0, 0), (1, 0), (5, 1), (0, 1)] -> Centroid (31/18, 11/18)
+        let quad_vertices = vec![
+            Point2D::new(Expr::from_i64(0), Expr::from_i64(0)),
+            Point2D::new(Expr::from_i64(1), Expr::from_i64(0)),
+            Point2D::new(Expr::from_i64(5), Expr::from_i64(1)),
+            Point2D::new(Expr::from_i64(0), Expr::from_i64(1)),
+        ];
+        let quad = Polygon2D::new(quad_vertices).unwrap();
+        let quad_centroid = quad.centroid();
+        assert_eq!(quad_centroid.x, Expr::rational(31, 18).unwrap());
+        assert_eq!(quad_centroid.y, Expr::rational(11, 18).unwrap());
 
         // Less than 3 vertices rejected
         assert_eq!(

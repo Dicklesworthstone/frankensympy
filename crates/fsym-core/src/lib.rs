@@ -335,25 +335,25 @@ impl std::ops::Add for Expr {
         if let (Some(x), Some(y)) = (self.const_integer_value(), other.const_integer_value()) {
             return Expr::Integer(x + y);
         }
-        match (self, other) {
+        let mut terms = match (self, other) {
             (Expr::Add(mut terms_a), Expr::Add(terms_b)) => {
                 terms_a.extend(terms_b);
-                fuse_numeric_terms(&mut terms_a);
-                canonicalize_add_args(&mut terms_a);
-                Expr::Add(terms_a)
+                terms_a
             }
             (Expr::Add(mut terms), single) | (single, Expr::Add(mut terms)) => {
                 terms.push(single);
-                fuse_numeric_terms(&mut terms);
-                canonicalize_add_args(&mut terms);
-                Expr::Add(terms)
+                terms
             }
-            (a, b) => {
-                let mut terms = vec![a, b];
-                fuse_numeric_terms(&mut terms);
-                canonicalize_add_args(&mut terms);
-                Expr::Add(terms)
-            }
+            (a, b) => vec![a, b],
+        };
+        fuse_numeric_terms(&mut terms);
+        canonicalize_add_args(&mut terms);
+        if terms.is_empty() {
+            Expr::Integer(BigInt::zero())
+        } else if terms.len() == 1 {
+            terms.pop().unwrap()
+        } else {
+            Expr::Add(terms)
         }
     }
 }
@@ -381,7 +381,7 @@ fn fuse_numeric_terms(terms: &mut Vec<Expr>) {
         }
         _ => true,
     });
-    if saw_constant {
+    if saw_constant && (!constant.is_zero() || terms.is_empty()) {
         // Integer-valued sums stay Integers (upstream: x + 3*4 -> x + 12).
         let term = if constant.denom() == &BigInt::from(1) {
             Expr::Integer(constant.numer().clone())
@@ -646,6 +646,13 @@ mod tests {
         let free = expr.free_symbols();
         assert_eq!(free.len(), 1);
         assert_eq!(free[0].name, "x");
+
+        // Zero numeric addition unwraps or eliminates zero constant
+        assert_eq!(x.clone() + Expr::from_i64(0), x);
+        assert_eq!((x.clone() + Expr::from_i64(5)) + Expr::from_i64(-5), x);
+        let half = Expr::rational(1, 2).unwrap();
+        let neg_half = Expr::rational(-1, 2).unwrap();
+        assert_eq!(half + neg_half, Expr::from_i64(0));
     }
 
     #[test]

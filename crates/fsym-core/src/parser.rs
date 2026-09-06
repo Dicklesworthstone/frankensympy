@@ -350,7 +350,12 @@ fn decimal_expr(s: &str) -> Result<Expr, CoreError> {
     let scale = u32::try_from(frac.len())
         .map_err(|_| CoreError::ParseError("decimal scale exceeds u32".to_string()))?;
     let denominator = BigInt::from(10u32).pow(scale);
-    Ok(Expr::Rational(BigRational::new(numerator, denominator)))
+    let r = BigRational::new(numerator, denominator);
+    if r.is_integer() {
+        Ok(Expr::Integer(r.to_integer()))
+    } else {
+        Ok(Expr::Rational(r))
+    }
 }
 
 fn constant_named(name: &str) -> Option<Constant> {
@@ -463,6 +468,10 @@ mod tests {
             parse("3.14").unwrap(),
             Expr::Rational(BigRational::new(BigInt::from(157), BigInt::from(50)))
         );
+        // Integer-valued decimals canonicalize to Expr::Integer
+        assert_eq!(parse("2.0").unwrap(), Expr::from_i64(2));
+        assert_eq!(parse("0.0").unwrap(), Expr::from_i64(0));
+        assert_eq!(parse("-4.00").unwrap(), Expr::from_i64(-4));
     }
 
     #[test]
