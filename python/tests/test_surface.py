@@ -881,6 +881,75 @@ class SurfaceTests(unittest.TestCase):
         self.assertIs(sympy.ntheory.mobius, sympy.mobius)
         self.assertIs(sympy.integrals.integrate, sympy.integrate)
 
+    def test_matrix_advanced_linear_algebra_and_as_expr(self):
+        from sympy.matrices import (
+            Matrix,
+            hadamard_product,
+            kronecker_product,
+            matrix_multiply_elementwise,
+        )
+
+        x = sympy.Symbol("x")
+        self.assertIs(x.as_expr(), x)
+        two = sympy.Integer(2)
+        self.assertIs(two.as_expr(), two)
+
+        A = Matrix([[1, 2], [3, 4]])
+        b = Matrix([5, 11])
+
+        # 1. Linear solve
+        sol = A.solve(b)
+        self.assertEqual(sol, Matrix([[1], [2]]))
+        self.assertEqual(A.LUsolve(b), sol)
+        self.assertEqual(A * sol, b)
+
+        # 2. Least-squares solve
+        ls_sol = A.solve_least_squares(b)
+        self.assertEqual(ls_sol, sol)
+
+        # 3. Characteristic polynomial
+        cp_default = A.charpoly()
+        lam = sympy.Symbol("lambda")
+        self.assertEqual(cp_default, lam**2 - 5 * lam - 2)
+        cp_x = A.charpoly(x)
+        self.assertEqual(cp_x, x**2 - 5 * x - 2)
+        self.assertEqual(cp_x.as_expr(), x**2 - 5 * x - 2)
+
+        # 4. LU decomposition
+        L, U, P = A.LUdecomposition()
+        self.assertEqual(L * U, P * A)
+        p_mat, l_mat, u_mat = A.lu()
+        self.assertEqual(l_mat, L)
+        self.assertEqual(u_mat, U)
+        self.assertEqual(p_mat, P)
+
+        # 5. QR decomposition
+        Q, R = A.QRdecomposition()
+        self.assertEqual(Q * R, A)
+        q_mat, r_mat = A.qr()
+        self.assertEqual(q_mat, Q)
+        self.assertEqual(r_mat, R)
+
+        # 6. Hadamard product
+        B = Matrix([[5, 6], [7, 8]])
+        had = A.hadamard(B)
+        expected_had = Matrix([[5, 12], [21, 32]])
+        self.assertEqual(had, expected_had)
+        self.assertEqual(hadamard_product(A, B), expected_had)
+        self.assertEqual(matrix_multiply_elementwise(A, B), expected_had)
+
+        # 7. Kronecker product
+        kron = A.kron(B)
+        expected_kron = Matrix([
+            [5, 6, 10, 12],
+            [7, 8, 14, 16],
+            [15, 18, 20, 24],
+            [21, 24, 28, 32],
+        ])
+        self.assertEqual(kron, expected_kron)
+        self.assertEqual(A.kronecker_product(B), expected_kron)
+        self.assertEqual(kronecker_product(A, B), expected_kron)
+
 
 if __name__ == "__main__":
     unittest.main()

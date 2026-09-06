@@ -223,6 +223,49 @@ impl PyMatrix {
         Ok(evals.into_iter().map(PyExpr::from_expr).collect())
     }
 
+    /// Characteristic polynomial coefficients in descending degree order.
+    pub fn char_poly(&self) -> PyResult<Vec<PyExpr>> {
+        let coeffs = self.inner.char_poly().map_err(matrix_err)?;
+        Ok(coeffs.into_iter().map(PyExpr::from_expr).collect())
+    }
+
+    /// Kronecker product.
+    pub fn kron(&self, other: &Self) -> PyResult<Self> {
+        let res = self.inner.kron(&other.inner).map_err(matrix_err)?;
+        Ok(Self { inner: res })
+    }
+
+    /// Exact LU decomposition with partial row pivoting returning `(P, L, U)`.
+    pub fn lu(&self) -> PyResult<(Self, Self, Self)> {
+        let cert = self.inner.lu().map_err(matrix_err)?;
+        Ok((
+            Self { inner: cert.p },
+            Self { inner: cert.l },
+            Self { inner: cert.u },
+        ))
+    }
+
+    /// Exact QR decomposition with orthogonal columns returning `(Q, R)`.
+    pub fn qr(&self) -> PyResult<(Self, Self)> {
+        let cert = self.inner.qr().map_err(matrix_err)?;
+        Ok((Self { inner: cert.q }, Self { inner: cert.r }))
+    }
+
+    /// Solves the exact linear system `self * X = B` for `X`.
+    pub fn solve(&self, b: &Self) -> PyResult<Self> {
+        let res = self.inner.solve(&b.inner).map_err(matrix_err)?;
+        Ok(Self { inner: res })
+    }
+
+    /// Solves the exact least-squares system `A^T A X = A^T B` for `X`.
+    pub fn solve_least_squares(&self, b: &Self) -> PyResult<Self> {
+        let res = self
+            .inner
+            .solve_least_squares(&b.inner)
+            .map_err(matrix_err)?;
+        Ok(Self { inner: res })
+    }
+
     pub fn __richcmp__(&self, other: &Bound<'_, PyAny>, op: CompareOp) -> PyResult<bool> {
         match op {
             CompareOp::Eq => {

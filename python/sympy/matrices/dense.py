@@ -152,6 +152,70 @@ class Matrix(MatrixBase):
             res[ev] = res.get(ev, 0) + 1
         return res
 
+    def charpoly(self, x=None):
+        """Return the characteristic polynomial of this square matrix."""
+        if x is None:
+            from ..core import Symbol
+            x = Symbol("lambda")
+        elif isinstance(x, str):
+            from ..core import Symbol
+            x = Symbol(x)
+        coeffs = self._native.char_poly()
+        n = len(coeffs) - 1
+        terms = []
+        for i, c in enumerate(coeffs):
+            power = n - i
+            c_expr = _wrap(c)
+            if power == 0:
+                terms.append(c_expr)
+            elif power == 1:
+                terms.append(c_expr * x)
+            else:
+                terms.append(c_expr * (x ** power))
+        from ..core import Add
+        return Add(*terms)
+
+    def kron(self, other):
+        if not isinstance(other, Matrix):
+            raise TypeError(f"Cannot compute Kronecker product with {type(other)}")
+        return Matrix(self._native.kron(other._native))
+
+    def kronecker_product(self, other):
+        return self.kron(other)
+
+    def hadamard(self, other):
+        if not isinstance(other, Matrix):
+            raise TypeError(f"Cannot compute Hadamard product with {type(other)}")
+        return Matrix(self._native.hadamard(other._native))
+
+    def LUdecomposition(self):
+        p, l, u = self._native.lu()
+        return Matrix(l), Matrix(u), Matrix(p)
+
+    def lu(self):
+        p, l, u = self._native.lu()
+        return Matrix(p), Matrix(l), Matrix(u)
+
+    def QRdecomposition(self):
+        q, r = self._native.qr()
+        return Matrix(q), Matrix(r)
+
+    def qr(self):
+        return self.QRdecomposition()
+
+    def solve(self, b):
+        if not isinstance(b, Matrix):
+            raise TypeError(f"solve requires Matrix right-hand side, got {type(b)}")
+        return Matrix(self._native.solve(b._native))
+
+    def LUsolve(self, b):
+        return self.solve(b)
+
+    def solve_least_squares(self, b):
+        if not isinstance(b, Matrix):
+            raise TypeError(f"solve_least_squares requires Matrix right-hand side, got {type(b)}")
+        return Matrix(self._native.solve_least_squares(b._native))
+
     def tolist(self):
         return [[_wrap(elem) for elem in row] for row in self._native.to_list()]
 
@@ -264,3 +328,18 @@ def diag(*entries):
         else:
             flat.append(_native_expr(elem))
     return Matrix(_NativeMatrix.diag(flat))
+
+
+def hadamard_product(a, b):
+    if not isinstance(a, Matrix) or not isinstance(b, Matrix):
+        raise TypeError("hadamard_product requires Matrix arguments")
+    return a.hadamard(b)
+
+
+matrix_multiply_elementwise = hadamard_product
+
+
+def kronecker_product(a, b):
+    if not isinstance(a, Matrix) or not isinstance(b, Matrix):
+        raise TypeError("kronecker_product requires Matrix arguments")
+    return a.kron(b)

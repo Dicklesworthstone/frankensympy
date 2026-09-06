@@ -9,6 +9,9 @@ from .dense import (
     MutableDenseMatrix,
     diag,
     eye,
+    hadamard_product,
+    kronecker_product,
+    matrix_multiply_elementwise,
     zeros,
 )
 
@@ -22,4 +25,7 @@ __all__ = [
     "eye",
     "zeros",
     "diag",
+    "hadamard_product",
+    "kronecker_product",
+    "matrix_multiply_elementwise",
 ]

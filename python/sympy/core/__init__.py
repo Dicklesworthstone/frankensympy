@@ -983,6 +983,9 @@ class Expr(Basic):
     def expand(self) -> "Expr":
         return expand(self)
 
+    def as_expr(self) -> "Expr":
+        return self
+
     def series(self, x: Any = None, x0: Any = 0, n: int = 6) -> "Expr":
         import sympy
         return sympy.series(self, x, x0, n)
