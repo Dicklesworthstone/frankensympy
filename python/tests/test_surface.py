@@ -415,9 +415,13 @@ class SurfaceTests(unittest.TestCase):
         self.assertFalse(value.is_integer)
         self.assertFalse(value.is_rational)
         self.assertAlmostEqual(value.evalf(), 1.5)
-        self.assertEqual(value, sympy.Rational(3, 2))
-        self.assertEqual(sympy.Float(1.0), sympy.Integer(1))
-        self.assertEqual(sympy.Integer(1), 1.0)
+        # SymPy 1.14.0 parity (bead fra-fra-shell-float-zero-eq-structural-crx):
+        # Float equality is Float-vs-Float only; cross-type is structurally
+        # False even where the values are numerically equal — while the hash
+        # collision with Integer remains (oracle: hash matches, eq does not).
+        self.assertNotEqual(value, sympy.Rational(3, 2))
+        self.assertNotEqual(sympy.Float(1.0), sympy.Integer(1))
+        self.assertNotEqual(sympy.Integer(1), 1.0)
         self.assertEqual(hash(sympy.Float(1.0)), hash(sympy.Integer(1)))
         self.assertEqual(hash(sympy.Integer(1)), hash(1))
         self.assertNotEqual(sympy.Float(0.1), sympy.Rational(1, 10))
@@ -755,7 +759,7 @@ class SurfaceTests(unittest.TestCase):
             [sympy.Float(2.0), sympy.Float(float("inf"))],
             key=lambda e: e.sort_key(),
         )
-        self.assertEqual([str(v) for v in ordered], ["2.000000000000000", "inf"])
+        self.assertEqual([str(v) for v in ordered], ["2.00000000000000", "oo"])
 
 
 if __name__ == "__main__":

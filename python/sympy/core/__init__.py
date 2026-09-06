@@ -7,6 +7,7 @@ missing: importing an unusable symbolic shell would make capability checks lie.
 
 from __future__ import annotations
 
+import decimal
 import math
 import struct
 import sys
@@ -631,6 +632,20 @@ class Basic:
     def __eq__(self, other: object) -> bool:
         if type(self) not in _exact_surface_types() and not isinstance(self, Function):
             return self is other
+        # SymPy 1.14.0 parity (bead fra-fra-shell-float-zero-eq-structural-crx):
+        # Float participates in equality only against another Float
+        # (Float(0.0) == 0, Float(1.0) == Integer(1), Rational(1, 2) == 0.5 are
+        # all False on the pinned oracle); python-float operands compare by
+        # value against Float only.
+        if isinstance(self, Float) or isinstance(other, Float):
+            if isinstance(self, Float) and isinstance(other, Float):
+                a, b = self._as_python_float(), other._as_python_float()
+                if a != a and b != b:
+                    return True  # nan == nan for the same nan payload
+                return a == b
+            return False
+        if isinstance(other, float):
+            return False
         left = _exact_ratio(self)
         right = _exact_ratio(other)
         if left is not None and right is not None:
@@ -707,14 +722,21 @@ def _str_number(value: "Rational") -> tuple[bool, str]:
 
 
 def _str_float_value(raw: float) -> str:
-    # SymPy 1.14 str(Float): fixed decimal in the human range, otherwise
-    # e-notation with the full 15-digit payload.
+    # SymPy 1.14 str(Float): 15 SIGNIFICANT digits, positional notation in the
+    # human range, e-notation outside it; zero prints '0.0'; trailing zeros
+    # are kept (Float('0.75') -> '0.750000000000000',
+    # Float(2.0) -> '2.00000000000000', Float(0.0) -> '0.0').
+    if math.isnan(raw):
+        return "nan"
+    if math.isinf(raw):
+        return "oo" if raw > 0 else "-oo"
     if raw == 0:
-        return "0" if math.copysign(1.0, raw) > 0 else "-0.000000000000000"
+        return "-0.0" if math.copysign(1.0, raw) < 0 else "0.0"
     if 1e-4 <= abs(raw) < 1e16:
-        text = f"{raw:.15f}"
-        return text
-    return f"{raw:.14e}".replace("e-", "e-").replace("e+", "e+")
+        digits = math.floor(math.log10(abs(raw))) + 1 - 15
+        quantum = decimal.Decimal(1).scaleb(digits)
+        return format(decimal.Decimal(raw).quantize(quantum, rounding=decimal.ROUND_HALF_EVEN), "f")
+    return f"{raw:.14e}"
 
 
 def _str_parenthesize(text: str, expr: "Expr") -> str:
@@ -1579,6 +1601,27 @@ class Float(Number):
 
     __slots__ = ("_dps",)
 
+    def __eq__(self, other: object) -> bool:
+        # SymPy 1.14.0 parity: Float == Float by value (nan == nan True);
+        # Float == python-float by value; every other type structurally False
+        # (Float(1.0) == Integer(1) is False on the pinned oracle).
+        if isinstance(other, Float):
+            a, b = self._as_python_float(), other._as_python_float()
+            if a != a and b != b:
+                return True
+            return a == b
+        if isinstance(other, float) and not isinstance(other, bool):
+            return self._as_python_float() == other
+        return False
+
+    def __hash__(self) -> int:
+        # Oracle parity: hash(Float(1.0)) == hash(Integer(1)) (numeric value
+        # hash) even though Float == Integer is structurally False.
+        return hash(self._as_python_float())
+
+    def __ne__(self, other: object) -> bool:
+        return not self == other
+
     def __init__(self, value: Any = 0, dps: int = 15):
         if type(dps) is not int or dps < 1:
             raise TypeError("Float dps must be a positive int")
@@ -1680,7 +1723,9 @@ class Float(Number):
         return _str_float_value(self._as_python_float())
 
     def __repr__(self) -> str:
-        return f"Float({self._as_python_float()!r})"
+        # Upstream SymPy: repr == str for Float (oracle: repr(Float(0.0)) ==
+        # '0.0', repr(Float('nan')) == 'nan' — not a Float(...) constructor).
+        return _str_float_value(self._as_python_float())
 
     def _srepr(self) -> str:
         return f"Float({self._as_python_float()!r})"
