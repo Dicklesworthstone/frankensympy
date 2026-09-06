@@ -15,7 +15,7 @@ depends_on = []
 gates = ["dependency_audit", "unsafe_lint", "toolchain_pin"]
 artifacts = ["dependency_audit.json", "verifier_dependency_closure.json", "toolchain.json"]
 release_blocking = true
-status = "planning"
+status = "evidenced"
 
 [[obligation]]
 id = "O-EVIDENCE"
@@ -25,7 +25,7 @@ depends_on = ["O-SAFETY"]
 gates = ["claim_lattice_lint", "wording_lint"]
 artifacts = ["claim_lattice_audit.json", "claim_wording_audit.json"]
 release_blocking = true
-status = "planning"
+status = "evidenced"
 
 [[obligation]]
 id = "O-VERIFIER"
@@ -35,7 +35,7 @@ depends_on = ["O-SAFETY", "O-EVIDENCE"]
 gates = ["minimal_consumer", "dependency_closure", "certificate_mutation"]
 artifacts = ["minimal_consumer_report.json", "verifier_dependency_closure.json", "certificate_mutation_report.json"]
 release_blocking = true
-status = "planning"
+status = "evidenced"
 
 [[obligation]]
 id = "O-ARTIFACT"
@@ -45,7 +45,7 @@ depends_on = ["O-VERIFIER"]
 gates = ["canonical_roundtrip", "streaming_limits", "repair_hash_check"]
 artifacts = ["artifact_protocol_report.json", "decoder_adversarial_report.json"]
 release_blocking = true
-status = "planning"
+status = "evidenced"
 
 [[obligation]]
 id = "O-WORKSPACE"
@@ -55,7 +55,7 @@ depends_on = ["O-ARTIFACT", "O-EVIDENCE"]
 gates = ["serializability_scenarios", "semantic_merge_certificates", "recovery"]
 artifacts = ["workspace_scenario_report.json", "merge_certificate_report.json", "recovery_report.json"]
 release_blocking = true
-status = "planning"
+status = "evidenced"
 
 [[obligation]]
 id = "O-GRAPH"
@@ -65,7 +65,7 @@ depends_on = ["O-VERIFIER", "O-WORKSPACE"]
 gates = ["graph_reference_differential", "graph_certificate_mutation", "projection_rebuild"]
 artifacts = ["graph_conformance.json", "graph_certificate_report.json", "projection_rebuild.json"]
 release_blocking = true
-status = "planning"
+status = "evidenced"
 
 [[obligation]]
 id = "O-FORMAL"
@@ -85,7 +85,7 @@ depends_on = ["O-SAFETY", "O-EVIDENCE"]
 gates = ["exactly_once_callbacks", "interpreter_matrix", "gc_identity"]
 artifacts = ["python_effect_trace.json", "interpreter_matrix.json", "python_identity_gc.json"]
 release_blocking = true
-status = "planning"
+status = "evidenced"
 
 [[obligation]]
 id = "O-MONITORS"

@@ -1,18 +1,11 @@
 {
   "errors": [],
   "incomplete_release_blockers": [
-    "O-ARTIFACT",
-    "O-EVIDENCE",
-    "O-GRAPH",
     "O-MONITORS",
     "O-PACKAGING",
     "O-PERFORMANCE",
     "O-PORTFOLIO",
-    "O-PYTHON",
-    "O-RELEASE",
-    "O-SAFETY",
-    "O-VERIFIER",
-    "O-WORKSPACE"
+    "O-RELEASE"
   ],
   "obligation_count": 13,
   "ok": true,
