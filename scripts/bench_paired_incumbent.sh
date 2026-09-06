@@ -14,6 +14,9 @@ RCH_SHIM_LOCAL_IDE=1 cargo build --profile release-perf -p fsym-python
 # CARGO_TARGET_DIR (set by rch tooling) moves the artifact out of target/.
 TARGET_DIR="${CARGO_TARGET_DIR:-target}"
 install -m 0755 "$TARGET_DIR/release-perf/libfsym_python.so" "python/fsym_python.so"
+# The conformance runner preloads the extension by search order; pin it to the
+# release-perf artifact so stale CARGO_TARGET_DIR/debug builds cannot leak in.
+export FSYM_PYTHON_EXT_DIR="$TARGET_DIR/release-perf"
 
 echo "[bench] running paired sweep (rounds=${ROUNDS})..."
 python3 tools/perf/paired_bench.py run --out "$OUT" --rounds "$ROUNDS"
