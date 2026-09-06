@@ -136,9 +136,8 @@ fn test_c9_raptorq_multi_loss_repair_and_digest_validation() {
     // Adversarial Case 2: Insufficient repair symbols fail with typed error
     {
         let mut sources = extract_slots();
-        // Drop 5 sources
-        for i in 0..5 {
-            sources[i] = None;
+        for slot in sources.iter_mut().take(5) {
+            *slot = None;
         }
         // Provide only 3 repair symbols (need 5)
         let inadequate_repairs = &sidecar.repair_symbols[..3];

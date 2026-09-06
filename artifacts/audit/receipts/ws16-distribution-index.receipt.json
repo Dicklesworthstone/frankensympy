@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "gate": "ws16-distribution-index",
+  "profile_id": "sympy-1.14.0-cpython",
+  "status": "passed",
+  "commit": "fb5ef66bcf37fc3882fbf28b2ec48ae10a8aa16e",
+  "checks": [
+    {
+      "name": "workspace-forbids-unsafe",
+      "status": "passed",
+      "detail": "workspace lints forbid unsafe_code"
+    },
+    {
+      "name": "test-ws16-distribution-index-gate",
+      "status": "passed",
+      "detail": "exit=0"
+    },
+    {
+      "name": "tests-fsym-runtime",
+      "status": "passed",
+      "detail": "exit=0"
+    }
+  ],
+  "checks_digest": "decfd599cb2a6e6f3983c86e24278ab3fa73e4d2dd56dd1c7b08b9de7750cd71"
+}

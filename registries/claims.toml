@@ -252,12 +252,18 @@ notes = "implemented_uncertified 2026-09-06: RaptorQ multi-loss repair envelope,
 id = "DISTRIBUTION-001"
 kind = "distributed_execution"
 statement = "Untrusted remote workers can generate candidates without authority to publish verified mathematical state."
-status = "planned"
+status = "implemented_uncertified"
 present_tense_allowed = false
 minimum_evidence = "validated"
 workstreams = ["WS06", "WS13", "WS16"]
 gate = "gate://ws16-distribution-index"
-evidence_artifacts = ["UNSET"]
+evidence_artifacts = [
+    "crates/fsym-runtime/src/remote_worker.rs",
+    "crates/fsym-runtime/src/graph_index.rs",
+    "crates/fsym-runtime/tests/ws16_distribution_index_gate.rs",
+    "artifacts/audit/receipts/ws16-distribution-index.receipt.json",
+]
+notes = "implemented_uncertified 2026-09-06: untrusted remote worker candidate lane, fail-closed adversarial rejections with zero cache pollution, and rebuildable semantic knowledge graph indexing verified by ws16-distribution-index gate; full certification remains open."
 
 [[claims]]
 id = "AGENT-001"
