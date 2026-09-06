@@ -158,7 +158,13 @@ pub fn dsolve_linear_first_order(
     let raw_sol = Expr::Mul(vec![numerator, inv_mu]);
     let expanded = try_expand(&raw_sol).unwrap_or(raw_sol);
     let y_sol = simplify(&expanded);
-    Ok(y_sol)
+    if verify_linear_first_order_solution(&y_sol, p_expr, q_expr, x) {
+        Ok(y_sol)
+    } else {
+        Err(SolverError::IncompleteSolutionSet(
+            "first-order linear ODE solution failed independent residual verification".to_string(),
+        ))
+    }
 }
 
 /// Solves second-order linear homogeneous ODE with constant coefficients: $a y''(x) + b y'(x) + c y(x) = 0$.
@@ -347,15 +353,20 @@ pub fn dsolve_cauchy_euler(
 /// Independent verifier for homogeneous Cauchy-Euler differential equation:
 /// $a x^2 y''(x) + b x y'(x) + c y(x) = 0$.
 pub fn verify_cauchy_euler_solution(solution: &Expr, a: i64, b: i64, c: i64, x: &Symbol) -> bool {
-    let mut terms = Vec::new();
+    if !ode_inputs_are_total(&[solution]) {
+        return false;
+    }
+    let mut terms = Vec::with_capacity(3);
     let x_sym = Expr::Sym(x.clone());
     if a != 0 {
         let dy = diff(solution, x);
         let d2y = diff(&dy, x);
         let x_sq = Expr::pow(x_sym.clone(), Expr::from_i64(2));
         terms.push(Expr::Mul(vec![Expr::from_i64(a), x_sq, d2y]));
-    }
-    if b != 0 {
+        if b != 0 {
+            terms.push(Expr::Mul(vec![Expr::from_i64(b), x_sym, dy]));
+        }
+    } else if b != 0 {
         let dy = diff(solution, x);
         terms.push(Expr::Mul(vec![Expr::from_i64(b), x_sym, dy]));
     }
@@ -363,19 +374,7 @@ pub fn verify_cauchy_euler_solution(solution: &Expr, a: i64, b: i64, c: i64, x: 
         terms.push(Expr::Mul(vec![Expr::from_i64(c), solution.clone()]));
     }
 
-    if terms.is_empty() {
-        return true;
-    }
-    let residual = Expr::Add(terms);
-    let expanded = match try_expand(&residual) {
-        Ok(e) => e,
-        Err(_) => return false,
-    };
-    let simplified = match try_simplify(&expanded) {
-        Ok(s) => s,
-        Err(_) => simplify(&expanded),
-    };
-    simplified.is_zero()
+    residual_is_exact_zero(&Expr::Add(terms))
 }
 
 /// Exact residual checker for a candidate solution of $y'(x) + P(x) y(x) = Q(x)$.
@@ -403,7 +402,15 @@ pub fn dsolve_separable_linear(
     })?;
     let exp_int = Expr::Function("exp".into(), vec![int_f]);
     let sol = Expr::Mul(vec![Expr::Sym(c1.clone()), exp_int]);
-    Ok(simplify(&sol))
+    let solution = simplify(&sol);
+    let neg_f = Expr::Mul(vec![Expr::from_i64(-1), f_expr.clone()]);
+    if verify_linear_first_order_solution(&solution, &neg_f, &Expr::from_i64(0), x) {
+        Ok(solution)
+    } else {
+        Err(SolverError::IncompleteSolutionSet(
+            "separable linear ODE solution failed independent residual verification".to_string(),
+        ))
+    }
 }
 
 fn parse_rational_scalar(expr: &Expr) -> Option<BigRational> {
@@ -681,7 +688,15 @@ pub fn dsolve_const_coeff_second_order_nonhomogeneous(
         _ => Expr::Add(particular_terms),
     };
 
-    Ok(simplify(&Expr::Add(vec![yh, yp])))
+    let solution = simplify(&Expr::Add(vec![yh, yp]));
+    if verify_const_coeff_second_order_nonhomogeneous_solution(&solution, a, b, c, f_expr, x) {
+        Ok(solution)
+    } else {
+        Err(SolverError::IncompleteSolutionSet(
+            "second-order nonhomogeneous ODE solution failed independent residual verification"
+                .to_string(),
+        ))
+    }
 }
 
 /// Exact residual checker for a candidate solution of $a y'' + b y' + c y = 0$.

@@ -959,12 +959,10 @@ impl Matrix {
             Some(_) => {}
             None => return Err(MatrixError::SymbolicZeroUndetermined),
         }
-        let mut data = Vec::with_capacity(Self::checked_element_count(self.rows, self.cols)?);
-        for r in 0..self.rows {
-            for c in 0..self.cols {
-                // Adjugate is the transpose of the cofactor matrix.
-                data.push(Self::exact_div(&self.cofactor(c, r)?, &det)?);
-            }
+        let adj = self.adjugate()?;
+        let mut data = Vec::with_capacity(adj.data.len());
+        for entry in &adj.data {
+            data.push(Self::exact_div(entry, &det)?);
         }
         Ok(Self {
             rows: self.rows,

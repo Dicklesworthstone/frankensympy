@@ -260,13 +260,25 @@ fn eliminate_zero_products(expr: &Expr) -> Expr {
             }
         }
         Expr::Mul(factors) => {
-            if factors.iter().any(|f| f.is_zero()) {
+            let mapped: Vec<Expr> = factors.iter().map(eliminate_zero_products).collect();
+            if mapped.iter().any(|f| f.is_zero()) {
                 Expr::from_i64(0)
             } else {
-                let mapped: Vec<Expr> = factors.iter().map(eliminate_zero_products).collect();
-                Expr::Mul(mapped)
+                match mapped.len() {
+                    0 => Expr::from_i64(1),
+                    1 => mapped.into_iter().next().expect("len checked"),
+                    _ => Expr::Mul(mapped),
+                }
             }
         }
+        Expr::Pow(base, exp) => Expr::Pow(
+            Arc::new(eliminate_zero_products(base)),
+            Arc::new(eliminate_zero_products(exp)),
+        ),
+        Expr::Function(name, args) => Expr::Function(
+            name.clone(),
+            args.iter().map(eliminate_zero_products).collect(),
+        ),
         _ => expr.clone(),
     }
 }
@@ -1779,5 +1791,29 @@ mod tests {
             Expr::Function("log".to_string(), vec![Expr::from_i64(2)]),
         ]));
         assert_eq!(d_two_to_x, expected_two_to_x);
+    }
+
+    #[test]
+    fn test_eliminate_zero_products_annihilation_and_unwrapping() {
+        let x = Expr::symbol("x");
+        // Mul containing an Add that simplifies to 0
+        let zero_add = Expr::Add(vec![Expr::from_i64(0), Expr::from_i64(0)]);
+        let mul_with_zero = Expr::Mul(vec![x.clone(), zero_add]);
+        assert_eq!(eliminate_zero_products(&mul_with_zero), Expr::from_i64(0));
+
+        // Mul with empty factors -> 1
+        let empty_mul = Expr::Mul(vec![]);
+        assert_eq!(eliminate_zero_products(&empty_mul), Expr::from_i64(1));
+
+        // Mul with single non-zero factor -> unwrapped factor
+        let single_mul = Expr::Mul(vec![x.clone()]);
+        assert_eq!(eliminate_zero_products(&single_mul), x);
+
+        // Nested in Function and Pow
+        let func = Expr::Function("f".to_string(), vec![mul_with_zero]);
+        assert_eq!(
+            eliminate_zero_products(&func),
+            Expr::Function("f".to_string(), vec![Expr::from_i64(0)])
+        );
     }
 }

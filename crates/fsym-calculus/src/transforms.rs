@@ -281,9 +281,8 @@ pub fn laplace_transform(expr: &Expr, t: &Symbol, s: &Symbol) -> Result<Expr, Ca
             )))
         }
         Expr::Sym(sym) if sym == t => {
-            // L{t} = 1 / s^2
-            let s_sq = Expr::Pow(Arc::new(s_sym), Arc::new(Expr::from_i64(2)));
-            let inv_s_sq = Expr::Pow(Arc::new(s_sq), Arc::new(Expr::from_i64(-1)));
+            // L{t} = 1 / s^2 = s^(-2)
+            let inv_s_sq = Expr::Pow(Arc::new(s_sym), Arc::new(Expr::from_i64(-2)));
             Ok(simplify(&inv_s_sq))
         }
         Expr::Pow(base, exp) if base.as_ref() == &t_sym => {
