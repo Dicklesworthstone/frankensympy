@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "gate": "ws20-structured-domains",
+  "profile_id": "sympy-1.14.0-cpython",
+  "status": "passed",
+  "commit": "7f459d8dadb7f5e34cb180f1df770811a48f537c",
+  "checks": [
+    {
+      "name": "workspace-forbids-unsafe",
+      "status": "passed",
+      "detail": "workspace lints forbid unsafe_code"
+    },
+    {
+      "name": "tests-fsym-geometry",
+      "status": "passed",
+      "detail": "exit=0"
+    },
+    {
+      "name": "tests-fsym-tensor",
+      "status": "passed",
+      "detail": "exit=0"
+    }
+  ],
+  "checks_digest": "6b2c90197306555208b22f10e2993ae7a7024ea01daf4168489e5d856b0ae7d0"
+}

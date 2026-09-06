@@ -473,9 +473,24 @@ fn cmd_gate_ws09_factorization() -> Receipt {
     finish("ws09-factorization", "sympy-1.14.0-cpython", checks)
 }
 
+fn cmd_gate_ws20_structured_domains() -> Receipt {
+    let mut checks = Vec::new();
+    check_workspace_no_unsafe(&mut checks);
+
+    let mut c1 = cargo();
+    c1.args(["test", "-p", "fsym-geometry", "--quiet"]);
+    run_command("tests-fsym-geometry", c1, &mut checks);
+
+    let mut c2 = cargo();
+    c2.args(["test", "-p", "fsym-tensor", "--quiet"]);
+    run_command("tests-fsym-tensor", c2, &mut checks);
+
+    finish("ws20-structured-domains", "sympy-1.14.0-cpython", checks)
+}
+
 fn print_usage() -> i32 {
     eprintln!(
-        "usage: xtask profile verify <profile-id> | xtask gate foundation | xtask gate deterministic-term-identity | xtask gate ws09-factorization | xtask gate ws10-exact-linear | xtask gate ws11-certified-numeric | xtask gate ws12-certified-jacobian | xtask gate ws13-portfolio-runtime | xtask gate ws14-agent-protocol | xtask gate ws15-persistence-repair | xtask gate ws17-groebner | xtask gate ws18-analytic-calculus | xtask gate ws19-solvers | xtask gate python-object-model --profile <profile-id>"
+        "usage: xtask profile verify <profile-id> | xtask gate foundation | xtask gate deterministic-term-identity | xtask gate ws09-factorization | xtask gate ws10-exact-linear | xtask gate ws11-certified-numeric | xtask gate ws12-certified-jacobian | xtask gate ws13-portfolio-runtime | xtask gate ws14-agent-protocol | xtask gate ws15-persistence-repair | xtask gate ws17-groebner | xtask gate ws18-analytic-calculus | xtask gate ws19-solvers | xtask gate ws20-structured-domains | xtask gate python-object-model --profile <profile-id>"
     );
     2
 }
@@ -502,6 +517,9 @@ fn main() -> std::process::ExitCode {
         [a, b] if a == "gate" && b == "ws17-groebner" => cmd_gate_ws17_groebner(),
         [a, b] if a == "gate" && b == "ws18-analytic-calculus" => cmd_gate_ws18_analytic_calculus(),
         [a, b] if a == "gate" && b == "ws19-solvers" => cmd_gate_ws19_solvers(),
+        [a, b] if a == "gate" && b == "ws20-structured-domains" => {
+            cmd_gate_ws20_structured_domains()
+        }
         [a, b, flag, profile]
             if a == "gate" && b == "python-object-model" && flag == "--profile" =>
         {
