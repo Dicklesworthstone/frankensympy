@@ -30,11 +30,15 @@ def extension_search_dirs() -> list[Path]:
     explicit = os.environ.get("FSYM_PYTHON_EXT_DIR")
     if explicit:
         dirs.append(Path(explicit))
+    root = repo_root()
+    # The repo's declared build path (scripts/build_python_extension.sh)
+    # installs the fresh cdylib here; prefer it over stale CARGO_TARGET_DIR
+    # artifacts, which otherwise shadow current kernel/shim work.
+    dirs.append(root / "python")
     cargo = os.environ.get("CARGO_TARGET_DIR")
     if cargo:
         dirs.append(Path(cargo) / "debug")
         dirs.append(Path(cargo) / "release")
-    root = repo_root()
     dirs.append(root / "target" / "debug")
     dirs.append(root / "target" / "release")
     seen: set[Path] = set()
