@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "gate": "ws19-solvers",
+  "profile_id": "sympy-1.14.0-cpython",
+  "status": "passed",
+  "commit": "41c1661816136a34d3e7af8c9acba7a61b6740d3",
+  "checks": [
+    {
+      "name": "workspace-forbids-unsafe",
+      "status": "passed",
+      "detail": "workspace lints forbid unsafe_code"
+    },
+    {
+      "name": "tests-fsym-solvers",
+      "status": "passed",
+      "detail": "exit=0"
+    },
+    {
+      "name": "tests-fsym-sets",
+      "status": "passed",
+      "detail": "exit=0"
+    },
+    {
+      "name": "tests-fsym-logic",
+      "status": "passed",
+      "detail": "exit=0"
+    }
+  ],
+  "checks_digest": "7df01eeb4f4331c8fe730f8a0426f23ef0721d22cb7a63ace3aa2dc7ec7b4538"
+}
