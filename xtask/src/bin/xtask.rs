@@ -462,9 +462,20 @@ fn cmd_gate_ws15_persistence_repair() -> Receipt {
     finish("ws15-persistence-repair", "sympy-1.14.0-cpython", checks)
 }
 
+fn cmd_gate_ws09_factorization() -> Receipt {
+    let mut checks = Vec::new();
+    check_workspace_no_unsafe(&mut checks);
+
+    let mut c1 = cargo();
+    c1.args(["test", "-p", "fsym-polys", "--quiet"]);
+    run_command("tests-fsym-polys", c1, &mut checks);
+
+    finish("ws09-factorization", "sympy-1.14.0-cpython", checks)
+}
+
 fn print_usage() -> i32 {
     eprintln!(
-        "usage: xtask profile verify <profile-id> | xtask gate foundation | xtask gate deterministic-term-identity | xtask gate ws10-exact-linear | xtask gate ws11-certified-numeric | xtask gate ws12-certified-jacobian | xtask gate ws13-portfolio-runtime | xtask gate ws14-agent-protocol | xtask gate ws15-persistence-repair | xtask gate ws17-groebner | xtask gate ws18-analytic-calculus | xtask gate ws19-solvers | xtask gate python-object-model --profile <profile-id>"
+        "usage: xtask profile verify <profile-id> | xtask gate foundation | xtask gate deterministic-term-identity | xtask gate ws09-factorization | xtask gate ws10-exact-linear | xtask gate ws11-certified-numeric | xtask gate ws12-certified-jacobian | xtask gate ws13-portfolio-runtime | xtask gate ws14-agent-protocol | xtask gate ws15-persistence-repair | xtask gate ws17-groebner | xtask gate ws18-analytic-calculus | xtask gate ws19-solvers | xtask gate python-object-model --profile <profile-id>"
     );
     2
 }
@@ -477,6 +488,7 @@ fn main() -> std::process::ExitCode {
         [a, b] if a == "gate" && b == "deterministic-term-identity" => {
             cmd_gate_deterministic_term_identity()
         }
+        [a, b] if a == "gate" && b == "ws09-factorization" => cmd_gate_ws09_factorization(),
         [a, b] if a == "gate" && b == "ws10-exact-linear" => cmd_gate_ws10_exact_linear(),
         [a, b] if a == "gate" && b == "ws11-certified-numeric" => cmd_gate_ws11_certified_numeric(),
         [a, b] if a == "gate" && b == "ws12-certified-jacobian" => {

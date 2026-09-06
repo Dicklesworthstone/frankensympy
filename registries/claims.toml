@@ -151,8 +151,13 @@ present_tense_allowed = false
 minimum_evidence = "certificate_verified"
 workstreams = ["WS06", "WS08", "WS09"]
 gate = "gate://ws09-factorization"
-evidence_artifacts = ["crates/fsym-polys/src/factorization.rs", "crates/fsym-polys/src/gcd.rs", "crates/fsym-proof-kernel/src/kernel.rs"]
-notes = "implemented_uncertified 2026-08-29: square-free/product factorization with Bezout certificates landed; full irreducibility/multiplicity certificate and mutation gates remain open."
+evidence_artifacts = [
+    "crates/fsym-polys/src/factorization.rs",
+    "crates/fsym-polys/src/gcd.rs",
+    "crates/fsym-proof-kernel/src/kernel.rs",
+    "artifacts/audit/receipts/ws09-factorization.receipt.json",
+]
+notes = "implemented_uncertified 2026-09-06: square-free decomposition with verified certificates, Bezout certificates, and rational-root decomposition verified by ws09-factorization gate; full irreducibility/multiplicity certificate and mutation gates remain open."
 
 [[claims]]
 id = "MATH-003"

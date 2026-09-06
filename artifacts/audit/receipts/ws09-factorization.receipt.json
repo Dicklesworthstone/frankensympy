@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "gate": "ws09-factorization",
+  "profile_id": "sympy-1.14.0-cpython",
+  "status": "passed",
+  "commit": "a5b1789377cac8e09c7b0eb049691b1e582570ce",
+  "checks": [
+    {
+      "name": "workspace-forbids-unsafe",
+      "status": "passed",
+      "detail": "workspace lints forbid unsafe_code"
+    },
+    {
+      "name": "tests-fsym-polys",
+      "status": "passed",
+      "detail": "exit=0"
+    }
+  ],
+  "checks_digest": "ed105abe5b6c4854900c9196f30acce1a3440300eb04d0b2447381cdc77596cd"
+}
