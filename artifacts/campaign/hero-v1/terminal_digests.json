@@ -1,0 +1,7 @@
+{
+  "campaign_id": "certified_jacobian_v1",
+  "semantic_digest": "c609ea2f271398239111dc1240f24b4ced3bd99a4a220fa02b20cca12f6bd5c2",
+  "evidence_digest": "6e05b86ee117753903b246731b1534f5e2c42fc2b2629898687116992560c7e7",
+  "commit": "d3fa70aa6deb063fdbed966d754828c5ecefa91b",
+  "reproducible_across_processes": true
+}

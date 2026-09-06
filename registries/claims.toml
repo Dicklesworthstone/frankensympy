@@ -377,13 +377,16 @@ evidence_artifacts = ["UNSET"]
 id = "PERF-001"
 kind = "performance"
 statement = "FrankenSymPy materially outperforms upstream SymPy on named, semantically admitted large or batched symbolic workloads."
-status = "planned"
+status = "implemented_uncertified"
 present_tense_allowed = false
 minimum_evidence = "parity_gated_paired_benchmark"
 workstreams = ["WS21", "WS22", "WS23"]
 gate = "gate://ws22-performance"
-evidence_artifacts = ["UNSET"]
-notes = "No universal speedup and no numeric speedup value is claimed by the plan."
+evidence_artifacts = [
+  "artifacts/audit/receipts/ws22-performance.receipt.json",
+  "artifacts/benchmarks/ws22_paired_benchmark_report.json",
+]
+notes = "implemented_uncertified 2026-09-06: paired live-incumbent benchmark harness with semantic admission preceding timing, multi-sample statistical distributions, A/A null baseline control, raw timing sample retention, and hardware/toolchain metadata verified by gate://ws22-performance; full certification remains open."
 
 [[claims]]
 id = "RELEASE-001"

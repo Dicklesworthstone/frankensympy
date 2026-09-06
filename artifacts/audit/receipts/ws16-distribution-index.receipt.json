@@ -3,7 +3,7 @@
   "gate": "ws16-distribution-index",
   "profile_id": "sympy-1.14.0-cpython",
   "status": "passed",
-  "commit": "fb5ef66bcf37fc3882fbf28b2ec48ae10a8aa16e",
+  "commit": "d3fa70aa6deb063fdbed966d754828c5ecefa91b",
   "checks": [
     {
       "name": "workspace-forbids-unsafe",

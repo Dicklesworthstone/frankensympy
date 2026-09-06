@@ -1,9 +1,9 @@
 {
-  "schema_version": 1,
-  "gate": "ws13-portfolio-runtime",
-  "profile_id": "sympy-1.14.0-cpython",
+  "property_id": 7,
+  "name": "typed_cancellation_and_drain",
   "status": "passed",
-  "commit": "d3fa70aa6deb063fdbed966d754828c5ecefa91b",
+  "runtime": "asupersync structured concurrency",
+  "controlled_orphan_work": 0,
   "checks": [
     {
       "name": "workspace-forbids-unsafe",
@@ -21,5 +21,6 @@
       "detail": "exit=0"
     }
   ],
-  "checks_digest": "add391e0d271ffecb4a4b322a829cfababc0efcbc777528ec8fea0c1204a0a62"
+  "checks_digest": "add391e0d271ffecb4a4b322a829cfababc0efcbc777528ec8fea0c1204a0a62",
+  "evidence_receipt": "artifacts/audit/receipts/ws13-portfolio-runtime.receipt.json"
 }

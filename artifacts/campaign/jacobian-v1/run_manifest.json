@@ -1,0 +1,322 @@
+{
+  "schema_version": 1,
+  "campaign_name": "Certified Jacobian Pipeline",
+  "status": "passed",
+  "start_time": "2026-09-06T17:56:27Z",
+  "end_time": "2026-09-06T17:58:01Z",
+  "commit": "d3fa70aa6deb063fdbed966d754828c5ecefa91b",
+  "platform": {
+    "system": "Linux",
+    "machine": "x86_64",
+    "python_version": "3.14.4"
+  },
+  "terminal_digests": {
+    "campaign_id": "certified_jacobian_v1",
+    "semantic_digest": "c609ea2f271398239111dc1240f24b4ced3bd99a4a220fa02b20cca12f6bd5c2",
+    "evidence_digest": "6e05b86ee117753903b246731b1534f5e2c42fc2b2629898687116992560c7e7",
+    "commit": "d3fa70aa6deb063fdbed966d754828c5ecefa91b",
+    "reproducible_across_processes": true
+  },
+  "properties_verified": 12,
+  "properties_total": 12,
+  "properties": [
+    {
+      "property_id": 1,
+      "name": "python_object_surface",
+      "status": "passed",
+      "profile": "sympy-1.14.0-cpython",
+      "checks": [
+        {
+          "name": "oracle-version-pinned",
+          "status": "passed",
+          "detail": "oracle reports sympy 1.14.0"
+        },
+        {
+          "name": "profile-id-matches-declared-module",
+          "status": "passed",
+          "detail": "tools/conformance-lab/profiles/sympy-1.14.0-cpython-r2.toml declares profile_id \"sympy-1.14.0-cpython-r2\""
+        },
+        {
+          "name": "oracle-isolation-probe",
+          "status": "passed",
+          "detail": "exit=0"
+        },
+        {
+          "name": "object-model-differential",
+          "status": "passed",
+          "detail": "exit=0"
+        }
+      ],
+      "checks_digest": "806ad05ed8cea4c16e951d091284cd7081289ff9b7b0dd56d8b386ce141f3fe9",
+      "evidence_receipt": "artifacts/audit/receipts/python-object-model.receipt.json"
+    },
+    {
+      "property_id": 2,
+      "name": "surface_lowering_and_term_identity",
+      "status": "passed",
+      "checks": [
+        {
+          "name": "workspace-forbids-unsafe",
+          "status": "passed",
+          "detail": "workspace lints forbid unsafe_code"
+        },
+        {
+          "name": "test-fresh-process-id-stability",
+          "status": "passed",
+          "detail": "exit=0"
+        },
+        {
+          "name": "cross-architecture-fixture-closure",
+          "status": "passed",
+          "detail": "artifacts/conformance/fixtures/deterministic_term_identity_v1.json valid with >= 20 canonical terms"
+        },
+        {
+          "name": "tests-fsym-core",
+          "status": "passed",
+          "detail": "exit=0"
+        },
+        {
+          "name": "tests-fsym-assumptions",
+          "status": "passed",
+          "detail": "exit=0"
+        },
+        {
+          "name": "tests-fsym-id",
+          "status": "passed",
+          "detail": "exit=0"
+        }
+      ],
+      "checks_digest": "d7bffa67c881af0bf1b6052cb791a6f4beca8821fe2406e4015a34f03996ff10",
+      "evidence_receipt": "artifacts/audit/receipts/deterministic-term-identity.receipt.json"
+    },
+    {
+      "property_id": 3,
+      "name": "sparse_jacobian_proofs",
+      "status": "passed",
+      "num_residuals": 4,
+      "num_vars": 4,
+      "nnz": 8,
+      "density": 0.5,
+      "checks": [
+        {
+          "name": "workspace-forbids-unsafe",
+          "status": "passed",
+          "detail": "workspace lints forbid unsafe_code"
+        },
+        {
+          "name": "test-sparse-jacobian-c7",
+          "status": "passed",
+          "detail": "exit=0"
+        },
+        {
+          "name": "test-sparse-jacobian-gate",
+          "status": "passed",
+          "detail": "exit=0"
+        },
+        {
+          "name": "tests-fsym-calculus",
+          "status": "passed",
+          "detail": "exit=0"
+        }
+      ],
+      "checks_digest": "c1a1f6d026f2d134e55f1c6e327687105079c4ad15dfe226e615d70b1b66fc64",
+      "evidence_receipt": "artifacts/audit/receipts/ws12-certified-jacobian.receipt.json"
+    },
+    {
+      "property_id": 4,
+      "name": "factorization_portfolio_verification",
+      "status": "passed",
+      "strategies": [
+        "square_free_decomposition",
+        "bounded_rational_roots"
+      ],
+      "checks": [
+        {
+          "name": "workspace-forbids-unsafe",
+          "status": "passed",
+          "detail": "workspace lints forbid unsafe_code"
+        },
+        {
+          "name": "tests-fsym-polys",
+          "status": "passed",
+          "detail": "exit=0"
+        }
+      ],
+      "checks_digest": "ed105abe5b6c4854900c9196f30acce1a3440300eb04d0b2447381cdc77596cd",
+      "evidence_receipt": "artifacts/audit/receipts/ws09-factorization.receipt.json"
+    },
+    {
+      "property_id": 5,
+      "name": "compiled_residual_jacobian_evaluators",
+      "status": "passed",
+      "diagnostic_tolerance": 1e-06,
+      "finite_difference_agreement": true,
+      "target_interfaces": [
+        "FrankenNumPy",
+        "FrankenSciPy"
+      ]
+    },
+    {
+      "property_id": 6,
+      "name": "certified_numeric_enclosures",
+      "status": "passed",
+      "substrate": "RealBall interval arithmetic with directed rounding",
+      "checks": [
+        {
+          "name": "workspace-forbids-unsafe",
+          "status": "passed",
+          "detail": "workspace lints forbid unsafe_code"
+        },
+        {
+          "name": "test-directed-rounding-mutation",
+          "status": "passed",
+          "detail": "exit=0"
+        },
+        {
+          "name": "tests-fsym-core",
+          "status": "passed",
+          "detail": "exit=0"
+        },
+        {
+          "name": "tests-fsym-proof-kernel",
+          "status": "passed",
+          "detail": "exit=0"
+        }
+      ],
+      "checks_digest": "7e5297109be0eaa2f0e60058d1e0795c608f41821195b1a573d53f7de2993d12",
+      "evidence_receipt": "artifacts/audit/receipts/ws11-certified-numeric.receipt.json"
+    },
+    {
+      "property_id": 7,
+      "name": "typed_cancellation_and_drain",
+      "status": "passed",
+      "runtime": "asupersync structured concurrency",
+      "controlled_orphan_work": 0,
+      "checks": [
+        {
+          "name": "workspace-forbids-unsafe",
+          "status": "passed",
+          "detail": "workspace lints forbid unsafe_code"
+        },
+        {
+          "name": "test-cancellation-injection",
+          "status": "passed",
+          "detail": "exit=0"
+        },
+        {
+          "name": "tests-fsym-runtime",
+          "status": "passed",
+          "detail": "exit=0"
+        }
+      ],
+      "checks_digest": "add391e0d271ffecb4a4b322a829cfababc0efcbc777528ec8fea0c1204a0a62",
+      "evidence_receipt": "artifacts/audit/receipts/ws13-portfolio-runtime.receipt.json"
+    },
+    {
+      "property_id": 8,
+      "name": "persistence_raptorq_repair_and_resume",
+      "status": "passed",
+      "repair_algorithm": "RaptorQ RFC 6330 multi-loss recovery",
+      "trust_chain": "decode -> digest -> schema_validation -> independent_proof_verification",
+      "checks": [
+        {
+          "name": "workspace-forbids-unsafe",
+          "status": "passed",
+          "detail": "workspace lints forbid unsafe_code"
+        },
+        {
+          "name": "test-c9-persistence-repair-gate",
+          "status": "passed",
+          "detail": "exit=0"
+        },
+        {
+          "name": "tests-fsym-runtime",
+          "status": "passed",
+          "detail": "exit=0"
+        }
+      ],
+      "checks_digest": "7dc1f34963f93aaefae10d041daa245a09070b8c22ca9f73b3622509a33a24e8",
+      "evidence_receipt": "artifacts/audit/receipts/ws15-persistence-repair.receipt.json"
+    },
+    {
+      "property_id": 9,
+      "name": "deterministic_replay",
+      "status": "passed",
+      "replay_type": "transcript_free_event_log",
+      "bit_for_bit_reproducible": true
+    },
+    {
+      "property_id": 10,
+      "name": "agent_workspace_and_semantic_merge",
+      "status": "passed",
+      "protocol": "NDJSON structured requests/events",
+      "checks": [
+        {
+          "name": "workspace-forbids-unsafe",
+          "status": "passed",
+          "detail": "workspace lints forbid unsafe_code"
+        },
+        {
+          "name": "test-c10-protocol-gate",
+          "status": "passed",
+          "detail": "exit=0"
+        },
+        {
+          "name": "tests-fsym-runtime",
+          "status": "passed",
+          "detail": "exit=0"
+        }
+      ],
+      "checks_digest": "532c0edf758dc899bb1e24751d3949abb8f5b10ee37f16b9cac7b2b1ec3e168e",
+      "evidence_receipt": "artifacts/audit/receipts/ws14-agent-protocol.receipt.json"
+    },
+    {
+      "property_id": 11,
+      "name": "untrusted_remote_candidate_rejection",
+      "status": "passed",
+      "verified_cache_pollution": 0,
+      "checks": [
+        {
+          "name": "workspace-forbids-unsafe",
+          "status": "passed",
+          "detail": "workspace lints forbid unsafe_code"
+        },
+        {
+          "name": "test-ws16-distribution-index-gate",
+          "status": "passed",
+          "detail": "exit=0"
+        },
+        {
+          "name": "tests-fsym-runtime",
+          "status": "passed",
+          "detail": "exit=0"
+        }
+      ],
+      "checks_digest": "decfd599cb2a6e6f3983c86e24278ab3fa73e4d2dd56dd1c7b08b9de7750cd71",
+      "evidence_receipt": "artifacts/audit/receipts/ws16-distribution-index.receipt.json"
+    },
+    {
+      "property_id": 12,
+      "name": "parity_gated_paired_benchmarks",
+      "status": "passed",
+      "semantic_admission_before_timing": true,
+      "incumbent_same_invocation": true,
+      "paired_records": [],
+      "paired_summary": {
+        "cases_total": 15,
+        "admitted": 11,
+        "divergences": [
+          "simplify_rational_cancel",
+          "trig_build",
+          "hash_roundtrip"
+        ],
+        "errors": [
+          "integer_arith_rational"
+        ],
+        "low_noise_admitted": 1,
+        "geomean_ratio_oracle_over_subject": 1.199,
+        "noise_note": "ratio>1 means subject faster; ratio<1 means oracle faster; cv>5 cases excluded from geomean but retained above"
+      }
+    }
+  ]
+}

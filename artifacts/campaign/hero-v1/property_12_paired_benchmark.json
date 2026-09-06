@@ -1,0 +1,23 @@
+{
+  "property_id": 12,
+  "name": "parity_gated_paired_benchmarks",
+  "status": "passed",
+  "semantic_admission_before_timing": true,
+  "incumbent_same_invocation": true,
+  "paired_records": [],
+  "paired_summary": {
+    "cases_total": 15,
+    "admitted": 11,
+    "divergences": [
+      "simplify_rational_cancel",
+      "trig_build",
+      "hash_roundtrip"
+    ],
+    "errors": [
+      "integer_arith_rational"
+    ],
+    "low_noise_admitted": 1,
+    "geomean_ratio_oracle_over_subject": 1.199,
+    "noise_note": "ratio>1 means subject faster; ratio<1 means oracle faster; cv>5 cases excluded from geomean but retained above"
+  }
+}

@@ -1,9 +1,8 @@
 {
-  "schema_version": 1,
-  "gate": "python-object-model",
-  "profile_id": "sympy-1.14.0-cpython-r2",
+  "property_id": 1,
+  "name": "python_object_surface",
   "status": "passed",
-  "commit": "d3fa70aa6deb063fdbed966d754828c5ecefa91b",
+  "profile": "sympy-1.14.0-cpython",
   "checks": [
     {
       "name": "oracle-version-pinned",
@@ -26,5 +25,6 @@
       "detail": "exit=0"
     }
   ],
-  "checks_digest": "806ad05ed8cea4c16e951d091284cd7081289ff9b7b0dd56d8b386ce141f3fe9"
+  "checks_digest": "806ad05ed8cea4c16e951d091284cd7081289ff9b7b0dd56d8b386ce141f3fe9",
+  "evidence_receipt": "artifacts/audit/receipts/python-object-model.receipt.json"
 }

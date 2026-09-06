@@ -1,0 +1,11 @@
+{
+  "property_id": 5,
+  "name": "compiled_residual_jacobian_evaluators",
+  "status": "passed",
+  "diagnostic_tolerance": 1e-06,
+  "finite_difference_agreement": true,
+  "target_interfaces": [
+    "FrankenNumPy",
+    "FrankenSciPy"
+  ]
+}

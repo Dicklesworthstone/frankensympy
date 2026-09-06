@@ -513,9 +513,12 @@ mod tests {
     #[test]
     fn test_standard_ws22_suite_execution() {
         let results = run_standard_ws22_suite().unwrap();
-        assert_eq!(results.len(), 2);
-        for res in results {
+        assert_eq!(results.len(), 4);
+        for res in &results {
             assert!(res.semantic_equivalence_verified);
+            assert!(!res.raw_candidate_samples_ns.is_empty());
+            assert!(!res.raw_reference_samples_ns.is_empty());
         }
+        assert!(results[3].aa_control_verified);
     }
 }

@@ -3,7 +3,7 @@
   "gate": "ws15-persistence-repair",
   "profile_id": "sympy-1.14.0-cpython",
   "status": "passed",
-  "commit": "c7f527605f7e14564436c5e3e768231c729e2e20",
+  "commit": "d3fa70aa6deb063fdbed966d754828c5ecefa91b",
   "checks": [
     {
       "name": "workspace-forbids-unsafe",

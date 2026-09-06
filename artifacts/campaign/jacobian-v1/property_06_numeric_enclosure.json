@@ -1,9 +1,8 @@
 {
-  "schema_version": 1,
-  "gate": "ws11-certified-numeric",
-  "profile_id": "sympy-1.14.0-cpython",
+  "property_id": 6,
+  "name": "certified_numeric_enclosures",
   "status": "passed",
-  "commit": "d3fa70aa6deb063fdbed966d754828c5ecefa91b",
+  "substrate": "RealBall interval arithmetic with directed rounding",
   "checks": [
     {
       "name": "workspace-forbids-unsafe",
@@ -26,5 +25,6 @@
       "detail": "exit=0"
     }
   ],
-  "checks_digest": "7e5297109be0eaa2f0e60058d1e0795c608f41821195b1a573d53f7de2993d12"
+  "checks_digest": "7e5297109be0eaa2f0e60058d1e0795c608f41821195b1a573d53f7de2993d12",
+  "evidence_receipt": "artifacts/audit/receipts/ws11-certified-numeric.receipt.json"
 }

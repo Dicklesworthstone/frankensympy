@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "gate": "ws12-certified-jacobian",
+  "gate": "ws22-performance",
   "profile_id": "sympy-1.14.0-cpython",
   "status": "passed",
   "commit": "d3fa70aa6deb063fdbed966d754828c5ecefa91b",
@@ -11,20 +11,25 @@
       "detail": "workspace lints forbid unsafe_code"
     },
     {
-      "name": "test-sparse-jacobian-c7",
+      "name": "test-ws22-performance-gate",
       "status": "passed",
       "detail": "exit=0"
     },
     {
-      "name": "test-sparse-jacobian-gate",
+      "name": "tests-fsym-runtime",
       "status": "passed",
       "detail": "exit=0"
     },
     {
-      "name": "tests-fsym-calculus",
+      "name": "paired-live-incumbent-bench",
       "status": "passed",
       "detail": "exit=0"
+    },
+    {
+      "name": "paired-benchmark-report-verification",
+      "status": "passed",
+      "detail": "artifacts/benchmarks/ws22_paired_benchmark_report.json contains schema, admitted cases, and verified AA control"
     }
   ],
-  "checks_digest": "c1a1f6d026f2d134e55f1c6e327687105079c4ad15dfe226e615d70b1b66fc64"
+  "checks_digest": "e1b94cfd69ab0272ccf06d26f46ebc1e3678ae955c603849d53d989c322a1dcc"
 }

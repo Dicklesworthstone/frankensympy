@@ -1,9 +1,7 @@
 {
-  "schema_version": 1,
-  "gate": "deterministic-term-identity",
-  "profile_id": "sympy-1.14.0-cpython",
+  "property_id": 2,
+  "name": "surface_lowering_and_term_identity",
   "status": "passed",
-  "commit": "d3fa70aa6deb063fdbed966d754828c5ecefa91b",
   "checks": [
     {
       "name": "workspace-forbids-unsafe",
@@ -36,5 +34,6 @@
       "detail": "exit=0"
     }
   ],
-  "checks_digest": "d7bffa67c881af0bf1b6052cb791a6f4beca8821fe2406e4015a34f03996ff10"
+  "checks_digest": "d7bffa67c881af0bf1b6052cb791a6f4beca8821fe2406e4015a34f03996ff10",
+  "evidence_receipt": "artifacts/audit/receipts/deterministic-term-identity.receipt.json"
 }

@@ -221,6 +221,86 @@ def worker(engine, rounds):
     print(json.dumps(results))
 
 
+def get_hardware_info():
+    import platform
+    return {
+        "platform": platform.platform(),
+        "machine": platform.machine(),
+        "processor": platform.processor() or "unknown",
+        "cpu_count": os.cpu_count() or 1,
+    }
+
+
+def get_toolchain_info():
+    rustc = "unknown"
+    try:
+        proc = subprocess.run(["rustc", "--version"], capture_output=True, text=True)
+        if proc.returncode == 0:
+            rustc = proc.stdout.strip()
+    except Exception:
+        pass
+    oracle_py_ver = "unknown"
+    try:
+        proc = subprocess.run([ORACLE_PY, "-c", "import sys; print(sys.version.split()[0])"], capture_output=True, text=True)
+        if proc.returncode == 0:
+            oracle_py_ver = proc.stdout.strip()
+    except Exception:
+        pass
+    return {
+        "subject_python": sys.version.split()[0],
+        "oracle_python": oracle_py_ver,
+        "rustc": rustc,
+    }
+
+
+def compute_distribution(samples):
+    if not samples:
+        return {}
+    xs = sorted(samples)
+    n = len(xs)
+    med = statistics.median(xs)
+    mean = statistics.mean(xs)
+    std_dev = statistics.pstdev(xs) if n > 1 else 0.0
+    cv = round(100.0 * std_dev / mean, 2) if mean > 0 else 0.0
+    def pctl(p):
+        idx = int(round((p / 100.0) * (n - 1)))
+        return xs[min(max(idx, 0), n - 1)]
+    return {
+        "median_ms": round(med, 4),
+        "mean_ms": round(mean, 4),
+        "std_dev_ms": round(std_dev, 4),
+        "cv_pct": cv,
+        "p90_ms": round(pctl(90), 4),
+        "p95_ms": round(pctl(95), 4),
+        "p99_ms": round(pctl(99), 4),
+    }
+
+
+def run_aa_control(rounds=5):
+    """Run reference engine against itself to measure null-hypothesis baseline noise floor."""
+    case = "matrix_det4"
+    arm_a, arm_b = [], []
+    for _ in range(rounds):
+        ra = run_case_isolated("oracle", case)
+        rb = run_case_isolated("oracle", case)
+        if ra["error"] is None and rb["error"] is None and ra["ms"] and rb["ms"]:
+            arm_a.append(ra["ms"])
+            arm_b.append(rb["ms"])
+    if not arm_a or not arm_b:
+        return {"case": case, "verified": false, "error": "AA run failed"}
+    med_a, med_b = statistics.median(arm_a), statistics.median(arm_b)
+    ratio = round(med_b / med_a, 3) if med_a > 0 else None
+    return {
+        "case": case,
+        "arm_a_samples": arm_a,
+        "arm_b_samples": arm_b,
+        "arm_a_median_ms": round(med_a, 4),
+        "arm_b_median_ms": round(med_b, 4),
+        "ratio_null_baseline": ratio,
+        "verified": ratio is not None and 0.8 <= ratio <= 1.25,
+    }
+
+
 def run_all(out_path, rounds=7):
     """Alternate engine subprocesses; compute paired stats on T1-admitted cases."""
     pairs = {}
@@ -241,10 +321,21 @@ def run_all(out_path, rounds=7):
             for case, ms in data["rounds"][0].items():
                 pairs.setdefault(case, {"subject": [], "oracle": []})[engine].append(ms)
 
-    report = {"schema": "gauntlet.paired_bench.v1", "date": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-              "subject_head": subprocess.run(["git", "-C", REPO, "rev-parse", "HEAD"],
-                                             capture_output=True, text=True).stdout.strip(),
-              "rounds": rounds, "cases": {}}
+    # A/A control execution
+    aa_ctrl = run_aa_control(rounds=min(rounds, 5))
+
+    report = {
+        "schema": "gauntlet.paired_bench.v1",
+        "date": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "profile_id": "sympy-1.14.0-cpython",
+        "subject_head": subprocess.run(["git", "-C", REPO, "rev-parse", "HEAD"],
+                                       capture_output=True, text=True).stdout.strip(),
+        "hardware": get_hardware_info(),
+        "toolchains": get_toolchain_info(),
+        "aa_control": aa_ctrl,
+        "rounds": rounds,
+        "cases": {},
+    }
     divergences, errors = [], []
     for name, _ in CASES:
         s_adm, o_adm = admitted["subject"][name], admitted["oracle"][name]
@@ -261,12 +352,22 @@ def run_all(out_path, rounds=7):
             divergences.append(name)
         else:
             s, o = pairs[name]["subject"], pairs[name]["oracle"]
-            s_med, o_med = statistics.median(s), statistics.median(o)
-            cv = lambda xs: round(100 * statistics.pstdev(xs) / statistics.mean(xs), 2) if statistics.mean(xs) else 0.0
-            entry.update({"status": "admitted", "subject_ms_median": s_med, "oracle_ms_median": o_med,
-                          "subject_cv_pct": cv(s), "oracle_cv_pct": cv(o),
-                          "subject_samples": s, "oracle_samples": o,
-                          "ratio_oracle_over_subject": round(o_med / s_med, 3) if s_med else None})
+            s_dist = compute_distribution(s)
+            o_dist = compute_distribution(o)
+            s_med = s_dist["median_ms"]
+            o_med = o_dist["median_ms"]
+            entry.update({
+                "status": "admitted",
+                "subject_ms_median": s_med,
+                "oracle_ms_median": o_med,
+                "subject_cv_pct": s_dist["cv_pct"],
+                "oracle_cv_pct": o_dist["cv_pct"],
+                "subject_dist": s_dist,
+                "oracle_dist": o_dist,
+                "subject_samples": s,
+                "oracle_samples": o,
+                "ratio_oracle_over_subject": round(o_med / s_med, 3) if s_med else None,
+            })
         report["cases"][name] = entry
 
     admitted_cases = [e for e in report["cases"].values() if e["status"] == "admitted"]
@@ -274,9 +375,12 @@ def run_all(out_path, rounds=7):
               if e["ratio_oracle_over_subject"] and e["subject_cv_pct"] <= 5 and e["oracle_cv_pct"] <= 5]
     import math
     report["summary"] = {
-        "cases_total": len(CASES), "admitted": len(admitted_cases),
-        "divergences": divergences, "errors": errors,
+        "cases_total": len(CASES),
+        "admitted": len(admitted_cases),
+        "divergences": divergences,
+        "errors": errors,
         "low_noise_admitted": len(ratios),
+        "aa_control_verified": aa_ctrl.get("verified", False),
         "geomean_ratio_oracle_over_subject": round(math.exp(sum(map(math.log, ratios)) / len(ratios)), 3) if ratios else None,
         "noise_note": "ratio>1 means subject faster; ratio<1 means oracle faster; cv>5 cases excluded from geomean but retained above",
     }

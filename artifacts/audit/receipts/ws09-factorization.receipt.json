@@ -3,7 +3,7 @@
   "gate": "ws09-factorization",
   "profile_id": "sympy-1.14.0-cpython",
   "status": "passed",
-  "commit": "a5b1789377cac8e09c7b0eb049691b1e582570ce",
+  "commit": "d3fa70aa6deb063fdbed966d754828c5ecefa91b",
   "checks": [
     {
       "name": "workspace-forbids-unsafe",

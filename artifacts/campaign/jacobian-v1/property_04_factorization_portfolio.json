@@ -1,0 +1,23 @@
+{
+  "property_id": 4,
+  "name": "factorization_portfolio_verification",
+  "status": "passed",
+  "strategies": [
+    "square_free_decomposition",
+    "bounded_rational_roots"
+  ],
+  "checks": [
+    {
+      "name": "workspace-forbids-unsafe",
+      "status": "passed",
+      "detail": "workspace lints forbid unsafe_code"
+    },
+    {
+      "name": "tests-fsym-polys",
+      "status": "passed",
+      "detail": "exit=0"
+    }
+  ],
+  "checks_digest": "ed105abe5b6c4854900c9196f30acce1a3440300eb04d0b2447381cdc77596cd",
+  "evidence_receipt": "artifacts/audit/receipts/ws09-factorization.receipt.json"
+}

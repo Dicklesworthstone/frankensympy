@@ -1,9 +1,8 @@
 {
-  "schema_version": 1,
-  "gate": "ws14-agent-protocol",
-  "profile_id": "sympy-1.14.0-cpython",
+  "property_id": 10,
+  "name": "agent_workspace_and_semantic_merge",
   "status": "passed",
-  "commit": "d3fa70aa6deb063fdbed966d754828c5ecefa91b",
+  "protocol": "NDJSON structured requests/events",
   "checks": [
     {
       "name": "workspace-forbids-unsafe",
@@ -21,5 +20,6 @@
       "detail": "exit=0"
     }
   ],
-  "checks_digest": "532c0edf758dc899bb1e24751d3949abb8f5b10ee37f16b9cac7b2b1ec3e168e"
+  "checks_digest": "532c0edf758dc899bb1e24751d3949abb8f5b10ee37f16b9cac7b2b1ec3e168e",
+  "evidence_receipt": "artifacts/audit/receipts/ws14-agent-protocol.receipt.json"
 }

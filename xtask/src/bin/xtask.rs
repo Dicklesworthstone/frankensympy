@@ -510,9 +510,59 @@ fn cmd_gate_ws16_distribution_index() -> Receipt {
     finish("ws16-distribution-index", "sympy-1.14.0-cpython", checks)
 }
 
+fn cmd_gate_ws22_performance() -> Receipt {
+    let mut checks = Vec::new();
+    check_workspace_no_unsafe(&mut checks);
+
+    let mut c1 = cargo();
+    c1.args([
+        "test",
+        "-p",
+        "fsym-runtime",
+        "--test",
+        "ws22_performance_gate",
+        "--quiet",
+    ]);
+    run_command("test-ws22-performance-gate", c1, &mut checks);
+
+    let mut c2 = cargo();
+    c2.args(["test", "-p", "fsym-runtime", "--quiet"]);
+    run_command("tests-fsym-runtime", c2, &mut checks);
+
+    let mut c3 = Command::new("python3");
+    c3.args([
+        "tools/perf/paired_bench.py",
+        "run",
+        "--out",
+        "artifacts/benchmarks/ws22_paired_benchmark_report.json",
+        "--rounds",
+        "5",
+    ]);
+    run_command("paired-live-incumbent-bench", c3, &mut checks);
+
+    let report_path = "artifacts/benchmarks/ws22_paired_benchmark_report.json";
+    let report_content = std::fs::read_to_string(report_path).unwrap_or_default();
+    let report_ok = report_content.contains("\"schema\": \"gauntlet.paired_bench.v1\"")
+        && report_content.contains("\"admitted\":")
+        && report_content.contains("\"aa_control\":")
+        && report_content.contains("\"aa_control_verified\": true");
+
+    checks.push(Check {
+        name: "paired-benchmark-report-verification".into(),
+        status: if report_ok { "passed" } else { "failed" }.into(),
+        detail: if report_ok {
+            format!("{report_path} contains schema, admitted cases, and verified AA control")
+        } else {
+            format!("{report_path} missing or invalid benchmark report content")
+        },
+    });
+
+    finish("ws22-performance", "sympy-1.14.0-cpython", checks)
+}
+
 fn print_usage() -> i32 {
     eprintln!(
-        "usage: xtask profile verify <profile-id> | xtask gate foundation | xtask gate deterministic-term-identity | xtask gate ws09-factorization | xtask gate ws10-exact-linear | xtask gate ws11-certified-numeric | xtask gate ws12-certified-jacobian | xtask gate ws13-portfolio-runtime | xtask gate ws14-agent-protocol | xtask gate ws15-persistence-repair | xtask gate ws16-distribution-index | xtask gate ws17-groebner | xtask gate ws18-analytic-calculus | xtask gate ws19-solvers | xtask gate ws20-structured-domains | xtask gate python-object-model --profile <profile-id>"
+        "usage: xtask profile verify <profile-id> | xtask gate foundation | xtask gate deterministic-term-identity | xtask gate ws09-factorization | xtask gate ws10-exact-linear | xtask gate ws11-certified-numeric | xtask gate ws12-certified-jacobian | xtask gate ws13-portfolio-runtime | xtask gate ws14-agent-protocol | xtask gate ws15-persistence-repair | xtask gate ws16-distribution-index | xtask gate ws17-groebner | xtask gate ws18-analytic-calculus | xtask gate ws19-solvers | xtask gate ws20-structured-domains | xtask gate ws22-performance | xtask gate python-object-model --profile <profile-id>"
     );
     2
 }
@@ -545,6 +595,7 @@ fn main() -> std::process::ExitCode {
         [a, b] if a == "gate" && b == "ws20-structured-domains" => {
             cmd_gate_ws20_structured_domains()
         }
+        [a, b] if a == "gate" && b == "ws22-performance" => cmd_gate_ws22_performance(),
         [a, b, flag, profile]
             if a == "gate" && b == "python-object-model" && flag == "--profile" =>
         {

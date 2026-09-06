@@ -1,0 +1,532 @@
+{
+  "schema": "gauntlet.paired_bench.v1",
+  "date": "2026-09-06T17:54:44Z",
+  "profile_id": "sympy-1.14.0-cpython",
+  "subject_head": "d3fa70aa6deb063fdbed966d754828c5ecefa91b",
+  "hardware": {
+    "platform": "Linux-7.0.0-30-generic-x86_64-with-glibc2.43",
+    "machine": "x86_64",
+    "processor": "unknown",
+    "cpu_count": 16
+  },
+  "toolchains": {
+    "subject_python": "3.14.4",
+    "oracle_python": "3.14.4",
+    "rustc": "rustc 1.100.0-nightly (f7d782a3b 2026-08-19)"
+  },
+  "aa_control": {
+    "case": "matrix_det4",
+    "arm_a_samples": [
+      251.7796,
+      239.4553,
+      255.5218,
+      246.0221,
+      250.1247
+    ],
+    "arm_b_samples": [
+      262.2831,
+      237.1793,
+      253.2959,
+      256.8717,
+      271.7069
+    ],
+    "arm_a_median_ms": 250.1247,
+    "arm_b_median_ms": 256.8717,
+    "ratio_null_baseline": 1.027,
+    "verified": true
+  },
+  "rounds": 5,
+  "cases": {
+    "symbol_construct": {
+      "case": "symbol_construct",
+      "status": "admitted",
+      "subject_ms_median": 81.7392,
+      "oracle_ms_median": 206.7857,
+      "subject_cv_pct": 3.81,
+      "oracle_cv_pct": 3.66,
+      "subject_dist": {
+        "median_ms": 81.7392,
+        "mean_ms": 81.1378,
+        "std_dev_ms": 3.0892,
+        "cv_pct": 3.81,
+        "p90_ms": 86.2935,
+        "p95_ms": 86.2935,
+        "p99_ms": 86.2935
+      },
+      "oracle_dist": {
+        "median_ms": 206.7857,
+        "mean_ms": 204.2547,
+        "std_dev_ms": 7.4703,
+        "cv_pct": 3.66,
+        "p90_ms": 210.5304,
+        "p95_ms": 210.5304,
+        "p99_ms": 210.5304
+      },
+      "subject_samples": [
+        77.677,
+        86.2935,
+        81.7392,
+        81.7448,
+        78.2346
+      ],
+      "oracle_samples": [
+        205.8645,
+        210.5304,
+        189.6551,
+        206.7857,
+        208.4379
+      ],
+      "ratio_oracle_over_subject": 2.53
+    },
+    "integer_arith_rational": {
+      "case": "integer_arith_rational",
+      "status": "error",
+      "subject_error": "RecursionError: expression nesting depth 4097 exceeds the bridge bound 4096 (FSYM_MAX_EXPR_DEPTH); refusing instead of risking a native stack overflow",
+      "oracle_error": "ValueError: Exceeds the limit (4300 digits) for integer string conversion; use sys.set_int_max_str_digits() to increase the limit"
+    },
+    "poly_build_deg12": {
+      "case": "poly_build_deg12",
+      "status": "admitted",
+      "subject_ms_median": 748.1502,
+      "oracle_ms_median": 257.4138,
+      "subject_cv_pct": 5.09,
+      "oracle_cv_pct": 4.82,
+      "subject_dist": {
+        "median_ms": 748.1502,
+        "mean_ms": 735.2197,
+        "std_dev_ms": 37.4276,
+        "cv_pct": 5.09,
+        "p90_ms": 779.133,
+        "p95_ms": 779.133,
+        "p99_ms": 779.133
+      },
+      "oracle_dist": {
+        "median_ms": 257.4138,
+        "mean_ms": 258.2823,
+        "std_dev_ms": 12.4429,
+        "cv_pct": 4.82,
+        "p90_ms": 278.5058,
+        "p95_ms": 278.5058,
+        "p99_ms": 278.5058
+      },
+      "subject_samples": [
+        670.6071,
+        748.1502,
+        720.3478,
+        779.133,
+        757.8604
+      ],
+      "oracle_samples": [
+        278.5058,
+        257.4138,
+        240.7829,
+        262.6663,
+        252.0428
+      ],
+      "ratio_oracle_over_subject": 0.344
+    },
+    "expand_sq20": {
+      "case": "expand_sq20",
+      "status": "admitted",
+      "subject_ms_median": 1927.2548,
+      "oracle_ms_median": 207.7051,
+      "subject_cv_pct": 4.21,
+      "oracle_cv_pct": 7.05,
+      "subject_dist": {
+        "median_ms": 1927.2548,
+        "mean_ms": 1946.0301,
+        "std_dev_ms": 81.893,
+        "cv_pct": 4.21,
+        "p90_ms": 2090.8948,
+        "p95_ms": 2090.8948,
+        "p99_ms": 2090.8948
+      },
+      "oracle_dist": {
+        "median_ms": 207.7051,
+        "mean_ms": 203.6511,
+        "std_dev_ms": 14.3475,
+        "cv_pct": 7.05,
+        "p90_ms": 219.7797,
+        "p95_ms": 219.7797,
+        "p99_ms": 219.7797
+      },
+      "subject_samples": [
+        1904.2712,
+        1845.1521,
+        2090.8948,
+        1927.2548,
+        1962.5776
+      ],
+      "oracle_samples": [
+        207.7051,
+        217.1998,
+        186.4495,
+        187.1216,
+        219.7797
+      ],
+      "ratio_oracle_over_subject": 0.108
+    },
+    "diff_poly": {
+      "case": "diff_poly",
+      "status": "admitted",
+      "subject_ms_median": 2255.6502,
+      "oracle_ms_median": 339.364,
+      "subject_cv_pct": 4.07,
+      "oracle_cv_pct": 3.78,
+      "subject_dist": {
+        "median_ms": 2255.6502,
+        "mean_ms": 2258.9132,
+        "std_dev_ms": 91.8943,
+        "cv_pct": 4.07,
+        "p90_ms": 2418.8465,
+        "p95_ms": 2418.8465,
+        "p99_ms": 2418.8465
+      },
+      "oracle_dist": {
+        "median_ms": 339.364,
+        "mean_ms": 345.7063,
+        "std_dev_ms": 13.0636,
+        "cv_pct": 3.78,
+        "p90_ms": 365.8158,
+        "p95_ms": 365.8158,
+        "p99_ms": 365.8158
+      },
+      "subject_samples": [
+        2135.803,
+        2220.7526,
+        2418.8465,
+        2255.6502,
+        2263.5138
+      ],
+      "oracle_samples": [
+        339.364,
+        365.8158,
+        355.9804,
+        331.0287,
+        336.3424
+      ],
+      "ratio_oracle_over_subject": 0.15
+    },
+    "simplify_rational_cancel": {
+      "case": "simplify_rational_cancel",
+      "status": "divergence",
+      "subject_result": "(x**2 - 1)*(x - 1)**(-1)",
+      "oracle_result": "x + 1"
+    },
+    "solve_linear": {
+      "case": "solve_linear",
+      "status": "admitted",
+      "subject_ms_median": 505.0797,
+      "oracle_ms_median": 815.7532,
+      "subject_cv_pct": 2.92,
+      "oracle_cv_pct": 7.69,
+      "subject_dist": {
+        "median_ms": 505.0797,
+        "mean_ms": 506.8253,
+        "std_dev_ms": 14.7741,
+        "cv_pct": 2.92,
+        "p90_ms": 531.8479,
+        "p95_ms": 531.8479,
+        "p99_ms": 531.8479
+      },
+      "oracle_dist": {
+        "median_ms": 815.7532,
+        "mean_ms": 835.8535,
+        "std_dev_ms": 64.2945,
+        "cv_pct": 7.69,
+        "p90_ms": 939.1728,
+        "p95_ms": 939.1728,
+        "p99_ms": 939.1728
+      },
+      "subject_samples": [
+        505.0797,
+        497.5254,
+        531.8479,
+        511.6268,
+        488.0465
+      ],
+      "oracle_samples": [
+        794.1,
+        874.2264,
+        756.0152,
+        815.7532,
+        939.1728
+      ],
+      "ratio_oracle_over_subject": 1.615
+    },
+    "factorint_mersenne": {
+      "case": "factorint_mersenne",
+      "status": "admitted",
+      "subject_ms_median": 255.633,
+      "oracle_ms_median": 198.5928,
+      "subject_cv_pct": 5.05,
+      "oracle_cv_pct": 9.99,
+      "subject_dist": {
+        "median_ms": 255.633,
+        "mean_ms": 254.91,
+        "std_dev_ms": 12.8646,
+        "cv_pct": 5.05,
+        "p90_ms": 269.4726,
+        "p95_ms": 269.4726,
+        "p99_ms": 269.4726
+      },
+      "oracle_dist": {
+        "median_ms": 198.5928,
+        "mean_ms": 206.2932,
+        "std_dev_ms": 20.6,
+        "cv_pct": 9.99,
+        "p90_ms": 247.0216,
+        "p95_ms": 247.0216,
+        "p99_ms": 247.0216
+      },
+      "subject_samples": [
+        269.4726,
+        240.2493,
+        268.7356,
+        255.633,
+        240.4595
+      ],
+      "oracle_samples": [
+        198.7482,
+        247.0216,
+        198.5928,
+        190.2279,
+        196.8757
+      ],
+      "ratio_oracle_over_subject": 0.777
+    },
+    "isprime_mersenne31": {
+      "case": "isprime_mersenne31",
+      "status": "admitted",
+      "subject_ms_median": 1219.6896,
+      "oracle_ms_median": 199.4981,
+      "subject_cv_pct": 1.85,
+      "oracle_cv_pct": 9.17,
+      "subject_dist": {
+        "median_ms": 1219.6896,
+        "mean_ms": 1237.1571,
+        "std_dev_ms": 22.9072,
+        "cv_pct": 1.85,
+        "p90_ms": 1271.2468,
+        "p95_ms": 1271.2468,
+        "p99_ms": 1271.2468
+      },
+      "oracle_dist": {
+        "median_ms": 199.4981,
+        "mean_ms": 206.4422,
+        "std_dev_ms": 18.9307,
+        "cv_pct": 9.17,
+        "p90_ms": 243.9556,
+        "p95_ms": 243.9556,
+        "p99_ms": 243.9556
+      },
+      "subject_samples": [
+        1258.2461,
+        1217.7237,
+        1271.2468,
+        1218.8792,
+        1219.6896
+      ],
+      "oracle_samples": [
+        199.4981,
+        243.9556,
+        193.7336,
+        194.7395,
+        200.2841
+      ],
+      "ratio_oracle_over_subject": 0.164
+    },
+    "trig_build": {
+      "case": "trig_build",
+      "status": "admitted",
+      "subject_ms_median": 101.8672,
+      "oracle_ms_median": 194.8374,
+      "subject_cv_pct": 6.83,
+      "oracle_cv_pct": 10.47,
+      "subject_dist": {
+        "median_ms": 101.8672,
+        "mean_ms": 104.8098,
+        "std_dev_ms": 7.157,
+        "cv_pct": 6.83,
+        "p90_ms": 115.6967,
+        "p95_ms": 115.6967,
+        "p99_ms": 115.6967
+      },
+      "oracle_dist": {
+        "median_ms": 194.8374,
+        "mean_ms": 203.5158,
+        "std_dev_ms": 21.2987,
+        "cv_pct": 10.47,
+        "p90_ms": 245.2799,
+        "p95_ms": 245.2799,
+        "p99_ms": 245.2799
+      },
+      "subject_samples": [
+        100.1237,
+        101.8672,
+        96.0512,
+        110.3104,
+        115.6967
+      ],
+      "oracle_samples": [
+        194.0804,
+        245.2799,
+        185.3696,
+        194.8374,
+        198.0115
+      ],
+      "ratio_oracle_over_subject": 1.913
+    },
+    "srepr_print": {
+      "case": "srepr_print",
+      "status": "divergence",
+      "subject_result": "Add(Mul(Integer(2), Symbol('x')), Pow(Symbol('x'), Integer(3)))",
+      "oracle_result": "Add(Pow(Symbol('x'), Integer(3)), Mul(Integer(2), Symbol('x')))"
+    },
+    "hash_roundtrip": {
+      "case": "hash_roundtrip",
+      "status": "divergence",
+      "subject_result": "390554405",
+      "oracle_result": "597983124"
+    },
+    "matrix_det4": {
+      "case": "matrix_det4",
+      "status": "admitted",
+      "subject_ms_median": 50.0793,
+      "oracle_ms_median": 256.1673,
+      "subject_cv_pct": 5.92,
+      "oracle_cv_pct": 6.45,
+      "subject_dist": {
+        "median_ms": 50.0793,
+        "mean_ms": 51.4936,
+        "std_dev_ms": 3.0476,
+        "cv_pct": 5.92,
+        "p90_ms": 57.5204,
+        "p95_ms": 57.5204,
+        "p99_ms": 57.5204
+      },
+      "oracle_dist": {
+        "median_ms": 256.1673,
+        "mean_ms": 256.1863,
+        "std_dev_ms": 16.5167,
+        "cv_pct": 6.45,
+        "p90_ms": 284.788,
+        "p95_ms": 284.788,
+        "p99_ms": 284.788
+      },
+      "subject_samples": [
+        50.0793,
+        49.473,
+        49.6171,
+        57.5204,
+        50.778
+      ],
+      "oracle_samples": [
+        240.5937,
+        284.788,
+        239.2401,
+        256.1673,
+        260.1426
+      ],
+      "ratio_oracle_over_subject": 5.115
+    },
+    "str_print": {
+      "case": "str_print",
+      "status": "admitted",
+      "subject_ms_median": 38.2578,
+      "oracle_ms_median": 213.7202,
+      "subject_cv_pct": 6.29,
+      "oracle_cv_pct": 4.81,
+      "subject_dist": {
+        "median_ms": 38.2578,
+        "mean_ms": 39.2918,
+        "std_dev_ms": 2.4696,
+        "cv_pct": 6.29,
+        "p90_ms": 44.088,
+        "p95_ms": 44.088,
+        "p99_ms": 44.088
+      },
+      "oracle_dist": {
+        "median_ms": 213.7202,
+        "mean_ms": 212.1397,
+        "std_dev_ms": 10.2059,
+        "cv_pct": 4.81,
+        "p90_ms": 227.3034,
+        "p95_ms": 227.3034,
+        "p99_ms": 227.3034
+      },
+      "subject_samples": [
+        44.088,
+        38.2046,
+        37.043,
+        38.8656,
+        38.2578
+      ],
+      "oracle_samples": [
+        200.9935,
+        217.9564,
+        227.3034,
+        200.7249,
+        213.7202
+      ],
+      "ratio_oracle_over_subject": 5.586
+    },
+    "evalf_pi": {
+      "case": "evalf_pi",
+      "status": "admitted",
+      "subject_ms_median": 11.9195,
+      "oracle_ms_median": 194.4419,
+      "subject_cv_pct": 12.13,
+      "oracle_cv_pct": 6.17,
+      "subject_dist": {
+        "median_ms": 11.9195,
+        "mean_ms": 12.029,
+        "std_dev_ms": 1.4587,
+        "cv_pct": 12.13,
+        "p90_ms": 14.1607,
+        "p95_ms": 14.1607,
+        "p99_ms": 14.1607
+      },
+      "oracle_dist": {
+        "median_ms": 194.4419,
+        "mean_ms": 187.4972,
+        "std_dev_ms": 11.5751,
+        "cv_pct": 6.17,
+        "p90_ms": 199.1135,
+        "p95_ms": 199.1135,
+        "p99_ms": 199.1135
+      },
+      "subject_samples": [
+        13.1288,
+        11.9195,
+        10.4737,
+        14.1607,
+        10.4623
+      ],
+      "oracle_samples": [
+        182.0942,
+        199.1135,
+        194.4419,
+        194.5377,
+        167.2986
+      ],
+      "ratio_oracle_over_subject": 16.313
+    }
+  },
+  "summary": {
+    "cases_total": 15,
+    "admitted": 11,
+    "divergences": [
+      "simplify_rational_cancel",
+      "srepr_print",
+      "hash_roundtrip"
+    ],
+    "errors": [
+      "integer_arith_rational"
+    ],
+    "low_noise_admitted": 2,
+    "aa_control_verified": true,
+    "geomean_ratio_oracle_over_subject": 0.616,
+    "noise_note": "ratio>1 means subject faster; ratio<1 means oracle faster; cv>5 cases excluded from geomean but retained above"
+  }
+}

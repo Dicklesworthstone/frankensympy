@@ -1,0 +1,7 @@
+{
+  "property_id": 9,
+  "name": "deterministic_replay",
+  "status": "passed",
+  "replay_type": "transcript_free_event_log",
+  "bit_for_bit_reproducible": true
+}
