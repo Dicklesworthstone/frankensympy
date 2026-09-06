@@ -1522,4 +1522,117 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn test_polynomial_representation_round_trip_invariants() {
+        use std::collections::BTreeMap;
+
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+        let z = Symbol::new("z");
+
+        // 1. Univariate representation round-trips: Poly -> Expr -> Poly
+        let test_cases_uni = vec![
+            UnivariatePoly::new(x.clone(), vec![]), // zero poly
+            UnivariatePoly::new(x.clone(), vec![BigRational::from_integer(7.into())]), // constant 7
+            UnivariatePoly::new(
+                x.clone(),
+                vec![
+                    BigRational::new((-5).into(), 3.into()),
+                    BigRational::from_integer(2.into()),
+                ],
+            ), // 2*x - 5/3
+            UnivariatePoly::new(
+                x.clone(),
+                vec![
+                    BigRational::one(),
+                    BigRational::zero(),
+                    BigRational::new(3.into(), 4.into()),
+                    BigRational::from_integer((-1).into()),
+                ],
+            ), // -x^3 + 3/4*x^2 + 1
+        ];
+
+        for poly in test_cases_uni {
+            let expr = poly.to_expr();
+            let round_tripped = UnivariatePoly::from_expr(&expr, &x)
+                .expect("UnivariatePoly::from_expr must succeed on to_expr output");
+            assert_eq!(
+                poly.coeffs, round_tripped.coeffs,
+                "Univariate representation round-trip failed for {:?}",
+                poly
+            );
+            assert_eq!(poly.gen_sym, round_tripped.gen_sym);
+        }
+
+        // 2. Multivariate representation round-trips: Poly -> Expr -> Poly
+        let gens = vec![x.clone(), y.clone(), z.clone()];
+        let test_cases_multi = vec![
+            MultivariatePoly::new(gens.clone(), BTreeMap::new()).unwrap(), // zero poly
+            MultivariatePoly::new(
+                gens.clone(),
+                BTreeMap::from([(vec![0, 0, 0], BigRational::from_integer(42.into()))]),
+            )
+            .unwrap(), // constant 42
+            MultivariatePoly::new(
+                gens.clone(),
+                BTreeMap::from([
+                    (vec![1, 0, 0], BigRational::from_integer(3.into())),
+                    (vec![0, 1, 0], BigRational::from_integer((-4).into())),
+                    (vec![0, 0, 1], BigRational::from_integer(5.into())),
+                ]),
+            )
+            .unwrap(), // 3*x - 4*y + 5*z
+            MultivariatePoly::new(
+                gens.clone(),
+                BTreeMap::from([
+                    (vec![2, 1, 0], BigRational::one()),
+                    (vec![1, 2, 0], BigRational::from_integer(2.into())),
+                    (vec![0, 0, 3], BigRational::from_integer((-7).into())),
+                    (vec![0, 0, 0], BigRational::one()),
+                ]),
+            )
+            .unwrap(), // x^2*y + 2*x*y^2 - 7*z^3 + 1
+        ];
+
+        for poly in test_cases_multi {
+            let expr = poly
+                .to_expr()
+                .expect("MultivariatePoly::to_expr must succeed");
+            let round_tripped = MultivariatePoly::from_expr(&expr, &gens)
+                .expect("MultivariatePoly::from_expr must succeed on to_expr output");
+            assert_eq!(
+                poly.terms, round_tripped.terms,
+                "Multivariate representation round-trip failed for {:?}",
+                poly
+            );
+            assert_eq!(poly.generators, round_tripped.generators);
+        }
+
+        // 3. Dense Univariate vs Sparse 1-Variable Multivariate equivalence
+        let uni_poly = UnivariatePoly::new(
+            x.clone(),
+            vec![
+                BigRational::from_integer(3.into()),
+                BigRational::from_integer((-2).into()),
+                BigRational::from_integer(5.into()),
+            ],
+        ); // 5*x^2 - 2*x + 3
+        let multi_poly = MultivariatePoly::new(
+            vec![x.clone()],
+            BTreeMap::from([
+                (vec![0], BigRational::from_integer(3.into())),
+                (vec![1], BigRational::from_integer((-2).into())),
+                (vec![2], BigRational::from_integer(5.into())),
+            ]),
+        )
+        .unwrap();
+
+        for test_val in [-5, -1, 0, 1, 2, 10] {
+            let q = BigRational::from_integer(test_val.into());
+            let val_uni = uni_poly.eval(&q);
+            let val_multi = multi_poly.eval(&[q]).unwrap();
+            assert_eq!(val_uni, val_multi, "Evaluation mismatch at x={}", test_val);
+        }
+    }
 }

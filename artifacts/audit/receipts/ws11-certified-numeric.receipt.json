@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "gate": "ws11-certified-numeric",
+  "profile_id": "sympy-1.14.0-cpython",
+  "status": "passed",
+  "commit": "fbdc473728892afb2dab907d84c13a628a8415dc",
+  "checks": [
+    {
+      "name": "workspace-forbids-unsafe",
+      "status": "passed",
+      "detail": "workspace lints forbid unsafe_code"
+    },
+    {
+      "name": "test-directed-rounding-mutation",
+      "status": "passed",
+      "detail": "exit=0"
+    },
+    {
+      "name": "tests-fsym-core",
+      "status": "passed",
+      "detail": "exit=0"
+    },
+    {
+      "name": "tests-fsym-proof-kernel",
+      "status": "passed",
+      "detail": "exit=0"
+    }
+  ],
+  "checks_digest": "7e5297109be0eaa2f0e60058d1e0795c608f41821195b1a573d53f7de2993d12"
+}
