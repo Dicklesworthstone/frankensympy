@@ -319,6 +319,39 @@ fn cmd_gate_ws10_exact_linear() -> Receipt {
     finish("ws10-exact-linear", "sympy-1.14.0-cpython", checks)
 }
 
+fn cmd_gate_ws12_certified_jacobian() -> Receipt {
+    let mut checks = Vec::new();
+    check_workspace_no_unsafe(&mut checks);
+
+    let mut c1 = cargo();
+    c1.args([
+        "test",
+        "-p",
+        "fsym-calculus",
+        "--test",
+        "sparse_jacobian_c7",
+        "--quiet",
+    ]);
+    run_command("test-sparse-jacobian-c7", c1, &mut checks);
+
+    let mut c2 = cargo();
+    c2.args([
+        "test",
+        "-p",
+        "fsym-calculus",
+        "--test",
+        "sparse_jacobian_gate",
+        "--quiet",
+    ]);
+    run_command("test-sparse-jacobian-gate", c2, &mut checks);
+
+    let mut c3 = cargo();
+    c3.args(["test", "-p", "fsym-calculus", "--quiet"]);
+    run_command("tests-fsym-calculus", c3, &mut checks);
+
+    finish("ws12-certified-jacobian", "sympy-1.14.0-cpython", checks)
+}
+
 fn finish(gate: &str, profile_id: &str, checks: Vec<Check>) -> Receipt {
     let all_passed = checks.iter().all(|c| c.status == "passed");
     let receipt = Receipt {
@@ -346,7 +379,7 @@ fn write_receipt(receipt: &Receipt) {
 
 fn print_usage() -> i32 {
     eprintln!(
-        "usage: xtask profile verify <profile-id> | xtask gate foundation | xtask gate deterministic-term-identity | xtask gate ws10-exact-linear | xtask gate ws11-certified-numeric | xtask gate ws13-portfolio-runtime | xtask gate python-object-model --profile <profile-id>"
+        "usage: xtask profile verify <profile-id> | xtask gate foundation | xtask gate deterministic-term-identity | xtask gate ws10-exact-linear | xtask gate ws11-certified-numeric | xtask gate ws12-certified-jacobian | xtask gate ws13-portfolio-runtime | xtask gate python-object-model --profile <profile-id>"
     );
     2
 }
@@ -361,6 +394,9 @@ fn main() -> std::process::ExitCode {
         }
         [a, b] if a == "gate" && b == "ws10-exact-linear" => cmd_gate_ws10_exact_linear(),
         [a, b] if a == "gate" && b == "ws11-certified-numeric" => cmd_gate_ws11_certified_numeric(),
+        [a, b] if a == "gate" && b == "ws12-certified-jacobian" => {
+            cmd_gate_ws12_certified_jacobian()
+        }
         [a, b] if a == "gate" && b == "ws13-portfolio-runtime" => cmd_gate_ws13_portfolio_runtime(),
         [a, b, flag, profile]
             if a == "gate" && b == "python-object-model" && flag == "--profile" =>

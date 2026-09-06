@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "gate": "ws12-certified-jacobian",
+  "profile_id": "sympy-1.14.0-cpython",
+  "status": "passed",
+  "commit": "36e59936a63cf31d773b56a3a4eadf004719951a",
+  "checks": [
+    {
+      "name": "workspace-forbids-unsafe",
+      "status": "passed",
+      "detail": "workspace lints forbid unsafe_code"
+    },
+    {
+      "name": "test-sparse-jacobian-c7",
+      "status": "passed",
+      "detail": "exit=0"
+    },
+    {
+      "name": "test-sparse-jacobian-gate",
+      "status": "passed",
+      "detail": "exit=0"
+    },
+    {
+      "name": "tests-fsym-calculus",
+      "status": "passed",
+      "detail": "exit=0"
+    }
+  ],
+  "checks_digest": "c1a1f6d026f2d134e55f1c6e327687105079c4ad15dfe226e615d70b1b66fc64"
+}

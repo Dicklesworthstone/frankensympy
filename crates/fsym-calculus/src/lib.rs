@@ -4,10 +4,12 @@
 
 pub mod compile;
 pub mod proof;
+pub mod sparse_jacobian;
 pub mod transforms;
 
 pub use compile::*;
 pub use proof::*;
+pub use sparse_jacobian::*;
 pub use transforms::*;
 
 use fsym_budget::Unbounded;
