@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "gate": "ws17-groebner",
+  "profile_id": "sympy-1.14.0-cpython",
+  "status": "passed",
+  "commit": "db6a043a8444be602408041f645e9fce0bb1fc0d",
+  "checks": [
+    {
+      "name": "workspace-forbids-unsafe",
+      "status": "passed",
+      "detail": "workspace lints forbid unsafe_code"
+    },
+    {
+      "name": "tests-fsym-polys",
+      "status": "passed",
+      "detail": "exit=0"
+    }
+  ],
+  "checks_digest": "ed105abe5b6c4854900c9196f30acce1a3440300eb04d0b2447381cdc77596cd"
+}

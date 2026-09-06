@@ -130,9 +130,11 @@ evidence_artifacts = [
     "crates/fsym-evidence/src/lattice.rs",
     "crates/fsym-simplify/src/lib.rs",
     "crates/fsym-matrices/src/lib.rs",
+    "crates/fsym-polys/src/groebner.rs",
     "artifacts/audit/receipts/ws10-exact-linear.receipt.json",
+    "artifacts/audit/receipts/ws17-groebner.receipt.json",
 ]
-notes = "This claim never implies that every API result has the same evidence class. implemented_uncertified 2026-09-06: kernel-checked proofs, evidence promotion lattice, and exact matrix certificate verifiers (LU, QR, LDL, Inverse, Nullspace, Charpoly, Sturm-path Eigenvalues) landed; per-family certificate gates remain open."
+notes = "This claim never implies that every API result has the same evidence class. implemented_uncertified 2026-09-06: kernel-checked proofs, evidence promotion lattice, exact matrix certificate verifiers, and Groebner basis certificate verifiers with ideal witnesses landed; per-family certificate gates remain open."
 
 [[claims]]
 id = "MATH-002"
