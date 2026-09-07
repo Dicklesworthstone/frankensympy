@@ -236,8 +236,10 @@ fn jacobi_symbol_fn(a: i64, n: u64) -> PyResult<i64> {
 }
 
 pub mod expr;
+pub mod logic;
 pub mod matrix;
 pub use expr::*;
+pub use logic::*;
 pub use matrix::*;
 
 /// Numeric evaluation of an expression string.
@@ -258,6 +260,7 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyPow>()?;
     m.add_class::<PyDerivative>()?;
     m.add_class::<PyMatrix>()?;
+    m.add_class::<PyBoolExpr>()?;
     m.add_function(wrap_pyfunction!(py_symbol, m)?)?;
     m.add_function(wrap_pyfunction!(py_integer_from_python, m)?)?;
     m.add_function(wrap_pyfunction!(py_rational_from_python, m)?)?;
@@ -599,5 +602,38 @@ mod tests {
             assert_eq!(div.flat()[0].__str__(), "1/2");
             assert_eq!(div.flat()[1].__str__(), "1");
         });
+    }
+
+    #[test]
+    fn test_py_bool_expr() {
+        let x = PyBoolExpr::bool_var("x");
+        let y = PyBoolExpr::bool_var("y");
+        let not_x = PyBoolExpr::bool_not(&x);
+        let and_expr = PyBoolExpr::bool_and(vec![x.clone(), y.clone()]);
+        let or_expr = PyBoolExpr::bool_or(vec![x.clone(), not_x.clone()]);
+
+        assert_eq!(and_expr.kind(), "And");
+        assert_eq!(and_expr.args().len(), 2);
+        assert_eq!(x.var_name(), Some("x".to_string()));
+
+        // Tautology: x | ~x simplifies to true
+        let simplified = or_expr.simplify();
+        assert_eq!(simplified.const_value(), Some(true));
+
+        // Satisfiability: x & y is satisfiable
+        assert_eq!(and_expr.is_satisfiable().unwrap(), true);
+        let model = and_expr.satisfiable().unwrap().unwrap();
+        assert_eq!(model.get("x"), Some(&true));
+        assert_eq!(model.get("y"), Some(&true));
+
+        // Contradiction: x & ~x
+        let contra = PyBoolExpr::bool_and(vec![x.clone(), not_x.clone()]);
+        assert_eq!(contra.is_satisfiable().unwrap(), false);
+        assert_eq!(contra.satisfiable().unwrap(), None);
+
+        // CNF and DNF
+        let implies = PyBoolExpr::bool_implies(&x, &y);
+        let cnf = implies.to_cnf().unwrap();
+        assert_eq!(cnf.is_satisfiable().unwrap(), true);
     }
 }

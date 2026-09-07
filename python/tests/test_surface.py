@@ -991,6 +991,75 @@ class SurfaceTests(unittest.TestCase):
         self.assertIs(mod_sympify, sympy.sympify)
         self.assertIs(SympifyError, sympy.SympifyError)
 
+    def test_logic_and_boolean_algebra(self):
+        from sympy import (
+            And,
+            Equivalent,
+            Implies,
+            Not,
+            Or,
+            Symbol,
+            Xor,
+            false,
+            satisfiable,
+            simplify_logic,
+            to_cnf,
+            to_dnf,
+            true,
+        )
+        from sympy.logic import And as LAnd, satisfiable as lsat
+        from sympy.logic.boolalg import to_cnf as lto_cnf
+        from sympy.logic.inference import satisfiable as isat
+
+        self.assertIs(LAnd, And)
+        self.assertIs(lsat, satisfiable)
+        self.assertIs(isat, satisfiable)
+        self.assertIs(lto_cnf, to_cnf)
+
+        x = Symbol("x")
+        y = Symbol("y")
+        z = Symbol("z")
+
+        # Operators and classes
+        self.assertIsInstance(x & y, And)
+        self.assertIsInstance(x | y, Or)
+        self.assertIsInstance(~x, Not)
+        self.assertIsInstance(x >> y, Implies)
+        self.assertIsInstance(x ^ y, Xor)
+
+        # Singletons and boolean evaluation
+        self.assertIs(sympy.S.true, true)
+        self.assertIs(sympy.S.false, false)
+        self.assertTrue(bool(true))
+        self.assertFalse(bool(false))
+
+        # Basic simplifications
+        self.assertEqual(And(x, true), x)
+        self.assertEqual(And(x, false), false)
+        self.assertEqual(Or(x, true), true)
+        self.assertEqual(Or(x, false), x)
+        self.assertEqual(Not(true), false)
+        self.assertEqual(Not(false), true)
+        self.assertEqual(Not(Not(x)), x)
+
+        # Tautology / Contradiction via simplify_logic
+        self.assertEqual(simplify_logic(x | ~x), true)
+        self.assertEqual(simplify_logic(true), true)
+        self.assertEqual(simplify_logic(false), false)
+
+        # Satisfiability via DPLL
+        sat_model = satisfiable(x & y)
+        self.assertEqual(sat_model, {x: True, y: True})
+        self.assertFalse(satisfiable(x & ~x))
+        self.assertEqual(satisfiable(true), {})
+        self.assertFalse(satisfiable(false))
+
+        # CNF and DNF conversions
+        cnf_expr = to_cnf(x | (y & z))
+        self.assertIsInstance(cnf_expr, (And, Symbol))
+        dnf_expr = to_dnf((x | y) & z)
+        self.assertIsInstance(dnf_expr, (Or, Symbol))
+
 
 if __name__ == "__main__":
     unittest.main()

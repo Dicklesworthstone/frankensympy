@@ -1231,6 +1231,42 @@ class Expr(Basic):
     def __neg__(self) -> "Expr":
         return _wrap(-_native_expr(self))
 
+    def __and__(self, other: Any) -> "Expr":
+        from ..logic.boolalg import And
+        return And(self, other)
+
+    def __rand__(self, other: Any) -> "Expr":
+        from ..logic.boolalg import And
+        return And(other, self)
+
+    def __or__(self, other: Any) -> "Expr":
+        from ..logic.boolalg import Or
+        return Or(self, other)
+
+    def __ror__(self, other: Any) -> "Expr":
+        from ..logic.boolalg import Or
+        return Or(other, self)
+
+    def __invert__(self) -> "Expr":
+        from ..logic.boolalg import Not
+        return Not(self)
+
+    def __rshift__(self, other: Any) -> "Expr":
+        from ..logic.boolalg import Implies
+        return Implies(self, other)
+
+    def __rrshift__(self, other: Any) -> "Expr":
+        from ..logic.boolalg import Implies
+        return Implies(other, self)
+
+    def __xor__(self, other: Any) -> "Expr":
+        from ..logic.boolalg import Xor
+        return Xor(self, other)
+
+    def __rxor__(self, other: Any) -> "Expr":
+        from ..logic.boolalg import Xor
+        return Xor(other, self)
+
 
 class AtomicExpr(Expr, Atom):
     """An expression that is also an Atom."""
@@ -1911,6 +1947,16 @@ class _SingletonRegistry:
     @property
     def ImaginaryUnit(self) -> Expr:
         return Expr("I")
+
+    @property
+    def true(self) -> Any:
+        from ..logic.boolalg import true
+        return true
+
+    @property
+    def false(self) -> Any:
+        from ..logic.boolalg import false
+        return false
 
     def __call__(self, value: Any) -> Basic:
         if isinstance(value, Basic):
