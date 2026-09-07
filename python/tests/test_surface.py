@@ -2801,6 +2801,106 @@ class SurfaceTests(unittest.TestCase):
         self.assertIsInstance(sol, SparseMatrix)
         self.assertEqual(sol, SparseMatrix([[2], [1]]))
 
+    def test_advanced_solvers_and_polysys(self):
+        import sympy
+        from sympy import (
+            EmptySet,
+            FiniteSet,
+            Integer,
+            Symbol,
+            checksol,
+            linsolve,
+            nonlinsolve,
+            solve,
+            solve_linear,
+            solve_linear_system,
+            solve_linear_system_LU,
+            solve_poly_system,
+            solveset,
+            symbols,
+        )
+
+        x, y = symbols("x y")
+
+        # 1. solve with *symbols and tuple/list unpacking
+        s1 = solve([x + y - 3, x - y - 1], x, y)
+        self.assertEqual(s1, {x: Integer(2), y: Integer(1)})
+        s2 = solve([x + y - 3, x - y - 1], [x, y])
+        self.assertEqual(s2, {x: Integer(2), y: Integer(1)})
+
+        # 2. solve single-variable polynomial system
+        s_poly = solve([x**2 - 4], x)
+        self.assertEqual(sorted(s_poly), [(-Integer(2),), (Integer(2),)])
+        s_poly_list = solve([x**2 - 4], [x])
+        self.assertEqual(sorted(s_poly_list), [(-Integer(2),), (Integer(2),)])
+
+        # 3. solve with dict=True and set=True
+        s_dict_lin = solve([x + y - 3, x - y - 1], [x, y], dict=True)
+        self.assertEqual(s_dict_lin, [{x: Integer(2), y: Integer(1)}])
+
+        s_dict_poly = solve([x**2 - 4], x, dict=True)
+        self.assertEqual(len(s_dict_poly), 2)
+        self.assertIn({x: Integer(2)}, s_dict_poly)
+        self.assertIn({x: -Integer(2)}, s_dict_poly)
+
+        s_dict_single = solve(x**2 - 4, x, dict=True)
+        self.assertIn({x: Integer(2)}, s_dict_single)
+        self.assertIn({x: -Integer(2)}, s_dict_single)
+
+        s_set_single = solve(x**2 - 4, x, set=True)
+        self.assertEqual(s_set_single[0], [x])
+        self.assertEqual(s_set_single[1], {(Integer(2),), (-Integer(2),)})
+
+        # 4. solve_poly_system
+        # 1-variable system
+        sps1 = solve_poly_system([x**2 - 9], x)
+        self.assertEqual(sorted(sps1), [(-Integer(3),), (Integer(3),)])
+
+        # 1-variable system with intersection
+        sps_inter = solve_poly_system([x**2 - 9, x - 3], x)
+        self.assertEqual(sps_inter, [(Integer(3),)])
+
+        # 1-variable system inconsistent
+        sps_none = solve_poly_system([x**2 - 9, x - 2], x)
+        self.assertIsNone(sps_none)
+
+        # auto-detected generators
+        sps_auto1 = solve_poly_system([x**2 - 9])
+        self.assertEqual(sorted(sps_auto1), [(-Integer(3),), (Integer(3),)])
+
+        sps_auto2 = solve_poly_system([x - 1, y**2 - 4])
+        self.assertEqual(len(sps_auto2), 2)
+        self.assertIn((Integer(1), Integer(2)), sps_auto2)
+        self.assertIn((Integer(1), -Integer(2)), sps_auto2)
+
+        # 5. nonlinsolve
+        nls1 = nonlinsolve([x**2 - 4], x)
+        self.assertEqual(nls1, FiniteSet((-Integer(2),), (Integer(2),)))
+        nls1_list = nonlinsolve([x**2 - 4], [x])
+        self.assertEqual(nls1_list, FiniteSet((-Integer(2),), (Integer(2),)))
+        nls_inconsistent = nonlinsolve([x**2 - 4, x - 1], x)
+        self.assertEqual(nls_inconsistent, EmptySet())
+
+        # 6. solve_linear
+        self.assertEqual(solve_linear(2 * x - 4), (x, Integer(2)))
+        self.assertEqual(solve_linear(x + y**2, symbols=[x]), (x, -y**2))
+        self.assertEqual(solve_linear(5), (0, 1))
+        self.assertEqual(solve_linear(x, exclude=[x]), (0, 1))
+
+        # 7. checksol
+        self.assertTrue(checksol(x**2 - 4, x, 2))
+        self.assertTrue(checksol(x**2 - 4, x, -2))
+        self.assertFalse(checksol(x**2 - 4, x, 1))
+        self.assertTrue(checksol([x + y - 3, x - y - 1], {x: 2, y: 1}))
+        self.assertFalse(checksol([x + y - 3, x - y - 1], {x: 2, y: 0}))
+        self.assertTrue(checksol(x**2 + x - x * (x + 1), {}))
+
+        # 8. solve_linear_system_LU
+        self.assertIs(solve_linear_system_LU, solve_linear_system)
+        M_aug = sympy.Matrix([[1, 1, 3], [1, -1, 1]])
+        sol_lu = solve_linear_system_LU(M_aug, x, y)
+        self.assertEqual(sol_lu, {x: Integer(2), y: Integer(1)})
+
 
 if __name__ == "__main__":
     unittest.main()

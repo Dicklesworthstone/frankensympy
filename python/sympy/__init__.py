@@ -136,19 +136,32 @@ def integrate(expression, *variables):
     )
 
 
-def solve(expression, variable=None):
+def solve(expression, *symbols, **flags):
     """Solve the algebraic equation or system of equations ``expression == 0``."""
+    dict_flag = bool(flags.get("dict", False))
+    set_flag = bool(flags.get("set", False))
+
+    if len(symbols) == 1 and isinstance(symbols[0], (list, tuple)):
+        var_list = list(symbols[0])
+    elif len(symbols) == 1 and symbols[0] is None:
+        var_list = None
+    elif symbols:
+        var_list = list(symbols)
+    else:
+        var_list = None
+
     if isinstance(expression, (list, tuple)):
         from .solvers.polysys import solve_poly_system as _sps
         from .solvers.solvers import linsolve as _linsolve
 
-        if variable is not None:
-            if isinstance(variable, (list, tuple)):
-                var_list = list(variable)
-            elif isinstance(variable, Symbol):
-                var_list = [variable]
-            else:
-                raise TypeError(f"unsupported solve system signature with variable {variable}")
+        if var_list is not None:
+            parsed_var_list = []
+            for s in var_list:
+                if isinstance(s, Symbol):
+                    parsed_var_list.append(s)
+                else:
+                    raise TypeError(f"unsupported solve system signature with variable {s}")
+            var_list = parsed_var_list
         else:
             all_syms = set()
             for eq in expression:
@@ -165,37 +178,74 @@ def solve(expression, variable=None):
             lin_sol = _linsolve(expression, *var_list)
             if lin_sol:
                 sol_tuple = next(iter(lin_sol))
-                return {s: v for s, v in zip(var_list, sol_tuple)}
+                sol_dict = {s: v for s, v in zip(var_list, sol_tuple)}
+                if dict_flag:
+                    return [sol_dict]
+                if set_flag:
+                    return (var_list, {sol_tuple})
+                return sol_dict
             else:
                 return []
         except (ValueError, TypeError):
             pass
 
-        # Fall back to polynomial system solver for 2-variable systems
-        if len(var_list) == 2:
+        # Fall back to polynomial system solver
+        try:
             sols = _sps(expression, *var_list)
-            if sols is None:
-                return []
-            var_x, var_y = var_list[0], var_list[1]
-            if len(sols) == 1:
-                return {var_x: sols[0][0], var_y: sols[0][1]}
-            return [{var_x: sol[0], var_y: sol[1]} for sol in sols]
+        except Exception:
+            sols = None
 
-        raise TypeError(f"unsupported solve system signature with variable {variable}")
+        if sols is None:
+            return []
+
+        if dict_flag:
+            return [{sym: val for sym, val in zip(var_list, sol)} for sol in sols]
+        if set_flag:
+            return (var_list, set(sols))
+        return sols
 
     if type(expression) is Eq:
         expression = expression.lhs - expression.rhs
     expr = _wrap(_native_expr(expression))
-    if variable is None:
-        symbols = expr.free_symbols
-        if len(symbols) == 1:
-            symbol = next(iter(symbols))
-        elif len(symbols) == 0:
+
+    if var_list is None:
+        symbols_found = expr.free_symbols
+        if len(symbols_found) == 1:
+            symbol = next(iter(symbols_found))
+        elif len(symbols_found) == 0:
             return []
         else:
             raise TypeError("at least one solve variable is required")
+    elif len(var_list) == 1:
+        symbol = _require_symbol(var_list[0])
     else:
-        symbol = _require_symbol(variable)
+        from .solvers.polysys import solve_poly_system as _sps
+        from .solvers.solvers import linsolve as _linsolve
+
+        try:
+            lin_sol = _linsolve([expr], *var_list)
+            if lin_sol:
+                sol_tuple = next(iter(lin_sol))
+                sol_dict = {s: v for s, v in zip(var_list, sol_tuple)}
+                if dict_flag:
+                    return [sol_dict]
+                if set_flag:
+                    return (var_list, {sol_tuple})
+                return [sol_dict]
+        except (ValueError, TypeError):
+            pass
+
+        try:
+            sols = _sps([expr], *var_list)
+            if sols is not None:
+                if dict_flag:
+                    return [{sym: val for sym, val in zip(var_list, sol)} for sol in sols]
+                if set_flag:
+                    return (var_list, set(sols))
+                return sols
+        except Exception:
+            pass
+        return []
 
     if expr == 0 or (not expr.free_symbols):
         return []
@@ -209,7 +259,12 @@ def solve(expression, variable=None):
         if "No solution found" in msg or "Infinite solutions" in msg:
             return []
         raise
-    return [_parse_result(r) for r in results]
+    roots = [_parse_result(r) for r in results]
+    if dict_flag:
+        return [{symbol: r} for r in roots]
+    if set_flag:
+        return ([symbol], {(r,) for r in roots})
+    return roots
 
 
 
@@ -271,6 +326,11 @@ def solveset(expression, variable=None, domain=None):
 
 def checksol(expression, symbol, val=None):
     """Check whether ``val`` (or mapping) satisfies ``expression == 0``."""
+    if isinstance(expression, (list, tuple, set)):
+        if not expression:
+            raise ValueError("no functions to check")
+        return all(checksol(fi, symbol, val) for fi in expression)
+
     if type(expression) is Eq:
         expression = expression.lhs - expression.rhs
     expr = _wrap(_native_expr(expression))
@@ -284,7 +344,10 @@ def checksol(expression, symbol, val=None):
     for sym, v in mapping.items():
         subbed = subbed.subs(sym, v)
     simplified = simplify(subbed)
-    return bool(simplified == 0 or getattr(simplified, "is_zero", None) is True)
+    if simplified == 0 or getattr(simplified, "is_zero", None) is True:
+        return True
+    expanded = expand(subbed)
+    return bool(expanded == 0 or getattr(expanded, "is_zero", None) is True)
 
 
 def laplace_transform(expression, t, s):
@@ -595,7 +658,9 @@ from .solvers import (
     dsolve_separable_linear,
     linsolve,
     nonlinsolve,
+    solve_linear,
     solve_linear_system,
+    solve_linear_system_LU,
     solve_poly_system,
 )
 from .tensor import (
@@ -842,7 +907,9 @@ __all__ = [
     "sinc",
     "sinh",
     "solve",
+    "solve_linear",
     "solve_linear_system",
+    "solve_linear_system_LU",
     "solve_poly_system",
     "solveset",
     "sqf",

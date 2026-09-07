@@ -201,7 +201,43 @@ def solve_linear_system(system: MatrixBase, *symbols: Any) -> Optional[dict]:
     return {sym: val for sym, val in zip(sym_list, sol_tuple)}
 
 
+solve_linear_system_LU = solve_linear_system
+
+
+def solve_linear(lhs: Any, rhs: Any = 0, symbols: Any = (), exclude: Any = ()) -> Tuple[Any, Any]:
+    """Return a tuple derived from f = lhs - rhs: (symbol, solution), (0, 1), (0, 0), or (n, d)."""
+    if type(lhs) is Eq:
+        if rhs != 0:
+            raise ValueError(f"If lhs is an Equality, rhs must be 0 but was {rhs}")
+        f = lhs.lhs - lhs.rhs
+    else:
+        f = lhs - rhs
+
+    f_expr = _wrap(_native_expr(f))
+    free = f_expr.free_symbols
+
+    target_symbols = list(symbols) if symbols else sorted(list(free), key=lambda s: s.name)
+    exclude_set = set(exclude) if exclude else set()
+    target_symbols = [s for s in target_symbols if s not in exclude_set]
+
+    if not target_symbols:
+        return (0, 1)
+
+    for sym in target_symbols:
+        res = _extract_linear_coeffs(f_expr, [sym])
+        if res is not None:
+            coeffs, const = res
+            a = coeffs[0]
+            if a != 0:
+                sol = simplify(-const / a)
+                return (sym, sol)
+
+    return (f_expr, 1)
+
+
 __all__ = [
     "linsolve",
+    "solve_linear",
     "solve_linear_system",
+    "solve_linear_system_LU",
 ]
