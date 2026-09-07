@@ -14,6 +14,7 @@ from .. import (
     log,
     sin,
     sinh,
+    sqrt,
     tan,
     tanh,
 )
@@ -32,6 +33,7 @@ __all__ = [
     "log",
     "sin",
     "sinh",
+    "sqrt",
     "tan",
     "tanh",
 ]

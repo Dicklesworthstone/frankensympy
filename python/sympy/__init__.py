@@ -43,7 +43,10 @@ from .core import (
     expand,
     pretty,
     simplify,
+    sqrt,
     symbols,
+    sympify,
+    SympifyError,
 )
 from .printing import srepr
 from .core import zoo as _core_zoo
@@ -380,7 +383,10 @@ __all__ = [
     "sinh",
     "solve",
     "srepr",
+    "sqrt",
     "symbols",
+    "sympify",
+    "SympifyError",
     "tan",
     "tanh",
     "totient",

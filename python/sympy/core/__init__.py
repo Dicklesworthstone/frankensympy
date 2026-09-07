@@ -249,7 +249,6 @@ def _is_sympy_operand(value: Any) -> bool:
     expressions, matrices, ...) — their reflected operators deserve a
     NotImplemented round-trip instead of a hard TypeError (finding 4)."""
     return isinstance(value, Basic) or hasattr(value, "_value") or hasattr(value, "_native")
-    return cls(base, exponent, evaluate=False)
 
 
 def _admitted_exact_int(value: Any) -> int | None:
@@ -2040,6 +2039,20 @@ class Pow(Expr):
                         return _ZERO
                     if exp_int < 0:
                         return zoo
+            is_half = (
+                exponent is S.Half
+                or (isinstance(exponent, Rational) and exponent.p == 1 and exponent.q == 2)
+            )
+            if is_half:
+                if base_int is not None and base_int >= 0:
+                    r = math.isqrt(base_int)
+                    if r * r == base_int:
+                        return Integer(r)
+                elif isinstance(base, Rational) and base.p >= 0 and base.q > 0:
+                    sp = math.isqrt(base.p)
+                    sq = math.isqrt(base.q)
+                    if sp * sp == base.p and sq * sq == base.q:
+                        return Rational(sp, sq)
         val = _native.Pow(
             _native_expr(base), _native_expr(exponent), evaluate=evaluate
         ).as_expr()
@@ -2285,6 +2298,100 @@ def simplify(expression: Any) -> Expr:
     return _parse_result(_native.simplify_expr(str(_wrap(_native_expr(expression)))))
 
 
+class SympifyError(ValueError):
+    """Exception raised when an expression cannot be sympified."""
+    pass
+
+
+def sympify(
+    a: Any,
+    locals: dict[str, Any] | None = None,
+    convert_xor: bool = True,
+    strict: bool = False,
+    rational: bool = False,
+    evaluate: bool = True,
+) -> Any:
+    """Converts an arbitrary expression to a type that can be used in SymPy."""
+    if isinstance(a, Basic):
+        return a
+    if isinstance(a, bool):
+        return Integer(1) if a else Integer(0)
+    if isinstance(a, int):
+        return Integer(a)
+    if isinstance(a, float):
+        return Float(a)
+    if hasattr(a, "_sympy_"):
+        return a._sympy_()
+    if isinstance(a, str):
+        try:
+            return _parse_result(a)
+        except Exception as exc:
+            if strict:
+                raise SympifyError(f"cannot sympify {a!r}") from exc
+            raise
+    try:
+        return _wrap(_native_expr(a))
+    except Exception as exc:
+        if strict:
+            raise SympifyError(f"cannot sympify {a!r}") from exc
+        raise
+
+
+def sqrt(expression: Any, evaluate: bool = True) -> Expr:
+    """The square root function or expression.
+
+    Returns the principal square root of ``expression``. When ``evaluate=True``,
+    exact square roots of integers and rationals are simplified, factors of the
+    imaginary unit ``I`` are extracted for negative values, and square integer
+    factors are pulled out.
+    """
+    if evaluate:
+        arg = sympify(expression)
+        arg_int = _admitted_exact_int(arg)
+        if arg_int is not None:
+            if arg_int == 0:
+                return _ZERO
+            if arg_int == 1:
+                return _ONE
+            if arg_int > 0:
+                r = math.isqrt(arg_int)
+                if r * r == arg_int:
+                    return Integer(r)
+                sq = 1
+                rem = arg_int
+                while rem % 4 == 0:
+                    sq *= 2
+                    rem //= 4
+                d = 3
+                while d * d <= rem and d <= 10000:
+                    d2 = d * d
+                    while rem % d2 == 0:
+                        sq *= d
+                        rem //= d2
+                    d += 2
+                if sq > 1:
+                    return Mul(Integer(sq), Pow(Integer(rem), S.Half, evaluate=False))
+                return Pow(arg, S.Half, evaluate=False)
+            else:
+                pos_sqrt = sqrt(Integer(-arg_int), evaluate=True)
+                return Mul(Expr("I"), pos_sqrt)
+        elif isinstance(arg, Rational):
+            p = int(arg.p)
+            q = int(arg.q)
+            if p > 0 and q > 0:
+                sp = math.isqrt(p)
+                sq = math.isqrt(q)
+                if sp * sp == p and sq * sq == q:
+                    return Rational(sp, sq)
+                if sq * sq == q:
+                    return Mul(Rational(1, sq), sqrt(Integer(p), evaluate=True))
+            elif p < 0 and q > 0:
+                pos_sqrt = sqrt(Rational(-p, q), evaluate=True)
+                return Mul(Expr("I"), pos_sqrt)
+        return Pow(arg, S.Half, evaluate=True)
+    return Pow(sympify(expression), S.Half, evaluate=False)
+
+
 def _ascii_pretty_lines(expression: Any) -> list[str]:
     """ASCII pretty lines: nonneg-integer powers lay the exponent above the
     base; everything else renders as the linear ASCII form. No unicode."""
@@ -2438,6 +2545,8 @@ _restore_pow.__module__ = "sympy.core.basic"
 _restore_dummy.__module__ = "sympy.core.basic"
 _restore_applied_undef.__module__ = "sympy.core.basic"
 _restore_float.__module__ = "sympy.core.numbers"
+sympify.__module__ = "sympy.core.sympify"
+SympifyError.__module__ = "sympy.core.sympify"
 
 import types as _types
 
@@ -2452,6 +2561,7 @@ for _mod_name, _mod_items in [
     ("sympy.core.operations", (AssocOp,)),
     ("sympy.core.power", (Pow,)),
     ("sympy.core.function", (Function, UndefinedFunction, AppliedUndef, Derivative, Application, FunctionClass, diff)),
+    ("sympy.core.sympify", (sympify, SympifyError)),
 ]:
     _mod = sys.modules.get(_mod_name)
     if _mod is None:
@@ -2500,6 +2610,9 @@ __all__ = [
     "expand",
     "pretty",
     "simplify",
+    "sqrt",
     "symbols",
+    "sympify",
+    "SympifyError",
     "zoo",
 ]

@@ -955,6 +955,42 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(A.kronecker_product(B), expected_kron)
         self.assertEqual(kronecker_product(A, B), expected_kron)
 
+    def test_sqrt_and_sympify_behavior(self):
+        x = sympy.Symbol("x")
+        self.assertEqual(sympy.sqrt(0), sympy.Integer(0))
+        self.assertEqual(sympy.sqrt(1), sympy.Integer(1))
+        self.assertEqual(sympy.sqrt(4), sympy.Integer(2))
+        self.assertEqual(sympy.sqrt(25), sympy.Integer(5))
+        self.assertEqual(sympy.sqrt(8), 2 * sympy.sqrt(2))
+        self.assertEqual(sympy.sqrt(-1), sympy.I)
+        self.assertEqual(sympy.sqrt(-4), 2 * sympy.I)
+        self.assertEqual(sympy.sqrt(sympy.Rational(4, 9)), sympy.Rational(2, 3))
+        self.assertEqual(sympy.sqrt(sympy.Rational(1, 4)), sympy.Rational(1, 2))
+        self.assertEqual(sympy.sqrt(x), sympy.Pow(x, sympy.S.Half))
+
+        # Held evaluate=False
+        held_sqrt = sympy.sqrt(4, evaluate=False)
+        self.assertIsInstance(held_sqrt, sympy.Pow)
+        self.assertEqual(held_sqrt.args, (sympy.Integer(4), sympy.S.Half))
+
+        # Pow square root fold
+        self.assertEqual(sympy.Pow(sympy.Integer(25), sympy.S.Half), sympy.Integer(5))
+        self.assertEqual(sympy.Pow(sympy.Rational(4, 9), sympy.S.Half), sympy.Rational(2, 3))
+
+        # sympify
+        self.assertEqual(sympy.sympify(42), sympy.Integer(42))
+        self.assertEqual(sympy.sympify("x + 1"), x + 1)
+        self.assertEqual(sympy.sympify(True), sympy.Integer(1))
+        self.assertEqual(sympy.sympify(False), sympy.Integer(0))
+        self.assertIsInstance(sympy.sympify(3.14), sympy.Float)
+
+        # Module / function facades
+        from sympy.functions import sqrt as fn_sqrt
+        self.assertIs(fn_sqrt, sympy.sqrt)
+        from sympy.core.sympify import sympify as mod_sympify, SympifyError
+        self.assertIs(mod_sympify, sympy.sympify)
+        self.assertIs(SympifyError, sympy.SympifyError)
+
 
 if __name__ == "__main__":
     unittest.main()
