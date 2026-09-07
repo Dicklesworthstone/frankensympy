@@ -378,36 +378,20 @@ fn classify_zero_vector<'a>(components: impl IntoIterator<Item = &'a Expr>) -> Z
 }
 
 fn expr_div(num: Expr, den: Expr) -> Expr {
-    match (&num, &den) {
-        (Expr::Integer(a), Expr::Integer(b)) => {
-            if b.is_zero() {
-                let inv = Expr::Pow(Arc::new(den), Arc::new(Expr::from_i64(-1)));
-                return simplify(&Expr::Mul(vec![num, inv]));
-            }
-            let r = BigRational::new(a.clone(), b.clone());
-            if r.is_integer() {
-                Expr::Integer(r.to_integer())
-            } else {
-                Expr::Rational(r)
-            }
-        }
-        (Expr::Rational(a), Expr::Rational(b)) => {
-            if b.numer().is_zero() {
-                let inv = Expr::Pow(Arc::new(den), Arc::new(Expr::from_i64(-1)));
-                return simplify(&Expr::Mul(vec![num, inv]));
-            }
-            let r = a / b;
-            if r.is_integer() {
-                Expr::Integer(r.to_integer())
-            } else {
-                Expr::Rational(r)
-            }
-        }
-        _ => {
+    if let (Some(a), Some(b)) = (numeric_value(&num), numeric_value(&den)) {
+        if b.numer().is_zero() {
             let inv = Expr::Pow(Arc::new(den), Arc::new(Expr::from_i64(-1)));
-            simplify(&Expr::Mul(vec![num, inv]))
+            return simplify(&Expr::Mul(vec![num, inv]));
         }
+        let r = a / b;
+        return if r.is_integer() {
+            Expr::Integer(r.to_integer())
+        } else {
+            Expr::Rational(r)
+        };
     }
+    let inv = Expr::Pow(Arc::new(den), Arc::new(Expr::from_i64(-1)));
+    simplify(&Expr::Mul(vec![num, inv]))
 }
 
 /// 2D Symbolic Segment between two endpoints.
@@ -919,7 +903,8 @@ impl<'de> Deserialize<'de> for Circle {
 
 impl Circle {
     pub fn new(center: Point2D, radius: Expr) -> Result<Self, GeometryError> {
-        if numeric_value(&radius).is_some_and(|value| value < BigRational::from_integer(0.into())) {
+        let simplified = simplify(&radius);
+        if numeric_value(&simplified).is_some_and(|value| value < BigRational::from_integer(0.into())) {
             return Err(GeometryError::NegativeRadius);
         }
         Ok(Self { center, radius })
@@ -981,7 +966,8 @@ impl<'de> Deserialize<'de> for Sphere {
 
 impl Sphere {
     pub fn new(center: Point3D, radius: Expr) -> Result<Self, GeometryError> {
-        if numeric_value(&radius).is_some_and(|value| value < BigRational::from_integer(0.into())) {
+        let simplified = simplify(&radius);
+        if numeric_value(&simplified).is_some_and(|value| value < BigRational::from_integer(0.into())) {
             return Err(GeometryError::NegativeRadius);
         }
         Ok(Self { center, radius })
@@ -2219,5 +2205,34 @@ mod tests {
         assert_eq!(xy_plane.eval_at_point(inter_line.p2()), Expr::from_i64(0));
         assert_eq!(yz_plane.eval_at_point(inter_line.p1()), Expr::from_i64(0));
         assert_eq!(yz_plane.eval_at_point(inter_line.p2()), Expr::from_i64(0));
+    }
+
+    #[test]
+    fn test_expr_div_mixed_rationals_and_circle_negative_radius_preflight() {
+        // Mixed integer and rational division
+        let six = Expr::from_i64(6);
+        let three_halves = Expr::Rational(BigRational::new(3.into(), 2.into()));
+        let res = expr_div(six, three_halves);
+        assert_eq!(res, Expr::from_i64(4));
+
+        let half = Expr::Rational(BigRational::new(1.into(), 2.into()));
+        let four = Expr::from_i64(4);
+        let res2 = expr_div(half, four);
+        assert_eq!(res2, Expr::Rational(BigRational::new(1.into(), 8.into())));
+
+        // Unsimplified negative radius rejection
+        let center = Point2D::new(Expr::from_i64(0), Expr::from_i64(0));
+        let unsimplified_neg = Expr::Add(vec![Expr::from_i64(1), Expr::from_i64(-5)]);
+        assert_eq!(
+            Circle::new(center, unsimplified_neg),
+            Err(GeometryError::NegativeRadius)
+        );
+
+        let center3d = Point3D::new(Expr::from_i64(0), Expr::from_i64(0), Expr::from_i64(0));
+        let unsimplified_neg3d = Expr::Add(vec![Expr::from_i64(2), Expr::from_i64(-3)]);
+        assert_eq!(
+            Sphere::new(center3d, unsimplified_neg3d),
+            Err(GeometryError::NegativeRadius)
+        );
     }
 }

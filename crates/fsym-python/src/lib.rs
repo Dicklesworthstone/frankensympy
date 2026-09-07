@@ -236,9 +236,11 @@ fn jacobi_symbol_fn(a: i64, n: u64) -> PyResult<i64> {
 }
 
 pub mod expr;
+pub mod geometry;
 pub mod logic;
 pub mod matrix;
 pub use expr::*;
+pub use geometry::*;
 pub use logic::*;
 pub use matrix::*;
 
@@ -261,6 +263,19 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyDerivative>()?;
     m.add_class::<PyMatrix>()?;
     m.add_class::<PyBoolExpr>()?;
+    m.add_class::<PyPoint2D>()?;
+    m.add_class::<PyPoint3D>()?;
+    m.add_class::<PySegment2D>()?;
+    m.add_class::<PySegment3D>()?;
+    m.add_class::<PyLine2D>()?;
+    m.add_class::<PyLine3D>()?;
+    m.add_class::<PyRay2D>()?;
+    m.add_class::<PyRay3D>()?;
+    m.add_class::<PyCircle>()?;
+    m.add_class::<PySphere>()?;
+    m.add_class::<PyTriangle2D>()?;
+    m.add_class::<PyPolygon2D>()?;
+    m.add_class::<PyPlane3D>()?;
     m.add_function(wrap_pyfunction!(py_symbol, m)?)?;
     m.add_function(wrap_pyfunction!(py_integer_from_python, m)?)?;
     m.add_function(wrap_pyfunction!(py_rational_from_python, m)?)?;
@@ -268,6 +283,7 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_mul, m)?)?;
     m.add_function(wrap_pyfunction!(py_pow, m)?)?;
     m.add_function(wrap_pyfunction!(py_function, m)?)?;
+    m.add_function(wrap_pyfunction!(py_abs, m)?)?;
     m.add_function(wrap_pyfunction!(py_sin, m)?)?;
     m.add_function(wrap_pyfunction!(py_cos, m)?)?;
     m.add_function(wrap_pyfunction!(py_tan, m)?)?;
@@ -621,19 +637,71 @@ mod tests {
         assert_eq!(simplified.const_value(), Some(true));
 
         // Satisfiability: x & y is satisfiable
-        assert_eq!(and_expr.is_satisfiable().unwrap(), true);
+        assert!(and_expr.is_satisfiable().unwrap());
         let model = and_expr.satisfiable().unwrap().unwrap();
         assert_eq!(model.get("x"), Some(&true));
         assert_eq!(model.get("y"), Some(&true));
 
         // Contradiction: x & ~x
         let contra = PyBoolExpr::bool_and(vec![x.clone(), not_x.clone()]);
-        assert_eq!(contra.is_satisfiable().unwrap(), false);
+        assert!(!contra.is_satisfiable().unwrap());
         assert_eq!(contra.satisfiable().unwrap(), None);
 
         // CNF and DNF
         let implies = PyBoolExpr::bool_implies(&x, &y);
         let cnf = implies.to_cnf().unwrap();
-        assert_eq!(cnf.is_satisfiable().unwrap(), true);
+        assert!(cnf.is_satisfiable().unwrap());
+    }
+
+    #[test]
+    fn test_py_geometry() {
+        let p1 = PyPoint2D::new(py_integer(0), py_integer(0));
+        let p2 = PyPoint2D::new(py_integer(3), py_integer(4));
+        assert_eq!(p1.distance_squared(&p2).to_string(), "25");
+
+        let mid = p1.midpoint(&p2);
+        assert_eq!(mid.x().to_string(), "3/2");
+        assert_eq!(mid.y().to_string(), "2");
+
+        let seg = PySegment2D::new(p1.clone(), p2.clone());
+        assert_eq!(seg.length_squared().to_string(), "25");
+
+        let p3 = PyPoint2D::new(py_integer(3), py_integer(0));
+        let tri = PyTriangle2D::new(p1.clone(), p3.clone(), p2.clone());
+        assert_eq!(tri.is_right(), Some(true));
+        assert_eq!(tri.double_signed_area().to_string(), "12");
+
+        let circle = PyCircle::new(p1.clone(), py_integer(5)).unwrap();
+        assert_eq!(circle.area().to_string(), "25*pi");
+        assert_eq!(circle.circumference().to_string(), "10*pi");
+
+        let poly = PyPolygon2D::new(vec![
+            PyPoint2D::new(py_integer(0), py_integer(0)),
+            PyPoint2D::new(py_integer(4), py_integer(0)),
+            PyPoint2D::new(py_integer(4), py_integer(3)),
+            PyPoint2D::new(py_integer(0), py_integer(3)),
+        ])
+        .unwrap();
+        assert_eq!(poly.double_signed_area().to_string(), "24");
+        assert_eq!(poly.is_convex(), Some(true));
+
+        // 3D, rays, spheres, planes
+        let p3d1 = PyPoint3D::new(py_integer(1), py_integer(2), py_integer(3));
+        let p3d2 = PyPoint3D::new(py_integer(4), py_integer(6), py_integer(3));
+        assert_eq!(p3d1.distance_squared(&p3d2).to_string(), "25");
+
+        let seg3d = PySegment3D::new(p3d1.clone(), p3d2.clone());
+        assert_eq!(seg3d.length_squared().to_string(), "25");
+
+        let sphere = PySphere::new(p3d1.clone(), py_integer(3)).unwrap();
+        assert_eq!(sphere.surface_area().to_string(), "36*pi");
+        assert_eq!(sphere.volume().to_string(), "36*pi");
+
+        let plane = PyPlane3D::new(
+            p3d1.clone(),
+            PyPoint3D::new(py_integer(0), py_integer(0), py_integer(1)),
+        )
+        .unwrap();
+        assert_eq!(plane.eval_at_point(&p3d1).to_string(), "0");
     }
 }

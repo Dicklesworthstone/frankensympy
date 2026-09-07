@@ -1060,6 +1060,70 @@ class SurfaceTests(unittest.TestCase):
         dnf_expr = to_dnf((x | y) & z)
         self.assertIsInstance(dnf_expr, (Or, Symbol))
 
+    def test_geometry_surface(self):
+        from sympy import (
+            Circle,
+            Line,
+            Line2D,
+            Point,
+            Point2D,
+            Point3D,
+            Polygon,
+            Rational,
+            Ray,
+            Ray2D,
+            Segment,
+            Segment2D,
+            Triangle,
+            pi,
+        )
+        import sympy.geometry as sgeom
+
+        self.assertIs(sgeom.Point, Point)
+        self.assertIs(sgeom.Point2D, Point2D)
+        self.assertIs(sgeom.Point3D, Point3D)
+        self.assertIs(sgeom.Line, Line)
+        self.assertIs(sgeom.Circle, Circle)
+        self.assertIs(sgeom.Triangle, Triangle)
+        self.assertIs(sgeom.Polygon, Polygon)
+
+        p1 = Point(0, 0)
+        p2 = Point(3, 4)
+        self.assertIsInstance(p1, Point2D)
+        self.assertEqual(p1.x, 0)
+        self.assertEqual(p1.y, 0)
+        self.assertEqual(p1.distance(p2), 5)
+
+        p3d1 = Point(1, 2, 3)
+        p3d2 = Point(4, 6, 3)
+        self.assertIsInstance(p3d1, Point3D)
+        self.assertEqual(p3d1.z, 3)
+        self.assertEqual(p3d1.distance(p3d2), 5)
+
+        seg = Segment(Point(0, 0), Point(4, 4))
+        self.assertIsInstance(seg, Segment2D)
+        self.assertEqual(seg.midpoint, Point2D(2, 2))
+
+        l1 = Line(Point(0, 0), Point(2, 2))
+        l2 = Line(Point(0, 2), Point(2, 0))
+        self.assertIsInstance(l1, Line2D)
+        self.assertEqual(l1.intersection(l2), [Point2D(1, 1)])
+
+        circ = Circle(Point(0, 0), 5)
+        self.assertEqual(circ.area, 25 * pi)
+        self.assertEqual(circ.circumference, 10 * pi)
+
+        tri = Triangle(Point(0, 0), Point(3, 0), Point(0, 4))
+        self.assertEqual(tri.area, 6)
+        self.assertEqual(tri.centroid, Point2D(1, Rational(4, 3)))
+        self.assertTrue(tri.is_right())
+        self.assertFalse(tri.is_equilateral())
+
+        poly = Polygon(Point(0, 0), Point(4, 0), Point(4, 3), Point(0, 3))
+        self.assertEqual(poly.area, 12)
+        self.assertEqual(poly.centroid, Point2D(2, Rational(3, 2)))
+        self.assertTrue(poly.is_convex())
+
 
 if __name__ == "__main__":
     unittest.main()

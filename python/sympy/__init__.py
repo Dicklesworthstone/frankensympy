@@ -5,6 +5,7 @@ operations fail explicitly; upstream SymPy is never used as a fallback.
 """
 
 from .core import (
+    Abs,
     Add,
     Application,
     AppliedUndef,
@@ -303,10 +304,25 @@ from .matrices import (
 )
 from . import (
     functions,
+    geometry,
     integrals,
     logic,
     ntheory,
     solvers,
+)
+from .geometry import (
+    Circle,
+    Line,
+    Line2D,
+    Point,
+    Point2D,
+    Point3D,
+    Polygon,
+    Ray,
+    Ray2D,
+    Segment,
+    Segment2D,
+    Triangle,
 )
 from .logic import (
     And,
@@ -331,6 +347,7 @@ from .series import limit, series
 
 
 __all__ = [
+    "Abs",
     "Add",
     "And",
     "Application",
@@ -343,6 +360,7 @@ __all__ = [
     "BooleanFalse",
     "BooleanFunction",
     "BooleanTrue",
+    "Circle",
     "ComplexInfinity",
     "DenseMatrix",
     "Derivative",
@@ -362,6 +380,8 @@ __all__ = [
     "Implies",
     "Integer",
     "Le",
+    "Line",
+    "Line2D",
     "Lt",
     "Matrix",
     "MatrixBase",
@@ -372,10 +392,19 @@ __all__ = [
     "Not",
     "Number",
     "Or",
+    "Point",
+    "Point2D",
+    "Point3D",
+    "Polygon",
     "Pow",
     "Rational",
+    "Ray",
+    "Ray2D",
     "S",
+    "Segment",
+    "Segment2D",
     "Symbol",
+    "Triangle",
     "UndefinedFunction",
     "Xor",
     "__version__",

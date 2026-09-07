@@ -1,0 +1,67 @@
+"""Ellipses and circles for FrankenSymPy geometry."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from ..core import Basic, Expr, _native, _native_expr, _wrap
+from .point import Point, Point2D
+
+
+class Ellipse(Basic):
+    """Base class for ellipses and circles."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        pass
+
+
+class Circle(Ellipse):
+    """A 2D geometric circle."""
+
+    __slots__ = ("_native_circle", "_center", "_radius")
+
+    def __new__(cls, center: Any, radius: Any):
+        c_pt = Point(center) if not isinstance(center, Point) else center
+        if not isinstance(c_pt, Point2D):
+            raise TypeError("Circle center must be a 2D Point")
+        obj = object.__new__(cls)
+        obj._center = c_pt
+        obj._radius = _wrap(_native_expr(radius))
+        obj._native_circle = _native.Circle(c_pt._native_pt, _native_expr(radius))
+        return obj
+
+    @property
+    def center(self) -> Point2D:
+        return self._center
+
+    @property
+    def radius(self) -> Expr:
+        return self._radius
+
+    @property
+    def hradius(self) -> Expr:
+        return self._radius
+
+    @property
+    def vradius(self) -> Expr:
+        return self._radius
+
+    @property
+    def area(self) -> Expr:
+        return _wrap(self._native_circle.area())
+
+    @property
+    def circumference(self) -> Expr:
+        return _wrap(self._native_circle.circumference())
+
+    def __repr__(self) -> str:
+        return f"Circle({self.center}, {self.radius})"
+
+    def __str__(self) -> str:
+        return f"Circle({self.center}, {self.radius})"
+
+
+__all__ = [
+    "Circle",
+    "Ellipse",
+]

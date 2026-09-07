@@ -1,6 +1,7 @@
 """Mathematical functions for FrankenSymPy."""
 
 from .. import (
+    Abs,
     asin,
     atan,
     ceiling,
@@ -20,6 +21,7 @@ from .. import (
 )
 
 __all__ = [
+    "Abs",
     "asin",
     "atan",
     "ceiling",

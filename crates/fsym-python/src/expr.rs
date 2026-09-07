@@ -5,10 +5,10 @@
 use fsym_calculus::diff;
 use fsym_core::{BigInt, BigRational, Expr, Symbol, parse};
 use fsym_functions::{
-    asin as asin_expr, atan as atan_expr, ceiling as ceiling_expr, cos as cos_expr,
-    cosh as cosh_expr, exp as exp_expr, factorial as factorial_expr, fibonacci as fibonacci_expr,
-    floor as floor_expr, gamma as gamma_expr, log as log_expr, sin as sin_expr, sinh as sinh_expr,
-    tan as tan_expr, tanh as tanh_expr,
+    abs_val as abs_expr, asin as asin_expr, atan as atan_expr, ceiling as ceiling_expr,
+    cos as cos_expr, cosh as cosh_expr, exp as exp_expr, factorial as factorial_expr,
+    fibonacci as fibonacci_expr, floor as floor_expr, gamma as gamma_expr, log as log_expr,
+    sin as sin_expr, sinh as sinh_expr, tan as tan_expr, tanh as tanh_expr,
 };
 use fsym_printing::{latex, pretty as render_pretty};
 use fsym_runtime::{Budget, BudgetLimits, FsymCx, RuntimeBudget};
@@ -106,6 +106,12 @@ pub struct PyExpr {
 impl PyExpr {
     pub fn from_expr(inner: Expr) -> Self {
         Self { inner }
+    }
+}
+
+impl std::fmt::Display for PyExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.inner)
     }
 }
 
@@ -254,6 +260,10 @@ impl PyExpr {
 
     pub fn __repr__(&self) -> String {
         format!("{}", self.inner)
+    }
+
+    pub fn __abs__(&self) -> PyExpr {
+        PyExpr::from_expr(abs_expr(self.inner.clone()))
     }
 
     pub fn _repr_latex_(&self) -> PyResult<String> {
@@ -791,6 +801,12 @@ pub fn py_function(name: String, args: Vec<PyExpr>) -> PyResult<PyExpr> {
         name,
         args.into_iter().map(|arg| arg.inner).collect(),
     )))
+}
+
+/// Exact absolute value constructor.
+#[pyfunction]
+pub fn py_abs(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(abs_expr(arg.inner))
 }
 
 /// Exact sine constructor, including the identity `sin(0) = 0`.

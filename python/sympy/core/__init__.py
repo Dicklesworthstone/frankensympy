@@ -1231,6 +1231,9 @@ class Expr(Basic):
     def __neg__(self) -> "Expr":
         return _wrap(-_native_expr(self))
 
+    def __abs__(self) -> "Expr":
+        return _wrap(_native.py_abs(_native_expr(self)))
+
     def __and__(self, other: Any) -> "Expr":
         from ..logic.boolalg import And
         return And(self, other)
@@ -2438,6 +2441,11 @@ def sqrt(expression: Any, evaluate: bool = True) -> Expr:
     return Pow(sympify(expression), S.Half, evaluate=False)
 
 
+def Abs(expression: Any) -> Expr:
+    """Return the absolute value of expression."""
+    return _wrap(_native.py_abs(_native_expr(expression)))
+
+
 def _ascii_pretty_lines(expression: Any) -> list[str]:
     """ASCII pretty lines: nonneg-integer powers lay the exponent above the
     base; everything else renders as the linear ASCII form. No unicode."""
@@ -2624,6 +2632,7 @@ _singleton_mod.S = S
 
 
 __all__ = [
+    "Abs",
     "Add",
     "Application",
     "AppliedUndef",
