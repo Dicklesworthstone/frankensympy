@@ -3385,6 +3385,72 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(R_sym.shape, (3, 3))
         self.assertTrue(R_sym.is_symmetric)
 
+    def test_simplification_subsystem(self):
+        from sympy import (
+            Add,
+            Integer,
+            Mul,
+            Pow,
+            Rational,
+            Symbol,
+            collect,
+            combsimp,
+            cos,
+            cosh,
+            log,
+            logcombine,
+            nsimplify,
+            pi,
+            powsimp,
+            radsimp,
+            ratsimp,
+            separatevars,
+            simplify,
+            sin,
+            sinh,
+            sqrt,
+            trigsimp,
+        )
+
+        x = Symbol("x")
+        y = Symbol("y")
+        a = Symbol("a")
+        b = Symbol("b")
+        c = Symbol("c")
+        d = Symbol("d")
+
+        # trigsimp
+        self.assertEqual(trigsimp(sin(x)**2 + cos(x)**2), 1)
+        self.assertEqual(trigsimp(cosh(x)**2 - sinh(x)**2), 1)
+
+        # powsimp
+        self.assertEqual(powsimp(x**a * x**b), x**(a + b))
+
+        # ratsimp
+        self.assertEqual(ratsimp(x/y + y/x), (x**2 + y**2)/(x*y))
+
+        # radsimp
+        self.assertEqual(radsimp(1 / sqrt(2)), sqrt(2) / 2)
+        self.assertEqual(radsimp(1 / (1 + sqrt(2))), sqrt(2) - 1)
+
+        # collect
+        collected = collect(a*x + b*x + y, x)
+        self.assertEqual(collected, x*(a + b) + y)
+        quad = collect(a*x**2 + b*x**2 + c*x + d, x)
+        self.assertEqual(quad, (a + b)*x**2 + c*x + d)
+
+        # logcombine
+        self.assertEqual(logcombine(log(x) + log(y)), log(x*y))
+
+        # nsimplify
+        self.assertEqual(nsimplify(0.3333333333333333), Rational(1, 3))
+        self.assertEqual(nsimplify(1.4142135623730951), sqrt(2))
+        self.assertEqual(nsimplify(3.141592653589793), pi)
+
+        # combsimp and separatevars basic functionality
+        self.assertEqual(combsimp(x + 1), x + 1)
+        self.assertEqual(separatevars(x*y), x*y)
+
 
 if __name__ == "__main__":
     unittest.main()
