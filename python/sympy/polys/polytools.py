@@ -154,6 +154,43 @@ class Poly(Basic):
             res = res * f.as_expr()
         return Poly(res, *self._gens)
 
+    def factor_list(self) -> Tuple[Any, List[Tuple["Poly", int]]]:
+        """Factorization over Q returning (scale, [(factor, multiplicity), ...])."""
+        scale_raw, factors_raw = _native.poly_factor_list_expr(
+            str(self._expr), _native_symbol_key(self.gen)
+        )
+        scale = _parse_result(scale_raw)
+        factors = [
+            (Poly(_parse_result(f), *self._gens), mult) for f, mult in factors_raw
+        ]
+        return (scale, factors)
+
+    def factor(self) -> Expr:
+        """Factor polynomial into a product of irreducible rational factors."""
+        scale, factors = self.factor_list()
+        if not factors:
+            return scale
+        terms = []
+        for f, mult in factors:
+            f_expr = f.as_expr()
+            if mult == 1:
+                terms.append(f_expr)
+            else:
+                terms.append(f_expr**mult)
+        prod = terms[0]
+        for t in terms[1:]:
+            prod = prod * t
+        if scale != 1:
+            prod = scale * prod
+        return prod
+
+    def roots(self) -> dict[Any, int]:
+        """Compute polynomial roots over Q with multiplicities."""
+        roots_raw = _native.poly_roots_expr(
+            str(self._expr), _native_symbol_key(self.gen)
+        )
+        return {_parse_result(r): mult for r, mult in roots_raw}
+
     def __add__(self, other: Any) -> "Poly":
         other_expr = other.as_expr() if isinstance(other, Poly) else other
         return Poly(self.as_expr() + other_expr, *self._gens)
@@ -288,16 +325,43 @@ def groebner(F: Sequence[Any], *gens: Any) -> List[Any]:
     return [_parse_result(r) for r in raw]
 
 
+def factor_list(p: Any, *gens: Any) -> Tuple[Any, List[Tuple[Any, int]]]:
+    """Compute polynomial factor list returning (scale, [(factor, multiplicity), ...])."""
+    poly_p = p if isinstance(p, Poly) else Poly(p, *gens)
+    scale, factors = poly_p.factor_list()
+    return (scale, [(f.as_expr(), mult) for f, mult in factors])
+
+
+def factor(p: Any, *gens: Any) -> Any:
+    """Factor polynomial into irreducible factors."""
+    if isinstance(p, Poly):
+        return p.factor()
+    try:
+        poly_p = Poly(p, *gens)
+        return poly_p.factor()
+    except Exception:
+        return _wrap(_native_expr(p))
+
+
+def roots(p: Any, *gens: Any) -> dict[Any, int]:
+    """Compute roots of a polynomial with their multiplicities."""
+    poly_p = p if isinstance(p, Poly) else Poly(p, *gens)
+    return poly_p.roots()
+
+
 __all__ = [
     "LC",
     "Poly",
     "degree",
     "discriminant",
+    "factor",
+    "factor_list",
     "gcd",
     "groebner",
     "lcm",
     "monic",
     "resultant",
+    "roots",
     "sqf_list",
     "sqf_part",
 ]

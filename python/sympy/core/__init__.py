@@ -1019,6 +1019,10 @@ class Expr(Basic):
     def simplify(self) -> "Expr":
         return simplify(self)
 
+    def factor(self, *gens: Any) -> "Expr":
+        from ..polys import factor
+        return factor(self, *gens)
+
     def expand(self) -> "Expr":
         return expand(self)
 

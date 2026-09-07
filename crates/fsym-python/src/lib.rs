@@ -426,6 +426,93 @@ fn poly_sqf_list_expr(p_src: &str, var: &str) -> PyResult<(String, Vec<(String, 
     Ok((scale_expr.to_string(), factors))
 }
 
+/// Univariate polynomial factorization into rational factors: (scale, [(factor, multiplicity), ...]).
+#[pyfunction]
+fn poly_factor_list_expr(p_src: &str, var: &str) -> PyResult<(String, Vec<(String, usize)>)> {
+    let e = parse_expr(p_src)?;
+    let sym = Symbol::new(var);
+    let poly =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e, &sym).map_err(to_value_error)?;
+    let result = fsym_polys::factorization::bounded_rational_root_decomposition(&poly)
+        .map_err(to_value_error)?;
+    let scale_expr = if result.scale.is_integer() {
+        Expr::Integer(result.scale.to_integer())
+    } else {
+        Expr::Rational(result.scale)
+    };
+    let factors = result
+        .factors
+        .into_iter()
+        .map(|f| (f.poly.to_expr().to_string(), f.multiplicity))
+        .collect();
+    Ok((scale_expr.to_string(), factors))
+}
+
+/// Univariate polynomial roots with multiplicities: [(root, multiplicity), ...].
+#[pyfunction]
+fn poly_roots_expr(p_src: &str, var: &str) -> PyResult<Vec<(String, usize)>> {
+    let e = parse_expr(p_src)?;
+    let sym = Symbol::new(var);
+    let poly =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e, &sym).map_err(to_value_error)?;
+    let decomp = fsym_polys::factorization::bounded_rational_root_decomposition(&poly)
+        .map_err(to_value_error)?;
+    let mut roots = Vec::new();
+    for factor in decomp.factors {
+        let deg = factor.poly.degree().unwrap_or(0);
+        match (deg, factor.poly.coeffs.as_slice()) {
+            (1, [c0, c1, ..]) => {
+                let root = -c0 / c1;
+                let root_expr = if root.is_integer() {
+                    Expr::Integer(root.to_integer())
+                } else {
+                    Expr::Rational(root)
+                };
+                roots.push((root_expr.to_string(), factor.multiplicity));
+            }
+            (2, [c0, c1, c2, ..]) => {
+                let four = fsym_core::BigRational::from_integer(fsym_core::BigInt::from(4));
+                let discr = c1 * c1 - four * c2 * c0;
+                let zero = fsym_core::BigRational::from_integer(fsym_core::BigInt::from(0));
+                if discr >= zero {
+                    let maybe_sqrt = match (discr.numer().sqrt(), discr.denom().sqrt()) {
+                        (Some(num_s), Some(den_s))
+                            if &num_s * &num_s == *discr.numer()
+                                && &den_s * &den_s == *discr.denom() =>
+                        {
+                            Some(fsym_core::BigRational::new(num_s, den_s))
+                        }
+                        _ => None,
+                    };
+                    if let Some(sqrt_d) = maybe_sqrt {
+                        let two = fsym_core::BigRational::from_integer(fsym_core::BigInt::from(2));
+                        let two_a = two * c2;
+                        let r1 = (-c1 + &sqrt_d) / &two_a;
+                        let r2 = (-c1 - &sqrt_d) / &two_a;
+                        let same = r1 == r2;
+                        let r1_expr = if r1.is_integer() {
+                            Expr::Integer(r1.to_integer())
+                        } else {
+                            Expr::Rational(r1)
+                        };
+                        roots.push((r1_expr.to_string(), factor.multiplicity));
+                        if !same {
+                            let r2_expr = if r2.is_integer() {
+                                Expr::Integer(r2.to_integer())
+                            } else {
+                                Expr::Rational(r2)
+                            };
+                            roots.push((r2_expr.to_string(), factor.multiplicity));
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(roots)
+}
+
 /// Multivariate Groebner basis under Lex order.
 #[pyfunction]
 fn groebner_basis_expr(eq_sources: Vec<String>, var_names: Vec<String>) -> PyResult<Vec<String>> {
@@ -604,6 +691,8 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(poly_gcd_expr, m)?)?;
     m.add_function(wrap_pyfunction!(poly_lcm_expr, m)?)?;
     m.add_function(wrap_pyfunction!(poly_sqf_list_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_factor_list_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_roots_expr, m)?)?;
     m.add_function(wrap_pyfunction!(groebner_basis_expr, m)?)?;
     m.add_function(wrap_pyfunction!(mobius_fn, m)?)?;
     m.add_function(wrap_pyfunction!(divisor_count_fn, m)?)?;
@@ -1090,6 +1179,18 @@ mod tests {
         )
         .unwrap();
         assert!(!gb.is_empty());
+
+        // Factor list: (x - 2) * (x + 2)
+        let (scale, factors) = poly_factor_list_expr("x**2 - 4", "x").unwrap();
+        assert_eq!(scale, "1");
+        assert_eq!(factors.len(), 2);
+
+        // Roots: x^2 - 4 => roots 2, -2 with mult 1
+        let roots = poly_roots_expr("x**2 - 4", "x").unwrap();
+        assert_eq!(roots.len(), 2);
+        let root_vals: Vec<String> = roots.into_iter().map(|(r, _)| r).collect();
+        assert!(root_vals.contains(&"2".to_string()));
+        assert!(root_vals.contains(&"-2".to_string()));
     }
 
     #[test]

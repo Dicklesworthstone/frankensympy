@@ -1623,6 +1623,44 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(ctx.query(x, Q.negative), "False")
         self.assertEqual(ctx.query(x, Q.integer), "Unknown")
 
+    def test_factor_and_roots(self):
+        from sympy.polys import factor, factor_list, roots
+        self.assertIs(factor, sympy.factor)
+        self.assertIs(factor_list, sympy.factor_list)
+        self.assertIs(roots, sympy.roots)
+
+        x = sympy.Symbol("x")
+
+        # factor
+        factored1 = sympy.factor(x**2 - 4)
+        self.assertEqual(sympy.expand(factored1), x**2 - 4)
+        self.assertIn("x - 2", str(factored1))
+        self.assertIn("x + 2", str(factored1))
+
+        # factor square
+        factored2 = sympy.factor(x**2 - 2*x + 1)
+        self.assertEqual(str(factored2), "(x - 1)**2")
+
+        # method .factor() on Expr
+        factored_m = (x**2 - 4).factor()
+        self.assertEqual(sympy.expand(factored_m), x**2 - 4)
+
+        # factor with constant coefficient
+        factored3 = sympy.factor(2*x**2 - 8)
+        self.assertEqual(sympy.expand(factored3), 2*x**2 - 8)
+
+        # factor_list
+        scale, f_list = sympy.factor_list(x**2 - 4)
+        self.assertEqual(scale, sympy.Integer(1))
+        self.assertEqual(len(f_list), 2)
+
+        # roots
+        r1 = sympy.roots(x**2 - 4, x)
+        self.assertEqual(r1, {sympy.Integer(2): 1, sympy.Integer(-2): 1})
+
+        r2 = sympy.roots(x**2 - 2*x + 1, x)
+        self.assertEqual(r2, {sympy.Integer(1): 2})
+
 
 if __name__ == "__main__":
     unittest.main()
