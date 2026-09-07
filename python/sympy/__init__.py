@@ -33,6 +33,7 @@ from .core import (
     Rational,
     S,
     Symbol,
+    Tuple,
     UndefinedFunction,
     _native,
     _native_expr,
@@ -96,7 +97,35 @@ def integrate(expression, *variables):
 
 
 def solve(expression, variable=None):
-    """Solve the algebraic equation ``expression == 0`` for ``variable``."""
+    """Solve the algebraic equation or system of equations ``expression == 0``."""
+    if isinstance(expression, (list, tuple)):
+        from .solvers.polysys import solve_poly_system as _sps
+        if variable is not None and isinstance(variable, (list, tuple)) and len(variable) == 2:
+            sols = _sps(expression, *variable)
+            if sols is None:
+                return []
+            var_x, var_y = variable[0], variable[1]
+            if len(sols) == 1:
+                return {var_x: sols[0][0], var_y: sols[0][1]}
+            return [{var_x: sol[0], var_y: sol[1]} for sol in sols]
+        elif variable is None:
+            all_syms = set()
+            for eq in expression:
+                if type(eq) is Eq:
+                    eq = eq.lhs - eq.rhs
+                all_syms.update(_wrap(_native_expr(eq)).free_symbols)
+            if len(all_syms) == 2:
+                ordered_syms = sorted(list(all_syms), key=lambda s: s.name)
+                sols = _sps(expression, *ordered_syms)
+                if sols is None:
+                    return []
+                if len(sols) == 1:
+                    return {ordered_syms[0]: sols[0][0], ordered_syms[1]: sols[0][1]}
+                return [{ordered_syms[0]: sol[0], ordered_syms[1]: sol[1]} for sol in sols]
+            raise TypeError("at least one solve variable is required")
+        else:
+            raise TypeError(f"unsupported solve system signature with variable {variable}")
+
     if type(expression) is Eq:
         expression = expression.lhs - expression.rhs
     expr = _wrap(_native_expr(expression))
@@ -112,6 +141,7 @@ def solve(expression, variable=None):
         str(expr), _native_symbol_key(symbol)
     )
     return [_parse_result(r) for r in results]
+
 
 
 def solveset(expression, variable=None, domain=None):
@@ -360,6 +390,7 @@ from . import (
     integrals,
     logic,
     ntheory,
+    polys,
     series,
     sets,
     solvers,
@@ -378,14 +409,19 @@ from .geometry import (
     Circle,
     Line,
     Line2D,
+    Line3D,
+    Plane,
     Point,
     Point2D,
     Point3D,
     Polygon,
     Ray,
     Ray2D,
+    Ray3D,
     Segment,
     Segment2D,
+    Segment3D,
+    Sphere,
     Triangle,
 )
 from .logic import (
@@ -407,7 +443,29 @@ from .logic import (
     to_dnf,
     true,
 )
-from .series import limit, series
+from .polys import (
+    LC,
+    Poly,
+    degree,
+    discriminant,
+    gcd,
+    groebner,
+    lcm,
+    monic,
+    resultant,
+    sqf_list,
+    sqf_part,
+)
+from .series import O, Order, limit, series
+from .solvers import (
+    dsolve_cauchy_euler,
+    dsolve_const_coeff_second_order,
+    dsolve_const_coeff_second_order_nonhomogeneous,
+    dsolve_linear_first_order,
+    dsolve_separable_linear,
+    nonlinsolve,
+    solve_poly_system,
+)
 
 
 __all__ = [
@@ -448,9 +506,11 @@ __all__ = [
     "Integer",
     "Intersection",
     "Interval",
+    "LC",
     "Le",
     "Line",
     "Line2D",
+    "Line3D",
     "Lt",
     "Matrix",
     "MatrixBase",
@@ -460,21 +520,29 @@ __all__ = [
     "Ne",
     "Not",
     "Number",
+    "O",
     "Or",
+    "Order",
+    "Plane",
     "Point",
     "Point2D",
     "Point3D",
+    "Poly",
     "Polygon",
     "Pow",
     "Rational",
     "Ray",
     "Ray2D",
+    "Ray3D",
     "S",
     "Segment",
     "Segment2D",
+    "Segment3D",
     "Set",
+    "Sphere",
     "Symbol",
     "Triangle",
+    "Tuple",
     "UndefinedFunction",
     "Union",
     "UniversalSet",
@@ -486,11 +554,18 @@ __all__ = [
     "checksol",
     "cos",
     "cosh",
+    "degree",
     "diag",
     "diff",
+    "discriminant",
     "divisor_count",
     "divisor_sigma",
     "dsolve",
+    "dsolve_cauchy_euler",
+    "dsolve_const_coeff_second_order",
+    "dsolve_const_coeff_second_order_nonhomogeneous",
+    "dsolve_linear_first_order",
+    "dsolve_separable_linear",
     "exp",
     "eye",
     "factorial",
@@ -500,17 +575,23 @@ __all__ = [
     "floor",
     "fourier_transform",
     "gamma",
+    "gcd",
+    "groebner",
     "integrate",
     "isprime",
     "jacobi_symbol",
     "laplace_transform",
+    "lcm",
     "limit",
     "log",
     "mobius",
+    "monic",
     "nan",
+    "nonlinsolve",
     "oo",
     "pi",
     "pretty",
+    "resultant",
     "satisfiable",
     "series",
     "simplify",
@@ -518,7 +599,10 @@ __all__ = [
     "sin",
     "sinh",
     "solve",
+    "solve_poly_system",
     "solveset",
+    "sqf_list",
+    "sqf_part",
     "srepr",
     "sqrt",
     "symbols",

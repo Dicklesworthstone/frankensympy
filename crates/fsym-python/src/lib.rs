@@ -193,6 +193,260 @@ fn dsolve_cauchy_euler_expr(a: i64, b: i64, c: i64, x_var: &str) -> PyResult<Str
         .map_err(to_value_error)
 }
 
+/// Exact 2nd-order nonhomogeneous constant-coefficient ODE solver: a*y'' + b*y' + c*y = f(x).
+#[pyfunction]
+fn dsolve_const_coeff_second_order_nonhomogeneous_expr(
+    a: i64,
+    b: i64,
+    c: i64,
+    f_src: &str,
+    x_var: &str,
+) -> PyResult<String> {
+    let f = parse_expr(f_src)?;
+    let c1 = Symbol::new("C1");
+    let c2 = Symbol::new("C2");
+    fsym_solvers::dsolve_const_coeff_second_order_nonhomogeneous(
+        a,
+        b,
+        c,
+        &f,
+        &Symbol::new(x_var),
+        &c1,
+        &c2,
+    )
+    .map(|v| v.to_string())
+    .map_err(to_value_error)
+}
+
+/// Exact separable linear ODE solver: y'(x) = f(x)*y(x).
+#[pyfunction]
+fn dsolve_separable_linear_expr(f_src: &str, x_var: &str) -> PyResult<String> {
+    let f = parse_expr(f_src)?;
+    let c1 = Symbol::new("C1");
+    fsym_solvers::dsolve_separable_linear(&f, &Symbol::new(x_var), &c1)
+        .map(|v| v.to_string())
+        .map_err(to_value_error)
+}
+
+/// Exact 2-variable polynomial system solver via Lex Groebner basis.
+#[pyfunction]
+fn solve_poly_system_expr(
+    eq_sources: Vec<String>,
+    var1: &str,
+    var2: &str,
+) -> PyResult<Vec<(String, String)>> {
+    let x = Symbol::new(var1);
+    let y = Symbol::new(var2);
+    let gens = vec![x.clone(), y.clone()];
+    let mut polys = Vec::with_capacity(eq_sources.len());
+    for s in &eq_sources {
+        let e = parse_expr(s)?;
+        let p = fsym_polys::multivariate::MultivariatePoly::from_expr(&e, &gens)
+            .map_err(to_value_error)?;
+        polys.push(p);
+    }
+    let solutions = fsym_solvers::solve_2var_poly_system(&polys, &x, &y).map_err(to_value_error)?;
+    let mut out = Vec::with_capacity(solutions.len());
+    for sol in solutions {
+        let x_str = sol
+            .get(&x)
+            .map(|e| e.to_string())
+            .unwrap_or_else(|| "0".to_string());
+        let y_str = sol
+            .get(&y)
+            .map(|e| e.to_string())
+            .unwrap_or_else(|| "0".to_string());
+        out.push((x_str, y_str));
+    }
+    Ok(out)
+}
+
+/// Univariate polynomial coefficients in descending degree order.
+#[pyfunction]
+fn poly_coeffs_expr(p_src: &str, var: &str) -> PyResult<Vec<String>> {
+    let e = parse_expr(p_src)?;
+    let sym = Symbol::new(var);
+    let poly =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e, &sym).map_err(to_value_error)?;
+    let coeffs: Vec<String> = poly
+        .coeffs
+        .iter()
+        .rev()
+        .map(|r| {
+            if r.is_integer() {
+                Expr::Integer(r.to_integer()).to_string()
+            } else {
+                Expr::Rational(r.clone()).to_string()
+            }
+        })
+        .collect();
+    Ok(coeffs)
+}
+
+/// Univariate polynomial degree (None for zero polynomial).
+#[pyfunction]
+fn poly_degree_expr(p_src: &str, var: &str) -> PyResult<Option<usize>> {
+    let e = parse_expr(p_src)?;
+    let sym = Symbol::new(var);
+    let poly =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e, &sym).map_err(to_value_error)?;
+    Ok(poly.degree())
+}
+
+/// Leading coefficient of a univariate polynomial.
+#[pyfunction]
+fn poly_leading_coeff_expr(p_src: &str, var: &str) -> PyResult<String> {
+    let e = parse_expr(p_src)?;
+    let sym = Symbol::new(var);
+    let poly =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e, &sym).map_err(to_value_error)?;
+    let lc = poly.leading_coeff();
+    let lc_expr = if lc.is_integer() {
+        Expr::Integer(lc.to_integer())
+    } else {
+        Expr::Rational(lc.clone())
+    };
+    Ok(lc_expr.to_string())
+}
+
+/// Monic normalization of a univariate polynomial.
+#[pyfunction]
+fn poly_monic_expr(p_src: &str, var: &str) -> PyResult<String> {
+    let e = parse_expr(p_src)?;
+    let sym = Symbol::new(var);
+    let poly =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e, &sym).map_err(to_value_error)?;
+    let monic = poly.make_monic().map_err(to_value_error)?;
+    Ok(monic.to_expr().to_string())
+}
+
+/// Polynomial division with remainder returning (quotient, remainder).
+#[pyfunction]
+fn poly_div_rem_expr(p1_src: &str, p2_src: &str, var: &str) -> PyResult<(String, String)> {
+    let e1 = parse_expr(p1_src)?;
+    let e2 = parse_expr(p2_src)?;
+    let sym = Symbol::new(var);
+    let poly1 =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e1, &sym).map_err(to_value_error)?;
+    let poly2 =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e2, &sym).map_err(to_value_error)?;
+    let (q, r) = poly1.div_rem(&poly2).map_err(to_value_error)?;
+    Ok((q.to_expr().to_string(), r.to_expr().to_string()))
+}
+
+/// Univariate polynomial resultant.
+#[pyfunction]
+fn poly_resultant_expr(p1_src: &str, p2_src: &str, var: &str) -> PyResult<String> {
+    let e1 = parse_expr(p1_src)?;
+    let e2 = parse_expr(p2_src)?;
+    let sym = Symbol::new(var);
+    let poly1 =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e1, &sym).map_err(to_value_error)?;
+    let poly2 =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e2, &sym).map_err(to_value_error)?;
+    let res = poly1.resultant(&poly2).map_err(to_value_error)?;
+    let res_expr = if res.is_integer() {
+        Expr::Integer(res.to_integer())
+    } else {
+        Expr::Rational(res)
+    };
+    Ok(res_expr.to_string())
+}
+
+/// Univariate polynomial discriminant.
+#[pyfunction]
+fn poly_discriminant_expr(p_src: &str, var: &str) -> PyResult<String> {
+    let e = parse_expr(p_src)?;
+    let sym = Symbol::new(var);
+    let poly =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e, &sym).map_err(to_value_error)?;
+    let disc = poly.discriminant().map_err(to_value_error)?;
+    let disc_expr = if disc.is_integer() {
+        Expr::Integer(disc.to_integer())
+    } else {
+        Expr::Rational(disc)
+    };
+    Ok(disc_expr.to_string())
+}
+
+/// Univariate polynomial greatest common divisor (monic).
+#[pyfunction]
+fn poly_gcd_expr(p1_src: &str, p2_src: &str, var: &str) -> PyResult<String> {
+    let e1 = parse_expr(p1_src)?;
+    let e2 = parse_expr(p2_src)?;
+    let sym = Symbol::new(var);
+    let poly1 =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e1, &sym).map_err(to_value_error)?;
+    let poly2 =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e2, &sym).map_err(to_value_error)?;
+    let g = poly1.gcd(&poly2).map_err(to_value_error)?;
+    Ok(g.to_expr().to_string())
+}
+
+/// Univariate polynomial least common multiple (monic).
+#[pyfunction]
+fn poly_lcm_expr(p1_src: &str, p2_src: &str, var: &str) -> PyResult<String> {
+    let e1 = parse_expr(p1_src)?;
+    let e2 = parse_expr(p2_src)?;
+    let sym = Symbol::new(var);
+    let poly1 =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e1, &sym).map_err(to_value_error)?;
+    let poly2 =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e2, &sym).map_err(to_value_error)?;
+    let g = poly1.gcd(&poly2).map_err(to_value_error)?;
+    let lcm = if g.is_zero() {
+        fsym_polys::univariate::UnivariatePoly::zero(sym)
+    } else {
+        let prod = poly1.mul(&poly2).map_err(to_value_error)?;
+        let (q, _) = prod.div_rem(&g).map_err(to_value_error)?;
+        q.to_monic()
+    };
+    Ok(lcm.to_expr().to_string())
+}
+
+/// Univariate polynomial square-free factorization returning (scale, [(factor, multiplicity), ...]).
+#[pyfunction]
+fn poly_sqf_list_expr(p_src: &str, var: &str) -> PyResult<(String, Vec<(String, usize)>)> {
+    let e = parse_expr(p_src)?;
+    let sym = Symbol::new(var);
+    let poly =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e, &sym).map_err(to_value_error)?;
+    let result =
+        fsym_polys::factorization::square_free_decomposition(&poly).map_err(to_value_error)?;
+    let scale_expr = if result.scale.is_integer() {
+        Expr::Integer(result.scale.to_integer())
+    } else {
+        Expr::Rational(result.scale)
+    };
+    let factors = result
+        .factors
+        .into_iter()
+        .map(|f| (f.poly.to_expr().to_string(), f.multiplicity))
+        .collect();
+    Ok((scale_expr.to_string(), factors))
+}
+
+/// Multivariate Groebner basis under Lex order.
+#[pyfunction]
+fn groebner_basis_expr(eq_sources: Vec<String>, var_names: Vec<String>) -> PyResult<Vec<String>> {
+    let gens: Vec<Symbol> = var_names.into_iter().map(Symbol::new).collect();
+    let mut polys = Vec::with_capacity(eq_sources.len());
+    for s in &eq_sources {
+        let e = parse_expr(s)?;
+        let p = fsym_polys::multivariate::MultivariatePoly::from_expr(&e, &gens)
+            .map_err(to_value_error)?;
+        polys.push(p);
+    }
+    let basis = fsym_polys::groebner::groebner_basis(&polys, fsym_polys::TermOrder::Lex)
+        .map_err(to_value_error)?;
+    let mut out = Vec::with_capacity(basis.len());
+    for p in basis {
+        let expr = p.to_expr().map_err(to_value_error)?;
+        out.push(expr.to_string());
+    }
+    Ok(out)
+}
+
 /// Algebraic equation solver (linear, quadratic, factorable higher-degree polynomial).
 #[pyfunction]
 fn solve_expr(src: &str, var: &str) -> PyResult<Vec<String>> {
@@ -322,6 +576,23 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(dsolve_linear_first_order_expr, m)?)?;
     m.add_function(wrap_pyfunction!(dsolve_const_coeff_second_order_expr, m)?)?;
     m.add_function(wrap_pyfunction!(dsolve_cauchy_euler_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        dsolve_const_coeff_second_order_nonhomogeneous_expr,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(dsolve_separable_linear_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(solve_poly_system_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_coeffs_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_degree_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_leading_coeff_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_monic_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_div_rem_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_resultant_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_discriminant_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_gcd_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_lcm_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_sqf_list_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(groebner_basis_expr, m)?)?;
     m.add_function(wrap_pyfunction!(mobius_fn, m)?)?;
     m.add_function(wrap_pyfunction!(divisor_count_fn, m)?)?;
     m.add_function(wrap_pyfunction!(divisor_sum_fn, m)?)?;
@@ -738,5 +1009,74 @@ mod tests {
 
         let inter = iv.intersection(&finite);
         assert!(inter.contains(&py_integer(2)).unwrap());
+    }
+
+    #[test]
+    fn test_ode_extended_and_poly_system() {
+        // Nonhomogeneous ODE: y'' - 3*y' + 2*y = 4
+        let ode_nonhom =
+            dsolve_const_coeff_second_order_nonhomogeneous_expr(1, -3, 2, "4", "x").unwrap();
+        assert!(ode_nonhom.contains("C1") && ode_nonhom.contains("C2"));
+
+        // Separable ODE: y' = 2*x*y
+        let ode_sep = dsolve_separable_linear_expr("2*x", "x").unwrap();
+        assert!(ode_sep.contains("C1"));
+
+        // 2-variable poly system: x + y - 5 = 0, x - y - 1 = 0
+        let sols = solve_poly_system_expr(
+            vec!["x + y - 5".to_string(), "x - y - 1".to_string()],
+            "x",
+            "y",
+        )
+        .unwrap();
+        assert_eq!(sols, vec![("3".to_string(), "2".to_string())]);
+    }
+
+    #[test]
+    fn test_poly_bindings() {
+        // x^2 - 4
+        let coeffs = poly_coeffs_expr("x**2 - 4", "x").unwrap();
+        assert_eq!(coeffs, vec!["1", "0", "-4"]);
+
+        let deg = poly_degree_expr("x**2 - 4", "x").unwrap();
+        assert_eq!(deg, Some(2));
+
+        let lc = poly_leading_coeff_expr("3*x**2 - 4", "x").unwrap();
+        assert_eq!(lc, "3");
+
+        let monic = poly_monic_expr("2*x**2 - 8", "x").unwrap();
+        assert_eq!(parse(&monic).unwrap(), parse("x**2 - 4").unwrap());
+
+        let (q, r) = poly_div_rem_expr("x**2 - 1", "x - 1", "x").unwrap();
+        assert_eq!(parse(&q).unwrap(), parse("x + 1").unwrap());
+        assert_eq!(r, "0");
+
+        let disc = poly_discriminant_expr("x**2 - 4", "x").unwrap();
+        assert_eq!(disc, "16");
+
+        let res = poly_resultant_expr("x - 2", "x - 3", "x").unwrap();
+        assert_eq!(res, "-1");
+
+        let gcd_res = poly_gcd_expr("x**2 - 1", "x - 1", "x").unwrap();
+        assert_eq!(parse(&gcd_res).unwrap(), parse("x - 1").unwrap());
+
+        let lcm_res = poly_lcm_expr("x - 1", "x + 1", "x").unwrap();
+        assert_eq!(parse(&lcm_res).unwrap(), parse("x**2 - 1").unwrap());
+
+        let (scale, factors) = poly_sqf_list_expr("(x - 1)**2 * (x + 2)", "x").unwrap();
+        assert_eq!(scale, "1");
+        let factor_exprs: Vec<(Expr, usize)> = factors
+            .into_iter()
+            .map(|(s, m)| (parse(&s).unwrap(), m))
+            .collect();
+        assert!(factor_exprs.contains(&(parse("x - 1").unwrap(), 2)));
+        assert!(factor_exprs.contains(&(parse("x + 2").unwrap(), 1)));
+
+        let gb = groebner_basis_expr(
+            vec!["x*y - 2*y".to_string(), "2*y**2 - x**2".to_string()],
+            vec!["x".to_string(), "y".to_string()],
+        )
+        .unwrap();
+        assert!(!gb.is_empty());
     }
 }

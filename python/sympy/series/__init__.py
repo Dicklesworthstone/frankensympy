@@ -41,7 +41,15 @@ def limit(expression, variable, point):
     )
 
 
+from ..core import Function
+
+Order = Function("Order")
+O = Order
+
 __all__ = [
+    "O",
+    "Order",
     "limit",
     "series",
 ]
+

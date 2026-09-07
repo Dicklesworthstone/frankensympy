@@ -120,6 +120,10 @@ def _native_expr(value: Any):
         return _native.py_integer(value)
     if isinstance(value, float):
         return _float_intern(_ieee_bits(value))
+    if isinstance(value, tuple):
+        inner_items = [_wrap(_native_expr(item)) for item in value]
+        tuple_str = f"Tuple({', '.join(str(i) for i in inner_items)})"
+        return _native.Expr(tuple_str)
     if isinstance(value, str):
         return _native.Expr(value)
     raise TypeError(f"cannot convert {type(value).__name__} to native Expr")
@@ -1128,6 +1132,21 @@ class Expr(Basic):
             return _number_is_extended_negative(self)
         return False
 
+    def __getitem__(self, index: Any) -> Any:
+        if self._value.func_name == "Tuple":
+            return self.args[index]
+        raise TypeError(f"'{type(self).__name__}' object is not subscriptable")
+
+    def __len__(self) -> int:
+        if self._value.func_name == "Tuple":
+            return len(self.args)
+        raise TypeError(f"'{type(self).__name__}' object of type '{type(self).__name__}' has no len()")
+
+    def __iter__(self) -> Any:
+        if self._value.func_name == "Tuple":
+            return iter(self.args)
+        raise TypeError(f"'{type(self).__name__}' object is not iterable")
+
     def __lt__(self, other: Any) -> bool:
         return _native_expr(self) < _native_expr(other)
 
@@ -1190,6 +1209,13 @@ class Expr(Basic):
 
     def __truediv__(self, other: Any) -> "Expr":
         try:
+            if not (isinstance(self, (float, Float)) or isinstance(other, (float, Float))):
+                ratio_self = _exact_ratio(self)
+                ratio_other = _exact_ratio(other)
+                if ratio_self is not None and ratio_other is not None:
+                    p1, q1 = ratio_self
+                    p2, q2 = ratio_other
+                    return Rational(p1 * q2, q1 * p2)
             reciprocal = _native.py_pow(_native_expr(other), _native.py_integer(-1))
             return _wrap(_native_expr(self) * reciprocal)
         except TypeError:
@@ -1199,6 +1225,13 @@ class Expr(Basic):
 
     def __rtruediv__(self, other: Any) -> "Expr":
         try:
+            if not (isinstance(self, (float, Float)) or isinstance(other, (float, Float))):
+                ratio_self = _exact_ratio(self)
+                ratio_other = _exact_ratio(other)
+                if ratio_self is not None and ratio_other is not None:
+                    p1, q1 = ratio_other
+                    p2, q2 = ratio_self
+                    return Rational(p1 * q2, q1 * p2)
             reciprocal = _native.py_pow(_native_expr(self), _native.py_integer(-1))
             return _wrap(_native_expr(other) * reciprocal)
         except TypeError:
@@ -2265,6 +2298,9 @@ def _restore_applied_undef(name: str, args: tuple[Any, ...]) -> AppliedUndef:
     return Function(name)(*args)
 
 
+Tuple = Function("Tuple")
+
+
 def symbols(names: str | Iterable[str], **assumptions: Any):
     """Create one or more symbols without silently discarding assumptions."""
     if isinstance(names, str):
@@ -2670,6 +2706,7 @@ __all__ = [
     "Rational",
     "S",
     "Symbol",
+    "Tuple",
     "UndefinedFunction",
     "diff",
     "expand",

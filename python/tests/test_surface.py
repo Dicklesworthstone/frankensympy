@@ -1257,6 +1257,254 @@ class SurfaceTests(unittest.TestCase):
         self.assertFalse(sympy.checksol(x - 5, {x: 4}))
         self.assertTrue(sympy.checksol(sympy.Eq(2 * x, 10), x, 5))
 
+    def test_geometry_3d_and_sequence_access(self):
+        from sympy import (
+            Point,
+            Point2D,
+            Point3D,
+            Line,
+            Line2D,
+            Line3D,
+            Segment,
+            Segment2D,
+            Segment3D,
+            Plane,
+            Sphere,
+        )
+
+        # Sequence access and hashing on Point2D
+        p2 = Point2D(3, 7)
+        self.assertEqual(len(p2), 2)
+        self.assertEqual(p2[0], 3)
+        self.assertEqual(p2[1], 7)
+        self.assertEqual(p2[-1], 7)
+        self.assertEqual(p2[-2], 3)
+        with self.assertRaises(IndexError):
+            _ = p2[2]
+        self.assertEqual(hash(p2), hash(Point2D(3, 7)))
+        self.assertEqual({p2, Point2D(3, 7)}, {Point2D(3, 7)})
+
+        # Sequence access and hashing on Point3D
+        p3 = Point3D(1, 4, 9)
+        self.assertEqual(len(p3), 3)
+        self.assertEqual(p3[0], 1)
+        self.assertEqual(p3[1], 4)
+        self.assertEqual(p3[2], 9)
+        self.assertEqual(p3[-1], 9)
+        self.assertEqual(p3[-2], 4)
+        self.assertEqual(p3[-3], 1)
+        with self.assertRaises(IndexError):
+            _ = p3[3]
+        self.assertEqual(hash(p3), hash(Point3D(1, 4, 9)))
+
+        # Segment3D
+        origin = Point3D(0, 0, 0)
+        seg = Segment(origin, Point3D(2, 4, 6))
+        self.assertIsInstance(seg, Segment3D)
+        self.assertEqual(seg.midpoint, Point3D(1, 2, 3))
+        self.assertEqual(seg.p1, origin)
+        self.assertEqual(seg.p2, Point3D(2, 4, 6))
+
+        # Line3D
+        l3 = Line(origin, Point3D(0, 0, 5))
+        self.assertIsInstance(l3, Line3D)
+        self.assertEqual(l3.direction, Point3D(0, 0, 5))
+
+        # Plane from point + normal
+        pl1 = Plane(origin, Point3D(0, 0, 1))
+        self.assertEqual(pl1.point, origin)
+        self.assertEqual(pl1.normal_vector, Point3D(0, 0, 1))
+        self.assertEqual(pl1.eval_at_point(Point3D(2, 3, 0)), 0)
+        self.assertEqual(pl1.eval_at_point(Point3D(2, 3, 5)), 5)
+
+        # Plane from 3 points
+        pl2 = Plane(Point3D(0, 0, 0), Point3D(1, 0, 0), Point3D(0, 1, 0))
+        self.assertEqual(pl2.normal_vector, Point3D(0, 0, 1))
+        self.assertTrue(pl1.is_parallel(pl2))
+
+        # Plane perpendicularity
+        pl_perp = Plane(origin, Point3D(1, 0, 0))
+        self.assertTrue(pl1.is_perpendicular(pl_perp))
+
+        # Sphere
+        sp = Sphere(origin, 3)
+        self.assertEqual(sp.center, origin)
+        self.assertEqual(sp.radius, 3)
+        self.assertEqual(sp.surface_area, 36 * sympy.pi)
+        self.assertEqual(sp.area, 36 * sympy.pi)
+        self.assertEqual(sp.volume, 36 * sympy.pi)
+
+    def test_numeric_exact_division(self):
+        from sympy import Integer, Rational, Float, zoo
+
+        # Integer / Integer
+        self.assertEqual(Integer(6) / Integer(2), Integer(3))
+        self.assertIsInstance(Integer(6) / Integer(2), Integer)
+        self.assertEqual(Integer(1) / Integer(2), Rational(1, 2))
+
+        # Integer / Rational
+        self.assertEqual(Integer(6) / Rational(3, 2), Integer(4))
+        self.assertIsInstance(Integer(6) / Rational(3, 2), Integer)
+
+        # Rational / Rational
+        self.assertEqual(Rational(1, 3) / Rational(2, 5), Rational(5, 6))
+
+        # Division by zero
+        self.assertEqual(Integer(1) / Integer(0), zoo)
+
+        # Float preserves float behavior
+        f_res = Float(2.5) / Integer(2)
+        self.assertIsInstance(f_res, Float)
+
+    def test_polys_module(self):
+        from sympy.polys import (
+            LC,
+            Poly,
+            degree,
+            discriminant,
+            gcd,
+            groebner,
+            lcm,
+            monic,
+            resultant,
+            sqf_list,
+            sqf_part,
+        )
+        self.assertIs(Poly, sympy.Poly)
+        self.assertIs(degree, sympy.degree)
+        self.assertIs(gcd, sympy.gcd)
+        self.assertIs(lcm, sympy.lcm)
+        self.assertIs(resultant, sympy.resultant)
+        self.assertIs(discriminant, sympy.discriminant)
+        self.assertIs(sqf_list, sympy.sqf_list)
+        self.assertIs(sqf_part, sympy.sqf_part)
+        self.assertIs(groebner, sympy.groebner)
+
+        x, y = sympy.symbols("x y")
+        p = Poly(3 * x**2 - 4, x)
+        self.assertEqual(p.degree(), 2)
+        self.assertEqual(degree(3 * x**2 - 4, x), 2)
+        self.assertEqual(p.all_coeffs(), [sympy.Integer(3), sympy.Integer(0), sympy.Integer(-4)])
+        self.assertEqual(p.coeffs(), [sympy.Integer(3), sympy.Integer(-4)])
+        self.assertEqual(p.leading_coeff(), sympy.Integer(3))
+        self.assertEqual(LC(p), sympy.Integer(3))
+        self.assertFalse(p.is_monic)
+
+        p_monic = Poly(2 * x**2 - 8, x).monic()
+        self.assertTrue(p_monic.is_monic)
+        self.assertEqual(p_monic.all_coeffs(), [sympy.Integer(1), sympy.Integer(0), sympy.Integer(-4)])
+
+        # Division with remainder
+        p1 = Poly(x**2 - 1, x)
+        p2 = Poly(x - 1, x)
+        q, r = p1.div(p2)
+        self.assertEqual(q.as_expr(), x + 1)
+        self.assertEqual(r.as_expr(), sympy.Integer(0))
+        self.assertEqual(p1.rem(p2).as_expr(), sympy.Integer(0))
+
+        # Resultant and discriminant
+        self.assertEqual(resultant(x - 2, x - 3, x), sympy.Integer(-1))
+        self.assertEqual(discriminant(x**2 - 4, x), sympy.Integer(16))
+
+        # GCD and LCM
+        self.assertEqual(gcd(x**2 - 1, x - 1), x - 1)
+        self.assertEqual(lcm(x - 1, x + 1), x**2 - 1)
+        self.assertEqual(gcd(12, 18), 6)
+        self.assertEqual(lcm(12, 18), 36)
+
+        # Square-free factorization
+        scale, factors = sqf_list((x - 1)**2 * (x + 2), x)
+        self.assertEqual(scale, sympy.Integer(1))
+        factor_map = {f: mult for f, mult in factors}
+        self.assertEqual(factor_map[x - 1], 2)
+        self.assertEqual(factor_map[x + 2], 1)
+
+        # Groebner basis
+        gb = groebner([x * y - 2 * y, 2 * y**2 - x**2], x, y)
+        self.assertTrue(len(gb) >= 2)
+
+    def test_extended_ode_solvers(self):
+        from sympy.solvers.ode import (
+            dsolve_cauchy_euler,
+            dsolve_const_coeff_second_order,
+            dsolve_const_coeff_second_order_nonhomogeneous,
+            dsolve_linear_first_order,
+            dsolve_separable_linear,
+        )
+        self.assertIs(dsolve_cauchy_euler, sympy.dsolve_cauchy_euler)
+        self.assertIs(dsolve_const_coeff_second_order, sympy.dsolve_const_coeff_second_order)
+        self.assertIs(
+            dsolve_const_coeff_second_order_nonhomogeneous,
+            sympy.dsolve_const_coeff_second_order_nonhomogeneous,
+        )
+        self.assertIs(dsolve_linear_first_order, sympy.dsolve_linear_first_order)
+        self.assertIs(dsolve_separable_linear, sympy.dsolve_separable_linear)
+
+        x = sympy.Symbol("x")
+        # 1st-order linear
+        sol_lin1 = dsolve_linear_first_order(0, 2 * x, x)
+        self.assertTrue("C1" in str(sol_lin1))
+
+        # 2nd-order constant coefficient
+        sol_hom2 = dsolve_const_coeff_second_order(1, -3, 2, x)
+        self.assertTrue("C1" in str(sol_hom2) and "C2" in str(sol_hom2))
+
+        # 2nd-order nonhomogeneous
+        sol_nonhom2 = dsolve_const_coeff_second_order_nonhomogeneous(1, -3, 2, 4, x)
+        self.assertTrue("C1" in str(sol_nonhom2) and "C2" in str(sol_nonhom2))
+
+        # Cauchy-Euler
+        sol_ce = dsolve_cauchy_euler(1, -1, 1, x)
+        self.assertTrue("C1" in str(sol_ce) and "C2" in str(sol_ce))
+
+        # Separable linear
+        sol_sep = dsolve_separable_linear(2 * x, x)
+        self.assertTrue("C1" in str(sol_sep))
+
+    def test_poly_system_solvers(self):
+        from sympy.solvers import nonlinsolve, solve_poly_system
+        self.assertIs(solve_poly_system, sympy.solve_poly_system)
+        self.assertIs(nonlinsolve, sympy.nonlinsolve)
+
+        x, y = sympy.symbols("x y")
+        # solve_poly_system
+        sols = solve_poly_system([x + y - 5, x - y - 1], x, y)
+        self.assertEqual(sols, [(sympy.Integer(3), sympy.Integer(2))])
+
+        # nonlinsolve
+        n_sols = nonlinsolve([x + y - 5, x - y - 1], x, y)
+        self.assertIsInstance(n_sols, sympy.FiniteSet)
+        sol_tuple = list(n_sols)[0]
+        self.assertEqual(sol_tuple[0], sympy.Integer(3))
+        self.assertEqual(sol_tuple[1], sympy.Integer(2))
+
+        # solve with system of equations
+        sys_sol = sympy.solve([x + y - 5, x - y - 1], [x, y])
+        self.assertEqual(sys_sol, {x: sympy.Integer(3), y: sympy.Integer(2)})
+
+        # solve with auto-detected symbols
+        sys_auto = sympy.solve([x + y - 5, x - y - 1])
+        self.assertEqual(sys_auto, {x: sympy.Integer(3), y: sympy.Integer(2)})
+
+    def test_series_order_and_tuple(self):
+        from sympy.series import O as s_O, Order as s_Order
+        self.assertIs(s_O, sympy.O)
+        self.assertIs(s_Order, sympy.Order)
+
+        x = sympy.Symbol("x")
+        o1 = sympy.Order(x**3)
+        self.assertEqual(str(o1), "Order(x**3)")
+        o2 = sympy.O(x**3)
+        self.assertEqual(str(o2), "Order(x**3)")
+
+        t = sympy.Tuple(1, 2, 3)
+        self.assertEqual(len(t), 3)
+        self.assertEqual(t[0], sympy.Integer(1))
+        self.assertEqual(t[1], sympy.Integer(2))
+        self.assertEqual(t[2], sympy.Integer(3))
+        self.assertEqual(list(t), [sympy.Integer(1), sympy.Integer(2), sympy.Integer(3)])
+
 
 if __name__ == "__main__":
     unittest.main()
+

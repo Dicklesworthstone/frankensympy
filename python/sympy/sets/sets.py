@@ -231,7 +231,7 @@ class FiniteSet(Set):
     __slots__ = ()
 
     def __new__(cls, *args: Any) -> Set:
-        if len(args) == 1 and isinstance(args[0], (list, tuple, set, frozenset)):
+        if len(args) == 1 and isinstance(args[0], (list, set, frozenset)):
             args = tuple(args[0])
         if not args:
             return _EMPTY_SET

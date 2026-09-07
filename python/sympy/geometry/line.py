@@ -25,6 +25,9 @@ class Segment(LinearEntity):
         pt2 = Point(p2) if not isinstance(p2, Point) else p2
         if isinstance(pt1, Point2D) and isinstance(pt2, Point2D):
             return Segment2D(pt1, pt2)
+        from .point import Point3D
+        if isinstance(pt1, Point3D) and isinstance(pt2, Point3D):
+            return Segment3D(pt1, pt2)
         obj = object.__new__(cls)
         obj._p1 = pt1
         obj._p2 = pt2
@@ -89,6 +92,40 @@ class Segment2D(Segment):
         return f"Segment2D({self.p1}, {self.p2})"
 
 
+class Segment3D(Segment):
+    """A 3D segment."""
+
+    __slots__ = ("_native_seg",)
+
+    def __new__(cls, p1: Any, p2: Any):
+        from .point import Point3D
+        pt1 = Point(p1) if not isinstance(p1, Point) else p1
+        pt2 = Point(p2) if not isinstance(p2, Point) else p2
+        if not (isinstance(pt1, Point3D) and isinstance(pt2, Point3D)):
+            raise TypeError("Segment3D requires 3D points")
+        obj = object.__new__(cls)
+        obj._p1 = pt1
+        obj._p2 = pt2
+        obj._native_seg = _native.Segment3D(pt1._native_pt, pt2._native_pt)
+        return obj
+
+    @property
+    def midpoint(self) -> Any:
+        from .point import Point3D
+        mid = self._native_seg.midpoint()
+        return Point3D(_wrap(mid.x), _wrap(mid.y), _wrap(mid.z))
+
+    @property
+    def length(self) -> Expr:
+        return self.p1.distance(self.p2)
+
+    def __repr__(self) -> str:
+        return f"Segment3D({self.p1}, {self.p2})"
+
+    def __str__(self) -> str:
+        return f"Segment3D({self.p1}, {self.p2})"
+
+
 class Line(LinearEntity):
     """An infinite line passing through two points."""
 
@@ -99,6 +136,9 @@ class Line(LinearEntity):
         pt2 = Point(p2) if not isinstance(p2, Point) else p2
         if isinstance(pt1, Point2D) and isinstance(pt2, Point2D):
             return Line2D(pt1, pt2)
+        from .point import Point3D
+        if isinstance(pt1, Point3D) and isinstance(pt2, Point3D):
+            return Line3D(pt1, pt2)
         obj = object.__new__(cls)
         obj._p1 = pt1
         obj._p2 = pt2
@@ -152,6 +192,36 @@ class Line2D(Line):
         return f"Line2D({self.p1}, {self.p2})"
 
 
+class Line3D(Line):
+    """A 3D line."""
+
+    __slots__ = ("_native_line",)
+
+    def __new__(cls, p1: Any, p2: Any):
+        from .point import Point3D
+        pt1 = Point(p1) if not isinstance(p1, Point) else p1
+        pt2 = Point(p2) if not isinstance(p2, Point) else p2
+        if not (isinstance(pt1, Point3D) and isinstance(pt2, Point3D)):
+            raise TypeError("Line3D requires 3D points")
+        obj = object.__new__(cls)
+        obj._p1 = pt1
+        obj._p2 = pt2
+        obj._native_line = _native.Line3D(pt1._native_pt, pt2._native_pt)
+        return obj
+
+    @property
+    def direction(self) -> Any:
+        from .point import Point3D
+        d = self._native_line.direction()
+        return Point3D(_wrap(d.x), _wrap(d.y), _wrap(d.z))
+
+    def __repr__(self) -> str:
+        return f"Line3D({self.p1}, {self.p2})"
+
+    def __str__(self) -> str:
+        return f"Line3D({self.p1}, {self.p2})"
+
+
 class Ray(LinearEntity):
     """A ray starting at p1 and passing through p2."""
 
@@ -189,14 +259,18 @@ class Ray(LinearEntity):
 
 
 Ray2D = Ray
+Ray3D = Ray
 
 
 __all__ = [
     "Line",
     "Line2D",
+    "Line3D",
     "LinearEntity",
     "Ray",
     "Ray2D",
+    "Ray3D",
     "Segment",
     "Segment2D",
+    "Segment3D",
 ]

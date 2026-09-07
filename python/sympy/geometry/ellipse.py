@@ -61,7 +61,54 @@ class Circle(Ellipse):
         return f"Circle({self.center}, {self.radius})"
 
 
+class Sphere(Basic):
+    """A 3D geometric sphere."""
+
+    __slots__ = ("_center", "_native_sphere", "_radius")
+
+    def __new__(cls, center: Any, radius: Any):
+        from .point import Point3D
+        c_pt = Point(center) if not isinstance(center, Point) else center
+        if not isinstance(c_pt, Point3D):
+            raise TypeError("Sphere center must be a 3D Point")
+        obj = object.__new__(cls)
+        obj._center = c_pt
+        obj._radius = _wrap(_native_expr(radius))
+        obj._native_sphere = _native.Sphere(c_pt._native_pt, _native_expr(radius))
+        return obj
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        pass
+
+    @property
+    def center(self) -> Any:
+        return self._center
+
+    @property
+    def radius(self) -> Expr:
+        return self._radius
+
+    @property
+    def volume(self) -> Expr:
+        return _wrap(self._native_sphere.volume())
+
+    @property
+    def surface_area(self) -> Expr:
+        return _wrap(self._native_sphere.surface_area())
+
+    @property
+    def area(self) -> Expr:
+        return self.surface_area
+
+    def __repr__(self) -> str:
+        return f"Sphere({self.center}, {self.radius})"
+
+    def __str__(self) -> str:
+        return f"Sphere({self.center}, {self.radius})"
+
+
 __all__ = [
     "Circle",
     "Ellipse",
+    "Sphere",
 ]
