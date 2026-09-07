@@ -1084,6 +1084,8 @@ class SurfaceTests(unittest.TestCase):
         self.assertIs(sgeom.Point3D, Point3D)
         self.assertIs(sgeom.Line, Line)
         self.assertIs(sgeom.Circle, Circle)
+        self.assertIs(sgeom.Ellipse, sympy.Ellipse)
+        self.assertIs(sgeom.LinearEntity, sympy.LinearEntity)
         self.assertIs(sgeom.Triangle, Triangle)
         self.assertIs(sgeom.Polygon, Polygon)
 

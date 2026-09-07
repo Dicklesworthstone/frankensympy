@@ -419,9 +419,11 @@ from .sets import (
 )
 from .geometry import (
     Circle,
+    Ellipse,
     Line,
     Line2D,
     Line3D,
+    LinearEntity,
     Plane,
     Point,
     Point2D,
@@ -522,6 +524,7 @@ __all__ = [
     "Derivative",
     "Dummy",
     "E",
+    "Ellipse",
     "EmptySet",
     "Eq",
     "Equality",
@@ -545,6 +548,7 @@ __all__ = [
     "Line",
     "Line2D",
     "Line3D",
+    "LinearEntity",
     "Lt",
     "Matrix",
     "MatrixBase",
