@@ -234,20 +234,46 @@ impl SymSet {
                 end,
                 left_open,
                 right_open,
-            } => SymSet::Union(vec![
-                SymSet::Interval {
-                    start: Expr::Const(Constant::NegativeInfinity),
-                    end: start,
-                    left_open: true,
-                    right_open: !left_open,
-                },
-                SymSet::Interval {
-                    start: end,
-                    end: Expr::Const(Constant::Infinity),
-                    left_open: !right_open,
-                    right_open: true,
-                },
-            ]),
+            } => {
+                if interval_empty_status(&start, &end, left_open, right_open) == Some(true) {
+                    return SymSet::UniversalSet;
+                }
+                let start_is_neg_inf = exact_bound(&start) == Some(ExactBound::NegativeInfinity);
+                let end_is_pos_inf = exact_bound(&end) == Some(ExactBound::Infinity);
+
+                if start_is_neg_inf && end_is_pos_inf {
+                    SymSet::EmptySet
+                } else if start_is_neg_inf {
+                    SymSet::Interval {
+                        start: end,
+                        end: Expr::Const(Constant::Infinity),
+                        left_open: !right_open,
+                        right_open: true,
+                    }
+                } else if end_is_pos_inf {
+                    SymSet::Interval {
+                        start: Expr::Const(Constant::NegativeInfinity),
+                        end: start,
+                        left_open: true,
+                        right_open: !left_open,
+                    }
+                } else {
+                    SymSet::Union(vec![
+                        SymSet::Interval {
+                            start: Expr::Const(Constant::NegativeInfinity),
+                            end: start,
+                            left_open: true,
+                            right_open: !left_open,
+                        },
+                        SymSet::Interval {
+                            start: end,
+                            end: Expr::Const(Constant::Infinity),
+                            left_open: !right_open,
+                            right_open: true,
+                        },
+                    ])
+                }
+            }
             SymSet::FiniteSet(_) => SymSet::Complement(Box::new(self)),
             SymSet::Union(parts) => {
                 SymSet::Intersection(parts.into_iter().map(SymSet::complement).collect())
@@ -1168,6 +1194,39 @@ mod tests {
         assert_eq!(comp.contains(&Expr::from_i64(-1)), Some(true));
         assert_eq!(comp.contains(&Expr::from_i64(7)), Some(true));
         assert_eq!(comp.contains(&Expr::from_i64(3)), Some(false));
+
+        // Full real line (-oo, oo) complement is EmptySet
+        let full_line = SymSet::interval_open(
+            Expr::Const(Constant::NegativeInfinity),
+            Expr::Const(Constant::Infinity),
+        );
+        assert_eq!(full_line.complement(), SymSet::EmptySet);
+
+        // Ray (-oo, 5] complement is (5, oo)
+        let left_ray =
+            SymSet::interval_right_open(Expr::Const(Constant::NegativeInfinity), Expr::from_i64(5));
+        assert_eq!(
+            left_ray.complement(),
+            SymSet::Interval {
+                start: Expr::from_i64(5),
+                end: Expr::Const(Constant::Infinity),
+                left_open: false,
+                right_open: true,
+            }
+        );
+
+        // Ray [0, oo) complement is (-oo, 0)
+        let right_ray =
+            SymSet::interval_left_open(Expr::from_i64(0), Expr::Const(Constant::Infinity));
+        assert_eq!(
+            right_ray.complement(),
+            SymSet::Interval {
+                start: Expr::Const(Constant::NegativeInfinity),
+                end: Expr::from_i64(0),
+                left_open: true,
+                right_open: false,
+            }
+        );
     }
 
     #[test]

@@ -304,14 +304,13 @@ impl UnivariatePoly {
     /// Computes the polynomial discriminant.
     ///
     /// For degree $n \ge 2$ with leading coefficient $a_n$, $\Delta = (-1)^{n(n-1)/2} \frac{1}{a_n} \operatorname{Res}(P, P')$.
-    /// For degree 0 and 1, $\Delta = 1$.
+    /// For degree 1, $\Delta = 1$.
+    /// For degree 0 (constant) or zero polynomial, $\Delta = 0$ matching SymPy `discriminant(c, x) == 0`.
     pub fn discriminant(&self) -> Result<BigRational, PolyError> {
         self.validate_shape()?;
         match self.degree() {
-            None => Err(PolyError::General(
-                "discriminant of zero polynomial is undefined".to_string(),
-            )),
-            Some(0) | Some(1) => Ok(BigRational::one()),
+            None | Some(0) => Ok(BigRational::zero()),
+            Some(1) => Ok(BigRational::one()),
             Some(n) => {
                 preflight_resultant_polynomial_scalars(self)?;
                 let p_prime = self.derivative();

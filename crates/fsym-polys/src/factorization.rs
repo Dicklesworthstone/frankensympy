@@ -94,8 +94,14 @@ pub fn square_free_decomposition(poly: &UnivariatePoly) -> Result<FactorizationR
 
     let mut factors = Vec::new();
     let mut i = 1;
+    let max_iterations = poly.degree().unwrap_or(0);
 
     while !w.is_one() {
+        if i > max_iterations || w.is_zero() {
+            return Err(PolyError::General(format!(
+                "Yun square-free decomposition exceeded degree iteration bound {max_iterations}"
+            )));
+        }
         let y_sub_w_prime = y.sub(&w.derivative())?;
         let a_i = w.gcd(&y_sub_w_prime)?;
 

@@ -179,7 +179,7 @@ mod tests {
 
         // Discriminant of (x-1)^2 * (x+2) = x^3 - 3*x + 2 is 0 (repeated root)
         let p_rep = UnivariatePoly::new(
-            x,
+            x.clone(),
             vec![
                 BigRational::from_integer(BigInt::from(2)),
                 BigRational::from_integer(BigInt::from(-3)),
@@ -188,6 +188,13 @@ mod tests {
             ],
         );
         assert_eq!(p_rep.discriminant().unwrap(), BigRational::zero());
+
+        // Constant polynomial (degree 0) and zero polynomial have discriminant 0 matching SymPy
+        let p_const =
+            UnivariatePoly::new(x.clone(), vec![BigRational::from_integer(BigInt::from(5))]);
+        assert_eq!(p_const.discriminant().unwrap(), BigRational::zero());
+        let p_zero = UnivariatePoly::zero(x);
+        assert_eq!(p_zero.discriminant().unwrap(), BigRational::zero());
     }
 
     #[test]
@@ -228,6 +235,29 @@ mod tests {
         // even though negative powers of zero are rejected by BigRational.
         let zero_pt = vec![BigRational::zero(), BigRational::zero()];
         assert_eq!(poly.eval(&zero_pt).unwrap(), BigRational::zero());
+    }
+
+    #[test]
+    fn test_multivariate_from_expr_constant_division() {
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+        let gens = vec![x.clone(), y.clone()];
+
+        // (x + y) / 2 = (x + y) * 2^(-1)
+        let expr = Expr::Mul(vec![
+            Expr::Add(vec![Expr::Sym(x), Expr::Sym(y)]),
+            Expr::Pow(Arc::new(Expr::from_i64(2)), Arc::new(Expr::from_i64(-1))),
+        ]);
+        let poly = MultivariatePoly::from_expr(&expr, &gens).unwrap();
+        assert_eq!(poly.total_degree(), Some(1));
+
+        // Evaluate at x=3, y=5 -> (3+5)/2 = 4
+        let eval_pt = vec![
+            BigRational::from_integer(BigInt::from(3)),
+            BigRational::from_integer(BigInt::from(5)),
+        ];
+        let val = poly.eval(&eval_pt).unwrap();
+        assert_eq!(val, BigRational::from_integer(BigInt::from(4)));
     }
 
     #[test]

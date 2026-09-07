@@ -594,21 +594,6 @@ impl MultivariatePoly {
                 Ok(prod)
             }
             Expr::Pow(base, exp) => {
-                let k = match exp.as_ref() {
-                    Expr::Integer(n) => n
-                        .to_u64()
-                        .and_then(|value| u32::try_from(value).ok())
-                        .ok_or_else(|| {
-                            PolyError::NonPolynomialExpression(
-                                "polynomial exponent is negative or exceeds u32".to_string(),
-                            )
-                        })?,
-                    _ => {
-                        return Err(PolyError::NonPolynomialExpression(
-                            "multivariate polynomial exponent is not an integer".to_string(),
-                        ));
-                    }
-                };
                 *visited_nodes = visited_nodes.checked_add(1).ok_or_else(|| {
                     PolyError::NonPolynomialExpression(
                         "expression node counter overflowed during conversion".to_string(),
@@ -620,7 +605,37 @@ impl MultivariatePoly {
                     )));
                 }
                 let p_base = Self::from_expr_at(base, generators, depth + 1, visited_nodes)?;
-                p_base.pow(k)
+                match exp.as_ref() {
+                    Expr::Integer(n) => {
+                        if let Some(k) = n.to_u64().and_then(|value| u32::try_from(value).ok()) {
+                            p_base.pow(k)
+                        } else if p_base.total_degree() == Some(0)
+                            && !p_base.is_zero()
+                            && let Ok(k) = usize::try_from(&(-n))
+                            && let Ok(k_u32) = u32::try_from(k)
+                        {
+                            let zero_exp = vec![0; generators.len()];
+                            let coeff = p_base.terms.get(&zero_exp).ok_or_else(|| {
+                                PolyError::General("expected constant term in degree 0 poly".into())
+                            })?;
+                            if coeff.is_zero() {
+                                return Err(PolyError::DivisionByZero);
+                            }
+                            let inv_c = BigRational::one() / coeff;
+                            let mut terms = BTreeMap::new();
+                            terms.insert(zero_exp, inv_c);
+                            let inv_poly = Self::new(generators.to_vec(), terms)?;
+                            inv_poly.pow(k_u32)
+                        } else {
+                            Err(PolyError::NonPolynomialExpression(
+                                "polynomial exponent is negative or exceeds u32".to_string(),
+                            ))
+                        }
+                    }
+                    _ => Err(PolyError::NonPolynomialExpression(
+                        "multivariate polynomial exponent is not an integer".to_string(),
+                    )),
+                }
             }
             _ => Err(PolyError::NonPolynomialExpression(
                 "unsupported expression form for multivariate polynomial".to_string(),

@@ -287,7 +287,7 @@ pub fn dsolve_cauchy_euler(
     }
     let coefficients = (a, b, c);
     let a_int = BigInt::from(a);
-    let b_minus_a = BigInt::from(b - a);
+    let b_minus_a = BigInt::from(b) - &a_int;
     let c_int = BigInt::from(c);
     let disc = &b_minus_a * &b_minus_a - BigInt::from(4) * &a_int * &c_int;
     let neg_b_minus_a = -&b_minus_a;
