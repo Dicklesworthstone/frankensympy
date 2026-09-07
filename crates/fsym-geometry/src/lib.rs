@@ -65,6 +65,19 @@ impl Point2D {
         let dy2 = Expr::Pow(Arc::new(dy), Arc::new(Expr::from_i64(2)));
         simplify(&Expr::Add(vec![dx2, dy2]))
     }
+
+    /// Midpoint between two 2D points: ((x1 + x2)/2, (y1 + y2)/2).
+    pub fn midpoint(&self, other: &Self) -> Self {
+        Segment2D::new(self.clone(), other.clone()).midpoint()
+    }
+
+    /// Dot product between two 2D points: x1*x2 + y1*y2.
+    pub fn dot(&self, other: &Self) -> Expr {
+        simplify(&Expr::Add(vec![
+            Expr::Mul(vec![self.x.clone(), other.x.clone()]),
+            Expr::Mul(vec![self.y.clone(), other.y.clone()]),
+        ]))
+    }
 }
 
 impl fmt::Display for Point2D {
@@ -104,6 +117,20 @@ impl Point3D {
         let dy2 = Expr::Pow(Arc::new(dy), Arc::new(Expr::from_i64(2)));
         let dz2 = Expr::Pow(Arc::new(dz), Arc::new(Expr::from_i64(2)));
         simplify(&Expr::Add(vec![dx2, dy2, dz2]))
+    }
+
+    /// Midpoint between two 3D points: ((x1 + x2)/2, (y1 + y2)/2, (z1 + z2)/2).
+    pub fn midpoint(&self, other: &Self) -> Self {
+        Segment3D::new(self.clone(), other.clone()).midpoint()
+    }
+
+    /// Dot product between two 3D points: x1*x2 + y1*y2 + z1*z2.
+    pub fn dot(&self, other: &Self) -> Expr {
+        simplify(&Expr::Add(vec![
+            Expr::Mul(vec![self.x.clone(), other.x.clone()]),
+            Expr::Mul(vec![self.y.clone(), other.y.clone()]),
+            Expr::Mul(vec![self.z.clone(), other.z.clone()]),
+        ]))
     }
 }
 

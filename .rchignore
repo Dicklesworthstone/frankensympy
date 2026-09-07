@@ -2,3 +2,8 @@ target/
 target_*/
 .venv*/
 .ruff_cache/
+.beads/
+.ntm/
+.rch-*/
+.rch-tmp/
+artifacts/

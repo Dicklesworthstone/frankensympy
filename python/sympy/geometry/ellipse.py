@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..core import Basic, Expr, _native, _native_expr, _wrap
+from ..core import Basic, Expr, _native, _native_expr, _wrap, simplify
 from .point import Point, Point2D
 
 
@@ -54,6 +54,13 @@ class Circle(Ellipse):
     def circumference(self) -> Expr:
         return _wrap(self._native_circle.circumference())
 
+    def contains(self, other: Any) -> bool:
+        if isinstance(other, Point):
+            d2 = self.center.distance(other) ** 2
+            r2 = self.radius ** 2
+            return simplify(d2 - r2) == 0
+        return False
+
     def __repr__(self) -> str:
         return f"Circle({self.center}, {self.radius})"
 
@@ -99,6 +106,13 @@ class Sphere(Basic):
     @property
     def area(self) -> Expr:
         return self.surface_area
+
+    def contains(self, other: Any) -> bool:
+        if isinstance(other, Point):
+            d2 = self.center.distance(other) ** 2
+            r2 = self.radius ** 2
+            return simplify(d2 - r2) == 0
+        return False
 
     def __repr__(self) -> str:
         return f"Sphere({self.center}, {self.radius})"

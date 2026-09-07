@@ -45,10 +45,13 @@ impl PyPoint2D {
     }
 
     pub fn midpoint(&self, other: &PyPoint2D) -> PyPoint2D {
-        let seg = NativeSegment2D::new(self.inner.clone(), other.inner.clone());
         PyPoint2D {
-            inner: seg.midpoint(),
+            inner: self.inner.midpoint(&other.inner),
         }
+    }
+
+    pub fn dot(&self, other: &PyPoint2D) -> PyExpr {
+        PyExpr::from_expr(self.inner.dot(&other.inner))
     }
 
     fn __getitem__(&self, idx: isize) -> PyResult<PyExpr> {
@@ -114,6 +117,16 @@ impl PyPoint3D {
 
     pub fn distance_squared(&self, other: &PyPoint3D) -> PyExpr {
         PyExpr::from_expr(self.inner.distance_squared(&other.inner))
+    }
+
+    pub fn midpoint(&self, other: &PyPoint3D) -> PyPoint3D {
+        PyPoint3D {
+            inner: self.inner.midpoint(&other.inner),
+        }
+    }
+
+    pub fn dot(&self, other: &PyPoint3D) -> PyExpr {
+        PyExpr::from_expr(self.inner.dot(&other.inner))
     }
 
     fn __getitem__(&self, idx: isize) -> PyResult<PyExpr> {

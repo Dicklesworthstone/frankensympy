@@ -22,6 +22,81 @@ class Point(Basic):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         pass
 
+    @property
+    def coordinates(self) -> tuple[Expr, ...]:
+        return self.args
+
+    @property
+    def dimension(self) -> int:
+        return len(self)
+
+    def is_collinear(self, *points: Any) -> bool:
+        from .util import are_collinear
+        return are_collinear(self, *points)
+
+    @staticmethod
+    def are_collinear(*points: Any) -> bool:
+        from .util import are_collinear
+        return are_collinear(*points)
+
+    def is_coplanar(self, *points: Any) -> bool:
+        from .util import are_coplanar
+        return are_coplanar(self, *points)
+
+    @staticmethod
+    def are_coplanar(*points: Any) -> bool:
+        from .util import are_coplanar
+        return are_coplanar(*points)
+
+    def __add__(self, other: Any) -> Point:
+        if isinstance(other, (list, tuple)):
+            other = Point(*other)
+        elif not isinstance(other, Point):
+            return NotImplemented
+        if len(self) != len(other):
+            raise ValueError("Points must have the same dimension")
+        return Point(*(self[i] + other[i] for i in range(len(self))))
+
+    def __radd__(self, other: Any) -> Point:
+        return self.__add__(other)
+
+    def __sub__(self, other: Any) -> Point:
+        if isinstance(other, (list, tuple)):
+            other = Point(*other)
+        elif not isinstance(other, Point):
+            return NotImplemented
+        if len(self) != len(other):
+            raise ValueError("Points must have the same dimension")
+        return Point(*(self[i] - other[i] for i in range(len(self))))
+
+    def __rsub__(self, other: Any) -> Point:
+        if isinstance(other, (list, tuple)):
+            other = Point(*other)
+        elif not isinstance(other, Point):
+            return NotImplemented
+        if len(self) != len(other):
+            raise ValueError("Points must have the same dimension")
+        return Point(*(other[i] - self[i] for i in range(len(self))))
+
+    def __neg__(self) -> Point:
+        return Point(*(-self[i] for i in range(len(self))))
+
+    def __mul__(self, factor: Any) -> Point:
+        return Point(*(self[i] * factor for i in range(len(self))))
+
+    def __rmul__(self, factor: Any) -> Point:
+        return self.__mul__(factor)
+
+    def __truediv__(self, divisor: Any) -> Point:
+        return Point(*(self[i] / divisor for i in range(len(self))))
+
+    def taxicab_distance(self, other: Any) -> Expr:
+        from ..core import Abs, Rational
+        other_pt = Point(other) if not isinstance(other, Point) else other
+        if len(self) != len(other_pt):
+            raise ValueError("taxicab_distance requires points of the same dimension")
+        return sum((Abs(self[i] - other_pt[i]) for i in range(len(self))), start=Rational(0))
+
 
 class Point2D(Point):
     """A 2D point."""
@@ -51,6 +126,16 @@ class Point2D(Point):
             raise TypeError("distance requires a 2D Point")
         d2 = _wrap(self._native_pt.distance_squared(other_pt._native_pt))
         return sqrt(d2)
+
+    @property
+    def origin(self) -> Point2D:
+        return Point2D(0, 0)
+
+    def dot(self, other: Any) -> Expr:
+        other_pt = Point(other) if not isinstance(other, Point) else other
+        if not isinstance(other_pt, Point2D):
+            raise TypeError("dot requires a 2D Point")
+        return _wrap(self._native_pt.dot(other_pt._native_pt))
 
     def midpoint(self, other: Any) -> Point2D:
         other_pt = Point(other) if not isinstance(other, Point) else other
@@ -114,6 +199,23 @@ class Point3D(Point):
             raise TypeError("distance requires a 3D Point")
         d2 = _wrap(self._native_pt.distance_squared(other_pt._native_pt))
         return sqrt(d2)
+
+    @property
+    def origin(self) -> Point3D:
+        return Point3D(0, 0, 0)
+
+    def dot(self, other: Any) -> Expr:
+        other_pt = Point(other) if not isinstance(other, Point) else other
+        if not isinstance(other_pt, Point3D):
+            raise TypeError("dot requires a 3D Point")
+        return _wrap(self._native_pt.dot(other_pt._native_pt))
+
+    def midpoint(self, other: Any) -> Point3D:
+        other_pt = Point(other) if not isinstance(other, Point) else other
+        if not isinstance(other_pt, Point3D):
+            raise TypeError("midpoint requires a 3D Point")
+        mid = self._native_pt.midpoint(other_pt._native_pt)
+        return Point3D(_wrap(mid.x), _wrap(mid.y), _wrap(mid.z))
 
     def __eq__(self, other: Any) -> bool:
         if isinstance(other, Point3D):

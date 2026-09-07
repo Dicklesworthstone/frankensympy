@@ -2512,7 +2512,17 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(limit(L), 15)
 
     def test_geometry_utilities(self):
-        from sympy import Line, Point, Point2D, are_collinear, centroid, intersection
+        from sympy import (
+            Line,
+            Point,
+            Point2D,
+            Point3D,
+            Rational,
+            are_collinear,
+            are_coplanar,
+            centroid,
+            intersection,
+        )
 
         p1 = Point(0, 0)
         p2 = Point(1, 1)
@@ -2521,13 +2531,164 @@ class SurfaceTests(unittest.TestCase):
         self.assertTrue(are_collinear(p1, p2, p3))
         self.assertFalse(are_collinear(p1, p2, p4))
 
+        # Test duplicate / coincident points handling in are_collinear
+        self.assertTrue(are_collinear(p1, p1, p2, p3))
+        self.assertFalse(are_collinear(p1, p1, p2, p4))
+        self.assertTrue(are_collinear(p1, p1, p1))
+        self.assertTrue(are_collinear([p1, p2, p3]))
+
+        # 3D collinearity
+        p3d_1 = Point3D(0, 0, 0)
+        p3d_2 = Point3D(1, 2, 3)
+        p3d_3 = Point3D(2, 4, 6)
+        p3d_4 = Point3D(2, 4, 7)
+        self.assertTrue(are_collinear(p3d_1, p3d_2, p3d_3))
+        self.assertFalse(are_collinear(p3d_1, p3d_2, p3d_4))
+
+        # Coplanarity
+        self.assertTrue(are_coplanar(p1, p2, p3, p4))
+        p_c1 = Point3D(0, 0, 0)
+        p_c2 = Point3D(1, 0, 0)
+        p_c3 = Point3D(0, 1, 0)
+        p_c4 = Point3D(1, 1, 0)
+        p_c5 = Point3D(0, 0, 1)
+        self.assertTrue(are_coplanar(p_c1, p_c2, p_c3, p_c4))
+        self.assertFalse(are_coplanar(p_c1, p_c2, p_c3, p_c5))
+        self.assertTrue(are_coplanar(p_c1, p_c1, p_c2, p_c3))
+
         c = centroid(Point(0, 0), Point(3, 0), Point(0, 3))
         self.assertEqual(c, Point2D(1, 1))
+
+        c3d = centroid(Point3D(0, 0, 0), Point3D(3, 6, 9))
+        self.assertEqual(c3d, Point3D(Rational(3, 2), 3, Rational(9, 2)))
 
         l1 = Line(Point(0, 0), Point(2, 2))
         l2 = Line(Point(0, 2), Point(2, 0))
         inter = intersection(l1, l2)
         self.assertEqual(inter, [Point2D(1, 1)])
+
+    def test_point_arithmetic_and_methods(self):
+        from sympy import Point, Point2D, Point3D, Rational
+
+        p1 = Point(1, 2)
+        p2 = Point(3, 4)
+        self.assertEqual(p1 + p2, Point2D(4, 6))
+        self.assertEqual(p2 - p1, Point2D(2, 2))
+        self.assertEqual(p1 * 3, Point2D(3, 6))
+        self.assertEqual(3 * p1, Point2D(3, 6))
+        self.assertEqual(p1 / 2, Point2D(Rational(1, 2), 1))
+        self.assertEqual(-p1, Point2D(-1, -2))
+        self.assertEqual(p1.dot(p2), 11)
+        self.assertEqual(p1.taxicab_distance(p2), 4)
+        self.assertEqual(p1.midpoint(p2), Point2D(2, 3))
+        self.assertEqual(p1.origin, Point2D(0, 0))
+        self.assertEqual(p1.dimension, 2)
+        self.assertEqual(p1.coordinates, (p1.x, p1.y))
+        self.assertTrue(p1.is_collinear(Point(2, 4), Point(3, 6)))
+        self.assertTrue(p1.is_coplanar(Point(2, 4), Point(5, 7), Point(8, 9)))
+
+        p3 = Point3D(1, 2, 3)
+        p4 = Point3D(4, 5, 6)
+        self.assertEqual(p3 + p4, Point3D(5, 7, 9))
+        self.assertEqual(p4 - p3, Point3D(3, 3, 3))
+        self.assertEqual(p3 * 2, Point3D(2, 4, 6))
+        self.assertEqual(p3.dot(p4), 32)
+        self.assertEqual(p3.taxicab_distance(p4), 9)
+        self.assertEqual(p3.midpoint(p4), Point3D(Rational(5, 2), Rational(7, 2), Rational(9, 2)))
+        self.assertEqual(p3.origin, Point3D(0, 0, 0))
+        self.assertEqual(p3.dimension, 3)
+
+    def test_linear_entity_containment_and_intersection(self):
+        from sympy import Line, Point, Point2D, Ray, Segment
+
+        p0 = Point(0, 0)
+        p1 = Point(2, 0)
+        p_mid = Point(1, 0)
+        p_out = Point(3, 0)
+        p_off = Point(0, 1)
+
+        seg = Segment(p0, p1)
+        self.assertTrue(seg.contains(p0))
+        self.assertTrue(seg.contains(p1))
+        self.assertTrue(seg.contains(p_mid))
+        self.assertFalse(seg.contains(p_out))
+        self.assertFalse(seg.contains(p_off))
+        self.assertTrue(seg.contains(Segment(Point(0, 0), Point(1, 0))))
+
+        ray = Ray(p0, p1)
+        self.assertTrue(ray.contains(p0))
+        self.assertTrue(ray.contains(p_mid))
+        self.assertTrue(ray.contains(p_out))
+        self.assertFalse(ray.contains(Point(-1, 0)))
+        self.assertFalse(ray.contains(p_off))
+
+        line = Line(p0, p1)
+        self.assertTrue(line.contains(p_out))
+        self.assertTrue(line.contains(Point(-5, 0)))
+        self.assertFalse(line.contains(p_off))
+
+        # Parallel and perpendicular
+        l_horiz = Line(Point(0, 1), Point(2, 1))
+        l_vert = Line(Point(0, 0), Point(0, 2))
+        self.assertTrue(line.is_parallel(l_horiz))
+        self.assertFalse(line.is_parallel(l_vert))
+        self.assertTrue(line.is_perpendicular(l_vert))
+        self.assertFalse(line.is_perpendicular(l_horiz))
+
+        # Segment intersections
+        s_v = Segment(Point(1, -1), Point(1, 1))
+        self.assertEqual(seg.intersection(s_v), [Point2D(1, 0)])
+
+        s_overlap = Segment(Point(1, 0), Point(3, 0))
+        inter_overlap = seg.intersection(s_overlap)
+        self.assertEqual(len(inter_overlap), 1)
+        self.assertIsInstance(inter_overlap[0], Segment)
+
+        s_touch = Segment(Point(2, 0), Point(4, 0))
+        self.assertEqual(seg.intersection(s_touch), [Point2D(2, 0)])
+
+        s_disjoint = Segment(Point(3, 0), Point(5, 0))
+        self.assertEqual(seg.intersection(s_disjoint), [])
+
+    def test_polygon_circle_plane_containment(self):
+        from sympy import Circle, Line, Plane, Point, Point2D, Point3D, Polygon, Segment, Sphere, Triangle
+
+        # Polygon and Triangle
+        tri = Polygon(Point(0, 0), Point(4, 0), Point(0, 3))
+        self.assertIsInstance(tri, Triangle)
+        self.assertEqual(len(tri.sides), 3)
+        self.assertEqual(tri.perimeter, 12)
+        self.assertEqual(tri.area, 6)
+        self.assertTrue(tri.contains(Point(2, 0)))
+        self.assertFalse(tri.contains(Point(1, 1)))
+
+        poly = Polygon(Point(0, 0), Point(4, 0), Point(4, 3), Point(0, 3))
+        self.assertEqual(len(poly.sides), 4)
+        self.assertEqual(poly.perimeter, 14)
+        self.assertEqual(poly.area, 12)
+        self.assertTrue(poly.contains(Point(2, 0)))
+
+        l = Line(Point(2, -1), Point(2, 5))
+        poly_inter = poly.intersection(l)
+        self.assertEqual(poly_inter, [Point2D(2, 0), Point2D(2, 3)])
+
+        # Circle
+        c = Circle(Point(0, 0), 5)
+        self.assertTrue(c.contains(Point(3, 4)))
+        self.assertTrue(c.contains(Point(-5, 0)))
+        self.assertFalse(c.contains(Point(3, 3)))
+
+        # Sphere
+        s = Sphere(Point3D(0, 0, 0), 3)
+        self.assertTrue(s.contains(Point3D(0, 0, 3)))
+        self.assertFalse(s.contains(Point3D(1, 1, 1)))
+
+        # Plane
+        plane = Plane(Point3D(0, 0, 0), Point3D(0, 0, 1))
+        self.assertTrue(plane.contains(Point3D(5, 7, 0)))
+        self.assertFalse(plane.contains(Point3D(5, 7, 1)))
+        seg3d = Segment(Point3D(1, 1, -2), Point3D(1, 1, 2))
+        self.assertEqual(plane.intersection(seg3d), [Point3D(1, 1, 0)])
 
 
 if __name__ == "__main__":

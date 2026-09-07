@@ -16,7 +16,7 @@ class Polygon(Basic):
     def __new__(cls, *args: Any):
         if len(args) == 1 and isinstance(args[0], (list, tuple)):
             args = tuple(args[0])
-        if len(args) == 3 and cls is not Polygon:
+        if len(args) == 3 and (cls is Polygon or cls is Triangle):
             return Triangle(*args)
         points: list[Point2D] = []
         for a in args:
@@ -38,6 +38,16 @@ class Polygon(Basic):
         return self._vertices
 
     @property
+    def sides(self) -> list[Any]:
+        from .line import Segment
+        n = len(self.vertices)
+        return [Segment(self.vertices[i], self.vertices[(i + 1) % n]) for i in range(n)]
+
+    @property
+    def perimeter(self) -> Expr:
+        return sum((s.length for s in self.sides), start=Rational(0))
+
+    @property
     def area(self) -> Expr:
         d_area = _wrap(self._native_poly.double_signed_area())
         return simplify(abs(d_area) * Rational(1, 2))
@@ -49,6 +59,23 @@ class Polygon(Basic):
 
     def is_convex(self) -> bool | None:
         return self._native_poly.is_convex()
+
+    def contains(self, other: Any) -> bool:
+        if isinstance(other, Point):
+            return any(s.contains(other) for s in self.sides)
+        from .line import Segment
+        if isinstance(other, Segment):
+            return any(s.contains(other) for s in self.sides)
+        return False
+
+    def intersection(self, other: Any) -> list[Any]:
+        res: list[Any] = []
+        for s in self.sides:
+            inter = s.intersection(other)
+            for item in inter:
+                if not any(item == r for r in res):
+                    res.append(item)
+        return res
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({', '.join(repr(v) for v in self.vertices)})"

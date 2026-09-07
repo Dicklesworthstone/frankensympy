@@ -536,6 +536,7 @@ from .geometry import (
     Sphere,
     Triangle,
     are_collinear,
+    are_coplanar,
     centroid,
     intersection,
 )
@@ -717,6 +718,7 @@ __all__ = [
     "acsc",
     "acsch",
     "are_collinear",
+    "are_coplanar",
     "asec",
     "asech",
     "ask",

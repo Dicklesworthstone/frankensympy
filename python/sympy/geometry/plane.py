@@ -78,15 +78,35 @@ class Plane(Basic):
             return self._native_plane.is_perpendicular(other._native_plane)
         raise TypeError("is_perpendicular requires a Plane")
 
+    def contains(self, other: Any) -> bool:
+        if isinstance(other, Point):
+            return self.eval_at_point(other) == 0
+        from .line import LinearEntity
+        if isinstance(other, LinearEntity):
+            return self.contains(other.p1) and self.contains(other.p2)
+        if isinstance(other, Plane):
+            return self == other
+        return False
+
     def intersection(self, other: Any) -> list[Any]:
         if isinstance(other, Plane):
             l = self._native_plane.intersection_plane(other._native_plane)
             p1 = Point3D(_wrap(l.p1.x), _wrap(l.p1.y), _wrap(l.p1.z))
             p2 = Point3D(_wrap(l.p2.x), _wrap(l.p2.y), _wrap(l.p2.z))
             return [Line3D(p1, p2)]
-        if isinstance(other, Line3D):
-            pt = self._native_plane.intersection_line(other._native_line)
-            return [Point3D(_wrap(pt.x), _wrap(pt.y), _wrap(pt.z))]
+        from .line import LinearEntity
+        if isinstance(other, LinearEntity):
+            line3d = Line3D(other.p1, other.p2)
+            try:
+                pt = self._native_plane.intersection_line(line3d._native_line)
+                p = Point3D(_wrap(pt.x), _wrap(pt.y), _wrap(pt.z))
+                if other.contains(p):
+                    return [p]
+                return []
+            except Exception:
+                if self.contains(other):
+                    return [other]
+                return []
         raise TypeError(f"intersection with {type(other).__name__} is not implemented")
 
     def __repr__(self) -> str:
