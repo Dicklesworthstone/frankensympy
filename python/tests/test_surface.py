@@ -2511,6 +2511,24 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(L.doit(), 15)
         self.assertEqual(limit(L), 15)
 
+    def test_geometry_utilities(self):
+        from sympy import Line, Point, Point2D, are_collinear, centroid, intersection
+
+        p1 = Point(0, 0)
+        p2 = Point(1, 1)
+        p3 = Point(2, 2)
+        p4 = Point(0, 1)
+        self.assertTrue(are_collinear(p1, p2, p3))
+        self.assertFalse(are_collinear(p1, p2, p4))
+
+        c = centroid(Point(0, 0), Point(3, 0), Point(0, 3))
+        self.assertEqual(c, Point2D(1, 1))
+
+        l1 = Line(Point(0, 0), Point(2, 2))
+        l2 = Line(Point(0, 2), Point(2, 0))
+        inter = intersection(l1, l2)
+        self.assertEqual(inter, [Point2D(1, 1)])
+
 
 if __name__ == "__main__":
     unittest.main()

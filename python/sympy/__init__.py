@@ -535,6 +535,9 @@ from .geometry import (
     Segment3D,
     Sphere,
     Triangle,
+    are_collinear,
+    centroid,
+    intersection,
 )
 from .integrals import Integral
 from .logic import (
@@ -713,6 +716,7 @@ __all__ = [
     "acoth",
     "acsc",
     "acsch",
+    "are_collinear",
     "asec",
     "asech",
     "ask",
@@ -735,6 +739,7 @@ __all__ = [
     "carmichael",
     "casoratian",
     "catalan",
+    "centroid",
     "ceiling",
     "checkodesol",
     "checksol",
@@ -779,6 +784,7 @@ __all__ = [
     "hstack",
     "integer_nthroot",
     "integrate",
+    "intersection",
     "is_perfect",
     "is_primitive_root",
     "is_quad_residue",

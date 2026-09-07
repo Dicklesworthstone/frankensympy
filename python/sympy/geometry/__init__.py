@@ -18,6 +18,8 @@ from .line import (
 from .ellipse import Circle, Ellipse, Sphere
 from .polygon import Polygon, Triangle
 from .plane import Plane
+from .util import are_collinear, centroid, intersection
+from . import util
 
 __all__ = [
     "Circle",
@@ -39,4 +41,8 @@ __all__ = [
     "Segment3D",
     "Sphere",
     "Triangle",
+    "are_collinear",
+    "centroid",
+    "intersection",
+    "util",
 ]
