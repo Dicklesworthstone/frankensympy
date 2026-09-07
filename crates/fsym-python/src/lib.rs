@@ -350,6 +350,33 @@ fn poly_degree_expr(p_src: &str, var: &str) -> PyResult<Option<usize>> {
     Ok(poly.degree())
 }
 
+/// Degree of a multivariate polynomial with respect to a target generator, or total degree if none specified.
+#[pyfunction]
+fn poly_multivariate_degree_expr(
+    p_src: &str,
+    var_names: Vec<String>,
+    target_var: Option<&str>,
+) -> PyResult<Option<usize>> {
+    let e = parse_expr(p_src)?;
+    let gens: Vec<Symbol> = var_names.into_iter().map(Symbol::new).collect();
+    let poly =
+        fsym_polys::multivariate::MultivariatePoly::from_expr(&e, &gens).map_err(to_value_error)?;
+    if let Some(target) = target_var {
+        let sym = Symbol::new(target);
+        if let Some(idx) = gens.iter().position(|g| g == &sym) {
+            Ok(Some(
+                usize::try_from(poly.degree_in(idx)).unwrap_or(usize::MAX),
+            ))
+        } else {
+            Ok(Some(0))
+        }
+    } else {
+        Ok(poly
+            .total_degree()
+            .map(|d| usize::try_from(d).unwrap_or(usize::MAX)))
+    }
+}
+
 /// Leading coefficient of a univariate polynomial.
 #[pyfunction]
 fn poly_leading_coeff_expr(p_src: &str, var: &str) -> PyResult<String> {
@@ -644,6 +671,71 @@ fn groebner_basis_expr(eq_sources: Vec<String>, var_names: Vec<String>) -> PyRes
     Ok(out)
 }
 
+/// Multivariate polynomial GCD (monic under Lex order).
+#[pyfunction]
+fn poly_multivariate_gcd_expr(
+    p1_src: &str,
+    p2_src: &str,
+    var_names: Vec<String>,
+) -> PyResult<String> {
+    let e1 = parse_expr(p1_src)?;
+    let e2 = parse_expr(p2_src)?;
+    let gens: Vec<Symbol> = var_names.into_iter().map(Symbol::new).collect();
+    let poly1 = fsym_polys::multivariate::MultivariatePoly::from_expr(&e1, &gens)
+        .map_err(to_value_error)?;
+    let poly2 = fsym_polys::multivariate::MultivariatePoly::from_expr(&e2, &gens)
+        .map_err(to_value_error)?;
+    let g = poly1.gcd(&poly2).map_err(to_value_error)?;
+    let expr = g.to_expr().map_err(to_value_error)?;
+    Ok(expr.to_string())
+}
+
+/// Multivariate polynomial LCM (monic under Lex order).
+#[pyfunction]
+fn poly_multivariate_lcm_expr(
+    p1_src: &str,
+    p2_src: &str,
+    var_names: Vec<String>,
+) -> PyResult<String> {
+    let e1 = parse_expr(p1_src)?;
+    let e2 = parse_expr(p2_src)?;
+    let gens: Vec<Symbol> = var_names.into_iter().map(Symbol::new).collect();
+    let poly1 = fsym_polys::multivariate::MultivariatePoly::from_expr(&e1, &gens)
+        .map_err(to_value_error)?;
+    let poly2 = fsym_polys::multivariate::MultivariatePoly::from_expr(&e2, &gens)
+        .map_err(to_value_error)?;
+    let lcm = poly1.lcm(&poly2).map_err(to_value_error)?;
+    let expr = lcm.to_expr().map_err(to_value_error)?;
+    Ok(expr.to_string())
+}
+
+/// Multivariate polynomial division with remainder returning (quotient, remainder).
+#[pyfunction]
+fn poly_multivariate_div_rem_expr(
+    p1_src: &str,
+    p2_src: &str,
+    var_names: Vec<String>,
+) -> PyResult<(String, String)> {
+    let e1 = parse_expr(p1_src)?;
+    let e2 = parse_expr(p2_src)?;
+    let gens: Vec<Symbol> = var_names.into_iter().map(Symbol::new).collect();
+    let poly1 = fsym_polys::multivariate::MultivariatePoly::from_expr(&e1, &gens)
+        .map_err(to_value_error)?;
+    let poly2 = fsym_polys::multivariate::MultivariatePoly::from_expr(&e2, &gens)
+        .map_err(to_value_error)?;
+    let (quotients, rem) = poly1
+        .div_rem(&[poly2], fsym_polys::TermOrder::Lex)
+        .map_err(to_value_error)?;
+    let q_expr = quotients
+        .first()
+        .cloned()
+        .unwrap_or_else(|| fsym_polys::multivariate::MultivariatePoly::zero(gens.clone()))
+        .to_expr()
+        .map_err(to_value_error)?;
+    let r_expr = rem.to_expr().map_err(to_value_error)?;
+    Ok((q_expr.to_string(), r_expr.to_string()))
+}
+
 /// Algebraic equation solver (linear, quadratic, factorable higher-degree polynomial).
 #[pyfunction]
 fn solve_expr(src: &str, var: &str) -> PyResult<Vec<String>> {
@@ -912,6 +1004,7 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(solve_poly_system_expr, m)?)?;
     m.add_function(wrap_pyfunction!(poly_coeffs_expr, m)?)?;
     m.add_function(wrap_pyfunction!(poly_degree_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_multivariate_degree_expr, m)?)?;
     m.add_function(wrap_pyfunction!(poly_leading_coeff_expr, m)?)?;
     m.add_function(wrap_pyfunction!(poly_monic_expr, m)?)?;
     m.add_function(wrap_pyfunction!(poly_div_rem_expr, m)?)?;
@@ -926,6 +1019,9 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(poly_factor_list_expr, m)?)?;
     m.add_function(wrap_pyfunction!(poly_roots_expr, m)?)?;
     m.add_function(wrap_pyfunction!(groebner_basis_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_multivariate_gcd_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_multivariate_lcm_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_multivariate_div_rem_expr, m)?)?;
     m.add_function(wrap_pyfunction!(mobius_fn, m)?)?;
     m.add_function(wrap_pyfunction!(divisor_count_fn, m)?)?;
     m.add_function(wrap_pyfunction!(divisor_sum_fn, m)?)?;

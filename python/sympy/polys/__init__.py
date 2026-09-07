@@ -5,6 +5,7 @@ from .polytools import (
     LC,
     Poly,
     TC,
+    apart,
     cancel,
     content,
     degree,
@@ -24,6 +25,7 @@ from .polytools import (
     sqf,
     sqf_list,
     sqf_part,
+    together,
     trailing_coeff,
 )
 
@@ -32,6 +34,7 @@ __all__ = [
     "LC",
     "Poly",
     "TC",
+    "apart",
     "cancel",
     "content",
     "degree",
@@ -51,5 +54,6 @@ __all__ = [
     "sqf",
     "sqf_list",
     "sqf_part",
+    "together",
     "trailing_coeff",
 ]

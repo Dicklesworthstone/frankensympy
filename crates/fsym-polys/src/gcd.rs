@@ -317,6 +317,34 @@ impl MultivariatePoly {
             .to_monic(TermOrder::Lex)
     }
 
+    /// Computes the monic least common multiple (LCM) of two multivariate polynomials in $\mathbb{Q}[x_1, \ldots, x_n]$.
+    pub fn lcm(&self, other: &Self) -> Result<Self, PolyError> {
+        self.validate_shape()?;
+        other.validate_shape()?;
+        if self.generators != other.generators {
+            return Err(PolyError::IncompatibleGenerators(
+                format!("{:?}", self.generators),
+                format!("{:?}", other.generators),
+            ));
+        }
+        if self.is_zero() || other.is_zero() {
+            return Ok(Self::zero(self.generators.clone()));
+        }
+        let g = self.gcd(other)?;
+        let fg = self.mul(other)?;
+        let (quotients, rem) = fg.div_rem(&[g], TermOrder::Lex)?;
+        if !rem.is_zero() {
+            return Err(PolyError::General(
+                "Exact LCM quotient division failed".to_string(),
+            ));
+        }
+        quotients
+            .into_iter()
+            .next()
+            .ok_or_else(|| PolyError::General("LCM quotient is missing".to_string()))?
+            .to_monic(TermOrder::Lex)
+    }
+
     /// Computes a GCD candidate with an exact certificate that it divides both inputs.
     ///
     /// The candidate comes from [`Self::gcd`], but the certificate intentionally grants only the

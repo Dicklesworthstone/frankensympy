@@ -81,8 +81,17 @@ class Poly(Basic):
         """Return all non-zero coefficients in descending degree order."""
         return [c for c in self.all_coeffs() if c != 0]
 
-    def degree(self, gen: int = 0) -> Optional[int]:
+    def degree(self, gen: Any = 0) -> Optional[int]:
         """Return polynomial degree."""
+        if len(self._gens) > 1:
+            var_names = [_native_symbol_key(g) for g in self._gens]
+            target_key = None
+            if gen is not None:
+                target_gen = self._gens[gen] if isinstance(gen, int) else _require_symbol(gen)
+                target_key = _native_symbol_key(target_gen)
+            return _native.poly_multivariate_degree_expr(
+                str(self._expr), var_names, target_key
+            )
         target_gen = self._gens[gen] if isinstance(gen, int) else _require_symbol(gen)
         return _native.poly_degree_expr(str(self._expr), _native_symbol_key(target_gen))
 
@@ -160,19 +169,27 @@ class Poly(Basic):
 
     @property
     def is_zero(self) -> bool:
+        if self.as_expr() == 0 or self.as_expr() == Integer(0):
+            return True
         deg = self.degree()
         if deg is None:
             return True
-        coeffs = self.all_coeffs()
-        return len(coeffs) == 1 and coeffs[0] == 0
+        if len(self._gens) == 1:
+            coeffs = self.all_coeffs()
+            return len(coeffs) == 1 and coeffs[0] == 0
+        return False
 
     @property
     def is_one(self) -> bool:
+        if self.as_expr() == 1 or self.as_expr() == Integer(1):
+            return True
         deg = self.degree()
         if deg != 0:
             return False
-        coeffs = self.all_coeffs()
-        return len(coeffs) == 1 and coeffs[0] == 1
+        if len(self._gens) == 1:
+            coeffs = self.all_coeffs()
+            return len(coeffs) == 1 and coeffs[0] == 1
+        return False
 
     @property
     def is_monic(self) -> bool:
@@ -287,6 +304,17 @@ class Poly(Basic):
     def div(self, other: Any) -> Tuple["Poly", "Poly"]:
         """Polynomial division with remainder returning (quotient, remainder)."""
         other_expr = other.as_expr() if isinstance(other, Poly) else _wrap(_native_expr(other))
+        other_gens = other._gens if isinstance(other, Poly) else ()
+        if len(self._gens) > 1 or len(other_gens) > 1:
+            all_gens = tuple(dict.fromkeys(self._gens + other_gens))
+            var_names = [_native_symbol_key(g) for g in all_gens]
+            q_raw, r_raw = _native.poly_multivariate_div_rem_expr(
+                str(self._expr), str(other_expr), var_names
+            )
+            return (
+                Poly(_parse_result(q_raw), *all_gens),
+                Poly(_parse_result(r_raw), *all_gens),
+            )
         q_raw, r_raw = _native.poly_div_rem_expr(
             str(self._expr), str(other_expr), _native_symbol_key(self.gen)
         )
@@ -314,6 +342,14 @@ class Poly(Basic):
     def gcd(self, other: Any) -> "Poly":
         """Greatest common divisor (monic)."""
         other_expr = other.as_expr() if isinstance(other, Poly) else _wrap(_native_expr(other))
+        other_gens = other._gens if isinstance(other, Poly) else ()
+        if len(self._gens) > 1 or len(other_gens) > 1:
+            all_gens = tuple(dict.fromkeys(self._gens + other_gens))
+            var_names = [_native_symbol_key(g) for g in all_gens]
+            raw = _native.poly_multivariate_gcd_expr(
+                str(self._expr), str(other_expr), var_names
+            )
+            return Poly(_parse_result(raw), *all_gens)
         raw = _native.poly_gcd_expr(
             str(self._expr), str(other_expr), _native_symbol_key(self.gen)
         )
@@ -322,6 +358,14 @@ class Poly(Basic):
     def lcm(self, other: Any) -> "Poly":
         """Least common multiple (monic)."""
         other_expr = other.as_expr() if isinstance(other, Poly) else _wrap(_native_expr(other))
+        other_gens = other._gens if isinstance(other, Poly) else ()
+        if len(self._gens) > 1 or len(other_gens) > 1:
+            all_gens = tuple(dict.fromkeys(self._gens + other_gens))
+            var_names = [_native_symbol_key(g) for g in all_gens]
+            raw = _native.poly_multivariate_lcm_expr(
+                str(self._expr), str(other_expr), var_names
+            )
+            return Poly(_parse_result(raw), *all_gens)
         raw = _native.poly_lcm_expr(
             str(self._expr), str(other_expr), _native_symbol_key(self.gen)
         )
@@ -676,31 +720,205 @@ def cancel(f: Any, *gens: Any) -> Any:
     try:
         p_poly = Poly(numer, *gens) if gens else Poly(numer)
         q_poly = Poly(denom, *p_poly.gens)
+
+        if len(p_poly.gens) == 1:
+            p_cont, p_prim = p_poly.primitive()
+            q_cont, q_prim = q_poly.primitive()
+
+            if q_cont == 0:
+                return f if is_poly else wrapped
+
+            c = p_cont / q_cont
+            c_num = c.p if hasattr(c, "p") else c
+            c_den = c.q if hasattr(c, "q") else 1
+
+            g = p_prim.gcd(q_prim)
+            p_div = p_prim.div(g)[0]
+            q_div = q_prim.div(g)[0]
+
+            num_final = expand(p_div.as_expr() * c_num)
+            den_final = expand(q_div.as_expr() * c_den)
+        else:
+            g = p_poly.gcd(q_poly)
+            p_div = p_poly.div(g)[0]
+            q_div = q_poly.div(g)[0]
+            num_final = p_div.as_expr()
+            den_final = q_div.as_expr()
+
+        if den_final == 1 or den_final == Integer(1):
+            res = num_final
+        else:
+            res = num_final / den_final
+
+        if is_poly:
+            return Poly(res, *p_poly.gens)
+        return res
     except Exception:
         return f if is_poly else wrapped
 
-    g = p_poly.gcd(q_poly)
-    p_div = p_poly.div(g)[0]
-    q_div = q_poly.div(g)[0]
 
-    p_cont, p_prim = p_div.primitive()
-    q_cont, q_prim = q_div.primitive()
+def together(expr: Any) -> Any:
+    """Combine symbolic expressions into a single rational function.
 
-    if q_cont == 0:
-        return f if is_poly else wrapped
+    Examples
+    ========
+    >>> from sympy import together, symbols
+    >>> x, y = symbols('x y')
+    >>> together(1/x + 1/y)
+    (x + y)/(x*y)
+    >>> together(1/x + 1)
+    (x + 1)/x
+    """
+    from ..core import Add, expand
+    is_poly = isinstance(expr, Poly)
+    wrapped = expr.as_expr() if is_poly else _wrap(_native_expr(expr))
 
-    c = p_cont / q_cont
-    num_final = expand(p_prim.as_expr() * (c.p if hasattr(c, "p") else c))
-    den_final = expand(q_prim.as_expr() * (c.q if hasattr(c, "q") else 1))
+    if isinstance(wrapped, Add):
+        terms = list(wrapped.args)
+        if not terms:
+            return expr
+        num_acc, den_acc = terms[0].as_numer_denom()
+        for term in terms[1:]:
+            n, d = term.as_numer_denom()
+            num_acc = expand(num_acc * d + n * den_acc)
+            den_acc = expand(den_acc * d)
 
-    if den_final == 1 or den_final == Integer(1):
-        res = num_final
+        combined = num_acc / den_acc if den_acc != 1 else num_acc
+        res = cancel(combined)
+        return Poly(res, *expr._gens) if is_poly else res
+
+    elif hasattr(wrapped, "args") and wrapped.args:
+        new_args = [together(a) for a in wrapped.args]
+        if new_args != list(wrapped.args):
+            res = type(wrapped)(*new_args)
+            return Poly(res, *expr._gens) if is_poly else res
+
+    return expr
+
+
+def apart(expr: Any, x: Any = None) -> Any:
+    """Compute partial fraction decomposition of a rational function.
+
+    Examples
+    ========
+    >>> from sympy import apart, symbols
+    >>> x = symbols('x')
+    >>> apart(1/(x**2 - 1), x)
+    1/(2*(x - 1)) - 1/(2*(x + 1))
+    >>> apart((x + 2)/(x + 1), x)
+    1 + 1/(x + 1)
+    """
+    from ..core import Add, Integer, Symbol, _require_symbol
+    is_poly = isinstance(expr, Poly)
+    wrapped = expr.as_expr() if is_poly else _wrap(_native_expr(expr))
+
+    if x is None:
+        free = wrapped.free_symbols
+        if not free:
+            return expr
+        if len(free) == 1:
+            x_sym = next(iter(free))
+        else:
+            x_sym = sorted(list(free), key=lambda s: s.name)[0]
+    elif isinstance(x, str):
+        x_sym = Symbol(x)
     else:
-        res = num_final / den_final
+        x_sym = _require_symbol(x)
 
-    if is_poly:
-        return Poly(res, *p_poly.gens)
-    return res
+    if isinstance(wrapped, Add):
+        terms = list(wrapped.args)
+        decomposed_terms = []
+        for t in terms:
+            decomposed_terms.append(apart(t, x_sym))
+        res = Add(*decomposed_terms)
+        return Poly(res, x_sym) if is_poly else res
+
+    if not hasattr(wrapped, "as_numer_denom"):
+        return expr
+
+    numer, denom = wrapped.as_numer_denom()
+    if x_sym not in denom.free_symbols:
+        return expr
+
+    try:
+        p_poly = Poly(numer, x_sym)
+        q_poly = Poly(denom, x_sym)
+    except Exception:
+        return expr
+
+    # 1. Division with remainder: P(x) = S(x)*Q(x) + R(x)
+    try:
+        s_poly, r_poly = p_poly.div(q_poly)
+    except Exception:
+        return expr
+
+    s_expr = s_poly.as_expr()
+    if r_poly.is_zero:
+        return Poly(s_expr, x_sym) if is_poly else s_expr
+
+    # 2. Factor Q(x) over QQ
+    try:
+        scale, factors = q_poly.factor_list()
+    except Exception:
+        return expr
+
+    if scale != 1 and scale != Integer(1):
+        r_poly = Poly(r_poly.as_expr() / scale, x_sym)
+
+    if not factors:
+        res = s_expr + r_poly.as_expr()
+        return Poly(res, x_sym) if is_poly else res
+
+    # 3. Helper to expand rem / (base ** exp) using base-adic expansion
+    def _decompose_power(rem: Poly, base: Poly, exp: int) -> list:
+        res = []
+        cur = rem
+        for i in range(exp, 0, -1):
+            if cur.is_zero:
+                break
+            q, r = cur.div(base)
+            if not r.is_zero:
+                d = base.as_expr() ** i if i > 1 else base.as_expr()
+                res.append(r.as_expr() / d)
+            cur = q
+        return res
+
+    # 4. Helper for coprime factors
+    def _decompose_coprime(rem: Poly, f_tuples: list) -> list:
+        if not f_tuples:
+            return []
+        if len(f_tuples) == 1:
+            b, e = f_tuples[0]
+            return _decompose_power(rem, b, e)
+
+        b1, e1 = f_tuples[0]
+        d1 = b1 ** e1
+
+        rest = f_tuples[1:]
+        d_rest = rest[0][0] ** rest[0][1]
+        for b, e in rest[1:]:
+            d_rest = d_rest * (b ** e)
+
+        s, t, h = d1.gcdex(d_rest)
+        if not h.is_one:
+            lc = h.leading_coeff()
+            s = Poly(s.as_expr() / lc, x_sym)
+            t = Poly(t.as_expr() / lc, x_sym)
+
+        rv = rem * t
+        ru = rem * s
+        _, r1 = rv.div(d1)
+        _, r_rest = ru.div(d_rest)
+
+        return _decompose_power(r1, b1, e1) + _decompose_coprime(r_rest, rest)
+
+    pf_terms = _decompose_coprime(r_poly, factors)
+    if s_expr != 0 and s_expr != Integer(0):
+        total = Add(s_expr, *pf_terms)
+    else:
+        total = Add(*pf_terms) if len(pf_terms) > 1 else (pf_terms[0] if pf_terms else Integer(0))
+
+    return Poly(total, x_sym) if is_poly else total
 
 
 def poly(expr: Any, *gens: Any, **args: Any) -> Poly:
@@ -713,6 +931,7 @@ __all__ = [
     "LC",
     "Poly",
     "TC",
+    "apart",
     "cancel",
     "content",
     "degree",
@@ -732,5 +951,6 @@ __all__ = [
     "sqf",
     "sqf_list",
     "sqf_part",
+    "together",
     "trailing_coeff",
 ]

@@ -1125,4 +1125,69 @@ def jordan_cell(eigenval, n):
 jordan_block = jordan_cell
 
 
+def det(m, method=None):
+    """Compute determinant of a square matrix."""
+    if hasattr(m, "det"):
+        return m.det(method=method)
+    raise TypeError(f"det expected Matrix argument, got {type(m)}")
 
+
+def trace(m):
+    """Compute trace of a square matrix."""
+    if hasattr(m, "trace"):
+        return m.trace()
+    raise TypeError(f"trace expected Matrix argument, got {type(m)}")
+
+
+def rank(m):
+    """Compute rank of a matrix."""
+    if hasattr(m, "rank"):
+        return m.rank()
+    raise TypeError(f"rank expected Matrix argument, got {type(m)}")
+
+
+def shape(m):
+    """Return (rows, cols) shape of a matrix."""
+    if hasattr(m, "shape"):
+        return m.shape
+    raise TypeError(f"shape expected Matrix argument, got {type(m)}")
+
+
+def randMatrix(
+    r,
+    c=None,
+    min=0,
+    max=99,
+    seed=None,
+    symmetric=False,
+    percent=100,
+):
+    """Create a random matrix of dimensions r x c with integer elements."""
+    import random
+    if c is None:
+        c = r
+    rng = random.Random(seed) if seed is not None else random
+    if symmetric:
+        if r != c:
+            raise ValueError("Symmetric matrices must be square")
+        mat = [[0] * c for _ in range(r)]
+        for i in range(r):
+            for j in range(i, c):
+                if percent == 100 or rng.randint(1, 100) <= percent:
+                    val = rng.randint(min, max)
+                else:
+                    val = 0
+                mat[i][j] = val
+                mat[j][i] = val
+        return Matrix(mat)
+    else:
+        mat = []
+        for _ in range(r):
+            row = []
+            for _ in range(c):
+                if percent == 100 or rng.randint(1, 100) <= percent:
+                    row.append(rng.randint(min, max))
+                else:
+                    row.append(0)
+            mat.append(row)
+        return Matrix(mat)

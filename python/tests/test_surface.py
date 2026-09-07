@@ -3001,9 +3001,210 @@ class SurfaceTests(unittest.TestCase):
         self.assertFalse(perfect_power(1))
         self.assertFalse(perfect_power(-16))
 
+    def test_calculus_and_series_advanced(self):
+        import sympy
+        from sympy import (
+            AccumBounds,
+            AccumulationBounds,
+            EmptySet,
+            FiniteSet,
+            Integer,
+            Interval,
+            O,
+            Order,
+            Reals,
+            Symbol,
+            cos,
+            sin,
+        )
+        from sympy.calculus import (
+            AccumBounds as calc_AccumBounds,
+            AccumulationBounds as calc_AccumulationBounds,
+            continuous_domain,
+            function_range,
+            is_decreasing,
+            is_increasing,
+            is_monotonic,
+            is_strictly_decreasing,
+            is_strictly_increasing,
+            maximum,
+            minimum,
+            periodicity,
+            singularities,
+            stationary_points,
+        )
+
+        self.assertIs(AccumBounds, calc_AccumBounds)
+        self.assertIs(AccumulationBounds, calc_AccumulationBounds)
+        self.assertIs(sympy.calculus.singularities, singularities)
+        self.assertIs(sympy.calculus.continuous_domain, continuous_domain)
+        self.assertIs(sympy.calculus.is_increasing, is_increasing)
+        self.assertIs(sympy.calculus.is_strictly_increasing, is_strictly_increasing)
+        self.assertIs(sympy.calculus.is_decreasing, is_decreasing)
+        self.assertIs(sympy.calculus.is_strictly_decreasing, is_strictly_decreasing)
+        self.assertIs(sympy.calculus.is_monotonic, is_monotonic)
+        self.assertIs(sympy.calculus.periodicity, periodicity)
+        self.assertIs(sympy.calculus.stationary_points, stationary_points)
+        self.assertIs(sympy.calculus.maximum, maximum)
+        self.assertIs(sympy.calculus.minimum, minimum)
+        self.assertIs(sympy.calculus.function_range, function_range)
+
+        x = Symbol("x")
+
+        # 1. Singularities and continuous domain
+        self.assertEqual(singularities(1 / (x - 2), x), FiniteSet(2))
+        self.assertEqual(singularities(x**2 + 1, x), EmptySet())
+        cd = continuous_domain(1 / (x - 2), x, Reals)
+        self.assertTrue(hasattr(cd, "intersect") or hasattr(cd, "args"))
+
+        # 2. Monotonicity
+        self.assertTrue(is_increasing(x**3, x))
+        self.assertTrue(is_strictly_increasing(x, x))
+        self.assertTrue(is_decreasing(-x**3, x))
+        self.assertTrue(is_strictly_decreasing(-x, x))
+        self.assertTrue(is_monotonic(x**3, x))
+        self.assertFalse(is_monotonic(x**2, x))
+
+        # 3. Periodicity
+        self.assertEqual(periodicity(sin(x), x), 2 * sympy.pi)
+        self.assertEqual(periodicity(cos(2 * x), x), sympy.pi)
+        self.assertIsNone(periodicity(x**2, x))
+
+        # 4. Stationary points and extrema
+        pts = stationary_points(x**2 - 4 * x + 3, x)
+        self.assertEqual(pts, FiniteSet(2))
+        self.assertEqual(maximum(-(x - 2)**2 + 5, x), Integer(5))
+        self.assertEqual(minimum((x - 2)**2 + 5, x), Integer(5))
+
+        # Function range with interval bounds
+        r1 = function_range(x**2, x, Interval(1, 3))
+        self.assertEqual(r1.start, Integer(1))
+        self.assertEqual(r1.end, Integer(9))
+
+        r2 = function_range(x**2, x, Interval(-1, 3))
+        self.assertEqual(r2.start, Integer(0))
+        self.assertEqual(r2.end, Integer(9))
+
+        self.assertEqual(minimum(x**2, x, Interval(1, 3)), Integer(1))
+        self.assertEqual(maximum(x**2, x, Interval(1, 3)), Integer(9))
+
+        # 5. AccumBounds
+        ab = AccumBounds(-1, 1)
+        self.assertEqual(ab.min, Integer(-1))
+        self.assertEqual(ab.max, Integer(1))
+        self.assertEqual(ab.args, (Integer(-1), Integer(1)))
+        self.assertEqual(ab + 2, AccumBounds(1, 3))
+        self.assertEqual(2 + ab, AccumBounds(1, 3))
+        self.assertEqual(ab - 1, AccumBounds(-2, 0))
+        self.assertEqual(-ab, AccumBounds(-1, 1))
+        self.assertEqual(ab * 2, AccumBounds(-2, 2))
+        self.assertEqual(ab, AccumulationBounds(-1, 1))
+
+        # 6. Series expansion with keywords and removeO
+        s1 = sin(x).series(x=x, x0=0, n=4, dir="+")
+        s2 = sin(x).series(x, 0, 4)
+        self.assertEqual(s1, s2)
+        # removeO on plain Taylor polynomial returns the polynomial
+        self.assertEqual(s1.removeO(), s1)
+        # removeO removes Order terms
+        o_term = O(x**4)
+        s_with_o = s1 + o_term
+        self.assertEqual(s_with_o.removeO().expand(), s1.expand())
+        self.assertEqual(o_term.removeO(), Integer(0))
+        self.assertEqual(Order(x**3).removeO(), Integer(0))
+
+    def test_rational_simplification_and_advanced_matrices(self):
+        import sympy
+        from sympy import (
+            Integer,
+            Matrix,
+            Poly,
+            Symbol,
+            apart,
+            cancel,
+            det,
+            randMatrix,
+            rank,
+            shape,
+            together,
+            trace,
+        )
+
+        x, y = Symbol("x"), Symbol("y")
+
+        # 1. apart: partial fraction decomposition
+        # Distinct linear factors
+        ap1 = apart(1 / (x**2 - 1), x)
+        self.assertEqual(together(ap1), 1 / (x**2 - 1))
+
+        # Improper rational fraction
+        ap2 = apart((x + 2) / (x + 1), x)
+        self.assertEqual(ap2, 1 + 1 / (x + 1))
+
+        # Repeated linear factors
+        ap3 = apart(1 / (x**2 * (x - 1)), x)
+        self.assertEqual(together(ap3), 1 / (x**3 - x**2))
+
+        # Default variable detection
+        ap4 = apart((x + 2) / (x + 1))
+        self.assertEqual(ap4, 1 + 1 / (x + 1))
+
+        # Constant polynomial / no denominator
+        self.assertEqual(apart(x**2 + 1, x), x**2 + 1)
+
+        # 2. together: combining fractions
+        t1 = together(1 / x + 1 / y)
+        self.assertEqual(t1, (x + y) / (x * y))
+
+        t2 = together(1 / x + 1)
+        self.assertEqual(t2, (x + 1) / x)
+
+        t3 = together(1 / (x + 1) + 1 / (x - 1))
+        self.assertEqual(cancel(t3), (2 * x) / (x**2 - 1))
+
+        # 3. cancel: common factor cancellation
+        c1 = cancel((x**2 - 1) / (x - 1))
+        self.assertEqual(c1, x + 1)
+
+        c2 = cancel((x**2 - y**2) / (x - y))
+        self.assertEqual(c2, x + y)
+
+        c3 = cancel((x*y + y) / y)
+        self.assertEqual(c3, x + 1)
+
+        # 4. Poly multivariate methods
+        p_xy = Poly(x * y)
+        self.assertEqual(p_xy.degree(x), 1)
+        self.assertEqual(p_xy.degree(y), 1)
+        self.assertEqual(p_xy.degree(None), 2)
+
+        p1 = Poly(x**2 * y)
+        p2 = Poly(x * y**2)
+        g = p1.gcd(p2)
+        self.assertEqual(g.as_expr(), x * y)
+        l = p1.lcm(p2)
+        self.assertEqual(l.as_expr(), x**2 * y**2)
+
+        # 5. Standalone matrix functions
+        M = Matrix([[1, 2], [3, 4]])
+        self.assertEqual(det(M), -2)
+        self.assertEqual(trace(M), 5)
+        self.assertEqual(rank(M), 2)
+        self.assertEqual(shape(M), (2, 2))
+
+        # 6. randMatrix
+        R = randMatrix(3, 3, seed=42)
+        self.assertEqual(R.shape, (3, 3))
+        self.assertTrue(all(isinstance(R[r, c], Integer) for r in range(3) for c in range(3)))
+
+        R_sym = randMatrix(3, symmetric=True, seed=123)
+        self.assertEqual(R_sym.shape, (3, 3))
+        self.assertTrue(R_sym.is_symmetric)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 
 

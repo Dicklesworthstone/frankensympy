@@ -328,6 +328,41 @@ def _exact_ratio(value: Any) -> tuple[int, int] | None:
             return value._as_python_float().as_integer_ratio()
         except (OverflowError, ValueError):
             return None
+    cls_name = type(value).__name__
+    if cls_name == "Mul":
+        cur_p, cur_q = 1, 1
+        for a in value.args:
+            r = _exact_ratio(a)
+            if r is None:
+                return None
+            cur_p *= r[0]
+            cur_q *= r[1]
+        return cur_p, cur_q
+    if cls_name == "Add":
+        cur_p, cur_q = 0, 1
+        for a in value.args:
+            r = _exact_ratio(a)
+            if r is None:
+                return None
+            cur_p = cur_p * r[1] + r[0] * cur_q
+            cur_q = cur_q * r[1]
+            g = math.gcd(abs(cur_p), abs(cur_q))
+            if g > 1:
+                cur_p //= g
+                cur_q //= g
+        return cur_p, cur_q
+    if cls_name == "Pow":
+        args = getattr(value, "args", ())
+        if len(args) == 2:
+            r_base = _exact_ratio(args[0])
+            r_exp = _exact_ratio(args[1])
+            if r_base is not None and r_exp is not None and r_exp[1] == 1:
+                e = r_exp[0]
+                if -100 <= e <= 100:
+                    if e >= 0:
+                        return r_base[0] ** e, r_base[1] ** e
+                    elif r_base[0] != 0:
+                        return r_base[1] ** (-e), r_base[0] ** (-e)
     return None
 
 
@@ -462,7 +497,7 @@ def _exact_integer_argument(value: Any) -> int:
         return int(value)
     if type(value) is str:
         return int(value)
-    if type(value) is Integer:
+    if isinstance(value, Integer):
         return value.p
     if type(value) is Float:
         return int(value._as_python_float())
@@ -477,9 +512,9 @@ def _exact_rational_argument(value: Any) -> tuple[int, int]:
         return (1 if value else 0), 1
     if type(value) is float:
         return value.as_integer_ratio()
-    if type(value) is Integer:
+    if isinstance(value, Integer):
         return value.p, 1
-    if type(value) is Rational:
+    if isinstance(value, Rational):
         return value.p, value.q
     raise TypeError("exact built-in number, Integer, or Rational required")
 
@@ -1066,14 +1101,43 @@ class Expr(Basic):
     def as_expr(self) -> "Expr":
         return self
 
-    def series(self, x: Any = None, x0: Any = 0, n: int = 6) -> "Expr":
+    def series(self, x: Any = None, x0: Any = 0, n: int = 6, dir: str = "+", **kwargs: Any) -> "Expr":
         import sympy
-        return sympy.series(self, x, x0, n)
+        return sympy.series(self, x=x, x0=x0, n=n, dir=dir, **kwargs)
+
+    def removeO(self) -> "Expr":
+        """Remove Order terms from the expression."""
+        if hasattr(self, "func") and getattr(self.func, "__name__", "") == "Order":
+            from .numbers import Integer
+            return Integer(0)
+        if type(self) is Add:
+            remaining = [
+                arg for arg in self.args
+                if getattr(getattr(arg, "func", None), "__name__", "") != "Order"
+            ]
+            if len(remaining) == len(self.args):
+                return self
+            if not remaining:
+                from .numbers import Integer
+                return Integer(0)
+            if len(remaining) == 1:
+                return remaining[0]
+            return Add(*remaining)
+        return self
 
     def evalf(self, n: int = 15) -> "Float":
         if type(n) is not int or n < 1:
             raise TypeError("evalf dps must be a positive int")
         return Float(_native_expr(self).evalf(), n)
+
+    def __float__(self) -> float:
+        ratio = _exact_ratio(self)
+        if ratio is not None:
+            return float(ratio[0] / ratio[1])
+        try:
+            return float(self.evalf())
+        except Exception:
+            raise TypeError(f"cannot convert {type(self).__name__} to float")
 
     def as_ordered_terms(self) -> tuple["Expr", ...]:
         """Addends in sort_key order. Non-Add expressions are a one-term tuple."""
@@ -1225,15 +1289,31 @@ class Expr(Basic):
         raise TypeError(f"'{type(self).__name__}' object is not iterable")
 
     def __lt__(self, other: Any) -> bool:
+        r1 = _exact_ratio(self)
+        r2 = _exact_ratio(other)
+        if r1 is not None and r2 is not None:
+            return r1[0] * r2[1] < r2[0] * r1[1]
         return _native_expr(self) < _native_expr(other)
 
     def __le__(self, other: Any) -> bool:
+        r1 = _exact_ratio(self)
+        r2 = _exact_ratio(other)
+        if r1 is not None and r2 is not None:
+            return r1[0] * r2[1] <= r2[0] * r1[1]
         return _native_expr(self) <= _native_expr(other)
 
     def __gt__(self, other: Any) -> bool:
+        r1 = _exact_ratio(self)
+        r2 = _exact_ratio(other)
+        if r1 is not None and r2 is not None:
+            return r1[0] * r2[1] > r2[0] * r1[1]
         return _native_expr(self) > _native_expr(other)
 
     def __ge__(self, other: Any) -> bool:
+        r1 = _exact_ratio(self)
+        r2 = _exact_ratio(other)
+        if r1 is not None and r2 is not None:
+            return r1[0] * r2[1] >= r2[0] * r1[1]
         return _native_expr(self) >= _native_expr(other)
 
     def __add__(self, other: Any) -> "Expr":

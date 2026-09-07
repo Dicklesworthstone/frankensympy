@@ -12,6 +12,10 @@ class Set(Basic):
 
     __slots__ = ("_native_set",)
 
+    @property
+    def args(self) -> tuple[Any, ...]:
+        return ()
+
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         pass
 
@@ -759,6 +763,10 @@ class Complement(Set):
     __slots__ = ("_py_args",)
 
     def __new__(cls, a: Any, b: Any) -> Set:
+        if isinstance(a, type) and issubclass(a, Set):
+            a = a()
+        if isinstance(b, type) and issubclass(b, Set):
+            b = b()
         if not isinstance(a, Set):
             a = _wrap_set(_native_set(a))
         if not isinstance(b, Set):
@@ -813,6 +821,8 @@ def _wrap_set(native_symset: Any) -> Set:
 
 
 def _native_set(val: Any) -> Any:
+    if isinstance(val, type) and issubclass(val, Set):
+        val = val()
     if isinstance(val, Set):
         if getattr(val, "_native_set", None) is not None:
             return val._native_set

@@ -11,10 +11,15 @@ from ..core import (
 )
 
 
-def series(expression, variable=None, point=0, n=6):
+def series(expression, x=None, x0=0, n=6, dir="+", **kwargs):
     """Compute the Taylor series expansion of expression around variable = point."""
+    if "point" in kwargs:
+        x0 = kwargs["point"]
+    if "variable" in kwargs and x is None:
+        x = kwargs["variable"]
+
     expr = _wrap(_native_expr(expression))
-    if variable is None:
+    if x is None:
         symbols = expr.free_symbols
         if len(symbols) == 1:
             symbol = next(iter(symbols))
@@ -23,9 +28,9 @@ def series(expression, variable=None, point=0, n=6):
         else:
             raise ValueError("variable must be specified when multiple free symbols exist")
     else:
-        symbol = _require_symbol(variable)
+        symbol = _require_symbol(x)
     result = _native.taylor_expr(
-        str(expr), _native_symbol_key(symbol), int(point), int(n)
+        str(expr), _native_symbol_key(symbol), int(x0), int(n)
     )
     return _parse_result(result)
 
@@ -33,7 +38,7 @@ def series(expression, variable=None, point=0, n=6):
 from ..core import Expr, Function
 
 
-def limit(expression, variable=None, point=None):
+def limit(expression, variable=None, point=None, dir="+-", **kwargs):
     if variable is None and point is None:
         if isinstance(expression, Limit):
             return expression.doit()
