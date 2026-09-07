@@ -133,15 +133,33 @@ impl SymSet {
     /// Inverted exact bounds yield [`SetError::InvalidInterval`]; symbolic
     /// bounds cannot be validated eagerly and are accepted.
     pub fn interval_checked(start: Expr, end: Expr) -> Result<Self, SetError> {
-        if let (Some(s), Some(e)) = (exact_bound(&start), exact_bound(&end))
-            && s > e
-        {
-            return Err(SetError::InvalidInterval(
-                format!("{}", start),
-                format!("{}", end),
-            ));
+        Self::interval_full_checked(start, end, false, false)
+    }
+
+    /// Construct an interval with arbitrary openness while validating exact extended-real bounds.
+    pub fn interval_full_checked(
+        start: Expr,
+        end: Expr,
+        left_open: bool,
+        right_open: bool,
+    ) -> Result<Self, SetError> {
+        if let (Some(s), Some(e)) = (exact_bound(&start), exact_bound(&end)) {
+            if s > e {
+                return Err(SetError::InvalidInterval(
+                    format!("{}", start),
+                    format!("{}", end),
+                ));
+            }
+            if s == e && (left_open || right_open) {
+                return Ok(SymSet::EmptySet);
+            }
         }
-        Ok(SymSet::interval_closed(start, end))
+        Ok(SymSet::Interval {
+            start,
+            end,
+            left_open,
+            right_open,
+        })
     }
 
     /// Three-valued membership: `Some(decision)` or `None` when the set is

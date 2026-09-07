@@ -1961,6 +1961,16 @@ class _SingletonRegistry:
         from ..logic.boolalg import false
         return false
 
+    @property
+    def EmptySet(self) -> Any:
+        from ..sets.sets import EmptySet
+        return EmptySet()
+
+    @property
+    def UniversalSet(self) -> Any:
+        from ..sets.sets import UniversalSet
+        return UniversalSet()
+
     def __call__(self, value: Any) -> Basic:
         if isinstance(value, Basic):
             return value

@@ -1124,6 +1124,108 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(poly.centroid, Point2D(2, Rational(3, 2)))
         self.assertTrue(poly.is_convex())
 
+    def test_sets_surface(self):
+        from sympy import (
+            Complement,
+            EmptySet,
+            FiniteSet,
+            Integer,
+            Intersection,
+            Interval,
+            S,
+            Set,
+            Union,
+            UniversalSet,
+        )
+        import sympy.sets as ssets
+
+        self.assertIs(ssets.Set, Set)
+        self.assertIs(ssets.Interval, Interval)
+        self.assertIs(ssets.FiniteSet, FiniteSet)
+        self.assertIs(ssets.Union, Union)
+        self.assertIs(ssets.Intersection, Intersection)
+        self.assertIs(ssets.Complement, Complement)
+        self.assertIs(ssets.EmptySet, EmptySet)
+        self.assertIs(ssets.UniversalSet, UniversalSet)
+
+        # Singletons
+        self.assertIs(S.EmptySet, EmptySet())
+        self.assertIs(S.UniversalSet, UniversalSet())
+        self.assertTrue(S.EmptySet.is_empty)
+        self.assertFalse(S.UniversalSet.is_empty)
+        self.assertEqual(S.EmptySet.measure, Integer(0))
+        self.assertEqual(len(S.EmptySet), 0)
+        self.assertFalse(bool(S.EmptySet))
+        self.assertTrue(bool(S.UniversalSet))
+
+        # Interval
+        iv = Interval(0, 5)
+        self.assertEqual(iv.start, 0)
+        self.assertEqual(iv.end, 5)
+        self.assertEqual(iv.left, 0)
+        self.assertEqual(iv.right, 5)
+        self.assertFalse(iv.left_open)
+        self.assertFalse(iv.right_open)
+        self.assertEqual(iv.measure, 5)
+        self.assertFalse(iv.is_open)
+        self.assertTrue(iv.is_closed)
+        self.assertTrue(iv.is_compact)
+        self.assertTrue(2 in iv)
+        self.assertTrue(0 in iv)
+        self.assertTrue(5 in iv)
+        self.assertFalse(6 in iv)
+
+        # Open interval
+        open_iv = Interval(0, 5, left_open=True, right_open=True)
+        self.assertTrue(open_iv.left_open)
+        self.assertTrue(open_iv.right_open)
+        self.assertTrue(open_iv.is_open)
+        self.assertFalse(open_iv.is_closed)
+        self.assertFalse(0 in open_iv)
+        self.assertFalse(5 in open_iv)
+        self.assertTrue(3 in open_iv)
+
+        # Degenerate & empty interval
+        self.assertIs(Interval(5, 5, left_open=True), S.EmptySet)
+        with self.assertRaises(ValueError):
+            Interval(5, 0)
+
+        # Topology
+        self.assertEqual(iv.interior, open_iv)
+        self.assertEqual(iv.closure, iv)
+        self.assertEqual(iv.boundary, FiniteSet(0, 5))
+
+        # FiniteSet
+        fs = FiniteSet(1, 2, 3)
+        self.assertEqual(len(fs), 3)
+        self.assertTrue(2 in fs)
+        self.assertFalse(4 in fs)
+        self.assertTrue(fs.is_subset(iv))
+        self.assertFalse(fs.is_subset(Interval(10, 20)))
+        self.assertTrue(fs.is_disjoint(Interval(10, 20)))
+
+        # Set algebra operators
+        u = iv | FiniteSet(7)
+        self.assertIsInstance(u, Union)
+        self.assertTrue(7 in u)
+        self.assertTrue(2 in u)
+
+        inter = iv & FiniteSet(2, 3, 7)
+        self.assertIsInstance(inter, Intersection)
+        self.assertTrue(2 in inter)
+        self.assertTrue(3 in inter)
+        self.assertFalse(7 in inter)
+
+        diff = FiniteSet(1, 2, 3) - FiniteSet(2)
+        self.assertTrue(1 in diff)
+        self.assertFalse(2 in diff)
+        self.assertTrue(3 in diff)
+
+        sym_diff = FiniteSet(1, 2) ^ FiniteSet(2, 3)
+        self.assertTrue(1 in sym_diff)
+        self.assertFalse(2 in sym_diff)
+        self.assertTrue(3 in sym_diff)
+
 
 if __name__ == "__main__":
     unittest.main()

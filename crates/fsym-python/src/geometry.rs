@@ -782,11 +782,19 @@ impl PyPlane3D {
     }
 
     fn __repr__(&self) -> String {
-        format!("Plane3D(p={}, n={})", self.inner.point(), self.inner.normal())
+        format!(
+            "Plane3D(p={}, n={})",
+            self.inner.point(),
+            self.inner.normal()
+        )
     }
 
     fn __str__(&self) -> String {
-        format!("Plane3D(p={}, n={})", self.inner.point(), self.inner.normal())
+        format!(
+            "Plane3D(p={}, n={})",
+            self.inner.point(),
+            self.inner.normal()
+        )
     }
 
     fn __eq__(&self, other: &PyPlane3D) -> bool {

@@ -904,7 +904,9 @@ impl<'de> Deserialize<'de> for Circle {
 impl Circle {
     pub fn new(center: Point2D, radius: Expr) -> Result<Self, GeometryError> {
         let simplified = simplify(&radius);
-        if numeric_value(&simplified).is_some_and(|value| value < BigRational::from_integer(0.into())) {
+        if numeric_value(&simplified)
+            .is_some_and(|value| value < BigRational::from_integer(0.into()))
+        {
             return Err(GeometryError::NegativeRadius);
         }
         Ok(Self { center, radius })
@@ -967,7 +969,9 @@ impl<'de> Deserialize<'de> for Sphere {
 impl Sphere {
     pub fn new(center: Point3D, radius: Expr) -> Result<Self, GeometryError> {
         let simplified = simplify(&radius);
-        if numeric_value(&simplified).is_some_and(|value| value < BigRational::from_integer(0.into())) {
+        if numeric_value(&simplified)
+            .is_some_and(|value| value < BigRational::from_integer(0.into()))
+        {
             return Err(GeometryError::NegativeRadius);
         }
         Ok(Self { center, radius })

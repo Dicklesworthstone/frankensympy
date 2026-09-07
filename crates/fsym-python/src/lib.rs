@@ -239,10 +239,12 @@ pub mod expr;
 pub mod geometry;
 pub mod logic;
 pub mod matrix;
+pub mod sets;
 pub use expr::*;
 pub use geometry::*;
 pub use logic::*;
 pub use matrix::*;
+pub use sets::*;
 
 /// Numeric evaluation of an expression string.
 #[pyfunction]
@@ -276,6 +278,7 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyTriangle2D>()?;
     m.add_class::<PyPolygon2D>()?;
     m.add_class::<PyPlane3D>()?;
+    m.add_class::<PySymSet>()?;
     m.add_function(wrap_pyfunction!(py_symbol, m)?)?;
     m.add_function(wrap_pyfunction!(py_integer_from_python, m)?)?;
     m.add_function(wrap_pyfunction!(py_rational_from_python, m)?)?;
@@ -703,5 +706,37 @@ mod tests {
         )
         .unwrap();
         assert_eq!(plane.eval_at_point(&p3d1).to_string(), "0");
+    }
+
+    #[test]
+    fn test_py_sets() {
+        let empty = PySymSet::empty();
+        assert_eq!(empty.kind(), "EmptySet");
+        assert!(empty.is_empty_set().unwrap());
+
+        let univ = PySymSet::universal();
+        assert_eq!(univ.kind(), "UniversalSet");
+        assert!(!univ.is_empty_set().unwrap());
+
+        let iv = PySymSet::interval(py_integer(0), py_integer(5), false, false).unwrap();
+        assert_eq!(iv.kind(), "Interval");
+        assert_eq!(iv.start().unwrap().to_string(), "0");
+        assert_eq!(iv.end().unwrap().to_string(), "5");
+        assert!(!iv.left_open().unwrap());
+        assert!(!iv.right_open().unwrap());
+        assert_eq!(iv.measure().unwrap().to_string(), "5");
+        assert!(iv.contains(&py_integer(3)).unwrap());
+        assert!(!iv.contains(&py_integer(7)).unwrap());
+
+        let finite = PySymSet::finite(vec![py_integer(1), py_integer(2), py_integer(3)]);
+        assert_eq!(finite.kind(), "FiniteSet");
+        assert!(finite.contains(&py_integer(2)).unwrap());
+        assert!(!finite.contains(&py_integer(4)).unwrap());
+
+        let u = iv.union(&finite);
+        assert_eq!(u.kind(), "Union");
+
+        let inter = iv.intersection(&finite);
+        assert!(inter.contains(&py_integer(2)).unwrap());
     }
 }
