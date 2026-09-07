@@ -385,6 +385,7 @@ from .matrices import (
     diag,
 )
 from . import (
+    assumptions,
     functions,
     geometry,
     integrals,
@@ -394,6 +395,7 @@ from . import (
     series,
     sets,
     solvers,
+    tensor,
 )
 from .sets import (
     Complement,
@@ -474,6 +476,13 @@ from .tensor import (
     tensorcontraction,
     tensorproduct,
 )
+from .assumptions import (
+    AppliedPredicate,
+    AssumptionsContext,
+    Predicate,
+    Q,
+    ask,
+)
 
 
 __all__ = [
@@ -481,7 +490,9 @@ __all__ = [
     "Add",
     "And",
     "Application",
+    "AppliedPredicate",
     "AppliedUndef",
+    "AssumptionsContext",
     "Atom",
     "AtomicExpr",
     "Basic",
@@ -539,6 +550,8 @@ __all__ = [
     "Poly",
     "Polygon",
     "Pow",
+    "Predicate",
+    "Q",
     "Rational",
     "Ray",
     "Ray2D",
@@ -559,6 +572,7 @@ __all__ = [
     "UniversalSet",
     "Xor",
     "__version__",
+    "ask",
     "asin",
     "atan",
     "ceiling",

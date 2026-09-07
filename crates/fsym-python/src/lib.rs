@@ -489,12 +489,14 @@ fn jacobi_symbol_fn(a: i64, n: u64) -> PyResult<i64> {
     fsym_ntheory::jacobi_symbol(a, n).map_err(to_value_error)
 }
 
+pub mod assumptions;
 pub mod expr;
 pub mod geometry;
 pub mod logic;
 pub mod matrix;
 pub mod sets;
 pub mod tensor;
+pub use assumptions::*;
 pub use expr::*;
 pub use geometry::*;
 pub use logic::*;
@@ -538,6 +540,11 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyTensorIndex>()?;
     m.add_class::<PyTensor>()?;
     m.add_class::<PyMetric>()?;
+    m.add_class::<PyAssumptionsContext>()?;
+    m.add_function(wrap_pyfunction!(ask_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(inherent_facts_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(predicate_closure, m)?)?;
+    m.add_function(wrap_pyfunction!(predicate_contradictions, m)?)?;
     m.add_function(wrap_pyfunction!(py_symbol, m)?)?;
     m.add_function(wrap_pyfunction!(py_integer_from_python, m)?)?;
     m.add_function(wrap_pyfunction!(py_rational_from_python, m)?)?;
@@ -1118,5 +1125,70 @@ mod tests {
         let norm_sq = eta.norm_squared(&v).unwrap();
         // -3^2 + 0 + 0 + 4^2 = -9 + 16 = 7
         assert_eq!(norm_sq.inner, Expr::from_i64(7));
+    }
+
+    #[test]
+    fn test_assumptions_bindings() {
+        let x_expr = PyExpr::from_expr(Expr::Sym(Symbol::new("x")));
+        let five_expr = PyExpr::from_expr(Expr::from_i64(5));
+
+        // Inherent facts on number 5: positive, integer, real, odd, etc.
+        let facts = inherent_facts_expr(&five_expr);
+        assert!(facts.contains(&"positive".to_string()));
+        assert!(facts.contains(&"integer".to_string()));
+        assert!(facts.contains(&"odd".to_string()));
+
+        // Inherent ask on 5
+        let is_pos = ask_expr(&five_expr, "positive", None).unwrap();
+        assert_eq!(is_pos, Some(true));
+        let is_neg = ask_expr(&five_expr, "negative", None).unwrap();
+        assert_eq!(is_neg, Some(false));
+
+        // Query on symbol x with positive assumption:
+        // positive => real (entailed true)
+        let is_real = ask_expr(
+            &x_expr,
+            "real",
+            Some(vec![("x".to_string(), "positive".to_string())]),
+        )
+        .unwrap();
+        assert_eq!(is_real, Some(true));
+
+        // positive => negative (contradicted false)
+        let is_neg = ask_expr(
+            &x_expr,
+            "negative",
+            Some(vec![("x".to_string(), "positive".to_string())]),
+        )
+        .unwrap();
+        assert_eq!(is_neg, Some(false));
+
+        // positive => integer (unknown None)
+        let is_int = ask_expr(
+            &x_expr,
+            "integer",
+            Some(vec![("x".to_string(), "positive".to_string())]),
+        )
+        .unwrap();
+        assert_eq!(is_int, None);
+
+        // AssumptionsContext
+        let mut ctx = PyAssumptionsContext::new();
+        ctx.assume("x", "positive").unwrap();
+        assert_eq!(ctx.is_true(&x_expr, "real").unwrap(), Some(true));
+        assert_eq!(ctx.is_true(&x_expr, "negative").unwrap(), Some(false));
+        assert_eq!(ctx.is_true(&x_expr, "integer").unwrap(), None);
+        assert_eq!(ctx.query(&x_expr, "real").unwrap(), "True");
+        assert_eq!(ctx.query(&x_expr, "negative").unwrap(), "False");
+        assert_eq!(ctx.query(&x_expr, "integer").unwrap(), "Unknown");
+
+        // Closure and contradictions
+        let closure = predicate_closure("positive").unwrap();
+        assert!(closure.contains(&"real".to_string()));
+        assert!(closure.contains(&"complex".to_string()));
+
+        let contras = predicate_contradictions("positive").unwrap();
+        assert!(contras.contains(&"negative".to_string()));
+        assert!(contras.contains(&"zero".to_string()));
     }
 }

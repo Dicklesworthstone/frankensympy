@@ -966,7 +966,35 @@ class Expr(Basic):
         return None
 
     @property
+    def is_nonzero(self) -> bool | None:
+        return None
+
+    @property
     def is_real(self) -> bool | None:
+        return None
+
+    @property
+    def is_complex(self) -> bool | None:
+        return None
+
+    @property
+    def is_rational(self) -> bool | None:
+        return None
+
+    @property
+    def is_integer(self) -> bool | None:
+        return None
+
+    @property
+    def is_even(self) -> bool | None:
+        return None
+
+    @property
+    def is_odd(self) -> bool | None:
+        return None
+
+    @property
+    def is_prime(self) -> bool | None:
         return None
 
     @property
@@ -975,6 +1003,14 @@ class Expr(Basic):
 
     @property
     def is_nonpositive(self) -> bool | None:
+        return None
+
+    @property
+    def is_finite(self) -> bool | None:
+        return None
+
+    @property
+    def is_infinite(self) -> bool | None:
         return None
 
     def diff(self, *variables: Any) -> "Expr":
@@ -1325,33 +1361,75 @@ class Symbol(AtomicExpr):
     def name(self) -> str:
         return str(self)
 
+    def _get_assumption(self, key: str) -> bool | None:
+        val = self._assumptions.get(key)
+        if val is not None:
+            return val
+        if self._assumptions and _native is not None and hasattr(_native, "ask_expr"):
+            facts = [(self.name, k) for k, v in self._assumptions.items() if v is True]
+            if facts:
+                return _native.ask_expr(self._value, key, facts)
+        return None
+
     @property
     def is_positive(self) -> bool | None:
-        return self._assumptions.get("positive")
-
-    @property
-    def is_real(self) -> bool | None:
-        return self._assumptions.get("real")
-
-    @property
-    def is_integer(self) -> bool | None:
-        return self._assumptions.get("integer")
+        return self._get_assumption("positive")
 
     @property
     def is_negative(self) -> bool | None:
-        return self._assumptions.get("negative")
+        return self._get_assumption("negative")
 
     @property
     def is_zero(self) -> bool | None:
-        return self._assumptions.get("zero")
+        return self._get_assumption("zero")
+
+    @property
+    def is_nonzero(self) -> bool | None:
+        return self._get_assumption("nonzero")
+
+    @property
+    def is_real(self) -> bool | None:
+        return self._get_assumption("real")
+
+    @property
+    def is_complex(self) -> bool | None:
+        return self._get_assumption("complex")
+
+    @property
+    def is_rational(self) -> bool | None:
+        return self._get_assumption("rational")
+
+    @property
+    def is_integer(self) -> bool | None:
+        return self._get_assumption("integer")
+
+    @property
+    def is_even(self) -> bool | None:
+        return self._get_assumption("even")
+
+    @property
+    def is_odd(self) -> bool | None:
+        return self._get_assumption("odd")
+
+    @property
+    def is_prime(self) -> bool | None:
+        return self._get_assumption("prime")
 
     @property
     def is_nonnegative(self) -> bool | None:
-        return self._assumptions.get("nonnegative")
+        return self._get_assumption("nonnegative")
 
     @property
     def is_nonpositive(self) -> bool | None:
-        return self._assumptions.get("nonpositive")
+        return self._get_assumption("nonpositive")
+
+    @property
+    def is_finite(self) -> bool | None:
+        return self._get_assumption("finite")
+
+    @property
+    def is_infinite(self) -> bool | None:
+        return self._get_assumption("infinite")
 
     def __repr__(self) -> str:
         return self.name

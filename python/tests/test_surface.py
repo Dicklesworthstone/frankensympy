@@ -1566,6 +1566,63 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(contracted.rank, 0)
         self.assertEqual(contracted.components, (sympy.Integer(7),))
 
+    def test_assumptions_and_deductive_predicates(self):
+        from sympy.assumptions import (
+            AppliedPredicate,
+            AssumptionsContext,
+            Predicate,
+            Q,
+            ask,
+        )
+        self.assertIs(Q, sympy.Q)
+        self.assertIs(ask, sympy.ask)
+
+        x = sympy.Symbol("x")
+
+        # Inherent facts on concrete numbers
+        self.assertIs(ask(Q.positive(sympy.Integer(5))), True)
+        self.assertIs(ask(Q.negative(sympy.Integer(5))), False)
+        self.assertIs(ask(Q.even(sympy.Integer(4))), True)
+        self.assertIs(ask(Q.odd(sympy.Integer(4))), False)
+        self.assertIs(ask(Q.zero(sympy.Integer(0))), True)
+
+        # Assumptions queries with facts
+        self.assertIs(ask(Q.positive(x), Q.positive(x)), True)
+        self.assertIs(ask(Q.real(x), Q.positive(x)), True)
+        self.assertIs(ask(Q.complex(x), Q.positive(x)), True)
+        self.assertIs(ask(Q.nonnegative(x), Q.positive(x)), True)
+        self.assertIs(ask(Q.negative(x), Q.positive(x)), False)
+        self.assertIs(ask(Q.zero(x), Q.positive(x)), False)
+        self.assertIs(ask(Q.integer(x), Q.positive(x)), None)
+
+        # Inherent deductive properties on Symbol
+        x_pos = sympy.Symbol("x", positive=True)
+        self.assertIs(x_pos.is_positive, True)
+        self.assertIs(x_pos.is_real, True)
+        self.assertIs(x_pos.is_complex, True)
+        self.assertIs(x_pos.is_nonnegative, True)
+        self.assertIs(x_pos.is_nonzero, True)
+        self.assertIs(x_pos.is_negative, False)
+        self.assertIs(x_pos.is_zero, False)
+        self.assertIs(x_pos.is_integer, None)
+
+        n_int = sympy.Symbol("n", integer=True)
+        self.assertIs(n_int.is_integer, True)
+        self.assertIs(n_int.is_rational, True)
+        self.assertIs(n_int.is_real, True)
+        self.assertIs(n_int.is_complex, True)
+        self.assertIs(n_int.is_positive, None)
+
+        # AssumptionsContext
+        ctx = AssumptionsContext()
+        ctx.assume(x, Q.positive)
+        self.assertIs(ctx.is_true(x, Q.real), True)
+        self.assertIs(ctx.is_true(x, Q.negative), False)
+        self.assertIs(ctx.is_true(x, Q.integer), None)
+        self.assertEqual(ctx.query(x, Q.real), "True")
+        self.assertEqual(ctx.query(x, Q.negative), "False")
+        self.assertEqual(ctx.query(x, Q.integer), "Unknown")
+
 
 if __name__ == "__main__":
     unittest.main()
