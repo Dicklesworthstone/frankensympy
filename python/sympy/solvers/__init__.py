@@ -1,8 +1,10 @@
 """Algebraic and differential equation solvers for FrankenSymPy (WS19)."""
 
-from .. import solve, dsolve
+from .. import checksol, dsolve, solve, solveset
 
 __all__ = [
-    "solve",
+    "checksol",
     "dsolve",
+    "solve",
+    "solveset",
 ]

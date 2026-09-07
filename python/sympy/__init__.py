@@ -114,6 +114,58 @@ def solve(expression, variable=None):
     return [_parse_result(r) for r in results]
 
 
+def solveset(expression, variable=None, domain=None):
+    """Solve an algebraic equation for ``variable`` and return a Set of solutions."""
+    del domain
+    if type(expression) is Eq:
+        expression = expression.lhs - expression.rhs
+    expr = _wrap(_native_expr(expression))
+    if variable is None:
+        symbols = expr.free_symbols
+        if len(symbols) == 1:
+            symbol = next(iter(symbols))
+        elif len(symbols) == 0:
+            if expr == 0:
+                from .sets import UniversalSet
+                return UniversalSet()
+            from .sets import EmptySet
+            return EmptySet()
+        else:
+            raise ValueError("at least one solve variable is required")
+    else:
+        symbol = _require_symbol(variable)
+
+    try:
+        results = _native.solve_expr(str(expr), _native_symbol_key(symbol))
+    except Exception:
+        from .sets import EmptySet
+        return EmptySet()
+
+    from .sets import EmptySet, FiniteSet
+    if not results:
+        return EmptySet()
+    roots = [_parse_result(r) for r in results]
+    return FiniteSet(*roots)
+
+
+def checksol(expression, symbol, val=None):
+    """Check whether ``val`` (or mapping) satisfies ``expression == 0``."""
+    if type(expression) is Eq:
+        expression = expression.lhs - expression.rhs
+    expr = _wrap(_native_expr(expression))
+    if isinstance(symbol, dict):
+        mapping = symbol
+    elif val is not None:
+        mapping = {symbol: val}
+    else:
+        raise ValueError("checksol requires either a mapping or (symbol, val)")
+    subbed = expr
+    for sym, v in mapping.items():
+        subbed = subbed.subs(sym, v)
+    simplified = simplify(subbed)
+    return bool(simplified == 0)
+
+
 def laplace_transform(expression, t, s):
     t_sym = _require_symbol(t)
     s_sym = _require_symbol(s)
@@ -431,6 +483,7 @@ __all__ = [
     "asin",
     "atan",
     "ceiling",
+    "checksol",
     "cos",
     "cosh",
     "diag",
@@ -465,6 +518,7 @@ __all__ = [
     "sin",
     "sinh",
     "solve",
+    "solveset",
     "srepr",
     "sqrt",
     "symbols",

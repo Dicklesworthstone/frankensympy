@@ -1226,6 +1226,37 @@ class SurfaceTests(unittest.TestCase):
         self.assertFalse(2 in sym_diff)
         self.assertTrue(3 in sym_diff)
 
+    def test_solveset_and_checksol(self):
+        from sympy.solvers import solveset as s_solveset, checksol as s_checksol
+        self.assertIs(s_solveset, sympy.solveset)
+        self.assertIs(s_checksol, sympy.checksol)
+
+        x = sympy.Symbol("x")
+        # Quadratic solveset
+        sol_quad = sympy.solveset(x**2 - 9, x)
+        self.assertIsInstance(sol_quad, sympy.FiniteSet)
+        self.assertEqual(sol_quad, sympy.FiniteSet(-3, 3))
+
+        # Linear solveset with auto-variable
+        sol_lin = sympy.solveset(2 * x - 6)
+        self.assertEqual(sol_lin, sympy.FiniteSet(3))
+
+        # Equation solveset
+        sol_eq = sympy.solveset(sympy.Eq(x**2, 16), x)
+        self.assertEqual(sol_eq, sympy.FiniteSet(-4, 4))
+
+        # Inconsistent equation -> EmptySet
+        sol_empty = sympy.solveset(sympy.Integer(1), x)
+        self.assertIs(sol_empty, sympy.S.EmptySet)
+
+        # checksol verification
+        self.assertTrue(sympy.checksol(x**2 - 9, x, 3))
+        self.assertTrue(sympy.checksol(x**2 - 9, x, -3))
+        self.assertFalse(sympy.checksol(x**2 - 9, x, 4))
+        self.assertTrue(sympy.checksol(x - 5, {x: 5}))
+        self.assertFalse(sympy.checksol(x - 5, {x: 4}))
+        self.assertTrue(sympy.checksol(sympy.Eq(2 * x, 10), x, 5))
+
 
 if __name__ == "__main__":
     unittest.main()
