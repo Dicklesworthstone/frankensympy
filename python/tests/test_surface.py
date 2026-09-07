@@ -1789,8 +1789,85 @@ class SurfaceTests(unittest.TestCase):
         P, D = M.diagonalize()
         self.assertEqual(P * D * P.inv(), M)
 
+    def test_ntheory_extended(self):
+        from sympy import (
+            carmichael,
+            integer_nthroot,
+            is_perfect,
+            is_primitive_root,
+            is_square_free,
+            is_squarefree,
+            legendre_symbol,
+            mod_inverse,
+            primenu,
+            prime_big_omega,
+            prime_omega,
+            primeomega,
+            reduced_totient,
+        )
+        from sympy.ntheory import crt
+
+        # 1. Legendre symbol
+        self.assertEqual(legendre_symbol(2, 7), 1)
+        self.assertEqual(legendre_symbol(3, 7), -1)
+        self.assertEqual(legendre_symbol(7, 7), 0)
+
+        # 2. Square-free
+        self.assertTrue(is_squarefree(10))
+        self.assertTrue(is_square_free(10))
+        self.assertFalse(is_squarefree(12))
+        self.assertFalse(is_square_free(12))
+
+        # 3. Prime omega functions
+        # 12 = 2^2 * 3: 2 distinct prime factors, 3 prime factors with multiplicity
+        self.assertEqual(primenu(12), 2)
+        self.assertEqual(prime_omega(12), 2)
+        self.assertEqual(primeomega(12), 3)
+        self.assertEqual(prime_big_omega(12), 3)
+
+        # 4. Perfect numbers
+        self.assertTrue(is_perfect(6))
+        self.assertTrue(is_perfect(28))
+        self.assertFalse(is_perfect(10))
+
+        # 5. Carmichael function
+        self.assertEqual(carmichael(8), 2)
+        self.assertEqual(reduced_totient(12), 2)
+        self.assertEqual(carmichael(15), 4)
+
+        # 6. Primitive root
+        self.assertTrue(is_primitive_root(2, 5))
+        self.assertTrue(is_primitive_root(3, 5))
+        self.assertFalse(is_primitive_root(4, 5))
+
+        # 7. Integer nth root
+        self.assertEqual(integer_nthroot(27, 3), (3, True))
+        self.assertEqual(integer_nthroot(26, 3), (2, False))
+        self.assertEqual(integer_nthroot(16, 2), (4, True))
+        self.assertEqual(integer_nthroot(15, 2), (3, False))
+
+        # 8. Modular inverse
+        self.assertEqual(mod_inverse(3, 11), sympy.Integer(4))
+        self.assertEqual((3 * 4) % 11, 1)
+        self.assertEqual(mod_inverse(7, 26), sympy.Integer(15))
+        with self.assertRaises(ValueError):
+            mod_inverse(2, 4)
+
+        # 9. Chinese Remainder Theorem
+        # x = 2 (mod 3), x = 3 (mod 5), x = 2 (mod 7) -> x = 23 (mod 105)
+        sol, mod = crt([3, 5, 7], [2, 3, 2])
+        self.assertEqual(sol, sympy.Integer(23))
+        self.assertEqual(mod, sympy.Integer(105))
+        self.assertEqual(23 % 3, 2)
+        self.assertEqual(23 % 5, 3)
+        self.assertEqual(23 % 7, 2)
+
+        # Non-coprime case returns None
+        self.assertIsNone(crt([4, 6], [1, 2]))
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 

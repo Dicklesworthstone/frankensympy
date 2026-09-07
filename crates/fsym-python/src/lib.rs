@@ -4,7 +4,7 @@
 //! module. Strings cross the boundary; everything inside is exact.
 
 use fsym_calculus::{diff, integrate, limit, taylor};
-use fsym_core::{Expr, Symbol, parse};
+use fsym_core::{BigInt, Expr, Symbol, parse};
 use fsym_ntheory::{factorint, totient};
 use fsym_runtime::{Budget, BudgetLimits, FsymCx, RuntimeBudget};
 use fsym_simplify::{SimplifyError, expand_with, simplify_with};
@@ -633,6 +633,87 @@ fn jacobi_symbol_fn(a: i64, n: u64) -> PyResult<i64> {
     fsym_ntheory::jacobi_symbol(a, n).map_err(to_value_error)
 }
 
+/// Legendre symbol (a/p) for odd prime p.
+#[pyfunction]
+fn legendre_symbol_fn(a: i64, p: u64) -> PyResult<i64> {
+    fsym_ntheory::legendre_symbol(a, p).map_err(to_value_error)
+}
+
+/// Square-free check for integer n.
+#[pyfunction]
+fn is_square_free_fn(n: u64) -> PyResult<bool> {
+    fsym_ntheory::is_square_free(n).map_err(to_value_error)
+}
+
+/// Number of distinct prime factors of n: ω(n).
+#[pyfunction]
+fn prime_omega_fn(n: u64) -> PyResult<u32> {
+    fsym_ntheory::prime_omega(n).map_err(to_value_error)
+}
+
+/// Total number of prime factors of n counted with multiplicity: Ω(n).
+#[pyfunction]
+fn prime_big_omega_fn(n: u64) -> PyResult<u32> {
+    fsym_ntheory::prime_big_omega(n).map_err(to_value_error)
+}
+
+/// Perfect number check: sum of proper divisors equals n.
+#[pyfunction]
+fn is_perfect_number_fn(n: u64) -> PyResult<bool> {
+    fsym_ntheory::is_perfect_number(n).map_err(to_value_error)
+}
+
+/// Carmichael lambda function λ(n).
+#[pyfunction]
+fn carmichael_fn(n: u64) -> PyResult<u64> {
+    fsym_ntheory::carmichael(n).map_err(to_value_error)
+}
+
+/// Primitive root check: whether g is a primitive root modulo p.
+#[pyfunction]
+fn is_primitive_root_fn(g: u64, p: u64) -> PyResult<bool> {
+    fsym_ntheory::is_primitive_root(g, p).map_err(to_value_error)
+}
+
+/// Integer floor of k-th root of n.
+#[pyfunction]
+fn integer_nth_root_fn(n: u64, k: u32) -> PyResult<u64> {
+    fsym_ntheory::integer_nth_root(n, k).map_err(to_value_error)
+}
+
+/// Modular inverse of a modulo m using extended GCD.
+#[pyfunction]
+fn mod_inverse_fn(a_str: &str, m_str: &str) -> PyResult<String> {
+    let a_big = a_str.trim().parse::<BigInt>().map_err(to_value_error)?;
+    let m_big = m_str.trim().parse::<BigInt>().map_err(to_value_error)?;
+    match fsym_ntheory::mod_inverse(&a_big, &m_big) {
+        Some(inv) => Ok(inv.to_string()),
+        None => Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "inverse of {a_str} mod {m_str} does not exist"
+        ))),
+    }
+}
+
+/// Chinese Remainder Theorem: solves x = r_i (mod m_i).
+#[pyfunction]
+fn crt_fn(moduli: Vec<String>, remainders: Vec<String>) -> PyResult<Option<(String, String)>> {
+    let mut r_bigs = Vec::with_capacity(remainders.len());
+    for r in remainders {
+        r_bigs.push(r.trim().parse::<BigInt>().map_err(to_value_error)?);
+    }
+    let mut m_bigs = Vec::with_capacity(moduli.len());
+    let mut total_mod = BigInt::from(1);
+    for m in moduli {
+        let m_val = m.trim().parse::<BigInt>().map_err(to_value_error)?;
+        total_mod = &total_mod * &m_val;
+        m_bigs.push(m_val);
+    }
+    match fsym_ntheory::crt(&r_bigs, &m_bigs) {
+        Ok(sol) => Ok(Some((sol.to_string(), total_mod.to_string()))),
+        Err(_) => Ok(None),
+    }
+}
+
 pub mod assumptions;
 pub mod expr;
 pub mod geometry;
@@ -764,6 +845,16 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(divisor_count_fn, m)?)?;
     m.add_function(wrap_pyfunction!(divisor_sum_fn, m)?)?;
     m.add_function(wrap_pyfunction!(jacobi_symbol_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(legendre_symbol_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(is_square_free_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(prime_omega_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(prime_big_omega_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(is_perfect_number_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(carmichael_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(is_primitive_root_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(integer_nth_root_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(mod_inverse_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(crt_fn, m)?)?;
     m.add_function(wrap_pyfunction!(evalf_expr, m)?)?;
     Ok(())
 }

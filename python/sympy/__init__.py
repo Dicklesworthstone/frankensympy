@@ -374,6 +374,24 @@ def jacobi_symbol(m, n):
     return _native.jacobi_symbol_fn(m_int, n_int)
 
 
+from .ntheory import (
+    carmichael,
+    integer_nthroot,
+    is_perfect,
+    is_primitive_root,
+    is_square_free,
+    is_squarefree,
+    legendre_symbol,
+    mod_inverse,
+    primenu,
+    prime_big_omega,
+    prime_omega,
+    primeomega,
+    reduced_totient,
+)
+
+
+
 from .matrices import (
     Matrix,
     MatrixBase,
@@ -585,6 +603,7 @@ __all__ = [
     "asin",
     "atan",
     "ceiling",
+    "carmichael",
     "checkodesol",
     "checksol",
     "cos",
@@ -615,14 +634,21 @@ __all__ = [
     "gcd",
     "groebner",
     "hstack",
+    "integer_nthroot",
     "integrate",
+    "is_perfect",
+    "is_primitive_root",
+    "is_square_free",
+    "is_squarefree",
     "isprime",
     "jacobi_symbol",
     "laplace_transform",
     "lcm",
+    "legendre_symbol",
     "limit",
     "log",
     "mobius",
+    "mod_inverse",
     "monic",
     "nan",
     "nonlinsolve",
@@ -630,6 +656,11 @@ __all__ = [
     "oo",
     "pi",
     "pretty",
+    "primenu",
+    "prime_big_omega",
+    "prime_omega",
+    "primeomega",
+    "reduced_totient",
     "resultant",
     "roots",
     "satisfiable",
