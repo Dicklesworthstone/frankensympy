@@ -2901,6 +2901,68 @@ class SurfaceTests(unittest.TestCase):
         sol_lu = solve_linear_system_LU(M_aug, x, y)
         self.assertEqual(sol_lu, {x: Integer(2), y: Integer(1)})
 
+    def test_poly_advanced_and_cancel(self):
+        import sympy
+        from sympy import (
+            Integer,
+            Poly,
+            Rational,
+            Symbol,
+            cancel,
+            content,
+            poly,
+            primitive,
+            symbols,
+        )
+
+        x, y = symbols("x y")
+
+        # 1. Operators: neg, pos, pow, floordiv, mod, divmod
+        p1 = Poly(x**2 - 1, x)
+        self.assertEqual(-p1, Poly(-x**2 + 1, x))
+        self.assertEqual(+p1, p1)
+        self.assertEqual(p1**2, Poly(x**4 - 2 * x**2 + 1, x))
+        q1 = Poly(x - 1, x)
+        self.assertEqual(p1 // q1, Poly(x + 1, x))
+        self.assertEqual(p1 % q1, Poly(0, x))
+        self.assertEqual(divmod(p1, q1), (Poly(x + 1, x), Poly(0, x)))
+
+        # 2. Predicates: is_univariate, is_multivariate, is_irreducible
+        self.assertTrue(p1.is_univariate)
+        self.assertFalse(p1.is_multivariate)
+        p_multi = Poly(x * y + 1, x, y)
+        self.assertFalse(p_multi.is_univariate)
+        self.assertTrue(p_multi.is_multivariate)
+        self.assertFalse(p1.is_irreducible)
+        p_irr = Poly(x**2 + 1, x)
+        self.assertTrue(p_irr.is_irreducible)
+
+        # 3. Content and primitive
+        self.assertEqual(content(4 * x + 6), Integer(2))
+        self.assertEqual(primitive(4 * x + 6), (Integer(2), 2 * x + 3))
+        self.assertEqual(p1.content(), Integer(1))
+        self.assertEqual(p1.primitive(), (Integer(1), p1))
+        p_rat = Poly(Rational(2, 3) * x + Rational(4, 9), x)
+        self.assertEqual(p_rat.content(), Rational(2, 9))
+        self.assertEqual(primitive(Rational(2, 3) * x + Rational(4, 9)), (Rational(2, 9), 3 * x + 2))
+
+        # 4. Constructors and aliases: from_list, from_expr, from_poly, poly()
+        p_from_list = Poly.from_list([1, 0, -1], gens=[x])
+        self.assertEqual(p_from_list, p1)
+        p_from_expr = Poly.from_expr(x**2 - 1, x)
+        self.assertEqual(p_from_expr, p1)
+        p_from_poly = Poly.from_poly(p1)
+        self.assertEqual(p_from_poly, p1)
+        self.assertEqual(poly(x**2 - 1, x), p1)
+        self.assertEqual(Poly(x**2 - 1, x, domain="ZZ").domain, "ZZ")
+
+        # 5. cancel
+        self.assertEqual(cancel((x**2 - 1) / (x - 1)), x + 1)
+        self.assertEqual(cancel((x**2 - 4) / (x**2 + 4 * x + 4)), (x - 2) / (x + 2))
+        self.assertEqual(cancel((2 * x + 4) / (4 * x + 8)), Rational(1, 2))
+        self.assertEqual(cancel(x**2 - 1), x**2 - 1)
+        self.assertEqual(cancel(p1), p1)
+
 
 if __name__ == "__main__":
     unittest.main()

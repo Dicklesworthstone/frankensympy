@@ -25,9 +25,16 @@ class Poly(Basic):
 
     def __new__(cls, expr: Any, *gens: Any, **kwargs: Any) -> "Poly":
         if isinstance(expr, Poly):
-            if not gens:
+            if not gens and "gens" not in kwargs:
                 return expr
             expr = expr.as_expr()
+
+        if not gens and "gens" in kwargs and kwargs["gens"] is not None:
+            gens_kw = kwargs["gens"]
+            if isinstance(gens_kw, (list, tuple)):
+                gens = tuple(gens_kw)
+            else:
+                gens = (gens_kw,)
 
         wrapped_expr = _wrap(_native_expr(expr))
         if gens:
@@ -47,7 +54,12 @@ class Poly(Basic):
         obj = object.__new__(cls)
         obj._expr = wrapped_expr
         obj._gens = tuple(generator_list)
+        obj._domain = kwargs.get("domain", "QQ")
         return obj
+
+    @property
+    def domain(self) -> Any:
+        return self._domain
 
     @property
     def gen(self) -> Symbol:
@@ -165,6 +177,107 @@ class Poly(Basic):
     @property
     def is_monic(self) -> bool:
         return bool(self.leading_coeff() == 1)
+
+    @property
+    def is_univariate(self) -> bool:
+        return len(self._gens) == 1
+
+    @property
+    def is_multivariate(self) -> bool:
+        return len(self._gens) > 1
+
+    @property
+    def is_irreducible(self) -> bool:
+        deg = self.degree()
+        if deg is None or deg <= 0:
+            return False
+        if deg == 1:
+            return True
+        try:
+            scale, factors = self.factor_list()
+            return len(factors) == 1 and factors[0][1] == 1 and factors[0][0].degree() == deg
+        except Exception:
+            return False
+
+    def content(self) -> Any:
+        """Compute the content (GCD of coefficients) of this polynomial."""
+        from functools import reduce
+        from ..core import Integer, Rational
+        coeffs = self.all_coeffs()
+        if not coeffs or all(c == 0 for c in coeffs):
+            return Integer(0)
+        denoms = []
+        for c in coeffs:
+            if isinstance(c, Rational):
+                denoms.append(c.q)
+            elif hasattr(c, "q"):
+                denoms.append(int(c.q))
+            else:
+                denoms.append(1)
+        common_denom = reduce(lambda a, b: (a * b) // math.gcd(a, b), denoms, 1)
+        int_numers = []
+        for c, d in zip(coeffs, denoms):
+            mult = common_denom // d
+            if isinstance(c, Rational):
+                val = c.p * mult
+            elif isinstance(c, Integer):
+                val = int(c) * mult
+            else:
+                val = int(c) * mult
+            int_numers.append(abs(val))
+        common_gcd = reduce(math.gcd, int_numers)
+        if common_denom == 1:
+            return Integer(common_gcd)
+        return Rational(common_gcd, common_denom)
+
+    def primitive(self) -> Tuple[Any, "Poly"]:
+        """Compute the content and primitive form of this polynomial."""
+        from ..core import Integer, expand
+        cont = self.content()
+        if cont == 0:
+            return (Integer(0), Poly(0, *self._gens))
+        prim_expr = expand(self.as_expr() / cont)
+        return (cont, Poly(prim_expr, *self._gens))
+
+    @classmethod
+    def from_list(cls, coeffs: Sequence[Any], gens: Any = None) -> "Poly":
+        """Construct a polynomial from a list of coefficients in descending degree order."""
+        if gens is None:
+            gens = [Symbol("x")]
+        elif isinstance(gens, (list, tuple)):
+            gens = [_require_symbol(g) for g in gens]
+        else:
+            gens = [_require_symbol(gens)]
+        gen = gens[0]
+        deg = len(coeffs) - 1
+        terms = []
+        for i, c in enumerate(coeffs):
+            d = deg - i
+            c_val = _wrap(_native_expr(c))
+            if c_val != 0:
+                if d == 0:
+                    terms.append(c_val)
+                elif d == 1:
+                    terms.append(c_val * gen)
+                else:
+                    terms.append(c_val * (gen**d))
+        if not terms:
+            from ..core import Integer
+            expr = Integer(0)
+        else:
+            from functools import reduce
+            expr = reduce(lambda a, b: a + b, terms)
+        return cls(expr, *gens)
+
+    @classmethod
+    def from_expr(cls, expr: Any, *gens: Any, **kwargs: Any) -> "Poly":
+        """Construct a Poly from an expression."""
+        return cls(expr, *gens, **kwargs)
+
+    @classmethod
+    def from_poly(cls, poly: "Poly", *gens: Any, **kwargs: Any) -> "Poly":
+        """Construct a Poly from another Poly."""
+        return cls(poly.as_expr(), *(gens or poly.gens), **kwargs)
 
     def monic(self) -> "Poly":
         """Return the monic associate of this polynomial."""
@@ -323,6 +436,27 @@ class Poly(Basic):
 
     def __rmul__(self, other: Any) -> "Poly":
         return self.__mul__(other)
+
+    def __neg__(self) -> "Poly":
+        return Poly(-self.as_expr(), *self._gens)
+
+    def __pos__(self) -> "Poly":
+        return self
+
+    def __pow__(self, n: int) -> "Poly":
+        if not isinstance(n, int) or n < 0:
+            raise ValueError("Polynomial exponent must be a non-negative integer")
+        from ..core import expand
+        return Poly(expand(self.as_expr() ** n), *self._gens)
+
+    def __floordiv__(self, other: Any) -> "Poly":
+        return self.div(other)[0]
+
+    def __mod__(self, other: Any) -> "Poly":
+        return self.div(other)[1]
+
+    def __divmod__(self, other: Any) -> Tuple["Poly", "Poly"]:
+        return self.div(other)
 
     def __eq__(self, other: Any) -> bool:
         if isinstance(other, Poly):
@@ -513,11 +647,74 @@ def roots(p: Any, *gens: Any) -> dict[Any, int]:
     return poly_p.roots()
 
 
+def content(f: Any, *gens: Any) -> Any:
+    """Compute the content (GCD of coefficients) of a polynomial."""
+    p = f if isinstance(f, Poly) else Poly(f, *gens)
+    return p.content()
+
+
+def primitive(f: Any, *gens: Any) -> Tuple[Any, Any]:
+    """Compute the content and primitive form of a polynomial."""
+    p = f if isinstance(f, Poly) else Poly(f, *gens)
+    cont, prim = p.primitive()
+    if isinstance(f, Poly):
+        return cont, prim
+    return cont, prim.as_expr()
+
+
+def cancel(f: Any, *gens: Any) -> Any:
+    """Cancel common factors in a rational function f = p / q."""
+    from ..core import Integer, expand
+    is_poly = isinstance(f, Poly)
+    wrapped = f.as_expr() if is_poly else _wrap(_native_expr(f))
+    if not hasattr(wrapped, "as_numer_denom"):
+        return f
+    numer, denom = wrapped.as_numer_denom()
+    if denom == 1 or denom == Integer(1):
+        return f if is_poly else numer
+
+    try:
+        p_poly = Poly(numer, *gens) if gens else Poly(numer)
+        q_poly = Poly(denom, *p_poly.gens)
+    except Exception:
+        return f if is_poly else wrapped
+
+    g = p_poly.gcd(q_poly)
+    p_div = p_poly.div(g)[0]
+    q_div = q_poly.div(g)[0]
+
+    p_cont, p_prim = p_div.primitive()
+    q_cont, q_prim = q_div.primitive()
+
+    if q_cont == 0:
+        return f if is_poly else wrapped
+
+    c = p_cont / q_cont
+    num_final = expand(p_prim.as_expr() * (c.p if hasattr(c, "p") else c))
+    den_final = expand(q_prim.as_expr() * (c.q if hasattr(c, "q") else 1))
+
+    if den_final == 1 or den_final == Integer(1):
+        res = num_final
+    else:
+        res = num_final / den_final
+
+    if is_poly:
+        return Poly(res, *p_poly.gens)
+    return res
+
+
+def poly(expr: Any, *gens: Any, **args: Any) -> Poly:
+    """Construct a Poly from an expression."""
+    return Poly(expr, *gens, **args)
+
+
 __all__ = [
     "EC",
     "LC",
     "Poly",
     "TC",
+    "cancel",
+    "content",
     "degree",
     "discriminant",
     "factor",
@@ -528,6 +725,8 @@ __all__ = [
     "half_gcdex",
     "lcm",
     "monic",
+    "poly",
+    "primitive",
     "resultant",
     "roots",
     "sqf",
