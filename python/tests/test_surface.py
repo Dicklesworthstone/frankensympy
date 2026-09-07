@@ -2963,6 +2963,44 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(cancel(x**2 - 1), x**2 - 1)
         self.assertEqual(cancel(p1), p1)
 
+    def test_ntheory_advanced(self):
+        import sympy
+        from sympy import multiplicity, perfect_power, primerange
+        from sympy.ntheory import (
+            multiplicity as nt_multiplicity,
+            perfect_power as nt_perfect_power,
+            primerange as nt_primerange,
+        )
+
+        self.assertIs(multiplicity, nt_multiplicity)
+        self.assertIs(perfect_power, nt_perfect_power)
+        self.assertIs(primerange, nt_primerange)
+
+        # 1. multiplicity
+        self.assertEqual(multiplicity(2, 24), 3)
+        self.assertEqual(multiplicity(3, 24), 1)
+        self.assertEqual(multiplicity(5, 24), 0)
+        self.assertEqual(multiplicity(2, -8), 3)
+        with self.assertRaises(ValueError):
+            multiplicity(1, 10)
+        with self.assertRaises(ValueError):
+            multiplicity(2, 0)
+
+        # 2. primerange
+        self.assertEqual(list(primerange(10)), [2, 3, 5, 7])
+        self.assertEqual(list(primerange(1, 10)), [2, 3, 5, 7])
+        self.assertEqual(list(primerange(10, 20)), [11, 13, 17, 19])
+        self.assertEqual(list(primerange(20, 10)), [])
+
+        # 3. perfect_power
+        self.assertEqual(perfect_power(16), (2, 4))
+        self.assertEqual(perfect_power(27), (3, 3))
+        self.assertEqual(perfect_power(-8), (-2, 3))
+        self.assertFalse(perfect_power(15))
+        self.assertFalse(perfect_power(0))
+        self.assertFalse(perfect_power(1))
+        self.assertFalse(perfect_power(-16))
+
 
 if __name__ == "__main__":
     unittest.main()

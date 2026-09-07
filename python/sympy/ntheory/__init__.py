@@ -185,6 +185,56 @@ def primepi(n: Any) -> int:
     return count
 
 
+def multiplicity(p: Any, n: Any) -> int:
+    """Return the multiplicity of p in n (the largest integer k such that p**k divides n)."""
+    p = int(p)
+    n = int(n)
+    if p <= 1:
+        raise ValueError("p must be greater than 1")
+    if n == 0:
+        raise ValueError("n cannot be zero")
+    n = abs(n)
+    count = 0
+    while n % p == 0:
+        count += 1
+        n //= p
+    return count
+
+
+def primerange(a: Any, b: Any = None):
+    """Generate all prime numbers in the range [a, b)."""
+    if b is None:
+        start = 2
+        stop = int(a)
+    else:
+        start = int(a)
+        stop = int(b)
+    if stop <= 2 or start >= stop:
+        return
+    p = 2 if start <= 2 else nextprime(start - 1)
+    while p < stop:
+        yield p
+        p = nextprime(p)
+
+
+def perfect_power(n: Any):
+    """Return (a, b) such that a**b == n with b > 1, or False if n is not a perfect power."""
+    n = int(n)
+    if n in (0, 1):
+        return False
+    sign = -1 if n < 0 else 1
+    abs_n = abs(n)
+    import math
+    max_b = int(math.log2(abs_n))
+    for b in range(max_b, 1, -1):
+        if sign == -1 and b % 2 == 0:
+            continue
+        a, exact = integer_nthroot(abs_n, b)
+        if exact and a > 1:
+            return (a * sign, b)
+    return False
+
+
 __all__ = [
     "carmichael",
     "crt",
@@ -203,7 +253,9 @@ __all__ = [
     "legendre_symbol",
     "mobius",
     "mod_inverse",
+    "multiplicity",
     "nextprime",
+    "perfect_power",
     "prevprime",
     "prime",
     "prime_big_omega",
@@ -212,6 +264,7 @@ __all__ = [
     "primenu",
     "primeomega",
     "primepi",
+    "primerange",
     "proper_divisors",
     "reduced_totient",
     "totient",
