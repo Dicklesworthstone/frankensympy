@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from .assume import AppliedPredicate, Predicate
-from .ask import AssumptionsContext, Q, ask
+from .ask import AssumptionsContext, Q, ask, assuming, global_assumptions
+from .refine import refine, register_handler, remove_handler
 
 __all__ = [
     "AppliedPredicate",
@@ -11,4 +12,9 @@ __all__ = [
     "Predicate",
     "Q",
     "ask",
+    "assuming",
+    "global_assumptions",
+    "refine",
+    "register_handler",
+    "remove_handler",
 ]

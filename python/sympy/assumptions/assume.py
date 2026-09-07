@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..core import Basic, Expr, _native, _wrap
+from ..core import Basic, Expr, _native, sympify
+from ..logic.boolalg import Boolean
 
 
 class Predicate(Basic):
@@ -49,18 +50,34 @@ class Predicate(Basic):
         return hash(self._name)
 
 
-class AppliedPredicate(Basic):
+class AppliedPredicate(Boolean):
     """A predicate applied to an expression: Q.positive(x)."""
 
     __slots__ = ("_predicate", "_expr")
 
     def __init__(self, predicate: Predicate, expr: Any) -> None:
         self._predicate = predicate
-        self._expr = _wrap(expr) if not isinstance(expr, Basic) else expr
+        self._expr = sympify(expr) if not isinstance(expr, Basic) else expr
+
+    @property
+    def function(self) -> Predicate:
+        return self._predicate
 
     @property
     def predicate(self) -> Predicate:
         return self._predicate
+
+    @property
+    def argument(self) -> Any:
+        return self._expr
+
+    @property
+    def arg(self) -> Any:
+        return self._expr
+
+    @property
+    def arguments(self) -> tuple[Any, ...]:
+        return (self._expr,)
 
     @property
     def expr(self) -> Any:
@@ -68,7 +85,7 @@ class AppliedPredicate(Basic):
 
     @property
     def args(self) -> tuple[Any, ...]:
-        return (self._expr,)
+        return (self._predicate, self._expr)
 
     def __repr__(self) -> str:
         return f"{self._predicate!r}({self._expr!r})"

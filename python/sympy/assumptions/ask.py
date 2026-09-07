@@ -46,47 +46,101 @@ class _PredicateRegistry:
 Q = _PredicateRegistry()
 
 
-class AssumptionsContext:
-    """A context of mathematical assumptions for symbols."""
+class AssumptionsContext(set):
+    """A context of mathematical assumptions for symbols, backed by the native assumptions engine."""
 
-    __slots__ = ("_native_ctx",)
-
-    def __init__(self) -> None:
+    def __init__(self, *args: Any) -> None:
+        super().__init__()
         if _native is not None and hasattr(_native, "AssumptionsContext"):
             self._native_ctx = _native.AssumptionsContext()
         else:
-            raise NotImplementedError("fsym_python AssumptionsContext is required")
+            self._native_ctx = None
+        for arg in args:
+            if isinstance(arg, (list, tuple, set, frozenset)):
+                for item in arg:
+                    self.add(item)
+            else:
+                self.add(arg)
+
+    def add(self, item: Any) -> None:
+        super().add(item)
+        if self._native_ctx is not None:
+            for sym, pred in _extract_facts(item):
+                self._native_ctx.assume(sym, pred)
+
+    def update(self, *others: Any) -> None:
+        for other in others:
+            for item in other:
+                self.add(item)
+
+    def clear(self) -> None:
+        super().clear()
+        if _native is not None and hasattr(_native, "AssumptionsContext"):
+            self._native_ctx = _native.AssumptionsContext()
 
     def assume(self, symbol: Symbol | str, predicate: Predicate | str) -> None:
         sym_name = symbol.name if isinstance(symbol, Symbol) else str(symbol)
         pred_name = predicate.name if isinstance(predicate, Predicate) else str(predicate)
-        self._native_ctx.assume(sym_name, pred_name)
+        super().add(Predicate(pred_name)(Symbol(sym_name)))
+        if self._native_ctx is not None:
+            self._native_ctx.assume(sym_name, pred_name)
 
     def assume_domain(self, symbol: Symbol | str, domain: str) -> None:
         sym_name = symbol.name if isinstance(symbol, Symbol) else str(symbol)
-        self._native_ctx.assume_domain(sym_name, domain)
+        if self._native_ctx is not None:
+            self._native_ctx.assume_domain(sym_name, domain)
 
     def deductions(self, symbol: Symbol | str) -> list[str]:
         sym_name = symbol.name if isinstance(symbol, Symbol) else str(symbol)
-        return self._native_ctx.deductions(sym_name)
+        if self._native_ctx is not None:
+            return self._native_ctx.deductions(sym_name)
+        return []
 
     def is_true(self, expr: Any, predicate: Predicate | str) -> bool | None:
         pred_name = predicate.name if isinstance(predicate, Predicate) else str(predicate)
         native_e = _native_expr(expr)
-        return self._native_ctx.is_true(native_e, pred_name)
+        if self._native_ctx is not None:
+            return self._native_ctx.is_true(native_e, pred_name)
+        return None
 
     def query(self, expr: Any, predicate: Predicate | str) -> str:
         pred_name = predicate.name if isinstance(predicate, Predicate) else str(predicate)
         native_e = _native_expr(expr)
-        return self._native_ctx.query(native_e, pred_name)
+        if self._native_ctx is not None:
+            return self._native_ctx.query(native_e, pred_name)
+        return "unknown"
+
+
+global_assumptions = AssumptionsContext()
+
+
+from contextlib import contextmanager
+
+
+@contextmanager
+def assuming(*assumptions: Any):
+    """Context manager for temporarily adding assumptions to global_assumptions."""
+    old_assumptions = list(global_assumptions)
+    for a in assumptions:
+        if isinstance(a, (list, tuple, set, frozenset)):
+            for item in a:
+                global_assumptions.add(item)
+        else:
+            global_assumptions.add(a)
+    try:
+        yield
+    finally:
+        global_assumptions.clear()
+        for item in old_assumptions:
+            global_assumptions.add(item)
 
 
 def _extract_facts(assumptions: Any) -> list[tuple[str, str]]:
     """Extract (symbol_name, predicate_name) facts from assumptions argument."""
-    if assumptions is None:
+    if assumptions is None or assumptions is True or assumptions is False:
         return []
     if isinstance(assumptions, AppliedPredicate):
-        sym_name = str(assumptions.expr)
+        sym_name = assumptions.expr.name if isinstance(assumptions.expr, Symbol) else str(assumptions.expr)
         return [(sym_name, assumptions.predicate.name)]
     if isinstance(assumptions, (list, tuple, set, frozenset)):
         facts = []
@@ -145,7 +199,9 @@ def ask(query: Any, assumptions: Any = None) -> bool | None:
     if isinstance(assumptions, AssumptionsContext):
         return assumptions.is_true(expr, pred_name)
 
-    facts = _extract_facts(assumptions)
+    facts = _extract_facts(global_assumptions)
+    if assumptions is not None and assumptions is not True:
+        facts.extend(_extract_facts(assumptions))
 
     # Also include the symbol's own internal assumptions if any and no conflicting facts given
     if isinstance(expr, Symbol) and hasattr(expr, "_assumptions") and expr._assumptions:

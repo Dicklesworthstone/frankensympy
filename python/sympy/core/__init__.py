@@ -1125,6 +1125,43 @@ class Expr(Basic):
             return Add(*remaining)
         return self
 
+    def as_real_imag(self) -> tuple["Expr", "Expr"]:
+        """Return (real_part, imaginary_part) such that self == real_part + I*imaginary_part."""
+        from ..functions.elementary.complexes import re, im
+        if getattr(self, "is_real", None) is True:
+            return (self, S.Zero)
+        if self == I:
+            return (S.Zero, S.One)
+        if self == -I:
+            return (S.Zero, S.NegativeOne)
+        if type(self) is Add:
+            re_parts = []
+            im_parts = []
+            for a in self.args:
+                r, i = a.as_real_imag()
+                re_parts.append(r)
+                im_parts.append(i)
+            return (Add(*re_parts), Add(*im_parts))
+        if type(self) is Mul:
+            has_I = False
+            rest = []
+            for a in self.args:
+                if a == I:
+                    has_I = True
+                else:
+                    rest.append(a)
+            if has_I:
+                rest_expr = Mul(*rest) if rest else S.One
+                r_rest, i_rest = rest_expr.as_real_imag()
+                return (-i_rest, r_rest)
+            if all(getattr(a, "is_real", None) is True for a in self.args):
+                return (self, S.Zero)
+        if isinstance(self, Symbol):
+            if getattr(self, "is_real", None) is True:
+                return (self, S.Zero)
+            return (re(self), im(self))
+        return (re(self), im(self))
+
     def evalf(self, n: int = 15) -> "Float":
         if type(n) is not int or n < 1:
             raise TypeError("evalf dps must be a positive int")
@@ -2238,6 +2275,11 @@ class _SingletonRegistry:
 
 
 S = _SingletonRegistry()
+pi = Expr("pi")
+E = Expr("E")
+I = Expr("I")
+oo = Expr("oo")
+nan = Expr("nan")
 
 
 
@@ -2883,7 +2925,7 @@ for _mod_name, _mod_items in [
     ("sympy.core.basic", (Basic, Atom, _restore_nary, _restore_pow, _restore_dummy, _restore_applied_undef)),
     ("sympy.core.expr", (Expr, AtomicExpr)),
     ("sympy.core.symbol", (Symbol, Dummy, symbols)),
-    ("sympy.core.numbers", (Number, Rational, Integer, Zero, One, NegativeOne, Half, Float, ComplexInfinity, _restore_float, _restore_zero, _restore_one, _restore_negative_one, _restore_half)),
+    ("sympy.core.numbers", (Number, Rational, Integer, Zero, One, NegativeOne, Half, Float, ComplexInfinity, I, pi, E, oo, nan, _restore_float, _restore_zero, _restore_one, _restore_negative_one, _restore_half)),
     ("sympy.core.relational", (Relational, Eq, Ne, Lt, Le, Gt, Ge)),
     ("sympy.core.add", (Add,)),
     ("sympy.core.mul", (Mul,)),
@@ -2917,6 +2959,7 @@ __all__ = [
     "ComplexInfinity",
     "Derivative",
     "Dummy",
+    "E",
     "Eq",
     "Equality",
     "Expr",
@@ -2925,6 +2968,8 @@ __all__ = [
     "FunctionClass",
     "Ge",
     "Gt",
+    "Half",
+    "I",
     "Integer",
     "Le",
     "Lt",

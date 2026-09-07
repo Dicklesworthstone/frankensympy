@@ -1714,6 +1714,101 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(ctx.query(x, Q.negative), "False")
         self.assertEqual(ctx.query(x, Q.integer), "Unknown")
 
+    def test_assumptions_advanced_and_refine(self):
+        from sympy import (
+            Abs,
+            Integer,
+            Pow,
+            Q,
+            Symbol,
+            ask,
+            assuming,
+            global_assumptions,
+            refine,
+            sqrt,
+        )
+        from sympy.assumptions.assume import AppliedPredicate, Predicate
+        from sympy.logic.boolalg import Boolean
+
+        x = Symbol("x")
+        y = Symbol("y")
+
+        # AppliedPredicate inherits from Boolean and supports algebra
+        pos_x = Q.positive(x)
+        int_x = Q.integer(x)
+        self.assertIsInstance(pos_x, Boolean)
+        self.assertIsInstance(pos_x, AppliedPredicate)
+        self.assertEqual(pos_x.args, (Q.positive, x))
+        self.assertIs(pos_x.predicate, Q.positive)
+        self.assertIs(pos_x.expr, x)
+
+        compound = pos_x & int_x
+        self.assertEqual(len(compound.args), 2)
+        neg_pos = ~pos_x
+        self.assertEqual(neg_pos.args, (pos_x,))
+
+        # Predicates with plain numbers
+        self.assertIs(ask(Q.positive(5)), True)
+        self.assertIs(ask(Q.negative(5)), False)
+        self.assertIs(ask(Q.even(4)), True)
+        self.assertIs(ask(Q.odd(4)), False)
+
+        # Compound facts in ask
+        self.assertIs(ask(Q.real(x), pos_x & int_x), True)
+        self.assertIs(ask(Q.integer(x), pos_x & int_x), True)
+        self.assertIs(ask(Q.negative(x), pos_x & int_x), False)
+
+        # assuming context manager and global_assumptions
+        self.assertIs(ask(Q.positive(x)), None)
+        with assuming(Q.positive(x), Q.even(y)):
+            self.assertIn(Q.positive(x), global_assumptions)
+            self.assertIs(ask(Q.positive(x)), True)
+            self.assertIs(ask(Q.real(x)), True)
+            self.assertIs(ask(Q.even(y)), True)
+            self.assertEqual(refine(Abs(x) + Integer(-1)**y), x + 1)
+        self.assertNotIn(Q.positive(x), global_assumptions)
+        self.assertIs(ask(Q.positive(x)), None)
+
+        # refine Abs, Pow, sqrt
+        self.assertEqual(refine(Abs(x), Q.positive(x)), x)
+        self.assertEqual(refine(Abs(x), Q.negative(x)), -x)
+        self.assertEqual(refine(Integer(-1)**x, Q.even(x)), 1)
+        self.assertEqual(refine(Integer(-1)**x, Q.odd(x)), -1)
+        self.assertEqual(refine(sqrt(x**2), Q.positive(x)), x)
+        self.assertEqual(refine(sqrt(x**2), Q.real(x)), Abs(x))
+
+    def test_complex_numbers_and_functions(self):
+        from sympy import (
+            I,
+            Integer,
+            Rational,
+            Symbol,
+            arg,
+            conjugate,
+            im,
+            pi,
+            re,
+        )
+
+        x = Symbol("x")
+        x_real = Symbol("x", real=True)
+
+        # as_real_imag
+        self.assertEqual(Integer(5).as_real_imag(), (Integer(5), Integer(0)))
+        self.assertEqual(I.as_real_imag(), (Integer(0), Integer(1)))
+        c = 3 + 4*I
+        self.assertEqual(c.as_real_imag(), (Integer(3), Integer(4)))
+        self.assertEqual(x_real.as_real_imag(), (x_real, Integer(0)))
+
+        # re, im, conjugate, arg
+        self.assertEqual(re(c), 3)
+        self.assertEqual(im(c), 4)
+        self.assertEqual(conjugate(c), 3 - 4*I)
+        self.assertEqual(arg(3 + 3*I), pi / 4)
+        self.assertEqual(re(x_real), x_real)
+        self.assertEqual(im(x_real), 0)
+        self.assertEqual(conjugate(x_real), x_real)
+
     def test_factor_and_roots(self):
         from sympy.polys import factor, factor_list, roots
         self.assertIs(factor, sympy.factor)

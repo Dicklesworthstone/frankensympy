@@ -1,6 +1,6 @@
 """Elementary functions for FrankenSymPy."""
 
-from .complexes import Abs, sign
+from .complexes import Abs, arg, conjugate, im, re, sign
 from .exponential import exp, log
 from .hyperbolic import (
     acosh,
@@ -41,6 +41,7 @@ __all__ = [
     "acoth",
     "acsc",
     "acsch",
+    "arg",
     "asec",
     "asech",
     "asin",
@@ -48,6 +49,7 @@ __all__ = [
     "atan",
     "atanh",
     "ceiling",
+    "conjugate",
     "cos",
     "cosh",
     "cot",
@@ -56,7 +58,9 @@ __all__ = [
     "csch",
     "exp",
     "floor",
+    "im",
     "log",
+    "re",
     "sec",
     "sech",
     "sign",
