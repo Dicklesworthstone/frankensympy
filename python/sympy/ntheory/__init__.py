@@ -74,15 +74,128 @@ def integer_nthroot(y: Any, n: Any):
     return root, exact
 
 
+def primefactors(n: Any) -> list[int]:
+    """Return a sorted list of the distinct prime factors of n."""
+    n = abs(int(n))
+    if n in (0, 1):
+        return []
+    factors = factorint(n)
+    return sorted(factors.keys())
+
+
+def divisors(n: Any, generator: bool = False):
+    """Return all positive divisors of n sorted in increasing order."""
+    n = abs(int(n))
+    if n == 0:
+        return [] if not generator else iter([])
+    if n == 1:
+        return [1] if not generator else iter([1])
+    factors = factorint(n)
+    divs = [1]
+    for p, e in factors.items():
+        powers = [p ** k for k in range(e + 1)]
+        divs = [d * pk for d in divs for pk in powers]
+    divs.sort()
+    return divs if not generator else iter(divs)
+
+
+def proper_divisors(n: Any, generator: bool = False):
+    """Return all positive divisors of n except n itself."""
+    divs = divisors(n)
+    res = divs[:-1] if len(divs) > 1 else []
+    return res if not generator else iter(res)
+
+
+def nextprime(n: Any, ith: int = 1) -> int:
+    """Return the ith smallest prime strictly greater than n."""
+    n = int(n)
+    ith = int(ith)
+    if ith < 1:
+        raise ValueError("ith must be a positive integer")
+    p = max(2, n + 1)
+    if p > 2 and p % 2 == 0:
+        p += 1
+    step = 1 if p == 2 else 2
+    found = 0
+    while True:
+        if isprime(p):
+            found += 1
+            if found == ith:
+                return p
+        p += step
+        if p == 3:
+            step = 2
+
+
+def prevprime(n: Any) -> int:
+    """Return the largest prime strictly smaller than n."""
+    n = int(n)
+    if n <= 2:
+        raise ValueError("no preceding primes")
+    if n == 3:
+        return 2
+    p = n - 1
+    if p % 2 == 0:
+        p -= 1
+    while p >= 3:
+        if isprime(p):
+            return p
+        p -= 2
+    return 2
+
+
+def is_quad_residue(a: Any, p: Any) -> bool:
+    """Return True if a is a quadratic residue modulo p, False otherwise."""
+    a = int(a)
+    p = int(p)
+    if p <= 0:
+        raise ValueError("p must be a positive integer")
+    if p in (1, 2):
+        return True
+    a = a % p
+    if a == 0:
+        return True
+    return legendre_symbol(a, p) == 1
+
+
+def prime(nth: Any) -> int:
+    """Return the nth prime (1-indexed: prime(1) == 2, prime(2) == 3, etc.)."""
+    nth = int(nth)
+    if nth < 1:
+        raise ValueError("nth must be a positive integer")
+    p = 2
+    for _ in range(nth - 1):
+        p = nextprime(p)
+    return p
+
+
+def primepi(n: Any) -> int:
+    """Return the number of primes less than or equal to n."""
+    n = int(n)
+    if n < 2:
+        return 0
+    count = 1
+    p = 2
+    while True:
+        p = nextprime(p)
+        if p <= n:
+            count += 1
+        else:
+            break
+    return count
+
+
 __all__ = [
     "carmichael",
     "crt",
     "divisor_count",
     "divisor_sigma",
+    "divisors",
     "factorint",
     "integer_nthroot",
     "is_perfect",
     "is_primitive_root",
+    "is_quad_residue",
     "is_square_free",
     "is_squarefree",
     "isprime",
@@ -90,10 +203,16 @@ __all__ = [
     "legendre_symbol",
     "mobius",
     "mod_inverse",
-    "primenu",
+    "nextprime",
+    "prevprime",
+    "prime",
     "prime_big_omega",
     "prime_omega",
+    "primefactors",
+    "primenu",
     "primeomega",
+    "primepi",
+    "proper_divisors",
     "reduced_totient",
     "totient",
 ]

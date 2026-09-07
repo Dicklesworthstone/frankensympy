@@ -2148,6 +2148,101 @@ class SurfaceTests(unittest.TestCase):
         expr = x**2 + 2 * x + 1
         self.assertEqual(sqf(expr), (x + 1) ** 2)
 
+    def test_ntheory_extended_suite(self):
+        from sympy import (
+            primefactors,
+            divisors,
+            proper_divisors,
+            nextprime,
+            prevprime,
+            is_quad_residue,
+            prime,
+            primepi,
+        )
+
+        self.assertEqual(primefactors(60), [2, 3, 5])
+        self.assertEqual(primefactors(-60), [2, 3, 5])
+        self.assertEqual(primefactors(0), [])
+        self.assertEqual(primefactors(1), [])
+
+        self.assertEqual(divisors(12), [1, 2, 3, 4, 6, 12])
+        self.assertEqual(divisors(-12), [1, 2, 3, 4, 6, 12])
+        self.assertEqual(divisors(1), [1])
+        self.assertEqual(divisors(0), [])
+
+        self.assertEqual(proper_divisors(12), [1, 2, 3, 4, 6])
+        self.assertEqual(proper_divisors(1), [])
+
+        self.assertEqual(nextprime(10), 11)
+        self.assertEqual(nextprime(2), 3)
+        self.assertEqual(nextprime(1), 2)
+        self.assertEqual(nextprime(10, 2), 13)
+
+        self.assertEqual(prevprime(10), 7)
+        self.assertEqual(prevprime(3), 2)
+        with self.assertRaises(ValueError):
+            prevprime(2)
+
+        self.assertTrue(is_quad_residue(2, 7))
+        self.assertFalse(is_quad_residue(3, 7))
+        self.assertTrue(is_quad_residue(0, 7))
+        self.assertTrue(is_quad_residue(1, 2))
+
+        self.assertEqual(prime(1), 2)
+        self.assertEqual(prime(5), 11)
+        self.assertEqual(primepi(12), 5)
+        self.assertEqual(primepi(1), 0)
+
+    def test_matrix_manipulation_methods(self):
+        from sympy import Matrix, ImmutableMatrix
+
+        M = Matrix([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
+        self.assertEqual(M.extract([0, 2], [1, 2]), Matrix([[2, 3], [8, 9]]))
+        self.assertEqual(M.extract([0, 1], [-1]), Matrix([[3], [6]]))
+
+        C = Matrix([[10], [20], [30]])
+        self.assertEqual(M.col_insert(1, C), Matrix([[1, 10, 2, 3], [4, 20, 5, 6], [7, 30, 8, 9]]))
+
+        R = Matrix([[11, 22, 33]])
+        self.assertEqual(M.row_insert(1, R), Matrix([[1, 2, 3], [11, 22, 33], [4, 5, 6], [7, 8, 9]]))
+
+        M_mut = Matrix([[1, 2, 3], [4, 5, 6]])
+        M_mut.col_del(1)
+        self.assertEqual(M_mut, Matrix([[1, 3], [4, 6]]))
+        M_mut.row_del(0)
+        self.assertEqual(M_mut, Matrix([[4, 6]]))
+
+        v = Matrix([3, 4])
+        self.assertEqual(v.norm(), sympy.Integer(5))
+
+        IM = ImmutableMatrix([[1, 2], [3, 4]])
+        with self.assertRaises(TypeError):
+            IM.col_del(0)
+        with self.assertRaises(TypeError):
+            IM.row_del(0)
+        with self.assertRaises(TypeError):
+            IM[0, 0] = 99
+
+    def test_special_function_differentiation(self):
+        from sympy import erf, erfc, sinc, asec, Symbol, diff, Derivative
+
+        x = Symbol("x")
+        d_erf = diff(erf(x), x)
+        self.assertFalse(isinstance(d_erf, Derivative))
+        self.assertNotIn("diff(", str(d_erf))
+
+        d_erfc = diff(erfc(x), x)
+        self.assertFalse(isinstance(d_erfc, Derivative))
+        self.assertNotIn("diff(", str(d_erfc))
+
+        d_sinc = diff(sinc(x), x)
+        self.assertFalse(isinstance(d_sinc, Derivative))
+        self.assertNotIn("diff(", str(d_sinc))
+
+        d_asec = diff(asec(x), x)
+        self.assertFalse(isinstance(d_asec, Derivative))
+        self.assertNotIn("diff(", str(d_asec))
+
 
 if __name__ == "__main__":
     unittest.main()

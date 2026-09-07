@@ -193,6 +193,102 @@ class Matrix(MatrixBase):
                 data.append(_native_expr(other[row, col]))
         return Matrix(_NativeMatrix(r, c1 + c2, data))
 
+    def extract(self, rowsList, colsList):
+        """Return a submatrix formed by the given rows and cols indices."""
+        r_list = [r if r >= 0 else r + self.rows for r in rowsList]
+        c_list = [c if c >= 0 else c + self.cols for c in colsList]
+        for r in r_list:
+            if not (0 <= r < self.rows):
+                raise IndexError(f"Row index {r} out of bounds")
+        for c in c_list:
+            if not (0 <= c < self.cols):
+                raise IndexError(f"Column index {c} out of bounds")
+        flat = [_native_expr(self[r, c]) for r in r_list for c in c_list]
+        return Matrix(_NativeMatrix(len(r_list), len(c_list), flat))
+
+    def col_insert(self, pos, other):
+        """Insert a matrix at column pos."""
+        if not isinstance(other, Matrix):
+            other = Matrix(other)
+        if other.rows != self.rows:
+            raise ValueError(
+                f"Cannot insert column of length {other.rows} into matrix of {self.rows} rows"
+            )
+        cols = self.cols
+        if pos < 0:
+            pos += cols
+        pos = max(0, min(pos, cols))
+        flat = []
+        for r in range(self.rows):
+            for c in range(pos):
+                flat.append(_native_expr(self[r, c]))
+            for c in range(other.cols):
+                flat.append(_native_expr(other[r, c]))
+            for c in range(pos, cols):
+                flat.append(_native_expr(self[r, c]))
+        return Matrix(_NativeMatrix(self.rows, cols + other.cols, flat))
+
+    def row_insert(self, pos, other):
+        """Insert a matrix at row pos."""
+        if not isinstance(other, Matrix):
+            other = Matrix(other)
+        if other.cols != self.cols:
+            raise ValueError(
+                f"Cannot insert row of width {other.cols} into matrix of {self.cols} columns"
+            )
+        rows = self.rows
+        if pos < 0:
+            pos += rows
+        pos = max(0, min(pos, rows))
+        flat = []
+        for r in range(pos):
+            for c in range(self.cols):
+                flat.append(_native_expr(self[r, c]))
+        for r in range(other.rows):
+            for c in range(self.cols):
+                flat.append(_native_expr(other[r, c]))
+        for r in range(pos, rows):
+            for c in range(self.cols):
+                flat.append(_native_expr(self[r, c]))
+        return Matrix(_NativeMatrix(rows + other.rows, self.cols, flat))
+
+    def col_del(self, j):
+        """Delete column j in-place."""
+        cols = self.cols
+        if j < 0:
+            j += cols
+        if not (0 <= j < cols):
+            raise IndexError("Column index out of range")
+        rows = self.rows
+        flat = []
+        for r in range(rows):
+            for c in range(cols):
+                if c != j:
+                    flat.append(_native_expr(self[r, c]))
+        self._native = _NativeMatrix(rows, cols - 1, flat)
+
+    def row_del(self, i):
+        """Delete row i in-place."""
+        rows = self.rows
+        if i < 0:
+            i += rows
+        if not (0 <= i < rows):
+            raise IndexError("Row index out of range")
+        cols = self.cols
+        flat = []
+        for r in range(rows):
+            if r != i:
+                for c in range(cols):
+                    flat.append(_native_expr(self[r, c]))
+        self._native = _NativeMatrix(rows - 1, cols, flat)
+
+    def norm(self, ord="fro"):
+        """Return the matrix norm (Frobenius / Euclidean by default)."""
+        from ..core import sqrt
+        if ord in ("fro", 2, None):
+            return sqrt(self.frobenius_norm_squared())
+        raise NotImplementedError(f"Matrix norm with ord={ord} is not implemented")
+
     @staticmethod
     def hstack(*args):
         if not args:
@@ -527,6 +623,15 @@ class ImmutableDenseMatrix(Matrix):
 
     def __hash__(self):
         return hash((self.shape, tuple(self._native.flat())))
+
+    def __setitem__(self, key, value):
+        raise TypeError("Cannot set an item on an immutable matrix")
+
+    def col_del(self, j):
+        raise TypeError("Cannot delete from an immutable matrix")
+
+    def row_del(self, i):
+        raise TypeError("Cannot delete from an immutable matrix")
 
 
 ImmutableMatrix = ImmutableDenseMatrix

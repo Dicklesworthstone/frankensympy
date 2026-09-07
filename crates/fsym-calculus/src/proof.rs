@@ -3,7 +3,7 @@
 #![forbid(unsafe_code)]
 
 use crate::{diff, diff_unsimplified};
-use fsym_core::{BigInt, Expr, Symbol};
+use fsym_core::{BigInt, BigRational, Constant, Expr, Symbol};
 use fsym_proof_kernel::{Claim, DerivationStep, DerivationTree, KernelError, ProofRule, StepId};
 use std::sync::Arc;
 
@@ -16,10 +16,18 @@ pub const RULE_DIFF_PROD: &str = "diff_product";
 pub const RULE_DIFF_POW_INT: &str = "diff_power_integer";
 pub const RULE_DIFF_SIN: &str = "diff_sin";
 pub const RULE_DIFF_COS: &str = "diff_cos";
+pub const RULE_DIFF_TAN: &str = "diff_tan";
 pub const RULE_DIFF_EXP: &str = "diff_exp";
 pub const RULE_DIFF_SINH: &str = "diff_sinh";
 pub const RULE_DIFF_COSH: &str = "diff_cosh";
+pub const RULE_DIFF_TANH: &str = "diff_tanh";
 pub const RULE_DIFF_LOG: &str = "diff_log";
+pub const RULE_DIFF_ASIN: &str = "diff_asin";
+pub const RULE_DIFF_ACOS: &str = "diff_acos";
+pub const RULE_DIFF_ATAN: &str = "diff_atan";
+pub const RULE_DIFF_ERF: &str = "diff_erf";
+pub const RULE_DIFF_ERFC: &str = "diff_erfc";
+pub const RULE_DIFF_SINC: &str = "diff_sinc";
 pub const RULE_DIFF_GENERAL: &str = "diff_general";
 
 /// Constructs the canonical diff application node: $\frac{\partial}{\partial \text{var}}(\text{expr})$.
@@ -48,10 +56,18 @@ pub fn classify_diff_rule(expr: &Expr, var: &Symbol) -> &'static str {
         Expr::Function(name, args) => match (name.as_str(), args.len()) {
             ("sin", 1) => RULE_DIFF_SIN,
             ("cos", 1) => RULE_DIFF_COS,
+            ("tan", 1) => RULE_DIFF_TAN,
             ("exp", 1) => RULE_DIFF_EXP,
             ("sinh", 1) => RULE_DIFF_SINH,
             ("cosh", 1) => RULE_DIFF_COSH,
+            ("tanh", 1) => RULE_DIFF_TANH,
             ("log" | "ln", 1) => RULE_DIFF_LOG,
+            ("asin", 1) => RULE_DIFF_ASIN,
+            ("acos", 1) => RULE_DIFF_ACOS,
+            ("atan", 1) => RULE_DIFF_ATAN,
+            ("erf", 1) => RULE_DIFF_ERF,
+            ("erfc", 1) => RULE_DIFF_ERFC,
+            ("sinc", 1) => RULE_DIFF_SINC,
             _ => RULE_DIFF_GENERAL,
         },
     }
@@ -378,6 +394,255 @@ fn verify_rule_reduction_semantics(
                 }
             }
         }
+        RULE_DIFF_TAN => {
+            if let Expr::Function(name, args) = expr
+                && name == "tan"
+                && args.len() == 1
+            {
+                let u = &args[0];
+                let du = diff(u, var);
+                let tan_u_sq = Expr::pow(
+                    Expr::Function("tan".to_string(), vec![u.clone()]),
+                    Expr::from_i64(2),
+                );
+                let expected_rhs =
+                    Expr::Mul(vec![Expr::Add(vec![Expr::from_i64(1), tan_u_sq]), du]);
+                if deriv != &expected_rhs {
+                    return Err(KernelError::InvalidDefinitionalReduction {
+                        rule_name: rule_name.to_string(),
+                        reason: format!(
+                            "Tan derivative mismatch: expected {expected_rhs}, got {deriv}"
+                        ),
+                    });
+                }
+            } else {
+                return Err(KernelError::InvalidDefinitionalReduction {
+                    rule_name: rule_name.to_string(),
+                    reason: "Expected tan(u) for diff_tan".to_string(),
+                });
+            }
+        }
+        RULE_DIFF_TANH => {
+            if let Expr::Function(name, args) = expr
+                && name == "tanh"
+                && args.len() == 1
+            {
+                let u = &args[0];
+                let du = diff(u, var);
+                let tanh_u_sq = Expr::pow(
+                    Expr::Function("tanh".to_string(), vec![u.clone()]),
+                    Expr::from_i64(2),
+                );
+                let expected_rhs = Expr::Mul(vec![
+                    Expr::Add(vec![
+                        Expr::from_i64(1),
+                        Expr::Mul(vec![Expr::from_i64(-1), tanh_u_sq]),
+                    ]),
+                    du,
+                ]);
+                if deriv != &expected_rhs {
+                    return Err(KernelError::InvalidDefinitionalReduction {
+                        rule_name: rule_name.to_string(),
+                        reason: format!(
+                            "Tanh derivative mismatch: expected {expected_rhs}, got {deriv}"
+                        ),
+                    });
+                }
+            } else {
+                return Err(KernelError::InvalidDefinitionalReduction {
+                    rule_name: rule_name.to_string(),
+                    reason: "Expected tanh(u) for diff_tanh".to_string(),
+                });
+            }
+        }
+        RULE_DIFF_ASIN => {
+            if let Expr::Function(name, args) = expr
+                && name == "asin"
+                && args.len() == 1
+            {
+                let u = &args[0];
+                let du = diff(u, var);
+                let one_minus_u_sq = Expr::Add(vec![
+                    Expr::from_i64(1),
+                    Expr::Mul(vec![
+                        Expr::from_i64(-1),
+                        Expr::pow(u.clone(), Expr::from_i64(2)),
+                    ]),
+                ]);
+                let neg_half = Expr::Rational(BigRational::new(BigInt::from(-1), BigInt::from(2)));
+                let expected_rhs = Expr::Mul(vec![Expr::pow(one_minus_u_sq, neg_half), du]);
+                if deriv != &expected_rhs {
+                    return Err(KernelError::InvalidDefinitionalReduction {
+                        rule_name: rule_name.to_string(),
+                        reason: format!(
+                            "Asin derivative mismatch: expected {expected_rhs}, got {deriv}"
+                        ),
+                    });
+                }
+            } else {
+                return Err(KernelError::InvalidDefinitionalReduction {
+                    rule_name: rule_name.to_string(),
+                    reason: "Expected asin(u) for diff_asin".to_string(),
+                });
+            }
+        }
+        RULE_DIFF_ACOS => {
+            if let Expr::Function(name, args) = expr
+                && name == "acos"
+                && args.len() == 1
+            {
+                let u = &args[0];
+                let du = diff(u, var);
+                let one_minus_u_sq = Expr::Add(vec![
+                    Expr::from_i64(1),
+                    Expr::Mul(vec![
+                        Expr::from_i64(-1),
+                        Expr::pow(u.clone(), Expr::from_i64(2)),
+                    ]),
+                ]);
+                let neg_half = Expr::Rational(BigRational::new(BigInt::from(-1), BigInt::from(2)));
+                let expected_rhs = Expr::Mul(vec![
+                    Expr::from_i64(-1),
+                    Expr::pow(one_minus_u_sq, neg_half),
+                    du,
+                ]);
+                if deriv != &expected_rhs {
+                    return Err(KernelError::InvalidDefinitionalReduction {
+                        rule_name: rule_name.to_string(),
+                        reason: format!(
+                            "Acos derivative mismatch: expected {expected_rhs}, got {deriv}"
+                        ),
+                    });
+                }
+            } else {
+                return Err(KernelError::InvalidDefinitionalReduction {
+                    rule_name: rule_name.to_string(),
+                    reason: "Expected acos(u) for diff_acos".to_string(),
+                });
+            }
+        }
+        RULE_DIFF_ATAN => {
+            if let Expr::Function(name, args) = expr
+                && name == "atan"
+                && args.len() == 1
+            {
+                let u = &args[0];
+                let du = diff(u, var);
+                let denom = Expr::Add(vec![
+                    Expr::from_i64(1),
+                    Expr::pow(u.clone(), Expr::from_i64(2)),
+                ]);
+                let expected_rhs = Expr::Mul(vec![Expr::pow(denom, Expr::from_i64(-1)), du]);
+                if deriv != &expected_rhs {
+                    return Err(KernelError::InvalidDefinitionalReduction {
+                        rule_name: rule_name.to_string(),
+                        reason: format!(
+                            "Atan derivative mismatch: expected {expected_rhs}, got {deriv}"
+                        ),
+                    });
+                }
+            } else {
+                return Err(KernelError::InvalidDefinitionalReduction {
+                    rule_name: rule_name.to_string(),
+                    reason: "Expected atan(u) for diff_atan".to_string(),
+                });
+            }
+        }
+        RULE_DIFF_ERF => {
+            if let Expr::Function(name, args) = expr
+                && name == "erf"
+                && args.len() == 1
+            {
+                let u = &args[0];
+                let du = diff(u, var);
+                let pi = Expr::Const(Constant::Pi);
+                let half = Expr::Rational(BigRational::new(BigInt::from(1), BigInt::from(2)));
+                let sqrt_pi = Expr::pow(pi, half);
+                let inv_sqrt_pi = Expr::pow(sqrt_pi, Expr::from_i64(-1));
+                let neg_u_sq = Expr::Mul(vec![
+                    Expr::from_i64(-1),
+                    Expr::pow(u.clone(), Expr::from_i64(2)),
+                ]);
+                let exp_neg_u_sq = Expr::Function("exp".to_string(), vec![neg_u_sq]);
+                let expected_rhs =
+                    Expr::Mul(vec![Expr::from_i64(2), inv_sqrt_pi, exp_neg_u_sq, du]);
+                if deriv != &expected_rhs {
+                    return Err(KernelError::InvalidDefinitionalReduction {
+                        rule_name: rule_name.to_string(),
+                        reason: format!(
+                            "Erf derivative mismatch: expected {expected_rhs}, got {deriv}"
+                        ),
+                    });
+                }
+            } else {
+                return Err(KernelError::InvalidDefinitionalReduction {
+                    rule_name: rule_name.to_string(),
+                    reason: "Expected erf(u) for diff_erf".to_string(),
+                });
+            }
+        }
+        RULE_DIFF_ERFC => {
+            if let Expr::Function(name, args) = expr
+                && name == "erfc"
+                && args.len() == 1
+            {
+                let u = &args[0];
+                let du = diff(u, var);
+                let pi = Expr::Const(Constant::Pi);
+                let half = Expr::Rational(BigRational::new(BigInt::from(1), BigInt::from(2)));
+                let sqrt_pi = Expr::pow(pi, half);
+                let inv_sqrt_pi = Expr::pow(sqrt_pi, Expr::from_i64(-1));
+                let neg_u_sq = Expr::Mul(vec![
+                    Expr::from_i64(-1),
+                    Expr::pow(u.clone(), Expr::from_i64(2)),
+                ]);
+                let exp_neg_u_sq = Expr::Function("exp".to_string(), vec![neg_u_sq]);
+                let expected_rhs =
+                    Expr::Mul(vec![Expr::from_i64(-2), inv_sqrt_pi, exp_neg_u_sq, du]);
+                if deriv != &expected_rhs {
+                    return Err(KernelError::InvalidDefinitionalReduction {
+                        rule_name: rule_name.to_string(),
+                        reason: format!(
+                            "Erfc derivative mismatch: expected {expected_rhs}, got {deriv}"
+                        ),
+                    });
+                }
+            } else {
+                return Err(KernelError::InvalidDefinitionalReduction {
+                    rule_name: rule_name.to_string(),
+                    reason: "Expected erfc(u) for diff_erfc".to_string(),
+                });
+            }
+        }
+        RULE_DIFF_SINC => {
+            if let Expr::Function(name, args) = expr
+                && name == "sinc"
+                && args.len() == 1
+            {
+                let u = &args[0];
+                let du = diff(u, var);
+                let cos_u = Expr::Function("cos".to_string(), vec![u.clone()]);
+                let sin_u = Expr::Function("sin".to_string(), vec![u.clone()]);
+                let inv_u = Expr::pow(u.clone(), Expr::from_i64(-1));
+                let inv_u_sq = Expr::pow(u.clone(), Expr::from_i64(-2));
+                let term1 = Expr::Mul(vec![cos_u, inv_u]);
+                let term2 = Expr::Mul(vec![Expr::from_i64(-1), sin_u, inv_u_sq]);
+                let expected_rhs = Expr::Mul(vec![Expr::Add(vec![term1, term2]), du]);
+                if deriv != &expected_rhs {
+                    return Err(KernelError::InvalidDefinitionalReduction {
+                        rule_name: rule_name.to_string(),
+                        reason: format!(
+                            "Sinc derivative mismatch: expected {expected_rhs}, got {deriv}"
+                        ),
+                    });
+                }
+            } else {
+                return Err(KernelError::InvalidDefinitionalReduction {
+                    rule_name: rule_name.to_string(),
+                    reason: "Expected sinc(u) for diff_sinc".to_string(),
+                });
+            }
+        }
         RULE_DIFF_GENERAL => {
             // Unsupported derivatives are represented by the unevaluated
             // derivative term.  This establishes only reflexive equality; it
@@ -425,10 +690,18 @@ mod tests {
         for expr in [
             Expr::Function("sin".to_string(), vec![Expr::symbol("x")]),
             Expr::Function("cos".to_string(), vec![Expr::symbol("x")]),
+            Expr::Function("tan".to_string(), vec![Expr::symbol("x")]),
             Expr::Function("exp".to_string(), vec![Expr::symbol("x")]),
             Expr::Function("sinh".to_string(), vec![Expr::symbol("x")]),
             Expr::Function("cosh".to_string(), vec![Expr::symbol("x")]),
+            Expr::Function("tanh".to_string(), vec![Expr::symbol("x")]),
             Expr::Function("log".to_string(), vec![Expr::symbol("x")]),
+            Expr::Function("asin".to_string(), vec![Expr::symbol("x")]),
+            Expr::Function("acos".to_string(), vec![Expr::symbol("x")]),
+            Expr::Function("atan".to_string(), vec![Expr::symbol("x")]),
+            Expr::Function("erf".to_string(), vec![Expr::symbol("x")]),
+            Expr::Function("erfc".to_string(), vec![Expr::symbol("x")]),
+            Expr::Function("sinc".to_string(), vec![Expr::symbol("x")]),
         ] {
             let (deriv, tree) = verified_diff(&expr, &x);
             assert!(verify_diff_derivation(&tree, &expr, &x, &deriv).is_ok());

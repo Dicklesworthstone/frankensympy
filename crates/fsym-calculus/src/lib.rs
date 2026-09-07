@@ -319,6 +319,104 @@ pub fn diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
                     ]),
                 ]);
                 Expr::Mul(vec![Expr::pow(one_minus_u_sq, Expr::from_i64(-1)), du])
+            } else if name == "asec" && args.len() == 1 {
+                let u = &args[0];
+                let du = diff(u, var);
+                let u_sq = Expr::pow(u.clone(), Expr::from_i64(2));
+                let inv_u_sq = Expr::pow(u.clone(), Expr::from_i64(-2));
+                let one_minus_inv_u_sq = Expr::Add(vec![
+                    Expr::from_i64(1),
+                    Expr::Mul(vec![Expr::from_i64(-1), inv_u_sq]),
+                ]);
+                let half = Expr::Rational(BigRational::new(BigInt::from(1), BigInt::from(2)));
+                let sqrt_term = Expr::pow(one_minus_inv_u_sq, half);
+                let denom = Expr::Mul(vec![u_sq, sqrt_term]);
+                Expr::Mul(vec![Expr::pow(denom, Expr::from_i64(-1)), du])
+            } else if name == "acsc" && args.len() == 1 {
+                let u = &args[0];
+                let du = diff(u, var);
+                let u_sq = Expr::pow(u.clone(), Expr::from_i64(2));
+                let inv_u_sq = Expr::pow(u.clone(), Expr::from_i64(-2));
+                let one_minus_inv_u_sq = Expr::Add(vec![
+                    Expr::from_i64(1),
+                    Expr::Mul(vec![Expr::from_i64(-1), inv_u_sq]),
+                ]);
+                let half = Expr::Rational(BigRational::new(BigInt::from(1), BigInt::from(2)));
+                let sqrt_term = Expr::pow(one_minus_inv_u_sq, half);
+                let denom = Expr::Mul(vec![u_sq, sqrt_term]);
+                Expr::Mul(vec![
+                    Expr::from_i64(-1),
+                    Expr::pow(denom, Expr::from_i64(-1)),
+                    du,
+                ])
+            } else if name == "asech" && args.len() == 1 {
+                let u = &args[0];
+                let du = diff(u, var);
+                let one_minus_u_sq = Expr::Add(vec![
+                    Expr::from_i64(1),
+                    Expr::Mul(vec![
+                        Expr::from_i64(-1),
+                        Expr::pow(u.clone(), Expr::from_i64(2)),
+                    ]),
+                ]);
+                let half = Expr::Rational(BigRational::new(BigInt::from(1), BigInt::from(2)));
+                let sqrt_term = Expr::pow(one_minus_u_sq, half);
+                let denom = Expr::Mul(vec![u.clone(), sqrt_term]);
+                Expr::Mul(vec![
+                    Expr::from_i64(-1),
+                    Expr::pow(denom, Expr::from_i64(-1)),
+                    du,
+                ])
+            } else if name == "acsch" && args.len() == 1 {
+                let u = &args[0];
+                let du = diff(u, var);
+                let u_sq = Expr::pow(u.clone(), Expr::from_i64(2));
+                let inv_u_sq = Expr::pow(u.clone(), Expr::from_i64(-2));
+                let one_plus_inv_u_sq = Expr::Add(vec![Expr::from_i64(1), inv_u_sq]);
+                let half = Expr::Rational(BigRational::new(BigInt::from(1), BigInt::from(2)));
+                let sqrt_term = Expr::pow(one_plus_inv_u_sq, half);
+                let denom = Expr::Mul(vec![u_sq, sqrt_term]);
+                Expr::Mul(vec![
+                    Expr::from_i64(-1),
+                    Expr::pow(denom, Expr::from_i64(-1)),
+                    du,
+                ])
+            } else if name == "sinc" && args.len() == 1 {
+                let u = &args[0];
+                let du = diff(u, var);
+                let cos_u = Expr::Function("cos".to_string(), vec![u.clone()]);
+                let sin_u = Expr::Function("sin".to_string(), vec![u.clone()]);
+                let inv_u = Expr::pow(u.clone(), Expr::from_i64(-1));
+                let inv_u_sq = Expr::pow(u.clone(), Expr::from_i64(-2));
+                let term1 = Expr::Mul(vec![cos_u, inv_u]);
+                let term2 = Expr::Mul(vec![Expr::from_i64(-1), sin_u, inv_u_sq]);
+                Expr::Mul(vec![Expr::Add(vec![term1, term2]), du])
+            } else if name == "erf" && args.len() == 1 {
+                let u = &args[0];
+                let du = diff(u, var);
+                let pi = Expr::Const(Constant::Pi);
+                let half = Expr::Rational(BigRational::new(BigInt::from(1), BigInt::from(2)));
+                let sqrt_pi = Expr::pow(pi, half);
+                let inv_sqrt_pi = Expr::pow(sqrt_pi, Expr::from_i64(-1));
+                let neg_u_sq = Expr::Mul(vec![
+                    Expr::from_i64(-1),
+                    Expr::pow(u.clone(), Expr::from_i64(2)),
+                ]);
+                let exp_neg_u_sq = Expr::Function("exp".to_string(), vec![neg_u_sq]);
+                Expr::Mul(vec![Expr::from_i64(2), inv_sqrt_pi, exp_neg_u_sq, du])
+            } else if name == "erfc" && args.len() == 1 {
+                let u = &args[0];
+                let du = diff(u, var);
+                let pi = Expr::Const(Constant::Pi);
+                let half = Expr::Rational(BigRational::new(BigInt::from(1), BigInt::from(2)));
+                let sqrt_pi = Expr::pow(pi, half);
+                let inv_sqrt_pi = Expr::pow(sqrt_pi, Expr::from_i64(-1));
+                let neg_u_sq = Expr::Mul(vec![
+                    Expr::from_i64(-1),
+                    Expr::pow(u.clone(), Expr::from_i64(2)),
+                ]);
+                let exp_neg_u_sq = Expr::Function("exp".to_string(), vec![neg_u_sq]);
+                Expr::Mul(vec![Expr::from_i64(-2), inv_sqrt_pi, exp_neg_u_sq, du])
             } else {
                 Expr::Function(
                     "diff".to_string(),
@@ -1896,6 +1994,26 @@ mod tests {
             Expr::Function("log".to_string(), vec![Expr::from_i64(2)]),
         ]));
         assert_eq!(d_two_to_x, expected_two_to_x);
+
+        // d/dx(sinc(x))
+        let sinc_x = Expr::Function("sinc".to_string(), vec![x_expr.clone()]);
+        let d_sinc = diff(&sinc_x, &x);
+        assert!(!matches!(d_sinc, Expr::Function(ref name, _) if name == "diff"));
+
+        // d/dx(erf(x))
+        let erf_x = Expr::Function("erf".to_string(), vec![x_expr.clone()]);
+        let d_erf = diff(&erf_x, &x);
+        assert!(!matches!(d_erf, Expr::Function(ref name, _) if name == "diff"));
+
+        // d/dx(erfc(x))
+        let erfc_x = Expr::Function("erfc".to_string(), vec![x_expr.clone()]);
+        let d_erfc = diff(&erfc_x, &x);
+        assert!(!matches!(d_erfc, Expr::Function(ref name, _) if name == "diff"));
+
+        // d/dx(asec(x))
+        let asec_x = Expr::Function("asec".to_string(), vec![x_expr.clone()]);
+        let d_asec = diff(&asec_x, &x);
+        assert!(!matches!(d_asec, Expr::Function(ref name, _) if name == "diff"));
     }
 
     #[test]
