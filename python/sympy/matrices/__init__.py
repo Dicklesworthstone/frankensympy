@@ -10,8 +10,11 @@ from .dense import (
     diag,
     eye,
     hadamard_product,
+    hstack,
     kronecker_product,
     matrix_multiply_elementwise,
+    ones,
+    vstack,
     zeros,
 )
 
@@ -24,8 +27,11 @@ __all__ = [
     "ImmutableDenseMatrix",
     "eye",
     "zeros",
+    "ones",
     "diag",
     "hadamard_product",
     "kronecker_product",
     "matrix_multiply_elementwise",
+    "hstack",
+    "vstack",
 ]

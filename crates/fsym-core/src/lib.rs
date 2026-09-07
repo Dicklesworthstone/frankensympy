@@ -188,6 +188,34 @@ impl Expr {
         }
     }
 
+    /// Substitute subexpression `old` with `new` recursively throughout the expression tree.
+    pub fn subs_expr(&self, old: &Expr, new: &Expr) -> Expr {
+        if self == old {
+            return new.clone();
+        }
+        match self {
+            Expr::Sym(_) | Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_) => self.clone(),
+            Expr::Add(terms) => terms
+                .iter()
+                .map(|t| t.subs_expr(old, new))
+                .reduce(|a, b| a + b)
+                .unwrap_or(Expr::from_i64(0)),
+            Expr::Mul(factors) => factors
+                .iter()
+                .map(|f| f.subs_expr(old, new))
+                .reduce(|a, b| a * b)
+                .unwrap_or(Expr::from_i64(1)),
+            Expr::Pow(b, e) => Expr::Pow(
+                Arc::new(b.subs_expr(old, new)),
+                Arc::new(e.subs_expr(old, new)),
+            ),
+            Expr::Function(name, args) => {
+                let new_args: Vec<Expr> = args.iter().map(|a| a.subs_expr(old, new)).collect();
+                Expr::Function(name.clone(), new_args)
+            }
+        }
+    }
+
     /// Maximum nesting depth of this expression tree, computed with an
     /// explicit stack so it is safe at any depth (the derived recursive
     /// `Clone`/`Drop`/`Display` impls overflow the stack on deep chains).

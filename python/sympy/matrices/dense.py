@@ -141,6 +141,84 @@ class Matrix(MatrixBase):
         bases = self._native.nullspace()
         return [Matrix(b) for b in bases]
 
+    def col(self, j):
+        cols = self.cols
+        rows = self.rows
+        j = int(j)
+        if j < 0:
+            j += cols
+        if j < 0 or j >= cols:
+            raise IndexError(f"Column index {j} out of range (cols={cols})")
+        return Matrix([[self[r, j]] for r in range(rows)])
+
+    def row(self, i):
+        rows = self.rows
+        cols = self.cols
+        i = int(i)
+        if i < 0:
+            i += rows
+        if i < 0 or i >= rows:
+            raise IndexError(f"Row index {i} out of range (rows={rows})")
+        return Matrix([[self[i, c] for c in range(cols)]])
+
+    def col_join(self, other):
+        if not isinstance(other, MatrixBase):
+            raise TypeError(f"Cannot col_join Matrix with {type(other)}")
+        if self.cols != other.cols:
+            raise ValueError(f"Shape mismatch for col_join: {self.cols} vs {other.cols} columns")
+        r1, c = self.rows, self.cols
+        r2 = other.rows
+        data = []
+        for r in range(r1):
+            for col in range(c):
+                data.append(_native_expr(self[r, col]))
+        for r in range(r2):
+            for col in range(c):
+                data.append(_native_expr(other[r, col]))
+        return Matrix(_NativeMatrix(r1 + r2, c, data))
+
+    def row_join(self, other):
+        if not isinstance(other, MatrixBase):
+            raise TypeError(f"Cannot row_join Matrix with {type(other)}")
+        if self.rows != other.rows:
+            raise ValueError(f"Shape mismatch for row_join: {self.rows} vs {other.rows} rows")
+        r = self.rows
+        c1 = self.cols
+        c2 = other.cols
+        data = []
+        for row in range(r):
+            for col in range(c1):
+                data.append(_native_expr(self[row, col]))
+            for col in range(c2):
+                data.append(_native_expr(other[row, col]))
+        return Matrix(_NativeMatrix(r, c1 + c2, data))
+
+    @staticmethod
+    def hstack(*args):
+        if not args:
+            return Matrix(0, 0, [])
+        res = args[0]
+        if not isinstance(res, Matrix):
+            res = Matrix(res)
+        for m in args[1:]:
+            if not isinstance(m, Matrix):
+                m = Matrix(m)
+            res = res.row_join(m)
+        return res
+
+    @staticmethod
+    def vstack(*args):
+        if not args:
+            return Matrix(0, 0, [])
+        res = args[0]
+        if not isinstance(res, Matrix):
+            res = Matrix(res)
+        for m in args[1:]:
+            if not isinstance(m, Matrix):
+                m = Matrix(m)
+            res = res.col_join(m)
+        return res
+
     def eigenvalues(self):
         return [_wrap(e) for e in self._native.eigenvalues()]
 
@@ -151,6 +229,35 @@ class Matrix(MatrixBase):
         for ev in evals:
             res[ev] = res.get(ev, 0) + 1
         return res
+
+    def eigenvects(self):
+        """Return eigenvalues, multiplicities, and eigenvectors: [(eval, mult, [evec, ...]), ...]."""
+        eval_dict = self.eigenvals()
+        n = self.rows
+        I = eye(n)
+        res = []
+        for ev, mult in eval_dict.items():
+            M = self - ev * I
+            basis = M.nullspace()
+            res.append((ev, mult, basis))
+        return res
+
+    def diagonalize(self):
+        """Diagonalize matrix M = P * D * P^-1 returning (P, D)."""
+        if not self.is_square:
+            raise ValueError("Only square matrices can be diagonalized")
+        vects = self.eigenvects()
+        all_evecs = []
+        eval_list = []
+        for ev, mult, basis in vects:
+            for v in basis:
+                all_evecs.append(v)
+                eval_list.append(ev)
+        if len(all_evecs) < self.rows:
+            raise ValueError("Matrix is not diagonalizable (insufficient eigenvectors)")
+        P = Matrix.hstack(*all_evecs)
+        D = diag(*eval_list)
+        return P, D
 
     def charpoly(self, x=None):
         """Return the characteristic polynomial of this square matrix."""
@@ -343,3 +450,20 @@ def kronecker_product(a, b):
     if not isinstance(a, Matrix) or not isinstance(b, Matrix):
         raise TypeError("kronecker_product requires Matrix arguments")
     return a.kron(b)
+
+
+def ones(r, c=None):
+    if c is None:
+        c = r
+    r = int(r)
+    c = int(c)
+    return Matrix(r, c, [1] * (r * c))
+
+
+def hstack(*args):
+    return Matrix.hstack(*args)
+
+
+def vstack(*args):
+    return Matrix.vstack(*args)
+

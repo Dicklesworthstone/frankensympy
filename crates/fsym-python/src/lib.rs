@@ -228,6 +228,63 @@ fn dsolve_separable_linear_expr(f_src: &str, x_var: &str) -> PyResult<String> {
         .map_err(to_value_error)
 }
 
+/// Independent verifier for first-order linear ODE: y'(x) + P(x)*y(x) = Q(x).
+#[pyfunction]
+fn verify_linear_first_order_solution_expr(
+    sol_src: &str,
+    p_src: &str,
+    q_src: &str,
+    x_var: &str,
+) -> PyResult<bool> {
+    let sol = parse_expr(sol_src)?;
+    let p = parse_expr(p_src)?;
+    let q = parse_expr(q_src)?;
+    Ok(fsym_solvers::verify_linear_first_order_solution(
+        &sol,
+        &p,
+        &q,
+        &Symbol::new(x_var),
+    ))
+}
+
+/// Independent verifier for 2nd-order constant coefficient ODE: a*y''(x) + b*y'(x) + c*y(x) = 0.
+#[pyfunction]
+fn verify_const_coeff_second_order_solution_expr(
+    sol_src: &str,
+    a: i64,
+    b: i64,
+    c: i64,
+    x_var: &str,
+) -> PyResult<bool> {
+    let sol = parse_expr(sol_src)?;
+    Ok(fsym_solvers::verify_const_coeff_second_order_solution(
+        &sol,
+        a,
+        b,
+        c,
+        &Symbol::new(x_var),
+    ))
+}
+
+/// Independent verifier for Cauchy-Euler ODE: a*x^2*y''(x) + b*x*y'(x) + c*y(x) = 0.
+#[pyfunction]
+fn verify_cauchy_euler_solution_expr(
+    sol_src: &str,
+    a: i64,
+    b: i64,
+    c: i64,
+    x_var: &str,
+) -> PyResult<bool> {
+    let sol = parse_expr(sol_src)?;
+    Ok(fsym_solvers::verify_cauchy_euler_solution(
+        &sol,
+        a,
+        b,
+        c,
+        &Symbol::new(x_var),
+    ))
+}
+
 /// Exact 2-variable polynomial system solver via Lex Groebner basis.
 #[pyfunction]
 fn solve_poly_system_expr(
@@ -680,6 +737,15 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m
     )?)?;
     m.add_function(wrap_pyfunction!(dsolve_separable_linear_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        verify_linear_first_order_solution_expr,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        verify_const_coeff_second_order_solution_expr,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(verify_cauchy_euler_solution_expr, m)?)?;
     m.add_function(wrap_pyfunction!(solve_poly_system_expr, m)?)?;
     m.add_function(wrap_pyfunction!(poly_coeffs_expr, m)?)?;
     m.add_function(wrap_pyfunction!(poly_degree_expr, m)?)?;

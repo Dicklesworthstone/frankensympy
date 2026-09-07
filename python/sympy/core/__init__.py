@@ -522,8 +522,36 @@ class Basic:
     def has(self, pattern: Any) -> bool:
         return _native_expr(self).has(_native_expr(pattern))
 
-    def subs(self, old: Any, new: Any) -> "Basic":
-        return _wrap(_native_expr(self).subs(_native_expr(old), _native_expr(new)))
+    def subs(self, *args: Any, **kwargs: Any) -> "Basic":
+        if len(args) == 1:
+            sequence = args[0]
+            if isinstance(sequence, dict):
+                items = list(sequence.items())
+            elif isinstance(sequence, (list, tuple)):
+                items = list(sequence)
+            else:
+                raise ValueError("subs requires a dict, sequence of pairs, or (old, new)")
+            cur = self
+            for old, new in items:
+                cur = cur.subs(old, new)
+            if kwargs:
+                for k, v in kwargs.items():
+                    cur = cur.subs(Symbol(k), v)
+            return cur
+        elif len(args) == 2:
+            old, new = args
+            res = _wrap(_native_expr(self).subs(_native_expr(old), _native_expr(new)))
+            if kwargs:
+                for k, v in kwargs.items():
+                    res = res.subs(Symbol(k), v)
+            return res
+        elif len(args) == 0 and kwargs:
+            cur = self
+            for k, v in kwargs.items():
+                cur = cur.subs(Symbol(k), v)
+            return cur
+        else:
+            raise TypeError(f"subs takes 1 or 2 positional arguments, got {len(args)}")
 
     def atoms(self, *types: type) -> set["Basic"]:
         """Collect subexpressions. With no types, only atoms (empty args)."""
@@ -547,15 +575,22 @@ class Basic:
 
     def doit(self, **hints: Any) -> "Basic":
         """Evaluate held constructors one layer. Derivative evaluates; relationals stay held."""
-        del hints
         if type(self) is Derivative:
             args = self.args
             if len(args) < 2:
                 return self
             return Derivative(args[0], *args[1:], evaluate=True)
+        func_name = getattr(self.func, "__name__", None) or getattr(self.func, "name", None) or str(self.func)
+        if func_name == "diff":
+            args = self.args
+            if len(args) >= 2:
+                res = args[0].doit(**hints) if isinstance(args[0], Basic) else args[0]
+                for v in args[1:]:
+                    res = diff(res, v)
+                return res
         if isinstance(self, Relational) or not self.args:
             return self
-        new_args = tuple(arg.doit() if isinstance(arg, Basic) else arg for arg in self.args)
+        new_args = tuple(arg.doit(**hints) if isinstance(arg, Basic) else arg for arg in self.args)
         if new_args == self.args:
             return self
         return self.func(*new_args)
@@ -1999,6 +2034,9 @@ class Eq(Relational):
     rel_op = "=="
 
 
+Equality = Eq
+
+
 class Ne(Relational):
     rel_op = "!="
 
@@ -2771,6 +2809,7 @@ __all__ = [
     "Derivative",
     "Dummy",
     "Eq",
+    "Equality",
     "Expr",
     "Float",
     "Function",

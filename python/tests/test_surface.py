@@ -1661,7 +1661,136 @@ class SurfaceTests(unittest.TestCase):
         r2 = sympy.roots(x**2 - 2*x + 1, x)
         self.assertEqual(r2, {sympy.Integer(1): 2})
 
+    def test_subs_extended_forms(self):
+        x = sympy.Symbol("x")
+        y = sympy.Symbol("y")
+        f = sympy.Function("f")
+
+        # Dict substitution
+        self.assertEqual((x + y).subs({x: sympy.Integer(1), y: sympy.Integer(2)}), sympy.Integer(3))
+
+        # List of pairs substitution
+        self.assertEqual((x + y).subs([(x, sympy.Integer(10)), (y, sympy.Integer(20))]), sympy.Integer(30))
+
+        # Kwargs substitution
+        self.assertEqual((x + y).subs(x=100, y=200), sympy.Integer(300))
+
+        # Subexpression substitution of applied function
+        self.assertEqual((-f(x)).subs(f(x), sympy.exp(x)), -sympy.exp(x))
+        self.assertEqual((f(x)**2).subs(f(x), y), y**2)
+        self.assertEqual((f(x) + sympy.Integer(5)).subs(f(x), x**2), x**2 + sympy.Integer(5))
+
+        # Derivative substitution and evaluation via doit()
+        diff_node = sympy.diff(f(x), x)
+        subbed = diff_node.subs(f(x), sympy.exp(x))
+        self.assertEqual(subbed.doit(), sympy.exp(x))
+
+    def test_ode_checkodesol_and_verifiers(self):
+        from sympy import checkodesol, Eq, diff, exp, sin, cos, Function, Symbol
+        from sympy.solvers.ode import (
+            verify_linear_first_order_solution,
+            verify_const_coeff_second_order_solution,
+            verify_cauchy_euler_solution,
+        )
+
+        x = Symbol("x")
+        y = Function("y")
+        c1 = Symbol("C1")
+        c2 = Symbol("C2")
+
+        # 1st-order linear ODE: y' - y = 0
+        ode1 = diff(y(x), x) - y(x)
+        sol1_good = Eq(y(x), c1 * exp(x))
+        sol1_bad = Eq(y(x), exp(2 * x))
+        self.assertEqual(checkodesol(ode1, sol1_good), (True, 0))
+        self.assertEqual(checkodesol(ode1, sol1_bad), (False, exp(2 * x)))
+
+        # List of solutions
+        res_list = checkodesol(ode1, [sol1_good, sol1_bad])
+        self.assertEqual(res_list, [(True, 0), (False, exp(2 * x))])
+
+        # 2nd-order ODE: y'' + y = 0
+        ode2 = diff(y(x), x, x) + y(x)
+        sol2_sin = Eq(y(x), sin(x))
+        sol2_cos = Eq(y(x), cos(x))
+        sol2_bad = Eq(y(x), exp(x))
+        self.assertEqual(checkodesol(ode2, sol2_sin), (True, 0))
+        self.assertEqual(checkodesol(ode2, sol2_cos), (True, 0))
+        self.assertEqual(checkodesol(ode2, sol2_bad), (False, 2 * exp(x)))
+
+        # Cauchy-Euler ODE: x^2 * y'' - 2*y = 0
+        ode3 = x**2 * diff(y(x), x, x) - 2 * y(x)
+        sol3 = Eq(y(x), x**2)
+        self.assertEqual(checkodesol(ode3, sol3), (True, 0))
+
+        # Independent native verifiers
+        self.assertTrue(verify_linear_first_order_solution(exp(x), 0, exp(x), x))
+        self.assertFalse(verify_linear_first_order_solution(exp(2 * x), 0, exp(x), x))
+        self.assertTrue(verify_const_coeff_second_order_solution(exp(x), 1, -1, 0, x))
+        self.assertTrue(verify_cauchy_euler_solution(x**2, 1, -1, 0, x))
+
+    def test_matrix_advanced_methods(self):
+        from sympy import Matrix, eye, ones, diag, hstack, vstack
+
+        # 1. ones constructor
+        o = ones(2, 3)
+        self.assertEqual(o.shape, (2, 3))
+        self.assertEqual(o[0, 0], sympy.Integer(1))
+        self.assertEqual(o[1, 2], sympy.Integer(1))
+
+        # 2. col and row extraction
+        A = Matrix([[1, 2], [3, 4]])
+        self.assertEqual(A.col(0), Matrix([[1], [3]]))
+        self.assertEqual(A.col(1), Matrix([[2], [4]]))
+        self.assertEqual(A.row(0), Matrix([[1, 2]]))
+        self.assertEqual(A.row(1), Matrix([[3, 4]]))
+
+        # Negative indexing
+        self.assertEqual(A.col(-1), Matrix([[2], [4]]))
+        self.assertEqual(A.row(-1), Matrix([[3, 4]]))
+
+        # 3. col_join and row_join
+        cj = A.col_join(ones(1, 2))
+        self.assertEqual(cj.shape, (3, 2))
+        self.assertEqual(cj, Matrix([[1, 2], [3, 4], [1, 1]]))
+
+        rj = A.row_join(ones(2, 1))
+        self.assertEqual(rj.shape, (2, 3))
+        self.assertEqual(rj, Matrix([[1, 2, 1], [3, 4, 1]]))
+
+        # 4. hstack and vstack
+        hs = hstack(A.col(0), A.col(1))
+        self.assertEqual(hs, A)
+        vs = vstack(A.row(0), A.row(1))
+        self.assertEqual(vs, A)
+
+        # 5. Nullspace of rank-deficient matrix
+        C = Matrix([[1, 2], [2, 4]])
+        ns = C.nullspace()
+        self.assertEqual(len(ns), 1)
+        self.assertEqual(C * ns[0], Matrix([[0], [0]]))
+
+        # 6. Adjugate and cofactor
+        adj = A.adjugate()
+        det_A = A.det()
+        self.assertEqual(A * adj, det_A * eye(2))
+        self.assertEqual(A.cofactor(0, 0), sympy.Integer(4))
+        self.assertEqual(A.cofactor(0, 1), sympy.Integer(-3))
+        self.assertEqual(A.cofactor(1, 0), sympy.Integer(-2))
+        self.assertEqual(A.cofactor(1, 1), sympy.Integer(1))
+
+        # 7. Eigenvalues and eigenvectors
+        M = Matrix([[2, 1], [0, 3]])
+        self.assertEqual(M.eigenvals(), {sympy.Integer(2): 1, sympy.Integer(3): 1})
+        vects = M.eigenvects()
+        self.assertEqual(len(vects), 2)
+
+        # 8. Diagonalization: M = P * D * P^-1
+        P, D = M.diagonalize()
+        self.assertEqual(P * D * P.inv(), M)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

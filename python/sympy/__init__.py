@@ -16,6 +16,7 @@ from .core import (
     Derivative,
     Dummy,
     Eq,
+    Equality,
     Expr,
     Float,
     Function,
@@ -382,7 +383,10 @@ from .matrices import (
     ImmutableDenseMatrix,
     eye,
     zeros,
+    ones,
     diag,
+    hstack,
+    vstack,
 )
 from . import (
     assumptions,
@@ -463,6 +467,7 @@ from .polys import (
 )
 from .series import O, Order, limit, series
 from .solvers import (
+    checkodesol,
     dsolve_cauchy_euler,
     dsolve_const_coeff_second_order,
     dsolve_const_coeff_second_order_nonhomogeneous,
@@ -513,6 +518,7 @@ __all__ = [
     "E",
     "EmptySet",
     "Eq",
+    "Equality",
     "Equivalent",
     "Expr",
     "FiniteSet",
@@ -579,6 +585,7 @@ __all__ = [
     "asin",
     "atan",
     "ceiling",
+    "checkodesol",
     "checksol",
     "cos",
     "cosh",
@@ -607,6 +614,7 @@ __all__ = [
     "gamma",
     "gcd",
     "groebner",
+    "hstack",
     "integrate",
     "isprime",
     "jacobi_symbol",
@@ -618,6 +626,7 @@ __all__ = [
     "monic",
     "nan",
     "nonlinsolve",
+    "ones",
     "oo",
     "pi",
     "pretty",
@@ -648,6 +657,7 @@ __all__ = [
     "to_dnf",
     "totient",
     "true",
+    "vstack",
     "zeros",
     "zoo",
 ]

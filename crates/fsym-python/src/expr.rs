@@ -17,7 +17,7 @@ use pyo3::basic::CompareOp;
 use pyo3::exceptions::{PyRecursionError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyInt, PyTuple};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 
@@ -349,20 +349,9 @@ impl PyExpr {
     }
     /// Substitute sub-expression: `expr.subs(old, new)`.
     pub fn subs(&self, old: &PyExpr, new: &PyExpr) -> PyResult<PyExpr> {
-        match &old.inner {
-            Expr::Sym(s) => {
-                let mut map = HashMap::new();
-                map.insert(s.clone(), new.inner.clone());
-                Ok(PyExpr::from_expr(self.inner.subs(&map)))
-            }
-            _ => {
-                if self.inner == old.inner {
-                    Ok(new.clone())
-                } else {
-                    Ok(self.clone())
-                }
-            }
-        }
+        Ok(PyExpr::from_expr(
+            self.inner.subs_expr(&old.inner, &new.inner),
+        ))
     }
 
     /// Exact differentiation ∂expr / ∂var.
