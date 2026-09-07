@@ -579,7 +579,9 @@ class Basic:
             args = self.args
             if len(args) < 2:
                 return self
-            return Derivative(args[0], *args[1:], evaluate=True)
+            return diff(args[0], *args[1:])
+        if type(self).__name__ == "Integral" and hasattr(self, "doit"):
+            return self.doit(**hints)
         func_name = getattr(self.func, "__name__", None) or getattr(self.func, "name", None) or str(self.func)
         if func_name == "diff":
             args = self.args
@@ -1550,14 +1552,24 @@ class Number(AtomicExpr):
 class Rational(Number):
     __slots__ = ()
 
-    def __new__(cls, numerator: int, denominator: int):
+    def __new__(cls, numerator: Any, denominator: Any = None):
         if cls is Rational:
             # SymPy 1.14.0 construction semantics (bead
             # fra-shell-number-canonical-construction-qf6): zero denominator
             # is zoo; exact integers promote to Integer (routing the 0/1/-1
             # singletons); everything else normalizes sign into the numerator.
-            numerator_p, numerator_q = _exact_rational_argument(numerator)
-            denominator_p, denominator_q = _exact_rational_argument(denominator)
+            if isinstance(numerator, str):
+                if "/" in numerator:
+                    parts = numerator.split("/")
+                    numerator, denominator = int(parts[0]), int(parts[1])
+                else:
+                    numerator = float(numerator) if "." in numerator else int(numerator)
+            if denominator is None:
+                numerator_p, numerator_q = _exact_rational_argument(numerator)
+                denominator_p, denominator_q = 1, 1
+            else:
+                numerator_p, numerator_q = _exact_rational_argument(numerator)
+                denominator_p, denominator_q = _exact_rational_argument(denominator)
             num = numerator_p * denominator_q
             den = numerator_q * denominator_p
             if den == 0:

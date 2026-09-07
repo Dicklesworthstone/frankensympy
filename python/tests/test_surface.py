@@ -2328,6 +2328,189 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(linsolve(inc, x, y), EmptySet())
         self.assertEqual(solve(inc, [x, y]), [])
 
+    def test_product_set_and_reals(self):
+        from sympy import (
+            EmptySet,
+            FiniteSet,
+            Interval,
+            ProductSet,
+            Rational,
+            Reals,
+            S,
+            Symbol,
+            oo,
+            solveset,
+        )
+
+        # Reals singleton & S.Reals
+        self.assertIs(Reals, S.Reals)
+        self.assertTrue(5 in Reals)
+        self.assertFalse(oo in Reals)
+        self.assertFalse(-oo in Reals)
+        self.assertEqual(Interval(-oo, oo), Reals)
+        self.assertEqual(Reals, Interval(-oo, oo, True, True))
+
+        # ProductSet construction & properties
+        A = Interval(0, 1)
+        B = Interval(2, 3)
+        P = A * B
+        self.assertIsInstance(P, ProductSet)
+        self.assertEqual(P.args, (A, B))
+        self.assertEqual(P.sets, (A, B))
+        self.assertEqual(P.measure, 1)
+        self.assertFalse(P.is_empty)
+        self.assertTrue((0.5, 2.5) in P)
+        self.assertFalse((1.5, 2.5) in P)
+        self.assertFalse(5 in P)
+
+        # FiniteSet product
+        F1 = FiniteSet(1, 2)
+        F2 = FiniteSet(3, 4)
+        PF = F1 * F2
+        self.assertEqual(len(PF), 4)
+        self.assertEqual(set(PF), {(1, 3), (1, 4), (2, 3), (2, 4)})
+
+        # ProductSet algebra & annihilation
+        self.assertIs(P * EmptySet(), S.EmptySet)
+        self.assertIs(EmptySet() * P, S.EmptySet)
+        self.assertEqual(P.intersect(P), P)
+        self.assertFalse(P.is_disjoint(P))
+        Disj = Interval(10, 20) * Interval(10, 20)
+        self.assertTrue(P.is_disjoint(Disj))
+        self.assertEqual(P.intersect(Disj), S.EmptySet)
+
+        # Cartesian powers
+        self.assertEqual(A**0, FiniteSet(()))
+        self.assertEqual(A**2, ProductSet(A, A))
+
+        # Rational 1-argument construction
+        self.assertEqual(Rational(0.5), Rational(1, 2))
+        self.assertEqual(Rational("3/4"), Rational(3, 4))
+        self.assertEqual(Rational(5), 5)
+
+        # solveset domain filtering
+        x = Symbol("x")
+        self.assertEqual(solveset(x**2 + 1, x, domain=Reals), EmptySet())
+        self.assertEqual(solveset(x**2 - 4, x, domain=Interval(0, 5)), FiniteSet(2))
+        self.assertEqual(solveset(0, x, domain=Interval(0, 1)), Interval(0, 1))
+
+    def test_matrix_advanced_methods_and_slicing(self):
+        from sympy import (
+            ImmutableMatrix,
+            Matrix,
+            diag,
+            eye,
+            ones,
+            pinv,
+            zeros,
+        )
+
+        # 2D slicing
+        M = Matrix([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
+        self.assertEqual(M[:, 0], Matrix([[1], [4], [7]]))
+        self.assertEqual(M[0, :], Matrix([[1, 2, 3]]))
+        self.assertEqual(M[:2, :2], Matrix([[1, 2], [4, 5]]))
+        self.assertEqual(M[:3], [1, 2, 3])
+
+        # Slice assignment
+        M_assign = M.copy()
+        M_assign[:, 0] = [10, 40, 70]
+        self.assertEqual(M_assign[:, 0], Matrix([[10], [40], [70]]))
+        self.assertEqual(M_assign[0, 1], 2)
+
+        # Copy, as_immutable, as_mutable
+        M_copy = M.copy()
+        self.assertEqual(M_copy, M)
+        M_copy[0, 0] = 999
+        self.assertEqual(M[0, 0], 1)
+
+        IM = M.as_immutable()
+        self.assertIsInstance(IM, ImmutableMatrix)
+        self.assertEqual(IM, M)
+        MM = IM.as_mutable()
+        self.assertIsInstance(MM, Matrix)
+        self.assertNotIsInstance(MM, ImmutableMatrix)
+
+        # Vector operations
+        v1 = Matrix([1, 2, 3])
+        v2 = Matrix([4, 5, 6])
+        self.assertEqual(v1.dot(v2), 32)
+        self.assertEqual(v1.cross(v2), Matrix([[-3], [6], [-3]]))
+
+        # Reshape, vec, vech
+        self.assertEqual(v1.reshape(1, 3), Matrix([[1, 2, 3]]))
+        self.assertEqual(v1.reshape(3, 1), Matrix([[1], [2], [3]]))
+        SymM = Matrix([[1, 2], [2, 3]])
+        self.assertEqual(SymM.vech(), Matrix([[1], [2], [3]]))
+        self.assertEqual(SymM.vec(), Matrix([[1], [2], [2], [3]]))
+
+        # Block diagonal
+        D = diag(Matrix([[1, 2], [3, 4]]), 5, Matrix([[6, 7], [8, 9]]))
+        self.assertEqual(D.shape, (5, 5))
+        self.assertEqual(D[0, 0], 1)
+        self.assertEqual(D[2, 2], 5)
+        self.assertEqual(D[3, 3], 6)
+        self.assertEqual(D[0, 2], 0)
+
+        # Moore-Penrose pseudoinverse
+        rec = Matrix([[1, 2], [3, 4], [5, 6]])
+        p = pinv(rec)
+        self.assertEqual(p, rec.pinv())
+        self.assertEqual(p.shape, (2, 3))
+
+        # Static constructors on Matrix
+        self.assertEqual(Matrix.eye(2), eye(2))
+        self.assertEqual(Matrix.zeros(2, 3), zeros(2, 3))
+        self.assertEqual(Matrix.ones(2, 2), ones(2, 2))
+        self.assertEqual(Matrix.diag(1, 2), diag(1, 2))
+
+    def test_polys_extended(self):
+        from sympy import Poly, Symbol, expand, gcdex, half_gcdex
+
+        x = Symbol("x")
+        f = x**2 - 1
+        g = x - 1
+        s, t, h = gcdex(f, g)
+        self.assertEqual(expand(s * f + t * g - h), 0)
+        self.assertEqual(h, x - 1)
+
+        s2, h2 = half_gcdex(f, g)
+        self.assertEqual(s2, s)
+        self.assertEqual(h2, h)
+
+        p = Poly(x**2 + 2 * x + 1, x)
+        p_shift = p.shift(2)
+        self.assertEqual(p_shift, Poly(x**2 + 6 * x + 9, x))
+        p_comp = p.compose(x + 2)
+        self.assertEqual(p_comp, p_shift)
+
+    def test_integral_unevaluated_and_iterated(self):
+        from sympy import Expr, Integral, Rational, Symbol, integrate
+
+        x, y = Symbol("x"), Symbol("y")
+        I = Integral(x**2, (x, 0, 1))
+        self.assertIsInstance(I, Integral)
+        self.assertIsInstance(I, Expr)
+        self.assertEqual(I.doit(), Rational(1, 3))
+        self.assertEqual(integrate(I), Rational(1, 3))
+
+        I_indef = Integral(x**2, x)
+        self.assertEqual(I_indef.doit(), x**3 / 3)
+
+        # Iterated integration
+        self.assertEqual(integrate(x * y, x, y), x**2 * y**2 / 4)
+        self.assertEqual(integrate(x * y, (x, 0, 1), (y, 0, 2)), 1)
+
+    def test_limit_unevaluated(self):
+        from sympy import Expr, Limit, Symbol, limit, sin
+
+        x = Symbol("x")
+        L = Limit(x**2 + 2 * x, x, 3)
+        self.assertIsInstance(L, Limit)
+        self.assertIsInstance(L, Expr)
+        self.assertEqual(L.doit(), 15)
+        self.assertEqual(limit(L), 15)
+
 
 if __name__ == "__main__":
     unittest.main()

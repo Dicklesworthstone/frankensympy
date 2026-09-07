@@ -97,6 +97,9 @@ impl SymSet {
     }
 
     pub fn union(self, other: SymSet) -> Self {
+        if self == other {
+            return self;
+        }
         match (self, other) {
             (SymSet::EmptySet, s) | (s, SymSet::EmptySet) => s,
             (SymSet::UniversalSet, _) | (_, SymSet::UniversalSet) => SymSet::UniversalSet,
@@ -113,6 +116,12 @@ impl SymSet {
     }
 
     pub fn intersection(self, other: SymSet) -> Self {
+        if self == other {
+            return self;
+        }
+        if self.is_disjoint(&other) == Some(true) {
+            return SymSet::EmptySet;
+        }
         match (self, other) {
             (SymSet::EmptySet, _) | (_, SymSet::EmptySet) => SymSet::EmptySet,
             (SymSet::UniversalSet, s) | (s, SymSet::UniversalSet) => s,

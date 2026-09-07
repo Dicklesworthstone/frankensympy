@@ -50,6 +50,9 @@ fn is_total_polynomial_fragment(expr: &Expr) -> bool {
                 let Expr::Integer(power) = exponent.as_ref() else {
                     return false;
                 };
+                if numeric_value(base).is_some_and(|b| !b.is_zero()) {
+                    continue;
+                }
                 if power
                     .to_u64()
                     .is_none_or(|power| power > MAX_DEFINITE_POLYNOMIAL_POWER)

@@ -743,7 +743,7 @@ class Matrix(MatrixBase):
         if rows * cols != len(self):
             raise ValueError(f"Total elements {len(self)} cannot be reshaped to ({rows}, {cols})")
         flat = [_native_expr(self[i]) for i in range(len(self))]
-        return self._new_matrix(rows, cols, flat)
+        return Matrix(_NativeMatrix(rows, cols, flat))
 
     def vec(self):
         """Vectorize the matrix by stacking columns into a column vector."""
@@ -751,7 +751,7 @@ class Matrix(MatrixBase):
         for c in range(self.cols):
             for r in range(self.rows):
                 flat.append(_native_expr(self[r, c]))
-        return self._new_matrix(len(flat), 1, flat)
+        return Matrix(_NativeMatrix(len(flat), 1, flat))
 
     def vech(self):
         """Vectorize the lower triangular half of the matrix."""
@@ -759,7 +759,7 @@ class Matrix(MatrixBase):
         for c in range(self.cols):
             for r in range(c, self.rows):
                 flat.append(_native_expr(self[r, c]))
-        return self._new_matrix(len(flat), 1, flat)
+        return Matrix(_NativeMatrix(len(flat), 1, flat))
 
     @staticmethod
     def eye(n):

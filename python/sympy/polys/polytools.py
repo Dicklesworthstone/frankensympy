@@ -214,6 +214,38 @@ class Poly(Basic):
         )
         return Poly(_parse_result(raw), *self._gens)
 
+    def gcdex(self, other: Any) -> Tuple["Poly", "Poly", "Poly"]:
+        """Extended Euclidean algorithm: returns (s, t, h) such that s*self + t*other = h."""
+        other_poly = other if isinstance(other, Poly) else Poly(other, *self._gens)
+        raw_s, raw_t, raw_h = _native.poly_gcdex_expr(
+            str(self._expr), str(other_poly._expr), _native_symbol_key(self.gen)
+        )
+        return (
+            Poly(_parse_result(raw_s), *self._gens),
+            Poly(_parse_result(raw_t), *self._gens),
+            Poly(_parse_result(raw_h), *self._gens),
+        )
+
+    def half_gcdex(self, other: Any) -> Tuple["Poly", "Poly"]:
+        """Half extended Euclidean algorithm: returns (s, h) such that s*self == h (mod other)."""
+        s, _, h = self.gcdex(other)
+        return s, h
+
+    def compose(self, other: Any) -> "Poly":
+        """Compute polynomial composition self(other)."""
+        other_poly = other if isinstance(other, Poly) else Poly(other, *self._gens)
+        raw = _native.poly_compose_expr(
+            str(self._expr), str(other_poly._expr), _native_symbol_key(self.gen)
+        )
+        return Poly(_parse_result(raw), *self._gens)
+
+    def shift(self, a: Any) -> "Poly":
+        """Compute polynomial shift self(x + a)."""
+        raw = _native.poly_shift_expr(
+            str(self._expr), str(a), _native_symbol_key(self.gen)
+        )
+        return Poly(_parse_result(raw), *self._gens)
+
     def sqf_list(self) -> Tuple[Any, List[Tuple["Poly", int]]]:
         """Square-free factorization returning (scale, [(factor, multiplicity), ...])."""
         scale_raw, factors_raw = _native.poly_sqf_list_expr(
@@ -382,6 +414,22 @@ def lcm(a: Any, b: Any) -> Any:
     return res.as_expr()
 
 
+def gcdex(f: Any, g: Any, x: Any = None) -> Tuple[Any, Any, Any]:
+    """Extended Euclidean algorithm: returns (s, t, h) such that s*f + t*g = h = gcd(f, g)."""
+    p_f = Poly(f, x) if x is not None else (f if isinstance(f, Poly) else Poly(f))
+    p_g = Poly(g, x) if x is not None else (g if isinstance(g, Poly) else Poly(g, *p_f._gens))
+    s, t, h = p_f.gcdex(p_g)
+    if isinstance(f, Poly) or isinstance(g, Poly):
+        return s, t, h
+    return s.as_expr(), t.as_expr(), h.as_expr()
+
+
+def half_gcdex(f: Any, g: Any, x: Any = None) -> Tuple[Any, Any]:
+    """Half extended Euclidean algorithm: returns (s, h) such that s*f == h (mod g)."""
+    s, _, h = gcdex(f, g, x)
+    return s, h
+
+
 def resultant(p: Any, q: Any, x: Any = None) -> Any:
     """Compute the resultant of two polynomials."""
     poly_p = Poly(p, x) if x is not None else (p if isinstance(p, Poly) else Poly(p))
@@ -475,7 +523,9 @@ __all__ = [
     "factor",
     "factor_list",
     "gcd",
+    "gcdex",
     "groebner",
+    "half_gcdex",
     "lcm",
     "monic",
     "resultant",

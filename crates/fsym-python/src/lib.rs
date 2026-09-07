@@ -4,7 +4,7 @@
 //! module. Strings cross the boundary; everything inside is exact.
 
 use fsym_calculus::{diff, integrate, limit, taylor};
-use fsym_core::{BigInt, Expr, Symbol, parse};
+use fsym_core::{BigInt, BigRational, Expr, Symbol, parse};
 use fsym_ntheory::{factorint, totient};
 use fsym_runtime::{Budget, BudgetLimits, FsymCx, RuntimeBudget};
 use fsym_simplify::{SimplifyError, expand_with, simplify_with};
@@ -461,6 +461,59 @@ fn poly_lcm_expr(p1_src: &str, p2_src: &str, var: &str) -> PyResult<String> {
     Ok(lcm.to_expr().to_string())
 }
 
+/// Univariate polynomial extended GCD: returns (u, v, gcd) such that u*p1 + v*p2 = gcd.
+#[pyfunction]
+fn poly_gcdex_expr(p1_src: &str, p2_src: &str, var: &str) -> PyResult<(String, String, String)> {
+    let e1 = parse_expr(p1_src)?;
+    let e2 = parse_expr(p2_src)?;
+    let sym = Symbol::new(var);
+    let poly1 =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e1, &sym).map_err(to_value_error)?;
+    let poly2 =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e2, &sym).map_err(to_value_error)?;
+    let cert = poly1.extended_gcd(&poly2).map_err(to_value_error)?;
+    Ok((
+        cert.u.to_expr().to_string(),
+        cert.v.to_expr().to_string(),
+        cert.gcd.to_expr().to_string(),
+    ))
+}
+
+/// Univariate polynomial composition: computes p1(p2(var)).
+#[pyfunction]
+fn poly_compose_expr(p1_src: &str, p2_src: &str, var: &str) -> PyResult<String> {
+    let e1 = parse_expr(p1_src)?;
+    let e2 = parse_expr(p2_src)?;
+    let sym = Symbol::new(var);
+    let poly1 =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e1, &sym).map_err(to_value_error)?;
+    let poly2 =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e2, &sym).map_err(to_value_error)?;
+    let comp = poly1.compose(&poly2).map_err(to_value_error)?;
+    Ok(comp.to_expr().to_string())
+}
+
+/// Univariate polynomial shift: computes p(var + a) where a is rational.
+#[pyfunction]
+fn poly_shift_expr(p_src: &str, a_src: &str, var: &str) -> PyResult<String> {
+    let e = parse_expr(p_src)?;
+    let a_expr = parse_expr(a_src)?;
+    let sym = Symbol::new(var);
+    let poly =
+        fsym_polys::univariate::UnivariatePoly::from_expr(&e, &sym).map_err(to_value_error)?;
+    let a_rat = match a_expr {
+        Expr::Integer(i) => BigRational::from_integer(i),
+        Expr::Rational(r) => r,
+        _ => {
+            return Err(PyValueError::new_err(
+                "shift amount must be an exact integer or rational",
+            ));
+        }
+    };
+    let shifted = poly.shift(&a_rat).map_err(to_value_error)?;
+    Ok(shifted.to_expr().to_string())
+}
+
 /// Univariate polynomial square-free factorization returning (scale, [(factor, multiplicity), ...]).
 #[pyfunction]
 fn poly_sqf_list_expr(p_src: &str, var: &str) -> PyResult<(String, Vec<(String, usize)>)> {
@@ -865,7 +918,10 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(poly_resultant_expr, m)?)?;
     m.add_function(wrap_pyfunction!(poly_discriminant_expr, m)?)?;
     m.add_function(wrap_pyfunction!(poly_gcd_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_gcdex_expr, m)?)?;
     m.add_function(wrap_pyfunction!(poly_lcm_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_compose_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_shift_expr, m)?)?;
     m.add_function(wrap_pyfunction!(poly_sqf_list_expr, m)?)?;
     m.add_function(wrap_pyfunction!(poly_factor_list_expr, m)?)?;
     m.add_function(wrap_pyfunction!(poly_roots_expr, m)?)?;

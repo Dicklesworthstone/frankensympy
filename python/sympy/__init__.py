@@ -89,13 +89,30 @@ nan = Expr("nan")
 
 
 def integrate(expression, *variables):
-    """Integrate one implemented univariate form.
+    """Integrate univariate, definite, or iterated multivariate expressions.
 
     Accepted forms are ``integrate(expr, x)``, ``integrate(expr, (x, a, b))``,
-    and the legacy spelling ``integrate(expr, x, a, b)``.
+    multivariate ``integrate(expr, x, y)``, and the legacy spelling ``integrate(expr, x, a, b)``.
     """
-    if len(variables) == 1 and isinstance(variables[0], tuple):
-        spec = variables[0]
+    if not variables:
+        if hasattr(expression, "doit") and type(expression).__name__ == "Integral":
+            return expression.doit()
+        raise TypeError("integrate requires at least one variable or integration tuple")
+
+    if len(variables) == 3 and not any(isinstance(v, (tuple, list)) for v in variables):
+        variable, lower, upper = variables
+        return integrate(expression, (variable, lower, upper))
+
+    if len(variables) > 1:
+        cur = expression
+        for v in variables:
+            cur = integrate(cur, v)
+        return cur
+
+    spec = variables[0]
+    if isinstance(spec, (tuple, list)):
+        if len(spec) == 1:
+            return integrate(expression, spec[0])
         if len(spec) != 3:
             raise ValueError("integration tuple must be (variable, lower, upper)")
         variable, lower, upper = spec
@@ -107,17 +124,13 @@ def integrate(expression, *variables):
             str(_wrap(_native_expr(upper))),
         )
         return _parse_result(result)
-    if len(variables) == 1:
-        symbol = _require_symbol(variables[0])
-        return _parse_result(
-            _native.integrate_expr(
-                str(_wrap(_native_expr(expression))), _native_symbol_key(symbol)
-            )
+
+    symbol = _require_symbol(spec)
+    return _parse_result(
+        _native.integrate_expr(
+            str(_wrap(_native_expr(expression))), _native_symbol_key(symbol)
         )
-    if len(variables) == 3:
-        variable, lower, upper = variables
-        return integrate(expression, (variable, lower, upper))
-    raise TypeError("integrate requires one variable or one definite-integration tuple")
+    )
 
 
 def solve(expression, variable=None):
@@ -199,10 +212,13 @@ def solve(expression, variable=None):
 
 def solveset(expression, variable=None, domain=None):
     """Solve an algebraic equation for ``variable`` and return a Set of solutions."""
-    if domain is not None and isinstance(domain, str):
-        if domain in ("Reals", "RR", "R"):
-            from .sets import Reals
-            domain = Reals
+    if domain is not None:
+        if isinstance(domain, str):
+            if domain in ("Reals", "RR", "R"):
+                from .sets import Reals
+                domain = Reals
+        if isinstance(domain, type) and issubclass(domain, Set):
+            domain = domain()
     if type(expression) is Eq:
         expression = expression.lhs - expression.rhs
     expr = _wrap(_native_expr(expression))
@@ -493,12 +509,12 @@ from .sets import (
     Intersection,
     Interval,
     ProductSet,
-    Reals,
     Set,
     SymmetricDifference,
     Union,
     UniversalSet,
 )
+Reals = S.Reals
 from .geometry import (
     Circle,
     Ellipse,
@@ -520,6 +536,7 @@ from .geometry import (
     Sphere,
     Triangle,
 )
+from .integrals import Integral
 from .logic import (
     And,
     Boolean,
@@ -549,7 +566,9 @@ from .polys import (
     factor,
     factor_list,
     gcd,
+    gcdex,
     groebner,
+    half_gcdex,
     lcm,
     monic,
     resultant,
@@ -559,7 +578,7 @@ from .polys import (
     sqf_part,
     trailing_coeff,
 )
-from .series import O, Order, limit, series
+from .series import Limit, O, Order, limit, series
 from .solvers import (
     checkodesol,
     dsolve_cauchy_euler,
@@ -631,6 +650,7 @@ __all__ = [
     "ImmutableMatrix",
     "Implies",
     "Integer",
+    "Integral",
     "Intersection",
     "Interval",
     "LC",
@@ -638,6 +658,7 @@ __all__ = [
     "Line",
     "Line2D",
     "Line3D",
+    "Limit",
     "LinearEntity",
     "Lt",
     "Matrix",
@@ -750,8 +771,10 @@ __all__ = [
     "fourier_transform",
     "gamma",
     "gcd",
+    "gcdex",
     "groebner",
     "hadamard_product",
+    "half_gcdex",
     "harmonic",
     "hstack",
     "integer_nthroot",

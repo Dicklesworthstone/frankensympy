@@ -82,6 +82,9 @@ class Set(Basic):
     def contains(self, other: Any) -> bool | None:
         """Decide element membership: True, False, or None when undecidable."""
         if getattr(self, "_native_set", None) is not None:
+            if isinstance(other, float):
+                from ..core import Rational
+                other = Rational(other)
             return self._native_set.contains(_native_expr(other))
         return None
 
@@ -261,11 +264,15 @@ class Interval(Set):
     ) -> Set:
         n_start = _native_expr(start)
         n_end = _native_expr(end)
-        s_start = str(n_start)
-        s_end = str(n_end)
-        if s_start in ("-oo", "-Infinity"):
+        s_start = str(start)
+        ns_start = str(n_start)
+        s_end = str(end)
+        ns_end = str(n_end)
+        if s_start in ("-oo", "-Infinity") or ns_start in ("-oo", "-Infinity", "-1*oo"):
+            n_start = _native_expr(Expr("-oo"))
             left_open = True
-        if s_end in ("oo", "Infinity", "+oo"):
+        if s_end in ("oo", "Infinity", "+oo") or ns_end in ("oo", "Infinity", "+oo", "1*oo"):
+            n_end = _native_expr(Expr("oo"))
             right_open = True
         native = _native.SymSet.interval(n_start, n_end, bool(left_open), bool(right_open))
         if native.kind == "EmptySet":
@@ -499,6 +506,8 @@ class ProductSet(Set):
         return None
 
     def intersect(self, other: Any) -> Set:
+        if self == other:
+            return self
         if not isinstance(other, Set):
             other = _wrap_set(_native_set(other))
         if isinstance(other, EmptySet) or other.is_empty is True:
@@ -550,6 +559,9 @@ class _SingletonSetMeta(type):
 
     def __contains__(cls, item: Any) -> bool:
         return item in cls()
+
+    def contains(cls, item: Any) -> bool | None:
+        return cls().contains(item)
 
     def __repr__(cls) -> str:
         return cls.__name__
