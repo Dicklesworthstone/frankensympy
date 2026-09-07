@@ -2107,6 +2107,47 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(asec(1), sympy.Integer(0))
         self.assertEqual(asech(1), sympy.Integer(0))
 
+    def test_poly_convenience_methods_and_functions(self):
+        from sympy import Poly, Symbol, LC, TC, EC, trailing_coeff, sqf
+
+        x = Symbol("x")
+        p = Poly(3 * x**2 + 2 * x + 5, x)
+        self.assertEqual(p.LC(), sympy.Integer(3))
+        self.assertEqual(p.TC(), sympy.Integer(5))
+        self.assertEqual(p.EC(), sympy.Integer(5))
+        self.assertEqual(p.trailing_coeff(), sympy.Integer(5))
+        self.assertEqual(p.nth(0), sympy.Integer(5))
+        self.assertEqual(p.nth(1), sympy.Integer(2))
+        self.assertEqual(p.nth(2), sympy.Integer(3))
+        self.assertEqual(p.nth(3), sympy.Integer(0))
+
+        self.assertEqual(p.eval(2), sympy.Integer(21))
+        self.assertEqual(p.diff(), Poly(6 * x + 2, x))
+        self.assertEqual(p.integrate(), Poly(x**3 + x**2 + 5 * x, x))
+
+        self.assertTrue(p.is_quadratic)
+        self.assertFalse(p.is_linear)
+        self.assertFalse(p.is_zero)
+        self.assertFalse(p.is_one)
+
+        p_lin = Poly(2 * x + 1, x)
+        self.assertTrue(p_lin.is_linear)
+        self.assertFalse(p_lin.is_quadratic)
+
+        p_zero = Poly(0, x)
+        self.assertTrue(p_zero.is_zero)
+
+        p_one = Poly(1, x)
+        self.assertTrue(p_one.is_one)
+
+        self.assertEqual(TC(3 * x**2 + 2 * x + 5, x), sympy.Integer(5))
+        self.assertEqual(EC(3 * x**2 + 2 * x + 5, x), sympy.Integer(5))
+        self.assertEqual(trailing_coeff(3 * x**2 + 2 * x + 5, x), sympy.Integer(5))
+
+        # Test sqf
+        expr = x**2 + 2 * x + 1
+        self.assertEqual(sqf(expr), (x + 1) ** 2)
+
 
 if __name__ == "__main__":
     unittest.main()

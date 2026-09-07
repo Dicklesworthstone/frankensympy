@@ -1,8 +1,10 @@
 """Polynomial module for FrankenSymPy (WS08, WS09)."""
 
 from .polytools import (
+    EC,
     LC,
     Poly,
+    TC,
     degree,
     discriminant,
     factor,
@@ -13,13 +15,17 @@ from .polytools import (
     monic,
     resultant,
     roots,
+    sqf,
     sqf_list,
     sqf_part,
+    trailing_coeff,
 )
 
 __all__ = [
+    "EC",
     "LC",
     "Poly",
+    "TC",
     "degree",
     "discriminant",
     "factor",
@@ -30,6 +36,8 @@ __all__ = [
     "monic",
     "resultant",
     "roots",
+    "sqf",
     "sqf_list",
     "sqf_part",
+    "trailing_coeff",
 ]

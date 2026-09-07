@@ -501,8 +501,10 @@ from .logic import (
     true,
 )
 from .polys import (
+    EC,
     LC,
     Poly,
+    TC,
     degree,
     discriminant,
     factor,
@@ -513,8 +515,10 @@ from .polys import (
     monic,
     resultant,
     roots,
+    sqf,
     sqf_list,
     sqf_part,
+    trailing_coeff,
 )
 from .series import O, Order, limit, series
 from .solvers import (
@@ -567,6 +571,7 @@ __all__ = [
     "Derivative",
     "Dummy",
     "E",
+    "EC",
     "Ellipse",
     "EmptySet",
     "Eq",
@@ -626,6 +631,7 @@ __all__ = [
     "Sphere",
     "Symbol",
     "SymmetricDifference",
+    "TC",
     "Tensor",
     "TensorIndex",
     "Triangle",
@@ -748,6 +754,7 @@ __all__ = [
     "solve",
     "solve_poly_system",
     "solveset",
+    "sqf",
     "sqf_list",
     "sqf_part",
     "srepr",
@@ -764,6 +771,7 @@ __all__ = [
     "to_cnf",
     "to_dnf",
     "totient",
+    "trailing_coeff",
     "true",
     "vstack",
     "wronskian",

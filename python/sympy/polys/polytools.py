@@ -83,6 +83,85 @@ class Poly(Basic):
         """Alias for leading_coeff."""
         return self.leading_coeff()
 
+    def trailing_coeff(self) -> Any:
+        """Return the trailing coefficient."""
+        coeffs = self.all_coeffs()
+        if coeffs:
+            return coeffs[-1]
+        from ..core import Integer
+        return Integer(0)
+
+    def TC(self) -> Any:
+        """Alias for trailing_coeff."""
+        return self.trailing_coeff()
+
+    def EC(self) -> Any:
+        """Alias for trailing_coeff."""
+        return self.trailing_coeff()
+
+    def nth(self, *coords: int) -> Any:
+        """Return coefficient of the given monomial degree."""
+        if len(coords) == 1:
+            n = int(coords[0])
+            deg = self.degree()
+            if deg is None or n < 0 or n > deg:
+                from ..core import Integer
+                return Integer(0)
+            coeffs = self.all_coeffs()
+            return coeffs[deg - n]
+        raise NotImplementedError("multivariate nth is not yet implemented")
+
+    def eval(self, *args: Any) -> Any:
+        """Evaluate polynomial at the given points."""
+        if len(args) == 1:
+            return self.as_expr().subs(self.gen, args[0])
+        elif len(args) == 2:
+            var, val = args
+            return self.as_expr().subs(var, val)
+        raise TypeError(f"eval takes 1 or 2 arguments, got {len(args)}")
+
+    def diff(self, *specs: Any) -> "Poly":
+        """Differentiate polynomial."""
+        from ..core import diff
+        return Poly(diff(self.as_expr(), *(specs or (self.gen,))), *self._gens)
+
+    def integrate(self, *specs: Any) -> "Poly":
+        """Integrate polynomial."""
+        from ..integrals import integrate
+        return Poly(integrate(self.as_expr(), *(specs or (self.gen,))), *self._gens)
+
+    def subs(self, *args: Any, **kwargs: Any) -> Any:
+        """Substitute into polynomial expression."""
+        return self.as_expr().subs(*args, **kwargs)
+
+    @property
+    def free_symbols(self) -> set[Any]:
+        return self.as_expr().free_symbols
+
+    @property
+    def is_linear(self) -> bool:
+        return self.degree() == 1
+
+    @property
+    def is_quadratic(self) -> bool:
+        return self.degree() == 2
+
+    @property
+    def is_zero(self) -> bool:
+        deg = self.degree()
+        if deg is None:
+            return True
+        coeffs = self.all_coeffs()
+        return len(coeffs) == 1 and coeffs[0] == 0
+
+    @property
+    def is_one(self) -> bool:
+        deg = self.degree()
+        if deg != 0:
+            return False
+        coeffs = self.all_coeffs()
+        return len(coeffs) == 1 and coeffs[0] == 1
+
     @property
     def is_monic(self) -> bool:
         return bool(self.leading_coeff() == 1)
@@ -215,7 +294,14 @@ class Poly(Basic):
 
     def __eq__(self, other: Any) -> bool:
         if isinstance(other, Poly):
-            return bool(self._gens == other._gens and (self.as_expr() - other.as_expr()) == 0)
+            if self._gens != other._gens:
+                return False
+            if self.as_expr() == other.as_expr():
+                return True
+            try:
+                return self.all_coeffs() == other.all_coeffs()
+            except Exception:
+                return False
         return False
 
     def __hash__(self) -> int:
@@ -245,6 +331,22 @@ def LC(f: Any) -> Any:
     else:
         p = f
     return p.LC()
+
+
+def trailing_coeff(f: Any, *gens: Any) -> Any:
+    """Return polynomial trailing coefficient."""
+    p = f if isinstance(f, Poly) else Poly(f, *gens)
+    return p.trailing_coeff()
+
+
+def TC(f: Any, *gens: Any) -> Any:
+    """Alias for trailing_coeff."""
+    return trailing_coeff(f, *gens)
+
+
+def EC(f: Any, *gens: Any) -> Any:
+    """Alias for trailing_coeff."""
+    return trailing_coeff(f, *gens)
 
 
 def monic(f: Any) -> Any:
@@ -305,6 +407,20 @@ def sqf_part(p: Any, x: Any = None) -> Any:
     return poly_p.sqf_part().as_expr()
 
 
+def sqf(p: Any, x: Any = None) -> Any:
+    """Square-free factorization of a polynomial into expression form."""
+    scale, factors = sqf_list(p, x)
+    if not factors:
+        return scale
+    terms = [f ** mult if mult != 1 else f for f, mult in factors]
+    prod = terms[0]
+    for t in terms[1:]:
+        prod = prod * t
+    if scale != 1:
+        prod = scale * prod
+    return prod
+
+
 def groebner(F: Sequence[Any], *gens: Any) -> List[Any]:
     """Compute a Groebner basis under Lexicographical order."""
     if len(gens) == 1 and isinstance(gens[0], (list, tuple)):
@@ -350,8 +466,10 @@ def roots(p: Any, *gens: Any) -> dict[Any, int]:
 
 
 __all__ = [
+    "EC",
     "LC",
     "Poly",
+    "TC",
     "degree",
     "discriminant",
     "factor",
@@ -362,6 +480,8 @@ __all__ = [
     "monic",
     "resultant",
     "roots",
+    "sqf",
     "sqf_list",
     "sqf_part",
+    "trailing_coeff",
 ]
