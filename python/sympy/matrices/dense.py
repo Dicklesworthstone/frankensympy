@@ -34,6 +34,9 @@ class Matrix(MatrixBase):
             if isinstance(arg, Matrix):
                 self._native = arg._native
                 return
+            if hasattr(arg, "to_dense") and not isinstance(arg, type):
+                self._native = arg.to_dense()._native
+                return
             if isinstance(arg, (list, tuple)):
                 if len(arg) == 0:
                     self._native = _NativeMatrix(0, 0, [])
@@ -81,6 +84,10 @@ class Matrix(MatrixBase):
         else:
             raise TypeError(f"Matrix constructor takes 1, 2, or 3 arguments, got {len(args)}")
 
+    def _new(self, *args, **kwargs):
+        """Construct a new matrix of the same class (preserving mutability/immutability)."""
+        return self.__class__(*args, **kwargs)
+
     @property
     def shape(self):
         return self._native.shape
@@ -96,6 +103,33 @@ class Matrix(MatrixBase):
     @property
     def is_square(self):
         return self._native.is_square
+
+    @property
+    def is_zero_matrix(self):
+        return _CallableBool(all(self[r, c] == 0 for r in range(self.rows) for c in range(self.cols)))
+
+    @property
+    def is_identity(self):
+        if not self.is_square:
+            return _CallableBool(False)
+        for r in range(self.rows):
+            for c in range(self.cols):
+                expected = 1 if r == c else 0
+                if self[r, c] != expected:
+                    return _CallableBool(False)
+        return _CallableBool(True)
+
+    def is_nilpotent(self):
+        if not self.is_square:
+            return False
+        if self.rows == 0:
+            return True
+        curr = self
+        for _ in range(self.rows):
+            if curr.is_zero_matrix:
+                return True
+            curr = curr @ self
+        return bool(curr.is_zero_matrix)
 
     @property
     def is_symmetric(self):
@@ -134,33 +168,33 @@ class Matrix(MatrixBase):
         return self.transpose()
 
     def transpose(self):
-        return Matrix(self._native.transpose())
+        return self._new(self._native.transpose())
 
     def trace(self):
         return _wrap(self._native.trace())
 
-    def det(self):
+    def det(self, method=None):
         return _wrap(self._native.det())
 
-    def inv(self):
-        return Matrix(self._native.inv())
+    def inv(self, method=None, **kwargs):
+        return self._new(self._native.inv())
 
-    def inverse(self):
-        return self.inv()
+    def inverse(self, method=None, **kwargs):
+        return self.inv(method=method, **kwargs)
 
     def adjugate(self):
-        return Matrix(self._native.adjugate())
+        return self._new(self._native.adjugate())
 
     def cofactor(self, r, c):
         return _wrap(self._native.cofactor(int(r), int(c)))
 
     def cofactor_matrix(self):
         """Return the matrix of cofactors."""
-        return Matrix(self.rows, self.cols, lambda i, j: self.cofactor(i, j))
+        return self._new(self.rows, self.cols, lambda i, j: self.cofactor(i, j))
 
     def minor_submatrix(self, i, j):
         """Return the submatrix obtained by deleting row `i` and column `j`."""
-        return Matrix(self._native.minor_submatrix(int(i), int(j)))
+        return self._new(self._native.minor_submatrix(int(i), int(j)))
 
     def minorMatrix(self, i, j):
         """Alias for minor_submatrix."""
@@ -173,16 +207,19 @@ class Matrix(MatrixBase):
     def frobenius_norm_squared(self):
         return _wrap(self._native.frobenius_norm_squared())
 
-    def rank(self):
+    def rank(self, iszerofunc=None):
         return self._native.rank()
 
-    def rref(self):
-        m, pivots = self._native.rref()
-        return Matrix(m), tuple(pivots)
+    def rref(self, iszerofunc=None, simplify=False, pivots=True, normalize_last=True):
+        m, pivs = self._native.rref()
+        res_m = self._new(m)
+        if pivots:
+            return res_m, tuple(pivs)
+        return res_m
 
     def nullspace(self):
         bases = self._native.nullspace()
-        return [Matrix(b) for b in bases]
+        return [self._new(b) for b in bases]
 
     def col(self, j):
         cols = self.cols
@@ -192,7 +229,7 @@ class Matrix(MatrixBase):
             j += cols
         if j < 0 or j >= cols:
             raise IndexError(f"Column index {j} out of range (cols={cols})")
-        return Matrix([[self[r, j]] for r in range(rows)])
+        return self._new([[self[r, j]] for r in range(rows)])
 
     def row(self, i):
         rows = self.rows
@@ -202,7 +239,7 @@ class Matrix(MatrixBase):
             i += rows
         if i < 0 or i >= rows:
             raise IndexError(f"Row index {i} out of range (rows={rows})")
-        return Matrix([[self[i, c] for c in range(cols)]])
+        return self._new([[self[i, c] for c in range(cols)]])
 
     def col_join(self, other):
         if not isinstance(other, MatrixBase):
@@ -218,7 +255,7 @@ class Matrix(MatrixBase):
         for r in range(r2):
             for col in range(c):
                 data.append(_native_expr(other[r, col]))
-        return Matrix(_NativeMatrix(r1 + r2, c, data))
+        return self._new(_NativeMatrix(r1 + r2, c, data))
 
     def row_join(self, other):
         if not isinstance(other, MatrixBase):
@@ -234,7 +271,7 @@ class Matrix(MatrixBase):
                 data.append(_native_expr(self[row, col]))
             for col in range(c2):
                 data.append(_native_expr(other[row, col]))
-        return Matrix(_NativeMatrix(r, c1 + c2, data))
+        return self._new(_NativeMatrix(r, c1 + c2, data))
 
     def extract(self, rowsList, colsList):
         """Return a submatrix formed by the given rows and cols indices."""
@@ -247,7 +284,7 @@ class Matrix(MatrixBase):
             if not (0 <= c < self.cols):
                 raise IndexError(f"Column index {c} out of bounds")
         flat = [_native_expr(self[r, c]) for r in r_list for c in c_list]
-        return Matrix(_NativeMatrix(len(r_list), len(c_list), flat))
+        return self._new(_NativeMatrix(len(r_list), len(c_list), flat))
 
     def col_insert(self, pos, other):
         """Insert a matrix at column pos."""
@@ -269,7 +306,7 @@ class Matrix(MatrixBase):
                 flat.append(_native_expr(other[r, c]))
             for c in range(pos, cols):
                 flat.append(_native_expr(self[r, c]))
-        return Matrix(_NativeMatrix(self.rows, cols + other.cols, flat))
+        return self._new(_NativeMatrix(self.rows, cols + other.cols, flat))
 
     def row_insert(self, pos, other):
         """Insert a matrix at row pos."""
@@ -293,7 +330,7 @@ class Matrix(MatrixBase):
         for r in range(pos, rows):
             for c in range(self.cols):
                 flat.append(_native_expr(self[r, c]))
-        return Matrix(_NativeMatrix(rows + other.rows, self.cols, flat))
+        return self._new(_NativeMatrix(rows + other.rows, self.cols, flat))
 
     def col_del(self, j):
         """Delete column j in-place."""
@@ -324,6 +361,60 @@ class Matrix(MatrixBase):
                 for c in range(cols):
                     flat.append(_native_expr(self[r, c]))
         self._native = _NativeMatrix(rows - 1, cols, flat)
+
+    def row_swap(self, i, j):
+        """Swap row i and row j in-place."""
+        rows = self.rows
+        cols = self.cols
+        i = int(i) if int(i) >= 0 else int(i) + rows
+        j = int(j) if int(j) >= 0 else int(j) + rows
+        if not (0 <= i < rows and 0 <= j < rows):
+            raise IndexError(f"Row indices ({i}, {j}) out of range (rows={rows})")
+        if i == j:
+            return
+        flat = [self[r, c] for r in range(rows) for c in range(cols)]
+        for c in range(cols):
+            flat[i * cols + c], flat[j * cols + c] = flat[j * cols + c], flat[i * cols + c]
+        self._native = _NativeMatrix(rows, cols, [_native_expr(x) for x in flat])
+
+    def col_swap(self, i, j):
+        """Swap column i and column j in-place."""
+        rows = self.rows
+        cols = self.cols
+        i = int(i) if int(i) >= 0 else int(i) + cols
+        j = int(j) if int(j) >= 0 else int(j) + cols
+        if not (0 <= i < cols and 0 <= j < cols):
+            raise IndexError(f"Column indices ({i}, {j}) out of range (cols={cols})")
+        if i == j:
+            return
+        flat = [self[r, c] for r in range(rows) for c in range(cols)]
+        for r in range(rows):
+            flat[r * cols + i], flat[r * cols + j] = flat[r * cols + j], flat[r * cols + i]
+        self._native = _NativeMatrix(rows, cols, [_native_expr(x) for x in flat])
+
+    def row_op(self, i, f):
+        """In-place apply function f(val, col_index) to each element of row i."""
+        rows = self.rows
+        cols = self.cols
+        i = int(i) if int(i) >= 0 else int(i) + rows
+        if not (0 <= i < rows):
+            raise IndexError(f"Row index {i} out of range (rows={rows})")
+        flat = [self[r, c] for r in range(rows) for c in range(cols)]
+        for c in range(cols):
+            flat[i * cols + c] = f(flat[i * cols + c], c)
+        self._native = _NativeMatrix(rows, cols, [_native_expr(x) for x in flat])
+
+    def col_op(self, j, f):
+        """In-place apply function f(val, row_index) to each element of col j."""
+        rows = self.rows
+        cols = self.cols
+        j = int(j) if int(j) >= 0 else int(j) + cols
+        if not (0 <= j < cols):
+            raise IndexError(f"Column index {j} out of range (cols={cols})")
+        flat = [self[r, c] for r in range(rows) for c in range(cols)]
+        for r in range(rows):
+            flat[r * cols + j] = f(flat[r * cols + j], r)
+        self._native = _NativeMatrix(rows, cols, [_native_expr(x) for x in flat])
 
     def norm(self, ord="fro"):
         """Return the matrix norm (Frobenius / Euclidean by default)."""
@@ -436,22 +527,22 @@ class Matrix(MatrixBase):
 
     def LUdecomposition(self):
         p, l, u = self._native.lu()
-        return Matrix(l), Matrix(u), Matrix(p)
+        return self._new(l), self._new(u), self._new(p)
 
     def lu(self):
         p, l, u = self._native.lu()
-        return Matrix(p), Matrix(l), Matrix(u)
+        return self._new(p), self._new(l), self._new(u)
 
     def QRdecomposition(self):
         q, r = self._native.qr()
-        return Matrix(q), Matrix(r)
+        return self._new(q), self._new(r)
 
     def qr(self):
         return self.QRdecomposition()
 
     def LDLdecomposition(self):
         l, d = self._native.ldl()
-        return Matrix(l), Matrix(d)
+        return self._new(l), self._new(d)
 
     def ldl(self):
         return self.LDLdecomposition()
@@ -460,17 +551,21 @@ class Matrix(MatrixBase):
         return self.solve(b)
 
     def solve(self, b):
+        if hasattr(b, "to_dense"):
+            b = b.to_dense()
         if not isinstance(b, Matrix):
             raise TypeError(f"solve requires Matrix right-hand side, got {type(b)}")
-        return Matrix(self._native.solve(b._native))
+        return self._new(self._native.solve(b._native))
 
     def LUsolve(self, b):
         return self.solve(b)
 
     def solve_least_squares(self, b):
+        if hasattr(b, "to_dense"):
+            b = b.to_dense()
         if not isinstance(b, Matrix):
             raise TypeError(f"solve_least_squares requires Matrix right-hand side, got {type(b)}")
-        return Matrix(self._native.solve_least_squares(b._native))
+        return self._new(self._native.solve_least_squares(b._native))
 
     def tolist(self):
         return [[_wrap(elem) for elem in row] for row in self._native.to_list()]
@@ -498,7 +593,7 @@ class Matrix(MatrixBase):
                     flat.append(_native_expr(val.subs(*args, **kwargs)))
                 else:
                     flat.append(_native_expr(val))
-        return Matrix(_NativeMatrix(rows, cols, flat))
+        return self._new(_NativeMatrix(rows, cols, flat))
 
     def simplify(self):
         """Simplify all matrix entries."""
@@ -509,7 +604,7 @@ class Matrix(MatrixBase):
         for r in range(rows):
             for c in range(cols):
                 flat.append(_native_expr(simplify(self[r, c])))
-        return Matrix(_NativeMatrix(rows, cols, flat))
+        return self._new(_NativeMatrix(rows, cols, flat))
 
     def diff(self, *args):
         """Differentiate all matrix entries."""
@@ -520,7 +615,7 @@ class Matrix(MatrixBase):
         for r in range(rows):
             for c in range(cols):
                 flat.append(_native_expr(diff(self[r, c], *args)))
-        return Matrix(_NativeMatrix(rows, cols, flat))
+        return self._new(_NativeMatrix(rows, cols, flat))
 
     def integrate(self, *args):
         """Integrate all matrix entries."""
@@ -531,14 +626,24 @@ class Matrix(MatrixBase):
         for r in range(rows):
             for c in range(cols):
                 flat.append(_native_expr(integrate(self[r, c], *args)))
-        return Matrix(_NativeMatrix(rows, cols, flat))
+        return self._new(_NativeMatrix(rows, cols, flat))
 
     def applyfunc(self, f):
         """Apply a function elementwise to every matrix entry."""
         rows = self.rows
         cols = self.cols
         flat = [_native_expr(f(self[r, c])) for r in range(rows) for c in range(cols)]
-        return Matrix(_NativeMatrix(rows, cols, flat))
+        return self._new(_NativeMatrix(rows, cols, flat))
+
+    def evalf(self, n=15, **options):
+        """Evaluate all matrix entries numerically."""
+        from ..core import N
+        rows = self.rows
+        cols = self.cols
+        flat = [_native_expr(N(self[r, c], n, **options)) for r in range(rows) for c in range(cols)]
+        return self._new(_NativeMatrix(rows, cols, flat))
+
+    n = evalf
 
     def jacobian(self, X):
         """Compute the Jacobian matrix with respect to coordinates X."""
@@ -556,7 +661,7 @@ class Matrix(MatrixBase):
         for f in funcs:
             for v in vars_list:
                 flat.append(_native_expr(diff(f, v)))
-        return Matrix(_NativeMatrix(rows, cols, flat))
+        return self._new(_NativeMatrix(rows, cols, flat))
 
     def to_sparse(self):
         """Convert to a SparseMatrix."""
@@ -648,12 +753,12 @@ class Matrix(MatrixBase):
     def __add__(self, other):
         if not isinstance(other, Matrix):
             raise TypeError(f"Cannot add Matrix and {type(other)}")
-        return Matrix(self._native + other._native)
+        return self._new(self._native + other._native)
 
     def __sub__(self, other):
         if not isinstance(other, Matrix):
             raise TypeError(f"Cannot subtract {type(other)} from Matrix")
-        return Matrix(self._native - other._native)
+        return self._new(self._native - other._native)
 
     def __neg__(self):
         return self * -1
@@ -661,13 +766,13 @@ class Matrix(MatrixBase):
     def __matmul__(self, other):
         if not isinstance(other, Matrix):
             raise TypeError(f"Cannot matmul Matrix and {type(other)}")
-        return Matrix(self._native @ other._native)
+        return self._new(self._native @ other._native)
 
     def __mul__(self, other):
         if isinstance(other, Matrix):
-            return Matrix(self._native @ other._native)
+            return self._new(self._native @ other._native)
         if isinstance(other, (Expr, Basic, int, float)):
-            return Matrix(self._native * _native_expr(other))
+            return self._new(self._native * _native_expr(other))
         raise TypeError(f"Cannot multiply Matrix and {type(other)}")
 
     def __rmul__(self, other):
@@ -684,16 +789,21 @@ class Matrix(MatrixBase):
         if not isinstance(n, int):
             raise TypeError("Matrix power only supports integers")
         if n < 0:
-            return Matrix(self.inv()._native ** (-n))
-        return Matrix(self._native ** n)
+            return self._new(self.inv()._native ** (-n))
+        return self._new(self._native ** n)
 
     def copy(self):
         """Return a copy of the matrix."""
         flat = [self[i, j] for i in range(self.rows) for j in range(self.cols)]
-        return Matrix(_NativeMatrix(self.rows, self.cols, [_native_expr(x) for x in flat]))
+        return self._new(_NativeMatrix(self.rows, self.cols, [_native_expr(x) for x in flat]))
 
     def __copy__(self):
         return self.copy()
+
+    def __deepcopy__(self, memo):
+        copied = self.copy()
+        memo[id(self)] = copied
+        return copied
 
     def as_immutable(self):
         """Return an immutable copy of the matrix."""
@@ -743,7 +853,7 @@ class Matrix(MatrixBase):
         if rows * cols != len(self):
             raise ValueError(f"Total elements {len(self)} cannot be reshaped to ({rows}, {cols})")
         flat = [_native_expr(self[i]) for i in range(len(self))]
-        return Matrix(_NativeMatrix(rows, cols, flat))
+        return self._new(_NativeMatrix(rows, cols, flat))
 
     def vec(self):
         """Vectorize the matrix by stacking columns into a column vector."""
@@ -751,7 +861,7 @@ class Matrix(MatrixBase):
         for c in range(self.cols):
             for r in range(self.rows):
                 flat.append(_native_expr(self[r, c]))
-        return Matrix(_NativeMatrix(len(flat), 1, flat))
+        return self._new(_NativeMatrix(len(flat), 1, flat))
 
     def vech(self):
         """Vectorize the lower triangular half of the matrix."""
@@ -759,7 +869,7 @@ class Matrix(MatrixBase):
         for c in range(self.cols):
             for r in range(c, self.rows):
                 flat.append(_native_expr(self[r, c]))
-        return Matrix(_NativeMatrix(len(flat), 1, flat))
+        return self._new(_NativeMatrix(len(flat), 1, flat))
 
     @staticmethod
     def eye(n):
@@ -789,11 +899,14 @@ class Matrix(MatrixBase):
         return self._native._repr_latex_()
 
     def __eq__(self, other):
-        if not isinstance(other, Matrix):
-            return False
-        if self.shape != other.shape:
-            return False
-        return self._native.flat() == other._native.flat()
+        if isinstance(other, Matrix):
+            if self.shape != other.shape:
+                return False
+            return self._native.flat() == other._native.flat()
+        if isinstance(other, MatrixBase):
+            if hasattr(other, "to_dense"):
+                return self == other.to_dense()
+        return False
 
 
 DenseMatrix = Matrix
@@ -818,6 +931,24 @@ class ImmutableDenseMatrix(Matrix):
 
     def row_del(self, i):
         raise TypeError("Cannot delete from an immutable matrix")
+
+    def row_swap(self, i, j):
+        raise TypeError("Cannot modify an immutable matrix")
+
+    def col_swap(self, i, j):
+        raise TypeError("Cannot modify an immutable matrix")
+
+    def row_op(self, i, f):
+        raise TypeError("Cannot modify an immutable matrix")
+
+    def col_op(self, j, f):
+        raise TypeError("Cannot modify an immutable matrix")
+
+    def copy(self):
+        return self
+
+    def __deepcopy__(self, memo):
+        return self
 
     def as_immutable(self):
         return self
@@ -944,6 +1075,8 @@ def casoratian(seqs, n):
 
 def GramSchmidt(vlist, orthonormal=False):
     """Apply the Gram-Schmidt orthogonalization process to a list of vectors."""
+    from ..core import simplify, sqrt
+
     out = []
     for v in vlist:
         if not isinstance(v, MatrixBase):
@@ -954,6 +1087,7 @@ def GramSchmidt(vlist, orthonormal=False):
             numerator = (u.T * v)[0, 0]
             denominator = (u.T * u)[0, 0]
             w = w - (numerator / denominator) * u
+        w = w.applyfunc(simplify)
         is_zero_vec = True
         for i in range(len(w)):
             if w[i] != 0:
@@ -962,8 +1096,8 @@ def GramSchmidt(vlist, orthonormal=False):
         if not is_zero_vec:
             if orthonormal:
                 norm_sq = (w.T * w)[0, 0]
-                from ..core import sqrt
                 w = w / sqrt(norm_sq)
+                w = w.applyfunc(simplify)
             out.append(w)
     return out
 
@@ -973,5 +1107,22 @@ def pinv(m):
     if not isinstance(m, MatrixBase):
         raise TypeError("pinv requires Matrix argument")
     return m.pinv()
+
+
+def jordan_cell(eigenval, n):
+    """Create an n x n Jordan cell with eigenval on diagonal and 1 on superdiagonal."""
+    n = int(n)
+    if n < 0:
+        raise ValueError("Jordan cell size must be non-negative")
+    res = zeros(n, n)
+    for i in range(n):
+        res[i, i] = eigenval
+        if i + 1 < n:
+            res[i, i + 1] = 1
+    return res
+
+
+jordan_block = jordan_cell
+
 
 

@@ -111,6 +111,33 @@ class SparseMatrix(MatrixBase):
         return self.rows == self.cols
 
     @property
+    def is_zero_matrix(self) -> bool:
+        return self.nnz == 0 or all(v == 0 for v in self.todok().values())
+
+    @property
+    def is_identity(self) -> bool:
+        return bool(self.to_dense().is_identity)
+
+    @property
+    def is_symmetric(self) -> bool:
+        return bool(self.to_dense().is_symmetric)
+
+    @property
+    def is_anti_symmetric(self) -> bool:
+        return bool(self.to_dense().is_anti_symmetric)
+
+    @property
+    def is_skew_symmetric(self) -> bool:
+        return self.is_anti_symmetric
+
+    @property
+    def is_diagonal(self) -> bool:
+        return bool(self.to_dense().is_diagonal)
+
+    def is_nilpotent(self) -> bool:
+        return bool(self.to_dense().is_nilpotent())
+
+    @property
     def T(self) -> "SparseMatrix":
         return self.transpose()
 
@@ -128,6 +155,66 @@ class SparseMatrix(MatrixBase):
 
     def as_immutable(self) -> "SparseMatrix":
         return self
+
+    def det(self, method: Any = None) -> Any:
+        return self.to_dense().det(method=method)
+
+    def inv(self, method: Any = None, **kwargs: Any) -> "SparseMatrix":
+        return self.to_dense().inv(method=method, **kwargs).to_sparse()
+
+    def solve(self, b: Any) -> "SparseMatrix":
+        rhs = b.to_dense() if hasattr(b, "to_dense") else (b if isinstance(b, Matrix) else Matrix(b))
+        return self.to_dense().solve(rhs).to_sparse()
+
+    def rref(self, **kwargs: Any) -> Any:
+        res = self.to_dense().rref(**kwargs)
+        if isinstance(res, tuple):
+            return res[0].to_sparse(), res[1]
+        return res.to_sparse()
+
+    def col(self, j: int) -> "SparseMatrix":
+        return self.to_dense().col(j).to_sparse()
+
+    def row(self, i: int) -> "SparseMatrix":
+        return self.to_dense().row(i).to_sparse()
+
+    def col_join(self, other: Any) -> "SparseMatrix":
+        rhs = other.to_dense() if hasattr(other, "to_dense") else other
+        return self.to_dense().col_join(rhs).to_sparse()
+
+    def row_join(self, other: Any) -> "SparseMatrix":
+        rhs = other.to_dense() if hasattr(other, "to_dense") else other
+        return self.to_dense().row_join(rhs).to_sparse()
+
+    def extract(self, rowsList: Any, colsList: Any) -> "SparseMatrix":
+        return self.to_dense().extract(rowsList, colsList).to_sparse()
+
+    def copy(self) -> "SparseMatrix":
+        return SparseMatrix(self)
+
+    def evalf(self, n: int = 15, **options: Any) -> "SparseMatrix":
+        return self.to_dense().evalf(n, **options).to_sparse()
+
+    n = evalf
+
+    @property
+    def free_symbols(self) -> Any:
+        return self.to_dense().free_symbols
+
+    def subs(self, *args: Any, **kwargs: Any) -> "SparseMatrix":
+        return self.to_dense().subs(*args, **kwargs).to_sparse()
+
+    def applyfunc(self, f: Any) -> "SparseMatrix":
+        return self.to_dense().applyfunc(f).to_sparse()
+
+    def simplify(self) -> "SparseMatrix":
+        return self.to_dense().simplify().to_sparse()
+
+    def diff(self, *args: Any) -> "SparseMatrix":
+        return self.to_dense().diff(*args).to_sparse()
+
+    def integrate(self, *args: Any) -> "SparseMatrix":
+        return self.to_dense().integrate(*args).to_sparse()
 
     def todok(self) -> Dict[Tuple[int, int], Any]:
         """Return a dictionary of non-zero entries keyed by (row, col)."""
@@ -214,6 +301,24 @@ class SparseMatrix(MatrixBase):
     def __rmul__(self, other: Any) -> Any:
         return self.__mul__(other)
 
+    @staticmethod
+    def eye(n: int) -> "SparseMatrix":
+        return SparseMatrix(_NativeSparseMatrix.eye(int(n)))
+
+    @staticmethod
+    def zeros(r: int, c: Any = None) -> "SparseMatrix":
+        if c is None:
+            c = r
+        return SparseMatrix(_NativeSparseMatrix.zeros(int(r), int(c)))
+
+    @staticmethod
+    def ones(r: int, c: Any = None) -> "SparseMatrix":
+        if c is None:
+            c = r
+        r = int(r)
+        c = int(c)
+        return SparseMatrix(r, c, [1] * (r * c))
+
     def __repr__(self) -> str:
         return f"SparseMatrix({self.rows}, {self.cols}, {self.todok()})"
 
@@ -223,7 +328,9 @@ class SparseMatrix(MatrixBase):
     def __eq__(self, other: Any) -> bool:
         if isinstance(other, SparseMatrix):
             return self._native == other._native
-        if isinstance(other, Matrix):
+        if isinstance(other, MatrixBase):
+            if hasattr(other, "to_dense"):
+                return self.to_dense() == other.to_dense()
             return self.to_dense() == other
         return False
 

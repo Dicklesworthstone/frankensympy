@@ -2743,6 +2743,14 @@ def N(expression: Any, n: Any = None) -> Basic:
         )
     if isinstance(expression, Basic):
         return expression.evalf(n)
+    if hasattr(expression, "evalf") and not isinstance(expression, type):
+        if n > _F64_HONEST_DIGITS:
+            raise NotImplementedError(
+                f"precision-honest N: this shell evaluates through binary64 and "
+                f"is honest to at most {_F64_HONEST_DIGITS} significant digits; "
+                f"requested {n}. Refusing to emit unjustified digits."
+            )
+        return expression.evalf(n)
     if n > _F64_HONEST_DIGITS:
         raise NotImplementedError(
             f"precision-honest N: this shell evaluates through binary64 and "

@@ -2690,6 +2690,117 @@ class SurfaceTests(unittest.TestCase):
         seg3d = Segment(Point3D(1, 1, -2), Point3D(1, 1, 2))
         self.assertEqual(plane.intersection(seg3d), [Point3D(1, 1, 0)])
 
+    def test_matrix_advanced_subtypes_and_sparse(self):
+        import sympy
+        from sympy import (
+            ImmutableMatrix,
+            Matrix,
+            SparseMatrix,
+            eye,
+            jordan_block,
+            jordan_cell,
+            zeros,
+        )
+
+        # 1. Cross-type constructors & symmetric equality
+        sm = SparseMatrix([[1, 0], [0, 2]])
+        dm = Matrix(sm)
+        self.assertEqual(dm, sm)
+        self.assertEqual(sm, dm)
+        self.assertEqual(sm.shape, (2, 2))
+        self.assertEqual(dm.shape, (2, 2))
+
+        # 2. In-place elementary row/col operations on mutable Matrix
+        M = Matrix([[1, 2], [3, 4]])
+        M.row_swap(0, 1)
+        self.assertEqual(M, Matrix([[3, 4], [1, 2]]))
+        M.col_swap(0, 1)
+        self.assertEqual(M, Matrix([[4, 3], [2, 1]]))
+        M.row_op(0, lambda val, j: val * 10)
+        self.assertEqual(M, Matrix([[40, 30], [2, 1]]))
+        M.col_op(1, lambda val, i: val + 5)
+        self.assertEqual(M, Matrix([[40, 35], [2, 6]]))
+
+        # 3. Immutability protection on ImmutableMatrix
+        IM = ImmutableMatrix([[1, 2], [3, 4]])
+        with self.assertRaises(TypeError):
+            IM.row_swap(0, 1)
+        with self.assertRaises(TypeError):
+            IM.col_swap(0, 1)
+        with self.assertRaises(TypeError):
+            IM.row_op(0, lambda val, j: val * 2)
+        with self.assertRaises(TypeError):
+            IM.col_op(0, lambda val, i: val * 2)
+
+        # 4. ImmutableMatrix subtype preservation
+        IM_T = IM.T
+        self.assertIsInstance(IM_T, ImmutableMatrix)
+        IM_inv = IM.inv()
+        self.assertIsInstance(IM_inv, ImmutableMatrix)
+        IM_sum = IM + IM
+        self.assertIsInstance(IM_sum, ImmutableMatrix)
+        IM_mul = IM * 3
+        self.assertIsInstance(IM_mul, ImmutableMatrix)
+        IM_extract = IM.extract([0], [1])
+        self.assertIsInstance(IM_extract, ImmutableMatrix)
+        IM_subs = IM.subs(sympy.Symbol("x"), 1)
+        self.assertIsInstance(IM_subs, ImmutableMatrix)
+
+        # 5. Matrix predicates: is_zero_matrix, is_identity, is_nilpotent
+        Z = zeros(2, 3)
+        self.assertTrue(bool(Z.is_zero_matrix))
+        self.assertTrue(Z.is_zero_matrix())
+        self.assertFalse(bool(M.is_zero_matrix))
+        self.assertFalse(M.is_zero_matrix())
+
+        I2 = eye(2)
+        self.assertTrue(bool(I2.is_identity))
+        self.assertTrue(I2.is_identity())
+        self.assertFalse(bool(M.is_identity))
+
+        Nil = Matrix([[0, 1], [0, 0]])
+        self.assertTrue(Nil.is_nilpotent())
+        self.assertFalse(I2.is_nilpotent())
+
+        # Predicates on SparseMatrix
+        Z_sp = SparseMatrix.zeros(3, 3)
+        self.assertTrue(bool(Z_sp.is_zero_matrix))
+        I_sp = SparseMatrix(eye(3))
+        self.assertTrue(bool(I_sp.is_identity))
+        self.assertTrue(bool(I_sp.is_diagonal))
+        self.assertTrue(bool(I_sp.is_symmetric))
+
+        # 6. rref with pivots flag
+        R, pivs = M.rref(pivots=True)
+        self.assertEqual(pivs, (0, 1))
+        self.assertEqual(R, eye(2))
+        R_only = M.rref(pivots=False)
+        self.assertEqual(R_only, eye(2))
+
+        # 7. evalf and sympy.N with precision honesty
+        M_float = M.evalf(5)
+        self.assertEqual(M_float[0, 0], sympy.Float(40.0, 5))
+        M_n = sympy.N(M, 10)
+        self.assertEqual(M_n[0, 0], sympy.Float(40.0, 10))
+        with self.assertRaises(NotImplementedError):
+            sympy.N(M, 20)
+
+        # 8. jordan_cell and jordan_block
+        jb = jordan_cell(3, 3)
+        self.assertEqual(jb, Matrix([[3, 1, 0], [0, 3, 1], [0, 0, 3]]))
+        self.assertEqual(jordan_block(5, 2), Matrix([[5, 1], [0, 5]]))
+
+        # 9. SparseMatrix algebraic methods
+        sp_a = SparseMatrix([[2, 1], [1, 2]])
+        self.assertEqual(sp_a.det(), 3)
+        sp_inv = sp_a.inv()
+        self.assertIsInstance(sp_inv, SparseMatrix)
+        self.assertEqual(sp_a @ sp_inv, SparseMatrix(eye(2)))
+        b = SparseMatrix([[5], [4]])
+        sol = sp_a.solve(b)
+        self.assertIsInstance(sol, SparseMatrix)
+        self.assertEqual(sol, SparseMatrix([[2], [1]]))
+
 
 if __name__ == "__main__":
     unittest.main()
