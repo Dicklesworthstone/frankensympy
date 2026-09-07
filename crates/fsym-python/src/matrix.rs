@@ -121,6 +121,12 @@ impl PyMatrix {
         self.inner.is_lower_triangular()
     }
 
+    /// Whether the matrix is skew-symmetric (anti-symmetric).
+    #[getter]
+    pub fn is_skew_symmetric(&self) -> bool {
+        self.inner.is_skew_symmetric()
+    }
+
     /// Element indexing: `m[r, c]`.
     pub fn __getitem__(&self, key: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
         if let Ok(tuple) = key.cast::<PyTuple>()
@@ -249,6 +255,18 @@ impl PyMatrix {
     pub fn qr(&self) -> PyResult<(Self, Self)> {
         let cert = self.inner.qr().map_err(matrix_err)?;
         Ok((Self { inner: cert.q }, Self { inner: cert.r }))
+    }
+
+    /// Exact LDL^T decomposition for symmetric matrix returning `(L, D)`.
+    pub fn ldl(&self) -> PyResult<(Self, Self)> {
+        let cert = self.inner.ldl().map_err(matrix_err)?;
+        Ok((Self { inner: cert.l }, Self { inner: cert.d }))
+    }
+
+    /// Minor submatrix obtained by removing row `rem_r` and column `rem_c`.
+    pub fn minor_submatrix(&self, rem_r: usize, rem_c: usize) -> PyResult<Self> {
+        let m = self.inner.minor_matrix(rem_r, rem_c).map_err(matrix_err)?;
+        Ok(Self { inner: m })
     }
 
     /// Solves the exact linear system `self * X = B` for `X`.

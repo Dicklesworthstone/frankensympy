@@ -2128,6 +2128,11 @@ class _SingletonRegistry:
         from ..sets.sets import UniversalSet
         return UniversalSet()
 
+    @property
+    def Reals(self) -> Any:
+        from ..sets.sets import Reals
+        return Reals()
+
     def __call__(self, value: Any) -> Basic:
         if isinstance(value, Basic):
             return value

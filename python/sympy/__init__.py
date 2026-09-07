@@ -124,31 +124,48 @@ def solve(expression, variable=None):
     """Solve the algebraic equation or system of equations ``expression == 0``."""
     if isinstance(expression, (list, tuple)):
         from .solvers.polysys import solve_poly_system as _sps
-        if variable is not None and isinstance(variable, (list, tuple)) and len(variable) == 2:
-            sols = _sps(expression, *variable)
-            if sols is None:
-                return []
-            var_x, var_y = variable[0], variable[1]
-            if len(sols) == 1:
-                return {var_x: sols[0][0], var_y: sols[0][1]}
-            return [{var_x: sol[0], var_y: sol[1]} for sol in sols]
-        elif variable is None:
+        from .solvers.solvers import linsolve as _linsolve
+
+        if variable is not None:
+            if isinstance(variable, (list, tuple)):
+                var_list = list(variable)
+            elif isinstance(variable, Symbol):
+                var_list = [variable]
+            else:
+                raise TypeError(f"unsupported solve system signature with variable {variable}")
+        else:
             all_syms = set()
             for eq in expression:
                 if type(eq) is Eq:
                     eq = eq.lhs - eq.rhs
                 all_syms.update(_wrap(_native_expr(eq)).free_symbols)
-            if len(all_syms) == 2:
-                ordered_syms = sorted(list(all_syms), key=lambda s: s.name)
-                sols = _sps(expression, *ordered_syms)
-                if sols is None:
-                    return []
-                if len(sols) == 1:
-                    return {ordered_syms[0]: sols[0][0], ordered_syms[1]: sols[0][1]}
-                return [{ordered_syms[0]: sol[0], ordered_syms[1]: sol[1]} for sol in sols]
+            var_list = sorted(list(all_syms), key=lambda s: s.name)
+
+        if not var_list:
             raise TypeError("at least one solve variable is required")
-        else:
-            raise TypeError(f"unsupported solve system signature with variable {variable}")
+
+        # Try linear solver first
+        try:
+            lin_sol = _linsolve(expression, *var_list)
+            if lin_sol:
+                sol_tuple = next(iter(lin_sol))
+                return {s: v for s, v in zip(var_list, sol_tuple)}
+            else:
+                return []
+        except (ValueError, TypeError):
+            pass
+
+        # Fall back to polynomial system solver for 2-variable systems
+        if len(var_list) == 2:
+            sols = _sps(expression, *var_list)
+            if sols is None:
+                return []
+            var_x, var_y = var_list[0], var_list[1]
+            if len(sols) == 1:
+                return {var_x: sols[0][0], var_y: sols[0][1]}
+            return [{var_x: sol[0], var_y: sol[1]} for sol in sols]
+
+        raise TypeError(f"unsupported solve system signature with variable {variable}")
 
     if type(expression) is Eq:
         expression = expression.lhs - expression.rhs
@@ -182,7 +199,10 @@ def solve(expression, variable=None):
 
 def solveset(expression, variable=None, domain=None):
     """Solve an algebraic equation for ``variable`` and return a Set of solutions."""
-    del domain
+    if domain is not None and isinstance(domain, str):
+        if domain in ("Reals", "RR", "R"):
+            from .sets import Reals
+            domain = Reals
     if type(expression) is Eq:
         expression = expression.lhs - expression.rhs
     expr = _wrap(_native_expr(expression))
@@ -192,6 +212,8 @@ def solveset(expression, variable=None, domain=None):
             symbol = next(iter(symbols))
         elif len(symbols) == 0:
             if expr == 0:
+                if domain is not None and isinstance(domain, Set):
+                    return domain
                 from .sets import UniversalSet
                 return UniversalSet()
             from .sets import EmptySet
@@ -202,6 +224,8 @@ def solveset(expression, variable=None, domain=None):
         symbol = _require_symbol(variable)
 
     if expr == 0:
+        if domain is not None and isinstance(domain, Set):
+            return domain
         from .sets import UniversalSet
         return UniversalSet()
 
@@ -219,6 +243,10 @@ def solveset(expression, variable=None, domain=None):
     if not results:
         return EmptySet()
     roots = [_parse_result(r) for r in results]
+    if domain is not None and isinstance(domain, Set):
+        roots = [r for r in roots if r in domain]
+    if not roots:
+        return EmptySet()
     return FiniteSet(*roots)
 
 
@@ -237,7 +265,7 @@ def checksol(expression, symbol, val=None):
     for sym, v in mapping.items():
         subbed = subbed.subs(sym, v)
     simplified = simplify(subbed)
-    return bool(simplified == 0)
+    return bool(simplified == 0 or getattr(simplified, "is_zero", None) is True)
 
 
 def laplace_transform(expression, t, s):
@@ -442,6 +470,7 @@ from .matrices import (
     ones,
     diag,
     hstack,
+    pinv,
     vstack,
 )
 from . import (
@@ -463,6 +492,8 @@ from .sets import (
     FiniteSet,
     Intersection,
     Interval,
+    ProductSet,
+    Reals,
     Set,
     SymmetricDifference,
     Union,
@@ -536,7 +567,9 @@ from .solvers import (
     dsolve_const_coeff_second_order_nonhomogeneous,
     dsolve_linear_first_order,
     dsolve_separable_linear,
+    linsolve,
     nonlinsolve,
+    solve_linear_system,
     solve_poly_system,
 )
 from .tensor import (
@@ -554,6 +587,7 @@ from .assumptions import (
     Q,
     ask,
 )
+from .core import simplify
 
 
 __all__ = [
@@ -626,11 +660,14 @@ __all__ = [
     "Polygon",
     "Pow",
     "Predicate",
+    "ProductSet",
+    "pinv",
     "Q",
     "Rational",
     "Ray",
     "Ray2D",
     "Ray3D",
+    "Reals",
     "S",
     "Segment",
     "Segment2D",
@@ -732,6 +769,7 @@ __all__ = [
     "lcm",
     "legendre_symbol",
     "limit",
+    "linsolve",
     "log",
     "lucas",
     "matrix_multiply_elementwise",
@@ -768,6 +806,7 @@ __all__ = [
     "sinc",
     "sinh",
     "solve",
+    "solve_linear_system",
     "solve_poly_system",
     "solveset",
     "sqf",

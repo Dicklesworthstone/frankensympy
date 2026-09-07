@@ -13,6 +13,7 @@ from .ode import (
     verify_linear_first_order_solution,
 )
 from .polysys import nonlinsolve, solve_poly_system
+from .solvers import linsolve, solve_linear_system
 
 __all__ = [
     "checkodesol",
@@ -23,8 +24,10 @@ __all__ = [
     "dsolve_const_coeff_second_order_nonhomogeneous",
     "dsolve_linear_first_order",
     "dsolve_separable_linear",
+    "linsolve",
     "nonlinsolve",
     "solve",
+    "solve_linear_system",
     "solve_poly_system",
     "solveset",
     "verify_cauchy_euler_solution",

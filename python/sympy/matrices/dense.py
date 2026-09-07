@@ -5,6 +5,16 @@ from ..core import Basic, Expr, Rational, _native, _native_expr, _wrap
 _NativeMatrix = _native.Matrix
 
 
+class _CallableBool(int):
+    """Boolean-compatible integer that is also callable as a predicate."""
+
+    def __new__(cls, val):
+        return super().__new__(cls, 1 if val else 0)
+
+    def __call__(self, *args, **kwargs):
+        return bool(self)
+
+
 class MatrixBase:
     """Base class for all matrix objects."""
 
@@ -13,6 +23,7 @@ class MatrixBase:
 
 class Matrix(MatrixBase):
     """Exact matrix with SymPy-compatible API wrapping the native linear algebra engine."""
+
 
     def __init__(self, *args):
         if len(args) == 1:
@@ -88,19 +99,35 @@ class Matrix(MatrixBase):
 
     @property
     def is_symmetric(self):
-        return self._native.is_symmetric
+        return _CallableBool(self._native.is_symmetric)
+
+    @property
+    def is_anti_symmetric(self):
+        return _CallableBool(self._native.is_skew_symmetric)
+
+    @property
+    def is_skew_symmetric(self):
+        return self.is_anti_symmetric
 
     @property
     def is_diagonal(self):
-        return self._native.is_diagonal
+        return _CallableBool(self._native.is_diagonal)
 
     @property
-    def is_upper_triangular(self):
+    def is_upper(self):
         return self._native.is_upper_triangular
 
     @property
-    def is_lower_triangular(self):
+    def is_lower(self):
         return self._native.is_lower_triangular
+
+    @property
+    def is_upper_triangular(self):
+        return _CallableBool(self._native.is_upper_triangular)
+
+    @property
+    def is_lower_triangular(self):
+        return _CallableBool(self._native.is_lower_triangular)
 
     @property
     def T(self):
@@ -126,6 +153,22 @@ class Matrix(MatrixBase):
 
     def cofactor(self, r, c):
         return _wrap(self._native.cofactor(int(r), int(c)))
+
+    def cofactor_matrix(self):
+        """Return the matrix of cofactors."""
+        return Matrix(self.rows, self.cols, lambda i, j: self.cofactor(i, j))
+
+    def minor_submatrix(self, i, j):
+        """Return the submatrix obtained by deleting row `i` and column `j`."""
+        return Matrix(self._native.minor_submatrix(int(i), int(j)))
+
+    def minorMatrix(self, i, j):
+        """Alias for minor_submatrix."""
+        return self.minor_submatrix(i, j)
+
+    def minor(self, i, j, **kwargs):
+        """Return the minor (determinant of the minor submatrix)."""
+        return self.minor_submatrix(i, j).det()
 
     def frobenius_norm_squared(self):
         return _wrap(self._native.frobenius_norm_squared())
@@ -406,6 +449,16 @@ class Matrix(MatrixBase):
     def qr(self):
         return self.QRdecomposition()
 
+    def LDLdecomposition(self):
+        l, d = self._native.ldl()
+        return Matrix(l), Matrix(d)
+
+    def ldl(self):
+        return self.LDLdecomposition()
+
+    def LDLsolve(self, b):
+        return self.solve(b)
+
     def solve(self, b):
         if not isinstance(b, Matrix):
             raise TypeError(f"solve requires Matrix right-hand side, got {type(b)}")
@@ -518,21 +571,64 @@ class Matrix(MatrixBase):
             if len(key) != 2:
                 raise IndexError("Matrix index must be a 2-tuple (row, col)")
             r, c = key
+            if isinstance(r, slice) or isinstance(c, slice):
+                row_indices = list(range(*r.indices(self.rows))) if isinstance(r, slice) else [int(r) if int(r) >= 0 else int(r) + self.rows]
+                col_indices = list(range(*c.indices(self.cols))) if isinstance(c, slice) else [int(c) if int(c) >= 0 else int(c) + self.cols]
+                return self.extract(row_indices, col_indices)
             return _wrap(self._native[(int(r), int(c))])
+        if isinstance(key, slice):
+            indices = list(range(*key.indices(len(self))))
+            return [self[i] for i in indices]
         if isinstance(key, int):
             return _wrap(self._native[key])
-        raise TypeError("Matrix index must be an integer or (row, col) integer pair")
+        raise TypeError("Matrix index must be an integer, slice, or (row, col) pair")
 
     def __setitem__(self, key, value):
         if isinstance(key, tuple):
             if len(key) != 2:
                 raise IndexError("Matrix index must be a 2-tuple (row, col)")
             r, c = key
+            if isinstance(r, slice) or isinstance(c, slice):
+                row_indices = list(range(*r.indices(self.rows))) if isinstance(r, slice) else [int(r) if int(r) >= 0 else int(r) + self.rows]
+                col_indices = list(range(*c.indices(self.cols))) if isinstance(c, slice) else [int(c) if int(c) >= 0 else int(c) + self.cols]
+                target_len = len(row_indices) * len(col_indices)
+                if isinstance(value, MatrixBase):
+                    vals = [value[i, j] for i in range(value.rows) for j in range(value.cols)]
+                elif isinstance(value, (list, tuple)):
+                    if len(value) > 0 and isinstance(value[0], (list, tuple)):
+                        vals = [elem for row in value for elem in row]
+                    else:
+                        vals = list(value)
+                else:
+                    vals = [value] * target_len
+                if len(vals) != target_len:
+                    raise ValueError(f"Shape mismatch: cannot assign {len(vals)} values to {len(row_indices)}x{len(col_indices)} submatrix")
+                flat = [self[i, j] for i in range(self.rows) for j in range(self.cols)]
+                idx = 0
+                for ri in row_indices:
+                    for ci in col_indices:
+                        flat[ri * self.cols + ci] = vals[idx]
+                        idx += 1
+                self._native = _NativeMatrix(self.rows, self.cols, [_native_expr(x) for x in flat])
+                return
+            r = int(r)
+            c = int(c)
+        elif isinstance(key, slice):
+            indices = list(range(*key.indices(len(self))))
+            if not isinstance(value, (list, tuple)):
+                value = [value] * len(indices)
+            if len(indices) != len(value):
+                raise ValueError(f"Shape mismatch: cannot assign {len(value)} values to slice of length {len(indices)}")
+            flat = [self[i] for i in range(len(self))]
+            for idx, val in zip(indices, value):
+                flat[idx] = val
+            self._native = _NativeMatrix(self.rows, self.cols, [_native_expr(x) for x in flat])
+            return
         elif isinstance(key, int):
             r = key // self.cols
             c = key % self.cols
         else:
-            raise TypeError("Matrix index must be an integer or (row, col) integer pair")
+            raise TypeError("Matrix index must be an integer, slice, or (row, col) pair")
         r, c = int(r), int(c)
         if r < 0:
             r += self.rows
@@ -591,6 +687,96 @@ class Matrix(MatrixBase):
             return Matrix(self.inv()._native ** (-n))
         return Matrix(self._native ** n)
 
+    def copy(self):
+        """Return a copy of the matrix."""
+        flat = [self[i, j] for i in range(self.rows) for j in range(self.cols)]
+        return Matrix(_NativeMatrix(self.rows, self.cols, [_native_expr(x) for x in flat]))
+
+    def __copy__(self):
+        return self.copy()
+
+    def as_immutable(self):
+        """Return an immutable copy of the matrix."""
+        return ImmutableDenseMatrix(self)
+
+    def as_mutable(self):
+        """Return a mutable copy of the matrix."""
+        return self.copy()
+
+    def pinv(self):
+        """Compute the Moore-Penrose pseudoinverse."""
+        if self.rows >= self.cols:
+            try:
+                return self.solve_least_squares(eye(self.rows))
+            except Exception:
+                pass
+        return self.T.solve_least_squares(eye(self.cols)).T
+
+    def dot(self, other):
+        """Compute the inner (dot) product with another matrix/vector."""
+        if not isinstance(other, MatrixBase):
+            try:
+                other = Matrix(other)
+            except Exception:
+                raise TypeError(f"Cannot compute dot product with {type(other)}")
+        if len(self) != len(other):
+            raise ValueError(f"Matrices must have same number of elements for dot product ({len(self)} vs {len(other)})")
+        return sum(self[i] * other[i] for i in range(len(self)))
+
+    def cross(self, other):
+        """Compute the cross product with another 3-element vector."""
+        if not isinstance(other, MatrixBase):
+            try:
+                other = Matrix(other)
+            except Exception:
+                raise TypeError(f"Cannot compute cross product with {type(other)}")
+        if len(self) != 3 or len(other) != 3:
+            raise ValueError("Cross product is only defined for 3-element vectors")
+        a1, a2, a3 = self[0], self[1], self[2]
+        b1, b2, b3 = other[0], other[1], other[2]
+        return Matrix([a2 * b3 - a3 * b2, a3 * b1 - a1 * b3, a1 * b2 - a2 * b1])
+
+    def reshape(self, rows, cols):
+        """Return a new matrix with specified dimensions containing the same elements."""
+        rows = int(rows)
+        cols = int(cols)
+        if rows * cols != len(self):
+            raise ValueError(f"Total elements {len(self)} cannot be reshaped to ({rows}, {cols})")
+        flat = [_native_expr(self[i]) for i in range(len(self))]
+        return self._new_matrix(rows, cols, flat)
+
+    def vec(self):
+        """Vectorize the matrix by stacking columns into a column vector."""
+        flat = []
+        for c in range(self.cols):
+            for r in range(self.rows):
+                flat.append(_native_expr(self[r, c]))
+        return self._new_matrix(len(flat), 1, flat)
+
+    def vech(self):
+        """Vectorize the lower triangular half of the matrix."""
+        flat = []
+        for c in range(self.cols):
+            for r in range(c, self.rows):
+                flat.append(_native_expr(self[r, c]))
+        return self._new_matrix(len(flat), 1, flat)
+
+    @staticmethod
+    def eye(n):
+        return eye(n)
+
+    @staticmethod
+    def zeros(r, c=None):
+        return zeros(r, c)
+
+    @staticmethod
+    def ones(r, c=None):
+        return ones(r, c)
+
+    @staticmethod
+    def diag(*entries):
+        return diag(*entries)
+
     def __repr__(self):
         return f"Matrix({self.tolist()})"
 
@@ -633,6 +819,12 @@ class ImmutableDenseMatrix(Matrix):
     def row_del(self, i):
         raise TypeError("Cannot delete from an immutable matrix")
 
+    def as_immutable(self):
+        return self
+
+    def as_mutable(self):
+        return Matrix(self)
+
 
 ImmutableMatrix = ImmutableDenseMatrix
 
@@ -648,14 +840,42 @@ def zeros(r, c=None):
 
 
 def diag(*entries):
-    flat = []
+    has_matrix = any(isinstance(e, MatrixBase) for e in entries)
+    if not has_matrix:
+        flat = []
+        for elem in entries:
+            if isinstance(elem, (list, tuple)):
+                for sub in elem:
+                    flat.append(_native_expr(sub))
+            else:
+                flat.append(_native_expr(elem))
+        return Matrix(_NativeMatrix.diag(flat))
+
+    blocks = []
     for elem in entries:
-        if isinstance(elem, (list, tuple)):
+        if isinstance(elem, MatrixBase):
+            blocks.append(elem)
+        elif isinstance(elem, (list, tuple)):
             for sub in elem:
-                flat.append(_native_expr(sub))
+                if isinstance(sub, MatrixBase):
+                    blocks.append(sub)
+                else:
+                    blocks.append(Matrix([[sub]]))
         else:
-            flat.append(_native_expr(elem))
-    return Matrix(_NativeMatrix.diag(flat))
+            blocks.append(Matrix([[elem]]))
+
+    total_rows = sum(b.rows for b in blocks)
+    total_cols = sum(b.cols for b in blocks)
+    res = zeros(total_rows, total_cols)
+    cur_r = 0
+    cur_c = 0
+    for b in blocks:
+        for r in range(b.rows):
+            for c in range(b.cols):
+                res[cur_r + r, cur_c + c] = b[r, c]
+        cur_r += b.rows
+        cur_c += b.cols
+    return res
 
 
 def hadamard_product(a, b):
@@ -746,4 +966,12 @@ def GramSchmidt(vlist, orthonormal=False):
                 w = w / sqrt(norm_sq)
             out.append(w)
     return out
+
+
+def pinv(m):
+    """Compute the Moore-Penrose pseudoinverse."""
+    if not isinstance(m, MatrixBase):
+        raise TypeError("pinv requires Matrix argument")
+    return m.pinv()
+
 

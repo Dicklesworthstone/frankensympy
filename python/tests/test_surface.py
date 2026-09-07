@@ -2243,6 +2243,91 @@ class SurfaceTests(unittest.TestCase):
         self.assertFalse(isinstance(d_asec, Derivative))
         self.assertNotIn("diff(", str(d_asec))
 
+    def test_matrix_decompositions_and_minors(self):
+        from sympy import Matrix, Integer
+
+        # LDL decomposition of symmetric matrix
+        A = Matrix([[4, 12, -16], [12, 37, -43], [-16, -43, 98]])
+        L, D = A.LDLdecomposition()
+        self.assertEqual(L * D * L.T, A)
+        self.assertTrue(L.is_lower_triangular())
+        self.assertTrue(D.is_diagonal())
+        self.assertEqual(A.ldl(), (L, D))
+
+        # minor_submatrix, minor, cofactor_matrix
+        M = Matrix([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
+        self.assertEqual(M.minor_submatrix(0, 0), Matrix([[5, 6], [8, 9]]))
+        self.assertEqual(M.minorMatrix(0, 0), Matrix([[5, 6], [8, 9]]))
+        self.assertEqual(M.minor(0, 0), Integer(-3))
+        cof = M.cofactor_matrix()
+        self.assertEqual(cof[0, 0], Integer(-3))
+
+        # Callable & property symmetries
+        S = Matrix([[1, 2], [2, 3]])
+        self.assertTrue(bool(S.is_symmetric))
+        self.assertTrue(S.is_symmetric())
+        self.assertFalse(bool(S.is_anti_symmetric))
+        self.assertFalse(S.is_anti_symmetric())
+
+        Sk = Matrix([[0, 2], [-2, 0]])
+        self.assertTrue(bool(Sk.is_anti_symmetric))
+        self.assertTrue(Sk.is_anti_symmetric())
+        self.assertTrue(Sk.is_skew_symmetric())
+        self.assertFalse(bool(Sk.is_symmetric))
+
+        Diag = Matrix([[1, 0], [0, 2]])
+        self.assertTrue(bool(Diag.is_diagonal))
+        self.assertTrue(Diag.is_diagonal())
+
+        U = Matrix([[1, 2], [0, 3]])
+        self.assertTrue(U.is_upper)
+        self.assertTrue(U.is_upper_triangular())
+        self.assertFalse(U.is_lower)
+
+        Low = Matrix([[1, 0], [2, 3]])
+        self.assertTrue(Low.is_lower)
+        self.assertTrue(Low.is_lower_triangular())
+        self.assertFalse(Low.is_upper)
+
+    def test_linsolve_and_linear_system_solver(self):
+        from sympy import (
+            EmptySet,
+            FiniteSet,
+            Matrix,
+            Symbol,
+            linsolve,
+            solve,
+            solve_linear_system,
+        )
+
+        x, y, z = Symbol("x"), Symbol("y"), Symbol("z")
+
+        # 3-variable linear system from equations
+        sys = [x + y + z - 6, 2 * y + 5 * z - 19, 2 * x + 5 * y - 12]
+        sol = linsolve(sys, x, y, z)
+        self.assertEqual(sol, FiniteSet((1, 2, 3)))
+
+        # General solve() with 3-variable linear system
+        res = solve(sys, [x, y, z])
+        self.assertEqual(res, {x: 1, y: 2, z: 3})
+
+        # Augmented matrix linsolve and solve_linear_system
+        M = Matrix([[1, 2, 5], [3, 4, 11]])
+        sol_m = linsolve(M, [x, y])
+        self.assertEqual(sol_m, FiniteSet((1, 2)))
+        self.assertEqual(solve_linear_system(M, x, y), {x: 1, y: 2})
+
+        # (A, b) pair linsolve
+        A = Matrix([[1, 2], [3, 4]])
+        b = Matrix([5, 11])
+        sol_ab = linsolve((A, b), [x, y])
+        self.assertEqual(sol_ab, FiniteSet((1, 2)))
+
+        # Inconsistent system
+        inc = [x + y - 1, x + y - 2]
+        self.assertEqual(linsolve(inc, x, y), EmptySet())
+        self.assertEqual(solve(inc, [x, y]), [])
+
 
 if __name__ == "__main__":
     unittest.main()
