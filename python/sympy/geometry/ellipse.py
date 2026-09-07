@@ -61,6 +61,18 @@ class Circle(Ellipse):
             return simplify(d2 - r2) == 0
         return False
 
+    @property
+    def args(self) -> tuple[Any, ...]:
+        return (self.center, self.radius)
+
+    def __eq__(self, other: Any) -> bool:
+        if type(self) is not type(other):
+            return False
+        return self.args == other.args
+
+    def __hash__(self) -> int:
+        return hash((type(self), self.args))
+
     def __repr__(self) -> str:
         return f"Circle({self.center}, {self.radius})"
 
@@ -113,6 +125,18 @@ class Sphere(Basic):
             r2 = self.radius ** 2
             return simplify(d2 - r2) == 0
         return False
+
+    @property
+    def args(self) -> tuple[Any, ...]:
+        return (self.center, self.radius)
+
+    def __eq__(self, other: Any) -> bool:
+        if type(self) is not type(other):
+            return False
+        return self.args == other.args
+
+    def __hash__(self) -> int:
+        return hash((type(self), self.args))
 
     def __repr__(self) -> str:
         return f"Sphere({self.center}, {self.radius})"

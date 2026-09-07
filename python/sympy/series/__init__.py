@@ -69,14 +69,26 @@ class Limit(Expr):
         if evaluate:
             return limit(expression, variable, point)
         obj = object.__new__(cls)
-        obj._expression = _wrap(_native_expr(expression))
+        try:
+            obj._expression = _wrap(_native_expr(expression))
+        except (NotImplementedError, TypeError):
+            from ..core import sympify
+            obj._expression = sympify(expression)
         obj._variable = _require_symbol(variable)
-        obj._point = _wrap(_native_expr(point))
+        try:
+            obj._point = _wrap(_native_expr(point))
+        except (NotImplementedError, TypeError):
+            from ..core import sympify
+            obj._point = sympify(point)
         obj._dir = dir
         return obj
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         pass
+
+    @property
+    def func(self) -> type:
+        return Limit
 
     @property
     def expr(self) -> Expr:
@@ -98,8 +110,44 @@ class Limit(Expr):
     def args(self) -> tuple[Any, ...]:
         return (self._expression, self._variable, self._point)
 
+    @property
+    def free_symbols(self) -> set[Symbol]:
+        expr_syms = set(self._expression.free_symbols) if hasattr(self._expression, "free_symbols") else set()
+        if self._variable in expr_syms:
+            expr_syms.remove(self._variable)
+        if hasattr(self._point, "free_symbols"):
+            expr_syms.update(self._point.free_symbols)
+        return expr_syms
+
+    @property
+    def is_number(self) -> bool:
+        return len(self.free_symbols) == 0
+
     def doit(self, **hints: Any) -> Any:
         return limit(self._expression, self._variable, self._point)
+
+    def _eval_subs(self, old: Any, new: Any) -> Any:
+        if self == old:
+            return new
+        new_point = self._point.subs(old, new) if hasattr(self._point, "subs") else self._point
+        if old == self._variable:
+            new_expr = self._expression
+        else:
+            new_expr = self._expression.subs(old, new) if hasattr(self._expression, "subs") else self._expression
+        return Limit(new_expr, self._variable, new_point, dir=self._dir)
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, Limit):
+            return False
+        return (
+            self._expression == other._expression
+            and self._variable == other._variable
+            and self._point == other._point
+            and self._dir == other._dir
+        )
+
+    def __hash__(self) -> int:
+        return hash((self.__class__, self._expression, self._variable, self._point, self._dir))
 
     def __repr__(self) -> str:
         return f"Limit({self._expression}, {self._variable}, {self._point})"

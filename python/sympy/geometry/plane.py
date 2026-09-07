@@ -54,6 +54,18 @@ class Plane(Basic):
     def normal_vector(self) -> Point3D:
         return self._normal
 
+    @property
+    def args(self) -> tuple[Point3D, Point3D]:
+        return (self.p1, self.normal_vector)
+
+    def __eq__(self, other: Any) -> bool:
+        if type(self) is not type(other):
+            return False
+        return self.args == other.args
+
+    def __hash__(self) -> int:
+        return hash((type(self), self.args))
+
     def eval_at_point(self, pt: Any) -> Expr:
         p = Point(pt) if not isinstance(pt, Point) else pt
         if not isinstance(p, Point3D):

@@ -3451,6 +3451,123 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(combsimp(x + 1), x + 1)
         self.assertEqual(separatevars(x*y), x*y)
 
+    def test_integral_subsystem(self):
+        from sympy import Integral, Symbol, exp, integrate
+
+        x = Symbol("x")
+        y = Symbol("y")
+        t = Symbol("t")
+
+        i1 = Integral(x**2, x)
+        i2 = Integral(x**2, x)
+        self.assertEqual(i1, i2)
+        self.assertEqual(hash(i1), hash(i2))
+        self.assertEqual(i1.variables, [x])
+        self.assertTrue(i1.is_number)
+
+        # Leibniz differentiation
+        self.assertEqual(i1.diff(x), x**2)
+        i_def = Integral(t**2, (t, 0, x))
+        self.assertEqual(i_def.diff(x), x**2)
+        self.assertFalse(i_def.is_number)
+        self.assertEqual(i_def.diff(y), 0)
+
+        # Substitution
+        i_xy = Integral(x * y, (x, 0, 1))
+        self.assertFalse(i_xy.is_number)
+        self.assertEqual(i_xy.diff(y), Integral(x, (x, 0, 1)))
+        self.assertEqual(i_xy.subs(y, 2), Integral(2 * x, (x, 0, 1)))
+        # Substituting bound variable should not alter integrand
+        self.assertEqual(i_xy.subs(x, y), i_xy)
+
+        # Non-computable integration falls back to unevaluated Integral
+        i_exp = integrate(exp(x**2), x)
+        self.assertIsInstance(i_exp, Integral)
+        self.assertEqual(i_exp, Integral(exp(x**2), x))
+
+    def test_limit_subsystem(self):
+        from sympy import Limit, Symbol
+
+        x = Symbol("x")
+        y = Symbol("y")
+
+        l1 = Limit(x * y, x, 0)
+        l2 = Limit(x * y, x, 0)
+        self.assertEqual(l1, l2)
+        self.assertEqual(hash(l1), hash(l2))
+        self.assertEqual(l1.free_symbols, {y})
+        self.assertFalse(l1.is_number)
+        self.assertEqual(l1.subs(y, 3), Limit(3 * x, x, 0))
+
+        l_const = Limit(x, x, 0)
+        self.assertTrue(l_const.is_number)
+        self.assertEqual(l_const.doit(), 0)
+
+    def test_geometry_subsystem(self):
+        from sympy import (
+            Circle,
+            Line,
+            Plane,
+            Point,
+            Point2D,
+            Point3D,
+            Polygon,
+            Rational,
+            Ray,
+            Segment,
+            Sphere,
+            Symbol,
+            Triangle,
+            are_similar,
+            convex_hull,
+            idiff,
+        )
+
+        p0 = Point(0, 0)
+        p1 = Point(1, 0)
+        p2 = Point(0, 1)
+        p_in = Point(Rational(1, 5), Rational(1, 5))
+
+        # Structural equality and hashing
+        self.assertEqual(Line(p0, p1), Line(p0, p1))
+        self.assertEqual(hash(Line(p0, p1)), hash(Line(p0, p1)))
+        self.assertEqual(Segment(p0, p1), Segment(p0, p1))
+        self.assertEqual(Ray(p0, p1), Ray(p0, p1))
+        self.assertEqual(Circle(p0, 1), Circle(p0, 1))
+        self.assertEqual(hash(Circle(p0, 1)), hash(Circle(p0, 1)))
+
+        p3_0 = Point(0, 0, 0)
+        p3_1 = Point(0, 0, 1)
+        self.assertEqual(Sphere(p3_0, 1), Sphere(p3_0, 1))
+        self.assertEqual(Plane(p3_0, p3_1), Plane(p3_0, p3_1))
+        self.assertEqual(Triangle(p0, p1, p2), Triangle(p0, p1, p2))
+
+        # Substitution and free symbols
+        x = Symbol("x")
+        px = Point(x, 1)
+        self.assertEqual(px.free_symbols, {x})
+        self.assertEqual(px.subs(x, 5), Point(5, 1))
+        lx = Line(px, Point(0, 2))
+        self.assertEqual(lx.free_symbols, {x})
+        self.assertEqual(lx.subs(x, 3), Line(Point(3, 1), Point(0, 2)))
+
+        # evalf and n
+        self.assertEqual(Point(1, 2).evalf(), Point2D(1.0, 2.0))
+        self.assertEqual(Point(1, 2).n(), Point2D(1.0, 2.0))
+
+        # idiff
+        y = Symbol("y")
+        self.assertEqual(idiff(x**2 + y**2 - 1, y, x), -x / y)
+
+        # convex_hull
+        self.assertEqual(convex_hull(p0), p0)
+        self.assertEqual(convex_hull(p0, p1), Segment(p0, p1))
+        hull = convex_hull(p0, p1, p2, p_in)
+        self.assertEqual(hull, Triangle(p0, p1, p2))
+
+        # are_similar
+        self.assertTrue(are_similar(Circle(p0, 1), Circle(Point(3, 4), 10)))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -542,7 +542,10 @@ class Basic:
 
     @property
     def args(self) -> tuple["Basic", ...]:
-        return tuple(_wrap(arg) for arg in _native_expr(self).args)
+        try:
+            return tuple(_wrap(arg) for arg in _native_expr(self).args)
+        except (NotImplementedError, TypeError):
+            return ()
 
     @property
     def func(self):
@@ -552,10 +555,22 @@ class Basic:
 
     @property
     def free_symbols(self) -> set["Symbol"]:
-        return {_symbol_from_intern_name(name) for name in _native_expr(self).free_symbols}
+        try:
+            return {_symbol_from_intern_name(name) for name in _native_expr(self).free_symbols}
+        except (NotImplementedError, TypeError):
+            syms: set[Symbol] = set()
+            for arg in self.args:
+                if hasattr(arg, "free_symbols"):
+                    syms.update(arg.free_symbols)
+            return syms
 
     def has(self, pattern: Any) -> bool:
-        return _native_expr(self).has(_native_expr(pattern))
+        try:
+            return _native_expr(self).has(_native_expr(pattern))
+        except (NotImplementedError, TypeError):
+            if self == pattern:
+                return True
+            return any(arg.has(pattern) if hasattr(arg, "has") else arg == pattern for arg in self.args)
 
     def subs(self, *args: Any, **kwargs: Any) -> "Basic":
         if len(args) == 1:
@@ -575,7 +590,14 @@ class Basic:
             return cur
         elif len(args) == 2:
             old, new = args
-            res = _wrap(_native_expr(self).subs(_native_expr(old), _native_expr(new)))
+            try:
+                res = _wrap(_native_expr(self).subs(_native_expr(old), _native_expr(new)))
+            except (NotImplementedError, TypeError):
+                if hasattr(self, "_eval_subs"):
+                    res = self._eval_subs(old, new)
+                else:
+                    new_args = [a.subs(old, new) if hasattr(a, "subs") else a for a in self.args]
+                    res = self.func(*new_args)
             if kwargs:
                 for k, v in kwargs.items():
                     res = res.subs(Symbol(k), v)
@@ -587,6 +609,13 @@ class Basic:
             return cur
         else:
             raise TypeError(f"subs takes 1 or 2 positional arguments, got {len(args)}")
+
+    def evalf(self, n: int = 15) -> "Basic":
+        new_args = [a.evalf(n) if hasattr(a, "evalf") else a for a in self.args]
+        return self.func(*new_args)
+
+    def n(self, n: int = 15) -> "Basic":
+        return self.evalf(n=n)
 
     def atoms(self, *types: type) -> set["Basic"]:
         """Collect subexpressions. With no types, only atoms (empty args)."""
@@ -1165,7 +1194,13 @@ class Expr(Basic):
     def evalf(self, n: int = 15) -> "Float":
         if type(n) is not int or n < 1:
             raise TypeError("evalf dps must be a positive int")
-        return Float(_native_expr(self).evalf(), n)
+        try:
+            return Float(_native_expr(self).evalf(), n)
+        except (NotImplementedError, TypeError):
+            return super().evalf(n)
+
+    def n(self, n: int = 15) -> Any:
+        return self.evalf(n=n)
 
     def __float__(self) -> float:
         ratio = _exact_ratio(self)
@@ -2640,11 +2675,20 @@ def _normalize_diff_args(*variables: Any) -> list[Symbol]:
 def diff(expression: Any, *variables: Any) -> Expr:
     """Differentiate through the implemented exact native rule set."""
     normalized_vars = _normalize_diff_args(*variables)
-    result = _wrap(_native_expr(expression))
+    result = expression
     for symbol in normalized_vars:
-        result = _parse_result(
-            _native.diff_expr(str(result), _native_symbol_key(symbol))
-        )
+        if hasattr(result, "_eval_derivative"):
+            result = result._eval_derivative(symbol)
+        else:
+            try:
+                result = _parse_result(
+                    _native.diff_expr(str(_wrap(_native_expr(result))), _native_symbol_key(symbol))
+                )
+            except (NotImplementedError, TypeError):
+                if hasattr(result, "_eval_derivative"):
+                    result = result._eval_derivative(symbol)
+                else:
+                    raise
     return result
 
 

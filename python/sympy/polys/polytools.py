@@ -219,8 +219,18 @@ class Poly(Basic):
     def content(self) -> Any:
         """Compute the content (GCD of coefficients) of this polynomial."""
         from functools import reduce
-        from ..core import Integer, Rational
-        coeffs = self.all_coeffs()
+        from ..core import Add, Integer, Rational
+        if len(self._gens) > 1:
+            expr = self._expr
+            terms = expr.args if isinstance(expr, Add) else [expr]
+            coeffs = [t.as_coeff_Mul()[0] for t in terms]
+        else:
+            try:
+                coeffs = self.all_coeffs()
+            except Exception:
+                expr = self._expr
+                terms = expr.args if isinstance(expr, Add) else [expr]
+                coeffs = [t.as_coeff_Mul()[0] for t in terms]
         if not coeffs or all(c == 0 for c in coeffs):
             return Integer(0)
         denoms = []
@@ -718,32 +728,39 @@ def cancel(f: Any, *gens: Any) -> Any:
         return f if is_poly else numer
 
     try:
-        p_poly = Poly(numer, *gens) if gens else Poly(numer)
-        q_poly = Poly(denom, *p_poly.gens)
+        if gens:
+            all_gens = tuple(gens)
+        elif is_poly:
+            all_gens = f.gens
+        else:
+            all_gens = tuple(sorted(list(numer.free_symbols | denom.free_symbols), key=lambda s: s.name))
 
-        if len(p_poly.gens) == 1:
-            p_cont, p_prim = p_poly.primitive()
-            q_cont, q_prim = q_poly.primitive()
+        if not all_gens:
+            res = numer / denom
+            return Poly(res) if is_poly else res
 
-            if q_cont == 0:
-                return f if is_poly else wrapped
+        p_poly = Poly(numer, *all_gens)
+        q_poly = Poly(denom, *all_gens)
 
-            c = p_cont / q_cont
-            c_num = c.p if hasattr(c, "p") else c
-            c_den = c.q if hasattr(c, "q") else 1
+        p_cont, p_prim = p_poly.primitive()
+        q_cont, q_prim = q_poly.primitive()
 
+        if q_cont == 0:
+            return f if is_poly else wrapped
+
+        c = p_cont / q_cont
+        c_num = c.p if hasattr(c, "p") else c
+        c_den = c.q if hasattr(c, "q") else 1
+
+        try:
             g = p_prim.gcd(q_prim)
             p_div = p_prim.div(g)[0]
             q_div = q_prim.div(g)[0]
-
             num_final = expand(p_div.as_expr() * c_num)
             den_final = expand(q_div.as_expr() * c_den)
-        else:
-            g = p_poly.gcd(q_poly)
-            p_div = p_poly.div(g)[0]
-            q_div = q_poly.div(g)[0]
-            num_final = p_div.as_expr()
-            den_final = q_div.as_expr()
+        except Exception:
+            num_final = expand(p_prim.as_expr() * c_num)
+            den_final = expand(q_prim.as_expr() * c_den)
 
         if den_final == 1 or den_final == Integer(1):
             res = num_final
@@ -751,7 +768,7 @@ def cancel(f: Any, *gens: Any) -> Any:
             res = num_final / den_final
 
         if is_poly:
-            return Poly(res, *p_poly.gens)
+            return Poly(res, *all_gens)
         return res
     except Exception:
         return f if is_poly else wrapped

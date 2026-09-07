@@ -118,6 +118,7 @@ def integrate(expression, *variables):
         return cur
 
     spec = variables[0]
+    from .integrals import Integral
     if isinstance(spec, (tuple, list)):
         if len(spec) == 1:
             return integrate(expression, spec[0])
@@ -125,20 +126,26 @@ def integrate(expression, *variables):
             raise ValueError("integration tuple must be (variable, lower, upper)")
         variable, lower, upper = spec
         symbol = _require_symbol(variable)
-        result = _native.integrate_definite_expr(
-            str(_wrap(_native_expr(expression))),
-            _native_symbol_key(symbol),
-            str(_wrap(_native_expr(lower))),
-            str(_wrap(_native_expr(upper))),
-        )
-        return _parse_result(result)
+        try:
+            result = _native.integrate_definite_expr(
+                str(_wrap(_native_expr(expression))),
+                _native_symbol_key(symbol),
+                str(_wrap(_native_expr(lower))),
+                str(_wrap(_native_expr(upper))),
+            )
+            return _parse_result(result)
+        except (ValueError, NotImplementedError, TypeError):
+            return Integral(expression, (variable, lower, upper))
 
     symbol = _require_symbol(spec)
-    return _parse_result(
-        _native.integrate_expr(
-            str(_wrap(_native_expr(expression))), _native_symbol_key(symbol)
+    try:
+        return _parse_result(
+            _native.integrate_expr(
+                str(_wrap(_native_expr(expression))), _native_symbol_key(symbol)
+            )
         )
-    )
+    except (ValueError, NotImplementedError, TypeError):
+        return Integral(expression, symbol)
 
 
 def solve(expression, *symbols, **flags):
@@ -615,7 +622,10 @@ from .geometry import (
     Triangle,
     are_collinear,
     are_coplanar,
+    are_similar,
     centroid,
+    convex_hull,
+    idiff,
     intersection,
 )
 from .integrals import Integral
@@ -865,6 +875,7 @@ __all__ = [
     "apart",
     "are_collinear",
     "are_coplanar",
+    "are_similar",
     "arg",
     "asec",
     "asech",
@@ -891,6 +902,7 @@ __all__ = [
     "conjugate",
     "content",
     "continuous_domain",
+    "convex_hull",
     "cos",
     "cosh",
     "cot",
@@ -933,6 +945,7 @@ __all__ = [
     "half_gcdex",
     "harmonic",
     "hstack",
+    "idiff",
     "im",
     "integer_nthroot",
     "integrate",

@@ -26,6 +26,18 @@ class LinearEntity(Basic):
     def points(self) -> tuple[Point, Point]:
         return (self.p1, self.p2)
 
+    @property
+    def args(self) -> tuple[Point, Point]:
+        return (self.p1, self.p2)
+
+    def __eq__(self, other: Any) -> bool:
+        if type(self) is not type(other):
+            return False
+        return self.args == other.args
+
+    def __hash__(self) -> int:
+        return hash((type(self), self.args))
+
     def is_parallel(self, other: Any) -> bool:
         if not isinstance(other, LinearEntity):
             raise TypeError("is_parallel requires a LinearEntity")

@@ -18,7 +18,7 @@ from .line import (
 from .ellipse import Circle, Ellipse, Sphere
 from .polygon import Polygon, Triangle
 from .plane import Plane
-from .util import are_collinear, are_coplanar, centroid, intersection
+from .util import are_collinear, are_coplanar, are_similar, centroid, convex_hull, idiff, intersection
 from . import util
 
 __all__ = [
@@ -43,7 +43,10 @@ __all__ = [
     "Triangle",
     "are_collinear",
     "are_coplanar",
+    "are_similar",
     "centroid",
+    "convex_hull",
+    "idiff",
     "intersection",
     "util",
 ]

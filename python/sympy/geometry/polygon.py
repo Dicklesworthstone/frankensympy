@@ -38,6 +38,18 @@ class Polygon(Basic):
         return self._vertices
 
     @property
+    def args(self) -> tuple[Point2D, ...]:
+        return self._vertices
+
+    def __eq__(self, other: Any) -> bool:
+        if type(self) is not type(other):
+            return False
+        return self.vertices == other.vertices
+
+    def __hash__(self) -> int:
+        return hash((type(self), self.vertices))
+
+    @property
     def sides(self) -> list[Any]:
         from .line import Segment
         n = len(self.vertices)
