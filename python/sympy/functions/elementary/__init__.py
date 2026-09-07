@@ -1,0 +1,68 @@
+"""Elementary functions for FrankenSymPy."""
+
+from .complexes import Abs, sign
+from .exponential import exp, log
+from .hyperbolic import (
+    acosh,
+    acoth,
+    acsch,
+    asech,
+    asinh,
+    atanh,
+    cosh,
+    coth,
+    csch,
+    sech,
+    sinh,
+    tanh,
+)
+from .integers import ceiling, floor
+from .trigonometric import (
+    acos,
+    acot,
+    acsc,
+    asec,
+    asin,
+    atan,
+    cos,
+    cot,
+    csc,
+    sec,
+    sin,
+    sinc,
+    tan,
+)
+
+__all__ = [
+    "Abs",
+    "acos",
+    "acosh",
+    "acot",
+    "acoth",
+    "acsc",
+    "acsch",
+    "asec",
+    "asech",
+    "asin",
+    "asinh",
+    "atan",
+    "atanh",
+    "ceiling",
+    "cos",
+    "cosh",
+    "cot",
+    "coth",
+    "csc",
+    "csch",
+    "exp",
+    "floor",
+    "log",
+    "sec",
+    "sech",
+    "sign",
+    "sin",
+    "sinc",
+    "sinh",
+    "tan",
+    "tanh",
+]

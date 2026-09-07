@@ -1865,6 +1865,115 @@ class SurfaceTests(unittest.TestCase):
         # Non-coprime case returns None
         self.assertIsNone(crt([4, 6], [1, 2]))
 
+    def test_functions_extended(self):
+        from sympy import (
+            acos, acosh, acot, acoth, acsc, acsch, asec, asech, asinh, atanh,
+            bell, bernoulli, binomial, catalan, cot, coth, csc, csch,
+            erf, erfc, harmonic, lucas, sec, sech, sign, sinc, subfactorial, zeta,
+            Rational, Integer, Symbol, diff
+        )
+        from sympy.functions.elementary.trigonometric import sec as sec_t, sinc as sinc_t
+        from sympy.functions.elementary.hyperbolic import sech as sech_h, coth as coth_h
+        from sympy.functions.combinatorial.factorials import binomial as bin_f
+        from sympy.functions.combinatorial.numbers import lucas as lucas_n, catalan as cat_n
+        from sympy.functions.special.error_functions import erf as erf_s
+
+        # Submodule import identity
+        self.assertIs(sec, sec_t)
+        self.assertIs(sinc, sinc_t)
+        self.assertIs(sech, sech_h)
+        self.assertIs(coth, coth_h)
+        self.assertIs(binomial, bin_f)
+        self.assertIs(lucas, lucas_n)
+        self.assertIs(catalan, cat_n)
+        self.assertIs(erf, erf_s)
+
+        # Evaluations at special points
+        self.assertEqual(sec(0), Integer(1))
+        self.assertEqual(sech(0), Integer(1))
+        self.assertEqual(acos(1), Integer(0))
+        self.assertEqual(acosh(1), Integer(0))
+        self.assertEqual(asinh(0), Integer(0))
+        self.assertEqual(atanh(0), Integer(0))
+        self.assertEqual(asec(1), Integer(0))
+        self.assertEqual(asech(1), Integer(0))
+        self.assertEqual(sinc(0), Integer(1))
+        self.assertEqual(erf(0), Integer(0))
+        self.assertEqual(erfc(0), Integer(1))
+        self.assertEqual(sign(-15), Integer(-1))
+        self.assertEqual(sign(15), Integer(1))
+        self.assertEqual(sign(0), Integer(0))
+
+        # Combinatorial evaluations
+        self.assertEqual(binomial(5, 2), Integer(10))
+        self.assertEqual(binomial(6, 3), Integer(20))
+        self.assertEqual(lucas(0), Integer(2))
+        self.assertEqual(lucas(1), Integer(1))
+        self.assertEqual(lucas(4), Integer(7))
+        self.assertEqual(catalan(0), Integer(1))
+        self.assertEqual(catalan(3), Integer(5))
+        self.assertEqual(subfactorial(4), Integer(9))
+        self.assertEqual(harmonic(3), Rational(11, 6))
+        self.assertEqual(bernoulli(0), Integer(1))
+        self.assertEqual(bernoulli(1), Rational(-1, 2))
+        self.assertEqual(bernoulli(2), Rational(1, 6))
+        self.assertEqual(bernoulli(3), Integer(0))
+        self.assertEqual(bell(0), Integer(1))
+        self.assertEqual(bell(3), Integer(5))
+
+        # Zeta pole / unevaluated form
+        x = Symbol("x")
+        self.assertEqual(str(zeta(x)), "zeta(x)")
+
+        # Symbolic differentiation of extended functions
+        d_sec = diff(sec(x), x)
+        self.assertEqual(str(d_sec), "sec(x)*tan(x)")
+        d_csc = diff(csc(x), x)
+        self.assertEqual(str(d_csc), "-cot(x)*csc(x)")
+        d_cot = diff(cot(x), x)
+        self.assertEqual(str(d_cot), "-(cot(x)**2 + 1)")
+        d_sech = diff(sech(x), x)
+        self.assertEqual(str(d_sech), "-sech(x)*tanh(x)")
+
+    def test_sets_extended(self):
+        from sympy import Interval, FiniteSet, SymmetricDifference, Symbol
+
+        x = Symbol("x")
+
+        # Interval constructors
+        i_open = Interval.open(0, 1)
+        self.assertTrue(i_open.left_open)
+        self.assertTrue(i_open.right_open)
+
+        i_lopen = Interval.Lopen(0, 1)
+        self.assertTrue(i_lopen.left_open)
+        self.assertFalse(i_lopen.right_open)
+
+        i_ropen = Interval.Ropen(0, 1)
+        self.assertFalse(i_ropen.left_open)
+        self.assertTrue(i_ropen.right_open)
+
+        # as_relational
+        rel_open = i_open.as_relational(x)
+        self.assertEqual(str(rel_open), "(Lt(0, x) & Lt(x, 1))")
+
+        rel_closed = Interval(0, 1).as_relational(x)
+        self.assertEqual(str(rel_closed), "(Le(0, x) & Le(x, 1))")
+
+        # Proper subset / superset
+        s1 = FiniteSet(1)
+        s2 = FiniteSet(1, 2)
+        self.assertTrue(s1.is_subset(s2))
+        self.assertTrue(s1.is_proper_subset(s2))
+        self.assertFalse(s1.is_proper_subset(s1))
+        self.assertTrue(s2.is_superset(s1))
+        self.assertTrue(s2.is_proper_superset(s1))
+        self.assertFalse(s2.is_proper_superset(s2))
+
+        # SymmetricDifference
+        sd = SymmetricDifference(s1, s2)
+        self.assertIsNotNone(sd)
+
 
 if __name__ == "__main__":
     unittest.main()

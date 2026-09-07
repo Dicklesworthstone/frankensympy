@@ -74,6 +74,20 @@ class Set(Basic):
         """Check if self is a superset of other."""
         return self._native_set.is_superset(_native_set(other))
 
+    def is_proper_subset(self, other: Any) -> bool | None:
+        """Check if self is a proper subset of other."""
+        sub = self.is_subset(other)
+        if sub is False or sub is None:
+            return sub
+        return self != other
+
+    def is_proper_superset(self, other: Any) -> bool | None:
+        """Check if self is a proper superset of other."""
+        sup = self.is_superset(other)
+        if sup is False or sup is None:
+            return sup
+        return self != other
+
     def is_disjoint(self, other: Any) -> bool | None:
         """Check if self and other have empty intersection."""
         return self._native_set.is_disjoint(_native_set(other))
@@ -224,6 +238,29 @@ class Interval(Set):
             S.true if self.right_open else S.false,
         )
 
+    @classmethod
+    def open(cls, start: Any, end: Any) -> Set:
+        """Construct an open interval (start, end)."""
+        return cls(start, end, True, True)
+
+    @classmethod
+    def Lopen(cls, start: Any, end: Any) -> Set:
+        """Construct a left-open interval (start, end]."""
+        return cls(start, end, True, False)
+
+    @classmethod
+    def Ropen(cls, start: Any, end: Any) -> Set:
+        """Construct a right-open interval [start, end)."""
+        return cls(start, end, False, True)
+
+    def as_relational(self, symbol: Any) -> Any:
+        """Return the interval as a relational formula for the given symbol."""
+        from ..core import Lt, Le
+        from ..logic import And
+        left_rel = Lt(self.start, symbol) if self.left_open else Le(self.start, symbol)
+        right_rel = Lt(symbol, self.end) if self.right_open else Le(symbol, self.end)
+        return And(left_rel, right_rel)
+
 
 class FiniteSet(Set):
     """A discrete finite set of explicit elements."""
@@ -344,6 +381,15 @@ def _native_set(val: Any) -> Any:
     raise TypeError(f"cannot convert {type(val).__name__} to SymSet")
 
 
+class SymmetricDifference(Set):
+    """Symmetric difference of sets: (a \\ b) ∪ (b \\ a)."""
+
+    __slots__ = ()
+
+    def __new__(cls, a: Any, b: Any) -> Set:
+        return _wrap_set(_native_set(a).symmetric_difference(_native_set(b)))
+
+
 __all__ = [
     "Complement",
     "EmptySet",
@@ -351,6 +397,7 @@ __all__ = [
     "Intersection",
     "Interval",
     "Set",
+    "SymmetricDifference",
     "Union",
     "UniversalSet",
 ]

@@ -5,10 +5,17 @@
 use fsym_calculus::diff;
 use fsym_core::{BigInt, BigRational, Expr, Symbol, parse};
 use fsym_functions::{
-    abs_val as abs_expr, asin as asin_expr, atan as atan_expr, ceiling as ceiling_expr,
-    cos as cos_expr, cosh as cosh_expr, exp as exp_expr, factorial as factorial_expr,
-    fibonacci as fibonacci_expr, floor as floor_expr, gamma as gamma_expr, log as log_expr,
-    sin as sin_expr, sinh as sinh_expr, tan as tan_expr, tanh as tanh_expr,
+    abs_val as abs_expr, acos as acos_expr, acosh as acosh_expr, acot as acot_expr,
+    acoth as acoth_expr, acsc as acsc_expr, acsch as acsch_expr, asec as asec_expr,
+    asech as asech_expr, asin as asin_expr, asinh as asinh_expr, atan as atan_expr,
+    atanh as atanh_expr, bell as bell_expr, bernoulli as bernoulli_expr, binomial as binomial_expr,
+    catalan as catalan_expr, ceiling as ceiling_expr, cos as cos_expr, cosh as cosh_expr,
+    cot as cot_expr, coth as coth_expr, csc as csc_expr, csch as csch_expr, erf as erf_expr,
+    erfc as erfc_expr, exp as exp_expr, factorial as factorial_expr, fibonacci as fibonacci_expr,
+    floor as floor_expr, gamma as gamma_expr, harmonic as harmonic_expr, log as log_expr,
+    lucas as lucas_expr, sec as sec_expr, sech as sech_expr, sign as sign_expr, sin as sin_expr,
+    sinc as sinc_expr, sinh as sinh_expr, subfactorial as subfactorial_expr, tan as tan_expr,
+    tanh as tanh_expr, zeta as zeta_expr,
 };
 use fsym_printing::{latex, pretty as render_pretty};
 use fsym_runtime::{Budget, BudgetLimits, FsymCx, RuntimeBudget};
@@ -886,6 +893,174 @@ pub fn py_gamma(arg: PyExpr) -> PyExpr {
 #[pyfunction]
 pub fn py_fibonacci(arg: PyExpr) -> PyExpr {
     PyExpr::from_expr(fibonacci_expr(arg.inner))
+}
+
+/// Exact cotangent constructor.
+#[pyfunction]
+pub fn py_cot(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(cot_expr(arg.inner))
+}
+
+/// Exact secant constructor.
+#[pyfunction]
+pub fn py_sec(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(sec_expr(arg.inner))
+}
+
+/// Exact cosecant constructor.
+#[pyfunction]
+pub fn py_csc(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(csc_expr(arg.inner))
+}
+
+/// Exact arccosine constructor.
+#[pyfunction]
+pub fn py_acos(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(acos_expr(arg.inner))
+}
+
+/// Exact arccotangent constructor.
+#[pyfunction]
+pub fn py_acot(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(acot_expr(arg.inner))
+}
+
+/// Exact arcsecant constructor.
+#[pyfunction]
+pub fn py_asec(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(asec_expr(arg.inner))
+}
+
+/// Exact arccosecant constructor.
+#[pyfunction]
+pub fn py_acsc(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(acsc_expr(arg.inner))
+}
+
+/// Exact hyperbolic cotangent constructor.
+#[pyfunction]
+pub fn py_coth(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(coth_expr(arg.inner))
+}
+
+/// Exact hyperbolic secant constructor.
+#[pyfunction]
+pub fn py_sech(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(sech_expr(arg.inner))
+}
+
+/// Exact hyperbolic cosecant constructor.
+#[pyfunction]
+pub fn py_csch(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(csch_expr(arg.inner))
+}
+
+/// Exact inverse hyperbolic sine constructor.
+#[pyfunction]
+pub fn py_asinh(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(asinh_expr(arg.inner))
+}
+
+/// Exact inverse hyperbolic cosine constructor.
+#[pyfunction]
+pub fn py_acosh(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(acosh_expr(arg.inner))
+}
+
+/// Exact inverse hyperbolic tangent constructor.
+#[pyfunction]
+pub fn py_atanh(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(atanh_expr(arg.inner))
+}
+
+/// Exact inverse hyperbolic cotangent constructor.
+#[pyfunction]
+pub fn py_acoth(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(acoth_expr(arg.inner))
+}
+
+/// Exact inverse hyperbolic secant constructor.
+#[pyfunction]
+pub fn py_asech(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(asech_expr(arg.inner))
+}
+
+/// Exact inverse hyperbolic cosecant constructor.
+#[pyfunction]
+pub fn py_acsch(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(acsch_expr(arg.inner))
+}
+
+/// Exact cardinal sine constructor.
+#[pyfunction]
+pub fn py_sinc(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(sinc_expr(arg.inner))
+}
+
+/// Exact error function constructor.
+#[pyfunction]
+pub fn py_erf(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(erf_expr(arg.inner))
+}
+
+/// Exact complementary error function constructor.
+#[pyfunction]
+pub fn py_erfc(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(erfc_expr(arg.inner))
+}
+
+/// Exact signum constructor.
+#[pyfunction]
+pub fn py_sign(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(sign_expr(arg.inner))
+}
+
+/// Exact binomial coefficient constructor.
+#[pyfunction]
+pub fn py_binomial(n: PyExpr, k: PyExpr) -> PyExpr {
+    PyExpr::from_expr(binomial_expr(n.inner, k.inner))
+}
+
+/// Exact Lucas number constructor.
+#[pyfunction]
+pub fn py_lucas(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(lucas_expr(arg.inner))
+}
+
+/// Exact Harmonic number constructor.
+#[pyfunction]
+pub fn py_harmonic(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(harmonic_expr(arg.inner))
+}
+
+/// Exact Catalan number constructor.
+#[pyfunction]
+pub fn py_catalan(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(catalan_expr(arg.inner))
+}
+
+/// Exact Bernoulli number constructor.
+#[pyfunction]
+pub fn py_bernoulli(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(bernoulli_expr(arg.inner))
+}
+
+/// Exact Bell number constructor.
+#[pyfunction]
+pub fn py_bell(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(bell_expr(arg.inner))
+}
+
+/// Exact subfactorial constructor.
+#[pyfunction]
+pub fn py_subfactorial(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(subfactorial_expr(arg.inner))
+}
+
+/// Exact Riemann Zeta constructor.
+#[pyfunction]
+pub fn py_zeta(arg: PyExpr) -> PyExpr {
+    PyExpr::from_expr(zeta_expr(arg.inner))
 }
 
 /// Construct a Derivative expression representation.

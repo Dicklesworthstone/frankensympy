@@ -9,6 +9,7 @@ from .sets import (
     Intersection,
     Interval,
     Set,
+    SymmetricDifference,
     Union,
     UniversalSet,
 )
@@ -20,6 +21,7 @@ __all__ = [
     "Intersection",
     "Interval",
     "Set",
+    "SymmetricDifference",
     "Union",
     "UniversalSet",
 ]

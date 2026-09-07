@@ -235,6 +235,90 @@ pub fn diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
                     ]),
                 ]);
                 Expr::Mul(vec![Expr::pow(one_minus_u_sq, Expr::from_i64(-1)), du])
+            } else if name == "cot" && args.len() == 1 {
+                let u = &args[0];
+                let du = diff(u, var);
+                let cot_u_sq = Expr::pow(
+                    Expr::Function("cot".to_string(), vec![u.clone()]),
+                    Expr::from_i64(2),
+                );
+                Expr::Mul(vec![
+                    Expr::from_i64(-1),
+                    Expr::Add(vec![Expr::from_i64(1), cot_u_sq]),
+                    du,
+                ])
+            } else if name == "sec" && args.len() == 1 {
+                let u = &args[0];
+                let du = diff(u, var);
+                Expr::Mul(vec![
+                    Expr::Function("sec".to_string(), vec![u.clone()]),
+                    Expr::Function("tan".to_string(), vec![u.clone()]),
+                    du,
+                ])
+            } else if name == "csc" && args.len() == 1 {
+                let u = &args[0];
+                let du = diff(u, var);
+                Expr::Mul(vec![
+                    Expr::from_i64(-1),
+                    Expr::Function("csc".to_string(), vec![u.clone()]),
+                    Expr::Function("cot".to_string(), vec![u.clone()]),
+                    du,
+                ])
+            } else if name == "coth" && args.len() == 1 {
+                let u = &args[0];
+                let du = diff(u, var);
+                let coth_u_sq = Expr::pow(
+                    Expr::Function("coth".to_string(), vec![u.clone()]),
+                    Expr::from_i64(2),
+                );
+                Expr::Mul(vec![
+                    Expr::Add(vec![
+                        Expr::from_i64(1),
+                        Expr::Mul(vec![Expr::from_i64(-1), coth_u_sq]),
+                    ]),
+                    du,
+                ])
+            } else if name == "sech" && args.len() == 1 {
+                let u = &args[0];
+                let du = diff(u, var);
+                Expr::Mul(vec![
+                    Expr::from_i64(-1),
+                    Expr::Function("sech".to_string(), vec![u.clone()]),
+                    Expr::Function("tanh".to_string(), vec![u.clone()]),
+                    du,
+                ])
+            } else if name == "csch" && args.len() == 1 {
+                let u = &args[0];
+                let du = diff(u, var);
+                Expr::Mul(vec![
+                    Expr::from_i64(-1),
+                    Expr::Function("csch".to_string(), vec![u.clone()]),
+                    Expr::Function("coth".to_string(), vec![u.clone()]),
+                    du,
+                ])
+            } else if name == "acot" && args.len() == 1 {
+                let u = &args[0];
+                let du = diff(u, var);
+                let denom = Expr::Add(vec![
+                    Expr::from_i64(1),
+                    Expr::pow(u.clone(), Expr::from_i64(2)),
+                ]);
+                Expr::Mul(vec![
+                    Expr::from_i64(-1),
+                    Expr::pow(denom, Expr::from_i64(-1)),
+                    du,
+                ])
+            } else if name == "acoth" && args.len() == 1 {
+                let u = &args[0];
+                let du = diff(u, var);
+                let one_minus_u_sq = Expr::Add(vec![
+                    Expr::from_i64(1),
+                    Expr::Mul(vec![
+                        Expr::from_i64(-1),
+                        Expr::pow(u.clone(), Expr::from_i64(2)),
+                    ]),
+                ]);
+                Expr::Mul(vec![Expr::pow(one_minus_u_sq, Expr::from_i64(-1)), du])
             } else {
                 Expr::Function(
                     "diff".to_string(),
@@ -1010,6 +1094,27 @@ mod tests {
         assert_eq!(
             d,
             Expr::Function("cos".to_string(), vec![Expr::symbol("x")])
+        );
+
+        let sec_expr = Expr::Function("sec".to_string(), vec![Expr::symbol("x")]);
+        let d_sec = diff(&sec_expr, &x);
+        assert_eq!(
+            d_sec,
+            Expr::Mul(vec![
+                Expr::Function("sec".to_string(), vec![Expr::symbol("x")]),
+                Expr::Function("tan".to_string(), vec![Expr::symbol("x")]),
+            ])
+        );
+
+        let csc_expr = Expr::Function("csc".to_string(), vec![Expr::symbol("x")]);
+        let d_csc = diff(&csc_expr, &x);
+        assert_eq!(
+            d_csc,
+            Expr::Mul(vec![
+                Expr::from_i64(-1),
+                Expr::Function("cot".to_string(), vec![Expr::symbol("x")]),
+                Expr::Function("csc".to_string(), vec![Expr::symbol("x")]),
+            ])
         );
     }
 

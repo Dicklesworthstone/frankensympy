@@ -791,6 +791,34 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_factorial, m)?)?;
     m.add_function(wrap_pyfunction!(py_gamma, m)?)?;
     m.add_function(wrap_pyfunction!(py_fibonacci, m)?)?;
+    m.add_function(wrap_pyfunction!(py_cot, m)?)?;
+    m.add_function(wrap_pyfunction!(py_sec, m)?)?;
+    m.add_function(wrap_pyfunction!(py_csc, m)?)?;
+    m.add_function(wrap_pyfunction!(py_acos, m)?)?;
+    m.add_function(wrap_pyfunction!(py_acot, m)?)?;
+    m.add_function(wrap_pyfunction!(py_asec, m)?)?;
+    m.add_function(wrap_pyfunction!(py_acsc, m)?)?;
+    m.add_function(wrap_pyfunction!(py_coth, m)?)?;
+    m.add_function(wrap_pyfunction!(py_sech, m)?)?;
+    m.add_function(wrap_pyfunction!(py_csch, m)?)?;
+    m.add_function(wrap_pyfunction!(py_asinh, m)?)?;
+    m.add_function(wrap_pyfunction!(py_acosh, m)?)?;
+    m.add_function(wrap_pyfunction!(py_atanh, m)?)?;
+    m.add_function(wrap_pyfunction!(py_acoth, m)?)?;
+    m.add_function(wrap_pyfunction!(py_asech, m)?)?;
+    m.add_function(wrap_pyfunction!(py_acsch, m)?)?;
+    m.add_function(wrap_pyfunction!(py_sinc, m)?)?;
+    m.add_function(wrap_pyfunction!(py_erf, m)?)?;
+    m.add_function(wrap_pyfunction!(py_erfc, m)?)?;
+    m.add_function(wrap_pyfunction!(py_sign, m)?)?;
+    m.add_function(wrap_pyfunction!(py_binomial, m)?)?;
+    m.add_function(wrap_pyfunction!(py_lucas, m)?)?;
+    m.add_function(wrap_pyfunction!(py_harmonic, m)?)?;
+    m.add_function(wrap_pyfunction!(py_catalan, m)?)?;
+    m.add_function(wrap_pyfunction!(py_bernoulli, m)?)?;
+    m.add_function(wrap_pyfunction!(py_bell, m)?)?;
+    m.add_function(wrap_pyfunction!(py_subfactorial, m)?)?;
+    m.add_function(wrap_pyfunction!(py_zeta, m)?)?;
     m.add_function(wrap_pyfunction!(py_exp, m)?)?;
     m.add_function(wrap_pyfunction!(py_log, m)?)?;
     m.add_function(wrap_pyfunction!(py_derivative, m)?)?;
@@ -1044,6 +1072,14 @@ mod tests {
         assert_eq!(py_cos(py_integer(0)).__str__(), "1");
         assert_eq!(py_exp(py_integer(0)).__str__(), "1");
         assert_eq!(py_log(py_integer(1)).__str__(), "0");
+        assert_eq!(py_sec(py_integer(0)).__str__(), "1");
+        assert_eq!(py_sech(py_integer(0)).__str__(), "1");
+        assert_eq!(py_erf(py_integer(0)).__str__(), "0");
+        assert_eq!(py_erfc(py_integer(0)).__str__(), "1");
+        assert_eq!(py_binomial(py_integer(5), py_integer(2)).__str__(), "10");
+        assert_eq!(py_lucas(py_integer(4)).__str__(), "7");
+        assert_eq!(py_catalan(py_integer(3)).__str__(), "5");
+        assert_eq!(py_subfactorial(py_integer(4)).__str__(), "9");
     }
 
     #[test]

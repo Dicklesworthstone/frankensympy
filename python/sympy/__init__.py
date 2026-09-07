@@ -265,64 +265,51 @@ def factorint(value):
     return factors
 
 
-def sin(expression):
-    return _wrap(_native.py_sin(_native_expr(expression)))
-
-
-def cos(expression):
-    return _wrap(_native.py_cos(_native_expr(expression)))
-
-
-def tan(expression):
-    return _wrap(_native.py_tan(_native_expr(expression)))
-
-
-def asin(expression):
-    return _wrap(_native.py_asin(_native_expr(expression)))
-
-
-def atan(expression):
-    return _wrap(_native.py_atan(_native_expr(expression)))
-
-
-def sinh(expression):
-    return _wrap(_native.py_sinh(_native_expr(expression)))
-
-
-def cosh(expression):
-    return _wrap(_native.py_cosh(_native_expr(expression)))
-
-
-def tanh(expression):
-    return _wrap(_native.py_tanh(_native_expr(expression)))
-
-
-def exp(expression):
-    return _wrap(_native.py_exp(_native_expr(expression)))
-
-
-def log(expression):
-    return _wrap(_native.py_log(_native_expr(expression)))
-
-
-def floor(expression):
-    return _wrap(_native.py_floor(_native_expr(expression)))
-
-
-def ceiling(expression):
-    return _wrap(_native.py_ceiling(_native_expr(expression)))
-
-
-def factorial(expression):
-    return _wrap(_native.py_factorial(_native_expr(expression)))
-
-
-def gamma(expression):
-    return _wrap(_native.py_gamma(_native_expr(expression)))
-
-
-def fibonacci(expression):
-    return _wrap(_native.py_fibonacci(_native_expr(expression)))
+from .functions import (
+    acos,
+    acosh,
+    acot,
+    acoth,
+    acsc,
+    acsch,
+    asec,
+    asech,
+    asin,
+    asinh,
+    atan,
+    atanh,
+    bell,
+    bernoulli,
+    binomial,
+    catalan,
+    ceiling,
+    cos,
+    cosh,
+    cot,
+    coth,
+    csc,
+    csch,
+    erf,
+    erfc,
+    exp,
+    factorial,
+    fibonacci,
+    floor,
+    gamma,
+    harmonic,
+    log,
+    lucas,
+    sec,
+    sech,
+    sign,
+    sin,
+    sinc,
+    sinh,
+    subfactorial,
+    tan,
+    tanh,
+    zeta,
+)
 
 
 def totient(value):
@@ -426,6 +413,7 @@ from .sets import (
     Intersection,
     Interval,
     Set,
+    SymmetricDifference,
     Union,
     UniversalSet,
 )
@@ -590,6 +578,7 @@ __all__ = [
     "Set",
     "Sphere",
     "Symbol",
+    "SymmetricDifference",
     "Tensor",
     "TensorIndex",
     "Triangle",
@@ -599,15 +588,33 @@ __all__ = [
     "UniversalSet",
     "Xor",
     "__version__",
+    "acos",
+    "acosh",
+    "acot",
+    "acoth",
+    "acsc",
+    "acsch",
+    "asec",
+    "asech",
     "ask",
     "asin",
+    "asinh",
     "atan",
-    "ceiling",
+    "atanh",
+    "bell",
+    "bernoulli",
+    "binomial",
     "carmichael",
+    "catalan",
+    "ceiling",
     "checkodesol",
     "checksol",
     "cos",
     "cosh",
+    "cot",
+    "coth",
+    "csc",
+    "csch",
     "degree",
     "diag",
     "diff",
@@ -620,6 +627,8 @@ __all__ = [
     "dsolve_const_coeff_second_order_nonhomogeneous",
     "dsolve_linear_first_order",
     "dsolve_separable_linear",
+    "erf",
+    "erfc",
     "exp",
     "eye",
     "factor",
@@ -633,6 +642,7 @@ __all__ = [
     "gamma",
     "gcd",
     "groebner",
+    "harmonic",
     "hstack",
     "integer_nthroot",
     "integrate",
@@ -647,6 +657,7 @@ __all__ = [
     "legendre_symbol",
     "limit",
     "log",
+    "lucas",
     "mobius",
     "mod_inverse",
     "monic",
@@ -664,10 +675,14 @@ __all__ = [
     "resultant",
     "roots",
     "satisfiable",
+    "sec",
+    "sech",
     "series",
+    "sign",
     "simplify",
     "simplify_logic",
     "sin",
+    "sinc",
     "sinh",
     "solve",
     "solve_poly_system",
@@ -676,6 +691,7 @@ __all__ = [
     "sqf_part",
     "srepr",
     "sqrt",
+    "subfactorial",
     "symbols",
     "sympify",
     "SympifyError",
@@ -690,5 +706,6 @@ __all__ = [
     "true",
     "vstack",
     "zeros",
+    "zeta",
     "zoo",
 ]

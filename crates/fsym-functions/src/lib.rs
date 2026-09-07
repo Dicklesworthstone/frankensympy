@@ -117,6 +117,24 @@ pub fn tanh(arg: Expr) -> Expr {
     Expr::Function("tanh".to_string(), vec![arg])
 }
 
+/// Create a hyperbolic cotangent function expression: coth(x).
+pub fn coth(arg: Expr) -> Expr {
+    Expr::Function("coth".to_string(), vec![arg])
+}
+
+/// Create a hyperbolic secant function expression: sech(x).
+pub fn sech(arg: Expr) -> Expr {
+    if arg.is_zero() {
+        return Expr::from_i64(1);
+    }
+    Expr::Function("sech".to_string(), vec![arg])
+}
+
+/// Create a hyperbolic cosecant function expression: csch(x).
+pub fn csch(arg: Expr) -> Expr {
+    Expr::Function("csch".to_string(), vec![arg])
+}
+
 /// Create an inverse hyperbolic sine expression: asinh(x).
 pub fn asinh(arg: Expr) -> Expr {
     if arg.is_zero() {
@@ -658,6 +676,7 @@ mod tests {
         assert_eq!(sinh(Expr::from_i64(0)), Expr::from_i64(0));
         assert_eq!(cosh(Expr::from_i64(0)), Expr::from_i64(1));
         assert_eq!(tanh(Expr::from_i64(0)), Expr::from_i64(0));
+        assert_eq!(sech(Expr::from_i64(0)), Expr::from_i64(1));
         assert_eq!(asinh(Expr::from_i64(0)), Expr::from_i64(0));
         assert_eq!(acosh(Expr::from_i64(1)), Expr::from_i64(0));
         assert_eq!(atanh(Expr::from_i64(0)), Expr::from_i64(0));
@@ -1082,6 +1101,9 @@ mod tests {
         let _ = sinh(x.clone());
         let _ = cosh(x.clone());
         let _ = tanh(x.clone());
+        let _ = coth(x.clone());
+        let _ = sech(x.clone());
+        let _ = csch(x.clone());
         let _ = asinh(x.clone());
         let _ = acosh(x.clone());
         let _ = atanh(x.clone());
