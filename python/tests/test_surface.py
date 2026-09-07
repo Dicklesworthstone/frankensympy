@@ -1060,6 +1060,95 @@ class SurfaceTests(unittest.TestCase):
         dnf_expr = to_dnf((x | y) & z)
         self.assertIsInstance(dnf_expr, (Or, Symbol))
 
+    def test_logic_advanced(self):
+        from sympy import (
+            ITE,
+            NAND,
+            NOR,
+            Nand,
+            Nor,
+            POSform,
+            SOPform,
+            Symbol,
+            XNOR,
+            Xnor,
+            false,
+            is_nnf,
+            pl_true,
+            satisfiable,
+            to_nnf,
+            true,
+            truth_table,
+            valid,
+        )
+
+        self.assertIs(NAND, Nand)
+        self.assertIs(NOR, Nor)
+        self.assertIs(XNOR, Xnor)
+
+        x = Symbol("x")
+        y = Symbol("y")
+        z = Symbol("z")
+
+        # Nand, Nor, Xnor truth evaluations
+        self.assertEqual(Nand(true, true), false)
+        self.assertEqual(Nand(true, false), true)
+        self.assertEqual(Nor(false, false), true)
+        self.assertEqual(Nor(true, false), false)
+        self.assertEqual(Xnor(true, true), true)
+        self.assertEqual(Xnor(true, false), false)
+        self.assertEqual(Xnor(false, false), true)
+
+        # ITE
+        self.assertEqual(ITE(true, x, y), x)
+        self.assertEqual(ITE(false, x, y), y)
+        self.assertEqual(ITE(z, x, x), x)
+
+        # NNF conversion and check
+        self.assertTrue(is_nnf(x))
+        self.assertTrue(is_nnf(~x))
+        nnf1 = to_nnf(~(x & y))
+        self.assertTrue(is_nnf(nnf1))
+        self.assertTrue(valid(nnf1 ^ (~x | ~y) ^ true))  # equivalent
+        nnf2 = to_nnf(x >> y)
+        self.assertTrue(is_nnf(nnf2))
+        self.assertTrue(valid(nnf2 ^ (~x | y) ^ true))
+
+        # Truth table
+        table = list(truth_table(x & y, [x, y]))
+        self.assertEqual(
+            table,
+            [
+                ([0, 0], False),
+                ([0, 1], False),
+                ([1, 0], False),
+                ([1, 1], True),
+            ],
+        )
+
+        # SOPform and POSform
+        sop = SOPform([x, y], [3])
+        self.assertEqual(sop, x & y)
+        pos = POSform([x, y], [0])
+        self.assertEqual(pos, x | y)
+
+        # Multi-model satisfiability
+        models = list(satisfiable(x | y, all_models=True))
+        self.assertEqual(len(models), 3)
+        for m in models:
+            self.assertTrue(pl_true(x | y, m))
+
+        unsat_models = list(satisfiable(x & ~x, all_models=True))
+        self.assertEqual(unsat_models, [])
+
+        # Tautology checking (valid) and pl_true
+        self.assertTrue(valid(x | ~x))
+        self.assertFalse(valid(x & y))
+        self.assertTrue(valid((x & y) >> x))
+        self.assertTrue(pl_true(x & y, {x: True, y: True}))
+        self.assertFalse(pl_true(x & y, {x: True, y: False}))
+
+
     def test_geometry_surface(self):
         from sympy import (
             Circle,
