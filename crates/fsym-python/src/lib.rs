@@ -494,11 +494,13 @@ pub mod geometry;
 pub mod logic;
 pub mod matrix;
 pub mod sets;
+pub mod tensor;
 pub use expr::*;
 pub use geometry::*;
 pub use logic::*;
 pub use matrix::*;
 pub use sets::*;
+pub use tensor::*;
 
 /// Numeric evaluation of an expression string.
 #[pyfunction]
@@ -533,6 +535,9 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyPolygon2D>()?;
     m.add_class::<PyPlane3D>()?;
     m.add_class::<PySymSet>()?;
+    m.add_class::<PyTensorIndex>()?;
+    m.add_class::<PyTensor>()?;
+    m.add_class::<PyMetric>()?;
     m.add_function(wrap_pyfunction!(py_symbol, m)?)?;
     m.add_function(wrap_pyfunction!(py_integer_from_python, m)?)?;
     m.add_function(wrap_pyfunction!(py_rational_from_python, m)?)?;
@@ -1078,5 +1083,40 @@ mod tests {
         )
         .unwrap();
         assert!(!gb.is_empty());
+    }
+
+    #[test]
+    fn test_tensor_bindings() {
+        let mu = PyTensorIndex::upper("mu");
+        assert!(mu.is_up());
+        assert_eq!(mu.name(), "mu");
+        let mu_low = mu.flip();
+        assert!(!mu_low.is_up());
+
+        let eta = PyMetric::minkowski_4d("eta");
+        assert_eq!(eta.dimension(), 4);
+        assert_eq!(eta.matrix().len(), 16);
+
+        let v = PyTensor::new(
+            "v",
+            4,
+            vec![PyTensorIndex::upper("mu")],
+            Some(vec![
+                PyExpr::from_expr(Expr::from_i64(3)),
+                PyExpr::from_expr(Expr::from_i64(0)),
+                PyExpr::from_expr(Expr::from_i64(0)),
+                PyExpr::from_expr(Expr::from_i64(4)),
+            ]),
+        )
+        .unwrap();
+        assert_eq!(v.rank(), 1);
+
+        let v_low = eta.lower_vector(&v).unwrap();
+        assert_eq!(v_low.rank(), 1);
+        assert!(!v_low.indices()[0].is_up());
+
+        let norm_sq = eta.norm_squared(&v).unwrap();
+        // -3^2 + 0 + 0 + 4^2 = -9 + 16 = 7
+        assert_eq!(norm_sq.inner, Expr::from_i64(7));
     }
 }

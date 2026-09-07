@@ -1504,6 +1504,68 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(t[2], sympy.Integer(3))
         self.assertEqual(list(t), [sympy.Integer(1), sympy.Integer(2), sympy.Integer(3)])
 
+    def test_tensor_and_metric(self):
+        from sympy.tensor import (
+            Metric,
+            Tensor,
+            TensorIndex,
+            tensor_indices,
+            tensorcontraction,
+            tensorproduct,
+        )
+        self.assertIs(Metric, sympy.Metric)
+        self.assertIs(Tensor, sympy.Tensor)
+        self.assertIs(TensorIndex, sympy.TensorIndex)
+        self.assertIs(tensor_indices, sympy.tensor_indices)
+        self.assertIs(tensorcontraction, sympy.tensorcontraction)
+        self.assertIs(tensorproduct, sympy.tensorproduct)
+
+        # Tensor indices
+        mu, nu = tensor_indices("mu nu")
+        self.assertTrue(mu.is_up)
+        self.assertEqual(mu.name, "mu")
+        mu_low = mu.flip()
+        self.assertFalse(mu_low.is_up)
+
+        # 4D Minkowski metric
+        eta = Metric.minkowski_4d("eta")
+        self.assertEqual(eta.dimension, 4)
+        self.assertEqual(len(eta.matrix), 16)
+        self.assertEqual(eta.matrix[0], sympy.Integer(-1))
+        self.assertEqual(eta.matrix[5], sympy.Integer(1))
+
+        # Vector v^\mu = (3, 0, 0, 4)
+        v = Tensor("v", 4, [mu], [3, 0, 0, 4])
+        self.assertEqual(v.rank, 1)
+        self.assertEqual(v.dimension, 4)
+        self.assertEqual(v.components, (sympy.Integer(3), sympy.Integer(0), sympy.Integer(0), sympy.Integer(4)))
+
+        # Lower vector v_\mu = eta_{\mu\nu} v^\nu = (-3, 0, 0, 4)
+        v_low = eta.lower_vector(v)
+        self.assertEqual(v_low.rank, 1)
+        self.assertFalse(v_low.indices[0].is_up)
+        self.assertEqual(v_low.components, (sympy.Integer(-3), sympy.Integer(0), sympy.Integer(0), sympy.Integer(4)))
+
+        # Norm squared: -3^2 + 0 + 0 + 4^2 = 7
+        ns = eta.norm_squared(v)
+        self.assertEqual(ns, sympy.Integer(7))
+
+        # Inner product with itself
+        ip = eta.inner_product(v, v)
+        self.assertEqual(ip, sympy.Integer(7))
+
+        # Raise covector back to vector
+        v_recov = eta.raise_covector(v_low)
+        self.assertTrue(v_recov.indices[0].is_up)
+        self.assertEqual(v_recov.components, (sympy.Integer(3), sympy.Integer(0), sympy.Integer(0), sympy.Integer(4)))
+
+        # Outer product and contraction
+        prod = tensorproduct(v, v_low)
+        self.assertEqual(prod.rank, 2)
+        contracted = tensorcontraction(prod, ("mu", "mu"))
+        self.assertEqual(contracted.rank, 0)
+        self.assertEqual(contracted.components, (sympy.Integer(7),))
+
 
 if __name__ == "__main__":
     unittest.main()

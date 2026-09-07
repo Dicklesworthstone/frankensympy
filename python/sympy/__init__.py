@@ -466,6 +466,14 @@ from .solvers import (
     nonlinsolve,
     solve_poly_system,
 )
+from .tensor import (
+    Metric,
+    Tensor,
+    TensorIndex,
+    tensor_indices,
+    tensorcontraction,
+    tensorproduct,
+)
 
 
 __all__ = [
@@ -514,6 +522,7 @@ __all__ = [
     "Lt",
     "Matrix",
     "MatrixBase",
+    "Metric",
     "Mul",
     "MutableDenseMatrix",
     "N",
@@ -541,6 +550,8 @@ __all__ = [
     "Set",
     "Sphere",
     "Symbol",
+    "Tensor",
+    "TensorIndex",
     "Triangle",
     "Tuple",
     "UndefinedFunction",
@@ -610,6 +621,9 @@ __all__ = [
     "SympifyError",
     "tan",
     "tanh",
+    "tensor_indices",
+    "tensorcontraction",
+    "tensorproduct",
     "to_cnf",
     "to_dnf",
     "totient",
