@@ -99,7 +99,12 @@ def checkodesol(
             known_atom_names = {
                 "Add", "Mul", "Pow", "Symbol", "Integer", "Rational", "Float",
                 "exp", "sin", "cos", "tan", "sinh", "cosh", "tanh",
-                "asin", "acos", "atan", "asinh", "acosh", "atanh",
+                "cot", "sec", "csc", "coth", "sech", "csch",
+                "asin", "acos", "atan", "acot", "asec", "acsc",
+                "asinh", "acosh", "atanh", "acoth", "asech", "acsch",
+                "sinc", "erf", "erfc", "sign", "gamma", "zeta",
+                "factorial", "binomial", "fibonacci", "lucas", "harmonic",
+                "catalan", "bernoulli", "bell", "subfactorial", "floor", "ceiling",
                 "log", "ln", "sqrt", "diff", "Derivative", "Abs",
             }
             candidates = []

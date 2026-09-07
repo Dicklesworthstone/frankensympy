@@ -91,8 +91,10 @@ pub(crate) fn is_total_expr(expr: &Expr) -> bool {
         }
         Expr::Const(_) => false,
         Expr::Function(name, args) => {
-            matches!(name.as_str(), "exp" | "sin" | "cos" | "sinh" | "cosh")
-                && args.iter().all(is_total_expr)
+            matches!(
+                name.as_str(),
+                "exp" | "sin" | "cos" | "sinh" | "cosh" | "erf" | "sinc"
+            ) && args.iter().all(is_total_expr)
         }
         Expr::Add(terms) | Expr::Mul(terms) => terms.iter().all(is_total_expr),
         Expr::Pow(base, exponent) => {
@@ -491,16 +493,21 @@ fn simplify_at<M: BudgetMeter>(
             }
             if simplified_args.len() == 1 && simplified_args[0].is_zero() {
                 match name.as_str() {
-                    "sin" | "tan" | "sinh" | "tanh" | "asin" | "atan" | "asinh" | "atanh" => {
+                    "sin" | "tan" | "sinh" | "tanh" | "asin" | "atan" | "asinh" | "atanh"
+                    | "erf" => {
                         return Ok(Expr::from_i64(0));
                     }
-                    "cos" | "cosh" | "exp" => return Ok(Expr::from_i64(1)),
+                    "cos" | "cosh" | "exp" | "sec" | "sech" | "sinc" | "erfc" => {
+                        return Ok(Expr::from_i64(1));
+                    }
                     _ => {}
                 }
             }
             if simplified_args.len() == 1 && simplified_args[0].is_one() {
                 match name.as_str() {
-                    "acos" | "acosh" | "ln" | "log" => return Ok(Expr::from_i64(0)),
+                    "acos" | "acosh" | "asec" | "asech" | "ln" | "log" => {
+                        return Ok(Expr::from_i64(0));
+                    }
                     _ => {}
                 }
             }
@@ -549,6 +556,11 @@ pub fn verified_simplify<M: BudgetMeter>(
                                 | "atan"
                                 | "asinh"
                                 | "atanh"
+                                | "sec"
+                                | "sech"
+                                | "sinc"
+                                | "erf"
+                                | "erfc"
                         ) =>
                 {
                     "elementary_zero_eval"
@@ -556,7 +568,10 @@ pub fn verified_simplify<M: BudgetMeter>(
                 Expr::Function(name, args)
                     if args.len() == 1
                         && args[0].is_one()
-                        && matches!(name.as_str(), "acos" | "acosh" | "ln" | "log") =>
+                        && matches!(
+                            name.as_str(),
+                            "acos" | "acosh" | "asec" | "asech" | "ln" | "log"
+                        ) =>
                 {
                     "elementary_one_eval"
                 }
@@ -1484,5 +1499,44 @@ mod tests {
         let expr = Expr::Pow(Arc::new(base), Arc::new(Expr::from_i64(3)));
         // (x+1)^3 = x^3 + 3x^2 + 3x + 1
         assert_eq!(poly_coefficients_over_x(&expand(&expr)), vec![1, 3, 3, 1]);
+    }
+
+    #[test]
+    fn test_extended_elementary_simplifications() {
+        let zero = Expr::from_i64(0);
+        let one = Expr::from_i64(1);
+        let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
+
+        for (func, expected) in [
+            ("sec", one.clone()),
+            ("sech", one.clone()),
+            ("sinc", one.clone()),
+            ("erfc", one.clone()),
+            ("erf", zero.clone()),
+        ] {
+            let expr = Expr::Function(func.to_string(), vec![zero.clone()]);
+            assert_eq!(simplify(&expr), expected);
+            let (verified, envelope) =
+                verified_simplify(&expr, &context, ReceiptId::new(42).unwrap(), &mut Unbounded)
+                    .unwrap();
+            assert_eq!(verified, expected);
+            assert!(
+                verify_derivation_independent(envelope.derivation.as_ref().unwrap(), &context)
+                    .is_ok()
+            );
+        }
+
+        for func in ["asec", "asech"] {
+            let expr = Expr::Function(func.to_string(), vec![one.clone()]);
+            assert_eq!(simplify(&expr), zero);
+            let (verified, envelope) =
+                verified_simplify(&expr, &context, ReceiptId::new(43).unwrap(), &mut Unbounded)
+                    .unwrap();
+            assert_eq!(verified, zero);
+            assert!(
+                verify_derivation_independent(envelope.derivation.as_ref().unwrap(), &context)
+                    .is_ok()
+            );
+        }
     }
 }

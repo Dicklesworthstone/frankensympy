@@ -1291,6 +1291,10 @@ class Expr(Basic):
                     p1, q1 = ratio_self
                     p2, q2 = ratio_other
                     return Rational(p1 * q2, q1 * p2)
+                if ratio_other is not None:
+                    p2, q2 = ratio_other
+                    if p2 != 0:
+                        return _wrap(_native_expr(self) * _native_expr(Rational(q2, p2)))
             reciprocal = _native.py_pow(_native_expr(other), _native.py_integer(-1))
             return _wrap(_native_expr(self) * reciprocal)
         except TypeError:

@@ -747,6 +747,7 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyPow>()?;
     m.add_class::<PyDerivative>()?;
     m.add_class::<PyMatrix>()?;
+    m.add_class::<PySparseMatrix>()?;
     m.add_class::<PyBoolExpr>()?;
     m.add_class::<PyPoint2D>()?;
     m.add_class::<PyPoint3D>()?;
@@ -1186,6 +1187,36 @@ mod tests {
             assert_eq!(div.flat()[0].__str__(), "1/2");
             assert_eq!(div.flat()[1].__str__(), "1");
         });
+
+        // Test to_sparse conversion and PySparseMatrix
+        let sp = m.to_sparse().unwrap();
+        assert_eq!(sp.shape(), (2, 2));
+        assert_eq!(sp.nnz(), 4);
+        assert_eq!(sp.__len__(), 4);
+        let dense_roundtrip = sp.to_dense().unwrap();
+        assert_eq!(dense_roundtrip.flat()[0].__str__(), "1");
+        assert_eq!(dense_roundtrip.flat()[3].__str__(), "4");
+
+        let sp_eye = PySparseMatrix::eye(3).unwrap();
+        assert_eq!(sp_eye.shape(), (3, 3));
+        assert_eq!(sp_eye.nnz(), 3);
+        assert_eq!(sp_eye.trace().unwrap().__str__(), "3");
+
+        // Test Jacobian
+        let x2 = PyExpr::from_expr(fsym_core::Expr::pow(
+            fsym_core::Expr::symbol("x"),
+            fsym_core::Expr::from_i64(2),
+        ));
+        let xy = PyExpr::from_expr(fsym_core::Expr::Mul(vec![
+            fsym_core::Expr::symbol("x"),
+            fsym_core::Expr::symbol("y"),
+        ]));
+        let j = PyMatrix::jacobian(vec![x2, xy], vec!["x".to_string(), "y".to_string()]).unwrap();
+        assert_eq!(j.shape(), (2, 2));
+        assert_eq!(j.flat()[0].__str__(), "2*x");
+        assert_eq!(j.flat()[1].__str__(), "0");
+        assert_eq!(j.flat()[2].__str__(), "y");
+        assert_eq!(j.flat()[3].__str__(), "x");
     }
 
     #[test]

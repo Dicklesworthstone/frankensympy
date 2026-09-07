@@ -3,7 +3,7 @@
 #![forbid(unsafe_code)]
 
 use fsym_core::{BigInt, BigRational, Expr};
-use fsym_matrices::{Matrix, MatrixError};
+use fsym_matrices::{Matrix, MatrixError, SparseMatrix};
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::{PyIndexError, PyTypeError, PyValueError, PyZeroDivisionError};
 use pyo3::prelude::*;
@@ -448,5 +448,221 @@ impl PyMatrix {
             "\\left[\\begin{{matrix}}{}\\end{{matrix}}\\right]",
             row_strs.join(" \\\\ ")
         ))
+    }
+
+    /// Convert to a sparse matrix representation.
+    pub fn to_sparse(&self) -> PyResult<PySparseMatrix> {
+        let sparse = self.inner.to_sparse().map_err(matrix_err)?;
+        Ok(PySparseMatrix { inner: sparse })
+    }
+
+    /// Exact Jacobian matrix: J[i, j] = d(exprs[i]) / d(vars[j]).
+    #[staticmethod]
+    pub fn jacobian(exprs: Vec<PyExpr>, vars: Vec<String>) -> PyResult<Self> {
+        let raw_exprs: Vec<Expr> = exprs.into_iter().map(|e| e.inner).collect();
+        let symbols: Vec<fsym_core::Symbol> =
+            vars.into_iter().map(fsym_core::Symbol::new).collect();
+        let m = Matrix::jacobian(&raw_exprs, &symbols).map_err(matrix_err)?;
+        Ok(Self { inner: m })
+    }
+}
+
+/// Native sparse matrix type exposing exact algebraic sparse matrix operations.
+#[pyclass(name = "SparseMatrix", module = "fsym_python")]
+#[derive(Clone)]
+pub struct PySparseMatrix {
+    pub(crate) inner: SparseMatrix,
+}
+
+#[pymethods]
+impl PySparseMatrix {
+    /// Construct a new SparseMatrix with the given dimensions and optional coordinate-value map.
+    #[new]
+    #[pyo3(signature = (rows, cols, entries=None))]
+    pub fn new(
+        rows: usize,
+        cols: usize,
+        entries: Option<std::collections::BTreeMap<(usize, usize), PyExpr>>,
+    ) -> PyResult<Self> {
+        let raw_entries = entries
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(k, v)| (k, v.inner))
+            .collect();
+        let sm = SparseMatrix::new(rows, cols, raw_entries).map_err(matrix_err)?;
+        Ok(Self { inner: sm })
+    }
+
+    /// Construct a sparse identity matrix of size N x N.
+    #[staticmethod]
+    pub fn eye(n: usize) -> PyResult<Self> {
+        let sm = SparseMatrix::eye(n).map_err(matrix_err)?;
+        Ok(Self { inner: sm })
+    }
+
+    /// Construct a sparse zero matrix of size `rows x cols`.
+    #[staticmethod]
+    pub fn zeros(rows: usize, cols: usize) -> Self {
+        Self {
+            inner: SparseMatrix::zeros(rows, cols),
+        }
+    }
+
+    /// Matrix shape as a `(rows, cols)` tuple.
+    #[getter]
+    pub fn shape(&self) -> (usize, usize) {
+        (self.inner.rows(), self.inner.cols())
+    }
+
+    /// Number of rows.
+    #[getter]
+    pub fn rows(&self) -> usize {
+        self.inner.rows()
+    }
+
+    /// Number of columns.
+    #[getter]
+    pub fn cols(&self) -> usize {
+        self.inner.cols()
+    }
+
+    /// Number of stored non-zero entries.
+    #[getter]
+    pub fn nnz(&self) -> usize {
+        self.inner.nnz()
+    }
+
+    /// Number of elements in full shape.
+    pub fn __len__(&self) -> usize {
+        self.inner.rows() * self.inner.cols()
+    }
+
+    /// Element access: `m[r, c]`.
+    pub fn __getitem__(&self, key: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+        if let Ok(tuple) = key.cast::<PyTuple>()
+            && tuple.len() == 2
+        {
+            let r: usize = tuple.get_item(0)?.extract()?;
+            let c: usize = tuple.get_item(1)?.extract()?;
+            let entry = self.inner.get(r, c).map_err(matrix_err)?;
+            return Ok(PyExpr::from_expr(entry));
+        }
+        if let Ok(flat_idx) = key.extract::<usize>() {
+            let cols = self.inner.cols();
+            if cols == 0 {
+                return Err(PyIndexError::new_err("sparse matrix has 0 columns"));
+            }
+            let r = flat_idx / cols;
+            let c = flat_idx % cols;
+            let entry = self.inner.get(r, c).map_err(matrix_err)?;
+            return Ok(PyExpr::from_expr(entry));
+        }
+        Err(PyTypeError::new_err(
+            "SparseMatrix indices must be integers or (row, col) integer pairs",
+        ))
+    }
+
+    /// Convert to dense Matrix.
+    pub fn to_dense(&self) -> PyResult<PyMatrix> {
+        let dense = self.inner.to_dense().map_err(matrix_err)?;
+        Ok(PyMatrix { inner: dense })
+    }
+
+    /// Matrix transpose.
+    pub fn transpose(&self) -> PyResult<Self> {
+        let tr = self.inner.transpose().map_err(matrix_err)?;
+        Ok(Self { inner: tr })
+    }
+
+    /// Trace of square sparse matrix.
+    pub fn trace(&self) -> PyResult<PyExpr> {
+        let tr = self.inner.trace().map_err(matrix_err)?;
+        Ok(PyExpr::from_expr(tr))
+    }
+
+    /// Sparse matrix addition.
+    pub fn __add__(&self, other: &Self) -> PyResult<Self> {
+        let res = self.inner.add(&other.inner).map_err(matrix_err)?;
+        Ok(Self { inner: res })
+    }
+
+    /// Sparse matrix subtraction.
+    pub fn __sub__(&self, other: &Self) -> PyResult<Self> {
+        let res = self.inner.sub(&other.inner).map_err(matrix_err)?;
+        Ok(Self { inner: res })
+    }
+
+    /// Sparse matrix multiplication.
+    pub fn __matmul__(&self, other: &Self) -> PyResult<Self> {
+        let res = self.inner.matmul(&other.inner).map_err(matrix_err)?;
+        Ok(Self { inner: res })
+    }
+
+    /// Scalar or matrix multiplication.
+    pub fn __mul__(&self, other: &Bound<'_, PyAny>) -> PyResult<Self> {
+        if let Ok(other_mat) = other.extract::<PyRef<Self>>() {
+            let res = self.inner.matmul(&other_mat.inner).map_err(matrix_err)?;
+            return Ok(Self { inner: res });
+        }
+        if let Ok(scalar_expr) = other.extract::<PyRef<PyExpr>>() {
+            let res = self
+                .inner
+                .scalar_mul(&scalar_expr.inner)
+                .map_err(matrix_err)?;
+            return Ok(Self { inner: res });
+        }
+        if let Ok(int_val) = other.extract::<i64>() {
+            let scalar = Expr::from_i64(int_val);
+            let res = self.inner.scalar_mul(&scalar).map_err(matrix_err)?;
+            return Ok(Self { inner: res });
+        }
+        if let Ok(bigint) = exact_python_integer(other, "scalar") {
+            let scalar = Expr::Integer(bigint);
+            let res = self.inner.scalar_mul(&scalar).map_err(matrix_err)?;
+            return Ok(Self { inner: res });
+        }
+        Err(PyTypeError::new_err(
+            "Multiplication unsupported between SparseMatrix and the given operand",
+        ))
+    }
+
+    /// Right scalar multiplication.
+    pub fn __rmul__(&self, other: &Bound<'_, PyAny>) -> PyResult<Self> {
+        self.__mul__(other)
+    }
+
+    pub fn __richcmp__(&self, other: &Bound<'_, PyAny>, op: CompareOp) -> PyResult<bool> {
+        match op {
+            CompareOp::Eq => {
+                if let Ok(other_mat) = other.extract::<PyRef<Self>>() {
+                    Ok(self.inner == other_mat.inner)
+                } else {
+                    Ok(false)
+                }
+            }
+            CompareOp::Ne => {
+                if let Ok(other_mat) = other.extract::<PyRef<Self>>() {
+                    Ok(self.inner != other_mat.inner)
+                } else {
+                    Ok(true)
+                }
+            }
+            _ => Err(PyTypeError::new_err(
+                "Ordering comparisons not supported for SparseMatrix",
+            )),
+        }
+    }
+
+    pub fn __repr__(&self) -> String {
+        format!(
+            "SparseMatrix({}x{}, nnz={})",
+            self.inner.rows(),
+            self.inner.cols(),
+            self.inner.nnz()
+        )
+    }
+
+    pub fn __str__(&self) -> String {
+        self.__repr__()
     }
 }

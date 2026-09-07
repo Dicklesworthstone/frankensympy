@@ -157,11 +157,12 @@ pub fn standard_rules() -> Vec<RewriteRule> {
         },
         RewriteRule {
             name: "trig_zero_eval",
-            description: "sin(0) => 0, cos(0) => 1, tan(0) => 0, exp(0) => 1, sinh(0) => 0, cosh(0) => 1, tanh(0) => 0, asin(0) => 0, atan(0) => 0, asinh(0) => 0, atanh(0) => 0",
+            description: "sin(0) => 0, cos(0) => 1, tan(0) => 0, exp(0) => 1, sinh(0) => 0, cosh(0) => 1, tanh(0) => 0, asin(0) => 0, atan(0) => 0, asinh(0) => 0, atanh(0) => 0, sec(0) => 1, sech(0) => 1, sinc(0) => 1, erf(0) => 0, erfc(0) => 1",
             transform: |expr, _ctx| match expr {
                 Expr::Function(name, args) if args.len() == 1 && args[0].is_zero() => {
                     match name.as_str() {
-                        "sin" | "tan" | "sinh" | "tanh" | "asin" | "atan" | "asinh" | "atanh" => {
+                        "sin" | "tan" | "sinh" | "tanh" | "asin" | "atan" | "asinh" | "atanh"
+                        | "erf" => {
                             let out = Expr::from_i64(0);
                             Some((
                                 out.clone(),
@@ -172,7 +173,7 @@ pub fn standard_rules() -> Vec<RewriteRule> {
                                 },
                             ))
                         }
-                        "cos" | "cosh" | "exp" => {
+                        "cos" | "cosh" | "exp" | "sec" | "sech" | "sinc" | "erfc" => {
                             let out = Expr::from_i64(1);
                             Some((
                                 out.clone(),
@@ -191,11 +192,11 @@ pub fn standard_rules() -> Vec<RewriteRule> {
         },
         RewriteRule {
             name: "elementary_one_eval",
-            description: "acos(1) => 0, acosh(1) => 0, ln(1) => 0, log(1) => 0",
+            description: "acos(1) => 0, acosh(1) => 0, asec(1) => 0, asech(1) => 0, ln(1) => 0, log(1) => 0",
             transform: |expr, _ctx| match expr {
                 Expr::Function(name, args) if args.len() == 1 && args[0].is_one() => {
                     match name.as_str() {
-                        "acos" | "acosh" | "ln" | "log" => {
+                        "acos" | "acosh" | "asec" | "asech" | "ln" | "log" => {
                             let out = Expr::from_i64(0);
                             Some((
                                 out.clone(),

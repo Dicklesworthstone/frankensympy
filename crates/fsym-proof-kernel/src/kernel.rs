@@ -1502,11 +1502,12 @@ fn check_definitional_reduction(
             Expr::Function(name, args) if args.len() == 1 && args[0].is_zero() => {
                 match name.as_str() {
                     "sin" | "tan" | "sinh" | "tanh" | "asin" | "atan" | "asinh" | "atanh"
+                    | "erf"
                         if rhs.is_zero() =>
                     {
                         Ok(Claim::equality(lhs.clone(), rhs.clone()))
                     }
-                    "cos" | "cosh" | "exp" if rhs.is_one() => {
+                    "cos" | "cosh" | "exp" | "sec" | "sech" | "sinc" | "erfc" if rhs.is_one() => {
                         Ok(Claim::equality(lhs.clone(), rhs.clone()))
                     }
                     _ => Err(KernelError::InvalidDefinitionalReduction {
@@ -1523,7 +1524,7 @@ fn check_definitional_reduction(
         "elementary_one_eval" => match lhs {
             Expr::Function(name, args) if args.len() == 1 && args[0].is_one() => {
                 match name.as_str() {
-                    "acos" | "acosh" | "ln" | "log" if rhs.is_zero() => {
+                    "acos" | "acosh" | "asec" | "asech" | "ln" | "log" if rhs.is_zero() => {
                         Ok(Claim::equality(lhs.clone(), rhs.clone()))
                     }
                     _ => Err(KernelError::InvalidDefinitionalReduction {

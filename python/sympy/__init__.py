@@ -53,6 +53,29 @@ from .core import (
 )
 from .printing import srepr
 from .core import zoo as _core_zoo
+from .matrices import (
+    DenseMatrix,
+    GramSchmidt,
+    ImmutableDenseMatrix,
+    ImmutableMatrix,
+    Matrix,
+    MatrixBase,
+    MutableDenseMatrix,
+    MutableSparseMatrix,
+    SparseMatrix,
+    casoratian,
+    diag,
+    eye,
+    hadamard_product,
+    hstack,
+    jacobian,
+    kronecker_product,
+    matrix_multiply_elementwise,
+    ones,
+    vstack,
+    wronskian,
+    zeros,
+)
 
 __version__ = _native.version()
 
@@ -134,13 +157,25 @@ def solve(expression, variable=None):
         symbols = expr.free_symbols
         if len(symbols) == 1:
             symbol = next(iter(symbols))
+        elif len(symbols) == 0:
+            return []
         else:
             raise TypeError("at least one solve variable is required")
     else:
         symbol = _require_symbol(variable)
-    results = _native.solve_expr(
-        str(expr), _native_symbol_key(symbol)
-    )
+
+    if expr == 0 or (not expr.free_symbols):
+        return []
+
+    try:
+        results = _native.solve_expr(
+            str(expr), _native_symbol_key(symbol)
+        )
+    except Exception as exc:
+        msg = str(exc)
+        if "No solution found" in msg or "Infinite solutions" in msg:
+            return []
+        raise
     return [_parse_result(r) for r in results]
 
 
@@ -165,6 +200,14 @@ def solveset(expression, variable=None, domain=None):
             raise ValueError("at least one solve variable is required")
     else:
         symbol = _require_symbol(variable)
+
+    if expr == 0:
+        from .sets import UniversalSet
+        return UniversalSet()
+
+    if not expr.free_symbols:
+        from .sets import EmptySet
+        return EmptySet()
 
     try:
         results = _native.solve_expr(str(expr), _native_symbol_key(symbol))
@@ -604,11 +647,21 @@ __all__ = [
     "asin",
     "asinh",
     "atan",
+    "DenseMatrix",
+    "GramSchmidt",
+    "ImmutableDenseMatrix",
+    "ImmutableMatrix",
+    "Matrix",
+    "MatrixBase",
+    "MutableDenseMatrix",
+    "MutableSparseMatrix",
+    "SparseMatrix",
     "atanh",
     "bell",
     "bernoulli",
     "binomial",
     "carmichael",
+    "casoratian",
     "catalan",
     "ceiling",
     "checkodesol",
@@ -646,6 +699,7 @@ __all__ = [
     "gamma",
     "gcd",
     "groebner",
+    "hadamard_product",
     "harmonic",
     "hstack",
     "integer_nthroot",
@@ -655,13 +709,16 @@ __all__ = [
     "is_square_free",
     "is_squarefree",
     "isprime",
+    "jacobian",
     "jacobi_symbol",
+    "kronecker_product",
     "laplace_transform",
     "lcm",
     "legendre_symbol",
     "limit",
     "log",
     "lucas",
+    "matrix_multiply_elementwise",
     "mobius",
     "mod_inverse",
     "monic",
@@ -709,6 +766,7 @@ __all__ = [
     "totient",
     "true",
     "vstack",
+    "wronskian",
     "zeros",
     "zeta",
     "zoo",

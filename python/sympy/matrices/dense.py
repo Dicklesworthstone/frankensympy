@@ -326,6 +326,94 @@ class Matrix(MatrixBase):
     def tolist(self):
         return [[_wrap(elem) for elem in row] for row in self._native.to_list()]
 
+    @property
+    def free_symbols(self):
+        """Return the set of free symbols present in any matrix entry."""
+        syms = set()
+        for r in range(self.rows):
+            for c in range(self.cols):
+                val = self[r, c]
+                if hasattr(val, "free_symbols"):
+                    syms.update(val.free_symbols)
+        return syms
+
+    def subs(self, *args, **kwargs):
+        """Substitute symbols in all matrix entries."""
+        rows = self.rows
+        cols = self.cols
+        flat = []
+        for r in range(rows):
+            for c in range(cols):
+                val = self[r, c]
+                if hasattr(val, "subs"):
+                    flat.append(_native_expr(val.subs(*args, **kwargs)))
+                else:
+                    flat.append(_native_expr(val))
+        return Matrix(_NativeMatrix(rows, cols, flat))
+
+    def simplify(self):
+        """Simplify all matrix entries."""
+        from ..core import simplify
+        rows = self.rows
+        cols = self.cols
+        flat = []
+        for r in range(rows):
+            for c in range(cols):
+                flat.append(_native_expr(simplify(self[r, c])))
+        return Matrix(_NativeMatrix(rows, cols, flat))
+
+    def diff(self, *args):
+        """Differentiate all matrix entries."""
+        from ..core import diff
+        rows = self.rows
+        cols = self.cols
+        flat = []
+        for r in range(rows):
+            for c in range(cols):
+                flat.append(_native_expr(diff(self[r, c], *args)))
+        return Matrix(_NativeMatrix(rows, cols, flat))
+
+    def integrate(self, *args):
+        """Integrate all matrix entries."""
+        from ..integrals import integrate
+        rows = self.rows
+        cols = self.cols
+        flat = []
+        for r in range(rows):
+            for c in range(cols):
+                flat.append(_native_expr(integrate(self[r, c], *args)))
+        return Matrix(_NativeMatrix(rows, cols, flat))
+
+    def applyfunc(self, f):
+        """Apply a function elementwise to every matrix entry."""
+        rows = self.rows
+        cols = self.cols
+        flat = [_native_expr(f(self[r, c])) for r in range(rows) for c in range(cols)]
+        return Matrix(_NativeMatrix(rows, cols, flat))
+
+    def jacobian(self, X):
+        """Compute the Jacobian matrix with respect to coordinates X."""
+        from ..core import diff
+        if isinstance(X, MatrixBase):
+            vars_list = [X[i] for i in range(len(X))]
+        elif isinstance(X, (list, tuple)):
+            vars_list = list(X)
+        else:
+            vars_list = [X]
+        funcs = [self[i] for i in range(len(self))]
+        rows = len(funcs)
+        cols = len(vars_list)
+        flat = []
+        for f in funcs:
+            for v in vars_list:
+                flat.append(_native_expr(diff(f, v)))
+        return Matrix(_NativeMatrix(rows, cols, flat))
+
+    def to_sparse(self):
+        """Convert to a SparseMatrix."""
+        from .sparse import SparseMatrix
+        return SparseMatrix(self)
+
     def __len__(self):
         return len(self._native)
 
@@ -338,6 +426,32 @@ class Matrix(MatrixBase):
         if isinstance(key, int):
             return _wrap(self._native[key])
         raise TypeError("Matrix index must be an integer or (row, col) integer pair")
+
+    def __setitem__(self, key, value):
+        if isinstance(key, tuple):
+            if len(key) != 2:
+                raise IndexError("Matrix index must be a 2-tuple (row, col)")
+            r, c = key
+        elif isinstance(key, int):
+            r = key // self.cols
+            c = key % self.cols
+        else:
+            raise TypeError("Matrix index must be an integer or (row, col) integer pair")
+        r, c = int(r), int(c)
+        if r < 0:
+            r += self.rows
+        if c < 0:
+            c += self.cols
+        if not (0 <= r < self.rows and 0 <= c < self.cols):
+            raise IndexError("Matrix index out of bounds")
+        flat = []
+        for i in range(self.rows):
+            for j in range(self.cols):
+                if (i, j) == (r, c):
+                    flat.append(_native_expr(value))
+                else:
+                    flat.append(_native_expr(self[i, j]))
+        self._native = _NativeMatrix(self.rows, self.cols, flat)
 
     def __add__(self, other):
         if not isinstance(other, Matrix):
@@ -375,8 +489,10 @@ class Matrix(MatrixBase):
         raise TypeError(f"Cannot divide Matrix by {type(other)}")
 
     def __pow__(self, n):
-        if not isinstance(n, int) or n < 0:
-            raise TypeError("Matrix power only supports non-negative integers")
+        if not isinstance(n, int):
+            raise TypeError("Matrix power only supports integers")
+        if n < 0:
+            return Matrix(self.inv()._native ** (-n))
         return Matrix(self._native ** n)
 
     def __repr__(self):
@@ -466,4 +582,63 @@ def hstack(*args):
 
 def vstack(*args):
     return Matrix.vstack(*args)
+
+
+def jacobian(exprs, vars):
+    """Compute the Jacobian matrix of expressions with respect to variables."""
+    if not isinstance(exprs, MatrixBase):
+        exprs = Matrix(exprs)
+    return exprs.jacobian(vars)
+
+
+def wronskian(functions, var):
+    """Compute the Wronskian determinant of functions with respect to var."""
+    from ..core import diff
+    n = len(functions)
+    if n == 0:
+        return 1
+    rows = []
+    curr = list(functions)
+    rows.append(curr)
+    for _ in range(1, n):
+        curr = [diff(f, var) for f in curr]
+        rows.append(curr)
+    return Matrix(rows).det()
+
+
+def casoratian(seqs, n):
+    """Compute the Casoratian determinant of sequences with respect to index n."""
+    k = len(seqs)
+    if k == 0:
+        return 1
+    rows = []
+    for i in range(k):
+        rows.append([s.subs(n, n + i) if hasattr(s, "subs") else s for s in seqs])
+    return Matrix(rows).det()
+
+
+def GramSchmidt(vlist, orthonormal=False):
+    """Apply the Gram-Schmidt orthogonalization process to a list of vectors."""
+    out = []
+    for v in vlist:
+        if not isinstance(v, MatrixBase):
+            v = Matrix(v)
+        w = v
+        for u in out:
+            # projection of v onto u: (u.T * v)[0, 0] / (u.T * u)[0, 0] * u
+            numerator = (u.T * v)[0, 0]
+            denominator = (u.T * u)[0, 0]
+            w = w - (numerator / denominator) * u
+        is_zero_vec = True
+        for i in range(len(w)):
+            if w[i] != 0:
+                is_zero_vec = False
+                break
+        if not is_zero_vec:
+            if orthonormal:
+                norm_sq = (w.T * w)[0, 0]
+                from ..core import sqrt
+                w = w / sqrt(norm_sq)
+            out.append(w)
+    return out
 

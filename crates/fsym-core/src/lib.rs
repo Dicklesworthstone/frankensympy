@@ -176,14 +176,21 @@ impl Expr {
                 .map(|t| t.subs(map))
                 .reduce(|a, b| a + b)
                 .unwrap_or(Expr::from_i64(0)),
-            Expr::Mul(factors) => factors
-                .iter()
-                .map(|f| f.subs(map))
-                .reduce(|a, b| a * b)
-                .unwrap_or(Expr::from_i64(1)),
-            Expr::Pow(b, e) => Expr::Pow(Arc::new(b.subs(map)), Arc::new(e.subs(map))),
+            Expr::Mul(factors) => {
+                let new_factors: Vec<Expr> = factors.iter().map(|f| f.subs(map)).collect();
+                if new_factors.iter().any(|f| f.is_zero()) && new_factors.iter().any(has_pole) {
+                    Expr::Mul(new_factors)
+                } else {
+                    new_factors
+                        .into_iter()
+                        .reduce(|a, b| a * b)
+                        .unwrap_or(Expr::from_i64(1))
+                }
+            }
+            Expr::Pow(b, e) => fold_pow_sub(b.subs(map), e.subs(map)),
             Expr::Function(name, args) => {
-                Expr::Function(name.clone(), args.iter().map(|a| a.subs(map)).collect())
+                let new_args: Vec<Expr> = args.iter().map(|a| a.subs(map)).collect();
+                fold_fn_sub(name, new_args)
             }
         }
     }
@@ -200,18 +207,22 @@ impl Expr {
                 .map(|t| t.subs_expr(old, new))
                 .reduce(|a, b| a + b)
                 .unwrap_or(Expr::from_i64(0)),
-            Expr::Mul(factors) => factors
-                .iter()
-                .map(|f| f.subs_expr(old, new))
-                .reduce(|a, b| a * b)
-                .unwrap_or(Expr::from_i64(1)),
-            Expr::Pow(b, e) => Expr::Pow(
-                Arc::new(b.subs_expr(old, new)),
-                Arc::new(e.subs_expr(old, new)),
-            ),
+            Expr::Mul(factors) => {
+                let new_factors: Vec<Expr> =
+                    factors.iter().map(|f| f.subs_expr(old, new)).collect();
+                if new_factors.iter().any(|f| f.is_zero()) && new_factors.iter().any(has_pole) {
+                    Expr::Mul(new_factors)
+                } else {
+                    new_factors
+                        .into_iter()
+                        .reduce(|a, b| a * b)
+                        .unwrap_or(Expr::from_i64(1))
+                }
+            }
+            Expr::Pow(b, e) => fold_pow_sub(b.subs_expr(old, new), e.subs_expr(old, new)),
             Expr::Function(name, args) => {
                 let new_args: Vec<Expr> = args.iter().map(|a| a.subs_expr(old, new)).collect();
-                Expr::Function(name.clone(), new_args)
+                fold_fn_sub(name, new_args)
             }
         }
     }
@@ -291,7 +302,71 @@ impl Expr {
             _ => None,
         }
     }
+}
 
+fn fold_pow_sub(b: Expr, e: Expr) -> Expr {
+    if let Some(val) = Expr::Pow(Arc::new(b.clone()), Arc::new(e.clone())).const_integer_value() {
+        return Expr::Integer(val);
+    }
+    if b.is_one() || e.is_zero() {
+        return Expr::from_i64(1);
+    }
+    if b.is_zero() && matches!(&e, Expr::Integer(exp) if exp > &BigInt::zero()) {
+        return Expr::from_i64(0);
+    }
+    match (&b, &e) {
+        (Expr::Integer(n), Expr::Integer(exp)) if !n.is_zero() => {
+            if let Some(exp_i) = exp.to_i64()
+                && (-100..0).contains(&exp_i)
+            {
+                let p_exp = (-exp_i) as u32;
+                let den = n.pow(p_exp);
+                return Expr::Rational(BigRational::new(BigInt::one(), den));
+            }
+        }
+        (Expr::Rational(r), Expr::Integer(exp)) if !r.is_zero() => {
+            if let Some(exp_i) = exp.to_i64() {
+                if (0..=100).contains(&exp_i) {
+                    let num = r.numer().pow(exp_i as u32);
+                    let den = r.denom().pow(exp_i as u32);
+                    return Expr::Rational(BigRational::new(num, den));
+                } else if (-100..0).contains(&exp_i) {
+                    let p_exp = (-exp_i) as u32;
+                    let num = r.denom().pow(p_exp);
+                    let den = r.numer().pow(p_exp);
+                    return Expr::Rational(BigRational::new(num, den));
+                }
+            }
+        }
+        _ => {}
+    }
+    Expr::Pow(Arc::new(b), Arc::new(e))
+}
+
+fn fold_fn_sub(name: &str, args: Vec<Expr>) -> Expr {
+    if args.len() == 1 {
+        let arg = &args[0];
+        if arg.is_zero() {
+            match name {
+                "sin" | "tan" | "sinh" | "tanh" | "asin" | "atan" | "asinh" | "atanh" | "erf" => {
+                    return Expr::from_i64(0);
+                }
+                "cos" | "sec" | "cosh" | "sech" | "exp" | "sinc" | "erfc" => {
+                    return Expr::from_i64(1);
+                }
+                _ => {}
+            }
+        } else if arg.is_one() {
+            match name {
+                "log" | "ln" | "asec" | "asech" => return Expr::from_i64(0),
+                _ => {}
+            }
+        }
+    }
+    Expr::Function(name.to_string(), args)
+}
+
+impl Expr {
     /// Numeric evaluation to `f64`.
     ///
     /// Fails on free symbols, non-real constants, and functions outside the
@@ -450,11 +525,34 @@ pub fn canonicalize_add_args(terms: &mut [Expr]) {
     terms.sort_by(cmp_add_args);
 }
 
+/// Check if an expression contains a pole (division by zero, zero raised to a negative power,
+/// or an infinite/nan constant).
+pub fn has_pole(expr: &Expr) -> bool {
+    match expr {
+        Expr::Pow(b, e) => {
+            let neg = match e.as_ref() {
+                Expr::Integer(n) => n.is_negative(),
+                Expr::Rational(r) => r < &BigRational::zero(),
+                _ => false,
+            };
+            (neg && b.is_zero()) || has_pole(b) || has_pole(e)
+        }
+        Expr::Const(
+            Constant::Infinity
+            | Constant::NegativeInfinity
+            | Constant::ComplexInfinity
+            | Constant::NaN,
+        ) => true,
+        Expr::Add(ts) | Expr::Mul(ts) | Expr::Function(_, ts) => ts.iter().any(has_pole),
+        _ => false,
+    }
+}
+
 /// Folds and orders Mul factors into canonical form in place, matching
 /// pinned SymPy 1.14.0 Mul construction (bead fra-add-args-canonical-order-
 /// o1i follow-up): exact-numeric factors multiply into one leading
 /// coefficient (Integer when integral), unit factors drop, zero collapses
-/// the whole product, and remaining factors order numbers-first.
+/// the whole product (unless factors contain a pole), and remaining factors order numbers-first.
 /// Returns true when the product collapsed to the single constant.
 pub fn canonicalize_mul_args(factors: &mut Vec<Expr>) -> bool {
     let mut coeff = BigRational::from_integer(BigInt::from(1));
@@ -467,6 +565,11 @@ pub fn canonicalize_mul_args(factors: &mut Vec<Expr>) -> bool {
         }
     }
     if coeff.is_zero() && !rest.is_empty() {
+        if rest.iter().any(has_pole) {
+            factors.push(Expr::Integer(BigInt::from(0)));
+            factors.extend(rest);
+            return false;
+        }
         factors.push(Expr::Integer(BigInt::from(0)));
         return true;
     }
@@ -491,10 +594,24 @@ impl std::ops::Mul for Expr {
     type Output = Expr;
 
     fn mul(self, other: Expr) -> Expr {
-        // Exact-zero absorption: 0 * e = 0 in the exact ring. Without this,
-        // Mul(0, x) stays unexpanded on the compatibility surface
+        // Exact-zero absorption: 0 * e = 0 in the exact ring when e does not have a pole.
+        // Without this, Mul(0, x) stays unexpanded on the compatibility surface
         // (ledgered r2-corpus drift adv/held/mul_x_zero; WS07 workstream).
-        if self.is_zero() || other.is_zero() {
+        // 0 * pole is indeterminate and must NOT be absorbed into 0.
+        if self.is_zero() {
+            if has_pole(&other) {
+                let mut factors = vec![self, other];
+                canonicalize_mul_args(&mut factors);
+                return Expr::Mul(factors);
+            }
+            return Expr::from_i64(0);
+        }
+        if other.is_zero() {
+            if has_pole(&self) {
+                let mut factors = vec![self, other];
+                canonicalize_mul_args(&mut factors);
+                return Expr::Mul(factors);
+            }
             return Expr::from_i64(0);
         }
         // Unit identity: e * 1 = e (pinned oracle: x*1.args == ()).

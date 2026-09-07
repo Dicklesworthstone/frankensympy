@@ -1976,6 +1976,137 @@ class SurfaceTests(unittest.TestCase):
         sd = SymmetricDifference(s1, s2)
         self.assertIsNotNone(sd)
 
+    def test_solver_edge_cases_and_solveset(self):
+        from sympy import Symbol, EmptySet, UniversalSet, Eq, Function, diff, sec
+        from sympy.solvers.ode import checkodesol
+
+        x = Symbol("x")
+        # solve edge cases
+        self.assertEqual(sympy.solve(1, x), [])
+        self.assertEqual(sympy.solve(0, x), [])
+        self.assertEqual(sympy.solve(sympy.Integer(1), x), [])
+        self.assertEqual(sympy.solve(sympy.Integer(0), x), [])
+
+        # solveset edge cases
+        self.assertEqual(sympy.solveset(0, x), UniversalSet())
+        self.assertEqual(sympy.solveset(1, x), EmptySet())
+        self.assertEqual(sympy.solveset(sympy.Integer(0), x), UniversalSet())
+        self.assertEqual(sympy.solveset(sympy.Integer(1), x), EmptySet())
+
+        # checkodesol with trigonometric/special function ODE
+        y = Function("y")
+        ode = Eq(diff(y(x), x), sec(x))
+        # sec(x) shouldn't be confused with the unknown function
+        res = checkodesol(ode, Eq(y(x), x))
+        self.assertIsInstance(res, tuple)
+
+    def test_matrix_powers_calculus_and_sparse(self):
+        from sympy import (
+            Matrix,
+            SparseMatrix,
+            MutableSparseMatrix,
+            eye,
+            Symbol,
+            sin,
+            cos,
+            exp,
+            jacobian,
+            wronskian,
+            casoratian,
+            GramSchmidt,
+        )
+
+        # 1. Negative matrix powers and zero power
+        A = Matrix([[1, 2], [3, 4]])
+        self.assertEqual(A ** 0, eye(2))
+        self.assertEqual(A ** -1, A.inv())
+        self.assertEqual((A ** -1) * A, eye(2))
+        self.assertEqual(A ** -2, (A.inv()) ** 2)
+
+        # 2. Matrix calculus, subs, free_symbols, simplify, applyfunc
+        x = Symbol("x")
+        y = Symbol("y")
+        M = Matrix([[x**2, sin(x)], [cos(x), exp(x)]])
+        self.assertEqual(M.free_symbols, {x})
+        dM = M.diff(x)
+        self.assertEqual(dM[0, 0], 2 * x)
+        self.assertEqual(dM[0, 1], cos(x))
+        self.assertEqual(dM[1, 0], -sin(x))
+        self.assertEqual(dM[1, 1], exp(x))
+
+        intM = M.integrate(x)
+        self.assertEqual(intM[0, 0], (x**3) / 3)
+
+        M_sub = M.subs(x, 0)
+        self.assertEqual(M_sub[0, 0], sympy.Integer(0))
+        self.assertEqual(M_sub[0, 1], sympy.Integer(0))
+        self.assertEqual(M_sub[1, 0], sympy.Integer(1))
+        self.assertEqual(M_sub[1, 1], sympy.Integer(1))
+
+        M_unsimp = Matrix([[x + 0, x - x]])
+        M_simp = M_unsimp.simplify()
+        self.assertEqual(M_simp[0, 0], x)
+        self.assertEqual(M_simp[0, 1], sympy.Integer(0))
+
+        M_doubled = A.applyfunc(lambda e: e * 2)
+        self.assertEqual(M_doubled, Matrix([[2, 4], [6, 8]]))
+
+        # 3. Jacobian (method and function)
+        vec = Matrix([x**2 + y, sin(x * y)])
+        J1 = vec.jacobian([x, y])
+        J2 = jacobian(vec, [x, y])
+        self.assertEqual(J1, J2)
+        self.assertEqual(J1.shape, (2, 2))
+        self.assertEqual(J1[0, 0], 2 * x)
+        self.assertEqual(J1[0, 1], sympy.Integer(1))
+
+        # 4. Wronskian, Casoratian, GramSchmidt
+        w = wronskian([sin(x), cos(x)], x)
+        self.assertEqual(w, sympy.Integer(-1))
+
+        n = Symbol("n")
+        c = casoratian([1, n], n)
+        self.assertEqual(c, sympy.Integer(1))
+
+        v1 = Matrix([1, 0])
+        v2 = Matrix([1, 1])
+        ortho = GramSchmidt([v1, v2], orthonormal=True)
+        self.assertEqual(len(ortho), 2)
+        self.assertEqual(ortho[0], Matrix([1, 0]))
+        self.assertEqual(ortho[1], Matrix([0, 1]))
+
+        # 5. SparseMatrix and MutableSparseMatrix
+        S = SparseMatrix(2, 2, {(0, 1): 5, (1, 0): 3})
+        self.assertEqual(S.shape, (2, 2))
+        self.assertEqual(S[0, 1], sympy.Integer(5))
+        self.assertEqual(S[0, 0], sympy.Integer(0))
+        self.assertEqual(S.trace(), sympy.Integer(0))
+        dense_equiv = Matrix([[0, 5], [3, 0]])
+        self.assertEqual(S.to_dense(), dense_equiv)
+        self.assertEqual(dense_equiv.to_sparse(), S)
+
+        S_trans = S.T
+        self.assertEqual(S_trans[1, 0], sympy.Integer(5))
+        self.assertEqual(S_trans[0, 1], sympy.Integer(3))
+
+        S_add = S + S
+        self.assertEqual(S_add[0, 1], sympy.Integer(10))
+
+        MS = MutableSparseMatrix(2, 2, {(0, 0): 1})
+        MS[0, 1] = 4
+        self.assertEqual(MS[0, 1], sympy.Integer(4))
+
+    def test_extended_elementary_and_special_evaluations(self):
+        from sympy import sec, sech, sinc, erf, erfc, asec, asech
+
+        self.assertEqual(sec(0), sympy.Integer(1))
+        self.assertEqual(sech(0), sympy.Integer(1))
+        self.assertEqual(sinc(0), sympy.Integer(1))
+        self.assertEqual(erf(0), sympy.Integer(0))
+        self.assertEqual(erfc(0), sympy.Integer(1))
+        self.assertEqual(asec(1), sympy.Integer(0))
+        self.assertEqual(asech(1), sympy.Integer(0))
+
 
 if __name__ == "__main__":
     unittest.main()

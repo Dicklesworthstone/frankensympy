@@ -975,4 +975,52 @@ mod tests {
             KernelError::InvalidDefinitionalReduction { .. }
         ));
     }
+
+    #[test]
+    fn extended_elementary_zero_and_one_eval_rules_verify() {
+        let ctx = empty_context();
+        let mut kernel = ProofKernel::new(ctx.clone());
+        let zero = Expr::from_i64(0);
+        let one = Expr::from_i64(1);
+
+        for (func, expected) in [
+            ("sec", one.clone()),
+            ("sech", one.clone()),
+            ("sinc", one.clone()),
+            ("erfc", one.clone()),
+            ("erf", zero.clone()),
+        ] {
+            let lhs = Expr::Function(func.to_string(), vec![zero.clone()]);
+            let s = kernel
+                .prove_definitional_reduction(
+                    lhs.clone(),
+                    expected.clone(),
+                    "elementary_zero_eval",
+                    &mut Unbounded,
+                )
+                .unwrap();
+            let derivation = kernel.export_derivation(s).unwrap();
+            assert_eq!(
+                verify_derivation_independent(&derivation, &ctx).unwrap(),
+                Claim::equality(lhs, expected)
+            );
+        }
+
+        for func in ["asec", "asech"] {
+            let lhs = Expr::Function(func.to_string(), vec![one.clone()]);
+            let s = kernel
+                .prove_definitional_reduction(
+                    lhs.clone(),
+                    zero.clone(),
+                    "elementary_one_eval",
+                    &mut Unbounded,
+                )
+                .unwrap();
+            let derivation = kernel.export_derivation(s).unwrap();
+            assert_eq!(
+                verify_derivation_independent(&derivation, &ctx).unwrap(),
+                Claim::equality(lhs, zero.clone())
+            );
+        }
+    }
 }
