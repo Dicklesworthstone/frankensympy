@@ -14,6 +14,26 @@ import sympy
 
 
 class SurfaceTests(unittest.TestCase):
+    def test_native_operation_wrappers_do_not_parse_symbol_names_as_expressions(self):
+        # Legal atomic names must not be reinterpreted by the expression parser.
+        for name in ("x+y", "x y", "a-b", "alpha_1"):
+            with self.subTest(name=name):
+                atom = sympy.Symbol(name)
+                self.assertEqual(sympy.diff(atom**2, atom), 2 * atom)
+                self.assertEqual(sympy.diff(atom**3, atom, 2), 6 * atom)
+                self.assertEqual(sympy.expand((atom + 1)**2), atom**2 + 2*atom + 1)
+                self.assertEqual(sympy.simplify(atom + 0), atom)
+                self.assertEqual(sympy.expand(atom).free_symbols, {atom})
+
+    def test_native_operation_wrappers_preserve_distinct_dummy_atoms(self):
+        first = sympy.Dummy("x")
+        second = sympy.Dummy("x")
+        expression = first**2 + second**2
+        self.assertNotEqual(first, second)
+        self.assertEqual(sympy.diff(expression, first), 2 * first)
+        self.assertEqual(sympy.diff(expression, second), 2 * second)
+        self.assertEqual(sympy.simplify(expression).free_symbols, {first, second})
+
     def test_classes_are_usable_and_operations_preserve_surface_kind(self):
         x = sympy.Symbol("x")
         two = sympy.Integer(2)
@@ -4076,8 +4096,5 @@ class SurfaceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
-
 
 

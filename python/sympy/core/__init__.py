@@ -246,6 +246,19 @@ def _parse_result(value: str) -> "Expr":
     return _wrap(_native.Expr(value))
 
 
+def _lift_builtin_result(value: Any) -> "Basic":
+    """Lift evaluated arithmetic through shell constructors, without parsing.
+
+    Native algorithm ordering is not the Python Add/Mul argument-order
+    contract. Reconstruct only known arithmetic nodes; never invoke an
+    arbitrary Function subclass constructor or hook during lifting.
+    """
+    constructor = {"Add": Add, "Mul": Mul, "Pow": Pow}.get(value.func_name)
+    if constructor is None:
+        return _wrap(value)
+    return constructor(*(_lift_builtin_result(arg) for arg in value.args))
+
+
 def _restore_nary(cls, args):
     return cls(*args, evaluate=False)
 
@@ -2938,9 +2951,7 @@ def diff(expression: Any, *variables: Any) -> Expr:
             result = result._eval_derivative(symbol)
         else:
             try:
-                result = _parse_result(
-                    _native.diff_expr(str(_wrap(_native_expr(result))), _native_symbol_key(symbol))
-                )
+                result = _lift_builtin_result(_native_expr(result).diff(_native_symbol_key(symbol)))
             except (NotImplementedError, TypeError):
                 if hasattr(result, "_eval_derivative"):
                     result = result._eval_derivative(symbol)
@@ -2950,11 +2961,11 @@ def diff(expression: Any, *variables: Any) -> Expr:
 
 
 def expand(expression: Any) -> Expr:
-    return _parse_result(_native.expand_expr(str(_wrap(_native_expr(expression)))))
+    return _lift_builtin_result(_native_expr(expression).expand())
 
 
 def simplify(expression: Any) -> Expr:
-    return _parse_result(_native.simplify_expr(str(_wrap(_native_expr(expression)))))
+    return _lift_builtin_result(_native_expr(expression).simplify())
 
 
 class SympifyError(ValueError):
