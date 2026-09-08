@@ -7,22 +7,116 @@
 use std::process::Command;
 
 fn validator() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_gate-receipt-validator"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_gate-receipt-validator"));
+    command.arg("--source-root").arg(test_source());
+    command
+}
+
+fn test_source() -> &'static std::path::Path {
+    // Real isolated Git source, not the remote build worker's checkout metadata
+    // (RCH transfers source without .git). These are parser/identity controls,
+    // not a claim that the synthetic receipt's gate commands actually ran.
+    static SOURCE: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    SOURCE
+        .get_or_init(|| {
+            let nonce = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let root =
+                std::env::temp_dir().join(format!("xtask-source-{}-{nonce}", std::process::id()));
+            std::fs::create_dir(&root).unwrap();
+            let profiles = root.join("tools/conformance-lab/profiles");
+            std::fs::create_dir_all(&profiles).unwrap();
+            std::fs::write(root.join("Cargo.toml"), "[workspace]\n").unwrap();
+            std::fs::write(root.join("Cargo.lock"), "version = 4\n").unwrap();
+            std::fs::write(
+                root.join("rust-toolchain.toml"),
+                "[toolchain]\nchannel = \"nightly-2026-08-20\"\n",
+            )
+            .unwrap();
+            std::fs::write(
+                profiles.join("sympy-1.14.0-cpython.toml"),
+                "profile_id = \"sympy-1.14.0-cpython\"\n",
+            )
+            .unwrap();
+            for args in [
+                vec!["init", "-q"],
+                vec!["add", "."],
+                vec![
+                    "-c",
+                    "user.name=GateTest",
+                    "-c",
+                    "user.email=gate-test@example.invalid",
+                    "commit",
+                    "-qm",
+                    "isolated source fixture",
+                ],
+            ] {
+                let output = Command::new("git")
+                    .current_dir(&root)
+                    .args(args)
+                    .output()
+                    .unwrap();
+                assert!(
+                    output.status.success(),
+                    "{}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+            root
+        })
+        .as_path()
 }
 
 fn base_receipt() -> serde_json::Value {
-    serde_json::json!({
-        "schema_version": 1,
+    let source = xtask::source_snapshot(test_source()).unwrap();
+    let mut receipt = serde_json::json!({
+        "schema_version": 2,
         "gate": "foundation",
         "profile_id": "sympy-1.14.0-cpython",
         "status": "passed",
-        "commit": "0123456789abcdef0123456789abcdef01234567",
+        "commit": source.commit,
+        "source": source,
+        "profile_digest": xtask::profile_digest(test_source(), "sympy-1.14.0-cpython").unwrap(),
         "checks": [
             {"name": "workspace-forbids-unsafe", "status": "passed", "detail": "ok"},
-            {"name": "tests-fsym-id", "status": "passed", "detail": "exit=0"}
+            {"name": "source-stable-during-run", "status": "passed", "detail": "ok"},
+            {"name": "profile-input-bound", "status": "passed", "detail": "ok"}
         ],
-        "checks_digest": ""
-    })
+        "checks_digest": "", "receipt_digest": ""
+    });
+    // Synthetic parser/control data, NOT evidence these crate tests executed.
+    for name in [
+        "fsym-id",
+        "fsym-budget",
+        "fsym-outcome",
+        "fsym-bigint",
+        "fsym-rational",
+        "fsym-modular",
+    ] {
+        receipt["checks"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "name": format!("tests-{name}"), "status": "passed",
+                "detail": serde_json::json!({"command": ["cargo", "test", "-p", name],
+                    "exit_code": 0, "stdout": "test result: ok. 1 passed; 0 failed; 0 ignored;\n",
+                    "stderr": ""}).to_string()
+            }));
+    }
+    receipt
+}
+
+fn seal(receipt: &mut serde_json::Value) {
+    receipt["checks_digest"] = serde_json::Value::String(digest(receipt));
+    let mut payload = receipt.as_object().unwrap().clone();
+    payload.remove("receipt_digest");
+    receipt["receipt_digest"] = serde_json::json!(
+        blake3::hash(&serde_json::to_vec(&payload).unwrap())
+            .to_hex()
+            .to_string()
+    );
 }
 
 fn canonical(receipt: &serde_json::Value) -> String {
@@ -54,7 +148,7 @@ fn write(
     tamper: impl FnOnce(&mut serde_json::Value),
 ) -> std::path::PathBuf {
     tamper(&mut receipt);
-    receipt["checks_digest"] = serde_json::Value::String(digest(&receipt));
+    seal(&mut receipt);
     let path = tmp.join(format!("{}.json", uuidish(&receipt)));
     std::fs::write(&path, serde_json::to_string_pretty(&receipt).unwrap()).unwrap();
     path
@@ -73,7 +167,7 @@ fn well_formed_receipt_is_accepted() {
     let tmp = std::env::temp_dir().join("xtask-validator-accept");
     std::fs::create_dir_all(&tmp).unwrap();
     let mut receipt = base_receipt();
-    receipt["checks_digest"] = serde_json::Value::String(digest(&receipt));
+    seal(&mut receipt);
     let path = tmp.join("good.json");
     std::fs::write(&path, serde_json::to_string_pretty(&receipt).unwrap()).unwrap();
     let status = validator().arg(&path).status().unwrap();
@@ -125,7 +219,7 @@ fn mutant_tampered_digest_is_rejected() {
     // the mismatch (this is the mutation that kills a runner that weakens a
     // check after computing its digest).
     let mut receipt = base_receipt();
-    receipt["checks_digest"] = serde_json::Value::String(digest(&receipt));
+    seal(&mut receipt);
     receipt["checks"][0]["detail"] = serde_json::json!("tampered after signing");
     let path = tmp.join("tampered-after-signing.json");
     std::fs::write(&path, serde_json::to_string_pretty(&receipt).unwrap()).unwrap();
@@ -173,4 +267,57 @@ fn mutant_empty_checks_is_rejected() {
         !status.success(),
         "validator accepted a receipt with no checks"
     );
+}
+
+#[test]
+fn resigned_metadata_missing_check_zero_run_and_failed_gate_are_rejected() {
+    let tmp = std::env::temp_dir().join("xtask-validator-binding-mutants");
+    std::fs::create_dir_all(&tmp).unwrap();
+    for mutation in 0..9 {
+        let path = write(&tmp, base_receipt(), |receipt| match mutation {
+            0 => receipt["commit"] = serde_json::json!("unknown"),
+            1 => receipt["profile_id"] = serde_json::json!("sympy-1.14.0-cpython-r2-corpus"),
+            2 => receipt["gate"] = serde_json::json!("ws10-exact-linear"),
+            3 => {
+                receipt["checks"].as_array_mut().unwrap().pop();
+            }
+            4 => {
+                let duplicate = receipt["checks"][0].clone();
+                receipt["checks"].as_array_mut().unwrap().push(duplicate);
+            }
+            5 => receipt["source"]["inputs_digest"] = serde_json::json!("changed"),
+            6 => receipt["profile_digest"] = serde_json::json!("changed"),
+            7 => {
+                receipt["checks"][3]["detail"] = serde_json::json!(
+                    serde_json::json!({
+                        "command": ["cargo", "test", "absent-filter"], "exit_code": 0,
+                        "stdout": "test result: ok. 0 passed; 0 failed; 20 filtered out;",
+                        "stderr": ""
+                    })
+                    .to_string()
+                )
+            }
+            8 => {
+                receipt["checks"][0]["status"] = serde_json::json!("failed");
+                receipt["status"] = serde_json::json!("failed");
+            }
+            _ => unreachable!(),
+        });
+        assert!(
+            !validator().arg(path).status().unwrap().success(),
+            "mutation {mutation} survived"
+        );
+    }
+}
+
+#[test]
+fn metadata_change_without_resealing_is_rejected() {
+    let tmp = std::env::temp_dir().join("xtask-validator-metadata-digest");
+    std::fs::create_dir_all(&tmp).unwrap();
+    let mut receipt = base_receipt();
+    seal(&mut receipt);
+    receipt["profile_digest"] = serde_json::json!("tampered");
+    let path = tmp.join("metadata.json");
+    std::fs::write(&path, receipt.to_string()).unwrap();
+    assert!(!validator().arg(path).status().unwrap().success());
 }

@@ -11,10 +11,12 @@
 
 use std::collections::BTreeMap;
 use std::process::Command;
+use std::sync::OnceLock;
 
 use serde::Serialize;
 
 const RECEIPTS_DIR: &str = "artifacts/audit/receipts";
+static SOURCE_AT_START: OnceLock<xtask::SourceSnapshot> = OnceLock::new();
 
 #[derive(Debug, Clone, Serialize)]
 struct Check {
@@ -30,9 +32,12 @@ struct Receipt {
     profile_id: String,
     status: String, // "passed" | "failed"
     commit: String,
+    source: xtask::SourceSnapshot,
+    profile_digest: String,
     checks: Vec<Check>,
     /// blake3 digest over the canonical JSON of `checks` (BTreeMap ordering).
     checks_digest: String,
+    receipt_digest: String,
 }
 
 fn canonical_checks(checks: &[Check]) -> String {
@@ -57,37 +62,59 @@ fn checks_digest(checks: &[Check]) -> String {
         .to_string()
 }
 
-fn head_commit() -> String {
-    let out = Command::new("git").args(["rev-parse", "HEAD"]).output();
-    match out {
-        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).trim().to_string(),
-        _ => "unknown".to_string(),
-    }
-}
-
 fn run_command(name: &str, mut cmd: Command, checks: &mut Vec<Check>) {
+    let command: Vec<_> = std::iter::once(cmd.get_program())
+        .chain(cmd.get_args())
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
     let output = cmd.output();
     match output {
         Ok(o) if o.status.success() => checks.push(Check {
             name: name.to_string(),
-            status: "passed".into(),
-            detail: "exit=0".into(),
-        }),
-        Ok(o) => {
-            let tail = String::from_utf8_lossy(&o.stderr);
-            let tail: String = tail.lines().rev().take(3).collect::<Vec<_>>().join(" | ");
-            checks.push(Check {
-                name: name.to_string(),
-                status: "failed".into(),
-                detail: format!("exit={} tail={}", o.status.code().unwrap_or(-1), tail),
+            status: if (name.starts_with("test-") || name.starts_with("tests-"))
+                && passed_test_count(&String::from_utf8_lossy(&o.stdout)) == 0
+            {
+                "failed"
+            } else {
+                "passed"
+            }
+            .into(),
+            detail: serde_json::json!({
+                "command": command, "exit_code": 0,
+                "stdout": String::from_utf8_lossy(&o.stdout),
+                "stderr": String::from_utf8_lossy(&o.stderr),
             })
-        }
+            .to_string(),
+        }),
+        Ok(o) => checks.push(Check {
+            name: name.to_string(),
+            status: "failed".into(),
+            detail: serde_json::json!({
+                "command": command, "exit_code": o.status.code(),
+                "stdout": String::from_utf8_lossy(&o.stdout),
+                "stderr": String::from_utf8_lossy(&o.stderr),
+            })
+            .to_string(),
+        }),
         Err(e) => checks.push(Check {
             name: name.to_string(),
             status: "failed".into(),
             detail: format!("spawn error: {e}"),
         }),
     }
+}
+
+fn passed_test_count(stdout: &str) -> usize {
+    stdout
+        .lines()
+        .filter_map(|line| {
+            line.strip_prefix("test result: ok. ")?
+                .split_whitespace()
+                .next()?
+                .parse::<usize>()
+                .ok()
+        })
+        .fold(0, usize::saturating_add)
 }
 
 fn cargo() -> Command {
@@ -393,17 +420,50 @@ fn cmd_gate_ws19_solvers() -> Receipt {
     finish("ws19-solvers", "sympy-1.14.0-cpython", checks)
 }
 
-fn finish(gate: &str, profile_id: &str, checks: Vec<Check>) -> Receipt {
+fn finish(gate: &str, profile_id: &str, mut checks: Vec<Check>) -> Receipt {
+    let source = SOURCE_AT_START
+        .get()
+        .expect("source captured before execution")
+        .clone();
+    let source_stable = xtask::source_snapshot(&xtask::workspace_root()).as_ref() == Ok(&source);
+    checks.push(Check {
+        name: "source-stable-during-run".into(),
+        status: if source_stable { "passed" } else { "failed" }.into(),
+        detail: "repository input snapshot compared before and after checks".into(),
+    });
+    let profile_digest = xtask::profile_digest(&xtask::workspace_root(), profile_id);
+    checks.push(Check {
+        name: "profile-input-bound".into(),
+        status: if profile_digest.is_ok() {
+            "passed"
+        } else {
+            "failed"
+        }
+        .into(),
+        detail: profile_digest.clone().unwrap_or_else(|e| e),
+    });
     let all_passed = checks.iter().all(|c| c.status == "passed");
-    let receipt = Receipt {
-        schema_version: 1,
+    let mut receipt = Receipt {
+        schema_version: 2,
         gate: gate.to_string(),
         profile_id: profile_id.to_string(),
         status: if all_passed { "passed" } else { "failed" }.into(),
-        commit: head_commit(),
+        commit: source.commit.clone(),
+        source,
+        profile_digest: profile_digest.unwrap_or_default(),
         checks_digest: checks_digest(&checks),
         checks,
+        receipt_digest: String::new(),
     };
+    let mut payload = serde_json::to_value(&receipt).expect("receipt serializes");
+    payload
+        .as_object_mut()
+        .expect("receipt object")
+        .remove("receipt_digest");
+    receipt.receipt_digest =
+        blake3::hash(&serde_json::to_vec(&payload).expect("canonical receipt"))
+            .to_hex()
+            .to_string();
     write_receipt(&receipt);
     receipt
 }
@@ -623,6 +683,16 @@ fn print_usage() -> i32 {
 
 fn main() -> std::process::ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    let source = match xtask::source_snapshot(&xtask::workspace_root()) {
+        Ok(source) => source,
+        Err(error) => {
+            eprintln!("cannot bind gate source: {error}");
+            return std::process::ExitCode::from(2);
+        }
+    };
+    SOURCE_AT_START
+        .set(source)
+        .expect("source initialized once");
     let receipt = match args.as_slice() {
         [a, b, profile] if a == "profile" && b == "verify" => cmd_profile_verify(profile),
         [a, b] if a == "gate" && b == "foundation" => cmd_gate_foundation(),
@@ -663,4 +733,53 @@ fn main() -> std::process::ExitCode {
         RECEIPTS_DIR, receipt.gate, receipt.status, receipt.checks_digest
     );
     std::process::ExitCode::from(if receipt.status == "passed" { 0 } else { 1 })
+}
+
+#[cfg(test)]
+mod execution_tests {
+    use super::*;
+
+    #[test]
+    fn child_execution_control() {
+        assert_eq!(
+            passed_test_count("test result: ok. 0 passed; 2 filtered out;"),
+            0
+        );
+        assert_eq!(
+            passed_test_count("running 4 tests\ntest result: FAILED. 3 passed; 1 failed;"),
+            0
+        );
+        assert_eq!(passed_test_count("test result: ok. 2 passed; 0 failed;"), 2);
+    }
+
+    #[test]
+    fn actual_child_test_execution_and_zero_run_have_different_verdicts() {
+        for (filter, expected) in [
+            ("execution_tests::child_execution_control", "passed"),
+            ("this_test_filter_does_not_exist", "failed"),
+        ] {
+            let mut command = Command::new(std::env::current_exe().unwrap());
+            command.args(["--exact", filter]);
+            let mut checks = Vec::new();
+            run_command("test-child-execution", command, &mut checks);
+            assert_eq!(checks.len(), 1);
+            assert_eq!(checks[0].status, expected, "{}", checks[0].detail);
+            let detail: serde_json::Value = serde_json::from_str(&checks[0].detail).unwrap();
+            assert_eq!(detail["exit_code"], 0); // both real processes exit 0
+            assert!(
+                detail["stdout"]
+                    .as_str()
+                    .unwrap()
+                    .contains("test result: ok.")
+            );
+        }
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command.arg("--not-a-valid-test-harness-option");
+        let mut checks = Vec::new();
+        run_command("test-child-execution", command, &mut checks);
+        assert_eq!(checks[0].status, "failed");
+        let detail: serde_json::Value = serde_json::from_str(&checks[0].detail).unwrap();
+        assert_ne!(detail["exit_code"], 0);
+        assert!(!detail["stderr"].as_str().unwrap().is_empty());
+    }
 }
