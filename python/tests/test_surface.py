@@ -14,6 +14,19 @@ import sympy
 
 
 class SurfaceTests(unittest.TestCase):
+    def test_checksol_rejects_nonfinite_candidate_mappings(self):
+        x, y = sympy.symbols("x y")
+        for bad in (sympy.nan, sympy.zoo, sympy.oo, -sympy.oo):
+            with self.subTest(candidate=bad):
+                self.assertIs(sympy.checksol(x - 1, {x: 1, y: bad}), False)
+                self.assertIs(sympy.checksol(x - 1, {x: 1, y: y + bad}), False)
+                self.assertIs(sympy.checksol([x - 1, 2*x - 2], {x: 1, y: bad}), False)
+                self.assertIs(sympy.checksol(0, {x: bad}), True)
+                self.assertIs(sympy.checksol(1, {x: bad}), False)
+        self.assertIs(sympy.checksol(x - 1, {x: 1, y: 2}), True)
+        for expression in (1/x, sympy.sin(1/x), sympy.sqrt(1/x)):
+            self.assertIs(sympy.checksol(expression, x, 0), False)
+
     def test_solveset_validates_domains_and_retains_unknown_membership(self):
         x, y = sympy.symbols("x y")
         for expression in (x - 1, sympy.Integer(0), sympy.Integer(1)):

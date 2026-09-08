@@ -386,10 +386,21 @@ def checksol(expression, symbol, val=None):
         mapping = {symbol: val}
     else:
         raise ValueError("checksol requires either a mapping or (symbol, val)")
+    illegal = {S.NaN, S.ComplexInfinity, S.Infinity, S.NegativeInfinity}
+    if not expr.is_number:
+        # Validate the complete candidate before substitution can erase an
+        # unused entry or simplify an invalid value out of the residual.
+        for candidate in mapping.values():
+            if sympify(candidate).atoms() & illegal:
+                return False
     subbed = expr
     for sym, v in mapping.items():
         subbed = subbed.subs(sym, v)
+    if subbed.atoms() & illegal:
+        return False
     simplified = simplify(subbed)
+    if simplified.atoms() & illegal:
+        return False
     if simplified == 0 or getattr(simplified, "is_zero", None) is True:
         return True
     expanded = expand(subbed)
