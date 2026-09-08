@@ -339,11 +339,18 @@ def solveset(expression, variable=None, domain=None):
 
 
 def checksol(expression, symbol, val=None):
-    """Check whether ``val`` (or mapping) satisfies ``expression == 0``."""
+    """Check a solution, returning ``None`` when the result is inconclusive."""
     if isinstance(expression, (list, tuple, set)):
         if not expression:
             raise ValueError("no functions to check")
-        return all(checksol(fi, symbol, val) for fi in expression)
+        inconclusive = False
+        for equation in expression:
+            result = checksol(equation, symbol, val)
+            if result is False:
+                return False
+            if result is None:
+                inconclusive = True
+        return None if inconclusive else True
 
     if type(expression) is Eq:
         expression = expression.lhs - expression.rhs
@@ -361,7 +368,23 @@ def checksol(expression, symbol, val=None):
     if simplified == 0 or getattr(simplified, "is_zero", None) is True:
         return True
     expanded = expand(subbed)
-    return bool(expanded == 0 or getattr(expanded, "is_zero", None) is True)
+    if expanded == 0:
+        return True
+    zero_status = getattr(expanded, "is_zero", None)
+    if zero_status is not None:
+        return zero_status
+    # Failure to simplify a function or radical to zero is not a disproof.
+    # Keep the rational-expression negative lane, but leave these harder
+    # residuals inconclusive, as the compatibility checker requires.
+    pending = [expanded]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, Function):
+            return None
+        if isinstance(node, Pow) and not isinstance(node.args[1], Integer):
+            return None
+        pending.extend(node.args)
+    return False
 
 
 def laplace_transform(expression, t, s, noconds=True, **kwargs):

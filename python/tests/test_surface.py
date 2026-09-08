@@ -14,6 +14,19 @@ import sympy
 
 
 class SurfaceTests(unittest.TestCase):
+    def test_checksol_preserves_inconclusive_results_and_fuzzy_conjunction(self):
+        x, y = sympy.symbols("x y")
+        self.assertIsNone(sympy.checksol(sympy.sin(y), x, 1))
+        self.assertIsNone(sympy.checksol(sympy.sqrt(y) - y, x, 1))
+        for equations in ([sympy.sin(y), x - 1], [x - 1, sympy.sin(y)]):
+            self.assertIsNone(sympy.checksol(equations, x, 1))
+        for equations in ([sympy.sin(y), x - 2], [x - 2, sympy.sin(y)]):
+            self.assertIs(sympy.checksol(equations, x, 1), False)
+        self.assertIs(sympy.checksol(y, x, 1), False)
+        self.assertIs(sympy.checksol(x + y, x, 1), False)
+        self.assertIs(sympy.checksol(sympy.sin(x), x, 0), True)
+        self.assertIs(sympy.checksol([x - 1, 2*x - 2], x, 1), True)
+
     def test_solveset_does_not_report_refused_equations_as_empty(self):
         x = sympy.Symbol("x")
         with self.assertRaisesRegex(ValueError, "non-linear"):
