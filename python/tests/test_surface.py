@@ -14,6 +14,32 @@ import sympy
 
 
 class SurfaceTests(unittest.TestCase):
+    def test_linsolve_automatic_parameters_do_not_capture_input_symbols(self):
+        for name, parameter_name in (("x1", "tau0"), ("tau", "tau00"),
+                                     ("tau0", "tau00"), ("tau1", "tau00")):
+            value = sympy.Symbol(name)
+            parameter = sympy.Symbol(parameter_name)
+            matrix = sympy.Matrix([[1, 1, value]])
+            original = matrix.copy()
+            for system in (matrix, (sympy.Matrix([[1, 1]]), sympy.Matrix([value]))):
+                with self.subTest(name=name, system=system):
+                    solution = tuple(next(iter(sympy.linsolve(system))))
+                    self.assertEqual(solution, (value - parameter, parameter))
+                    self.assertEqual(sympy.simplify(solution[0] + solution[1] - value), 0)
+            self.assertEqual(matrix, original)
+        tau0, tau1 = sympy.symbols("tau0 tau1")
+        solution = tuple(next(iter(sympy.linsolve(sympy.Matrix([[0, 1, 0, 2]])))))
+        self.assertEqual(solution, (tau0, 2, tau1))
+        self.assertEqual(tuple(next(iter(sympy.linsolve(sympy.Matrix([[1, 2]]))))), (2,))
+        self.assertEqual(sympy.linsolve(sympy.Matrix([[0, 1]])), sympy.EmptySet())
+        # Pinned upstream also captures this name. Refuse the unsupported
+        # boundary instead of claiming that its single tuple is a full family.
+        with self.assertRaisesRegex(NotImplementedError, "parameter name collides"):
+            sympy.linsolve(sympy.Matrix([[1, 1, sympy.Symbol("tau00")]]))
+        x, y = sympy.symbols("x y")
+        self.assertEqual(tuple(next(iter(sympy.linsolve(sympy.Matrix([[1, 1, 1]]), x, y)))),
+                         (1 - y, y))
+
     def test_linear_solver_free_variable_output_contracts(self):
         x, y = sympy.symbols("x y")
         for expression in ([x + y - 1], x + y - 1):

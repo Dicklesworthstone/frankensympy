@@ -42,10 +42,10 @@ def _extract_linear_coeffs(expr, symbols):
     return coeffs, const
 
 
-def _solve_augmented_matrix_to_set(M: Matrix, sym_list: List[Symbol]) -> Set:
+def _solve_augmented_matrix_to_set(M: Matrix, sym_list: Optional[List[Symbol]]) -> Set:
     """Solve augmented matrix M using RREF and return FiniteSet or EmptySet."""
     n = M.cols - 1
-    if n != len(sym_list):
+    if sym_list is not None and n != len(sym_list):
         raise ValueError(f"Matrix columns - 1 ({n}) does not match symbols ({len(sym_list)})")
 
     rref_mat, pivots = M.rref()
@@ -57,6 +57,21 @@ def _solve_augmented_matrix_to_set(M: Matrix, sym_list: List[Symbol]) -> Set:
     pivot_row_map = {col: r for r, col in enumerate(pivots) if col < n}
     free_cols = [c for c in range(n) if c not in pivot_row_map]
 
+    if sym_list is None:
+        # Allocate only actual free parameters, after RREF. Column-numbered
+        # placeholders can capture a symbol already present in the input.
+        names = {symbol.name for symbol in M.free_symbols}
+        has_tau_name = any(name.rstrip("0123456789") == "tau" for name in names)
+        prefix = "tau0" if has_tau_name else "tau"
+        parameters = [Symbol(f"{prefix}{i}") for i in range(len(free_cols))]
+        if any(parameter.name in names for parameter in parameters):
+            # The pinned oracle also captures some names (e.g. tau00).
+            # Leave this case unsupported instead of losing solution freedom.
+            raise NotImplementedError("automatic linsolve parameter name collides with input")
+        free_values = dict(zip(free_cols, parameters))
+    else:
+        free_values = {c: sym_list[c] for c in free_cols}
+
     sol = []
     for c in range(n):
         if c in pivot_row_map:
@@ -65,11 +80,11 @@ def _solve_augmented_matrix_to_set(M: Matrix, sym_list: List[Symbol]) -> Set:
             for fc in free_cols:
                 coeff = rref_mat[r, fc]
                 if coeff != 0:
-                    val = val - coeff * sym_list[fc]
+                    val = val - coeff * free_values[fc]
             sol.append(simplify(val))
         else:
             # Free variable
-            sol.append(sym_list[c])
+            sol.append(free_values[c])
 
     return FiniteSet(tuple(sol))
 
@@ -117,14 +132,14 @@ def linsolve(system: Any, *symbols: Any) -> Set:
         M = A.row_join(b)
         n = A.cols
         if not sym_list:
-            sym_list = [Symbol(f"x{i}") for i in range(n)]
+            sym_list = None
         elif len(sym_list) != n:
             raise ValueError(f"Number of symbols ({len(sym_list)}) does not match system columns ({n})")
     elif isinstance(system, MatrixBase):
         M = system
         n = M.cols - 1
         if not sym_list:
-            sym_list = [Symbol(f"x{i}") for i in range(n)]
+            sym_list = None
         elif len(sym_list) != n:
             raise ValueError(f"Number of symbols ({len(sym_list)}) does not match matrix cols - 1 ({n})")
     elif isinstance(system, (list, tuple)):
@@ -132,7 +147,7 @@ def linsolve(system: Any, *symbols: Any) -> Set:
             M = Matrix(system)
             n = M.cols - 1
             if not sym_list:
-                sym_list = [Symbol(f"x{i}") for i in range(n)]
+                sym_list = None
             elif len(sym_list) != n:
                 raise ValueError(f"Number of symbols ({len(sym_list)}) does not match matrix cols - 1 ({n})")
         else:
