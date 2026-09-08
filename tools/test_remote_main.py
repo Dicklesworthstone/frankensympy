@@ -2,6 +2,7 @@
 
 import subprocess
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 
@@ -74,6 +75,15 @@ class RemoteMainTests(unittest.TestCase):
         for forbidden in ("contents: write", "git push", "--force", "--delete",
                           "pull_request_target", "refs/heads/master"):
             self.assertNotIn(forbidden, workflow)
+
+    def test_ci_python_version_matches_immutable_conformance_profile(self):
+        root = Path(__file__).resolve().parents[1]
+        profile = tomllib.loads(
+            (root / "tools/conformance-lab/profiles/sympy-1.14.0-cpython.toml").read_text()
+        )
+        workflow = (root / ".github/workflows/ci.yml").read_text()
+        version = profile["environment"]["python_version"]
+        self.assertIn(f'python-version: "{version}"', workflow)
 
 
 if __name__ == "__main__":
