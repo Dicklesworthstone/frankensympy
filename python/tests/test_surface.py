@@ -14,6 +14,21 @@ import sympy
 
 
 class SurfaceTests(unittest.TestCase):
+    def test_solveset_validates_domains_and_retains_unknown_membership(self):
+        x, y = sympy.symbols("x y")
+        for expression in (x - 1, sympy.Integer(0), sympy.Integer(1)):
+            for domain in (42, "invalid-domain", [1, 2]):
+                with self.subTest(expression=expression, domain=domain):
+                    with self.assertRaisesRegex(ValueError, "not a valid domain"):
+                        sympy.solveset(expression, x, domain=domain)
+        result = sympy.solveset(x - y, x, domain=sympy.S.Reals)
+        self.assertEqual(result, sympy.Intersection(sympy.FiniteSet(y), sympy.S.Reals))
+        self.assertIsNone(result.contains(y))
+        self.assertEqual(sympy.solveset(x*x - 1, x, domain=sympy.Interval(0, 2)),
+                         sympy.FiniteSet(1))
+        self.assertEqual(sympy.solveset(x - 3, x, domain=sympy.Interval(0, 2)),
+                         sympy.EmptySet())
+
     def test_checksol_preserves_inconclusive_results_and_fuzzy_conjunction(self):
         x, y = sympy.symbols("x y")
         self.assertIsNone(sympy.checksol(sympy.sin(y), x, 1))

@@ -289,6 +289,8 @@ def solveset(expression, variable=None, domain=None):
                 domain = Reals
         if isinstance(domain, type) and issubclass(domain, Set):
             domain = domain()
+        if not isinstance(domain, Set):
+            raise ValueError(f"{domain} is not a valid domain")
     if type(expression) is Eq:
         expression = expression.lhs - expression.rhs
     expr = _wrap(_native_expr(expression))
@@ -332,7 +334,30 @@ def solveset(expression, variable=None, domain=None):
         return EmptySet()
     roots = [_parse_result(r) for r in results]
     if domain is not None and isinstance(domain, Set):
-        roots = [r for r in roots if r in domain]
+        from .sets import Intersection, Interval
+        roots = [simplify(root) for root in roots]
+        if isinstance(domain, Interval):
+            # Exact nonzero rational imaginary parts exclude a candidate
+            # from every real interval, even if membership is undecidable.
+            retained = []
+            for root in roots:
+                imaginary = simplify(root.as_real_imag()[1])
+                if isinstance(imaginary, (Integer, Rational)) and imaginary != 0:
+                    continue
+                retained.append(root)
+            roots = retained
+        # Intersection preserves an undecidable membership condition instead
+        # of discarding the candidate through boolean containment coercion.
+        retained = []
+        unknown = False
+        for root in roots:
+            membership = domain.contains(root)
+            if membership is False:
+                continue
+            retained.append(root)
+            unknown = unknown or membership is None
+        candidates = FiniteSet(*retained)
+        return Intersection(candidates, domain) if unknown else candidates
     if not roots:
         return EmptySet()
     return FiniteSet(*roots)
