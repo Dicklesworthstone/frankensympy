@@ -836,7 +836,7 @@ impl Matrix {
     pub(crate) fn exact_mul(a: &Expr, b: &Expr) -> Expr {
         match (Self::numeric(a), Self::numeric(b)) {
             (Some(x), Some(y)) => from_rational(x * y),
-            _ => simplify(&Expr::Mul(vec![a.clone(), b.clone()])),
+            _ => simplify(&(a.clone() * b.clone())),
         }
     }
 
@@ -844,10 +844,7 @@ impl Matrix {
     pub(crate) fn exact_sub(a: &Expr, b: &Expr) -> Expr {
         match (Self::numeric(a), Self::numeric(b)) {
             (Some(x), Some(y)) => from_rational(x - y),
-            _ => simplify(&Expr::Add(vec![
-                a.clone(),
-                Expr::Mul(vec![Expr::from_i64(-1), b.clone()]),
-            ])),
+            _ => simplify(&(a.clone() - b.clone())),
         }
     }
 
@@ -871,7 +868,7 @@ impl Matrix {
     pub(crate) fn exact_add(a: &Expr, b: &Expr) -> Expr {
         match (Self::numeric(a), Self::numeric(b)) {
             (Some(x), Some(y)) => from_rational(x + y),
-            _ => simplify(&Expr::Add(vec![a.clone(), b.clone()])),
+            _ => simplify(&(a.clone() + b.clone())),
         }
     }
 

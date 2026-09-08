@@ -461,6 +461,22 @@ impl std::ops::Add for Expr {
     }
 }
 
+impl std::ops::Neg for Expr {
+    type Output = Expr;
+
+    fn neg(self) -> Expr {
+        self * Expr::from_i64(-1)
+    }
+}
+
+impl std::ops::Sub for Expr {
+    type Output = Expr;
+
+    fn sub(self, other: Expr) -> Expr {
+        self + (-other)
+    }
+}
+
 /// Classification rank for canonical Add argument order, mirroring the
 /// pinned SymPy 1.14.0 convention: exact numbers first (by value), then
 /// symbols (by name), then compound terms (by rendered form)
@@ -557,12 +573,21 @@ pub fn has_pole(expr: &Expr) -> bool {
 pub fn canonicalize_mul_args(factors: &mut Vec<Expr>) -> bool {
     let mut coeff = BigRational::from_integer(BigInt::from(1));
     let mut rest: Vec<Expr> = Vec::with_capacity(factors.len());
+    let mut i_count: usize = 0;
     for f in factors.drain(..) {
         match f {
             Expr::Integer(v) => coeff *= BigRational::from_integer(v),
             Expr::Rational(r) => coeff *= r,
+            Expr::Const(Constant::I) => i_count += 1,
             other => rest.push(other),
         }
+    }
+    let neg_ones = i_count / 2;
+    if neg_ones % 2 == 1 {
+        coeff *= BigRational::from_integer(BigInt::from(-1));
+    }
+    if i_count % 2 == 1 {
+        rest.push(Expr::Const(Constant::I));
     }
     if coeff.is_zero() && !rest.is_empty() {
         if rest.iter().any(has_pole) {
@@ -625,20 +650,26 @@ impl std::ops::Mul for Expr {
             (Expr::Integer(a), Expr::Integer(b)) => Expr::Integer(a * b),
             (Expr::Mul(mut factors_a), Expr::Mul(factors_b)) => {
                 factors_a.extend(factors_b);
-                canonicalize_mul_args(&mut factors_a);
-                Expr::Mul(factors_a)
+                wrap_mul_factors(factors_a)
             }
             (Expr::Mul(mut factors), single) | (single, Expr::Mul(mut factors)) => {
                 factors.push(single);
-                canonicalize_mul_args(&mut factors);
-                Expr::Mul(factors)
+                wrap_mul_factors(factors)
             }
             (a, b) => {
-                let mut factors = vec![a, b];
-                canonicalize_mul_args(&mut factors);
-                Expr::Mul(factors)
+                let factors = vec![a, b];
+                wrap_mul_factors(factors)
             }
         }
+    }
+}
+
+fn wrap_mul_factors(mut factors: Vec<Expr>) -> Expr {
+    canonicalize_mul_args(&mut factors);
+    if factors.is_empty() {
+        Expr::Integer(BigInt::from(1))
+    } else {
+        Expr::Mul(factors)
     }
 }
 
@@ -734,7 +765,13 @@ impl fmt::Display for Expr {
                 Ok(())
             }
             Expr::Pow(b, e) => {
-                let need_b_paren = matches!(b.as_ref(), Expr::Mul(_));
+                let need_b_paren = match b.as_ref() {
+                    Expr::Add(_) => false,
+                    Expr::Mul(_) | Expr::Pow(..) => true,
+                    Expr::Integer(n) => n.is_negative(),
+                    Expr::Rational(_) => true,
+                    _ => b.is_negative_leading(),
+                };
                 if need_b_paren {
                     f.write_str("(")?;
                     b.fmt(f)?;
@@ -744,19 +781,19 @@ impl fmt::Display for Expr {
                 }
                 f.write_str("**")?;
                 let need_e_paren = match e.as_ref() {
+                    Expr::Add(_) => false,
                     Expr::Integer(n) => n.is_negative(),
-                    Expr::Rational(r) => r.numer().is_negative(),
-                    Expr::Add(_) | Expr::Mul(_) => true,
+                    Expr::Rational(_) => true,
+                    Expr::Mul(_) | Expr::Pow(..) => true,
                     _ => false,
                 };
                 if need_e_paren {
                     f.write_str("(")?;
                     e.fmt(f)?;
-                    f.write_str(")")?;
+                    f.write_str(")")
                 } else {
-                    e.fmt(f)?;
+                    e.fmt(f)
                 }
-                Ok(())
             }
             Expr::Function(name, args) => {
                 f.write_str(name)?;

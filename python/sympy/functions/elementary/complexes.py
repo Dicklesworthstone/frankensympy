@@ -58,11 +58,15 @@ class conjugate(Function):
             return None
         if getattr(arg, "is_real", None) is True:
             return arg
+        from ...core import I
+        if arg == I:
+            return -I
+        if arg == -I:
+            return I
         if hasattr(arg, "as_real_imag"):
             try:
                 r, i = arg.as_real_imag()
                 if not isinstance(r, re) and not isinstance(i, im):
-                    from ...core import I
                     return r - I * i
             except Exception:
                 pass

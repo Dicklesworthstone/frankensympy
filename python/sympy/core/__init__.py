@@ -971,10 +971,13 @@ def _str_term(expr: "Expr") -> tuple[bool, str]:
                 rest.append(a)
         neg = coeff_p < 0
         coeff_p = abs(coeff_p)
-        rest_strs = [
-            _str_parenthesize(_str_expr(a), a)
-            for a in sorted(rest, key=lambda a: a.sort_key())
-        ]
+        if len(rest) <= 1:
+            rest_strs = [_str_parenthesize(_str_expr(a), a) for a in rest]
+        else:
+            rest_strs = [
+                _str_parenthesize(_str_expr(a), a)
+                for a in sorted(rest, key=lambda a: a.sort_key())
+            ]
         body = "*".join(rest_strs)
         if not rest:
             return (neg, f"{coeff_p}/{coeff_q}") if coeff_q != 1 else (neg, str(coeff_p))
@@ -1001,7 +1004,12 @@ def _str_term(expr: "Expr") -> tuple[bool, str]:
             if isinstance(const, Rational):
                 return _str_number(const)
             return False, str(_native_expr(expr))
-        rendered = [_str_term(t) for t in _add_ordered_terms(expr) if t in rest]
+        if len(rest) <= 1:
+            rendered = [_str_term(rest[0])]
+        else:
+            ordered = _add_ordered_terms(expr)
+            rest_set = set(rest)
+            rendered = [_str_term(t) for t in ordered if t in rest_set]
         first_neg, first_body = rendered[0]
         out = ("-" + first_body) if first_neg else first_body
         for neg, body in rendered[1:]:
@@ -1134,6 +1142,131 @@ class Expr(Basic):
         import sympy
         return sympy.series(self, x=x, x0=x0, n=n, dir=dir, **kwargs)
 
+    def integrate(self, *variables: Any) -> "Expr":
+        import sympy
+        return sympy.integrate(self, *variables)
+
+    def limit(self, variable: Any, point: Any, dir: str = "+-", **kwargs: Any) -> "Expr":
+        import sympy
+        return sympy.limit(self, variable=variable, point=point, dir=dir, **kwargs)
+
+    def collect(self, syms: Any, evaluate: bool = True) -> "Expr":
+        from ..simplify import collect
+        return collect(self, syms, evaluate=evaluate)
+
+    def cancel(self, *gens: Any) -> "Expr":
+        from ..polys import cancel
+        return cancel(self, *gens)
+
+    def apart(self, *gens: Any, **kwargs: Any) -> "Expr":
+        from ..polys import apart
+        return apart(self, *gens, **kwargs)
+
+    def together(self) -> "Expr":
+        from ..polys import together
+        return together(self)
+
+    def trigsimp(self, **kwargs: Any) -> "Expr":
+        from ..simplify import trigsimp
+        return trigsimp(self, **kwargs)
+
+    def powsimp(self, **kwargs: Any) -> "Expr":
+        from ..simplify import powsimp
+        return powsimp(self, **kwargs)
+
+    def radsimp(self, **kwargs: Any) -> "Expr":
+        from ..simplify import radsimp
+        return radsimp(self, **kwargs)
+
+    def nsimplify(self, **kwargs: Any) -> "Expr":
+        from ..simplify import nsimplify
+        return nsimplify(self, **kwargs)
+
+    def rewrite(self, *args: Any, **hints: Any) -> "Expr":
+        """Rewrite expression in terms of other functions (e.g. sin(x).rewrite(exp))."""
+        if not args:
+            return self
+        target = args[0]
+        target_name = target if isinstance(target, str) else getattr(target, "__name__", str(target))
+        method_name = f"_eval_rewrite_as_{target_name}"
+        if hasattr(self, method_name):
+            res = getattr(self, method_name)(*args[1:], **hints)
+            if res is not None:
+                return res
+
+        fn = getattr(getattr(self, "func", None), "__name__", "")
+        if fn == "sin" and target_name == "exp":
+            from .numbers import I, Integer
+            from ..functions import exp
+            x = self.args[0]
+            return (exp(I * x) - exp(-I * x)) / (Integer(2) * I)
+        elif fn == "cos" and target_name == "exp":
+            from .numbers import I, Integer
+            from ..functions import exp
+            x = self.args[0]
+            return (exp(I * x) + exp(-I * x)) / Integer(2)
+        elif fn == "tan" and target_name == "exp":
+            from .numbers import I
+            from ..functions import exp
+            x = self.args[0]
+            return -I * (exp(I * x) - exp(-I * x)) / (exp(I * x) + exp(-I * x))
+        elif fn == "tan" and target_name in ("sin", "cos"):
+            from ..functions import cos, sin
+            x = self.args[0]
+            return sin(x) / cos(x)
+        elif fn == "cot" and target_name in ("sin", "cos"):
+            from ..functions import cos, sin
+            x = self.args[0]
+            return cos(x) / sin(x)
+        elif fn == "sinh" and target_name == "exp":
+            from .numbers import Integer
+            from ..functions import exp
+            x = self.args[0]
+            return (exp(x) - exp(-x)) / Integer(2)
+        elif fn == "cosh" and target_name == "exp":
+            from .numbers import Integer
+            from ..functions import exp
+            x = self.args[0]
+            return (exp(x) + exp(-x)) / Integer(2)
+        elif fn == "tanh" and target_name == "exp":
+            from .numbers import Integer
+            from ..functions import exp
+            x = self.args[0]
+            return (exp(Integer(2) * x) - Integer(1)) / (exp(Integer(2) * x) + Integer(1))
+        elif fn == "factorial" and target_name == "gamma":
+            from .numbers import Integer
+            from ..functions import gamma
+            return gamma(self.args[0] + Integer(1))
+        elif fn == "gamma" and target_name == "factorial":
+            from .numbers import Integer
+            from ..functions import factorial
+            return factorial(self.args[0] - Integer(1))
+        elif fn == "binomial" and target_name == "factorial":
+            from ..functions import factorial
+            n, k = self.args[0], self.args[1]
+            return factorial(n) / (factorial(k) * factorial(n - k))
+        elif fn == "binomial" and target_name == "gamma":
+            from .numbers import Integer
+            from ..functions import gamma
+            n, k = self.args[0], self.args[1]
+            return gamma(n + Integer(1)) / (gamma(k + Integer(1)) * gamma(n - k + Integer(1)))
+        elif fn == "exp" and target_name in ("sin", "cos"):
+            from .numbers import I
+            from ..functions import cos, sin
+            x = self.args[0]
+            if hasattr(x, "as_coeff_Mul"):
+                coeff, rest = x.as_coeff_Mul()
+                if coeff == I or rest == I:
+                    y = x / I
+                    return cos(y) + I * sin(y)
+            return cos(x / I) + I * sin(x / I)
+
+        if hasattr(self, "args") and self.args:
+            new_args = [a.rewrite(*args, **hints) if hasattr(a, "rewrite") else a for a in self.args]
+            if new_args != list(self.args):
+                return self.func(*new_args)
+        return self
+
     def removeO(self) -> "Expr":
         """Remove Order terms from the expression."""
         if hasattr(self, "func") and getattr(self.func, "__name__", "") == "Order":
@@ -1153,6 +1286,11 @@ class Expr(Basic):
                 return remaining[0]
             return Add(*remaining)
         return self
+
+    def conjugate(self) -> "Expr":
+        """Return the complex conjugate of this expression."""
+        from ..functions.elementary.complexes import conjugate
+        return conjugate(self)
 
     def as_real_imag(self) -> tuple["Expr", "Expr"]:
         """Return (real_part, imaginary_part) such that self == real_part + I*imaginary_part."""
@@ -1188,8 +1326,16 @@ class Expr(Basic):
         if isinstance(self, Symbol):
             if getattr(self, "is_real", None) is True:
                 return (self, S.Zero)
-            return (re(self), im(self))
-        return (re(self), im(self))
+            return (re(self, evaluate=False), im(self, evaluate=False))
+        if type(self) is Pow:
+            base, exp = self.args
+            if getattr(base, "is_real", None) is True and getattr(exp, "is_real", None) is True:
+                try:
+                    if base >= 0:
+                        return (self, S.Zero)
+                except Exception:
+                    pass
+        return (re(self, evaluate=False), im(self, evaluate=False))
 
     def evalf(self, n: int = 15) -> "Float":
         if type(n) is not int or n < 1:
@@ -2429,6 +2575,16 @@ class Pow(Expr):
                         return _ZERO
                     if exp_int < 0:
                         return zoo
+            if base == I and exp_int is not None:
+                m = exp_int % 4
+                if m == 0:
+                    return _ONE
+                elif m == 1:
+                    return I
+                elif m == 2:
+                    return _NEGATIVE_ONE
+                else:
+                    return -I
             is_half = (
                 exponent is S.Half
                 or (isinstance(exponent, Rational) and exponent.p == 1 and exponent.q == 2)

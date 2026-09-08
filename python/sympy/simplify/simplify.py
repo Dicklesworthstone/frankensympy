@@ -26,14 +26,301 @@ def simplify(expr: Any, **kwargs: Any) -> Any:
     return _core_simplify(expr)
 
 
+def _trigsimp_pass(expr: Any) -> Any:
+    if not hasattr(expr, "args") or not expr.args:
+        return expr
+    from ..functions import cos, cot, csc, sec, sin, sinh, cosh
+
+    def get_fn(x: Any) -> str:
+        return getattr(getattr(x, "func", None), "__name__", "")
+
+    new_args = [_trigsimp_pass(a) for a in expr.args]
+    if new_args != list(expr.args):
+        expr = expr.func(*new_args)
+
+    if isinstance(expr, Add):
+        terms = list(expr.args)
+        new_terms = []
+        skip = set()
+        for i in range(len(terms)):
+            if i in skip:
+                continue
+            t1 = terms[i]
+            paired = False
+            for j in range(i + 1, len(terms)):
+                if j in skip:
+                    continue
+                t2 = terms[j]
+                # 1 + tan(u)**2 -> sec(u)**2, 1 + cot(u)**2 -> csc(u)**2
+                for one_cand, tan_cand in ((t1, t2), (t2, t1)):
+                    if one_cand == 1 and isinstance(tan_cand, Pow) and tan_cand.args[1] == 2:
+                        base = tan_cand.args[0]
+                        if get_fn(base) == "tan":
+                            new_terms.append(sec(base.args[0])**2)
+                            skip.add(j)
+                            paired = True
+                            break
+                        if get_fn(base) == "cot":
+                            new_terms.append(csc(base.args[0])**2)
+                            skip.add(j)
+                            paired = True
+                            break
+                if paired:
+                    break
+                # sin(u)**2 + cos(u)**2 -> 1
+                if isinstance(t1, Pow) and t1.args[1] == 2 and isinstance(t2, Pow) and t2.args[1] == 2:
+                    b1, b2 = t1.args[0], t2.args[0]
+                    if {get_fn(b1), get_fn(b2)} == {"sin", "cos"} and b1.args[0] == b2.args[0]:
+                        new_terms.append(Integer(1))
+                        skip.add(j)
+                        paired = True
+                        break
+            if not paired:
+                new_terms.append(t1)
+        if len(new_terms) != len(terms):
+            expr = Add(*new_terms)
+
+    elif isinstance(expr, Mul):
+        factors = list(expr.args)
+        new_factors = []
+        skip = set()
+        for i in range(len(factors)):
+            if i in skip:
+                continue
+            f1 = factors[i]
+            paired = False
+            for j in range(i + 1, len(factors)):
+                if j in skip:
+                    continue
+                f2 = factors[j]
+                fn1, fn2 = get_fn(f1), get_fn(f2)
+                # tan(u) * cos(u) -> sin(u)
+                if fn1 == "tan" and fn2 == "cos" and f1.args[0] == f2.args[0]:
+                    new_factors.append(sin(f1.args[0]))
+                    skip.add(j)
+                    paired = True
+                    break
+                if fn2 == "tan" and fn1 == "cos" and f1.args[0] == f2.args[0]:
+                    new_factors.append(sin(f1.args[0]))
+                    skip.add(j)
+                    paired = True
+                    break
+                # cot(u) * sin(u) -> cos(u)
+                if fn1 == "cot" and fn2 == "sin" and f1.args[0] == f2.args[0]:
+                    new_factors.append(cos(f1.args[0]))
+                    skip.add(j)
+                    paired = True
+                    break
+                if fn2 == "cot" and fn1 == "sin" and f1.args[0] == f2.args[0]:
+                    new_factors.append(cos(f1.args[0]))
+                    skip.add(j)
+                    paired = True
+                    break
+            if not paired:
+                new_factors.append(f1)
+        if len(new_factors) != len(factors):
+            expr = Mul(*new_factors)
+
+    return expr
+
+
 def trigsimp(expr: Any, **kwargs: Any) -> Any:
     """Trigonometric and hyperbolic expression simplification."""
-    return _core_simplify(expr)
+    expr = sympify(expr)
+    c_res = _core_simplify(expr)
+    res = _trigsimp_pass(c_res)
+    if res != c_res:
+        return _core_simplify(res)
+    return res
 
 
-def powsimp(expr: Any, **kwargs: Any) -> Any:
-    """Simplify products of powers by combining exponents."""
-    return _core_simplify(expr)
+def powsimp(expr: Any, combine: str = "all", force: bool = False, **kwargs: Any) -> Any:
+    """Simplify products of powers by combining exponents or bases."""
+    expr = sympify(expr)
+    c_res = _core_simplify(expr)
+    if not hasattr(c_res, "args") or not c_res.args:
+        return c_res
+
+    def _powsimp_pass(e: Any) -> Any:
+        if not hasattr(e, "args") or not e.args:
+            return e
+        new_args = [_powsimp_pass(a) for a in e.args]
+        if new_args != list(e.args):
+            e = e.func(*new_args)
+
+        if isinstance(e, Mul) and combine in ("base", "all"):
+            from collections import defaultdict
+            groups = defaultdict(list)
+            rest = []
+            for factor in e.args:
+                if isinstance(factor, Pow):
+                    base, p = factor.args
+                    groups[p].append(base)
+                else:
+                    rest.append(factor)
+            new_factors = list(rest)
+            changed = False
+            for p, bases in groups.items():
+                if len(bases) > 1 and (force or getattr(p, "is_integer", None) is True):
+                    new_factors.append(Pow(Mul(*bases), p))
+                    changed = True
+                else:
+                    for b in bases:
+                        new_factors.append(Pow(b, p))
+            if changed:
+                return Mul(*new_factors)
+        return e
+
+    res = _powsimp_pass(c_res)
+    return _core_simplify(res)
+
+
+def expand_trig(expr: Any, **kwargs: Any) -> Any:
+    """Expand trigonometric and hyperbolic functions using addition and multiple-angle formulas."""
+    expr = sympify(expr)
+    if not hasattr(expr, "args") or not expr.args:
+        return expr
+    from ..functions import sin, cos, tan, sinh, cosh
+    fn = getattr(getattr(expr, "func", None), "__name__", "")
+
+    if fn == "sin" and len(expr.args) == 1:
+        arg = expand_trig(expr.args[0], **kwargs)
+        if isinstance(arg, Add):
+            a = arg.args[0]
+            b = Add(*arg.args[1:]) if len(arg.args) > 2 else arg.args[1]
+            return expand_trig(sin(a)) * expand_trig(cos(b)) + expand_trig(cos(a)) * expand_trig(sin(b))
+        if isinstance(arg, Mul):
+            if len(arg.args) == 2 and arg.args[0] == 2:
+                x = arg.args[1]
+                return Integer(2) * expand_trig(sin(x)) * expand_trig(cos(x))
+        return sin(arg)
+
+    if fn == "cos" and len(expr.args) == 1:
+        arg = expand_trig(expr.args[0], **kwargs)
+        if isinstance(arg, Add):
+            a = arg.args[0]
+            b = Add(*arg.args[1:]) if len(arg.args) > 2 else arg.args[1]
+            return expand_trig(cos(a)) * expand_trig(cos(b)) - expand_trig(sin(a)) * expand_trig(sin(b))
+        if isinstance(arg, Mul):
+            if len(arg.args) == 2 and arg.args[0] == 2:
+                x = arg.args[1]
+                return Integer(2) * expand_trig(cos(x))**2 - Integer(1)
+        return cos(arg)
+
+    if fn == "tan" and len(expr.args) == 1:
+        arg = expand_trig(expr.args[0], **kwargs)
+        if isinstance(arg, Add):
+            a = arg.args[0]
+            b = Add(*arg.args[1:]) if len(arg.args) > 2 else arg.args[1]
+            t_a = expand_trig(tan(a))
+            t_b = expand_trig(tan(b))
+            return (t_a + t_b) / (Integer(1) - t_a * t_b)
+        if isinstance(arg, Mul):
+            if len(arg.args) == 2 and arg.args[0] == 2:
+                x = arg.args[1]
+                t_x = expand_trig(tan(x))
+                return (Integer(2) * t_x) / (Integer(1) - t_x**2)
+        return tan(arg)
+
+    if fn == "sinh" and len(expr.args) == 1:
+        arg = expand_trig(expr.args[0], **kwargs)
+        if isinstance(arg, Add):
+            a = arg.args[0]
+            b = Add(*arg.args[1:]) if len(arg.args) > 2 else arg.args[1]
+            return expand_trig(sinh(a)) * expand_trig(cosh(b)) + expand_trig(cosh(a)) * expand_trig(sinh(b))
+        if isinstance(arg, Mul):
+            if len(arg.args) == 2 and arg.args[0] == 2:
+                x = arg.args[1]
+                return Integer(2) * expand_trig(sinh(x)) * expand_trig(cosh(x))
+        return sinh(arg)
+
+    if fn == "cosh" and len(expr.args) == 1:
+        arg = expand_trig(expr.args[0], **kwargs)
+        if isinstance(arg, Add):
+            a = arg.args[0]
+            b = Add(*arg.args[1:]) if len(arg.args) > 2 else arg.args[1]
+            return expand_trig(cosh(a)) * expand_trig(cosh(b)) + expand_trig(sinh(a)) * expand_trig(sinh(b))
+        if isinstance(arg, Mul):
+            if len(arg.args) == 2 and arg.args[0] == 2:
+                x = arg.args[1]
+                return Integer(2) * expand_trig(cosh(x))**2 - Integer(1)
+        return cosh(arg)
+
+    new_args = [expand_trig(a, **kwargs) for a in expr.args]
+    if new_args != list(expr.args):
+        return expr.func(*new_args)
+    return expr
+
+
+def expand_log(expr: Any, force: bool = False, **kwargs: Any) -> Any:
+    """Expand logarithm terms: log(x*y) => log(x) + log(y), log(x**k) => k*log(x)."""
+    expr = sympify(expr)
+    if not hasattr(expr, "args") or not expr.args:
+        return expr
+    from ..functions import log
+    fn = getattr(getattr(expr, "func", None), "__name__", "")
+
+    if fn in ("log", "ln") and len(expr.args) == 1:
+        arg = expr.args[0]
+        if isinstance(arg, Mul):
+            if force or all(getattr(f, "is_positive", None) is True for f in arg.args):
+                terms = []
+                for f in arg.args:
+                    terms.append(expand_log(log(f), force=force, **kwargs))
+                return Add(*terms)
+        if isinstance(arg, Pow):
+            base, exponent = arg.args
+            if force or getattr(base, "is_positive", None) is True:
+                return exponent * expand_log(log(base), force=force, **kwargs)
+        return log(expand_log(arg, force=force, **kwargs))
+
+    new_args = [expand_log(a, force=force, **kwargs) for a in expr.args]
+    if new_args != list(expr.args):
+        return expr.func(*new_args)
+    return expr
+
+
+def expand_power_exp(expr: Any, **kwargs: Any) -> Any:
+    """Expand power with additive exponent: a**(b + c) => a**b * a**c."""
+    expr = sympify(expr)
+    if not hasattr(expr, "args") or not expr.args:
+        return expr
+
+    if isinstance(expr, Pow):
+        base, exp = expr.args
+        base = expand_power_exp(base, **kwargs)
+        exp = expand_power_exp(exp, **kwargs)
+        if isinstance(exp, Add):
+            factors = [expand_power_exp(Pow(base, t), **kwargs) for t in exp.args]
+            return Mul(*factors, evaluate=False)
+        return Pow(base, exp)
+
+    new_args = [expand_power_exp(a, **kwargs) for a in expr.args]
+    if new_args != list(expr.args):
+        return expr.func(*new_args)
+    return expr
+
+
+def expand_power_base(expr: Any, force: bool = False, **kwargs: Any) -> Any:
+    """Expand power with multiplicative base: (a * b)**c => a**c * b**c."""
+    expr = sympify(expr)
+    if not hasattr(expr, "args") or not expr.args:
+        return expr
+
+    if isinstance(expr, Pow):
+        base, exp = expr.args
+        base = expand_power_base(base, force=force, **kwargs)
+        exp = expand_power_base(exp, force=force, **kwargs)
+        if isinstance(base, Mul):
+            if force or getattr(exp, "is_integer", None) is True:
+                factors = [expand_power_base(Pow(f, exp), force=force, **kwargs) for f in base.args]
+                return Mul(*factors, evaluate=False)
+        return Pow(base, exp)
+
+    new_args = [expand_power_base(a, force=force, **kwargs) for a in expr.args]
+    if new_args != list(expr.args):
+        return expr.func(*new_args)
+    return expr
 
 
 def combsimp(expr: Any) -> Any:
@@ -159,15 +446,13 @@ def collect(expr: Any, syms: Any, evaluate: bool = True) -> Any:
     res_terms: list[Any] = []
     for p, coeffs in coeff_map.items():
         c_expr = Add(*coeffs) if len(coeffs) > 1 else coeffs[0]
-        if p == 1:
-            res_terms.append(c_expr * sym)
-        else:
-            res_terms.append(c_expr * Pow(sym, p))
+        term = sym if p == 1 else Pow(sym, p)
+        res_terms.append(Mul(term, c_expr, evaluate=evaluate))
     if rest:
         res_terms.extend(rest)
     if not res_terms:
         return Integer(0)
-    return Add(*res_terms) if len(res_terms) > 1 else res_terms[0]
+    return Add(*res_terms, evaluate=evaluate) if len(res_terms) > 1 else res_terms[0]
 
 
 def separatevars(expr: Any, symbols: Any = None, dict: bool = False) -> Any:

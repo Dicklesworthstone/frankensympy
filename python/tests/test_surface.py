@@ -3568,6 +3568,272 @@ class SurfaceTests(unittest.TestCase):
         # are_similar
         self.assertTrue(are_similar(Circle(p0, 1), Circle(Point(3, 4), 10)))
 
+    def test_expr_methods_completion(self):
+        x = sympy.Symbol("x")
+        y = sympy.Symbol("y")
+        z = sympy.Symbol("z")
+
+        # integrate
+        self.assertEqual((x**2).integrate(x), x**3 / 3)
+        self.assertEqual((x**2).integrate((x, 0, 1)), sympy.Rational(1, 3))
+
+        # limit
+        self.assertEqual((x**2).limit(x, 0), sympy.Integer(0))
+
+        # collect
+        self.assertEqual((x * y + x * z).collect(x), x * (y + z))
+
+        # cancel
+        self.assertEqual(((x**2 - 1) / (x - 1)).cancel(), x + 1)
+
+        # apart & together
+        part = (1 / (x**2 - 1)).apart(x)
+        self.assertEqual(part, (1 / (x - 1)) / 2 - (1 / (x + 1)) / 2)
+        tog = (1 / x + 1 / y).together()
+        self.assertEqual(tog, (x + y) / (x * y))
+
+        # trigsimp & powsimp
+        self.assertEqual((sympy.sin(x)**2 + sympy.cos(x)**2).trigsimp(), sympy.Integer(1))
+        self.assertEqual((sympy.exp(x) * sympy.exp(y)).powsimp(), sympy.exp(x + y))
+
+        # rewrite
+        self.assertEqual(
+            sympy.sin(x).rewrite(sympy.exp),
+            (sympy.exp(sympy.I * x) - sympy.exp(-sympy.I * x)) / (2 * sympy.I)
+        )
+        self.assertEqual(
+            sympy.cos(x).rewrite(sympy.exp),
+            (sympy.exp(sympy.I * x) + sympy.exp(-sympy.I * x)) / 2
+        )
+        self.assertEqual(
+            sympy.tan(x).rewrite(sympy.sin),
+            sympy.sin(x) / sympy.cos(x)
+        )
+        self.assertEqual(
+            sympy.factorial(x).rewrite(sympy.gamma),
+            sympy.gamma(x + 1)
+        )
+        self.assertEqual(
+            sympy.gamma(x).rewrite(sympy.factorial),
+            sympy.factorial(x - 1)
+        )
+
+    def test_matrix_spectral_and_exp_methods(self):
+        # Hermitian and conjugate
+        A = sympy.Matrix([[1, -sympy.I], [sympy.I, 2]])
+        self.assertEqual(A.H, A)
+        self.assertTrue(A.is_hermitian())
+        self.assertFalse(A.is_anti_hermitian())
+
+        B = sympy.Matrix([[0, sympy.I], [sympy.I, 0]])
+        self.assertEqual((-B).H, B)
+        self.assertFalse(B.is_hermitian())
+        self.assertTrue(B.is_anti_hermitian())
+
+        # Definiteness
+        pos_def = sympy.Matrix([[2, -1], [-1, 2]])
+        self.assertTrue(pos_def.is_positive_definite())
+        self.assertTrue(pos_def.is_positive_semidefinite())
+        self.assertFalse(pos_def.is_negative_definite())
+
+        pos_semi = sympy.Matrix([[1, 0], [0, 0]])
+        self.assertFalse(pos_semi.is_positive_definite())
+        self.assertTrue(pos_semi.is_positive_semidefinite())
+
+        neg_def = -pos_def
+        self.assertTrue(neg_def.is_negative_definite())
+        self.assertTrue(neg_def.is_negative_semidefinite())
+
+        # Diagonalizable and exp
+        diag_mat = sympy.Matrix([[1, 0], [0, 2]])
+        self.assertTrue(diag_mat.is_diagonalizable())
+        self.assertEqual(
+            diag_mat.exp(),
+            sympy.Matrix([[sympy.exp(1), 0], [0, sympy.exp(2)]])
+        )
+
+        nilp = sympy.Matrix([[0, 1], [0, 0]])
+        self.assertFalse(nilp.is_diagonalizable())
+        self.assertEqual(
+            nilp.exp(),
+            sympy.Matrix([[1, 1], [0, 1]])
+        )
+
+        jordan_shift = sympy.Matrix([[2, 1], [0, 2]])
+        self.assertEqual(
+            jordan_shift.exp(),
+            sympy.Matrix([[sympy.exp(2), sympy.exp(2)], [0, sympy.exp(2)]])
+        )
+
+        # Singular values & condition number
+        M = sympy.Matrix([[3, 0], [0, -2]])
+        self.assertEqual(M.singular_values(), [sympy.Integer(3), sympy.Integer(2)])
+        self.assertEqual(M.condition_number(), sympy.Rational(3, 2))
+
+    def test_polys_tools_and_sturm(self):
+        x = sympy.Symbol("x")
+
+        # div, rem, quo
+        q, r = sympy.div(x**2 - 1, x - 1)
+        self.assertEqual(q, x + 1)
+        self.assertEqual(r, sympy.Integer(0))
+        self.assertEqual(sympy.quo(x**2 - 1, x - 1), x + 1)
+        self.assertEqual(sympy.rem(x**2 - 1, x - 1), sympy.Integer(0))
+
+        # Poly div, rem, quo
+        pq, pr = sympy.div(sympy.Poly(x**2 - 1, x), sympy.Poly(x - 1, x))
+        self.assertIsInstance(pq, sympy.Poly)
+        self.assertIsInstance(pr, sympy.Poly)
+        self.assertEqual(pq, sympy.Poly(x + 1, x))
+        self.assertEqual(pr, sympy.Poly(0, x))
+
+        # sturm
+        sturm_seq = sympy.sturm(x**3 - 2 * x - 5, x)
+        self.assertEqual(len(sturm_seq), 4)
+        self.assertTrue(all(isinstance(p, sympy.Poly) for p in sturm_seq))
+        self.assertEqual(sturm_seq[0], sympy.Poly(x**3 - 2 * x - 5, x))
+        self.assertEqual(sturm_seq[1], sympy.Poly(3 * x**2 - 2, x))
+
+        # compose
+        comp_res = sympy.compose(sympy.Poly(x**2 + 1, x), sympy.Poly(2 * x, x))
+        self.assertIsInstance(comp_res, sympy.Poly)
+        self.assertEqual(comp_res, sympy.Poly(4 * x**2 + 1, x))
+
+        # decompose
+        decomp = sympy.decompose(x**4 + 2 * x**3 + 3 * x**2 + 2 * x + 1)
+        self.assertEqual(decomp, [x**2 + 2 * x + 1, x**2 + x])
+        p_decomp = sympy.Poly(x**4 + 2 * x**2 + 1, x).decompose()
+        self.assertEqual(p_decomp, [sympy.Poly(x**2 + 2 * x + 1, x), sympy.Poly(x**2, x)])
+
+    def test_expand_helpers_and_enhanced_simps(self):
+        x = sympy.Symbol("x")
+        y = sympy.Symbol("y")
+        a = sympy.Symbol("a")
+        b = sympy.Symbol("b")
+
+        # expand_trig
+        self.assertEqual(
+            sympy.expand_trig(sympy.sin(x + y)),
+            sympy.sin(x) * sympy.cos(y) + sympy.cos(x) * sympy.sin(y)
+        )
+        self.assertEqual(
+            sympy.expand_trig(sympy.sin(2 * x)),
+            2 * sympy.sin(x) * sympy.cos(x)
+        )
+        self.assertEqual(
+            sympy.expand_trig(sympy.cos(2 * x)),
+            2 * sympy.cos(x)**2 - 1
+        )
+
+        # expand_log
+        self.assertEqual(
+            sympy.expand_log(sympy.log(x * y), force=True),
+            sympy.log(x) + sympy.log(y)
+        )
+        self.assertEqual(
+            sympy.expand_log(sympy.log(x**2), force=True),
+            2 * sympy.log(x)
+        )
+
+        # expand_power_exp
+        self.assertEqual(
+            sympy.expand_power_exp(a**(x + y)),
+            a**x * a**y
+        )
+
+        # expand_power_base
+        self.assertEqual(
+            sympy.expand_power_base((a * b)**x, force=True),
+            a**x * b**x
+        )
+
+        # trigsimp
+        self.assertEqual(
+            sympy.trigsimp(sympy.sin(x)**2 + sympy.cos(x)**2),
+            sympy.Integer(1)
+        )
+        self.assertEqual(
+            sympy.trigsimp(1 + sympy.tan(x)**2),
+            sympy.sec(x)**2
+        )
+        self.assertEqual(
+            sympy.trigsimp(sympy.tan(x) * sympy.cos(x)),
+            sympy.sin(x)
+        )
+
+        # powsimp
+        self.assertEqual(
+            sympy.powsimp(x**a * x**b),
+            x**(a + b)
+        )
+        self.assertEqual(
+            sympy.powsimp(x**a * y**a, force=True),
+            (x * y)**a
+        )
+
+    def test_ntheory_residues_and_partitions(self):
+        # sqrt_mod
+        self.assertEqual(sympy.sqrt_mod(4, 7), 2)
+        self.assertEqual(sympy.sqrt_mod(4, 7, all_roots=True), [2, 5])
+        r = sympy.sqrt_mod(10, 13)
+        self.assertEqual((r * r) % 13, 10)
+
+        # quadratic_residues
+        self.assertEqual(sympy.quadratic_residues(7), [0, 1, 2, 4])
+        self.assertEqual(sympy.quadratic_residues(5), [0, 1, 4])
+
+        # is_nthpow_residue
+        self.assertTrue(sympy.is_nthpow_residue(6, 3, 7))
+        self.assertFalse(sympy.is_nthpow_residue(2, 3, 7))
+        self.assertTrue(sympy.is_nthpow_residue(1, 3, 7))
+
+        # discrete_log
+        self.assertEqual(sympy.discrete_log(41, 15, 7), 3)
+        self.assertEqual(pow(7, 3, 41), 15)
+
+        # npartitions
+        self.assertEqual([sympy.npartitions(i) for i in range(6)], [1, 1, 2, 3, 5, 7])
+        self.assertEqual(sympy.npartitions(100), 190569292)
+
+    def test_matrix_spaces_cholesky_and_pow_display(self):
+        # Columnspace and Rowspace
+        M = sympy.Matrix(3, 3, [1, 3, 0, -2, -6, 0, 3, 9, 6])
+        cs = M.columnspace()
+        self.assertEqual(len(cs), 2)
+        self.assertEqual(cs[0], sympy.Matrix([[1], [-2], [3]]))
+        self.assertEqual(cs[1], sympy.Matrix([[0], [0], [6]]))
+        self.assertEqual(M.colspace(), cs)
+
+        rs = M.rowspace()
+        self.assertEqual(len(rs), 2)
+        self.assertEqual(rs[0], sympy.Matrix([[1, 3, 0]]))
+        self.assertEqual(rs[1], sympy.Matrix([[0, 0, 1]]))
+
+        # C and adjoint properties
+        A = sympy.Matrix([[1, -sympy.I], [sympy.I, 2]])
+        self.assertEqual(A.C, sympy.Matrix([[1, sympy.I], [-sympy.I, 2]]))
+        self.assertEqual(A.adjoint(), A.H)
+
+        # Cholesky decomposition (Hermitian)
+        pos = sympy.Matrix([[25, 15, -5], [15, 18, 0], [-5, 0, 11]])
+        L = pos.cholesky()
+        self.assertEqual(L * L.T, pos)
+        self.assertEqual(L[0, 0], sympy.Integer(5))
+
+        # Cholesky with complex entries
+        Ac = sympy.Matrix([[9, 3 * sympy.I], [-3 * sympy.I, 5]])
+        Lc = sympy.cholesky(Ac)
+        self.assertEqual(Lc * Lc.H, Ac)
+        self.assertEqual(Lc[0, 0], sympy.Integer(3))
+        self.assertEqual(Lc[1, 0], -sympy.I)
+        self.assertEqual(Lc[1, 1], sympy.Integer(2))
+
+        # Pow display formatting (negative base and rational exponent parenthesization)
+        from sympy.core import _native
+        res = _native.solve_expr("x**2 + 1", "x")
+        self.assertEqual(len(res), 2)
+        self.assertIn("(-4)**(1/2)", res[0])
+
 
 if __name__ == "__main__":
     unittest.main()

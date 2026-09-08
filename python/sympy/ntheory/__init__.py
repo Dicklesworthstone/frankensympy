@@ -222,27 +222,182 @@ def perfect_power(n: Any):
     n = int(n)
     if n in (0, 1):
         return False
-    sign = -1 if n < 0 else 1
+    sgn = -1 if n < 0 else 1
     abs_n = abs(n)
     import math
     max_b = int(math.log2(abs_n))
     for b in range(max_b, 1, -1):
-        if sign == -1 and b % 2 == 0:
+        if sgn == -1 and b % 2 == 0:
             continue
         a, exact = integer_nthroot(abs_n, b)
         if exact and a > 1:
-            return (a * sign, b)
+            return (a * sgn, b)
     return False
+
+
+def sqrt_mod(a: Any, p: Any, all_roots: bool = False):
+    """Compute the square root of a modulo p: x**2 == a (mod p) via Tonelli-Shanks."""
+    a = int(a)
+    p = int(p)
+    if p <= 0:
+        raise ValueError("p must be positive")
+    a = a % p
+    if a == 0:
+        return [0] if all_roots else 0
+    if p == 2:
+        return [a] if all_roots else a
+    if pow(a, (p - 1) // 2, p) != 1:
+        return [] if all_roots else None
+    if p % 4 == 3:
+        r = pow(a, (p + 1) // 4, p)
+    else:
+        q = p - 1
+        s = 0
+        while q % 2 == 0:
+            q //= 2
+            s += 1
+        z = 2
+        while pow(z, (p - 1) // 2, p) != p - 1:
+            z += 1
+        m = s
+        c = pow(z, q, p)
+        t = pow(a, q, p)
+        r = pow(a, (q + 1) // 2, p)
+        while True:
+            if t == 0:
+                r = 0
+                break
+            if t == 1:
+                break
+            i = 0
+            temp = t
+            while temp != 1 and i < m:
+                temp = pow(temp, 2, p)
+                i += 1
+            if i == m:
+                return [] if all_roots else None
+            b = pow(c, 1 << (m - i - 1), p)
+            m = i
+            c = (b * b) % p
+            t = (t * c) % p
+            r = (r * b) % p
+
+    roots = sorted(list({r, (p - r) % p}))
+    if all_roots:
+        return roots
+    return min(roots)
+
+
+def quadratic_residues(p: Any) -> list[int]:
+    """Return the sorted list of all quadratic residues modulo p."""
+    p = int(p)
+    if p <= 0:
+        raise ValueError("p must be positive")
+    return sorted(list({(x * x) % p for x in range(p)}))
+
+
+def is_nthpow_residue(a: Any, n: Any, m: Any) -> bool:
+    """Return True if x**n == a (mod m) has an integer solution."""
+    import math
+    a = int(a)
+    n = int(n)
+    m = int(m)
+    if m <= 0:
+        raise ValueError("m must be positive")
+    if n < 0:
+        raise ValueError("n must be non-negative")
+    a = a % m
+    if a == 0:
+        return True
+    if n == 0:
+        return a == 1
+    if n == 1 or m == 1:
+        return True
+    if n == 2:
+        return is_quad_residue(a, m)
+    if m <= 10000:
+        for x in range(m):
+            if pow(x, n, m) == a:
+                return True
+        return False
+    if isprime(m):
+        g = math.gcd(n, m - 1)
+        return pow(a, (m - 1) // g, m) == 1
+    factors = factorint(m)
+    for p, e in factors.items():
+        mod = p ** e
+        a_p = a % mod
+        found = False
+        for x in range(mod):
+            if pow(x, n, mod) == a_p:
+                found = True
+                break
+        if not found:
+            return False
+    return True
+
+
+def discrete_log(n: Any, a: Any, b: Any, order: Any = None) -> int:
+    """Compute discrete logarithm x such that b**x == a (mod n) using baby-step giant-step."""
+    import math
+    n = int(n)
+    a = int(a) % n
+    b = int(b) % n
+    if a == 1:
+        return 0
+    m = int(math.isqrt(int(order) if order is not None else n)) + 1
+    tbl: dict[int, int] = {}
+    cur = 1
+    for j in range(m):
+        tbl[cur] = j
+        cur = (cur * b) % n
+    b_m = pow(b, m, n)
+    b_m_inv = pow(b_m, -1, n)
+    gamma = a
+    for i in range(m + 1):
+        if gamma in tbl:
+            return i * m + tbl[gamma]
+        gamma = (gamma * b_m_inv) % n
+    raise ValueError("Log does not exist")
+
+
+def npartitions(n: Any) -> int:
+    """Return the number of integer partitions of n via Euler's pentagonal recurrence."""
+    n = int(n)
+    if n < 0:
+        return 0
+    if n == 0:
+        return 1
+    p = [0] * (n + 1)
+    p[0] = 1
+    for i in range(1, n + 1):
+        s = 0
+        k = 1
+        while True:
+            g1 = k * (3 * k - 1) // 2
+            if g1 > i:
+                break
+            sign = 1 if (k % 2 == 1) else -1
+            s += sign * p[i - g1]
+
+            g2 = k * (3 * k + 1) // 2
+            if g2 <= i:
+                s += sign * p[i - g2]
+            k += 1
+        p[i] = s
+    return p[n]
 
 
 __all__ = [
     "carmichael",
     "crt",
+    "discrete_log",
     "divisor_count",
     "divisor_sigma",
     "divisors",
     "factorint",
     "integer_nthroot",
+    "is_nthpow_residue",
     "is_perfect",
     "is_primitive_root",
     "is_quad_residue",
@@ -255,6 +410,7 @@ __all__ = [
     "mod_inverse",
     "multiplicity",
     "nextprime",
+    "npartitions",
     "perfect_power",
     "prevprime",
     "prime",
@@ -266,6 +422,8 @@ __all__ = [
     "primepi",
     "primerange",
     "proper_divisors",
+    "quadratic_residues",
     "reduced_totient",
+    "sqrt_mod",
     "totient",
 ]

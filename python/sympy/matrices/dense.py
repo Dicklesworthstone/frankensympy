@@ -170,6 +170,41 @@ class Matrix(MatrixBase):
     def transpose(self):
         return self._new(self._native.transpose())
 
+    @property
+    def H(self):
+        """Return the Hermitian transpose (conjugate transpose)."""
+        return self.T.conjugate()
+
+    def adjoint(self):
+        """Return the Hermitian adjoint (conjugate transpose)."""
+        return self.H
+
+    @property
+    def C(self):
+        """Return the element-wise complex conjugate (SymPy property alias)."""
+        return self.conjugate()
+
+    def conjugate(self):
+        """Return the element-wise complex conjugate of this matrix."""
+        flat = []
+        for r in range(self.rows):
+            for c in range(self.cols):
+                val = self[r, c]
+                flat.append(val.conjugate() if hasattr(val, "conjugate") else val)
+        return self._new(self.rows, self.cols, flat)
+
+    def is_hermitian(self):
+        """Return True if matrix is Hermitian (equal to its conjugate transpose)."""
+        if not self.is_square:
+            return False
+        return self == self.H
+
+    def is_anti_hermitian(self):
+        """Return True if matrix is anti-Hermitian (equal to negative conjugate transpose)."""
+        if not self.is_square:
+            return False
+        return self == -self.H
+
     def trace(self):
         return _wrap(self._native.trace())
 
@@ -220,6 +255,18 @@ class Matrix(MatrixBase):
     def nullspace(self):
         bases = self._native.nullspace()
         return [self._new(b) for b in bases]
+
+    def columnspace(self):
+        """Return a list of column vectors spanning the column space of this matrix."""
+        _, pivots = self.rref()
+        return [self.col(p) for p in pivots]
+
+    colspace = columnspace
+
+    def rowspace(self):
+        """Return a list of row vectors spanning the row space of this matrix."""
+        reduced, pivots = self.rref()
+        return [reduced.row(i) for i in range(len(pivots))]
 
     def col(self, j):
         cols = self.cols
@@ -488,6 +535,296 @@ class Matrix(MatrixBase):
         P = Matrix.hstack(*all_evecs)
         D = diag(*eval_list)
         return P, D
+
+    def is_diagonalizable(self, reals_only=False):
+        """Return True if matrix is diagonalizable (and has real eigenvalues if reals_only=True)."""
+        if not self.is_square:
+            return False
+        if self.rows <= 1:
+            if self.rows == 1 and reals_only:
+                from ..core import I
+                val = self[0, 0]
+                if (hasattr(val, "has") and val.has(I)) or getattr(val, "is_real", None) is False:
+                    return False
+            return True
+        from ..core import I
+        # Diagonal check
+        is_diag = True
+        for r in range(self.rows):
+            for c in range(self.cols):
+                if r != c and self[r, c] != 0:
+                    is_diag = False
+                    break
+            if not is_diag:
+                break
+        if is_diag:
+            if reals_only:
+                for i in range(self.rows):
+                    val = self[i, i]
+                    if (hasattr(val, "has") and val.has(I)) or getattr(val, "is_real", None) is False:
+                        return False
+            return True
+
+        # Spectral theorem: all Hermitian matrices are diagonalizable over C and have real eigenvalues
+        if self.is_hermitian():
+            return True
+
+        try:
+            vects = self.eigenvects()
+            all_evecs = []
+            for ev, mult, basis in vects:
+                if reals_only:
+                    if (hasattr(ev, "has") and ev.has(I)) or getattr(ev, "is_real", None) is False:
+                        return False
+                all_evecs.extend(basis)
+            return len(all_evecs) == self.rows
+        except Exception:
+            return False
+
+    def exp(self):
+        """Return the matrix exponential exp(M)."""
+        if not self.is_square:
+            raise ValueError("Matrix exponential only defined for square matrices")
+        n = self.rows
+        if n == 0:
+            return self
+        if n == 1:
+            from ..functions import exp as spexp
+            return self._new(1, 1, [spexp(self[0, 0])])
+        from ..functions import exp as spexp
+
+        # Diagonal matrix fast path
+        is_diag = True
+        for r in range(n):
+            for c in range(n):
+                if r != c and self[r, c] != 0:
+                    is_diag = False
+                    break
+            if not is_diag:
+                break
+        if is_diag:
+            return diag(*[spexp(self[i, i]) for i in range(n)])
+
+        # Diagonalizable path
+        try:
+            if self.is_diagonalizable():
+                P, D = self.diagonalize()
+                exp_diag = [spexp(D[i, i]) for i in range(n)]
+                return P * diag(*exp_diag) * P.inv()
+        except Exception:
+            pass
+
+        # Nilpotent or shifted nilpotent expansion: (M - lambda*I)^k = 0
+        I_n = eye(n)
+        # Check if nilpotent directly
+        power = self
+        powers = [I_n]
+        is_nilpotent = False
+        from math import factorial
+        for k in range(1, n + 1):
+            if power == zeros(n, n):
+                is_nilpotent = True
+                break
+            powers.append(power)
+            power = power * self
+        if is_nilpotent:
+            res = zeros(n, n)
+            for k, p_mat in enumerate(powers):
+                res = res + p_mat * Rational(1, factorial(k))
+            return res
+
+        # Check shifted nilpotent: (M - lambda * I)^k = 0
+        try:
+            lam = self.trace() / n
+            N = self - lam * I_n
+            power = N
+            powers = [I_n]
+            is_shifted_nilpotent = False
+            for k in range(1, n + 1):
+                if power == zeros(n, n):
+                    is_shifted_nilpotent = True
+                    break
+                powers.append(power)
+                power = power * N
+            if is_shifted_nilpotent:
+                res = zeros(n, n)
+                for k, p_mat in enumerate(powers):
+                    res = res + p_mat * Rational(1, factorial(k))
+                return spexp(lam) * res
+        except Exception:
+            pass
+
+        raise NotImplementedError("Matrix exponential could not be computed in closed form")
+
+    def is_positive_definite(self):
+        """Return True if matrix is Hermitian and positive definite."""
+        if not self.is_square:
+            return False
+        if not self.is_hermitian():
+            return False
+        n = self.rows
+        if n == 0:
+            return True
+        # Sylvester criterion: all leading principal minors must be strictly positive
+        for k in range(1, n + 1):
+            sub = self[:k, :k]
+            d = sub.det()
+            if getattr(d, "is_positive", None) is True:
+                continue
+            try:
+                if d <= 0:
+                    return False
+            except TypeError:
+                return False
+        return True
+
+    def is_positive_semidefinite(self):
+        """Return True if matrix is Hermitian and positive semidefinite."""
+        if not self.is_square:
+            return False
+        if not self.is_hermitian():
+            return False
+        n = self.rows
+        if n == 0:
+            return True
+        # Check all diagonal entries >= 0 first
+        for i in range(n):
+            d = self[i, i]
+            if getattr(d, "is_negative", None) is True:
+                return False
+            try:
+                if d < 0:
+                    return False
+            except TypeError:
+                return False
+        # If determinant is negative, definitely not PSD
+        det_all = self.det()
+        try:
+            if det_all < 0:
+                return False
+        except TypeError:
+            return False
+
+        # Sylvester-Frobenius: all principal minors must be non-negative
+        import itertools
+        for k in range(1, n):
+            for cols in itertools.combinations(range(n), k):
+                cols_list = list(cols)
+                sub = self.extract(cols_list, cols_list)
+                d = sub.det()
+                try:
+                    if d < 0:
+                        return False
+                except TypeError:
+                    return False
+        return True
+
+    def is_negative_definite(self):
+        """Return True if matrix is Hermitian and negative definite."""
+        if not self.is_square:
+            return False
+        return (-self).is_positive_definite()
+
+    def is_negative_semidefinite(self):
+        """Return True if matrix is Hermitian and negative semidefinite."""
+        if not self.is_square:
+            return False
+        return (-self).is_positive_semidefinite()
+
+    def singular_values(self):
+        """Return the singular values of this matrix in descending order."""
+        if self.rows == 0 or self.cols == 0:
+            return []
+        from ..functions import sqrt
+        # Gram matrix: M^H * M (or M * M^H, whichever is smaller)
+        if self.rows >= self.cols:
+            gram = self.H * self
+        else:
+            gram = self * self.H
+
+        # If gram is 1x1
+        if gram.rows == 1:
+            val = gram[0, 0]
+            s = sqrt(val) if val >= 0 else sqrt(-val)
+            return [s]
+
+        # If gram is diagonal
+        is_diag = True
+        for r in range(gram.rows):
+            for c in range(gram.cols):
+                if r != c and gram[r, c] != 0:
+                    is_diag = False
+                    break
+            if not is_diag:
+                break
+        if is_diag:
+            s_vals = [sqrt(gram[i, i]) for i in range(gram.rows)]
+            try:
+                s_vals.sort(key=lambda s: float(s.evalf()), reverse=True)
+            except Exception:
+                pass
+            return s_vals
+
+        evals = gram.eigenvalues()
+        s_vals = []
+        for ev in evals:
+            s_vals.append(sqrt(ev))
+        try:
+            s_vals.sort(key=lambda s: float(s.evalf()), reverse=True)
+        except Exception:
+            pass
+        return s_vals
+
+    def condition_number(self):
+        """Return the condition number sigma_max / sigma_min."""
+        s = self.singular_values()
+        if not s:
+            return Rational(1)
+        s_max = s[0]
+        s_min = s[-1]
+        if s_min == 0:
+            from ..core import zoo
+            return zoo
+        return s_max / s_min
+
+    def cholesky(self, hermitian=True):
+        """Return the lower triangular Cholesky factor L such that L * L.H == self (if hermitian)
+        or L * L.T == self (if not hermitian)."""
+        from ..functions import sqrt
+        if not self.is_square:
+            raise ValueError("Matrix must be square.")
+        if hermitian and not self.is_hermitian():
+            raise ValueError("Matrix must be Hermitian.")
+        if not hermitian and not self.is_symmetric():
+            raise ValueError("Matrix must be symmetric.")
+        n = self.rows
+        if n == 0:
+            return self
+        L = zeros(n, n)
+        if hermitian:
+            for i in range(n):
+                for j in range(i):
+                    s = sum(L[i, k] * (L[j, k].conjugate() if hasattr(L[j, k], "conjugate") else L[j, k]) for k in range(j))
+                    L[i, j] = (self[i, j] - s) / L[j, j]
+                s_diag = sum(L[i, k] * (L[i, k].conjugate() if hasattr(L[i, k], "conjugate") else L[i, k]) for k in range(i))
+                rem = self[i, i] - s_diag
+                if getattr(rem, "is_positive", None) is False:
+                    raise ValueError("Matrix must be positive-definite.")
+                try:
+                    if rem <= 0:
+                        raise ValueError("Matrix must be positive-definite.")
+                except TypeError:
+                    pass
+                L[i, i] = sqrt(rem)
+        else:
+            for i in range(n):
+                for j in range(i):
+                    s = sum(L[i, k] * L[j, k] for k in range(j))
+                    L[i, j] = (self[i, j] - s) / L[j, j]
+                s_diag = sum(L[i, k]**2 for k in range(i))
+                rem = self[i, i] - s_diag
+                L[i, i] = sqrt(rem)
+        return self._new(L)
 
     def charpoly(self, x=None):
         """Return the characteristic polynomial of this square matrix."""
@@ -1191,3 +1528,10 @@ def randMatrix(
                     row.append(0)
             mat.append(row)
         return Matrix(mat)
+
+
+def cholesky(A, hermitian=True):
+    """Return the Cholesky decomposition of matrix A."""
+    if not isinstance(A, MatrixBase):
+        A = Matrix(A)
+    return A.cholesky(hermitian=hermitian)

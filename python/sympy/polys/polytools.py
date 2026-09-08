@@ -336,6 +336,15 @@ class Poly(Basic):
     def rem(self, other: Any) -> "Poly":
         return self.div(other)[1]
 
+    def quo(self, other: Any) -> "Poly":
+        return self.div(other)[0]
+
+    def sturm(self) -> List["Poly"]:
+        return sturm(self)
+
+    def decompose(self) -> List["Poly"]:
+        return decompose(self, polys=True)
+
     def resultant(self, other: Any) -> Any:
         """Resultant with respect to the primary generator."""
         other_expr = other.as_expr() if isinstance(other, Poly) else _wrap(_native_expr(other))
@@ -943,6 +952,126 @@ def poly(expr: Any, *gens: Any, **args: Any) -> Poly:
     return Poly(expr, *gens, **args)
 
 
+def div(f: Any, g: Any, *gens: Any, **kwargs: Any) -> Tuple[Any, Any]:
+    """Polynomial division with remainder returning (quotient, remainder)."""
+    is_poly = isinstance(f, Poly) or isinstance(g, Poly)
+    p_f = f if isinstance(f, Poly) else Poly(f, *gens, **kwargs)
+    p_g = g if isinstance(g, Poly) else Poly(g, *p_f.gens)
+    q, r = p_f.div(p_g)
+    if is_poly or kwargs.get("polys", False):
+        return (q, r)
+    return (q.as_expr(), r.as_expr())
+
+
+def rem(f: Any, g: Any, *gens: Any, **kwargs: Any) -> Any:
+    """Polynomial remainder of f divided by g."""
+    return div(f, g, *gens, **kwargs)[1]
+
+
+def quo(f: Any, g: Any, *gens: Any, **kwargs: Any) -> Any:
+    """Polynomial quotient of f divided by g."""
+    return div(f, g, *gens, **kwargs)[0]
+
+
+def sturm(f: Any, *gens: Any, **kwargs: Any) -> List[Poly]:
+    """Compute the Sturm sequence of a polynomial."""
+    p0 = f if isinstance(f, Poly) else Poly(f, *gens, **kwargs)
+    if p0.is_zero:
+        return []
+    p1 = p0.diff()
+    if p1.is_zero:
+        return [p0]
+    seq = [p0, p1]
+    while True:
+        r = seq[-2].rem(seq[-1])
+        if r.is_zero:
+            break
+        p_next = -r
+        seq.append(p_next)
+        if p_next.degree() == 0:
+            break
+    if not isinstance(f, Poly) and not kwargs.get("polys", True):
+        return [p.as_expr() for p in seq]
+    return seq
+
+
+def compose(f: Any, g: Any, *gens: Any, **kwargs: Any) -> Any:
+    """Compute functional composition f(g)."""
+    is_poly = isinstance(f, Poly) or isinstance(g, Poly)
+    p_f = f if isinstance(f, Poly) else Poly(f, *gens, **kwargs)
+    res = p_f.compose(g)
+    if is_poly or kwargs.get("polys", False):
+        return res
+    return res.as_expr()
+
+
+def _find_candidate_h(f_poly: Poly, s: int, x: Any) -> Poly:
+    n = f_poly.degree()
+    if n is None:
+        return Poly(x**s, x)
+    r = n // s
+    h = Poly(x**s, x)
+    for k in range(1, s):
+        h_pow = h
+        for _ in range(r - 1):
+            h_pow = h_pow * h
+        diff = f_poly - h_pow
+        coeff = diff.nth(n - k)
+        c = coeff / r
+        if c != 0:
+            h = h + Poly(c * x**(s - k), x)
+    return h
+
+
+def _decompose_poly_core(f: Poly) -> List[Poly]:
+    if len(f.gens) != 1:
+        return [f]
+    deg = f.degree()
+    if deg is None or deg <= 1:
+        return [f]
+    x = f.gen
+    lc = f.leading_coeff()
+    f_monic = f if lc == 1 else Poly(f.as_expr() / lc, x)
+    n = f_monic.degree()
+    if n is None:
+        return [f]
+    for s in range(2, n):
+        if n % s != 0:
+            continue
+        r = n // s
+        h = _find_candidate_h(f_monic, s, x)
+        q = f_monic
+        coeffs = []
+        possible = True
+        for _ in range(r):
+            q, remainder = q.div(h)
+            if remainder.degree() is not None and remainder.degree() > 0:
+                possible = False
+                break
+            coeffs.append(remainder.nth(0))
+        if not possible:
+            continue
+        if q.degree() is not None and q.degree() > 0:
+            continue
+        coeffs.append(q.nth(0))
+        g_expr = sum(c * x**i for i, c in enumerate(coeffs))
+        if lc != 1:
+            g_expr = lc * g_expr
+        g = Poly(g_expr, x)
+        return _decompose_poly_core(g) + _decompose_poly_core(h)
+    return [f]
+
+
+def decompose(f: Any, *gens: Any, **kwargs: Any) -> List[Any]:
+    """Compute the functional decomposition of a polynomial."""
+    is_poly = isinstance(f, Poly)
+    p_f = f if isinstance(f, Poly) else Poly(f, *gens, **kwargs)
+    res = _decompose_poly_core(p_f)
+    if is_poly or kwargs.get("polys", False):
+        return res
+    return [p.as_expr() for p in res]
+
+
 __all__ = [
     "EC",
     "LC",
@@ -950,9 +1079,12 @@ __all__ = [
     "TC",
     "apart",
     "cancel",
+    "compose",
     "content",
+    "decompose",
     "degree",
     "discriminant",
+    "div",
     "factor",
     "factor_list",
     "gcd",
@@ -963,11 +1095,14 @@ __all__ = [
     "monic",
     "poly",
     "primitive",
+    "quo",
+    "rem",
     "resultant",
     "roots",
     "sqf",
     "sqf_list",
     "sqf_part",
+    "sturm",
     "together",
     "trailing_coeff",
 ]
