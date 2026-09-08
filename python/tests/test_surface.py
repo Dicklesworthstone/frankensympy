@@ -14,6 +14,37 @@ import sympy
 
 
 class SurfaceTests(unittest.TestCase):
+    def test_linear_solver_free_variable_output_contracts(self):
+        x, y = sympy.symbols("x y")
+        for expression in ([x + y - 1], x + y - 1):
+            with self.subTest(expression=expression):
+                self.assertEqual(sympy.solve(expression, x, y, dict=True),
+                                 [{x: 1 - y}])
+                self.assertEqual(sympy.solve(expression, x, y, dict=True, set=True),
+                                 [{x: 1 - y}])
+                result = sympy.solve(expression, x, y, set=True)
+                self.assertEqual(result, ([x, y], {(1 - y, y)}))
+                self.assertIs(type(next(iter(result[1]))), tuple)
+        self.assertEqual(sympy.solve([x + y - 1], x, y), {x: 1 - y})
+        result = sympy.solve(x + y - 1, x, y)
+        self.assertEqual(result, [(1 - y, y)])
+        self.assertIs(type(result[0]), tuple)
+        for equations in ([0], [x - 1, x - 2]):
+            for flags in ({}, {"dict": True}, {"set": True},
+                          {"dict": True, "set": True}):
+                with self.subTest(equations=equations, flags=flags):
+                    expected = ([x, y], set()) if flags.get("set") else []
+                    self.assertEqual(sympy.solve(equations, x, y, **flags), expected)
+        matrix = sympy.Matrix([[1, 1, 1]])
+        original = matrix.copy()
+        self.assertEqual(sympy.solve_linear_system(matrix, x, y), {x: 1 - y})
+        self.assertEqual(matrix, original)
+        self.assertEqual(sympy.solve_linear_system(sympy.Matrix([[0, 0, 0]]), x, y), {})
+        self.assertIsNone(sympy.solve_linear_system(sympy.Matrix([[0, 0, 1]]), x, y))
+        # Unlike assignment dictionaries, linsolve retains every free parameter.
+        solution = next(iter(sympy.linsolve([x + y - 1], x, y)))
+        self.assertEqual(tuple(solution), (1 - y, y))
+
     def test_checksol_rejects_nonfinite_candidate_mappings(self):
         x, y = sympy.symbols("x y")
         for bad in (sympy.nan, sympy.zoo, sympy.oo, -sympy.oo):

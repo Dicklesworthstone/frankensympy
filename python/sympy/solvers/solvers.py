@@ -198,7 +198,9 @@ def solve_linear_system(system: MatrixBase, *symbols: Any) -> Optional[dict]:
     if not sols_set or isinstance(sols_set, EmptySet):
         return None
     sol_tuple = next(iter(sols_set))
-    return {sym: val for sym, val in zip(sym_list, sol_tuple)}
+    # RREF keeps free parameters in the solution tuple; this API reports
+    # assignments only, so an unconstrained symbol must not map to itself.
+    return {sym: val for sym, val in zip(sym_list, sol_tuple) if sym != val}
 
 
 solve_linear_system_LU = solve_linear_system

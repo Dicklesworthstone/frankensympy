@@ -193,15 +193,18 @@ def solve(expression, *symbols, **flags):
         try:
             lin_sol = _linsolve(expression, *var_list)
             if lin_sol:
-                sol_tuple = next(iter(lin_sol))
-                sol_dict = {s: v for s, v in zip(var_list, sol_tuple)}
+                sol_tuple = tuple(next(iter(lin_sol)))
+                # A free parameter is not an assignment in solve's mapping.
+                sol_dict = {s: v for s, v in zip(var_list, sol_tuple) if s != v}
+                if not sol_dict:
+                    return (var_list, set()) if set_flag else []
                 if dict_flag:
                     return [sol_dict]
                 if set_flag:
                     return (var_list, {sol_tuple})
                 return sol_dict
             else:
-                return []
+                return (var_list, set()) if set_flag else []
         except (ValueError, TypeError):
             pass
 
@@ -211,7 +214,7 @@ def solve(expression, *symbols, **flags):
         sols = _sps(expression, *var_list)
 
         if sols is None:
-            return []
+            return (var_list, set()) if set_flag else []
 
         if dict_flag:
             return [{sym: val for sym, val in zip(var_list, sol)} for sol in sols]
@@ -240,13 +243,15 @@ def solve(expression, *symbols, **flags):
         try:
             lin_sol = _linsolve([expr], *var_list)
             if lin_sol:
-                sol_tuple = next(iter(lin_sol))
-                sol_dict = {s: v for s, v in zip(var_list, sol_tuple)}
+                sol_tuple = tuple(next(iter(lin_sol)))
+                sol_dict = {s: v for s, v in zip(var_list, sol_tuple) if s != v}
+                if not sol_dict:
+                    return (var_list, set()) if set_flag else []
                 if dict_flag:
                     return [sol_dict]
                 if set_flag:
                     return (var_list, {sol_tuple})
-                return [sol_dict]
+                return [sol_tuple]
         except (ValueError, TypeError):
             pass
 
