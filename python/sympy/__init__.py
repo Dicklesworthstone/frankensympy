@@ -206,10 +206,9 @@ def solve(expression, *symbols, **flags):
             pass
 
         # Fall back to polynomial system solver
-        try:
-            sols = _sps(expression, *var_list)
-        except Exception:
-            sols = None
+        # Only an established no-solution result is empty. Unsupported
+        # systems and faults must remain visible to the caller.
+        sols = _sps(expression, *var_list)
 
         if sols is None:
             return []
@@ -251,16 +250,13 @@ def solve(expression, *symbols, **flags):
         except (ValueError, TypeError):
             pass
 
-        try:
-            sols = _sps([expr], *var_list)
-            if sols is not None:
-                if dict_flag:
-                    return [{sym: val for sym, val in zip(var_list, sol)} for sol in sols]
-                if set_flag:
-                    return (var_list, set(sols))
-                return sols
-        except Exception:
-            pass
+        sols = _sps([expr], *var_list)
+        if sols is not None:
+            if dict_flag:
+                return [{sym: val for sym, val in zip(var_list, sol)} for sol in sols]
+            if set_flag:
+                return (var_list, set(sols))
+            return sols
         return []
 
     if expr == 0 or (not expr.free_symbols):
@@ -325,7 +321,9 @@ def solveset(expression, variable=None, domain=None):
 
     try:
         results = _native.solve_expr(str(expr), _native_symbol_key(symbol))
-    except Exception:
+    except ValueError as exc:
+        if str(exc) != "No solution found for equation":
+            raise
         from .sets import EmptySet
         return EmptySet()
 

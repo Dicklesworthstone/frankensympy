@@ -14,6 +14,24 @@ import sympy
 
 
 class SurfaceTests(unittest.TestCase):
+    def test_solveset_does_not_report_refused_equations_as_empty(self):
+        x = sympy.Symbol("x")
+        with self.assertRaisesRegex(ValueError, "non-linear"):
+            sympy.solveset(sympy.sin(x), x)
+        self.assertEqual(sympy.solveset(x - 1, x), sympy.FiniteSet(1))
+        self.assertEqual(sympy.solveset(sympy.Integer(1), x), sympy.EmptySet())
+
+    def test_solve_does_not_report_unsupported_systems_as_empty(self):
+        x, y = sympy.symbols("x y")
+        # These constraints have complex solutions; refusal is not emptiness.
+        with self.assertRaisesRegex(ValueError, "not supported"):
+            sympy.solve([x*x + y*y - 1, y*y - 2], x, y)
+        with self.assertRaises(ValueError):
+            sympy.solve(x*x + y*y - 1, x, y)
+        self.assertEqual(sympy.solve([x + y - 5, x - y - 1], x, y),
+                         {x: 3, y: 2})
+        self.assertEqual(sympy.solve([x - 1, x - 2], x), [])
+
     def test_native_operation_wrappers_do_not_parse_symbol_names_as_expressions(self):
         # Legal atomic names must not be reinterpreted by the expression parser.
         for name in ("x+y", "x y", "a-b", "alpha_1"):
@@ -731,7 +749,8 @@ class SurfaceTests(unittest.TestCase):
             "    print('REFUSED')\n"
         )
         proc = subprocess.run(
-            [sys.executable, "-c", code], capture_output=True, text=True, env=env
+            [sys.executable, "-c", code], capture_output=True, text=True, env=env,
+            timeout=30,
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("REFUSED", proc.stdout)
@@ -4096,5 +4115,3 @@ class SurfaceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
