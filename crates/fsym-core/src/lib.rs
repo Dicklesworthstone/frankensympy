@@ -505,13 +505,6 @@ impl std::ops::Sub for Expr {
     }
 }
 
-/// Classification rank for canonical Add argument order, mirroring the
-/// pinned SymPy 1.14.0 convention: exact numbers first (by value), then
-/// symbols (by name), then compound terms (by rendered form)
-/// (bead fra-add-args-canonical-order-o1i).
-/// Sums every exact numeric term into a single leading constant, matching
-/// pinned SymPy 1.14.0 Add construction (x + 2*y + 1 reads (3, x, y))
-/// (bead fra-add-args-canonical-order-o1i).
 fn fuse_numeric_terms(terms: &mut Vec<Expr>) {
     let mut constant = BigRational::zero();
     let mut saw_constant = false;

@@ -110,7 +110,7 @@ def _native_expr(value: Any):
     if isinstance(value, Basic):
         if type(value) not in _exact_surface_types() and not isinstance(value, Function):
             raise NotImplementedError(
-                "custom symbolic subclasses require a Python override; "
+                "custom symbolic subclasses require a supervised Python override lane; "
                 "the native fast path accepts exact built-in classes only"
             )
         return value._value
@@ -199,6 +199,7 @@ def _wrap(value: Any) -> "Basic":
         "Mul": Mul,
         "Pow": Pow,
         "Derivative": Derivative,
+        "diff": Derivative,
         "Eq": Eq,
         "Ne": Ne,
         "Lt": Lt,
@@ -2618,15 +2619,30 @@ class Pow(Expr):
                 or (isinstance(exponent, Rational) and exponent.p == 1 and exponent.q == 2)
             )
             if is_half:
-                if base_int is not None and base_int >= 0:
-                    r = math.isqrt(base_int)
-                    if r * r == base_int:
-                        return Integer(r)
-                elif isinstance(base, Rational) and base.p >= 0 and base.q > 0:
-                    sp = math.isqrt(base.p)
-                    sq = math.isqrt(base.q)
-                    if sp * sp == base.p and sq * sq == base.q:
-                        return Rational(sp, sq)
+                if base_int is not None:
+                    if base_int >= 0:
+                        r = math.isqrt(base_int)
+                        if r * r == base_int:
+                            return Integer(r)
+                    else:
+                        pos = -base_int
+                        r = math.isqrt(pos)
+                        if r * r == pos:
+                            return Integer(r) * I
+                        else:
+                            return Pow(Integer(pos), S.Half) * I
+                elif isinstance(base, Rational) and base.q > 0:
+                    if base.p >= 0:
+                        sp = math.isqrt(base.p)
+                        sq = math.isqrt(base.q)
+                        if sp * sp == base.p and sq * sq == base.q:
+                            return Rational(sp, sq)
+                    else:
+                        pos_p = -base.p
+                        sp = math.isqrt(pos_p)
+                        sq = math.isqrt(base.q)
+                        if sp * sp == pos_p and sq * sq == base.q:
+                            return Rational(sp, sq) * I
         val = _native.Pow(
             _native_expr(base), _native_expr(exponent), evaluate=evaluate
         ).as_expr()
@@ -2646,7 +2662,28 @@ class Derivative(Expr):
     def __new__(cls, expression: Any, *variables: Any, evaluate: bool = False):
         if evaluate:
             return diff(expression, *variables)
-        native_vars = [_native_expr(var) for var in variables]
+        cleaned_vars = []
+        i = 0
+        while i < len(variables):
+            v = variables[i]
+            if isinstance(v, (tuple, list)) and len(v) == 2:
+                var, count = v
+                cnt = _exact_integer_value(count)
+                if cnt is not None and cnt > 0:
+                    cleaned_vars.extend([var] * cnt)
+                i += 1
+            elif i + 1 < len(variables) and (isinstance(variables[i + 1], int) or type(variables[i + 1]) is Integer):
+                var = v
+                cnt = _exact_integer_value(variables[i + 1])
+                if cnt is not None and cnt > 0:
+                    cleaned_vars.extend([var] * cnt)
+                i += 2
+            else:
+                cleaned_vars.append(v)
+                i += 1
+        if not cleaned_vars:
+            return sympify(expression)
+        native_vars = [_native_expr(var) for var in cleaned_vars]
         val = _native.Derivative(
             _native_expr(expression), *native_vars, evaluate=False
         ).as_expr()
@@ -2656,6 +2693,22 @@ class Derivative(Expr):
 
     def __init__(self, expression: Any, *variables: Any, evaluate: bool = False):
         pass
+
+    @property
+    def is_Derivative(self) -> bool:
+        return True
+
+    @property
+    def expr(self) -> Any:
+        return self.args[0] if self.args else self
+
+    @property
+    def variables(self) -> tuple[Any, ...]:
+        return self.args[1:] if len(self.args) > 1 else ()
+
+    def as_finite_difference(self, points: Any = 1, x0: Any = None, wrt: Any = None) -> Any:
+        from ..calculus.finite_diff import _as_finite_diff
+        return _as_finite_diff(self, points=points, x0=x0, wrt=wrt)
 
 
 class FunctionClass(type):
@@ -2820,8 +2873,8 @@ def _exact_integer_value(value: Any) -> int | None:
     return None
 
 
-def _normalize_diff_args(*variables: Any) -> list[Symbol]:
-    """Normalize differentiation variable specifications into a list of Symbols.
+def _normalize_diff_args(*variables: Any) -> list[Any]:
+    """Normalize differentiation variable specifications.
 
     Supports:
     - diff(expr, x)
@@ -2831,17 +2884,19 @@ def _normalize_diff_args(*variables: Any) -> list[Symbol]:
     - diff(expr, x, 2, y, 3)
     - diff(expr, (x, 2), (y, 3))
     - diff(expr, x, 0)
+    - diff(expr, f(x))
+    - diff(expr, Derivative(f(x), x))
     """
     if not variables:
         raise TypeError("at least one differentiation variable is required")
-    res: list[Symbol] = []
+    res: list[Any] = []
     i = 0
     while i < len(variables):
         v = variables[i]
         if isinstance(v, tuple):
             if len(v) != 2:
                 raise ValueError(f"tuple variable spec must be (symbol, count), got {v}")
-            sym = _require_symbol(v[0])
+            sym = v[0]
             count = _exact_integer_value(v[1])
             if count is None or count < 0:
                 raise TypeError(f"differentiation order must be a non-negative integer, got {v[1]}")
@@ -2850,7 +2905,7 @@ def _normalize_diff_args(*variables: Any) -> list[Symbol]:
         elif type(v) is int or isinstance(v, Integer):
             raise TypeError("differentiation order must follow a variable symbol")
         else:
-            sym = _require_symbol(v)
+            sym = v
             if i + 1 < len(variables) and (type(variables[i + 1]) is int or isinstance(variables[i + 1], Integer)):
                 count = _exact_integer_value(variables[i + 1])
                 if count is None or count < 0:
@@ -2868,6 +2923,17 @@ def diff(expression: Any, *variables: Any) -> Expr:
     normalized_vars = _normalize_diff_args(*variables)
     result = expression
     for symbol in normalized_vars:
+        if not isinstance(symbol, Symbol):
+            derivs = {d: Dummy(f"_deriv_{i}") for i, d in enumerate(result.atoms(Derivative)) if d != symbol}
+            if derivs:
+                result = result.subs(derivs)
+            w = Dummy("_diff_target")
+            subbed = result.subs(symbol, w)
+            d_sub = diff(subbed, w)
+            result = d_sub.subs(w, symbol)
+            if derivs:
+                result = result.subs({v: k for k, v in derivs.items()})
+            continue
         if hasattr(result, "_eval_derivative"):
             result = result._eval_derivative(symbol)
         else:

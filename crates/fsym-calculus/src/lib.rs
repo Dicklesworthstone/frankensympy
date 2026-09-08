@@ -113,6 +113,10 @@ pub fn diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
             }
         }
         Expr::Function(name, args) => {
+            // If all arguments are independent of var, then by the chain rule d(f(args))/d(var) = 0.
+            if name != "Derivative" && name != "diff" && args.iter().all(|a| diff(a, var).is_zero()) {
+                return Expr::from_i64(0);
+            }
             // Elementary derivatives
             if name == "sin" && args.len() == 1 {
                 let u = &args[0];
@@ -417,6 +421,14 @@ pub fn diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
                 ]);
                 let exp_neg_u_sq = Expr::Function("exp".to_string(), vec![neg_u_sq]);
                 Expr::Mul(vec![Expr::from_i64(-2), inv_sqrt_pi, exp_neg_u_sq, du])
+            } else if (name == "Derivative" || name == "diff") && !args.is_empty() {
+                if diff(&args[0], var).is_zero() {
+                    Expr::from_i64(0)
+                } else {
+                    let mut new_args = args.clone();
+                    new_args.push(Expr::Sym(var.clone()));
+                    Expr::Function(name.clone(), new_args)
+                }
             } else {
                 Expr::Function(
                     "diff".to_string(),
@@ -488,7 +500,11 @@ fn is_free_of(expr: &Expr, var: &Symbol) -> bool {
 /// Undifferentiated-derivative sentinel produced by [`diff`]'s fallback.
 fn carries_diff_sentinel(expr: &Expr) -> bool {
     match expr {
-        Expr::Function(name, args) if name == "diff" && args.len() == 2 => true,
+        Expr::Function(name, args)
+            if (name == "diff" || name == "Derivative") && args.len() >= 2 =>
+        {
+            true
+        }
         Expr::Add(terms) | Expr::Mul(terms) => terms.iter().any(carries_diff_sentinel),
         Expr::Pow(b, e) => carries_diff_sentinel(b) || carries_diff_sentinel(e),
         Expr::Function(_, args) => args.iter().any(carries_diff_sentinel),
@@ -2038,5 +2054,52 @@ mod tests {
             eliminate_zero_products(&func),
             Expr::Function("f".to_string(), vec![Expr::from_i64(0)])
         );
+    }
+
+    #[test]
+    fn test_diff_independent_function_is_zero_and_derivative_chaining() {
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+        let fx = Expr::Function("f".to_string(), vec![Expr::Sym(x.clone())]);
+
+        // d/dy(f(x)) == 0 by chain rule
+        assert_eq!(diff(&fx, &y), Expr::from_i64(0));
+
+        // d/dx(f(x)) == diff(f(x), x)
+        let dfx = diff(&fx, &x);
+        assert_eq!(
+            dfx,
+            Expr::Function(
+                "diff".to_string(),
+                vec![fx.clone(), Expr::Sym(x.clone())]
+            )
+        );
+
+        // d/dx(diff(f(x), x)) == diff(f(x), x, x)
+        let d2fx = diff(&dfx, &x);
+        assert_eq!(
+            d2fx,
+            Expr::Function(
+                "diff".to_string(),
+                vec![fx.clone(), Expr::Sym(x.clone()), Expr::Sym(x.clone())]
+            )
+        );
+
+        // d/dy(diff(f(x), x)) == 0
+        assert_eq!(diff(&dfx, &y), Expr::from_i64(0));
+
+        // Also test chaining on explicit Derivative function
+        let deriv = Expr::Function(
+            "Derivative".to_string(),
+            vec![fx.clone(), Expr::Sym(x.clone())],
+        );
+        assert_eq!(
+            diff(&deriv, &x),
+            Expr::Function(
+                "Derivative".to_string(),
+                vec![fx.clone(), Expr::Sym(x.clone()), Expr::Sym(x.clone())]
+            )
+        );
+        assert_eq!(diff(&deriv, &y), Expr::from_i64(0));
     }
 }

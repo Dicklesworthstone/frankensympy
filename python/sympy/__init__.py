@@ -366,26 +366,64 @@ def checksol(expression, symbol, val=None):
     return bool(expanded == 0 or getattr(expanded, "is_zero", None) is True)
 
 
-def laplace_transform(expression, t, s):
-    t_sym = _require_symbol(t)
-    s_sym = _require_symbol(s)
-    result = _native.laplace_expr(
-        str(_wrap(_native_expr(expression))),
-        _native_symbol_key(t_sym),
-        _native_symbol_key(s_sym),
-    )
-    return _parse_result(result)
+def laplace_transform(expression, t, s, noconds=True, **kwargs):
+    from .integrals.transforms import laplace_transform as _lt
+    return _lt(expression, t, s, noconds=noconds, **kwargs)
 
 
-def fourier_transform(expression, t, w):
-    t_sym = _require_symbol(t)
-    w_sym = _require_symbol(w)
-    result = _native.fourier_expr(
-        str(_wrap(_native_expr(expression))),
-        _native_symbol_key(t_sym),
-        _native_symbol_key(w_sym),
-    )
-    return _parse_result(result)
+def inverse_laplace_transform(expression, s, t, plane=None, noconds=True, **kwargs):
+    from .integrals.transforms import inverse_laplace_transform as _ilt
+    return _ilt(expression, s, t, plane=plane, noconds=noconds, **kwargs)
+
+
+def fourier_transform(expression, t, w, noconds=True, **kwargs):
+    from .integrals.transforms import fourier_transform as _ft
+    return _ft(expression, t, w, noconds=noconds, **kwargs)
+
+
+def inverse_fourier_transform(expression, w, t, noconds=True, **kwargs):
+    from .integrals.transforms import inverse_fourier_transform as _ift
+    return _ift(expression, w, t, noconds=noconds, **kwargs)
+
+
+def sine_transform(f, t, k, noconds=True, **kwargs):
+    from .integrals.transforms import sine_transform as _st
+    return _st(f, t, k, noconds=noconds, **kwargs)
+
+
+def inverse_sine_transform(F, k, t, noconds=True, **kwargs):
+    from .integrals.transforms import inverse_sine_transform as _ist
+    return _ist(F, k, t, noconds=noconds, **kwargs)
+
+
+def cosine_transform(f, t, k, noconds=True, **kwargs):
+    from .integrals.transforms import cosine_transform as _ct
+    return _ct(f, t, k, noconds=noconds, **kwargs)
+
+
+def inverse_cosine_transform(F, k, t, noconds=True, **kwargs):
+    from .integrals.transforms import inverse_cosine_transform as _ict
+    return _ict(F, k, t, noconds=noconds, **kwargs)
+
+
+def hankel_transform(f, r, k, nu, noconds=True, **kwargs):
+    from .integrals.transforms import hankel_transform as _ht
+    return _ht(f, r, k, nu, noconds=noconds, **kwargs)
+
+
+def inverse_hankel_transform(F, k, r, nu, noconds=True, **kwargs):
+    from .integrals.transforms import inverse_hankel_transform as _iht
+    return _iht(F, k, r, nu, noconds=noconds, **kwargs)
+
+
+def mellin_transform(f, x, s, noconds=True, **kwargs):
+    from .integrals.transforms import mellin_transform as _mt
+    return _mt(f, x, s, noconds=noconds, **kwargs)
+
+
+def inverse_mellin_transform(F, s, x, strip=None, noconds=True, **kwargs):
+    from .integrals.transforms import inverse_mellin_transform as _imt
+    return _imt(F, s, x, strip=strip, noconds=noconds, **kwargs)
 
 
 def dsolve(equation, func=None):
@@ -669,7 +707,22 @@ from .geometry import (
     idiff,
     intersection,
 )
-from .integrals import Integral
+from .integrals import (
+    CosineTransform,
+    FourierTransform,
+    HankelTransform,
+    Integral,
+    InverseCosineTransform,
+    InverseFourierTransform,
+    InverseHankelTransform,
+    InverseLaplaceTransform,
+    InverseMellinTransform,
+    InverseSineTransform,
+    LaplaceTransform,
+    MellinTransform,
+    SineTransform,
+    Transform,
+)
 from .logic import (
     And,
     Boolean,
@@ -741,7 +794,11 @@ from . import calculus
 from .calculus import (
     AccumBounds,
     AccumulationBounds,
+    apply_finite_diff,
     continuous_domain,
+    differentiate_finite,
+    euler_equations,
+    finite_diff_weights,
     function_range,
     is_decreasing,
     is_increasing,
@@ -854,6 +911,7 @@ __all__ = [
     "Circle",
     "Complement",
     "ComplexInfinity",
+    "CosineTransform",
     "Cycle",
     "CyclicGroup",
     "DenseMatrix",
@@ -873,6 +931,7 @@ __all__ = [
     "FiniteSet",
     "Float",
     "FourierSeries",
+    "FourierTransform",
     "FresnelC",
     "FresnelS",
     "Function",
@@ -882,6 +941,7 @@ __all__ = [
     "GramSchmidt",
     "GrayCode",
     "Gt",
+    "HankelTransform",
     "I",
     "ITE",
     "ImmutableDenseMatrix",
@@ -892,6 +952,12 @@ __all__ = [
     "Integral",
     "Intersection",
     "Interval",
+    "InverseCosineTransform",
+    "InverseFourierTransform",
+    "InverseHankelTransform",
+    "InverseLaplaceTransform",
+    "InverseMellinTransform",
+    "InverseSineTransform",
     "LC",
     "Le",
     "Line",
@@ -899,9 +965,11 @@ __all__ = [
     "Line3D",
     "Limit",
     "LinearEntity",
+    "LaplaceTransform",
     "Lt",
     "Matrix",
     "MatrixBase",
+    "MellinTransform",
     "Metric",
     "Mul",
     "MutableDenseMatrix",
@@ -947,6 +1015,7 @@ __all__ = [
     "Si",
     "SparseMatrix",
     "Sphere",
+    "SineTransform",
     "Subset",
     "Symbol",
     "SymmetricDifference",
@@ -955,6 +1024,7 @@ __all__ = [
     "Tensor",
     "TensorIndex",
     "Triangle",
+    "Transform",
     "Tuple",
     "UndefinedFunction",
     "Union",
@@ -972,6 +1042,7 @@ __all__ = [
     "airyai",
     "airybi",
     "apart",
+    "apply_finite_diff",
     "are_collinear",
     "are_coplanar",
     "are_similar",
@@ -1011,6 +1082,7 @@ __all__ = [
     "compose",
     "cos",
     "cosh",
+    "cosine_transform",
     "cot",
     "coth",
     "csc",
@@ -1020,6 +1092,7 @@ __all__ = [
     "det",
     "diag",
     "diff",
+    "differentiate_finite",
     "digamma",
     "dirichlet_eta",
     "discrete_log",
@@ -1039,6 +1112,7 @@ __all__ = [
     "erfcinv",
     "erfi",
     "erfinv",
+    "euler_equations",
     "exp",
     "expand_log",
     "expand_power_base",
@@ -1051,6 +1125,7 @@ __all__ = [
     "factorint",
     "false",
     "fibonacci",
+    "finite_diff_weights",
     "floor",
     "formal_power_series",
     "fourier_series",
@@ -1066,6 +1141,7 @@ __all__ = [
     "half_gcdex",
     "hankel1",
     "hankel2",
+    "hankel_transform",
     "harmonic",
     "hstack",
     "hyper",
@@ -1074,6 +1150,12 @@ __all__ = [
     "integer_nthroot",
     "integrate",
     "intersection",
+    "inverse_cosine_transform",
+    "inverse_fourier_transform",
+    "inverse_hankel_transform",
+    "inverse_laplace_transform",
+    "inverse_mellin_transform",
+    "inverse_sine_transform",
     "is_decreasing",
     "is_increasing",
     "is_monotonic",
@@ -1107,6 +1189,7 @@ __all__ = [
     "matrix_multiply_elementwise",
     "maximum",
     "meijerg",
+    "mellin_transform",
     "minimum",
     "mobius",
     "mod_inverse",
@@ -1163,6 +1246,7 @@ __all__ = [
     "simplify_logic",
     "sin",
     "sinc",
+    "sine_transform",
     "singularities",
     "sinh",
     "solve",

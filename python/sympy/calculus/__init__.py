@@ -1,5 +1,9 @@
-"""Calculus module for FrankenSymPy."""
-
+from .euler import euler_equations
+from .finite_diff import (
+    apply_finite_diff,
+    differentiate_finite,
+    finite_diff_weights,
+)
 from .singularities import (
     is_decreasing,
     is_increasing,
@@ -22,7 +26,11 @@ from .util import (
 __all__ = [
     "AccumBounds",
     "AccumulationBounds",
+    "apply_finite_diff",
     "continuous_domain",
+    "differentiate_finite",
+    "euler_equations",
+    "finite_diff_weights",
     "function_range",
     "is_decreasing",
     "is_increasing",

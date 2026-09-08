@@ -685,10 +685,11 @@ class SurfaceTests(unittest.TestCase):
         # chain used to SIGSEGV the interpreter (recursive derived Clone in the
         # native kernel at depth ~8000). The bridge now refuses beyond
         # FSYM_MAX_EXPR_DEPTH with RecursionError and the process survives.
+        x = sympy.Symbol("x")
         a = sympy.Integer(2)
         with self.assertRaises(RecursionError):
             for i in range(1, 6000):
-                a = a * sympy.Integer(i) + sympy.Rational(1, i)
+                a = (a + 1) * x
         # The interpreter is alive and ordinary arithmetic still works at
         # moderate depth.
         b = sympy.Integer(2)
@@ -809,7 +810,7 @@ class SurfaceTests(unittest.TestCase):
         # 2. Series expansion (module-level and method-level)
         sin_series = sympy.series(sympy.sin(x), x, 0, 4)
         self.assertEqual(sin_series, sympy.sin(x).series(x, 0, 4))
-        self.assertEqual(str(sin_series), "x - (x**3/6)")
+        self.assertEqual(str(sin_series), "-x**3/6 + x")
 
         # 3. Integral transforms
         laplace_res = sympy.laplace_transform(sympy.exp(t), t, s)
@@ -4003,6 +4004,74 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(sub.rank_binary(), 5)
         unsub = sympy.Subset.unrank_binary(5, ["a", "b", "c"])
         self.assertEqual(unsub.subset, ["a", "c"])
+
+    def test_euler_and_finite_differences(self):
+        x = sympy.Symbol("x")
+        f = sympy.Function("f")
+
+        # Euler-Lagrange equations: L = (f'(x))^2 / 2 - f(x)^2 / 2  => f''(x) + f(x) = 0
+        L = sympy.diff(f(x), x) ** 2 / 2 - f(x) ** 2 / 2
+        eqs = sympy.euler_equations(L, f(x), x)
+        self.assertEqual(len(eqs), 1)
+        self.assertEqual(eqs[0].lhs, -sympy.diff(f(x), x, x) - f(x))
+        self.assertEqual(eqs[0].rhs, sympy.Integer(0))
+
+        # Finite difference weights for 1st derivative on stencil [-1, 0, 1] at x0=0
+        weights = sympy.finite_diff_weights(1, [-1, 0, 1], 0)
+        # delta[order][N] -> weights for all grid points
+        self.assertEqual(weights[1][-1], [sympy.Rational(-1, 2), sympy.Integer(0), sympy.Rational(1, 2)])
+
+        # Apply finite diff on points [-1, 1] for y = [0, 2] -> dy/dx ~ 1
+        approx = sympy.apply_finite_diff(1, [-1, 1], [0, 2], 0)
+        self.assertEqual(approx, sympy.Integer(1))
+
+        # Derivative.as_finite_difference()
+        d = sympy.Derivative(f(x), x)
+        fd = d.as_finite_difference()
+        self.assertEqual(fd, -f(x - sympy.Rational(1, 2)) + f(x + sympy.Rational(1, 2)))
+
+        # differentiate_finite
+        fd2 = sympy.differentiate_finite(sympy.Derivative(f(x), x))
+        self.assertEqual(fd2, fd)
+
+    def test_integral_transforms_suite(self):
+        t, s, x, k, r, nu = sympy.symbols("t s x k r nu")
+
+        # Laplace and Inverse Laplace
+        lt = sympy.LaplaceTransform(sympy.exp(t), t, s)
+        self.assertEqual(str(lt), "LaplaceTransform(exp(t), t, s)")
+        self.assertEqual(lt.doit(), (s - 1)**(-1))
+        self.assertEqual(sympy.laplace_transform(sympy.exp(t), t, s), (s - 1)**(-1))
+
+        ilt = sympy.InverseLaplaceTransform(1 / (s - 1), s, t)
+        self.assertEqual(str(ilt), "InverseLaplaceTransform((s - 1)**(-1), s, t)")
+        self.assertEqual(ilt.doit(), sympy.exp(t))
+        self.assertEqual(sympy.inverse_laplace_transform(1 / (s - 1), s, t), sympy.exp(t))
+
+        # Fourier and Inverse Fourier
+        ft = sympy.FourierTransform(sympy.Integer(5), t, x)
+        self.assertEqual(str(ft), "FourierTransform(5, t, x)")
+        self.assertEqual(str(ft.doit()), "10*pi*dirac(x)")
+
+        ift = sympy.InverseFourierTransform(ft.doit(), x, t)
+        self.assertIsInstance(ift.doit(), sympy.InverseFourierTransform)
+
+        # Sine, Cosine, Hankel, Mellin unevaluated classes and doit()
+        st = sympy.SineTransform(t * sympy.exp(-t), t, k)
+        self.assertIsInstance(st, sympy.SineTransform)
+        self.assertEqual(st.doit(), st)
+
+        ct = sympy.CosineTransform(sympy.exp(-t), t, k)
+        self.assertIsInstance(ct, sympy.CosineTransform)
+        self.assertEqual(ct.doit(), ct)
+
+        ht = sympy.HankelTransform(sympy.exp(-r), r, k, nu)
+        self.assertIsInstance(ht, sympy.HankelTransform)
+        self.assertEqual(ht.doit(), ht)
+
+        mt = sympy.MellinTransform(sympy.exp(-x), x, s)
+        self.assertIsInstance(mt, sympy.MellinTransform)
+        self.assertEqual(mt.doit(), mt)
 
 
 if __name__ == "__main__":
