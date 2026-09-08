@@ -2578,6 +2578,31 @@ def classify_construction_diff(paths: list[str], outcome_classes: object) -> str
     return "other"
 
 
+def diff_input_binding(profile: dict) -> dict:
+    """Bind a development diff to its complete profile and immutable inputs."""
+    base = Path(__file__).resolve().parent
+    fixtures = {}
+    for rel in profile["inventory"]["fixtures"]:
+        fixtures[rel] = hashlib.sha256((base / rel).read_bytes()).hexdigest()
+    goldens = load_goldens(profile)
+    ids = [row["fixture_id"] for group in goldens.values() for row in group]
+    if not ids or len(ids) != len(set(ids)):
+        raise ValueError("diff requires nonempty, globally unique fixture IDs")
+
+    def digest(value: object) -> str:
+        return hashlib.sha256(json.dumps(
+            value, sort_keys=True, separators=(",", ":"), allow_nan=False
+        ).encode()).hexdigest()
+
+    return {
+        "profile_id": profile["profile_id"],
+        "profile_sha256": digest(profile),
+        "fixtures_sha256": digest(fixtures),
+        "goldens_sha256": digest(goldens),
+        "fixture_ids": sorted(ids),
+    }
+
+
 def cmd_diff(
     profile: dict,
     candidate_py: str,
@@ -2588,6 +2613,7 @@ def cmd_diff(
 ) -> int:
     from minimize import build_records, load_claims_registry, persist_ledger
 
+    input_binding = diff_input_binding(profile)
     base = Path(__file__).resolve().parent
     goldens = load_goldens(profile)
     oracle_envs = [envelope for envelopes in goldens.values() for envelope in envelopes]
@@ -2640,6 +2666,8 @@ def cmd_diff(
     if ledger_dir is not None:
         persist_ledger(records, ledger_dir)
     summary = {
+        "schema_version": 1,
+        "input_binding": input_binding,
         "comparator": "construction_only",
         "paired": paired,
         "discrepancies": len(records),
