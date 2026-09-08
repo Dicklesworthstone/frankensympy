@@ -848,6 +848,65 @@ mod tests {
     }
 
     #[test]
+    fn polynomial_solver_degenerate_outcomes_and_distinct_roots() {
+        use fsym_polys::multivariate::MultivariatePoly;
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+        let generators = vec![x.clone(), y.clone()];
+        assert_eq!(
+            solve_2var_poly_system(&[], &x, &y),
+            Err(SolverError::InfiniteSolutions)
+        );
+        assert!(matches!(
+            solve_2var_poly_system(&[], &x, &x),
+            Err(SolverError::InvalidSystem(_))
+        ));
+        assert_eq!(
+            solve_2var_poly_system(&[MultivariatePoly::zero(generators.clone())], &x, &y),
+            Err(SolverError::InfiniteSolutions)
+        );
+        assert_eq!(
+            solve_2var_poly_system(&[MultivariatePoly::one(generators.clone())], &x, &y),
+            Err(SolverError::NoSolution)
+        );
+        let polynomial = |terms: Vec<(Vec<u32>, i64)>| {
+            MultivariatePoly::new(
+                generators.clone(),
+                terms
+                    .into_iter()
+                    .map(|(powers, coefficient)| {
+                        (powers, BigRational::from_integer(coefficient.into()))
+                    })
+                    .collect(),
+            )
+            .unwrap()
+        };
+        assert_eq!(
+            solve_2var_poly_system(
+                &[
+                    polynomial(vec![(vec![1, 0], 1)]),
+                    polynomial(vec![(vec![1, 0], 1), (vec![0, 0], -1)])
+                ],
+                &x,
+                &y
+            ),
+            Err(SolverError::NoSolution)
+        );
+        let solutions = solve_2var_poly_system(
+            &[
+                polynomial(vec![(vec![1, 0], 1), (vec![0, 1], -1)]),
+                polynomial(vec![(vec![0, 2], 1), (vec![0, 1], -2), (vec![0, 0], 1)]),
+            ],
+            &x,
+            &y,
+        )
+        .unwrap();
+        assert_eq!(solutions.len(), 1);
+        assert_eq!(solutions[0].get(&x), Some(&Expr::from_i64(1)));
+        assert_eq!(solutions[0].get(&y), Some(&Expr::from_i64(1)));
+    }
+
+    #[test]
     fn test_solve_2var_poly_system() {
         // System:
         // x + y - 5 = 0

@@ -47,9 +47,6 @@ pub fn solve_2var_poly_system(
     x: &Symbol,
     y: &Symbol,
 ) -> Result<Vec<HashMap<Symbol, Expr>>, SolverError> {
-    if eqs.is_empty() {
-        return Ok(Vec::new());
-    }
     if x == y {
         return Err(SolverError::InvalidSystem(
             "the two solver variables must be distinct".to_string(),
@@ -83,6 +80,19 @@ pub fn solve_2var_poly_system(
         SolverError::IncompleteSolutionSet(format!("Groebner basis computation failed: {error}"))
     })?;
 
+    // The zero ideal imposes no constraints; a nonzero constant generates
+    // the unit ideal and makes the system inconsistent. Neither requires
+    // an elimination polynomial or back substitution.
+    if gb.is_empty() {
+        return Err(SolverError::InfiniteSolutions);
+    }
+    if gb
+        .iter()
+        .any(|poly| !poly.is_zero() && poly.degree_in(0) == 0 && poly.degree_in(1) == 0)
+    {
+        return Err(SolverError::NoSolution);
+    }
+
     // Find univariate polynomial in y (degree in x == 0)
     let Some(y_poly_mv) = gb
         .iter()
@@ -107,7 +117,10 @@ pub fn solve_2var_poly_system(
     }
 
     let uni_y = UnivariatePoly::new(y.clone(), y_coeffs);
-    let y_roots = crate::solve_poly(&uni_y)?;
+    let mut y_roots = crate::solve_poly(&uni_y)?;
+    // solve_poly retains quadratic root multiplicity. System solutions are
+    // distinct tuples; with degree <= 2, any repeated roots are adjacent.
+    y_roots.dedup();
 
     let mut solutions = Vec::new();
     // For each y root, back-substitute to find x roots
