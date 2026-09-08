@@ -120,7 +120,7 @@ def _native_expr(value: Any):
         return _native.py_integer(value)
     if isinstance(value, float):
         return _float_intern(_ieee_bits(value))
-    if isinstance(value, tuple):
+    if isinstance(value, (tuple, list)):
         inner_items = [_wrap(_native_expr(item)) for item in value]
         tuple_str = f"Tuple({', '.join(str(i) for i in inner_items)})"
         return _native.Expr(tuple_str)
@@ -172,6 +172,9 @@ def _native_symbol_key(symbol: "Symbol") -> str:
     return str(_native_expr(symbol))
 
 
+_known_functions: dict[str, type] = {}
+
+
 def _wrap(value: Any) -> "Basic":
     if isinstance(value, Basic):
         return value
@@ -205,7 +208,9 @@ def _wrap(value: Any) -> "Basic":
         "Constant": Expr,
     }.get(value.func_name)
     if cls is None:
-        func_cls = Function(value.func_name)
+        func_cls = _known_functions.get(value.func_name)
+        if func_cls is None:
+            func_cls = Function(value.func_name)
         obj = object.__new__(func_cls)
         obj._value = value
         return obj
@@ -1595,8 +1600,8 @@ class Expr(Basic):
                     p2, q2 = ratio_other
                     if p2 != 0:
                         return _wrap(_native_expr(self) * _native_expr(Rational(q2, p2)))
-            reciprocal = _native.py_pow(_native_expr(other), _native.py_integer(-1))
-            return _wrap(_native_expr(self) * reciprocal)
+            reciprocal = Pow(other, -1)
+            return _wrap(_native_expr(self) * _native_expr(reciprocal))
         except TypeError:
             if _is_sympy_operand(other):
                 return NotImplemented
@@ -1611,8 +1616,8 @@ class Expr(Basic):
                     p1, q1 = ratio_other
                     p2, q2 = ratio_self
                     return Rational(p1 * q2, q1 * p2)
-            reciprocal = _native.py_pow(_native_expr(self), _native.py_integer(-1))
-            return _wrap(_native_expr(other) * reciprocal)
+            reciprocal = Pow(self, -1)
+            return _wrap(_native_expr(other) * _native_expr(reciprocal))
         except TypeError:
             if _is_sympy_operand(other):
                 return NotImplemented
@@ -1638,6 +1643,16 @@ class Expr(Basic):
                     if exp_int > 0:
                         return _ZERO
                     return zoo
+            if self == I or str(self) == "I":
+                m = exp_int % 4
+                if m == 0:
+                    return _ONE
+                elif m == 1:
+                    return I
+                elif m == 2:
+                    return _NEGATIVE_ONE
+                else:
+                    return -I
         return _wrap(_native.py_pow(_native_expr(self), _native_expr(exponent)))
 
     def __neg__(self) -> "Expr":
@@ -2461,6 +2476,9 @@ E = Expr("E")
 I = Expr("I")
 oo = Expr("oo")
 nan = Expr("nan")
+EulerGamma = Expr("EulerGamma")
+Catalan = Expr("Catalan")
+GoldenRatio = Expr("GoldenRatio")
 
 
 
@@ -2575,7 +2593,7 @@ class Pow(Expr):
                         return _ZERO
                     if exp_int < 0:
                         return zoo
-            if base == I and exp_int is not None:
+            if (base == I or str(base) == "I") and exp_int is not None:
                 m = exp_int % 4
                 if m == 0:
                     return _ONE
@@ -2585,6 +2603,16 @@ class Pow(Expr):
                     return _NEGATIVE_ONE
                 else:
                     return -I
+            if isinstance(base, Mul) and exp_int is not None:
+                if all(
+                    getattr(f, "is_number", False)
+                    or f == I
+                    or str(f) == "I"
+                    or _admitted_exact_int(f) is not None
+                    for f in base.args
+                ):
+                    factors = [Pow(f, exponent, evaluate=True) for f in base.args]
+                    return Mul(*factors)
             is_half = (
                 exponent is S.Half
                 or (isinstance(exponent, Rational) and exponent.p == 1 and exponent.q == 2)
@@ -2648,6 +2676,11 @@ class Function(Application, metaclass=FunctionClass):
 
     __slots__ = ("_args",)
 
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        if cls.__name__ != "AppliedUndef" and not cls.__name__.startswith("_"):
+            _known_functions[cls.__name__] = cls
+
     def __new__(cls, *args: Any, **options: Any):
         if cls is Function:
             if not args or not isinstance(args[0], str):
@@ -2655,6 +2688,8 @@ class Function(Application, metaclass=FunctionClass):
             if not args[0]:
                 raise ValueError("Function name must be non-empty")
             name = args[0]
+            if name in _known_functions:
+                return _known_functions[name]
             if name == _FLOAT_INTERN or name.startswith(_DUMMY_PREFIX):
                 raise ValueError("Function name collides with native intern encoding")
             return UndefinedFunction(name)

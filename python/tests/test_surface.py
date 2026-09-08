@@ -3834,9 +3834,180 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(len(res), 2)
         self.assertIn("(-4)**(1/2)", res[0])
 
+    def test_special_functions_suite(self):
+        x = sympy.Symbol("x")
+
+        # Gamma and Beta
+        self.assertEqual(sympy.gamma(1), 1)
+        self.assertEqual(sympy.gamma(2), 1)
+        self.assertEqual(sympy.gamma(5), 24)
+        self.assertEqual(sympy.gamma(sympy.Rational(1, 2)), sympy.pi ** sympy.Rational(1, 2))
+        self.assertEqual(sympy.gamma(sympy.Rational(3, 2)), (sympy.pi ** sympy.Rational(1, 2)) / 2)
+        self.assertEqual(sympy.gamma(sympy.Rational(-1, 2)), -2 * (sympy.pi ** sympy.Rational(1, 2)))
+        self.assertEqual(sympy.gamma(0), sympy.zoo)
+        self.assertEqual(sympy.beta(1, x), 1 / x)
+        self.assertEqual(sympy.beta(3, 4), sympy.Rational(1, 60))
+
+        # Incomplete gamma and polygamma
+        self.assertEqual(sympy.lowergamma(1, x), 1 - sympy.exp(-x))
+        self.assertEqual(sympy.uppergamma(1, x), sympy.exp(-x))
+        self.assertEqual(sympy.polygamma(0, 1), -sympy.EulerGamma)
+        self.assertEqual(sympy.polygamma(1, 1), sympy.pi**2 / 6)
+        self.assertEqual(sympy.digamma(1), -sympy.EulerGamma)
+        self.assertEqual(sympy.trigamma(1), sympy.pi**2 / 6)
+        self.assertEqual(sympy.loggamma(1), 0)
+        self.assertEqual(sympy.loggamma(2), 0)
+
+        # Bessel and spherical Bessel
+        self.assertEqual(sympy.besselj(0, 0), 1)
+        self.assertEqual(sympy.besselj(1, 0), 0)
+        self.assertEqual(sympy.besseli(0, 0), 1)
+        self.assertEqual(sympy.besseli(1, 0), 0)
+        self.assertEqual(sympy.jn(0, 0), 1)
+        self.assertEqual(sympy.jn(1, 0), 0)
+        self.assertIsInstance(sympy.besselj(0, x), sympy.besselj)
+        self.assertIsInstance(sympy.bessely(0, x), sympy.bessely)
+        self.assertIsInstance(sympy.besselk(0, x), sympy.besselk)
+        self.assertIsInstance(sympy.airyai(x), sympy.airyai)
+        self.assertIsInstance(sympy.airybi(x), sympy.airybi)
+
+        # Error functions
+        self.assertEqual(sympy.erf(0), 0)
+        self.assertEqual(sympy.erfc(0), 1)
+        self.assertEqual(sympy.erfi(0), 0)
+        self.assertEqual(sympy.erfinv(0), 0)
+        self.assertEqual(sympy.erfcinv(1), 0)
+        self.assertEqual(sympy.FresnelS(0), 0)
+        self.assertEqual(sympy.FresnelC(0), 0)
+        self.assertEqual(sympy.Si(0), 0)
+        self.assertEqual(sympy.Shi(0), 0)
+
+        # Zeta and related
+        self.assertEqual(sympy.zeta(0), sympy.Rational(-1, 2))
+        self.assertEqual(sympy.zeta(2), sympy.pi**2 / 6)
+        self.assertEqual(sympy.zeta(4), sympy.pi**4 / 90)
+        self.assertEqual(sympy.zeta(-2), 0)
+        self.assertEqual(sympy.zeta(-4), 0)
+        self.assertEqual(sympy.dirichlet_eta(1), sympy.log(2))
+        self.assertEqual(sympy.polylog(1, 0), 0)
+        self.assertEqual(sympy.polylog(1, x), -sympy.log(1 - x))
+
+        # Hypergeometric and Meijer G
+        h = sympy.hyper([1, 2], [3], x)
+        self.assertIsInstance(h, sympy.hyper)
+        self.assertEqual(h.args[2], x)
+        mg = sympy.meijerg([1], [2], x)
+        self.assertIsInstance(mg, sympy.meijerg)
+
+        # Mathematical constants
+        self.assertEqual(str(sympy.EulerGamma), "EulerGamma")
+        self.assertEqual(str(sympy.Catalan), "Catalan")
+        self.assertEqual(str(sympy.GoldenRatio), "GoldenRatio")
+
+    def test_series_residue_and_fourier(self):
+        x = sympy.Symbol("x")
+
+        # Rational residues
+        self.assertEqual(sympy.residue(1 / x, x, 0), 1)
+        self.assertEqual(sympy.residue(1 / x**2, x, 0), 0)
+        self.assertEqual(sympy.residue(1 / (x - 1), x, 1), 1)
+        self.assertEqual(sympy.residue(1 / (x**2 - 1), x, 1), sympy.Rational(1, 2))
+        self.assertEqual(sympy.residue(1 / (x**2 - 1), x, -1), sympy.Rational(-1, 2))
+        self.assertEqual(sympy.residue(1 / (x**2 * (x + 1)), x, 0), -1)
+        self.assertEqual(sympy.residue(1 / (x**2 * (x + 1)), x, -1), 1)
+
+        # Complex poles
+        self.assertEqual(sympy.residue(x / (x**2 + 1), x, sympy.I), sympy.Rational(1, 2))
+
+        # Transcendental residues
+        self.assertEqual(sympy.residue(sympy.sin(x) / x**2, x, 0), 1)
+        self.assertEqual(sympy.residue(sympy.cos(x) / x, x, 0), 1)
+
+        # Fourier series
+        fs = sympy.fourier_series(x, (x, -sympy.pi, sympy.pi))
+        self.assertEqual(fs.truncate(3), 2 * sympy.sin(x) - sympy.sin(2 * x) + sympy.Integer(2) * sympy.sin(3 * x) / 3)
+
+        # Formal power series
+        fps_cos = sympy.fps(sympy.cos(x), x, 0)
+        self.assertIn("x**4", str(fps_cos))
+
+    def test_combinatorics_subsystem(self):
+        # Permutation construction and properties
+        p = sympy.Permutation(0, 1, 2)
+        self.assertEqual(p.array_form, [1, 2, 0])
+        self.assertEqual(p.order(), 3)
+        self.assertTrue(p.is_even)
+        self.assertFalse(p.is_odd)
+        self.assertEqual(p.signature(), 1)
+        self.assertEqual(p.parity(), 0)
+        self.assertEqual(p.inversions(), 2)
+
+        # Inverse and powers
+        self.assertEqual(~p, sympy.Permutation([2, 0, 1]))
+        self.assertEqual(p ** (-1), ~p)
+        self.assertEqual(p**2, ~p)
+        self.assertEqual(p**3, sympy.Permutation(size=3))
+
+        # Left-to-right composition
+        q1 = sympy.Permutation([1, 0, 2])
+        q2 = sympy.Permutation([0, 2, 1])
+        self.assertEqual((q1 * q2).array_form, [2, 0, 1])
+
+        # Ranking and unranking
+        for r in range(6):
+            perm = sympy.Permutation.unrank_lex(3, r)
+            self.assertEqual(perm.rank(), r)
+
+        # Permutation groups
+        G = sympy.PermutationGroup(p, q1)
+        self.assertEqual(G.order(), 6)
+        self.assertEqual(G.degree, 3)
+        self.assertFalse(G.is_abelian)
+        self.assertEqual(G.orbit(0), {0, 1, 2})
+        self.assertTrue(G.is_transitive())
+
+        # Named groups
+        S3 = sympy.SymmetricGroup(3)
+        self.assertEqual(S3.order(), 6)
+        self.assertFalse(S3.is_abelian)
+        self.assertTrue(S3.is_solvable)
+
+        A3 = sympy.AlternatingGroup(3)
+        self.assertEqual(A3.order(), 3)
+        self.assertTrue(A3.is_abelian)
+
+        D4 = sympy.DihedralGroup(4)
+        self.assertEqual(D4.order(), 8)
+
+        C5 = sympy.CyclicGroup(5)
+        self.assertEqual(C5.order(), 5)
+        self.assertTrue(C5.is_abelian)
+
+        # Partitions
+        part = sympy.Partition([1, 2], [3])
+        self.assertEqual(part.members, [1, 2, 3])
+        self.assertEqual(part.RGS, [0, 0, 1])
+
+        ipart = sympy.IntegerPartition([3, 1, 1])
+        self.assertEqual(ipart.integer, 5)
+        self.assertEqual(ipart.as_dict(), {3: 1, 1: 2})
+
+        # GrayCode
+        gc = sympy.GrayCode(3)
+        codes = list(gc.generate_gray())
+        self.assertEqual(codes, ["000", "001", "011", "010", "110", "111", "101", "100"])
+        self.assertEqual(sympy.GrayCode.rank("011"), 2)
+
+        # Subsets
+        sub = sympy.Subset(["a", "c"], ["a", "b", "c"])
+        self.assertEqual(sub.rank_binary(), 5)
+        unsub = sympy.Subset.unrank_binary(5, ["a", "b", "c"])
+        self.assertEqual(unsub.subset, ["a", "c"])
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 
 

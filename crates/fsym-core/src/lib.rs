@@ -315,6 +315,34 @@ fn fold_pow_sub(b: Expr, e: Expr) -> Expr {
         return Expr::from_i64(0);
     }
     match (&b, &e) {
+        (Expr::Const(Constant::I), Expr::Integer(exp)) => {
+            let four = BigInt::from(4);
+            let m = (((exp % &four) + &four) % &four).to_i64().unwrap_or(0);
+            match m {
+                0 => return Expr::from_i64(1),
+                1 => return Expr::Const(Constant::I),
+                2 => return Expr::from_i64(-1),
+                3 => return Expr::Mul(vec![Expr::from_i64(-1), Expr::Const(Constant::I)]),
+                _ => {}
+            }
+        }
+        (Expr::Mul(factors), Expr::Integer(exp)) => {
+            if factors.iter().all(|f| {
+                matches!(
+                    f,
+                    Expr::Integer(_) | Expr::Rational(_) | Expr::Const(Constant::I)
+                )
+            }) {
+                let folded_factors: Vec<Expr> = factors
+                    .iter()
+                    .map(|f| fold_pow_sub(f.clone(), Expr::Integer(exp.clone())))
+                    .collect();
+                return folded_factors
+                    .into_iter()
+                    .reduce(|a, b| a * b)
+                    .unwrap_or(Expr::from_i64(1));
+            }
+        }
         (Expr::Integer(n), Expr::Integer(exp)) if !n.is_zero() => {
             if let Some(exp_i) = exp.to_i64()
                 && (-100..0).contains(&exp_i)
@@ -579,6 +607,26 @@ pub fn canonicalize_mul_args(factors: &mut Vec<Expr>) -> bool {
             Expr::Integer(v) => coeff *= BigRational::from_integer(v),
             Expr::Rational(r) => coeff *= r,
             Expr::Const(Constant::I) => i_count += 1,
+            Expr::Pow(b, e)
+                if matches!(b.as_ref(), Expr::Const(Constant::I))
+                    && matches!(e.as_ref(), Expr::Integer(_)) =>
+            {
+                let folded = fold_pow_sub((*b).clone(), (*e).clone());
+                match folded {
+                    Expr::Integer(v) => coeff *= BigRational::from_integer(v),
+                    Expr::Const(Constant::I) => i_count += 1,
+                    Expr::Mul(mut sub_factors) => {
+                        for sf in sub_factors.drain(..) {
+                            match sf {
+                                Expr::Integer(v) => coeff *= BigRational::from_integer(v),
+                                Expr::Const(Constant::I) => i_count += 1,
+                                other => rest.push(other),
+                            }
+                        }
+                    }
+                    other => rest.push(other),
+                }
+            }
             other => rest.push(other),
         }
     }

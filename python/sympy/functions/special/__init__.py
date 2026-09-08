@@ -1,12 +1,87 @@
 """Special functions for FrankenSymPy."""
 
-from .error_functions import erf, erfc
-from .gamma_functions import gamma
-from .zeta_functions import zeta
+from .bessel import (
+    airyai,
+    airybi,
+    besseli,
+    besselj,
+    besselk,
+    bessely,
+    hankel1,
+    hankel2,
+    jn,
+    yn,
+)
+from .error_functions import (
+    Chi,
+    Ci,
+    Ei,
+    FresnelC,
+    FresnelS,
+    Shi,
+    Si,
+    erf,
+    erfc,
+    erfcinv,
+    erfi,
+    erfinv,
+)
+from .gamma_functions import (
+    beta,
+    digamma,
+    gamma,
+    loggamma,
+    lowergamma,
+    polygamma,
+    trigamma,
+    uppergamma,
+)
+from .hyper import (
+    hyper,
+    meijerg,
+)
+from .zeta_functions import (
+    dirichlet_eta,
+    lerchphi,
+    polylog,
+    zeta,
+)
 
 __all__ = [
+    "Chi",
+    "Ci",
+    "Ei",
+    "FresnelC",
+    "FresnelS",
+    "Shi",
+    "Si",
+    "airyai",
+    "airybi",
+    "besseli",
+    "besselj",
+    "besselk",
+    "bessely",
+    "beta",
+    "digamma",
+    "dirichlet_eta",
     "erf",
     "erfc",
+    "erfcinv",
+    "erfi",
+    "erfinv",
     "gamma",
+    "hankel1",
+    "hankel2",
+    "hyper",
+    "jn",
+    "lerchphi",
+    "loggamma",
+    "lowergamma",
+    "meijerg",
+    "polygamma",
+    "polylog",
+    "trigamma",
+    "uppergamma",
+    "yn",
     "zeta",
 ]
