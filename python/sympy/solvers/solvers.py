@@ -104,6 +104,14 @@ def linsolve(system: Any, *symbols: Any) -> Set:
     FiniteSet
         A FiniteSet containing a tuple of solutions, or EmptySet if inconsistent.
     """
+    # Empty top-level inputs have a distinct public result from a present
+    # zero equation or an (A, b) pair describing unconstrained variables.
+    # Handle them before augmented-matrix shape validation and RREF.
+    if isinstance(system, (list, tuple)) and len(system) == 0:
+        return EmptySet()
+    if isinstance(system, MatrixBase) and (system.rows == 0 or system.cols == 0):
+        return EmptySet()
+
     # Parse symbols
     if len(symbols) == 1 and isinstance(symbols[0], (list, tuple)):
         sym_list = list(symbols[0])

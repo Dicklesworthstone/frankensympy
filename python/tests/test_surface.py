@@ -14,6 +14,28 @@ import sympy
 
 
 class SurfaceTests(unittest.TestCase):
+    def test_linsolve_empty_inputs_are_not_zero_equations(self):
+        x, y = sympy.symbols("x y")
+        empty_inputs = ([], (), sympy.Matrix([]), sympy.zeros(0, 3),
+                        sympy.zeros(2, 0))
+        for system in empty_inputs:
+            for symbols in ((), (x, y), ([x, y],)):
+                with self.subTest(system=system, symbols=symbols):
+                    result = sympy.linsolve(system, *symbols)
+                    self.assertIs(type(result), sympy.EmptySet)
+                    self.assertEqual(result, sympy.EmptySet())
+
+        # A present zero equation has an unconstrained family, not EmptySet.
+        for system in ([0], [sympy.Integer(0)], sympy.zeros(1, 3),
+                       (sympy.zeros(0, 2), sympy.zeros(0, 1))):
+            with self.subTest(system=system):
+                result = sympy.linsolve(system, x, y)
+                self.assertIs(type(result), sympy.FiniteSet)
+                self.assertEqual(tuple(next(iter(result))), (x, y))
+        self.assertEqual(sympy.linsolve([1], x, y), sympy.EmptySet())
+        self.assertEqual(tuple(next(iter(sympy.linsolve([x - 1, y - 2], x, y)))),
+                         (1, 2))
+
     def test_linsolve_automatic_parameters_do_not_capture_input_symbols(self):
         for name, parameter_name in (("x1", "tau0"), ("tau", "tau00"),
                                      ("tau0", "tau00"), ("tau1", "tau00")):
