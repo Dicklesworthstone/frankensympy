@@ -432,3 +432,87 @@ fn metadata_change_without_resealing_is_rejected() {
     std::fs::write(&path, receipt.to_string()).unwrap();
     assert!(!validator().arg(path).status().unwrap().success());
 }
+
+#[test]
+fn root_cargo_inputs_invalidate_stale_receipts() {
+    // A separate real checkout avoids mutating the other tests' shared source.
+    let root = test_source().with_extension("cargo-inputs");
+    let output = Command::new("git")
+        .arg("clone")
+        .arg("--quiet")
+        .arg(test_source())
+        .arg(&root)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let mut receipt = base_receipt();
+    let path = root.join("receipt.json");
+    let validate = || {
+        Command::new(env!("CARGO_BIN_EXE_gate-receipt-validator"))
+            .arg("--source-root")
+            .arg(&root)
+            .arg(&path)
+            .output()
+            .unwrap()
+    };
+    for name in [
+        "build.rs",
+        "tests/root.rs",
+        "benches/root.rs",
+        "examples/root.rs",
+    ] {
+        let before = xtask::source_snapshot(&root).unwrap();
+        receipt["source"] = serde_json::to_value(&before).unwrap();
+        seal(&mut receipt);
+        std::fs::write(&path, receipt.to_string()).unwrap();
+        assert!(
+            validate().status.success(),
+            "unchanged source must validate"
+        );
+
+        let input = root.join(name);
+        std::fs::create_dir_all(input.parent().unwrap()).unwrap();
+        std::fs::write(&input, "fn main() {}\n").unwrap();
+        let rejected = validate();
+        assert!(
+            !rejected.status.success(),
+            "new {name} escaped source binding"
+        );
+        assert!(String::from_utf8_lossy(&rejected.stderr).contains("source does not match"));
+
+        let added = xtask::source_snapshot(&root).unwrap();
+        assert_eq!(added.commit, before.commit);
+        assert_eq!(added.tree, before.tree);
+        assert_eq!(added.files, before.files + 1);
+        receipt["source"] = serde_json::to_value(&added).unwrap();
+        seal(&mut receipt);
+        std::fs::write(&path, receipt.to_string()).unwrap();
+        assert!(
+            validate().status.success(),
+            "fresh {name} snapshot must validate"
+        );
+
+        let staged = Command::new("git")
+            .current_dir(&root)
+            .args(["add", "--", name])
+            .output()
+            .unwrap();
+        assert!(
+            staged.status.success(),
+            "{}",
+            String::from_utf8_lossy(&staged.stderr)
+        );
+        assert_eq!(xtask::source_snapshot(&root).unwrap(), added);
+        std::fs::write(&input, "fn main() { println!(\"changed\"); }\n").unwrap();
+        let rejected = validate();
+        assert!(
+            !rejected.status.success(),
+            "modified {name} escaped source binding"
+        );
+        assert!(String::from_utf8_lossy(&rejected.stderr).contains("source does not match"));
+    }
+}

@@ -68,6 +68,12 @@ pub fn source_snapshot(root: &Path) -> Result<SourceSnapshot, String> {
             "Cargo.toml",
             "Cargo.lock",
             "rust-toolchain.toml",
+            // Cargo discovers these root-package inputs without explicit
+            // manifest target entries, so additions must invalidate receipts.
+            "build.rs",
+            "tests",
+            "benches",
+            "examples",
             ".cargo",
             "crates",
             "src",
