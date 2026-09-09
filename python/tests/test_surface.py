@@ -14,6 +14,35 @@ import sympy
 
 
 class SurfaceTests(unittest.TestCase):
+    def test_mixed_float_arithmetic_in_both_operand_orders(self):
+        import operator
+
+        for exact in (sympy.Integer(3), sympy.Rational(3, 2), sympy.S.Zero,
+                      sympy.S.One, sympy.S.NegativeOne, sympy.S.Half):
+            for approximate in (sympy.Float(1.5), sympy.Float(-3), sympy.Float(0)):
+                for left, right in ((exact, approximate), (approximate, exact)):
+                    for operation in (operator.add, operator.sub, operator.mul):
+                        with self.subTest(left=left, right=right, operation=operation.__name__):
+                            expected = operation(float(left), float(right))
+                            result = operation(left, right)
+                            if expected == 0:
+                                self.assertIs(result, sympy.S.Zero)
+                            else:
+                                self.assertIs(type(result), sympy.Float)
+                                self.assertEqual(result, sympy.Float(expected))
+        x = sympy.Symbol("x")
+        for expression in (x + sympy.Float(1.5), x - sympy.Float(1.5),
+                           x * sympy.Float(1.5)):
+            self.assertEqual(expression.free_symbols, {x})
+        # Do not reclassify a rounded underflow as an exact zero singleton.
+        # This checks type only, not arbitrary-precision value agreement.
+        self.assertIs(type(sympy.Float(5e-324) * sympy.Float(0.5)), sympy.Float)
+        exact = sympy.Integer(2**53 + 1)
+        approximate = sympy.Float(-(2**53))
+        # Do not erase a nonzero residual by rounding the exact operand first.
+        self.assertNotEqual(exact + approximate, 0)
+        self.assertNotEqual(approximate + exact, 0)
+
     def test_float_negation_preserves_numeric_type_and_value(self):
         import math
 

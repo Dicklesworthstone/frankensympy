@@ -1584,6 +1584,9 @@ class Expr(Basic):
 
     def __add__(self, other: Any) -> "Expr":
         try:
+            if (_is_numeric_coeff(self, True) and type(other) is Float
+                    and math.isfinite(other._as_python_float())):
+                return other.__radd__(self)
             return _wrap(_native_expr(self) + _native_expr(other))
         except TypeError:
             if _is_sympy_operand(other):
@@ -1600,6 +1603,9 @@ class Expr(Basic):
 
     def __sub__(self, other: Any) -> "Expr":
         try:
+            if (_is_numeric_coeff(self, True) and type(other) is Float
+                    and math.isfinite(other._as_python_float())):
+                return other.__rsub__(self)
             return _wrap(_native_expr(self) - _native_expr(other))
         except TypeError:
             if _is_sympy_operand(other):
@@ -1616,6 +1622,9 @@ class Expr(Basic):
 
     def __mul__(self, other: Any) -> "Expr":
         try:
+            if (_is_numeric_coeff(self, True) and type(other) is Float
+                    and math.isfinite(other._as_python_float())):
+                return other.__rmul__(self)
             return _wrap(_native_expr(self) * _native_expr(other))
         except TypeError:
             if _is_sympy_operand(other):
@@ -2170,6 +2179,23 @@ _HALF = Half()
 
 def _restore_half():
     return _HALF
+
+
+def _float_arithmetic_result(value: float, zero_is_exact: bool = True) -> "Expr":
+    """Add/subtract/multiply return the exact zero singleton on cancellation."""
+    return _ZERO if value == 0.0 and zero_is_exact else Float(value)
+
+
+def _maybe_arithmetic_float(value: Any) -> float | None:
+    result = _maybe_python_float(value)
+    if result is not None and (type(value) is int or _is_numeric_coeff(value, True)):
+        # Rounding an exact operand before the operation can erase a small
+        # residual (e.g. (2**53 + 1) - Float(2**53)). Keep that path symbolic.
+        if not math.isfinite(result) or result.as_integer_ratio() != _exact_ratio(value):
+            return None
+    return result
+
+
 class Float(Number):
     """Profile-compatible binary64 float. Distinct from Rational and from RealBall."""
 
@@ -2313,39 +2339,41 @@ class Float(Number):
         return f"Float({self._as_python_float()!r})"
 
     def __add__(self, other: Any) -> "Expr":
-        rhs = _maybe_python_float(other)
+        rhs = _maybe_arithmetic_float(other)
         if rhs is not None:
-            return Float(self._as_python_float() + rhs)
+            return _float_arithmetic_result(self._as_python_float() + rhs)
         return Expr.__add__(self, other)
 
     def __radd__(self, other: Any) -> "Expr":
-        rhs = _maybe_python_float(other)
+        rhs = _maybe_arithmetic_float(other)
         if rhs is not None:
-            return Float(rhs + self._as_python_float())
+            return _float_arithmetic_result(rhs + self._as_python_float())
         return Expr.__radd__(self, other)
 
     def __sub__(self, other: Any) -> "Expr":
-        rhs = _maybe_python_float(other)
+        rhs = _maybe_arithmetic_float(other)
         if rhs is not None:
-            return Float(self._as_python_float() - rhs)
+            return _float_arithmetic_result(self._as_python_float() - rhs)
         return Expr.__sub__(self, other)
 
     def __rsub__(self, other: Any) -> "Expr":
-        rhs = _maybe_python_float(other)
+        rhs = _maybe_arithmetic_float(other)
         if rhs is not None:
-            return Float(rhs - self._as_python_float())
+            return _float_arithmetic_result(rhs - self._as_python_float())
         return Expr.__rsub__(self, other)
 
     def __mul__(self, other: Any) -> "Expr":
-        rhs = _maybe_python_float(other)
+        rhs = _maybe_arithmetic_float(other)
         if rhs is not None:
-            return Float(self._as_python_float() * rhs)
+            lhs = self._as_python_float()
+            return _float_arithmetic_result(lhs * rhs, lhs == 0.0 or rhs == 0.0)
         return Expr.__mul__(self, other)
 
     def __rmul__(self, other: Any) -> "Expr":
-        rhs = _maybe_python_float(other)
+        rhs = _maybe_arithmetic_float(other)
         if rhs is not None:
-            return Float(rhs * self._as_python_float())
+            lhs = self._as_python_float()
+            return _float_arithmetic_result(rhs * lhs, lhs == 0.0 or rhs == 0.0)
         return Expr.__rmul__(self, other)
 
     def __truediv__(self, other: Any) -> "Expr":
