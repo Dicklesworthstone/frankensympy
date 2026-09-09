@@ -14,6 +14,25 @@ import sympy
 
 
 class SurfaceTests(unittest.TestCase):
+    def test_exact_number_division_uses_float_arithmetic(self):
+        for numerator in (sympy.Integer(0), sympy.Integer(3), sympy.Integer(-3),
+                          sympy.Rational(3, 2), sympy.S.One,
+                          sympy.S.NegativeOne, sympy.S.Half):
+            for divisor in (sympy.Float(1.5), sympy.Float(-1.5), sympy.Float(0.5)):
+                with self.subTest(numerator=numerator, divisor=divisor):
+                    result = numerator / divisor
+                    if numerator == 0:
+                        self.assertIs(result, sympy.S.Zero)
+                        continue
+                    expected = sympy.Float(float(numerator) / float(divisor))
+                    self.assertIs(type(result), sympy.Float)
+                    self.assertEqual(result, expected)
+        x = sympy.Symbol("x")
+        for coefficient, expected in ((sympy.Float(1.5), sympy.Float(-2)),
+                                      (sympy.Float(-1.5), sympy.Float(2))):
+            self.assertEqual(sympy.solve_linear(coefficient*x + 3), (x, expected))
+        self.assertEqual((x / sympy.Float(1.5)).free_symbols, {x})
+
     def test_coefficient_defaults_include_floats(self):
         import inspect
 

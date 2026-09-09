@@ -310,9 +310,9 @@ def _admitted_python_float(value: Any) -> float:
         return float(value)
     if type(value) is str:
         return float(value)
-    if type(value) is Integer:
+    if type(value) in (Integer, Zero, One, NegativeOne):
         return float(value.p)
-    if type(value) is Rational:
+    if type(value) in (Rational, Half):
         return value.p / value.q
     if type(value) is Float:
         return value._as_python_float()
@@ -1632,6 +1632,13 @@ class Expr(Basic):
 
     def __truediv__(self, other: Any) -> "Expr":
         try:
+            if (type(self) in (Integer, Rational, One, NegativeOne, Half)
+                    and type(other) is Float and self.is_zero is not True):
+                divisor = other._as_python_float()
+                if math.isfinite(divisor) and divisor != 0.0:
+                    # Sibling numeric classes do not get reflected-operator
+                    # precedence. Explicitly use the existing Float lane.
+                    return other.__rtruediv__(Rational(self.p, self.q))
             if not (isinstance(self, (float, Float)) or isinstance(other, (float, Float))):
                 ratio_self = _exact_ratio(self)
                 ratio_other = _exact_ratio(other)
