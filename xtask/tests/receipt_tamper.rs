@@ -100,7 +100,7 @@ fn base_receipt() -> serde_json::Value {
             .unwrap()
             .push(serde_json::json!({
                 "name": format!("tests-{name}"), "status": "passed",
-                "detail": serde_json::json!({"command": ["cargo", "test", "-p", name],
+                "detail": serde_json::json!({"command": ["cargo", "test", "-p", name, "--quiet"],
                     "exit_code": 0, "stdout": "test result: ok. 1 passed; 0 failed; 0 ignored;\n",
                     "stderr": ""}).to_string()
             }));
@@ -160,6 +160,117 @@ fn uuidish(receipt: &serde_json::Value) -> String {
     let mut h = DefaultHasher::new();
     receipt.to_string().hash(&mut h);
     format!("case-{:016x}", h.finish())
+}
+
+#[test]
+fn matching_command_with_zero_tests_is_rejected() {
+    let tmp = std::env::temp_dir().join("xtask-validator-matching-command-zero-tests");
+    std::fs::create_dir_all(&tmp).unwrap();
+    let path = write(&tmp, base_receipt(), |r| {
+        let check = &mut r["checks"][3];
+        let mut detail: serde_json::Value =
+            serde_json::from_str(check["detail"].as_str().unwrap()).unwrap();
+        detail["stdout"] = serde_json::json!("test result: ok. 0 passed; 0 failed;\n");
+        check["detail"] = serde_json::json!(detail.to_string());
+    });
+    let output = validator().arg(path).output().unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("nonzero test execution"));
+}
+
+#[test]
+fn integration_test_target_is_bound_to_its_check() {
+    let tmp = std::env::temp_dir().join("xtask-validator-integration-command");
+    std::fs::create_dir_all(&tmp).unwrap();
+    let mut receipt = base_receipt();
+    receipt["gate"] = serde_json::json!("ws12-certified-jacobian");
+    receipt["checks"].as_array_mut().unwrap().truncate(3);
+    for (name, command) in [
+        (
+            "test-sparse-jacobian-c7",
+            vec![
+                "cargo",
+                "test",
+                "-p",
+                "fsym-calculus",
+                "--test",
+                "sparse_jacobian_c7",
+                "--quiet",
+            ],
+        ),
+        (
+            "test-sparse-jacobian-gate",
+            vec![
+                "cargo",
+                "test",
+                "-p",
+                "fsym-calculus",
+                "--test",
+                "sparse_jacobian_gate",
+                "--quiet",
+            ],
+        ),
+        (
+            "tests-fsym-calculus",
+            vec!["cargo", "test", "-p", "fsym-calculus", "--quiet"],
+        ),
+    ] {
+        receipt["checks"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "name": name, "status": "passed",
+                "detail": serde_json::json!({"command": command, "exit_code": 0,
+                    "stdout": "test result: ok. 1 passed; 0 failed;\n", "stderr": ""}).to_string()
+            }));
+    }
+    let path = write(&tmp, receipt.clone(), |_| {});
+    assert!(validator().arg(path).status().unwrap().success());
+    let path = write(&tmp, receipt, |r| {
+        let check = &mut r["checks"][3];
+        let mut detail: serde_json::Value =
+            serde_json::from_str(check["detail"].as_str().unwrap()).unwrap();
+        detail["command"][5] = serde_json::json!("sparse_jacobian_gate");
+        check["detail"] = serde_json::json!(detail.to_string());
+    });
+    let output = validator().arg(path).output().unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("command"));
+}
+
+#[test]
+fn resigned_command_substitution_is_rejected() {
+    let tmp = std::env::temp_dir().join("xtask-validator-command-substitution");
+    std::fs::create_dir_all(&tmp).unwrap();
+    for command in [
+        serde_json::json!(["echo", "test result: ok. 1 passed;"]),
+        serde_json::json!(["cargo", "test", "-p", "fsym-core", "--quiet"]),
+        serde_json::json!(["cargo", "test", "-p", "fsym-id", "one_test", "--quiet"]),
+        serde_json::json!([
+            "cargo",
+            "test",
+            "-p",
+            "fsym-id",
+            "--quiet",
+            "--",
+            "--ignored"
+        ]),
+        serde_json::json!(["cargo", "test", "-p", "fsym-id", 0]),
+    ] {
+        let path = write(&tmp, base_receipt(), |r| {
+            let check = &mut r["checks"][3];
+            let mut detail: serde_json::Value =
+                serde_json::from_str(check["detail"].as_str().unwrap()).unwrap();
+            detail["command"] = command;
+            check["detail"] = serde_json::json!(detail.to_string());
+        });
+        let output = validator().arg(path).output().unwrap();
+        assert!(
+            !output.status.success(),
+            "validator accepted substituted command"
+        );
+        assert!(String::from_utf8_lossy(&output.stderr).contains("command"));
+    }
 }
 
 #[test]

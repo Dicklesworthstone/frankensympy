@@ -134,6 +134,29 @@ fn required_checks(gate: &str) -> Vec<&'static str> {
     checks
 }
 
+// Independently declared runner contract, not derived from receipt payloads.
+// Call only after the gate's exact required-check set admits the check name.
+fn expected_test_command(name: &str) -> Option<Vec<&str>> {
+    if let Some(crate_name) = name.strip_prefix("tests-") {
+        return Some(vec!["cargo", "test", "-p", crate_name, "--quiet"]);
+    }
+    let (crate_name, target) = match name {
+        "test-fresh-process-id-stability" => ("fsym-core", "fresh_process_id_stability"),
+        "test-directed-rounding-mutation" => ("fsym-core", "directed_rounding_mutation"),
+        "test-sparse-jacobian-c7" => ("fsym-calculus", "sparse_jacobian_c7"),
+        "test-sparse-jacobian-gate" => ("fsym-calculus", "sparse_jacobian_gate"),
+        "test-cancellation-injection" => ("fsym-runtime", "cancellation_injection"),
+        "test-c10-protocol-gate" => ("fsym-runtime", "c10_protocol_gate"),
+        "test-c9-persistence-repair-gate" => ("fsym-runtime", "c9_persistence_repair_gate"),
+        "test-ws16-distribution-index-gate" => ("fsym-runtime", "ws16_distribution_index_gate"),
+        "test-ws22-performance-gate" => ("fsym-runtime", "ws22_performance_gate"),
+        _ => return None,
+    };
+    Some(vec![
+        "cargo", "test", "-p", crate_name, "--test", target, "--quiet",
+    ])
+}
+
 fn fail(what: &str, why: &str) -> i32 {
     eprintln!("REJECT {what}: {why}");
     1
@@ -261,6 +284,12 @@ fn validate(path: &str, source_root: &std::path::Path) -> i32 {
                     Ok(detail) => detail,
                     Err(_) => return fail(path, "test check lacks execution transcript"),
                 };
+            let Some(expected_command) = expected_test_command(name) else {
+                return fail(path, "test check has no declared command contract");
+            };
+            if detail["command"] != serde_json::json!(expected_command) {
+                return fail(path, "test command does not match the required check");
+            }
             let ran_tests = detail["stdout"]
                 .as_str()
                 .unwrap_or("")
@@ -272,7 +301,6 @@ fn validate(path: &str, source_root: &std::path::Path) -> i32 {
                 .any(|count| count > 0);
             if detail["exit_code"] != serde_json::json!(0)
                 || !ran_tests
-                || detail["command"].as_array().is_none_or(Vec::is_empty)
                 || detail["stderr"].as_str().is_none()
             {
                 return fail(path, "test check has no successful nonzero test execution");
