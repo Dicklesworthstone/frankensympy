@@ -1280,7 +1280,7 @@ class Expr(Basic):
             from ..functions import cos, sin
             x = self.args[0]
             if hasattr(x, "as_coeff_Mul"):
-                coeff, rest = x.as_coeff_Mul()
+                coeff, rest = x.as_coeff_Mul(rational=True)
                 if coeff == I or rest == I:
                     y = x / I
                     return cos(y) + I * sin(y)
@@ -1388,7 +1388,7 @@ class Expr(Basic):
             return tuple(sorted(self.args, key=lambda term: term.sort_key()))
         return (self,)
 
-    def as_coeff_Mul(self, rational: bool = True) -> tuple["Expr", "Expr"]:
+    def as_coeff_Mul(self, rational: bool = False) -> tuple["Expr", "Expr"]:
         """Split a numeric multiplicative coefficient from the rest."""
         if type(self) is Mul:
             coeff: Expr = Integer(1)
@@ -1396,6 +1396,11 @@ class Expr(Basic):
             for arg in self.args:
                 if _is_numeric_coeff(arg, rational):
                     coeff = coeff * arg
+                elif rational and type(arg) is Float and arg.is_negative is True:
+                    # A negative floating coefficient contributes its exact
+                    # sign even when its magnitude stays in the remainder.
+                    coeff = -coeff
+                    rest.append(abs(arg))
                 else:
                     rest.append(arg)
             if not rest:
@@ -1407,7 +1412,7 @@ class Expr(Basic):
             return self, Integer(1)
         return Integer(1), self
 
-    def as_coeff_Add(self, rational: bool = True) -> tuple["Expr", "Expr"]:
+    def as_coeff_Add(self, rational: bool = False) -> tuple["Expr", "Expr"]:
         """Split a numeric additive coefficient from the rest."""
         if type(self) is Add:
             coeff: Expr = Integer(0)
@@ -1466,8 +1471,8 @@ class Expr(Basic):
             parts = []
             for arg in self.args:
                 numer, denom = arg.as_numer_denom()
-                nc, numer = numer.as_coeff_Mul()
-                dc, denom = denom.as_coeff_Mul()
+                nc, numer = numer.as_coeff_Mul(rational=True)
+                dc, denom = denom.as_coeff_Mul(rational=True)
                 nr, dr = _exact_ratio(nc), _exact_ratio(dc)
                 if nr is None or dr is None or dr[0] == 0:
                     return self, Integer(1)

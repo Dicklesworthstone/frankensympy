@@ -223,14 +223,14 @@ class Poly(Basic):
         if len(self._gens) > 1:
             expr = self._expr
             terms = expr.args if isinstance(expr, Add) else [expr]
-            coeffs = [t.as_coeff_Mul()[0] for t in terms]
+            coeffs = [t.as_coeff_Mul(rational=True)[0] for t in terms]
         else:
             try:
                 coeffs = self.all_coeffs()
             except Exception:
                 expr = self._expr
                 terms = expr.args if isinstance(expr, Add) else [expr]
-                coeffs = [t.as_coeff_Mul()[0] for t in terms]
+                coeffs = [t.as_coeff_Mul(rational=True)[0] for t in terms]
         if not coeffs or all(c == 0 for c in coeffs):
             return Integer(0)
         denoms = []

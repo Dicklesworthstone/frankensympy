@@ -14,6 +14,27 @@ import sympy
 
 
 class SurfaceTests(unittest.TestCase):
+    def test_coefficient_defaults_include_floats(self):
+        import inspect
+
+        x = sympy.Symbol("x")
+        for method in (sympy.Expr.as_coeff_Mul, sympy.Expr.as_coeff_Add):
+            self.assertIs(inspect.signature(method).parameters["rational"].default, False)
+        for number in (sympy.Float(1.5), sympy.Float(-1.5), sympy.Float(0)):
+            with self.subTest(number=number):
+                self.assertEqual(number.as_coeff_Mul(), (number, 1))
+                self.assertEqual(number.as_coeff_Add(), (number, 0))
+                self.assertEqual(number.as_coeff_Mul(rational=True), (1, number))
+                self.assertEqual(number.as_coeff_Add(rational=True), (0, number))
+        for number in (sympy.Float(1.5), sympy.Float(-1.5)):
+            with self.subTest(coefficient=number):
+                self.assertEqual((number*x).as_coeff_Mul(), (number, x))
+                self.assertEqual((number + x).as_coeff_Add(), (number, x))
+                sign = -1 if number < 0 else 1
+                self.assertEqual((number*x).as_coeff_Mul(rational=True),
+                                 (sign, abs(number)*x))
+                self.assertEqual((number + x).as_coeff_Add(rational=True), (0, number + x))
+
     def test_coefficient_splits_include_numeric_singletons(self):
         values = (sympy.S.Zero, sympy.S.One, sympy.S.NegativeOne,
                   sympy.S.Half, sympy.Integer(2), sympy.Rational(-2, 3))

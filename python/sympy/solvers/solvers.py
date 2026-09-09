@@ -288,7 +288,7 @@ def solve_linear(lhs: Any, rhs: Any = 0, symbols: Any = (), exclude: Any = ()) -
             if a != 0:
                 # Reduce rational content before introducing a symbolic
                 # reciprocal; the native simplifier does not split 1/(2*z).
-                coefficient, rest = a.as_coeff_Mul()
+                coefficient, rest = a.as_coeff_Mul(rational=True)
                 sol = simplify((-const / coefficient) / rest)
                 if any(simplify(base.subs(sym, sol)).is_zero is True
                        for base in reciprocal_bases):
