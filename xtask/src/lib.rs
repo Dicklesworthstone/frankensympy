@@ -4,6 +4,7 @@
 #![forbid(unsafe_code)]
 
 use std::collections::BTreeMap;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -45,10 +46,48 @@ pub fn file_digest(path: &Path) -> Result<String, String> {
     if !metadata.is_file() || metadata.len() > 256 * 1024 * 1024 {
         return Err(format!("not a bounded regular input: {}", path.display()));
     }
-    let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let opened = file.metadata().map_err(|e| e.to_string())?;
+    if !opened.is_file() || opened.len() > 256 * 1024 * 1024 {
+        return Err(format!("not a bounded regular input: {}", path.display()));
+    }
+    digest_reader(file, 256 * 1024 * 1024)
+}
+
+fn digest_reader(reader: impl Read, limit: u64) -> Result<String, String> {
+    // Metadata is only a preflight; a file can grow after that check. Read
+    // at most one sentinel byte beyond the cap, and never return its digest.
+    let mut reader = reader.take(limit.checked_add(1).ok_or("input byte limit overflow")?);
     let mut hasher = blake3::Hasher::new();
-    hasher.update_reader(&mut file).map_err(|e| e.to_string())?;
+    hasher
+        .update_reader(&mut reader)
+        .map_err(|e| e.to_string())?;
+    if reader.limit() == 0 {
+        return Err("input exceeds byte limit".into());
+    }
     Ok(hasher.finalize().to_hex().to_string())
+}
+
+fn text_reader(reader: impl Read, limit: u64) -> Result<String, String> {
+    let mut reader = reader.take(limit.checked_add(1).ok_or("input byte limit overflow")?);
+    let mut text = String::new();
+    reader
+        .read_to_string(&mut text)
+        .map_err(|e| e.to_string())?;
+    if reader.limit() == 0 {
+        return Err("input exceeds byte limit".into());
+    }
+    Ok(text)
+}
+
+/// Load a development receipt with a cap on bytes read, not just metadata size.
+pub fn read_receipt(path: &Path) -> Result<String, String> {
+    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let opened = file.metadata().map_err(|e| e.to_string())?;
+    if !opened.is_file() || opened.len() > 16 * 1024 * 1024 {
+        return Err("receipt must be a regular file within 16 MiB".into());
+    }
+    text_reader(file, 16 * 1024 * 1024)
 }
 
 pub fn source_snapshot(root: &Path) -> Result<SourceSnapshot, String> {
@@ -126,4 +165,61 @@ pub fn profile_digest(root: &Path, profile: &str) -> Result<String, String> {
             .join("tools/conformance-lab/profiles")
             .join(format!("{profile}.toml")),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{digest_reader, text_reader};
+    use std::io::{self, Cursor, Read};
+
+    #[test]
+    fn readers_enforce_actual_stream_length() {
+        // A stream may be longer than the length admitted before reading.
+        // Keep it finite so the unbounded implementation fails, not hangs.
+        let bytes = [b'x'; 32];
+        let mut input = Cursor::new(bytes);
+        assert!(digest_reader(&mut input, 8).is_err());
+        assert_eq!(input.position(), 9);
+        input.set_position(0);
+        assert!(text_reader(&mut input, 8).is_err());
+        assert_eq!(input.position(), 9);
+    }
+
+    #[test]
+    fn readers_preserve_boundary_values_and_errors() {
+        for length in [0, 1, 8] {
+            let bytes = vec![b'x'; length];
+            assert_eq!(
+                digest_reader(bytes.as_slice(), 8).unwrap(),
+                blake3::hash(&bytes).to_hex().to_string()
+            );
+            assert_eq!(text_reader(bytes.as_slice(), 8).unwrap().as_bytes(), bytes);
+        }
+        assert!(text_reader([0xff].as_slice(), 8).is_err());
+        assert_eq!(text_reader([].as_slice(), 0).unwrap(), "");
+        assert!(text_reader(b"x".as_slice(), 0).is_err());
+        assert!(digest_reader(b"x".as_slice(), 0).is_err());
+        assert!(digest_reader([].as_slice(), u64::MAX).is_err());
+        assert!(text_reader([].as_slice(), u64::MAX).is_err());
+    }
+
+    #[test]
+    fn readers_propagate_io_errors() {
+        struct FailedRead;
+        impl Read for FailedRead {
+            fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+                Err(io::Error::other("injected read failure"))
+            }
+        }
+        assert!(
+            digest_reader(FailedRead, 8)
+                .unwrap_err()
+                .contains("injected read failure")
+        );
+        assert!(
+            text_reader(FailedRead, 8)
+                .unwrap_err()
+                .contains("injected read failure")
+        );
+    }
 }

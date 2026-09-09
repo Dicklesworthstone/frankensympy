@@ -167,7 +167,7 @@ fn validate(path: &str, source_root: &std::path::Path) -> i32 {
         Ok(metadata) if metadata.is_file() && metadata.len() <= 16 * 1024 * 1024 => {}
         _ => return fail(path, "receipt must be a regular file within 16 MiB"),
     }
-    let raw = match std::fs::read_to_string(path) {
+    let raw = match xtask::read_receipt(std::path::Path::new(path)) {
         Ok(r) => r,
         Err(e) => return fail(path, &format!("unreadable: {e}")),
     };
