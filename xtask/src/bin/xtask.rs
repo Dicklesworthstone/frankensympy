@@ -469,13 +469,45 @@ fn finish(gate: &str, profile_id: &str, mut checks: Vec<Check>) -> Receipt {
 }
 
 fn write_receipt(receipt: &Receipt) {
+    use std::io::Write;
+
     let dir = std::path::Path::new(RECEIPTS_DIR);
     std::fs::create_dir_all(dir).expect("create receipts dir");
     let json = serde_json::to_string_pretty(receipt).expect("receipt serializes");
-    let tmp = dir.join(format!(".{}.tmp", receipt.gate));
-    std::fs::write(&tmp, json.as_bytes()).expect("write temp receipt");
+    let (tmp, mut file) = reserve_receipt_temp(dir, &receipt.gate).expect("reserve temp receipt");
+    file.write_all(json.as_bytes()).expect("write temp receipt");
+    drop(file);
     let final_path = dir.join(format!("{}.receipt.json", receipt.gate));
     std::fs::rename(&tmp, final_path).expect("atomic receipt rename");
+}
+
+fn reserve_receipt_temp(
+    dir: &std::path::Path,
+    gate: &str,
+) -> std::io::Result<(std::path::PathBuf, std::fs::File)> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+
+    // Each publisher owns its inode until rename. Exclusive creation also
+    // protects files left by a previous process with a reused PID. Failed
+    // writes remain available for diagnosis; they are never published.
+    for _ in 0..128 {
+        let sequence = NEXT.fetch_add(1, Ordering::Relaxed);
+        let path = dir.join(format!(".{gate}.{}.{sequence}.tmp", std::process::id()));
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(file) => return Ok((path, file)),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "receipt temporary-file collision limit reached",
+    ))
 }
 
 fn cmd_gate_ws14_agent_protocol() -> Receipt {
@@ -738,6 +770,48 @@ fn main() -> std::process::ExitCode {
 #[cfg(test)]
 mod execution_tests {
     use super::*;
+
+    #[test]
+    fn interleaved_receipt_writers_cannot_modify_each_others_publication() {
+        use std::io::Write;
+
+        let root = std::env::temp_dir().join(format!(
+            "xtask-publication-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let legacy = root.join(".foundation.tmp");
+        std::fs::write(&legacy, b"preserve existing artifact").unwrap();
+        let (first_path, mut first) = reserve_receipt_temp(&root, "foundation").unwrap();
+        let (second_path, mut second) = reserve_receipt_temp(&root, "foundation").unwrap();
+        assert_ne!(first_path, second_path);
+
+        // Deliberately schedule the second writer after the first rename.
+        // A shared temporary inode would mutate the already published receipt.
+        let published = root.join("foundation.receipt.json");
+        first.write_all(b"first complete receipt").unwrap();
+        drop(first);
+        std::fs::rename(first_path, &published).unwrap();
+        second.write_all(b"second complete receipt").unwrap();
+        assert_eq!(
+            std::fs::read(&published).unwrap(),
+            b"first complete receipt"
+        );
+        drop(second);
+        std::fs::rename(second_path, &published).unwrap();
+        assert_eq!(
+            std::fs::read(&published).unwrap(),
+            b"second complete receipt"
+        );
+        assert_eq!(
+            std::fs::read(&legacy).unwrap(),
+            b"preserve existing artifact"
+        );
+    }
 
     #[test]
     fn child_execution_control() {
