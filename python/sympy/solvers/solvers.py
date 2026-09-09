@@ -3,6 +3,7 @@
 from typing import Any, Iterable, List, Optional, Sequence, Tuple, Union
 from ..core import (
     Basic,
+    Dummy,
     Eq,
     Expr,
     Integer,
@@ -248,9 +249,19 @@ def solve_linear(lhs: Any, rhs: Any = 0, symbols: Any = (), exclude: Any = ()) -
     f_expr = _wrap(_native_expr(f))
     free = f_expr.free_symbols
 
-    target_symbols = list(symbols) if symbols else sorted(list(free), key=lambda s: s.name)
+    target_symbols = list(symbols) if symbols else list(free)
+    for symbol in target_symbols:
+        _require_symbol(symbol)
     exclude_set = set(exclude) if exclude else set()
-    target_symbols = [s for s in target_symbols if s not in exclude_set]
+    # The request limits eligibility, not precedence. Only present symbols
+    # can constrain this expression; choose among them in canonical order.
+    target_symbols = sorted(
+        (s for s in target_symbols if s in free and s not in exclude_set),
+        # The general surface sort key prints Dummy's intern encoding,
+        # which puts decimal IDs before names and orders 11 before 9.
+        key=lambda s: (type(s).__name__, s.name,
+                       s.dummy_index if type(s) is Dummy else 0),
+    )
 
     if not target_symbols:
         return (0, 1)

@@ -14,6 +14,36 @@ import sympy
 
 
 class SurfaceTests(unittest.TestCase):
+    def test_solve_linear_selects_present_symbols_canonically(self):
+        from itertools import permutations
+
+        x, y, z = sympy.symbols("x y z")
+        for requested in permutations((x, y, z)):
+            original = list(requested)
+            for excluded, expected in (([], (x, -y)), ([x], (y, -x)),
+                                       ([x, y], (0, 1))):
+                with self.subTest(requested=requested, excluded=excluded):
+                    supplied = list(original)
+                    self.assertEqual(sympy.solve_linear(x + y, symbols=supplied,
+                                                        exclude=excluded), expected)
+                    self.assertEqual(supplied, original)
+            self.assertEqual(sympy.solve_linear(x**2 + y, symbols=original),
+                             (y, -x**2))
+        for expression in (x, x + y, x**2, sympy.Integer(5)):
+            self.assertEqual(sympy.solve_linear(expression, symbols=[z]), (0, 1))
+        self.assertEqual(sympy.solve_linear(x**2 + y**2, symbols=[y, x]),
+                         (x**2 + y**2, 1))
+        older, named_first, newer = [sympy.Dummy(name) for name in ("z", "a", "m")]
+        expression = older + named_first + newer
+        for requested in permutations((older, named_first, newer)):
+            self.assertEqual(sympy.solve_linear(expression, symbols=requested),
+                             (named_first, -older - newer))
+        same_name = [sympy.Dummy("d") for _ in range(12)]
+        first, last = same_name[0], same_name[-1]
+        for requested in ((first, last), (last, first)):
+            self.assertEqual(sympy.solve_linear(first + last, symbols=requested),
+                             (first, -last))
+
     def test_solve_numeric_constant_output_contracts(self):
         x, y = sympy.symbols("x y")
         zero_cases = (0, 0.0, sympy.Rational(0, 3), sympy.Float(0), [], [0],
