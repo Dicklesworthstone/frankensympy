@@ -14,6 +14,38 @@ import sympy
 
 
 class SurfaceTests(unittest.TestCase):
+    def test_linsolve_expression_symbols_are_explicit_and_distinct(self):
+        x, y = sympy.symbols("x y")
+        missing_message = (
+            "\nWhen passing a system of equations, the explicit symbols for which a\n"
+            "solution is being sought must be given as a sequence, too."
+        )
+        for system in ([0], [x + y - 1], (x - 1, y - 2)):
+            for symbols in ((), ([],), ((),)):
+                with self.subTest(system=system, symbols=symbols):
+                    with self.assertRaises(ValueError) as caught:
+                        sympy.linsolve(system, *symbols)
+                    self.assertEqual(str(caught.exception), missing_message)
+            for symbols in ((x, x), ([x, x],), (x, y, x)):
+                with self.subTest(system=system, symbols=symbols):
+                    with self.assertRaises(ValueError) as caught:
+                        sympy.linsolve(system, *symbols)
+                    self.assertEqual(str(caught.exception), "duplicate symbols given")
+        self.assertEqual(sympy.linsolve([], x, x), sympy.EmptySet())
+        result = sympy.linsolve([x - 1, y - 2], y, x)
+        self.assertEqual(tuple(next(iter(result))), (2, 1))
+        result = sympy.linsolve([x - y], [x])
+        self.assertEqual(tuple(next(iter(result))), (y,))
+        for coefficient in (1, 2, -3):
+            expression = coefficient*x - y
+            with self.subTest(coefficient=coefficient):
+                result = sympy.linsolve([expression], x)
+                self.assertEqual(tuple(next(iter(result))), (y/coefficient,))
+                self.assertEqual(sympy.solve_linear(expression, symbols=[x]),
+                                 (x, y/coefficient))
+        with self.assertRaises(ValueError):
+            sympy.linsolve([x**2 - y], x)
+
     def test_linsolve_empty_inputs_are_not_zero_equations(self):
         x, y = sympy.symbols("x y")
         empty_inputs = ([], (), sympy.Matrix([]), sympy.zeros(0, 3),

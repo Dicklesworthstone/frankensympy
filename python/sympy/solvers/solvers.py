@@ -8,6 +8,7 @@ from ..core import (
     Integer,
     Rational,
     Symbol,
+    Tuple as SymTuple,
     _native_expr,
     _require_symbol,
     _wrap,
@@ -29,7 +30,7 @@ def _extract_linear_coeffs(expr, symbols):
     for s in symbols:
         subs_one = dict(zero_subs)
         subs_one[s] = 1
-        c = expr.subs(subs_one) - const
+        c = simplify(expr.subs(subs_one) - const)
         coeffs.append(c)
 
     # Verify linearity: expr - (sum(coeffs * s) + const) should be 0
@@ -86,7 +87,9 @@ def _solve_augmented_matrix_to_set(M: Matrix, sym_list: Optional[List[Symbol]]) 
             # Free variable
             sol.append(free_values[c])
 
-    return FiniteSet(tuple(sol))
+    # The symbolic constructor keeps typed terms intact. A Python tuple is
+    # otherwise lowered by reparsing its printed entries at the set boundary.
+    return FiniteSet(SymTuple(*sol))
 
 
 def linsolve(system: Any, *symbols: Any) -> Set:
@@ -160,17 +163,18 @@ def linsolve(system: Any, *symbols: Any) -> Set:
                 raise ValueError(f"Number of symbols ({len(sym_list)}) does not match matrix cols - 1 ({n})")
         else:
             # List of equations or expressions
+            if not sym_list:
+                raise ValueError(
+                    "\nWhen passing a system of equations, the explicit symbols for which a\n"
+                    "solution is being sought must be given as a sequence, too."
+                )
+            if len(set(sym_list)) != len(sym_list):
+                raise ValueError("duplicate symbols given")
             eq_list = []
             for item in system:
                 if type(item) is Eq:
                     item = item.lhs - item.rhs
                 eq_list.append(_wrap(_native_expr(item)))
-
-            if not sym_list:
-                all_syms = set()
-                for eq in eq_list:
-                    all_syms.update(eq.free_symbols)
-                sym_list = sorted(list(all_syms), key=lambda s: s.name)
 
             n = len(sym_list)
             rows = []
