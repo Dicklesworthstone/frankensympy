@@ -14,6 +14,38 @@ import sympy
 
 
 class SurfaceTests(unittest.TestCase):
+    def test_mixed_denominator_decomposition_and_linear_solving(self):
+        x, y, z = sympy.symbols("x y z")
+        cases = (
+            (x/y + 1, (x + y, y), (x, -y)),
+            (1/x + 1/y, (x + y, x*y), (x, -y)),
+            (1/x + 1/x**2, (x**2 + x, x**3), (x**2 + x, x**3)),
+            (x/2 + 1/y, (x*y + 2, 2*y), (x, -2/y)),
+            (2*x/y + 4/z, (sympy.Mul(2, x*z + 2*y, evaluate=False), y*z),
+             (x, -2*y/z)),
+            (x/(2*y) + z/(3*y), (3*x + 2*z, 6*y), (x, -2*z/3)),
+            (2/x + 2/y, (sympy.Mul(2, x + y, evaluate=False), x*y), (x, -y)),
+            (x/y + z/y + 1, (x + y + z, y), (x, -y - z)),
+            (1/x + 1/y + 1/z, (x*y + x*z + y*z, x*y*z),
+             (x, -y*z/(y + z))),
+            (1/(x + 1) + 1/(x - 1), (2*x, (x - 1)*(x + 1)), (x, 0)),
+            (x**2/y + 1, (x**2 + y, y), (y, -x**2)),
+        )
+        for expression, fraction, solution in cases:
+            with self.subTest(expression=expression):
+                self.assertEqual(expression.as_numer_denom(), fraction)
+                self.assertEqual(sympy.solve_linear(expression), solution)
+        self.assertEqual(sympy.solve_linear(x/y + 1, symbols=[y]), (y, -x))
+        self.assertEqual(sympy.solve_linear(1/y, symbols=[y]), (0, 1))
+        for expression, expected in (
+            (2*x + 4*y, (2*x + 4*y, 1)),
+            (2*x/y + 4*z/y, (2*x + 4*z, y)),
+            (-2*x/y - 4*z/y, (-2*x - 4*z, y)),
+            (2*x/(3*y) + 4*z/(9*y), (6*x + 4*z, 9*y)),
+        ):
+            with self.subTest(shared_denominator=expression):
+                self.assertEqual(expression.as_numer_denom(), expected)
+
     def test_solve_linear_uses_numerator_and_rejects_original_poles(self):
         x, y = sympy.symbols("x y")
         cases = (
@@ -461,8 +493,9 @@ class SurfaceTests(unittest.TestCase):
         same_n, same_d = (x / y + z / y).as_numer_denom()
         self.assertEqual(same_d, y)
         self.assertEqual(same_n, x + z)
-        conservative = x / y + 1
-        self.assertEqual(conservative.as_numer_denom(), (conservative, one))
+        # SymPy 1.14 combines symbolic denominators too; leaving this Add
+        # unchanged used to prevent solve_linear from seeing its numerator.
+        self.assertEqual((x / y + 1).as_numer_denom(), (x + y, y))
 
         self.assertFalse(two.could_extract_minus_sign())
         self.assertTrue(sympy.Integer(-3).could_extract_minus_sign())

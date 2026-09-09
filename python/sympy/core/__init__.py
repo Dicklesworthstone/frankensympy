@@ -1432,7 +1432,7 @@ class Expr(Basic):
         return self, Integer(1)
 
     def as_numer_denom(self) -> tuple["Expr", "Expr"]:
-        """Split into ``(numerator, denominator)``. Conservative on mixed-denominator Adds."""
+        """Split into ``(numerator, denominator)`` without canceling symbolic factors."""
         if isinstance(self, Rational):
             return Integer(self.p), Integer(self.q)
         if type(self) is Float:
@@ -1459,25 +1459,43 @@ class Expr(Basic):
                 denoms.append(denom)
             return _combine_mul(numers), _combine_mul(denoms)
         if type(self) is Add:
-            parts = [arg.as_numer_denom() for arg in self.args]
-            denoms = [denom for _, denom in parts]
-            if denoms and all(d == denoms[0] for d in denoms[1:]):
-                return _combine_add([numer for numer, _ in parts]), denoms[0]
-            if denoms and all(type(denom) is Integer for denom in denoms):
-                lcm = math.lcm(*(abs(denom.p) for denom in denoms))
-                if lcm == 0:
+            # Clear rational content before grouping symbolic denominators.
+            # In particular, 2*y and 3*y share y, not the product 6*y**2.
+            parts = []
+            for arg in self.args:
+                numer, denom = arg.as_numer_denom()
+                nc, numer = numer.as_coeff_Mul()
+                dc, denom = denom.as_coeff_Mul()
+                nr, dr = _exact_ratio(nc), _exact_ratio(dc)
+                if nr is None or dr is None or dr[0] == 0:
                     return self, Integer(1)
-                scaled: list[Expr] = []
-                for numer, denom in parts:
-                    scale = lcm // abs(denom.p)
-                    if denom.p < 0:
-                        scale = -scale
-                    if scale == 1:
-                        scaled.append(numer)
-                    else:
-                        scaled.append(numer * Integer(scale))
-                return _combine_add(scaled), Integer(lcm)
-            return self, Integer(1)
+                coefficient = Rational(nr[0] * dr[1], nr[1] * dr[0])
+                parts.append((coefficient, numer, denom))
+            content_n = math.gcd(*(c.p for c, _, _ in parts))
+            content_d = math.lcm(*(c.q for c, _, _ in parts))
+            if content_n == 0:
+                return Integer(0), Integer(1)
+            grouped: dict[Expr, list[Expr]] = {}
+            for coefficient, numer, denom in parts:
+                scale = coefficient.p * (content_d // coefficient.q) // content_n
+                grouped.setdefault(denom, []).append(Integer(scale) * numer)
+            denoms = list(grouped)
+            if len(denoms) == 1:
+                numer = _combine_add([
+                    Integer(content_n) * term for term in grouped[denoms[0]]
+                ])
+                return numer, Integer(content_d) * denoms[0]
+            numers = [_combine_add(grouped[d]) for d in denoms]
+            terms = [
+                _combine_mul(denoms[:i] + [numer] + denoms[i + 1:])
+                for i, numer in enumerate(numers)
+            ]
+            numer = _combine_add(terms)
+            # SymPy retains rational content outside the assembled Add.
+            if content_n != 1:
+                numer = (Mul(Integer(content_n), numer, evaluate=False)
+                         if type(numer) is Add else Integer(content_n) * numer)
+            return numer, _combine_mul([Integer(content_d)] + denoms)
         return self, Integer(1)
 
     def could_extract_minus_sign(self) -> bool:
