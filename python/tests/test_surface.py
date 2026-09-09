@@ -14,6 +14,24 @@ import sympy
 
 
 class SurfaceTests(unittest.TestCase):
+    def test_dummy_sort_key_uses_name_then_numeric_identity(self):
+        from itertools import permutations
+
+        older, named_first, newer = [sympy.Dummy(name) for name in ("z", "a", "m")]
+        expected = [named_first, newer, older]
+        for supplied in permutations(expected):
+            self.assertEqual(sorted(supplied, key=lambda value: value.sort_key()), expected)
+        same_name = [sympy.Dummy("d") for _ in range(12)]
+        self.assertEqual(sorted(reversed(same_name), key=lambda value: value.sort_key()),
+                         same_name)
+        x = sympy.Symbol("x")
+        mixed = [x, older, sympy.Integer(1), named_first]
+        self.assertEqual(sorted(mixed, key=lambda value: value.sort_key()),
+                         [sympy.Integer(1), named_first, older, x])
+        expressions = [sympy.sin(value) for value in expected]
+        self.assertEqual(sorted(reversed(expressions), key=lambda value: value.sort_key()),
+                         expressions)
+
     def test_solve_linear_selects_present_symbols_canonically(self):
         from itertools import permutations
 

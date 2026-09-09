@@ -795,6 +795,10 @@ class Basic:
             # stays comparable with the finite (p, q) 2-tuples (finding 11:
             # the old str-tuple crashed mixed sorts).
             return (1, (self._as_python_float(),), "Float")
+        if type(self) is Dummy:
+            # Intern encodings put the ID before the name and compare decimal
+            # digits lexically. Ordering needs the name and numeric identity.
+            return (2, "Dummy", (self.name, self.dummy_index))
         args = self.args
         if not args:
             return (2, type(self).__name__, (str(self),))
