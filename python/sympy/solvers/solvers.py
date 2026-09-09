@@ -6,10 +6,12 @@ from ..core import (
     Eq,
     Expr,
     Integer,
+    Pow,
     Rational,
     Symbol,
     Tuple as SymTuple,
     _native_expr,
+    _exact_ratio,
     _require_symbol,
     _wrap,
 )
@@ -246,7 +248,8 @@ def solve_linear(lhs: Any, rhs: Any = 0, symbols: Any = (), exclude: Any = ()) -
         f = lhs - rhs
 
     f_expr = _wrap(_native_expr(f))
-    free = f_expr.free_symbols
+    numerator, denominator = f_expr.as_numer_denom()
+    free = numerator.free_symbols
 
     target_symbols = list(symbols) if symbols else list(free)
     for symbol in target_symbols:
@@ -262,16 +265,36 @@ def solve_linear(lhs: Any, rhs: Any = 0, symbols: Any = (), exclude: Any = ()) -
     if not target_symbols:
         return (0, 1)
 
+    # Keep the original reciprocal bases: the combined denominator can lose
+    # poles when reciprocals are nested. Visit inner bases before outer ones
+    # so a known inner pole rejects a candidate before evaluating its parent.
+    reciprocal_bases = []
+    pending = [f_expr]
+    while pending:
+        node = pending.pop()
+        if type(node) is Pow:
+            base, exponent = node.args
+            ratio = _exact_ratio(exponent)
+            if ratio is not None and ratio[0] < 0:
+                reciprocal_bases.append(base)
+        pending.extend(node.args)
+    reciprocal_bases.reverse()
+
     for sym in target_symbols:
-        res = _extract_linear_coeffs(f_expr, [sym])
+        res = _extract_linear_coeffs(numerator, [sym])
         if res is not None:
             coeffs, const = res
             a = coeffs[0]
             if a != 0:
                 sol = simplify(-const / a)
+                if any(simplify(base.subs(sym, sol)).is_zero is True
+                       for base in reciprocal_bases):
+                    continue
                 return (sym, sol)
 
-    return (f_expr, 1)
+    if numerator in target_symbols:
+        return (0, 0)
+    return (numerator, denominator)
 
 
 __all__ = [

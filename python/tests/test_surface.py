@@ -14,6 +14,30 @@ import sympy
 
 
 class SurfaceTests(unittest.TestCase):
+    def test_solve_linear_uses_numerator_and_rejects_original_poles(self):
+        x, y = sympy.symbols("x y")
+        cases = (
+            ((x + 1)/y, [x], (x, -1)),
+            ((x + 1)/y, [y], (0, 1)),
+            (x/(x - 1), [x], (x, 0)),
+            (x**2/y**2, [x], (x**2, y**2)),
+            (x**2/y**2, [y], (0, 1)),
+            (1/x, [x], (0, 1)),
+            ((x + y)/(x - y), [x], (x, -y)),
+            ((x + y)/(x - y), [y], (y, -x)),
+            (sympy.Mul(x, 1/x, evaluate=False), [x], (0, 0)),
+            (sympy.Mul(x - 1, 1/(x - 1), evaluate=False), [x],
+             (x - 1, x - 1)),
+            (sympy.Mul(x + y, 1/(x + y), evaluate=False), [x, y],
+             (x + y, x + y)),
+            (sympy.Pow(1/x, -1, evaluate=False), [x], (0, 0)),
+            (sympy.Pow(x/y, -1, evaluate=False), [y], (0, 0)),
+            (sympy.Mul(x*y, 1/x, evaluate=False), [x, y], (y, 0)),
+        )
+        for expression, requested, expected in cases:
+            with self.subTest(expression=expression, requested=requested):
+                self.assertEqual(sympy.solve_linear(expression, symbols=requested), expected)
+
     def test_dummy_sort_key_uses_name_then_numeric_identity(self):
         from itertools import permutations
 
