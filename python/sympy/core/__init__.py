@@ -386,7 +386,9 @@ def _exact_ratio(value: Any) -> tuple[int, int] | None:
 
 
 def _is_numeric_coeff(value: Any, rational: bool) -> bool:
-    if type(value) is Integer or type(value) is Rational:
+    # Singleton numbers have their own exact classes. Do not replace this
+    # admission list with isinstance: arbitrary subclasses stay opaque.
+    if type(value) in (Integer, Rational, Zero, One, NegativeOne, Half):
         return True
     return (not rational) and type(value) is Float
 

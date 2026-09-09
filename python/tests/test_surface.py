@@ -14,6 +14,34 @@ import sympy
 
 
 class SurfaceTests(unittest.TestCase):
+    def test_coefficient_splits_include_numeric_singletons(self):
+        values = (sympy.S.Zero, sympy.S.One, sympy.S.NegativeOne,
+                  sympy.S.Half, sympy.Integer(2), sympy.Rational(-2, 3))
+        for value in values:
+            for rational in (False, True):
+                with self.subTest(value=value, rational=rational):
+                    self.assertEqual(value.as_coeff_Mul(rational=rational), (value, 1))
+                    self.assertEqual(value.as_coeff_Add(rational=rational), (value, 0))
+
+    def test_coefficient_admission_keeps_custom_numeric_classes_opaque(self):
+        class CustomInteger(sympy.Integer):
+            pass
+
+        class CustomRational(sympy.Rational):
+            pass
+
+        for value in (CustomInteger(2), CustomRational(2, 3)):
+            for rational in (False, True):
+                coefficient, rest = value.as_coeff_Mul(rational=rational)
+                self.assertEqual(coefficient, 1)
+                self.assertIs(rest, value)
+                coefficient, rest = value.as_coeff_Add(rational=rational)
+                self.assertEqual(coefficient, 0)
+                self.assertIs(rest, value)
+        value = sympy.Float(1.5)
+        self.assertEqual(value.as_coeff_Mul(rational=False), (value, 1))
+        self.assertEqual(value.as_coeff_Mul(rational=True), (1, value))
+
     def test_mixed_denominator_decomposition_and_linear_solving(self):
         x, y, z = sympy.symbols("x y z")
         cases = (
