@@ -14,6 +14,7 @@ from ..core import (
     _wrap,
 )
 from ..matrices import Matrix, MatrixBase
+from ..polys.polyerrors import GeneratorsError
 from ..sets import EmptySet, FiniteSet, Set
 from ..core import expand, simplify
 
@@ -48,6 +49,8 @@ def _solve_augmented_matrix_to_set(M: Matrix, sym_list: Optional[List[Symbol]]) 
     n = M.cols - 1
     if sym_list is not None and n != len(sym_list):
         raise ValueError(f"Matrix columns - 1 ({n}) does not match symbols ({len(sym_list)})")
+    if sym_list is not None and len(set(sym_list)) != len(sym_list):
+        raise GeneratorsError(f"duplicated generators: {tuple(sym_list)}")
 
     rref_mat, pivots = M.rref()
     # Check consistency: if the last column (index n) is a pivot, system is inconsistent (0 == 1)

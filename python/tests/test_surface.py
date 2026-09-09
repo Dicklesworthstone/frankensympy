@@ -14,6 +14,36 @@ import sympy
 
 
 class SurfaceTests(unittest.TestCase):
+    def test_matrix_solvers_reject_duplicate_generators(self):
+        from sympy.polys.polyerrors import BasePolynomialError, GeneratorsError
+
+        x = sympy.Symbol("x")
+        for matrix in (sympy.Matrix([[1, 1, 1]]), sympy.zeros(1, 3),
+                       sympy.Matrix([[0, 0, 1]])):
+            original = matrix.copy()
+            systems = (matrix, (matrix[:, :-1], matrix[:, -1:]))
+            for system in systems:
+                with self.subTest(system=system):
+                    with self.assertRaises(GeneratorsError) as caught:
+                        sympy.linsolve(system, x, x)
+                    self.assertEqual(type(caught.exception).__name__, "GeneratorsError")
+                    self.assertEqual(type(caught.exception).__module__,
+                                     "sympy.polys.polyerrors")
+                    self.assertEqual(str(caught.exception), "duplicated generators: (x, x)")
+            with self.assertRaises(GeneratorsError) as caught:
+                sympy.solve_linear_system(matrix, x, x)
+            self.assertEqual(type(caught.exception).__name__, "GeneratorsError")
+            self.assertEqual(matrix, original)
+
+        self.assertEqual(GeneratorsError.__bases__, (BasePolynomialError,))
+        self.assertEqual(BasePolynomialError.__bases__, (Exception,))
+        with self.assertRaisesRegex(NotImplementedError, "^abstract base class$"):
+            GeneratorsError("duplicate").new("replacement")
+        first, second = sympy.Dummy("x"), sympy.Dummy("x")
+        result = sympy.linsolve(sympy.zeros(1, 3), first, second)
+        self.assertEqual(tuple(next(iter(result))), (first, second))
+        self.assertNotEqual(first, second)
+
     def test_linsolve_expression_symbols_are_explicit_and_distinct(self):
         x, y = sympy.symbols("x y")
         missing_message = (
