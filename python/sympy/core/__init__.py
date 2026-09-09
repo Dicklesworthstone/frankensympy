@@ -2292,6 +2292,14 @@ class Float(Number):
     def __abs__(self) -> "Float":
         return Float(abs(self._as_python_float()), self._dps)
 
+    def __neg__(self) -> "Expr":
+        if type(self) is not Float:
+            return Expr.__neg__(self)
+        value = self._as_python_float()
+        # SymPy's numeric zero has no negative sign. Keep Float identity
+        # and precision metadata instead of lowering to a symbolic Mul.
+        return Float(0.0 if value == 0.0 else -value, self._dps)
+
     def __str__(self) -> str:
         # Oracle str(Float('0.75')) == '0.750000000000000' (15 fixed digits).
         return _str_float_value(self._as_python_float())

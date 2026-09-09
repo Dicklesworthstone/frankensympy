@@ -14,6 +14,26 @@ import sympy
 
 
 class SurfaceTests(unittest.TestCase):
+    def test_float_negation_preserves_numeric_type_and_value(self):
+        import math
+
+        for number in (0.0, -0.0, 1.5, -1.5, 5e-324, -5e-324, 1e300):
+            value = sympy.Float(number)
+            with self.subTest(number=number):
+                result = -value
+                self.assertIs(type(result), sympy.Float)
+                self.assertEqual(result, sympy.Float(-number))
+                self.assertEqual(-result, value)
+                if number == 0:
+                    self.assertEqual(math.copysign(1, float(result)), 1)
+        self.assertEqual((-sympy.Float(-1.5)) / 3, sympy.Float(0.5))
+
+    def test_float_negation_preserves_shell_precision_metadata(self):
+        value = sympy.Float(1.5, 30)
+        self.assertEqual((-value).dps, 30)
+        self.assertEqual(value.dps, 30)
+        self.assertEqual(value, sympy.Float(1.5))
+
     def test_exact_number_division_uses_float_arithmetic(self):
         for numerator in (sympy.Integer(0), sympy.Integer(3), sympy.Integer(-3),
                           sympy.Rational(3, 2), sympy.S.One,
