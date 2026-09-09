@@ -14,6 +14,36 @@ import sympy
 
 
 class SurfaceTests(unittest.TestCase):
+    def test_solve_numeric_constant_output_contracts(self):
+        x, y = sympy.symbols("x y")
+        zero_cases = (0, 0.0, sympy.Rational(0, 3), sympy.Float(0), [], [0],
+                      (0, sympy.Float(0)), x - x)
+        inconsistent_cases = (1, -2, sympy.S.One, sympy.S.NegativeOne, sympy.S.Half,
+                              sympy.Rational(1, 3), sympy.Float(1),
+                              [1], (0, 1), [sympy.Float(0), -2])
+        for variables, expected_symbols in (((), []), ((x,), [x]),
+                                            ((x, y), [x, y]), (([y, x],), [y, x])):
+            for flags in ({}, {"dict": True}, {"set": True},
+                          {"dict": True, "set": True}):
+                for expression in zero_cases:
+                    with self.subTest(expression=expression, variables=variables, flags=flags):
+                        expected = (expected_symbols, set()) if flags.get("set") else []
+                        self.assertEqual(sympy.solve(expression, *variables, **flags), expected)
+                for expression in inconsistent_cases:
+                    with self.subTest(expression=expression, variables=variables, flags=flags):
+                        self.assertEqual(sympy.solve(expression, *variables, **flags), [])
+
+        positive = sympy.Symbol("positive", positive=True)
+        result = sympy.solve(0, positive, set=True)
+        self.assertIs(result[0][0], positive)
+        self.assertIs(result[0][0].is_positive, True)
+        for expression in (0, 1, [0], [1]):
+            with self.subTest(duplicate_expression=expression):
+                with self.assertRaises(ValueError):
+                    sympy.solve(expression, x, x)
+        self.assertEqual(sympy.solve(x - 2, x, set=True), ([x], {(2,)}))
+        self.assertEqual(sympy.solve([x - 1, x - 2], x, set=True), ([x], set()))
+
     def test_matrix_solvers_reject_duplicate_generators(self):
         from sympy.polys.polyerrors import BasePolynomialError, GeneratorsError
 

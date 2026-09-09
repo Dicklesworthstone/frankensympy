@@ -166,6 +166,25 @@ def solve(expression, *symbols, **flags):
     else:
         var_list = None
 
+    # Numeric constant systems need no root search. Preserve the profile's
+    # distinction between an unconstrained zero system and a contradiction,
+    # including set=True output and the caller's original symbol objects.
+    # Exact-class admission avoids invoking arbitrary Python numeric hooks;
+    # unknown zero status and unsupported variables retain the existing lane.
+    constant_inputs = expression if type(expression) in (list, tuple) else (expression,)
+    numeric_classes = (int, float, Integer, Rational, Float,
+                       type(S.Zero), type(S.One), type(S.NegativeOne), type(S.Half))
+    if all(type(value) in numeric_classes for value in constant_inputs):
+        if var_list is None or (
+            all(type(variable) in (Symbol, Dummy) for variable in var_list)
+            and len(set(var_list)) == len(var_list)
+        ):
+            zero_statuses = [sympify(value).is_zero for value in constant_inputs]
+            if all(status is not None for status in zero_statuses):
+                if all(status is True for status in zero_statuses) and set_flag:
+                    return (var_list or [], set())
+                return []
+
     if isinstance(expression, (list, tuple)):
         from .solvers.polysys import solve_poly_system as _sps
         from .solvers.solvers import linsolve as _linsolve
