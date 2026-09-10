@@ -13,6 +13,90 @@
 
 use std::collections::BTreeMap;
 
+use serde::Deserialize;
+
+/// Preserve JSON's normal value representation, but reject ambiguous object
+/// members before a map can discard them. Apply recursively, including arrays.
+/// serde_json retains its default recursion limit and end-of-input checking.
+struct UniqueJson(serde_json::Value);
+
+impl<'de> Deserialize<'de> for UniqueJson {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct UniqueVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for UniqueVisitor {
+            type Value = UniqueJson;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("JSON with unique object keys")
+            }
+
+            fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E> {
+                Ok(UniqueJson(value.into()))
+            }
+
+            fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E> {
+                Ok(UniqueJson(value.into()))
+            }
+
+            fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E> {
+                Ok(UniqueJson(value.into()))
+            }
+
+            fn visit_f64<E: serde::de::Error>(self, value: f64) -> Result<Self::Value, E> {
+                serde_json::Number::from_f64(value)
+                    .map(|number| UniqueJson(number.into()))
+                    .ok_or_else(|| E::custom("non-finite JSON number"))
+            }
+
+            fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<Self::Value, E> {
+                Ok(UniqueJson(value.into()))
+            }
+
+            fn visit_string<E>(self, value: String) -> Result<Self::Value, E> {
+                Ok(UniqueJson(value.into()))
+            }
+
+            fn visit_unit<E>(self) -> Result<Self::Value, E> {
+                Ok(UniqueJson(serde_json::Value::Null))
+            }
+
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(
+                self,
+                mut sequence: A,
+            ) -> Result<Self::Value, A::Error> {
+                let mut values = Vec::new();
+                while let Some(UniqueJson(value)) = sequence.next_element()? {
+                    values.push(value);
+                }
+                Ok(UniqueJson(serde_json::Value::Array(values)))
+            }
+
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut object: A,
+            ) -> Result<Self::Value, A::Error> {
+                let mut values = serde_json::Map::new();
+                while let Some(key) = object.next_key::<String>()? {
+                    if values.contains_key(&key) {
+                        // Do not echo arbitrary receipt contents into diagnostics.
+                        return Err(serde::de::Error::custom("duplicate JSON key"));
+                    }
+                    let UniqueJson(value) = object.next_value()?;
+                    values.insert(key, value);
+                }
+                Ok(UniqueJson(serde_json::Value::Object(values)))
+            }
+        }
+
+        deserializer.deserialize_any(UniqueVisitor)
+    }
+}
+
+fn parse_unique_json(raw: &str) -> Result<serde_json::Value, serde_json::Error> {
+    serde_json::from_str::<UniqueJson>(raw).map(|value| value.0)
+}
+
 const KNOWN_GATES: [&str; 18] = [
     "profile-verify",
     "foundation",
@@ -171,7 +255,7 @@ fn validate(path: &str, source_root: &std::path::Path) -> i32 {
         Ok(r) => r,
         Err(e) => return fail(path, &format!("unreadable: {e}")),
     };
-    let v: serde_json::Value = match serde_json::from_str(&raw) {
+    let v = match parse_unique_json(&raw) {
         Ok(v) => v,
         Err(e) => return fail(path, &format!("not JSON: {e}")),
     };
@@ -279,11 +363,12 @@ fn validate(path: &str, source_root: &std::path::Path) -> i32 {
             return fail(path, "check detail must be a nonempty string");
         }
         if cstatus == "passed" && (name.starts_with("test-") || name.starts_with("tests-")) {
-            let detail: serde_json::Value =
-                match serde_json::from_str(cobj["detail"].as_str().unwrap()) {
-                    Ok(detail) => detail,
-                    Err(_) => return fail(path, "test check lacks execution transcript"),
-                };
+            let detail = match parse_unique_json(cobj["detail"].as_str().unwrap()) {
+                Ok(detail) => detail,
+                Err(error) => {
+                    return fail(path, &format!("invalid test execution transcript: {error}"));
+                }
+            };
             let Some(expected_command) = expected_test_command(name) else {
                 return fail(path, "test check has no declared command contract");
             };
@@ -387,4 +472,47 @@ fn main() -> std::process::ExitCode {
         worst = worst.max(code);
     }
     std::process::ExitCode::from(worst as u8)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_unique_json;
+
+    #[test]
+    fn unique_keys_preserve_values_and_are_scoped_to_each_object() {
+        let raw = r#"{"a":[null,true,false,-9223372036854775808,18446744073709551615,1.25,"\u0061",{"a":0}],"b":{"a":1}}"#;
+        assert_eq!(
+            parse_unique_json(raw).unwrap(),
+            serde_json::json!({
+                "a": [null, true, false, i64::MIN, u64::MAX, 1.25, "a", {"a": 0}],
+                "b": {"a": 1}
+            })
+        );
+    }
+
+    #[test]
+    fn duplicate_keys_and_malformed_or_excessively_nested_json_fail_closed() {
+        for raw in [
+            r#"{"a":0,"a":1}"#,
+            r#"[{"a":0,"\u0061":0}]"#,
+            r#"{"a":{"nested":null,"nested":null}}"#,
+        ] {
+            assert!(
+                parse_unique_json(raw)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("duplicate JSON key")
+            );
+        }
+        for raw in ["{} {}", "[", "NaN", "1e999", "{\"a\":1,}"] {
+            assert!(parse_unique_json(raw).is_err(), "accepted {raw}");
+        }
+        let deeply_nested = format!("{}0{}", "[".repeat(128), "]".repeat(128));
+        assert!(
+            parse_unique_json(&deeply_nested)
+                .unwrap_err()
+                .to_string()
+                .contains("recursion limit")
+        );
+    }
 }

@@ -163,6 +163,75 @@ fn uuidish(receipt: &serde_json::Value) -> String {
 }
 
 #[test]
+fn duplicate_receipt_members_are_rejected_before_digest_validation() {
+    let tmp = test_source().join("duplicate-members");
+    std::fs::create_dir_all(&tmp).unwrap();
+    let mut receipt = base_receipt();
+    seal(&mut receipt);
+    let raw = receipt.to_string();
+    // Each mutation collapses to the correctly sealed control in a last-key-wins
+    // parser. Even identical duplicates and escaped spellings are ambiguous.
+    let cases = [
+        format!("{{\"status\":\"failed\",{}", &raw[1..]),
+        format!("{{\"status\":\"passed\",{}", &raw[1..]),
+        format!("{{\"\\u0073tatus\":\"failed\",{}", &raw[1..]),
+        raw.replacen("\"source\":{", "\"source\":{\"commit\":\"forged\",", 1),
+        raw.replacen("\"name\":", "\"name\":\"omitted-check\",\"name\":", 1),
+    ];
+    let mut accepted = Vec::new();
+    for (index, mutated) in cases.iter().enumerate() {
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(mutated).unwrap(),
+            receipt
+        );
+        let path = tmp.join(format!("duplicate-{index}.json"));
+        std::fs::write(&path, mutated).unwrap();
+        let output = validator().arg(path).output().unwrap();
+        if output.status.success() {
+            accepted.push(index);
+        } else {
+            assert!(String::from_utf8_lossy(&output.stderr).contains("duplicate JSON key"));
+        }
+    }
+    assert!(
+        accepted.is_empty(),
+        "ambiguous receipt cases accepted: {accepted:?}"
+    );
+}
+
+#[test]
+fn duplicate_child_command_members_are_rejected_even_when_receipt_is_resealed() {
+    let tmp = test_source().join("duplicate-command-members");
+    std::fs::create_dir_all(&tmp).unwrap();
+    let mut accepted = Vec::new();
+    for (index, prefix) in [
+        "\"exit_code\":1,",
+        "\"exit_code\":0,",
+        "\"\\u0065xit_code\":1,",
+        "\"command\":[\"false\"],",
+        "\"stdout\":\"test result: ok. 0 passed; 0 failed;\",",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let path = write(&tmp, base_receipt(), |r| {
+            let detail = r["checks"][3]["detail"].as_str().unwrap();
+            r["checks"][3]["detail"] = serde_json::json!(format!("{{{prefix}{}", &detail[1..]));
+        });
+        let output = validator().arg(path).output().unwrap();
+        if output.status.success() {
+            accepted.push(index);
+        } else {
+            assert!(String::from_utf8_lossy(&output.stderr).contains("duplicate JSON key"));
+        }
+    }
+    assert!(
+        accepted.is_empty(),
+        "ambiguous command cases accepted: {accepted:?}"
+    );
+}
+
+#[test]
 fn matching_command_with_zero_tests_is_rejected() {
     let tmp = std::env::temp_dir().join("xtask-validator-matching-command-zero-tests");
     std::fs::create_dir_all(&tmp).unwrap();
