@@ -14,6 +14,32 @@ import sympy
 
 
 class SurfaceTests(unittest.TestCase):
+    def test_exact_constructors_refuse_subclasses_before_reading_properties(self):
+        # Native admission invariant, not upstream subclass compatibility.
+        class CustomInteger(sympy.Integer):
+            @property
+            def p(self):
+                raise AssertionError("custom integer numerator accessed")
+
+        class CustomRational(sympy.Rational):
+            @property
+            def p(self):
+                raise AssertionError("custom rational numerator accessed")
+
+            @property
+            def q(self):
+                raise AssertionError("custom rational denominator accessed")
+
+        for value in (CustomInteger(2), CustomRational(2, 3)):
+            for constructor, args in ((sympy.Integer, (value,)),
+                                      (sympy.Rational, (value,)),
+                                      (sympy.Rational, (value, 2)),
+                                      (sympy.Rational, (1, value))):
+                with self.subTest(kind=type(value).__name__, constructor=constructor.__name__,
+                                  argument_count=len(args)):
+                    with self.assertRaises(TypeError):
+                        constructor(*args)
+
     def test_numeric_constructors_admit_exact_builtin_ratios(self):
         # exact_python: integer truncation and exact binary64 rational value.
         for numerator, denominator, expected in (

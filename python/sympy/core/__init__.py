@@ -524,7 +524,7 @@ def _exact_integer_argument(value: Any) -> int:
         return int(value)
     if type(value) is str:
         return int(value)
-    if isinstance(value, Integer):
+    if type(value) in (Integer, Zero, One, NegativeOne):
         return value.p
     if type(value) in (Rational, Half):
         return int(value)
@@ -560,9 +560,9 @@ def _exact_rational_argument(value: Any) -> tuple[int, int]:
         binary_value = value._as_python_float()
         if math.isfinite(binary_value):
             return binary_value.as_integer_ratio()
-    if isinstance(value, Integer):
+    if type(value) in (Integer, Zero, One, NegativeOne):
         return value.p, 1
-    if isinstance(value, Rational):
+    if type(value) in (Rational, Half):
         return value.p, value.q
     raise TypeError("exact built-in number, Integer, or Rational required")
 
