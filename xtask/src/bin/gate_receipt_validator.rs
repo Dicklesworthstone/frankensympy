@@ -211,6 +211,7 @@ fn required_checks(gate: &str) -> Vec<&'static str> {
             "tests-fsym-runtime",
             "paired-live-incumbent-bench",
             "paired-benchmark-report-verification",
+            "artifact-inputs-bound",
         ],
         _ => vec![],
     };
@@ -276,6 +277,7 @@ fn validate(path: &str, source_root: &std::path::Path) -> i32 {
         "source",
         "profile_digest",
         "receipt_digest",
+        "artifact_digests",
     ];
     for key in required {
         if !obj.contains_key(key) {
@@ -288,7 +290,9 @@ fn validate(path: &str, source_root: &std::path::Path) -> i32 {
             return fail(path, &format!("unknown field {key} (fail closed)"));
         }
     }
-    if obj["schema_version"] != serde_json::json!(2) {
+    // Historical schemas without artifact commitments cannot authorize a new
+    // passed gate. Preserve old receipts as history; rerun to produce schema 3.
+    if obj["schema_version"] != serde_json::json!(3) {
         return fail(path, "unsupported schema_version");
     }
     let gate = obj["gate"].as_str().unwrap_or("");
@@ -327,6 +331,40 @@ fn validate(path: &str, source_root: &std::path::Path) -> i32 {
         return fail(path, "profile digest mismatch");
     }
 
+    // Independently declared expectation, never a receipt-selected read path.
+    let required_artifacts: &[&str] = if gate == "ws22-performance" {
+        &["artifacts/benchmarks/ws22_paired_benchmark_report.json"]
+    } else {
+        &[]
+    };
+    let artifacts: BTreeMap<String, Option<String>> =
+        match serde_json::from_value(obj["artifact_digests"].clone()) {
+            Ok(artifacts) => artifacts,
+            Err(error) => return fail(path, &format!("invalid artifact digests: {error}")),
+        };
+    if artifacts.len() != required_artifacts.len()
+        || required_artifacts
+            .iter()
+            .any(|name| !artifacts.contains_key(*name))
+    {
+        return fail(path, "required artifact set mismatch");
+    }
+    let artifacts_bound = artifacts.values().all(Option::is_some);
+    if !artifacts_bound && status == "passed" {
+        return fail(path, "passed receipt has an unbound required artifact");
+    }
+    for (name, digest) in &artifacts {
+        if let Some(digest) = digest {
+            match xtask::file_digest(&source_root.join(name)) {
+                Ok(actual) if &actual == digest => {}
+                Ok(_) => return fail(path, "artifact digest mismatch"),
+                Err(error) => {
+                    return fail(path, &format!("cannot inspect required artifact: {error}"));
+                }
+            }
+        }
+    }
+
     let checks = match obj["checks"].as_array() {
         Some(c) if !c.is_empty() => c,
         _ => return fail(path, "checks must be a non-empty array"),
@@ -358,6 +396,12 @@ fn validate(path: &str, source_root: &std::path::Path) -> i32 {
         let name = cobj["name"].as_str().unwrap_or("");
         if !expected_checks.contains(name) || !seen.insert(name.to_string()) {
             return fail(path, "unknown or duplicated check name");
+        }
+        if name == "artifact-inputs-bound" && (cstatus == "passed") != artifacts_bound {
+            return fail(
+                path,
+                "artifact binding check disagrees with artifact commitments",
+            );
         }
         if cobj["detail"].as_str().is_none_or(str::is_empty) {
             return fail(path, "check detail must be a nonempty string");

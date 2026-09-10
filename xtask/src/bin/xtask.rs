@@ -34,6 +34,9 @@ struct Receipt {
     commit: String,
     source: xtask::SourceSnapshot,
     profile_digest: String,
+    /// Observed artifact bytes, not evidence that this invocation produced them.
+    /// Missing required artifacts remain null in failed receipts.
+    artifact_digests: BTreeMap<String, Option<String>>,
     checks: Vec<Check>,
     /// blake3 digest over the canonical JSON of `checks` (BTreeMap ordering).
     checks_digest: String,
@@ -420,6 +423,45 @@ fn cmd_gate_ws19_solvers() -> Receipt {
     finish("ws19-solvers", "sympy-1.14.0-cpython", checks)
 }
 
+fn capture_artifacts(
+    root: &std::path::Path,
+    gate: &str,
+    checks: &mut Vec<Check>,
+) -> BTreeMap<String, Option<String>> {
+    if gate != "ws22-performance" {
+        return BTreeMap::new();
+    }
+    let path = "artifacts/benchmarks/ws22_paired_benchmark_report.json";
+    // Inspect and commit the same bounded buffer: reopening after inspection
+    // could bind a replacement report that none of these checks examined.
+    let content = xtask::read_receipt(&root.join(path));
+    let report_ok = content.as_ref().is_ok_and(|text| {
+        text.contains("\"schema\": \"gauntlet.paired_bench.v1\"")
+            && text.contains("\"admitted\":")
+            && text.contains("\"aa_control\":")
+            && text.contains("\"aa_control_verified\": true")
+    });
+    checks.push(Check {
+        name: "paired-benchmark-report-verification".into(),
+        status: if report_ok { "passed" } else { "failed" }.into(),
+        detail: if report_ok {
+            format!("{path} contains required report markers; not semantic admission")
+        } else {
+            format!("{path} unreadable or missing required report markers")
+        },
+    });
+    let digest = content.map(|text| blake3::hash(text.as_bytes()).to_hex().to_string());
+    checks.push(Check {
+        name: "artifact-inputs-bound".into(),
+        status: if digest.is_ok() { "passed" } else { "failed" }.into(),
+        detail: match &digest {
+            Ok(_) => "required benchmark report bytes captured; not execution attestation".into(),
+            Err(error) => format!("cannot bind required benchmark report: {error}"),
+        },
+    });
+    BTreeMap::from([(path.into(), digest.ok())])
+}
+
 fn finish(gate: &str, profile_id: &str, mut checks: Vec<Check>) -> Receipt {
     let source = SOURCE_AT_START
         .get()
@@ -442,15 +484,17 @@ fn finish(gate: &str, profile_id: &str, mut checks: Vec<Check>) -> Receipt {
         .into(),
         detail: profile_digest.clone().unwrap_or_else(|e| e),
     });
+    let artifact_digests = capture_artifacts(&xtask::workspace_root(), gate, &mut checks);
     let all_passed = checks.iter().all(|c| c.status == "passed");
     let mut receipt = Receipt {
-        schema_version: 2,
+        schema_version: 3,
         gate: gate.to_string(),
         profile_id: profile_id.to_string(),
         status: if all_passed { "passed" } else { "failed" }.into(),
         commit: source.commit.clone(),
         source,
         profile_digest: profile_digest.unwrap_or_default(),
+        artifact_digests,
         checks_digest: checks_digest(&checks),
         checks,
         receipt_digest: String::new(),
@@ -632,23 +676,6 @@ fn cmd_gate_ws22_performance() -> Receipt {
     ]);
     run_command("paired-live-incumbent-bench", c3, &mut checks);
 
-    let report_path = "artifacts/benchmarks/ws22_paired_benchmark_report.json";
-    let report_content = std::fs::read_to_string(report_path).unwrap_or_default();
-    let report_ok = report_content.contains("\"schema\": \"gauntlet.paired_bench.v1\"")
-        && report_content.contains("\"admitted\":")
-        && report_content.contains("\"aa_control\":")
-        && report_content.contains("\"aa_control_verified\": true");
-
-    checks.push(Check {
-        name: "paired-benchmark-report-verification".into(),
-        status: if report_ok { "passed" } else { "failed" }.into(),
-        detail: if report_ok {
-            format!("{report_path} contains schema, admitted cases, and verified AA control")
-        } else {
-            format!("{report_path} missing or invalid benchmark report content")
-        },
-    });
-
     finish("ws22-performance", "sympy-1.14.0-cpython", checks)
 }
 
@@ -770,6 +797,54 @@ fn main() -> std::process::ExitCode {
 #[cfg(test)]
 mod execution_tests {
     use super::*;
+
+    #[test]
+    fn required_artifacts_are_captured_or_recorded_as_failed() {
+        let root = std::env::temp_dir().join(format!(
+            "xtask-artifacts-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let mut checks = Vec::new();
+        assert!(capture_artifacts(&root, "foundation", &mut checks).is_empty());
+        assert!(checks.is_empty());
+        let missing = capture_artifacts(&root, "ws22-performance", &mut checks);
+        assert_eq!(missing.len(), 1);
+        assert!(missing.values().all(Option::is_none));
+        assert_eq!(checks[0].status, "failed");
+        assert_eq!(checks[1].status, "failed");
+        let report = root.join("artifacts/benchmarks/ws22_paired_benchmark_report.json");
+        std::fs::create_dir_all(report.parent().unwrap()).unwrap();
+        std::fs::write(&report, b"artifact bytes").unwrap();
+        let captured = capture_artifacts(&root, "ws22-performance", &mut checks);
+        assert_eq!(checks[2].status, "failed");
+        assert_eq!(checks[3].status, "passed");
+        assert_eq!(
+            captured.values().next().unwrap().as_deref(),
+            Some(blake3::hash(b"artifact bytes").to_hex().as_str())
+        );
+        std::fs::write(&report, b"different artifact bytes").unwrap();
+        assert_ne!(
+            capture_artifacts(&root, "ws22-performance", &mut checks),
+            captured
+        );
+        // Marker acceptance is deliberately not benchmark validity. Both the
+        // marker result and commitment must refer to these exact input bytes.
+        let markers = br#"{"schema": "gauntlet.paired_bench.v1", "admitted": [], "aa_control": {}, "aa_control_verified": true}"#;
+        std::fs::write(&report, markers).unwrap();
+        let mut marker_checks = Vec::new();
+        let captured = capture_artifacts(&root, "ws22-performance", &mut marker_checks);
+        assert_eq!(marker_checks.len(), 2);
+        assert!(marker_checks.iter().all(|check| check.status == "passed"));
+        assert_eq!(
+            captured.values().next().unwrap().as_deref(),
+            Some(blake3::hash(markers).to_hex().as_str())
+        );
+    }
 
     #[test]
     fn interleaved_receipt_writers_cannot_modify_each_others_publication() {

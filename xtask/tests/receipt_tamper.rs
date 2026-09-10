@@ -72,13 +72,14 @@ fn test_source() -> &'static std::path::Path {
 fn base_receipt() -> serde_json::Value {
     let source = xtask::source_snapshot(test_source()).unwrap();
     let mut receipt = serde_json::json!({
-        "schema_version": 2,
+        "schema_version": 3,
         "gate": "foundation",
         "profile_id": "sympy-1.14.0-cpython",
         "status": "passed",
         "commit": source.commit,
         "source": source,
         "profile_digest": xtask::profile_digest(test_source(), "sympy-1.14.0-cpython").unwrap(),
+        "artifact_digests": {},
         "checks": [
             {"name": "workspace-forbids-unsafe", "status": "passed", "detail": "ok"},
             {"name": "source-stable-during-run", "status": "passed", "detail": "ok"},
@@ -229,6 +230,125 @@ fn duplicate_child_command_members_are_rejected_even_when_receipt_is_resealed() 
         accepted.is_empty(),
         "ambiguous command cases accepted: {accepted:?}"
     );
+}
+
+#[test]
+fn required_artifact_bytes_are_bound_independently_of_receipt_digests() {
+    const REPORT: &str = "artifacts/benchmarks/ws22_paired_benchmark_report.json";
+    let root = test_source();
+    let report = root.join(REPORT);
+    std::fs::create_dir_all(report.parent().unwrap()).unwrap();
+    // Intentionally not benchmark evidence: this tests byte integrity only.
+    std::fs::write(&report, b"synthetic artifact control").unwrap();
+    let tmp = root.join("artifact-receipts");
+    std::fs::create_dir(&tmp).unwrap();
+    let mut receipt = base_receipt();
+    receipt["gate"] = serde_json::json!("ws22-performance");
+    receipt["artifact_digests"] = serde_json::json!({REPORT: xtask::file_digest(&report).unwrap()});
+    receipt["checks"].as_array_mut().unwrap().truncate(3);
+    for (name, command) in [
+        (
+            "test-ws22-performance-gate",
+            vec![
+                "cargo",
+                "test",
+                "-p",
+                "fsym-runtime",
+                "--test",
+                "ws22_performance_gate",
+                "--quiet",
+            ],
+        ),
+        (
+            "tests-fsym-runtime",
+            vec!["cargo", "test", "-p", "fsym-runtime", "--quiet"],
+        ),
+    ] {
+        receipt["checks"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "name": name, "status": "passed",
+                "detail": serde_json::json!({"command": command, "exit_code": 0,
+                    "stdout": "test result: ok. 1 passed; 0 failed;\n", "stderr": ""}).to_string()
+            }));
+    }
+    for name in [
+        "paired-live-incumbent-bench",
+        "paired-benchmark-report-verification",
+        "artifact-inputs-bound",
+    ] {
+        receipt["checks"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "name": name, "status": "passed", "detail": "synthetic integrity control only"
+            }));
+    }
+    let good = write(&tmp, receipt.clone(), |_| {});
+    assert!(validator().arg(&good).status().unwrap().success());
+    for artifacts in [
+        serde_json::json!({}),
+        serde_json::json!({REPORT: null}),
+        serde_json::json!({REPORT: 42}),
+        serde_json::json!({REPORT: "0".repeat(64)}),
+        serde_json::json!({"../elsewhere": xtask::file_digest(&report).unwrap()}),
+        serde_json::json!({REPORT: xtask::file_digest(&report).unwrap(), "extra": "0".repeat(64)}),
+    ] {
+        let path = write(&tmp, receipt.clone(), |r| r["artifact_digests"] = artifacts);
+        let output = validator().arg(path).output().unwrap();
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("artifact"));
+    }
+    // Artifact outputs are not repository inputs. Replaying a receipt must
+    // still fail when only the external-to-source report bytes change.
+    let source = xtask::source_snapshot(root).unwrap();
+    std::fs::write(&report, b"substituted artifact control").unwrap();
+    assert_eq!(xtask::source_snapshot(root).unwrap(), source);
+    let output = validator().arg(&good).output().unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("artifact digest mismatch"));
+    // Preserve the file while testing the missing-artifact path.
+    std::fs::rename(&report, report.with_extension("retained")).unwrap();
+    let output = validator().arg(&good).output().unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("cannot inspect required artifact"));
+    let failed = write(&tmp, receipt.clone(), |r| {
+        r["status"] = serde_json::json!("failed");
+        r["artifact_digests"][REPORT] = serde_json::Value::Null;
+        r["checks"][7]["status"] = serde_json::json!("failed");
+    });
+    let output = validator().arg(failed).output().unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("status=failed"));
+    let inconsistent = write(&tmp, receipt, |r| {
+        r["status"] = serde_json::json!("failed");
+        r["checks"][0]["status"] = serde_json::json!("failed");
+        r["artifact_digests"][REPORT] = serde_json::Value::Null;
+    });
+    let output = validator().arg(inconsistent).output().unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("artifact binding check"));
+}
+
+#[test]
+fn artifact_contract_cannot_be_omitted_or_downgraded() {
+    let tmp = test_source().join("artifact-schema-mutants");
+    std::fs::create_dir(&tmp).unwrap();
+    for mutation in 0..3 {
+        let path = write(&tmp, base_receipt(), |r| match mutation {
+            0 => {
+                r["schema_version"] = serde_json::json!(2);
+            }
+            1 => {
+                r.as_object_mut().unwrap().remove("artifact_digests");
+            }
+            _ => {
+                r["artifact_digests"] = serde_json::json!({"extra": "0".repeat(64)});
+            }
+        });
+        assert!(!validator().arg(path).status().unwrap().success());
+    }
 }
 
 #[test]
