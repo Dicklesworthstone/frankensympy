@@ -14,6 +14,35 @@ import sympy
 
 
 class SurfaceTests(unittest.TestCase):
+    def test_exact_number_int_conversion_does_not_round_through_float(self):
+        # exact_python comparator: Python int type and exact value.
+        cases = ((0, 1, 0), (1, 2, 0), (-3, 2, -1),
+                 (2**53 + 1, 1, 2**53 + 1),
+                 (3 * 2**60 + 2, 3, 2**60),
+                 (3 * 2**60 - 1, 3, 2**60 - 1),
+                 (10**400, 3, 10**400 // 3))
+        for numerator, denominator, expected in cases:
+            for sign in (-1, 1):
+                with self.subTest(numerator=numerator, denominator=denominator, sign=sign):
+                    result = int(sympy.Rational(sign * numerator, denominator))
+                    self.assertIs(type(result), int)
+                    self.assertEqual(result, sign * expected)
+
+    def test_exact_number_float_conversion_range_boundaries(self):
+        # exact_python comparator: binary64 bits via hex, including signed zero.
+        cases = ((10**400 + 1, 10**400, 1.0),
+                 (10**400, 3, float("inf")),
+                 (1, 10**400, 0.0),
+                 (1, 2**1074, float.fromhex("0x0.0000000000001p-1022")),
+                 (1, 2**1075, 0.0),
+                 (2**53 + 1, 2**53, 1.0),
+                 (2**53 + 3, 2**53, float.fromhex("0x1.0000000000002p+0")))
+        for numerator, denominator, expected in cases:
+            for sign in (-1, 1):
+                with self.subTest(numerator=numerator, denominator=denominator, sign=sign):
+                    result = float(sympy.Rational(sign * numerator, denominator))
+                    self.assertEqual(result.hex(), (sign * expected).hex())
+
     def test_numeric_division_zero_policy(self):
         # exact_python (bounded): Float class/value and singleton identity;
         # exact_exception: Float/Float zero division has an empty message.

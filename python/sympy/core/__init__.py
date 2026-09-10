@@ -1982,11 +1982,20 @@ class Rational(Number):
         return self._value.exact_denominator()
 
     def __float__(self) -> float:
-        # Truncating int division matches SymPy 1.14 float(Rational(-3, 2)).
-        return float(self.p) / float(self.q)
+        # Divide exact integers before rounding: either component can exceed
+        # binary64's range even when their ratio is finite. SymPy converts an
+        # out-of-range ratio to signed infinity rather than raising overflow.
+        numerator, denominator = self.p, self.q
+        try:
+            return numerator / denominator
+        except OverflowError:
+            return -math.inf if numerator < 0 else math.inf
 
     def __int__(self) -> int:
-        return int(float(self))
+        # Truncate toward zero without losing exact bits or overflowing a float.
+        numerator, denominator = self.p, self.q
+        magnitude = abs(numerator) // denominator
+        return -magnitude if numerator < 0 else magnitude
 
     def __init__(self, *args: Any, **kwargs: Any):
         # __new__ builds the native value (or routes to a promoted singleton);
