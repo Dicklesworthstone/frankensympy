@@ -14,6 +14,51 @@ import sympy
 
 
 class SurfaceTests(unittest.TestCase):
+    def test_numeric_constructors_admit_exact_builtin_ratios(self):
+        # exact_python: integer truncation and exact binary64 rational value.
+        for numerator, denominator, expected in (
+                (1, 2, 0), (-3, 2, -1), (3, 2, 1),
+                (3 * 2**60 - 1, 3, 2**60 - 1),
+                (-10**400, 3, -(10**400 // 3))):
+            with self.subTest(numerator=numerator, denominator=denominator):
+                result = sympy.Integer(sympy.Rational(numerator, denominator))
+                self.assertEqual(result.p, expected)
+                self.assertEqual(result.q, 1)
+                self.assertIs(type(result), type(sympy.Integer(expected)))
+        for value in (0.0, 0.1, -1.5, 2**-100, 2**100):
+            with self.subTest(value=value):
+                source = sympy.Float(value)
+                expected = sympy.Rational(*float(value).as_integer_ratio())
+                self.assertEqual(sympy.Rational(source), expected)
+                self.assertEqual(sympy.Rational(source, 2), expected / 2)
+                if value != 0:
+                    self.assertEqual(sympy.Rational(1, source), 1 / expected)
+
+    def test_new_numeric_constructor_lanes_refuse_custom_hooks(self):
+        # Admission control, not an upstream subclass-compatibility claim.
+        class CustomRational(sympy.Rational):
+            @property
+            def p(self):
+                raise AssertionError("custom numerator accessed")
+
+            def __int__(self):
+                raise AssertionError("custom integer conversion invoked")
+
+        class CustomFloat(sympy.Float):
+            def _as_python_float(self):
+                raise AssertionError("custom float conversion invoked")
+
+        with self.assertRaises(TypeError):
+            sympy.Integer(CustomRational(3, 2))
+        for args in ((CustomFloat(1.5),), (1, CustomFloat(1.5))):
+            with self.assertRaises(TypeError):
+                sympy.Rational(*args)
+        # This lane admits only finite Float payloads; retain refusal for the
+        # shell's nonfinite representations pending their separate contract.
+        for value in (float("inf"), float("-inf"), float("nan")):
+            with self.assertRaises(TypeError):
+                sympy.Rational(sympy.Float(value))
+
     def test_rational_strings_preserve_exact_values_and_explicit_denominator(self):
         # exact_python: exact p/q, canonical class and singleton promotion.
         cases = ((("0.1",), 1, 10), (("1e-3",), 1, 1000),
