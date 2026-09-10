@@ -14,6 +14,40 @@ import sympy
 
 
 class SurfaceTests(unittest.TestCase):
+    def test_rational_strings_preserve_exact_values_and_explicit_denominator(self):
+        # exact_python: exact p/q, canonical class and singleton promotion.
+        cases = ((("0.1",), 1, 10), (("1e-3",), 1, 1000),
+                 (("1e400",), 10**400, 1), (("1e-400",), 1, 10**400),
+                 (("9007199254740993.0",), 9007199254740993, 1),
+                 (("1.2/0.3",), 4, 1), (("1 / 2",), 1, 2),
+                 (("1/2", 3), 1, 6), ((1, "0.1"), 10, 1),
+                 (("0.1", "0.2"), 1, 2), (("-1.5", "-0.3"), 5, 1),
+                 (("0", "1/2"), 0, 1))
+        for args, numerator, denominator in cases:
+            with self.subTest(args=args):
+                actual = sympy.Rational(*args)
+                expected = sympy.Rational(numerator, denominator)
+                self.assertEqual((actual.p, actual.q), (numerator, denominator))
+                self.assertIs(type(actual), type(expected))
+                if expected in (sympy.S.Zero, sympy.S.One, sympy.S.Half):
+                    self.assertIs(actual, expected)
+        self.assertNotEqual(sympy.Rational("0.1"), sympy.Rational(0.1))
+
+    def test_rational_strings_reject_malformed_input_without_evaluation(self):
+        # exact_exception comparator, pinned independently against SymPy 1.14.
+        cases = (("1/2/3", TypeError, "invalid input: 1/2/3"),
+                 ("", TypeError, "invalid input: "),
+                 ("abc", TypeError, "invalid input: abc"),
+                 ("a/2", ValueError, "Invalid literal for Fraction: 'a'"),
+                 ("1/a", ValueError, "Invalid literal for Fraction: 'a'"),
+                 ("0.1/0", ZeroDivisionError, "Fraction(1, 0)"),
+                 ("1+2", TypeError, "invalid input: 1+2"))
+        for value, error_type, message in cases:
+            with self.subTest(value=value):
+                with self.assertRaises(error_type) as caught:
+                    sympy.Rational(value)
+                self.assertEqual(str(caught.exception), message)
+
     def test_exact_number_int_conversion_does_not_round_through_float(self):
         # exact_python comparator: Python int type and exact value.
         cases = ((0, 1, 0), (1, 2, 0), (-3, 2, -1),

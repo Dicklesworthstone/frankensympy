@@ -533,6 +533,21 @@ def _exact_integer_argument(value: Any) -> int:
 
 def _exact_rational_argument(value: Any) -> tuple[int, int]:
     """Return an exact ratio for admitted built-ins and exact shell numbers."""
+    if type(value) is str:
+        # Parse decimal/scientific literals exactly, never through binary64 or
+        # expression evaluation. Each constructor argument has its own ratio.
+        if value.count("/") > 1:
+            raise TypeError(f"invalid input: {value}")
+        text = value.replace(" ", "")
+        if "/" in text:
+            numerator, denominator = text.rsplit("/", 1)
+            ratio = Fraction(numerator) / Fraction(denominator)
+        else:
+            try:
+                ratio = Fraction(text)
+            except ValueError:
+                raise TypeError(f"invalid input: {text}") from None
+        return ratio.numerator, ratio.denominator
     if type(value) is int:
         return value, 1
     if type(value) is bool:
@@ -1939,16 +1954,6 @@ class Rational(Number):
             # fra-shell-number-canonical-construction-qf6): zero denominator
             # is nan for 0/0, otherwise zoo; exact integers promote to Integer
             # (routing the 0/1/-1 singletons); everything else normalizes sign.
-            if isinstance(numerator, str):
-                if "/" in numerator:
-                    parts = numerator.split("/")
-                    numerator, denominator = int(parts[0]), int(parts[1])
-                    if denominator == 0:
-                        # Upstream's string path divides two Fractions; it
-                        # raises rather than constructing an infinity/NaN.
-                        raise ZeroDivisionError("Fraction(1, 0)")
-                else:
-                    numerator = float(numerator) if "." in numerator else int(numerator)
             if denominator is None:
                 numerator_p, numerator_q = _exact_rational_argument(numerator)
                 denominator_p, denominator_q = 1, 1
