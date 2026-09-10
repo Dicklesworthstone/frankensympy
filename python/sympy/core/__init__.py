@@ -385,6 +385,12 @@ def _exact_ratio(value: Any) -> tuple[int, int] | None:
     return None
 
 
+def _is_imaginary_unit(value: Any) -> bool:
+    # The current shell stores constants as exact Expr objects. A Symbol or
+    # custom printer spelling "I" does not establish constant identity.
+    return type(value) is Expr and value == I
+
+
 def _is_numeric_coeff(value: Any, rational: bool) -> bool:
     # Singleton numbers have their own exact classes. Do not replace this
     # admission list with isinstance: arbitrary subclasses stay opaque.
@@ -1641,13 +1647,12 @@ class Expr(Basic):
 
     def __truediv__(self, other: Any) -> "Expr":
         try:
-            if (type(self) in (Integer, Rational, One, NegativeOne, Half)
-                    and type(other) is Float and self.is_zero is not True):
-                divisor = other._as_python_float()
-                if math.isfinite(divisor) and divisor != 0.0:
+            if _is_numeric_coeff(self, True) and type(other) in (float, Float):
+                approximate = Float(other) if type(other) is float else other
+                if math.isfinite(approximate._as_python_float()):
                     # Sibling numeric classes do not get reflected-operator
                     # precedence. Explicitly use the existing Float lane.
-                    return other.__rtruediv__(Rational(self.p, self.q))
+                    return approximate.__rtruediv__(self)
             if not (isinstance(self, (float, Float)) or isinstance(other, (float, Float))):
                 ratio_self = _exact_ratio(self)
                 ratio_other = _exact_ratio(other)
@@ -1668,6 +1673,10 @@ class Expr(Basic):
 
     def __rtruediv__(self, other: Any) -> "Expr":
         try:
+            if _is_numeric_coeff(self, True) and type(other) in (float, Float):
+                approximate = Float(other) if type(other) is float else other
+                if math.isfinite(approximate._as_python_float()):
+                    return approximate.__truediv__(self)
             if not (isinstance(self, (float, Float)) or isinstance(other, (float, Float))):
                 ratio_self = _exact_ratio(self)
                 ratio_other = _exact_ratio(other)
@@ -1702,7 +1711,7 @@ class Expr(Basic):
                     if exp_int > 0:
                         return _ZERO
                     return zoo
-            if self == I or str(self) == "I":
+            if _is_imaginary_unit(self):
                 m = exp_int % 4
                 if m == 0:
                     return _ONE
@@ -1928,12 +1937,16 @@ class Rational(Number):
         if cls is Rational:
             # SymPy 1.14.0 construction semantics (bead
             # fra-shell-number-canonical-construction-qf6): zero denominator
-            # is zoo; exact integers promote to Integer (routing the 0/1/-1
-            # singletons); everything else normalizes sign into the numerator.
+            # is nan for 0/0, otherwise zoo; exact integers promote to Integer
+            # (routing the 0/1/-1 singletons); everything else normalizes sign.
             if isinstance(numerator, str):
                 if "/" in numerator:
                     parts = numerator.split("/")
                     numerator, denominator = int(parts[0]), int(parts[1])
+                    if denominator == 0:
+                        # Upstream's string path divides two Fractions; it
+                        # raises rather than constructing an infinity/NaN.
+                        raise ZeroDivisionError("Fraction(1, 0)")
                 else:
                     numerator = float(numerator) if "." in numerator else int(numerator)
             if denominator is None:
@@ -1945,7 +1958,7 @@ class Rational(Number):
             num = numerator_p * denominator_q
             den = numerator_q * denominator_p
             if den == 0:
-                return zoo
+                return nan if num == 0 else zoo
             common = math.gcd(abs(num), abs(den))
             if common:
                 num //= common
@@ -2182,7 +2195,7 @@ def _restore_half():
 
 
 def _float_arithmetic_result(value: float, zero_is_exact: bool = True) -> "Expr":
-    """Add/subtract/multiply return the exact zero singleton on cancellation."""
+    """Canonicalize genuine arithmetic zero, but not rounded underflow."""
     return _ZERO if value == 0.0 and zero_is_exact else Float(value)
 
 
@@ -2377,15 +2390,53 @@ class Float(Number):
         return Expr.__rmul__(self, other)
 
     def __truediv__(self, other: Any) -> "Expr":
+        if type(self) is not Float:
+            return Expr.__truediv__(self, other)
+        lhs = self._as_python_float()
+        exact_rhs = None
+        if math.isfinite(lhs) and (type(other) is int or _is_numeric_coeff(other, True)):
+            # Decide exact zero before binary64 conversion: a tiny nonzero
+            # rational must not become a spurious zero divisor.
+            exact_rhs = _exact_ratio(other)
+            if exact_rhs[0] == 0:
+                return nan if lhs == 0.0 else zoo
+            if lhs == 0.0:
+                return _ZERO
         rhs = _maybe_python_float(other)
+        if rhs == 0.0 and exact_rhs is not None:
+            return Expr.__truediv__(self, other)
         if rhs is not None:
-            return Float(self._as_python_float() / rhs)
+            if math.isfinite(lhs) and math.isfinite(rhs):
+                if rhs == 0.0:
+                    # Float zero is structurally distinct from exact zero in
+                    # the profiled forward numeric division implementation.
+                    raise ZeroDivisionError()
+                return _float_arithmetic_result(lhs / rhs, lhs == 0.0)
+            return Float(lhs / rhs)
         return Expr.__truediv__(self, other)
 
     def __rtruediv__(self, other: Any) -> "Expr":
+        if type(self) is not Float:
+            return Expr.__rtruediv__(self, other)
+        divisor = self._as_python_float()
+        ratio = None
+        if (math.isfinite(divisor)
+                and (type(other) in (int, float, Float) or _is_numeric_coeff(other, True))):
+            ratio = _exact_ratio(other)
+            if ratio is not None:
+                # The reflected path constructs a reciprocal and product,
+                # unlike forward Float/Float division. Preserve that policy.
+                if divisor == 0.0:
+                    return nan if ratio[0] == 0 else zoo
+                if ratio[0] == 0:
+                    return _ZERO
         rhs = _maybe_python_float(other)
+        if rhs == 0.0 and ratio is not None and ratio[0] != 0:
+            return Expr.__rtruediv__(self, other)
         if rhs is not None:
-            return Float(rhs / self._as_python_float())
+            if math.isfinite(rhs) and math.isfinite(divisor):
+                return _float_arithmetic_result(rhs / divisor, rhs == 0.0)
+            return Float(rhs / divisor)
         return Expr.__rtruediv__(self, other)
 
 
@@ -2505,7 +2556,7 @@ class _SingletonRegistry:
         return zoo
     @property
     def NaN(self) -> Expr:
-        return Expr("nan")
+        return nan
 
     @property
     def Pi(self) -> Expr:
@@ -2679,7 +2730,7 @@ class Pow(Expr):
                         return _ZERO
                     if exp_int < 0:
                         return zoo
-            if (base == I or str(base) == "I") and exp_int is not None:
+            if _is_imaginary_unit(base) and exp_int is not None:
                 m = exp_int % 4
                 if m == 0:
                     return _ONE
@@ -2692,8 +2743,7 @@ class Pow(Expr):
             if isinstance(base, Mul) and exp_int is not None:
                 if all(
                     getattr(f, "is_number", False)
-                    or f == I
-                    or str(f) == "I"
+                    or _is_imaginary_unit(f)
                     or _admitted_exact_int(f) is not None
                     for f in base.args
                 ):

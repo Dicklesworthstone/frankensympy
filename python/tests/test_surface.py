@@ -14,6 +14,104 @@ import sympy
 
 
 class SurfaceTests(unittest.TestCase):
+    def test_numeric_division_zero_policy(self):
+        # exact_python (bounded): Float class/value and singleton identity;
+        # exact_exception: Float/Float zero division has an empty message.
+        exact = (0, 3, -3, sympy.S.Zero, sympy.S.One,
+                 sympy.S.NegativeOne, sympy.S.Half, sympy.Rational(-3, 2))
+        approximate = (0.0, -0.0, 1.5, -1.5,
+                       sympy.Float(0), sympy.Float(-0.0),
+                       sympy.Float(1.5), sympy.Float(-1.5))
+        for left in exact + approximate:
+            for right in exact + approximate:
+                # Native Python scalar/scalar division is not a SymPy call.
+                if type(left) in (int, float) and type(right) in (int, float):
+                    continue
+                with self.subTest(left=repr(left), left_type=type(left).__name__,
+                                  right=repr(right), right_type=type(right).__name__):
+                    if float(right) == 0:
+                        if (type(left) is sympy.Float
+                                and type(right) in (float, sympy.Float)):
+                            with self.assertRaises(ZeroDivisionError) as caught:
+                                left / right
+                            self.assertEqual(str(caught.exception), "")
+                        else:
+                            expected = sympy.nan if float(left) == 0 else sympy.zoo
+                            self.assertIs(left / right, expected)
+                    elif float(left) == 0:
+                        self.assertIs(left / right, sympy.S.Zero)
+                    else:
+                        result = left / right
+                        expected = float(left) / float(right)
+                        self.assertEqual(float(result), expected)
+                        if type(left) in (float, sympy.Float) or type(right) in (float, sympy.Float):
+                            self.assertIs(type(result), sympy.Float)
+
+    def test_rational_zero_denominator_distinguishes_indeterminate(self):
+        from sympy.core.numbers import nan
+
+        self.assertIs(sympy.nan, nan)
+        self.assertIs(sympy.S.NaN, nan)
+        for numerator in (0, sympy.S.Zero, sympy.Rational(0), "0"):
+            self.assertIs(sympy.Rational(numerator, 0), sympy.nan)
+        for text in ("0/0", "1/0", "-3/0"):
+            with self.assertRaises(ZeroDivisionError) as caught:
+                sympy.Rational(text)
+            self.assertEqual(str(caught.exception), "Fraction(1, 0)")
+        for numerator in (1, -1, 3, -3):
+            self.assertIs(sympy.Rational(numerator, 0), sympy.zoo)
+
+    def test_float_division_retains_nonzero_operands_and_symbolic_paths(self):
+        tiny = sympy.Rational(1, 10**400)
+        self.assertIs(sympy.Float(0) / tiny, sympy.S.Zero)
+        self.assertIs(tiny / sympy.Float(0), sympy.zoo)
+        self.assertIs(sympy.Integer(10**400) / sympy.Float(0), sympy.zoo)
+        # Unsupported binary64 range must not turn a nonzero exact operand
+        # into a false zero divisor or an exact zero result. These are integrity
+        # controls, not arbitrary-precision value-parity claims.
+        self.assertIsNot(sympy.Float(1) / tiny, sympy.zoo)
+        self.assertNotEqual(tiny / sympy.Float(1), 0)
+        self.assertIs(type(sympy.Float(5e-324) / sympy.Float(2)), sympy.Float)
+        self.assertEqual(sympy.Float(1) / sympy.Rational(1, 3), sympy.Float(3))
+        self.assertEqual(sympy.Rational(1, 3) / sympy.Float(1), sympy.Float(1/3))
+        x = sympy.Symbol("x")
+        for expression in (x / sympy.Float(1.5), sympy.Float(1.5) / x):
+            self.assertEqual(expression.free_symbols, {x})
+
+    def test_float_division_does_not_coerce_unadmitted_objects(self):
+        # Native admission controls, not a claim of upstream subclass parity.
+        class Unadmitted:
+            def __float__(self):
+                raise AssertionError("unsupervised numeric conversion")
+
+        class CustomFloat(sympy.Float):
+            def _as_python_float(self):
+                raise AssertionError("custom Float entered built-in fast path")
+
+        value = sympy.Float(1)
+        for left, right in ((value, Unadmitted()), (Unadmitted(), value)):
+            with self.assertRaises(TypeError):
+                left / right
+        custom = CustomFloat(1)
+        with self.assertRaises(NotImplementedError):
+            custom / 2
+        with self.assertRaises(NotImplementedError):
+            2 / custom
+
+    def test_power_does_not_identify_imaginary_unit_by_printed_name(self):
+        named_i = sympy.Symbol("I")
+        for power in (named_i**2, sympy.Pow(named_i, 2)):
+            self.assertIs(type(power), sympy.Pow)
+            self.assertEqual(power.args, (named_i, sympy.Integer(2)))
+            self.assertEqual(power.free_symbols, {named_i})
+        for power in ((2*named_i)**2, sympy.Pow(2*named_i, 2)):
+            self.assertEqual(power.free_symbols, {named_i})
+            self.assertNotEqual(power, -4)
+        self.assertEqual(sympy.Pow(2*sympy.I, 2), -4)
+        for exponent, expected in ((-1, -sympy.I), (2, -1), (3, -sympy.I), (4, 1)):
+            self.assertEqual(sympy.I**exponent, expected)
+            self.assertEqual(sympy.Pow(sympy.I, exponent), expected)
+
     def test_mixed_float_arithmetic_in_both_operand_orders(self):
         import operator
 

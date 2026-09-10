@@ -52,7 +52,7 @@ from .core import (
     SympifyError,
 )
 from .printing import srepr
-from .core import zoo as _core_zoo
+from .core import nan as _core_nan, zoo as _core_zoo
 from .matrices import (
     DenseMatrix,
     GramSchmidt,
@@ -94,7 +94,7 @@ E = Expr("E")
 I = Expr("I")
 oo = Expr("oo")
 zoo = _core_zoo  # the ComplexInfinity singleton, not a plain Expr (finding 9)
-nan = Expr("nan")
+nan = _core_nan
 EulerGamma = Expr("EulerGamma")
 Catalan = Expr("Catalan")
 GoldenRatio = Expr("GoldenRatio")
