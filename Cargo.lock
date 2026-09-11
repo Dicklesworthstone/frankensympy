@@ -625,6 +625,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "fsym-capsule-consumer"
+version = "0.1.0"
+dependencies = [
+ "fsym-core",
+ "fsym-id",
+ "fsym-proof-kernel",
+]
+
+[[package]]
 name = "fsym-conformance"
 version = "0.1.0"
 dependencies = [
@@ -785,6 +794,7 @@ dependencies = [
  "fsym-core",
  "fsym-id",
  "fsym-outcome",
+ "num-traits",
  "proptest",
  "serde",
  "serde_json",

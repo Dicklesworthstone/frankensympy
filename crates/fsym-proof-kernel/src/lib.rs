@@ -14,11 +14,16 @@
 
 #![forbid(unsafe_code)]
 
+pub mod capsule;
 pub mod claim;
 pub mod kernel;
 pub mod mutation;
 pub mod rule;
 
+pub use capsule::{
+    CAPSULE_SCHEMA_VERSION, Capsule, CapsuleError, CapsuleObject, CapsuleVerdict, DEFAULT_FUEL,
+    PolyDomain, PolyIdentityClaim, PolyObject, verify_capsule,
+};
 pub use claim::{Claim, ClaimKind};
 pub use kernel::{
     DerivationStep, DerivationTree, KernelError, MAX_DERIVATION_STEPS, ProofKernel,

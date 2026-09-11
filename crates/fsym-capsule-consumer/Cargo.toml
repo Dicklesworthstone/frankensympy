@@ -1,0 +1,23 @@
+[package]
+name = "fsym-capsule-consumer"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish = false
+description = "Minimal offline consumer for verifier-complete FrankenSymPy capsules"
+
+# The `std` feature only adds host conveniences (error plumbing and a
+# human-readable diagnosis). Verification itself is available without it, which
+# is what the WebAssembly probe builds.
+[features]
+default = ["std"]
+std = []
+
+[dependencies]
+fsym-proof-kernel.workspace = true
+
+[dev-dependencies]
+fsym-core.workspace = true
+fsym-id.workspace = true

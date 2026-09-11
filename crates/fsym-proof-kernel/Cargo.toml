@@ -17,6 +17,7 @@ fsym-outcome.workspace = true
 fsym-core.workspace = true
 fsym-assumptions.workspace = true
 thiserror.workspace = true
+num-traits.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 blake3.workspace = true
