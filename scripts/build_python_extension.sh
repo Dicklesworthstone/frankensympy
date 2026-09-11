@@ -52,6 +52,26 @@ fi
 # pyproject [tool.maturin] module-name is fsym_python; the installed artifact
 # must carry exactly that module name (abi3 tagging is a packaging-profile decision).
 install_path="$repo_root/python/fsym_python.so"
+# The preview wheel imports the extension as a submodule of its own namespace,
+# so the same bytes are also installed next to frankensympy/__init__.py with the
+# interpreter's ABI-tagged filename. One build, two consumers, no divergent copy.
+package_dir="$repo_root/python/frankensympy"
+"$py" - "$install_path" "$package_dir" <<'PY'
+import shutil
+import sys
+import sysconfig
+from pathlib import Path
+
+source, package = Path(sys.argv[1]), Path(sys.argv[2])
+suffix = sysconfig.get_config_var("EXT_SUFFIX") or ""
+if not suffix:
+    raise SystemExit("refused: interpreter reports no extension suffix")
+package.mkdir(parents=True, exist_ok=True)
+target = package / f"fsym_python{suffix}"
+shutil.copyfile(source, target)
+shutil.copystat(source, target)
+print(f"build_python_extension: installed {target}")
+PY
 # python/fsym_python.so may exist as a stale dangling symlink from an old build
 # layout; replacing it destroys no content (a symlink has no target payload).
 rm -f "$install_path"

@@ -3,6 +3,8 @@
 /target
 target_*/
 **/*.rs.bk
+# dist/ — assembled wheels (build_frankensympy_wheel.py output)
+/dist
 
 
 # bv (beads viewer) local config and caches

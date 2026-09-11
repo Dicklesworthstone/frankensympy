@@ -7,16 +7,21 @@ name = "frankensympy"
 version = "0.1.0"
 description = "Experimental clean-room symbolic mathematics engine targeting SymPy compatibility"
 readme = "README.md"
-license = { text = "Apache-2.0" }
+license = { text = "MIT License with the repository rider" }
 authors = [{ name = "FrankenSymPy Contributors" }]
 requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
     "Topic :: Scientific/Engineering :: Mathematics",
+    "License :: OSI Approved :: MIT License",
 ]
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
 module-name = "fsym_python"
 python-source = "python"
+# The preview distribution owns only its own namespace. Upstream SymPy keeps
+# `sympy`; the resolver-transparent replacement channel is a separate profile
+# (registries/packaging_profiles.toml) and must not be built from this manifest.
+python-packages = ["frankensympy"]
