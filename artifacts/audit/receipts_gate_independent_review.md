@@ -22,8 +22,8 @@
 |---|---|---|
 | `rch exec -- cargo test -p xtask` | remote `vmi1149989`, `--locked`, exit 0 (26 tests incl. 707-line negative corpus) | pass |
 | Real gate receipt accepted only against matching expected manifest | two real runner-produced schema-3 receipts validated (below) | pass |
-| changed commit/profile/gate/check set/artifact rejected | battery M1–M12 | pass |
-| zero executed tests rejected | battery M13–M15 | pass |
+| changed commit/profile/gate/check set/artifact rejected | battery MT1–MT12 | pass |
+| zero executed tests rejected | battery MT13–MT15 | pass |
 | full Rust quality checks | `cargo check --workspace --all-targets` exit 0; `clippy --workspace --all-targets -D warnings` exit 0; `cargo test --workspace --locked` exit 0 (503 s remote) | pass with finding F4 (fmt) |
 
 ### 3.1 Independently observed passing runs
@@ -53,36 +53,36 @@ The battery re-seals `checks_digest` and `receipt_digest` with BLAKE3 exactly as
 ```
 re-sealer reproduces both runner commitments; strong attacker is faithful
 [KILLED] P0 untouched real receipt is accepted                          exit=0 VALID gate=foundation status=passed checks=9
-[KILLED] M1 commit substitution is rejected                             exit=1 REJECT receipt source does not match inspected repository inputs
-[KILLED] M1 profile_digest substitution is rejected                     exit=1 REJECT profile digest mismatch
-[KILLED] M1 profile_id substitution is rejected                         exit=1 REJECT gate profile does not match its declared contract
-[KILLED] M1 gate substitution (artifact-bearing gate) is rejected       exit=1 REJECT required artifact set mismatch
-[KILLED] M1 gate substitution (no-artifact gate) is rejected            exit=1 REJECT unknown or duplicated check name
-[KILLED] M2 source.commit substitution is rejected                      exit=1 REJECT receipt source does not match inspected repository inputs
-[KILLED] M2 source.tree substitution is rejected                        exit=1 REJECT receipt source does not match inspected repository inputs
-[KILLED] M2 source.inputs_digest substitution is rejected               exit=1 REJECT receipt source does not match inspected repository inputs
-[KILLED] M2 source.files substitution is rejected                       exit=1 REJECT receipt source does not match inspected repository inputs
-[KILLED] M3 removed required check is rejected                          exit=1 REJECT required check set is incomplete
-[KILLED] M4 duplicated check name is rejected                           exit=1 REJECT unknown or duplicated check name
-[KILLED] M5 foreign-gate check name is rejected                         exit=1 REJECT unknown or duplicated check name
-[KILLED] M6 passed status with a failed check is rejected               exit=1 REJECT status "passed" inconsistent with checks (derived "failed")
-[KILLED] M7 failed status with passed checks is rejected                exit=1 REJECT status "failed" inconsistent with checks (derived "passed")
-[KILLED] M8 unknown field fails closed                                  exit=1 REJECT unknown field verified (fail closed)
-[KILLED] M9 omitted checks_digest, outer digest re-sealed               exit=1 REJECT missing required field checks_digest
-[KILLED] M10 substituted checks_digest, outer digest re-sealed          exit=1 REJECT checks_digest mismatch: claimed bbc49b7e…, recomputed 7dc89035…
-[KILLED] M11 artifact commitment on a no-artifact gate is rejected      exit=1 REJECT required artifact set mismatch
-[KILLED] M12 missing required artifact is rejected                      exit=1 REJECT required artifact set mismatch
-[KILLED] M13 zero executed tests is rejected                            exit=1 REJECT test check has no successful nonzero test execution
-[KILLED] M14 nonzero exit transcript is rejected                        exit=1 REJECT test check has no successful nonzero test execution
-[KILLED] M15 substituted test command is rejected                       exit=1 REJECT test command does not match the required check
-[KILLED] M16 schema-valid failed receipt never returns GatePassed       exit=1 VALID gate=foundation status=failed checks=9
-[KILLED] M17 cross-source replay is rejected                            exit=1 REJECT receipt source does not match inspected repository inputs
-[KILLED] M18 untracked source overlay is rejected                       exit=1 REJECT receipt source does not match inspected repository inputs
+[KILLED] MT1 commit substitution is rejected                             exit=1 REJECT receipt source does not match inspected repository inputs
+[KILLED] MT1 profile_digest substitution is rejected                     exit=1 REJECT profile digest mismatch
+[KILLED] MT1 profile_id substitution is rejected                         exit=1 REJECT gate profile does not match its declared contract
+[KILLED] MT1 gate substitution (artifact-bearing gate) is rejected       exit=1 REJECT required artifact set mismatch
+[KILLED] MT1 gate substitution (no-artifact gate) is rejected            exit=1 REJECT unknown or duplicated check name
+[KILLED] MT2 source.commit substitution is rejected                      exit=1 REJECT receipt source does not match inspected repository inputs
+[KILLED] MT2 source.tree substitution is rejected                        exit=1 REJECT receipt source does not match inspected repository inputs
+[KILLED] MT2 source.inputs_digest substitution is rejected               exit=1 REJECT receipt source does not match inspected repository inputs
+[KILLED] MT2 source.files substitution is rejected                       exit=1 REJECT receipt source does not match inspected repository inputs
+[KILLED] MT3 removed required check is rejected                          exit=1 REJECT required check set is incomplete
+[KILLED] MT4 duplicated check name is rejected                           exit=1 REJECT unknown or duplicated check name
+[KILLED] MT5 foreign-gate check name is rejected                         exit=1 REJECT unknown or duplicated check name
+[KILLED] MT6 passed status with a failed check is rejected               exit=1 REJECT status "passed" inconsistent with checks (derived "failed")
+[KILLED] MT7 failed status with passed checks is rejected                exit=1 REJECT status "failed" inconsistent with checks (derived "passed")
+[KILLED] MT8 unknown field fails closed                                  exit=1 REJECT unknown field verified (fail closed)
+[KILLED] MT9 omitted checks_digest, outer digest re-sealed               exit=1 REJECT missing required field checks_digest
+[KILLED] MT10 substituted checks_digest, outer digest re-sealed          exit=1 REJECT checks_digest mismatch: claimed bbc49b7e…, recomputed 7dc89035…
+[KILLED] MT11 artifact commitment on a no-artifact gate is rejected      exit=1 REJECT required artifact set mismatch
+[KILLED] MT12 missing required artifact is rejected                      exit=1 REJECT required artifact set mismatch
+[KILLED] MT13 zero executed tests is rejected                            exit=1 REJECT test check has no successful nonzero test execution
+[KILLED] MT14 nonzero exit transcript is rejected                        exit=1 REJECT test check has no successful nonzero test execution
+[KILLED] MT15 substituted test command is rejected                       exit=1 REJECT test command does not match the required check
+[KILLED] MT16 schema-valid failed receipt never returns GatePassed       exit=1 VALID gate=foundation status=failed checks=9
+[KILLED] MT17 cross-source replay is rejected                            exit=1 REJECT receipt source does not match inspected repository inputs
+[KILLED] MT18 untracked source overlay is rejected                       exit=1 REJECT receipt source does not match inspected repository inputs
 
 26/26 mutants killed
 ```
 
-M16 records the intended separation: a structurally valid **failed** receipt is *printed* as `VALID` but never returns GatePassed authority (exit 1). Authority is the exit status plus the independently declared required-check set — never a stored `passed` string.
+MT16 records the intended separation: a structurally valid **failed** receipt is *printed* as `VALID` but never returns GatePassed authority (exit 1). Authority is the exit status plus the independently declared required-check set — never a stored `passed` string.
 
 ### 3.3 Verifier-weakening sensitivity (the battery is not tautological)
 
@@ -98,11 +98,11 @@ The weakened binary is accepted by the positive control but loses exactly the so
 
 ```
 21/26 mutants killed
-[SURVIVED] M2 source.commit substitution      exit=0 VALID … status=passed
-[SURVIVED] M2 source.tree substitution        exit=0 VALID … status=passed
-[SURVIVED] M2 source.inputs_digest substitution exit=0 VALID … status=passed
-[SURVIVED] M2 source.files substitution       exit=0 VALID … status=passed
-[SURVIVED] M18 untracked source overlay       exit=0 VALID … status=passed
+[SURVIVED] MT2 source.commit substitution      exit=0 VALID … status=passed
+[SURVIVED] MT2 source.tree substitution        exit=0 VALID … status=passed
+[SURVIVED] MT2 source.inputs_digest substitution exit=0 VALID … status=passed
+[SURVIVED] MT2 source.files substitution       exit=0 VALID … status=passed
+[SURVIVED] MT18 untracked source overlay       exit=0 VALID … status=passed
 ```
 
 So each of those five verdicts is caused by the guard under test, not by incidental parse failure: the corpus fails when the verifier is weakened, which is the mutation obligation this gate owes.
@@ -140,6 +140,6 @@ A receipt for an unchanged source revision stays valid indefinitely; the validat
 ## 5. Residual risk and non-claims
 
 - The battery's attacker can recompute digests but cannot sign; no signature lane exists, and none is claimed.
-- M16 shows the validator cannot by itself distinguish a *deliberately* failed receipt from a *tampered* one by exit code alone; the discriminator is the `VALID`/`REJECT` channel plus the required-check manifest. Reviewers must read stdout, not only the exit status.
+- MT16 shows the validator cannot by itself distinguish a *deliberately* failed receipt from a *tampered* one by exit code alone; the discriminator is the `VALID`/`REJECT` channel plus the required-check manifest. Reviewers must read stdout, not only the exit status.
 - This review certifies the *binding* behaviour of the validator at `0e6f179`; it does not attest that any historical gate command executed, and does not promote any claim in `registries/claims.toml`.
 - `tools/gate_review_battery.py` is reviewer-authored adversarial coverage. It is intentionally **not** part of `unittest discover` (it refuses rather than skips when `blake3` is absent), so CI neither runs nor silently skips it.
