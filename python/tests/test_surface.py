@@ -4815,5 +4815,94 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(mt.doit(), mt)
 
 
+class TypedLoweringContractTests(unittest.TestCase):
+    """Bounded mixed residual through lower/diff/lift.
+
+    Covers held forms, same-name symbols with distinct assumptions, distinct
+    same-name custom classes, and mutable generation snapshots, plus the
+    replayable differentiation receipt.
+    """
+
+    def test_same_name_symbols_with_distinct_assumptions_do_not_merge(self):
+        positive = sympy.Symbol("x", positive=True)
+        plain = sympy.Symbol("x")
+
+        # The printed form is a view; the declaration is the identity.
+        self.assertEqual(str(positive), str(plain))
+        self.assertNotEqual(positive, plain)
+        self.assertNotEqual(hash(sympy.Symbol("x", positive=True)), hash(plain))
+
+        # Differentiation resolves against the declared atom, not the name.
+        self.assertEqual(str(sympy.diff(positive**2, positive)), "2*x")
+        # A different declaration of the same name is a different variable.
+        self.assertEqual(str(sympy.diff(positive**2, plain)), "0")
+        self.assertEqual(str(sympy.diff(plain**2, positive)), "0")
+
+    def test_lift_restores_the_declared_surface_objects(self):
+        x = sympy.Symbol("x")
+        positive = sympy.Symbol("x", positive=True)
+
+        derivative = sympy.diff(x**2, x)
+        self.assertEqual(str(derivative), "2*x")
+        self.assertEqual(derivative.free_symbols, {x})
+
+        keyed = sympy.diff(positive**3, positive)
+        self.assertEqual(keyed.free_symbols, {positive})
+        self.assertNotIn(plain_x := sympy.Symbol("x"), keyed.free_symbols)
+        del plain_x
+
+    def test_distinct_same_name_custom_classes_keep_their_own_lane(self):
+        def make_class():
+            class Custom(sympy.Function):
+                def _eval_derivative(self, variable):
+                    return sympy.Symbol("custom_derivative")
+
+            Custom.__name__ = "SameName"
+            return Custom
+
+        first, second = make_class(), make_class()
+        self.assertEqual(first.__name__, second.__name__)
+        self.assertIsNot(first, second)
+
+        x = sympy.Symbol("x")
+        self.assertIs(type(first(x)._eval_derivative(x)), sympy.Symbol)
+        # Same printed text, distinct classes: the class is the discriminator,
+        # so same-name custom classes never collapse into one another.
+        self.assertEqual(str(first(x)), str(second(x)))
+        self.assertIsNot(type(first(x)), type(second(x)))
+        self.assertNotEqual(first(x), second(x))
+
+    def test_held_construction_survives_lower_diff_lift(self):
+        x = sympy.Symbol("x")
+        held = sympy.Mul(x, x, evaluate=False)
+        self.assertEqual(str(held), "x*x")
+        self.assertEqual(str(sympy.diff(held, x)), str(sympy.diff(x * x, x)))
+        self.assertEqual(held.subs(x, sympy.Integer(3)), 9)
+
+    def test_receipt_replays_and_tampering_is_refused(self):
+        from sympy.core import diff_with_receipt, replay_diff_receipt
+
+        x = sympy.Symbol("x", positive=True)
+        derivative, receipt = diff_with_receipt(x**3, x)
+
+        self.assertEqual(str(derivative), "3*x**2")
+        self.assertEqual(receipt["rule"], "diff_power_integer")
+        self.assertEqual(receipt["variable"], "x")
+        self.assertFalse(receipt["variable_plain"])
+        self.assertTrue(replay_diff_receipt(receipt))
+
+        # A receipt is not authority by itself: replacing the claimed
+        # derivative or rule must be refused by the independent verifier.
+        self.assertFalse(replay_diff_receipt(dict(receipt, rhs="0", derivative="0")))
+        self.assertFalse(replay_diff_receipt(dict(receipt, rule="diff_sum")))
+
+    def test_assumption_bearing_symbol_survives_pickle(self):
+        positive = sympy.Symbol("x", positive=True)
+        restored = pickle.loads(pickle.dumps(positive))
+        self.assertEqual(restored, positive)
+        self.assertIs(restored.is_positive, True)
+        self.assertNotEqual(restored, sympy.Symbol("x"))
+
+
 if __name__ == "__main__":
     unittest.main()

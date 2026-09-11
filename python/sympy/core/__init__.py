@@ -11,6 +11,7 @@ import decimal
 import math
 import struct
 import sys
+from collections import OrderedDict
 from fractions import Fraction
 from typing import Any, Iterable
 
@@ -168,8 +169,99 @@ def _symbol_from_intern_name(name: str) -> "Symbol":
     return Dummy._from_intern(printed, number)
 
 
+def _assumption_fact_value(value: Any) -> str:
+    """Faithful spelling of one declared assumption value.
+
+    Booleans keep their name; every other value keeps its type, so `foo=True`
+    and `foo=1` never collapse into one typed identity.
+    """
+    if type(value) is bool:
+        return "True" if value else "False"
+    return f"{type(value).__name__}:{value!r}"
+
+
+def _assumption_facts(symbol: "Symbol") -> tuple[tuple[str, str], ...]:
+    return tuple(
+        sorted((str(key), _assumption_fact_value(value)) for key, value in symbol._assumptions.items())
+    )
+
+
+_binding_cache: dict[tuple[str, tuple[tuple[str, str], ...]], Any] = {}
+_SURFACE_SYMBOL_LIMIT = 4096
+_surface_symbols: "OrderedDict[tuple[str, str], Any]" = OrderedDict()
+
+
+def _symbol_binding(symbol: "Symbol"):
+    """Typed lowering handle for a surface symbol.
+
+    The printed name is only a view: two symbols that render identically but
+    declare different assumptions must not share a native atom. The name comes
+    from lowering the symbol itself, so non-admitted subclasses refuse here
+    (before any user override runs) and Dummy intern keys stay intact.
+    """
+    facts = _assumption_facts(symbol)
+    name = str(_native_expr(symbol))
+    key = (name, facts)
+    binding = _binding_cache.get(key)
+    if binding is None:
+        binding = _native.SymbolBinding(name, list(facts))
+        _binding_cache[key] = binding
+    return binding
+
+
 def _native_symbol_key(symbol: "Symbol") -> str:
+    """Printed-name view for the remaining string-taking algorithm lanes.
+
+    This is deliberately *not* semantic identity: lanes that still accept a
+    name (polys, series, transforms, ODE helpers) remain name-keyed and cannot
+    distinguish same-name symbols. Differentiation goes through
+    :func:`_symbol_binding` instead, which carries the typed identity.
+    """
     return str(_native_expr(symbol))
+
+
+def _register_surface_symbol(symbol: "Symbol") -> None:
+    """Remember which Python object owns a typed symbol identity.
+
+    Lifting returns this object rather than a fresh look-alike, so surface
+    identity (`result.free_symbols() == {x}` and `x is ...`) survives a
+    lower/diff/lift round trip. Bounded so a script cannot grow it without
+    limit.
+    """
+    binding = _symbol_binding(symbol)
+    key = (symbol.name, binding.identity_hex)
+    if key in _surface_symbols:
+        _surface_symbols.move_to_end(key)
+        return
+    _surface_symbols[key] = symbol
+    while len(_surface_symbols) > _SURFACE_SYMBOL_LIMIT:
+        _surface_symbols.popitem(last=False)
+
+
+def _symbol_from_binding(binding: Any) -> "Symbol":
+    """Restore the declared surface object for a typed native binding."""
+    registered = _surface_symbols.get((binding.name, binding.identity_hex))
+    if registered is not None:
+        return registered
+    if binding.plain:
+        return _symbol_from_intern_name(binding.name)
+    raise NotImplementedError(
+        "native result carries a symbol identity with no registered surface object"
+    )
+
+
+def _surface_symbol(native_value: Any) -> "Symbol":
+    """Lift a native symbol atom back onto the registered surface object."""
+    binding = getattr(native_value, "symbol_binding", None)
+    if binding is None:
+        return _symbol_from_intern_name(str(native_value))
+    if not binding.plain:
+        return _symbol_from_binding(binding)
+    symbol = Symbol(binding.name)
+    # Refresh the handle so later lowering reuses the interned atom.
+    symbol._value = native_value
+    _register_surface_symbol(symbol)
+    return symbol
 
 
 _known_functions: dict[str, type] = {}
@@ -185,6 +277,7 @@ def _wrap(value: Any) -> "Basic":
         if parsed is not None:
             number, name = parsed
             return Dummy._from_intern(name, number, value)
+        return _surface_symbol(value)
     if value.func_name == "Constant":
         if str(value) == "zoo":
             return zoo
@@ -217,14 +310,6 @@ def _wrap(value: Any) -> "Basic":
         return obj
     obj = object.__new__(cls)
     obj._value = value
-    if isinstance(obj, Symbol):
-        # Symbols recovered from native results bypass Symbol.__init__; the
-        # native kernel carries no assumption payload, so the recovered atom
-        # is assumption-free (oracle: Symbol('x').is_positive is None and
-        # srepr prints plain Symbol('x')). Leaving the slot unset made every
-        # _srepr/is_* access raise AttributeError (gauntlet bead
-        # fra-shell-atom-assumptions-bypasses-7o3).
-        obj._assumptions = {}
     if cls is Integer:
         # Native-recovered integers route to the same singletons the
         # constructors produce (bead fra-shell-number-canonical-construction-qf6).
@@ -603,7 +688,10 @@ class Basic:
     @property
     def free_symbols(self) -> set["Symbol"]:
         try:
-            return {_symbol_from_intern_name(name) for name in _native_expr(self).free_symbols}
+            return {
+                _symbol_from_binding(binding)
+                for binding in _native_expr(self).free_symbol_bindings
+            }
         except (NotImplementedError, TypeError):
             syms: set[Symbol] = set()
             for arg in self.args:
@@ -783,6 +871,13 @@ class Basic:
     def __eq__(self, other: object) -> bool:
         if type(self) not in _exact_surface_types() and not isinstance(self, Function):
             return self is other
+        # Applied functions carry their defining class: two same-named custom
+        # classes are different functions even though they print identically
+        # (pinned oracle: AppliedUndef equality compares the func class).
+        if isinstance(self, Function):
+            if not isinstance(other, Function) or type(self) is not type(other):
+                return False
+            return self._value == _native_expr(other)
         # SymPy 1.14.0 parity (bead fra-fra-shell-float-zero-eq-structural-crx):
         # Float participates in equality only against another Float
         # (Float(0.0) == 0, Float(1.0) == Integer(1), Rational(1, 2) == 0.5 are
@@ -846,6 +941,12 @@ class Basic:
         if isinstance(self, AppliedUndef):
             return _restore_applied_undef, (self._value.func_name, self.args)
         if isinstance(self, Symbol):
+            if self._assumptions:
+                return _restore_symbol, (
+                    type(self),
+                    self.name,
+                    tuple(sorted(self._assumptions.items())),
+                )
             return type(self), (self.name,)
         if isinstance(self, Integer):
             return type(self), (self.p,)
@@ -1801,7 +1902,14 @@ class Symbol(AtomicExpr):
         if name.startswith(_DUMMY_PREFIX):
             raise ValueError("Symbol name collides with Dummy intern encoding")
         self._assumptions = {k: v for k, v in assumptions.items() if v is not None}
-        self._value = _native.py_symbol(name)
+        # The native handle carries the typed identity, so arithmetic built
+        # from this symbol keeps its declared assumptions instead of silently
+        # lowering to a plain same-name atom.
+        self._value = _native.py_symbol(name, list(_assumption_facts(self)))
+        if type(self) is Symbol:
+            # Only the exact surface class owns a lift-back target: a custom
+            # subclass stays opaque and must never capture a native atom.
+            _register_surface_symbol(self)
 
     @property
     def name(self) -> str:
@@ -1814,7 +1922,11 @@ class Symbol(AtomicExpr):
         if self._assumptions and _native is not None and hasattr(_native, "ask_expr"):
             facts = [(self.name, k) for k, v in self._assumptions.items() if v is True]
             if facts:
-                return _native.ask_expr(self._value, key, facts)
+                # The deductive lane stays name-keyed: the native assumption
+                # engine declares facts per printed name, so the query symbol
+                # must be the plain atom those facts describe, not the
+                # identity-bearing atom used for arithmetic.
+                return _native.ask_expr(_native.py_symbol(self.name), key, facts)
         return None
 
     @property
@@ -1942,6 +2054,15 @@ class Dummy(Symbol):
 
 def _restore_dummy(name: str, number: int) -> Dummy:
     return Dummy._from_intern(name, number)
+
+
+def _restore_symbol(cls: type, name: str, assumptions: tuple) -> "Symbol":
+    """Unpickle a symbol together with its declared assumptions.
+
+    Dropping assumptions here would hand back an atom that is not equal to the
+    one that was pickled, since identity is declaration-driven.
+    """
+    return cls(name, **dict(assumptions))
 
 
 class Number(AtomicExpr):
@@ -3092,13 +3213,48 @@ def diff(expression: Any, *variables: Any) -> Expr:
             result = result._eval_derivative(symbol)
         else:
             try:
-                result = _lift_builtin_result(_native_expr(result).diff(_native_symbol_key(symbol)))
+                result = _lift_builtin_result(_native_expr(result).diff(_symbol_binding(symbol)))
             except (NotImplementedError, TypeError):
                 if hasattr(result, "_eval_derivative"):
                     result = result._eval_derivative(symbol)
                 else:
                     raise
     return result
+
+
+def diff_with_receipt(expression: Any, variable: Any) -> tuple[Expr, dict[str, Any]]:
+    """Differentiate and return a replayable, independently verified receipt.
+
+    The receipt is produced only after `fsym-calculus`'s derivation verifier
+    accepts the claim; a refusal raises instead of returning anything.
+    """
+    if not isinstance(variable, Symbol):
+        raise TypeError("a symbol variable is required for a verified receipt")
+    native_result, receipt = _native_expr(expression).diff_with_receipt(
+        _symbol_binding(variable)
+    )
+    return _lift_builtin_result(native_result), dict(receipt)
+
+
+def replay_diff_receipt(receipt: dict[str, Any]) -> bool:
+    """Re-check a receipt from its own bytes, without the originating session."""
+    name = str(receipt["variable"])
+    if receipt.get("variable_plain", True):
+        binding = _native.SymbolBinding(name, [])
+    else:
+        binding = _native.SymbolBinding.from_identity(
+            name, str(receipt["variable_identity"])
+        )
+    return bool(
+        _native.verify_diff_receipt_expr(
+            str(receipt["expr"]),
+            binding,
+            str(receipt["rule"]),
+            str(receipt["rhs"]),
+            str(receipt["derivative"]),
+            [tuple(pair) for pair in receipt.get("symbols", ())],
+        )
+    )
 
 
 def expand(expression: Any) -> Expr:

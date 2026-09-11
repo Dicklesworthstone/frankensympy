@@ -25,8 +25,12 @@ use thiserror::Error;
 // current Rust layouts on supported targets without making refusal behavior
 // depend on pointer width or compiler enum layout.
 const TERM_ID_SLOT_CHARGE_BYTES: usize = 8;
-const SYMBOL_SLOT_CHARGE_BYTES: usize = 24;
-const LIFTED_EXPR_SLOT_CHARGE_BYTES: usize = 64;
+// Upper bounds `size_of::<Symbol>()`: the 24-byte `String` name plus the
+// optional 32-byte typed identity and its discriminant, padded to alignment.
+const SYMBOL_SLOT_CHARGE_BYTES: usize = 64;
+// Upper bounds `size_of::<Expr>()`: the largest variant (an identity-bearing
+// `Symbol` atom or a named function application) plus its discriminant.
+const LIFTED_EXPR_SLOT_CHARGE_BYTES: usize = 80;
 const LAMBDA_SURFACE_NAME_CHARGE_BYTES: usize = "Lambda".len();
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -192,10 +196,21 @@ fn hash_term_preimage(node: &TermNode, domain: TermDomain) -> Result<blake3::Has
     hasher.update(b"fsym.term.v4\0");
     hasher.update(&[domain.tag()]);
     match node {
-        TermNode::Sym(s) => {
-            hasher.update(&[0]);
-            hash_bytes(&mut hasher, s.name.as_bytes())?;
-        }
+        TermNode::Sym(s) => match &s.identity {
+            // Plain symbols keep the historical untagged preimage so their
+            // content identity does not churn.
+            None => {
+                hasher.update(&[0]);
+                hash_bytes(&mut hasher, s.name.as_bytes())?;
+            }
+            // Identity-bearing symbols are a distinct node kind: the printed
+            // name alone must never merge two differently declared atoms.
+            Some(identity) => {
+                hasher.update(&[crate::SymbolIdentity::PREIMAGE_TAG]);
+                hash_bytes(&mut hasher, s.name.as_bytes())?;
+                hasher.update(&identity.assumptions);
+            }
+        },
         TermNode::Integer(n) => {
             hasher.update(&[1]);
             hash_integer(&mut hasher, n)?;
@@ -326,9 +341,18 @@ fn add_payload_bytes(lhs: usize, rhs: usize) -> Result<usize, DagError> {
     lhs.checked_add(rhs).ok_or(DagError::PayloadLengthOverflow)
 }
 
+fn symbol_payload_bytes(symbol: &Symbol) -> usize {
+    symbol.name.len()
+        + if symbol.identity.is_some() {
+            std::mem::size_of::<[u8; 32]>()
+        } else {
+            0
+        }
+}
+
 fn node_payload_bytes(node: &TermNode) -> Result<usize, DagError> {
     match node {
-        TermNode::Sym(symbol) => Ok(symbol.name.len()),
+        TermNode::Sym(symbol) => Ok(symbol_payload_bytes(symbol)),
         TermNode::Integer(value) => numeric_payload_bytes(value),
         TermNode::Rational(value) => add_payload_bytes(
             numeric_payload_bytes(value.numer())?,
@@ -349,7 +373,7 @@ fn node_payload_bytes(node: &TermNode) -> Result<usize, DagError> {
 
 fn lifted_node_payload_bytes(node: &TermNode) -> Result<usize, DagError> {
     match node {
-        TermNode::Sym(symbol) => Ok(symbol.name.len()),
+        TermNode::Sym(symbol) => Ok(symbol_payload_bytes(symbol)),
         TermNode::Integer(value) => numeric_payload_bytes(value),
         TermNode::Rational(value) => add_payload_bytes(
             numeric_payload_bytes(value.numer())?,

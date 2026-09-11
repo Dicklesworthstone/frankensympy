@@ -3,7 +3,8 @@
 #![forbid(unsafe_code)]
 
 use fsym_calculus::diff;
-use fsym_core::{BigInt, BigRational, Expr, Symbol, parse};
+use fsym_calculus::proof as calculus_proof;
+use fsym_core::{BigInt, BigRational, Expr, parse};
 use fsym_functions::{
     abs_val as abs_expr, acos as acos_expr, acosh as acosh_expr, acot as acot_expr,
     acoth as acoth_expr, acsc as acsc_expr, acsch as acsch_expr, asec as asec_expr,
@@ -361,14 +362,102 @@ impl PyExpr {
         ))
     }
 
-    /// Exact differentiation ∂expr / ∂var.
+    /// Exact differentiation ∂expr / ∂var through the typed binding contract.
+    ///
+    /// The variable must be a [`PySymbolBinding`]: a printed name is refused,
+    /// because two symbols that print identically may be different atoms.
     #[pyo3(signature = (var, *more_vars))]
-    pub fn diff(&self, var: &str, more_vars: Vec<String>) -> PyExpr {
-        let mut res = diff(&self.inner, &Symbol::new(var));
-        for v in more_vars {
-            res = diff(&res, &Symbol::new(&v));
+    pub fn diff(
+        &self,
+        var: &Bound<'_, PyAny>,
+        more_vars: Vec<Bound<'_, PyAny>>,
+    ) -> PyResult<PyExpr> {
+        let mut symbols = Vec::with_capacity(more_vars.len() + 1);
+        symbols.push(crate::binding::extract_binding(var)?.to_symbol());
+        for value in &more_vars {
+            symbols.push(crate::binding::extract_binding(value)?.to_symbol());
         }
-        PyExpr::from_expr(res)
+        let mut res = self.inner.clone();
+        for symbol in &symbols {
+            res = diff(&res, symbol);
+        }
+        Ok(PyExpr::from_expr(res))
+    }
+
+    /// Differentiation with an independently verified, replayable receipt.
+    ///
+    /// The derivative is generated, then checked by the independent derivation
+    /// verifier in `fsym-calculus` before the receipt is handed out; a refused
+    /// derivation raises and never returns a receipt.
+    pub fn diff_with_receipt<'py>(
+        &self,
+        py: Python<'py>,
+        var: &Bound<'py, PyAny>,
+    ) -> PyResult<(PyExpr, Bound<'py, PyDict>)> {
+        let symbol = crate::binding::extract_binding(var)?.to_symbol();
+        let (deriv, tree) = calculus_proof::verified_diff(&self.inner, &symbol);
+        calculus_proof::verify_diff_derivation(&tree, &self.inner, &symbol, &deriv)
+            .map_err(|error| PyValueError::new_err(format!("derivation refused: {error}")))?;
+        let receipt = PyDict::new(py);
+        receipt.set_item("schema", "fsym.diff.receipt.v1")?;
+        receipt.set_item("expr", self.inner.to_string())?;
+        receipt.set_item("variable", symbol.name.clone())?;
+        receipt.set_item("variable_plain", symbol.identity.is_none())?;
+        receipt.set_item(
+            "variable_identity",
+            crate::binding::PySymbolBinding::from_symbol(&symbol).identity_hex,
+        )?;
+        receipt.set_item(
+            "rule",
+            calculus_proof::classify_diff_rule(&self.inner, &symbol),
+        )?;
+        receipt.set_item(
+            "lhs",
+            calculus_proof::make_diff_term(&self.inner, &symbol).to_string(),
+        )?;
+        receipt.set_item("rhs", deriv.to_string())?;
+        receipt.set_item("derivative", deriv.to_string())?;
+        receipt.set_item("verifier", "fsym-calculus::proof::verify_diff_derivation")?;
+        // Identity material, so the receipt can be replayed from its own bytes:
+        // printed text alone cannot distinguish same-name declared atoms.
+        let mut bindings = self.inner.free_symbols();
+        bindings.extend(deriv.free_symbols());
+        bindings.sort();
+        bindings.dedup();
+        let symbols: Vec<(String, String)> = bindings
+            .iter()
+            .filter(|symbol| symbol.identity.is_some())
+            .map(|symbol| {
+                (
+                    symbol.name.clone(),
+                    crate::binding::PySymbolBinding::from_symbol(symbol).identity_hex,
+                )
+            })
+            .collect();
+        receipt.set_item("symbols", symbols)?;
+        Ok((PyExpr::from_expr(deriv), receipt))
+    }
+
+    /// The typed binding of this expression when it is a symbol atom.
+    #[getter]
+    pub fn symbol_binding(&self) -> Option<crate::binding::PySymbolBinding> {
+        match &self.inner {
+            Expr::Sym(symbol) => Some(crate::binding::PySymbolBinding::from_symbol(symbol)),
+            _ => None,
+        }
+    }
+
+    /// Free symbols as typed bindings, so the shell can restore the exact
+    /// declared surface objects instead of re-minting same-name look-alikes.
+    #[getter]
+    pub fn free_symbol_bindings(&self) -> Vec<crate::binding::PySymbolBinding> {
+        let mut symbols = self.inner.free_symbols();
+        symbols.sort();
+        symbols.dedup();
+        symbols
+            .iter()
+            .map(crate::binding::PySymbolBinding::from_symbol)
+            .collect()
     }
 
     /// Simplify expression under budgeted region.
@@ -720,10 +809,14 @@ impl PyDerivative {
     }
 }
 
-/// Construct a Symbol expression.
+/// Construct a Symbol expression, optionally carrying a typed identity
+/// derived from the declared assumption facts. Without facts the atom stays
+/// plain, so the default surface behaviour is unchanged.
 #[pyfunction]
-pub fn py_symbol(name: &str) -> PyExpr {
-    PyExpr::from_expr(Expr::symbol(name))
+#[pyo3(signature = (name, assumptions=None))]
+pub fn py_symbol(name: &str, assumptions: Option<Vec<(String, String)>>) -> PyResult<PyExpr> {
+    let binding = crate::binding::PySymbolBinding::new(name.to_string(), assumptions)?;
+    Ok(PyExpr::from_expr(Expr::Sym(binding.to_symbol())))
 }
 
 /// Construct an Integer expression.

@@ -796,6 +796,7 @@ name = "fsym-python"
 version = "0.1.0"
 dependencies = [
  "asupersync",
+ "blake3",
  "fsym-assumptions",
  "fsym-calculus",
  "fsym-core",

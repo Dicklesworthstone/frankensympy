@@ -98,6 +98,45 @@ pub fn verified_diff(expr: &Expr, var: &Symbol) -> (Expr, DerivationTree) {
     (deriv, tree)
 }
 
+/// Replays a serialized differentiation receipt.
+///
+/// The claim is *recomputed* from the expression and variable, checked by the
+/// independent derivation verifier, and only then compared against the text
+/// the receipt carried. Nothing is accepted because the receipt says so: a
+/// tampered rule or derivative text is refused, and a receipt for a different
+/// variable/expression fails the verifier's rule semantics.
+pub fn verify_diff_receipt(
+    expr: &Expr,
+    var: &Symbol,
+    rule_name: &str,
+    rhs_text: &str,
+    deriv_text: &str,
+) -> Result<(), KernelError> {
+    let deriv = diff_unsimplified(expr, var);
+    let diff_term = make_diff_term(expr, var);
+    let tree = DerivationTree {
+        steps: vec![DerivationStep {
+            id: StepId(1),
+            rule: ProofRule::DefinitionalReduction {
+                lhs: diff_term.clone(),
+                rhs: deriv.clone(),
+                rule_name: rule_name.to_string(),
+            },
+            claim: Claim::equality(diff_term, deriv.clone()),
+        }],
+        root: StepId(1),
+    };
+    verify_diff_derivation(&tree, expr, var, &deriv)?;
+    let rendered = deriv.to_string();
+    if rendered != deriv_text || rendered != rhs_text {
+        return Err(KernelError::RuleMismatch(format!(
+            "receipt text disagrees with the recomputed derivation: recomputed {rendered:?}, \
+             receipt rhs {rhs_text:?}, receipt derivative {deriv_text:?}"
+        )));
+    }
+    Ok(())
+}
+
 /// Independent verifier checking that the differentiation derivation tree correctly proves
 /// the claim $\vdash \text{diff}(\text{expr}, \text{var}) = \text{deriv}$.
 pub fn verify_diff_derivation(
@@ -779,5 +818,26 @@ mod tests {
         let (deriv_y, tree_y) = verified_diff(&expr, &y);
         assert_eq!(deriv_y, Expr::from_i64(1));
         assert!(verify_diff_derivation(&tree_y, &expr, &y, &deriv_y).is_ok());
+    }
+
+    #[test]
+    fn test_receipt_replay_accepts_the_original_and_refuses_tampering() {
+        let x = Symbol::new("x");
+        let expr = Expr::Mul(vec![Expr::symbol("x"), Expr::symbol("x")]);
+        let (deriv, _tree) = verified_diff(&expr, &x);
+        let rule = classify_diff_rule(&expr, &x);
+        let text = deriv.to_string();
+
+        // The untampered receipt replays.
+        assert!(verify_diff_receipt(&expr, &x, rule, &text, &text).is_ok());
+
+        // A replaced derivative text or rule is refused.
+        assert!(verify_diff_receipt(&expr, &x, rule, "0", &text).is_err());
+        assert!(verify_diff_receipt(&expr, &x, rule, &text, "0").is_err());
+        assert!(verify_diff_receipt(&expr, &x, RULE_DIFF_SUM, &text, &text).is_err());
+
+        // A receipt replayed against another expression is refused as well.
+        let y = Symbol::new("y");
+        assert!(verify_diff_receipt(&Expr::Sym(y), &x, rule, &text, &text).is_err());
     }
 }

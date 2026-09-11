@@ -112,6 +112,43 @@ fn diff_expr(src: &str, var: &str) -> PyResult<String> {
     Ok(diff(&e, &Symbol::new(var)).to_string())
 }
 
+/// Replays a differentiation receipt through the independent derivation
+/// verifier. A tampered rule, right-hand side, or derivative returns `False`;
+/// nothing is accepted on the receipt's own assertion.
+#[pyfunction]
+#[pyo3(signature = (expr_src, variable, rule, rhs_src, deriv_src, symbols=None))]
+fn verify_diff_receipt_expr(
+    expr_src: &str,
+    variable: &Bound<'_, PyAny>,
+    rule: &str,
+    rhs_src: &str,
+    deriv_src: &str,
+    symbols: Option<Vec<(String, String)>>,
+) -> PyResult<bool> {
+    let symbol = binding::extract_binding(variable)?.to_symbol();
+    // Re-apply the declared identities the receipt recorded: printed text
+    // cannot distinguish same-name declared atoms on its own.
+    let mut substitutions: std::collections::HashMap<Symbol, Expr> =
+        std::collections::HashMap::new();
+    for (name, identity_hex) in symbols.unwrap_or_default() {
+        let identity = binding::PySymbolBinding::from_identity(name.clone(), &identity_hex)?;
+        substitutions.insert(Symbol::new(name), Expr::Sym(identity.to_symbol()));
+    }
+    let expr = lower_with_identities(parse_expr(expr_src)?, &substitutions);
+    Ok(fsym_calculus::proof::verify_diff_receipt(&expr, &symbol, rule, rhs_src, deriv_src).is_ok())
+}
+
+fn lower_with_identities(
+    expr: Expr,
+    substitutions: &std::collections::HashMap<Symbol, Expr>,
+) -> Expr {
+    if substitutions.is_empty() {
+        expr
+    } else {
+        expr.subs(substitutions)
+    }
+}
+
 /// Indefinite integral of `src` with respect to `var`.
 ///
 /// Raises `ValueError` when no rule applies — refusals are explicit.
@@ -860,6 +897,7 @@ fn crt_fn(moduli: Vec<String>, remainders: Vec<String>) -> PyResult<Option<(Stri
 }
 
 pub mod assumptions;
+pub mod binding;
 pub mod expr;
 pub mod geometry;
 pub mod logic;
@@ -885,6 +923,7 @@ fn evalf_expr(src: &str) -> PyResult<f64> {
 fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyExpr>()?;
     m.add_class::<PySymbol>()?;
+    m.add_class::<binding::PySymbolBinding>()?;
     m.add_class::<PyInteger>()?;
     m.add_class::<PyRational>()?;
     m.add_class::<PyAdd>()?;
@@ -976,6 +1015,7 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(simplify_expr, m)?)?;
     m.add_function(wrap_pyfunction!(expand_expr, m)?)?;
     m.add_function(wrap_pyfunction!(diff_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(verify_diff_receipt_expr, m)?)?;
     m.add_function(wrap_pyfunction!(integrate_expr, m)?)?;
     m.add_function(wrap_pyfunction!(integrate_definite_expr, m)?)?;
     m.add_function(wrap_pyfunction!(laplace_expr, m)?)?;
@@ -1049,7 +1089,7 @@ mod tests {
 
     #[test]
     fn test_py_expr_structural_args_and_properties() {
-        let x = py_symbol("x");
+        let x = py_symbol("x", None).unwrap();
         let two = py_integer(2);
         let expr = x.__mul__(&two).unwrap();
 
@@ -1060,7 +1100,7 @@ mod tests {
         assert!(expr.is_mul());
         assert_eq!(expr.free_symbols(), vec!["x".to_string()]);
 
-        let x_sym = py_symbol("x");
+        let x_sym = py_symbol("x", None).unwrap();
         assert!(x_sym.is_symbol());
         assert_eq!(x_sym.func_name(), "Symbol");
 
@@ -1213,11 +1253,19 @@ mod tests {
     #[test]
     fn test_py_expr_differentiation_and_latex() {
         // d/dx (x^3) = 3*x^2
-        let x = py_symbol("x");
+        let x = py_symbol("x", None).unwrap();
         let three = py_integer(3);
         let pow_expr = py_pow(x, three);
 
-        let d = pow_expr.diff("x", vec![]);
+        let d = Python::attach(|py| {
+            let binding = Bound::new(
+                py,
+                crate::binding::PySymbolBinding::new("x".to_string(), None).unwrap(),
+            )
+            .unwrap()
+            .into_any();
+            pow_expr.diff(&binding, vec![]).unwrap()
+        });
         assert_eq!(d.__str__(), "3*x**2");
         assert!(pow_expr._repr_latex_().unwrap().contains("x^{3}"));
         assert_eq!(pow_expr.pretty().unwrap(), "x³");
@@ -1238,7 +1286,7 @@ mod tests {
     #[test]
     fn test_py_expr_substitution() {
         // x + 5 where x -> 10
-        let x = py_symbol("x");
+        let x = py_symbol("x", None).unwrap();
         let five = py_integer(5);
         let expr = x.__add__(&five).unwrap();
 

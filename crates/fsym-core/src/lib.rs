@@ -42,15 +42,59 @@ pub enum CoreError {
     ParseError(String),
 }
 
-/// Fundamental symbol definition with name and assumptions metadata.
+/// Typed identity for symbol atoms that print identically but are not the same
+/// atom. The identity is derived from canonical, non-printed inputs (the
+/// declared assumption facts), so it is stable across processes and never from
+/// a surface handle, memory address, or session counter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct SymbolIdentity {
+    /// BLAKE3 digest over the canonically ordered assumption facts.
+    pub assumptions: [u8; 32],
+}
+
+impl SymbolIdentity {
+    /// Builds an identity from a digest over canonically ordered assumption facts.
+    pub fn from_assumptions_digest(assumptions: [u8; 32]) -> Self {
+        Self { assumptions }
+    }
+
+    /// Canonical preimage tag for identity-bearing symbols. Plain symbols keep
+    /// the historical untagged preimage so their digests do not churn.
+    pub const PREIMAGE_TAG: u8 = 1;
+}
+
+/// Fundamental symbol definition: printed name plus optional typed identity.
+///
+/// The printed name is a *view*. Two symbols that print identically are
+/// distinct atoms when their [`SymbolIdentity`] differs; the name alone never
+/// establishes semantic identity.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct Symbol {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity: Option<SymbolIdentity>,
 }
 
 impl Symbol {
+    /// Plain symbol with no typed identity (the historical behaviour).
     pub fn new(name: impl Into<String>) -> Self {
-        Self { name: name.into() }
+        Self {
+            name: name.into(),
+            identity: None,
+        }
+    }
+
+    /// Symbol carrying a typed identity distinct from any other identity.
+    pub fn with_identity(name: impl Into<String>, identity: SymbolIdentity) -> Self {
+        Self {
+            name: name.into(),
+            identity: Some(identity),
+        }
+    }
+
+    /// True when this symbol carries no typed identity.
+    pub fn is_plain(&self) -> bool {
+        self.identity.is_none()
     }
 }
 
@@ -552,7 +596,13 @@ pub fn cmp_add_args(a: &Expr, b: &Expr) -> std::cmp::Ordering {
         (Expr::Integer(x), Expr::Rational(y)) => BigRational::from_integer(x.clone()).cmp(y),
         (Expr::Rational(x), Expr::Integer(y)) => x.cmp(&BigRational::from_integer(y.clone())),
         (Expr::Rational(x), Expr::Rational(y)) => x.cmp(y),
-        (Expr::Sym(x), Expr::Sym(y)) => x.name.cmp(&y.name),
+        // Name is the printed view; identity is the tie break. Plain symbols
+        // order exactly as before (`None` sorts first), and two symbols that
+        // print identically but carry distinct identities never compare equal.
+        (Expr::Sym(x), Expr::Sym(y)) => x
+            .name
+            .cmp(&y.name)
+            .then_with(|| x.identity.cmp(&y.identity)),
         _ => format!("{a}").cmp(&format!("{b}")),
     }
 }
