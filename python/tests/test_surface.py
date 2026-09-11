@@ -14,6 +14,42 @@ import sympy
 
 
 class SurfaceTests(unittest.TestCase):
+    def test_ratio_admission_rejects_class_name_lookalikes(self):
+        from sympy.core import _exact_ratio
+
+        # Arbitrary objects named like built-in operators must not acquire
+        # mathematical meaning or have their properties read by this helper.
+        for name in ("Add", "Mul", "Pow"):
+            def forbidden_args(self):
+                raise AssertionError("unadmitted args accessed")
+
+            value = type(name, (), {"args": property(forbidden_args)})()
+            with self.subTest(name=name):
+                self.assertIsNone(_exact_ratio(value))
+                self.assertFalse(sympy.Integer(1) == value)
+                args = (sympy.S.One, sympy.S.One) if name == "Pow" else (sympy.S.One,)
+                lookalike = type(name, (), {"args": args})()
+                self.assertFalse(sympy.S.One == lookalike)
+
+        class CustomInteger(sympy.Integer):
+            @property
+            def p(self):
+                raise AssertionError("unadmitted numerator accessed")
+
+        class CustomInt(int):
+            def __int__(self):
+                raise AssertionError("unadmitted int hook accessed")
+
+        for value in (CustomInteger(1), CustomInt(1)):
+            self.assertIsNone(_exact_ratio(value))
+            self.assertFalse(sympy.Integer(1) == value)
+
+        for value, expected in (
+                (sympy.Add(1, 2, evaluate=False), (3, 1)),
+                (sympy.Mul(2, 3, evaluate=False), (6, 1)),
+                (sympy.Pow(2, -2, evaluate=False), (1, 4))):
+            self.assertEqual(_exact_ratio(value), expected)
+
     def test_exact_constructors_refuse_subclasses_before_reading_properties(self):
         # Native admission invariant, not upstream subclass compatibility.
         class CustomInteger(sympy.Integer):

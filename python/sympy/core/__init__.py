@@ -327,15 +327,15 @@ def _maybe_python_float(value: Any) -> float | None:
 
 def _exact_ratio(value: Any) -> tuple[int, int] | None:
     """Canonical (p, q) for admitted numeric atoms. Non-finite floats are None."""
-    if isinstance(value, Zero):
+    if type(value) is Zero:
         return 0, 1
-    if isinstance(value, bool):
+    if type(value) is bool:
         return (1 if value else 0), 1
-    if isinstance(value, int):
-        return int(value), 1
-    if isinstance(value, Integer):
+    if type(value) is int:
+        return value, 1
+    if type(value) in (Integer, One, NegativeOne):
         return value.p, 1
-    if isinstance(value, Rational):
+    if type(value) in (Rational, Half):
         return value.p, value.q
     if type(value) is float:
         try:
@@ -347,8 +347,7 @@ def _exact_ratio(value: Any) -> tuple[int, int] | None:
             return value._as_python_float().as_integer_ratio()
         except (OverflowError, ValueError):
             return None
-    cls_name = type(value).__name__
-    if cls_name == "Mul":
+    if type(value) is Mul:
         cur_p, cur_q = 1, 1
         for a in value.args:
             r = _exact_ratio(a)
@@ -357,7 +356,7 @@ def _exact_ratio(value: Any) -> tuple[int, int] | None:
             cur_p *= r[0]
             cur_q *= r[1]
         return cur_p, cur_q
-    if cls_name == "Add":
+    if type(value) is Add:
         cur_p, cur_q = 0, 1
         for a in value.args:
             r = _exact_ratio(a)
@@ -370,7 +369,7 @@ def _exact_ratio(value: Any) -> tuple[int, int] | None:
                 cur_p //= g
                 cur_q //= g
         return cur_p, cur_q
-    if cls_name == "Pow":
+    if type(value) is Pow:
         args = getattr(value, "args", ())
         if len(args) == 2:
             r_base = _exact_ratio(args[0])
