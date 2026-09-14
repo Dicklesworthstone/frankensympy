@@ -585,7 +585,15 @@ fn add_arg_rank(e: &Expr) -> u8 {
 }
 
 /// Total order over Add arguments implementing `add_arg_rank` + per-class
-/// tie-breaking (numeric value, symbol name, rendered form).
+/// tie-breaking (numeric value, symbol name, rendered form, structure).
+///
+/// `Equal` holds only for genuinely identical terms. The rendered-form
+/// comparison is kept as the historical order for every previously
+/// deterministic pair, but it is no longer trusted on its own: two distinct
+/// terms can print identically, so the structural order below is the final
+/// tie break. Without it, a stable sort inherits insertion order for such
+/// pairs and canonical Add ordering stops being a function of the term
+/// multiset (gate findings fra-yuk, fra-rc-lowering-gate-ba5).
 pub fn cmp_add_args(a: &Expr, b: &Expr) -> std::cmp::Ordering {
     let (ra, rb) = (add_arg_rank(a), add_arg_rank(b));
     if ra != rb {
@@ -603,8 +611,66 @@ pub fn cmp_add_args(a: &Expr, b: &Expr) -> std::cmp::Ordering {
             .name
             .cmp(&y.name)
             .then_with(|| x.identity.cmp(&y.identity)),
-        _ => format!("{a}").cmp(&format!("{b}")),
+        _ => format!("{a}")
+            .cmp(&format!("{b}"))
+            .then_with(|| cmp_structural(a, b)),
     }
+}
+
+/// Structural total order over expressions: `Equal` holds only when both
+/// sides carry identical structure down to symbol identities and exact
+/// numeric values, so `cmp_add_args` never declares distinct terms equal.
+fn cmp_structural(a: &Expr, b: &Expr) -> std::cmp::Ordering {
+    fn discriminant(e: &Expr) -> u8 {
+        match e {
+            Expr::Sym(_) => 0,
+            Expr::Integer(_) => 1,
+            Expr::Rational(_) => 2,
+            Expr::Const(_) => 3,
+            Expr::Add(_) => 4,
+            Expr::Mul(_) => 5,
+            Expr::Pow(_, _) => 6,
+            Expr::Function(_, _) => 7,
+        }
+    }
+    let (da, db) = (discriminant(a), discriminant(b));
+    if da != db {
+        return da.cmp(&db);
+    }
+    match (a, b) {
+        (Expr::Sym(x), Expr::Sym(y)) => x
+            .name
+            .cmp(&y.name)
+            .then_with(|| x.identity.cmp(&y.identity)),
+        (Expr::Integer(x), Expr::Integer(y)) => x.cmp(y),
+        (Expr::Rational(x), Expr::Rational(y)) => x.cmp(y),
+        (Expr::Const(x), Expr::Const(y)) => x.cmp(y),
+        (Expr::Add(x), Expr::Add(y)) => cmp_slice_structural(x, y),
+        (Expr::Mul(x), Expr::Mul(y)) => cmp_slice_structural(x, y),
+        (Expr::Pow(bx, ex), Expr::Pow(by, ey)) => {
+            cmp_structural(bx, by).then_with(|| cmp_structural(ex, ey))
+        }
+        (Expr::Function(nx, ax), Expr::Function(ny, ay)) => {
+            nx.cmp(ny).then_with(|| cmp_slice_structural(ax, ay))
+        }
+        // Distinct discriminants are handled above; matching discriminants
+        // are covered by the arms, so this is unreachable in practice.
+        _ => std::cmp::Ordering::Equal,
+    }
+}
+
+fn cmp_slice_structural(a: &[Expr], b: &[Expr]) -> std::cmp::Ordering {
+    a.len()
+        .cmp(&b.len())
+        .then_with(|| {
+            for (left, right) in a.iter().zip(b.iter()) {
+                let ordering = cmp_structural(left, right);
+                if ordering != std::cmp::Ordering::Equal {
+                    return ordering;
+                }
+            }
+            std::cmp::Ordering::Equal
+        })
 }
 
 /// Sorts Add arguments into canonical order in place.
