@@ -100,7 +100,7 @@ fn same_printed_name_with_distinct_identity_never_merges_and_ord_agrees_with_eq(
     // five distinct declarations survive.
     let mut sorted = all.clone();
     sorted.sort();
-    let mut unique = sorted.clone();
+    let mut unique = sorted.to_vec();
     unique.dedup();
     assert_eq!(
         unique.len(),
@@ -132,7 +132,7 @@ fn same_printed_name_with_distinct_identity_never_merges_and_ord_agrees_with_eq(
 
     // Lifting keeps the typed atom exactly (name and identity payload).
     let lifted = dag.to_expr(keyed_id).unwrap();
-    assert_eq!(lifted, Expr::Sym(keyed_x));
+    assert_eq!(lifted, Expr::Sym(keyed_x.clone()));
     assert_eq!(lifted.free_symbols(), vec![keyed_x]);
 }
 
