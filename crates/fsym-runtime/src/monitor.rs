@@ -241,15 +241,12 @@ impl CompatibilityDriftMonitor {
     /// divergence and lands in its own counter, so no failure can vanish from
     /// the monitored stream.
     pub fn observe(&mut self, observation: Observation) -> MonitorDecision {
-        if self.state.alarmed {
-            // One-way until reset: a crossed threshold is not un-crossed by
-            // subsequent agreement.
-            return MonitorDecision::Alarm {
-                generation: self.state.generation,
-                threshold: self.state.threshold(),
-                log_wealth: self.state.log_wealth,
-            };
-        }
+        // One-way until reset: once alarmed, every later observation still
+        // returns Alarm. But the observation is charged FIRST — a failure
+        // that arrives after the alarm is still an observed failure and
+        // must land in its own bucket, never vanish from the stream
+        // (gate finding fra-rc-monitor-gate-p1m).
+        let already_alarmed = self.state.alarmed;
         let (diverged, failure) = match observation {
             Observation::Completed { discrepancy } => (discrepancy, None),
             Observation::Failed { kind } => (true, Some(kind)),
@@ -283,13 +280,17 @@ impl CompatibilityDriftMonitor {
             };
         }
         self.state.log_wealth = candidate;
-        if candidate >= self.state.threshold() {
-            self.state.alarmed = true;
-            self.state.alarms += 1;
+        if already_alarmed || candidate >= self.state.threshold() {
+            if !already_alarmed {
+                // Count the transition once; post-alarm observations are
+                // charged above but never raise new alarms.
+                self.state.alarmed = true;
+                self.state.alarms += 1;
+            }
             return MonitorDecision::Alarm {
                 generation: self.state.generation,
                 threshold: self.state.threshold(),
-                log_wealth: candidate,
+                log_wealth: self.state.log_wealth,
             };
         }
         MonitorDecision::Continue
