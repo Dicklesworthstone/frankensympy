@@ -293,3 +293,133 @@ fn forged_verified_flag_cannot_be_smuggled_into_the_schema() {
     let map = capsule.objects.clone();
     assert!(map.values().all(|object| object.payload[0] != 0xff));
 }
+
+// Product-side equality: every subject term matching is not enough. A product
+// carrying a term the subject lacks makes the identity false (gate finding,
+// fra-rc-capsule-gate-5mq).
+#[test]
+fn extra_product_term_is_refuted() {
+    let (context, rule, verifier) = roots();
+    let subject = CapsuleObject::new(poly("x", &[(2, 1)]).encode().expect("subject encodes"));
+    let factor = CapsuleObject::new(
+        poly("x", &[(2, 1), (0, 1)])
+            .encode()
+            .expect("factor encodes"),
+    );
+    let mut objects = BTreeMap::new();
+    for object in [subject.clone(), factor.clone()] {
+        objects.insert(object.id, object);
+    }
+    let capsule = Capsule {
+        schema_version: fsym_proof_kernel::capsule::CAPSULE_SCHEMA_VERSION,
+        claim: PolyIdentityClaim {
+            domain: PolyDomain::Zz,
+            context,
+            rule,
+            verifier,
+            subject: subject.id,
+            coefficient: rational(1, 1),
+            factors: vec![(factor.id, 1)],
+        },
+        objects,
+    };
+    // x^2 != 1 * (x^2 + 1).
+    assert!(matches!(
+        verdict(&capsule.encode().expect("encodes"), 64),
+        CapsuleVerdict::Refuted { .. }
+    ));
+}
+
+// The subject's missing constant is exactly the product's extra term.
+#[test]
+fn missing_subject_constant_with_matching_higher_terms_is_refuted() {
+    let (context, rule, verifier) = roots();
+    let subject = CapsuleObject::new(poly("x", &[(2, 2)]).encode().expect("subject encodes"));
+    let first = CapsuleObject::new(
+        poly("x", &[(1, 1), (0, -1)])
+            .encode()
+            .expect("factor encodes"),
+    );
+    let second = CapsuleObject::new(
+        poly("x", &[(1, 1), (0, 1)])
+            .encode()
+            .expect("factor encodes"),
+    );
+    let mut objects = BTreeMap::new();
+    for object in [subject.clone(), first.clone(), second.clone()] {
+        objects.insert(object.id, object);
+    }
+    let capsule = Capsule {
+        schema_version: fsym_proof_kernel::capsule::CAPSULE_SCHEMA_VERSION,
+        claim: PolyIdentityClaim {
+            domain: PolyDomain::Zz,
+            context,
+            rule,
+            verifier,
+            subject: subject.id,
+            coefficient: rational(2, 1),
+            factors: vec![(first.id, 1), (second.id, 1)],
+        },
+        objects,
+    };
+    // 2x^2 != 2 * (x-1)(x+1) = 2x^2 - 2.
+    assert!(matches!(
+        verdict(&capsule.encode().expect("encodes"), 64),
+        CapsuleVerdict::Refuted { .. }
+    ));
+}
+
+// A zero subject is a real operand: 0 != 1, so it must be Refuted, and 0 == 0
+// verifies only against an exactly-zero product (gate finding).
+#[test]
+fn zero_subject_versus_nonzero_constant_is_refuted() {
+    let (context, rule, verifier) = roots();
+    let subject = CapsuleObject::new(poly("x", &[]).encode().expect("subject encodes"));
+    let mut objects = BTreeMap::new();
+    objects.insert(subject.id, subject.clone());
+    let capsule = Capsule {
+        schema_version: fsym_proof_kernel::capsule::CAPSULE_SCHEMA_VERSION,
+        claim: PolyIdentityClaim {
+            domain: PolyDomain::Zz,
+            context,
+            rule,
+            verifier,
+            subject: subject.id,
+            coefficient: rational(1, 1),
+            factors: vec![],
+        },
+        objects,
+    };
+    assert!(matches!(
+        verdict(&capsule.encode().expect("encodes"), 64),
+        CapsuleVerdict::Refuted { .. }
+    ));
+}
+
+#[test]
+fn zero_subject_verifies_against_an_exactly_zero_product() {
+    let (context, rule, verifier) = roots();
+    let subject = CapsuleObject::new(poly("x", &[]).encode().expect("subject encodes"));
+    let zero = CapsuleObject::new(poly("x", &[]).encode().expect("factor encodes"));
+    let mut objects = BTreeMap::new();
+    objects.insert(subject.id, subject.clone());
+    objects.insert(zero.id, zero.clone());
+    let capsule = Capsule {
+        schema_version: fsym_proof_kernel::capsule::CAPSULE_SCHEMA_VERSION,
+        claim: PolyIdentityClaim {
+            domain: PolyDomain::Zz,
+            context,
+            rule,
+            verifier,
+            subject: subject.id,
+            coefficient: rational(1, 1),
+            factors: vec![(zero.id, 1)],
+        },
+        objects,
+    };
+    // 0 == 1 * (0)^1.
+    match verdict(&capsule.encode().expect("encodes"), 64) {
+        CapsuleVerdict::Verified { .. } => {}
+        other => panic!("0 == 1*0 must verify, got {other:?}"),
+    }
+}

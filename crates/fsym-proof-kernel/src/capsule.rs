@@ -561,11 +561,6 @@ pub fn verify_capsule(
         }
     }
 
-    if product_terms.len() > subject.terms.len().max(MAX_TERMS) {
-        return CapsuleVerdict::Refuted {
-            reason: "product degree exceeds subject".to_string(),
-        };
-    }
     if subject.degree() != product_terms.keys().next_back().copied().unwrap_or(0) {
         return CapsuleVerdict::Refuted {
             reason: format!(
@@ -590,6 +585,21 @@ pub fn verify_capsule(
                     reason: format!("missing coefficient at degree {degree}"),
                 };
             }
+        }
+    }
+    // Converse direction: a product term whose degree the subject lacks makes
+    // the identity false even though every subject term matched above. Without
+    // this check `subject + extra_term` verifies, and the zero polynomial
+    // verifies against any degree-0 product.
+    for degree in product_terms.keys() {
+        if subject
+            .terms
+            .binary_search_by(|(existing, _)| degree.cmp(existing))
+            .is_err()
+        {
+            return CapsuleVerdict::Refuted {
+                reason: format!("product has extra term at degree {degree}"),
+            };
         }
     }
     CapsuleVerdict::Verified {

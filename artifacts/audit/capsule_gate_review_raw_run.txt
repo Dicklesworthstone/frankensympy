@@ -1,0 +1,139 @@
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.24
+   Compiling serde_core v1.0.229
+   Compiling autocfg v1.5.1
+   Compiling num-traits v0.2.19
+   Compiling serde v1.0.229
+   Compiling syn v3.0.3
+   Compiling num-integer v0.1.47
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.11
+   Compiling cc v1.4.4
+   Compiling zmij v1.0.23
+   Compiling thiserror v2.0.20
+   Compiling serde_json v1.0.151
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.20
+   Compiling blake3 v1.8.7
+   Compiling memchr v2.8.3
+   Compiling itoa v1.0.18
+   Compiling cpufeatures v0.3.0
+   Compiling constant_time_eq v0.4.2
+   Compiling cfg-if v1.0.4
+   Compiling arrayvec v0.7.8
+   Compiling num-complex v0.4.6
+   Compiling fsym-outcome v0.1.0 (/data/projects/frankensympy/crates/fsym-outcome)
+   Compiling fsym-budget v0.1.0 (/data/projects/frankensympy/crates/fsym-budget)
+   Compiling num-bigint v0.4.8
+   Compiling num-rational v0.4.2
+   Compiling fsym-id v0.1.0 (/data/projects/frankensympy/crates/fsym-id)
+   Compiling fsym-bigint v0.1.0 (/data/projects/frankensympy/crates/fsym-bigint)
+   Compiling fsym-modular v0.1.0 (/data/projects/frankensympy/crates/fsym-modular)
+   Compiling fsym-rational v0.1.0 (/data/projects/frankensympy/crates/fsym-rational)
+   Compiling fsym-core v0.1.0 (/data/projects/frankensympy/crates/fsym-core)
+   Compiling fsym-logic v0.1.0 (/data/projects/frankensympy/crates/fsym-logic)
+   Compiling fsym-assumptions v0.1.0 (/data/projects/frankensympy/crates/fsym-assumptions)
+   Compiling fsym-proof-kernel v0.1.0 (/data/projects/frankensympy/crates/fsym-proof-kernel)
+   Compiling fsym-capsule-consumer v0.1.0 (/data/projects/frankensympy/crates/fsym-capsule-consumer)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.17s
+     Running tests/capsule_gate_review.rs (/data/tmp/cargo-target/debug/build/fsym-capsule-consumer/9c8bda2c597f5a8d/out/capsule_gate_review-9c8bda2c597f5a8d)
+
+running 47 tests
+test review_duplicate_factor_reference_is_refused ... ok
+test review_duplicate_object_id_with_different_bytes_is_refused ... ok
+test review_exhaustion_precedes_refutation_for_a_false_claim ... ok
+test review_extra_high_degree_product_term_must_be_refuted ... FAILED
+test review_flag_byte_inside_object_store_is_refused ... ok
+test review_changed_domain_zz_vs_qq_is_refused ... ok
+test review_missing_subject_object_is_refused ... ok
+test review_incomplete_factor_list_with_equal_degree_is_refuted ... ok
+test review_factor_with_extra_middle_term_must_be_refuted ... FAILED
+test review_changed_rule_and_verifier_roots_are_bound_into_the_claim ... ok
+test review_no_stored_flag_participates_and_the_claim_is_recomputed ... ok
+test review_exhaustion_is_inconclusive_and_never_verified ... ok
+test review_object_id_not_derived_from_its_own_payload_is_refused ... ok
+test review_non_canonical_object_encodings_are_refused ... ok
+test review_missing_factor_object_is_refused ... ok
+test review_changed_context_root_breaks_the_claim_identity ... ok
+test review_extra_product_term_must_be_refuted ... FAILED
+test review_dropped_factor_kept_in_object_store_is_still_refuted ... ok
+test review_incomplete_factor_list_is_refuted ... ok
+test review_missing_constant_term_in_subject_must_be_refuted ... FAILED
+test review_oversized_declared_claim_length_is_refused ... ok
+test review_payload_tamper_after_framing_is_refused ... ok
+test review_trailing_bytes_after_capsule_are_refused ... ok
+test review_positive_control_zz_identity_verifies_through_the_consumer ... ok
+test review_trailing_bytes_inside_an_object_are_refused ... ok
+test review_positive_control_qq_identity_verifies ... ok
+test review_subtly_wrong_rational_coefficient_is_refuted ... ok
+test review_trailing_named_field_after_capsule_is_refused ... ok
+test review_truncated_buffer_is_refused ... ok
+test review_trailing_flag_byte_after_capsule_is_refused ... ok
+test review_oversized_declared_object_length_is_refused ... ok
+test review_trailing_bytes_inside_claim_are_refused ... ok
+test review_wrong_factor_is_refuted ... ok
+test review_wrong_object_kind_is_refused ... ok
+test review_zero_coefficient_claim_is_refused ... ok
+test review_zero_context_root_is_refused ... ok
+test review_wrong_schema_version_and_magic_are_refused ... ok
+test review_wrong_coefficient_is_refuted ... ok
+test review_zero_exponent_factor_is_refused ... ok
+test review_zero_fuel_with_zero_work_is_a_boundary_not_a_false_accept ... ok
+test review_verify_offline_default_accepts_self_asserted_claims ... ok
+test review_wrong_domain_tag_is_refused ... ok
+test review_zz_capsule_with_rational_object_is_refused ... ok
+test review_wrong_exponent_is_refuted ... ok
+test review_zero_polynomial_subject_must_not_verify_against_a_constant ... FAILED
+test review_oversized_counts_and_symbol_are_refused ... ok
+test review_zz_capsule_with_rational_coefficient_is_refused ... ok
+
+failures:
+
+---- review_extra_high_degree_product_term_must_be_refuted stdout ----
+
+thread 'review_extra_high_degree_product_term_must_be_refuted' (3424633) panicked at crates/fsym-capsule-consumer/tests/capsule_gate_review.rs:1068:5:
+assertion `left == right` failed: x^3 was accepted as 1*(x^3+x); observed verdict: verified: 
+  left: "verified"
+ right: "refuted"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- review_factor_with_extra_middle_term_must_be_refuted stdout ----
+
+thread 'review_factor_with_extra_middle_term_must_be_refuted' (3424635) panicked at crates/fsym-capsule-consumer/tests/capsule_gate_review.rs:745:5:
+assertion `left == right` failed: x^2 - 1 was accepted as 1*(x^2 + x - 1); observed verified: 
+  left: "verified"
+ right: "refuted"
+
+---- review_extra_product_term_must_be_refuted stdout ----
+
+thread 'review_extra_product_term_must_be_refuted' (3424634) panicked at crates/fsym-capsule-consumer/tests/capsule_gate_review.rs:1033:5:
+assertion `left == right` failed: x^2 was accepted as 1*(x^2+1); observed verdict: verified: 
+  left: "verified"
+ right: "refuted"
+
+---- review_missing_constant_term_in_subject_must_be_refuted stdout ----
+
+thread 'review_missing_constant_term_in_subject_must_be_refuted' (3424639) panicked at crates/fsym-capsule-consumer/tests/capsule_gate_review.rs:1051:5:
+assertion `left == right` failed: 2x^2 was accepted as 2*(x-1)*(x+1); observed verdict: verified: 
+  left: "verified"
+ right: "refuted"
+
+---- review_zero_polynomial_subject_must_not_verify_against_a_constant stdout ----
+
+thread 'review_zero_polynomial_subject_must_not_verify_against_a_constant' (3424669) panicked at crates/fsym-capsule-consumer/tests/capsule_gate_review.rs:726:5:
+assertion `left == right` failed: the zero polynomial was accepted as 1; observed verified: 
+  left: "verified"
+ right: "refuted"
+
+
+failures:
+    review_extra_high_degree_product_term_must_be_refuted
+    review_extra_product_term_must_be_refuted
+    review_factor_with_extra_middle_term_must_be_refuted
+    review_missing_constant_term_in_subject_must_be_refuted
+    review_zero_polynomial_subject_must_not_verify_against_a_constant
+
+test result: FAILED. 42 passed; 5 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p fsym-capsule-consumer --test capsule_gate_review`
