@@ -199,7 +199,7 @@ def _assumption_facts(symbol: "Symbol") -> tuple[tuple[str, str], ...]:
 
 
 _binding_cache: dict[tuple[str, tuple[tuple[str, str], ...]], Any] = {}
-_SURFACE_SYMBOL_LIMIT = 4096
+_SURFACE_SYMBOL_SCOPE = "session"
 _surface_symbols: "OrderedDict[tuple[str, str], Any]" = OrderedDict()
 
 
@@ -237,17 +237,25 @@ def _register_surface_symbol(symbol: "Symbol") -> None:
 
     Lifting returns this object rather than a fresh look-alike, so surface
     identity (`result.free_symbols() == {x}` and `x is ...`) survives a
-    lower/diff/lift round trip. Bounded so a script cannot grow it without
-    limit.
+    lower/diff/lift round trip.
+
+    Memory contract (declared): the registry is durable for the session and
+    keyed by typed identity `(name, identity_hex)`, so it grows with the
+    number of *distinct declared identities*, exactly like the pinned
+    oracle's own unbounded Symbol cache grows with distinct declarations.
+    The previous 4096-entry LRU evicted the oldest declaration, after which
+    lifting refused with "no registered surface object" and ``free_symbols``
+    lost the declared object (gate finding fra-yzl,
+    fra-rc-lowering-gate-ba5). A declared hard bound with Refused-on-bound
+    semantics was rejected because refusing the 4097th declaration would
+    itself diverge from the pinned oracle. Session-scoped budgets for
+    controlled native lanes remain the declared resource contract
+    (``_SURFACE_SYMBOL_SCOPE``); the shell registry is outside those
+    budgets, like the oracle's cache.
     """
     binding = _symbol_binding(symbol)
     key = (symbol.name, binding.identity_hex)
-    if key in _surface_symbols:
-        _surface_symbols.move_to_end(key)
-        return
     _surface_symbols[key] = symbol
-    while len(_surface_symbols) > _SURFACE_SYMBOL_LIMIT:
-        _surface_symbols.popitem(last=False)
 
 
 def _symbol_from_binding(binding: Any) -> "Symbol":

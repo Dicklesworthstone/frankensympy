@@ -4874,6 +4874,19 @@ class TypedLoweringContractTests(unittest.TestCase):
         # None stays "not declared", never a falsy fact.
         self.assertNotEqual(sympy.Symbol("z", positive=None), sympy.Symbol("z", positive=False))
 
+    def test_declared_atoms_survive_large_declaration_churn(self):
+        # The lift registry is durable for the session, keyed by typed
+        # identity: declarations made long before a result still lift back
+        # as themselves, past the historical 4096-entry LRU bound
+        # (bead fra-yzl).
+        first = sympy.Symbol("registry_churn", positive=True)
+        for index in range(4100):
+            sympy.Symbol(f"registry_churn_{index}", positive=True)
+        derived = sympy.diff(first**2, first)
+        self.assertEqual(str(derived), "2*registry_churn")
+        self.assertEqual(derived.free_symbols, {first})
+        self.assertIs(next(iter(derived.free_symbols)), first)
+
     def test_distinct_same_name_custom_classes_keep_their_own_lane(self):
         def make_class():
             class Custom(sympy.Function):
