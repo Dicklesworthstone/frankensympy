@@ -169,15 +169,27 @@ def _symbol_from_intern_name(name: str) -> "Symbol":
     return Dummy._from_intern(printed, number)
 
 
-def _assumption_fact_value(value: Any) -> str:
-    """Faithful spelling of one declared assumption value.
+def _canonical_assumption_value(value: Any) -> bool:
+    """Semantic value of one declared assumption flag.
 
-    Booleans keep their name; every other value keeps its type, so `foo=True`
-    and `foo=1` never collapse into one typed identity.
+    Assumption facts participate in the typed identity, so equivalent
+    spellings of the same declaration must produce identical facts:
+    the pinned oracle treats `positive=1`, `positive=True` (and any other
+    truthy spelling) as the same assumption, and likewise for falsy ones.
+    Spelling-level digests would split equivalent declarations into
+    distinct atoms (gate finding fra-j3y, fra-rc-lowering-gate-ba5).
     """
-    if type(value) is bool:
-        return "True" if value else "False"
-    return f"{type(value).__name__}:{value!r}"
+    return bool(value)
+
+
+def _assumption_fact_value(value: Any) -> str:
+    """Canonical spelling of one declared assumption value.
+
+    Values are canonicalized to their semantic truth before they reach the
+    typed identity, so `foo=True` and `foo=1` always collapse into one
+    fact, and no spelled value can fork an identity.
+    """
+    return "True" if _canonical_assumption_value(value) else "False"
 
 
 def _assumption_facts(symbol: "Symbol") -> tuple[tuple[str, str], ...]:
@@ -1901,7 +1913,15 @@ class Symbol(AtomicExpr):
             raise TypeError("Symbol name must be a string")
         if name.startswith(_DUMMY_PREFIX):
             raise ValueError("Symbol name collides with Dummy intern encoding")
-        self._assumptions = {k: v for k, v in assumptions.items() if v is not None}
+        # Declared values are canonicalized to their semantic truth so
+        # equivalent spellings share one atom, one identity digest, and one
+        # answer on the assumption properties (pinned oracle: Symbol('x',
+        # positive=1).is_positive is True, not 1).
+        self._assumptions = {
+            k: _canonical_assumption_value(v)
+            for k, v in assumptions.items()
+            if v is not None
+        }
         # The native handle carries the typed identity, so arithmetic built
         # from this symbol keeps its declared assumptions instead of silently
         # lowering to a plain same-name atom.

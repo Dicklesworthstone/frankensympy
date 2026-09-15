@@ -4851,6 +4851,29 @@ class TypedLoweringContractTests(unittest.TestCase):
         self.assertNotIn(plain_x := sympy.Symbol("x"), keyed.free_symbols)
         del plain_x
 
+    def test_equivalent_assumption_spellings_share_one_atom(self):
+        # Assumption facts enter the typed identity by semantic value, not
+        # spelling: the pinned oracle treats positive=1 and positive=True
+        # (and foo=1 / foo=True) as the same declaration (bead fra-j3y).
+        spelled = sympy.Symbol("x", positive=1)
+        canonical = sympy.Symbol("x", positive=True)
+        self.assertEqual(spelled, canonical)
+        self.assertEqual(hash(spelled), hash(canonical))
+        self.assertIs(spelled.is_positive, True)
+        self.assertEqual(str(sympy.diff(canonical**2, spelled)), "2*x")
+        self.assertEqual((canonical**2).subs(spelled, sympy.Integer(5)), 25)
+
+        loose = sympy.Symbol("y", foo=1)
+        loose_bool = sympy.Symbol("y", foo=True)
+        self.assertEqual(loose, loose_bool)
+        self.assertEqual(hash(loose), hash(loose_bool))
+
+        # Falsy spellings collapse with each other, not with truthy ones.
+        self.assertEqual(sympy.Symbol("z", foo=0), sympy.Symbol("z", foo=False))
+        self.assertNotEqual(sympy.Symbol("z", foo=0), sympy.Symbol("z", foo=True))
+        # None stays "not declared", never a falsy fact.
+        self.assertNotEqual(sympy.Symbol("z", positive=None), sympy.Symbol("z", positive=False))
+
     def test_distinct_same_name_custom_classes_keep_their_own_lane(self):
         def make_class():
             class Custom(sympy.Function):
