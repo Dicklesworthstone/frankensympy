@@ -130,7 +130,7 @@ fn class(report: &CapsuleReport) -> String {
     format!("{}: {}", report.outcome, report.detail)
 }
 
-fn expect(report: &CapsuleReport, outcome: &str) -> () {
+fn expect(report: &CapsuleReport, outcome: &str) {
     assert_eq!(
         report.outcome, outcome,
         "verdict mismatch (observed detail: {})",
