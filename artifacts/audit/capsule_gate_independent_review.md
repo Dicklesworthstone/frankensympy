@@ -8,8 +8,6 @@
 
 - **Verdict:** **FAIL** — the capsule verifier accepts false identity claims. Soundness hole: the product-vs-subject comparison is one-directional.
 - **Raw run:** `artifacts/audit/capsule_gate_review_raw_run.txt` (42 passed, 5 failed, exit 101)
-- **Verdict:** **FAIL** — the capsule verifier accepts false identity claims. Soundness hole: the product-vs-subject comparison is one-directional.
-- **Raw run:** `artifacts/audit/capsule_gate_review_raw_run.txt` (42 passed, 5 failed, exit 101)
 - **Not claimed:** any promotion of claims in `registries/claims.toml`; `fra-rc-capsule-39v` stays open; this gate stays open pending a fix and fresh independent re-review.
 
 

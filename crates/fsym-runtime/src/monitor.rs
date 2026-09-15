@@ -241,11 +241,12 @@ impl CompatibilityDriftMonitor {
     /// divergence and lands in its own counter, so no failure can vanish from
     /// the monitored stream.
     pub fn observe(&mut self, observation: Observation) -> MonitorDecision {
-        // One-way until reset: once alarmed, every later observation still
-        // returns Alarm. But the observation is charged FIRST — a failure
-        // that arrives after the alarm is still an observed failure and
-        // must land in its own bucket, never vanish from the stream
-        // (gate finding fra-rc-monitor-gate-p1m).
+        // One-way until reset: once alarmed, every later observation keeps
+        // returning Alarm (a non-finite candidate still returns Fault, per
+        // the fault policy). Either way the observation is charged FIRST —
+        // a failure that arrives after the alarm is still an observed
+        // failure and must land in its own bucket, never vanish from the
+        // stream (gate finding fra-rc-monitor-gate-p1m).
         let already_alarmed = self.state.alarmed;
         let (diverged, failure) = match observation {
             Observation::Completed { discrepancy } => (discrepancy, None),
