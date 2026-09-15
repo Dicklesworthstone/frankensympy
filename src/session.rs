@@ -45,11 +45,10 @@ pub enum SessionError {
     PageOutOfRange { page: u32, total: u32 },
     #[error("export page size {size} exceeds the limit {limit}")]
     PageSizeTooLarge { size: usize, limit: usize },
-    #[error("import refused: export originated in a different assumption universe (context digest {found:02x?}, expected {expected:02x?})")]
-    UniverseMismatch {
-        found: [u8; 32],
-        expected: [u8; 32],
-    },
+    #[error(
+        "import refused: export originated in a different assumption universe (context digest {found:02x?}, expected {expected:02x?})"
+    )]
+    UniverseMismatch { found: [u8; 32], expected: [u8; 32] },
     #[error("replay refused: the re-verified derivation digest does not match the exported digest")]
     ReplayDigestMismatch,
     #[error("session serialization failed: {0}")]
@@ -152,11 +151,7 @@ impl Session {
 
     /// Constructs a binding: parses `source` under the declared source cap
     /// and binds it to `symbol`.
-    pub fn construct(
-        &mut self,
-        symbol: &str,
-        source: &str,
-    ) -> Result<Expr, SessionError> {
+    pub fn construct(&mut self, symbol: &str, source: &str) -> Result<Expr, SessionError> {
         if symbol.is_empty() || symbol.len() > 256 {
             return Err(SessionError::InvalidName);
         }
@@ -197,7 +192,7 @@ impl Session {
                 limit: MAX_SOURCE_BYTES,
             });
         }
-        let expr = fsym_core::parse(source).map_err(|_| SessionError::ParseFailed)?;
+        let _expr = fsym_core::parse(source).map_err(|_| SessionError::ParseFailed)?;
         if self.claims.len() >= self.budgets.verify_step_budget {
             return Err(SessionError::BudgetExhausted { charged: 0 });
         }
@@ -283,7 +278,10 @@ impl Session {
         let total_steps = derivation.steps.len();
         let total_pages = total_steps.div_ceil(page_size).max(1) as u32;
         if page >= total_pages {
-            return Err(SessionError::PageOutOfRange { page, total: total_pages });
+            return Err(SessionError::PageOutOfRange {
+                page,
+                total: total_pages,
+            });
         }
         let start = page as usize * page_size;
         let end = ((page as usize + 1) * page_size).min(total_steps);
@@ -324,7 +322,7 @@ impl Session {
             .find(|d| d.digest() == digest)
             .ok_or(SessionError::UnknownDerivation)?;
         let context = ImmutableAssumptionsSnapshot::clone(&self.context);
-        fsym_proof_kernel::verify_derivation_independent(&derivation, &context)
+        fsym_proof_kernel::verify_derivation_independent(derivation, &context)
             .map_err(|_| SessionError::ReplayDigestMismatch)?;
         if derivation.digest() != digest {
             return Err(SessionError::ReplayDigestMismatch);
@@ -358,10 +356,7 @@ impl Session {
         };
         let id = value.get("id").cloned();
         let _ = value.as_object_mut().map(|map| map.remove("id"));
-        let inner = match serde_json::from_value::<
-            fsym_runtime::protocol::AgentRequest,
-        >(value)
-        {
+        let inner = match serde_json::from_value::<fsym_runtime::protocol::AgentRequest>(value) {
             Ok(request) => request,
             Err(_) => {
                 let mut response = serde_json::json!({

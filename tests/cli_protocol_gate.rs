@@ -38,7 +38,10 @@ fn spawn_cli(requests: &[String]) -> (String, String, i32) {
 fn unknown_schema_gets_a_typed_malformed_response() {
     let (stdout, stderr, code) = spawn_cli(&[r#"{"type":"teleport","payload":{}}"#.to_string()]);
     assert_eq!(code, 0, "clean EOF exit");
-    assert!(stderr.is_empty(), "stdout purity: stderr must be unused here");
+    assert!(
+        stderr.is_empty(),
+        "stdout purity: stderr must be unused here"
+    );
     let response: serde_json::Value = serde_json::from_str(stdout.trim()).expect("json line");
     assert_eq!(response["status"], "error");
     assert_eq!(response["code"], "malformed_request");
@@ -87,9 +90,9 @@ fn eof_mid_request_exits_cleanly_with_one_response() {
 #[test]
 fn stdout_protocol_purity_responses_only() {
     let requests = vec![
-        r#"{"type":"bind","symbol":"x","expr":"x^2 + 1"}"#.to_string(),
-        r#"{"type":"diff","expr":"sin(x) + x^2","var":"x"}"#.to_string(),
-        r#"{"type":"eval","expr":"x + 1"}"#.to_string(),
+        r#"{"type":"Bind","payload":{"symbol":"x","expr":"x^2 + 1"}}"#.to_string(),
+        r#"{"type":"Diff","payload":{"expr":"sin(x) + x^2","var":"x"}}"#.to_string(),
+        r#"{"type":"Eval","payload":{"expr":"x + 1"}}"#.to_string(),
         "not json at all".to_string(),
     ];
     let (stdout, stderr, code) = spawn_cli(&requests);
@@ -99,10 +102,7 @@ fn stdout_protocol_purity_responses_only() {
     for line in &lines {
         let parsed: serde_json::Value =
             serde_json::from_str(line).expect("every stdout line is one JSON response");
-        assert!(
-            parsed.get("status").is_some(),
-            "protocol purity: {line}"
-        );
+        assert!(parsed.get("status").is_some(), "protocol purity: {line}");
     }
     assert!(stderr.is_empty() || !stderr.contains("panic"));
 }
@@ -110,13 +110,15 @@ fn stdout_protocol_purity_responses_only() {
 #[test]
 fn repeated_request_ids_are_echoed_and_processed_independently() {
     let requests = vec![
-        r#"{"id":"req-7","type":"bind","symbol":"x","expr":"1"}"#.to_string(),
-        r#"{"id":"req-7","type":"bind","symbol":"x","expr":"2"}"#.to_string(),
+        r#"{"id":"req-7","type":"Bind","payload":{"symbol":"x","expr":"1"}}"#.to_string(),
+        r#"{"id":"req-7","type":"Bind","payload":{"symbol":"x","expr":"2"}}"#.to_string(),
     ];
     let (stdout, _stderr, code) = spawn_cli(&requests);
     assert_eq!(code, 0);
-    let lines: Vec<serde_json::Value> =
-        stdout.lines().map(|l| serde_json::from_str(l).expect("json")).collect();
+    let lines: Vec<serde_json::Value> = stdout
+        .lines()
+        .map(|l| serde_json::from_str(l).expect("json"))
+        .collect();
     assert_eq!(lines.len(), 2);
     assert_eq!(lines[0]["id"], "req-7");
     assert_eq!(lines[1]["id"], "req-7");
@@ -187,20 +189,16 @@ fn same_print_symbols_from_conflicting_universes_refuse_import() {
         "the two universes must have distinct context digests"
     );
 
-    let mut session_a = Session::with_context(
-        std::sync::Arc::new(context_a),
-        SessionBudgets::default(),
-    );
+    let mut session_a =
+        Session::with_context(std::sync::Arc::new(context_a), SessionBudgets::default());
     let candidate = session_a.construct_claim("x + 1").expect("claim");
     let accepted = session_a.verify_claim(&candidate).expect("verifies");
     let export = session_a.export_claim(&accepted, 0, 16).expect("exports");
 
     // Same-print symbol "x" exists in universe B too, but the universe
     // digests differ: importing A's export into B refuses.
-    let mut session_b = Session::with_context(
-        std::sync::Arc::new(context_b),
-        SessionBudgets::default(),
-    );
+    let mut session_b =
+        Session::with_context(std::sync::Arc::new(context_b), SessionBudgets::default());
     let b_claim = session_b.construct_claim("x + 1").expect("claim in B");
     let _ = session_b.verify_claim(&b_claim).expect("verifies in B");
     assert!(matches!(
