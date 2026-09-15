@@ -454,3 +454,408 @@ pub fn bounded_rational_root_decomposition(
     verify_square_free_product_decomposition(poly, &res)?;
     Ok(res)
 }
+
+// ============================================================================
+// Bounded complete factorization over ZZ with irreducibility evidence
+// (WS09, bead fra-rc-factor-lt4).
+//
+// Declared regime — outside it the entry points return a typed refusal and
+// never present a partial factorization as complete:
+//   * square-free parts of degree <= MAX_FACTOR_DEGREE,
+//   * primitive integer coefficient height <= MAX_FACTOR_COEFF_BITS,
+//   * at most MAX_MODP_FACTORS irreducible factors over the lifting prime.
+// ============================================================================
+
+/// Upper bound on the degree of a square-free part admitted to the modular
+/// factoring regime.
+pub const MAX_FACTOR_DEGREE: usize = 64;
+/// Upper bound on the bit length of any primitive integer coefficient.
+pub const MAX_FACTOR_COEFF_BITS: usize = 2048;
+/// Upper bound on the number of irreducible factors over the lifting prime.
+const MAX_MODP_FACTORS: usize = 10;
+/// Prime candidates tried per irreducibility witness before the claim is
+/// recorded as unproven (the factorization itself stays exact).
+const PRIME_ATTEMPTS: usize = 24;
+/// Deterministic Cantor-Zassenhaus seed attempts per equal-degree class.
+const EDF_SEED_BUDGET: u32 = 64;
+
+/// Independent certificate that `poly` is irreducible over ZZ: `poly` reduced
+/// modulo `prime` is irreducible over GF(prime), which excludes every
+/// nontrivial integer factorization (Gauss). The prime is re-verified by the
+/// independent verifier before any certificate is trusted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IrreducibilityWitness {
+    pub prime: BigInt,
+}
+
+/// One factor of a complete factorization, carrying its optional
+/// irreducibility certificate. `irreducibility: None` records the weaker
+/// (still exact) decomposition claim required where no witness was found
+/// inside the declared prime budget.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompleteFactorTerm {
+    pub poly: UnivariatePoly,
+    pub multiplicity: usize,
+    pub irreducibility: Option<IrreducibilityWitness>,
+}
+
+/// Exact complete factorization over QQ/ZZ:
+/// `scale * prod(poly_i ^ multiplicity_i)` with square-free, pairwise coprime
+/// monic factors.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompleteFactorization {
+    pub scale: BigRational,
+    pub factors: Vec<CompleteFactorTerm>,
+}
+
+// ---------------------------------------------------------------------------
+// GF(p) polynomial layer (ascending dense coefficients, p < 2^31).
+// ---------------------------------------------------------------------------
+
+fn fp_trim(v: &mut Vec<u64>) {
+    while v.last().is_some_and(|c| *c == 0) {
+        v.pop();
+    }
+}
+
+fn fp_norm(mut v: Vec<u64>, p: u64) -> Vec<u64> {
+    for c in &mut v {
+        *c %= p;
+    }
+    fp_trim(&mut v);
+    v
+}
+
+fn fp_add(a: &[u64], b: &[u64], p: u64) -> Vec<u64> {
+    let mut out = vec![0u64; a.len().max(b.len())];
+    for (i, c) in a.iter().enumerate() {
+        out[i] = *c;
+    }
+    for (i, c) in b.iter().enumerate() {
+        out[i] = (out[i] + c) % p;
+    }
+    fp_trim(&mut out);
+    out
+}
+
+fn fp_sub(a: &[u64], b: &[u64], p: u64) -> Vec<u64> {
+    let mut out = vec![0u64; a.len().max(b.len())];
+    for (i, c) in a.iter().enumerate() {
+        out[i] = *c;
+    }
+    for (i, c) in b.iter().enumerate() {
+        out[i] = (out[i] + p - c % p) % p;
+    }
+    fp_trim(&mut out);
+    out
+}
+
+fn fp_mul(a: &[u64], b: &[u64], p: u64) -> Vec<u64> {
+    if a.is_empty() || b.is_empty() {
+        return Vec::new();
+    }
+    let mut out = vec![0u64; a.len() + b.len() - 1];
+    for (i, left) in a.iter().enumerate() {
+        if *left == 0 {
+            continue;
+        }
+        for (j, right) in b.iter().enumerate() {
+            out[i + j] = (out[i + j] + (*left as u128) * (*right as u128) % (p as u128)) as u64;
+        }
+    }
+    fp_trim(&mut out);
+    out
+}
+
+/// Remainder of `a` modulo the monic polynomial `f` over GF(p).
+fn fp_rem_monic(a: &[u64], f: &[u64], p: u64) -> Vec<u64> {
+    let mut out = a.to_vec();
+    let flen = f.len();
+    if flen == 0 {
+        return out;
+    }
+    while out.len() >= flen {
+        let shift = out.len() - flen;
+        let lead = out[out.len() - 1];
+        if lead == 0 {
+            out.pop();
+            continue;
+        }
+        for (k, fc) in f.iter().enumerate() {
+            let idx = shift + k;
+            out[idx] = (out[idx] + p - (lead * fc % p)) % p;
+        }
+        debug_assert_eq!(out[out.len() - 1], 0);
+        out.pop();
+    }
+    fp_trim(&mut out);
+    out
+}
+
+fn fp_pow_mod(base: &[u64], mut exp: u64, f: &[u64], p: u64) -> Vec<u64> {
+    let one = vec![1u64];
+    let mut result = fp_rem_monic(&one, f, p);
+    let mut squares = fp_rem_monic(base, f, p).to_vec();
+    while exp > 0 {
+        if exp & 1 == 1 {
+            result = fp_rem_monic(&fp_mul(&result, &squares, p), f, p);
+        }
+        squares = fp_rem_monic(&fp_mul(&squares, &squares, p), f, p);
+        exp >>= 1;
+    }
+    result
+}
+
+fn fp_gcd(mut a: Vec<u64>, mut b: Vec<u64>, p: u64) -> Vec<u64> {
+    while !b.is_empty() {
+        let r = fp_rem_monic(&a, &b, p);
+        a = b;
+        b = r;
+    }
+    // Normalize the leading coefficient to 1.
+    if let Some(last) = a.last().copied() {
+        if last != 1 {
+            let inv = fp_scalar_inverse(last, p);
+            for c in &mut a {
+                *c = *c * inv % p;
+            }
+        }
+    }
+    a
+}
+
+fn fp_scalar_inverse(a: u64, p: u64) -> u64 {
+    debug_assert!(a % p != 0, "inverse of zero over a prime field");
+    fp_scalar_pow(a, p - 2, p)
+}
+
+fn fp_scalar_pow(mut base: u64, mut exp: u64, p: u64) -> u64 {
+    base %= p;
+    let mut acc = 1u64;
+    while exp > 0 {
+        if exp & 1 == 1 {
+            acc = (acc as u128 * base as u128 % p as u128) as u64;
+        }
+        base = (base as u128 * base as u128 % p as u128) as u64;
+        exp >>= 1;
+    }
+    acc
+}
+
+fn fp_derivative(a: &[u64], p: u64) -> Vec<u64> {
+    if a.len() <= 1 {
+        return Vec::new();
+    }
+    let mut out = Vec::with_capacity(a.len() - 1);
+    for (degree, c) in a.iter().enumerate().skip(1) {
+        out.push((*c as u128 * (degree as u64) % (p as u128)) as u64);
+    }
+    fp_trim(&mut out);
+    out
+}
+
+fn fp_is_squarefree(f: &[u64], p: u64) -> bool {
+    if f.len() <= 2 {
+        return true; // constants and nonconstant linear polys are square-free
+    }
+    fp_gcd(f.to_vec(), fp_derivative(f, p), p).len() <= 1
+}
+
+/// Rabin irreducibility test over GF(p): `x^(p^d) == x (mod f)` and
+/// `gcd(x^(p^(d/ell)) - x, f) == 1` for every prime divisor `ell` of `d`.
+fn fp_rabin_irreducible(f: &[u64], p: u64) -> bool {
+    let d = match f.len().checked_sub(1) {
+        Some(d) if d >= 1 => d,
+        _ => return false,
+    };
+    // Frobenius chain: x^(p^k) mod f for k = 0..=d.
+    let one = vec![1u64];
+    let x = if d == 1 { fp_rem_monic(&[0, 1], f, p) } else { vec![0u64, 1] };
+    let mut frob = vec![0u64, 1];
+    let mut powers: Vec<Vec<u64>> = Vec::with_capacity(d + 1);
+    powers.push(fp_rem_monic(&one, f, p));
+    let mut xp = fp_rem_monic(&x, f, p);
+    powers.push(xp.clone());
+    for _ in 1..=d {
+        frob = fp_pow_mod(&frob, p, f, p);
+        powers.push(frob.clone());
+    }
+    // powers[k] = x^(p^k) mod f; x^(p^d) must equal x.
+    if frob != xp {
+        return false;
+    }
+    for ell in [2u64, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61] {
+        if ell > d || d % ell != 0 {
+            continue;
+        }
+        let sub = powers[(d / ell) as usize].clone();
+        let diff = fp_sub(&sub, &[0, 1], p);
+        let g = fp_gcd(diff, f.to_vec(), p);
+        if g.len() > 1 {
+            return false;
+        }
+    }
+    true
+}
+
+/// Distinct-degree factorization: returns `(degree, product)` pairs whose
+/// products multiply to `f`, each product a monic product of irreducible
+/// polynomials of exactly that degree.
+fn fp_distinct_degree(
+    f: &[u64],
+    p: u64,
+) -> Vec<(usize, Vec<u64>)> {
+    let mut remaining = f.to_vec();
+    let mut x = vec![0u64, 1];
+    let mut frob = x.clone();
+    let mut classes: Vec<(usize, Vec<u64>)> = Vec::new();
+    let mut degree = 0usize;
+    while remaining.len() > 2 {
+        degree += 1;
+        frob = fp_pow_mod(&frob, p, &remaining, p);
+        let diff = fp_sub(&frob, &x, p);
+        let g = fp_gcd(diff, remaining.clone(), p);
+        if g.len() > 1 {
+            remaining = fp_div_monic(&remaining, &g, p);
+            frob = fp_rem_monic(&frob, &remaining, p);
+        }
+        if degree * 2 > remaining.len() - 1 {
+            break;
+        }
+    }
+    if remaining.len() > 1 {
+        classes.push((remaining.len() - 1, remaining));
+    }
+    classes
+}
+
+/// Exact division of `a` by the monic polynomial `b` over GF(p).
+fn fp_div_monic(a: &[u64], b: &[u64], p: u64) -> Vec<u64> {
+    let mut q = vec![0u64; a.len().saturating_sub(b.len()) + 1];
+    let mut rem = a.to_vec();
+    while rem.len() >= b.len() && !rem.is_empty() {
+        let shift = rem.len() - b.len();
+        let lead = rem[rem.len() - 1];
+        if lead == 0 {
+            rem.pop();
+            continue;
+        }
+        q[shift] = lead;
+        for (k, bc) in b.iter().enumerate() {
+            let idx = shift + k;
+            rem[idx] = (rem[idx] + p - (lead * bc % p)) % p;
+        }
+        rem.pop();
+    }
+    fp_trim(&mut q);
+    q
+}
+
+/// Cantor-Zassenhaus equal-degree splitting with a deterministic seed.
+/// `h` is a monic product of irreducible polynomials each of degree
+/// `class_degree`; returns the two coprime split halves or `None` when the
+/// seed budget is exhausted for this seed stream.
+fn fp_equal_degree_split(
+    h: &[u64],
+    class_degree: usize,
+    p: u64,
+    seed: u64,
+) -> Option<(Vec<u64>, Vec<u64>)> {
+    let total_degree = h.len() - 1;
+    if total_degree == class_degree {
+        return Some((h.to_vec(), vec![1u64]));
+    }
+    // Deterministic LCG; the sequence is part of the pinned behavior.
+    let mut state = seed
+        .wrapping_mul(6_364_136_223_846_793_005)
+        .wrapping_add(1_442_695_040_888_963_407)
+        | 1;
+    let mut draw = |bound: usize, state: &mut u64| -> u64 {
+        *state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        (*state >> 33) % (bound as u64)
+    };
+    let half_scalar = (p - 1) / 2;
+    for _ in 0..EDF_SEED_BUDGET {
+        // Random nonconstant polynomial of degree < deg(h).
+        let mut r = vec![0u64; total_degree];
+        for slot in r.iter_mut().take(total_degree) {
+            *slot = draw(p as usize, &mut state);
+        }
+        fp_trim(&mut r);
+        if r.is_empty() {
+            continue;
+        }
+        // A = prod_{j=0}^{d-1} r^(p^j);  A^((p-1)/2) == r^((p^d - 1)/2).
+        let mut product = r.clone();
+        let mut frob = r.clone();
+        for _ in 1..class_degree {
+            frob = fp_pow_mod(&frob, p, h, p);
+            product = fp_rem_monic(&fp_mul(&product, &frob, p), h, p);
+        }
+        let a = fp_scalar_pow_poly(&product, half_scalar, h, p);
+        let diff = fp_sub(&a, &[1u64], p);
+        let g = fp_gcd(diff, h.to_vec(), p);
+        if g.len() > 1 && g.len() < h.len() {
+            return Some((g.clone(), fp_div_monic(h, &g, p)));
+        }
+    }
+    None
+}
+
+fn fp_scalar_pow_poly(base: &[u64], mut exp: u64, f: &[u64], p: u64) -> Vec<u64> {
+    let one = fp_rem_monic(&[1u64], f, p);
+    let mut acc = one;
+    let mut squares = base.to_vec();
+    while exp > 0 {
+        if exp & 1 == 1 {
+            acc = fp_rem_monic(&fp_mul(&acc, &squares, p), f, p);
+        }
+        squares = fp_rem_monic(&fp_mul(&squares, &squares, p), f, p);
+        exp >>= 1;
+    }
+    acc
+}
+
+/// Full factorization of a monic square-free polynomial over GF(p).
+/// Returns monic irreducible factors in deterministic order.
+fn fp_factor_squarefree(
+    f: &[u64],
+    p: u64,
+) -> Result<Vec<Vec<u64>>, &'static str> {
+    if f.len() <= 1 {
+        return Ok(Vec::new());
+    }
+    if !fp_is_squarefree(f, p) {
+        return Err("reduction mod prime is not square-free");
+    }
+    let mut out: Vec<Vec<u64>> = Vec::new();
+    for (class_degree, product) in fp_distinct_degree(f, p) {
+        let mut queue = vec![product];
+        while let Some(current) = queue.pop() {
+            if current.len() <= 1 {
+                continue;
+            }
+            if current.len() - 1 == class_degree {
+                out.push(current);
+                continue;
+            }
+            let seed = (p as u64)
+                .wrapping_mul(0x9E37_79B9)
+                .wrapping_add(class_degree as u64)
+                .wrapping_mul(31);
+            match fp_equal_degree_split(&current, class_degree, p, seed) {
+                Some((left, right)) => {
+                    queue.push(left);
+                    queue.push(right);
+                }
+                None => {
+                    return Err("equal-degree split seed budget exhausted");
+                }
+            }
+        }
+    }
+    out.sort();
+    Ok(out)
+}
