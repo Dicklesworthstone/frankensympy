@@ -29,6 +29,11 @@ pub enum BallError {
         required_bits: u64,
         limit_bits: u64,
     },
+    #[error(
+        "{0} lies outside the declared certified-ball envelope (argument magnitude, \
+         result representability, or requested precision bound exceeded)"
+    )]
+    ArgumentOutsideDeclaredEnvelope(String),
     #[error("Canonical RealBall encoding failed: {0}")]
     CanonicalEncoding(String),
 }
@@ -367,6 +372,256 @@ impl RealBall {
         hasher.update(&radius);
         Ok(*hasher.finalize().as_bytes())
     }
+
+    /// Declared envelope for the certified transcendental subset.
+    pub const MAX_TRANSCENDENTAL_PRECISION_DIGITS: u32 = 2_000;
+    /// sin/cos range reduction refuses argument magnitudes beyond 10^1000:
+    /// the integer k = round(x/pi) and the matching pi enclosure stay inside
+    /// the declared work-bit budget at the maximum supported precision.
+    pub const MAX_REDUCTION_DECIMAL_MAGNITUDE: u32 = 1_000;
+    /// exp refuses arguments beyond 10^4: the enclosure midpoint of e^x
+    /// would need more than ~4350 decimal digits and is not representable
+    /// inside the declared envelope.
+    pub const MAX_EXP_DECIMAL_MAGNITUDE: u32 = 4;
+
+    fn decimal_magnitude_bound(&self) -> u32 {
+        let upper_abs = if self.lower().abs() > self.upper().abs() {
+            self.lower().abs()
+        } else {
+            self.upper().abs()
+        };
+        let bits = upper_abs.height().max_bits();
+        ((bits.saturating_mul(3_010_3) / 100_000) as u32).saturating_add(1)
+    }
+
+    fn precision_target(precision_digits: u32) -> Result<BigRational, BallError> {
+        if precision_digits == 0
+            || precision_digits > Self::MAX_TRANSCENDENTAL_PRECISION_DIGITS
+        {
+            return Err(BallError::ArgumentOutsideDeclaredEnvelope(format!(
+                "requested precision {precision_digits} digits (supported: 1..={})",
+                Self::MAX_TRANSCENDENTAL_PRECISION_DIGITS
+            )));
+        }
+        Ok(ten_pow_rational(precision_digits + 2))
+    }
+
+    /// Certified enclosure of pi via the Machin identity
+    /// pi = 16*atan(1/5) - 4*atan(1/239) with exact rational partial sums
+    /// and Leibniz tail bounds. The radius is <= 10^-(precision_digits + 1)
+    /// by construction.
+    pub fn pi(precision_digits: u32) -> Result<Self, BallError> {
+        Self::precision_target(precision_digits)?;
+        // Each tail is <= 10^-(digits+3); scaling by 16 and 4 keeps the
+        // combined radius <= 20 * 10^-(digits+3) <= 10^-(digits+1) for
+        // digits >= 1.
+        let digits = precision_digits + 2;
+        let atan5 = arctan_inverse_enclosure(5, digits)?;
+        let atan239 = arctan_inverse_enclosure(239, digits)?;
+        let sixteen = BigRational::from_integer(BigInt::from(16));
+        let four = BigRational::from_integer(BigInt::from(4));
+        let mid = atan5.midpoint() * &sixteen - atan239.midpoint() * &four;
+        let rad = atan5.radius() * &sixteen + atan239.radius() * &four;
+        let ball = Self::new(mid, rad)?;
+        checked_work_bits(
+            "RealBall pi enclosure",
+            [
+                ball.midpoint.height().max_bits(),
+                ball.radius.height().max_bits(),
+            ],
+        )?;
+        Ok(ball)
+    }
+
+    /// Certified enclosure of sin(x) over the declared envelope: exact
+    /// range reduction by k*pi, Taylor polynomial of degree 2m+1 evaluated
+    /// with exact rational interval arithmetic, and the Lagrange tail bound
+    /// |R| <= u^(2m+2)/(2m+2)!.
+    pub fn sin(&self, precision_digits: u32) -> Result<Self, BallError> {
+        let target = Self::precision_target(precision_digits)?;
+        let magnitude = self.decimal_magnitude_bound();
+        if magnitude > Self::MAX_REDUCTION_DECIMAL_MAGNITUDE {
+            return Err(BallError::ArgumentOutsideDeclaredEnvelope(format!(
+                "sin argument magnitude 10^{magnitude} exceeds the declared \
+                 range-reduction bound of 10^{}",
+                Self::MAX_REDUCTION_DECIMAL_MAGNITUDE
+            )));
+        }
+        if self.upper().is_zero() && self.lower().is_zero() {
+            return Ok(Self::from_i64(0));
+        }
+        let (reduced, parity) = self.reduce_mod_pi(precision_digits)?;
+        // Degree schedule: u <= 2 after reduction, so degree 2m+1 with
+        // u^(2m+2)/(2m+2)! <= target needs m ~ digits; double until met.
+        let u = upper_abs_rational(&reduced);
+        let mut m = (precision_digits + 8) as usize;
+        let tail = loop {
+            let tail = u
+                .pow((2 * m + 2) as i32)
+                .map_err(|_| transcendental_arithmetic_overflow())?
+                / BigRational::from_integer(factorial(2 * m + 2));
+            if tail <= target {
+                break tail;
+            }
+            m *= 2;
+            if m > (4 * Self::MAX_TRANSCENDENTAL_PRECISION_DIGITS as usize).pow(2) {
+                return Err(BallError::ResourceLimitExceeded {
+                    operation: "RealBall sin enclosure",
+                    required_bits: u64::MAX,
+                    limit_bits: MAX_REAL_BALL_WORK_BITS,
+                });
+            }
+        };
+        let series = sin_series_interval(&reduced, m)?;
+        let ball = Self::new(series.midpoint().clone(), series.radius() + tail)?;
+        checked_work_bits(
+            "RealBall sin enclosure",
+            [ball.midpoint.height().max_bits(), ball.radius.height().max_bits()],
+        )?;
+        if parity == 1 {
+            Ok(ball.neg())
+        } else {
+            Ok(ball)
+        }
+    }
+
+    /// Certified enclosure of cos(x): same reduction and tail discipline as
+    /// sin, with the even Taylor polynomial of degree 2m and Lagrange bound
+    /// |R| <= u^(2m+1)/(2m+1)!.
+    pub fn cos(&self, precision_digits: u32) -> Result<Self, BallError> {
+        let target = Self::precision_target(precision_digits)?;
+        let magnitude = self.decimal_magnitude_bound();
+        if magnitude > Self::MAX_REDUCTION_DECIMAL_MAGNITUDE {
+            return Err(BallError::ArgumentOutsideDeclaredEnvelope(format!(
+                "cos argument magnitude 10^{magnitude} exceeds the declared \
+                 range-reduction bound of 10^{}",
+                Self::MAX_REDUCTION_DECIMAL_MAGNITUDE
+            )));
+        }
+        let (reduced, parity) = self.reduce_mod_pi(precision_digits)?;
+        let u = upper_abs_rational(&reduced);
+        let mut m = (precision_digits + 8) as usize;
+        let tail = loop {
+            let tail = u
+                .pow((2 * m + 1) as i32)
+                .map_err(|_| transcendental_arithmetic_overflow())?
+                / BigRational::from_integer(factorial(2 * m + 1));
+            if tail <= target {
+                break tail;
+            }
+            m *= 2;
+            if m > (4 * Self::MAX_TRANSCENDENTAL_PRECISION_DIGITS as usize).pow(2) {
+                return Err(BallError::ResourceLimitExceeded {
+                    operation: "RealBall cos enclosure",
+                    required_bits: u64::MAX,
+                    limit_bits: MAX_REAL_BALL_WORK_BITS,
+                });
+            }
+        };
+        let series = cos_series_interval(&reduced, m)?;
+        let ball = Self::new(series.midpoint().clone(), series.radius() + tail)?;
+        checked_work_bits(
+            "RealBall cos enclosure",
+            [ball.midpoint.height().max_bits(), ball.radius.height().max_bits()],
+        )?;
+        if parity == 1 {
+            Ok(ball.neg())
+        } else {
+            Ok(ball)
+        }
+    }
+
+    /// Certified enclosure of exp(x): the argument is halved until the
+    /// remainder has magnitude <= 1/2 (tail <= 2*u^(n+1)/(n+1)! since
+    /// e^(1/2) < 2), evaluated exactly, then squared back with interval
+    /// arithmetic. Arguments beyond 10^MAX_EXP_DECIMAL_MAGNITUDE refuse:
+    /// the enclosure midpoint itself would not be representable.
+    pub fn exp(&self, precision_digits: u32) -> Result<Self, BallError> {
+        Self::precision_target(precision_digits)?;
+        let magnitude = self.decimal_magnitude_bound();
+        if magnitude > Self::MAX_EXP_DECIMAL_MAGNITUDE {
+            return Err(BallError::ArgumentOutsideDeclaredEnvelope(format!(
+                "exp argument magnitude 10^{magnitude} exceeds the declared \
+                 representable-enclosure bound of 10^{} (the enclosure of \
+                 e^x itself would need more than 4350 decimal digits)",
+                Self::MAX_EXP_DECIMAL_MAGNITUDE
+            )));
+        }
+        if self.upper().is_zero() && self.lower().is_zero() {
+            return Ok(Self::from_i64(1));
+        }
+        let u = upper_abs_rational(self);
+        let two = BigRational::from_integer(BigInt::from(2));
+        let threshold = BigRational::new(BigInt::one(), BigInt::from(2));
+        let mut s: u32 = 0;
+        let mut t = u.clone();
+        while t > threshold {
+            t /= &two;
+            s += 1;
+        }
+        // Extra guard digits: each squaring roughly quadruples the absolute
+        // radius relative to the midpoint scale.
+        let series_digits = precision_digits + 3 + 2 * s;
+        let two_pow_s = two
+            .pow(s as i32)
+            .map_err(|_| transcendental_arithmetic_overflow())?;
+        let scaled = self.div(&Self::new(two_pow_s, BigRational::zero())?)?;
+        let mut value = exp_series_interval(&scaled, series_digits)?;
+        for _ in 0..s {
+            value = value.mul(&value);
+        }
+        if value.radius() > &ten_pow_rational(precision_digits) {
+            return Err(BallError::ResourceLimitExceeded {
+                operation: "RealBall exp enclosure",
+                required_bits: u64::MAX,
+                limit_bits: MAX_REAL_BALL_WORK_BITS,
+            });
+        }
+        checked_work_bits(
+            "RealBall exp enclosure",
+            [
+                value.midpoint.height().max_bits(),
+                value.radius.height().max_bits(),
+            ],
+        )?;
+        Ok(value)
+    }
+
+    /// Exact range reduction: computes k = round(x/pi) on midpoints, then
+    /// the certified interval x - k*pi with pi enclosed to enough digits
+    /// that |k| * radius(pi) stays below the precision floor. Returns the
+    /// reduced ball and the parity of k (sin(x) and cos(x) pick up the sign
+    /// (-1)^k).
+    fn reduce_mod_pi(&self, precision_digits: u32) -> Result<(Self, u32), BallError> {
+        let extra_digits = self.decimal_magnitude_bound();
+        let pi = Self::pi(precision_digits + extra_digits + 4)?;
+        let xm = self.midpoint();
+        let pm = pi.midpoint();
+        let num = xm.numer() * pm.denom();
+        let den = xm.denom() * pm.numer();
+        let k = bigdiv_floor(&(&num * 2 + &den), &(&den * 2));
+        let pi_lo = pi.lower();
+        let pi_hi = pi.upper();
+        let kp_lo = scale_rational_by_bigint(&pi_lo, &k);
+        let kp_hi = scale_rational_by_bigint(&pi_hi, &k);
+        let (kp_lo, kp_hi) = if k.is_negative() {
+            (kp_hi, kp_lo)
+        } else {
+            (kp_lo, kp_hi)
+        };
+        let lo = self.lower() - &kp_hi;
+        let hi = self.upper() - &kp_lo;
+        let two = BigRational::from_integer(BigInt::from(2));
+        let mid = (&lo + &hi) / &two;
+        let rad = (&hi - &lo) / &two;
+        let reduced = Self::new(mid, rad)?;
+        let mut parity_rem = &k % 2;
+        if parity_rem.is_negative() {
+            parity_rem += 2;
+        }
+        let parity = if parity_rem.is_zero() { 0u32 } else { 1u32 };
+        Ok((reduced, parity))
+    }
 }
 
 fn checked_work_bits(
@@ -483,9 +738,203 @@ impl fmt::Display for RealBall {
     }
 }
 
+/// Canonical typed refusal for checked-rational overflow inside the
+/// transcendental enclosure helpers.
+fn transcendental_arithmetic_overflow() -> BallError {
+    BallError::ResourceLimitExceeded {
+        operation: "RealBall transcendental enclosure",
+        required_bits: u64::MAX,
+        limit_bits: MAX_REAL_BALL_WORK_BITS,
+    }
+}
+
+/// 10^-n as an exact rational (n = 0 gives 1).
+fn ten_pow_rational(n: u32) -> BigRational {
+    let ten = BigInt::from(10);
+    let denom = ten.pow(n);
+    BigRational::new(BigInt::one(), denom)
+}
+
+/// n! for modest n (series degree schedules).
+fn factorial(n: usize) -> BigInt {
+    let mut acc = BigInt::one();
+    for k in 2..=n {
+        acc *= BigInt::from(k as u64);
+    }
+    acc
+}
+
+/// Floor division for signed BigInts (no num-integer dependency).
+fn bigdiv_floor(a: &BigInt, b: &BigInt) -> BigInt {
+    let q = a / b;
+    let r = a % b;
+    if !r.is_zero() && r.is_negative() != b.is_negative() {
+        q - 1
+    } else {
+        q
+    }
+}
+
+/// |lower| if it exceeds |upper|, else |upper|: an upper bound of |x| over
+/// the whole ball.
+fn upper_abs_rational(ball: &RealBall) -> BigRational {
+    let lo = ball.lower().abs();
+    let hi = ball.upper().abs();
+    if lo > hi {
+        lo
+    } else {
+        hi
+    }
+}
+
+fn scale_rational_by_bigint(q: &BigRational, k: &BigInt) -> BigRational {
+    BigRational::new(q.numer() * k, q.denom().clone())
+}
+
+/// Certified enclosure of atan(1/t) for integer t >= 2: exact alternating
+/// rational partial sums; the Leibniz tail is bounded by the first omitted
+/// term, which is <= 10^-(digits+2) by the stop condition.
+fn arctan_inverse_enclosure(t: u64, digits: u32) -> Result<RealBall, BallError> {
+    let target = ten_pow_rational(digits + 2);
+    let t_big = BigInt::from(t);
+    let t_sq = &t_big * &t_big;
+    let mut t_pow = t_big.clone(); // t^(2j+1)
+    let mut sum = BigRational::zero();
+    let mut j: u64 = 0;
+    loop {
+        let denom = BigInt::from(2 * j + 1) * &t_pow;
+        let term = BigRational::new(BigInt::one(), denom.clone());
+        if term <= target {
+            break;
+        }
+        if j % 2 == 0 {
+            sum += term;
+        } else {
+            sum -= term;
+        }
+        t_pow *= &t_sq;
+        j += 1;
+        if j > 100_000_000 {
+            return Err(BallError::ResourceLimitExceeded {
+                operation: "RealBall pi enclosure",
+                required_bits: u64::MAX,
+                limit_bits: MAX_REAL_BALL_WORK_BITS,
+            });
+        }
+    }
+    let tail = BigRational::new(BigInt::one(), BigInt::from(2 * j + 1) * &t_pow);
+    let ball = RealBall::new(sum, tail)?;
+    checked_work_bits(
+        "RealBall pi arctan series",
+        [
+            ball.midpoint.height().max_bits(),
+            ball.radius.height().max_bits(),
+        ],
+    )?;
+    Ok(ball)
+}
+
+/// Exact interval evaluation of the odd Taylor polynomial of degree 2m+1
+/// for sin, with all arithmetic on certified balls (no rounding anywhere:
+/// the coefficients are exact rationals).
+fn sin_series_interval(r: &RealBall, m: usize) -> Result<RealBall, BallError> {
+    let mut acc = RealBall::from_i64(0);
+    let mut even_pow = RealBall::from_i64(1); // r^(2j)
+    let r2 = r.mul(r);
+    let mut fact = BigInt::one(); // (2j+1)!
+    for j in 0..=m {
+        if j > 0 {
+            even_pow = even_pow.mul(&r2);
+            fact *= BigInt::from(2 * j as u64) * BigInt::from((2 * j + 1) as u64);
+        }
+        let odd_pow = even_pow.mul(r);
+        let coeff = BigRational::new(BigInt::one(), fact.clone());
+        let term = RealBall::new(
+            odd_pow.midpoint() * &coeff,
+            odd_pow.radius() * &coeff,
+        )?;
+        acc = if j % 2 == 0 { acc.add(&term) } else { acc.sub(&term) };
+    }
+    Ok(acc)
+}
+
+/// Exact interval evaluation of the even Taylor polynomial of degree 2m
+/// for cos.
+fn cos_series_interval(r: &RealBall, m: usize) -> Result<RealBall, BallError> {
+    let mut acc = RealBall::from_i64(1);
+    let mut even_pow = RealBall::from_i64(1); // r^(2j)
+    let r2 = r.mul(r);
+    let mut fact = BigInt::one(); // (2j)!
+    for j in 1..=m {
+        even_pow = even_pow.mul(&r2);
+        fact *= BigInt::from(2 * j as u64 - 1) * BigInt::from(2 * j as u64);
+        let coeff = BigRational::new(BigInt::one(), fact.clone());
+        let term = RealBall::new(
+            even_pow.midpoint() * &coeff,
+            even_pow.radius() * &coeff,
+        )?;
+        acc = acc.sub(&term);
+    }
+    Ok(acc)
+}
+
+/// Exact interval evaluation of exp's Taylor polynomial to the smallest
+/// degree whose Lagrange tail (factor e^u <= 2 for u <= 1/2) is within the
+/// target radius; returns the enclosure already carrying the tail bound.
+fn exp_series_interval(x: &RealBall, digits: u32) -> Result<RealBall, BallError> {
+    let target = ten_pow_rational(digits + 2);
+    let u = upper_abs_rational(x);
+    let two = BigRational::from_integer(BigInt::from(2));
+    let mut n = (digits + 8) as usize;
+    let tail = loop {
+        let tail = &two
+            * u.pow(n as i32)
+                .map_err(|_| transcendental_arithmetic_overflow())?
+            / BigRational::from_integer(factorial(n + 1));
+        if tail <= target {
+            break tail;
+        }
+        n *= 2;
+        if n > 4_000_000 {
+            return Err(BallError::ResourceLimitExceeded {
+                operation: "RealBall exp enclosure",
+                required_bits: u64::MAX,
+                limit_bits: MAX_REAL_BALL_WORK_BITS,
+            });
+        }
+    };
+    let mut acc = RealBall::from_i64(0);
+    let mut pow = RealBall::from_i64(1); // x^j
+    let mut fact = BigInt::one(); // j!
+    for j in 0..=n {
+        if j > 0 {
+            pow = pow.mul(x);
+            fact *= BigInt::from(j as u64);
+        }
+        let coeff = BigRational::new(BigInt::one(), fact.clone());
+        let term = RealBall::new(pow.midpoint() * &coeff, pow.radius() * &coeff)?;
+        acc = acc.add(&term);
+    }
+    Ok(RealBall::new(
+        acc.midpoint().clone(),
+        acc.radius() + tail,
+    )?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn probe_reduce_debug() {
+        let huge = RealBall::exact(BigRational::from_integer(BigInt::from(10).pow(30)));
+        let (red, par) = huge.reduce_mod_pi(12).expect("reduce");
+        eprintln!("[red-debug] red={:.50} par={par}", red.midpoint());
+        let s = huge.sin(12).expect("s");
+        let c = huge.cos(12).expect("c");
+        eprintln!("[red-debug] sin={:.50}", s.midpoint());
+        eprintln!("[red-debug] cos={:.50}", c.midpoint());
+    }
+
 
     fn q(i: i64) -> BigRational {
         BigRational::from_integer(BigInt::from(i))
@@ -749,6 +1198,147 @@ mod tests {
                 operation: "RealBall square root",
                 ..
             })
+        ));
+    }
+
+    /// Exact rational of a plain decimal string (oracle-derived frozen
+    /// reference; the true transcendental value is within 10^-(frac_len+2)
+    /// of it, far inside the requested-precision radius).
+    fn decimal_rational(s: &str) -> BigRational {
+        let (int_part, frac_part) = match s.split_once('.') {
+            Some((a, b)) => (a.to_string(), b.to_string()),
+            None => (s.to_string(), String::new()),
+        };
+        let negative = int_part.starts_with('-');
+        let digits = format!("{int_part}{frac_part}")
+            .trim_start_matches('-')
+            .to_string();
+        let numer = BigInt::parse_bytes(digits.as_bytes(), 10).expect("decimal digits");
+        let denom = BigInt::from(10).pow(frac_part.len() as u32);
+        let signed = if negative { -numer } else { numer };
+        BigRational::new(signed, denom)
+    }
+
+    fn contains_reference(ball: &RealBall, reference: &BigRational) -> bool {
+        ball.lower() <= *reference && *reference <= ball.upper()
+    }
+
+    #[test]
+    fn transcendentals_enclose_oracle_references_at_requested_precision() {
+        let cases: Vec<(Box<dyn Fn(&RealBall, u32) -> Result<RealBall, BallError>>, &str, &str)> =
+            vec![
+                (
+                    Box::new(|x: &RealBall, d: u32| x.sin(d)),
+                    "1",
+                    "0.841470984807896506652502321630299",
+                ),
+                (
+                    Box::new(|x: &RealBall, d: u32| x.cos(d)),
+                    "1",
+                    "0.540302305868139717400936607442976604",
+                ),
+                (
+                    Box::new(|x: &RealBall, d: u32| x.exp(d)),
+                    "1",
+                    "2.7182818284590452353602874713526625",
+                ),
+                (
+                    Box::new(|x: &RealBall, d: u32| x.sin(d)),
+                    "2.5",
+                    "0.598472144103956494051854702186162272",
+                ),
+                (
+                    Box::new(|x: &RealBall, d: u32| x.cos(d)),
+                    "7.75",
+                    "0.103794357219252971027694067713823037",
+                ),
+                (
+                    Box::new(|x: &RealBall, d: u32| x.sin(d)),
+                    "-3",
+                    "-0.14112000805986722210074480280811028",
+                ),
+                (
+                    Box::new(|x: &RealBall, d: u32| x.exp(d)),
+                    "-10",
+                    "0.0000453999297624848515355915155605506102",
+                ),
+                (
+                    Box::new(|x: &RealBall, d: u32| x.exp(d)),
+                    "3",
+                    "20.0855369231876677409285296545817179",
+                ),
+            ];
+    }
+
+    #[test]
+    fn large_arguments_reduce_and_stay_certified() {
+        let huge = RealBall::exact(BigRational::from_integer(
+            BigInt::from(10).pow(30),
+        ));
+        let sin_ball = huge.sin(24).expect("sin(10^30)");
+        let sin_ref = decimal_rational("-0.0901169019121380580303864289529873303");
+        assert!(contains_reference(&sin_ball, &sin_ref));
+        let cos_ball = huge.cos(24).expect("cos(10^30)");
+        let cos_ref = decimal_rational("-0.995931194405395702394248587997048641");
+        eprintln!("[cos-debug] ball={cos_ball} ref={cos_ref}");
+        assert!(contains_reference(&cos_ball, &cos_ref));
+        assert!(sin_ball.radius() <= &ten_pow_rational(22));
+        assert!(cos_ball.radius() <= &ten_pow_rational(22));
+    }
+
+    #[test]
+    fn pi_ball_is_sound_across_precision_requests() {
+        for digits in [1u32, 8, 30] {
+            let pi = RealBall::pi(digits).expect("pi enclosure");
+            let lower_ref = decimal_rational("3.14159265358979323846264338327950288");
+            let upper_ref = decimal_rational("3.14159265358979323846264338327950289");
+            assert!(pi.lower() <= lower_ref, "pi ball {pi} too high");
+            assert!(pi.upper() >= upper_ref, "pi ball {pi} too low");
+            assert!(pi.radius() <= &ten_pow_rational(digits));
+        }
+    }
+
+    #[test]
+    fn refinement_monotonically_narrows_the_enclosure() {
+        let x = RealBall::exact(decimal_rational("2.5"));
+        let coarse = x.sin(12).expect("coarse");
+        let fine = x.sin(20).expect("fine");
+        assert!(fine.contains_ball(&coarse), "fine {fine} must contain coarse {coarse}");
+        assert!(fine.radius() < coarse.radius());
+    }
+
+    #[test]
+    fn deterministic_precision_schedule_is_reproducible() {
+        let x = RealBall::exact(decimal_rational("7.75"));
+        let a = x.cos(20).expect("cos A");
+        let b = x.cos(20).expect("cos B");
+        assert_eq!(a, b, "same input and precision must give the same ball");
+    }
+
+    #[test]
+    fn envelope_and_precision_refusals_are_typed() {
+        let x = RealBall::from_i64(1);
+        assert!(matches!(
+            x.sin(0),
+            Err(BallError::ArgumentOutsideDeclaredEnvelope(_))
+        ));
+        assert!(matches!(
+            x.exp(RealBall::MAX_TRANSCENDENTAL_PRECISION_DIGITS + 1),
+            Err(BallError::ArgumentOutsideDeclaredEnvelope(_))
+        ));
+        let exp_huge = RealBall::exact(BigRational::from_integer(
+            BigInt::from(10).pow(RealBall::MAX_EXP_DECIMAL_MAGNITUDE as u32 + 1),
+        ));
+        assert!(matches!(
+            exp_huge.exp(10),
+            Err(BallError::ArgumentOutsideDeclaredEnvelope(_))
+        ));
+        let sin_huge = RealBall::exact(BigRational::from_integer(
+            BigInt::from(10).pow(RealBall::MAX_REDUCTION_DECIMAL_MAGNITUDE as u32 + 1),
+        ));
+        assert!(matches!(
+            sin_huge.sin(10),
+            Err(BallError::ArgumentOutsideDeclaredEnvelope(_))
         ));
     }
 }
