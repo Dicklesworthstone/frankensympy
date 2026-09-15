@@ -7,7 +7,7 @@
 
 pub use fsym_bigint::BigInt;
 pub use fsym_rational::BigRational;
-use num_traits::{One, Zero};
+use num_traits::{One, ToPrimitive, Zero};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
@@ -501,6 +501,82 @@ impl Expr {
             ))),
         }
     }
+
+    /// Certified real-ball evaluation over the declared transcendental
+    /// subset (sin, cos, exp) at the requested decimal precision.
+    ///
+    /// Unlike [`Expr::evalf`], this returns a rigorous enclosure whose
+    /// radius respects the precision budget, computed with exact rational
+    /// interval arithmetic and independently bounded truncation tails.
+    /// Operations outside the declared subset (tan, log, sqrt, complex
+    /// branches, non-integer powers) refuse with a typed error rather than
+    /// silently degrading precision.
+    pub fn evalf_ball(&self, precision_digits: u32) -> Result<RealBall, CoreError> {
+        use crate::ball::BallError;
+        let refuse = |what: &str| {
+            Err(CoreError::InvalidOperation(format!(
+                "{what} is outside the declared certified-ball subset;                  only sin, cos, and exp are supported with explicit error bounds"
+            )))
+        };
+        let map = |result: Result<RealBall, BallError>| match result {
+            Ok(ball) => Ok(ball),
+            Err(e) => Err(CoreError::InvalidOperation(format!(
+                "certified ball evaluation failed: {e}"
+            ))),
+        };
+        match self {
+            Expr::Integer(n) => Ok(RealBall::exact(BigRational::from_integer(n.clone()))),
+            Expr::Rational(r) => Ok(RealBall::exact(r.clone())),
+            Expr::Const(Constant::Pi) => RealBall::pi(precision_digits).map_err(|e| {
+                CoreError::InvalidOperation(format!("certified pi enclosure failed: {e}"))
+            }),
+            Expr::Const(Constant::E) => map(RealBall::from_i64(1).exp(precision_digits)),
+            Expr::Const(Constant::Infinity)
+            | Expr::Const(Constant::NegativeInfinity)
+            | Expr::Const(Constant::NaN)
+            | Expr::Const(Constant::ComplexInfinity) => refuse("non-finite constant"),
+            Expr::Const(Constant::I) => refuse("imaginary unit"),
+            Expr::Add(terms) => {
+                let mut acc = RealBall::from_i64(0);
+                for t in terms {
+                    acc = acc.add(&t.evalf_ball(precision_digits)?);
+                }
+                Ok(acc)
+            }
+            Expr::Mul(factors) => {
+                let mut acc = RealBall::from_i64(1);
+                for f in factors {
+                    acc = acc.mul(&f.evalf_ball(precision_digits)?);
+                }
+                Ok(acc)
+            }
+            Expr::Pow(base, exponent) => {
+                let base_ball = base.evalf_ball(precision_digits)?;
+                match exponent.const_integer_value() {
+                    Some(exp) => match exp.to_i32() {
+                        Some(exp_i32) => map(base_ball.pow(exp_i32)),
+                        None => refuse("integer power exponent out of range"),
+                    },
+                    None => refuse("non-integer power"),
+                }
+            }
+            Expr::Function(name, args) => {
+                let arg = match args.as_slice() {
+                    [arg] => arg.evalf_ball(precision_digits)?,
+                    _ => return refuse(&format!("function `{name}` with non-unary arguments")),
+                };
+                match name.as_str() {
+                    "sin" => map(arg.sin(precision_digits)),
+                    "cos" => map(arg.cos(precision_digits)),
+                    "exp" => map(arg.exp(precision_digits)),
+                    other => refuse(&format!("function `{other}`")),
+                }
+            }
+            Expr::Sym(_) => Err(CoreError::InvalidOperation(
+                "free symbol cannot be evaluated numerically".to_string(),
+            )),
+        }
+    }
 }
 
 impl std::ops::Add for Expr {
@@ -660,17 +736,15 @@ fn cmp_structural(a: &Expr, b: &Expr) -> std::cmp::Ordering {
 }
 
 fn cmp_slice_structural(a: &[Expr], b: &[Expr]) -> std::cmp::Ordering {
-    a.len()
-        .cmp(&b.len())
-        .then_with(|| {
-            for (left, right) in a.iter().zip(b.iter()) {
-                let ordering = cmp_structural(left, right);
-                if ordering != std::cmp::Ordering::Equal {
-                    return ordering;
-                }
+    a.len().cmp(&b.len()).then_with(|| {
+        for (left, right) in a.iter().zip(b.iter()) {
+            let ordering = cmp_structural(left, right);
+            if ordering != std::cmp::Ordering::Equal {
+                return ordering;
             }
-            std::cmp::Ordering::Equal
-        })
+        }
+        std::cmp::Ordering::Equal
+    })
 }
 
 /// Sorts Add arguments into canonical order in place.

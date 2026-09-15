@@ -13,7 +13,7 @@ pub use sparse_jacobian::*;
 pub use transforms::*;
 
 use fsym_budget::Unbounded;
-use fsym_core::{BigInt, BigRational, Constant, Expr, Symbol};
+use fsym_core::{BigInt, BigRational, Constant, CoreError, Expr, RealBall, Symbol};
 use fsym_simplify::{expand_with, simplify};
 use num_traits::{One, Signed, Zero};
 use std::collections::{BTreeMap, HashMap};
@@ -44,6 +44,17 @@ fn numeric_value(expr: &Expr) -> Option<BigRational> {
 }
 
 /// Compute the unsimplified symbolic derivative following direct definitional reduction rules.
+/// Certified real-box evaluation over the declared transcendental subset
+/// (sin, cos, exp) at the requested decimal precision.
+///
+/// Thin delegation to the fsym-core ball evaluator; this is the single
+/// import site for campaign code that needs enclosures with explicit error
+/// bounds rather than binary64 approximations. Unsupported operations
+/// refuse with a typed error; nothing here silently degrades precision.
+pub fn evalf_ball(expr: &Expr, precision_digits: u32) -> Result<RealBall, CoreError> {
+    expr.evalf_ball(precision_digits)
+}
+
 pub fn diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
     match expr {
         Expr::Sym(s) => {
@@ -114,7 +125,8 @@ pub fn diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
         }
         Expr::Function(name, args) => {
             // If all arguments are independent of var, then by the chain rule d(f(args))/d(var) = 0.
-            if name != "Derivative" && name != "diff" && args.iter().all(|a| diff(a, var).is_zero()) {
+            if name != "Derivative" && name != "diff" && args.iter().all(|a| diff(a, var).is_zero())
+            {
                 return Expr::from_i64(0);
             }
             // Elementary derivatives
@@ -2069,10 +2081,7 @@ mod tests {
         let dfx = diff(&fx, &x);
         assert_eq!(
             dfx,
-            Expr::Function(
-                "diff".to_string(),
-                vec![fx.clone(), Expr::Sym(x.clone())]
-            )
+            Expr::Function("diff".to_string(), vec![fx.clone(), Expr::Sym(x.clone())])
         );
 
         // d/dx(diff(f(x), x)) == diff(f(x), x, x)
@@ -2101,5 +2110,34 @@ mod tests {
             )
         );
         assert_eq!(diff(&deriv, &y), Expr::from_i64(0));
+    }
+}
+
+#[cfg(test)]
+mod ball_boundary_tests {
+    use super::*;
+
+    #[test]
+    fn evalf_ball_encloses_transcendental_values() {
+        let x = Symbol::new("x");
+        // exp(1) at 25 digits must enclose e and carry a sub-10^-24 radius.
+        let e_expr = Expr::Function("exp".to_string(), vec![Expr::from_i64(1)]);
+        let ball = evalf_ball(&e_expr, 25).expect("exp ball");
+        // e lies strictly inside (2, 3); the whole enclosure must too.
+        let two = BigRational::from_integer(BigInt::from(2));
+        let three = BigRational::from_integer(BigInt::from(3));
+        assert!(
+            two < ball.lower() && ball.upper() < three,
+            "e enclosure {ball} must lie inside (2, 3)"
+        );
+        // sin(x) evaluated at the constant pi must enclose 0.
+        let sin_pi = Expr::Function("sin".to_string(), vec![Expr::Const(Constant::Pi)]);
+        let ball = evalf_ball(&sin_pi, 20).expect("sin(pi) ball");
+        assert!(ball.contains_zero(), "sin(pi) enclosure must contain zero");
+        // free symbols refuse
+        assert!(evalf_ball(&Expr::Sym(x.clone()), 10).is_err());
+        // unsupported functions refuse
+        let tan_x = Expr::Function("tan".to_string(), vec![Expr::Sym(x.clone())]);
+        assert!(evalf_ball(&tan_x, 10).is_err());
     }
 }

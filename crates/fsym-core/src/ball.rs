@@ -390,14 +390,18 @@ impl RealBall {
         } else {
             self.upper().abs()
         };
-        let bits = upper_abs.height().max_bits();
-        ((bits.saturating_mul(3_010_3) / 100_000) as u32).saturating_add(1)
+        // Magnitude of the VALUE, not of the rational's exact height: use
+        // the integer part's bit width so high-precision (large-denominator)
+        // balls of modest size are not misread as huge magnitudes.
+        if upper_abs < BigRational::one() {
+            return 0;
+        }
+        let int_part = upper_abs.numer() / upper_abs.denom();
+        ((int_part.bits().saturating_mul(30_103) / 100_000) as u32).saturating_add(1)
     }
 
     fn precision_target(precision_digits: u32) -> Result<BigRational, BallError> {
-        if precision_digits == 0
-            || precision_digits > Self::MAX_TRANSCENDENTAL_PRECISION_DIGITS
-        {
+        if precision_digits == 0 || precision_digits > Self::MAX_TRANSCENDENTAL_PRECISION_DIGITS {
             return Err(BallError::ArgumentOutsideDeclaredEnvelope(format!(
                 "requested precision {precision_digits} digits (supported: 1..={})",
                 Self::MAX_TRANSCENDENTAL_PRECISION_DIGITS
@@ -476,7 +480,10 @@ impl RealBall {
         let ball = Self::new(series.midpoint().clone(), series.radius() + tail)?;
         checked_work_bits(
             "RealBall sin enclosure",
-            [ball.midpoint.height().max_bits(), ball.radius.height().max_bits()],
+            [
+                ball.midpoint.height().max_bits(),
+                ball.radius.height().max_bits(),
+            ],
         )?;
         if parity == 1 {
             Ok(ball.neg())
@@ -522,7 +529,10 @@ impl RealBall {
         let ball = Self::new(series.midpoint().clone(), series.radius() + tail)?;
         checked_work_bits(
             "RealBall cos enclosure",
-            [ball.midpoint.height().max_bits(), ball.radius.height().max_bits()],
+            [
+                ball.midpoint.height().max_bits(),
+                ball.radius.height().max_bits(),
+            ],
         )?;
         if parity == 1 {
             Ok(ball.neg())
@@ -780,11 +790,7 @@ fn bigdiv_floor(a: &BigInt, b: &BigInt) -> BigInt {
 fn upper_abs_rational(ball: &RealBall) -> BigRational {
     let lo = ball.lower().abs();
     let hi = ball.upper().abs();
-    if lo > hi {
-        lo
-    } else {
-        hi
-    }
+    if lo > hi { lo } else { hi }
 }
 
 fn scale_rational_by_bigint(q: &BigRational, k: &BigInt) -> BigRational {
@@ -807,7 +813,7 @@ fn arctan_inverse_enclosure(t: u64, digits: u32) -> Result<RealBall, BallError> 
         if term <= target {
             break;
         }
-        if j % 2 == 0 {
+        if j.is_multiple_of(2) {
             sum += term;
         } else {
             sum -= term;
@@ -849,11 +855,12 @@ fn sin_series_interval(r: &RealBall, m: usize) -> Result<RealBall, BallError> {
         }
         let odd_pow = even_pow.mul(r);
         let coeff = BigRational::new(BigInt::one(), fact.clone());
-        let term = RealBall::new(
-            odd_pow.midpoint() * &coeff,
-            odd_pow.radius() * &coeff,
-        )?;
-        acc = if j % 2 == 0 { acc.add(&term) } else { acc.sub(&term) };
+        let term = RealBall::new(odd_pow.midpoint() * &coeff, odd_pow.radius() * &coeff)?;
+        acc = if j % 2 == 0 {
+            acc.add(&term)
+        } else {
+            acc.sub(&term)
+        };
     }
     Ok(acc)
 }
@@ -869,11 +876,12 @@ fn cos_series_interval(r: &RealBall, m: usize) -> Result<RealBall, BallError> {
         even_pow = even_pow.mul(&r2);
         fact *= BigInt::from(2 * j as u64 - 1) * BigInt::from(2 * j as u64);
         let coeff = BigRational::new(BigInt::one(), fact.clone());
-        let term = RealBall::new(
-            even_pow.midpoint() * &coeff,
-            even_pow.radius() * &coeff,
-        )?;
-        acc = acc.sub(&term);
+        let term = RealBall::new(even_pow.midpoint() * &coeff, even_pow.radius() * &coeff)?;
+        acc = if j % 2 == 1 {
+            acc.sub(&term)
+        } else {
+            acc.add(&term)
+        };
     }
     Ok(acc)
 }
@@ -915,33 +923,12 @@ fn exp_series_interval(x: &RealBall, digits: u32) -> Result<RealBall, BallError>
         let term = RealBall::new(pow.midpoint() * &coeff, pow.radius() * &coeff)?;
         acc = acc.add(&term);
     }
-    Ok(RealBall::new(
-        acc.midpoint().clone(),
-        acc.radius() + tail,
-    )?)
+    RealBall::new(acc.midpoint().clone(), acc.radius() + tail)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn probe_reduce_debug() {
-        let huge = RealBall::exact(BigRational::from_integer(BigInt::from(10).pow(30)));
-        let (red, par) = huge.reduce_mod_pi(12).expect("reduce");
-        eprintln!("[red-debug] red_mid={:.50} par={par}", red.midpoint());
-        eprintln!("[red-debug] red_rad={:.50}", red.radius());
-        let pi = RealBall::pi(16).expect("pi");
-        eprintln!("[red-debug] pi={:.50} rad={:.6}", pi.midpoint(), pi.radius());
-        let s = huge.sin(12).expect("s");
-        let c = huge.cos(12).expect("c");
-        let sin_ref = decimal_rational("-0.0901169019121380580303864289529873303");
-        let cos_ref = decimal_rational("-0.995931194405395702394248587997048641");
-        eprintln!("[red-debug] sin contains={} rad_bits={}", contains_reference(&s, &sin_ref), s.radius().height().max_bits());
-        eprintln!("[red-debug] cos contains={} rad_bits={}", contains_reference(&c, &cos_ref), c.radius().height().max_bits());
-        eprintln!("[red-debug] cos lower>ref={} upper<ref={}", c.lower() > cos_ref, c.upper() < cos_ref);
-        eprintln!("[red-debug] cos ref-c.lower={:.3} c.upper-ref={:.3}", cos_ref.clone() - c.lower(), c.upper() - cos_ref.clone());
-    }
-
 
     fn q(i: i64) -> BigRational {
         BigRational::from_integer(BigInt::from(i))
@@ -1232,62 +1219,82 @@ mod tests {
 
     #[test]
     fn transcendentals_enclose_oracle_references_at_requested_precision() {
-        let cases: Vec<(Box<dyn Fn(&RealBall, u32) -> Result<RealBall, BallError>>, &str, &str)> =
-            vec![
-                (
-                    Box::new(|x: &RealBall, d: u32| x.sin(d)),
-                    "1",
-                    "0.841470984807896506652502321630299",
-                ),
-                (
-                    Box::new(|x: &RealBall, d: u32| x.cos(d)),
-                    "1",
-                    "0.540302305868139717400936607442976604",
-                ),
-                (
-                    Box::new(|x: &RealBall, d: u32| x.exp(d)),
-                    "1",
-                    "2.7182818284590452353602874713526625",
-                ),
-                (
-                    Box::new(|x: &RealBall, d: u32| x.sin(d)),
-                    "2.5",
-                    "0.598472144103956494051854702186162272",
-                ),
-                (
-                    Box::new(|x: &RealBall, d: u32| x.cos(d)),
-                    "7.75",
-                    "0.103794357219252971027694067713823037",
-                ),
-                (
-                    Box::new(|x: &RealBall, d: u32| x.sin(d)),
-                    "-3",
-                    "-0.14112000805986722210074480280811028",
-                ),
-                (
-                    Box::new(|x: &RealBall, d: u32| x.exp(d)),
-                    "-10",
-                    "0.0000453999297624848515355915155605506102",
-                ),
-                (
-                    Box::new(|x: &RealBall, d: u32| x.exp(d)),
-                    "3",
-                    "20.0855369231876677409285296545817179",
-                ),
-            ];
+        type OracleCase = (
+            Box<dyn Fn(&RealBall, u32) -> Result<RealBall, BallError>>,
+            &'static str,
+            &'static str,
+        );
+        let cases: Vec<OracleCase> = vec![
+            (
+                Box::new(|x: &RealBall, d: u32| x.sin(d)),
+                "1",
+                "0.841470984807896506652502321630299",
+            ),
+            (
+                Box::new(|x: &RealBall, d: u32| x.cos(d)),
+                "1",
+                "0.540302305868139717400936607442976604",
+            ),
+            (
+                Box::new(|x: &RealBall, d: u32| x.exp(d)),
+                "1",
+                "2.7182818284590452353602874713526625",
+            ),
+            (
+                Box::new(|x: &RealBall, d: u32| x.sin(d)),
+                "2.5",
+                "0.598472144103956494051854702186162272",
+            ),
+            (
+                Box::new(|x: &RealBall, d: u32| x.cos(d)),
+                "7.75",
+                "0.103794357219252971027694067713823037",
+            ),
+            (
+                Box::new(|x: &RealBall, d: u32| x.sin(d)),
+                "-3",
+                "-0.14112000805986722210074480280811028",
+            ),
+            (
+                Box::new(|x: &RealBall, d: u32| x.exp(d)),
+                "-10",
+                "0.0000453999297624848515355915155605506102",
+            ),
+            (
+                Box::new(|x: &RealBall, d: u32| x.exp(d)),
+                "3",
+                "20.0855369231876677409285296545817179",
+            ),
+        ];
+        for (op, arg, reference) in &cases {
+            let x = RealBall::exact(decimal_rational(arg));
+            let ball = op(&x, 30).expect("enclosure succeeds");
+            // The recorded reference is a 34-digit truncation of the true
+            // value: tolerate its own <= 10^-33 rounding error when checking
+            // containment of the enclosure.
+            let r = decimal_rational(reference);
+            let tol = ten_pow_rational(33);
+            let ref_lo = r.clone() - &tol;
+            let ref_hi = &r + &tol;
+            assert!(
+                ball.lower() <= ref_hi && ref_lo <= ball.upper(),
+                "enclosure {ball} must overlap oracle reference {r} (+/-10^-33) for {arg}"
+            );
+            assert!(
+                ball.radius() <= &ten_pow_rational(28),
+                "radius must respect the 30-digit request for {arg}"
+            );
+        }
     }
 
     #[test]
     fn large_arguments_reduce_and_stay_certified() {
-        let huge = RealBall::exact(BigRational::from_integer(
-            BigInt::from(10).pow(30),
-        ));
+        let huge = RealBall::exact(BigRational::from_integer(BigInt::from(10).pow(30)));
         let sin_ball = huge.sin(24).expect("sin(10^30)");
         let sin_ref = decimal_rational("-0.0901169019121380580303864289529873303");
         assert!(contains_reference(&sin_ball, &sin_ref));
         let cos_ball = huge.cos(24).expect("cos(10^30)");
         let cos_ref = decimal_rational("-0.995931194405395702394248587997048641");
-        eprintln!("[cos-debug] ball={cos_ball} ref={cos_ref}");
         assert!(contains_reference(&cos_ball, &cos_ref));
         assert!(sin_ball.radius() <= &ten_pow_rational(22));
         assert!(cos_ball.radius() <= &ten_pow_rational(22));
@@ -1310,7 +1317,12 @@ mod tests {
         let x = RealBall::exact(decimal_rational("2.5"));
         let coarse = x.sin(12).expect("coarse");
         let fine = x.sin(20).expect("fine");
-        assert!(fine.contains_ball(&coarse), "fine {fine} must contain coarse {coarse}");
+        // Both enclose the same true value, so they must overlap; the
+        // finer request must have strictly smaller radius.
+        assert!(
+            fine.intersect(&coarse).is_some(),
+            "fine and coarse enclosures of the same value must overlap"
+        );
         assert!(fine.radius() < coarse.radius());
     }
 
@@ -1334,14 +1346,14 @@ mod tests {
             Err(BallError::ArgumentOutsideDeclaredEnvelope(_))
         ));
         let exp_huge = RealBall::exact(BigRational::from_integer(
-            BigInt::from(10).pow(RealBall::MAX_EXP_DECIMAL_MAGNITUDE as u32 + 1),
+            BigInt::from(10).pow(RealBall::MAX_EXP_DECIMAL_MAGNITUDE + 1),
         ));
         assert!(matches!(
             exp_huge.exp(10),
             Err(BallError::ArgumentOutsideDeclaredEnvelope(_))
         ));
         let sin_huge = RealBall::exact(BigRational::from_integer(
-            BigInt::from(10).pow(RealBall::MAX_REDUCTION_DECIMAL_MAGNITUDE as u32 + 1),
+            BigInt::from(10).pow(RealBall::MAX_REDUCTION_DECIMAL_MAGNITUDE + 1),
         ));
         assert!(matches!(
             sin_huge.sin(10),
