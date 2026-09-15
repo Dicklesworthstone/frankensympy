@@ -34,6 +34,17 @@ cross_cutting_obligation_registry = "registries/cross_cutting_obligations.toml"
 donor_source_registry = "registries/donor_sources.toml"
 workstream_registry = "registries/workstreams.toml"
 
+[dependencies]
+fsym-assumptions.workspace = true
+fsym-budget.workspace = true
+fsym-calculus.workspace = true
+fsym-core.workspace = true
+fsym-proof-kernel.workspace = true
+fsym-runtime.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
 [workspace]
 members = ["crates/*", "xtask"]
 resolver = "3"
@@ -93,8 +104,6 @@ unsafe_code = "forbid"
 
 [lints.rust]
 unsafe_code = "forbid"
-
-[dependencies]
 
 [profile.release-perf]
 # Keep-gate build profile for WS22 live-incumbent benchmarks (bead

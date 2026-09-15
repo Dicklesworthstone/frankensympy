@@ -573,6 +573,17 @@ dependencies = [
 [[package]]
 name = "frankensympy"
 version = "0.1.0"
+dependencies = [
+ "fsym-assumptions",
+ "fsym-budget",
+ "fsym-calculus",
+ "fsym-core",
+ "fsym-proof-kernel",
+ "fsym-runtime",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
 
 [[package]]
 name = "fsym-assumptions"
