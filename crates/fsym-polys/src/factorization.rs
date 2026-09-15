@@ -4,6 +4,7 @@
 
 use crate::PolyError;
 use crate::univariate::UnivariatePoly;
+use fsym_budget::{BudgetMeter, Unbounded};
 use fsym_core::{BigInt, BigRational, Symbol};
 use num_traits::{One, Zero};
 use serde::{Deserialize, Serialize};
@@ -476,6 +477,8 @@ const MAX_MODP_FACTORS: usize = 10;
 /// Prime candidates tried per irreducibility witness before the claim is
 /// recorded as unproven (the factorization itself stays exact).
 const PRIME_ATTEMPTS: usize = 24;
+/// Prime candidates tried for the Hensel lifting prime selection.
+const LIFT_PRIME_ATTEMPTS: usize = 16;
 /// Deterministic Cantor-Zassenhaus seed attempts per equal-degree class.
 const EDF_SEED_BUDGET: u32 = 64;
 
@@ -518,12 +521,16 @@ fn fp_trim(v: &mut Vec<u64>) {
     }
 }
 
-fn fp_norm(mut v: Vec<u64>, p: u64) -> Vec<u64> {
-    for c in &mut v {
-        *c %= p;
+fn fp_sub(a: &[u64], b: &[u64], p: u64) -> Vec<u64> {
+    let mut out = vec![0u64; a.len().max(b.len())];
+    for (i, c) in a.iter().enumerate() {
+        out[i] = *c;
     }
-    fp_trim(&mut v);
-    v
+    for (i, c) in b.iter().enumerate() {
+        out[i] = (out[i] + p - c % p) % p;
+    }
+    fp_trim(&mut out);
+    out
 }
 
 fn fp_add(a: &[u64], b: &[u64], p: u64) -> Vec<u64> {
@@ -533,18 +540,6 @@ fn fp_add(a: &[u64], b: &[u64], p: u64) -> Vec<u64> {
     }
     for (i, c) in b.iter().enumerate() {
         out[i] = (out[i] + c) % p;
-    }
-    fp_trim(&mut out);
-    out
-}
-
-fn fp_sub(a: &[u64], b: &[u64], p: u64) -> Vec<u64> {
-    let mut out = vec![0u64; a.len().max(b.len())];
-    for (i, c) in a.iter().enumerate() {
-        out[i] = *c;
-    }
-    for (i, c) in b.iter().enumerate() {
-        out[i] = (out[i] + p - c % p) % p;
     }
     fp_trim(&mut out);
     out
@@ -560,30 +555,35 @@ fn fp_mul(a: &[u64], b: &[u64], p: u64) -> Vec<u64> {
             continue;
         }
         for (j, right) in b.iter().enumerate() {
-            out[i + j] = (out[i + j] + (*left as u128) * (*right as u128) % (p as u128)) as u64;
+            out[i + j] =
+                ((out[i + j] as u128 + (*left as u128) * (*right as u128)) % (p as u128)) as u64;
         }
     }
     fp_trim(&mut out);
     out
 }
 
-/// Remainder of `a` modulo the monic polynomial `f` over GF(p).
+/// Remainder of `a` modulo the nonzero polynomial `f` over GF(p). The
+/// divisor need not be monic: the leading coefficient is inverted so a
+/// primitive integer associate reduced mod p is accepted unchanged.
 fn fp_rem_monic(a: &[u64], f: &[u64], p: u64) -> Vec<u64> {
     let mut out = a.to_vec();
     let flen = f.len();
     if flen == 0 {
         return out;
     }
-    while out.len() >= flen {
+    let inv_lead = fp_scalar_inverse(f[flen - 1], p);
+    while out.len() >= flen && out.iter().any(|c| *c != 0) {
         let shift = out.len() - flen;
         let lead = out[out.len() - 1];
         if lead == 0 {
             out.pop();
             continue;
         }
+        let factor = lead * inv_lead % p;
         for (k, fc) in f.iter().enumerate() {
             let idx = shift + k;
-            out[idx] = (out[idx] + p - (lead * fc % p)) % p;
+            out[idx] = (out[idx] + p - (factor * fc % p)) % p;
         }
         debug_assert_eq!(out[out.len() - 1], 0);
         out.pop();
@@ -613,19 +613,19 @@ fn fp_gcd(mut a: Vec<u64>, mut b: Vec<u64>, p: u64) -> Vec<u64> {
         b = r;
     }
     // Normalize the leading coefficient to 1.
-    if let Some(last) = a.last().copied() {
-        if last != 1 {
-            let inv = fp_scalar_inverse(last, p);
-            for c in &mut a {
-                *c = *c * inv % p;
-            }
+    if let Some(last) = a.last().copied()
+        && last != 1
+    {
+        let inv = fp_scalar_inverse(last, p);
+        for c in &mut a {
+            *c = *c * inv % p;
         }
     }
     a
 }
 
 fn fp_scalar_inverse(a: u64, p: u64) -> u64 {
-    debug_assert!(a % p != 0, "inverse of zero over a prime field");
+    debug_assert!(!a.is_multiple_of(p), "inverse of zero over a prime field");
     fp_scalar_pow(a, p - 2, p)
 }
 
@@ -648,7 +648,7 @@ fn fp_derivative(a: &[u64], p: u64) -> Vec<u64> {
     }
     let mut out = Vec::with_capacity(a.len() - 1);
     for (degree, c) in a.iter().enumerate().skip(1) {
-        out.push((*c as u128 * (degree as u64) % (p as u128)) as u64);
+        out.push((*c as u128 * (degree as u128) % (p as u128)) as u64);
     }
     fp_trim(&mut out);
     out
@@ -664,33 +664,33 @@ fn fp_is_squarefree(f: &[u64], p: u64) -> bool {
 /// Rabin irreducibility test over GF(p): `x^(p^d) == x (mod f)` and
 /// `gcd(x^(p^(d/ell)) - x, f) == 1` for every prime divisor `ell` of `d`.
 fn fp_rabin_irreducible(f: &[u64], p: u64) -> bool {
-    let d = match f.len().checked_sub(1) {
-        Some(d) if d >= 1 => d,
+    let d: u64 = match f.len().checked_sub(1) {
+        Some(d) if d >= 1 => d as u64,
         _ => return false,
     };
-    // Frobenius chain: x^(p^k) mod f for k = 0..=d.
-    let one = vec![1u64];
-    let x = if d == 1 { fp_rem_monic(&[0, 1], f, p) } else { vec![0u64, 1] };
-    let mut frob = vec![0u64, 1];
-    let mut powers: Vec<Vec<u64>> = Vec::with_capacity(d + 1);
-    powers.push(fp_rem_monic(&one, f, p));
-    let mut xp = fp_rem_monic(&x, f, p);
-    powers.push(xp.clone());
-    for _ in 1..=d {
-        frob = fp_pow_mod(&frob, p, f, p);
-        powers.push(frob.clone());
+    if d == 1 {
+        return true; // every linear polynomial over a field is irreducible
     }
-    // powers[k] = x^(p^k) mod f; x^(p^d) must equal x.
-    if frob != xp {
+    // powers[k] = x^(p^k) mod f, built by d Frobenius steps.
+    let mut powers: Vec<Vec<u64>> = Vec::with_capacity(d as usize + 1);
+    powers.push(vec![0u64, 1]);
+    for k in 1..=d {
+        let next = fp_pow_mod(&powers[(k - 1) as usize], p, f, p);
+        powers.push(next);
+    }
+    // Rabin: x^(p^d) == x (mod f) ...
+    if powers[d as usize] != vec![0u64, 1] {
         return false;
     }
-    for ell in [2u64, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61] {
-        if ell > d || d % ell != 0 {
+    // ... and gcd(x^(p^(d/ell)) - x, f) == 1 for every prime divisor ell of d.
+    for ell in [
+        2u64, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61,
+    ] {
+        if ell > d || !d.is_multiple_of(ell) {
             continue;
         }
-        let sub = powers[(d / ell) as usize].clone();
-        let diff = fp_sub(&sub, &[0, 1], p);
-        let g = fp_gcd(diff, f.to_vec(), p);
+        let sub = fp_sub(&powers[(d / ell) as usize], &[0, 1], p);
+        let g = fp_gcd(sub, f.to_vec(), p);
         if g.len() > 1 {
             return false;
         }
@@ -701,12 +701,9 @@ fn fp_rabin_irreducible(f: &[u64], p: u64) -> bool {
 /// Distinct-degree factorization: returns `(degree, product)` pairs whose
 /// products multiply to `f`, each product a monic product of irreducible
 /// polynomials of exactly that degree.
-fn fp_distinct_degree(
-    f: &[u64],
-    p: u64,
-) -> Vec<(usize, Vec<u64>)> {
+fn fp_distinct_degree(f: &[u64], p: u64) -> Vec<(usize, Vec<u64>)> {
     let mut remaining = f.to_vec();
-    let mut x = vec![0u64, 1];
+    let x = vec![0u64, 1];
     let mut frob = x.clone();
     let mut classes: Vec<(usize, Vec<u64>)> = Vec::new();
     let mut degree = 0usize;
@@ -714,8 +711,18 @@ fn fp_distinct_degree(
         degree += 1;
         frob = fp_pow_mod(&frob, p, &remaining, p);
         let diff = fp_sub(&frob, &x, p);
-        let g = fp_gcd(diff, remaining.clone(), p);
+        let g = {
+            let g = fp_gcd(diff, remaining.clone(), p);
+            #[cfg(any(test, debug_assertions))]
+            eprintln!(
+                "[ddf] degree={degree} g_len={} remaining_len={}",
+                g.len(),
+                remaining.len()
+            );
+            g
+        };
         if g.len() > 1 {
+            classes.push((degree, g.clone()));
             remaining = fp_div_monic(&remaining, &g, p);
             frob = fp_rem_monic(&frob, &remaining, p);
         }
@@ -770,7 +777,7 @@ fn fp_equal_degree_split(
         .wrapping_mul(6_364_136_223_846_793_005)
         .wrapping_add(1_442_695_040_888_963_407)
         | 1;
-    let mut draw = |bound: usize, state: &mut u64| -> u64 {
+    let draw = |bound: usize, state: &mut u64| -> u64 {
         *state = state
             .wrapping_mul(6_364_136_223_846_793_005)
             .wrapping_add(1_442_695_040_888_963_407);
@@ -818,12 +825,7 @@ fn fp_scalar_pow_poly(base: &[u64], mut exp: u64, f: &[u64], p: u64) -> Vec<u64>
     acc
 }
 
-/// Full factorization of a monic square-free polynomial over GF(p).
-/// Returns monic irreducible factors in deterministic order.
-fn fp_factor_squarefree(
-    f: &[u64],
-    p: u64,
-) -> Result<Vec<Vec<u64>>, &'static str> {
+fn fp_factor_squarefree(f: &[u64], p: u64) -> Result<Vec<Vec<u64>>, &'static str> {
     if f.len() <= 1 {
         return Ok(Vec::new());
     }
@@ -831,7 +833,15 @@ fn fp_factor_squarefree(
         return Err("reduction mod prime is not square-free");
     }
     let mut out: Vec<Vec<u64>> = Vec::new();
-    for (class_degree, product) in fp_distinct_degree(f, p) {
+    let classes = fp_distinct_degree(f, p);
+    #[cfg(any(test, debug_assertions))]
+    eprintln!("[ddf] p={p} deg={} classes={}", f.len() - 1, classes.len());
+    for (class_degree, product) in classes {
+        #[cfg(any(test, debug_assertions))]
+        eprintln!(
+            "[ddf]   class_degree={class_degree} product_len={}",
+            product.len()
+        );
         let mut queue = vec![product];
         while let Some(current) = queue.pop() {
             if current.len() <= 1 {
@@ -841,7 +851,7 @@ fn fp_factor_squarefree(
                 out.push(current);
                 continue;
             }
-            let seed = (p as u64)
+            let seed = p
                 .wrapping_mul(0x9E37_79B9)
                 .wrapping_add(class_degree as u64)
                 .wrapping_mul(31);
@@ -858,4 +868,950 @@ fn fp_factor_squarefree(
     }
     out.sort();
     Ok(out)
+}
+
+// ---------------------------------------------------------------------------
+// ZZ integer-polynomial helpers (ascending dense coefficients).
+// ---------------------------------------------------------------------------
+
+fn z_trim(v: &mut Vec<BigInt>) {
+    while v.len() > 1 && v.last().is_some_and(|c| c.is_zero()) {
+        v.pop();
+    }
+    if v.is_empty() {
+        v.push(BigInt::from_u64(0));
+    }
+}
+
+fn z_add(a: &[BigInt], b: &[BigInt]) -> Vec<BigInt> {
+    let mut out = vec![BigInt::from_u64(0); a.len().max(b.len())];
+    for (i, c) in a.iter().enumerate() {
+        out[i] = out[i].clone() + c;
+    }
+    for (i, c) in b.iter().enumerate() {
+        out[i] = out[i].clone() + c;
+    }
+    z_trim(&mut out);
+    out
+}
+
+fn z_mul(a: &[BigInt], b: &[BigInt]) -> Vec<BigInt> {
+    if a == [BigInt::from_u64(0)] || b == [BigInt::from_u64(0)] {
+        return vec![BigInt::from_u64(0)];
+    }
+    let mut out = vec![BigInt::from_u64(0); a.len() + b.len() - 1];
+    for (i, left) in a.iter().enumerate() {
+        for (j, right) in b.iter().enumerate() {
+            out[i + j] = out[i + j].clone() + left * right;
+        }
+    }
+    z_trim(&mut out);
+    out
+}
+
+/// Symmetric representative of each coefficient modulo `m` in
+/// `(-m/2, m/2]`.
+fn z_symmetric_reduce(v: &[BigInt], m: &BigInt) -> Vec<BigInt> {
+    let half = m / BigInt::from_u64(2);
+    v.iter()
+        .map(|c| {
+            let rem = c.div_rem(m).1;
+            if rem > half { rem - m } else { rem }
+        })
+        .collect()
+}
+
+/// Exact division of an integer polynomial by a monic integer polynomial;
+/// `None` when the remainder is nonzero.
+fn z_div_monic(a: &[BigInt], monic: &[BigInt]) -> Option<Vec<BigInt>> {
+    let mut rem = a.to_vec();
+    let dlen = monic.len();
+    if dlen == 0 || rem.len() < dlen {
+        return None;
+    }
+    let mut q = vec![BigInt::from_u64(0); rem.len() - dlen + 1];
+    while rem.len() >= dlen {
+        let lead = rem[rem.len() - 1].clone();
+        let shift = rem.len() - dlen;
+        q[shift] = lead.clone();
+        for (k, bc) in monic.iter().enumerate() {
+            rem[shift + k] = rem[shift + k].clone() - (lead.clone() * bc);
+        }
+        rem.pop();
+        z_trim(&mut rem);
+        if rem.len() < dlen {
+            break;
+        }
+    }
+    z_trim(&mut rem);
+    if rem == [BigInt::from_u64(0)] {
+        z_trim(&mut q);
+        Some(q)
+    } else {
+        None
+    }
+}
+
+fn z_coeff_max_bits(v: &[BigInt]) -> u64 {
+    v.iter().map(|c| c.bits()).max().unwrap_or(0)
+}
+
+/// Reduces an integer polynomial's coefficients modulo the prime `p`
+/// into the GF(p) representation.
+fn z_to_fp(v: &[BigInt], p: u64) -> Vec<u64> {
+    v.iter()
+        .map(|c| {
+            let (_, rem) = c.div_rem(&BigInt::from_u64(p));
+            let mut r = rem;
+            if r < BigInt::from_u64(0) {
+                r += BigInt::from_u64(p);
+            }
+            // p < 2^31 in the declared regime, so the reduced value is u64.
+            let bytes = r.to_bytes_le();
+            let mut out = 0u64;
+            for (i, b) in bytes.iter().enumerate().take(8) {
+                out |= (*b as u64) << (8 * i);
+            }
+            out % p
+        })
+        .collect()
+}
+
+/// Converts a GF(p) polynomial's coefficients into ZZ coefficients in
+/// `[0, p)`.
+fn fp_to_z(v: &[u64]) -> Vec<BigInt> {
+    v.iter().map(|c| BigInt::from_u64(*c)).collect()
+}
+
+fn fp_bezout(a: &[u64], b: &[u64], p: u64) -> (Vec<u64>, Vec<u64>) {
+    let mut r0 = a.to_vec();
+    let mut r1 = b.to_vec();
+    let mut s0 = vec![1u64];
+    let mut s1: Vec<u64> = Vec::new();
+    let mut t0: Vec<u64> = Vec::new();
+    let mut t1 = vec![1u64];
+    while !r1.is_empty() {
+        // Euclid requires a monic divisor: scale r1 (and its Bezout
+        // coefficients by the same unit) so the invariants `s_k*a + t_k*b
+        // == r_k` are preserved.
+        let lead = *r1.last().expect("nonempty by the loop guard");
+        if lead != 1 {
+            let inv = fp_scalar_inverse(lead, p);
+            for c in &mut r1 {
+                *c = *c * inv % p;
+            }
+            for c in &mut s1 {
+                *c = *c * inv % p;
+            }
+            for c in &mut t1 {
+                *c = *c * inv % p;
+            }
+        }
+        let q = fp_div_monic(&r0, &r1, p);
+        let q = if q.is_empty() { vec![0u64] } else { q };
+        let rem = fp_rem_monic(&r0, &r1, p);
+        let s2 = fp_sub(&s0, &fp_mul(&q, &s1, p), p);
+        let t2 = fp_sub(&t0, &fp_mul(&q, &t1, p), p);
+        r0 = std::mem::replace(&mut r1, rem);
+        s0 = std::mem::replace(&mut s1, s2);
+        t0 = std::mem::replace(&mut t1, t2);
+    }
+    // r0 is the (monic-normalized) gcd; normalize the final unit.
+    if let Some(last) = r0.last().copied()
+        && last != 1
+    {
+        let inv = fp_scalar_inverse(last, p);
+        for c in &mut s0 {
+            *c = *c * inv % p;
+        }
+        for c in &mut t0 {
+            *c = *c * inv % p;
+        }
+    }
+    (s0, t0)
+}
+
+/// Classical two-factor Hensel lift: given `base ≡ u*v (mod p)` with
+/// `gcd(u, v) = 1` over GF(p), returns `(U, V)` over ZZ with
+/// `base ≡ U*V (mod m)` for `m` = the first power of `p` that is `>= target`,
+/// `U ≡ u (mod p)`, `V ≡ v (mod p)`.
+fn hensel_lift_pair(
+    base: &[BigInt],
+    u: &[u64],
+    v: &[u64],
+    p: u64,
+    target: &BigInt,
+) -> (Vec<BigInt>, Vec<BigInt>) {
+    let (bez_s, bez_t) = fp_bezout(u, v, p);
+    let mut big_u = fp_to_z(u);
+    let mut big_v = fp_to_z(v);
+    let mut m = BigInt::from_u64(p);
+    let p_big = BigInt::from_u64(p);
+    while &m < target {
+        // c = (base - U*V) / m, exact by the invariant.
+        let product = z_mul(&big_u, &big_v);
+        let c: Vec<BigInt> = base
+            .iter()
+            .zip(product.iter())
+            .map(|(b, uv)| {
+                let diff = b.clone() - uv;
+                let (q, r) = diff.div_rem(&m);
+                debug_assert!(
+                    r == BigInt::from_u64(0),
+                    "hensel invariant violated at m={m}: correction {diff} leaves remainder {r}"
+                );
+                q
+            })
+            .collect();
+        let c_fp = z_to_fp(&c, p);
+        let alpha_raw = fp_mul(&c_fp, &bez_t, p);
+        let alpha = fp_rem_monic(&alpha_raw, u, p);
+        let k = fp_div_monic(&alpha_raw, u, p);
+        let beta = fp_add(&fp_mul(&c_fp, &bez_s, p), &fp_mul(&k, v, p), p);
+        let lift_u: Vec<BigInt> = alpha
+            .iter()
+            .map(|c| m.clone() * BigInt::from_u64(*c))
+            .collect();
+        let lift_v: Vec<BigInt> = beta
+            .iter()
+            .map(|c| m.clone() * BigInt::from_u64(*c))
+            .collect();
+        big_u = z_add(&big_u, &lift_u);
+        big_v = z_add(&big_v, &lift_v);
+        m = m.clone() * p_big.clone();
+    }
+    (big_u, big_v)
+}
+
+/// Mignotte-type coefficient bound for a factor of a monic integer
+/// polynomial: `binom(d, d/2) * (d+1) * max|coeff|` is a safe integer upper
+/// bound for every coefficient of every integer factor.
+fn mignotte_bound(z: &[BigInt]) -> BigInt {
+    let d = z.len() - 1;
+    let half = d / 2;
+    let mut binom = BigInt::from_u64(1);
+    for k in 0..half {
+        binom = binom * BigInt::from_u64((d - k) as u64) / BigInt::from_u64((k + 1) as u64);
+    }
+    let max_abs = z
+        .iter()
+        .map(|c| c.abs())
+        .max()
+        .unwrap_or_else(|| BigInt::from_u64(0));
+    binom * BigInt::from_u64((d + 1) as u64) * max_abs
+}
+
+/// Independent Rabin check used by the verifier lane (deliberately coded
+/// separately from the generator's `fp_rabin_irreducible`).
+fn verify_irreducible_mod_prime(int_poly: &[BigInt], prime: &BigInt) -> bool {
+    // The verifier regime caps primes below 2^32 so GF(p) coefficients fit u64.
+    if prime.bits() > 32 {
+        return false;
+    }
+    let bytes = prime.to_bytes_le();
+    let mut p = 0u64;
+    for (i, b) in bytes.iter().enumerate().take(8) {
+        p |= (*b as u64) << (8 * i);
+    }
+    if p < 2 {
+        return false;
+    }
+    let f = z_to_fp(int_poly, p);
+    if f.len() <= 1 {
+        return false;
+    }
+    // Square-free check.
+    if fp_gcd(f.clone(), fp_derivative(&f, p), p).len() > 1 {
+        return false;
+    }
+    let d: u64 = (f.len() - 1) as u64;
+    let mut frob = vec![0u64, 1];
+    for _ in 0..d {
+        frob = fp_pow_mod(&frob, p, &f, p);
+    }
+    let x = fp_rem_monic(&[0u64, 1], &f, p);
+    if frob != x {
+        return false;
+    }
+    // For each prime divisor ell of d: gcd(x^(p^(d/ell)) - x, f) == 1.
+    // powers[k] = x^(p^k) mod f, built independently by d Frobenius steps.
+    let mut powers = Vec::with_capacity(d as usize + 1);
+    powers.push(vec![0u64, 1]);
+    for _ in 0..d {
+        let next = fp_pow_mod(&powers[powers.len() - 1], p, &f, p);
+        powers.push(next);
+    }
+    for ell in [
+        2u64, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61,
+    ] {
+        if ell <= d && d.is_multiple_of(ell) {
+            let diff = fp_sub(&powers[(d / ell) as usize], &[0, 1], p);
+            if fp_gcd(diff, f.clone(), p).len() > 1 {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// Searches a fresh prime budget for a Rabin-verified irreducibility
+/// witness of a primitive integer polynomial.
+fn prime_to_u64(prime: &BigInt) -> u64 {
+    let bytes = prime.to_bytes_le();
+    let mut v = 0u64;
+    for (i, b) in bytes.iter().enumerate().take(8) {
+        v |= (*b as u64) << (8 * i);
+    }
+    v
+}
+
+/// Searches a fresh prime budget for a Rabin-verified irreducibility
+/// witness of a primitive integer polynomial. Generator-side selection uses
+/// the generator's own Rabin test; the verifier later re-checks the recorded
+/// prime through its independently coded lane.
+fn irreducibility_witness(int_poly: &[BigInt]) -> Option<IrreducibilityWitness> {
+    let mut stream = fsym_modular::PrimeStream::new();
+    for _ in 0..PRIME_ATTEMPTS {
+        let prime = stream.try_next().ok()?;
+        let (_, rem) = int_poly.last().expect("nonempty").div_rem(&prime);
+        if rem.is_zero() {
+            continue; // the prime divides the leading coefficient: skip it
+        }
+        if prime.bits() > 31 {
+            continue;
+        }
+        let p = prime_to_u64(&prime);
+        let fp = z_to_fp(int_poly, p);
+        if fp_rabin_irreducible(&fp, p) {
+            return Some(IrreducibilityWitness { prime });
+        }
+    }
+    None
+}
+
+fn combinations_of(pool: &[usize], size: usize) -> Vec<Vec<usize>> {
+    let mut out = Vec::new();
+    let mut current = Vec::new();
+    fn walk(
+        pool: &[usize],
+        start: usize,
+        size: usize,
+        current: &mut Vec<usize>,
+        out: &mut Vec<Vec<usize>>,
+    ) {
+        if current.len() == size {
+            out.push(current.clone());
+            return;
+        }
+        for (offset, item) in pool.iter().enumerate().skip(start) {
+            current.push(*item);
+            walk(pool, offset + 1, size, current, out);
+            current.pop();
+        }
+    }
+    walk(pool, 0, size, &mut current, &mut out);
+    out
+}
+
+/// Factors a monic square-free primitive integer polynomial completely.
+/// Every returned factor is monic, and every factor is irreducible over ZZ:
+/// accepted recombination candidates are proven irreducible by the ascending
+/// subset argument, and the trailing remainder is proven irreducible because
+/// no proper subset product divides it.
+fn zassenhaus_monic(
+    z: &[BigInt],
+    meter: &mut impl BudgetMeter,
+) -> Result<Vec<Vec<BigInt>>, PolyError> {
+    let degree = z.len() - 1;
+    if degree == 0 {
+        return Ok(Vec::new());
+    }
+    if degree == 1 {
+        return Ok(vec![z.to_vec()]);
+    }
+    // Prime search: odd, the reduction must stay square-free with at most
+    // MAX_MODP_FACTORS irreducible factors.
+    let mut stream = fsym_modular::PrimeStream::new();
+    let mut chosen: Option<(u64, Vec<Vec<u64>>)> = None;
+    for _ in 0..LIFT_PRIME_ATTEMPTS {
+        meter
+            .checkpoint()
+            .map_err(|e| PolyError::General(format!("cancelled: {e}")))?;
+        let prime = match stream.try_next() {
+            Ok(prime) => prime,
+            Err(_) => continue,
+        };
+        if prime.bits() > 31 {
+            continue; // keep GF(p) coefficients inside u64 arithmetic
+        }
+        let p = {
+            let bytes = prime.to_bytes_le();
+            let mut v = 0u64;
+            for (i, b) in bytes.iter().enumerate().take(8) {
+                v |= (*b as u64) << (8 * i);
+            }
+            v
+        };
+        if p < 3 {
+            continue;
+        }
+        let fp = z_to_fp(z, p);
+        if fp.len() - 1 != degree {
+            continue; // prime divides the leading coefficient (defensive)
+        }
+        if !fp_is_squarefree(&fp, p) {
+            continue;
+        }
+        let factors = match fp_factor_squarefree(&fp, p) {
+            Ok(factors) => factors,
+            Err(_) => continue,
+        };
+        if factors.len() > MAX_MODP_FACTORS {
+            continue;
+        }
+        chosen = Some((p, factors));
+        break;
+    }
+    let (p, modp_factors) = chosen.ok_or_else(|| {
+        PolyError::General(format!(
+            "refused: no usable lifting prime found within {LIFT_PRIME_ATTEMPTS} attempts \
+             for degree-{degree} square-free part"
+        ))
+    })?;
+
+    // Mignotte target: smallest power p^e strictly above 2 * bound.
+    let bound = mignotte_bound(z);
+    let mut target = BigInt::from_u64(p);
+    let twice = bound.clone() * BigInt::from_u64(2) + BigInt::from_u64(1);
+    while target <= twice {
+        target = target.clone() * BigInt::from_u64(p);
+    }
+    #[cfg(any(test, debug_assertions))]
+    eprintln!(
+        "[zassenhaus] degree={} prime={} modp_factors={} target={}",
+        degree,
+        p,
+        modp_factors.len(),
+        target
+    );
+    #[cfg(any(test, debug_assertions))]
+    for (idx, fp_factor) in modp_factors.iter().enumerate() {
+        eprintln!("[zassenhaus]   u_{idx} = {fp_factor:?}");
+    }
+
+    // Nested binary Hensel lifting: each step lifts one mod-p factor of the
+    // current remainder to the full target modulus.
+    let modp_z: Vec<Vec<BigInt>> = modp_factors.iter().map(|f| fp_to_z(f)).collect();
+    let mut lifted: Vec<Vec<BigInt>> = Vec::with_capacity(modp_z.len());
+    let mut base = z.to_vec();
+    for u_fp_full in modp_factors.iter().take(modp_z.len().saturating_sub(1)) {
+        meter
+            .checkpoint()
+            .map_err(|e| PolyError::General(format!("cancelled: {e}")))?;
+        let u_fp = u_fp_full.clone();
+        let base_fp = z_to_fp(&base, p);
+        let w_fp = fp_div_monic(&base_fp, &u_fp, p);
+        let (lifted_u, lifted_v) = hensel_lift_pair(&base, &u_fp, &w_fp, p, &target);
+        lifted.push(lifted_u);
+        base = lifted_v;
+    }
+    z_trim(&mut base);
+    lifted.push(base);
+
+    let pe = {
+        // target is itself a power of p >= the needed modulus.
+        target
+    };
+    let pool: Vec<usize> = (0..lifted.len()).collect();
+    let mut found: Vec<Vec<BigInt>> = Vec::new();
+    recombine_monic(z.to_vec(), &pool, &lifted, &pe, &mut found, meter)?;
+    Ok(found)
+}
+
+/// Zassenhaus recombination: ascending subset sizes against the remaining
+/// polynomial. Accepted candidates and the trailing remainder are each
+/// irreducible over ZZ (a proper factor of an accepted candidate would have
+/// been found at a strictly smaller subset size against the same remaining
+/// polynomial).
+fn recombine_monic(
+    remaining: Vec<BigInt>,
+    pool: &[usize],
+    lifted: &[Vec<BigInt>],
+    pe: &BigInt,
+    out: &mut Vec<Vec<BigInt>>,
+    meter: &mut impl BudgetMeter,
+) -> Result<(), PolyError> {
+    if remaining.len() <= 1 {
+        return Ok(());
+    }
+    for size in 1..=pool.len() / 2 {
+        meter
+            .checkpoint()
+            .map_err(|e| PolyError::General(format!("cancelled: {e}")))?;
+        for combo in combinations_of(pool, size) {
+            let mut prod = vec![BigInt::from_u64(1)];
+            for &i in &combo {
+                prod = z_mul(&prod, &lifted[i]);
+            }
+            let mut cand = z_symmetric_reduce(&prod, pe);
+            z_trim(&mut cand);
+            if cand.len() <= 1 {
+                continue;
+            }
+            if let Some(quotient) = z_div_monic(&remaining, &cand) {
+                out.push(cand);
+                let next_pool: Vec<usize> = pool
+                    .iter()
+                    .copied()
+                    .filter(|i| !combo.contains(i))
+                    .collect();
+                return recombine_monic(quotient, &next_pool, lifted, pe, out, meter);
+            }
+        }
+    }
+    // No proper subset product divides: the remainder is irreducible over ZZ.
+    out.push(remaining);
+    Ok(())
+}
+
+type PartFactorization = (
+    BigRational,
+    Vec<(UnivariatePoly, Option<IrreducibilityWitness>)>,
+);
+
+/// Factors one square-free QQ part completely. Returns the part's scalar and
+/// its monic irreducible factors.
+fn factor_squarefree_part(
+    part: &UnivariatePoly,
+    meter: &mut impl BudgetMeter,
+) -> Result<PartFactorization, PolyError> {
+    let degree = part.degree().unwrap_or(0);
+    if degree == 0 {
+        return Ok((part.coeffs[0].clone(), Vec::new()));
+    }
+    // Make monic over QQ; the leading coefficient moves into the scale.
+    let lc = part.leading_coeff().clone();
+    let monic = part.make_monic()?;
+    let mut scale = lc;
+
+    // Clear denominators: Z = D * monic is a primitive integer polynomial
+    // whose leading coefficient is D.
+    let mut lcm_den = BigInt::from_u64(1);
+    for c in &monic.coeffs {
+        let den = c.denom().clone();
+        lcm_den = lcm_den.clone() * den.clone() / den.gcd(&lcm_den);
+    }
+    let mut z_int: Vec<BigInt> = monic
+        .coeffs
+        .iter()
+        .map(|c| {
+            let (num, _) = (c.numer().clone(), c.denom().clone());
+            num * (lcm_den.clone() / c.denom().clone())
+        })
+        .collect();
+    // Integer content back into the scale.
+    let gamma = z_int
+        .iter()
+        .fold(None::<BigInt>, |acc, c| {
+            Some(match acc {
+                Some(a) => a.gcd(c),
+                None => c.clone(),
+            })
+        })
+        .unwrap_or_else(|| BigInt::from_u64(1));
+    if !gamma.is_zero() && gamma != BigInt::from_u64(1) {
+        for c in &mut z_int {
+            let (q, r) = c.clone().div_rem(&gamma);
+            debug_assert!(r.is_zero());
+            *c = q;
+        }
+    }
+    scale = scale * BigRational::from_integer(gamma) / BigRational::from_integer(lcm_den.clone());
+    if z_coeff_max_bits(&z_int) > MAX_FACTOR_COEFF_BITS as u64 {
+        return Err(PolyError::General(format!(
+            "refused: primitive coefficient height exceeds the declared \
+             complete-factorization bound of {MAX_FACTOR_COEFF_BITS} bits"
+        )));
+    }
+
+    // Monic transform when the primitive leading coefficient is not 1:
+    // M(x) = a^(d-1) * Z(x/a) is monic integer and factors correspond
+    // one-to-one through x -> x/a (Gauss).
+    let lead_a = z_int[z_int.len() - 1].clone();
+    let transformed = lead_a != BigInt::from_u64(1);
+    let monic_int: Vec<BigInt> = if transformed {
+        let a = lead_a.clone();
+        (0..=degree)
+            .map(|k| {
+                if k == degree {
+                    BigInt::from_u64(1) // z_d = a, so a^(d-1-d) * z_d = 1
+                } else {
+                    z_int[k].clone() * a.pow((degree - 1 - k) as u32)
+                }
+            })
+            .collect()
+    } else {
+        z_int.clone()
+    };
+    // Z' = a^(1-d) * prod(H_i(a*x)) after the monic transform: the a^(1-d)
+    // denominator is absorbed into the part scale.
+    if transformed {
+        scale *= BigRational::from_integer(lead_a.clone())
+            .pow(1 - degree as i32)
+            .map_err(|e| PolyError::General(format!("scale power failed: {e}")))?;
+    }
+    let int_factors = zassenhaus_monic(&monic_int, meter)?;
+    let mut out = Vec::new();
+    for int_factor in int_factors {
+        let mapped_int: Vec<BigInt> = if transformed {
+            let a = lead_a.clone();
+            int_factor
+                .iter()
+                .enumerate()
+                .map(|(k, c)| c.clone() * a.pow(k as u32))
+                .collect()
+        } else {
+            int_factor.clone()
+        };
+        // Primitive associate carries the content into the scale.
+        let content = mapped_int
+            .iter()
+            .fold(None::<BigInt>, |acc, c| {
+                Some(match acc {
+                    Some(a) => a.gcd(c),
+                    None => c.clone(),
+                })
+            })
+            .unwrap_or_else(|| BigInt::from_u64(1));
+        let primitive: Vec<BigInt> = if content != BigInt::from_u64(1) {
+            mapped_int
+                .iter()
+                .map(|c| c.clone() / content.clone())
+                .collect()
+        } else {
+            mapped_int.clone()
+        };
+        scale *= BigRational::from_integer(content);
+        let pre_monic_lc = primitive
+            .last()
+            .cloned()
+            .unwrap_or_else(|| BigInt::from_u64(1));
+        let coeffs: Vec<BigRational> = primitive
+            .iter()
+            .map(|c| BigRational::from_integer(c.clone()))
+            .collect();
+        let factor_poly = UnivariatePoly::new(part.gen_sym.clone(), coeffs).make_monic()?;
+        scale *= BigRational::from_integer(pre_monic_lc);
+        let witness = irreducibility_witness(&primitive);
+        out.push((factor_poly, witness));
+    }
+    Ok((scale, out))
+}
+
+/// Complete bounded factorization over QQ/ZZ with per-factor irreducibility
+/// evidence. Outside the declared regime this refuses explicitly; it never
+/// returns a partial factorization presented as complete.
+pub fn metered_complete_factorization<M: BudgetMeter>(
+    poly: &UnivariatePoly,
+    meter: &mut M,
+) -> Result<CompleteFactorization, PolyError> {
+    poly.validate_shape()?;
+    if poly.is_zero() {
+        return Ok(CompleteFactorization {
+            scale: BigRational::zero(),
+            factors: Vec::new(),
+        });
+    }
+    let degree = poly.degree().unwrap_or(0);
+    if degree > MAX_FACTOR_DEGREE {
+        return Err(PolyError::General(format!(
+            "refused: degree {degree} exceeds the declared complete-factorization \
+             bound of {MAX_FACTOR_DEGREE}"
+        )));
+    }
+    if degree == 0 {
+        return Ok(CompleteFactorization {
+            scale: poly.coeffs[0].clone(),
+            factors: Vec::new(),
+        });
+    }
+    meter
+        .checkpoint()
+        .map_err(|e| PolyError::General(format!("cancelled: {e}")))?;
+    let square_free = square_free_decomposition(poly)?;
+    let mut scale = square_free.scale.clone();
+    let mut factors: Vec<CompleteFactorTerm> = Vec::new();
+    for term in &square_free.factors {
+        let (part_scale, part_factors) = factor_squarefree_part(&term.poly, meter)?;
+        scale *= part_scale
+            .pow(term.multiplicity as i32)
+            .map_err(|e| PolyError::General(format!("factorization scale power failed: {e}")))?;
+        for (factor_poly, witness) in part_factors {
+            if let Some(existing) = factors
+                .iter_mut()
+                .find(|f| f.poly == factor_poly && f.irreducibility == witness)
+            {
+                existing.multiplicity += term.multiplicity;
+            } else {
+                factors.push(CompleteFactorTerm {
+                    poly: factor_poly,
+                    multiplicity: term.multiplicity,
+                    irreducibility: witness,
+                });
+            }
+        }
+    }
+    let result = CompleteFactorization { scale, factors };
+    verify_complete_factorization(poly, &result)?;
+    Ok(result)
+}
+
+/// Convenience wrapper over [`metered_complete_factorization`] with no
+/// budget.
+pub fn complete_factorization(poly: &UnivariatePoly) -> Result<CompleteFactorization, PolyError> {
+    metered_complete_factorization(poly, &mut Unbounded)
+}
+
+impl CompleteFactorization {
+    /// Reconstructs the expanded product polynomial.
+    pub fn expand(&self, sym: Symbol) -> Result<UnivariatePoly, PolyError> {
+        let mut prod = UnivariatePoly::new(sym.clone(), vec![self.scale.clone()]);
+        for term in &self.factors {
+            let power = term.poly.pow(term.multiplicity as u32)?;
+            prod = prod.mul(&power)?;
+        }
+        Ok(prod)
+    }
+}
+
+/// Independent verification lane for a complete factorization: product
+/// identity, canonical factor shape, pairwise coprimality via resultants,
+/// and — for every claimed witness — an independently coded Rabin check.
+/// The generator's decisions are never trusted as authority.
+pub fn verify_complete_factorization(
+    poly: &UnivariatePoly,
+    factorization: &CompleteFactorization,
+) -> Result<(), PolyError> {
+    poly.validate_shape()?;
+    let expanded = factorization.expand(poly.gen_sym.clone())?;
+    if expanded != *poly {
+        return Err(PolyError::IdentityCheckFailed(
+            "complete factorization product does not reproduce the input polynomial".to_string(),
+        ));
+    }
+    for term in &factorization.factors {
+        term.poly.validate_shape()?;
+        if term.multiplicity == 0 {
+            return Err(PolyError::IdentityCheckFailed(
+                "factor multiplicity must be positive".to_string(),
+            ));
+        }
+        if !term.poly.is_monic() {
+            return Err(PolyError::IdentityCheckFailed(
+                "complete-factorization factors must be monic".to_string(),
+            ));
+        }
+        if let Some(witness) = &term.irreducibility {
+            // Independent re-check: clear denominators and run the
+            // verifier's own Rabin implementation.
+            let mut lcm_den = BigInt::from_u64(1);
+            for c in &term.poly.coeffs {
+                let den = c.denom().clone();
+                lcm_den = lcm_den.clone() * den.clone() / den.gcd(&lcm_den);
+            }
+            let int_poly: Vec<BigInt> = term
+                .poly
+                .coeffs
+                .iter()
+                .map(|c| c.numer().clone() * (lcm_den.clone() / c.denom().clone()))
+                .collect();
+            if !verify_irreducible_mod_prime(&int_poly, &witness.prime) {
+                return Err(PolyError::IdentityCheckFailed(format!(
+                    "irreducibility witness {} failed independent verification",
+                    witness.prime
+                )));
+            }
+        }
+    }
+    // Pairwise coprimality: distinct monic irreducible factors have a
+    // nonzero resultant.
+    for i in 0..factorization.factors.len() {
+        for j in (i + 1)..factorization.factors.len() {
+            let res = factorization.factors[i]
+                .poly
+                .resultant(&factorization.factors[j].poly)?;
+            if res.is_zero() {
+                return Err(PolyError::IdentityCheckFailed(
+                    "complete-factorization factors must be pairwise coprime".to_string(),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod complete_factorization_tests {
+    use super::*;
+    use fsym_budget::{Dimension, MeterError};
+
+    fn sym() -> Symbol {
+        Symbol::new("x")
+    }
+
+    /// Ascending integer-coefficient polynomial.
+    fn ipoly(coeffs: &[i64]) -> UnivariatePoly {
+        let coeffs = coeffs
+            .iter()
+            .map(|c| BigRational::from_integer(BigInt::from(*c)))
+            .collect();
+        UnivariatePoly::new(sym(), coeffs)
+    }
+
+    fn witness_count(result: &CompleteFactorization) -> usize {
+        result
+            .factors
+            .iter()
+            .filter(|f| f.irreducibility.is_some())
+            .count()
+    }
+
+    #[test]
+    fn quartic_without_rational_roots_factors_with_witnesses() {
+        // x^4 + 4 = (x^2 - 2x + 2)(x^2 + 2x + 2): the reality-check repro.
+        let p = ipoly(&[4, 0, 0, 0, 1]);
+        let result = complete_factorization(&p).expect("factors within bounds");
+        assert_eq!(result.scale, BigRational::from_integer(BigInt::from(1)));
+        assert_eq!(result.factors.len(), 2, "both quadratic factors found");
+        for term in &result.factors {
+            assert_eq!(term.multiplicity, 1);
+            assert_eq!(term.poly.degree(), Some(2));
+        }
+        // Exact product identity plus independent certificate verification.
+        verify_complete_factorization(&p, &result).expect("verifier accepts");
+        // The factors are provably irreducible; the declared prime budget is
+        // generous enough that both witnesses are found for this input.
+        assert_eq!(witness_count(&result), 2, "both quadratics carry witnesses");
+    }
+
+    #[test]
+    fn irreducible_quartic_stays_whole_with_a_witness() {
+        // x^4 + 1 is irreducible over ZZ.
+        let p = ipoly(&[1, 0, 0, 0, 1]);
+        let result = complete_factorization(&p).expect("factors within bounds");
+        assert_eq!(result.factors.len(), 1);
+        assert_eq!(result.factors[0].multiplicity, 1);
+        assert_eq!(result.factors[0].poly.degree(), Some(4));
+        // NOTE: x^4 + 1 is the canonical polynomial that is irreducible over
+        // ZZ yet reducible modulo every prime, so the weaker claim (no Rabin
+        // witness) is the correct outcome here per the bead's deliverable.
+        assert!(result.factors[0].irreducibility.is_none());
+        verify_complete_factorization(&p, &result).expect("verifier accepts");
+    }
+
+    #[test]
+    fn multiplicities_and_linear_factors_survive_the_complete_path() {
+        // (x - 3) * (x^2 + 1)^2
+        let p = ipoly(&[-3, 1, -6, 2, -3, 1]);
+        let result = complete_factorization(&p).expect("factors within bounds");
+        let squares: Vec<_> = result
+            .factors
+            .iter()
+            .filter(|f| f.poly.degree() == Some(2))
+            .collect();
+        assert_eq!(squares.len(), 1, "x^2 + 1 appears once with multiplicity");
+        assert_eq!(squares[0].multiplicity, 2);
+        let linear: Vec<_> = result
+            .factors
+            .iter()
+            .filter(|f| f.poly.degree() == Some(1))
+            .collect();
+        assert_eq!(linear.len(), 1);
+        assert_eq!(linear[0].multiplicity, 1);
+        verify_complete_factorization(&p, &result).expect("verifier accepts");
+    }
+
+    #[test]
+    fn non_monic_primitive_part_factors_through_the_monic_transform() {
+        // 2x^2 + x - 6 = (x + 2)(2x - 3)
+        let p = crate::factorization::complete_factorization_tests::ipoly(&[-6, 1, 2]);
+        let result = complete_factorization(&p).expect("factors within bounds");
+        verify_complete_factorization(&p, &result).expect("verifier accepts");
+        assert_eq!(result.factors.len(), 2);
+        let expanded = result.expand(Symbol::new("x")).expect("expands");
+        assert_eq!(expanded, p, "product identity after the monic transform");
+    }
+
+    #[test]
+    fn degree_bound_is_a_typed_refusal() {
+        // Degree 65 > declared cap 64.
+        let coeffs: Vec<i64> = std::iter::once(1)
+            .chain(std::iter::repeat_n(0, 64))
+            .chain(std::iter::once(1))
+            .collect();
+        let p = ipoly(&coeffs);
+        let err = complete_factorization(&p).unwrap_err();
+        assert!(
+            matches!(err, PolyError::General(ref m) if m.contains("refused")),
+            "expected a typed refusal, got {err}"
+        );
+    }
+
+    #[test]
+    fn coefficient_height_bound_is_a_typed_refusal() {
+        // A primitive coefficient exceeding the declared 2048-bit height.
+        let big = BigInt::from_u64(1) << 2100u32;
+        let p = UnivariatePoly::new(
+            sym(),
+            vec![
+                BigRational::from_integer(big),
+                BigRational::zero(),
+                BigRational::one(),
+            ],
+        );
+        let err = complete_factorization(&p).unwrap_err();
+        assert!(
+            matches!(err, PolyError::General(ref m) if m.contains("refused")),
+            "expected a typed refusal, got {err}"
+        );
+    }
+
+    struct CancellingMeter {
+        checkpoints_left: u32,
+    }
+
+    impl BudgetMeter for CancellingMeter {
+        fn charge(&mut self, _: Dimension, _: u64) -> Result<(), MeterError> {
+            Ok(())
+        }
+        fn charge_batch(&mut self, _: &[(Dimension, u64)]) -> Result<(), MeterError> {
+            Ok(())
+        }
+        fn checkpoint(&mut self) -> Result<(), MeterError> {
+            if self.checkpoints_left == 0 {
+                return Err(MeterError::Cancelled);
+            }
+            self.checkpoints_left -= 1;
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn cancellation_at_a_safe_point_surfaces_as_cancelled() {
+        let p = ipoly(&[4, 0, 0, 0, 1]);
+        let mut meter = CancellingMeter {
+            checkpoints_left: 0,
+        };
+        let err = metered_complete_factorization(&p, &mut meter).unwrap_err();
+        assert!(
+            matches!(err, PolyError::General(ref m) if m.contains("cancelled")),
+            "expected the cancellation to surface, got {err}"
+        );
+        // With budget for a few safe points the same input completes.
+        let mut meter = CancellingMeter {
+            checkpoints_left: 8,
+        };
+        let result = metered_complete_factorization(&p, &mut meter).expect("completes");
+        verify_complete_factorization(&p, &result).expect("verifier accepts");
+    }
 }

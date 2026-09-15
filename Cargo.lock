@@ -767,6 +767,7 @@ dependencies = [
  "fsym-core",
  "fsym-evidence",
  "fsym-id",
+ "fsym-modular",
  "fsym-outcome",
  "fsym-proof-kernel",
  "num-traits",
