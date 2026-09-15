@@ -26,6 +26,10 @@ use serde::{Deserialize, Serialize};
 use std::{fmt, sync::Arc};
 
 /// Canonical budget dimensions charged by symbolic work.
+///
+/// The canonical order is a persisted format: existing indices never churn
+/// when a dimension is added, so new variants are appended (WS02 residual
+/// audit, bead fra-ys1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum Dimension {
     ComputeSteps,
@@ -33,10 +37,19 @@ pub enum Dimension {
     AllocationCount,
     DepthLimit,
     RandomDraws,
+    /// Metered wall time in microseconds, charged by supervised lanes:
+    /// bounded Python callback boundaries (registries/python_effects.toml
+    /// `callback_boundary`) and timed-out work, which must charge its
+    /// elapsed time before returning `TimedOut` (runtime discipline: all
+    /// transient work is charged). Mirrors `ResourceClass::TimeBudget` in
+    /// `fsym-outcome`, which previously named a resource class no meter
+    /// could charge — the bounded refusal path for time exhaustion was
+    /// missing at the metering layer.
+    TimeBudget,
 }
 
 /// Number of distinct [`Dimension`] values.
-pub const DIMENSION_COUNT: usize = 5;
+pub const DIMENSION_COUNT: usize = 6;
 
 impl Dimension {
     /// All dimensions in canonical order.
@@ -46,6 +59,7 @@ impl Dimension {
         Dimension::AllocationCount,
         Dimension::DepthLimit,
         Dimension::RandomDraws,
+        Dimension::TimeBudget,
     ];
 
     /// Index into canonical order.
@@ -56,6 +70,7 @@ impl Dimension {
             Dimension::AllocationCount => 2,
             Dimension::DepthLimit => 3,
             Dimension::RandomDraws => 4,
+            Dimension::TimeBudget => 5,
         }
     }
 
@@ -67,6 +82,7 @@ impl Dimension {
             Dimension::AllocationCount => "allocation_count",
             Dimension::DepthLimit => "depth_limit",
             Dimension::RandomDraws => "random_draws",
+            Dimension::TimeBudget => "time_budget",
         }
     }
 }
@@ -515,6 +531,88 @@ impl Budget {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // WS02 residual (fra-ys1): the time dimension closes the metering gap
+    // that left ResourceClass::TimeBudget without a chargeable canonical
+    // dimension. Timeouts charge elapsed time before returning TimedOut.
+    #[test]
+    fn time_budget_charges_refuses_and_refunds_like_any_dimension() {
+        let mut budget = Budget::new(BudgetLimits::uniform(1_000, 5));
+        let receipt = budget
+            .try_charge(Dimension::TimeBudget, 400)
+            .expect("microsecond charge fits");
+        assert_eq!(budget.remaining(Dimension::TimeBudget), 600);
+
+        let err = budget.try_charge(Dimension::TimeBudget, 601).unwrap_err();
+        assert_eq!(
+            err,
+            BudgetError::Exhausted {
+                dimension: Dimension::TimeBudget,
+                requested: 601,
+                remaining: 600
+            }
+        );
+        // The refused charge is atomic: nothing moved.
+        assert_eq!(budget.remaining(Dimension::TimeBudget), 600);
+
+        budget
+            .refund(receipt)
+            .expect("refund returns to same ledger");
+        assert_eq!(budget.remaining(Dimension::TimeBudget), 1_000);
+        assert!(matches!(
+            budget.try_charge(Dimension::TimeBudget, 0),
+            Err(BudgetError::ZeroCharge)
+        ));
+    }
+
+    #[test]
+    fn canonical_dimension_order_is_a_persisted_format() {
+        // Indices are persisted in snapshots and receipts; appending a new
+        // dimension must never shift existing ones.
+        let expected: [(Dimension, usize, &str); 6] = [
+            (Dimension::ComputeSteps, 0, "compute_steps"),
+            (Dimension::MemoryBytes, 1, "memory_bytes"),
+            (Dimension::AllocationCount, 2, "allocation_count"),
+            (Dimension::DepthLimit, 3, "depth_limit"),
+            (Dimension::RandomDraws, 4, "random_draws"),
+            (Dimension::TimeBudget, 5, "time_budget"),
+        ];
+        for (dimension, index, name) in expected {
+            assert_eq!(dimension.index(), index, "{name} index churned");
+            assert_eq!(dimension.as_str(), name);
+        }
+        assert_eq!(Dimension::ALL.len(), DIMENSION_COUNT);
+        for (position, dimension) in Dimension::ALL.iter().enumerate() {
+            assert_eq!(dimension.index(), position);
+        }
+        // The L0 reporting view names every canonical dimension one-to-one;
+        // this is the audit invariant that failed before TimeBudget existed.
+        assert_eq!(DIMENSION_COUNT, 6);
+    }
+
+    #[test]
+    fn time_budget_refuses_at_child_reservation_boundaries() {
+        let mut parent = Budget::new(BudgetLimits::uniform(100, 2));
+        let child = parent
+            .reserve_child(BudgetLimits::uniform(50, 0))
+            .expect("child within parent");
+        let mut child = child;
+        child
+            .try_charge(Dimension::TimeBudget, 50)
+            .expect("child charge fits child cap");
+        let err = child.try_charge(Dimension::TimeBudget, 1).unwrap_err();
+        assert_eq!(
+            err,
+            BudgetError::Exhausted {
+                dimension: Dimension::TimeBudget,
+                requested: 1,
+                remaining: 0
+            }
+        );
+        // Reserving a child moves the capped allowance out of the parent
+        // immediately; child charges never double-draw from the parent.
+        assert_eq!(parent.remaining(Dimension::TimeBudget), 50);
+    }
 
     #[test]
     fn charges_reduce_and_exhaustion_is_atomic() {

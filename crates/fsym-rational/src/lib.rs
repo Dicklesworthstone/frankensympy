@@ -1840,7 +1840,7 @@ mod tests {
         let rhs = BigRational::new(BigInt::from(-21), BigInt::from(13));
         let mut measured = CountingMeter::default();
         assert_eq!(lhs.metered_cmp(&rhs, &mut measured), Ok(lhs.cmp(&rhs)));
-        assert_eq!(measured.dimensions, [353, 272, 50, 0, 0]);
+        assert_eq!(measured.dimensions, [353, 272, 50, 0, 0, 0]);
         assert_eq!(measured.checkpoints, 407);
         assert!(measured.dimensions[Dimension::ComputeSteps.index()] > 0);
         assert!(measured.dimensions[Dimension::MemoryBytes.index()] > 0);
@@ -2025,7 +2025,7 @@ mod tests {
             BigRational::metered_new(&numerator, &denominator, &mut measured),
             Ok(BigRational::new(BigInt::from(7), BigInt::from(5)))
         );
-        assert_eq!(measured.dimensions, [228, 116, 22, 0, 0]);
+        assert_eq!(measured.dimensions, [228, 116, 22, 0, 0, 0]);
         assert_eq!(measured.checkpoints, 253);
 
         for dimension in [

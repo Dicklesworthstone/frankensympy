@@ -285,8 +285,7 @@ fn an_inflated_snapshot_wealth_still_re_evaluates_the_bound_honestly() {
 
 #[test]
 fn fault_policy_recommends_increase_sampling_and_never_alarms() {
-    let mut monitor = fresh();
-    let mut snapshot = monitor.snapshot();
+    let mut snapshot = fresh().snapshot();
     snapshot.log_wealth = f64::NAN;
     snapshot.faulted = false;
     let mut monitor = CompatibilityDriftMonitor::resume(snapshot).expect("resumes");

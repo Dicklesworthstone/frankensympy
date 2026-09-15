@@ -2635,7 +2635,7 @@ mod tests {
         assert_eq!(metered_crt(&congruences, &mut meter), Ok(None));
         assert_eq!(
             meter.dimensions,
-            [2, 0, 0, 0, 0],
+            [2, 0, 0, 0, 0, 0],
             "modulus preflight must not clone or normalize the large first remainder"
         );
         assert_eq!(meter.checkpoints, 4);
@@ -2810,7 +2810,7 @@ mod tests {
 
         let mut measured = CountingMeter::default();
         assert!(!metered_is_probable_prime(&composite, &mut measured).unwrap());
-        assert_eq!(measured.dimensions, [1_257_341, 236_088, 16_258, 0, 0]);
+        assert_eq!(measured.dimensions, [1_257_341, 236_088, 16_258, 0, 0, 0]);
         assert_eq!(measured.checkpoints, 1_272_866);
 
         let mut limits = BudgetLimits {
@@ -3387,7 +3387,7 @@ mod tests {
         // one-limb prime-versus-root comparisons. Both governed owners charge sign, length, and
         // digit work with four safe points, so restoring either opaque comparator changes this
         // transcript.
-        assert_eq!(measured.dimensions, [1_485, 1_280, 194, 0, 0]);
+        assert_eq!(measured.dimensions, [1_485, 1_280, 194, 0, 0, 0]);
         assert_eq!(measured.checkpoints, 1_677);
         assert_eq!(stream.emitted_capacity, 8);
         assert_eq!(stream.emitted.len(), 5);
@@ -3823,7 +3823,7 @@ mod tests {
         // BATCH-INVERSE-PER-ELEMENT: replacing the one-inverse prefix/reverse lane with four
         // independent scalar inversions still returns these values but changes this transcript.
         // The four membership checks each use the governed sign/length/digit comparator.
-        assert_eq!(measured.dimensions, [581, 1_176, 147, 0, 0]);
+        assert_eq!(measured.dimensions, [581, 1_176, 147, 0, 0, 0]);
         assert_eq!(measured.checkpoints, 756);
         assert_eq!(
             expected,
@@ -3990,7 +3990,7 @@ mod tests {
 
         let reserve_calls = std::cell::Cell::<usize>::new(0);
         let mut budget = Budget::new(BudgetLimits {
-            dimensions: [u64::MAX, 0, u64::MAX, u64::MAX, u64::MAX],
+            dimensions: [u64::MAX, 0, u64::MAX, u64::MAX, u64::MAX, u64::MAX],
             verifier_pool: 0,
         });
         assert!(matches!(
@@ -4270,7 +4270,7 @@ mod tests {
             MontgomeryReducer::metered_new(BigInt::from(3), &mut montgomery).unwrap(),
             MontgomeryReducer::new(BigInt::from(3))
         );
-        assert_eq!(montgomery.dimensions, [290, 480, 89, 0, 0]);
+        assert_eq!(montgomery.dimensions, [290, 480, 89, 0, 0, 0]);
         assert_eq!(montgomery.checkpoints, 393);
 
         let mut barrett = CountingMeter::default();
@@ -4278,7 +4278,7 @@ mod tests {
             BarrettReducer::metered_new(BigInt::from(2), &mut barrett).unwrap(),
             BarrettReducer::new(BigInt::from(2))
         );
-        assert_eq!(barrett.dimensions, [69, 196, 34, 0, 0]);
+        assert_eq!(barrett.dimensions, [69, 196, 34, 0, 0, 0]);
         assert_eq!(barrett.checkpoints, 110);
     }
 
@@ -4329,12 +4329,12 @@ mod tests {
 
         let mut deep_comparison = CountingMeter::default();
         assert!(!metered_equal(&deep_left, &deep_right, &mut deep_comparison).unwrap());
-        assert_eq!(deep_comparison.dimensions, [67, 0, 0, 0, 0]);
+        assert_eq!(deep_comparison.dimensions, [67, 0, 0, 0, 0, 0]);
         assert_eq!(deep_comparison.checkpoints, 68);
 
         let mut shallow_comparison = CountingMeter::default();
         assert!(!metered_equal(&deep_left, &shallow_right, &mut shallow_comparison).unwrap());
-        assert_eq!(shallow_comparison.dimensions, [3, 0, 0, 0, 0]);
+        assert_eq!(shallow_comparison.dimensions, [3, 0, 0, 0, 0, 0]);
         assert_eq!(shallow_comparison.checkpoints, 4);
 
         let left_ring = ModularRing::new(deep_left).unwrap();
@@ -4345,7 +4345,7 @@ mod tests {
         assert_eq!(left.metered_add(&right, &mut measured).unwrap(), None);
         // MODULAR-OPAQUE-CMP-RESTORE: the former aggregate charge plus lhs.cmp(rhs) admits this
         // public refusal with 33 compute steps and only four total checkpoints.
-        assert_eq!(measured.dimensions, [67, 0, 0, 0, 0]);
+        assert_eq!(measured.dimensions, [67, 0, 0, 0, 0, 0]);
         assert_eq!(measured.checkpoints, 70);
 
         let mut one_short_limits = BudgetLimits {

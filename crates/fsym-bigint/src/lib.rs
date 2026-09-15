@@ -4305,7 +4305,7 @@ mod tests {
             metered_sqrt_floor(&long_prefix_radicand, &mut measured),
             Ok(sqrt_floor(&long_prefix_radicand))
         );
-        assert_eq!(measured.dimensions, [94_217, 15_088, 948, 0, 0]);
+        assert_eq!(measured.dimensions, [94_217, 15_088, 948, 0, 0, 0]);
         assert_eq!(measured.checkpoints, 95_081);
     }
 
@@ -4552,7 +4552,7 @@ mod tests {
         );
         assert_eq!(
             (measured.dimensions, measured.checkpoints),
-            ([3011, 2224, 407, 0, 0], 3446)
+            ([3011, 2224, 407, 0, 0, 0], 3446)
         );
         assert_eq!(
             metered_greatest_perfect_power_up_to(&value, u32::MAX, &mut Unbounded),
@@ -4569,7 +4569,7 @@ mod tests {
         );
         assert_eq!(
             (extreme.dimensions, extreme.checkpoints),
-            ([201, 208, 37, 0, 0], 245)
+            ([201, 208, 37, 0, 0, 0], 245)
         );
 
         let miss_value = BigInt::from(72);
@@ -4580,7 +4580,7 @@ mod tests {
         );
         assert_eq!(
             (miss.dimensions, miss.checkpoints),
-            ([2672, 2060, 376, 0, 0], 3070)
+            ([2672, 2060, 376, 0, 0, 0], 3070)
         );
 
         let mut cap_12 = CountingMeter::default();
@@ -4686,7 +4686,7 @@ mod tests {
                 selected_product_cap.dimensions,
                 selected_product_cap.checkpoints
             ),
-            ([148, 108, 19, 0, 0], 167)
+            ([148, 108, 19, 0, 0, 0], 167)
         );
 
         let completed = std::thread::Builder::new()
@@ -4714,7 +4714,7 @@ mod tests {
             metered_nth_root_floor(&value, 3, &mut measured),
             Ok(expected.clone())
         );
-        assert_eq!(measured.dimensions, [476, 404, 73, 0, 0]);
+        assert_eq!(measured.dimensions, [476, 404, 73, 0, 0, 0]);
         assert_eq!(measured.checkpoints, 555);
         assert_eq!(measured.dimensions[Dimension::DepthLimit.index()], 0);
         assert_eq!(measured.dimensions[Dimension::RandomDraws.index()], 0);
@@ -4751,7 +4751,7 @@ mod tests {
         );
         assert_eq!(
             (degree_two_meter.dimensions, degree_two_meter.checkpoints),
-            ([365, 256, 49, 0, 0], 415)
+            ([365, 256, 49, 0, 0, 0], 415)
         );
         for dimension in [
             Dimension::ComputeSteps,
@@ -4783,7 +4783,7 @@ mod tests {
         );
         assert_eq!(
             (identity_meter.dimensions, identity_meter.checkpoints),
-            ([0, 32, 1, 0, 0], 3)
+            ([0, 32, 1, 0, 0, 0], 3)
         );
         for dimension in [Dimension::MemoryBytes, Dimension::AllocationCount] {
             let total = identity_meter.dimensions[dimension.index()];
@@ -4836,7 +4836,7 @@ mod tests {
             metered_cmp(&lhs, &rhs, &mut measured),
             Ok(std::cmp::Ordering::Less)
         );
-        assert_eq!(measured.dimensions, [67, 0, 0, 0, 0]);
+        assert_eq!(measured.dimensions, [67, 0, 0, 0, 0, 0]);
         assert_eq!(measured.checkpoints, 68);
 
         let mut limits = BudgetLimits::uniform(u64::MAX, 0);
