@@ -8,7 +8,11 @@
 
 use fsym_assumptions::ImmutableAssumptionsSnapshot;
 use fsym_core::{DagError, Expr, Symbol, TermDag};
-use fsym_proof_kernel::DerivationTree;
+use fsym_proof_kernel::{
+    DerivationTree, MergePolicy, MergeWitness, SemanticMergeCertificate, WitnessKind, ZERO_DIGEST,
+    merge_commitment, symbol_digest as kernel_symbol_digest, verify_merge_certificate,
+    workspace_state_root,
+};
 use fsym_simplify::simplify;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -174,6 +178,9 @@ fn map_dag_error(error: DagError) -> WorkspaceError {
         | DagError::NumericPayloadLimitExceeded(_) => WorkspaceError::ResourceLimitExceeded,
     }
 }
+
+/// One canonical (symbol, value) digest pair of a workspace binding.
+type BindingDigestPair = ([u8; 32], [u8; 32]);
 
 fn validate_branch_name(branch_name: &str) -> Result<(), WorkspaceError> {
     if branch_name.is_empty() || branch_name.len() > MAX_WORKSPACE_BRANCH_NAME_BYTES {
@@ -439,6 +446,150 @@ impl SemanticWorkspace {
             .extend(new_derivations.into_iter().cloned());
 
         Ok(receipt)
+    }
+
+    /// Content digest of one binding value (canonical JSON in the
+    /// workspace-binding domain).
+    fn binding_value_digest(expr: &Expr) -> Result<[u8; 32], WorkspaceError> {
+        let mut total_bytes = 0_usize;
+        structured_digest(b"fsym.workspace.binding-value.v1\0", expr, &mut total_bytes)
+    }
+
+    fn binding_digest_pairs(
+        workspace: &SemanticWorkspace,
+    ) -> Result<Vec<BindingDigestPair>, WorkspaceError> {
+        let mut pairs: Vec<([u8; 32], [u8; 32])> = Vec::new();
+        pairs
+            .try_reserve(workspace.bindings.len())
+            .map_err(|_| WorkspaceError::AllocationFailure)?;
+        let mut sorted: Vec<(&Symbol, &Expr)> = workspace.bindings.iter().collect();
+        sorted.sort_unstable_by_key(|(symbol, _)| *symbol);
+        for (symbol, expr) in sorted {
+            pairs.push((
+                kernel_symbol_digest(&symbol.name),
+                Self::binding_value_digest(expr)?,
+            ));
+        }
+        Ok(pairs)
+    }
+
+    fn derivation_digest_list(
+        workspace: &SemanticWorkspace,
+    ) -> Result<Vec<[u8; 32]>, WorkspaceError> {
+        let mut digests: Vec<[u8; 32]> = Vec::new();
+        digests
+            .try_reserve(workspace.derivations.len())
+            .map_err(|_| WorkspaceError::AllocationFailure)?;
+        for derivation in &workspace.derivations {
+            digests.push(derivation.digest());
+        }
+        digests.sort_unstable();
+        Ok(digests)
+    }
+
+    /// The canonical state root of this workspace (kernel-owned rule).
+    pub fn state_root(&self) -> Result<[u8; 32], WorkspaceError> {
+        Ok(workspace_state_root(
+            &self.branch_name,
+            self.assumptions.digest(),
+            &Self::binding_digest_pairs(self)?,
+            &Self::derivation_digest_list(self)?,
+        ))
+    }
+
+    /// Runs the conservative merge and returns an independently verifiable
+    /// [`SemanticMergeCertificate`] binding the base snapshot, typed
+    /// read/write/absence witnesses, context/profile/registry versions, and
+    /// the canonical result commitment. The certificate is re-verified with
+    /// the independent kernel verifier before it is returned.
+    pub fn merge_with_certificate(
+        &mut self,
+        incoming: &SemanticWorkspace,
+        profile_version: u32,
+        registry_version: u32,
+    ) -> Result<SemanticMergeCertificate, WorkspaceError> {
+        let base_root = self.state_root()?;
+        self.merge(incoming)?;
+
+        // Witnesses, in canonical order (sorted by symbol digest, then kind).
+        let mut witness_set: std::collections::BTreeSet<MergeWitness> =
+            std::collections::BTreeSet::new();
+        let mut sorted_incoming: Vec<(&Symbol, &Expr)> = incoming.bindings.iter().collect();
+        sorted_incoming.sort_unstable_by_key(|(symbol, _)| *symbol);
+        let mut imported_new_derivations: Vec<&fsym_proof_kernel::DerivationTree> = Vec::new();
+        for deriv in &incoming.derivations {
+            if !self.derivations.contains(deriv) {
+                imported_new_derivations.push(deriv);
+            }
+        }
+        for (symbol, incoming_expr) in &sorted_incoming {
+            let sym_digest = kernel_symbol_digest(&symbol.name);
+            match self.bindings.get(symbol) {
+                Some(base_expr) => {
+                    witness_set.insert(MergeWitness {
+                        symbol_digest: sym_digest,
+                        kind: WitnessKind::Read,
+                        value_digest: Self::binding_value_digest(base_expr)?,
+                    });
+                    witness_set.insert(MergeWitness {
+                        symbol_digest: sym_digest,
+                        kind: WitnessKind::Write,
+                        value_digest: Self::binding_value_digest(incoming_expr)?,
+                    });
+                }
+                None => {
+                    witness_set.insert(MergeWitness {
+                        symbol_digest: sym_digest,
+                        kind: WitnessKind::Absence,
+                        value_digest: ZERO_DIGEST,
+                    });
+                    witness_set.insert(MergeWitness {
+                        symbol_digest: sym_digest,
+                        kind: WitnessKind::Write,
+                        value_digest: Self::binding_value_digest(incoming_expr)?,
+                    });
+                }
+            }
+        }
+        witness_set.insert(MergeWitness {
+            symbol_digest: kernel_symbol_digest("<assumption-context>"),
+            kind: WitnessKind::Predicate,
+            value_digest: ZERO_DIGEST,
+        });
+
+        let derivation_digests: Vec<[u8; 32]> = imported_new_derivations
+            .iter()
+            .map(|deriv| deriv.digest())
+            .collect();
+        let witness_set_sorted = witness_set;
+        let derivation_set: std::collections::BTreeSet<[u8; 32]> =
+            derivation_digests.iter().copied().collect();
+
+        let context_digest = self.assumptions.digest();
+        let result_root = merge_commitment(
+            base_root,
+            context_digest,
+            profile_version,
+            registry_version,
+            MergePolicy::Conservative,
+            &witness_set_sorted,
+            &derivation_set,
+        );
+
+        let certificate = SemanticMergeCertificate {
+            policy_version: 1,
+            policy: MergePolicy::Conservative,
+            context_digest,
+            profile_version,
+            registry_version,
+            base_root,
+            result_root,
+            witnesses: witness_set_sorted.into_iter().collect(),
+            derivation_digests: derivation_set.into_iter().collect(),
+        };
+        verify_merge_certificate(&certificate)
+            .map_err(|_| WorkspaceError::StructuralInvariantFailure)?;
+        Ok(certificate)
     }
 }
 

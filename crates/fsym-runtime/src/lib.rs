@@ -8,11 +8,13 @@
 pub mod benchmarks;
 pub mod checkpoint;
 pub mod cx;
+pub mod fmap;
 pub mod graph_index;
 pub mod ledger;
 pub mod monitor;
 pub mod portfolio;
 pub mod protocol;
+pub mod publication;
 pub mod remote_worker;
 pub mod repair;
 pub mod replay;

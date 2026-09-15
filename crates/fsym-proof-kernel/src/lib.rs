@@ -17,6 +17,7 @@
 pub mod capsule;
 pub mod claim;
 pub mod kernel;
+pub mod merge;
 pub mod mutation;
 pub mod rule;
 
@@ -29,5 +30,10 @@ pub use kernel::{
     DerivationStep, DerivationTree, KernelError, MAX_DERIVATION_STEPS, ProofKernel,
     claim_verification_units, derivation_verification_units, expression_verification_units,
     verify_derivation_independent,
+};
+pub use merge::{
+    MERGE_COMMITMENT_DOMAIN, MergeCertError, MergePolicy, MergeWitness, SemanticMergeCertificate,
+    WORKSPACE_STATE_ROOT_DOMAIN, WitnessKind, ZERO_DIGEST, merge_commitment, symbol_digest,
+    verify_merge_certificate, workspace_state_root,
 };
 pub use rule::{CertificatePayload, ProofRule, StepId};
