@@ -928,11 +928,18 @@ mod tests {
     fn probe_reduce_debug() {
         let huge = RealBall::exact(BigRational::from_integer(BigInt::from(10).pow(30)));
         let (red, par) = huge.reduce_mod_pi(12).expect("reduce");
-        eprintln!("[red-debug] red={:.50} par={par}", red.midpoint());
+        eprintln!("[red-debug] red_mid={:.50} par={par}", red.midpoint());
+        eprintln!("[red-debug] red_rad={:.50}", red.radius());
+        let pi = RealBall::pi(16).expect("pi");
+        eprintln!("[red-debug] pi={:.50} rad={:.6}", pi.midpoint(), pi.radius());
         let s = huge.sin(12).expect("s");
         let c = huge.cos(12).expect("c");
-        eprintln!("[red-debug] sin={:.50}", s.midpoint());
-        eprintln!("[red-debug] cos={:.50}", c.midpoint());
+        let sin_ref = decimal_rational("-0.0901169019121380580303864289529873303");
+        let cos_ref = decimal_rational("-0.995931194405395702394248587997048641");
+        eprintln!("[red-debug] sin contains={} rad_bits={}", contains_reference(&s, &sin_ref), s.radius().height().max_bits());
+        eprintln!("[red-debug] cos contains={} rad_bits={}", contains_reference(&c, &cos_ref), c.radius().height().max_bits());
+        eprintln!("[red-debug] cos lower>ref={} upper<ref={}", c.lower() > cos_ref, c.upper() < cos_ref);
+        eprintln!("[red-debug] cos ref-c.lower={:.3} c.upper-ref={:.3}", cos_ref.clone() - c.lower(), c.upper() - cos_ref.clone());
     }
 
 
