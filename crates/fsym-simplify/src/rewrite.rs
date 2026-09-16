@@ -15,12 +15,77 @@ use std::sync::Arc;
 /// Function signature for a verified rewrite transformation.
 pub type RuleTransform = fn(&Expr, &Arc<ImmutableAssumptionsSnapshot>) -> Option<(Expr, ProofRule)>;
 
+/// The sub-expression a side condition constrains.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SideConditionOperand {
+    /// The base of a `Pow` expression.
+    Base,
+    /// The n-th argument of a function application.
+    Arg(usize),
+    /// The `inner`-th argument of the `outer`-th argument's function
+    /// application (e.g. for `exp(log(u))`, the constrained `u` is
+    /// `NestedArg { outer: 0, inner: 0 }`).
+    NestedArg { outer: usize, inner: usize },
+}
+
+/// A typed side condition declared at rule registration time.
+///
+/// A `Entailed` condition fires only when the assumption context
+/// (including syntactic inherent facts such as literal rational values)
+/// entails the predicate for the operand. A rule with an undischarged
+/// side condition stays guarded: the engine refuses to apply it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SideCondition {
+    Unconditional,
+    Entailed {
+        operand: SideConditionOperand,
+        predicate: Predicate,
+    },
+}
+
 /// A verified local rewrite rule producing proof kernel rule steps.
 #[derive(Clone)]
 pub struct RewriteRule {
     pub name: &'static str,
     pub description: &'static str,
+    /// Typed side conditions, all of which must be discharged before the
+    /// engine may apply the rule. Declared here so the guard is registry
+    /// data, not merely the transform's private discipline.
+    pub side_conditions: &'static [SideCondition],
     pub transform: RuleTransform,
+}
+
+/// Resolves a side-condition operand to the sub-expression it constrains.
+fn resolve_operand<'a>(expr: &'a Expr, operand: &SideConditionOperand) -> Option<&'a Expr> {
+    match (operand, expr) {
+        (SideConditionOperand::Base, Expr::Pow(base, _)) => Some(base),
+        (SideConditionOperand::Arg(index), Expr::Function(_, args)) => args.get(*index),
+        (SideConditionOperand::NestedArg { outer, inner }, Expr::Function(_, outer_args)) => {
+            outer_args
+                .get(*outer)
+                .and_then(|outer_expr| match outer_expr {
+                    Expr::Function(_, inner_args) => inner_args.get(*inner),
+                    _ => None,
+                })
+        }
+        _ => None,
+    }
+}
+
+/// True when every declared side condition of `rule` is discharged for
+/// `expr` under `context`. Undischarged conditions keep the rule guarded.
+pub fn side_conditions_discharged(
+    rule: &RewriteRule,
+    expr: &Expr,
+    context: &Arc<ImmutableAssumptionsSnapshot>,
+) -> bool {
+    rule.side_conditions
+        .iter()
+        .all(|condition| match condition {
+            SideCondition::Unconditional => true,
+            SideCondition::Entailed { operand, predicate } => resolve_operand(expr, operand)
+                .is_some_and(|target| context.query(target, *predicate).is_entailed_true()),
+        })
 }
 
 /// Fundamental rewrite rule catalog for algebraic expressions.
@@ -29,6 +94,7 @@ pub fn standard_rules() -> Vec<RewriteRule> {
         RewriteRule {
             name: "add_zero_identity",
             description: "x + 0 => x",
+            side_conditions: &[],
             transform: |expr, _ctx| match expr {
                 Expr::Add(terms) => {
                     let non_zero: Vec<Expr> =
@@ -57,6 +123,7 @@ pub fn standard_rules() -> Vec<RewriteRule> {
         RewriteRule {
             name: "mul_one_identity",
             description: "x * 1 => x",
+            side_conditions: &[],
             transform: |expr, _ctx| match expr {
                 Expr::Mul(factors) => {
                     let non_one: Vec<Expr> =
@@ -85,6 +152,7 @@ pub fn standard_rules() -> Vec<RewriteRule> {
         RewriteRule {
             name: "mul_zero_annihilator",
             description: "x * 0 => 0 (when factors defined)",
+            side_conditions: &[],
             transform: |expr, _ctx| match expr {
                 Expr::Mul(factors) => {
                     if factors.iter().any(|f| f.is_zero())
@@ -109,11 +177,20 @@ pub fn standard_rules() -> Vec<RewriteRule> {
         RewriteRule {
             name: "pow_zero_identity",
             description: "x^0 => 1 (when x is non-zero)",
+            side_conditions: &[SideCondition::Entailed {
+                operand: SideConditionOperand::Base,
+                predicate: Predicate::NonZero,
+            }],
             transform: |expr, ctx| match expr {
                 Expr::Pow(base, exp) => {
                     if exp.is_zero() {
-                        if !base.is_zero() {
-                            let _ = ctx.query(base, Predicate::NonZero);
+                        // Syntactic non-zero constants discharge inherently
+                        // (inherent facts); symbolic bases need an entailed
+                        // NonZero from the context. Undischarged: stay guarded.
+                        let discharged = !base.is_zero()
+                            && (matches!(base.as_ref(), Expr::Integer(_) | Expr::Rational(_))
+                                || ctx.query(base, Predicate::NonZero).is_entailed_true());
+                        if discharged {
                             let out = Expr::from_i64(1);
                             Some((
                                 out.clone(),
@@ -136,6 +213,7 @@ pub fn standard_rules() -> Vec<RewriteRule> {
         RewriteRule {
             name: "pow_one_identity",
             description: "x^1 => x",
+            side_conditions: &[],
             transform: |expr, _ctx| match expr {
                 Expr::Pow(base, exp) => {
                     if exp.is_one() {
@@ -158,6 +236,7 @@ pub fn standard_rules() -> Vec<RewriteRule> {
         RewriteRule {
             name: "trig_zero_eval",
             description: "sin(0) => 0, cos(0) => 1, tan(0) => 0, exp(0) => 1, sinh(0) => 0, cosh(0) => 1, tanh(0) => 0, asin(0) => 0, atan(0) => 0, asinh(0) => 0, atanh(0) => 0, sec(0) => 1, sech(0) => 1, sinc(0) => 1, erf(0) => 0, erfc(0) => 1",
+            side_conditions: &[],
             transform: |expr, _ctx| match expr {
                 Expr::Function(name, args) if args.len() == 1 && args[0].is_zero() => {
                     match name.as_str() {
@@ -193,6 +272,7 @@ pub fn standard_rules() -> Vec<RewriteRule> {
         RewriteRule {
             name: "elementary_one_eval",
             description: "acos(1) => 0, acosh(1) => 0, asec(1) => 0, asech(1) => 0, ln(1) => 0, log(1) => 0",
+            side_conditions: &[],
             transform: |expr, _ctx| match expr {
                 Expr::Function(name, args) if args.len() == 1 && args[0].is_one() => {
                     match name.as_str() {
@@ -216,6 +296,7 @@ pub fn standard_rules() -> Vec<RewriteRule> {
         RewriteRule {
             name: "pythagorean_identity",
             description: "c*sin(u)^2 + c*cos(u)^2 => c; c*sec(u)^2 - c*tan(u)^2 => c; c*csc(u)^2 - c*cot(u)^2 => c; c*cosh(u)^2 - c*sinh(u)^2 => c (exact coefficient pairing, root Add level)",
+            side_conditions: &[],
             transform: |expr, _ctx| match expr {
                 Expr::Add(terms) => fold_pythagorean_terms(terms).map(|folded| {
                     let out = rebuilt_pythagorean_add(folded);
@@ -234,6 +315,10 @@ pub fn standard_rules() -> Vec<RewriteRule> {
         RewriteRule {
             name: "exp_log_inverse",
             description: "exp(log(u)) => u and exp(ln(u)) => u (only when u is provably Positive)",
+            side_conditions: &[SideCondition::Entailed {
+                operand: SideConditionOperand::NestedArg { outer: 0, inner: 0 },
+                predicate: Predicate::Positive,
+            }],
             transform: |expr, ctx| match expr {
                 Expr::Function(name, args) if name == "exp" && args.len() == 1 => {
                     let Expr::Function(inner_name, inner_args) = &args[0] else {
@@ -264,6 +349,10 @@ pub fn standard_rules() -> Vec<RewriteRule> {
         RewriteRule {
             name: "log_exp_inverse",
             description: "log(exp(u)) => u and ln(exp(u)) => u (only when u is provably Real)",
+            side_conditions: &[SideCondition::Entailed {
+                operand: SideConditionOperand::NestedArg { outer: 0, inner: 0 },
+                predicate: Predicate::Real,
+            }],
             transform: |expr, ctx| match expr {
                 Expr::Function(name, args)
                     if matches!(name.as_str(), "log" | "ln") && args.len() == 1 =>
@@ -439,9 +528,131 @@ pub fn apply_step(
     context: &Arc<ImmutableAssumptionsSnapshot>,
 ) -> Option<(Expr, ProofRule)> {
     for rule in rules {
+        // Registry-level guard: a rule whose declared side conditions are
+        // not discharged stays guarded even if its transform would fire.
+        if !side_conditions_discharged(rule, expr, context) {
+            continue;
+        }
         if let Some(res) = (rule.transform)(expr, context) {
             return Some(res);
         }
     }
     None
+}
+
+#[cfg(test)]
+mod guard_tests {
+    use super::*;
+    use fsym_assumptions::AssumptionsContext;
+    use fsym_core::Symbol;
+
+    fn empty_context() -> Arc<ImmutableAssumptionsSnapshot> {
+        Arc::new(ImmutableAssumptionsSnapshot::clone(
+            &ImmutableAssumptionsSnapshot::empty(),
+        ))
+    }
+
+    fn context_with(symbol: &str, predicate: Predicate) -> Arc<ImmutableAssumptionsSnapshot> {
+        let mut context = AssumptionsContext::new();
+        context
+            .assume(Symbol::new(symbol), predicate)
+            .expect("assumption");
+        Arc::new(context.snapshot())
+    }
+
+    fn rules() -> Vec<RewriteRule> {
+        standard_rules()
+    }
+
+    /// Positive observable: literal non-zero bases discharge inherently.
+    #[test]
+    fn pow_zero_literal_discharges_without_assumptions() {
+        let five_pow_zero = parse("5^0");
+        let (out, _) = apply_step(&five_pow_zero, &rules(), &empty_context()).expect("fires");
+        assert_eq!(out, Expr::from_i64(1));
+    }
+
+    /// Positive observable: an entailed assumption discharges the condition.
+    #[test]
+    fn pow_zero_entailed_nonzero_discharges() {
+        let x_pow_zero = parse("x^0");
+        let context = context_with("x", Predicate::NonZero);
+        let (out, _) = apply_step(&x_pow_zero, &rules(), &context).expect("fires");
+        assert_eq!(out, Expr::from_i64(1));
+    }
+
+    /// Planted negative: with the NonZero side condition UNDISCHARGED, the
+    /// conditional rewrite stays guarded - it must not fire.
+    #[test]
+    fn pow_zero_with_undischarged_condition_stays_guarded() {
+        let x_pow_zero = parse("x^0");
+        assert!(
+            apply_step(&x_pow_zero, &rules(), &empty_context()).is_none(),
+            "x^0 must stay guarded when NonZero is not entailed"
+        );
+        // Entailed-false (x assumed Zero) also stays guarded.
+        let context = context_with("x", Predicate::Zero);
+        assert!(apply_step(&x_pow_zero, &rules(), &context).is_none());
+    }
+
+    /// Planted negative for the inverse rule: an entailed-false Positive
+    /// condition keeps exp(log(u)) guarded even though the transform's own
+    /// pattern matches.
+    #[test]
+    fn exp_log_inverse_with_entailed_false_positive_stays_guarded() {
+        let u = Symbol::new("u");
+        let exp_log_u = Expr::Function(
+            "exp".to_string(),
+            vec![Expr::Function(
+                "log".to_string(),
+                vec![Expr::Sym(u.clone())],
+            )],
+        );
+        let context = context_with("u", Predicate::Negative);
+        assert!(
+            apply_step(&exp_log_u, &rules(), &context).is_none(),
+            "exp(log(u)) must stay guarded when Positive is entailed-false"
+        );
+    }
+
+    /// Registry-level guard mutation: a rule whose transform fires
+    /// unconditionally must still be refused by the engine when its
+    /// declared side condition is undischarged.
+    #[test]
+    fn registry_guard_refuses_undisciplined_transform() {
+        let rules = vec![RewriteRule {
+            name: "rogue_rule",
+            description: "always fires, but declares an undischarged condition",
+            side_conditions: &[SideCondition::Entailed {
+                operand: SideConditionOperand::Base,
+                predicate: Predicate::NonZero,
+            }],
+            transform: |expr, _ctx| {
+                Some((
+                    Expr::from_i64(1),
+                    ProofRule::DefinitionalReduction {
+                        lhs: expr.clone(),
+                        rhs: Expr::from_i64(1),
+                        rule_name: "rogue_rule".into(),
+                    },
+                ))
+            },
+        }];
+        // A Pow with a symbolic base: the Base operand resolves, but NonZero
+        // is undischarged on the empty context.
+        let x_pow = parse("x^1");
+        assert!(
+            apply_step(&x_pow, &rules, &empty_context()).is_none(),
+            "the registry guard must refuse an undisciplined transform"
+        );
+        // With the condition discharged, the same rule fires.
+        let context = context_with("x", Predicate::NonZero);
+        assert!(apply_step(&x_pow, &rules, &context).is_some());
+    }
+
+    use fsym_proof_kernel::ProofRule;
+
+    fn parse(source: &str) -> Expr {
+        fsym_core::parse(source).expect("parses")
+    }
 }
