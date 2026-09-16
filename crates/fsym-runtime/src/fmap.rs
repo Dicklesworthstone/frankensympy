@@ -224,6 +224,99 @@ pub fn replay_fmap_bundle(bundle: &FmapBundle) -> Result<ReplayOutcome, FmapErro
 }
 
 #[cfg(test)]
+mod tamper_fuzz_tests {
+    use super::*;
+
+    /// Deterministic boundary fuzz: flip bytes, truncate, and splice a
+    /// valid bundle; every outcome must be a typed refusal or an untouched
+    /// success. A panic on any mutation is a test failure.
+    #[test]
+    fn bundle_tamper_fuzz_never_panics_and_never_forges() {
+        let base = SemanticWorkspace::new("base");
+        let mut source = SemanticWorkspace::new("feature");
+        source.bind(
+            Symbol::new("x"),
+            Expr::Sym(Symbol::new("y")),
+        );
+        let mut merged = base.clone();
+        let cert = merged
+            .merge_with_certificate(&source, 1, 1)
+            .expect("merge");
+        let metadata = ReplayMetadata {
+            initial_seed: 9,
+            trace_normal_form: vec!["fork".to_string(), "merge".to_string()],
+            profile_version: 1,
+            registry_version: 1,
+            expected_result_root: cert.result_root,
+        };
+        let bundle = FmapBundle::capture(&base, &merged, &source, cert, metadata);
+        let original = bundle.to_json().expect("serializes");
+
+        let mut state = 0x9E37_79B9_7F4A_7C15u64;
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+
+        let mut refused = 0usize;
+        let mut accepted = 0usize;
+        for _ in 0..20_000 {
+            let mut mutated = original.clone();
+            match next() % 4 {
+                0 => {
+                    // single-byte flip at a pseudo-random position
+                    let pos = (next() as usize) % mutated.len();
+                    mutated[pos] ^= (next() % 255 + 1) as u8;
+                }
+                1 => {
+                    // truncate
+                    let pos = (next() as usize) % mutated.len();
+                    mutated.truncate(pos);
+                }
+                2 => {
+                    // delete a span
+                    let pos = (next() as usize) % mutated.len();
+                    let len = ((next() as usize) % 64).min(mutated.len() - pos);
+                    mutated.drain(pos..pos + len);
+                }
+                _ => {
+                    // splice garbage
+                    let pos = (next() as usize) % mutated.len();
+                    let junk = vec![b'x'; (next() as usize) % 32];
+                    mutated.splice(pos..pos, junk);
+                }
+            }
+            match FmapBundle::from_json(&mutated) {
+                Err(_) => {
+                    refused += 1;
+                }
+                Ok(parsed) => match replay_fmap_bundle(&parsed) {
+                    Err(_) => refused += 1,
+                    Ok(outcome) => {
+                        // Acceptance is only sound for the untouched bundle:
+                        // the mutated document must be byte-identical.
+                        assert_eq!(
+                            parsed, bundle,
+                            "a mutated bundle was accepted"
+                        );
+                        assert_eq!(
+                            outcome.result_root,
+                            bundle.replay_metadata.expected_result_root
+                        );
+                        accepted += 1;
+                    }
+                },
+            }
+        }
+        // The untouched case must appear among the accepted outcomes.
+        assert!(accepted >= 1, "the pristine bundle must still replay");
+        assert!(refused > 0, "tampering must be visibly refused");
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use fsym_core::parse;
