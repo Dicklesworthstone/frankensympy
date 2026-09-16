@@ -206,3 +206,73 @@ fn same_print_symbols_from_conflicting_universes_refuse_import() {
         Err(SessionError::UniverseMismatch { .. })
     ));
 }
+
+#[test]
+fn deeply_nested_and_garbage_input_cannot_crash_the_session() {
+    let mut session = Session::new(SessionBudgets::default());
+    // Deeply nested parens: parse must refuse (typed), never overflow.
+    for depth in [1_000usize, 10_000, 100_000] {
+        let nested = format!("{}1{}", "(".repeat(depth), ")".repeat(depth));
+        let outcome = session.handle_envelope(&format!(
+            "{{\"type\":\"Eval\",\"payload\":{{\"expr\":{:?}}}}}",
+            nested
+        ));
+        let parsed: serde_json::Value =
+            serde_json::from_str(&outcome).expect("still a JSON response");
+        assert_eq!(parsed["status"], "error");
+    }
+    // Garbage bytes in an envelope: typed refusal, no panic.
+    for garbage in [
+        "\u{0}\u{1}\u{2}",
+        "{",
+        "}",
+        "[]",
+        "null",
+        "\"string\"",
+        "{\"type\":null}",
+    ] {
+        let outcome = session.handle_envelope(garbage);
+        let parsed: serde_json::Value =
+            serde_json::from_str(&outcome).expect("still a JSON response");
+        assert_eq!(parsed["status"], "error");
+    }
+}
+
+#[test]
+fn cli_survives_deep_nesting_and_garbage_on_stdin() {
+    let cli = env!("CARGO_BIN_EXE_frankensympy");
+    use std::io::Write;
+    let mut child = std::process::Command::new(cli)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawns");
+    {
+        let stdin = child.stdin.as_mut().expect("stdin");
+        let deep = format!(
+            "{{\"type\":\"Eval\",\"payload\":{{\"expr\":\"{}1{}\"}}}}",
+            "(".repeat(50_000),
+            ")".repeat(50_000)
+        );
+        stdin.write_all(deep.as_bytes()).expect("writes deep");
+        stdin.write_all(b"\n").expect("writes newline");
+        for garbage in ["{", "}", "not json", "\u{0}\u{1}"] {
+            stdin.write_all(garbage.as_bytes()).expect("writes");
+            stdin.write_all(b"\n").expect("writes newline");
+        }
+    }
+    let output = child.wait_with_output().expect("child exits cleanly");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "adversarial stdin must end in a clean exit, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(
+        stdout.lines().count(),
+        5,
+        "one response per request line, including refusals"
+    );
+}
