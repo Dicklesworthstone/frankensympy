@@ -25,7 +25,7 @@
 #![forbid(unsafe_code)]
 
 use fsym_capsule_consumer::{
-    CapsuleReport, OUTCOME_INCONCLUSIVE, OUTCOME_REFUTED, OUTCOME_REFUSED, OUTCOME_VERIFIED,
+    CapsuleReport, OUTCOME_INCONCLUSIVE, OUTCOME_REFUSED, OUTCOME_REFUTED, OUTCOME_VERIFIED,
     supported_schema_version, verify_offline, verify_offline_default,
 };
 use fsym_core::{BigInt, BigRational, Expr};
@@ -227,7 +227,10 @@ fn review_positive_control_zz_identity_verifies_through_the_consumer() {
         PolyDomain::Zz,
         poly("x", &[(2, 2), (0, -2)]),
         rational(2, 1),
-        &[(poly("x", &[(1, 1), (0, -1)]), 1), (poly("x", &[(1, 1), (0, 1)]), 1)],
+        &[
+            (poly("x", &[(1, 1), (0, -1)]), 1),
+            (poly("x", &[(1, 1), (0, 1)]), 1),
+        ],
     );
     let report = check_rooted(&capsule, 64);
     expect(&report, OUTCOME_VERIFIED);
@@ -244,7 +247,10 @@ fn review_positive_control_qq_identity_verifies() {
         PolyDomain::Qq,
         poly_q("x", &[(2, (1, 2)), (0, (-1, 2))]),
         rational(1, 2),
-        &[(poly("x", &[(1, 1), (0, -1)]), 1), (poly("x", &[(1, 1), (0, 1)]), 1)],
+        &[
+            (poly("x", &[(1, 1), (0, -1)]), 1),
+            (poly("x", &[(1, 1), (0, 1)]), 1),
+        ],
     );
     expect(&check_rooted(&capsule, 64), OUTCOME_VERIFIED);
 }
@@ -254,12 +260,7 @@ fn review_no_stored_flag_participates_and_the_claim_is_recomputed() {
     // The user-supplied name is irrelevant and never reaches the wire: a capsule
     // cannot carry authority, only objects. The subject below is wrong and must
     // be caught although the capsule is otherwise well formed.
-    let capsule = assemble(
-        PolyDomain::Zz,
-        poly("x", &[(1, 1)]),
-        rational(1, 1),
-        &[],
-    );
+    let capsule = assemble(PolyDomain::Zz, poly("x", &[(1, 1)]), rational(1, 1), &[]);
     let report = check_rooted(&capsule, 64);
     expect(&report, OUTCOME_REFUTED);
 }
@@ -274,11 +275,16 @@ fn review_missing_factor_object_is_refused() {
         PolyDomain::Zz,
         poly("x", &[(2, 2), (0, -2)]),
         rational(2, 1),
-        &[(poly("x", &[(1, 1), (0, -1)]), 1), (poly("x", &[(1, 1), (0, 1)]), 1)],
+        &[
+            (poly("x", &[(1, 1), (0, -1)]), 1),
+            (poly("x", &[(1, 1), (0, 1)]), 1),
+        ],
     );
     let victim = capsule.claim.factors[0].0;
     capsule.objects.remove(&victim);
-    let bytes = capsule.encode().expect("encoding does not resolve references");
+    let bytes = capsule
+        .encode()
+        .expect("encoding does not resolve references");
     let report = verify_offline(&bytes, None, 64);
     expect(&report, OUTCOME_REFUSED);
     assert!(
@@ -295,7 +301,11 @@ fn review_missing_subject_object_is_refused() {
     capsule.objects.remove(&subject);
     let report = verify_offline(&encoded(&capsule), None, 64);
     expect(&report, OUTCOME_REFUSED);
-    assert!(report.detail.contains("MissingObject"), "detail {}", report.detail);
+    assert!(
+        report.detail.contains("MissingObject"),
+        "detail {}",
+        report.detail
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -308,7 +318,10 @@ fn review_changed_domain_zz_vs_qq_is_refused() {
         PolyDomain::Zz,
         poly("x", &[(2, 2), (0, -2)]),
         rational(2, 1),
-        &[(poly("x", &[(1, 1), (0, -1)]), 1), (poly("x", &[(1, 1), (0, 1)]), 1)],
+        &[
+            (poly("x", &[(1, 1), (0, -1)]), 1),
+            (poly("x", &[(1, 1), (0, 1)]), 1),
+        ],
     );
     let bytes = encoded(&zz);
     // Same objects and coefficients, declared over QQ instead: the claim
@@ -319,7 +332,11 @@ fn review_changed_domain_zz_vs_qq_is_refused() {
     assert_ne!(qq_root, root_of(&zz), "domain is part of claim identity");
     let report = verify_offline(&bytes, Some(qq_root), 64);
     expect(&report, OUTCOME_REFUSED);
-    assert!(report.detail.contains("ClaimRootMismatch"), "detail {}", report.detail);
+    assert!(
+        report.detail.contains("ClaimRootMismatch"),
+        "detail {}",
+        report.detail
+    );
 
     // ... and a one-byte domain relabel is caught through the claim root: the
     // same object bytes re-tagged QQ no longer match the ZZ root.
@@ -327,11 +344,18 @@ fn review_changed_domain_zz_vs_qq_is_refused() {
     relabelled[CLAIM_START] = 2; // QQ tag
     let report = verify_offline(&relabelled, Some(root_of(&zz)), 64);
     expect(&report, OUTCOME_REFUSED);
-    assert!(report.detail.contains("ClaimRootMismatch"), "detail {}", report.detail);
+    assert!(
+        report.detail.contains("ClaimRootMismatch"),
+        "detail {}",
+        report.detail
+    );
     // Under the QQ root of that relabelled claim it does check out — QQ accepts
     // integer objects, so the tag alone is not evidence about the objects. That
     // is exactly why the caller-supplied root, not the capsule, is the authority.
-    expect(&verify_offline(&relabelled, Some(qq_root), 64), OUTCOME_VERIFIED);
+    expect(
+        &verify_offline(&relabelled, Some(qq_root), 64),
+        OUTCOME_VERIFIED,
+    );
 }
 
 #[test]
@@ -340,11 +364,18 @@ fn review_zz_capsule_with_rational_coefficient_is_refused() {
         PolyDomain::Zz,
         poly_q("x", &[(2, (1, 2)), (0, (-1, 2))]),
         rational(1, 2),
-        &[(poly("x", &[(1, 1), (0, -1)]), 1), (poly("x", &[(1, 1), (0, 1)]), 1)],
+        &[
+            (poly("x", &[(1, 1), (0, -1)]), 1),
+            (poly("x", &[(1, 1), (0, 1)]), 1),
+        ],
     );
     let report = verify_offline(&encoded(&capsule), None, 64);
     expect(&report, OUTCOME_REFUSED);
-    assert!(report.detail.contains("Inconsistent"), "detail {}", report.detail);
+    assert!(
+        report.detail.contains("Inconsistent"),
+        "detail {}",
+        report.detail
+    );
 }
 
 #[test]
@@ -369,7 +400,11 @@ fn review_zz_capsule_with_rational_object_is_refused() {
     capsule.claim.subject = id;
     let report = verify_offline(&encoded(&capsule), None, 64);
     expect(&report, OUTCOME_REFUSED);
-    assert!(report.detail.contains("Inconsistent"), "detail {}", report.detail);
+    assert!(
+        report.detail.contains("Inconsistent"),
+        "detail {}",
+        report.detail
+    );
 }
 
 #[test]
@@ -378,7 +413,10 @@ fn review_changed_context_root_breaks_the_claim_identity() {
         PolyDomain::Zz,
         poly("x", &[(2, 2), (0, -2)]),
         rational(2, 1),
-        &[(poly("x", &[(1, 1), (0, -1)]), 1), (poly("x", &[(1, 1), (0, 1)]), 1)],
+        &[
+            (poly("x", &[(1, 1), (0, -1)]), 1),
+            (poly("x", &[(1, 1), (0, 1)]), 1),
+        ],
     );
     let bytes = encoded(&capsule);
     let original = root_of(&capsule);
@@ -394,10 +432,17 @@ fn review_changed_context_root_breaks_the_claim_identity() {
     assert_ne!(other_root, original, "different context => different claim");
     let report = verify_offline(&bytes, Some(other_root), 64);
     expect(&report, OUTCOME_REFUSED);
-    assert!(report.detail.contains("ClaimRootMismatch"), "detail {}", report.detail);
+    assert!(
+        report.detail.contains("ClaimRootMismatch"),
+        "detail {}",
+        report.detail
+    );
 
     // The same bytes under their own root still verify (identity, not a ban).
-    expect(&verify_offline(&bytes, Some(original), 64), OUTCOME_VERIFIED);
+    expect(
+        &verify_offline(&bytes, Some(original), 64),
+        OUTCOME_VERIFIED,
+    );
 }
 
 #[test]
@@ -406,7 +451,10 @@ fn review_changed_rule_and_verifier_roots_are_bound_into_the_claim() {
         PolyDomain::Zz,
         poly("x", &[(2, 2), (0, -2)]),
         rational(2, 1),
-        &[(poly("x", &[(1, 1), (0, -1)]), 1), (poly("x", &[(1, 1), (0, 1)]), 1)],
+        &[
+            (poly("x", &[(1, 1), (0, -1)]), 1),
+            (poly("x", &[(1, 1), (0, 1)]), 1),
+        ],
     );
     let bytes = encoded(&capsule);
     let original = root_of(&capsule);
@@ -420,7 +468,11 @@ fn review_changed_rule_and_verifier_roots_are_bound_into_the_claim() {
         assert_ne!(root, original);
         let report = verify_offline(&bytes, Some(root), 64);
         expect(&report, OUTCOME_REFUSED);
-        assert!(report.detail.contains("ClaimRootMismatch"), "detail {}", report.detail);
+        assert!(
+            report.detail.contains("ClaimRootMismatch"),
+            "detail {}",
+            report.detail
+        );
     }
 }
 
@@ -440,9 +492,11 @@ fn review_duplicate_object_id_with_different_bytes_is_refused() {
     let count_at = object_count_offset(&bytes);
     let count = u32::from_le_bytes(bytes[count_at..count_at + 4].try_into().expect("count"));
     let first = count_at + 4;
-    let first_payload_len =
-        u32::from_le_bytes(bytes[first + 40..first + 44].try_into().expect("payload length"))
-            as usize;
+    let first_payload_len = u32::from_le_bytes(
+        bytes[first + 40..first + 44]
+            .try_into()
+            .expect("payload length"),
+    ) as usize;
     let first_end = first + 44 + first_payload_len;
 
     // Second entry: same id bytes, a *different* payload, and the honest digest
@@ -462,7 +516,8 @@ fn review_duplicate_object_id_with_different_bytes_is_refused() {
     let report = verify_offline(&forged, None, 64);
     expect(&report, OUTCOME_REFUSED);
     assert!(
-        report.detail.contains("ObjectDigestMismatch") || report.detail.contains("DuplicateObjectId"),
+        report.detail.contains("ObjectDigestMismatch")
+            || report.detail.contains("DuplicateObjectId"),
         "detail {}",
         report.detail
     );
@@ -474,9 +529,11 @@ fn review_object_id_not_derived_from_its_own_payload_is_refused() {
     let mut bytes = encoded(&capsule);
     let count_at = object_count_offset(&bytes);
     let first = count_at + 4;
-    let payload_len =
-        u32::from_le_bytes(bytes[first + 40..first + 44].try_into().expect("payload length"))
-            as usize;
+    let payload_len = u32::from_le_bytes(
+        bytes[first + 40..first + 44]
+            .try_into()
+            .expect("payload length"),
+    ) as usize;
     // Recompute the honest digest of the payload, then flip one digest byte so
     // the id no longer follows from the bytes.
     let payload = bytes[first + 44..first + 44 + payload_len].to_vec();
@@ -485,7 +542,11 @@ fn review_object_id_not_derived_from_its_own_payload_is_refused() {
     bytes[first + 8..first + 40].copy_from_slice(&digest);
     let report = verify_offline(&bytes, None, 64);
     expect(&report, OUTCOME_REFUSED);
-    assert!(report.detail.contains("ObjectDigestMismatch"), "detail {}", report.detail);
+    assert!(
+        report.detail.contains("ObjectDigestMismatch"),
+        "detail {}",
+        report.detail
+    );
 }
 
 #[test]
@@ -494,19 +555,28 @@ fn review_payload_tamper_after_framing_is_refused() {
         PolyDomain::Zz,
         poly("x", &[(2, 2), (0, -2)]),
         rational(2, 1),
-        &[(poly("x", &[(1, 1), (0, -1)]), 1), (poly("x", &[(1, 1), (0, 1)]), 1)],
+        &[
+            (poly("x", &[(1, 1), (0, -1)]), 1),
+            (poly("x", &[(1, 1), (0, 1)]), 1),
+        ],
     );
     let mut bytes = encoded(&capsule);
     let count_at = object_count_offset(&bytes);
     let first = count_at + 4;
-    let payload_len =
-        u32::from_le_bytes(bytes[first + 40..first + 44].try_into().expect("payload length"))
-            as usize;
+    let payload_len = u32::from_le_bytes(
+        bytes[first + 40..first + 44]
+            .try_into()
+            .expect("payload length"),
+    ) as usize;
     // Flip the last byte of an object payload (a coefficient byte).
     bytes[first + 44 + payload_len - 1] ^= 0x01;
     let report = verify_offline(&bytes, None, 64);
     expect(&report, OUTCOME_REFUSED);
-    assert!(report.detail.contains("ObjectDigestMismatch"), "detail {}", report.detail);
+    assert!(
+        report.detail.contains("ObjectDigestMismatch"),
+        "detail {}",
+        report.detail
+    );
 }
 
 #[test]
@@ -515,13 +585,20 @@ fn review_duplicate_factor_reference_is_refused() {
         PolyDomain::Zz,
         poly("x", &[(2, 2), (0, -2)]),
         rational(2, 1),
-        &[(poly("x", &[(1, 1), (0, -1)]), 1), (poly("x", &[(1, 1), (0, 1)]), 1)],
+        &[
+            (poly("x", &[(1, 1), (0, -1)]), 1),
+            (poly("x", &[(1, 1), (0, 1)]), 1),
+        ],
     );
     let first = capsule.claim.factors[0];
     capsule.claim.factors.push(first);
     let report = verify_offline(&encoded(&capsule), None, 64);
     expect(&report, OUTCOME_REFUSED);
-    assert!(report.detail.contains("DuplicateFactor"), "detail {}", report.detail);
+    assert!(
+        report.detail.contains("DuplicateFactor"),
+        "detail {}",
+        report.detail
+    );
 }
 
 #[test]
@@ -530,12 +607,19 @@ fn review_zero_exponent_factor_is_refused() {
         PolyDomain::Zz,
         poly("x", &[(2, 2), (0, -2)]),
         rational(2, 1),
-        &[(poly("x", &[(1, 1), (0, -1)]), 1), (poly("x", &[(1, 1), (0, 1)]), 1)],
+        &[
+            (poly("x", &[(1, 1), (0, -1)]), 1),
+            (poly("x", &[(1, 1), (0, 1)]), 1),
+        ],
     );
     capsule.claim.factors[0].1 = 0;
     let report = verify_offline(&encoded(&capsule), None, 64);
     expect(&report, OUTCOME_REFUSED);
-    assert!(report.detail.contains("Inconsistent"), "detail {}", report.detail);
+    assert!(
+        report.detail.contains("Inconsistent"),
+        "detail {}",
+        report.detail
+    );
 }
 
 #[test]
@@ -544,7 +628,11 @@ fn review_zero_coefficient_claim_is_refused() {
     capsule.claim.coefficient = rational(0, 1);
     let report = verify_offline(&encoded(&capsule), None, 64);
     expect(&report, OUTCOME_REFUSED);
-    assert!(report.detail.contains("Inconsistent"), "detail {}", report.detail);
+    assert!(
+        report.detail.contains("Inconsistent"),
+        "detail {}",
+        report.detail
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -557,13 +645,20 @@ fn review_truncated_buffer_is_refused() {
         PolyDomain::Zz,
         poly("x", &[(2, 2), (0, -2)]),
         rational(2, 1),
-        &[(poly("x", &[(1, 1), (0, -1)]), 1), (poly("x", &[(1, 1), (0, 1)]), 1)],
+        &[
+            (poly("x", &[(1, 1), (0, -1)]), 1),
+            (poly("x", &[(1, 1), (0, 1)]), 1),
+        ],
     );
     let bytes = encoded(&capsule);
     for cut in [1usize, 3, 8, 33] {
         let report = verify_offline(&bytes[..bytes.len() - cut], None, 64);
         expect(&report, OUTCOME_REFUSED);
-        assert!(report.detail.contains("Malformed"), "detail {}", report.detail);
+        assert!(
+            report.detail.contains("Malformed"),
+            "detail {}",
+            report.detail
+        );
     }
     expect(&verify_offline(&bytes[..4], None, 64), OUTCOME_REFUSED);
     expect(&verify_offline(&[], None, 64), OUTCOME_REFUSED);
@@ -576,7 +671,11 @@ fn review_trailing_bytes_after_capsule_are_refused() {
     bytes.push(0x00);
     let report = verify_offline(&bytes, None, 64);
     expect(&report, OUTCOME_REFUSED);
-    assert!(report.detail.contains("Malformed"), "detail {}", report.detail);
+    assert!(
+        report.detail.contains("Malformed"),
+        "detail {}",
+        report.detail
+    );
 }
 
 #[test]
@@ -586,7 +685,11 @@ fn review_oversized_declared_claim_length_is_refused() {
     bytes[9..13].copy_from_slice(&u32::MAX.to_le_bytes());
     let report = verify_offline(&bytes, None, 64);
     expect(&report, OUTCOME_REFUSED);
-    assert!(report.detail.contains("Malformed"), "detail {}", report.detail);
+    assert!(
+        report.detail.contains("Malformed"),
+        "detail {}",
+        report.detail
+    );
 }
 
 #[test]
@@ -622,7 +725,11 @@ fn review_trailing_bytes_inside_claim_are_refused() {
     forged.extend_from_slice(&bytes[CLAIM_START + len..]);
     let report = verify_offline(&forged, None, 64);
     expect(&report, OUTCOME_REFUSED);
-    assert!(report.detail.contains("Malformed"), "detail {}", report.detail);
+    assert!(
+        report.detail.contains("Malformed"),
+        "detail {}",
+        report.detail
+    );
 }
 
 #[test]
@@ -632,7 +739,11 @@ fn review_trailing_bytes_inside_an_object_are_refused() {
     let capsule = capsule_with_raw_subject(PolyDomain::Zz, payload, rational(1, 1), &[]);
     let report = verify_offline(&encoded(&capsule), None, 64);
     expect(&report, OUTCOME_REFUSED);
-    assert!(report.detail.contains("Malformed"), "detail {}", report.detail);
+    assert!(
+        report.detail.contains("Malformed"),
+        "detail {}",
+        report.detail
+    );
 }
 
 #[test]
@@ -643,18 +754,30 @@ fn review_wrong_schema_version_and_magic_are_refused() {
     wrong_version[7..9].copy_from_slice(&9u16.to_le_bytes());
     let report = verify_offline(&wrong_version, None, 64);
     expect(&report, OUTCOME_REFUSED);
-    assert!(report.detail.contains("UnknownSchema"), "detail {}", report.detail);
+    assert!(
+        report.detail.contains("UnknownSchema"),
+        "detail {}",
+        report.detail
+    );
 
     let mut wrong_magic = bytes.clone();
     wrong_magic[0] = b'X';
     let report = verify_offline(&wrong_magic, None, 64);
     expect(&report, OUTCOME_REFUSED);
-    assert!(report.detail.contains("UnknownSchema"), "detail {}", report.detail);
+    assert!(
+        report.detail.contains("UnknownSchema"),
+        "detail {}",
+        report.detail
+    );
 
     // Wrong schema *before* anything else: never a fallback to a default parse.
     let report = verify_offline(b"not a capsule at all", None, 64);
     expect(&report, OUTCOME_REFUSED);
-    assert!(report.detail.contains("UnknownSchema"), "detail {}", report.detail);
+    assert!(
+        report.detail.contains("UnknownSchema"),
+        "detail {}",
+        report.detail
+    );
 }
 
 #[test]
@@ -681,23 +804,38 @@ fn review_zero_context_root_is_refused() {
     bytes[CLAIM_START + 1..CLAIM_START + 9].copy_from_slice(&[0u8; 8]);
     let report = verify_offline(&bytes, None, 64);
     expect(&report, OUTCOME_REFUSED);
-    assert!(report.detail.contains("Malformed"), "detail {}", report.detail);
+    assert!(
+        report.detail.contains("Malformed"),
+        "detail {}",
+        report.detail
+    );
 }
 
 #[test]
 fn review_wrong_object_kind_is_refused() {
-    let capsule =
-        capsule_with_raw_subject(PolyDomain::Zz, raw_object("x", 0x02, &[(1, 1)]), rational(1, 1), &[]);
+    let capsule = capsule_with_raw_subject(
+        PolyDomain::Zz,
+        raw_object("x", 0x02, &[(1, 1)]),
+        rational(1, 1),
+        &[],
+    );
     let report = verify_offline(&encoded(&capsule), None, 64);
     expect(&report, OUTCOME_REFUSED);
-    assert!(report.detail.contains("UnknownSchema"), "detail {}", report.detail);
+    assert!(
+        report.detail.contains("UnknownSchema"),
+        "detail {}",
+        report.detail
+    );
 }
 
 #[test]
 fn review_non_canonical_object_encodings_are_refused() {
     let cases: Vec<(&str, Vec<u8>)> = vec![
         ("equal degrees", raw_object("x", 0x01, &[(1, 1), (1, 1)])),
-        ("ascending degrees", raw_object("x", 0x01, &[(0, 1), (1, 1)])),
+        (
+            "ascending degrees",
+            raw_object("x", 0x01, &[(0, 1), (1, 1)]),
+        ),
         ("zero coefficient", raw_object("x", 0x01, &[(1, 0)])),
         ("empty symbol", raw_object("", 0x01, &[(1, 1)])),
     ];
@@ -705,7 +843,8 @@ fn review_non_canonical_object_encodings_are_refused() {
         let capsule = capsule_with_raw_subject(PolyDomain::Zz, payload, rational(1, 1), &[]);
         let report = verify_offline(&encoded(&capsule), None, 64);
         assert_eq!(
-            report.outcome, OUTCOME_REFUSED,
+            report.outcome,
+            OUTCOME_REFUSED,
             "{label}: non-canonical object must be refused, got {}",
             class(&report)
         );
@@ -724,7 +863,8 @@ fn review_zero_polynomial_subject_must_not_verify_against_a_constant() {
     );
     let report = verify_offline(&encoded(&capsule), None, 64);
     assert_eq!(
-        report.outcome, OUTCOME_REFUTED,
+        report.outcome,
+        OUTCOME_REFUTED,
         "the zero polynomial was accepted as 1; observed {}",
         class(&report)
     );
@@ -743,7 +883,8 @@ fn review_factor_with_extra_middle_term_must_be_refuted() {
     );
     let report = check_rooted(&capsule, 64);
     assert_eq!(
-        report.outcome, OUTCOME_REFUTED,
+        report.outcome,
+        OUTCOME_REFUTED,
         "x^2 - 1 was accepted as 1*(x^2 + x - 1); observed {}",
         class(&report)
     );
@@ -760,7 +901,11 @@ fn review_oversized_counts_and_symbol_are_refused() {
     let capsule = capsule_with_raw_subject(PolyDomain::Zz, payload, rational(1, 1), &[]);
     let report = verify_offline(&encoded(&capsule), None, 64);
     expect(&report, OUTCOME_REFUSED);
-    assert!(report.detail.contains("Malformed"), "detail {}", report.detail);
+    assert!(
+        report.detail.contains("Malformed"),
+        "detail {}",
+        report.detail
+    );
 
     // Symbol longer than MAX_SYMBOL_BYTES.
     let long_symbol = "s".repeat(300);
@@ -772,7 +917,11 @@ fn review_oversized_counts_and_symbol_are_refused() {
     );
     let report = verify_offline(&encoded(&capsule), None, 64);
     expect(&report, OUTCOME_REFUSED);
-    assert!(report.detail.contains("Malformed"), "detail {}", report.detail);
+    assert!(
+        report.detail.contains("Malformed"),
+        "detail {}",
+        report.detail
+    );
 
     // Factor count above MAX_FACTORS declared in the claim.
     let capsule = assemble(PolyDomain::Zz, poly("x", &[(1, 1)]), rational(1, 1), &[]);
@@ -781,13 +930,21 @@ fn review_oversized_counts_and_symbol_are_refused() {
     bytes[at..at + 4].copy_from_slice(&u32::MAX.to_le_bytes());
     let report = verify_offline(&bytes, None, 64);
     expect(&report, OUTCOME_REFUSED);
-    assert!(report.detail.contains("Malformed"), "detail {}", report.detail);
+    assert!(
+        report.detail.contains("Malformed"),
+        "detail {}",
+        report.detail
+    );
 
     // Oversized whole-capsule buffer (past MAX_CAPSULE_BYTES).
     let oversized = vec![0u8; 1024 * 1024 + 1];
     let report = verify_offline(&oversized, None, 64);
     expect(&report, OUTCOME_REFUSED);
-    assert!(report.detail.contains("Malformed"), "detail {}", report.detail);
+    assert!(
+        report.detail.contains("Malformed"),
+        "detail {}",
+        report.detail
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -800,7 +957,10 @@ fn review_exhaustion_is_inconclusive_and_never_verified() {
         PolyDomain::Zz,
         poly("x", &[(2, 2), (0, -2)]),
         rational(2, 1),
-        &[(poly("x", &[(1, 1), (0, -1)]), 1), (poly("x", &[(1, 1), (0, 1)]), 1)],
+        &[
+            (poly("x", &[(1, 1), (0, -1)]), 1),
+            (poly("x", &[(1, 1), (0, 1)]), 1),
+        ],
     );
     for fuel in [0u64, 1] {
         let report = check_rooted(&capsule, fuel);
@@ -826,7 +986,10 @@ fn review_exhaustion_precedes_refutation_for_a_false_claim() {
         PolyDomain::Zz,
         poly("x", &[(2, 2), (0, -2)]),
         rational(3, 1), // wrong coefficient
-        &[(poly("x", &[(1, 1), (0, -1)]), 1), (poly("x", &[(1, 1), (0, 1)]), 1)],
+        &[
+            (poly("x", &[(1, 1), (0, -1)]), 1),
+            (poly("x", &[(1, 1), (0, 1)]), 1),
+        ],
     );
     let report = check_rooted(&capsule, 1);
     expect(&report, OUTCOME_INCONCLUSIVE);
@@ -882,7 +1045,10 @@ fn review_dropped_factor_kept_in_object_store_is_still_refuted() {
         PolyDomain::Zz,
         poly("x", &[(2, 2), (0, -2)]),
         rational(2, 1),
-        &[(poly("x", &[(1, 1), (0, -1)]), 1), (poly("x", &[(1, 1), (0, 1)]), 1)],
+        &[
+            (poly("x", &[(1, 1), (0, -1)]), 1),
+            (poly("x", &[(1, 1), (0, 1)]), 1),
+        ],
     );
     capsule.claim.factors.pop();
     let report = verify_offline(&encoded(&capsule), None, 64);
@@ -900,18 +1066,26 @@ fn review_trailing_flag_byte_after_capsule_is_refused() {
         PolyDomain::Zz,
         poly("x", &[(2, 2), (0, -2)]),
         rational(2, 1),
-        &[(poly("x", &[(1, 1), (0, -1)]), 1), (poly("x", &[(1, 1), (0, 1)]), 1)],
+        &[
+            (poly("x", &[(1, 1), (0, -1)]), 1),
+            (poly("x", &[(1, 1), (0, 1)]), 1),
+        ],
     );
     let bytes = encoded(&capsule);
     let mut flag = bytes.clone();
     flag.push(0xff); // a smuggled `verified = true` byte
     let report = verify_offline(&flag, None, 64);
     assert_eq!(
-        report.outcome, OUTCOME_REFUSED,
+        report.outcome,
+        OUTCOME_REFUSED,
         "trailing flag byte accepted; observed {}",
         class(&report)
     );
-    assert!(report.detail.contains("Malformed"), "detail {}", report.detail);
+    assert!(
+        report.detail.contains("Malformed"),
+        "detail {}",
+        report.detail
+    );
     assert!(!verify_offline(&flag, Some(root_of(&capsule)), 64).is_verified());
 }
 
@@ -921,17 +1095,25 @@ fn review_trailing_named_field_after_capsule_is_refused() {
         PolyDomain::Zz,
         poly("x", &[(2, 2), (0, -2)]),
         rational(2, 1),
-        &[(poly("x", &[(1, 1), (0, -1)]), 1), (poly("x", &[(1, 1), (0, 1)]), 1)],
+        &[
+            (poly("x", &[(1, 1), (0, -1)]), 1),
+            (poly("x", &[(1, 1), (0, 1)]), 1),
+        ],
     );
     let mut text = encoded(&capsule);
     text.extend_from_slice(b"verified=true");
     let report = verify_offline(&text, None, 64);
     assert_eq!(
-        report.outcome, OUTCOME_REFUSED,
+        report.outcome,
+        OUTCOME_REFUSED,
         "trailing `verified=true` field accepted; observed {}",
         class(&report)
     );
-    assert!(report.detail.contains("Malformed"), "detail {}", report.detail);
+    assert!(
+        report.detail.contains("Malformed"),
+        "detail {}",
+        report.detail
+    );
 }
 
 #[test]
@@ -940,14 +1122,19 @@ fn review_flag_byte_inside_object_store_is_refused() {
         PolyDomain::Zz,
         poly("x", &[(2, 2), (0, -2)]),
         rational(2, 1),
-        &[(poly("x", &[(1, 1), (0, -1)]), 1), (poly("x", &[(1, 1), (0, 1)]), 1)],
+        &[
+            (poly("x", &[(1, 1), (0, -1)]), 1),
+            (poly("x", &[(1, 1), (0, 1)]), 1),
+        ],
     );
     let mut inner = encoded(&capsule);
     let count_at = object_count_offset(&inner);
     let first = count_at + 4;
-    let payload_len =
-        u32::from_le_bytes(inner[first + 40..first + 44].try_into().expect("payload length"))
-            as usize;
+    let payload_len = u32::from_le_bytes(
+        inner[first + 40..first + 44]
+            .try_into()
+            .expect("payload length"),
+    ) as usize;
     assert!(payload_len > 0, "first object must carry a payload");
     inner[first + 44 + payload_len - 1] ^= 0x80; // last payload byte -> `verified`
     assert!(
@@ -956,11 +1143,16 @@ fn review_flag_byte_inside_object_store_is_refused() {
     );
     let report = verify_offline(&inner, None, 64);
     assert_eq!(
-        report.outcome, OUTCOME_REFUSED,
+        report.outcome,
+        OUTCOME_REFUSED,
         "flag byte inside the object store accepted; observed {}",
         class(&report)
     );
-    assert!(report.detail.contains("ObjectDigestMismatch"), "detail {}", report.detail);
+    assert!(
+        report.detail.contains("ObjectDigestMismatch"),
+        "detail {}",
+        report.detail
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -974,11 +1166,18 @@ fn review_wrong_coefficient_is_refuted() {
         PolyDomain::Zz,
         poly("x", &[(2, 2), (0, -2)]),
         rational(3, 1),
-        &[(poly("x", &[(1, 1), (0, -1)]), 1), (poly("x", &[(1, 1), (0, 1)]), 1)],
+        &[
+            (poly("x", &[(1, 1), (0, -1)]), 1),
+            (poly("x", &[(1, 1), (0, 1)]), 1),
+        ],
     );
     let report = check_rooted(&capsule, 64);
     expect(&report, OUTCOME_REFUTED);
-    assert!(report.detail.contains("coefficient mismatch"), "detail {}", report.detail);
+    assert!(
+        report.detail.contains("coefficient mismatch"),
+        "detail {}",
+        report.detail
+    );
 }
 
 #[test]
@@ -988,7 +1187,10 @@ fn review_wrong_factor_is_refuted() {
         PolyDomain::Zz,
         poly("x", &[(2, 2), (0, -2)]),
         rational(2, 1),
-        &[(poly("x", &[(1, 1), (0, -1)]), 1), (poly("x", &[(1, 1), (0, 2)]), 1)],
+        &[
+            (poly("x", &[(1, 1), (0, -1)]), 1),
+            (poly("x", &[(1, 1), (0, 2)]), 1),
+        ],
     );
     expect(&check_rooted(&capsule, 64), OUTCOME_REFUTED);
 }
@@ -1000,7 +1202,10 @@ fn review_subtly_wrong_rational_coefficient_is_refuted() {
         PolyDomain::Qq,
         poly_q("x", &[(2, (1, 2)), (0, (-1, 2))]),
         rational(1, 3),
-        &[(poly("x", &[(1, 1), (0, -1)]), 1), (poly("x", &[(1, 1), (0, 1)]), 1)],
+        &[
+            (poly("x", &[(1, 1), (0, -1)]), 1),
+            (poly("x", &[(1, 1), (0, 1)]), 1),
+        ],
     );
     expect(&check_rooted(&capsule, 64), OUTCOME_REFUTED);
 }
@@ -1012,7 +1217,10 @@ fn review_wrong_exponent_is_refuted() {
         PolyDomain::Zz,
         poly("x", &[(2, 2), (0, -2)]),
         rational(2, 1),
-        &[(poly("x", &[(1, 1), (0, -1)]), 2), (poly("x", &[(1, 1), (0, 1)]), 1)],
+        &[
+            (poly("x", &[(1, 1), (0, -1)]), 2),
+            (poly("x", &[(1, 1), (0, 1)]), 1),
+        ],
     );
     expect(&check_rooted(&capsule, 64), OUTCOME_REFUTED);
 }
@@ -1031,7 +1239,8 @@ fn review_extra_product_term_must_be_refuted() {
     );
     let report = check_rooted(&capsule, 64);
     assert_eq!(
-        report.outcome, OUTCOME_REFUTED,
+        report.outcome,
+        OUTCOME_REFUTED,
         "x^2 was accepted as 1*(x^2+1); observed verdict: {}",
         class(&report)
     );
@@ -1045,11 +1254,15 @@ fn review_missing_constant_term_in_subject_must_be_refuted() {
         PolyDomain::Zz,
         poly("x", &[(2, 2)]),
         rational(2, 1),
-        &[(poly("x", &[(1, 1), (0, -1)]), 1), (poly("x", &[(1, 1), (0, 1)]), 1)],
+        &[
+            (poly("x", &[(1, 1), (0, -1)]), 1),
+            (poly("x", &[(1, 1), (0, 1)]), 1),
+        ],
     );
     let report = check_rooted(&capsule, 64);
     assert_eq!(
-        report.outcome, OUTCOME_REFUTED,
+        report.outcome,
+        OUTCOME_REFUTED,
         "2x^2 was accepted as 2*(x-1)*(x+1); observed verdict: {}",
         class(&report)
     );
@@ -1066,7 +1279,8 @@ fn review_extra_high_degree_product_term_must_be_refuted() {
     );
     let report = check_rooted(&capsule, 64);
     assert_eq!(
-        report.outcome, OUTCOME_REFUTED,
+        report.outcome,
+        OUTCOME_REFUTED,
         "x^3 was accepted as 1*(x^3+x); observed verdict: {}",
         class(&report)
     );
@@ -1085,7 +1299,10 @@ fn review_verify_offline_default_accepts_self_asserted_claims() {
         PolyDomain::Zz,
         poly("x", &[(2, 2), (0, -2)]),
         rational(2, 1),
-        &[(poly("x", &[(1, 1), (0, -1)]), 1), (poly("x", &[(1, 1), (0, 1)]), 1)],
+        &[
+            (poly("x", &[(1, 1), (0, -1)]), 1),
+            (poly("x", &[(1, 1), (0, 1)]), 1),
+        ],
     );
     let report = verify_offline_default(&encoded(&capsule));
     expect(&report, OUTCOME_VERIFIED);

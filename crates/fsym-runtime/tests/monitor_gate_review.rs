@@ -29,10 +29,16 @@ struct ReviewLcg(u64);
 
 impl ReviewLcg {
     fn new(seed: u64) -> Self {
-        Self(seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407))
+        Self(
+            seed.wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407),
+        )
     }
     fn next_u64(&mut self) -> u64 {
-        self.0 = self.0.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+        self.0 = self
+            .0
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
         self.0
     }
     fn draw(&mut self, probability: f64) -> bool {
@@ -59,15 +65,24 @@ fn reset_zeroes_wealth_but_preserves_every_cumulative_counter() {
         let _ = monitor.observe(completed(true));
     }
     // Force a failure and an agreement into the same generation.
-    let _ = monitor.observe(Observation::Failed { kind: FailureKind::Timeout });
+    let _ = monitor.observe(Observation::Failed {
+        kind: FailureKind::Timeout,
+    });
     let _ = monitor.observe(completed(false));
     let before = monitor.snapshot();
-    assert!(before.alarmed, "3 discrepancies at ln(4) each must cross ln(20)");
+    assert!(
+        before.alarmed,
+        "3 discrepancies at ln(4) each must cross ln(20)"
+    );
     assert_eq!(before.alarms, 1);
 
     monitor.reset();
     let after = monitor.snapshot();
-    assert_eq!(after.generation, before.generation + 1, "generation advances");
+    assert_eq!(
+        after.generation,
+        before.generation + 1,
+        "generation advances"
+    );
     assert_eq!(after.resets, 1);
     assert_eq!(after.log_wealth, 0.0, "wealth zeroes");
     assert_eq!(after.observations, 0, "generation-local window zeroes");
@@ -80,7 +95,10 @@ fn reset_zeroes_wealth_but_preserves_every_cumulative_counter() {
     assert_eq!(after.timeouts, 1);
     assert_eq!(after.alarms, 1, "alarm history is not erased");
     // The stream resumes with a Continue, not a stale verdict.
-    assert!(matches!(monitor.observe(completed(false)), MonitorDecision::Continue));
+    assert!(matches!(
+        monitor.observe(completed(false)),
+        MonitorDecision::Continue
+    ));
 }
 
 // ---------------------------------------------------------------------------
@@ -92,7 +110,9 @@ fn a_failure_only_stream_alarms_and_lands_in_its_own_buckets() {
     let mut monitor = fresh();
     let mut decision = MonitorDecision::Continue;
     for _ in 0..3 {
-        decision = monitor.observe(Observation::Failed { kind: FailureKind::Timeout });
+        decision = monitor.observe(Observation::Failed {
+            kind: FailureKind::Timeout,
+        });
     }
     assert!(
         matches!(decision, MonitorDecision::Alarm { .. }),
@@ -109,8 +129,12 @@ fn a_failure_only_stream_alarms_and_lands_in_its_own_buckets() {
 #[test]
 fn every_failure_kind_is_charged_in_its_own_counter() {
     let mut monitor = fresh();
-    let _ = monitor.observe(Observation::Failed { kind: FailureKind::Cancelled });
-    let _ = monitor.observe(Observation::Failed { kind: FailureKind::ResourceExhausted });
+    let _ = monitor.observe(Observation::Failed {
+        kind: FailureKind::Cancelled,
+    });
+    let _ = monitor.observe(Observation::Failed {
+        kind: FailureKind::ResourceExhausted,
+    });
     let snapshot = monitor.snapshot();
     assert_eq!(snapshot.cancellations, 1);
     assert_eq!(snapshot.resource_exhaustions, 1);
@@ -131,7 +155,11 @@ fn alarm_is_one_way_within_a_generation() {
     for _ in 0..10 {
         let decision = monitor.observe(completed(false));
         match decision {
-            MonitorDecision::Alarm { generation, threshold, log_wealth } => {
+            MonitorDecision::Alarm {
+                generation,
+                threshold,
+                log_wealth,
+            } => {
                 assert_eq!(generation, 0);
                 assert_eq!(threshold, (1.0 / 0.05f64).ln());
                 let snapshot = monitor.snapshot();
@@ -140,7 +168,11 @@ fn alarm_is_one_way_within_a_generation() {
             other => panic!("agreement must not un-alarm, got {other:?}"),
         }
     }
-    assert_eq!(monitor.snapshot().alarms, 1, "one alarm, not one per observation");
+    assert_eq!(
+        monitor.snapshot().alarms,
+        1,
+        "one alarm, not one per observation"
+    );
 }
 
 #[test]
@@ -148,7 +180,10 @@ fn wealth_crosses_the_ville_threshold_exactly_at_ln_4_contribution() {
     let mut monitor = fresh();
     // p1/p0 = 4, so wealth after k divergences is 4^k; ln(1/0.05) = ln(20)
     // is crossed exactly at k = 3 (64 >= 20), not at k = 2 (16 < 20).
-    assert!(matches!(monitor.observe(completed(true)), MonitorDecision::Continue));
+    assert!(matches!(
+        monitor.observe(completed(true)),
+        MonitorDecision::Continue
+    ));
     let second = monitor.observe(completed(true));
     match second {
         MonitorDecision::Continue => {}
@@ -156,7 +191,11 @@ fn wealth_crosses_the_ville_threshold_exactly_at_ln_4_contribution() {
     }
     let third = monitor.observe(completed(true));
     match third {
-        MonitorDecision::Alarm { threshold, log_wealth, .. } => {
+        MonitorDecision::Alarm {
+            threshold,
+            log_wealth,
+            ..
+        } => {
             assert!((threshold - 20f64.ln()).abs() < 1e-12);
             assert!((log_wealth - 64f64.ln()).abs() < 1e-9);
             assert!((monitor.snapshot().wealth() - 64.0).abs() < 1e-6);
@@ -176,9 +215,7 @@ fn alarm_rate(rate: f64, streams: u64, steps: u64, seed: u64) -> f64 {
         let mut rng = ReviewLcg::new(seed ^ stream.wrapping_mul(0x9e37_79b9));
         let mut fired = false;
         for _ in 0..steps {
-            if let MonitorDecision::Alarm { .. } =
-                monitor.observe(completed(rng.draw(rate)))
-            {
+            if let MonitorDecision::Alarm { .. } = monitor.observe(completed(rng.draw(rate))) {
                 fired = true;
                 break;
             }

@@ -26,7 +26,8 @@ use std::cmp::Ordering;
 /// `artifacts/conformance/fixtures/deterministic_term_identity_v1.json`
 /// (`terms.sym_x.digest_hex`), which pins `TermNode::Sym(Symbol::new("x"))`
 /// in the `Expression` domain.
-const GOLDEN_SYM_X_DIGEST: &str = "fe01bab39fe4f7057029e497c41995eb0e903e75dd0de8a144d2bbd198e07b53";
+const GOLDEN_SYM_X_DIGEST: &str =
+    "fe01bab39fe4f7057029e497c41995eb0e903e75dd0de8a144d2bbd198e07b53";
 
 fn identity(tag: u8) -> SymbolIdentity {
     SymbolIdentity::from_assumptions_digest([tag; 32])
@@ -157,7 +158,8 @@ fn plain_symbol_preimage_replays_the_published_cross_architecture_golden() {
 
     // The identity-bearing atom is a distinct node kind, so it can never
     // collide with the pinned plain preimage.
-    let keyed = compute_term_digest(&TermNode::Sym(Symbol::with_identity("x", identity(1)))).unwrap();
+    let keyed =
+        compute_term_digest(&TermNode::Sym(Symbol::with_identity("x", identity(1)))).unwrap();
     assert_ne!(hex(&keyed), GOLDEN_SYM_X_DIGEST);
 }
 
@@ -174,7 +176,8 @@ fn identity_is_preserved_by_dag_lifting_and_legacy_serde_payloads() {
     );
 
     // A plain symbol must not start emitting an identity field...
-    let encoded: serde_json::Value = serde_json::from_str(&serde_json::to_string(&Symbol::new("x")).unwrap()).unwrap();
+    let encoded: serde_json::Value =
+        serde_json::from_str(&serde_json::to_string(&Symbol::new("x")).unwrap()).unwrap();
     assert!(
         encoded.get("identity").is_none(),
         "plain symbol grew a persisted identity field: {encoded}"
@@ -199,10 +202,7 @@ fn identity_is_preserved_by_dag_lifting_and_legacy_serde_payloads() {
 fn add_argument_comparator_must_not_declare_unequal_expressions_equal() {
     // Two compound terms that differ only inside a symbol's typed identity
     // print identically but are NOT equal expressions.
-    let function_plain = Expr::Function(
-        "f".to_string(),
-        vec![Expr::Sym(Symbol::new("x"))],
-    );
+    let function_plain = Expr::Function("f".to_string(), vec![Expr::Sym(Symbol::new("x"))]);
     let function_keyed = Expr::Function(
         "f".to_string(),
         vec![Expr::Sym(Symbol::with_identity("x", identity(1)))],
@@ -233,8 +233,10 @@ fn add_argument_comparator_must_not_declare_unequal_expressions_equal() {
 #[test]
 fn canonical_add_order_must_be_a_function_of_the_term_multiset() {
     let function_plain = Expr::Function("f".to_string(), vec![Expr::Sym(Symbol::new("x"))]);
-    let function_keyed =
-        Expr::Function("f".to_string(), vec![Expr::Sym(Symbol::with_identity("x", identity(1)))]);
+    let function_keyed = Expr::Function(
+        "f".to_string(),
+        vec![Expr::Sym(Symbol::with_identity("x", identity(1)))],
+    );
 
     let mut forward = vec![function_plain.clone(), function_keyed.clone()];
     let mut reverse = vec![function_keyed.clone(), function_plain.clone()];
