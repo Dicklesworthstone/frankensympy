@@ -1217,6 +1217,41 @@ mod tests {
         ball.lower() <= *reference && *reference <= ball.upper()
     }
 
+    /// Identity-oracle property: sin^2 + cos^2 must enclose 1, and
+    /// exp(x)*exp(-x) must enclose 1, for arbitrary rationals in the
+    /// declared envelope. Identity checks need no external oracle.
+    #[test]
+    fn identity_oracles_hold_across_random_rationals() {
+        for seed in 0..12u64 {
+            let numer = (seed * 37 + 11) as i64 % 19 - 9;
+            let denom = (seed * 53 + 7) as i64 % 7 + 1;
+            let x = RealBall::exact(BigRational::new(BigInt::from(numer), BigInt::from(denom)));
+            let s = x.sin(10).expect("sin");
+            let c = x.cos(10).expect("cos");
+            // sin^2 + cos^2: the enclosure of the identity sum must
+            // contain 1 (both squares are non-negative, so widths compose
+            // conservatively).
+            let s2 = s.mul(&s);
+            let c2 = c.mul(&c);
+            let sum = s2.add(&c2);
+            let one = BigRational::one();
+            assert!(
+                sum.lower() <= one && one <= sum.upper(),
+                "seed {seed}: sin^2+cos^2 = {} must enclose 1",
+                sum
+            );
+            let e_pos = x.exp(10).expect("exp");
+            let neg_x = x.neg();
+            let e_neg = neg_x.exp(10).expect("exp(-x)");
+            let product = e_pos.mul(&e_neg);
+            assert!(
+                product.lower() <= one && one <= product.upper(),
+                "seed {seed}: exp(x)*exp(-x) = {} must enclose 1",
+                product
+            );
+        }
+    }
+
     #[test]
     fn transcendentals_enclose_oracle_references_at_requested_precision() {
         type OracleCase = (

@@ -1815,3 +1815,120 @@ mod complete_factorization_tests {
         verify_complete_factorization(&p, &result).expect("verifier accepts");
     }
 }
+
+#[cfg(test)]
+mod complete_factorization_proptests {
+    use super::*;
+
+    fn sym() -> Symbol {
+        Symbol::new("x")
+    }
+
+    fn ipoly(coeffs: &[i64]) -> UnivariatePoly {
+        let parsed: Vec<BigRational> = coeffs
+            .iter()
+            .map(|c| BigRational::from_integer(BigInt::from(*c)))
+            .collect();
+        UnivariatePoly::new(sym(), parsed)
+    }
+
+    fn mul_all(polys: &[UnivariatePoly]) -> UnivariatePoly {
+        polys.iter().fold(UnivariatePoly::one(sym()), |acc, p| {
+            acc.mul(p).expect("product in regime")
+        })
+    }
+
+    /// Builds `content * (x-r1)(x-r2)(x-r3) * q^m_quad` with roots drawn
+    /// from a small range (so multiplicities collide) and one of two fixed
+    /// irreducible quadratics.
+    fn gen_constructed_poly(
+        (seed_a, seed_b, seed_c, mult_seed, content_seed, quad_pick, _pad): (
+            u64,
+            u64,
+            u64,
+            u64,
+            u64,
+            u64,
+            u64,
+        ),
+    ) -> (UnivariatePoly, Vec<(i64, i64)>) {
+        let r = |s: u64| (s % 19) as i64 - 9;
+        let (r1, r2, r3) = (r(seed_a), r(seed_b), r(seed_c));
+        let m_lin = (mult_seed % 3 + 1) as i64;
+        let m_quad = (mult_seed % 3) as i64;
+        let content = (content_seed % 7 + 1) as i64;
+        let quad = if quad_pick % 2 == 0 {
+            ipoly(&[1, 0, 1])
+        } else {
+            ipoly(&[2, 2, 1])
+        };
+
+        let mut factors = vec![ipoly(&[content])];
+        let mut expected: Vec<(i64, i64)> = Vec::new();
+        for root in [r1, r2, r3] {
+            // Each root occurrence contributes its linear factor m_lin
+            // times, so the expected multiplicity is occurrences * m_lin.
+            for _ in 0..m_lin {
+                factors.push(ipoly(&[-root, 1]));
+            }
+            match expected.iter_mut().find(|(existing, _)| *existing == root) {
+                Some((_, count)) => *count += 1,
+                None => expected.push((root, 1)),
+            }
+        }
+        for (_, count) in expected.iter_mut() {
+            *count = count.saturating_mul(m_lin);
+        }
+        for _ in 0..m_quad {
+            factors.push(quad.clone());
+        }
+        (mul_all(&factors), expected)
+    }
+
+    fn observed_multiplicity(result: &CompleteFactorization, root: i64) -> i64 {
+        result
+            .factors
+            .iter()
+            .filter(|f| {
+                f.poly.degree() == Some(1)
+                    && f.poly.coeffs[0] == BigRational::from_integer(BigInt::from(-root))
+                    && f.poly.coeffs[1] == BigRational::one()
+            })
+            .map(|f| f.multiplicity as i64)
+            .sum()
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::test_runner::Config::with_cases(192))]
+
+        /// Soundness (verifier accepts) + completeness (every constructed
+        /// root's linear factor appears with exactly the constructed
+        /// multiplicity) on deterministically generated products.
+        #[test]
+        fn constructed_products_factor_back_exactly(
+            input in (0u64..=u64::MAX, 0u64..=u64::MAX, 0u64..=u64::MAX,
+                      0u64..=u64::MAX, 0u64..=u64::MAX, 0u64..=u64::MAX,
+                      0u64..=u64::MAX),
+        ) {
+            let (poly, expected) = gen_constructed_poly(input);
+            let result = complete_factorization(&poly).expect("in-regime factorization");
+            verify_complete_factorization(&poly, &result).expect("verifier accepts");
+            for (root, expected_mult) in expected {
+                assert_eq!(
+                    observed_multiplicity(&result, root),
+                    expected_mult,
+                    "root {root}: multiplicity must match the constructed product"
+                );
+            }
+            // Degree conservation: sum(deg * mult) over all factors equals
+            // the input degree.
+            let input_degree = poly.degree().unwrap_or(0);
+            let factor_degree: i64 = result
+                .factors
+                .iter()
+                .map(|f| f.poly.degree().unwrap_or(0) as i64 * f.multiplicity as i64)
+                .sum();
+            assert_eq!(factor_degree, input_degree as i64);
+        }
+    }
+}
