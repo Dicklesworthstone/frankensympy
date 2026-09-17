@@ -648,7 +648,8 @@ pub struct FactorRaceContinuation {
     /// time. Kept OUT of the wire payload: `from_wire` resumes require the
     /// caller to present the live ledger, and `resume` compares this
     /// capability against it. Wire bytes alone can never authorize a resume.
-    ledger: Option<fsym_budget::BudgetLedgerIdentity>,
+    /// The paired counter is the pre-generation baseline, never a restored allowance.
+    ledger: Option<(fsym_budget::BudgetLedgerIdentity, u64)>,
 }
 
 impl FactorRaceContinuation {
@@ -713,15 +714,15 @@ impl FactorRaceContinuation {
             ));
         }
         let live_ledger = cx.ledger_identity();
-        match &self.ledger {
-            Some(captured) if *captured == live_ledger => {}
+        let initial_compute_remaining = match &self.ledger {
+            Some((captured, initial)) if *captured == live_ledger => *initial,
             _ => {
                 return Err(PortfolioError::InvalidPortfolio(
                     "continuation was not captured by the presented live ledger; wire decode alone never authorizes a resume"
                         .into(),
                 ));
             }
-        }
+        };
         let state = &self.checkpoint.payload;
         if state.requested_claim != *requested_claim {
             return Err(PortfolioError::InvalidPortfolio(
@@ -754,7 +755,6 @@ impl FactorRaceContinuation {
             )));
         }
         cx.checkpoint().map_err(|_| PortfolioError::Cancelled)?;
-        let initial_compute_remaining = cx.remaining(Dimension::ComputeSteps);
         let outcomes = state
             .candidates
             .iter()
@@ -799,6 +799,7 @@ pub fn factor_race_generate<Caps: Send + Sync + 'static>(
 ) -> Result<(FactorRaceDecisionCard, FactorRaceContinuation), PortfolioError> {
     let decision_card =
         FactorRaceDecisionCard::build(requested_claim, &strategies, cx.verifier_remaining())?;
+    let initial_compute_remaining = cx.remaining(Dimension::ComputeSteps);
     let outcomes = generate_concurrent_candidates(cx, requested_claim, strategies)?;
     let ledger_identity = cx.ledger_identity();
     let candidates = outcomes
@@ -848,7 +849,7 @@ pub fn factor_race_generate<Caps: Send + Sync + 'static>(
         decision_card,
         FactorRaceContinuation {
             checkpoint,
-            ledger: Some(ledger_identity),
+            ledger: Some((ledger_identity, initial_compute_remaining)),
         },
     ))
 }
@@ -1787,6 +1788,12 @@ mod tests {
         use fsym_polys::factorization::metered_complete_factorization;
         use fsym_polys::univariate::UnivariatePoly;
 
+        for zassenhaus_first in [true, false] {
+        let (z_done_tx, z_done_rx) = std::sync::mpsc::channel();
+        let (k_done_tx, k_done_rx) = std::sync::mpsc::channel();
+        let z_done_rx = Mutex::new(z_done_rx);
+        let k_done_rx = Mutex::new(k_done_rx);
+        let (completion_tx, completion_rx) = std::sync::mpsc::channel();
         // x^4 + 4 = (x^2 - 2x + 2)(x^2 + 2x + 2): one product identity
         // raced by two mathematically distinct real generators.
         let ipoly = |coeffs: &[i64]| {
@@ -1812,7 +1819,13 @@ mod tests {
         // Zassenhaus: metered modular complete factorization of the input.
         let z_input = Arc::clone(&input);
         let z_ctx = Arc::clone(&context);
+        let z_completions = completion_tx.clone();
         let zassenhaus = Box::new(move |cx: &mut FsymCpuCx<'_, asupersync::cx::cap::None>| {
+            if !zassenhaus_first {
+                k_done_rx.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .recv_timeout(std::time::Duration::from_secs(10))
+                    .expect("Kronecker must finish before releasing Zassenhaus");
+            }
             let factorization = metered_complete_factorization(&z_input, cx)
                 .map_err(|error| PortfolioError::AllStrategiesFailed(error.to_string()))?;
             let product = normalize_factor_product(
@@ -1835,6 +1848,10 @@ mod tests {
             let derivation = kernel
                 .export_derivation(root)
                 .map_err(|error| PortfolioError::AllStrategiesFailed(error.to_string()))?;
+            z_completions.send("zassenhaus_modular").unwrap();
+            if zassenhaus_first {
+                z_done_tx.send(()).expect("Zassenhaus completion receiver remains live");
+            }
             Ok(PortfolioCandidate {
                 strategy_name: "zassenhaus_modular".into(),
                 result: product.clone(),
@@ -1845,7 +1862,13 @@ mod tests {
         // Kronecker: the second real generator path; also meters its work.
         let k_input = Arc::clone(&input);
         let k_ctx = Arc::clone(&context);
+        let k_completions = completion_tx;
         let kronecker = Box::new(move |cx: &mut FsymCpuCx<'_, asupersync::cx::cap::None>| {
+            if zassenhaus_first {
+                z_done_rx.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .recv_timeout(std::time::Duration::from_secs(10))
+                    .expect("Zassenhaus must finish before releasing Kronecker");
+            }
             let factorization =
                 fsym_polys::factorization::metered_kronecker_factorization(&k_input, cx)
                     .map_err(|error| PortfolioError::AllStrategiesFailed(error.to_string()))?;
@@ -1869,6 +1892,10 @@ mod tests {
             let derivation = kernel
                 .export_derivation(root)
                 .map_err(|error| PortfolioError::AllStrategiesFailed(error.to_string()))?;
+            k_completions.send("kronecker_interpolation").unwrap();
+            if !zassenhaus_first {
+                k_done_tx.send(()).expect("Kronecker completion receiver remains live");
+            }
             Ok(PortfolioCandidate {
                 strategy_name: "kronecker_interpolation".into(),
                 result: product.clone(),
@@ -1890,6 +1917,14 @@ mod tests {
             ],
         )
         .expect("both real generators must drain");
+        assert_eq!(
+            completion_rx.try_iter().collect::<Vec<_>>(),
+            if zassenhaus_first {
+                vec!["zassenhaus_modular", "kronecker_interpolation"]
+            } else {
+                vec!["kronecker_interpolation", "zassenhaus_modular"]
+            },
+        );
         assert_eq!(outcomes.len(), 2);
         for outcome in &outcomes {
             let candidate = outcome.result.as_ref().expect("real generator completes");
@@ -1922,6 +1957,8 @@ mod tests {
         assert_eq!(outcome.evidence().claim, requested);
         assert!(outcome.evidence().verify_integrity());
         assert!(outcome.generator_steps_consumed() > 0);
+        assert_eq!(outcome.winning_strategy(), "kronecker_interpolation");
+        }
     }
 
     #[test]
@@ -2025,5 +2062,11 @@ mod tests {
             .expect("same live ledger resumes and publishes");
         assert_eq!(outcome.result(), &expected_product);
         assert!(outcome.evidence().verify_integrity());
+        assert_eq!(
+            outcome.generator_steps_consumed(),
+            limits.dimensions[Dimension::ComputeSteps.index()]
+                - cx.remaining(Dimension::ComputeSteps),
+            "resumed accounting must include generation before the checkpoint",
+        );
     }
 }

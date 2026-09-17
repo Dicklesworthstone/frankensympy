@@ -15,16 +15,20 @@
 use asupersync::Cx;
 use asupersync::cx::cap::None as CapNone;
 use fsym_assumptions::ImmutableAssumptionsSnapshot;
-use fsym_budget::{Budget, BudgetLimits, Dimension, Unbounded};
-use fsym_core::Expr;
-use fsym_proof_kernel::{Claim, ProofKernel};
+use fsym_budget::{
+    Budget, BudgetError, BudgetLimits, BudgetMeter, DIMENSION_COUNT, Dimension, MeterError, Unbounded,
+};
+use fsym_core::{BigInt, BigRational, Expr, Symbol};
+use fsym_polys::factorization::{metered_complete_factorization, metered_kronecker_factorization};
+use fsym_polys::univariate::UnivariatePoly;
+use fsym_proof_kernel::{Claim, ProofKernel, claim_verification_units};
 use fsym_runtime::{
     FsymCpuCx, FsymCx, PortfolioCandidate, PortfolioError, ReplayLog,
     run_portfolio_concurrent_race, run_portfolio_race,
 };
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, mpsc};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 fn make_candidate(x: &Expr, name: &str) -> PortfolioCandidate {
     let mut kernel = ProofKernel::new((*ImmutableAssumptionsSnapshot::empty()).clone());
@@ -38,6 +42,100 @@ fn make_candidate(x: &Expr, name: &str) -> PortfolioCandidate {
         derivation: kernel
             .export_derivation(root)
             .expect("export derivation must succeed"),
+    }
+}
+
+const LIFECYCLE_TIMEOUT: Duration = Duration::from_secs(10);
+
+fn real_factor_request() -> (UnivariatePoly, Claim) {
+    let polynomial = |coefficients: &[i64]| {
+        UnivariatePoly::new(
+            Symbol::new("x"),
+            coefficients
+                .iter()
+                .map(|coefficient| BigRational::from_integer(BigInt::from(*coefficient)))
+                .collect(),
+        )
+    };
+    let input = polynomial(&[4, 0, 0, 0, 1]);
+    let requested = Claim::AlgebraicIdentity {
+        lhs: input.to_expr(),
+        rhs: Expr::Mul(vec![
+            polynomial(&[2, -2, 1]).to_expr(),
+            polynomial(&[2, 2, 1]).to_expr(),
+        ]),
+    };
+    (input, requested)
+}
+
+struct ActiveGuard(Arc<AtomicUsize>);
+
+impl ActiveGuard {
+    fn enter(count: &Arc<AtomicUsize>) -> Self {
+        count.fetch_add(1, Ordering::SeqCst);
+        Self(Arc::clone(count))
+    }
+}
+
+impl Drop for ActiveGuard {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+// Observe real child-ledger charges, never simulate a refusal or cancellation.
+// The optional callback pauses once, after an actual atomic batch has been paid.
+struct ObservedMeter<'a, M, F> {
+    inner: &'a mut M,
+    spent: [u64; DIMENSION_COUNT],
+    last_error: Option<MeterError>,
+    after_batch: Option<F>,
+}
+
+impl<M: BudgetMeter, F: FnMut()> BudgetMeter for ObservedMeter<'_, M, F> {
+    fn charge(&mut self, dimension: Dimension, amount: u64) -> Result<(), MeterError> {
+        let result = self.inner.charge(dimension, amount);
+        match result {
+            Ok(()) => self.spent[dimension.index()] += amount,
+            Err(error) => self.last_error = Some(error),
+        }
+        result
+    }
+
+    fn charge_batch(&mut self, charges: &[(Dimension, u64)]) -> Result<(), MeterError> {
+        let result = self.inner.charge_batch(charges);
+        match result {
+            Ok(()) => {
+                for &(dimension, amount) in charges {
+                    self.spent[dimension.index()] += amount;
+                }
+                if let Some(mut callback) = self.after_batch.take() {
+                    callback();
+                }
+            }
+            Err(error) => self.last_error = Some(error),
+        }
+        result
+    }
+
+    fn checkpoint(&mut self) -> Result<(), MeterError> {
+        let result = self.inner.checkpoint();
+        if let Err(error) = result {
+            self.last_error = Some(error);
+        }
+        result
+    }
+}
+
+fn run_real_generator(
+    zassenhaus: bool,
+    input: &UnivariatePoly,
+    meter: &mut impl BudgetMeter,
+) -> Result<(), fsym_polys::PolyError> {
+    if zassenhaus {
+        metered_complete_factorization(input, meter).map(|_| ())
+    } else {
+        metered_kronecker_factorization(input, meter).map(|_| ())
     }
 }
 
@@ -89,80 +187,166 @@ fn test_cancellation_matrix_before_reservation() {
 // ============================================================================
 
 #[test]
-fn test_cancellation_matrix_during_generator_batch() {
+fn real_factor_generators_exhaust_budget_without_spending_verifier_reserve() {
     let cx_raw = Cx::detached_cancel_context();
-    let cancel_cx = cx_raw.clone();
-    let limits = BudgetLimits::uniform(200, 20);
+    let mut limits = BudgetLimits::uniform(100_000_000, 100);
+    // Kronecker can pay its first batches, but neither generator can finish.
+    // The odd unit also checks reconciliation of the unreserved remainder.
+    limits.dimensions[Dimension::ComputeSteps.index()] = 13;
     let mut fsym_cx = FsymCx::new(&cx_raw, Budget::new(limits), limits);
     let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
-    let x = Expr::symbol("x");
-    let requested = Claim::equality(x.clone(), x.clone());
+    let (input, requested) = real_factor_request();
+    let preflight = claim_verification_units(&requested).unwrap();
+    let active = Arc::new(AtomicUsize::new(0));
+    let (report_tx, report_rx) = mpsc::channel();
+    let mut strategies: Vec<fsym_runtime::portfolio::NamedConcurrentStrategy<CapNone>> = Vec::new();
+    for (name, zassenhaus) in [("zassenhaus", true), ("kronecker", false)] {
+        let input = input.clone();
+        let active = Arc::clone(&active);
+        let report_tx = report_tx.clone();
+        strategies.push((name, Box::new(move |cx| {
+            let _guard = ActiveGuard::enter(&active);
+            let mut meter = ObservedMeter {
+                inner: cx,
+                spent: [0; DIMENSION_COUNT],
+                last_error: None,
+                after_batch: None::<fn()>,
+            };
+            let error = run_real_generator(zassenhaus, &input, &mut meter)
+                .expect_err("real generator must refuse the insufficient child allowance");
+            assert!(matches!(
+                meter.last_error,
+                Some(MeterError::Budget(BudgetError::Exhausted {
+                    dimension: Dimension::ComputeSteps, ..
+                }))
+            ));
+            report_tx.send((name, meter.spent)).unwrap();
+            Err(PortfolioError::BudgetExhausted(error.to_string()))
+        })));
+    }
+    drop(report_tx);
 
-    let worker_entered = Arc::new(AtomicBool::new(false));
-    let worker_observed_cancel = Arc::new(AtomicBool::new(false));
-    let active_worker_count = Arc::new(AtomicUsize::new(0));
+    let result = run_portfolio_concurrent_race(&mut fsym_cx, &context, &requested, strategies);
+    assert!(matches!(result, Err(PortfolioError::AllStrategiesFailed(_))));
+    assert_eq!(active.load(Ordering::SeqCst), 0);
+    let mut reports: Vec<_> = report_rx.try_iter().collect();
+    reports.sort_by_key(|(name, _)| *name);
+    assert_eq!(reports.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
+        ["kronecker", "zassenhaus"]);
+    assert!(reports[0].1[Dimension::ComputeSteps.index()] > 0);
+    for dimension in Dimension::ALL {
+        let spent: u64 = reports.iter().map(|(_, spent)| spent[dimension.index()]).sum();
+        assert_eq!(fsym_cx.remaining(dimension), limits.dimensions[dimension.index()] - spent,
+            "unused {dimension} reservations must return without refunding real work");
+    }
+    assert_eq!(fsym_cx.verifier_remaining(), limits.verifier_pool - preflight);
+}
 
-    let entered_for_worker = Arc::clone(&worker_entered);
-    let observed_for_worker = Arc::clone(&worker_observed_cancel);
-    let count_for_worker1 = Arc::clone(&active_worker_count);
+#[test]
+fn real_factor_cancellation_at_charged_batch_drains_delayed_sibling_and_callback() {
+    let cx_raw = Cx::detached_cancel_context();
+    let cancel_cx = cx_raw.clone();
+    let limits = BudgetLimits::uniform(1_000_000_000, 100);
+    let mut fsym_cx = FsymCx::new(&cx_raw, Budget::new(limits), limits);
+    let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
+    let (input, requested) = real_factor_request();
+    let preflight = claim_verification_units(&requested).unwrap();
+    let active_workers = Arc::new(AtomicUsize::new(0));
+    let active_callbacks = Arc::new(AtomicUsize::new(0));
+    let returned = Arc::new(AtomicBool::new(false));
+    let (ready_tx, ready_rx) = mpsc::channel();
+    let (drained_tx, drained_rx) = mpsc::channel();
+    let (report_tx, report_rx) = mpsc::channel();
+    let mut releases = Vec::new();
+    let mut strategies: Vec<fsym_runtime::portfolio::NamedConcurrentStrategy<CapNone>> = Vec::new();
+    for (name, zassenhaus) in [("zassenhaus", true), ("kronecker", false)] {
+        let input = input.clone();
+        let workers = Arc::clone(&active_workers);
+        let callbacks = Arc::clone(&active_callbacks);
+        let ready_tx = ready_tx.clone();
+        let drained_tx = drained_tx.clone();
+        let report_tx = report_tx.clone();
+        let (release_tx, release_rx) = mpsc::channel();
+        releases.push(release_tx);
+        let release_rx = Mutex::new(release_rx);
+        strategies.push((name, Box::new(move |cx| {
+            let guard = ActiveGuard::enter(&workers);
+            let mut meter = ObservedMeter {
+                inner: cx,
+                spent: [0; DIMENSION_COUNT],
+                last_error: None,
+                after_batch: Some(|| {
+                    let _callback_guard = ActiveGuard::enter(&callbacks);
+                    ready_tx.send(name).unwrap();
+                    release_rx.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .recv_timeout(LIFECYCLE_TIMEOUT)
+                        .expect("controller must release the charged-batch callback");
+                }),
+            };
+            // Both real algorithms are inside a paid batch before the controller cancels.
+            let error = run_real_generator(zassenhaus, &input, &mut meter)
+                .expect_err("the generator must observe owner cancellation, not publish factors");
+            assert_eq!(meter.last_error, Some(MeterError::Cancelled), "{name}: {error}");
+            report_tx.send((name, meter.spent)).unwrap();
+            drop(guard);
+            drained_tx.send(name).unwrap();
+            Err(PortfolioError::Cancelled)
+        })));
+    }
+    drop(ready_tx);
+    drop(drained_tx);
+    drop(report_tx);
 
-    let worker1 = Box::new(move |cx: &mut FsymCpuCx<'_, CapNone>| {
-        count_for_worker1.fetch_add(1, Ordering::SeqCst);
-        entered_for_worker.store(true, Ordering::Release);
-        let deadline = Instant::now() + Duration::from_secs(3);
-        while Instant::now() < deadline {
-            if cx.checkpoint().is_err() {
-                observed_for_worker.store(true, Ordering::Release);
-                count_for_worker1.fetch_sub(1, Ordering::SeqCst);
-                return Err(PortfolioError::Cancelled);
-            }
-            std::hint::spin_loop();
-        }
-        count_for_worker1.fetch_sub(1, Ordering::SeqCst);
-        Err(PortfolioError::StructuredExecutionFailed(
-            "worker1 did not observe cancellation".into(),
-        ))
-    });
-
-    let count_for_worker2 = Arc::clone(&active_worker_count);
-    let worker2 = Box::new(move |_cx: &mut FsymCpuCx<'_, CapNone>| {
-        count_for_worker2.fetch_add(1, Ordering::SeqCst);
-        std::thread::sleep(Duration::from_millis(10));
-        count_for_worker2.fetch_sub(1, Ordering::SeqCst);
-        Err(PortfolioError::AllStrategiesFailed("companion exit".into()))
-    });
-
-    let entered_for_controller = Arc::clone(&worker_entered);
+    let workers_for_controller = Arc::clone(&active_workers);
+    let callbacks_for_controller = Arc::clone(&active_callbacks);
+    let returned_for_controller = Arc::clone(&returned);
     let controller = std::thread::spawn(move || {
-        let deadline = Instant::now() + Duration::from_secs(3);
-        while !entered_for_controller.load(Ordering::Acquire) {
-            if Instant::now() >= deadline {
-                return false;
-            }
-            std::thread::yield_now();
-        }
-        cancel_cx.cancel_with(asupersync::CancelKind::User, Some("in-flight cancel"));
-        true
+        let mut ready = [
+            ready_rx.recv_timeout(LIFECYCLE_TIMEOUT).expect("first paid batch"),
+            ready_rx.recv_timeout(LIFECYCLE_TIMEOUT).expect("second paid batch"),
+        ];
+        ready.sort();
+        assert_eq!(ready, ["kronecker", "zassenhaus"]);
+        cancel_cx.cancel_with(asupersync::CancelKind::User, Some("real factor charged batch"));
+        assert_eq!(workers_for_controller.load(Ordering::SeqCst), 2);
+        assert_eq!(callbacks_for_controller.load(Ordering::SeqCst), 2);
+        assert!(!returned_for_controller.load(Ordering::SeqCst));
+
+        // Drain Kronecker first while Zassenhaus remains in its callback. This
+        // orders the delay by events, not scheduler speed or a sleep duration.
+        releases[1].send(()).unwrap();
+        assert_eq!(drained_rx.recv_timeout(LIFECYCLE_TIMEOUT).expect("Kronecker drain"), "kronecker");
+        assert_eq!(workers_for_controller.load(Ordering::SeqCst), 1);
+        assert_eq!(callbacks_for_controller.load(Ordering::SeqCst), 1);
+        assert!(!returned_for_controller.load(Ordering::SeqCst));
+        releases[0].send(()).unwrap();
+        assert_eq!(drained_rx.recv_timeout(LIFECYCLE_TIMEOUT).expect("Zassenhaus drain"), "zassenhaus");
     });
 
-    let result = run_portfolio_concurrent_race(
-        &mut fsym_cx,
-        &context,
-        &requested,
-        vec![("w1", worker1), ("w2", worker2)],
-    );
-
-    assert!(controller.join().unwrap(), "controller thread must finish");
+    let result = run_portfolio_concurrent_race(&mut fsym_cx, &context, &requested, strategies);
+    returned.store(true, Ordering::SeqCst);
+    // Capture quiescence at public return, before joining the external controller.
+    let workers_at_return = active_workers.load(Ordering::SeqCst);
+    let callbacks_at_return = active_callbacks.load(Ordering::SeqCst);
+    controller.join().expect("controller must complete without a timeout");
     assert_eq!(result, Err(PortfolioError::Cancelled));
-    assert!(worker_observed_cancel.load(Ordering::Acquire));
-    // Verify zero orphan workers remaining active
-    assert_eq!(
-        active_worker_count.load(Ordering::SeqCst),
-        0,
-        "Zero orphan workers must remain after scoped CPU drain"
-    );
-    // Budget was fully reconciled back to parent
-    assert_eq!(fsym_cx.remaining(Dimension::ComputeSteps), 200);
+    assert_eq!(workers_at_return, 0);
+    assert_eq!(callbacks_at_return, 0);
+    let mut reports: Vec<_> = report_rx.try_iter().collect();
+    reports.sort_by_key(|(name, _)| *name);
+    assert_eq!(reports.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
+        ["kronecker", "zassenhaus"]);
+    for (_, spent) in &reports {
+        assert!(spent[Dimension::ComputeSteps.index()] > 0);
+        assert!(spent[Dimension::MemoryBytes.index()] > 0);
+        assert!(spent[Dimension::AllocationCount.index()] > 0);
+    }
+    for dimension in Dimension::ALL {
+        let spent: u64 = reports.iter().map(|(_, spent)| spent[dimension.index()]).sum();
+        assert_eq!(fsym_cx.remaining(dimension), limits.dimensions[dimension.index()] - spent,
+            "cancellation must reconcile {dimension}, retaining all paid batches");
+    }
+    assert_eq!(fsym_cx.verifier_remaining(), limits.verifier_pool - preflight);
 }
 
 // ============================================================================

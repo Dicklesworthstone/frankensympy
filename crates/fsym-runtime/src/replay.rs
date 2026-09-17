@@ -296,6 +296,228 @@ fn event_digest(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use asupersync::{Cx, cx::cap::None as CapNone};
+    use fsym_assumptions::ImmutableAssumptionsSnapshot;
+    use fsym_budget::{Budget, BudgetLimits, DIMENSION_COUNT};
+    use fsym_core::{BigInt, BigRational, Expr, Symbol};
+    use fsym_polys::{
+        factorization::{metered_complete_factorization, metered_kronecker_factorization},
+        univariate::UnivariatePoly,
+    };
+    use fsym_proof_kernel::{Claim, ProofKernel, verify_derivation_independent};
+    use std::sync::{Arc, OnceLock};
+
+    use crate::{
+        FsymCpuCx, FsymCx, NamedConcurrentStrategy, PortfolioCandidate, PortfolioError,
+        run_portfolio_concurrent_race,
+    };
+
+    #[test]
+    fn real_factor_race_reexecution_matches_observed_transcript_and_accounting() {
+        let polynomial = |coefficients: &[i64]| {
+            UnivariatePoly::new(
+                Symbol::new("x"),
+                coefficients
+                    .iter()
+                    .map(|coefficient| BigRational::from_integer(BigInt::from(*coefficient)))
+                    .collect(),
+            )
+        };
+        let input = polynomial(&[4, 0, 0, 0, 1]);
+        // Fix the product independently of either generator's output.
+        let expected_product = Expr::Mul(vec![
+            polynomial(&[2, -2, 1]).to_expr(),
+            polynomial(&[2, 2, 1]).to_expr(),
+        ]);
+        let requested = Claim::AlgebraicIdentity {
+            lhs: input.to_expr(),
+            rhs: expected_product.clone(),
+        };
+        let limits = BudgetLimits::uniform(1_000_000_000, 100_000);
+        let run = || {
+            // Each invocation owns fresh, equal contexts and budget ledgers.
+            let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
+            let raw = Cx::detached_cancel_context();
+            let mut cx = FsymCx::new(&raw, Budget::new(limits), limits);
+            let observations = Arc::new([OnceLock::new(), OnceLock::new()]);
+            let strategies: Vec<NamedConcurrentStrategy<CapNone>> = ["zassenhaus", "kronecker"]
+                .into_iter()
+                .enumerate()
+                .map(|(index, name)| {
+                    let input = input.clone();
+                    let context = Arc::clone(&context);
+                    let observations = Arc::clone(&observations);
+                    let strategy: crate::ConcurrentStrategyRunner<CapNone> =
+                        Box::new(move |cx: &mut FsymCpuCx<'_, CapNone>| {
+                            let before = Dimension::ALL.map(|dimension| cx.remaining(dimension));
+                            let (scale, mut factors) = if name == "zassenhaus" {
+                                let factorization = metered_complete_factorization(&input, cx)
+                                    .map_err(|error| {
+                                        PortfolioError::AllStrategiesFailed(error.to_string())
+                                    })?;
+                                (
+                                    factorization.scale,
+                                    factorization
+                                        .factors
+                                        .into_iter()
+                                        .map(|factor| (factor.poly, factor.multiplicity))
+                                        .collect::<Vec<_>>(),
+                                )
+                            } else {
+                                let factorization = metered_kronecker_factorization(&input, cx)
+                                    .map_err(|error| {
+                                        PortfolioError::AllStrategiesFailed(error.to_string())
+                                    })?;
+                                (
+                                    factorization.scale,
+                                    factorization
+                                        .factors
+                                        .into_iter()
+                                        .map(|factor| (factor.poly, factor.multiplicity))
+                                        .collect::<Vec<_>>(),
+                                )
+                            };
+                            factors.sort_by(|(left, _), (right, _)| {
+                                left.degree()
+                                    .cmp(&right.degree())
+                                    .then_with(|| left.coeffs.cmp(&right.coeffs))
+                            });
+                            let mut terms = Vec::new();
+                            if scale != BigRational::from_integer(BigInt::from(1)) {
+                                terms.push(Expr::Rational(scale));
+                            }
+                            for (poly, multiplicity) in factors {
+                                let term = poly.to_expr();
+                                terms.push(if multiplicity == 1 {
+                                    term
+                                } else {
+                                    Expr::Pow(
+                                        Arc::new(term),
+                                        Arc::new(Expr::Integer(BigInt::from(multiplicity))),
+                                    )
+                                });
+                            }
+                            let product = match terms.len() {
+                                0 => Expr::from_i64(1),
+                                1 => terms.pop().expect("one factor"),
+                                _ => Expr::Mul(terms),
+                            };
+                            let lhs = input.to_expr();
+                            let mut kernel = ProofKernel::new((**context).clone());
+                            let root = kernel
+                                .prove_definitional_reduction(
+                                    lhs.clone(),
+                                    product.clone(),
+                                    "polynomial_ring_equivalence",
+                                    cx,
+                                )
+                                .map_err(|error| {
+                                    PortfolioError::AllStrategiesFailed(error.to_string())
+                                })?;
+                            let candidate = PortfolioCandidate {
+                                strategy_name: name.into(),
+                                result: product.clone(),
+                                claim: Claim::AlgebraicIdentity { lhs, rhs: product },
+                                derivation: kernel.export_derivation(root).map_err(|error| {
+                                    PortfolioError::AllStrategiesFailed(error.to_string())
+                                })?,
+                            };
+                            let consumed = Dimension::ALL
+                                .map(|dimension| before[dimension.index()] - cx.remaining(dimension));
+                            observations[index]
+                                .set((candidate.clone(), consumed))
+                                .expect("each worker records one candidate");
+                            Ok(candidate)
+                        });
+                    (name, strategy)
+                })
+                .collect();
+            let outcome = run_portfolio_concurrent_race(&mut cx, &context, &requested, strategies)
+                .expect("both real factor generators must complete and a product must verify");
+            let observations = Arc::try_unwrap(observations)
+                .expect("scoped workers must release observation storage")
+                .map(|observation| {
+                    observation
+                        .into_inner()
+                        .expect("each real generator must produce its metered candidate")
+                });
+            let remaining = Dimension::ALL.map(|dimension| cx.remaining(dimension));
+            let verifier_remaining = cx.verifier_remaining();
+            let mut consumed = [0; DIMENSION_COUNT];
+            for (candidate, charges) in &observations {
+                assert_eq!(candidate.result, expected_product);
+                assert_eq!(candidate.claim, requested);
+                assert_eq!(
+                    verify_derivation_independent(&candidate.derivation, &context).unwrap(),
+                    requested,
+                );
+                assert!(charges[Dimension::ComputeSteps.index()] > 0);
+                for dimension in Dimension::ALL {
+                    consumed[dimension.index()] += charges[dimension.index()];
+                }
+            }
+            for dimension in Dimension::ALL {
+                assert_eq!(
+                    remaining[dimension.index()],
+                    limits.dimensions[dimension.index()] - consumed[dimension.index()],
+                );
+            }
+            assert_eq!(
+                outcome.generator_steps_consumed(),
+                consumed[Dimension::ComputeSteps.index()],
+            );
+            assert_eq!(outcome.result(), &expected_product);
+            assert_eq!(outcome.evidence().claim, requested);
+            assert_eq!(outcome.winning_strategy(), "zassenhaus");
+            assert!(outcome.evidence().verify_integrity());
+            assert!(verifier_remaining > 0 && verifier_remaining < limits.verifier_pool);
+
+            // Registration order, not worker completion order, defines this transcript.
+            // ReplayLog binds observations; it is not an adaptive schedule replay driver.
+            let payload = serde_json::to_vec(&(
+                &input,
+                &requested,
+                ["zassenhaus", "kronecker"],
+                limits.dimensions,
+                limits.verifier_pool,
+                outcome.context_digest(),
+                &observations,
+                outcome.result(),
+                &outcome.evidence().claim,
+                outcome.winning_strategy(),
+                outcome.generator_steps_consumed(),
+                remaining,
+                verifier_remaining,
+            ))
+            .unwrap();
+            let charges = Dimension::ALL
+                .into_iter()
+                .filter_map(|dimension| {
+                    let amount = consumed[dimension.index()];
+                    (amount > 0).then_some((dimension, amount))
+                })
+                .collect();
+            let mut log = ReplayLog::new(0, "zassenhaus-kronecker-quartic").unwrap();
+            log.record_event("verified-factor-race", charges, &payload)
+                .unwrap();
+            log.finalize().unwrap();
+            (outcome, remaining, verifier_remaining, observations, log)
+        };
+
+        let first = run();
+        let second = run();
+        assert_eq!(first.0.result(), second.0.result());
+        assert_eq!(first.0.evidence().claim, second.0.evidence().claim);
+        assert_eq!(first.0.winning_strategy(), second.0.winning_strategy());
+        assert_eq!(
+            first.0.generator_steps_consumed(),
+            second.0.generator_steps_consumed(),
+        );
+        assert_eq!(first.1, second.1);
+        assert_eq!(first.2, second.2);
+        assert_eq!(first.3, second.3);
+        assert!(first.4.verify_replay_match(&second.4));
+    }
 
     #[test]
     fn dimension_charges_are_integrity_bound() {
