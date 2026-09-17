@@ -50,17 +50,20 @@ fn unknown_schema_gets_a_typed_malformed_response() {
 #[test]
 fn oversized_frame_gets_a_typed_too_large_response() {
     let big = format!("{{\"junk\":\"{}\"}}", "x".repeat(70_000));
-    let (stdout, _stderr, code) = spawn_cli(&[big]);
+    let valid = r#"{"id":"after-limit","type":"Eval","payload":{"expr":"1+1"}}"#;
+    let (stdout, stderr, code) = spawn_cli(&[big, valid.to_string()]);
     assert_eq!(code, 0);
-    let response: serde_json::Value = serde_json::from_str(stdout.trim()).expect("json line");
-    assert_eq!(response["status"], "error");
-    assert!(
-        stdout.contains("request_too_large")
-            || response["error"]
-                .as_str()
-                .is_some_and(|e| e.contains("envelope")),
-        "typed refusal required, got {response}"
-    );
+    assert!(stderr.is_empty());
+    let responses: Vec<serde_json::Value> = stdout
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("json response"))
+        .collect();
+    assert_eq!(responses.len(), 2);
+    assert_eq!(responses[0]["status"], "error");
+    assert_eq!(responses[0]["code"], "request_too_large");
+    assert_eq!(responses[1]["id"], "after-limit");
+    assert_eq!(responses[1]["status"], "success");
+    assert_eq!(responses[1]["result"], "2");
 }
 
 #[test]
