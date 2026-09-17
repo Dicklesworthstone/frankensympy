@@ -1,0 +1,300 @@
+{
+  "version": {
+    "status": "completed",
+    "exit": 0,
+    "command": [
+      "/home/ubuntu/.elan/toolchains/leanprover--lean4---v4.32.2/bin/lean",
+      "--version"
+    ],
+    "stdout": "Lean (version 4.32.2, x86_64-unknown-linux-gnu, commit f3b06c705e6c85f5314019d5d3baab0fec5b580c, Release)\n",
+    "stderr": ""
+  },
+  "native-offline": {
+    "status": "completed",
+    "exit": 0,
+    "command": [
+      "/data/tmp/cargo-target/debug/examples/project"
+    ],
+    "stdout": "{\"profile_id\":\"lean_core_zz_product_v1\",\"checker_pin\":\"Lean (version 4.32.2, x86_64-unknown-linux-gnu, commit f3b06c705e6c85f5314019d5d3baab0fec5b580c, Release)\",\"environment\":\"lean4-core-4.32.2@f3b06c705e6c85f5314019d5d3baab0fec5b580c;sha256=88d1bfed5e2ba13e7dd28043c70a303f1ea1b301220023fe6b9a1a5d14368f9f\",\"capsule_hex\":\"4653594d4341500100560000000144443333222211118888777766665555ccccbbbbaaaa9999537f08cdb84f06471500000051000100000000000000010001000000000000000102000000783df4b63ba511fe01000000d047c89e0345c1f40100000003000000537f08cdb84f0647537f08cdb84f06476369b3424468b845e8ffd9f405d19ae1b58b8427a6fbbc28440000000101000000780200000004000000150000005100010000000000000001000100000000000000010000000015000000510001000000000000000400010000000000000001d047c89e0345c1f4d047c89e0345c1f4974003012e2944e6e5a885c63a9aa7203966cbbe7d7cd0146100000001010000007803000000020000001500000051000100000000000000010001000000000000000101000000150000005100010000000000000002000100000000000000010000000015000000510001000000000000000200010000000000000001783df4b63ba511fe783df4b63ba511febae86360b15d4e3980369b6ba6af77d6900a3a9681e5d0f36100000001010000007803000000020000001500000051000100000000000000010001000000000000000101000000150000005101010000000000000002000100000000000000010000000015000000510001000000000000000200010000000000000001\",\"native_claim_root\":\"f88f7d2e4ab3e9c1771f6bec5cea3809cb5f38a87a524e05bac113619d1858e3\",\"statement_root\":\"fa66e256a3da90a0dba29392cef3222e07a3a66dae92ffa227e4cb598570761d\",\"lean_source\":\"-- Projected statement for profile lean_core_zz_product_v1 (fixed environment: Lean 4 core only).\\n-- Projection: dense ascending coefficient vectors; equality = coefficient-wise after\\n-- convolution product, which is structurally recursive and reduces by `decide`.\\n\\n/-- Pad-and-add: add `scaled` into `acc` indexwise; surplus coefficients appended. -/\\ndef addPad : List Int \u2192 List Int \u2192 List Int\\n  | [], r => r\\n  | s :: stail, [] => s :: stail\\n  | s :: stail, r0 :: rtail => (s + r0) :: addPad stail rtail\\n\\n/-- Convolution product of dense ascending ZZ coefficient vectors. -/\\ndef polyMul : List Int \u2192 List Int \u2192 List Int\\n  | [], _ => []\\n  | _, [] => []\\n  | a :: atail, b => addPad (b.map (\u00b7 * a)) (0 :: polyMul atail b)\\n\\ntheorem projected_product :\\n    polyMul [2, -2, 1] [2, 2, 1] = [4, 0, 0, 0, 1] := by decide\\n#print axioms projected_product\\n\",\"receipt\":{\"profile_id\":\"lean_core_zz_product_v1\",\"checker_pin\":\"Lean (version 4.32.2, x86_64-unknown-linux-gnu, commit f3b06c705e6c85f5314019d5d3baab0fec5b580c, Release)\",\"environment\":\"lean4-core-4.32.2@f3b06c705e6c85f5314019d5d3baab0fec5b580c;sha256=88d1bfed5e2ba13e7dd28043c70a303f1ea1b301220023fe6b9a1a5d14368f9f\",\"native_claim_root\":\"f88f7d2e4ab3e9c1771f6bec5cea3809cb5f38a87a524e05bac113619d1858e3\",\"capsule_root\":\"c89597b2f303fac7c54741a7645dcb9a54c2e490d0c39301b50f596750028cd9\",\"formal_statement_root\":\"fa66e256a3da90a0dba29392cef3222e07a3a66dae92ffa227e4cb598570761d\",\"schema_version\":1,\"domain_root\":8490034660883775460,\"context_root\":1229801703532086340,\"rule_root\":6148933456521300104,\"verifier_root\":11068065209510513868,\"semantic_fields\":[\"domain=ZZ\",\"context=no-hypotheses\",\"scalar=1\",\"factors=2;exponents=1\",\"equality=exact-coefficient-convolution\",\"binding=one-common-native-symbol\",\"branches=none;partiality=none;extensions=none\",\"schema=fsym.capsule.poly-identity.v1\",\"evidence=projection-mapping-only;foreign=not-checked\"],\"receipt_root\":\"1442e40a22f37010d327fd47df04aec982bdf9e26da63d9d9e557c0874babe95\"},\"native_verdict\":\"verified\"}\n",
+    "stderr": ""
+  },
+  "independent-mapping": {
+    "status": "completed",
+    "exit": 0,
+    "command": [
+      "/data/tmp/cargo-target/debug/examples/project",
+      "--check",
+      "/data/projects/frankensympy/artifacts/audit/ws06_formal_projection_final/projection.json"
+    ],
+    "stdout": "{\"profile_id\":\"lean_core_zz_product_v1\",\"checker_pin\":\"Lean (version 4.32.2, x86_64-unknown-linux-gnu, commit f3b06c705e6c85f5314019d5d3baab0fec5b580c, Release)\",\"environment\":\"lean4-core-4.32.2@f3b06c705e6c85f5314019d5d3baab0fec5b580c;sha256=88d1bfed5e2ba13e7dd28043c70a303f1ea1b301220023fe6b9a1a5d14368f9f\",\"capsule_hex\":\"4653594d4341500100560000000144443333222211118888777766665555ccccbbbbaaaa9999537f08cdb84f06471500000051000100000000000000010001000000000000000102000000783df4b63ba511fe01000000d047c89e0345c1f40100000003000000537f08cdb84f0647537f08cdb84f06476369b3424468b845e8ffd9f405d19ae1b58b8427a6fbbc28440000000101000000780200000004000000150000005100010000000000000001000100000000000000010000000015000000510001000000000000000400010000000000000001d047c89e0345c1f4d047c89e0345c1f4974003012e2944e6e5a885c63a9aa7203966cbbe7d7cd0146100000001010000007803000000020000001500000051000100000000000000010001000000000000000101000000150000005100010000000000000002000100000000000000010000000015000000510001000000000000000200010000000000000001783df4b63ba511fe783df4b63ba511febae86360b15d4e3980369b6ba6af77d6900a3a9681e5d0f36100000001010000007803000000020000001500000051000100000000000000010001000000000000000101000000150000005101010000000000000002000100000000000000010000000015000000510001000000000000000200010000000000000001\",\"native_claim_root\":\"f88f7d2e4ab3e9c1771f6bec5cea3809cb5f38a87a524e05bac113619d1858e3\",\"statement_root\":\"fa66e256a3da90a0dba29392cef3222e07a3a66dae92ffa227e4cb598570761d\",\"lean_source\":\"-- Projected statement for profile lean_core_zz_product_v1 (fixed environment: Lean 4 core only).\\n-- Projection: dense ascending coefficient vectors; equality = coefficient-wise after\\n-- convolution product, which is structurally recursive and reduces by `decide`.\\n\\n/-- Pad-and-add: add `scaled` into `acc` indexwise; surplus coefficients appended. -/\\ndef addPad : List Int \u2192 List Int \u2192 List Int\\n  | [], r => r\\n  | s :: stail, [] => s :: stail\\n  | s :: stail, r0 :: rtail => (s + r0) :: addPad stail rtail\\n\\n/-- Convolution product of dense ascending ZZ coefficient vectors. -/\\ndef polyMul : List Int \u2192 List Int \u2192 List Int\\n  | [], _ => []\\n  | _, [] => []\\n  | a :: atail, b => addPad (b.map (\u00b7 * a)) (0 :: polyMul atail b)\\n\\ntheorem projected_product :\\n    polyMul [2, -2, 1] [2, 2, 1] = [4, 0, 0, 0, 1] := by decide\\n#print axioms projected_product\\n\",\"receipt\":{\"profile_id\":\"lean_core_zz_product_v1\",\"checker_pin\":\"Lean (version 4.32.2, x86_64-unknown-linux-gnu, commit f3b06c705e6c85f5314019d5d3baab0fec5b580c, Release)\",\"environment\":\"lean4-core-4.32.2@f3b06c705e6c85f5314019d5d3baab0fec5b580c;sha256=88d1bfed5e2ba13e7dd28043c70a303f1ea1b301220023fe6b9a1a5d14368f9f\",\"native_claim_root\":\"f88f7d2e4ab3e9c1771f6bec5cea3809cb5f38a87a524e05bac113619d1858e3\",\"capsule_root\":\"c89597b2f303fac7c54741a7645dcb9a54c2e490d0c39301b50f596750028cd9\",\"formal_statement_root\":\"fa66e256a3da90a0dba29392cef3222e07a3a66dae92ffa227e4cb598570761d\",\"schema_version\":1,\"domain_root\":8490034660883775460,\"context_root\":1229801703532086340,\"rule_root\":6148933456521300104,\"verifier_root\":11068065209510513868,\"semantic_fields\":[\"domain=ZZ\",\"context=no-hypotheses\",\"scalar=1\",\"factors=2;exponents=1\",\"equality=exact-coefficient-convolution\",\"binding=one-common-native-symbol\",\"branches=none;partiality=none;extensions=none\",\"schema=fsym.capsule.poly-identity.v1\",\"evidence=projection-mapping-only;foreign=not-checked\"],\"receipt_root\":\"1442e40a22f37010d327fd47df04aec982bdf9e26da63d9d9e557c0874babe95\"},\"native_verdict\":\"verified\"}\n",
+    "stderr": ""
+  },
+  "replay": {
+    "status": "completed",
+    "exit": 0,
+    "command": [
+      "/data/tmp/cargo-target/debug/examples/project"
+    ],
+    "stdout": "{\"profile_id\":\"lean_core_zz_product_v1\",\"checker_pin\":\"Lean (version 4.32.2, x86_64-unknown-linux-gnu, commit f3b06c705e6c85f5314019d5d3baab0fec5b580c, Release)\",\"environment\":\"lean4-core-4.32.2@f3b06c705e6c85f5314019d5d3baab0fec5b580c;sha256=88d1bfed5e2ba13e7dd28043c70a303f1ea1b301220023fe6b9a1a5d14368f9f\",\"capsule_hex\":\"4653594d4341500100560000000144443333222211118888777766665555ccccbbbbaaaa9999537f08cdb84f06471500000051000100000000000000010001000000000000000102000000783df4b63ba511fe01000000d047c89e0345c1f40100000003000000537f08cdb84f0647537f08cdb84f06476369b3424468b845e8ffd9f405d19ae1b58b8427a6fbbc28440000000101000000780200000004000000150000005100010000000000000001000100000000000000010000000015000000510001000000000000000400010000000000000001d047c89e0345c1f4d047c89e0345c1f4974003012e2944e6e5a885c63a9aa7203966cbbe7d7cd0146100000001010000007803000000020000001500000051000100000000000000010001000000000000000101000000150000005100010000000000000002000100000000000000010000000015000000510001000000000000000200010000000000000001783df4b63ba511fe783df4b63ba511febae86360b15d4e3980369b6ba6af77d6900a3a9681e5d0f36100000001010000007803000000020000001500000051000100000000000000010001000000000000000101000000150000005101010000000000000002000100000000000000010000000015000000510001000000000000000200010000000000000001\",\"native_claim_root\":\"f88f7d2e4ab3e9c1771f6bec5cea3809cb5f38a87a524e05bac113619d1858e3\",\"statement_root\":\"fa66e256a3da90a0dba29392cef3222e07a3a66dae92ffa227e4cb598570761d\",\"lean_source\":\"-- Projected statement for profile lean_core_zz_product_v1 (fixed environment: Lean 4 core only).\\n-- Projection: dense ascending coefficient vectors; equality = coefficient-wise after\\n-- convolution product, which is structurally recursive and reduces by `decide`.\\n\\n/-- Pad-and-add: add `scaled` into `acc` indexwise; surplus coefficients appended. -/\\ndef addPad : List Int \u2192 List Int \u2192 List Int\\n  | [], r => r\\n  | s :: stail, [] => s :: stail\\n  | s :: stail, r0 :: rtail => (s + r0) :: addPad stail rtail\\n\\n/-- Convolution product of dense ascending ZZ coefficient vectors. -/\\ndef polyMul : List Int \u2192 List Int \u2192 List Int\\n  | [], _ => []\\n  | _, [] => []\\n  | a :: atail, b => addPad (b.map (\u00b7 * a)) (0 :: polyMul atail b)\\n\\ntheorem projected_product :\\n    polyMul [2, -2, 1] [2, 2, 1] = [4, 0, 0, 0, 1] := by decide\\n#print axioms projected_product\\n\",\"receipt\":{\"profile_id\":\"lean_core_zz_product_v1\",\"checker_pin\":\"Lean (version 4.32.2, x86_64-unknown-linux-gnu, commit f3b06c705e6c85f5314019d5d3baab0fec5b580c, Release)\",\"environment\":\"lean4-core-4.32.2@f3b06c705e6c85f5314019d5d3baab0fec5b580c;sha256=88d1bfed5e2ba13e7dd28043c70a303f1ea1b301220023fe6b9a1a5d14368f9f\",\"native_claim_root\":\"f88f7d2e4ab3e9c1771f6bec5cea3809cb5f38a87a524e05bac113619d1858e3\",\"capsule_root\":\"c89597b2f303fac7c54741a7645dcb9a54c2e490d0c39301b50f596750028cd9\",\"formal_statement_root\":\"fa66e256a3da90a0dba29392cef3222e07a3a66dae92ffa227e4cb598570761d\",\"schema_version\":1,\"domain_root\":8490034660883775460,\"context_root\":1229801703532086340,\"rule_root\":6148933456521300104,\"verifier_root\":11068065209510513868,\"semantic_fields\":[\"domain=ZZ\",\"context=no-hypotheses\",\"scalar=1\",\"factors=2;exponents=1\",\"equality=exact-coefficient-convolution\",\"binding=one-common-native-symbol\",\"branches=none;partiality=none;extensions=none\",\"schema=fsym.capsule.poly-identity.v1\",\"evidence=projection-mapping-only;foreign=not-checked\"],\"receipt_root\":\"1442e40a22f37010d327fd47df04aec982bdf9e26da63d9d9e557c0874babe95\"},\"native_verdict\":\"verified\"}\n",
+    "stderr": ""
+  },
+  "foreign-positive": {
+    "status": "completed",
+    "exit": 0,
+    "command": [
+      "/home/ubuntu/.elan/toolchains/leanprover--lean4---v4.32.2/bin/lean",
+      "-t0",
+      "-j1",
+      "-M512",
+      "-T200000",
+      "/data/projects/frankensympy/artifacts/audit/ws06_formal_projection_final/Projected.lean"
+    ],
+    "stdout": "'projected_product' depends on axioms: [propext]\n",
+    "stderr": ""
+  },
+  "omit-profile_id": {
+    "status": "completed",
+    "exit": 1,
+    "command": [
+      "/data/tmp/cargo-target/debug/examples/project",
+      "--check",
+      "/data/projects/frankensympy/artifacts/audit/ws06_formal_projection_final/omit-profile_id.json"
+    ],
+    "stdout": "",
+    "stderr": "malformed or noncanonical input\n"
+  },
+  "alter-profile_id": {
+    "status": "completed",
+    "exit": 1,
+    "command": [
+      "/data/tmp/cargo-target/debug/examples/project",
+      "--check",
+      "/data/projects/frankensympy/artifacts/audit/ws06_formal_projection_final/alter-profile_id.json"
+    ],
+    "stdout": "",
+    "stderr": "projection receipt or statement mismatch\n"
+  },
+  "omit-checker_pin": {
+    "status": "completed",
+    "exit": 1,
+    "command": [
+      "/data/tmp/cargo-target/debug/examples/project",
+      "--check",
+      "/data/projects/frankensympy/artifacts/audit/ws06_formal_projection_final/omit-checker_pin.json"
+    ],
+    "stdout": "",
+    "stderr": "malformed or noncanonical input\n"
+  },
+  "alter-checker_pin": {
+    "status": "completed",
+    "exit": 1,
+    "command": [
+      "/data/tmp/cargo-target/debug/examples/project",
+      "--check",
+      "/data/projects/frankensympy/artifacts/audit/ws06_formal_projection_final/alter-checker_pin.json"
+    ],
+    "stdout": "",
+    "stderr": "projection receipt or statement mismatch\n"
+  },
+  "omit-environment": {
+    "status": "completed",
+    "exit": 1,
+    "command": [
+      "/data/tmp/cargo-target/debug/examples/project",
+      "--check",
+      "/data/projects/frankensympy/artifacts/audit/ws06_formal_projection_final/omit-environment.json"
+    ],
+    "stdout": "",
+    "stderr": "malformed or noncanonical input\n"
+  },
+  "alter-environment": {
+    "status": "completed",
+    "exit": 1,
+    "command": [
+      "/data/tmp/cargo-target/debug/examples/project",
+      "--check",
+      "/data/projects/frankensympy/artifacts/audit/ws06_formal_projection_final/alter-environment.json"
+    ],
+    "stdout": "",
+    "stderr": "projection receipt or statement mismatch\n"
+  },
+  "omit-capsule_hex": {
+    "status": "completed",
+    "exit": 1,
+    "command": [
+      "/data/tmp/cargo-target/debug/examples/project",
+      "--check",
+      "/data/projects/frankensympy/artifacts/audit/ws06_formal_projection_final/omit-capsule_hex.json"
+    ],
+    "stdout": "",
+    "stderr": "malformed or noncanonical input\n"
+  },
+  "alter-capsule_hex": {
+    "status": "completed",
+    "exit": 1,
+    "command": [
+      "/data/tmp/cargo-target/debug/examples/project",
+      "--check",
+      "/data/projects/frankensympy/artifacts/audit/ws06_formal_projection_final/alter-capsule_hex.json"
+    ],
+    "stdout": "",
+    "stderr": "malformed or noncanonical input\n"
+  },
+  "omit-native_claim_root": {
+    "status": "completed",
+    "exit": 1,
+    "command": [
+      "/data/tmp/cargo-target/debug/examples/project",
+      "--check",
+      "/data/projects/frankensympy/artifacts/audit/ws06_formal_projection_final/omit-native_claim_root.json"
+    ],
+    "stdout": "",
+    "stderr": "malformed or noncanonical input\n"
+  },
+  "alter-native_claim_root": {
+    "status": "completed",
+    "exit": 1,
+    "command": [
+      "/data/tmp/cargo-target/debug/examples/project",
+      "--check",
+      "/data/projects/frankensympy/artifacts/audit/ws06_formal_projection_final/alter-native_claim_root.json"
+    ],
+    "stdout": "",
+    "stderr": "projection receipt or statement mismatch\n"
+  },
+  "omit-statement_root": {
+    "status": "completed",
+    "exit": 1,
+    "command": [
+      "/data/tmp/cargo-target/debug/examples/project",
+      "--check",
+      "/data/projects/frankensympy/artifacts/audit/ws06_formal_projection_final/omit-statement_root.json"
+    ],
+    "stdout": "",
+    "stderr": "malformed or noncanonical input\n"
+  },
+  "alter-statement_root": {
+    "status": "completed",
+    "exit": 1,
+    "command": [
+      "/data/tmp/cargo-target/debug/examples/project",
+      "--check",
+      "/data/projects/frankensympy/artifacts/audit/ws06_formal_projection_final/alter-statement_root.json"
+    ],
+    "stdout": "",
+    "stderr": "projection receipt or statement mismatch\n"
+  },
+  "omit-lean_source": {
+    "status": "completed",
+    "exit": 1,
+    "command": [
+      "/data/tmp/cargo-target/debug/examples/project",
+      "--check",
+      "/data/projects/frankensympy/artifacts/audit/ws06_formal_projection_final/omit-lean_source.json"
+    ],
+    "stdout": "",
+    "stderr": "malformed or noncanonical input\n"
+  },
+  "alter-lean_source": {
+    "status": "completed",
+    "exit": 1,
+    "command": [
+      "/data/tmp/cargo-target/debug/examples/project",
+      "--check",
+      "/data/projects/frankensympy/artifacts/audit/ws06_formal_projection_final/alter-lean_source.json"
+    ],
+    "stdout": "",
+    "stderr": "projection receipt or statement mismatch\n"
+  },
+  "omit-receipt": {
+    "status": "completed",
+    "exit": 1,
+    "command": [
+      "/data/tmp/cargo-target/debug/examples/project",
+      "--check",
+      "/data/projects/frankensympy/artifacts/audit/ws06_formal_projection_final/omit-receipt.json"
+    ],
+    "stdout": "",
+    "stderr": "malformed or noncanonical input\n"
+  },
+  "alter-receipt": {
+    "status": "completed",
+    "exit": 1,
+    "command": [
+      "/data/tmp/cargo-target/debug/examples/project",
+      "--check",
+      "/data/projects/frankensympy/artifacts/audit/ws06_formal_projection_final/alter-receipt.json"
+    ],
+    "stdout": "",
+    "stderr": "malformed or noncanonical input\n"
+  },
+  "omit-native_verdict": {
+    "status": "completed",
+    "exit": 1,
+    "command": [
+      "/data/tmp/cargo-target/debug/examples/project",
+      "--check",
+      "/data/projects/frankensympy/artifacts/audit/ws06_formal_projection_final/omit-native_verdict.json"
+    ],
+    "stdout": "",
+    "stderr": "malformed or noncanonical input\n"
+  },
+  "alter-native_verdict": {
+    "status": "completed",
+    "exit": 1,
+    "command": [
+      "/data/tmp/cargo-target/debug/examples/project",
+      "--check",
+      "/data/projects/frankensympy/artifacts/audit/ws06_formal_projection_final/alter-native_verdict.json"
+    ],
+    "stdout": "",
+    "stderr": "projection receipt or statement mismatch\n"
+  },
+  "forged-checker": {
+    "status": "completed",
+    "exit": 1,
+    "command": [
+      "/data/tmp/cargo-target/debug/examples/project",
+      "--check",
+      "/data/projects/frankensympy/artifacts/audit/ws06_formal_projection_final/forged-checker.json"
+    ],
+    "stdout": "",
+    "stderr": "malformed or noncanonical input\n"
+  },
+  "foreign-negative": {
+    "status": "completed",
+    "exit": 1,
+    "command": [
+      "/home/ubuntu/.elan/toolchains/leanprover--lean4---v4.32.2/bin/lean",
+      "-t0",
+      "-j1",
+      "-M512",
+      "-T200000",
+      "/data/projects/frankensympy/artifacts/audit/ws06_formal_projection_final/Rejected.lean"
+    ],
+    "stdout": "/data/projects/frankensympy/artifacts/audit/ws06_formal_projection_final/Rejected.lean:17:56: error: Tactic `decide` proved that the proposition\n  polyMul [1] [1] = [2]\nis false\n'projected_product' depends on axioms: [propext, sorryAx]\n",
+    "stderr": ""
+  },
+  "missing-checker": {
+    "status": "MissingFormalDependency",
+    "exit": null,
+    "command": [
+      "/data/projects/frankensympy/artifacts/audit/ws06_formal_projection_final/missing-lean",
+      "/data/projects/frankensympy/artifacts/audit/ws06_formal_projection_final/Projected.lean"
+    ],
+    "stdout": "",
+    "stderr": ""
+  },
+  "foreign-resource": {
+    "status": "completed",
+    "exit": 1,
+    "command": [
+      "/home/ubuntu/.elan/toolchains/leanprover--lean4---v4.32.2/bin/lean",
+      "-j1",
+      "-M1",
+      "/data/projects/frankensympy/artifacts/audit/ws06_formal_projection_final/Projected.lean"
+    ],
+    "stdout": "/data/projects/frankensympy/artifacts/audit/ws06_formal_projection_final/Projected.lean:7:2: error: (kernel) excessive memory consumption detected\n/data/projects/frankensympy/artifacts/audit/ws06_formal_projection_final/Projected.lean:6:4: error: (kernel) excessive memory consumption detected\n/data/projects/frankensympy/artifacts/audit/ws06_formal_projection_final/Projected.lean:6:4: error: (kernel) excessive memory consumption detected\n/data/projects/frankensympy/artifacts/audit/ws06_formal_projection_final/Projected.lean:13:2: error: (kernel) excessive memory consumption detected\n/data/projects/frankensympy/artifacts/audit/ws06_formal_projection_final/Projected.lean:13:2: error: (kernel) excessive memory consumption detected\n/data/projects/frankensympy/artifacts/audit/ws06_formal_projection_final/Projected.lean:12:4: error: (kernel) excessive memory consumption detected\n/data/projects/frankensympy/artifacts/audit/ws06_formal_projection_final/Projected.lean:12:4: error: (kernel) excessive memory consumption detected\n/data/projects/frankensympy/artifacts/audit/ws06_formal_projection_final/Projected.lean:17:8: error: (kernel) excessive memory consumption detected\n'projected_product' depends on axioms: [projected_product, polyMul._f]\n",
+    "stderr": ""
+  }
+}

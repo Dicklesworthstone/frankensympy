@@ -1,0 +1,9 @@
+/data/projects/frankensympy/artifacts/audit/ws06_formal_projection/Projected.lean:7:2: error: (kernel) excessive memory consumption detected
+/data/projects/frankensympy/artifacts/audit/ws06_formal_projection/Projected.lean:6:4: error: (kernel) excessive memory consumption detected
+/data/projects/frankensympy/artifacts/audit/ws06_formal_projection/Projected.lean:6:4: error: (kernel) excessive memory consumption detected
+/data/projects/frankensympy/artifacts/audit/ws06_formal_projection/Projected.lean:13:2: error: (kernel) excessive memory consumption detected
+/data/projects/frankensympy/artifacts/audit/ws06_formal_projection/Projected.lean:13:2: error: (kernel) excessive memory consumption detected
+/data/projects/frankensympy/artifacts/audit/ws06_formal_projection/Projected.lean:12:4: error: (kernel) excessive memory consumption detected
+/data/projects/frankensympy/artifacts/audit/ws06_formal_projection/Projected.lean:12:4: error: (kernel) excessive memory consumption detected
+/data/projects/frankensympy/artifacts/audit/ws06_formal_projection/Projected.lean:17:8: error: (kernel) excessive memory consumption detected
+'projected_product' depends on axioms: [projected_product, polyMul._f]
