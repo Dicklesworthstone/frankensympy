@@ -1760,17 +1760,39 @@ mod tests {
         let cx_raw = Cx::detached_cancel_context();
         let limits = BudgetLimits::uniform(10_000_000, 100_000);
         let mut cx = FsymCx::new(&cx_raw, Budget::new(limits), limits);
-        // Reversed registration order: kronecker finishes before zassenhaus.
-        let outcome = run_portfolio_concurrent_race(
+        let initial_compute_remaining = cx.remaining(Dimension::ComputeSteps);
+        let outcomes = generate_concurrent_candidates(
             &mut cx,
-            &context,
             &requested,
             vec![
                 ("kronecker_interpolation", kronecker),
                 ("zassenhaus_modular", zassenhaus),
             ],
         )
-        .expect("both real strategies must verify the same product claim");
+        .expect("both real generators must drain");
+        assert_eq!(outcomes.len(), 2);
+        for outcome in &outcomes {
+            let candidate = outcome.result.as_ref().expect("real generator completes");
+            let verified = verify_and_publish_candidate(
+                &mut cx,
+                &context,
+                &requested,
+                &outcome.name,
+                candidate.clone(),
+                initial_compute_remaining,
+            )
+            .expect("each real generator independently verifies the fixed product claim");
+            assert_eq!(verified.result(), &expected_product);
+            assert_eq!(verified.evidence().claim, requested);
+        }
+        let outcome = accept_concurrent_candidates(
+            &mut cx,
+            &context,
+            &requested,
+            outcomes,
+            initial_compute_remaining,
+        )
+        .expect("strict acceptance selects a verified real factor candidate");
 
         assert_eq!(
             outcome.result(),
