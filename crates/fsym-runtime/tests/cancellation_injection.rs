@@ -16,7 +16,8 @@ use asupersync::Cx;
 use asupersync::cx::cap::None as CapNone;
 use fsym_assumptions::ImmutableAssumptionsSnapshot;
 use fsym_budget::{
-    Budget, BudgetError, BudgetLimits, BudgetMeter, DIMENSION_COUNT, Dimension, MeterError, Unbounded,
+    Budget, BudgetError, BudgetLimits, BudgetMeter, DIMENSION_COUNT, Dimension, MeterError,
+    Unbounded,
 };
 use fsym_core::{BigInt, BigRational, Expr, Symbol};
 use fsym_polys::factorization::{metered_complete_factorization, metered_kronecker_factorization};
@@ -26,8 +27,8 @@ use fsym_runtime::{
     FsymCpuCx, FsymCx, PortfolioCandidate, PortfolioError, ReplayLog,
     run_portfolio_concurrent_race, run_portfolio_race,
 };
-use std::sync::{Arc, Mutex, mpsc};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 
 fn make_candidate(x: &Expr, name: &str) -> PortfolioCandidate {
@@ -204,42 +205,60 @@ fn real_factor_generators_exhaust_budget_without_spending_verifier_reserve() {
         let input = input.clone();
         let active = Arc::clone(&active);
         let report_tx = report_tx.clone();
-        strategies.push((name, Box::new(move |cx| {
-            let _guard = ActiveGuard::enter(&active);
-            let mut meter = ObservedMeter {
-                inner: cx,
-                spent: [0; DIMENSION_COUNT],
-                last_error: None,
-                after_batch: None::<fn()>,
-            };
-            let error = run_real_generator(zassenhaus, &input, &mut meter)
-                .expect_err("real generator must refuse the insufficient child allowance");
-            assert!(matches!(
-                meter.last_error,
-                Some(MeterError::Budget(BudgetError::Exhausted {
-                    dimension: Dimension::ComputeSteps, ..
-                }))
-            ));
-            report_tx.send((name, meter.spent)).unwrap();
-            Err(PortfolioError::BudgetExhausted(error.to_string()))
-        })));
+        strategies.push((
+            name,
+            Box::new(move |cx| {
+                let _guard = ActiveGuard::enter(&active);
+                let mut meter = ObservedMeter {
+                    inner: cx,
+                    spent: [0; DIMENSION_COUNT],
+                    last_error: None,
+                    after_batch: None::<fn()>,
+                };
+                let error = run_real_generator(zassenhaus, &input, &mut meter)
+                    .expect_err("real generator must refuse the insufficient child allowance");
+                assert!(matches!(
+                    meter.last_error,
+                    Some(MeterError::Budget(BudgetError::Exhausted {
+                        dimension: Dimension::ComputeSteps,
+                        ..
+                    }))
+                ));
+                report_tx.send((name, meter.spent)).unwrap();
+                Err(PortfolioError::BudgetExhausted(error.to_string()))
+            }),
+        ));
     }
     drop(report_tx);
 
     let result = run_portfolio_concurrent_race(&mut fsym_cx, &context, &requested, strategies);
-    assert!(matches!(result, Err(PortfolioError::AllStrategiesFailed(_))));
+    assert!(matches!(
+        result,
+        Err(PortfolioError::AllStrategiesFailed(_))
+    ));
     assert_eq!(active.load(Ordering::SeqCst), 0);
     let mut reports: Vec<_> = report_rx.try_iter().collect();
     reports.sort_by_key(|(name, _)| *name);
-    assert_eq!(reports.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
-        ["kronecker", "zassenhaus"]);
+    assert_eq!(
+        reports.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
+        ["kronecker", "zassenhaus"]
+    );
     assert!(reports[0].1[Dimension::ComputeSteps.index()] > 0);
     for dimension in Dimension::ALL {
-        let spent: u64 = reports.iter().map(|(_, spent)| spent[dimension.index()]).sum();
-        assert_eq!(fsym_cx.remaining(dimension), limits.dimensions[dimension.index()] - spent,
-            "unused {dimension} reservations must return without refunding real work");
+        let spent: u64 = reports
+            .iter()
+            .map(|(_, spent)| spent[dimension.index()])
+            .sum();
+        assert_eq!(
+            fsym_cx.remaining(dimension),
+            limits.dimensions[dimension.index()] - spent,
+            "unused {dimension} reservations must return without refunding real work"
+        );
     }
-    assert_eq!(fsym_cx.verifier_remaining(), limits.verifier_pool - preflight);
+    assert_eq!(
+        fsym_cx.verifier_remaining(),
+        limits.verifier_pool - preflight
+    );
 }
 
 #[test]
@@ -269,29 +288,39 @@ fn real_factor_cancellation_at_charged_batch_drains_delayed_sibling_and_callback
         let (release_tx, release_rx) = mpsc::channel();
         releases.push(release_tx);
         let release_rx = Mutex::new(release_rx);
-        strategies.push((name, Box::new(move |cx| {
-            let guard = ActiveGuard::enter(&workers);
-            let mut meter = ObservedMeter {
-                inner: cx,
-                spent: [0; DIMENSION_COUNT],
-                last_error: None,
-                after_batch: Some(|| {
-                    let _callback_guard = ActiveGuard::enter(&callbacks);
-                    ready_tx.send(name).unwrap();
-                    release_rx.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .recv_timeout(LIFECYCLE_TIMEOUT)
-                        .expect("controller must release the charged-batch callback");
-                }),
-            };
-            // Both real algorithms are inside a paid batch before the controller cancels.
-            let error = run_real_generator(zassenhaus, &input, &mut meter)
-                .expect_err("the generator must observe owner cancellation, not publish factors");
-            assert_eq!(meter.last_error, Some(MeterError::Cancelled), "{name}: {error}");
-            report_tx.send((name, meter.spent)).unwrap();
-            drop(guard);
-            drained_tx.send(name).unwrap();
-            Err(PortfolioError::Cancelled)
-        })));
+        strategies.push((
+            name,
+            Box::new(move |cx| {
+                let guard = ActiveGuard::enter(&workers);
+                let mut meter = ObservedMeter {
+                    inner: cx,
+                    spent: [0; DIMENSION_COUNT],
+                    last_error: None,
+                    after_batch: Some(|| {
+                        let _callback_guard = ActiveGuard::enter(&callbacks);
+                        ready_tx.send(name).unwrap();
+                        release_rx
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .recv_timeout(LIFECYCLE_TIMEOUT)
+                            .expect("controller must release the charged-batch callback");
+                    }),
+                };
+                // Both real algorithms are inside a paid batch before the controller cancels.
+                let error = run_real_generator(zassenhaus, &input, &mut meter).expect_err(
+                    "the generator must observe owner cancellation, not publish factors",
+                );
+                assert_eq!(
+                    meter.last_error,
+                    Some(MeterError::Cancelled),
+                    "{name}: {error}"
+                );
+                report_tx.send((name, meter.spent)).unwrap();
+                drop(guard);
+                drained_tx.send(name).unwrap();
+                Err(PortfolioError::Cancelled)
+            }),
+        ));
     }
     drop(ready_tx);
     drop(drained_tx);
@@ -302,12 +331,19 @@ fn real_factor_cancellation_at_charged_batch_drains_delayed_sibling_and_callback
     let returned_for_controller = Arc::clone(&returned);
     let controller = std::thread::spawn(move || {
         let mut ready = [
-            ready_rx.recv_timeout(LIFECYCLE_TIMEOUT).expect("first paid batch"),
-            ready_rx.recv_timeout(LIFECYCLE_TIMEOUT).expect("second paid batch"),
+            ready_rx
+                .recv_timeout(LIFECYCLE_TIMEOUT)
+                .expect("first paid batch"),
+            ready_rx
+                .recv_timeout(LIFECYCLE_TIMEOUT)
+                .expect("second paid batch"),
         ];
         ready.sort();
         assert_eq!(ready, ["kronecker", "zassenhaus"]);
-        cancel_cx.cancel_with(asupersync::CancelKind::User, Some("real factor charged batch"));
+        cancel_cx.cancel_with(
+            asupersync::CancelKind::User,
+            Some("real factor charged batch"),
+        );
         assert_eq!(workers_for_controller.load(Ordering::SeqCst), 2);
         assert_eq!(callbacks_for_controller.load(Ordering::SeqCst), 2);
         assert!(!returned_for_controller.load(Ordering::SeqCst));
@@ -315,12 +351,22 @@ fn real_factor_cancellation_at_charged_batch_drains_delayed_sibling_and_callback
         // Drain Kronecker first while Zassenhaus remains in its callback. This
         // orders the delay by events, not scheduler speed or a sleep duration.
         releases[1].send(()).unwrap();
-        assert_eq!(drained_rx.recv_timeout(LIFECYCLE_TIMEOUT).expect("Kronecker drain"), "kronecker");
+        assert_eq!(
+            drained_rx
+                .recv_timeout(LIFECYCLE_TIMEOUT)
+                .expect("Kronecker drain"),
+            "kronecker"
+        );
         assert_eq!(workers_for_controller.load(Ordering::SeqCst), 1);
         assert_eq!(callbacks_for_controller.load(Ordering::SeqCst), 1);
         assert!(!returned_for_controller.load(Ordering::SeqCst));
         releases[0].send(()).unwrap();
-        assert_eq!(drained_rx.recv_timeout(LIFECYCLE_TIMEOUT).expect("Zassenhaus drain"), "zassenhaus");
+        assert_eq!(
+            drained_rx
+                .recv_timeout(LIFECYCLE_TIMEOUT)
+                .expect("Zassenhaus drain"),
+            "zassenhaus"
+        );
     });
 
     let result = run_portfolio_concurrent_race(&mut fsym_cx, &context, &requested, strategies);
@@ -328,25 +374,38 @@ fn real_factor_cancellation_at_charged_batch_drains_delayed_sibling_and_callback
     // Capture quiescence at public return, before joining the external controller.
     let workers_at_return = active_workers.load(Ordering::SeqCst);
     let callbacks_at_return = active_callbacks.load(Ordering::SeqCst);
-    controller.join().expect("controller must complete without a timeout");
+    controller
+        .join()
+        .expect("controller must complete without a timeout");
     assert_eq!(result, Err(PortfolioError::Cancelled));
     assert_eq!(workers_at_return, 0);
     assert_eq!(callbacks_at_return, 0);
     let mut reports: Vec<_> = report_rx.try_iter().collect();
     reports.sort_by_key(|(name, _)| *name);
-    assert_eq!(reports.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
-        ["kronecker", "zassenhaus"]);
+    assert_eq!(
+        reports.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
+        ["kronecker", "zassenhaus"]
+    );
     for (_, spent) in &reports {
         assert!(spent[Dimension::ComputeSteps.index()] > 0);
         assert!(spent[Dimension::MemoryBytes.index()] > 0);
         assert!(spent[Dimension::AllocationCount.index()] > 0);
     }
     for dimension in Dimension::ALL {
-        let spent: u64 = reports.iter().map(|(_, spent)| spent[dimension.index()]).sum();
-        assert_eq!(fsym_cx.remaining(dimension), limits.dimensions[dimension.index()] - spent,
-            "cancellation must reconcile {dimension}, retaining all paid batches");
+        let spent: u64 = reports
+            .iter()
+            .map(|(_, spent)| spent[dimension.index()])
+            .sum();
+        assert_eq!(
+            fsym_cx.remaining(dimension),
+            limits.dimensions[dimension.index()] - spent,
+            "cancellation must reconcile {dimension}, retaining all paid batches"
+        );
     }
-    assert_eq!(fsym_cx.verifier_remaining(), limits.verifier_pool - preflight);
+    assert_eq!(
+        fsym_cx.verifier_remaining(),
+        limits.verifier_pool - preflight
+    );
 }
 
 // ============================================================================

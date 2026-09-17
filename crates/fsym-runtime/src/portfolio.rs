@@ -1789,13 +1789,194 @@ mod tests {
         use fsym_polys::univariate::UnivariatePoly;
 
         for zassenhaus_first in [true, false] {
-        let (z_done_tx, z_done_rx) = std::sync::mpsc::channel();
-        let (k_done_tx, k_done_rx) = std::sync::mpsc::channel();
-        let z_done_rx = Mutex::new(z_done_rx);
-        let k_done_rx = Mutex::new(k_done_rx);
-        let (completion_tx, completion_rx) = std::sync::mpsc::channel();
-        // x^4 + 4 = (x^2 - 2x + 2)(x^2 + 2x + 2): one product identity
-        // raced by two mathematically distinct real generators.
+            let (z_done_tx, z_done_rx) = std::sync::mpsc::channel();
+            let (k_done_tx, k_done_rx) = std::sync::mpsc::channel();
+            let z_done_rx = Mutex::new(z_done_rx);
+            let k_done_rx = Mutex::new(k_done_rx);
+            let (completion_tx, completion_rx) = std::sync::mpsc::channel();
+            // x^4 + 4 = (x^2 - 2x + 2)(x^2 + 2x + 2): one product identity
+            // raced by two mathematically distinct real generators.
+            let ipoly = |coeffs: &[i64]| {
+                UnivariatePoly::new(
+                    Symbol::new("x"),
+                    coeffs
+                        .iter()
+                        .map(|c| BigRational::from_integer(BigInt::from(*c)))
+                        .collect(),
+                )
+            };
+            let input = Arc::new(ipoly(&[4, 0, 0, 0, 1]));
+            let expected_product = Expr::Mul(vec![
+                ipoly(&[2, -2, 1]).to_expr(),
+                ipoly(&[2, 2, 1]).to_expr(),
+            ]);
+            let requested = Claim::AlgebraicIdentity {
+                lhs: input.to_expr(),
+                rhs: expected_product.clone(),
+            };
+            let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
+
+            // Zassenhaus: metered modular complete factorization of the input.
+            let z_input = Arc::clone(&input);
+            let z_ctx = Arc::clone(&context);
+            let z_completions = completion_tx.clone();
+            let zassenhaus = Box::new(move |cx: &mut FsymCpuCx<'_, asupersync::cx::cap::None>| {
+                if !zassenhaus_first {
+                    k_done_rx
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .recv_timeout(std::time::Duration::from_secs(10))
+                        .expect("Kronecker must finish before releasing Zassenhaus");
+                }
+                let factorization = metered_complete_factorization(&z_input, cx)
+                    .map_err(|error| PortfolioError::AllStrategiesFailed(error.to_string()))?;
+                let product = normalize_factor_product(
+                    &factorization.scale,
+                    factorization
+                        .factors
+                        .into_iter()
+                        .map(|factor| (factor.poly, factor.multiplicity)),
+                )?;
+                let lhs = z_input.to_expr();
+                let mut kernel = ProofKernel::new((**z_ctx).clone());
+                let root = kernel
+                    .prove_definitional_reduction(
+                        lhs.clone(),
+                        product.clone(),
+                        "polynomial_ring_equivalence",
+                        cx,
+                    )
+                    .map_err(|error| PortfolioError::AllStrategiesFailed(error.to_string()))?;
+                let derivation = kernel
+                    .export_derivation(root)
+                    .map_err(|error| PortfolioError::AllStrategiesFailed(error.to_string()))?;
+                z_completions.send("zassenhaus_modular").unwrap();
+                if zassenhaus_first {
+                    z_done_tx
+                        .send(())
+                        .expect("Zassenhaus completion receiver remains live");
+                }
+                Ok(PortfolioCandidate {
+                    strategy_name: "zassenhaus_modular".into(),
+                    result: product.clone(),
+                    claim: Claim::AlgebraicIdentity { lhs, rhs: product },
+                    derivation,
+                })
+            });
+            // Kronecker: the second real generator path; also meters its work.
+            let k_input = Arc::clone(&input);
+            let k_ctx = Arc::clone(&context);
+            let k_completions = completion_tx;
+            let kronecker = Box::new(move |cx: &mut FsymCpuCx<'_, asupersync::cx::cap::None>| {
+                if zassenhaus_first {
+                    z_done_rx
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .recv_timeout(std::time::Duration::from_secs(10))
+                        .expect("Zassenhaus must finish before releasing Kronecker");
+                }
+                let factorization =
+                    fsym_polys::factorization::metered_kronecker_factorization(&k_input, cx)
+                        .map_err(|error| PortfolioError::AllStrategiesFailed(error.to_string()))?;
+                let product = normalize_factor_product(
+                    &factorization.scale,
+                    factorization
+                        .factors
+                        .into_iter()
+                        .map(|factor| (factor.poly, factor.multiplicity)),
+                )?;
+                let lhs = k_input.to_expr();
+                let mut kernel = ProofKernel::new((**k_ctx).clone());
+                let root = kernel
+                    .prove_definitional_reduction(
+                        lhs.clone(),
+                        product.clone(),
+                        "polynomial_ring_equivalence",
+                        cx,
+                    )
+                    .map_err(|error| PortfolioError::AllStrategiesFailed(error.to_string()))?;
+                let derivation = kernel
+                    .export_derivation(root)
+                    .map_err(|error| PortfolioError::AllStrategiesFailed(error.to_string()))?;
+                k_completions.send("kronecker_interpolation").unwrap();
+                if !zassenhaus_first {
+                    k_done_tx
+                        .send(())
+                        .expect("Kronecker completion receiver remains live");
+                }
+                Ok(PortfolioCandidate {
+                    strategy_name: "kronecker_interpolation".into(),
+                    result: product.clone(),
+                    claim: Claim::AlgebraicIdentity { lhs, rhs: product },
+                    derivation,
+                })
+            });
+
+            let cx_raw = Cx::detached_cancel_context();
+            let limits = BudgetLimits::uniform(10_000_000, 100_000);
+            let mut cx = FsymCx::new(&cx_raw, Budget::new(limits), limits);
+            let initial_compute_remaining = cx.remaining(Dimension::ComputeSteps);
+            let outcomes = generate_concurrent_candidates(
+                &mut cx,
+                &requested,
+                vec![
+                    ("kronecker_interpolation", kronecker),
+                    ("zassenhaus_modular", zassenhaus),
+                ],
+            )
+            .expect("both real generators must drain");
+            assert_eq!(
+                completion_rx.try_iter().collect::<Vec<_>>(),
+                if zassenhaus_first {
+                    vec!["zassenhaus_modular", "kronecker_interpolation"]
+                } else {
+                    vec!["kronecker_interpolation", "zassenhaus_modular"]
+                },
+            );
+            assert_eq!(outcomes.len(), 2);
+            for outcome in &outcomes {
+                let candidate = outcome.result.as_ref().expect("real generator completes");
+                let verified = verify_and_publish_candidate(
+                    &mut cx,
+                    &context,
+                    &requested,
+                    &outcome.name,
+                    candidate.clone(),
+                    initial_compute_remaining,
+                )
+                .expect("each real generator independently verifies the fixed product claim");
+                assert_eq!(verified.result(), &expected_product);
+                assert_eq!(verified.evidence().claim, requested);
+            }
+            let outcome = accept_concurrent_candidates(
+                &mut cx,
+                &context,
+                &requested,
+                outcomes,
+                initial_compute_remaining,
+            )
+            .expect("strict acceptance selects a verified real factor candidate");
+
+            assert_eq!(
+                outcome.result(),
+                &expected_product,
+                "both real strategies must verify the identical factor product"
+            );
+            assert_eq!(outcome.evidence().claim, requested);
+            assert!(outcome.evidence().verify_integrity());
+            assert!(outcome.generator_steps_consumed() > 0);
+            assert_eq!(outcome.winning_strategy(), "kronecker_interpolation");
+        }
+    }
+
+    #[test]
+    fn invalid_fast_real_candidate_cannot_publish_before_slower_verified_one() {
+        use fsym_core::{BigInt, BigRational, Symbol};
+        use fsym_polys::factorization::{
+            metered_complete_factorization, metered_kronecker_factorization,
+        };
+        use fsym_polys::univariate::UnivariatePoly;
+
         let ipoly = |coeffs: &[i64]| {
             UnivariatePoly::new(
                 Symbol::new("x"),
@@ -1816,62 +1997,50 @@ mod tests {
         };
         let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
 
-        // Zassenhaus: metered modular complete factorization of the input.
+        // Real Zassenhaus factors, but the candidate misbinds the requested
+        // claim: its claimed identity does not match its verified product.
         let z_input = Arc::clone(&input);
         let z_ctx = Arc::clone(&context);
-        let z_completions = completion_tx.clone();
-        let zassenhaus = Box::new(move |cx: &mut FsymCpuCx<'_, asupersync::cx::cap::None>| {
-            if !zassenhaus_first {
-                k_done_rx.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .recv_timeout(std::time::Duration::from_secs(10))
-                    .expect("Kronecker must finish before releasing Zassenhaus");
-            }
-            let factorization = metered_complete_factorization(&z_input, cx)
-                .map_err(|error| PortfolioError::AllStrategiesFailed(error.to_string()))?;
-            let product = normalize_factor_product(
-                &factorization.scale,
-                factorization
-                    .factors
-                    .into_iter()
-                    .map(|factor| (factor.poly, factor.multiplicity)),
-            )?;
-            let lhs = z_input.to_expr();
-            let mut kernel = ProofKernel::new((**z_ctx).clone());
-            let root = kernel
-                .prove_definitional_reduction(
-                    lhs.clone(),
-                    product.clone(),
-                    "polynomial_ring_equivalence",
-                    cx,
-                )
-                .map_err(|error| PortfolioError::AllStrategiesFailed(error.to_string()))?;
-            let derivation = kernel
-                .export_derivation(root)
-                .map_err(|error| PortfolioError::AllStrategiesFailed(error.to_string()))?;
-            z_completions.send("zassenhaus_modular").unwrap();
-            if zassenhaus_first {
-                z_done_tx.send(()).expect("Zassenhaus completion receiver remains live");
-            }
-            Ok(PortfolioCandidate {
-                strategy_name: "zassenhaus_modular".into(),
-                result: product.clone(),
-                claim: Claim::AlgebraicIdentity { lhs, rhs: product },
-                derivation,
-            })
-        });
-        // Kronecker: the second real generator path; also meters its work.
+        let invalid_zassenhaus =
+            Box::new(move |cx: &mut FsymCpuCx<'_, asupersync::cx::cap::None>| {
+                let factorization = metered_complete_factorization(&z_input, cx)
+                    .map_err(|error| PortfolioError::AllStrategiesFailed(error.to_string()))?;
+                let product = normalize_factor_product(
+                    &factorization.scale,
+                    factorization
+                        .factors
+                        .into_iter()
+                        .map(|factor| (factor.poly, factor.multiplicity)),
+                )?;
+                let lhs = z_input.to_expr();
+                let mut kernel = ProofKernel::new((**z_ctx).clone());
+                let root = kernel
+                    .prove_definitional_reduction(
+                        lhs.clone(),
+                        product.clone(),
+                        "polynomial_ring_equivalence",
+                        cx,
+                    )
+                    .map_err(|error| PortfolioError::AllStrategiesFailed(error.to_string()))?;
+                let derivation = kernel
+                    .export_derivation(root)
+                    .map_err(|error| PortfolioError::AllStrategiesFailed(error.to_string()))?;
+                Ok(PortfolioCandidate {
+                    strategy_name: "zassenhaus_modular".into(),
+                    result: product.clone(),
+                    // Registered claim misbinds the result to the raw input.
+                    claim: Claim::AlgebraicIdentity {
+                        lhs: lhs.clone(),
+                        rhs: lhs,
+                    },
+                    derivation,
+                })
+            });
         let k_input = Arc::clone(&input);
         let k_ctx = Arc::clone(&context);
-        let k_completions = completion_tx;
         let kronecker = Box::new(move |cx: &mut FsymCpuCx<'_, asupersync::cx::cap::None>| {
-            if zassenhaus_first {
-                z_done_rx.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .recv_timeout(std::time::Duration::from_secs(10))
-                    .expect("Zassenhaus must finish before releasing Kronecker");
-            }
-            let factorization =
-                fsym_polys::factorization::metered_kronecker_factorization(&k_input, cx)
-                    .map_err(|error| PortfolioError::AllStrategiesFailed(error.to_string()))?;
+            let factorization = metered_kronecker_factorization(&k_input, cx)
+                .map_err(|error| PortfolioError::AllStrategiesFailed(error.to_string()))?;
             let product = normalize_factor_product(
                 &factorization.scale,
                 factorization
@@ -1892,10 +2061,6 @@ mod tests {
             let derivation = kernel
                 .export_derivation(root)
                 .map_err(|error| PortfolioError::AllStrategiesFailed(error.to_string()))?;
-            k_completions.send("kronecker_interpolation").unwrap();
-            if !zassenhaus_first {
-                k_done_tx.send(()).expect("Kronecker completion receiver remains live");
-            }
             Ok(PortfolioCandidate {
                 strategy_name: "kronecker_interpolation".into(),
                 result: product.clone(),
@@ -1907,58 +2072,21 @@ mod tests {
         let cx_raw = Cx::detached_cancel_context();
         let limits = BudgetLimits::uniform(10_000_000, 100_000);
         let mut cx = FsymCx::new(&cx_raw, Budget::new(limits), limits);
-        let initial_compute_remaining = cx.remaining(Dimension::ComputeSteps);
-        let outcomes = generate_concurrent_candidates(
-            &mut cx,
-            &requested,
-            vec![
-                ("kronecker_interpolation", kronecker),
-                ("zassenhaus_modular", zassenhaus),
-            ],
-        )
-        .expect("both real generators must drain");
-        assert_eq!(
-            completion_rx.try_iter().collect::<Vec<_>>(),
-            if zassenhaus_first {
-                vec!["zassenhaus_modular", "kronecker_interpolation"]
-            } else {
-                vec!["kronecker_interpolation", "zassenhaus_modular"]
-            },
-        );
-        assert_eq!(outcomes.len(), 2);
-        for outcome in &outcomes {
-            let candidate = outcome.result.as_ref().expect("real generator completes");
-            let verified = verify_and_publish_candidate(
-                &mut cx,
-                &context,
-                &requested,
-                &outcome.name,
-                candidate.clone(),
-                initial_compute_remaining,
-            )
-            .expect("each real generator independently verifies the fixed product claim");
-            assert_eq!(verified.result(), &expected_product);
-            assert_eq!(verified.evidence().claim, requested);
-        }
-        let outcome = accept_concurrent_candidates(
+        let _initial_compute_remaining = cx.remaining(Dimension::ComputeSteps);
+        let outcome = run_portfolio_concurrent_race(
             &mut cx,
             &context,
             &requested,
-            outcomes,
-            initial_compute_remaining,
+            vec![
+                ("zassenhaus_modular", invalid_zassenhaus),
+                ("kronecker_interpolation", kronecker),
+            ],
         )
-        .expect("strict acceptance selects a verified real factor candidate");
-
-        assert_eq!(
-            outcome.result(),
-            &expected_product,
-            "both real strategies must verify the identical factor product"
-        );
+        .expect("slower verified generator must win after invalid candidate refusal");
+        assert_eq!(outcome.result(), &expected_product);
+        assert_eq!(outcome.winning_strategy(), "kronecker_interpolation");
         assert_eq!(outcome.evidence().claim, requested);
         assert!(outcome.evidence().verify_integrity());
-        assert!(outcome.generator_steps_consumed() > 0);
-        assert_eq!(outcome.winning_strategy(), "kronecker_interpolation");
-        }
     }
 
     #[test]

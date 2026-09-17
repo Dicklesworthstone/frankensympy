@@ -393,7 +393,10 @@ mod tests {
                                 } else {
                                     Expr::Pow(
                                         Arc::new(term),
-                                        Arc::new(Expr::Integer(BigInt::from(multiplicity))),
+                                        Arc::new(Expr::Integer(BigInt::from(
+                                            u64::try_from(multiplicity)
+                                                .expect("multiplicity fits u64"),
+                                        ))),
                                     )
                                 });
                             }
@@ -422,8 +425,9 @@ mod tests {
                                     PortfolioError::AllStrategiesFailed(error.to_string())
                                 })?,
                             };
-                            let consumed = Dimension::ALL
-                                .map(|dimension| before[dimension.index()] - cx.remaining(dimension));
+                            let consumed = Dimension::ALL.map(|dimension| {
+                                before[dimension.index()] - cx.remaining(dimension)
+                            });
                             observations[index]
                                 .set((candidate.clone(), consumed))
                                 .expect("each worker records one candidate");
