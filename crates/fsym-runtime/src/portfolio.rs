@@ -102,6 +102,14 @@ pub type ConcurrentStrategyRunner<Caps> = Box<
 /// A registered strategy name and its scoped parallel candidate generator.
 pub type NamedConcurrentStrategy<Caps> = (&'static str, ConcurrentStrategyRunner<Caps>);
 
+#[cfg(test)]
+thread_local! {
+    // Verification/publication runs on the owner thread, not a generator worker.
+    // Taking the hook before invocation prevents reentrancy and cross-test reuse.
+    static BEFORE_PUBLICATION: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
 /// Performs the shared protected verification, claim binding, receipt issuance, and envelope construction
 /// on a generated candidate.
 fn verify_and_publish_candidate<Caps>(
@@ -182,6 +190,10 @@ fn verify_and_publish_candidate<Caps>(
     // published yet. This checkpoint is the sole post-verifier cancellation
     // seam: cancelling here must refuse publication while leaving the ledger
     // and any captured continuation otherwise intact.
+    #[cfg(test)]
+    if let Some(hook) = BEFORE_PUBLICATION.with(|slot| slot.borrow_mut().take()) {
+        hook();
+    }
     cx.checkpoint().map_err(|_| PortfolioError::Cancelled)?;
 
     let receipt_id = fsym_id::ReceiptId::new(verifier_charge.seq()).map_err(|error| {
@@ -911,6 +923,114 @@ mod tests {
             1 => terms.pop().expect("one factor"),
             _ => Expr::Mul(terms),
         })
+    }
+
+    #[test]
+    fn real_factor_cancellation_after_verifier_refuses_publication() {
+        use fsym_core::{BigInt, BigRational, Symbol};
+        use fsym_polys::factorization::metered_complete_factorization;
+        use fsym_polys::univariate::UnivariatePoly;
+        use std::cell::Cell;
+        use std::rc::Rc;
+
+        // Clear even if an assertion panics before the publication boundary.
+        struct ClearHook;
+        impl Drop for ClearHook {
+            fn drop(&mut self) {
+                BEFORE_PUBLICATION.with(|slot| slot.borrow_mut().take());
+            }
+        }
+        let _clear_hook = ClearHook;
+        let polynomial = |coefficients: &[i64]| {
+            UnivariatePoly::new(
+                Symbol::new("x"),
+                coefficients
+                    .iter()
+                    .map(|c| BigRational::from_integer(BigInt::from(*c)))
+                    .collect(),
+            )
+        };
+        let input = polynomial(&[4, 0, 0, 0, 1]);
+        let requested = Claim::AlgebraicIdentity {
+            lhs: input.to_expr(),
+            rhs: Expr::Mul(vec![
+                polynomial(&[2, -2, 1]).to_expr(),
+                polynomial(&[2, 2, 1]).to_expr(),
+            ]),
+        };
+        let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
+        let generator_context = Arc::clone(&context);
+        let verification_units = Rc::new(Cell::new(0));
+        let candidate_units = Rc::clone(&verification_units);
+        let generator = Box::new(move |cx: &mut FsymCx<'_, asupersync::cx::cap::None>| {
+            let factorization = metered_complete_factorization(&input, cx)
+                .map_err(|error| PortfolioError::AllStrategiesFailed(error.to_string()))?;
+            let product = normalize_factor_product(
+                &factorization.scale,
+                factorization
+                    .factors
+                    .into_iter()
+                    .map(|factor| (factor.poly, factor.multiplicity)),
+            )?;
+            let lhs = input.to_expr();
+            let mut kernel = ProofKernel::new((**generator_context).clone());
+            let root = kernel
+                .prove_definitional_reduction(
+                    lhs.clone(),
+                    product.clone(),
+                    "polynomial_ring_equivalence",
+                    cx,
+                )
+                .unwrap();
+            let candidate = PortfolioCandidate {
+                strategy_name: "zassenhaus_modular".into(),
+                result: product.clone(),
+                claim: Claim::AlgebraicIdentity { lhs, rhs: product },
+                derivation: kernel.export_derivation(root).unwrap(),
+            };
+            candidate_units.set(
+                claim_verification_units(&candidate.claim).unwrap()
+                    + expression_verification_units(&candidate.result).unwrap()
+                    + derivation_verification_units(&candidate.derivation).unwrap(),
+            );
+            Ok(candidate)
+        });
+        let raw = Cx::detached_cancel_context();
+        let cancel = raw.clone();
+        let reached_publication = Rc::new(Cell::new(false));
+        let observed = Rc::clone(&reached_publication);
+        BEFORE_PUBLICATION.with(|slot| {
+            *slot.borrow_mut() = Some(Box::new(move || {
+                observed.set(true);
+                cancel.cancel_with(
+                    asupersync::CancelKind::User,
+                    Some("after real factor verification"),
+                );
+            }));
+        });
+        let limits = BudgetLimits::uniform(10_000_000, 100_000);
+        let mut cx = FsymCx::new(&raw, Budget::new(limits), limits);
+        let result = run_portfolio_race(
+            &mut cx,
+            &context,
+            &requested,
+            vec![("zassenhaus_modular", generator)],
+        );
+        assert!(
+            reached_publication.get(),
+            "independent verification must finish before cancellation"
+        );
+        assert_eq!(result, Err(PortfolioError::Cancelled));
+        assert_eq!(
+            cx.verifier_remaining(),
+            limits.verifier_pool
+                - claim_verification_units(&requested).unwrap()
+                - verification_units.get()
+        );
+        assert!(
+            cx.remaining(Dimension::ComputeSteps)
+                < limits.dimensions[Dimension::ComputeSteps.index()]
+        );
     }
 
     #[test]

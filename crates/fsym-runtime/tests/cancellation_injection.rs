@@ -5,12 +5,10 @@
 //! - Candidate publication and accepted publication are separate phases.
 //! - Verifier pool is protected and cannot be consumed by cancelled generators.
 //! - Fallback and cancellation never reset budget accounting.
-//! - Cancellation-injection matrix covering:
-//!   1. Before reservation
-//!   2. During generator batch
-//!   3. Before verifier execution
-//!   4. After verifier / before publication
-//! - Replay log reproduces traces bit-for-bit.
+//! - This integration matrix covers before reservation, during generator batches,
+//!   and before verifier execution. The real-factor post-verifier publication
+//!   boundary is tested in portfolio.rs with a test-only injection seam.
+//! - Replay serialization round trips are checked here, not execution replay.
 
 #![forbid(unsafe_code)]
 
@@ -215,45 +213,8 @@ fn test_cancellation_matrix_before_verifier() {
     );
 }
 
-// ============================================================================
-// Phase 4: Cancellation Injected AFTER Verifier / BEFORE Publication
-// ============================================================================
-
-#[test]
-fn test_cancellation_matrix_after_verifier_before_publication() {
-    let cx_raw = Cx::detached_cancel_context();
-    let cancel_cx = cx_raw.clone();
-    let limits = BudgetLimits::uniform(200, 20);
-    let mut fsym_cx = FsymCx::new(&cx_raw, Budget::new(limits), limits);
-    let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
-    let x = Expr::symbol("x");
-    let requested = Claim::equality(x.clone(), x.clone());
-
-    let cand_x = x.clone();
-    let strategy = Box::new(move |cx: &mut FsymCx<'_, CapNone>| {
-        cx.charge(Dimension::ComputeSteps, 5).unwrap();
-        let cand = make_candidate(&cand_x, "strat");
-        cancel_cx.cancel_with(
-            asupersync::CancelKind::User,
-            Some("cancel at publication barrier"),
-        );
-        Ok(cand)
-    });
-
-    let result = run_portfolio_race(
-        &mut fsym_cx,
-        &context,
-        &requested,
-        vec![("strat", strategy)],
-    );
-
-    // Post-verification checkpoint catches cancellation and refuses publication
-    assert_eq!(
-        result,
-        Err(PortfolioError::Cancelled),
-        "Cancellation after verifier must refuse publication"
-    );
-}
+// Actual post-verifier cancellation is exercised by the real-factor unit test
+// in portfolio.rs, using its test-only owner-thread publication seam.
 
 // ============================================================================
 // Phase 5: Deterministic Replay Bit-for-Bit Reproduction

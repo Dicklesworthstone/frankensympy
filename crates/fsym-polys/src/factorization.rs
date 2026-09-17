@@ -63,9 +63,8 @@ pub fn square_free_decomposition(poly: &UnivariatePoly) -> Result<FactorizationR
 }
 
 /// Metered Yun core with the exact mathematics of
-/// [`square_free_decomposition`]: each loop iteration charges its
-/// derivative/subtraction/GCD/exact-division batch and takes its cancellation
-/// safe point before any allocation of that batch.
+/// [`square_free_decomposition`]: initialization and each loop iteration charge
+/// their arithmetic batch and take a cancellation safe point before allocation.
 pub fn metered_square_free_decomposition(
     poly: &UnivariatePoly,
     meter: &mut impl BudgetMeter,
@@ -77,6 +76,24 @@ pub fn metered_square_free_decomposition(
             factors: Vec::new(),
         });
     }
+
+    // Prepay normalization, derivative, Euclidean GCD and both initial exact
+    // divisions, even when the square-free fast path returns without a loop.
+    // Cubic dense work and quadratic coefficient-height growth are conservative
+    // logical envelopes for the rational remainder sequence, not allocator metrics.
+    let width = u64::try_from(poly.coeffs.len()).unwrap_or(u64::MAX);
+    let input_bits = poly
+        .coeffs
+        .iter()
+        .map(|c| c.numer().bits().max(c.denom().bits()))
+        .max()
+        .unwrap_or(1);
+    let initial_work = width.saturating_pow(3).saturating_mul(16);
+    let initial_bits = input_bits
+        .saturating_add(u64::from(width.ilog2()).saturating_add(1))
+        .saturating_mul(width.saturating_pow(2))
+        .saturating_mul(8);
+    factor_work(meter, initial_work, initial_work, initial_bits)?;
 
     let lc = poly.leading_coeff().clone();
     let monic_p = poly.to_monic();
@@ -1566,14 +1583,19 @@ fn zassenhaus_monic(
         return Ok(vec![z.to_vec()]);
     }
     // Prime search: odd, the reduction must stay square-free with at most
-    // MAX_MODP_FACTORS irreducible factors. Each candidate prime charges its
-    // reduction/square-free/modular-factor batch before any accept decision.
+    // MAX_MODP_FACTORS irreducible factors. Prepay reduction and both square-free
+    // checks (including the modular factor core's defensive recheck); that core
+    // separately charges its distinct/equal-degree factoring work.
     let mut stream = fsym_modular::PrimeStream::new();
     let mut chosen: Option<(u64, Vec<Vec<u64>>)> = None;
+    let width = u64::try_from(z.len()).unwrap_or(u64::MAX);
+    let prime_work = width
+        .saturating_pow(3)
+        .saturating_mul(8)
+        .saturating_add(width.saturating_mul(256));
+    let prime_bits = z_coeff_max_bits(z).max(64);
     for _ in 0..LIFT_PRIME_ATTEMPTS {
-        meter
-            .checkpoint()
-            .map_err(|e| PolyError::General(format!("cancelled: {e}")))?;
+        factor_work(meter, prime_work, prime_work, prime_bits)?;
         let prime = match stream.try_next() {
             Ok(prime) => prime,
             Err(_) => continue,
@@ -1691,15 +1713,60 @@ fn recombine_monic(
         return Ok(());
     }
     for size in 1..=pool.len() / 2 {
-        meter
-            .checkpoint()
-            .map_err(|e| PolyError::General(format!("cancelled: {e}")))?;
+        // The recursive enumerator also visits incomplete subsets. All 2^n
+        // subsets bound those visits and their cloned index vectors. Overflow
+        // saturates the charge instead of admitting a wrapped cheap batch.
+        let subsets = u32::try_from(pool.len())
+            .ok()
+            .and_then(|n| 1u64.checked_shl(n))
+            .unwrap_or(u64::MAX);
+        let combination_work = subsets
+            .saturating_mul(u64::try_from(size).unwrap_or(u64::MAX).saturating_add(1))
+            .saturating_mul(2);
+        factor_work(meter, combination_work, combination_work, 64)?;
         for combo in combinations_of(pool, size) {
+            // Estimate from existing coefficient metadata before constructing
+            // the product. Sum log2(l1 norms) bounds coefficient growth through
+            // every convolution; division adds at most one modulus-height
+            // coefficient per eliminated degree. Include rejected candidates,
+            // scratch coefficients, accepted-output growth and next_pool.
+            let mut product_width = 1u64;
+            let mut product_bits = 1u64;
+            let mut candidate_work = 1u64;
+            for &i in &combo {
+                let factor_width = u64::try_from(lifted[i].len()).unwrap_or(u64::MAX);
+                candidate_work = candidate_work
+                    .saturating_add(product_width.saturating_mul(factor_width).saturating_mul(4));
+                product_width = product_width.saturating_add(factor_width.saturating_sub(1));
+                product_bits = product_bits
+                    .saturating_add(z_coeff_max_bits(&lifted[i]))
+                    .saturating_add(u64::from(factor_width.max(1).ilog2()).saturating_add(1));
+            }
+            let remaining_width = u64::try_from(remaining.len()).unwrap_or(u64::MAX);
+            let division_bits = z_coeff_max_bits(&remaining)
+                .saturating_add(remaining_width.saturating_mul(pe.bits().saturating_add(1)));
+            candidate_work = candidate_work
+                .saturating_add(
+                    remaining_width
+                        .saturating_mul(product_width)
+                        .saturating_mul(4),
+                )
+                .saturating_add(product_width.saturating_mul(4))
+                .saturating_add(
+                    u64::try_from(pool.len())
+                        .unwrap_or(u64::MAX)
+                        .saturating_mul(4),
+                );
+            factor_work(
+                meter,
+                candidate_work,
+                candidate_work,
+                product_bits.max(division_bits).max(pe.bits()),
+            )?;
             let mut prod = vec![BigInt::from_u64(1)];
             for &i in &combo {
                 prod = z_mul(&prod, &lifted[i]);
             }
-            factor_work(meter, 8, 4 * combo.len() as u64, 256)?;
             let mut cand = z_symmetric_reduce(&prod, pe);
             z_trim(&mut cand);
             if cand.len() <= 1 {
@@ -2143,6 +2210,51 @@ mod complete_factorization_tests {
             self.checkpoints_left -= 1;
             Ok(())
         }
+    }
+
+    struct RefusingWorkMeter;
+
+    impl BudgetMeter for RefusingWorkMeter {
+        fn charge(&mut self, dimension: Dimension, requested: u64) -> Result<(), MeterError> {
+            Err(MeterError::Budget(fsym_budget::BudgetError::Exhausted {
+                dimension,
+                requested,
+                remaining: 0,
+            }))
+        }
+
+        fn charge_batch(&mut self, charges: &[(Dimension, u64)]) -> Result<(), MeterError> {
+            let (dimension, requested) = charges[0];
+            self.charge(dimension, requested)
+        }
+
+        fn checkpoint(&mut self) -> Result<(), MeterError> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn yun_square_free_fast_path_cannot_bypass_work_refusal() {
+        let p = ipoly(&[2, 2]);
+        let err = metered_square_free_decomposition(&p, &mut RefusingWorkMeter).unwrap_err();
+        assert!(matches!(&err, PolyError::General(m) if m.contains("budget exhausted")));
+        let err = metered_square_free_decomposition(
+            &p,
+            &mut CancellingMeter {
+                checkpoints_left: 0,
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(&err, PolyError::General(m) if m.contains("cancelled")));
+    }
+
+    #[test]
+    fn unusable_lifting_primes_cannot_bypass_work_refusal() {
+        // This repeated factor is rejected as non-square-free at every prime,
+        // so the modular factor core never provides a later charging point.
+        let repeated = [BigInt::from(1), BigInt::from(-2), BigInt::from(1)];
+        let err = zassenhaus_monic(&repeated, &mut RefusingWorkMeter).unwrap_err();
+        assert!(matches!(&err, PolyError::General(m) if m.contains("budget exhausted")));
     }
 
     #[test]
