@@ -44,7 +44,7 @@ MILESTONE_ID_RE = re.compile(r"^M\d+$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 MARKDOWN_LINK_RE = re.compile(r"!?\[[^\]]*\]\(([^)\n]+)\)")
 WORKSTREAM_REFERENCE_RE = re.compile(r"\bWS\d{2}\b")
-MILESTONE_REFERENCE_RE = re.compile(r"\bM\d+\b")
+MILESTONE_REFERENCE_RE = re.compile(r"(?<![\w-])M\d+\b")
 PLACEHOLDERS = {"UNSET", "NOT_IMPLEMENTED", "TBD", "TODO"}
 
 

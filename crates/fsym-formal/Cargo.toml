@@ -1,0 +1,20 @@
+[package]
+name = "fsym-formal"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish = false
+description = "Optional native-first formal projection: capsule claims to checked Lean statements with independent projection receipts"
+
+[dependencies]
+fsym-proof-kernel.workspace = true
+thiserror.workspace = true
+blake3.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+fsym-core.workspace = true
+fsym-id.workspace = true

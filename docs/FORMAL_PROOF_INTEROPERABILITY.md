@@ -119,6 +119,51 @@ Only the first six and receipt mismatch are completed negative engineering outco
 
 The first planned adapter is Lean-oriented because FrankenLean supplies useful certificate, cartridge, and foreign-checking precedents. The architecture permits other theorem provers through separate profiles, provided they satisfy the same projection and authority contract.
 
+### 10.1 Bounded Lean-core ZZ product profile
+
+`lean_core_zz_product_v1` is a separate immutable profile in `registries/formal_proof_profiles.toml`. Its status remains **planned, pending independent review**. It does not modify `lean_factorization_v1` or the existing FrankenLean source pin, certify factorization, establish irreducibility, or promote a claim or workstream. FrankenLean supplies distinct precedents; that admission does not prove an executable pipeline for this upstream Lean-core profile.
+
+The optional L6 `fsym-formal` adapter consumes the native L2 proof kernel. No native crate depends back on this adapter or on Lean. The only supported proposition is an exact ZZ coefficient-vector product identity, not a claim that the factors are irreducible or a general factorization procedure:
+
+| Semantic field | Frozen mapping |
+|---|---|
+| Capsule/schema | Native capsule v1, exactly three objects: subject and two factors |
+| Domain and numbers | ZZ only; exact signed i64 coefficients mapped to Lean `Int` |
+| Polynomial representation | Dense ascending coefficient vectors; the same single variable for all three polynomials; degree at most 64 |
+| Product | Exactly two factors, exponent 1 each, scalar coefficient 1 |
+| Context | Raw root `0x1111222233334444`, no hypotheses |
+| Rule / verifier | Raw roots `0x5555666677778888` / `0x9999aaaabbbbcccc` |
+| Equality | Exact coefficient-vector equality after convolution, not sampled evaluation |
+| Partiality / branches | Not applicable to this total integer product; undefined or otherwise unrepresented expressions are refused |
+| Unsupported semantics | Every other domain, shape, exponent, scalar, hypothesis, semantic root or unknown field is refused |
+| Input limits | Capsule 16 KiB, projected source 32 KiB, JSON envelope 128 KiB |
+
+Native verification precedes projection. An independent mapping checker must reconstruct and validate the source-to-native binding and immutable receipt; caller-supplied success booleans never establish authority. The receipt binds the native claim, profile, statement and environment. Kernel acceptance alone proves only the formal statement; without the checked receipt it does not establish the native claim.
+
+The adapter's current output label is `evidence=projection-mapping-only;foreign=not-checked`. Mapping acceptance is not `formal_projection_checked`: that evidence requires both the independent mapping receipt and connected foreign-kernel acceptance. Recording this planned profile or its checker command does not establish that either a foreign check or a conformance gate has passed.
+
+The foreign environment is standalone **Lean 4.32.2 core**, upstream `leanprover/lean4` commit `f3b06c705e6c85f5314019d5d3baab0fec5b580c`, release platform `x86_64-unknown-linux-gnu`. The expected banner is `Lean (version 4.32.2, x86_64-unknown-linux-gnu, commit f3b06c705e6c85f5314019d5d3baab0fec5b580c, Release)`. No mathlib or user library is admitted. Fixed core definitions implement dense convolution and the equality proof uses a kernel-checked `decide` term; native execution, plugins and `--run` are not permitted. The trusted-axiom allowlist contains only `propext`; any other axiom or extra checker diagnostic is rejected.
+
+The frozen installed-closure manifest SHA256 is `88d1bfed5e2ba13e7dd28043c70a303f1ea1b301220023fe6b9a1a5d14368f9f`. `tools/check_formal_projection.py:environment()` hashes the executable and each file in the complete installed `lib` tree, with prefix-relative paths and per-file SHA256 values, then hashes the canonical JSON manifest. A version banner alone is insufficient. This is an installed-tool manifest, not a source archive hash, Cargo lock digest, or attestation of host libraries outside that tree. The environment identifier bound to the statement and receipt is `lean4-core-4.32.2@f3b06c705e6c85f5314019d5d3baab0fec5b580c;sha256=88d1bfed5e2ba13e7dd28043c70a303f1ea1b301220023fe6b9a1a5d14368f9f`.
+
+### 10.2 Optional checker interface and gates
+
+Lean is an explicitly selected, already installed offline executable, not a Cargo dependency, native FFI binding, downloader, build script, or runtime code loader. The checker command is exactly:
+
+```text
+lean -t0 -j1 -M512 -T200000 Projected.lean
+```
+
+The gate requires the exact environment, an empty `LEAN_PATH`, a fixed source grammar and one checker thread. It enforces a 60-second wall-clock timeout and bounded output; exhaustion/cancellation is inconclusive, not mathematical rejection. Host paths, timing and other telemetry do not enter canonical semantic roots. The adapter/checker can be omitted without changing native mathematical identity or native verification. The admitted host is optional x86-64 Linux; there is no Wasm or `no_std` external-checker portability claim.
+
+The built `fsym-formal` `project` example emits a checked JSON envelope for its fixed fixture; `project --check JSON_PATH` independently rechecks a supplied envelope against that fixture's native claim root. It is a gate interface, not an arbitrary-claim CLI or external-verdict authority. The gate is invoked with an absolute installed Lean path, the built example path and a fresh output directory:
+
+```text
+python3 tools/check_formal_projection.py --lean <absolute lean> --projector <built example> --artifacts <fresh-output-dir> --expected-environment 88d1bfed5e2ba13e7dd28043c70a303f1ea1b301220023fe6b9a1a5d14368f9f
+```
+
+Use a fresh directory under `artifacts/audit/ws06_formal_projection/` (a timestamp subdirectory is permitted). Retain the installed environment manifest, projection envelope/source, checker output, rejection fixtures and gate results. Required evidence includes native-first admission, independent receipt/mapping checks, exact field coverage, semantic/assumption/domain mutations, statement/proof mismatch and foreign rejection, deterministic replay, cancellation/resource bounds and a real no-mock external-checker run. Generic registry parsing does not establish these properties. This document specifies requirements and interfaces; it does **not** assert that executable gates, independent review, dependency/advisory review or certification have passed.
+
 ## 11. Evidence classes
 
 A publication can carry any combination of:

@@ -21,6 +21,7 @@ evidence_class_registry = "registries/evidence_classes.toml"
 claim_lattice_registry = "registries/claim_lattice.toml"
 compatibility_profile_registry = "registries/compatibility_profiles.toml"
 verifier_profile_registry = "registries/verifier_profiles.toml"
+formal_profile_registry = "registries/formal_proof_profiles.toml"
 workspace_transaction_registry = "registries/workspace_transactions.toml"
 graph_reasoning_registry = "registries/graph_reasoning.toml"
 algorithm_portfolio_registry = "registries/algorithm_portfolios.toml"
@@ -83,6 +84,7 @@ fsym-printing = { path = "crates/fsym-printing" }
 fsym-runtime = { path = "crates/fsym-runtime" }
 fsym-conformance = { path = "crates/fsym-conformance" }
 fsym-proof-kernel = { path = "crates/fsym-proof-kernel" }
+fsym-formal = { path = "crates/fsym-formal" }
 fsym-evidence = { path = "crates/fsym-evidence" }
 asupersync = { path = "../asupersync" }
 num-bigint = { version = "0.4", features = ["serde"] }

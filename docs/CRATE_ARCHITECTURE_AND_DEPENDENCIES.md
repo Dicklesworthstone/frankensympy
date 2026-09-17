@@ -35,7 +35,7 @@ A higher layer may depend on lower layers. Sibling crates at a layer may depend 
 
 ```text
 L7  Product packaging, CLI, Python distributions, notebooks
-L6  Protocol servers, Python bridge, Wasm, generated-code targets
+L6  Protocol servers, Python bridge, Wasm, generated-code targets, formal adapters
 L5  Persistence, distribution, graph indexing, artifact repair
 L4  Planning, portfolios, workspaces, orchestration, compilation pipelines
 L3  Symbolic algorithm generators and domain-specific engines
@@ -397,6 +397,14 @@ A pure native subset for browsers and sandboxed runtimes. It excludes CPython, f
 
 Generated output includes guards, provenance, and test/reference artifacts.
 
+### 10.6 `fsym-formal`
+
+Optional outward formal projection from native L2 `fsym-proof-kernel` claims. The dependency direction is L6 → L2 only: neither the proof kernel nor other native mathematical crates may depend on `fsym-formal` or a foreign checker. Workspace membership via `crates/*` and a workspace path-dependency declaration are discovery, not a root runtime dependency or default feature.
+
+The separate immutable `lean_core_zz_product_v1` profile covers only a bounded ZZ coefficient-vector product identity. Native verification runs first; independent mapping validation connects an immutable projection receipt to the formal statement. A caller-provided external verdict is never native verification authority. The profile remains planned pending independent review and does not change the older `lean_factorization_v1` mapping or evidence scope.
+
+Standalone pinned Lean is an optional offline Linux host process invoked by the audit gate, not an imported Cargo package, FFI backend, build-time download, or runtime code loader. No Lean dependency enters the portable verifier or Wasm closure. Omitting this adapter and checker leaves native verification and mathematical identity unchanged. Exact bounds, pins, trusted axioms, commands and gate requirements are defined in [formal proof interoperability](FORMAL_PROOF_INTEROPERABILITY.md#101-bounded-lean-core-zz-product-profile); external-tool admission is recorded in `registries/dependencies.toml` and [dependency safety](DEPENDENCY_SAFETY_AND_TOOLCHAIN.md#25-optional-offline-formal-checker).
+
 ## 11. Python package topology
 
 The Python source is a real compatibility shell, not generated extension-type aliases.
@@ -445,6 +453,7 @@ Checked-in source registries include:
 - rewrite rules;
 - claim and evidence classes;
 - algorithms and verifiers;
+- immutable formal projection profiles;
 - protocol schemas;
 - public claims and gates;
 - workstreams.
@@ -507,7 +516,8 @@ Features correspond to architectural capabilities, not arbitrary build fragmenta
 - `raptorq-artifacts`;
 - `wasm`;
 - `native-cert-numeric`;
-- optional domain families.
+- optional domain families;
+- optional formal projection through the separately selected `fsym-formal` crate (no root feature or native dependency is implied).
 
 Core term IDs and proof semantics cannot change with an incidental feature flag. Any feature that changes profile behavior creates a distinct profile manifest.
 
@@ -534,7 +544,7 @@ Optimization dispatch is runtime/build-provenanced and cannot alter stable IDs, 
 | L3 | algorithm properties, candidate correctness, cancellation safe points |
 | L4 | planner loss policy, portfolio races, replay, semantic merge, compilation proof |
 | L5 | crash/corruption/repair, worker hostility, index rebuildability |
-| L6 | protocol fuzzing, Python bridge safety, Wasm parity, generated-code validation |
+| L6 | protocol fuzzing, Python bridge safety, Wasm parity, generated-code validation, independent formal projection/receipt checks |
 | L7 | full compatibility, ecosystem, packaging, claim/release closure |
 
 A generator crate is not allowed to declare its own outputs verified in its unit tests without invoking the independent verifier crate.

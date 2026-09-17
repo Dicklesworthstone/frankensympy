@@ -62,6 +62,57 @@ proof_style = "composition_of_registered_derivative_lemmas"
 unsupported_fields_fail = true
 foreign_checker_required = true
 
+[[profile]]
+id = "lean_core_zz_product_v1"
+status = "planned"
+review_status = "pending_independent_review"
+immutable = true
+target = "Lean 4 core"
+source_pin = "leanprover/lean4@f3b06c705e6c85f5314019d5d3baab0fec5b580c"
+checker_version = "4.32.2"
+checker_platform = "x86_64-unknown-linux-gnu"
+checker_build = "Release"
+environment_sha256 = "88d1bfed5e2ba13e7dd28043c70a303f1ea1b301220023fe6b9a1a5d14368f9f"
+environment_manifest = "tools/check_formal_projection.py:environment; installed executable plus complete lib tree"
+claim_families = ["integer_polynomial_product_identity"]
+requires_native_verified = true
+maps_domains = ["ZZ"]
+capsule_version = 1
+object_count = 3
+object_roles = ["subject", "factor_1", "factor_2"]
+factor_count = 2
+factor_exponents = [1, 1]
+scalar_coefficient = 1
+variable_policy = "one_same_variable_for_subject_and_factors"
+numeric_encoding = "dense_ascending_exact_i64_coefficients_mapped_to_Lean_Int"
+maximum_degree = 64
+context_root = "0x1111222233334444"
+hypotheses = []
+rule_root = "0x5555666677778888"
+verifier_root = "0x9999aaaabbbbcccc"
+other_semantic_roots = "refuse"
+equality_mapping = "coefficient_vector_equality_after_exact_convolution"
+branch_policy = "not_applicable"
+undefined_expressions = "refuse"
+proof_style = "fixed_core_definitions_and_kernel_checked_decide_term"
+imported_libraries = ["Lean_core_only"]
+trusted_axioms_allowed = ["propext"]
+irreducibility_claimed = false
+unsupported_fields_fail = true
+foreign_checker_required = true
+independent_mapping_check_required = true
+immutable_projection_receipt_required = true
+external_boolean_authority = false
+output_evidence_label = "evidence=projection-mapping-only;foreign=not-checked"
+formal_projection_checked_requires = "independent_mapping_receipt_and_connected_foreign_kernel_acceptance"
+checker_command = "lean -t0 -j1 -M512 -T200000 Projected.lean"
+checker_timeout_seconds = 60
+extra_diagnostics = "reject"
+maximum_capsule_bytes = 16384
+maximum_source_bytes = 32768
+maximum_json_bytes = 131072
+normative_section = "docs/FORMAL_PROOF_INTEROPERABILITY.md#101-bounded-lean-core-zz-product-profile"
+
 [[evidence_class]]
 id = "native_verified"
 authority = "native_reference_verifier"

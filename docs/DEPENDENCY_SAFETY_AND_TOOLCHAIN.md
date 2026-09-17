@@ -53,6 +53,20 @@ Algorithmic crates, generic runtimes, storage engines, network stacks, graph eng
 
 Formatters, linters, fuzz runners, benchmark drivers, license scanners, and test utilities may be admitted separately. They cannot leak into production or portable verifier dependency closure.
 
+### 2.5 Optional offline formal checker
+
+`registries/dependencies.toml` records a distinct `lean_core_external` source for the optional L6 `fsym-formal` projection gate, **planned pending independent review**. It is not an expansion of the native mathematical dependency universe or of the development-tool exception. The purpose is independent foreign-kernel checking of the bounded `lean_core_zz_product_v1` ZZ coefficient product identity; native verification remains sufficient without it. Existing `franken_lean` is a separate donor at commit `7df7a3170045882f3ab1f13bfee72338e524d174`, not admission for upstream Lean and not an established executable pipeline for this profile.
+
+The candidate checker is the already installed upstream `leanprover/lean4` release 4.32.2, commit `f3b06c705e6c85f5314019d5d3baab0fec5b580c`, `x86_64-unknown-linux-gnu` Release. Only Lean core is admitted: no mathlib, plugins, native execution through `--run`, Cargo linking, FFI, network downloads, build scripts or runtime code loading. Repository code remains under `forbid(unsafe_code)`. Upstream Lean contains a native C/C++ runtime; external-process containment does not make that runtime memory-safe or grant a native algorithm/FFI exception.
+
+The installed executable-plus-complete-`lib`-tree manifest is frozen at SHA256 `88d1bfed5e2ba13e7dd28043c70a303f1ea1b301220023fe6b9a1a5d14368f9f`, using `tools/check_formal_projection.py:environment()`. Its per-file rows provide the installed closure inventory in place of a Cargo package graph. Host system libraries outside that installed tree are not attested by this digest and remain an explicit review limitation. Replacing the binary, libraries, semantic mapping or environment requires a new profile/pin review, not silently updating the old immutable profile.
+
+The admission record covers local filesystem and subprocess effects, exact environment and source grammar, empty `LEAN_PATH`, single-threaded checker operation, a 60-second timeout and bounded output. No network or entropy is needed for the admitted check; host timing and paths remain telemetry, never semantic identity. Source is restricted to fixed core definitions and kernel-checked proof terms; only `propext` is allowed in the trusted-axiom report, and extra diagnostics or axioms reject the check. Exact resource limits, checker invocation, native-first mapping/receipt requirements and no-mock/mutation/rejection gates are specified in [formal proof interoperability](FORMAL_PROOF_INTEROPERABILITY.md#102-optional-checker-interface-and-gates).
+
+The installed v4.32.2 `LICENSE` identifies upstream Lean as Apache-2.0. Its separate `LICENSES` file records additional bundled-library notices (including LLVM's Apache-2.0 with LLVM exceptions); upstream licensing is not a claim that every bundled file is solely Apache-2.0. Advisory review, bundled-runtime/license review and independent admission review remain pending. No clean advisory scan, process-memory-safety result or successful executable gate is claimed here.
+
+This external checker is optional Linux host tooling, not a Wasm or `no_std` dependency. It is owned through the L6 adapter boundary and cannot enter L2 or the portable verifier closure. Containment/removal is to omit `fsym-formal`, the gate and the installed checker; native verification, evidence authority and mathematical identity are unchanged. An external success boolean cannot replace native verification or independent receipt checking.
+
 ## 3. Admission record
 
 Every non-`std` dependency row records:
@@ -106,6 +120,8 @@ They may not depend on:
 - planners, generators, telemetry, or monitoring;
 - formal-prover adapters;
 - logging frameworks that pull host services into the closure.
+
+The optional offline Lean admission in §2.5 does not relax this ceiling. `fsym-formal` depends outward on the native proof kernel, never the reverse, and its separately executed checker is outside all native portable-verifier safety claims.
 
 ## 6. Rust nightly policy
 
