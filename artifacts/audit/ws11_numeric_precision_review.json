@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "bead": "fra-rc-numeric-gate-82w",
+  "reviewer": "PlumSnow",
+  "verdict": "blocked",
+  "reviewed_commit": "e4b5ec215a46673b841bfc022c51b1ea29420e5b",
+  "reviewed_tree": "761bcc1ebfb071106437b7b0dd1e2ad831e883e6",
+  "sha256": {
+    "Cargo.lock": "fb70f915a4d6ef5bb2663edd9353af33545a02e5cf406720b6f60b9e4b96521f",
+    "crates/fsym-core/src/ball.rs": "d2d093393e5d0335d75e099e2057528ded4d7ffe5c35278a1f6c4d23e2f42f30",
+    "crates/fsym-core/src/lib.rs": "39b6b8dfb3bb433c51361c5b06d38f17f568ee5bf5211171f58a404249864970"
+  },
+  "finding": "Expr::Mul([10^50, Pi]).evalf_ball(8) returns Ok with radius greater than 1, exceeding the requested absolute radius 1e-8. This demonstrates insufficient requested precision, not an unsound enclosure.",
+  "source_cause": "crates/fsym-core/src/lib.rs:539-561 evaluates Add/Mul/Pow children at unchanged precision and returns the composed ball without final precision admission. fsym-calculus delegates to this API.",
+  "commands": [
+    {
+      "command": "rch exec -- cargo test -p fsym-core -p fsym-calculus --locked",
+      "exit_code": 0,
+      "tests_passed": 203,
+      "wall_seconds": 57.22
+    },
+    {
+      "command": "rch exec -- cargo test --workspace --locked",
+      "exit_code": 0,
+      "wall_seconds": 274.85,
+      "note": "Existing ignored tests retained; successful workspace suite does not cover the reproduced precision failure."
+    },
+    {
+      "command": "rch exec -- cargo run --manifest-path /tmp/ws11probe/Cargo.toml --quiet",
+      "exit_code": 1,
+      "wall_seconds": 176.68
+    }
+  ],
+  "execution_mode": "All RCH commands selected workers but fell back locally with E415: workspace-inherited serde has no enclosing workspace. Remote execution not established.",
+  "probe": {
+    "manifest": "[package]\nname = \"ws11probe\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\nfsym-core = { path = \"/data/projects/frankensympy/crates/fsym-core\" }\nnum-bigint = \"0.4\"\n",
+    "source": "use fsym_core::{BigInt, BigRational, Constant, Expr, RealBall};\nuse fsym_core::ball::BallError;\nuse std::str::FromStr;\n\nfn main() {\n    for precision in [0, 2001] {\n        let refused = matches!(RealBall::pi(precision), Err(BallError::ArgumentOutsideDeclaredEnvelope(_)));\n        println!(\"pi_precision_{precision}_typed_refusal={refused}\");\n        assert!(refused);\n    }\n    let huge = BigInt::from_str(&format!(\"1{}\", \"0\".repeat(1001))).unwrap();\n    let refused = matches!(RealBall::exact(BigRational::from_integer(huge)).sin(30), Err(BallError::ArgumentOutsideDeclaredEnvelope(_)));\n    println!(\"sin_10pow1001_typed_refusal={refused}\");\n    assert!(refused);\n    let refused = matches!(RealBall::from_i64(100_000).exp(30), Err(BallError::ArgumentOutsideDeclaredEnvelope(_)));\n    println!(\"exp_100000_typed_refusal={refused}\");\n    assert!(refused);\n    // Exact public-contract check, independent of transcendental oracle accuracy:\n    // evalf_ball promises a radius respecting the requested decimal precision.\n    let precision = 8;\n    let target = BigRational::new(BigInt::from(1), BigInt::from(100_000_000));\n    let scale = BigInt::from_str(\"100000000000000000000000000000000000000000000000000\").unwrap();\n    let expr = Expr::Mul(vec![Expr::Integer(scale.clone()), Expr::Const(Constant::Pi)]);\n    let point = Expr::Const(Constant::Pi).evalf_ball(precision).unwrap();\n    let amplified = expr.evalf_ball(precision).unwrap();\n    println!(\"pi_radius_within_requested_target={}\", point.radius() <= &target);\n    println!(\"scaled_pi_radius_within_requested_target={}\", amplified.radius() <= &target);\n    println!(\"scaled_pi_radius_exceeds_one={}\", amplified.radius() > &BigRational::from(1));\n    println!(\"scaled_pi_radius_exactly_child_radius_times_scale={}\", amplified.radius() == &(point.radius() * BigRational::from_integer(scale)));\n    // Preserve the observed failure as data; this probe is not a passing gate.\n    if amplified.radius() > &target {\n        println!(\"NUMERIC_GATE_BLOCKED: accepted composed expression violates requested absolute radius contract\");\n        std::process::exit(1);\n    }\n}\n",
+    "stdout": "pi_precision_0_typed_refusal=true\npi_precision_2001_typed_refusal=true\nsin_10pow1001_typed_refusal=true\nexp_100000_typed_refusal=true\npi_radius_within_requested_target=true\nscaled_pi_radius_within_requested_target=false\nscaled_pi_radius_exceeds_one=true\nscaled_pi_radius_exactly_child_radius_times_scale=true\nNUMERIC_GATE_BLOCKED: accepted composed expression violates requested absolute radius contract\n"
+  },
+  "unexecuted_independent_obligations": [
+    "Fresh 50-digit pinned-oracle comparison",
+    "Full real-box and transcendental-tail mutation gate",
+    "Supervised cancellation and resource-accounting gate"
+  ],
+  "repair_required": "Expression-wide precision scheduling and final tolerance admission or honest typed refusal, without shrinking an enclosure, changing comparator, or resetting budgets.",
+  "repair": {
+    "implementation_bead": "fra-rc-numeric-t2y",
+    "source_sha256": "26bcb56c229eb21653065426d24d8df1a89199d87bb009341680efca364b0a07",
+    "behavior": "Public Expr evaluator admits only radius <= 10^-requested; recomputes the whole expression with doubled working precision up to the existing cap. Existing errors propagate without clipping radius or resetting an accounting context.",
+    "probe_exit_code": 0,
+    "probe_stdout": "pi_precision_0_typed_refusal=true\npi_precision_2001_typed_refusal=true\nsin_10pow1001_typed_refusal=true\nexp_100000_typed_refusal=true\npi_radius_within_requested_target=true\nscaled_pi_radius_within_requested_target=true\nscaled_pi_radius_exceeds_one=false\nscaled_pi_radius_exactly_child_radius_times_scale=false\n",
+    "focused_regression": "rch exec -- cargo test -p fsym-core evalf_ball_composition_meets_requested_absolute_radius -- --nocapture: exit 0, 1 passed, 0 failed",
+    "limitations": "Not metered evaluation. Direct exp radius errors and near-cap trig errors propagate; availability across the entire precision/magnitude envelope is not established. Full numeric gate requires another reviewer because PlumSnow now authored this repair.",
+    "quality_gates": "cargo fmt --check; rch exec -- cargo check --workspace --all-targets --locked; rch exec -- cargo clippy --workspace --all-targets --locked -- -D warnings; rch exec -- cargo test --workspace --locked: serial sequence completed successfully in 215.75 seconds. RCH fallback E415, not remote evidence.",
+    "ubs": "Exit 0; 0 critical, 111 warnings across the file, including test assertions and one terminal error format allocation. Not a warning-free scan."
+  },
+  "claim_effects": "No claim promotion. Gate remains blocked and downstream gates cannot treat this review as PASS."
+}

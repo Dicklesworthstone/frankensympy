@@ -511,7 +511,38 @@ impl Expr {
     /// Operations outside the declared subset (tan, log, sqrt, complex
     /// branches, non-integer powers) refuse with a typed error rather than
     /// silently degrading precision.
+    /// The returned absolute radius is at most `10^-precision_digits`.
+    /// Working precision doubles deterministically when composition amplifies
+    /// uncertainty; failure to meet the target within the declared precision
+    /// envelope is refused. Existing arithmetic/resource refusals propagate.
     pub fn evalf_ball(&self, precision_digits: u32) -> Result<RealBall, CoreError> {
+        let maximum = RealBall::MAX_TRANSCENDENTAL_PRECISION_DIGITS;
+        if precision_digits == 0 || precision_digits > maximum {
+            return Err(CoreError::InvalidOperation(format!(
+                "requested certified-ball precision must be in 1..={maximum}"
+            )));
+        }
+        let target = BigRational::new(BigInt::from(1), BigInt::from(10).pow(precision_digits));
+        let mut working_digits = precision_digits;
+        loop {
+            let ball = self.evalf_ball_at_working_precision(working_digits)?;
+            if ball.radius() <= &target {
+                return Ok(ball);
+            }
+            if working_digits == maximum {
+                return Err(CoreError::InvalidOperation(format!(
+                    "certified-ball precision exhausted: requested {precision_digits} digits \
+                     cannot be established within {maximum} working digits"
+                )));
+            }
+            working_digits = working_digits.saturating_mul(2).min(maximum);
+        }
+    }
+
+    fn evalf_ball_at_working_precision(
+        &self,
+        precision_digits: u32,
+    ) -> Result<RealBall, CoreError> {
         use crate::ball::BallError;
         let refuse = |what: &str| {
             Err(CoreError::InvalidOperation(format!(
@@ -539,19 +570,19 @@ impl Expr {
             Expr::Add(terms) => {
                 let mut acc = RealBall::from_i64(0);
                 for t in terms {
-                    acc = acc.add(&t.evalf_ball(precision_digits)?);
+                    acc = acc.add(&t.evalf_ball_at_working_precision(precision_digits)?);
                 }
                 Ok(acc)
             }
             Expr::Mul(factors) => {
                 let mut acc = RealBall::from_i64(1);
                 for f in factors {
-                    acc = acc.mul(&f.evalf_ball(precision_digits)?);
+                    acc = acc.mul(&f.evalf_ball_at_working_precision(precision_digits)?);
                 }
                 Ok(acc)
             }
             Expr::Pow(base, exponent) => {
-                let base_ball = base.evalf_ball(precision_digits)?;
+                let base_ball = base.evalf_ball_at_working_precision(precision_digits)?;
                 match exponent.const_integer_value() {
                     Some(exp) => match exp.to_i32() {
                         Some(exp_i32) => map(base_ball.pow(exp_i32)),
@@ -562,7 +593,7 @@ impl Expr {
             }
             Expr::Function(name, args) => {
                 let arg = match args.as_slice() {
-                    [arg] => arg.evalf_ball(precision_digits)?,
+                    [arg] => arg.evalf_ball_at_working_precision(precision_digits)?,
                     _ => return refuse(&format!("function `{name}` with non-unary arguments")),
                 };
                 match name.as_str() {
@@ -1044,6 +1075,37 @@ impl fmt::Display for Expr {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn evalf_ball_composition_meets_requested_absolute_radius() {
+        let scale = BigRational::from_integer(BigInt::from(10).pow(50));
+        let expr = Expr::Mul(vec![
+            Expr::Rational(scale.clone()),
+            Expr::Const(Constant::Pi),
+        ]);
+        let ball = expr.evalf_ball(8).expect("amplified pi can be refined");
+        let target = BigRational::new(BigInt::from(1), BigInt::from(10).pow(8));
+        assert!(ball.radius() <= &target);
+        // An independent rational enclosure from the classical Archimedes
+        // bounds rules out repairing precision by replacing the value.
+        assert!(ball.lower() > &scale * BigRational::new(BigInt::from(223), BigInt::from(71)));
+        assert!(ball.upper() < &scale * BigRational::new(BigInt::from(22), BigInt::from(7)));
+    }
+
+    #[test]
+    fn evalf_ball_rejects_precision_outside_the_declared_envelope() {
+        let exact = Expr::from_i64(1);
+        for digits in [
+            0,
+            RealBall::MAX_TRANSCENDENTAL_PRECISION_DIGITS + 1,
+            u32::MAX,
+        ] {
+            assert!(matches!(
+                exact.evalf_ball(digits),
+                Err(CoreError::InvalidOperation(_))
+            ));
+        }
+    }
 
     #[test]
     fn test_symbol_creation() {
