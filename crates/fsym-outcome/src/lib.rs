@@ -37,13 +37,17 @@ pub enum EvidenceClass {
     HeuristicCandidate,
 }
 
-/// Tri-state used where the registry marks a discharge capability as
-/// claim-dependent or policy-dependent rather than yes/no.
+/// Discharge capabilities mirroring the registry's
+/// `can_discharge_*` fields. `inside_declared_context_only` means the
+/// capability holds only inside an explicitly declared assumptions
+/// context (registries/evidence_classes.toml, `user_asserted`); it is
+/// deliberately distinct from an unconditional [`Discharge::Yes`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Discharge {
     Yes,
     ClaimDependent,
     PolicyDependent,
+    InsideDeclaredContextOnly,
     No,
 }
 
@@ -55,6 +59,7 @@ impl Discharge {
             Discharge::Yes => "yes",
             Discharge::ClaimDependent => "claim_dependent",
             Discharge::PolicyDependent => "policy_dependent",
+            Discharge::InsideDeclaredContextOnly => "inside_declared_context_only",
             Discharge::No => "no",
         }
     }
@@ -65,6 +70,7 @@ impl Discharge {
             "yes" => Self::Yes,
             "claim_dependent" => Self::ClaimDependent,
             "policy_dependent" => Self::PolicyDependent,
+            "inside_declared_context_only" => Self::InsideDeclaredContextOnly,
             "no" => Self::No,
             _ => return None,
         })
@@ -122,6 +128,7 @@ impl EvidenceClass {
             EvidenceClass::KernelProved => Discharge::Yes,
             EvidenceClass::CertificateVerified => Discharge::ClaimDependent,
             EvidenceClass::ExactCrossChecked => Discharge::PolicyDependent,
+            EvidenceClass::UserAsserted => Discharge::InsideDeclaredContextOnly,
             _ => Discharge::No,
         }
     }
@@ -568,10 +575,16 @@ mod tests {
             EvidenceClass::ExactCrossChecked.can_discharge_exact_equality(),
             Discharge::PolicyDependent
         );
+        let context_only = EvidenceClass::UserAsserted.can_discharge_exact_equality();
+        assert_eq!(context_only.as_str(), "inside_declared_context_only");
+        assert_eq!(
+            Discharge::parse("inside_declared_context_only"),
+            Some(context_only)
+        );
+        assert!(MathOutcome::established(1, EvidenceClass::UserAsserted).is_err());
         for c in [
             EvidenceClass::CertifiedNumeric,
             EvidenceClass::OracleConformant,
-            EvidenceClass::UserAsserted,
             EvidenceClass::HeuristicCandidate,
         ] {
             assert_eq!(c.can_discharge_exact_equality(), Discharge::No);
