@@ -301,6 +301,28 @@ pub(crate) enum ChargedKind {
 #[derive(Debug)]
 struct BudgetAuthority;
 
+/// Opaque, move-stable identity capability for one live accounting ledger.
+///
+/// Holds a clone of the ledger's private [`BudgetAuthority`]; equality is
+/// allocation identity through `Arc::ptr_eq`, exactly like receipt and
+/// child-merge authorization. The handle is deliberately not `Serialize`,
+/// not `Clone`-comparable by content, and carries no pointer-derived
+/// formatting: it is a live process capability, not an identifier, so a
+/// foreign or freshly constructed ledger can never present a matching value
+/// even when every counter matches.
+#[derive(Debug, Clone)]
+pub struct BudgetLedgerIdentity {
+    authority: Arc<BudgetAuthority>,
+}
+
+impl PartialEq for BudgetLedgerIdentity {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.authority, &other.authority)
+    }
+}
+
+impl Eq for BudgetLedgerIdentity {}
+
 /// Immutable point-in-time view of remaining allowances.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BudgetSnapshot {
@@ -343,6 +365,21 @@ impl Budget {
     /// Remaining protected verifier pool.
     pub fn verifier_remaining(&self) -> u64 {
         self.verifier_remaining
+    }
+
+    /// Unforgeable, move-stable identity capability for this ledger.
+    ///
+    /// Wraps this ledger's private allocation authority — the same
+    /// capability that authorizes receipts and child merges — in an opaque
+    /// handle with pointer-identity equality. It is never serialized, never
+    /// rendered from a pointer value, and never stable across processes: a
+    /// resumed continuation must hold the capability captured from the same
+    /// live ledger, which excludes every foreign or freshly constructed
+    /// ledger even when all counters match.
+    pub fn ledger_identity(&self) -> BudgetLedgerIdentity {
+        BudgetLedgerIdentity {
+            authority: Arc::clone(&self.authority),
+        }
     }
 
     /// Issues the single verifier lease. Returns `None` if one was already

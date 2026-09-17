@@ -4,7 +4,7 @@
 
 use crate::PolyError;
 use crate::univariate::UnivariatePoly;
-use fsym_budget::{BudgetMeter, Unbounded};
+use fsym_budget::{BudgetMeter, Dimension, Unbounded};
 use fsym_core::{BigInt, BigRational, Symbol};
 use num_traits::{One, Zero};
 use serde::{Deserialize, Serialize};
@@ -59,6 +59,17 @@ impl FactorizationResult {
 /// Computes the square-free decomposition of a univariate polynomial using Yun's algorithm:
 /// $P(x) = c \cdot f_1^1 \cdot f_2^2 \cdots f_k^k$ where each $f_i$ is square-free and pairwise coprime.
 pub fn square_free_decomposition(poly: &UnivariatePoly) -> Result<FactorizationResult, PolyError> {
+    metered_square_free_decomposition(poly, &mut Unbounded)
+}
+
+/// Metered Yun core with the exact mathematics of
+/// [`square_free_decomposition`]: each loop iteration charges its
+/// derivative/subtraction/GCD/exact-division batch and takes its cancellation
+/// safe point before any allocation of that batch.
+pub fn metered_square_free_decomposition(
+    poly: &UnivariatePoly,
+    meter: &mut impl BudgetMeter,
+) -> Result<FactorizationResult, PolyError> {
     poly.validate_shape()?;
     if poly.is_zero() {
         return Ok(FactorizationResult {
@@ -103,6 +114,14 @@ pub fn square_free_decomposition(poly: &UnivariatePoly) -> Result<FactorizationR
                 "Yun square-free decomposition exceeded degree iteration bound {max_iterations}"
             )));
         }
+        // Preflight: charge this iteration's derivative/sub/GCD/division batch
+        // before its allocations.
+        factor_work(
+            meter,
+            8 * w.coeffs.len() as u64,
+            8 * w.coeffs.len() as u64,
+            128,
+        )?;
         let y_sub_w_prime = y.sub(&w.derivative())?;
         let a_i = w.gcd(&y_sub_w_prime)?;
 
@@ -454,6 +473,288 @@ pub fn bounded_rational_root_decomposition(
     };
     verify_square_free_product_decomposition(poly, &res)?;
     Ok(res)
+}
+
+/// Maximum degree admitted by the independent Kronecker generator.
+pub const MAX_KRONECKER_DEGREE: usize = 8;
+/// Maximum absolute integer coefficient bit length, including recursive factors.
+pub const MAX_KRONECKER_COEFF_BITS: u64 = 16;
+/// Nonzero evaluations above this magnitude are not used for interpolation.
+pub const MAX_KRONECKER_EVALUATION: u64 = 1_000_000;
+/// Total interpolation tuples across every recursive split, not per factor.
+pub const MAX_KRONECKER_CANDIDATES: usize = 100_000;
+
+// Charge before each bounded arithmetic batch, including discarded candidates and
+// scratch storage. These are conservative logical work/storage units, not measured
+// allocator bytes. There are no refunds for transient work. A rational slot includes
+// both numerator and denominator plus their allocation headers.
+fn factor_work(
+    meter: &mut impl BudgetMeter,
+    steps: u64,
+    slots: u64,
+    bits: u64,
+) -> Result<(), PolyError> {
+    meter
+        .checkpoint()
+        .map_err(|e| PolyError::General(e.to_string()))?;
+    let limbs = bits.div_ceil(64).max(1);
+    meter
+        .charge_batch(&[
+            (
+                Dimension::ComputeSteps,
+                steps.max(1).saturating_mul(limbs.saturating_mul(limbs)),
+            ),
+            (
+                Dimension::MemoryBytes,
+                slots.max(1).saturating_mul(64 + 16 * limbs),
+            ),
+            (Dimension::AllocationCount, slots.max(1).saturating_mul(2)),
+        ])
+        .map_err(|e| PolyError::General(e.to_string()))
+}
+
+/// Independent evaluation/divisor/interpolation Kronecker factorization.
+///
+/// Admits canonical monic ZZ polynomials of degree <= 8 with <= 16-bit
+/// coefficients; integer constants (including zero) retain their exact scalar.
+/// Nonconstant nonmonic or rational input is explicitly refused. Recursive factors
+/// must satisfy the same coefficient bound. Evaluation points are deterministically
+/// 0, 1, -1, ..., 8, -8; only nonzero values of magnitude <= 1,000,000 are used.
+/// Every signed divisor is enumerated by trial division through the integer square
+/// root. Each possible factor degree uses d+1 points and exact rational Lagrange
+/// interpolation, admits only monic integer coefficients, then exact-divides.
+/// Failure to obtain enough bounded points or exhausting the global 100,000-tuple
+/// search bound returns an error, never a partial result advertised as complete.
+///
+/// Output is sorted by degree then ascending coefficients and merges multiplicities.
+/// It is an exact product decomposition only: no irreducibility evidence is issued.
+/// Every evaluation, divisor trial, interpolation and division has a charged safe
+/// point; caller cancellation/budget errors propagate without an unbounded fallback.
+pub fn metered_kronecker_factorization(
+    poly: &UnivariatePoly,
+    meter: &mut impl BudgetMeter,
+) -> Result<FactorizationResult, PolyError> {
+    meter
+        .checkpoint()
+        .map_err(|e| PolyError::General(e.to_string()))?;
+    poly.validate_shape()?;
+    kronecker_admit(poly)?;
+    factor_work(
+        meter,
+        poly.coeffs.len() as u64,
+        poly.coeffs.len() as u64,
+        32,
+    )?;
+    if poly.degree().unwrap_or(0) == 0 {
+        return Ok(FactorizationResult {
+            scale: poly.coeffs[0].clone(),
+            factors: Vec::new(),
+        });
+    }
+    let mut remaining_candidates = MAX_KRONECKER_CANDIDATES;
+    let mut pieces = Vec::new();
+    kronecker_split(poly.clone(), &mut pieces, &mut remaining_candidates, meter)?;
+    factor_work(meter, 128, 32, 32)?;
+    pieces.sort_by(|a, b| {
+        a.degree()
+            .cmp(&b.degree())
+            .then_with(|| a.coeffs.cmp(&b.coeffs))
+    });
+    let mut factors: Vec<FactorTerm> = Vec::new();
+    for poly in pieces {
+        if let Some(last) = factors.last_mut().filter(|last| last.poly == poly) {
+            last.multiplicity += 1;
+        } else {
+            factors.push(FactorTerm {
+                poly,
+                multiplicity: 1,
+            });
+        }
+    }
+    meter
+        .checkpoint()
+        .map_err(|e| PolyError::General(e.to_string()))?;
+    Ok(FactorizationResult {
+        scale: BigRational::one(),
+        factors,
+    })
+}
+
+fn kronecker_admit(poly: &UnivariatePoly) -> Result<(), PolyError> {
+    if poly.degree().unwrap_or(0) > MAX_KRONECKER_DEGREE
+        || poly
+            .coeffs
+            .iter()
+            .any(|c| !c.is_integer() || c.numer().bits() > MAX_KRONECKER_COEFF_BITS)
+        || (poly.degree().unwrap_or(0) > 0 && !poly.is_monic())
+    {
+        return Err(PolyError::General(
+            "refused: Kronecker requires monic ZZ, degree <= 8 and coefficient height <= 16 bits (or an integer constant)".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn kronecker_divisors(n: u64, meter: &mut impl BudgetMeter) -> Result<Vec<BigRational>, PolyError> {
+    let mut divisors = Vec::new();
+    let mut d = 1;
+    while d <= n / d {
+        factor_work(meter, 1, 4, 32)?;
+        if n.is_multiple_of(d) {
+            for value in [d, n / d] {
+                // A square-root divisor is pushed twice; sort+dedup collapses it.
+                let value = BigRational::from_integer(BigInt::from_u64(value));
+                divisors.push(-value.clone());
+                divisors.push(value);
+            }
+        }
+        d += 1;
+    }
+    divisors.sort();
+    divisors.dedup();
+    Ok(divisors)
+}
+
+fn kronecker_split(
+    poly: UnivariatePoly,
+    out: &mut Vec<UnivariatePoly>,
+    remaining_candidates: &mut usize,
+    meter: &mut impl BudgetMeter,
+) -> Result<(), PolyError> {
+    factor_work(meter, 1, poly.coeffs.len() as u64, 64)?;
+    kronecker_admit(&poly)?;
+    let degree = poly.degree().unwrap_or(0);
+    if degree <= 1 {
+        if degree == 1 {
+            out.push(poly);
+        }
+        return Ok(());
+    }
+    let mut points = Vec::new();
+    let mut divisors = Vec::new();
+    for index in 0..=2 * MAX_KRONECKER_DEGREE {
+        let integer = if index % 2 == 1 {
+            index.div_ceil(2) as i64
+        } else {
+            -(index as i64 / 2)
+        };
+        let point = BigRational::from_integer(BigInt::from(integer));
+        factor_work(
+            meter,
+            2 * poly.coeffs.len() as u64,
+            2 * poly.coeffs.len() as u64,
+            64,
+        )?;
+        let value = poly.eval(&point);
+        if value.is_zero() {
+            let linear =
+                UnivariatePoly::new(poly.gen_sym.clone(), vec![-point, BigRational::one()]);
+            factor_work(meter, 2 * degree as u64, 4 * degree as u64, 64)?;
+            let (quotient, remainder) = poly.div_rem(&linear)?;
+            if !remainder.is_zero() {
+                return Err(PolyError::IdentityCheckFailed(
+                    "Kronecker root division failed".into(),
+                ));
+            }
+            out.push(linear);
+            return kronecker_split(quotient, out, remaining_candidates, meter);
+        }
+        let magnitude = value.numer().abs();
+        if magnitude > BigInt::from_u64(MAX_KRONECKER_EVALUATION) {
+            continue;
+        }
+        let n = magnitude
+            .to_u64()
+            .ok_or_else(|| PolyError::General("Kronecker evaluation conversion failed".into()))?;
+        points.push(point);
+        divisors.push(kronecker_divisors(n, meter)?);
+        if points.len() == degree / 2 + 1 {
+            break;
+        }
+    }
+    if points.len() < degree / 2 + 1 {
+        return Err(PolyError::General(
+            "refused: Kronecker has too few bounded nonzero evaluation points".into(),
+        ));
+    }
+    for factor_degree in 1..=degree / 2 {
+        let count = factor_degree + 1;
+        // Lagrange bases are shared across all divisor tuples at this degree.
+        let mut bases = Vec::with_capacity(count);
+        for i in 0..count {
+            factor_work(
+                meter,
+                (count * count * count) as u64,
+                (count * count * count) as u64,
+                128,
+            )?;
+            let mut basis = UnivariatePoly::one(poly.gen_sym.clone());
+            let mut denominator = BigRational::one();
+            for j in 0..count {
+                if i != j {
+                    basis = basis.mul(&UnivariatePoly::new(
+                        poly.gen_sym.clone(),
+                        vec![-points[j].clone(), BigRational::one()],
+                    ))?;
+                    denominator *= &points[i] - &points[j];
+                }
+            }
+            for coefficient in &mut basis.coeffs {
+                *coefficient = &*coefficient / &denominator;
+            }
+            bases.push(basis);
+        }
+        let mut indices = vec![0; count];
+        loop {
+            if *remaining_candidates == 0 {
+                return Err(PolyError::General(
+                    "refused: Kronecker interpolation search bound exhausted".into(),
+                ));
+            }
+            factor_work(
+                meter,
+                (2 * count * count) as u64,
+                (3 * count * count) as u64,
+                128,
+            )?;
+            *remaining_candidates -= 1;
+            let mut coeffs = vec![BigRational::zero(); count];
+            for i in 0..count {
+                for (coefficient, basis) in coeffs.iter_mut().zip(&bases[i].coeffs) {
+                    *coefficient += basis * &divisors[i][indices[i]];
+                }
+            }
+            if coeffs.last().is_some_and(One::is_one) && coeffs.iter().all(BigRational::is_integer)
+            {
+                let candidate = UnivariatePoly::new(poly.gen_sym.clone(), coeffs);
+                factor_work(
+                    meter,
+                    (2 * degree * count) as u64,
+                    (4 * degree * count) as u64,
+                    256,
+                )?;
+                let (quotient, remainder) = poly.div_rem(&candidate)?;
+                if remainder.is_zero() {
+                    kronecker_split(candidate, out, remaining_candidates, meter)?;
+                    return kronecker_split(quotient, out, remaining_candidates, meter);
+                }
+            }
+            let mut position = 0;
+            while position < count {
+                indices[position] += 1;
+                if indices[position] < divisors[position].len() {
+                    break;
+                }
+                indices[position] = 0;
+                position += 1;
+            }
+            if position == count {
+                break;
+            }
+        }
+    }
+    out.push(poly);
+    Ok(())
 }
 
 // ============================================================================
@@ -825,13 +1126,28 @@ fn fp_scalar_pow_poly(base: &[u64], mut exp: u64, f: &[u64], p: u64) -> Vec<u64>
     acc
 }
 
-fn fp_factor_squarefree(f: &[u64], p: u64) -> Result<Vec<Vec<u64>>, &'static str> {
+/// Square-free modular factorization: preflighted charge before the
+/// distinct-degree pass and before every equal-degree split attempt; each
+/// queue iteration is a cancellation safe point.
+fn fp_factor_squarefree(
+    f: &[u64],
+    p: u64,
+    meter: &mut impl BudgetMeter,
+) -> Result<Result<Vec<Vec<u64>>, &'static str>, PolyError> {
     if f.len() <= 1 {
-        return Ok(Vec::new());
+        return Ok(Ok(Vec::new()));
     }
     if !fp_is_squarefree(f, p) {
-        return Err("reduction mod prime is not square-free");
+        return Ok(Err("reduction mod prime is not square-free"));
     }
+    // Preflight: the whole distinct-degree pass (Frobenius chain + gcd per
+    // degree class), charged before its allocations.
+    factor_work(
+        meter,
+        31 * (f.len() * f.len()) as u64,
+        4 * f.len() as u64,
+        32,
+    )?;
     let mut out: Vec<Vec<u64>> = Vec::new();
     let classes = fp_distinct_degree(f, p);
     #[cfg(any(test, debug_assertions))]
@@ -851,6 +1167,14 @@ fn fp_factor_squarefree(f: &[u64], p: u64) -> Result<Vec<Vec<u64>>, &'static str
                 out.push(current);
                 continue;
             }
+            // Preflight: seed draw, Frobenius product chain, and the (p-1)/2
+            // exponentiation for this split attempt, charged before allocation.
+            factor_work(
+                meter,
+                (class_degree as u64 + 31) * (current.len() * current.len()) as u64,
+                4 * current.len() as u64,
+                32,
+            )?;
             let seed = p
                 .wrapping_mul(0x9E37_79B9)
                 .wrapping_add(class_degree as u64)
@@ -861,13 +1185,13 @@ fn fp_factor_squarefree(f: &[u64], p: u64) -> Result<Vec<Vec<u64>>, &'static str
                     queue.push(right);
                 }
                 None => {
-                    return Err("equal-degree split seed budget exhausted");
+                    return Ok(Err("equal-degree split seed budget exhausted"));
                 }
             }
         }
     }
     out.sort();
-    Ok(out)
+    Ok(Ok(out))
 }
 
 // ---------------------------------------------------------------------------
@@ -1169,10 +1493,22 @@ fn prime_to_u64(prime: &BigInt) -> u64 {
 /// witness of a primitive integer polynomial. Generator-side selection uses
 /// the generator's own Rabin test; the verifier later re-checks the recorded
 /// prime through its independently coded lane.
-fn irreducibility_witness(int_poly: &[BigInt]) -> Option<IrreducibilityWitness> {
+fn irreducibility_witness(
+    int_poly: &[BigInt],
+    meter: &mut impl BudgetMeter,
+) -> Result<Option<IrreducibilityWitness>, PolyError> {
     let mut stream = fsym_modular::PrimeStream::new();
     for _ in 0..PRIME_ATTEMPTS {
-        let prime = stream.try_next().ok()?;
+        factor_work(
+            meter,
+            (int_poly.len() * int_poly.len()) as u64,
+            4 * int_poly.len() as u64,
+            32,
+        )?;
+        let prime = match stream.try_next() {
+            Ok(prime) => prime,
+            Err(_) => return Ok(None),
+        };
         let (_, rem) = int_poly.last().expect("nonempty").div_rem(&prime);
         if rem.is_zero() {
             continue; // the prime divides the leading coefficient: skip it
@@ -1183,10 +1519,10 @@ fn irreducibility_witness(int_poly: &[BigInt]) -> Option<IrreducibilityWitness> 
         let p = prime_to_u64(&prime);
         let fp = z_to_fp(int_poly, p);
         if fp_rabin_irreducible(&fp, p) {
-            return Some(IrreducibilityWitness { prime });
+            return Ok(Some(IrreducibilityWitness { prime }));
         }
     }
-    None
+    Ok(None)
 }
 
 fn combinations_of(pool: &[usize], size: usize) -> Vec<Vec<usize>> {
@@ -1230,7 +1566,8 @@ fn zassenhaus_monic(
         return Ok(vec![z.to_vec()]);
     }
     // Prime search: odd, the reduction must stay square-free with at most
-    // MAX_MODP_FACTORS irreducible factors.
+    // MAX_MODP_FACTORS irreducible factors. Each candidate prime charges its
+    // reduction/square-free/modular-factor batch before any accept decision.
     let mut stream = fsym_modular::PrimeStream::new();
     let mut chosen: Option<(u64, Vec<Vec<u64>>)> = None;
     for _ in 0..LIFT_PRIME_ATTEMPTS {
@@ -1262,9 +1599,10 @@ fn zassenhaus_monic(
         if !fp_is_squarefree(&fp, p) {
             continue;
         }
-        let factors = match fp_factor_squarefree(&fp, p) {
-            Ok(factors) => factors,
-            Err(_) => continue,
+        let factors = match fp_factor_squarefree(&fp, p, meter) {
+            Ok(Ok(factors)) => factors,
+            Ok(Err(_)) => continue,
+            Err(e) => return Err(e),
         };
         if factors.len() > MAX_MODP_FACTORS {
             continue;
@@ -1311,6 +1649,14 @@ fn zassenhaus_monic(
         let u_fp = u_fp_full.clone();
         let base_fp = z_to_fp(&base, p);
         let w_fp = fp_div_monic(&base_fp, &u_fp, p);
+        factor_work(
+            meter,
+            2 * (base.len() as u64)
+                .saturating_mul(target.bits().div_ceil(64))
+                .max(1),
+            (4 * base.len() as u64).saturating_mul(2),
+            target.bits().max(64),
+        )?;
         let (lifted_u, lifted_v) = hensel_lift_pair(&base, &u_fp, &w_fp, p, &target);
         lifted.push(lifted_u);
         base = lifted_v;
@@ -1353,6 +1699,7 @@ fn recombine_monic(
             for &i in &combo {
                 prod = z_mul(&prod, &lifted[i]);
             }
+            factor_work(meter, 8, 4 * combo.len() as u64, 256)?;
             let mut cand = z_symmetric_reduce(&prod, pe);
             z_trim(&mut cand);
             if cand.len() <= 1 {
@@ -1502,7 +1849,8 @@ fn factor_squarefree_part(
             .collect();
         let factor_poly = UnivariatePoly::new(part.gen_sym.clone(), coeffs).make_monic()?;
         scale *= BigRational::from_integer(pre_monic_lc);
-        let witness = irreducibility_witness(&primitive);
+        factor_work(meter, 8, 4 * primitive.len() as u64, 64)?;
+        let witness = irreducibility_witness(&primitive, meter)?;
         out.push((factor_poly, witness));
     }
     Ok((scale, out))
@@ -1538,7 +1886,7 @@ pub fn metered_complete_factorization<M: BudgetMeter>(
     meter
         .checkpoint()
         .map_err(|e| PolyError::General(format!("cancelled: {e}")))?;
-    let square_free = square_free_decomposition(poly)?;
+    let square_free = metered_square_free_decomposition(poly, meter)?;
     let mut scale = square_free.scale.clone();
     let mut factors: Vec<CompleteFactorTerm> = Vec::new();
     for term in &square_free.factors {
@@ -1562,6 +1910,7 @@ pub fn metered_complete_factorization<M: BudgetMeter>(
         }
     }
     let result = CompleteFactorization { scale, factors };
+    factor_work(meter, 32, 4 * poly.coeffs.len() as u64, 64)?;
     verify_complete_factorization(poly, &result)?;
     Ok(result)
 }
@@ -1807,12 +2156,12 @@ mod complete_factorization_tests {
             matches!(err, PolyError::General(ref m) if m.contains("cancelled")),
             "expected the cancellation to surface, got {err}"
         );
-        // With budget for a few safe points the same input completes.
+        // Cancellation after generation has begun must also propagate.
         let mut meter = CancellingMeter {
             checkpoints_left: 8,
         };
-        let result = metered_complete_factorization(&p, &mut meter).expect("completes");
-        verify_complete_factorization(&p, &result).expect("verifier accepts");
+        let err = metered_complete_factorization(&p, &mut meter).unwrap_err();
+        assert!(matches!(err, PolyError::General(ref m) if m.contains("cancelled")));
     }
 }
 
@@ -1930,5 +2279,211 @@ mod complete_factorization_proptests {
                 .sum();
             assert_eq!(factor_degree, input_degree as i64);
         }
+    }
+}
+#[cfg(test)]
+mod kronecker_factorization_tests {
+    use super::*;
+    use fsym_budget::{BudgetError, Dimension, MeterError};
+
+    fn sym() -> Symbol {
+        Symbol::new("x")
+    }
+
+    /// Ascending integer-coefficient polynomial.
+    fn ipoly(coeffs: &[i64]) -> UnivariatePoly {
+        let coeffs = coeffs
+            .iter()
+            .map(|c| BigRational::from_integer(BigInt::from(*c)))
+            .collect();
+        UnivariatePoly::new(sym(), coeffs)
+    }
+
+    fn int_rat(value: i64) -> BigRational {
+        BigRational::from_integer(BigInt::from(value))
+    }
+
+    fn assert_exact_product(poly: &UnivariatePoly, result: &FactorizationResult) {
+        let expanded = result.expand(poly.gen_sym.clone()).expect("expands");
+        assert_eq!(&expanded, poly, "exact product decomposition");
+    }
+
+    #[test]
+    fn sophie_germain_quartic_factors_into_two_quadratics() {
+        // x^4 + 4 = (x^2 - 2x + 2)(x^2 + 2x + 2): the reality-check repro.
+        let p = ipoly(&[4, 0, 0, 0, 1]);
+        let result = metered_kronecker_factorization(&p, &mut Unbounded).expect("factors");
+        assert_eq!(result.scale, BigRational::one());
+        assert_eq!(result.factors.len(), 2);
+        assert_eq!(result.factors[0].poly.degree(), Some(2));
+        assert_eq!(result.factors[1].poly.degree(), Some(2));
+        for term in &result.factors {
+            assert_eq!(term.multiplicity, 1);
+            assert!(term.poly.is_monic());
+        }
+        assert_eq!(
+            result.factors[0].poly.coeffs,
+            vec![int_rat(2), int_rat(-2), int_rat(1)]
+        );
+        assert_eq!(
+            result.factors[1].poly.coeffs,
+            vec![int_rat(2), int_rat(2), int_rat(1)]
+        );
+        assert_exact_product(&p, &result);
+        verify_square_free_product_decomposition(&p, &result).expect("verifier accepts");
+    }
+
+    #[test]
+    fn mixed_degrees_product_recovers_all_factors() {
+        // (x - 1)(x + 2)(x^2 + x + 1)(x^2 - 3x + 3)
+        let p = ipoly(&[-1, 1])
+            .mul(&ipoly(&[2, 1]))
+            .unwrap()
+            .mul(&ipoly(&[1, 1, 1]))
+            .unwrap()
+            .mul(&ipoly(&[3, -3, 1]))
+            .unwrap();
+        let result = metered_kronecker_factorization(&p, &mut Unbounded).expect("factors");
+        assert_eq!(result.factors.len(), 4);
+        assert!(result.factors.iter().all(|f| f.multiplicity == 1));
+        assert_eq!(
+            result
+                .factors
+                .iter()
+                .map(|f| f.poly.degree().unwrap())
+                .collect::<Vec<_>>(),
+            vec![1, 1, 2, 2]
+        );
+        assert_exact_product(&p, &result);
+    }
+
+    #[test]
+    fn repeated_factor_merges_multiplicity() {
+        // (x + 1)^2 (x^2 + 1) = x^4 + 2x^3 + 2x^2 + 2x + 1
+        let p = ipoly(&[1, 2, 2, 2, 1]);
+        let result = metered_kronecker_factorization(&p, &mut Unbounded).expect("factors");
+        assert_eq!(result.factors.len(), 2);
+        let linear = result
+            .factors
+            .iter()
+            .find(|f| f.poly.degree() == Some(1))
+            .expect("linear factor present");
+        assert_eq!(linear.multiplicity, 2);
+        assert_exact_product(&p, &result);
+    }
+
+    #[test]
+    fn rational_coefficient_input_is_refused() {
+        let p = UnivariatePoly::new(
+            sym(),
+            vec![
+                BigRational::new(BigInt::from(1), BigInt::from(2)),
+                BigRational::one(),
+            ],
+        );
+        let err = metered_kronecker_factorization(&p, &mut Unbounded).unwrap_err();
+        assert!(
+            matches!(&err, PolyError::General(m) if m.contains("refused")),
+            "expected typed refusal, got {err}"
+        );
+    }
+
+    #[test]
+    fn nonmonic_input_is_refused() {
+        let p = ipoly(&[-6, 1, 2]);
+        let err = metered_kronecker_factorization(&p, &mut Unbounded).unwrap_err();
+        assert!(
+            matches!(&err, PolyError::General(m) if m.contains("refused")),
+            "expected typed refusal, got {err}"
+        );
+    }
+
+    #[test]
+    fn oversize_degree_is_refused() {
+        let p = ipoly(&[1, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
+        let err = metered_kronecker_factorization(&p, &mut Unbounded).unwrap_err();
+        assert!(
+            matches!(&err, PolyError::General(m) if m.contains("refused")),
+            "expected typed refusal, got {err}"
+        );
+    }
+
+    struct CancellingMeter {
+        checkpoints_left: u32,
+    }
+
+    impl BudgetMeter for CancellingMeter {
+        fn charge(&mut self, _: Dimension, _: u64) -> Result<(), MeterError> {
+            Ok(())
+        }
+        fn charge_batch(&mut self, _: &[(Dimension, u64)]) -> Result<(), MeterError> {
+            Ok(())
+        }
+        fn checkpoint(&mut self) -> Result<(), MeterError> {
+            if self.checkpoints_left == 0 {
+                return Err(MeterError::Cancelled);
+            }
+            self.checkpoints_left -= 1;
+            Ok(())
+        }
+    }
+
+    struct ExhaustingMeter {
+        charges_left: u32,
+    }
+
+    impl BudgetMeter for ExhaustingMeter {
+        fn charge(&mut self, _: Dimension, _: u64) -> Result<(), MeterError> {
+            if self.charges_left == 0 {
+                return Err(MeterError::Budget(BudgetError::Exhausted {
+                    dimension: Dimension::ComputeSteps,
+                    requested: 1,
+                    remaining: 0,
+                }));
+            }
+            self.charges_left = 0;
+            Ok(())
+        }
+        fn charge_batch(&mut self, charges: &[(Dimension, u64)]) -> Result<(), MeterError> {
+            if charges.is_empty() {
+                return Ok(());
+            }
+            if self.charges_left == 0 {
+                return Err(MeterError::Budget(BudgetError::Exhausted {
+                    dimension: charges[0].0,
+                    requested: charges[0].1,
+                    remaining: 0,
+                }));
+            }
+            self.charges_left = 0;
+            Ok(())
+        }
+        fn checkpoint(&mut self) -> Result<(), MeterError> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn cancellation_before_work_propagates() {
+        let p = ipoly(&[4, 0, 0, 0, 1]);
+        let mut meter = CancellingMeter {
+            checkpoints_left: 0,
+        };
+        let err = metered_kronecker_factorization(&p, &mut meter).unwrap_err();
+        assert!(
+            matches!(&err, PolyError::General(m) if m.contains("cancelled")),
+            "expected cancellation to propagate, got {err}"
+        );
+    }
+
+    #[test]
+    fn budget_exhaustion_during_search_surfaces() {
+        let p = ipoly(&[4, 0, 0, 0, 1]);
+        let mut meter = ExhaustingMeter { charges_left: 3 };
+        let err = metered_kronecker_factorization(&p, &mut meter).unwrap_err();
+        assert!(
+            matches!(&err, PolyError::General(m) if m.contains("budget exhausted")),
+            "expected exhaustion to surface, got {err}"
+        );
     }
 }

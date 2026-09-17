@@ -50,6 +50,33 @@ protected_verifier_reserve = true
 fallback_limit = 8
 
 [[portfolio]]
+# Bounded product-identity race (bead fra-rc-portfolio-9i7): two real
+# candidate generators (modular Hensel/Zassenhaus and Kronecker
+# evaluation/divisor/interpolation) race under one protected verifier
+# reservation. The accepted claim is ONLY the exact requested
+# Claim::AlgebraicIdentity product identity proved through the
+# proof-kernel `polynomial_ring_equivalence` rule; it is NOT a complete
+# factorization or irreducibility certificate and must not be relabeled as
+# the `univariate_factorization_v1` claim above, which stays planned with
+# its own stronger certificate requirement.
+id = "univariate_product_identity_v1"
+status = "implemented_uncertified"
+state_dimensions = ["coefficient_domain", "degree", "coefficient_height"]
+# Declared shared regime: monic ZZ, degree <= 8, integer coefficient
+# magnitude <= 16 bits (Kronecker lane) / square-free-part degree <= 64 and
+# primitive height <= 2048 bits (Zassenhaus lane); outside inputs are
+# explicitly refused, never silently narrowed.
+strategies = ["zassenhaus_modular", "kronecker_interpolation"]
+reference_verifier = "fsym-proof-kernel"
+required_certificate = "polynomial_ring_equivalence"
+protected_verifier_reserve = true
+fallback_limit = 8
+# Continuations are typed in-process state bound to the live ledger
+# capability; wire bytes alone never authorize a resume and no serialized
+# budget counters are ever restored.
+continuation = "in_process_live_ledger_only"
+
+[[portfolio]]
 id = "polynomial_gcd_v1"
 status = "planned"
 state_dimensions = ["coefficient_domain", "degree_pair", "height", "sparsity", "subresultant_growth", "modular_images"]

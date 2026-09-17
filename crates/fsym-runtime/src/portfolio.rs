@@ -8,6 +8,7 @@
 
 #![forbid(unsafe_code)]
 
+use crate::checkpoint::TypedCheckpoint;
 use crate::cx::{FsymCpuCx, FsymCx};
 use asupersync::cx::ScopedCpuError;
 use fsym_assumptions::ImmutableAssumptionsSnapshot;
@@ -44,7 +45,7 @@ pub enum PortfolioError {
 }
 
 /// A candidate produced by an algorithm generator in the portfolio.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PortfolioCandidate {
     pub strategy_name: String,
     pub result: fsym_core::Expr,
@@ -177,6 +178,10 @@ fn verify_and_publish_candidate<Caps>(
             winner.strategy_name
         )));
     }
+    // Publication boundary: verification has fully succeeded, but nothing is
+    // published yet. This checkpoint is the sole post-verifier cancellation
+    // seam: cancelling here must refuse publication while leaving the ledger
+    // and any captured continuation otherwise intact.
     cx.checkpoint().map_err(|_| PortfolioError::Cancelled)?;
 
     let receipt_id = fsym_id::ReceiptId::new(verifier_charge.seq()).map_err(|error| {
@@ -330,6 +335,28 @@ pub fn run_portfolio_concurrent_race<Caps: Send + Sync + 'static>(
     requested_claim: &Claim,
     strategies: Vec<NamedConcurrentStrategy<Caps>>,
 ) -> Result<VerifiedPortfolioOutcome, PortfolioError> {
+    let initial_compute_remaining = cx.remaining(Dimension::ComputeSteps);
+    let outcomes = generate_concurrent_candidates(cx, requested_claim, strategies)?;
+    accept_concurrent_candidates(
+        cx,
+        context,
+        requested_claim,
+        outcomes,
+        initial_compute_remaining,
+    )
+}
+
+pub(crate) struct WorkerOutcome {
+    pub(crate) idx: usize,
+    pub(crate) name: String,
+    pub(crate) result: Result<PortfolioCandidate, PortfolioError>,
+}
+
+pub(crate) fn generate_concurrent_candidates<Caps: Send + Sync + 'static>(
+    cx: &mut FsymCx<'_, Caps>,
+    requested_claim: &Claim,
+    strategies: Vec<NamedConcurrentStrategy<Caps>>,
+) -> Result<Vec<WorkerOutcome>, PortfolioError> {
     cx.checkpoint().map_err(|_| PortfolioError::Cancelled)?;
 
     if strategies.len() < 2 || strategies.len() > MAX_PORTFOLIO_STRATEGIES {
@@ -362,7 +389,6 @@ pub fn run_portfolio_concurrent_race<Caps: Send + Sync + 'static>(
             .charge_verifier(requested_claim_units - 1)
             .map_err(|error| PortfolioError::BudgetExhausted(error.to_string()))?;
     }
-    let initial_compute_remaining = cx.remaining(Dimension::ComputeSteps);
 
     let num_strategies = strategies.len();
     let mut child_dim_limits = [0; fsym_budget::DIMENSION_COUNT];
@@ -381,12 +407,6 @@ pub fn run_portfolio_concurrent_race<Caps: Send + Sync + 'static>(
             .reserve_child(child_limits)
             .map_err(|error| PortfolioError::BudgetAccountingFailed(error.to_string()))?;
         child_budgets.push(Arc::new(Mutex::new(child.into_budget())));
-    }
-
-    struct WorkerOutcome {
-        idx: usize,
-        name: &'static str,
-        result: Result<PortfolioCandidate, PortfolioError>,
     }
 
     let shared_outcomes: Arc<Mutex<Vec<WorkerOutcome>>> =
@@ -417,7 +437,7 @@ pub fn run_portfolio_concurrent_race<Caps: Send + Sync + 'static>(
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
                 outcomes.push(WorkerOutcome {
                     idx: i,
-                    name,
+                    name: name.to_owned(),
                     result: gen_result,
                 });
             }) {
@@ -426,7 +446,7 @@ pub fn run_portfolio_concurrent_race<Caps: Send + Sync + 'static>(
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
                 outcomes.push(WorkerOutcome {
                     idx: i,
-                    name,
+                    name: name.to_owned(),
                     result: Err(PortfolioError::StructuredExecutionFailed(format!(
                         "{name}: scoped CPU spawn refused: {error}"
                     ))),
@@ -473,6 +493,16 @@ pub fn run_portfolio_concurrent_race<Caps: Send + Sync + 'static>(
         )));
     }
 
+    Ok(outcomes)
+}
+
+fn accept_concurrent_candidates<Caps>(
+    cx: &mut FsymCx<'_, Caps>,
+    context: &Arc<ImmutableAssumptionsSnapshot>,
+    requested_claim: &Claim,
+    outcomes: Vec<WorkerOutcome>,
+    initial_compute_remaining: u64,
+) -> Result<VerifiedPortfolioOutcome, PortfolioError> {
     cx.checkpoint().map_err(|_| PortfolioError::Cancelled)?;
 
     let mut failure_reasons: Vec<String> = Vec::new();
@@ -491,7 +521,7 @@ pub fn run_portfolio_concurrent_race<Caps: Send + Sync + 'static>(
             cx,
             context,
             requested_claim,
-            outcome.name,
+            &outcome.name,
             winner,
             initial_compute_remaining,
         ) {
@@ -509,6 +539,306 @@ pub fn run_portfolio_concurrent_race<Caps: Send + Sync + 'static>(
     } else {
         Err(PortfolioError::AllStrategiesFailed(failures))
     }
+}
+/// Registered portfolio id this race integration is filed under.
+pub const FACTOR_RACE_PORTFOLIO_ID: &str = "univariate_product_identity_v1";
+pub const FACTOR_RACE_CONTINUATION_SCHEMA: &str = "fsym.portfolio.factor_race.continuation.v1";
+
+/// Diagnostic decision card for one factor-race plan.
+///
+/// This is planning evidence only (docs/ALGORITHM_PORTFOLIOS.md §5): it records
+/// the fixed launch set, the exact requested claim, and the protected verifier
+/// reserve. It never authorizes a candidate or promotes evidence.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FactorRaceDecisionCard {
+    pub portfolio_id: String,
+    pub planner_version: String,
+    /// BLAKE3 digest of the immutable input expression.
+    pub input_digest: [u8; 32],
+    /// Exact requested claim digest; never winner-derived.
+    pub requested_claim_digest: [u8; 32],
+    /// Fixed launch set in registration (acceptance priority) order.
+    pub launch_order: Vec<String>,
+    pub completion_policy: String,
+    pub protected_verifier_reserve: u64,
+}
+
+impl FactorRaceDecisionCard {
+    fn build(
+        requested_claim: &Claim,
+        strategies: &[NamedConcurrentStrategy<impl Send + Sync + 'static>],
+        verifier_reserve: u64,
+    ) -> Result<Self, PortfolioError> {
+        if strategies.is_empty() {
+            return Err(PortfolioError::InvalidPortfolio(
+                "decision card requires at least one strategy".into(),
+            ));
+        }
+        let Claim::AlgebraicIdentity { lhs, .. } = requested_claim else {
+            return Err(PortfolioError::InvalidPortfolio(
+                "factor race requests must be Claim::AlgebraicIdentity".into(),
+            ));
+        };
+        let serialized = serde_json::to_vec(lhs).map_err(|error| {
+            PortfolioError::InvalidPortfolio(format!("input serialization failed: {error}"))
+        })?;
+        Ok(Self {
+            portfolio_id: FACTOR_RACE_PORTFOLIO_ID.into(),
+            planner_version: "factor_race_v1".into(),
+            input_digest: *blake3::hash(&serialized).as_bytes(),
+            requested_claim_digest: requested_claim.digest(),
+            launch_order: strategies.iter().map(|(name, _)| (*name).into()).collect(),
+            completion_policy: "registration_order_strict".into(),
+            protected_verifier_reserve: verifier_reserve,
+        })
+    }
+}
+
+/// Serialized state bound into a typed factor-race continuation.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FactorRaceContinuationState {
+    pub operation_version: String,
+    /// The immutable input expression whose factor race produced these
+    /// candidates. Bound to the decision-card input digest contract.
+    pub input_expr: fsym_core::Expr,
+    pub requested_claim: Claim,
+    pub context_digest: [u8; 32],
+    /// Drained candidates at the generator/verifier boundary in registration
+    /// order. None has been accepted or published yet.
+    pub candidates: Vec<FactorRaceCandidateRecord>,
+}
+
+impl FactorRaceContinuationState {
+    pub const LEDGER_IDENTITY_SCHEMA: &str = "fsym.portfolio.factor_race.ledger.v1";
+}
+
+/// One drained candidate plus its original registration index, so resumed
+/// acceptance preserves the exact fixed registration-order priority even when
+/// a strategy name is not `&'static`.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FactorRaceCandidateRecord {
+    pub registration_index: usize,
+    pub candidate: PortfolioCandidate,
+}
+
+/// Typed continuation over drained factor-race candidates.
+///
+/// The ledger is NOT part of this state: resume requires the same live owned
+/// [`FsymCx`] region (Budget plus protected verifier lease). Checkpoint budget
+/// counters are observational integrity copies only; they are never restored
+/// into a ledger, and no ledger is ever reset.
+pub struct FactorRaceContinuation {
+    checkpoint: TypedCheckpoint<FactorRaceContinuationState>,
+    /// Live capability captured from the owning ledger at generation drain
+    /// time. Kept OUT of the wire payload: `from_wire` resumes require the
+    /// caller to present the live ledger, and `resume` compares this
+    /// capability against it. Wire bytes alone can never authorize a resume.
+    ledger: Option<fsym_budget::BudgetLedgerIdentity>,
+}
+
+impl FactorRaceContinuation {
+    pub fn payload_schema(&self) -> &str {
+        &self.checkpoint.payload_schema
+    }
+
+    pub fn verify_integrity(&self) -> bool {
+        self.checkpoint.verify_integrity()
+    }
+
+    pub fn checkpoint_seq(&self) -> u64 {
+        self.checkpoint.checkpoint_seq
+    }
+
+    /// Serialize the typed continuation for durable storage.
+    pub fn to_wire(&self) -> Result<Vec<u8>, PortfolioError> {
+        serde_json::to_vec(&self.checkpoint).map_err(|error| {
+            PortfolioError::StructuredExecutionFailed(format!(
+                "continuation serialization failed: {error}"
+            ))
+        })
+    }
+
+    /// Decode a continuation from durable bytes without trusting any counters.
+    ///
+    /// The decoded continuation carries NO ledger capability: wire bytes can
+    /// never authorize a resume on their own. `resume` binds the decoded
+    /// state to the live ledger the caller presents.
+    pub fn from_wire(wire: &[u8]) -> Result<Self, PortfolioError> {
+        let checkpoint: TypedCheckpoint<FactorRaceContinuationState> = serde_json::from_slice(wire)
+            .map_err(|error| {
+                PortfolioError::InvalidPortfolio(format!("continuation decode refused: {error}"))
+            })?;
+        Ok(Self {
+            checkpoint,
+            ledger: None,
+        })
+    }
+
+    /// Resume acceptance of the drained candidates against the same live ledger.
+    ///
+    /// Refuses foreign ledgers (capability mismatch), tampered state, schema
+    /// mismatches, and non-identical observational counters before any
+    /// resumed work or charge.
+    pub fn resume<Caps>(
+        self,
+        cx: &mut FsymCx<'_, Caps>,
+        context: &Arc<ImmutableAssumptionsSnapshot>,
+        requested_claim: &Claim,
+    ) -> Result<VerifiedPortfolioOutcome, PortfolioError> {
+        if self.checkpoint.payload_schema != FACTOR_RACE_CONTINUATION_SCHEMA {
+            return Err(PortfolioError::InvalidPortfolio(format!(
+                "continuation schema mismatch: expected {FACTOR_RACE_CONTINUATION_SCHEMA}, got {}",
+                self.checkpoint.payload_schema
+            )));
+        }
+        if !self.checkpoint.verify_integrity() {
+            return Err(PortfolioError::InvalidPortfolio(
+                "continuation integrity verification failed; refusing foreign or tampered state"
+                    .into(),
+            ));
+        }
+        let live_ledger = cx.ledger_identity();
+        match &self.ledger {
+            Some(captured) if *captured == live_ledger => {}
+            _ => {
+                return Err(PortfolioError::InvalidPortfolio(
+                    "continuation was not captured by the presented live ledger; wire decode alone never authorizes a resume"
+                        .into(),
+                ));
+            }
+        }
+        let state = &self.checkpoint.payload;
+        if state.requested_claim != *requested_claim {
+            return Err(PortfolioError::InvalidPortfolio(
+                "continuation claim does not match the live requested claim".into(),
+            ));
+        }
+        if state.context_digest != context.digest() {
+            return Err(PortfolioError::InvalidPortfolio(
+                "continuation assumptions context digest does not match the live context".into(),
+            ));
+        }
+        // Observational counters are never restored, but a resumed state must
+        // describe the live ledger exactly: any drift means the state was
+        // captured for different work than is being resumed.
+        for dimension in Dimension::ALL {
+            let captured = state_remaining(&self.checkpoint, dimension);
+            let live = cx.remaining(dimension);
+            if captured != live {
+                return Err(PortfolioError::InvalidPortfolio(format!(
+                    "continuation budget counter mismatch for {}: captured remaining {captured}, live remaining {live}",
+                    dimension.as_str(),
+                )));
+            }
+        }
+        if self.checkpoint.verifier_remaining != cx.verifier_remaining() {
+            return Err(PortfolioError::InvalidPortfolio(format!(
+                "continuation verifier reserve mismatch: captured {}, live {}",
+                self.checkpoint.verifier_remaining,
+                cx.verifier_remaining()
+            )));
+        }
+        cx.checkpoint().map_err(|_| PortfolioError::Cancelled)?;
+        let initial_compute_remaining = cx.remaining(Dimension::ComputeSteps);
+        let outcomes = state
+            .candidates
+            .iter()
+            .map(|record| WorkerOutcome {
+                idx: record.registration_index,
+                name: record.candidate.strategy_name.clone(),
+                result: Ok(record.candidate.clone()),
+            })
+            .collect();
+        accept_concurrent_candidates(
+            cx,
+            context,
+            requested_claim,
+            outcomes,
+            initial_compute_remaining,
+        )
+    }
+}
+
+fn state_remaining(
+    checkpoint: &TypedCheckpoint<FactorRaceContinuationState>,
+    dimension: Dimension,
+) -> u64 {
+    checkpoint
+        .remaining_budget
+        .get(&dimension)
+        .copied()
+        .unwrap_or(0)
+}
+
+/// Runs the drained concurrent candidate-generation phase for a factor race,
+/// emitting the registered decision card and a typed continuation bound to the
+/// caller's still-owned live ledger.
+///
+/// The continuation must be resumed with the same live [`FsymCx`]; this API
+/// never serializes or restores ledger counters.
+pub fn factor_race_generate<Caps: Send + Sync + 'static>(
+    cx: &mut FsymCx<'_, Caps>,
+    context: &Arc<ImmutableAssumptionsSnapshot>,
+    requested_claim: &Claim,
+    strategies: Vec<NamedConcurrentStrategy<Caps>>,
+) -> Result<(FactorRaceDecisionCard, FactorRaceContinuation), PortfolioError> {
+    let decision_card =
+        FactorRaceDecisionCard::build(requested_claim, &strategies, cx.verifier_remaining())?;
+    let outcomes = generate_concurrent_candidates(cx, requested_claim, strategies)?;
+    let ledger_identity = cx.ledger_identity();
+    let candidates = outcomes
+        .into_iter()
+        .enumerate()
+        .filter_map(|(registration_index, outcome)| {
+            outcome
+                .result
+                .ok()
+                .map(|candidate| FactorRaceCandidateRecord {
+                    registration_index,
+                    candidate,
+                })
+        })
+        .collect::<Vec<_>>();
+    let mut remaining_budget = std::collections::BTreeMap::new();
+    for dimension in Dimension::ALL {
+        remaining_budget.insert(dimension, cx.remaining(dimension));
+    }
+    let input_expr = match requested_claim {
+        Claim::AlgebraicIdentity { lhs, .. } => lhs.clone(),
+        _ => {
+            return Err(PortfolioError::InvalidPortfolio(
+                "factor race requests must be Claim::AlgebraicIdentity".into(),
+            ));
+        }
+    };
+    let checkpoint = TypedCheckpoint::new(
+        FACTOR_RACE_CONTINUATION_SCHEMA,
+        0,
+        FactorRaceContinuationState {
+            operation_version: "factor_race_v1".into(),
+            input_expr,
+            requested_claim: requested_claim.clone(),
+            context_digest: context.digest(),
+            candidates,
+        },
+        remaining_budget,
+        cx.verifier_remaining(),
+    )
+    .map_err(|error| {
+        PortfolioError::StructuredExecutionFailed(format!(
+            "factor-race continuation capture failed: {error}"
+        ))
+    })?;
+    Ok((
+        decision_card,
+        FactorRaceContinuation {
+            checkpoint,
+            ledger: Some(ledger_identity),
+        },
+    ))
 }
 
 fn remaining_generator_limits<Caps>(cx: &FsymCx<'_, Caps>) -> BudgetLimits {
@@ -540,6 +870,158 @@ mod tests {
     use fsym_proof_kernel::ProofKernel;
     use std::sync::atomic::{AtomicBool, Ordering};
 
+    /// Normalizes a factorization into the canonical product expression the
+    /// tests fix as the requested claim: scale term (only when nonunit),
+    /// then each factor, powered when its multiplicity exceeds one.
+    fn normalize_factor_product<I>(
+        scale: &fsym_core::BigRational,
+        factors: I,
+    ) -> Result<Expr, PortfolioError>
+    where
+        I: IntoIterator<Item = (fsym_polys::univariate::UnivariatePoly, usize)>,
+    {
+        use fsym_core::{BigInt, BigRational};
+        let mut terms = Vec::new();
+        let one = BigRational::from_integer(BigInt::from(1));
+        if *scale != one {
+            terms.push(Expr::Rational(scale.clone()));
+        }
+        let mut factors: Vec<_> = factors.into_iter().collect();
+        factors.sort_by(|(left, _), (right, _)| {
+            left.degree()
+                .cmp(&right.degree())
+                .then_with(|| left.coeffs.cmp(&right.coeffs))
+        });
+        for (poly, multiplicity) in factors {
+            let term = poly.to_expr();
+            terms.push(if multiplicity == 1 {
+                term
+            } else {
+                let multiplicity = u64::try_from(multiplicity).map_err(|_| {
+                    PortfolioError::InvalidPortfolio("factor multiplicity exceeds u64".into())
+                })?;
+                Expr::Pow(
+                    Arc::new(term),
+                    Arc::new(Expr::Integer(BigInt::from(multiplicity))),
+                )
+            });
+        }
+        Ok(match terms.len() {
+            0 => Expr::from_i64(1),
+            1 => terms.pop().expect("one factor"),
+            _ => Expr::Mul(terms),
+        })
+    }
+
+    #[test]
+    fn zassenhaus_quartic_product_passes_scoped_independent_verification() {
+        use fsym_core::{BigInt, BigRational, Symbol};
+        use fsym_polys::factorization::metered_complete_factorization;
+        use fsym_polys::univariate::UnivariatePoly;
+
+        let polynomial = |coefficients: &[i64]| {
+            UnivariatePoly::new(
+                Symbol::new("x"),
+                coefficients
+                    .iter()
+                    .map(|coefficient| BigRational::from_integer(BigInt::from(*coefficient)))
+                    .collect(),
+            )
+        };
+        let input = Arc::new(polynomial(&[4, 0, 0, 0, 1]));
+        // Fix the requested product independently before running the generator.
+        // This is a product-identity claim, not an irreducibility claim.
+        let expected_product = Expr::Mul(vec![
+            polynomial(&[2, -2, 1]).to_expr(),
+            polynomial(&[2, 2, 1]).to_expr(),
+        ]);
+        let requested = Claim::AlgebraicIdentity {
+            lhs: input.to_expr(),
+            rhs: expected_product.clone(),
+        };
+        let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
+        let generator_context = Arc::clone(&context);
+        let generator_input = Arc::clone(&input);
+        let generator = Box::new(move |cx: &mut FsymCpuCx<'_, asupersync::cx::cap::None>| {
+            let mut factorization = metered_complete_factorization(&generator_input, cx)
+                .map_err(|error| PortfolioError::AllStrategiesFailed(error.to_string()))?;
+            factorization
+                .factors
+                .sort_by(|left, right| left.poly.coeffs.cmp(&right.poly.coeffs));
+            let mut terms = Vec::new();
+            let one = BigRational::from_integer(BigInt::from(1));
+            if factorization.scale != one {
+                terms.push(Expr::Rational(factorization.scale));
+            }
+            for factor in factorization.factors {
+                let term = factor.poly.to_expr();
+                terms.push(if factor.multiplicity == 1 {
+                    term
+                } else {
+                    let multiplicity = u64::try_from(factor.multiplicity).map_err(|_| {
+                        PortfolioError::InvalidPortfolio("factor multiplicity exceeds u64".into())
+                    })?;
+                    Expr::Pow(
+                        Arc::new(term),
+                        Arc::new(Expr::Integer(BigInt::from(multiplicity))),
+                    )
+                });
+            }
+            let product = match terms.len() {
+                0 => Expr::from_i64(1),
+                1 => terms.pop().expect("one factor"),
+                _ => Expr::Mul(terms),
+            };
+            let lhs = generator_input.to_expr();
+            let mut kernel = ProofKernel::new((**generator_context).clone());
+            let root = kernel
+                .prove_definitional_reduction(
+                    lhs.clone(),
+                    product.clone(),
+                    "polynomial_ring_equivalence",
+                    cx,
+                )
+                .map_err(|error| PortfolioError::AllStrategiesFailed(error.to_string()))?;
+            let derivation = kernel
+                .export_derivation(root)
+                .map_err(|error| PortfolioError::AllStrategiesFailed(error.to_string()))?;
+            Ok(PortfolioCandidate {
+                strategy_name: "zassenhaus".into(),
+                result: product.clone(),
+                claim: Claim::AlgebraicIdentity { lhs, rhs: product },
+                derivation,
+            })
+        });
+        // This test isolates the existing real generator; a refusing sibling is
+        // not evidence that the two-real-strategy portfolio gate has passed.
+        let refusing = Box::new(|_cx: &mut FsymCpuCx<'_, asupersync::cx::cap::None>| {
+            Err(PortfolioError::AllStrategiesFailed(
+                "second real strategy is outside this single-generator regression".into(),
+            ))
+        });
+        let cx_raw = Cx::detached_cancel_context();
+        let limits = BudgetLimits::uniform(10_000_000, 100_000);
+        let mut cx = FsymCx::new(&cx_raw, Budget::new(limits), limits);
+        let outcome = run_portfolio_concurrent_race(
+            &mut cx,
+            &context,
+            &requested,
+            vec![("zassenhaus", generator), ("refusing", refusing)],
+        )
+        .expect("real Zassenhaus product must pass protected independent verification");
+
+        assert_eq!(outcome.winning_strategy(), "zassenhaus");
+        assert_eq!(outcome.result(), &expected_product);
+        assert_eq!(outcome.evidence().claim, requested);
+        assert!(outcome.evidence().verify_integrity());
+        assert!(outcome.generator_steps_consumed() > 0);
+        assert_eq!(
+            cx.remaining(Dimension::ComputeSteps),
+            limits.dimensions[Dimension::ComputeSteps.index()] - outcome.generator_steps_consumed(),
+        );
+        assert!(cx.verifier_remaining() < limits.verifier_pool);
+        assert!(cx.verifier_remaining() > 0);
+    }
     #[test]
     fn rejects_claim_that_is_not_the_verified_derivation_root() {
         let cx_raw = Cx::detached_cancel_context();
@@ -1177,5 +1659,229 @@ mod tests {
             result,
             Err(PortfolioError::AllStrategiesFailed(_))
         ));
+    }
+
+    #[test]
+    fn factor_race_two_real_strategies_verify_same_product_claim() {
+        use fsym_core::{BigInt, BigRational, Symbol};
+        use fsym_polys::factorization::metered_complete_factorization;
+        use fsym_polys::univariate::UnivariatePoly;
+
+        // x^4 + 4 = (x^2 - 2x + 2)(x^2 + 2x + 2): one product identity
+        // raced by two mathematically distinct real generators.
+        let ipoly = |coeffs: &[i64]| {
+            UnivariatePoly::new(
+                Symbol::new("x"),
+                coeffs
+                    .iter()
+                    .map(|c| BigRational::from_integer(BigInt::from(*c)))
+                    .collect(),
+            )
+        };
+        let input = Arc::new(ipoly(&[4, 0, 0, 0, 1]));
+        let expected_product = Expr::Mul(vec![
+            ipoly(&[2, -2, 1]).to_expr(),
+            ipoly(&[2, 2, 1]).to_expr(),
+        ]);
+        let requested = Claim::AlgebraicIdentity {
+            lhs: input.to_expr(),
+            rhs: expected_product.clone(),
+        };
+        let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
+
+        // Zassenhaus: metered modular complete factorization of the input.
+        let z_input = Arc::clone(&input);
+        let z_ctx = Arc::clone(&context);
+        let zassenhaus = Box::new(move |cx: &mut FsymCpuCx<'_, asupersync::cx::cap::None>| {
+            let factorization = metered_complete_factorization(&z_input, cx)
+                .map_err(|error| PortfolioError::AllStrategiesFailed(error.to_string()))?;
+            let product = normalize_factor_product(
+                &factorization.scale,
+                factorization
+                    .factors
+                    .into_iter()
+                    .map(|factor| (factor.poly, factor.multiplicity)),
+            )?;
+            let lhs = z_input.to_expr();
+            let mut kernel = ProofKernel::new((**z_ctx).clone());
+            let root = kernel
+                .prove_definitional_reduction(
+                    lhs.clone(),
+                    product.clone(),
+                    "polynomial_ring_equivalence",
+                    cx,
+                )
+                .map_err(|error| PortfolioError::AllStrategiesFailed(error.to_string()))?;
+            let derivation = kernel
+                .export_derivation(root)
+                .map_err(|error| PortfolioError::AllStrategiesFailed(error.to_string()))?;
+            Ok(PortfolioCandidate {
+                strategy_name: "zassenhaus_modular".into(),
+                result: product.clone(),
+                claim: Claim::AlgebraicIdentity { lhs, rhs: product },
+                derivation,
+            })
+        });
+        // Kronecker: the second real generator path; also meters its work.
+        let k_input = Arc::clone(&input);
+        let k_ctx = Arc::clone(&context);
+        let kronecker = Box::new(move |cx: &mut FsymCpuCx<'_, asupersync::cx::cap::None>| {
+            let factorization =
+                fsym_polys::factorization::metered_kronecker_factorization(&k_input, cx)
+                    .map_err(|error| PortfolioError::AllStrategiesFailed(error.to_string()))?;
+            let product = normalize_factor_product(
+                &factorization.scale,
+                factorization
+                    .factors
+                    .into_iter()
+                    .map(|factor| (factor.poly, factor.multiplicity)),
+            )?;
+            let lhs = k_input.to_expr();
+            let mut kernel = ProofKernel::new((**k_ctx).clone());
+            let root = kernel
+                .prove_definitional_reduction(
+                    lhs.clone(),
+                    product.clone(),
+                    "polynomial_ring_equivalence",
+                    cx,
+                )
+                .map_err(|error| PortfolioError::AllStrategiesFailed(error.to_string()))?;
+            let derivation = kernel
+                .export_derivation(root)
+                .map_err(|error| PortfolioError::AllStrategiesFailed(error.to_string()))?;
+            Ok(PortfolioCandidate {
+                strategy_name: "kronecker_interpolation".into(),
+                result: product.clone(),
+                claim: Claim::AlgebraicIdentity { lhs, rhs: product },
+                derivation,
+            })
+        });
+
+        let cx_raw = Cx::detached_cancel_context();
+        let limits = BudgetLimits::uniform(10_000_000, 100_000);
+        let mut cx = FsymCx::new(&cx_raw, Budget::new(limits), limits);
+        // Reversed registration order: kronecker finishes before zassenhaus.
+        let outcome = run_portfolio_concurrent_race(
+            &mut cx,
+            &context,
+            &requested,
+            vec![
+                ("kronecker_interpolation", kronecker),
+                ("zassenhaus_modular", zassenhaus),
+            ],
+        )
+        .expect("both real strategies must verify the same product claim");
+
+        assert_eq!(
+            outcome.result(),
+            &expected_product,
+            "both real strategies must verify the identical factor product"
+        );
+        assert_eq!(outcome.evidence().claim, requested);
+        assert!(outcome.evidence().verify_integrity());
+        assert!(outcome.generator_steps_consumed() > 0);
+    }
+
+    #[test]
+    fn factor_race_continuation_resume_accepts_on_same_live_ledger_only() {
+        use fsym_core::{BigInt, BigRational, Symbol};
+        use fsym_polys::univariate::UnivariatePoly;
+
+        let polynomial = |coeffs: &[i64]| {
+            UnivariatePoly::new(
+                Symbol::new("x"),
+                coeffs
+                    .iter()
+                    .map(|c| BigRational::from_integer(BigInt::from(*c)))
+                    .collect(),
+            )
+        };
+        let input = Arc::new(polynomial(&[4, 0, 0, 0, 1]));
+        let expected_product = Expr::Mul(vec![
+            polynomial(&[2, -2, 1]).to_expr(),
+            polynomial(&[2, 2, 1]).to_expr(),
+        ]);
+        let requested = Claim::AlgebraicIdentity {
+            lhs: input.to_expr(),
+            rhs: expected_product.clone(),
+        };
+        let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
+
+        let i_ctx = Arc::clone(&context);
+        let i_input = Arc::clone(&input);
+        let generator = Box::new(move |cx: &mut FsymCpuCx<'_, asupersync::cx::cap::None>| {
+            use fsym_polys::factorization::metered_complete_factorization;
+            let factorization = metered_complete_factorization(&i_input, cx)
+                .map_err(|error| PortfolioError::AllStrategiesFailed(error.to_string()))?;
+            let product = normalize_factor_product(
+                &factorization.scale,
+                factorization
+                    .factors
+                    .into_iter()
+                    .map(|factor| (factor.poly, factor.multiplicity)),
+            )?;
+            let lhs = i_input.to_expr();
+            let mut kernel = ProofKernel::new((**i_ctx).clone());
+            let root = kernel
+                .prove_definitional_reduction(
+                    lhs.clone(),
+                    product.clone(),
+                    "polynomial_ring_equivalence",
+                    cx,
+                )
+                .map_err(|error| PortfolioError::AllStrategiesFailed(error.to_string()))?;
+            let derivation = kernel
+                .export_derivation(root)
+                .map_err(|error| PortfolioError::AllStrategiesFailed(error.to_string()))?;
+            Ok(PortfolioCandidate {
+                strategy_name: "zassenhaus_modular".into(),
+                result: product.clone(),
+                claim: Claim::AlgebraicIdentity { lhs, rhs: product },
+                derivation,
+            })
+        });
+
+        let cx_raw = Cx::detached_cancel_context();
+        let limits = BudgetLimits::uniform(10_000_000, 100_000);
+        let mut cx = FsymCx::new(&cx_raw, Budget::new(limits), limits);
+        let (_card, continuation) = factor_race_generate(
+            &mut cx,
+            &context,
+            &requested,
+            vec![
+                ("zassenhaus_modular", generator),
+                (
+                    "refusing",
+                    Box::new(|_cx: &mut FsymCpuCx<'_, asupersync::cx::cap::None>| {
+                        Err(PortfolioError::AllStrategiesFailed("refusing".into()))
+                    }),
+                ),
+            ],
+        )
+        .expect("generation drains with the live ledger");
+
+        // Wire round-trip: the decoded continuation has no ledger capability
+        // and must refuse a fresh equal-budget ledger before any charge.
+        let wire = continuation.to_wire().expect("wire encode");
+        let decoded = FactorRaceContinuation::from_wire(&wire).expect("wire decode");
+        let foreign_limits = BudgetLimits::uniform(10_000_000, 100_000);
+        let foreign_raw = Cx::detached_cancel_context();
+        let mut foreign_cx = FsymCx::new(&foreign_raw, Budget::new(foreign_limits), foreign_limits);
+        assert!(matches!(
+            decoded.resume(&mut foreign_cx, &context, &requested),
+            Err(PortfolioError::InvalidPortfolio(_))
+        ));
+        assert_eq!(
+            foreign_cx.remaining(Dimension::ComputeSteps),
+            foreign_limits.dimensions[Dimension::ComputeSteps.index()],
+            "refused resume must charge nothing"
+        );
+
+        // The same live ledger with identical counters resumes acceptance.
+        let outcome = continuation
+            .resume(&mut cx, &context, &requested)
+            .expect("same live ledger resumes and publishes");
+        assert_eq!(outcome.result(), &expected_product);
+        assert!(outcome.evidence().verify_integrity());
     }
 }

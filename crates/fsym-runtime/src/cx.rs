@@ -123,6 +123,14 @@ impl<'a, Caps> FsymCx<'a, Caps> {
         self.budget.verifier_remaining()
     }
 
+    /// Unforgeable capability identifying this region's live budget ledger.
+    ///
+    /// Delegates to the wrapped budget; equality compares allocation
+    /// identity, and the value is never serialized or persisted.
+    pub fn ledger_identity(&self) -> fsym_budget::BudgetLedgerIdentity {
+        self.budget.ledger_identity()
+    }
+
     /// Limits this region was constructed with.
     pub fn limits(&self) -> BudgetLimits {
         self.limits
