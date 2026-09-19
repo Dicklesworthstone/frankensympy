@@ -167,6 +167,64 @@ pub fn newton_refine_2x2(
     })
 }
 
+/// FrankenSciPy consumer execution: `fsci-opt::fsolve` drives the SAME
+/// compiled residual artifact (plain `f64` vector in, residual vector
+/// out). The consumer's internal finite-difference Jacobian is its own
+/// algorithm; trust comes from the certified ball bound at its returned
+/// root, not from the solver's self-report.
+pub fn frankenscipy_fsolve(
+    system: &CompiledResidualSystem,
+    initial: &[f64; 2],
+) -> Result<[f64; 2], ConsumerError> {
+    if system.num_vars != 2 || system.num_residuals != 2 {
+        return Err(ConsumerError::UnsupportedShape);
+    }
+    if initial.iter().any(|value| !value.is_finite()) {
+        return Err(ConsumerError::Evaluation(
+            "initial iterate contains non-finite values".into(),
+        ));
+    }
+    let evaluation_error: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+    let residuals = |point: &[f64]| -> Vec<f64> {
+        let mut out = vec![0.0_f64; system.num_residuals];
+        if let Err(error) = system.try_eval_residuals(point, &mut out) {
+            let mut slot = evaluation_error
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if slot.is_none() {
+                *slot = Some(error.to_string());
+            }
+            out.fill(f64::NAN);
+        }
+        out
+    };
+    let result = fsci_opt::fsolve(residuals, initial)
+        .map_err(|error| ConsumerError::Evaluation(error.to_string()))?;
+    if let Some(message) = evaluation_error
+        .into_inner()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+    {
+        return Err(ConsumerError::Evaluation(format!(
+            "compiled residual evaluation failed during the consumer solve: {message}"
+        )));
+    }
+    if !result.converged {
+        return Err(ConsumerError::NoConvergence {
+            max_iterations: 200,
+            last_residual_norm: result
+                .fun
+                .iter()
+                .fold(0.0_f64, |acc, value| acc.max(value.abs())),
+        });
+    }
+    if result.x.iter().any(|value| !value.is_finite()) {
+        return Err(ConsumerError::Evaluation(
+            "consumer returned a non-finite root".into(),
+        ));
+    }
+    Ok([result.x[0], result.x[1]])
+}
+
 fn jacobian_det(jacobian: &[[f64; 2]; 2]) -> f64 {
     jacobian[0][0] * jacobian[1][1] - jacobian[0][1] * jacobian[1][0]
 }
@@ -207,15 +265,18 @@ pub fn exact_binary64_rational(value: f64) -> Option<BigRational> {
 /// the residual expressions, evaluates each under certified ball
 /// arithmetic (`evalf_ball`, 30-digit request), and asserts — with exact
 /// rational comparison — that the residual infinity-norm midpoint is
-/// bounded by `10^-12` with ball radii far below it. The accepted iterate
-/// is thus a certified approximate root, not an unchecked consumer claim.
+/// bounded by `10^(-bound_decimal_places)` with ball radii far below it.
+/// The accepted iterate is thus a certified approximate root, not an
+/// unchecked consumer claim. Declare the bound per consumer: exact-solve
+/// lanes tolerate tighter bounds than finite-difference consumers whose
+/// own convergence tolerance dominates the achievable residual.
 pub fn certified_residual_bound(
     residual_exprs: &[Expr],
     vars: &[Symbol],
     root: &[f64; 2],
+    bound_decimal_places: u32,
 ) -> Result<(), String> {
-    const BOUND_PLACES: i64 = 12;
-    let bound = BigRational::new(BigInt::from(1), BigInt::from(10).pow(BOUND_PLACES as u32));
+    let bound = BigRational::new(BigInt::from(1), BigInt::from(10).pow(bound_decimal_places));
     let mut substitution = HashMap::new();
     for (index, variable) in vars.iter().enumerate() {
         let exact = exact_binary64_rational(root[index])

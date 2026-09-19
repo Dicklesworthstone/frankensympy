@@ -11,4 +11,5 @@ description = "Narrow admitted consumer boundary executing campaign-compiled res
 fsym-calculus.workspace = true
 fsym-core.workspace = true
 fnp-linalg.workspace = true
+fsci-opt.workspace = true
 thiserror.workspace = true
