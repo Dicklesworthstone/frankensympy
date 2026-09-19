@@ -615,6 +615,79 @@ mod guard_tests {
         );
     }
 
+    /// Positive discharge for exp_log_inverse: an entailed Positive
+    /// condition fires the rule.
+    #[test]
+    fn exp_log_positive_discharges_when_entailed() {
+        let u = Symbol::new("u");
+        let exp_log_u = Expr::Function(
+            "exp".to_string(),
+            vec![Expr::Function(
+                "log".to_string(),
+                vec![Expr::Sym(u.clone())],
+            )],
+        );
+        let context = context_with("u", Predicate::Positive);
+        let (out, _) = apply_step(&exp_log_u, &rules(), &context).expect("fires");
+        assert_eq!(out, Expr::Sym(u));
+    }
+
+    /// Positive discharge for log_exp_inverse: an entailed Real condition
+    /// fires the rule.
+    #[test]
+    fn log_exp_positive_discharges_when_entailed() {
+        let u = Symbol::new("u");
+        let log_exp_u = Expr::Function(
+            "log".to_string(),
+            vec![Expr::Function(
+                "exp".to_string(),
+                vec![Expr::Sym(u.clone())],
+            )],
+        );
+        let context = context_with("u", Predicate::Real);
+        let (out, _) = apply_step(&log_exp_u, &rules(), &context).expect("fires");
+        assert_eq!(out, Expr::Sym(u));
+    }
+
+    /// Planted negative for log_exp_inverse: without a Real entailment the
+    /// conditional rewrite stays guarded even though the transform's own
+    /// pattern matches.
+    #[test]
+    fn log_exp_undischarged_condition_stays_guarded() {
+        let u = Symbol::new("u");
+        let log_exp_u = Expr::Function(
+            "log".to_string(),
+            vec![Expr::Function(
+                "exp".to_string(),
+                vec![Expr::Sym(u.clone())],
+            )],
+        );
+        assert!(
+            apply_step(&log_exp_u, &rules(), &empty_context()).is_none(),
+            "log(exp(u)) must stay guarded when Real is not entailed"
+        );
+    }
+
+    /// The assumptions lattice derives Negative ⊨ Real, so an entailed
+    /// Negative still discharges the Real condition and the rule fires —
+    /// log(exp(u)) = u holds for every real u, negative included. (There
+    /// is no expressible entailed-false-Real predicate: every sign
+    /// assumption in the lattice implies Real.)
+    #[test]
+    fn log_exp_negative_entailment_implies_real_and_fires() {
+        let u = Symbol::new("u");
+        let log_exp_u = Expr::Function(
+            "log".to_string(),
+            vec![Expr::Function(
+                "exp".to_string(),
+                vec![Expr::Sym(u.clone())],
+            )],
+        );
+        let context = context_with("u", Predicate::Negative);
+        let (out, _) = apply_step(&log_exp_u, &rules(), &context).expect("fires");
+        assert_eq!(out, Expr::Sym(u));
+    }
+
     /// Registry-level guard mutation: a rule whose transform fires
     /// unconditionally must still be refused by the engine when its
     /// declared side condition is undischarged.
