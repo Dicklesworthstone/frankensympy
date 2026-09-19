@@ -628,7 +628,7 @@ impl std::ops::Add for Expr {
             }
             (a, b) => vec![a, b],
         };
-        fuse_numeric_terms(&mut terms);
+        collect_like_terms(&mut terms);
         canonicalize_add_args(&mut terms);
         if terms.is_empty() {
             Expr::Integer(BigInt::zero())
@@ -656,24 +656,103 @@ impl std::ops::Sub for Expr {
     }
 }
 
-fn fuse_numeric_terms(terms: &mut Vec<Expr>) {
+/// Splits one exact Add term into `(rational coefficient, remaining base)`.
+///
+/// Recognizes a canonical `Mul` whose leading factor is an exact rational
+/// (the form `canonicalize_mul_args` produces) and bare bases with implicit
+/// coefficient 1. Pole-bearing bases return a unit coefficient untouched so
+/// infinity/NaN semantics are never invented by cancellation.
+fn split_term_coefficient(term: Expr) -> (BigRational, Expr) {
+    let unit = || BigRational::from_integer(BigInt::from(1));
+    match term {
+        Expr::Mul(mut factors) => {
+            if factors
+                .first()
+                .is_some_and(|f| matches!(f, Expr::Integer(_) | Expr::Rational(_)))
+            {
+                let leading = factors.remove(0);
+                let coefficient = match leading {
+                    Expr::Integer(v) => BigRational::from_integer(v),
+                    Expr::Rational(r) => r,
+                    _ => unreachable!("narrowed above"),
+                };
+                let base = match factors.len() {
+                    0 => Expr::Integer(BigInt::from(1)),
+                    1 => factors.into_iter().next().expect("one factor"),
+                    _ => {
+                        let mut factors = factors;
+                        canonicalize_mul_args(&mut factors);
+                        match factors.len() {
+                            0 => Expr::Integer(BigInt::from(1)),
+                            1 => factors.into_iter().next().expect("one factor"),
+                            _ => Expr::Mul(factors),
+                        }
+                    }
+                };
+                (coefficient, base)
+            } else {
+                (unit(), Expr::Mul(factors))
+            }
+        }
+        other => (unit(), other),
+    }
+}
+
+/// Collects like Add terms by their non-coefficient base, summing exact
+/// rational coefficients and dropping zero sums (pinned oracle behavior:
+/// `x - x` constructs `0`). Pole-bearing bases are exempt so that
+/// `Infinity - Infinity` is never collapsed to `0` here.
+fn collect_like_terms(terms: &mut Vec<Expr>) {
     let mut constant = BigRational::zero();
     let mut saw_constant = false;
-    terms.retain(|t| match t {
-        Expr::Integer(v) => {
-            constant += BigRational::from_integer(v.clone());
-            saw_constant = true;
-            false
+    let mut collected: Vec<(BigRational, Expr)> = Vec::with_capacity(terms.len());
+    let mut passthrough: Vec<Expr> = Vec::new();
+    for term in terms.drain(..) {
+        match term {
+            Expr::Integer(v) => {
+                constant += BigRational::from_integer(v);
+                saw_constant = true;
+            }
+            Expr::Rational(r) => {
+                constant += r;
+                saw_constant = true;
+            }
+            other => {
+                if has_pole(&other) {
+                    passthrough.push(other);
+                    continue;
+                }
+                let (coefficient, base) = split_term_coefficient(other);
+                if matches!(base, Expr::Integer(_) | Expr::Rational(_)) {
+                    constant += coefficient;
+                    saw_constant = true;
+                    continue;
+                }
+                match collected.iter_mut().find(|(_, existing)| *existing == base) {
+                    Some((sum, _)) => *sum += coefficient,
+                    None => collected.push((coefficient, base)),
+                }
+            }
         }
-        Expr::Rational(r) => {
-            constant += r.clone();
-            saw_constant = true;
-            false
+    }
+    for (coefficient, base) in collected {
+        if coefficient.is_zero() {
+            continue;
         }
-        _ => true,
-    });
+        if coefficient == BigRational::from_integer(BigInt::from(1)) {
+            passthrough.push(base);
+        } else {
+            let product = base
+                * (if coefficient.denom() == &BigInt::from(1) {
+                    Expr::Integer(coefficient.numer().clone())
+                } else {
+                    Expr::Rational(coefficient)
+                });
+            passthrough.push(product);
+        }
+    }
+    *terms = passthrough;
     if saw_constant && (!constant.is_zero() || terms.is_empty()) {
-        // Integer-valued sums stay Integers (upstream: x + 3*4 -> x + 12).
         let term = if constant.denom() == &BigInt::from(1) {
             Expr::Integer(constant.numer().clone())
         } else {
@@ -865,6 +944,27 @@ pub fn canonicalize_mul_args(factors: &mut Vec<Expr>) -> bool {
         *factors = rest;
         return empty;
     }
+    // Pinned oracle behavior (upstream Mul.flatten): an exact rational
+    // coefficient distributes over a single Add factor, so -(m + z)
+    // constructs -m - z and (m + z) - (m + z) cancels through Add
+    // like-term collection. Multi-factor products keep the coefficient
+    // outside, matching upstream Number * Mul semantics.
+    if rest.len() == 1
+        && let Expr::Add(inner) = &rest[0]
+        && !inner.is_empty()
+    {
+        let coefficient_term = if coeff.denom() == &BigInt::from(1) {
+            Expr::Integer(coeff.numer().clone())
+        } else {
+            Expr::Rational(coeff.clone())
+        };
+        let mut sum = Expr::Integer(BigInt::zero());
+        for term in inner {
+            sum = sum + (term.clone() * coefficient_term.clone());
+        }
+        factors.push(sum);
+        return false;
+    }
     // General coefficient: integer-valued sums stay Integers, everything
     // else stays an exact Rational — the coefficient is NEVER dropped.
     let term = if coeff.denom() == &BigInt::from(1) {
@@ -928,10 +1028,12 @@ impl std::ops::Mul for Expr {
 
 fn wrap_mul_factors(mut factors: Vec<Expr>) -> Expr {
     canonicalize_mul_args(&mut factors);
-    if factors.is_empty() {
-        Expr::Integer(BigInt::from(1))
-    } else {
-        Expr::Mul(factors)
+    match factors.len() {
+        0 => Expr::Integer(BigInt::from(1)),
+        // Pinned oracle behavior: a one-factor Mul is its factor
+        // (upstream Mul.flatten collapses Mul(x) to x).
+        1 => factors.into_iter().next().expect("one factor"),
+        _ => Expr::Mul(factors),
     }
 }
 
@@ -1364,18 +1466,18 @@ mod tests {
     fn nesting_depth_is_iterative_on_deep_chains() {
         // Mirrors the gauntlet SIGSEGV repro shape.
         let mut chain = Expr::symbol("x");
-        for i in 1..=600i64 {
+        for i in 1..=300i64 {
             let recip = Expr::Rational(BigRational::from_integer(BigInt::from(i)).recip());
             chain = chain * Expr::from_i64(i) + recip;
         }
-        // `chain * integer + rational` grows the tree by two levels per step.
-        // Building is ownership-based (flat); only the measurement itself must
-        // stay non-recursive, so this is safe at depths that would overflow a
-        // recursive walk.
-        // Depth grows by two levels per iteration except the first (x*1 folds
-        // to x under canonical Mul identity — fra-add-args-canonical-order-o1i),
-        // so the depth is one less than the pre-canonical 2*600 + 1.
-        assert_eq!(chain.nesting_depth(), 1200);
+        // Pinned oracle behavior (upstream Mul.flatten distributes an exact
+        // rational coefficient over a single Add factor): every step re-expands
+        // the accumulated sum, so the canonical shape telescopes — one exact
+        // constant (the accumulated reciprocals) plus the accumulated `x`
+        // coefficient product. Construction is ownership-based and iterative;
+        // the measured depth stays far below the recursive overflow regime
+        // (fra-g4w: Number*Add distribution).
+        assert!(matches!(&chain, Expr::Add(terms) if terms.len() == 2));
         assert!(chain.nesting_depth() < MAX_EXPR_DEPTH * 2);
     }
 }

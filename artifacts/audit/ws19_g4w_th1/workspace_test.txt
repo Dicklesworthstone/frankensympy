@@ -1,0 +1,1608 @@
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 10 tests
+test candidate_claims_are_never_accepted_and_exports_refuse_them ... ok
+test proof_pagination_splits_multi_step_derivations ... ok
+test eof_mid_request_exits_cleanly_with_one_response ... ok
+test oversized_frame_gets_a_typed_too_large_response ... ok
+test unknown_schema_gets_a_typed_malformed_response ... ok
+test same_print_symbols_from_conflicting_universes_refuse_import ... ok
+test stdout_protocol_purity_responses_only ... ok
+test cli_survives_deep_nesting_and_garbage_on_stdin ... ok
+test repeated_request_ids_are_echoed_and_processed_independently ... ok
+test deeply_nested_and_garbage_input_cannot_crash_the_session ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 44 tests
+test bindings::nested_tuple_documentation_tests::nested_tuple_lambda_alpha_equivalence_and_substitution ... ignored, nested Tuple Lambda is rejected by try_parse_lambda; use curried Lambda(a, Lambda(Tuple(b,c), ...)) instead. Removing this attribute requires a recursive Tuple parser.
+test bindings::tests::absent_substitution_target_does_not_rename_nested_binders ... ok
+test bindings::tests::alpha_equivalence_properties ... ok
+test bindings::tests::alpha_equivalence_under_binder_renaming ... ok
+test bindings::tests::alpha_equivalent_rejects_inner_binder_shadowing_outer_free ... ok
+test bindings::tests::binder_node_representation ... ok
+test bindings::tests::binder_node_conversions_and_alpha_equivalence ... ok
+test bindings::tests::de_bruijn_conversion_guarantees_alpha_identity ... ok
+test bindings::tests::bindings_recursion_depth_limit_fails_closed ... ok
+test bindings::tests::definite_integral_binder_capture_avoidance ... ok
+test bindings::tests::free_symbols_extraction_with_binders ... ok
+test bindings::tests::indefinite_integral_and_derivative_variables_are_not_alpha_bound ... ok
+test bindings::tests::operator_substitution_handles_symbol_renaming_and_refuses_derivative_capture ... ok
+test bindings::tests::nested_binder_multi_level_capture_avoidance ... ok
+test bindings::tests::operator_variable_substitution_with_non_symbol_replacement_refuses ... ok
+test bindings::tests::derivative_variable_substitution_refuses_existing_free_symbol_capture ... ok
+test bindings::tests::capture_avoiding_substitution_renames_bound_var ... ok
+test bindings::tests::definite_integral_de_bruijn_form_retains_its_scope_boundary ... ok
+test bindings::tests::multi_parameter_lambda_free_symbols_and_capture_avoiding_subs ... ok
+test domain::tests::common_superdomain_derivation ... ok
+test bindings::tests::substitution_free_symbols_soundness_property ... ok
+test domain::tests::complex_power_inference_does_not_erase_symbolic_domains ... ok
+test domain::tests::domain_coercion_lattice ... ok
+test bindings::tests::freshening_avoids_names_declared_by_nested_binders ... ok
+test domain::tests::domain_generator_validation ... ok
+test bindings::tests::shadowing_integral_binder_does_not_shadow_its_limits ... ok
+test domain::tests::finite_field_and_characteristic_properties ... ok
+test domain::tests::domain_inference_of_exact_expressions ... ok
+test domain::tests::irrational_real_exponents_widen_only_branch_unsafe_bases ... ok
+test domain::tests::power_domain_inference_refuses_undefined_exact_zero_powers ... ok
+test domain::tests::power_domain_inference_respects_exact_sign_and_integrality ... ok
+test bindings::tests::multi_parameter_lambda_tuple_and_multi_arg_alpha_equivalence ... ok
+test bindings::tests::substitution_preserves_domain_typing_invariants ... ok
+test predicate::tests::lattice_entailment_soundness ... ok
+test predicate::tests::contradiction_symmetry ... ok
+test bindings::tests::duplicate_parameters_remain_opaque_instead_of_becoming_binders ... ok
+test tests::monotonicity_under_arbitrary_refinement_property ... ok
+test tests::immutable_snapshot_preserves_query_behavior ... ok
+test tests::test_context_digest_invariant_to_provenance_and_fact_order ... ok
+test truth::tests::four_way_truth_identities ... ok
+test tests::test_domain_conflict_detection ... ok
+test tests::test_assumptions_context ... ok
+test tests::test_domain_assignments_imply_predicates ... ok
+test tests::assumptions_refinement_soundness_hierarchical ... ok
+
+test result: ok. 43 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 89 tests
+test ntt::tests::admission_proves_reconstruction_bound_before_allocation ... ok
+test ntt::tests::zeroed_transform_buffer_observes_cancellation_after_allocation_charge ... ok
+test ntt::tests::fixed_roots_have_the_required_exact_orders ... ok
+test ntt::tests::independent_checks_reject_planted_residue_and_output_corruption ... ok
+test ntt::tests::inverse_round_trip_and_crt_product_match_independent_scalar_lane ... ok
+test tests::caller_degree_roots_pin_domain_floor_and_exactness_boundaries ... ok
+test ntt::tests::zeroed_transform_buffer_checks_between_initialization_chunks ... ok
+test tests::exact_division_and_gcd_apis_cover_signs_and_zero_boundaries ... ok
+test tests::binary64_to_integer_matches_ieee_bit_decomposition ... ok
+test tests::byte_parser_size_preflight_precedes_utf8_validation ... ok
+test tests::default_selector_requires_admission_before_using_optimized_lanes ... ok
+test tests::candidate_digit_buffers_charge_independently_derived_capacities ... ok
+test tests::direct_integer_to_f32_avoids_double_rounding ... ok
+test tests::exact_signed_128_bit_primitive_conversions_cover_the_full_range ... ok
+test tests::exact_unsigned_128_bit_primitive_conversions_cover_the_full_range ... ok
+test tests::fallible_radix_formatter_rejects_unsupported_radices_without_unwinding ... ok
+test tests::fallible_radix_parsers_reject_unsupported_radices_without_unwinding ... ok
+test tests::fallible_radix_parsers_preserve_valid_boundaries_and_parse_refusals ... ok
+test tests::float_to_bigint_truncates_wide_finite_values_and_refuses_nonfinite_values ... ok
+test tests::governed_comparison_scans_common_prefixes_and_has_terminal_cancellation ... ok
+test tests::capped_power_comparison_pins_strict_guard_and_extreme_control ... ok
+test tests::governed_power_matches_exact_signed_boundaries_and_preflights_extreme_control ... ok
+test tests::decoder_bit_admission_rejects_values_the_serde_adapter_also_refuses ... ok
+test tests::floor_square_root_satisfies_the_defining_invariant ... ok
+test tests::exact_unsigned_128_bit_primitive_conversions_round_trip ... ok
+test tests::greatest_perfect_power_selects_the_highest_admitted_nontrivial_exponent ... ok
+test tests::binary32_to_integer_matches_exact_widening_and_ieee_decomposition ... ok
+test tests::integer_to_f32_uses_ties_to_even_and_signed_overflow_boundaries ... ok
+test tests::karatsuba_refuses_zero_heavy_recursion_for_skewed_operands ... ok
+test tests::inherited_f32_conversion_uses_the_repaired_wide_float_path ... ok
+test tests::exact_signed_128_bit_primitive_conversions_round_trip ... ok
+test tests::metered_balanced_multiplication_matches_native_lane ... ok
+test tests::metered_addition_and_subtraction_match_signed_native_lanes ... ok
+test tests::metered_addition_cancels_inside_limb_work_and_before_publication ... ok
+test tests::governed_power_and_root_cancel_at_every_observed_safe_point ... ok
+test tests::metered_division_preserves_truncating_sign_rules ... ok
+test tests::floor_square_root_pins_exact_square_boundaries_and_governed_lane ... ok
+test tests::metered_exact_division_and_gcd_match_unmetered_apis ... ok
+test tests::metered_karatsuba_capacity_preflight_reports_size_overflow ... ok
+test tests::metered_multiplication_cancels_inside_limb_products ... ok
+test tests::metered_multiplication_charges_native_lift_before_publication ... ok
+test tests::metered_karatsuba_candidate_exact_budgets_and_one_short_refusals ... ok
+test tests::metered_karatsuba_candidate_covers_sign_cutoff_skew_and_nested_boundaries ... ok
+test tests::metered_ntt_crt_candidate_exact_budgets_and_one_short_refusals ... ok
+test tests::metered_ntt_crt_candidate_executes_exact_transform_for_all_signs ... ok
+test tests::metered_karatsuba_candidate_cancels_at_every_safe_point ... ok
+test tests::metered_ntt_crt_candidate_handles_dense_carry_and_canonical_zero ... ok
+test tests::metered_ntt_crt_preflight_refuses_unsupported_domain_without_allocation ... ok
+test tests::metered_toom3_candidate_covers_real_branch_signs_and_canonicality ... ok
+test tests::metered_toom3_candidate_exact_budgets_and_one_short_refusals ... ok
+test tests::metered_toom3_evaluation_and_interpolation_match_direct_convolution ... ok
+test tests::metered_toom3_exact_small_division_is_signed_and_fail_closed ... ok
+test tests::caller_degree_roots_pin_exact_powers_neighbors_and_square_root_parity ... ok
+test tests::metered_toom3_helper_allocations_and_recombination_are_explicit ... ok
+test tests::metered_value_lanes_cancel_at_each_terminal_publication_class ... ok
+test tests::caller_degree_roots_match_an_independent_scalar_floor_oracle ... ok
+test tests::parser_digit_limits_match_shared_decoder_bit_budget ... ok
+test tests::metered_division_cancels_inside_digit_batches ... ok
+test tests::metered_toom3_structural_cutoff_skew_and_nested_boundaries_are_exercised ... ok
+test tests::serde_absent_hint_capacity_growth_starts_small_and_doubles ... ok
+test tests::refused_arithmetic_batch_does_not_burn_memory_allowance ... ok
+test tests::serde_digit_limit_handles_absent_underreported_and_hostile_hints ... ok
+test tests::serde_digit_reservation_failure_is_typed_instead_of_panicking ... ok
+test tests::serde_rejects_noncanonical_or_malformed_sign_and_magnitude_tuples ... ok
+test tests::metered_toom3_candidate_cancels_at_every_safe_point ... ok
+test tests::serde_validates_sign_before_reading_or_allocating_the_magnitude ... ok
+test tests::serde_preserves_the_existing_canonical_sign_and_u32_digit_shape ... ok
+test tests::string_decoders_refuse_oversize_payloads_before_substrate_parse ... ok
+test tests::toom3_exact_division_helper_rejects_truncation - should panic ... ok
+test tests::toom3_interpolation_handles_signed_evaluations_and_carries ... ok
+test tests::toom3_nested_recursion_matches_reference ... ok
+test tests::toom3_skew_boundary_falls_back_only_without_a_top_third ... ok
+test tests::governed_caller_degree_root_pins_resources_cancellation_and_publication ... ok
+test tests::toom3_structural_cutoff_boundaries_match_reference ... ok
+test tests::zero_identities_hold_for_all_strategies ... ok
+test tests::metered_division_matches_native_lane_for_broad_signed_operands ... ok
+test tests::byte_decoders_refuse_oversize_payloads_before_substrate_parse ... ok
+test tests::metered_add_sub_match_broad_signed_operands ... ok
+test tests::signed_integers_convert_directly_to_binary32 ... ok
+test tests::unsigned_integers_convert_directly_to_binary32 ... ok
+test tests::metered_ntt_crt_candidate_matches_broad_balanced_operands ... ok
+test tests::metered_ntt_crt_candidate_cancels_at_every_observed_safe_point ... ok
+test tests::caller_degree_root_handles_large_exact_and_adjacent_inputs ... ok
+test tests::all_lanes_agree_for_broad_balanced_operands ... ok
+test tests::public_serde_digit_limit_is_an_exact_boundary_without_a_json_hint ... ok
+test tests::explicit_strategies_agree_across_the_former_threshold_boundary ... ok
+test tests::greatest_perfect_power_matches_an_independent_bounded_scalar_oracle ... ok
+test tests::governed_greatest_perfect_power_pins_resources_cancellation_and_publication ... ok
+test tests::owned_gcd_lanes_agree_for_broad_signed_operands ... ok
+
+test result: ok. 89 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.58s
+
+
+running 20 tests
+test tests::empty_batch_is_an_exact_no_op ... ok
+test tests::foreign_child_is_rejected_atomically ... ok
+test tests::batch_charges_aggregate_duplicates_and_commit_once ... ok
+test tests::child_and_zero_pool_budgets_cannot_issue_verifier_leases ... ok
+test tests::canonical_dimension_order_is_a_persisted_format ... ok
+test tests::every_refusal_class_preserves_counters_and_sequence ... ok
+test tests::receipts_are_single_use ... ok
+test tests::sequence_is_monotonic_across_operations ... ok
+test tests::time_budget_charges_refuses_and_refunds_like_any_dimension ... ok
+test tests::foreign_receipt_is_rejected_atomically ... ok
+test tests::time_budget_refuses_at_child_reservation_boundaries ... ok
+test tests::verifier_receipt_refunds_only_its_issuing_ledger ... ok
+test tests::verifier_pool_requires_the_one_time_lease ... ok
+test tests::child_reservations_move_allowance_exactly ... ok
+test tests::charges_reduce_and_exhaustion_is_atomic ... ok
+test tests::zero_charges_are_rejected ... ok
+test tests::foreign_verifier_lease_is_rejected_atomically ... ok
+test tests::matching_numeric_state_never_substitutes_for_authority ... ok
+test tests::no_operation_can_inflate_beyond_initial_limits ... ok
+test tests::refused_batch_preserves_every_dimension_and_sequence ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 62 tests
+test compile::tests::failed_batch_evaluation_does_not_publish_partial_outputs ... ok
+test compile::tests::compiled_expr_serde_capacity_growth_is_bounded ... ok
+test compile::tests::duplicate_variables_and_oversized_bytecode_are_typed_refusals ... ok
+test compile::tests::compiled_expr_serde_round_trips_and_revalidates_the_wire ... ok
+test compile::tests::malformed_bytecode_is_refused_at_the_construction_boundary ... ok
+test compile::tests::inexact_f64_exponent_components_are_refused ... ok
+test compile::tests::test_compile_rejection_of_symbolic_powers ... ok
+test compile::tests::finite_difference_diagnostic_rejects_invalid_numeric_policy ... ok
+test compile::tests::non_finite_exponents_are_refused ... ok
+test compile::tests::compiled_expr_serde_limit_distrusts_sequence_hints_and_stops_early ... ok
+test compile::tests::inconsistent_public_system_shape_is_refused_without_output_mutation ... ok
+test compile::tests::test_compile_rejection_of_unmapped_symbols ... ok
+test compile::tests::non_finite_rational_components_are_refused_before_underflow ... ok
+test compile::tests::test_compile_rejection_of_unsupported_functions ... ok
+test compile::tests::test_eval_buffer_mismatch_and_bounds ... ok
+test proof::tests::test_general_rule_only_verifies_the_unevaluated_derivative ... ok
+test proof::tests::test_mutant_rejection_on_tampered_derivative_claim ... ok
+test proof::tests::test_receipt_replay_accepts_the_original_and_refuses_tampering ... ok
+test proof::tests::test_verified_diff_independent_of_other_variables ... ok
+test proof::tests::test_verified_differentiation_polynomial ... ok
+test proof::tests::test_verified_differentiation_trig_and_transcendental ... ok
+test tests::finite_limit_detects_poles_inside_function_arguments ... ok
+test tests::infinity_limit_requires_an_exact_numeric_leading_coefficient ... ok
+test tests::integration_by_parts_roundtrips_polynomial_analytic_products ... ok
+test compile::tests::compile_operation_limit_includes_parent_operations ... ok
+test tests::laplace_transform_refuses_unbounded_polynomial_work ... ok
+test tests::laplace_transform_handles_symbolic_constants_and_refuses_ambiguous_variables ... ok
+test tests::laplace_transform_rejects_nonlinear_function_arguments ... ok
+test tests::integration_by_parts_refusals_stay_typed ... ok
+test tests::test_diff_independent_function_is_zero_and_derivative_chaining ... ok
+test tests::test_definite_integration_polynomial ... ok
+test tests::test_diff_trig ... ok
+test tests::test_diff_polynomial ... ok
+test tests::test_eliminate_zero_products_annihilation_and_unwrapping ... ok
+test tests::integration_discharges_linear_slope_before_division ... ok
+test tests::test_diff_inverse_and_ln ... ok
+test tests::test_fourier_transform_catalog ... ok
+test tests::test_hero_pipeline_compiled_residual_and_jacobian_diagnostic ... ok
+test tests::taylor_refuses_singular_coefficients ... ok
+test tests::test_differentiation_elementary_and_powers ... ok
+test tests::test_integrate_power_rule ... ok
+test tests::test_integrate_reciprocal_and_elementary ... ok
+test tests::test_laplace_transform_elementary_catalog ... ok
+test tests::test_integrate_typed_refusal_on_unsupported_product ... ok
+test tests::infinity_limit_of_expandable_polynomial_evaluates_to_infinity ... ok
+test tests::test_limit_infinity_degree_analysis ... ok
+test tests::test_limit_zero_over_zero_is_undetermined ... ok
+test tests::test_integrate_hyperbolic ... ok
+test tests::test_taylor_nondifferentiable_is_typed_error ... ok
+test transforms::convergence_tests::fourier_decay_catalog_rejects_unproved_or_nondecaying_rates ... ok
+test tests::test_verified_differentiation_proof_and_independent_verification ... ok
+test transforms::convergence_tests::roc_requires_exact_real_rate_evidence ... ok
+test transforms::definite_integral_tests::rejects_singular_integrand_across_interval ... ok
+test transforms::convergence_tests::sum_roc_is_not_selected_by_term_order ... ok
+test transforms::definite_integral_tests::rejects_unadmitted_analytic_and_endpoint_cases ... ok
+test transforms::convergence_tests::product_roc_composes_exact_exponential_rates ... ok
+test tests::test_laplace_hyperbolic_and_damped ... ok
+test tests::test_taylor_sin_structural_cubic_term ... ok
+test tests::test_taylor_exp_matches_near_origin ... ok
+test transforms::definite_integral_tests::rejects_oversized_power_and_depth ... ok
+test tests::infinity_limit_reports_expansion_cap_as_typed_refusal ... ok
+test ball_boundary_tests::evalf_ball_encloses_transcendental_values ... ok
+
+test result: ok. 62 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.51s
+
+
+running 2 tests
+test test_sparse_jacobian_c7_adversarial_tampering ... ok
+test test_sparse_jacobian_c7_hero_fixture_verified_and_evaluates ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 3 tests
+test test_sparse_jacobian_adversarial_tampering_and_mutants_killed ... ok
+test test_sparse_jacobian_tridiagonal_4d_fixture ... ok
+test test_sparse_jacobian_3d_fixture_proof_replay_and_compiled_agreement ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 47 tests
+test review_duplicate_factor_reference_is_refused ... ok
+test review_dropped_factor_kept_in_object_store_is_still_refuted ... ok
+test review_exhaustion_precedes_refutation_for_a_false_claim ... ok
+test review_incomplete_factor_list_with_equal_degree_is_refuted ... ok
+test review_missing_factor_object_is_refused ... ok
+test review_factor_with_extra_middle_term_must_be_refuted ... ok
+test review_incomplete_factor_list_is_refuted ... ok
+test review_non_canonical_object_encodings_are_refused ... ok
+test review_extra_high_degree_product_term_must_be_refuted ... ok
+test review_object_id_not_derived_from_its_own_payload_is_refused ... ok
+test review_changed_rule_and_verifier_roots_are_bound_into_the_claim ... ok
+test review_duplicate_object_id_with_different_bytes_is_refused ... ok
+test review_changed_context_root_breaks_the_claim_identity ... ok
+test review_oversized_counts_and_symbol_are_refused ... ok
+test review_flag_byte_inside_object_store_is_refused ... ok
+test review_exhaustion_is_inconclusive_and_never_verified ... ok
+test review_changed_domain_zz_vs_qq_is_refused ... ok
+test review_no_stored_flag_participates_and_the_claim_is_recomputed ... ok
+test review_trailing_bytes_after_capsule_are_refused ... ok
+test review_subtly_wrong_rational_coefficient_is_refuted ... ok
+test review_missing_subject_object_is_refused ... ok
+test review_oversized_declared_claim_length_is_refused ... ok
+test review_oversized_declared_object_length_is_refused ... ok
+test review_payload_tamper_after_framing_is_refused ... ok
+test review_positive_control_qq_identity_verifies ... ok
+test review_wrong_object_kind_is_refused ... ok
+test review_wrong_schema_version_and_magic_are_refused ... ok
+test review_zero_coefficient_claim_is_refused ... ok
+test review_positive_control_zz_identity_verifies_through_the_consumer ... ok
+test review_zero_context_root_is_refused ... ok
+test review_missing_constant_term_in_subject_must_be_refuted ... ok
+test review_extra_product_term_must_be_refuted ... ok
+test review_trailing_bytes_inside_an_object_are_refused ... ok
+test review_wrong_factor_is_refuted ... ok
+test review_trailing_bytes_inside_claim_are_refused ... ok
+test review_trailing_flag_byte_after_capsule_is_refused ... ok
+test review_trailing_named_field_after_capsule_is_refused ... ok
+test review_truncated_buffer_is_refused ... ok
+test review_verify_offline_default_accepts_self_asserted_claims ... ok
+test review_wrong_coefficient_is_refuted ... ok
+test review_wrong_domain_tag_is_refused ... ok
+test review_zero_exponent_factor_is_refused ... ok
+test review_zero_fuel_with_zero_work_is_a_boundary_not_a_false_accept ... ok
+test review_zero_polynomial_subject_must_not_verify_against_a_constant ... ok
+test review_zz_capsule_with_rational_coefficient_is_refused ... ok
+test review_wrong_exponent_is_refuted ... ok
+test review_zz_capsule_with_rational_object_is_refused ... ok
+
+test result: ok. 47 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 4 tests
+test consumer_refuses_malformed_input_without_falling_back ... ok
+test consumer_refuses_a_capsule_for_another_claim_root ... ok
+test consumer_verifies_a_valid_capsule_with_no_generator_present ... ok
+test consumer_reports_exhaustion_as_inconclusive ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 22 tests
+test tests::expected_refusal_is_not_a_conformance_pass ... ok
+test tests::malformed_oracle_output_fails_closed ... ok
+test tests::op_and_case_spec_serde_roundtrip_preserves_wire_format ... ok
+test tests::oracle_protocol_rejects_duplicate_and_missing_results ... ok
+test tests::oracle_protocol_rejects_unknown_fields_and_invalid_verdict_shapes ... ok
+test tests::duplicate_case_ids_fail_before_oracle_execution ... ok
+test tests::planted_mismatch_is_never_conformant ... ok
+test tests::success_where_refusal_was_required_is_unexpected ... ok
+test tests::taylor_operation_refuses_order_above_harness_maximum ... ok
+test tests::taylor_operation_translates_degree_to_series_term_count ... ok
+test tests::taylor_order_is_bounded_before_oracle_execution ... ok
+test tests::wrong_failure_kind_cannot_satisfy_expected_refusal ... ok
+test tests::wrong_sympy_version_fails_closed ... ok
+test tests::validate_cases_rejects_empty_oversized_and_unparseable_target ... ok
+test verdict_schema_alignment::emitted_verdict_values_are_in_shared_vocabulary ... ok
+test verdict_schema_alignment::oracle_script_emits_shared_schema_required_fields ... ok
+test tests::unexpected_refusal_remains_a_mismatch ... ok
+test tests::unreachable_oracle_fails_closed ... ok
+test tests::empty_and_executable_source_corpora_fail_before_oracle ... ok
+test tests::exited_parent_cannot_leave_a_descendant_holding_oracle_pipes ... ok
+test tests::native_expand_limit_is_recorded_as_failure_instead_of_panicking ... ok
+test tests::output_flood_is_killed_and_reaped_within_parent_deadline ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 108 tests
+test algebraic::tests::degree_reports_correct_value_for_exact_rationals ... ok
+test algebraic::tests::from_i64_constructs_degree_one_algebraic_with_exact_ball ... ok
+test algebraic::tests::sturm_sequence_constant_polynomial_is_empty ... ok
+test ball::tests::add_sub_neg_preserve_radius_rules ... ok
+test ball::tests::exact_and_from_i64_construct_point_balls ... ok
+test ball::tests::intersect_returns_tightest_common_enclosure ... ok
+test ball::tests::intersect_returns_none_for_disjoint ... ok
+test ball::tests::inv_rejects_balls_containing_zero ... ok
+test ball::tests::is_positive_and_is_negative_use_strict_inequalities ... ok
+test ball::tests::mul_uses_abs_midpoint_radius_formula ... ok
+test ball::tests::digest_refuses_oversized_canonical_numeric_payload ... ok
+test ball::tests::power_handles_extreme_signed_exponents_without_recursion ... ok
+test ball::tests::contains_and_contains_ball_and_contains_zero ... ok
+test ball::tests::new_rejects_negative_radius ... ok
+test ball::tests::digest_is_deterministic_and_distinct ... ok
+test ball::tests::inv_is_consistent_for_positive_balls ... ok
+test algebraic::tests::from_rational_constructs_degree_one_algebraic_for_non_integer ... ok
+test ball::tests::square_root_requires_complete_nonnegative_domain ... ok
+test ball::tests::test_real_ball_abs_pow_sqrt ... ok
+test ball::tests::square_root_refuses_extreme_precision_before_shifting ... ok
+test ball::tests::zero_exponent_requires_ball_to_exclude_zero ... ok
+test canonical::tests::admitted_wire_materializes_only_after_preflight ... ok
+test canonical::tests::hostile_lengths_fail_before_allocation ... ok
+test canonical::tests::integer_round_trip_and_sign_preservation ... ok
+test canonical::tests::malformed_rationals_are_rejected ... ok
+test canonical::tests::non_canonical_integer_encodings_fail_closed ... ok
+test canonical::tests::non_numeric_leaves_are_rejected ... ok
+test canonical::tests::rational_round_trip_requires_reduced_form ... ok
+test canonical::tests::trailing_bytes_fail_closed_for_every_numeric_tag ... ok
+test dag::tests::aggregate_payload_limit_bounds_arena_growth_and_shared_tree_lifting ... ok
+test dag::tests::complex_zero_power_requires_a_proven_positive_real_exponent ... ok
+test dag::tests::canonical_preimage_frames_variable_length_fields ... ok
+test dag::tests::aggregate_payload_limit_is_transactional_and_counts_numeric_storage ... ok
+test algebraic::tests::sturm_sequence_for_x_squared_minus_2_starts_with_polynomial_then_derivative ... ok
+test ball::tests::envelope_and_precision_refusals_are_typed ... ok
+test dag::tests::declared_domain_is_intern_identity_and_not_sort ... ok
+test dag::tests::deterministic_storage_charges_cover_current_native_layouts ... ok
+test dag::tests::duplicate_lambda_parameter_names_are_refused ... ok
+test dag::tests::deduplication_and_round_trip ... ok
+test dag::tests::failed_recursive_insert_publishes_no_partial_nodes ... ok
+test dag::tests::dangling_child_is_rejected_at_insertion ... ok
+test dag::tests::integer_domain_refuses_function_and_binder_exponents ... ok
+test dag::tests::integer_domain_refuses_non_integer_atoms ... ok
+test dag::tests::integer_domain_refuses_negative_integer_power_instead_of_widening ... ok
+test dag::tests::alpha_equivalent_lambdas_share_intern_identity ... ok
+test dag::tests::integer_domain_refuses_zero_to_the_power_of_zero ... ok
+test dag::tests::integer_power_requires_a_nonnegative_exponent_or_unit_base ... ok
+test dag::tests::malformed_lambda_surface_is_refused_instead_of_interned_as_function ... ok
+test dag::tests::interned_term_id_is_confirmed_by_full_preimage_digest ... ok
+test dag::tests::memoized_depth_still_enforces_the_deeper_parent_path ... ok
+test dag::tests::memoized_sort_inference_still_enforces_the_deeper_parent_path ... ok
+test dag::tests::numeric_operator_domains_admit_same_and_narrower_operands ... ok
+test dag::tests::concurrent_interning_yields_identical_content_ids ... ok
+test dag::tests::rational_domain_refuses_function_exponents ... ok
+test dag::tests::power_sort_inference_respects_exact_sign_and_branch_uncertainty ... ok
+test dag::tests::rational_domain_refuses_non_rational_payloads_and_powers ... ok
+test dag::tests::rational_domain_refuses_zero_to_a_negative_integer_power ... ok
+test dag::tests::rational_power_requires_integrality_and_defined_zero_base ... ok
+test dag::tests::real_domain_refuses_branch_unsafe_powers ... ok
+test dag::tests::real_domain_admits_proven_real_powers ... ok
+test dag::tests::real_domain_refuses_complex_constants ... ok
+test ball::tests::pi_ball_is_sound_across_precision_requests ... ok
+test dag::tests::real_domain_refuses_lambda_binders ... ok
+test dag::tests::sort_inference_enforces_local_and_aggregate_limits ... ok
+test dag::tests::node_and_arity_limits_fail_closed ... ok
+test dag::tests::sort_inference_preserves_scalar_and_rejects_nonnumeric_operands ... ok
+test dag::tests::sort_inference_covers_numeric_tower_and_integer_powers ... ok
+test dag::tests::term_id_is_stable_and_order_independent ... ok
+test dag::tests::tuple_parameter_lambda_interns_as_the_same_binder_as_multi_arg ... ok
+test dag::tests::numeric_operator_domains_reject_wider_or_expression_operands ... ok
+test dag::tests::undefined_exact_zero_powers_do_not_receive_numeric_sorts ... ok
+test domain::tests::domain_tags_are_stable_and_distinct ... ok
+test parser::tests::displayed_powers_round_trip_through_the_parser ... ok
+test parser::tests::test_decimal_literals_are_exact ... ok
+test parser::tests::test_evalf_through_parser ... ok
+test parser::tests::test_exact_division_folds_to_rational ... ok
+test parser::tests::test_function_calls ... ok
+test dag::tests::well_formed_symbol_lambda_lowers_to_binder_node ... ok
+test parser::tests::test_parse_errors ... ok
+test parser::tests::test_precedence_and_associativity ... ok
+test sort::tests::test_sort_hierarchy_and_subsorts ... ok
+test parser::tests::test_unary_minus_and_constants ... ok
+test sort::tests::test_sort_display ... ok
+test tests::algebraic_number_rejects_repeated_root_before_refinement ... ok
+test tests::evalf_ball_rejects_precision_outside_the_declared_envelope ... ok
+test tests::certified_numeric_wire_decode_replays_constructor_invariants ... ok
+test tests::algebraic_polynomial_size_is_bounded_before_root_work ... ok
+test tests::nesting_depth_measures_shallow_trees ... ok
+test tests::test_addition_and_multiplication ... ok
+test tests::test_algebraic_number_rejects_non_isolating_intervals ... ok
+test tests::test_certified_real_ball_arithmetic ... ok
+test tests::test_algebraic_number_root_refinement ... ok
+test tests::test_substitution ... ok
+test tests::test_symbol_creation ... ok
+test parser::tests::parser_preflights_input_size_and_recursive_nesting ... ok
+test tests::rational_evalf_uses_balanced_owner_conversion ... ok
+test canonical::tests::complete_wire_preflight_precedes_integer_materialization ... ok
+test tests::evalf_ball_composition_meets_requested_absolute_radius ... ok
+test canonical::tests::every_accepted_short_payload_has_a_unique_encoding ... ok
+test canonical::tests::serialized_size_limit_is_an_exact_boundary ... ok
+test dag::tests::shared_diamond_depth_is_memoized_but_tree_expansion_is_bounded ... ok
+test canonical::tests::arbitrary_big_integers_round_trip ... ok
+test tests::nesting_depth_is_iterative_on_deep_chains ... ok
+test ball::tests::deterministic_precision_schedule_is_reproducible ... ok
+test ball::tests::refinement_monotonically_narrows_the_enclosure ... ok
+test ball::tests::identity_oracles_hold_across_random_rationals ... ok
+test ball::tests::large_arguments_reduce_and_stay_certified ... ok
+test ball::tests::transcendentals_enclose_oracle_references_at_requested_precision ... ok
+
+test result: ok. 108 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 41.24s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 4 tests
+test plain_symbol_preimages_keep_their_published_digests ... ok
+test printed_name_alone_does_not_establish_atom_identity ... ok
+test symbol_identity_survives_dag_lowering_and_lifting ... ok
+test test_core_identity_invariants ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 16 tests
+test test_algebraic_exact_sign_determination ... ok
+test test_mutant_algebraic_interval_with_multiple_roots_admitted_killed ... ok
+test test_mutant_add_radius_cancellation_killed ... ok
+test test_mutant_algebraic_non_square_free_admitted_killed ... ok
+test test_mutant_algebraic_interval_with_zero_roots_admitted_killed ... ok
+test test_mutant_algebraic_bisection_wrong_bracket_killed ... ok
+test test_mutant_mul_cross_term_omission_killed ... ok
+test test_mutant_inv_endpoint_reversal_killed ... ok
+test test_mutant_pow_negative_interval_even_power_killed ... ok
+test test_mutant_mul_signed_midpoint_without_abs_killed ... ok
+test test_mutant_inv_containing_zero_admitted_killed ... ok
+test test_mutant_pow_even_zero_crossing_monotonicity_killed ... ok
+test test_mutant_sub_radius_subtraction_killed ... ok
+test test_mutant_sqrt_lower_bound_ceiling_killed ... ok
+test test_mutant_sqrt_upper_bound_floor_killed ... ok
+test test_algebraic_refine_to_arbitrary_precision ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 5 tests
+test insertion_order_does_not_affect_term_identity ... ok
+test mutation_rejection_and_domain_separation ... ok
+test canonical_terms_match_golden_specification ... ok
+test de_bruijn_lambdas_alpha_normalize_to_identical_id_and_digest ... ok
+test fresh_processes_produce_identical_term_ids_and_digests ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 5 tests
+test add_argument_comparator_must_not_declare_unequal_expressions_equal ... ok
+test canonical_add_order_must_be_a_function_of_the_term_multiset ... ok
+test identity_is_preserved_by_dag_lifting_and_legacy_serde_payloads ... ok
+test plain_symbol_preimage_replays_the_published_cross_architecture_golden ... ok
+test same_printed_name_with_distinct_identity_never_merges_and_ord_agrees_with_eq ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 6 tests
+test file_store::tests::hostile_schema_segment_is_refused ... ok
+test tests::empty_payload_and_oversized_bounds_refuse_at_construction ... ok
+test tests::round_trip_preserves_digests_and_validates ... ok
+test tests::every_field_flip_is_refused ... ok
+test file_store::tests::prepare_verify_commit_and_load_round_trip_from_disk ... ok
+test file_store::tests::cleanup_reserve_is_enforced_until_release ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 5 tests
+test stale_universe_marker_refuses_and_leaves_no_records ... ok
+test digest_consistent_false_proof_is_refused_by_mathematical_reverification ... ok
+test byte_loss_within_envelope_repairs_and_beyond_envelope_refuses ... ok
+test generator_replacement_replay_is_identical ... ok
+test ephemeral_and_every_boundary_resume_produce_identical_results ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+
+
+running 23 tests
+test envelope::tests::kernel_proved_envelope_without_derivation_fails_integrity ... ok
+test lattice::tests::certified_numeric_cannot_promote_to_kernel_proved ... ok
+test envelope::tests::heuristic_candidate_envelope_never_passes_integrity ... ok
+test envelope::tests::receipt_class_mismatch_fails_integrity ... ok
+test envelope::tests::heuristic_candidate_with_forged_derivation_still_fails_integrity ... ok
+test lattice::tests::heuristic_candidate_to_terminal_non_mathematical_is_also_forbidden ... ok
+test envelope::tests::terminal_non_kernel_proved_envelope_without_derivation_passes_integrity ... ok
+test lattice::tests::heuristic_cannot_promote_to_kernel_proved ... ok
+test lattice::tests::mathematical_to_mathematical_transitions_are_allowed ... ok
+test lattice::tests::identical_classes_are_valid ... ok
+test lattice::tests::oracle_conformant_cannot_promote_to_kernel_proved ... ok
+test lattice::tests::user_asserted_cannot_be_promoted_to_mathematical ... ok
+test namespace::tests::candidate_namespace_has_deterministic_json_roundtrip ... ok
+test namespace::tests::candidate_namespace_rejects_duplicate_claims_on_import ... ok
+test namespace::tests::kernel_proved_promotion_without_derivation_is_rejected ... ok
+test namespace::tests::kernel_proved_envelope_with_mismatched_derivation_root_is_rejected ... ok
+test namespace::tests::promotion_requires_matching_receipt_and_integrity ... ok
+test namespace::tests::promotion_with_mismatched_receipt_is_rejected ... ok
+test namespace::tests::verified_namespace_serializes_without_non_string_map_keys ... ok
+test receipt::tests::receipt_wire_refuses_unbounded_verifier_names ... ok
+test namespace::tests::structurally_bound_but_invalid_derivation_is_rejected ... ok
+test receipt::tests::receipt_digest_is_deterministic_and_binds_receipt_and_claim ... ok
+test namespace::tests::candidate_namespace_refuses_unbounded_growth ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 9 tests
+test degree_coefficient_and_byte_exhaustion_are_inconclusive ... ok
+test false_native_coefficients_refuse_before_projection ... ok
+test unsupported_domains_contexts_rules_verifiers_and_shapes_refuse ... ok
+test external_claim_root_cannot_be_replaced_by_transport_authority ... ok
+test native_first_roundtrip_checks_offline ... ok
+test malformed_truncated_noncanonical_and_unknown_bytes_refuse ... ok
+test source_semantic_changes_refuse_even_with_forged_digests ... ok
+test cancellation_at_admission_and_before_output_never_mints_checked_state ... ok
+test every_transport_and_receipt_field_is_required_and_bound ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+
+running 14 tests
+test tests::blanket_binomial_negative_lower_index_is_zero ... ok
+test tests::blanket_coverage_sweep_names_every_public_entry_point ... ok
+test tests::blanket_bernoulli_odd_convention ... ok
+test tests::blanket_fibonacci_lucas_negative_and_symbol_refusals ... ok
+test tests::blanket_zeta_pole_stays_opaque_and_gamma_folds ... ok
+test tests::blanket_harmonic_exactness_and_type ... ok
+test tests::blanket_factorial_boundaries_and_envelope ... ok
+test tests::test_abs_and_sign ... ok
+test tests::test_combinatorial_and_special ... ok
+test tests::test_elementary_evaluations ... ok
+test tests::test_floor_and_ceiling ... ok
+test tests::test_fibonacci_lucas_and_harmonic ... ok
+test tests::test_opaque_no_fold_functions_keep_function_form ... ok
+test tests::test_catalan_and_bernoulli_and_bell_and_subfactorial ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+test inverse_and_hyperbolic_identities_match_oracle_at_trivial_points ... ok
+test differential_blanket_matches_pinned_oracle ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.64s
+
+
+running 18 tests
+test tests::test_parallel_lines_fail_intersection_with_typed_refusal ... ok
+test tests::test_point_distance ... ok
+test tests::symbolic_line_and_plane_construction_requires_a_proven_nonzero_vector ... ok
+test tests::test_polygon2d_area_centroid_and_wire_invariants ... ok
+test tests::test_point3d_and_segment3d ... ok
+test tests::test_plane3d_parallel_perpendicular_and_intersection ... ok
+test tests::test_ray_symbolic_degeneracy_is_refused_undetermined ... ok
+test tests::test_expr_div_mixed_rationals_and_circle_negative_radius_preflight ... ok
+test tests::test_line3d_and_plane3d_metrics_and_wire_invariants ... ok
+test tests::test_sphere_and_circle_metrics ... ok
+test tests::test_line_intersection ... ok
+test tests::symbolic_geometry_preserves_degeneracy_uncertainty ... ok
+test tests::test_triangle_centroid_and_collinearity ... ok
+test tests::test_triangle_classifications ... ok
+test tests::test_polygon_edge_lengths_and_convexity ... ok
+test tests::polygon_vertex_capacity_growth_and_allocation_failure_are_bounded ... ok
+test tests::test_ray2d_and_ray3d_construction_direction_and_serde ... ok
+test tests::polygon_vertex_limit_distrusts_sequence_hints_and_stops_early ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+
+running 14 tests
+test tests::empty_parts_frame_is_still_well_formed ... ok
+test tests::framing_preflights_the_exact_encoded_size ... ok
+test tests::framing_separates_domains ... ok
+test tests::binary_form_roundtrips_and_is_self_describing ... ok
+test tests::binary_form_rejects_foreign_kind_and_truncation ... ok
+test tests::framing_is_deterministic_and_length_prefixed ... ok
+test tests::framing_is_unambiguous_across_boundaries ... ok
+test tests::hostile_binary_lengths_and_diagnostics_are_bounded ... ok
+test tests::kinds_have_unique_domains ... ok
+test tests::negative_and_overflowing_payloads_are_malformed_or_reserved ... ok
+test tests::ordering_is_by_payload_within_a_kind ... ok
+test tests::roundtrips_display_and_parse ... ok
+test tests::zero_payload_is_reserved ... ok
+test tests::unknown_prefix_fails_closed ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test cross_kind_substitution_is_rejected_at_compile_time ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.37s
+
+
+running 17 tests
+test tests::dpll_search_budget_refuses_instead_of_reporting_unsat ... ok
+test tests::test_is_satisfiable_is_valid_and_is_contradiction ... ok
+test tests::test_dpll_matches_bruteforce ... ok
+test tests::malformed_sat_variable_is_a_typed_invariant_error ... ok
+test tests::test_logic_eval ... ok
+test tests::test_cnf_dnf_equivalence_with_original ... ok
+test tests::test_truth_table_rows ... ok
+test tests::truth_table_preflights_formula_depth_and_evaluation_work ... ok
+test tests::dpll_resource_refusal_is_not_reported_as_unsat ... ok
+test tests::tseitin_encoding_avoids_distributive_cnf_explosion ... ok
+test tests::test_xor_nand_nor_xnor ... ok
+test tests::test_truth_table_size_limit ... ok
+test tests::test_tautology_and_contradiction ... ok
+test tests::test_simplify_logic_algebraic_identities ... ok
+test tests::tseitin_dpll_matches_exhaustive_semantics_for_all_connectives ... ok
+test tests::dpll_preflights_formula_depth_and_node_count ... ok
+test tests::validity_uses_the_existing_tseitin_root_and_validates_the_source ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+
+running 51 tests
+test tests::eigenvalues_beyond_quadratic_degree_refused ... ok
+test tests::char_poly_of_diagonal_factors_exactly ... ok
+test tests::empty_and_scalar_matrix_algebra_is_exact ... ok
+test tests::eigenvalues_of_rotation_are_symbolic_roots ... ok
+test tests::exact_fold_handles_typed_nonnegative_rational_powers ... ok
+test tests::charpoly_verifier_rejects_mutants ... ok
+test tests::matrix_construction_and_wire_decode_reject_invalid_shapes ... ok
+test tests::eigenvalues_of_diagonal_matrix_are_exact ... ok
+test tests::lu_verifier_rejects_orthogonal_non_permutation_matrix ... ok
+test tests::non_square_inverse_and_charpoly_refused ... ok
+test tests::nullspace_certificate_wire_refuses_invalid_export ... ok
+test tests::nullspace_refuses_quadratic_output_amplification ... ok
+test tests::test_eigenvalues_with_sturm_certificate_2x2_rotation_no_real_roots ... ok
+test tests::test_eigenvalues_with_sturm_certificate_2x2_repeated ... ok
+test tests::numeric_inverse_times_original_is_identity ... ok
+test tests::matrix_polynomial_evaluation_preflights_shape_and_aggregate_work ... ok
+test tests::qr_refuses_symbolic_nonzero_assumptions ... ok
+test tests::rank_matches_independent_row_count ... ok
+test tests::singular_numeric_matrix_is_refused ... ok
+test tests::test_exact_least_squares_solve ... ok
+test tests::sparse_trace_scales_with_stored_entries_instead_of_declared_dimensions ... ok
+test tests::test_exact_linear_system_solve_and_verification ... ok
+test tests::test_inverse_certificate_and_verification ... ok
+test tests::sparse_wire_rejects_out_of_bounds_entries ... ok
+test tests::test_exact_qr_decomposition_and_verification ... ok
+test tests::test_exact_ldl_decomposition_and_verification ... ok
+test tests::test_jacobian_computation ... ok
+test tests::test_matrix_add_sub_scalar_mul_and_hadamard ... ok
+test tests::test_matrix_cofactor_adjugate_pow_and_frobenius_norm ... ok
+test tests::symbolic_characteristic_polynomial_refuses_eigenvalues ... ok
+test tests::test_matrix_det_2x2 ... ok
+test tests::test_lu_decomposition_and_verification ... ok
+test tests::symbolic_zero_decisions_are_refused ... ok
+test tests::test_matrix_diag_and_shape_predicates ... ok
+test tests::zero_area_shapes_still_bound_each_dimension ... ok
+test tests::zero_dimension_metered_operations_do_not_issue_zero_charges ... ok
+test tests::test_sparse_dense_roundtrip_and_matmul ... ok
+test tests::test_eigenvalues_with_sturm_certificate_3x3_companion_cubic ... ok
+test tests::test_matrix_eye_matmul ... ok
+test tests::test_matrix_kron_and_skew_symmetric ... ok
+test tests::test_matrix_trace ... ok
+test tests::test_nullspace_certificate_and_verification ... ok
+test tests::test_mutant_tampered_certificates_rejected ... ok
+test tests::test_rref_and_nullspace_computation ... ok
+test tests::test_eigenvalues_with_sturm_certificate_4x4_repeated ... ok
+test tests::test_eigenvalues_with_sturm_certificate_2x2_diagonal ... ok
+test tests::nullspace_certificate_wire_bounds_vector_count ... ok
+test tests::test_eigenvalues_sturm_certificate_adversarial_tampering ... ok
+test tests::test_eigenvalues_with_sturm_certificate_3x3_distinct ... ok
+test tests::charpoly_certificate_verifies_reference_evaluations ... ok
+test tests::sparse_operations_preserve_partial_entries_and_preflight_fill ... ok
+
+test result: ok. 51 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.08s
+
+
+running 56 tests
+test tests::coprime_split_crt_preserves_strict_and_generalized_boundaries ... ok
+test tests::finite_field_batch_buffers_fail_typed_and_terminally ... ok
+test tests::finite_field_batch_inverse_pins_governed_transcript ... ok
+test tests::finite_field_batch_inverse_does_not_downgrade_internal_faults ... ok
+test tests::fast_terminal_classes_checkpoint_after_classification_without_charges ... ok
+test tests::finite_field_batch_inverse_matches_scalar_and_preserves_order ... ok
+test tests::invalid_first_crt_modulus_is_refused_without_division ... ok
+test tests::every_computed_terminal_class_observes_final_cancellation ... ok
+test tests::finite_field_batch_inverse_preflights_before_allocation ... ok
+test tests::crt_preflights_late_moduli_before_owned_numeric_work ... ok
+test tests::jacobi_supports_arbitrary_precision_and_checks_terminal_gcd ... ok
+test tests::known_gcd_and_bezout_identity ... ok
+test tests::metered_gcd_halts_on_budget_exhaustion ... ok
+test tests::metered_modular_lanes_refuse_invalid_inputs_without_zero_charges ... ok
+test tests::metered_modular_lanes_halt_on_budget_exhaustion ... ok
+test tests::finite_field_batch_inverse_refuses_each_one_short_budget ... ok
+test tests::modular_comparison_uses_bigint_digit_accounting_and_safe_points ... ok
+test tests::metered_reducer_constructors_match_small_and_limb_boundary_moduli ... ok
+test tests::modular_comparison_predicates_match_integer_ordering_boundaries ... ok
+test tests::metered_mul_halts_on_budget_exhaustion ... ok
+test tests::modular_ring_and_exact_finite_field_preserve_parent_invariants ... ok
+test tests::new_metered_types_check_cancellation_before_terminal_publication ... ok
+test tests::montgomery_and_barrett_reducers_enforce_their_input_domains ... ok
+test tests::prime_stream_cancellation_is_retry_safe_and_interleavable ... ok
+test tests::metered_crt_fold_matches_unmetered_lane ... ok
+test tests::crt_and_reconstruction_support_late_in_algorithm_cancellation ... ok
+test tests::prime_stream_growth_is_prepared_before_atomic_publication ... ok
+test tests::prime_stream_table_growth_fails_typed_and_terminally ... ok
+test tests::prime_stream_growth_refuses_one_short_budgets_without_state_change ... ok
+test tests::prime_stream_unmetered_growth_failure_is_retry_safe ... ok
+test tests::coprime_split_crt_matches_pairwise_scalar_admission ... ok
+test tests::quadratic_symbols_refuse_values_outside_their_exact_domains ... ok
+test tests::finite_field_batch_inverse_cancels_at_every_checkpoint ... ok
+test tests::rational_reconstruction_handles_zero_and_refuses_degenerate_moduli ... ok
+test tests::modular_inverse_matches_bounded_scalar_oracle ... ok
+test tests::rational_reconstruction_zero_respects_the_declared_uniqueness_bound ... ok
+test tests::exact_division_round_trips_broad_operands ... ok
+test tests::reducer_constructors_refuse_one_short_owned_budgets ... ok
+test tests::reducer_constructors_use_the_owned_binary_power_transcript ... ok
+test tests::metered_rational_reconstruction_matches_unmetered_refusals ... ok
+test tests::unlucky_prime_diagnostics_are_structured_bounded_and_fail_closed ... ok
+test tests::reducers_match_scalar_remainders_over_their_full_admitted_ranges ... ok
+test tests::crt_pair_matches_bounded_exhaustive_oracle ... ok
+test tests::metered_exact_division_matches_unmetered_lane ... ok
+test tests::quadratic_symbols_support_late_and_terminal_cancellation ... ok
+test tests::reducer_constructors_cancel_at_every_observed_safe_point ... ok
+test tests::rational_reconstruction_recovers_unique_small_fraction ... ok
+test tests::finite_field_batch_inverse_matches_scalar_over_generated_batches ... ok
+test tests::deterministic_primality_cancels_at_every_observed_small_composite_checkpoint ... ok
+test tests::prime_stream_and_miller_rabin_match_independent_trial_division ... ok
+test tests::prime_stream_growth_cancels_at_every_observed_prepare_checkpoint ... ok
+test tests::primality_supports_late_in_algorithm_cancellation ... ok
+test tests::deterministic_primality_rejects_the_terminal_base_adversary ... ok
+test tests::published_rational_reconstructions_satisfy_the_declared_bounds ... ok
+test tests::quadratic_symbols_match_independent_factorization_and_euler_oracles ... ok
+test tests::metered_gcd_and_bezout_match_unmetered_lanes ... ok
+
+test result: ok. 56 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.54s
+
+
+running 12 tests
+test tests::test_carmichael_integer_nth_root_and_primitive_roots ... ok
+test tests::test_jacobi_symbol_facade ... ok
+test tests::test_chinese_remainder_theorem_and_modular_inverse ... ok
+test tests::test_legendre_symbol ... ok
+test tests::test_is_prime ... ok
+test tests::test_omega_square_free_and_perfect_numbers ... ok
+test tests::extended_gcd_normalizes_negative_inputs ... ok
+test tests::test_mobius_and_divisors ... ok
+test tests::test_factorint_and_totient ... ok
+test tests::exact_owner_rejects_the_terminal_u64_witness_adversary ... ok
+test tests::modular_facade_matches_exact_owner_over_bounded_inputs ... ok
+test tests::arithmetic_functions_match_small_reference_lanes ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+
+
+running 15 tests
+test tests::cancellation_point_roundtrips_through_registry_identifier ... ok
+test tests::constructor_guards_block_promotion ... ok
+test tests::discharge_predicates_mirror_registry ... ok
+test tests::discharge_roundtrips_through_registry_identifier ... ok
+test tests::every_non_evidence_outcome_roundtrips ... ok
+test tests::internal_fault_kind_roundtrips_through_registry_identifier ... ok
+test tests::every_registry_class_roundtrips ... ok
+test tests::execution_contract_is_observable ... ok
+test tests::only_heuristic_candidate_is_nonterminal ... ok
+test tests::refusal_kind_roundtrips_through_registry_identifier ... ok
+test tests::map_preserves_structure_and_evidence ... ok
+test tests::registry_mathematical_flags_match ... ok
+test tests::resource_class_roundtrips_through_registry_identifier ... ok
+test tests::sampled_agreement_cannot_become_exact_identity ... ok
+test tests::terminality_rules ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 60 tests
+test factorization::complete_factorization_tests::degree_bound_is_a_typed_refusal ... ok
+test factorization::complete_factorization_tests::coefficient_height_bound_is_a_typed_refusal ... ok
+test factorization::complete_factorization_tests::unusable_lifting_primes_cannot_bypass_work_refusal ... ok
+test factorization::complete_factorization_tests::cancellation_at_a_safe_point_surfaces_as_cancelled ... ok
+test factorization::kronecker_factorization_tests::budget_exhaustion_during_search_surfaces ... ok
+test factorization::complete_factorization_tests::yun_square_free_fast_path_cannot_bypass_work_refusal ... ok
+test factorization::complete_factorization_tests::irreducible_quartic_stays_whole_with_a_witness ... ok
+test factorization::complete_factorization_tests::quartic_without_rational_roots_factors_with_witnesses ... ok
+test factorization::kronecker_factorization_tests::cancellation_before_work_propagates ... ok
+test factorization::complete_factorization_tests::non_monic_primitive_part_factors_through_the_monic_transform ... ok
+test factorization::kronecker_factorization_tests::nonmonic_input_is_refused ... ok
+test factorization::kronecker_factorization_tests::oversize_degree_is_refused ... ok
+test factorization::kronecker_factorization_tests::rational_coefficient_input_is_refused ... ok
+test tests::graded_orders_do_not_overflow_total_degree ... ok
+test tests::metered_multivariate_zero_product_does_not_issue_a_zero_charge ... ok
+test tests::elimination_refuses_unknown_variables ... ok
+test tests::multivariate_construction_refuses_malformed_ring_shape ... ok
+test tests::multivariate_conversion_refuses_exponents_that_do_not_fit_u32 ... ok
+test tests::multivariate_division_refuses_incompatible_rings ... ok
+test tests::product_decomposition_checker_rejects_noncanonical_shapes ... ok
+test tests::test_bezout_verifier_accepts_zero_gcd_for_two_zero_inputs ... ok
+test tests::test_bezout_verifier_rejects_zero_gcd_for_nonzero_inputs ... ok
+test factorization::complete_factorization_tests::multiplicities_and_linear_factors_survive_the_complete_path ... ok
+test tests::test_bezout_verifier_requires_canonical_monic_gcd ... ok
+test tests::test_extended_gcd_bezout_certificate_verified ... ok
+test factorization::kronecker_factorization_tests::repeated_factor_merges_multiplicity ... ok
+test tests::resultant_refuses_unbounded_numeric_materialization_and_growth ... ok
+test tests::metered_multivariate_evaluation_matches_exact_result_and_honors_every_budget ... ok
+test factorization::kronecker_factorization_tests::mixed_degrees_product_recovers_all_factors ... ok
+test factorization::kronecker_factorization_tests::sophie_germain_quartic_factors_into_two_quadratics ... ok
+test tests::test_multivariate_divisibility_certificate_rejects_non_monic ... ok
+test tests::test_multivariate_divisibility_certificate_rejects_incompatible_rings ... ok
+test tests::test_multivariate_from_expr_constant_division ... ok
+test tests::test_multivariate_gcd_shared_monomial_factor ... ok
+test tests::test_multivariate_gcd_with_one_is_one ... ok
+test tests::test_multivariate_gcd_disjoint_irreducibles ... ok
+test tests::test_mutant_tampered_bezout_rejected ... ok
+test tests::test_mutant_tampered_factorization_rejected ... ok
+test tests::test_bounded_rational_root_decomposition ... ok
+test tests::test_multivariate_product_and_derivatives ... ok
+test tests::test_multivariate_gcd_constants_are_coprime ... ok
+test tests::test_multivariate_gcd_candidate_and_divisibility_verification ... ok
+test tests::test_groebner_basis_certificate_and_verification ... ok
+test tests::test_groebner_basis_computation_and_ideal_membership ... ok
+test tests::multivariate_json_wire_roundtrips_without_non_string_map_keys ... ok
+test tests::test_polynomial_representation_round_trip_invariants ... ok
+test tests::test_schwartz_zippel_detects_non_identity_with_witness ... ok
+test tests::test_square_free_decomposition_and_verification ... ok
+test tests::test_univariate_compose_and_l2_norm ... ok
+test tests::test_univariate_div_rem_identity ... ok
+test tests::test_univariate_integrate_and_discriminant ... ok
+test tests::test_univariate_make_monic_scale_reverse_shift ... ok
+test tests::test_univariate_resultant_and_higher_degree_discriminant ... ok
+test tests::test_variable_elimination ... ok
+test tests::test_verified_polynomial_identity_certificate ... ok
+test tests::verified_identity_refuses_duplicate_generators ... ok
+test tests::test_negative_corpus_identity_refusal ... ok
+test tests::univariate_boundaries_reject_noncanonical_wire_and_exponent_narrowing ... ok
+test tests::multivariate_evaluation_refuses_extreme_growth_and_unsupported_exponents ... ok
+test factorization::complete_factorization_proptests::constructed_products_factor_back_exactly ... ok
+
+test result: ok. 60 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.76s
+
+
+running 17 tests
+test tests::printing_limits_default_matches_the_harness_contract ... ok
+test tests::test_empty_nary_nodes_render_identity_values ... ok
+test tests::test_latex_add_subtraction_sign ... ok
+test tests::test_latex_greek_symbols ... ok
+test tests::test_latex_mul_numeric_leads_and_add_children_parenthesized ... ok
+test tests::test_latex_emission ... ok
+test tests::test_latex_rational_and_functions ... ok
+test tests::test_latex_pow_over_add_is_parenthesized ... ok
+test tests::test_latex_negative_exponent_is_reciprocal ... ok
+test tests::test_power_precedence_and_exact_rational_roots ... ok
+test tests::test_latex_sqrt_and_root_forms ... ok
+test tests::test_pretty_superscripts_and_operators ... ok
+test tests::test_python_and_c_code_emission ... ok
+test tests::test_renderers_fail_closed_at_limits ... ok
+test tests::test_rust_emitter_refuses_misleading_source ... ok
+test tests::test_sign_normalization_handles_noncanonical_products ... ok
+test tests::test_symbol_views_are_target_specific_and_latex_is_escaped ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 40 tests
+test merge::tests::altered_witness_is_rejected_as_forgery ... ok
+test merge::tests::read_absence_overlap_is_refused_conservatively ... ok
+test merge::tests::unsupported_policy_version_is_rejected ... ok
+test merge::tests::forged_result_root_is_rejected ... ok
+test merge::tests::unsorted_witnesses_are_rejected ... ok
+test merge::tests::write_without_base_observation_is_rejected ... ok
+test merge::tests::well_formed_certificate_verifies ... ok
+test mutation::tests::bounded_polynomial_normal_form_proves_only_matching_identity ... ok
+test mutation::tests::cancellation_before_publication_does_not_leave_a_verified_step ... ok
+test mutation::tests::extended_elementary_zero_and_one_eval_rules_verify ... ok
+test mutation::tests::mutant_broad_normal_form_claim_killed ... ok
+test mutation::tests::mutant_claim_tampering_in_derivation_tree_killed ... ok
+test mutation::tests::mutant_forged_context_predicate_killed ... ok
+test mutation::tests::mutant_forged_definitional_arithmetic_killed ... ok
+test mutation::tests::mutant_forward_or_self_reference_killed ... ok
+test mutation::tests::mutant_opaque_payload_for_real_ball_rejected ... ok
+test mutation::tests::mutant_deep_reflexivity_derivation_is_refused_before_replay ... ok
+test mutation::tests::mutant_inconsistent_real_ball_claims_rejected ... ok
+test mutation::tests::mutant_partial_values_cannot_be_erased_by_polynomial_zero ... ok
+test mutation::tests::mutant_real_ball_enclosure_check_deletion_killed ... ok
+test mutation::tests::mutant_real_ball_zero_to_zero_admission_killed ... ok
+test mutation::tests::mutant_unchecked_certificate_lemma_killed ... ok
+test mutation::tests::online_step_charge_is_atomic_across_coupled_dimensions ... ok
+test mutation::tests::mutant_polynomial_proof_refuses_excessive_depth_at_trust_boundary ... ok
+test mutation::tests::online_step_refuses_before_publication_when_preflight_work_exceeds_budget ... ok
+test mutation::tests::mutant_transitivity_mismatch_killed ... ok
+test mutation::tests::pythagorean_identity_refuses_non_polynomial_fragment_inputs ... ok
+test mutation::tests::real_ball_refuses_equality_without_equality_specific_payload ... ok
+test mutation::tests::pythagorean_identity_treats_other_functions_as_opaque_atoms ... ok
+test mutation::tests::registered_family_cannot_authorize_unrelated_symbol ... ok
+test mutation::tests::valid_real_ball_certificate_lemma_proves_ground_claims ... ok
+test mutation::tests::substitution_refuses_non_alpha_derivative_variable_renaming ... ok
+test mutation::tests::substitution_renames_derivative_variable_when_symbolic ... ok
+test mutation::tests::pythagorean_identity_proves_folded_pairs_and_kills_mutants ... ok
+test mutation::tests::domain_generator_flood_is_refused_by_claim_preflight ... ok
+test mutation::tests::substitution_congruence_verified ... ok
+test mutation::tests::valid_derivation_chain_succeeds_and_verifies_independently ... ok
+test mutation::tests::oversized_real_ball_certificate_is_refused_by_preflight ... ok
+test mutation::tests::real_ball_power_growth_is_refused_before_oversized_multiplication ... ok
+test mutation::tests::mutant_derivation_step_flood_is_refused ... ok
+
+test result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+
+running 13 tests
+test changed_context_root_changes_the_claim_identity ... ok
+test changed_domain_is_refused ... ok
+test extra_product_term_is_refuted ... ok
+test duplicate_id_with_different_bytes_is_refused ... ok
+test missing_object_is_refused ... ok
+test exhaustion_is_inconclusive_not_rejection ... ok
+test missing_subject_constant_with_matching_higher_terms_is_refuted ... ok
+test incomplete_factor_list_is_refuted_not_accepted ... ok
+test malformed_lengths_and_trailing_bytes_are_refused ... ok
+test zero_subject_versus_nonzero_constant_is_refuted ... ok
+test forged_verified_flag_cannot_be_smuggled_into_the_schema ... ok
+test zero_subject_verifies_against_an_exactly_zero_product ... ok
+test valid_capsule_verifies_and_binds_its_claim_root ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 18 tests
+test binding::tests::a_binding_without_facts_stays_a_plain_symbol ... ok
+test tests::test_assumptions_bindings ... ok
+test tests::test_py_sets ... ok
+test tests::test_py_bool_expr ... ok
+test binding::tests::identity_depends_only_on_declared_facts ... ok
+test tests::test_py_geometry ... ok
+test binding::tests::distinct_declarations_never_share_a_typed_identity ... ok
+test tests::test_tensor_bindings ... ok
+test tests::test_py_definite_integral_and_laplace ... ok
+test tests::test_py_expr_substitution ... ok
+test tests::test_ode_extended_and_poly_system ... ok
+test tests::test_poly_bindings ... ok
+test tests::python_integer_bridge_preserves_arbitrary_precision_and_preflights_size ... ok
+test tests::test_py_expr_differentiation_and_latex ... ok
+test tests::native_numeric_getters_do_not_launder_normalization_overflow ... ok
+test tests::test_py_matrix_operations ... ok
+test tests::test_py_expr_structural_args_and_properties ... ok
+test tests::test_py_solvers_and_ntheory ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+
+running 46 tests
+test tests::continued_fraction_growth_topology_is_geometric_and_capped ... ok
+test tests::classified_fast_terminals_checkpoint_without_charging_work ... ok
+test tests::binary32_conversion_balances_large_coefficients_and_rounds_boundaries ... ok
+test tests::continued_fraction_growth_refuses_before_reserve_and_reports_allocator_failure ... ok
+test tests::binary64_conversion_balances_large_coefficients_and_rounds_boundaries ... ok
+test tests::continued_fractions_use_floor_semantics_and_round_trip ... ok
+test tests::deserialization_rejects_noncanonical_raw_ratios ... ok
+test tests::cross_cancelled_rem_panics_on_zero_rhs_matching_docstring - should panic ... ok
+test tests::cross_cancelled_div_panics_on_zero_rhs_matching_docstring - should panic ... ok
+test tests::binary32_conversion_matches_small_float_ratios ... ok
+test tests::height_reports_exact_canonical_coefficient_bits ... ok
+test tests::exact_sqrt_tests ... ok
+test tests::integer_conversions_to_128_bit_primitives_preserve_endpoints_and_truncation ... ok
+test tests::invariant_refusals_observe_one_terminal_checkpoint ... ok
+test tests::governed_signed_power_handles_reciprocals_refusal_budget_and_cancellation ... ok
+test tests::metered_continued_fractions_match_and_obey_budget ... ok
+test tests::metered_expansion_allocates_for_actual_sparse_output ... ok
+test tests::metered_expansion_enforces_the_logical_coefficient_bound ... ok
+test tests::metered_scalar_lanes_match_owned_operators_and_refuse_zero_divisors ... ok
+test tests::metered_expansion_cancels_at_every_observed_safe_point ... ok
+test tests::governed_comparison_topology_distinguishes_deep_chains_from_early_decisions ... ok
+test tests::modular_reconstruction_wraps_only_canonical_bounded_results ... ok
+test tests::governed_constructor_refuses_zero_and_pins_resource_topology ... ok
+test tests::continued_fraction_lanes_support_late_cancellation ... ok
+test tests::metered_scalar_lanes_refuse_budget_and_terminal_cancellation ... ok
+test tests::i128_and_u128_primitive_conversions_round_trip_exact_integers ... ok
+test tests::owned_rational_is_canonical_and_supports_arithmetic ... ok
+test tests::radix_parser_inherits_bigint_admission_without_unwinding ... ok
+test tests::owned_operator_and_assignment_paths_use_canonical_cross_cancelled_results ... ok
+test tests::governed_comparison_matches_order_and_enforces_resources_and_cancellation ... ok
+test tests::ordinary_signed_power_is_total_and_matches_the_governed_owner ... ok
+test tests::serialization_preserves_the_canonical_pair_wire_shape ... ok
+test tests::metered_modular_reconstruction_checks_before_every_publication_class ... ok
+test tests::rational_order_matches_independent_i128_cross_products ... ok
+test tests::ordinary_and_metered_signed_powers_agree_and_remain_canonical ... ok
+test tests::governed_constructor_normalizes_sign_reduction_and_large_coefficients ... ok
+test tests::binary64_conversion_matches_exact_small_coefficient_division ... ok
+test tests::normalization_is_value_preserving_and_coprime ... ok
+test tests::rational_string_decoders_refuse_oversize_components_before_parse ... ok
+test tests::generalized_integer_continued_fractions_remain_canonical ... ok
+test tests::signed_abs_sub_uses_the_stack_safe_wrapper_ordering ... ok
+test tests::governed_constructor_matches_independent_i128_normalization ... ok
+test tests::modular_reconstruction_round_trips_unique_small_rationals ... ok
+test tests::continued_fraction_round_trips_broad_signed_rationals ... ok
+test tests::owned_and_metered_scalar_lanes_match_naive_canonical_arithmetic ... ok
+test tests::ordering_equality_and_hash_are_iterative_on_deep_euclidean_chains ... ok
+
+test result: ok. 46 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.72s
+
+
+running 110 tests
+test cx::tests::verifier_pool_is_single_lease_and_generator_independent ... ok
+test cx::tests::child_consumption_is_reconciled_without_budget_reset ... ok
+test cx::tests::charges_flow_through_the_domain_budget ... ok
+test cx::tests::cancellation_delegates_to_the_wrapped_context ... ok
+test cx::tests::budget_meter_trait_charges_and_reports_cancellation ... ok
+test monitor::tests::crossing_the_tail_bound_alarms_once_and_stays_alarmed ... ok
+test monitor::tests::corrupt_state_faults_instead_of_alarming ... ok
+test monitor::tests::failures_are_observations_and_never_silently_dropped ... ok
+test monitor::tests::snapshot_resume_continues_the_same_wealth ... ok
+test monitor::tests::spec_validation_is_fail_closed ... ok
+test monitor::tests::wealth_is_exactly_the_likelihood_ratio_product ... ok
+test ledger::tests::rejected_appends_do_not_mutate_chain_state ... ok
+test monitor::tests::reset_opens_a_generation_and_preserves_history ... ok
+test ledger::tests::tampering_is_detected_by_typed_validation ... ok
+test checkpoint::tests::duplicate_payload_keys_are_refused_instead_of_collapsed ... ok
+test ledger::tests::checkpoint_storage_rejects_duplicate_payload_keys ... ok
+test portfolio::tests::concurrent_singleton_is_a_typed_configuration_refusal ... ok
+test checkpoint::tests::remaining_budget_is_integrity_bound ... ok
+test ledger::tests::checkpoint_verification_binds_the_exact_stored_serialization ... ok
+test checkpoint::tests::unordered_payload_maps_have_stable_digests_and_roundtrip ... ok
+test checkpoint::tests::schema_identity_is_mandatory_and_integrity_bound ... ok
+test fmap::tests::wrong_expected_root_is_a_typed_mismatch ... ok
+test portfolio::tests::concurrent_race_all_fail_returns_typed_error ... ok
+test fmap::tests::tampered_bundle_is_refused_by_the_kernel_verifier ... ok
+test fmap::tests::reordered_trace_metadata_cannot_change_the_roots ... ok
+test portfolio::tests::fallback_never_resets_parent_budget ... ok
+test portfolio::tests::empty_portfolio_is_a_typed_configuration_refusal ... ok
+test portfolio::tests::concurrent_worker_checkpoint_observes_owner_cancellation ... ok
+test portfolio::tests::oversized_requested_claim_is_a_paid_refusal_before_generation ... ok
+test portfolio::tests::concurrent_race_verifies_before_selecting_a_fallback ... ok
+test portfolio::tests::rejected_candidate_falls_back_without_refunding_consumed_work ... ok
+test portfolio::tests::rejects_claim_that_is_not_the_verified_derivation_root ... ok
+test portfolio::tests::concurrent_generator_panic_is_contained_and_budget_is_reconciled ... ok
+test portfolio::tests::rejects_valid_but_irrelevant_claim ... ok
+test portfolio::tests::rejects_result_that_is_not_bound_to_the_verified_claim ... ok
+test fmap::tests::bundle_round_trips_through_json ... ok
+test portfolio::tests::repeated_portfolios_reuse_the_regions_single_verifier_capability ... ok
+test portfolio::tests::real_factor_cancellation_after_verifier_refuses_publication ... ok
+test portfolio::tests::verifier_pool_exhaustion_is_not_misreported_as_candidate_rejection ... ok
+test protocol::tests::discarded_fork_is_replaced_by_typed_refusal ... ok
+test portfolio::tests::sequential_generator_panic_is_contained_and_budget_is_reconciled ... ok
+test protocol::tests::expression_views_are_bounded_even_for_preloaded_workspace_state ... ok
+test protocol::tests::parser_constants_cannot_be_published_as_unreachable_bindings ... ok
+test protocol::tests::oversized_and_unknown_requests_fail_before_mutation ... ok
+test publication::tests::poisoned_channel_refuses_until_restored ... ok
+test publication::tests::missing_history_entry_is_a_typed_refusal ... ok
+test protocol::tests::structural_renderer_matches_display_and_stops_inside_large_children ... ok
+test remote_worker::tests::bounded_wire_decoder_roundtrips_a_valid_candidate ... ok
+test remote_worker::tests::refuses_oversized_coordinator_assignment_before_comparison ... ok
+test remote_worker::tests::rejects_valid_but_irrelevant_remote_result ... ok
+test remote_worker::tests::rejects_result_not_bound_to_verified_claim ... ok
+test remote_worker::tests::rejects_wrong_task_before_inspecting_derivation ... ok
+test portfolio::tests::zassenhaus_quartic_product_passes_scoped_independent_verification ... ok
+test remote_worker::tests::verifier_errors_do_not_echo_untrusted_formulas ... ok
+test repair::tests::empty_payload_round_trips_and_invalid_sizes_do_not_panic ... ok
+test repair::tests::insufficient_repair_symbols_fail_typed ... ok
+test portfolio::tests::invalid_fast_real_candidate_cannot_publish_before_slower_verified_one ... ok
+test portfolio::tests::factor_race_continuation_resume_accepts_on_same_live_ledger_only ... ok
+test publication::tests::renewed_lease_invalidates_the_old_epoch ... ok
+test replay::tests::duplicate_or_out_of_order_indices_cannot_be_resealed ... ok
+test replay::tests::dimension_charges_are_integrity_bound ... ok
+test replay::tests::record_event_refuses_empty_dimension_charges ... ok
+test replay::tests::replay_names_are_nonempty_schema_identifiers ... ok
+test replay::tests::total_payload_counter_is_integrity_bound ... ok
+test publication::tests::unverified_candidate_cannot_publish ... ok
+test replay::tests::validate_events_rejects_zero_impact_event_in_deserialized_log ... ok
+test rng::tests::different_seeds_diverge ... ok
+test repair::tests::unknown_duplicate_and_malformed_packets_fail_closed ... ok
+test rng::tests::fill_bytes_handles_partial_words ... ok
+test rng::tests::paths_are_domain_separated_including_prefixes ... ok
+test rng::tests::below_rejects_zero_and_avoids_modulo_bias_bounds ... ok
+test rng::tests::seek_replays_exact_positions ... ok
+test rng::tests::same_seed_and_path_reproduce_identical_sequences ... ok
+test repair::tests::corrupt_source_and_repair_packets_are_rejected_before_codec_entry ... ok
+test replay::tests::payload_mutation_is_detected_without_a_reference_log ... ok
+test publication::tests::stale_lease_epoch_cannot_publish ... ok
+test tests::runtime_budget_default_matches_the_harness_contract ... ok
+test rng::tests::f64_output_stays_in_unit_interval ... ok
+test tests::test_audit_event_hash ... ok
+test tests::test_negative_corpus_semantic_conflict_merge_rejected ... ok
+test tests::test_ephemeral_ledger_hash_chain_and_checkpoints ... ok
+test tests::test_portfolio_race_with_winner_verification ... ok
+test tests::test_paired_benchmark_with_semantic_admission ... ok
+test tests::test_portfolio_rejects_forged_candidate_winner ... ok
+test tests::test_remote_worker_candidate_verification_and_adversarial_rejection ... ok
+test portfolio::tests::factor_race_two_real_strategies_verify_same_product_claim ... ok
+test tests::test_ndjson_protocol_dispatch ... ok
+test rng::tests::stream_ids_distinguish_distinct_derivations ... ok
+test protocol::tests::refused_binding_does_not_publish_partial_state ... ok
+test remote_worker::tests::bounded_wire_decoder_rejects_oversized_and_unknown_fields ... ok
+test tests::test_raptorq_repair_recovery_and_digest_validation ... ok
+test tests::test_typed_checkpoint_integrity ... ok
+test workspace::tests::patch_refuses_ambiguous_edit_without_mutation ... ok
+test tests::test_replay_log_reproduces_digest_bit_for_bit ... ok
+test tests::test_workspace_fork_and_clean_merge ... ok
+test tests::test_semantic_graph_indexing_and_cycle_detection ... ok
+test workspace::tests::aggregate_dag_limit_maps_to_workspace_resource_refusal ... ok
+test workspace::tests::merge_refuses_different_assumption_context_without_mutation ... ok
+test workspace::tests::merge_requires_structural_binding_identity_without_a_certificate ... ok
+test workspace::tests::receipt_digest_binds_post_merge_content ... ok
+test workspace::tests::repeated_merge_is_idempotent_for_imported_derivations ... ok
+test workspace::tests::receipt_digest_is_independent_of_hash_map_insertion_order ... ok
+test portfolio::tests::durable_checkpoint_resume_refuses_every_mismatch_class ... ok
+test tests::test_standard_ws22_suite_execution ... ok
+test replay::tests::real_factor_race_reexecution_matches_observed_transcript_and_accounting ... ok
+test portfolio::tests::concurrent_race_winner_verified_and_published ... ok
+test repair::tests::raptorq_recovers_multiple_loss_patterns ... ok
+test protocol::tests::response_encoder_limit_fallback_is_typed_valid_json ... ok
+test checkpoint::tests::oversized_payload_is_refused_before_canonical_tree_construction ... ok
+test fmap::tamper_fuzz_tests::bundle_tamper_fuzz_never_panics_and_never_forges ... ok
+
+test result: ok. 110 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.57s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 5 tests
+test test_c10_candidate_vs_accepted_separation ... ok
+test test_c10_workspace_fork_and_patch_atomicity ... ok
+test test_c10_semantic_merge_negative_corpus ... ok
+test test_c10_transcript_free_session_replay_determinism ... ok
+test test_c10_ndjson_protocol_wire_and_resource_bounds ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 6 tests
+test test_c9_persistence_disabled_semantic_equivalence ... ok
+test test_c9_ledger_hash_chain_and_checkpoint_linkage ... ok
+test test_c9_crash_injection_at_publication_steps ... ok
+test test_c9_schema_and_digest_tamper_refuses_resume ... ok
+test test_c9_repaired_content_requires_independent_proof_verification ... ok
+test test_c9_raptorq_multi_loss_repair_and_digest_validation ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 5 tests
+test test_cancellation_matrix_before_reservation ... ok
+test test_cancellation_replay_log_deterministic_bit_for_bit ... ok
+test real_factor_generators_exhaust_budget_without_spending_verifier_reserve ... ok
+test test_cancellation_matrix_before_verifier ... ok
+test real_factor_cancellation_at_charged_batch_drains_delayed_sibling_and_callback ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 5 tests
+test resets_renew_the_bound_without_erasing_history ... ok
+test failures_move_the_monitor_and_are_never_dropped ... ok
+test snapshot_round_trip_continues_the_identical_stream ... ok
+test the_monitor_has_power_against_a_drifted_stream ... ok
+test anytime_validity_holds_under_the_null ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+
+running 12 tests
+test a_failure_only_stream_alarms_and_lands_in_its_own_buckets ... ok
+test an_inflated_snapshot_wealth_still_re_evaluates_the_bound_honestly ... ok
+test fault_policy_recommends_increase_sampling_and_never_alarms ... ok
+test drift_at_the_alternative_rate_is_detected_quickly ... ok
+test alarm_is_one_way_within_a_generation ... ok
+test reset_zeroes_wealth_but_preserves_every_cumulative_counter ... ok
+test every_failure_kind_is_charged_in_its_own_counter ... ok
+test registered_actions_are_exactly_the_registered_strings ... ok
+test resume_refuses_a_foreign_monitor_id_and_invalid_spec ... ok
+test resumed_stream_is_identical_to_a_never_interrupted_one ... ok
+test wealth_crosses_the_ville_threshold_exactly_at_ln_4_contribution ... ok
+test null_alarm_rate_is_bounded_by_alpha ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+
+running 10 tests
+test missing_retention_history_refuses ... ok
+test event_reordering_breaks_replay_integrity ... ok
+test assumption_context_mismatch_refuses_the_merge ... ok
+test overlapping_binding_conflict_refuses_the_merge ... ok
+test unverified_derivation_blocks_the_merge ... ok
+test poisoned_flag_and_unverified_candidates_cannot_publish ... ok
+test altered_base_state_diverges_the_replayed_certificate ... ok
+test frozen_corpus_replays_to_matching_roots_in_process ... ok
+test fresh_process_cli_refuses_a_forged_certificate ... ok
+test fresh_process_cli_replays_the_frozen_corpus ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+
+running 4 tests
+test test_remote_worker_wire_decoding_bounds_and_unknown_fields ... ok
+test test_semantic_graph_indexing_and_rebuildability ... ok
+test test_zero_cache_pollution_under_adversarial_stream ... ok
+test test_remote_worker_candidate_acceptance_and_adversarial_rejection ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 5 tests
+test test_ws22_semantic_admission_precedes_timing_and_rejects_divergence ... ok
+test test_ws22_adversarial_tampered_samples_digest_refusal ... ok
+test test_ws22_aa_control_null_hypothesis_verification ... ok
+test test_ws22_paired_benchmark_distribution_and_percentiles ... ok
+test test_ws22_standard_suite_admitted_kernels ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 21 tests
+test tests::empty_aggregate_variants_obey_set_identities ... ok
+test tests::interval_measure_requires_proven_extended_real_order ... ok
+test tests::numerically_empty_intervals_are_false_before_element_evaluation ... ok
+test tests::symbolic_finite_set_membership_remains_unknown ... ok
+test tests::test_checked_interval_rejects_inverted_bounds ... ok
+test tests::test_complement_boundaries_and_involution ... ok
+test tests::test_de_morgan_complements_agree_on_membership ... ok
+test tests::test_difference_punches_holes ... ok
+test tests::test_disjoint_relations ... ok
+test tests::test_extended_real_subset_and_disjoint ... ok
+test tests::test_finite_set_and_interval ... ok
+test tests::test_half_open_intervals_and_symmetric_difference ... ok
+test tests::real_topology_refuses_non_real_or_unresolved_points ... ok
+test tests::test_interval_with_symbolic_bounds_undecidable ... ok
+test tests::test_is_empty_set ... ok
+test tests::test_finite_set_double_complement_is_identity ... ok
+test tests::test_subset_and_superset_relations ... ok
+test tests::test_topological_open_closed_and_compact_predicates ... ok
+test tests::test_topological_interior_closure_and_boundary ... ok
+test tests::test_membership_finite_and_intervals ... ok
+test tests::test_set_measure ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 28 tests
+test rewrite::guard_tests::exp_log_inverse_with_entailed_false_positive_stays_guarded ... ok
+test rewrite::guard_tests::pow_zero_entailed_nonzero_discharges ... ok
+test rewrite::guard_tests::pow_zero_with_undischarged_condition_stays_guarded ... ok
+test rewrite::guard_tests::pow_zero_literal_discharges_without_assumptions ... ok
+test tests::budgeted_simplify_stops_atomically_at_safe_points ... ok
+test tests::expand_binomial_beyond_envelope_is_typed_refusal ... ok
+test tests::mutant_tampered_envelope_claim_fails_verification ... ok
+test tests::rewrite_catalog_applies_rules ... ok
+test tests::test_simplify_basic ... ok
+test tests::simplify_preserves_non_pythagorean_adds ... ok
+test tests::test_simplify_mul_zero ... ok
+test tests::test_expand_square_of_sum ... ok
+test rewrite::guard_tests::registry_guard_refuses_undisciplined_transform ... ok
+test tests::test_extended_elementary_simplifications ... ok
+test tests::verified_simplify_produces_valid_receipt_and_independent_verification ... ok
+test tests::expand_small_powers_still_fold ... ok
+test tests::verified_simplify_proves_pythagorean_folds_with_dedicated_rule ... ok
+test tests::simplify_does_not_erase_partial_or_indeterminate_zero_factors ... ok
+test tests::simplify_folds_pythagorean_pairs ... ok
+test tests::rewrite_catalog_carries_pythagorean_and_inverse_rules ... ok
+test tests::test_verified_simplify_mul_zero_with_derivation_and_mutants_killed ... ok
+test tests::expand_symbolic_exponent_stays_symbolic ... ok
+test tests::verified_simplify_supports_elementary_functions ... ok
+test tests::verified_simplify_uses_the_dedicated_trig_zero_rule ... ok
+test tests::power_simplification_requires_a_known_zero_base_exponent ... ok
+test tests::expansion_refuses_combinatorial_term_growth_before_allocation ... ok
+test tests::normal_form_is_idempotent ... ok
+test tests::expand_binomial_power_twenty_matches_binomial_row ... ok
+
+test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+
+running 25 tests
+test tests::ode_constants_and_residual_verifiers_fail_closed ... ok
+test tests::solve_poly_rejects_malformed_dense_representations ... ok
+test tests::residual_verifiers_fail_closed_on_oversized_candidates ... ok
+test tests::ode_solver_and_residual_checker_refuse_overflows_and_false_positives ... ok
+test tests::polynomial_solver_degenerate_outcomes_and_distinct_roots ... ok
+test tests::test_dsolve_linear_first_order_and_verification ... ok
+test tests::test_dsolve_cauchy_euler_and_verification ... ok
+test tests::test_dsolve_const_coeff_second_order_and_verification ... ok
+test tests::test_solve_linear_numeric ... ok
+test tests::test_solve_linear_poly ... ok
+test tests::test_solve_2var_poly_system ... ok
+test tests::test_solve_higher_degree_poly_via_factorization ... ok
+test tests::test_solve_linear_rational_coefficient ... ok
+test tests::two_variable_solver_refuses_wrong_ring_shape_and_order ... ok
+test tests::test_solve_poly_quadratic_exact_and_symbolic ... ok
+test tests::test_solve_linear_symbolic_constant ... ok
+test tests::test_first_order_ode_solving_and_verification ... ok
+test tests::test_solve_quadratic_and_solve_dispatch ... ok
+test tests::generated_constant_coefficient_families_are_exactly_verifiable ... ok
+test tests::test_verify_linear_first_order_solution ... ok
+test tests::two_variable_solver_rejects_noncanonical_zero_coefficients ... ok
+test tests::test_solve_linear_rejects_nonlinear ... ok
+test tests::two_variable_solver_preflights_elimination_degree_before_allocation ... ok
+test tests::two_variable_solver_refuses_nonlinear_back_substitution ... ok
+test tests::test_nonhomogeneous_second_order_ode_solving_and_verification ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+
+running 13 tests
+test tests::concrete_variance_changes_require_a_metric ... ok
+test tests::diagonal_metric_inverts_nonunit_exact_entries ... ok
+test tests::malformed_public_component_storage_is_rejected_before_indexing_or_export ... ok
+test tests::test_tensor_component_einstein_trace_and_matrix_multiplication ... ok
+test tests::test_index_variance_flip_is_an_involution ... ok
+test tests::test_metric_tensor_raising_lowering_and_spacetime_interval ... ok
+test tests::test_tensor_dimension_and_count_validation ... ok
+test tests::diagonal_metric_refuses_exact_zero_without_unwinding ... ok
+test tests::test_tensor_indices_and_contraction ... ok
+test tests::test_metric_index_raising_lowering_rejects_rank_variance_and_dimension ... ok
+test tests::outer_product_refuses_component_amplification_before_allocating_output ... ok
+test tests::component_shape_limits_are_checked_before_recursive_work ... ok
+test tests::outer_product_preserves_the_aggregate_component_expression_limit ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+
+running 3 tests
+test tests::readers_preserve_boundary_values_and_errors ... ok
+test tests::readers_enforce_actual_stream_length ... ok
+test tests::readers_propagate_io_errors ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+test tests::unique_keys_preserve_values_and_are_scoped_to_each_object ... ok
+test tests::duplicate_keys_and_malformed_or_excessively_nested_json_fail_closed ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 4 tests
+test execution_tests::child_execution_control ... ok
+test execution_tests::interleaved_receipt_writers_cannot_modify_each_others_publication ... ok
+test execution_tests::required_artifacts_are_captured_or_recorded_as_failed ... ok
+test execution_tests::actual_child_test_execution_and_zero_run_have_different_verdicts ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 16 tests
+test mutant_unknown_gate_is_rejected ... ok
+test mutant_unknown_field_is_rejected_fail_closed ... ok
+VALID /data/tmp/xtask-source-3844129-1789789299030215770/artifact-receipts/case-dc559e0c094012f6.json gate=ws22-performance status=passed checks=8
+test mutant_empty_checks_is_rejected ... ok
+test metadata_change_without_resealing_is_rejected ... ok
+test matching_command_with_zero_tests_is_rejected ... ok
+VALID /data/tmp/xtask-validator-integration-command/case-5a465e4cacdb2773.json gate=ws12-certified-jacobian status=passed checks=6
+VALID /data/tmp/xtask-validator-accept/good.json gate=foundation status=passed checks=9
+test well_formed_receipt_is_accepted ... ok
+test duplicate_receipt_members_are_rejected_before_digest_validation ... ok
+test mutant_tampered_check_status_is_rejected ... ok
+test mutant_tampered_digest_is_rejected ... ok
+test integration_test_target_is_bound_to_its_check ... ok
+test artifact_contract_cannot_be_omitted_or_downgraded ... ok
+test duplicate_child_command_members_are_rejected_even_when_receipt_is_resealed ... ok
+test resigned_command_substitution_is_rejected ... ok
+test required_artifact_bytes_are_bound_independently_of_receipt_digests ... ok
+VALID /data/tmp/xtask-validator-binding-mutants/case-fbd2019319117a34.json gate=foundation status=failed checks=9
+test resigned_metadata_missing_check_zero_run_and_failed_gate_are_rejected ... ok
+test root_cargo_inputs_invalidate_stale_receipts ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test crates/fsym-capsule-consumer/src/lib.rs - (line 15) - compile ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+all doctests ran in 0.24s; merged doctests compilation took 0.24s
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

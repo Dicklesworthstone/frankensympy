@@ -1,0 +1,8 @@
+euler => 'I*sin(x) + cos(x)'
+num_den_mixed => ('x + y + z', 'y')
+num_den_recip => ('x + y', 'x*y')
+solve_0_noflag => '[]'
+solve_1_noflag => '[]'
+solve_linear_dummies => ('_a', '-_m - _z')
+solve_set => (['x'], set())
+x-x => '0'

@@ -145,6 +145,11 @@ pub fn solve_poly(poly: &UnivariatePoly) -> Result<Vec<Expr>, SolverError> {
             if let Some(sqrt_disc_rat) = disc.exact_sqrt() {
                 let r1_rat = (-c1 + &sqrt_disc_rat) / &two_a_rat;
                 let r2_rat = (-c1 - sqrt_disc_rat) / two_a_rat;
+                // Pinned oracle behavior: exact rational roots enumerate in
+                // ascending order (upstream all_roots), so the +/- pair is
+                // ordered by value, not by the sign of the discriminant
+                // square (fra-g4w repeated-rational-roots slice).
+                let ascending = r1_rat <= r2_rat;
                 let e1 = if r1_rat.is_integer() {
                     Expr::Integer(r1_rat.to_integer())
                 } else {
@@ -155,7 +160,10 @@ pub fn solve_poly(poly: &UnivariatePoly) -> Result<Vec<Expr>, SolverError> {
                 } else {
                     Expr::Rational(r2_rat)
                 };
-                return Ok(vec![e1, e2]);
+                if ascending {
+                    return Ok(vec![e1, e2]);
+                }
+                return Ok(vec![e2, e1]);
             }
             let neg_b = Expr::Rational(-c1.clone());
             let two_a = Expr::Rational(two_a_rat);
@@ -494,6 +502,7 @@ pub fn solve_quadratic(expr: &Expr, var: &Symbol) -> Result<Vec<Expr>, SolverErr
         if let Some(sqrt_disc) = disc.exact_sqrt() {
             let r1 = (-&rb + &sqrt_disc) / &two_a;
             let r2 = (-&rb - &sqrt_disc) / &two_a;
+            let ascending = r1 <= r2;
             let e1 = if r1.is_integer() {
                 Expr::Integer(r1.to_integer())
             } else {
@@ -507,7 +516,14 @@ pub fn solve_quadratic(expr: &Expr, var: &Symbol) -> Result<Vec<Expr>, SolverErr
             if e1 == e2 {
                 return Ok(vec![e1]);
             }
-            return Ok(vec![e1, e2]);
+            // Pinned oracle behavior: exact rational roots enumerate in
+            // ascending order (upstream all_roots), ordered by value rather
+            // than by the sign of the discriminant square (fra-g4w
+            // repeated-rational-roots slice).
+            if ascending {
+                return Ok(vec![e1, e2]);
+            }
+            return Ok(vec![e2, e1]);
         }
         let neg_b = Expr::Rational(-rb);
         let disc_expr = Expr::Rational(disc);
@@ -1274,7 +1290,8 @@ mod tests {
             ],
         );
         let roots1 = solve_poly(&p1).unwrap();
-        assert_eq!(roots1, vec![Expr::from_i64(3), Expr::from_i64(2)]);
+        // Pinned oracle order: ascending exact roots (solve(x^2-5x+6) == [2, 3]).
+        assert_eq!(roots1, vec![Expr::from_i64(2), Expr::from_i64(3)]);
 
         // 2. Exact rational roots: 4x^2 - 1 = (2x - 1)(2x + 1) = 0 -> x = ±1/2
         let p2 = UnivariatePoly::new(
@@ -1286,11 +1303,12 @@ mod tests {
             ],
         );
         let roots2 = solve_poly(&p2).unwrap();
+        // Pinned oracle order: solve(4x^2-1) == [-1/2, 1/2].
         assert_eq!(
             roots2,
             vec![
-                Expr::Rational(BigRational::new(1.into(), 2.into())),
                 Expr::Rational(BigRational::new((-1).into(), 2.into())),
+                Expr::Rational(BigRational::new(1.into(), 2.into())),
             ]
         );
 
@@ -1332,11 +1350,12 @@ mod tests {
         ]);
 
         let roots = solve_quadratic(&eq_quad, &x).unwrap();
-        assert_eq!(roots, vec![Expr::from_i64(3), Expr::from_i64(-2)]);
+        // Pinned oracle order: solve(x^2-x-6) == [-2, 3].
+        assert_eq!(roots, vec![Expr::from_i64(-2), Expr::from_i64(3)]);
 
         // Test generic solve dispatch on quadratic
         let solve_roots = solve(&eq_quad, &x).unwrap();
-        assert_eq!(solve_roots, vec![Expr::from_i64(3), Expr::from_i64(-2)]);
+        assert_eq!(solve_roots, vec![Expr::from_i64(-2), Expr::from_i64(3)]);
 
         // Test generic solve dispatch on linear: 5x - 15 = 0
         let eq_lin = Expr::Add(vec![
