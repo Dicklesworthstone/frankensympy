@@ -1,9 +1,17 @@
 {
-  "schema_version": 1,
+  "schema_version": 3,
   "gate": "ws11-certified-numeric",
   "profile_id": "sympy-1.14.0-cpython",
   "status": "passed",
-  "commit": "d3fa70aa6deb063fdbed966d754828c5ecefa91b",
+  "commit": "76ce7c7240aa10c496e357162b7e29ee78ceb4c1",
+  "source": {
+    "commit": "76ce7c7240aa10c496e357162b7e29ee78ceb4c1",
+    "tree": "103de60b4980e6f4b515b1a0b3cb7e05da9dd527",
+    "inputs_digest": "ddafe44fa03f4d4727f4bdf352906759ff6ad76f87a80184a135255a604f3aa4",
+    "files": 373
+  },
+  "profile_digest": "1d73baa075515e7908bc78e2ec999397b1714974cfd4e8e4debc184c475dc88d",
+  "artifact_digests": {},
   "checks": [
     {
       "name": "workspace-forbids-unsafe",
@@ -13,18 +21,29 @@
     {
       "name": "test-directed-rounding-mutation",
       "status": "passed",
-      "detail": "exit=0"
+      "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-core\",\"--test\",\"directed_rounding_mutation\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 16 tests\\n................\\ntest result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
     },
     {
       "name": "tests-fsym-core",
       "status": "passed",
-      "detail": "exit=0"
+      "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-core\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 108 tests\\n....................................................................................... 87/108\\n.....................\\ntest result: ok. 108 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 37.03s\\n\\n\\nrunning 0 tests\\n\\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 4 tests\\n....\\ntest result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 16 tests\\n................\\ntest result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 0 tests\\n\\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
     },
     {
       "name": "tests-fsym-proof-kernel",
       "status": "passed",
-      "detail": "exit=0"
+      "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-proof-kernel\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 40 tests\\n........................................\\ntest result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s\\n\\n\\nrunning 13 tests\\n.............\\ntest result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 0 tests\\n\\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
+    },
+    {
+      "name": "source-stable-during-run",
+      "status": "passed",
+      "detail": "repository input snapshot compared before and after checks"
+    },
+    {
+      "name": "profile-input-bound",
+      "status": "passed",
+      "detail": "1d73baa075515e7908bc78e2ec999397b1714974cfd4e8e4debc184c475dc88d"
     }
   ],
-  "checks_digest": "7e5297109be0eaa2f0e60058d1e0795c608f41821195b1a573d53f7de2993d12"
+  "checks_digest": "457c9878916a9920fa7972dc0d40b37e4c44a860099085b4769fb82c34a41f3a",
+  "receipt_digest": "95dcc2a3d53522914d27b733e045655289f57d23a8f5dedcc9e40c0fdebc16f2"
 }
