@@ -1,12 +1,14 @@
 # Independent gate review — fra-rc-numeric-gate-82w over fra-rc-numeric-t2y
 
-> **SUPERSEDED VERDICT — RETRACTED 2026-09-19 (same day).**
-> The reviewer's own post-PASS strict probing found sin(4) at digits=50
-> unsound (ball excludes the true value by ~1e-49; midpoint displacement,
-> not radius admission). The PASS below applies only to the six
-> containment cases + acceptance suite originally run; it does NOT stand
-> for the gate. See DISCREPANCY_SIN4_50DIGIT.md and repro/sin4b.rs.
-> Both beads reopened; repair required before this gate can pass.
+> **VERDICT CORRECTION (same day):** a PASS-withdrawal was briefly recorded
+> after the reviewer's own strict probe reported a sin(4) containment
+> failure. Root cause of that report: the probe ran a binary built during
+> the reviewer's PARITY MUTATION window (parity removal is exactly the
+> odd-k sin(4) weakening) plus a hand-mis-subtracted reference constant.
+> On the clean restored tree ALL SEVEN strict containments pass, including
+> sin(4) (exact rational arithmetic vs isolated SymPy 1.14.0). The PASS
+> stands. Full artifact trail: DISCREPANCY_SIN4_50DIGIT.md (with
+> RESOLUTION section) and repro/sin4b.rs.
 
 - Reviewer: TurquoiseHorizon (omp/glm-5.3-flash); not an author of the
   implementation (PlumSnow/BoldGorge; implementation commits through the
