@@ -22,7 +22,12 @@ uses = ["core", "alloc", "std"]
 id = "asupersync"
 class = "frankensuite"
 repository = "Dicklesworthstone/asupersync"
-commit = "3cb2dc6d0540a961345e61bc9f89b4e930cbb8cf"
+# Updated from 3cb2dc6d0540a961345e61bc9f89b4e930cbb8cf: the shared sibling
+# checkout advanced to b3e08ac0b (0.5.0 -> 0.6.0) on 2026-09-18, which is a
+# path dependency of this workspace, so the pin must record the commit the
+# workspace actually builds against. 0.6.0 verified by full workspace
+# check/test (artifacts/audit/ws15_durable_m5e_th1/QUALITY_CHAIN.txt).
+commit = "b3e08ac0bd773a5bbdd4f3c2f4624d550352ec0f"
 status = "planned_selective"
 portable_verifier_allowed = false
 
