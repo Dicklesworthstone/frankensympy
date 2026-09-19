@@ -69,10 +69,16 @@ fn wait_for_marker(base: &Path, stage: &str, timeout: Duration) -> bool {
     false
 }
 
-fn run_generate(store_root: &Path, boundary: &str, marker_base: &Path) -> std::process::Child {
+fn run_generate(
+    lane: &str,
+    store_root: &Path,
+    boundary: &str,
+    marker_base: &Path,
+) -> std::process::Child {
     worker()
         .args([
             "generate",
+            lane,
             &store_root.display().to_string(),
             boundary,
             &marker_base.display().to_string(),
@@ -83,10 +89,11 @@ fn run_generate(store_root: &Path, boundary: &str, marker_base: &Path) -> std::p
         .expect("spawn generate worker")
 }
 
-fn run_resume(store_root: &Path, marker_base: &Path, boundary: &str) -> Output {
+fn run_resume(lane: &str, store_root: &Path, marker_base: &Path, boundary: &str) -> Output {
     worker()
         .args([
             "resume",
+            lane,
             &store_root.display().to_string(),
             &marker_base.display().to_string(),
             boundary,
@@ -158,7 +165,7 @@ fn ephemeral_and_every_boundary_resume_produce_identical_results() {
         let store_root = unique_dir("store");
         let marker_base = store_root.join("marker.json");
 
-        let mut child = run_generate(&store_root, boundary, &marker_base);
+        let mut child = run_generate("file", &store_root, boundary, &marker_base);
         let reached = wait_for_marker(&marker_base, boundary, Duration::from_secs(120));
         let killed = child.kill().is_ok();
         let _ = child.wait();
@@ -171,7 +178,7 @@ fn ephemeral_and_every_boundary_resume_produce_identical_results() {
                 // a resume against the missing marker refuses typed.
                 assert!(committed_record_files(&store_root).is_empty());
                 assert!(staging_record_files(&store_root).is_empty());
-                let output = run_resume(&store_root, &marker_base, "committed");
+                let output = run_resume("file", &store_root, &marker_base, "committed");
                 assert!(
                     !output.status.success(),
                     "resume without any persisted record must fail"
@@ -185,7 +192,7 @@ fn ephemeral_and_every_boundary_resume_produce_identical_results() {
                 // Staged exactly once, not yet published.
                 assert_eq!(staging_record_files(&store_root).len(), 1, "{boundary}");
                 assert!(committed_record_files(&store_root).is_empty(), "{boundary}");
-                let output = run_resume(&store_root, &marker_base, boundary);
+                let output = run_resume("file", &store_root, &marker_base, boundary);
                 assert!(
                     output.status.success(),
                     "resume at {boundary} failed: {}",
@@ -198,7 +205,7 @@ fn ephemeral_and_every_boundary_resume_produce_identical_results() {
                 assert_eq!(committed_record_files(&store_root).len(), 1, "{boundary}");
                 // Duplicate resume is a safe no-op replay with an identical
                 // report and zero additional records.
-                let again = run_resume(&store_root, &marker_base, boundary);
+                let again = run_resume("file", &store_root, &marker_base, boundary);
                 assert!(again.status.success(), "duplicate resume must be safe");
                 assert_eq!(read_report(&marker_base), expected);
                 assert_eq!(committed_record_files(&store_root).len(), 1);
@@ -206,7 +213,7 @@ fn ephemeral_and_every_boundary_resume_produce_identical_results() {
             }
             "committed" => {
                 assert_eq!(committed_record_files(&store_root).len(), 1);
-                let output = run_resume(&store_root, &marker_base, boundary);
+                let output = run_resume("file", &store_root, &marker_base, boundary);
                 assert!(
                     output.status.success(),
                     "resume at committed failed: {}",
@@ -235,7 +242,7 @@ fn byte_loss_within_envelope_repairs_and_beyond_envelope_refuses() {
     // Produce a committed record with its repair sidecar.
     let store_root = unique_dir("loss");
     let marker_base = store_root.join("marker.json");
-    let mut child = run_generate(&store_root, "committed", &marker_base);
+    let mut child = run_generate("file", &store_root, "committed", &marker_base);
     assert!(wait_for_marker(
         &marker_base,
         "committed",
@@ -262,7 +269,7 @@ fn byte_loss_within_envelope_repairs_and_beyond_envelope_refuses() {
 
     // The store must now refuse on disk readback (digest mismatch), and a
     // resume attempt must fail without leaving anything behind.
-    let refused = run_resume(&store_root, &marker_base, "committed");
+    let refused = run_resume("file", &store_root, &marker_base, "committed");
     assert!(
         !refused.status.success(),
         "corrupted record must not resume"
@@ -300,7 +307,7 @@ fn byte_loss_within_envelope_repairs_and_beyond_envelope_refuses() {
     assert_eq!(repaired, original_wire, "repair must reproduce exact bytes");
     fs::write(record_path, &repaired).expect("restore repaired record");
 
-    let output = run_resume(&store_root, &marker_base, "committed");
+    let output = run_resume("file", &store_root, &marker_base, "committed");
     assert!(
         output.status.success(),
         "repaired record must resume: {}",
@@ -380,7 +387,7 @@ fn byte_loss_within_envelope_repairs_and_beyond_envelope_refuses() {
             "a wrong payload must never equal the original"
         );
     }
-    let refused = run_resume(&store_root, &marker_base, "committed");
+    let refused = run_resume("file", &store_root, &marker_base, "committed");
     assert!(
         !refused.status.success(),
         "records beyond the repair envelope must not resume"
@@ -399,7 +406,7 @@ const REPAIR_SYMBOL_COUNT_ESTIMATE: usize = 4;
 fn digest_consistent_false_proof_is_refused_by_mathematical_reverification() {
     let store_root = unique_dir("poison");
     let marker_base = store_root.join("marker.json");
-    let mut child = run_generate(&store_root, "committed", &marker_base);
+    let mut child = run_generate("file", &store_root, "committed", &marker_base);
     assert!(wait_for_marker(
         &marker_base,
         "committed",
@@ -474,7 +481,7 @@ fn digest_consistent_false_proof_is_refused_by_mathematical_reverification() {
     )
     .expect("install poisoned record");
 
-    let output = run_resume(&store_root, &marker_base, "committed");
+    let output = run_resume("file", &store_root, &marker_base, "committed");
     assert!(
         !output.status.success(),
         "a digest-consistent false proof must never publish; resume output: {}",
@@ -505,7 +512,7 @@ fn stale_universe_marker_refuses_and_leaves_no_records() {
     // resuming, and the store must be left untouched.
     let store_root = unique_dir("stale");
     let marker_base = store_root.join("marker.json");
-    let mut child = run_generate(&store_root, "committed", &marker_base);
+    let mut child = run_generate("file", &store_root, "committed", &marker_base);
     assert!(wait_for_marker(
         &marker_base,
         "committed",
@@ -529,7 +536,7 @@ fn stale_universe_marker_refuses_and_leaves_no_records() {
     )
     .expect("write stale marker");
 
-    let output = run_resume(&store_root, &marker_base, "committed");
+    let output = run_resume("file", &store_root, &marker_base, "committed");
     assert!(
         !output.status.success(),
         "a stale universe marker must not resume another universe's record"
@@ -584,7 +591,7 @@ fn generator_replacement_replay_is_identical() {
     for run in 0..2 {
         let store_root = unique_dir("replay");
         let marker_base = store_root.join("marker.json");
-        let mut child = run_generate(&store_root, "committed", &marker_base);
+        let mut child = run_generate("file", &store_root, "committed", &marker_base);
         assert!(wait_for_marker(
             &marker_base,
             "committed",
@@ -592,7 +599,7 @@ fn generator_replacement_replay_is_identical() {
         ));
         child.kill().expect("kill");
         let _ = child.wait();
-        let output = run_resume(&store_root, &marker_base, "committed");
+        let output = run_resume("file", &store_root, &marker_base, "committed");
         assert!(
             output.status.success(),
             "replay run {run} resume failed: {}",
@@ -602,4 +609,64 @@ fn generator_replacement_replay_is_identical() {
         fs::remove_dir_all(&store_root).expect("cleanup replay store");
     }
     assert_eq!(reports[0], reports[1], "replay must be deterministic");
+}
+
+fn cli_binary_path() -> Option<PathBuf> {
+    if let Ok(env) = std::env::var("FSQLITE_CLI_BIN") {
+        return Some(PathBuf::from(env));
+    }
+    let recorded = PathBuf::from("/data/tmp/cargo-target/debug/fsqlite");
+    if recorded.is_file() {
+        return Some(recorded);
+    }
+    None
+}
+
+#[test]
+fn cli_lane_reproduces_the_file_lane_crash_matrix() {
+    // Environment-gated: the pinned fsqlite CLI binary must be present
+    // (built via `cargo build -p fsqlite-cli --locked -F fsqlite-core/native`
+    // from the frankenscipy... frankensqlite-pin worktree; see
+    // fra-rc-durable-m5e addenda). The sweep drives the identical boundary
+    // matrix through the pinned-CLI subprocess store: stage-verify-commit
+    // with real process death at each publication boundary, fresh-process
+    // promotion/resume, idempotent duplicate resume, and zero-record
+    // refusals.
+    let Some(cli) = cli_binary_path() else {
+        eprintln!(
+            "skipped: pinned fsqlite CLI binary not found (set FSQLITE_CLI_BIN or build \
+             the pinned worktree with -F fsqlite-core/native)"
+        );
+        return;
+    };
+    let _ = cli;
+    // The lane sweep: the same generate/resume invocation sequence with
+    // lane="cli" exercises FsqliteCliStore through the identical worker
+    // protocol. The worker's open_store dispatches on the lane argument,
+    // so every prepare/verify/commit/load in this sweep is a real
+    // subprocess-backed SQLite operation.
+    for boundary in ["prepared", "verified", "committed"] {
+        let store_root = unique_dir("cli-store");
+        let marker_base = store_root.join("marker.json");
+
+        let mut child = run_generate("cli", &store_root, boundary, &marker_base);
+        let reached = wait_for_marker(&marker_base, boundary, Duration::from_secs(120));
+        let killed = child.kill().is_ok();
+        let _ = child.wait();
+        assert!(reached, "cli worker never reached boundary {boundary}");
+        assert!(killed);
+
+        let output = run_resume("cli", &store_root, &marker_base, boundary);
+        assert!(
+            output.status.success(),
+            "cli-lane resume at {boundary} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            !committed_record_files(&store_root).is_empty(),
+            "{boundary}"
+        );
+        assert!(staging_record_files(&store_root).is_empty(), "{boundary}");
+        fs::remove_dir_all(&store_root).expect("cleanup cli store");
+    }
 }

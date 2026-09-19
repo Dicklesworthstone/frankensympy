@@ -22,7 +22,7 @@ use fsym_assumptions::ImmutableAssumptionsSnapshot;
 use fsym_budget::{Budget, BudgetLimits, Dimension};
 use fsym_core::{BigInt, BigRational, Expr, Symbol};
 use fsym_durable::{
-    DependencyManifest, DurableRecord, DurableStore, FileStore, PreparedHandle,
+    DependencyManifest, DurableRecord, DurableStore, FileStore, FsqliteCliStore, PreparedHandle,
     factor_race_universe_id,
 };
 use fsym_polys::factorization::{metered_complete_factorization, metered_kronecker_factorization};
@@ -34,7 +34,8 @@ use fsym_runtime::{
     resume_factor_race_from_checkpoint,
 };
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 const INPUT_COEFFS: [i64; 5] = [4, 0, 0, 0, 1];
@@ -228,13 +229,63 @@ fn decode_universe(hex: &str) -> Result<[u8; 32], String> {
     Ok(out)
 }
 
-fn generate_mode(store_root: &Path, boundary: &str, marker_base: &Path) -> Result<(), String> {
+/// Storage lane selector for the crash matrix: the canonical file lane
+/// or the pinned-CLI subprocess lane. Both implement the identical
+/// `DurableStore` contract.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Lane {
+    File,
+    Cli,
+}
+
+fn lane_from_arg(value: &str) -> Option<Lane> {
+    match value {
+        "file" => Some(Lane::File),
+        "cli" => Some(Lane::Cli),
+        _ => None,
+    }
+}
+
+/// The pinned-CLI binary location: the native-enabled build recorded on
+/// fra-rc-durable-m5e, overridable for other environments.
+fn cli_binary() -> Result<PathBuf, String> {
+    if let Ok(env) = std::env::var("FSQLITE_CLI_BIN") {
+        return Ok(PathBuf::from(env));
+    }
+    let recorded = PathBuf::from("/data/tmp/cargo-target/debug/fsqlite");
+    if recorded.is_file() {
+        return Ok(recorded);
+    }
+    Err("pinned fsqlite CLI binary not found (set FSQLITE_CLI_BIN)".into())
+}
+
+fn open_store(lane: Lane, store_root: &Path) -> Result<Box<dyn DurableStore>, String> {
+    match lane {
+        Lane::File => FileStore::open(store_root)
+            .map(|store| Box::new(store) as Box<dyn DurableStore>)
+            .map_err(|error| error.to_string()),
+        Lane::Cli => {
+            let cli = cli_binary()?;
+            let db = store_root.join("records.db");
+            FsqliteCliStore::open(cli, db)
+                .map(|store| Box::new(store) as Box<dyn DurableStore>)
+                .map_err(|error| error.to_string())
+        }
+    }
+}
+
+fn generate_mode(
+    store_root: &Path,
+    boundary: &str,
+    marker_base: &Path,
+    lane: Lane,
+) -> Result<(), String> {
     let (claim, context) = fixed_claim();
     let input = Arc::new(ipoly(&INPUT_COEFFS));
     let raw = asupersync::Cx::detached_cancel_context();
     let limits = BudgetLimits::uniform(10_000_000, 100_000);
     let mut cx = FsymCx::new(&raw, Budget::new(limits), limits);
-    let store = FileStore::open(store_root).map_err(|error| error.to_string())?;
+    let store = open_store(lane, store_root)?;
 
     let (_card, continuation) = factor_race_generate(
         &mut cx,
@@ -386,10 +437,15 @@ fn write_report(
     Ok(())
 }
 
-fn resume_mode(store_root: &Path, marker_base: &Path, boundary: &str) -> Result<(), String> {
+fn resume_mode(
+    lane: Lane,
+    store_root: &Path,
+    marker_base: &Path,
+    boundary: &str,
+) -> Result<(), String> {
     let marker = read_marker(marker_base, boundary)?;
     let universe = decode_universe(&marker.universe_hex)?;
-    let store = FileStore::open(store_root).map_err(|error| error.to_string())?;
+    let store = open_store(lane, store_root)?;
 
     // Promote staged records when the crash happened before commit; after a
     // committed crash this is a no-op because the record is already in the
@@ -461,12 +517,24 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     let result = match args.as_slice() {
-        ["generate", store_root, boundary, marker_base] => {
-            generate_mode(Path::new(*store_root), boundary, Path::new(*marker_base))
-        }
-        ["resume", store_root, marker_base, boundary] => {
-            resume_mode(Path::new(*store_root), Path::new(*marker_base), boundary)
-        }
+        ["generate", lane, store_root, boundary, marker_base] => match lane_from_arg(lane) {
+            Some(lane) => generate_mode(
+                Path::new(*store_root),
+                boundary,
+                Path::new(*marker_base),
+                lane,
+            ),
+            None => Err(format!("unknown lane {lane:?}")),
+        },
+        ["resume", lane, store_root, marker_base, boundary] => match lane_from_arg(lane) {
+            Some(lane) => resume_mode(
+                lane,
+                Path::new(*store_root),
+                Path::new(*marker_base),
+                boundary,
+            ),
+            None => Err(format!("unknown lane {lane:?}")),
+        },
         ["ephemeral", marker_base] => ephemeral_mode(Path::new(*marker_base)),
         _ => Err(format!(
             "usage: factor_frontier_worker generate <store_root> <boundary> <marker_base> | resume <store_root> <marker_base> <boundary> | ephemeral <marker_base>; got {args:?}"
