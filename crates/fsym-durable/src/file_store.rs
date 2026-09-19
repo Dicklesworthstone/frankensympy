@@ -86,7 +86,7 @@ impl FileStore {
 
 /// Payload schemas are bounded ids; only their safe subset may become a path
 /// segment so a hostile schema id can never traverse out of the namespace.
-fn safe_schema_segment(schema: &str) -> Result<String, DurableError> {
+pub(crate) fn safe_schema_segment(schema: &str) -> Result<String, DurableError> {
     if schema.is_empty() || schema.len() > 256 {
         return Err(DurableError::MalformedRecord(
             "payload schema id must contain 1..=256 bytes".into(),

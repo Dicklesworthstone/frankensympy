@@ -26,9 +26,11 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+pub mod cli_store;
 pub mod file_store;
 pub mod store;
 
+pub use cli_store::FsqliteCliStore;
 pub use file_store::FileStore;
 pub use store::{DurableStore, PreparedHandle};
 
@@ -326,6 +328,27 @@ pub fn factor_race_universe_id(
         .expect("canonical universe serialization cannot fail in [u8;32] digest context");
     serialized.push(b'\n');
     *blake3::hash(&serialized).as_bytes()
+}
+
+/// Decodes a lowercase hex string produced by [`hex_lower`].
+pub fn hex_decode(value: &str) -> Result<Vec<u8>, DurableError> {
+    if value.len() % 2 != 0 {
+        return Err(DurableError::MalformedRecord(
+            "hex string has odd length".into(),
+        ));
+    }
+    let mut out = Vec::with_capacity(value.len() / 2);
+    let bytes = value.as_bytes();
+    for pair in bytes.chunks(2) {
+        let high = (pair[0] as char)
+            .to_digit(16)
+            .ok_or_else(|| DurableError::MalformedRecord("non-hex digit".into()))?;
+        let low = (pair[1] as char)
+            .to_digit(16)
+            .ok_or_else(|| DurableError::MalformedRecord("non-hex digit".into()))?;
+        out.push(((high << 4) | low) as u8);
+    }
+    Ok(out)
 }
 
 pub fn hex_lower(bytes: &[u8]) -> String {
