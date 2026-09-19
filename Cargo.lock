@@ -691,6 +691,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "fsym-formal"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "fsym-core",
+ "fsym-id",
+ "fsym-proof-kernel",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "fsym-functions"
 version = "0.1.0"
 dependencies = [
