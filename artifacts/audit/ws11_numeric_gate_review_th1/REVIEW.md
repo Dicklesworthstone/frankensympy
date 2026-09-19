@@ -1,5 +1,13 @@
 # Independent gate review — fra-rc-numeric-gate-82w over fra-rc-numeric-t2y
 
+> **SUPERSEDED VERDICT — RETRACTED 2026-09-19 (same day).**
+> The reviewer's own post-PASS strict probing found sin(4) at digits=50
+> unsound (ball excludes the true value by ~1e-49; midpoint displacement,
+> not radius admission). The PASS below applies only to the six
+> containment cases + acceptance suite originally run; it does NOT stand
+> for the gate. See DISCREPANCY_SIN4_50DIGIT.md and repro/sin4b.rs.
+> Both beads reopened; repair required before this gate can pass.
+
 - Reviewer: TurquoiseHorizon (omp/glm-5.3-flash); not an author of the
   implementation (PlumSnow/BoldGorge; implementation commits through the
   precision-repair record of 2026-09-17).
