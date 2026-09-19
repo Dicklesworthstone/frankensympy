@@ -1,0 +1,31 @@
+# Independent re-execution — fra-rc-formal-ma3 (TurquoiseHorizon 2026-09-19T00:38:00Z)
+## cargo test -p fsym-formal --all-targets --locked (LOCAL)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running unittests src/lib.rs (/data/tmp/cargo-target/debug/build/fsym-formal/6cd250a1ed7bf3de/out/fsym_formal-6cd250a1ed7bf3de)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/projection_boundary.rs (/data/tmp/cargo-target/debug/build/fsym-formal/8556395bfa8f4a05/out/projection_boundary-8556395bfa8f4a05)
+
+running 9 tests
+test false_native_coefficients_refuse_before_projection ... ok
+test degree_coefficient_and_byte_exhaustion_are_inconclusive ... ok
+test unsupported_domains_contexts_rules_verifiers_and_shapes_refuse ... ok
+test malformed_truncated_noncanonical_and_unknown_bytes_refuse ... ok
+test native_first_roundtrip_checks_offline ... ok
+test external_claim_root_cannot_be_replaced_by_transport_authority ... ok
+test source_semantic_changes_refuse_even_with_forged_digests ... ok
+test cancellation_at_admission_and_before_output_never_mints_checked_state ... ok
+test every_transport_and_receipt_field_is_required_and_bound ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests examples/project.rs (/data/tmp/cargo-target/debug/build/fsym-formal/c673759721189c4f/out/project-c673759721189c4f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+EXIT:0

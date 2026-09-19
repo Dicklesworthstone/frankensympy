@@ -13,7 +13,7 @@
 
 1. `cargo test -p fsym-formal --all-targets --locked` (LOCAL execution;
    remote offload unavailable, see F2): 9 passed, 0 failed across all targets.
-   Raw log: `artifacts/audit/ws06_formal_review_th1/test_formal.log`.
+   Raw log: `artifacts/audit/ws06_formal_review_th1/test_formal.txt`.
 2. Full external gate, fresh artifacts dir:
    `python3 tools/check_formal_projection.py --lean ~/.elan/toolchains/leanprover--lean4---v4.32.2/bin/lean
    --projector <built example> --artifacts artifacts/audit/ws06_formal_projection_review_th2

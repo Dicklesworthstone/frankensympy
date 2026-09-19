@@ -1,0 +1,306 @@
+# Independent gate re-execution — fra-rc-portfolio-gate-4or / 9i7 (TurquoiseHorizon 2026-09-19T00:37:54Z)
+## cargo test -p fsym-runtime -p fsym-polys --locked (LOCAL execution; remote offload unavailable: workers lack registry state, --locked resolution failure reproduced on vmi1156319 and vmi1152480)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.84s
+     Running unittests src/lib.rs (/data/tmp/cargo-target/debug/build/fsym-polys/4ee52c258c21623b/out/fsym_polys-4ee52c258c21623b)
+
+running 60 tests
+test factorization::complete_factorization_tests::cancellation_at_a_safe_point_surfaces_as_cancelled ... ok
+test factorization::complete_factorization_tests::degree_bound_is_a_typed_refusal ... ok
+test factorization::complete_factorization_tests::unusable_lifting_primes_cannot_bypass_work_refusal ... ok
+test factorization::complete_factorization_tests::coefficient_height_bound_is_a_typed_refusal ... ok
+test factorization::complete_factorization_tests::irreducible_quartic_stays_whole_with_a_witness ... ok
+test factorization::complete_factorization_tests::non_monic_primitive_part_factors_through_the_monic_transform ... ok
+test factorization::complete_factorization_tests::multiplicities_and_linear_factors_survive_the_complete_path ... ok
+test factorization::kronecker_factorization_tests::cancellation_before_work_propagates ... ok
+test factorization::complete_factorization_tests::yun_square_free_fast_path_cannot_bypass_work_refusal ... ok
+test factorization::kronecker_factorization_tests::nonmonic_input_is_refused ... ok
+test factorization::kronecker_factorization_tests::budget_exhaustion_during_search_surfaces ... ok
+test factorization::kronecker_factorization_tests::oversize_degree_is_refused ... ok
+test factorization::kronecker_factorization_tests::rational_coefficient_input_is_refused ... ok
+test tests::graded_orders_do_not_overflow_total_degree ... ok
+test factorization::complete_factorization_tests::quartic_without_rational_roots_factors_with_witnesses ... ok
+test tests::elimination_refuses_unknown_variables ... ok
+test tests::multivariate_construction_refuses_malformed_ring_shape ... ok
+test tests::multivariate_conversion_refuses_exponents_that_do_not_fit_u32 ... ok
+test tests::metered_multivariate_zero_product_does_not_issue_a_zero_charge ... ok
+test tests::multivariate_json_wire_roundtrips_without_non_string_map_keys ... ok
+test tests::product_decomposition_checker_rejects_noncanonical_shapes ... ok
+test tests::test_bezout_verifier_accepts_zero_gcd_for_two_zero_inputs ... ok
+test tests::multivariate_division_refuses_incompatible_rings ... ok
+test tests::test_bezout_verifier_rejects_zero_gcd_for_nonzero_inputs ... ok
+test factorization::kronecker_factorization_tests::repeated_factor_merges_multiplicity ... ok
+test tests::test_extended_gcd_bezout_certificate_verified ... ok
+test tests::test_multivariate_gcd_disjoint_irreducibles ... ok
+test tests::test_multivariate_divisibility_certificate_rejects_non_monic ... ok
+test tests::test_multivariate_gcd_shared_monomial_factor ... ok
+test tests::test_multivariate_gcd_with_one_is_one ... ok
+test tests::test_groebner_basis_computation_and_ideal_membership ... ok
+test tests::test_groebner_basis_certificate_and_verification ... ok
+test tests::metered_multivariate_evaluation_matches_exact_result_and_honors_every_budget ... ok
+test tests::test_mutant_tampered_factorization_rejected ... ok
+test tests::test_mutant_tampered_bezout_rejected ... ok
+test tests::test_multivariate_product_and_derivatives ... ok
+test tests::test_negative_corpus_identity_refusal ... ok
+test tests::resultant_refuses_unbounded_numeric_materialization_and_growth ... ok
+test tests::test_multivariate_divisibility_certificate_rejects_incompatible_rings ... ok
+test tests::test_multivariate_from_expr_constant_division ... ok
+test tests::test_bezout_verifier_requires_canonical_monic_gcd ... ok
+test tests::test_univariate_compose_and_l2_norm ... ok
+test tests::test_univariate_div_rem_identity ... ok
+test tests::test_multivariate_gcd_constants_are_coprime ... ok
+test tests::test_univariate_integrate_and_discriminant ... ok
+test tests::test_univariate_make_monic_scale_reverse_shift ... ok
+test tests::test_polynomial_representation_round_trip_invariants ... ok
+test tests::test_schwartz_zippel_detects_non_identity_with_witness ... ok
+test tests::test_square_free_decomposition_and_verification ... ok
+test tests::test_variable_elimination ... ok
+test tests::verified_identity_refuses_duplicate_generators ... ok
+test tests::test_univariate_resultant_and_higher_degree_discriminant ... ok
+test factorization::kronecker_factorization_tests::sophie_germain_quartic_factors_into_two_quadratics ... ok
+test tests::test_verified_polynomial_identity_certificate ... ok
+test tests::test_multivariate_gcd_candidate_and_divisibility_verification ... ok
+test tests::test_bounded_rational_root_decomposition ... ok
+test factorization::kronecker_factorization_tests::mixed_degrees_product_recovers_all_factors ... ok
+test tests::univariate_boundaries_reject_noncanonical_wire_and_exponent_narrowing ... ok
+test tests::multivariate_evaluation_refuses_extreme_growth_and_unsupported_exponents ... ok
+test factorization::complete_factorization_proptests::constructed_products_factor_back_exactly ... ok
+
+test result: ok. 60 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.80s
+
+     Running unittests src/lib.rs (/data/tmp/cargo-target/debug/build/fsym-runtime/ac8a9a62e0ec9f18/out/fsym_runtime-ac8a9a62e0ec9f18)
+
+running 109 tests
+test checkpoint::tests::duplicate_payload_keys_are_refused_instead_of_collapsed ... ok
+test checkpoint::tests::remaining_budget_is_integrity_bound ... ok
+test checkpoint::tests::schema_identity_is_mandatory_and_integrity_bound ... ok
+test cx::tests::charges_flow_through_the_domain_budget ... ok
+test cx::tests::cancellation_delegates_to_the_wrapped_context ... ok
+test cx::tests::verifier_pool_is_single_lease_and_generator_independent ... ok
+test cx::tests::child_consumption_is_reconciled_without_budget_reset ... ok
+test checkpoint::tests::unordered_payload_maps_have_stable_digests_and_roundtrip ... ok
+test cx::tests::budget_meter_trait_charges_and_reports_cancellation ... ok
+test ledger::tests::checkpoint_storage_rejects_duplicate_payload_keys ... ok
+test ledger::tests::checkpoint_verification_binds_the_exact_stored_serialization ... ok
+test monitor::tests::failures_are_observations_and_never_silently_dropped ... ok
+test fmap::tests::tampered_bundle_is_refused_by_the_kernel_verifier ... ok
+test monitor::tests::spec_validation_is_fail_closed ... ok
+test fmap::tests::wrong_expected_root_is_a_typed_mismatch ... ok
+test monitor::tests::corrupt_state_faults_instead_of_alarming ... ok
+test ledger::tests::rejected_appends_do_not_mutate_chain_state ... ok
+test ledger::tests::tampering_is_detected_by_typed_validation ... ok
+test fmap::tests::reordered_trace_metadata_cannot_change_the_roots ... ok
+test monitor::tests::reset_opens_a_generation_and_preserves_history ... ok
+test portfolio::tests::concurrent_singleton_is_a_typed_configuration_refusal ... ok
+test fmap::tests::bundle_round_trips_through_json ... ok
+test portfolio::tests::empty_portfolio_is_a_typed_configuration_refusal ... ok
+test portfolio::tests::fallback_never_resets_parent_budget ... ok
+test monitor::tests::crossing_the_tail_bound_alarms_once_and_stays_alarmed ... ok
+test monitor::tests::snapshot_resume_continues_the_same_wealth ... ok
+test monitor::tests::wealth_is_exactly_the_likelihood_ratio_product ... ok
+test portfolio::tests::oversized_requested_claim_is_a_paid_refusal_before_generation ... ok
+test portfolio::tests::concurrent_worker_checkpoint_observes_owner_cancellation ... ok
+test portfolio::tests::concurrent_generator_panic_is_contained_and_budget_is_reconciled ... ok
+test portfolio::tests::concurrent_race_verifies_before_selecting_a_fallback ... ok
+test portfolio::tests::rejects_result_that_is_not_bound_to_the_verified_claim ... ok
+test portfolio::tests::rejected_candidate_falls_back_without_refunding_consumed_work ... ok
+test portfolio::tests::rejects_valid_but_irrelevant_claim ... ok
+test portfolio::tests::rejects_claim_that_is_not_the_verified_derivation_root ... ok
+test portfolio::tests::real_factor_cancellation_after_verifier_refuses_publication ... ok
+test portfolio::tests::concurrent_race_all_fail_returns_typed_error ... ok
+test portfolio::tests::sequential_generator_panic_is_contained_and_budget_is_reconciled ... ok
+test portfolio::tests::verifier_pool_exhaustion_is_not_misreported_as_candidate_rejection ... ok
+test protocol::tests::discarded_fork_is_replaced_by_typed_refusal ... ok
+test portfolio::tests::repeated_portfolios_reuse_the_regions_single_verifier_capability ... ok
+test protocol::tests::parser_constants_cannot_be_published_as_unreachable_bindings ... ok
+test publication::tests::poisoned_channel_refuses_until_restored ... ok
+test publication::tests::renewed_lease_invalidates_the_old_epoch ... ok
+test protocol::tests::oversized_and_unknown_requests_fail_before_mutation ... ok
+test protocol::tests::expression_views_are_bounded_even_for_preloaded_workspace_state ... ok
+test portfolio::tests::zassenhaus_quartic_product_passes_scoped_independent_verification ... ok
+test protocol::tests::structural_renderer_matches_display_and_stops_inside_large_children ... ok
+test publication::tests::missing_history_entry_is_a_typed_refusal ... ok
+test publication::tests::unverified_candidate_cannot_publish ... ok
+test remote_worker::tests::bounded_wire_decoder_roundtrips_a_valid_candidate ... ok
+test remote_worker::tests::rejects_result_not_bound_to_verified_claim ... ok
+test remote_worker::tests::rejects_valid_but_irrelevant_remote_result ... ok
+test remote_worker::tests::rejects_wrong_task_before_inspecting_derivation ... ok
+test remote_worker::tests::refuses_oversized_coordinator_assignment_before_comparison ... ok
+test remote_worker::tests::verifier_errors_do_not_echo_untrusted_formulas ... ok
+test protocol::tests::refused_binding_does_not_publish_partial_state ... ok
+test publication::tests::stale_lease_epoch_cannot_publish ... ok
+test repair::tests::insufficient_repair_symbols_fail_typed ... ok
+test portfolio::tests::factor_race_continuation_resume_accepts_on_same_live_ledger_only ... ok
+test portfolio::tests::invalid_fast_real_candidate_cannot_publish_before_slower_verified_one ... ok
+test repair::tests::empty_payload_round_trips_and_invalid_sizes_do_not_panic ... ok
+test replay::tests::dimension_charges_are_integrity_bound ... ok
+test remote_worker::tests::bounded_wire_decoder_rejects_oversized_and_unknown_fields ... ok
+test replay::tests::duplicate_or_out_of_order_indices_cannot_be_resealed ... ok
+test repair::tests::corrupt_source_and_repair_packets_are_rejected_before_codec_entry ... ok
+test replay::tests::payload_mutation_is_detected_without_a_reference_log ... ok
+test replay::tests::record_event_refuses_empty_dimension_charges ... ok
+test replay::tests::replay_names_are_nonempty_schema_identifiers ... ok
+test replay::tests::validate_events_rejects_zero_impact_event_in_deserialized_log ... ok
+test rng::tests::different_seeds_diverge ... ok
+test replay::tests::total_payload_counter_is_integrity_bound ... ok
+test rng::tests::fill_bytes_handles_partial_words ... ok
+test rng::tests::paths_are_domain_separated_including_prefixes ... ok
+test rng::tests::seek_replays_exact_positions ... ok
+test rng::tests::same_seed_and_path_reproduce_identical_sequences ... ok
+test rng::tests::stream_ids_distinguish_distinct_derivations ... ok
+test tests::runtime_budget_default_matches_the_harness_contract ... ok
+test tests::test_negative_corpus_semantic_conflict_merge_rejected ... ok
+test tests::test_ndjson_protocol_dispatch ... ok
+test tests::test_paired_benchmark_with_semantic_admission ... ok
+test tests::test_portfolio_rejects_forged_candidate_winner ... ok
+test tests::test_audit_event_hash ... ok
+test tests::test_portfolio_race_with_winner_verification ... ok
+test repair::tests::unknown_duplicate_and_malformed_packets_fail_closed ... ok
+test tests::test_ephemeral_ledger_hash_chain_and_checkpoints ... ok
+test tests::test_remote_worker_candidate_verification_and_adversarial_rejection ... ok
+test rng::tests::below_rejects_zero_and_avoids_modulo_bias_bounds ... ok
+test tests::test_replay_log_reproduces_digest_bit_for_bit ... ok
+test tests::test_semantic_graph_indexing_and_cycle_detection ... ok
+test tests::test_typed_checkpoint_integrity ... ok
+test workspace::tests::merge_requires_structural_binding_identity_without_a_certificate ... ok
+test workspace::tests::patch_refuses_ambiguous_edit_without_mutation ... ok
+test workspace::tests::receipt_digest_binds_post_merge_content ... ok
+test tests::test_workspace_fork_and_clean_merge ... ok
+test workspace::tests::receipt_digest_is_independent_of_hash_map_insertion_order ... ok
+test workspace::tests::repeated_merge_is_idempotent_for_imported_derivations ... ok
+test workspace::tests::aggregate_dag_limit_maps_to_workspace_resource_refusal ... ok
+test workspace::tests::merge_refuses_different_assumption_context_without_mutation ... ok
+test tests::test_raptorq_repair_recovery_and_digest_validation ... ok
+test portfolio::tests::factor_race_two_real_strategies_verify_same_product_claim ... ok
+test rng::tests::f64_output_stays_in_unit_interval ... ok
+test tests::test_standard_ws22_suite_execution ... ok
+test repair::tests::raptorq_recovers_multiple_loss_patterns ... ok
+test portfolio::tests::concurrent_race_winner_verified_and_published ... ok
+test replay::tests::real_factor_race_reexecution_matches_observed_transcript_and_accounting ... ok
+test protocol::tests::response_encoder_limit_fallback_is_typed_valid_json ... ok
+test checkpoint::tests::oversized_payload_is_refused_before_canonical_tree_construction ... ok
+test fmap::tamper_fuzz_tests::bundle_tamper_fuzz_never_panics_and_never_forges ... ok
+
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.99s
+
+     Running unittests src/bin/fmap-replay.rs (/data/tmp/cargo-target/debug/build/fsym-runtime/505edfe76460d8ac/out/fmap_replay-505edfe76460d8ac)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/c10_protocol_gate.rs (/data/tmp/cargo-target/debug/build/fsym-runtime/fa2d425553b5ae46/out/c10_protocol_gate-fa2d425553b5ae46)
+
+running 5 tests
+test test_c10_candidate_vs_accepted_separation ... ok
+test test_c10_workspace_fork_and_patch_atomicity ... ok
+test test_c10_semantic_merge_negative_corpus ... ok
+test test_c10_ndjson_protocol_wire_and_resource_bounds ... ok
+test test_c10_transcript_free_session_replay_determinism ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/c9_persistence_repair_gate.rs (/data/tmp/cargo-target/debug/build/fsym-runtime/d28ca59f8ad1796e/out/c9_persistence_repair_gate-d28ca59f8ad1796e)
+
+running 6 tests
+test test_c9_repaired_content_requires_independent_proof_verification ... ok
+test test_c9_persistence_disabled_semantic_equivalence ... ok
+test test_c9_ledger_hash_chain_and_checkpoint_linkage ... ok
+test test_c9_crash_injection_at_publication_steps ... ok
+test test_c9_schema_and_digest_tamper_refuses_resume ... ok
+test test_c9_raptorq_multi_loss_repair_and_digest_validation ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/cancellation_injection.rs (/data/tmp/cargo-target/debug/build/fsym-runtime/ec61aee9c4eacd11/out/cancellation_injection-ec61aee9c4eacd11)
+
+running 5 tests
+test test_cancellation_matrix_before_reservation ... ok
+test real_factor_generators_exhaust_budget_without_spending_verifier_reserve ... ok
+test test_cancellation_matrix_before_verifier ... ok
+test real_factor_cancellation_at_charged_batch_drains_delayed_sibling_and_callback ... ok
+test test_cancellation_replay_log_deterministic_bit_for_bit ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/monitor_gate.rs (/data/tmp/cargo-target/debug/build/fsym-runtime/751099c5ef515929/out/monitor_gate-751099c5ef515929)
+
+running 5 tests
+test failures_move_the_monitor_and_are_never_dropped ... ok
+test snapshot_round_trip_continues_the_identical_stream ... ok
+test resets_renew_the_bound_without_erasing_history ... ok
+test the_monitor_has_power_against_a_drifted_stream ... ok
+test anytime_validity_holds_under_the_null ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/monitor_gate_review.rs (/data/tmp/cargo-target/debug/build/fsym-runtime/49f5dd77e8faec82/out/monitor_gate_review-49f5dd77e8faec82)
+
+running 12 tests
+test a_failure_only_stream_alarms_and_lands_in_its_own_buckets ... ok
+test alarm_is_one_way_within_a_generation ... ok
+test an_inflated_snapshot_wealth_still_re_evaluates_the_bound_honestly ... ok
+test drift_at_the_alternative_rate_is_detected_quickly ... ok
+test resume_refuses_a_foreign_monitor_id_and_invalid_spec ... ok
+test wealth_crosses_the_ville_threshold_exactly_at_ln_4_contribution ... ok
+test fault_policy_recommends_increase_sampling_and_never_alarms ... ok
+test resumed_stream_is_identical_to_a_never_interrupted_one ... ok
+test every_failure_kind_is_charged_in_its_own_counter ... ok
+test registered_actions_are_exactly_the_registered_strings ... ok
+test reset_zeroes_wealth_but_preserves_every_cumulative_counter ... ok
+test null_alarm_rate_is_bounded_by_alpha ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/workspace_replay_gate.rs (/data/tmp/cargo-target/debug/build/fsym-runtime/9206877203140737/out/workspace_replay_gate-9206877203140737)
+
+running 10 tests
+test assumption_context_mismatch_refuses_the_merge ... ok
+test event_reordering_breaks_replay_integrity ... ok
+test altered_base_state_diverges_the_replayed_certificate ... ok
+test missing_retention_history_refuses ... ok
+test overlapping_binding_conflict_refuses_the_merge ... ok
+test unverified_derivation_blocks_the_merge ... ok
+test poisoned_flag_and_unverified_candidates_cannot_publish ... ok
+test frozen_corpus_replays_to_matching_roots_in_process ... ok
+test fresh_process_cli_refuses_a_forged_certificate ... ok
+test fresh_process_cli_replays_the_frozen_corpus ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/ws16_distribution_index_gate.rs (/data/tmp/cargo-target/debug/build/fsym-runtime/ec45c7626cec1c1f/out/ws16_distribution_index_gate-ec45c7626cec1c1f)
+
+running 4 tests
+test test_remote_worker_candidate_acceptance_and_adversarial_rejection ... ok
+test test_semantic_graph_indexing_and_rebuildability ... ok
+test test_zero_cache_pollution_under_adversarial_stream ... ok
+test test_remote_worker_wire_decoding_bounds_and_unknown_fields ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/ws22_performance_gate.rs (/data/tmp/cargo-target/debug/build/fsym-runtime/e47438f2f5a30886/out/ws22_performance_gate-e47438f2f5a30886)
+
+running 5 tests
+test test_ws22_adversarial_tampered_samples_digest_refusal ... ok
+test test_ws22_semantic_admission_precedes_timing_and_rejects_divergence ... ok
+test test_ws22_aa_control_null_hypothesis_verification ... ok
+test test_ws22_paired_benchmark_distribution_and_percentiles ... ok
+test test_ws22_standard_suite_admitted_kernels ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+   Doc-tests fsym_polys
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests fsym_runtime
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+EXIT:0
+
+## Mutation probe (TurquoiseHorizon 2026-09-19T00:39:08Z): removed verified_claim != winner.claim binding check at portfolio.rs:171
+Result: invalid_fast_real_candidate_cannot_publish_before_slower_verified_one FAILED (misbound candidate published; assertion portfolio.rs:2080) => weakening killed by non-tautological oracle. File restored byte-identical (git diff empty) and test green again.

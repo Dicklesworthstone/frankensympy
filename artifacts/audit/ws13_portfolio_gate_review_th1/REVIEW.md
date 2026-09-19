@@ -16,7 +16,7 @@ attempted and is unavailable for this workspace (dependency preflight verified 8
 vmi1156319/vmi1152480, but remote cargo fails resolving the registry for this tree; same
 E415-family fallback recorded by the implementation session). Result: 13 suites,
 221 passed, 0 failed. Raw full log:
-`artifacts/audit/ws13_portfolio_gate_review_th1/test_runtime_polys.log`.
+`artifacts/audit/ws13_portfolio_gate_review_th1/test_runtime_polys.txt`.
 
 ## Independent test obligations — mapping to evidence (code inspected, tests re-run)
 
