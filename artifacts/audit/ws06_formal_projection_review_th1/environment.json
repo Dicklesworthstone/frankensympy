@@ -1,0 +1,9 @@
+{
+  "sha256": "2c674ff17d8bc2c712f9d18b1c72d4c5818eaced6cf671c516d47fb1de172c96",
+  "files": [
+    {
+      "path": "bin/lean",
+      "sha256": "840179e70803ef373c2ec53342d6a45ea7d022533e4145489fc1278b4f716385"
+    }
+  ]
+}

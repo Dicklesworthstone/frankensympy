@@ -65,7 +65,8 @@ foreign_checker_required = true
 [[profile]]
 id = "lean_core_zz_product_v1"
 status = "planned"
-review_status = "pending_independent_review"
+review_status = "independent_review_passed"
+review_evidence = "artifacts/audit/ws06_formal_review_th1/REVIEW.md; reviewer TurquoiseHorizon 2026-09-19, independent of implementation author"
 immutable = true
 target = "Lean 4 core"
 source_pin = "leanprover/lean4@f3b06c705e6c85f5314019d5d3baab0fec5b580c"
