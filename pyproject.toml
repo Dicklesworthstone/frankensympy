@@ -19,8 +19,9 @@ classifiers = [
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
-module-name = "fsym_python"
+module-name = "frankensympy.fsym_python"
 python-source = "python"
+manifest-path = "crates/fsym-python/Cargo.toml"
 # The preview distribution owns only its own namespace. Upstream SymPy keeps
 # `sympy`; the resolver-transparent replacement channel is a separate profile
 # (registries/packaging_profiles.toml) and must not be built from this manifest.
