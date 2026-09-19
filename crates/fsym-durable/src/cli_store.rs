@@ -23,7 +23,7 @@
 use crate::file_store::{CLEANUP_RESERVE_LIMIT, safe_schema_segment};
 use crate::store::{DurableStore, PreparedHandle};
 use crate::{DurableError, DurableRecord, hex_decode, hex_lower};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 pub struct FsqliteCliStore {
@@ -56,9 +56,9 @@ impl FsqliteCliStore {
             })?;
         }
         let store = Self { cli, db };
-        store.run(&format!(
-            "CREATE TABLE IF NOT EXISTS durable_records (scope TEXT NOT NULL, kind TEXT NOT NULL, name TEXT NOT NULL, wire TEXT NOT NULL, PRIMARY KEY (scope, kind, name));"
-        ))?;
+        store.run(
+            "CREATE TABLE IF NOT EXISTS durable_records (scope TEXT NOT NULL, kind TEXT NOT NULL, name TEXT NOT NULL, wire TEXT NOT NULL, PRIMARY KEY (scope, kind, name));",
+        )?;
         Ok(store)
     }
 
@@ -181,7 +181,6 @@ impl DurableStore for FsqliteCliStore {
                 ))
             };
         }
-        let wire_hex = hex_lower(&record.to_wire()?);
         self.run(&format!(
             "BEGIN; INSERT INTO durable_records (scope, kind, name, wire) SELECT scope, '{COMMITTED}', name, wire FROM durable_records WHERE scope='{scope}' AND kind='{STAGING}' AND name='{name}'; DELETE FROM durable_records WHERE scope='{scope}' AND kind='{STAGING}' AND name='{name}'; COMMIT;"
         ))?;
@@ -225,6 +224,7 @@ impl DurableStore for FsqliteCliStore {
 mod tests {
     use super::*;
     use crate::DependencyManifest;
+    use std::path::Path;
 
     fn cli_path() -> Option<PathBuf> {
         if let Ok(env) = std::env::var("FSQLITE_CLI_BIN")
@@ -336,6 +336,6 @@ mod tests {
         ));
         store.release(&handles[0]).expect("release");
         store.prepare(&overflow).expect("prepare after release");
-        std::fs::remove_dir_all(&db.parent().expect("parent")).expect("cleanup");
+        std::fs::remove_dir_all(db.parent().expect("parent")).expect("cleanup");
     }
 }

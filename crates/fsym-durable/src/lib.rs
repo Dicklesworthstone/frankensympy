@@ -332,7 +332,7 @@ pub fn factor_race_universe_id(
 
 /// Decodes a lowercase hex string produced by [`hex_lower`].
 pub fn hex_decode(value: &str) -> Result<Vec<u8>, DurableError> {
-    if value.len() % 2 != 0 {
+    if !value.len().is_multiple_of(2) {
         return Err(DurableError::MalformedRecord(
             "hex string has odd length".into(),
         ));
