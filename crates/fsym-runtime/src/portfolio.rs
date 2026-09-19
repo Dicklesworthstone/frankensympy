@@ -785,6 +785,94 @@ fn state_remaining(
         .unwrap_or(0)
 }
 
+/// Resumes drained factor-race candidates from durable typed-checkpoint state
+/// in a fresh process or region.
+///
+/// This is the durable-storage resume path (`fra-rc-durable-m5e`), distinct
+/// from [`FactorRaceContinuation::resume`]: the live ledger capability that
+/// the in-region continuation requires cannot survive a process boundary, so
+/// the fresh region presents its own newly constructed budget region. The
+/// captured per-dimension counters inside `checkpoint` are observational
+/// integrity copies only — they are never restored into, and never reset, any
+/// ledger. The fresh region's remaining allowance is its own; durable
+/// accounting is the caller's composition of both processes' consumptions.
+///
+/// Refuses before any charge or verification work: schema mismatch, failed
+/// content-integrity replay, unknown operation version, claim or context
+/// divergence from the presenting caller, and input-expression divergence
+/// from the requested claim's left-hand side. Acceptance re-runs the full
+/// independent mathematical verification for every candidate in registration
+/// order; digests alone never authorize publication.
+pub fn resume_factor_race_from_checkpoint<Caps>(
+    cx: &mut FsymCx<'_, Caps>,
+    context: &Arc<ImmutableAssumptionsSnapshot>,
+    requested_claim: &Claim,
+    checkpoint: &TypedCheckpoint<FactorRaceContinuationState>,
+) -> Result<VerifiedPortfolioOutcome, PortfolioError> {
+    if checkpoint.payload_schema != FACTOR_RACE_CONTINUATION_SCHEMA {
+        return Err(PortfolioError::InvalidPortfolio(format!(
+            "durable continuation schema mismatch: expected {FACTOR_RACE_CONTINUATION_SCHEMA}, got {}",
+            checkpoint.payload_schema
+        )));
+    }
+    if !checkpoint.verify_integrity() {
+        return Err(PortfolioError::InvalidPortfolio(
+            "durable continuation integrity verification failed; refusing foreign or tampered state"
+                .into(),
+        ));
+    }
+    let state = &checkpoint.payload;
+    if state.operation_version != "factor_race_v1" {
+        return Err(PortfolioError::InvalidPortfolio(format!(
+            "durable continuation operation version mismatch: {}",
+            state.operation_version
+        )));
+    }
+    if state.requested_claim != *requested_claim {
+        return Err(PortfolioError::InvalidPortfolio(
+            "durable continuation claim does not match the presenting requested claim".into(),
+        ));
+    }
+    if state.context_digest != context.digest() {
+        return Err(PortfolioError::InvalidPortfolio(
+            "durable continuation assumptions context digest does not match the presenting context"
+                .into(),
+        ));
+    }
+    let Claim::AlgebraicIdentity { lhs, .. } = requested_claim else {
+        return Err(PortfolioError::InvalidPortfolio(
+            "factor race requests must be Claim::AlgebraicIdentity".into(),
+        ));
+    };
+    if state.input_expr != *lhs {
+        return Err(PortfolioError::InvalidPortfolio(
+            "durable continuation input expression does not match the requested claim input".into(),
+        ));
+    }
+    if state.candidates.is_empty() {
+        return Err(PortfolioError::InvalidPortfolio(
+            "durable continuation carries no drained candidates to resume".into(),
+        ));
+    }
+    let initial_compute_remaining = cx.remaining(Dimension::ComputeSteps);
+    let outcomes = state
+        .candidates
+        .iter()
+        .map(|record| WorkerOutcome {
+            idx: record.registration_index,
+            name: record.candidate.strategy_name.clone(),
+            result: Ok(record.candidate.clone()),
+        })
+        .collect();
+    accept_concurrent_candidates(
+        cx,
+        context,
+        requested_claim,
+        outcomes,
+        initial_compute_remaining,
+    )
+}
+
 /// Runs the drained concurrent candidate-generation phase for a factor race,
 /// emitting the registered decision card and a typed continuation bound to the
 /// caller's still-owned live ledger.
@@ -924,6 +1012,161 @@ mod tests {
             1 => terms.pop().expect("one factor"),
             _ => Expr::Mul(terms),
         })
+    }
+
+    #[test]
+    fn durable_checkpoint_resume_refuses_every_mismatch_class() {
+        use fsym_core::{BigInt, BigRational, Symbol};
+        use fsym_polys::factorization::metered_complete_factorization;
+        use fsym_polys::univariate::UnivariatePoly;
+
+        let polynomial = |coeffs: &[i64]| {
+            UnivariatePoly::new(
+                Symbol::new("x"),
+                coeffs
+                    .iter()
+                    .map(|c| BigRational::from_integer(BigInt::from(*c)))
+                    .collect(),
+            )
+        };
+        let input = Arc::new(polynomial(&[4, 0, 0, 0, 1]));
+        let expected_product = Expr::Mul(vec![
+            polynomial(&[2, -2, 1]).to_expr(),
+            polynomial(&[2, 2, 1]).to_expr(),
+        ]);
+        let requested = Claim::AlgebraicIdentity {
+            lhs: input.to_expr(),
+            rhs: expected_product.clone(),
+        };
+        let context = Arc::new(ImmutableAssumptionsSnapshot::empty());
+
+        let generator_context = Arc::clone(&context);
+        let generator_input = Arc::clone(&input);
+        let generator = Box::new(move |cx: &mut FsymCpuCx<'_, asupersync::cx::cap::None>| {
+            let factorization = metered_complete_factorization(&generator_input, cx)
+                .map_err(|error| PortfolioError::AllStrategiesFailed(error.to_string()))?;
+            let product = normalize_factor_product(
+                &factorization.scale,
+                factorization
+                    .factors
+                    .into_iter()
+                    .map(|factor| (factor.poly, factor.multiplicity))
+                    .collect::<Vec<_>>(),
+            )?;
+            let lhs = generator_input.to_expr();
+            let mut kernel = ProofKernel::new((**generator_context).clone());
+            let root = kernel
+                .prove_definitional_reduction(
+                    lhs.clone(),
+                    product.clone(),
+                    "polynomial_ring_equivalence",
+                    cx,
+                )
+                .map_err(|error| PortfolioError::AllStrategiesFailed(error.to_string()))?;
+            let derivation = kernel
+                .export_derivation(root)
+                .map_err(|error| PortfolioError::AllStrategiesFailed(error.to_string()))?;
+            Ok(PortfolioCandidate {
+                strategy_name: "zassenhaus_modular".into(),
+                result: product.clone(),
+                claim: Claim::AlgebraicIdentity { lhs, rhs: product },
+                derivation,
+            })
+        });
+
+        let raw = Cx::detached_cancel_context();
+        let limits = BudgetLimits::uniform(10_000_000, 100_000);
+        let mut cx = FsymCx::new(&raw, Budget::new(limits), limits);
+        let (_card, continuation) = factor_race_generate(
+            &mut cx,
+            &context,
+            &requested,
+            vec![
+                ("zassenhaus_modular", generator),
+                (
+                    "refusing",
+                    Box::new(|_cx: &mut FsymCpuCx<'_, asupersync::cx::cap::None>| {
+                        Err(PortfolioError::AllStrategiesFailed("refusing".into()))
+                    }),
+                ),
+            ],
+        )
+        .expect("generation drains");
+        let wire = continuation.to_wire().expect("wire");
+        let checkpoint: TypedCheckpoint<FactorRaceContinuationState> =
+            serde_json::from_slice(&wire).expect("decode");
+
+        // A fresh region resumes the committed checkpoint successfully.
+        let resume_limits = BudgetLimits {
+            dimensions: limits.dimensions,
+            verifier_pool: checkpoint.verifier_remaining,
+        };
+        let resume_raw = Cx::detached_cancel_context();
+        let mut fresh = FsymCx::new(&resume_raw, Budget::new(resume_limits), resume_limits);
+        let outcome =
+            resume_factor_race_from_checkpoint(&mut fresh, &context, &requested, &checkpoint)
+                .expect("fresh-region resume publishes");
+        assert_eq!(outcome.result(), &expected_product);
+
+        // Schema mismatch refuses.
+        let mut wrong_schema = checkpoint.clone();
+        wrong_schema.payload_schema = "fsym.portfolio.something_else.v9".into();
+        let resume_raw = Cx::detached_cancel_context();
+        let mut probe = FsymCx::new(&resume_raw, Budget::new(resume_limits), resume_limits);
+        assert!(matches!(
+            resume_factor_race_from_checkpoint(&mut probe, &context, &requested, &wrong_schema),
+            Err(PortfolioError::InvalidPortfolio(message))
+                if message.contains("schema mismatch")
+        ));
+
+        // Tampered state (digest no longer replays) refuses before any charge.
+        let mut tampered = checkpoint.clone();
+        tampered.payload.candidates[0].candidate.strategy_name = "forged".into();
+        let resume_raw = Cx::detached_cancel_context();
+        let mut probe = FsymCx::new(&resume_raw, Budget::new(resume_limits), resume_limits);
+        assert!(matches!(
+            resume_factor_race_from_checkpoint(&mut probe, &context, &requested, &tampered),
+            Err(PortfolioError::InvalidPortfolio(message))
+                if message.contains("integrity")
+        ));
+
+        // A different requested claim refuses.
+        let other_claim = Claim::AlgebraicIdentity {
+            lhs: polynomial(&[1]).to_expr(),
+            rhs: polynomial(&[1]).to_expr(),
+        };
+        let resume_raw = Cx::detached_cancel_context();
+        let mut probe = FsymCx::new(&resume_raw, Budget::new(resume_limits), resume_limits);
+        assert!(matches!(
+            resume_factor_race_from_checkpoint(&mut probe, &context, &other_claim, &checkpoint),
+            Err(PortfolioError::InvalidPortfolio(message))
+                if message.contains("does not match the presenting requested claim")
+        ));
+
+        // A different assumptions context refuses.
+        let mut facts = std::collections::HashMap::new();
+        facts.insert(
+            fsym_core::Symbol::new("x"),
+            vec![fsym_assumptions::predicate::Predicate::Positive],
+        );
+        let other_context = ImmutableAssumptionsSnapshot::empty()
+            .derive_child(
+                facts,
+                std::collections::HashMap::new(),
+                "durable-refusal-probe",
+            )
+            .expect("child context");
+        let resume_raw = Cx::detached_cancel_context();
+        let mut probe = FsymCx::new(&resume_raw, Budget::new(resume_limits), resume_limits);
+        assert!(matches!(
+            resume_factor_race_from_checkpoint(&mut probe, &other_context, &requested, &checkpoint),
+            Err(PortfolioError::InvalidPortfolio(message))
+                if message.contains("context digest")
+        ));
+
+        // Refusals charged nothing: the fresh regions keep their full
+        // verifier reserve after every refusal above.
+        assert_eq!(probe.verifier_remaining(), resume_limits.verifier_pool);
     }
 
     #[test]

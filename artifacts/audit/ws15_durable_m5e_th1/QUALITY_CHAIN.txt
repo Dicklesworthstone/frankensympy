@@ -1,0 +1,42 @@
+# fra-rc-durable-m5e implementation slice — quality chain (TurquoiseHorizon 2026-09-19T01:48:24Z)
+
+Remote lane RESTORED by d9ef65e (fsym-formal Cargo.lock entry): the same --locked commands that previously E415-fell-back now pass remotely.
+
+## cargo check --workspace --all-targets --locked — REMOTE vmi1152480: exit 0 (1m49s)
+## cargo clippy --workspace --all-targets --locked -- -D warnings — LOCAL: exit 0 (remote preflight RCH-E415 planner fail-open on clippy invocation; executed locally per fail-open contract)
+## cargo fmt --check — exit 0
+## cargo test --workspace --locked — REMOTE vmi1152480: exit 0, 90 suites ok, 0 failed
+(First attempt on vmi1227854 failed with worker-side ENOSPC mid-build; worker disk pressure pre-existing. Local dispatcher also hit 100% root disk from accumulated local build cache; cleared 43.3GiB via cargo clean on /data/tmp/cargo-target — regenerable artifacts only.)
+
+## targeted local evidence
+running 6 tests
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+running 0 tests
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+running 5 tests
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+running 110 tests
+test result: ok. 110 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.26s
+running 0 tests
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+running 5 tests
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+running 6 tests
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+running 5 tests
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+running 5 tests
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+running 12 tests
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+running 10 tests
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+running 4 tests
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+running 5 tests
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+running 0 tests
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+running 0 tests
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+targeted exit: 0

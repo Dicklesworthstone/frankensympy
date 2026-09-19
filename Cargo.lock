@@ -674,6 +674,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "fsym-durable"
+version = "0.1.0"
+dependencies = [
+ "asupersync",
+ "blake3",
+ "fsym-assumptions",
+ "fsym-budget",
+ "fsym-core",
+ "fsym-polys",
+ "fsym-proof-kernel",
+ "fsym-runtime",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "fsym-evidence"
 version = "0.1.0"
 dependencies = [

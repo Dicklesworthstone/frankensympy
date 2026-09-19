@@ -1,0 +1,27 @@
+[package]
+name = "fsym-durable"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+repository.workspace = true
+publish = false
+description = "Storage-neutral durable checkpoint boundary with a canonical file reference lane and an optional pinned FrankenSQLite adapter (L5). Home of the fresh-process factor-frontier crash matrix."
+
+[dependencies]
+fsym-runtime.workspace = true
+fsym-core.workspace = true
+fsym-polys.workspace = true
+fsym-proof-kernel.workspace = true
+fsym-assumptions.workspace = true
+fsym-budget.workspace = true
+asupersync.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+blake3 = "1"
+
+# The optional FrankenSQLite adapter (registries/dependencies.toml:
+# frankensqlite @ abdc4dc89714e8816202fd0bf2e9cd969f6d493f) is deferred:
+# the pinned commit resolves asupersync 0.5.0 from the registry, and a
+# second asupersync build unit requires a written admission review
+# (constitution §7.7/§9). The canonical file reference lane always builds.
