@@ -1,0 +1,10 @@
+{
+ "admitted": 230,
+ "certified": false,
+ "drift_total": 0,
+ "gate": "lab-corpus",
+ "ledgered_open": 0,
+ "scope": "development_construction_drift",
+ "unledgered": 0,
+ "unledgered_records": []
+}
