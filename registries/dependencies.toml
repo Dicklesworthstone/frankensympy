@@ -56,6 +56,26 @@ status = "optional_projection"
 portable_verifier_allowed = false
 
 [[allowed_source]]
+id = "franken_numpy"
+class = "frankensuite"
+repository = "Dicklesworthstone/franken_numpy"
+commit = "d5d29c9da36141f611d1414b4c6ef434ab31ea24"
+status = "optional_adapter"
+portable_verifier_allowed = false
+# fra-rc-adapters-iym: fsym-numeric-consumer binds ONLY crates/fnp-linalg
+# (pure-Rust solvers on plain f64 slices; no pyo3/CPython bridge, no RNG,
+# no I/O crates; rayon stays internal to the consumer crate). Pinned
+# worktree: /data/projects/franken_numpy-pin.
+
+[[allowed_source]]
+id = "frankenscipy"
+class = "frankensuite"
+repository = "Dicklesworthstone/frankenscipy"
+commit = "213a417c739025ed865a3875c89a7d86726ecb5a"
+status = "planned_selective"
+portable_verifier_allowed = false
+
+[[allowed_source]]
 id = "franken_lean"
 class = "frankensuite"
 repository = "Dicklesworthstone/franken_lean"

@@ -85,6 +85,7 @@ fsym-runtime = { path = "crates/fsym-runtime" }
 fsym-conformance = { path = "crates/fsym-conformance" }
 fsym-proof-kernel = { path = "crates/fsym-proof-kernel" }
 fsym-formal = { path = "crates/fsym-formal" }
+fnp-linalg = { path = "../franken_numpy-pin/crates/fnp-linalg" }
 fsym-evidence = { path = "crates/fsym-evidence" }
 asupersync = { path = "../asupersync" }
 num-bigint = { version = "0.4", features = ["serde"] }
