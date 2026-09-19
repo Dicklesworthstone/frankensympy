@@ -1281,6 +1281,14 @@ mod tests {
                 "0.598472144103956494051854702186162272",
             ),
             (
+                // Odd-k positive reduction (k = round(4/pi) = 1): exercises
+                // the parity sign transfer from the positive side
+                // (fra-rc-numeric-gate-82w corpus strengthening).
+                Box::new(|x: &RealBall, d: u32| x.sin(d)),
+                "4",
+                "-0.7568024953079282513726390945118291",
+            ),
+            (
                 Box::new(|x: &RealBall, d: u32| x.cos(d)),
                 "7.75",
                 "0.103794357219252971027694067713823037",
