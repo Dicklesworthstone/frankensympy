@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..core import Add, Integer, Mul, Pow, Rational, Symbol
+from ..core import Add, ComplexInfinity, Function, Integer, Mul, Pow, Rational, Symbol
 
 
 def pretty(expr: Any) -> str:
@@ -31,6 +31,12 @@ def _render(expr: Any) -> tuple[list[str], int]:
         return [expr.name], 0
     if isinstance(expr, Pow):
         return _pretty_pow(expr)
+    if isinstance(expr, ComplexInfinity):
+        return ["zoo"], 0
+    if isinstance(expr, Function):
+        name = type(expr).__name__
+        args = ",".join(_render(arg)[0][0] for arg in expr.args)
+        return [f"{name}({args})"], 0
     if isinstance(expr, Mul):
         return _pretty_mul(expr)
     if isinstance(expr, Add):
