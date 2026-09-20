@@ -32,7 +32,9 @@ def series(expression, x=None, x0=0, n=6, dir="+", **kwargs):
     result = _native.taylor_expr(
         str(expr), _native_symbol_key(symbol), int(x0), int(n)
     )
-    return _parse_result(result)
+    parsed = _parse_result(result)
+    # Restore declared typed symbol (the native bridge lifts fresh atoms).
+    return parsed.subs({Symbol(symbol.name): symbol})
 
 
 from ..core import Expr, Function

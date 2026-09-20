@@ -137,17 +137,21 @@ def integrate(expression, *variables):
                 str(_wrap(_native_expr(lower))),
                 str(_wrap(_native_expr(upper))),
             )
-            return _parse_result(result)
+            parsed = _parse_result(result)
+            return parsed.subs({Symbol(symbol.name): symbol})
         except (ValueError, NotImplementedError, TypeError):
             return Integral(expression, (variable, lower, upper))
 
     symbol = _require_symbol(spec)
     try:
-        return _parse_result(
+        result = _parse_result(
             _native.integrate_expr(
                 str(_wrap(_native_expr(expression))), _native_symbol_key(symbol)
             )
         )
+        # Restore declared typed symbol (the native bridge lifts fresh atoms).
+        result = result.subs({Symbol(symbol.name): symbol})
+        return result
     except (ValueError, NotImplementedError, TypeError):
         return Integral(expression, symbol)
 
