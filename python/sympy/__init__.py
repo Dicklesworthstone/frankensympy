@@ -51,7 +51,7 @@ from .core import (
     sympify,
     SympifyError,
 )
-from .printing import latex, srepr
+from .printing import latex, pretty, srepr
 from .core import nan as _core_nan, zoo as _core_zoo
 from .matrices import (
     DenseMatrix,
