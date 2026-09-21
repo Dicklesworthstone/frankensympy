@@ -971,6 +971,132 @@ from .simplify import (
 )
 
 
+def sstr(expr: Any) -> str:
+    """Return the string form of *expr* (same as ``str(expr)``)."""
+    return str(expr)
+
+
+def fraction(expr: Any) -> tuple:
+    """Return a ``(numer, denom)`` tuple for a rational expression."""
+    if isinstance(expr, Rational):
+        return (Integer(expr.p), Integer(expr.q))
+    if isinstance(expr, Expr):
+        num, den = fraction_inner(expr)
+        return (num, den)
+    return (expr, Integer(1))
+
+
+def fraction_inner(expr: Any) -> tuple:
+    """Walk an expression tree and split into (numer, denom)."""
+    if isinstance(expr, Mul):
+        numer = Integer(1)
+        denom = Integer(1)
+        for factor in expr.args:
+            n, d = fraction_inner(factor)
+            numer = numer * n
+            denom = denom * d
+        return (numer, denom)
+    if isinstance(expr, Pow):
+        base, exp = expr.args
+        exp_int = _require_int(exp)
+        if exp_int is not None and exp_int < 0:
+            n, d = fraction_inner(base)
+            return (Integer(1), n ** (-exp_int) * d)
+        return (expr, Integer(1))
+    if isinstance(expr, Rational):
+        return (Integer(expr.p), Integer(expr.q))
+    return (expr, Integer(1))
+
+
+def _require_int(expr: Any) -> int | None:
+    if isinstance(expr, Integer):
+        return expr.p
+    return None
+
+
+def posify(expr: Any) -> tuple:
+    """Replace symbols with positive dummies, returning (dummies, substituted)."""
+    from .core import Symbol as _Sym
+
+    if isinstance(expr, _Sym):
+        dummy = _Sym(f"_pos_{expr.name}", positive=True)
+        return (dummy, expr.subs({expr: dummy}))
+    if isinstance(expr, Expr):
+        symbols = expr.free_symbols
+        if not symbols:
+            return (expr, expr)
+        mapping = {}
+        dummies = []
+        for s in sorted(symbols, key=lambda s: s.name):
+            dummy = _Sym(f"_pos_{s.name}", positive=True)
+            mapping[s] = dummy
+            dummies.append(dummy)
+        return (dummies[0] if len(dummies) == 1 else tuple(dummies), expr.subs(mapping))
+    return (expr, expr)
+
+
+def root(expr: Any, n: int) -> Expr:
+    """Return *expr* raised to the power ``1/n``."""
+    if n == 2:
+        return sqrt(expr)
+    return Pow(expr, Rational(1, n))
+
+
+def cbrt(expr: Any) -> Expr:
+    """Return the cube root of *expr*."""
+    return Pow(expr, Rational(1, 3))
+
+
+class Sum:
+    """Unevaluated symbolic summation."""
+
+    def __init__(self, function, *limits):
+        self.function = function
+        self.limits = limits
+
+    def doit(self):
+        if len(self.limits) == 1 and isinstance(self.limits[0], (tuple, list)):
+            var, lo, hi = self.limits[0]
+            var = _require_symbol(var)
+            total = Integer(0)
+            for k in range(int(lo), int(hi) + 1):
+                total += self.function.subs({var: Integer(k)})
+            return total
+        raise NotImplementedError("multi-index symbolic summation not yet supported")
+
+    def __repr__(self):
+        return f"Sum({self.function}, {self.limits})"
+
+    def __str__(self):
+        var, lo, hi = self.limits[0] if self.limits else (None, None, None)
+        return f"Sum({self.function}, ({var}, {lo}, {hi}))"
+
+
+class Product:
+    """Unevaluated symbolic product."""
+
+    def __init__(self, function, *limits):
+        self.function = function
+        self.limits = limits
+
+    def doit(self):
+        if len(self.limits) == 1 and isinstance(self.limits[0], (tuple, list)):
+            var, lo, hi = self.limits[0]
+            var = _require_symbol(var)
+            total = Integer(1)
+            for k in range(int(lo), int(hi) + 1):
+                total *= self.function.subs({var: Integer(k)})
+            return total
+        raise NotImplementedError("multi-index symbolic product not yet supported")
+
+    def __repr__(self):
+        return f"Product({self.function}, {self.limits})"
+
+    def __str__(self):
+        var, lo, hi = self.limits[0] if self.limits else (None, None, None)
+        return f"Product({self.function}, ({var}, {lo}, {hi}))"
+
+
 __all__ = [
     "Abs",
     "AccumBounds",
@@ -1345,6 +1471,7 @@ __all__ = [
     "sqf_part",
     "sturm",
     "srepr",
+    "sstr",
     "sqrt",
     "sqrt_mod",
     "stationary_points",
@@ -1361,6 +1488,10 @@ __all__ = [
     "to_dnf",
     "to_nnf",
     "together",
+    "root",
+    "cbrt",
+    "Sum",
+    "Product",
     "totient",
     "trace",
     "trailing_coeff",
