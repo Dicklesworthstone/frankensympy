@@ -179,7 +179,11 @@ class And(BooleanFunction):
         return f"And({', '.join(repr(a) for a in self.args)})"
 
     def __str__(self) -> str:
-        return f"({' & '.join(str(a) for a in self.args)})"
+        # Oracle-pinned: relational operands of And/Or render parenthesized
+        # ((0 < x) & (x < 1)).
+        return " & ".join(
+            f"({a})" if hasattr(a, "rel_op") else str(a) for a in self.args
+        )
 
 
 class Or(BooleanFunction):
@@ -220,7 +224,9 @@ class Or(BooleanFunction):
         return f"Or({', '.join(repr(a) for a in self.args)})"
 
     def __str__(self) -> str:
-        return f"({' | '.join(str(a) for a in self.args)})"
+        return " | ".join(
+            f"({a})" if hasattr(a, "rel_op") else str(a) for a in self.args
+        )
 
 
 class Not(BooleanFunction):
