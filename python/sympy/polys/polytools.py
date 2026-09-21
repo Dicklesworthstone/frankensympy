@@ -5,6 +5,7 @@ from typing import Any, List, Optional, Sequence, Tuple, Union
 from ..core import (
     Basic,
     Expr,
+    Function,
     Integer,
     Rational,
     Symbol,
@@ -841,11 +842,18 @@ def apart(expr: Any, x: Any = None) -> Any:
     if x is None:
         free = wrapped.free_symbols
         if not free:
-            return expr
-        if len(free) == 1:
-            x_sym = next(iter(free))
-        else:
-            x_sym = sorted(list(free), key=lambda s: s.name)[0]
+            # Oracle-pinned: apart(sqrt(8)) raises multivariate
+            # NotImplementedError; only bare rational numbers are identity.
+            if isinstance(expr, (Integer, Rational)) or _native_expr(expr).is_rational:
+                return expr
+            raise NotImplementedError("multivariate partial fraction decomposition")
+        if len(free) > 1:
+            raise NotImplementedError("multivariate partial fraction decomposition")
+        # Oracle-pinned: function-bearing expressions (sin/cos/exp/tan and
+        # custom subclasses) refuse without explicit gens.
+        if wrapped.atoms(Function):
+            raise NotImplementedError("multivariate partial fraction decomposition")
+        x_sym = next(iter(free))
     elif isinstance(x, str):
         x_sym = Symbol(x)
     else:
