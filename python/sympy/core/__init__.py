@@ -1966,10 +1966,37 @@ class AtomicExpr(Expr, Atom):
     __slots__ = ()
 
 
+_SYMBOL_CACHE: dict[tuple, "Symbol"] = {}
+
+
 class Symbol(AtomicExpr):
     __slots__ = ("_assumptions",)
 
+    def __new__(cls, name: str, **assumptions: Any):
+        # Oracle-pinned (SymPy 1.14.0): Symbol construction is interned -
+        # Symbol('x', positive=True) is Symbol('x', positive=True) -> True,
+        # and the same instance comes back through pickle. Only the exact
+        # surface class interns; subclasses stay uncached opaque objects.
+        if cls is not Symbol:
+            return object.__new__(cls)
+        key = (
+            name,
+            tuple(
+                sorted(
+                    (k, _canonical_assumption_value(v))
+                    for k, v in assumptions.items()
+                    if v is not None
+                )
+            ),
+        )
+        cached = _SYMBOL_CACHE.get(key)
+        if cached is not None:
+            return cached
+        return object.__new__(cls)
+
     def __init__(self, name: str, **assumptions: Any):
+        if hasattr(self, "_assumptions"):
+            return  # interned cache hit; already fully initialized
         if not isinstance(name, str):
             raise TypeError("Symbol name must be a string")
         if name.startswith(_DUMMY_PREFIX):
@@ -1991,6 +2018,10 @@ class Symbol(AtomicExpr):
             # Only the exact surface class owns a lift-back target: a custom
             # subclass stays opaque and must never capture a native atom.
             _register_surface_symbol(self)
+            _SYMBOL_CACHE[(
+                self.name,
+                tuple(sorted(self._assumptions.items())),
+            )] = self
 
     @property
     def name(self) -> str:
