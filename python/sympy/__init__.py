@@ -1276,6 +1276,89 @@ def conjugate(expr: Any) -> Any:
     return expr
 
 
+def count_ops(expr: Any) -> Integer:
+    """Count the number of operations in an expression."""
+    def _count(node: Any) -> int:
+        args = getattr(node, "args", ())
+        if not args:
+            return 0
+        return 1 + sum(_count(a) for a in args)
+    return Integer(_count(expr))
+
+
+def real_roots(expr: Any, var: Any = None) -> list:
+    """Return the real roots of a univariate polynomial expression."""
+    solutions = solve(expr, var) if var is not None else solve(expr)
+    real: list = []
+    for sol in solutions:
+        try:
+            v = float(sol)
+            real.append(sol)
+        except (TypeError, ValueError):
+            continue
+    return real
+
+
+def factor_terms(expr: Any) -> Any:
+    """Factor out common coefficients from an expression."""
+    if isinstance(expr, Add):
+        terms = expr.args
+        # Extract numeric coefficients
+        coeffs: list = []
+        for t in terms:
+            if isinstance(t, (Integer, Rational)):
+                coeffs.append(t)
+                continue
+            c = Rational(1)
+            if isinstance(t, Mul):
+                numeric_factors = [f for f in t.args if isinstance(f, (Integer, Rational))]
+                for f in numeric_factors:
+                    c = c * f
+            coeffs.append(c)
+        # Compute the GCD of the numeric coefficients
+        from math import gcd as _igcd
+        int_coeffs = [abs(int(c)) for c in coeffs]
+        common = 0
+        for ic in int_coeffs:
+            common = _igcd(common, ic) if common else ic
+        if common <= 1:
+            return expr
+        common_r = Rational(common)
+        factored = Add(*[t / common_r for t in terms], evaluate=False)
+        return Mul(common_r, factored, evaluate=False)
+    return expr
+
+
+class Max:
+    """Maximum of arguments (evaluates numerically; raises on incomparable)."""
+
+    def __new__(cls, *args: Any) -> Any:
+        if len(args) == 1:
+            return args[0]
+        try:
+            vals = [float(a) for a in args]
+            return Float(max(vals))
+        except (TypeError, ValueError):
+            raise NotImplementedError(
+                "symbolic Max requires Piecewise (not in shell subset)"
+            )
+
+
+class Min:
+    """Minimum of arguments (evaluates numerically; raises on incomparable)."""
+
+    def __new__(cls, *args: Any) -> Any:
+        if len(args) == 1:
+            return args[0]
+        try:
+            vals = [float(a) for a in args]
+            return Float(min(vals))
+        except (TypeError, ValueError):
+            raise NotImplementedError(
+                "symbolic Min requires Piecewise (not in shell subset)"
+            )
+
+
 __all__ = [
     "Abs",
     "AccumBounds",
@@ -1687,6 +1770,11 @@ __all__ = [
     "zeros",
     "nsolve",
     "lambdify",
+    "count_ops",
+    "real_roots",
+    "factor_terms",
+    "Max",
+    "Min",
     "nroots",
     "deg",
     "coeff",
