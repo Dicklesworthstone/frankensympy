@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..core import (
+    Basic,
     Add,
     ComplexInfinity,
     Function,
@@ -49,6 +50,12 @@ def latex(expr: Any) -> str:
         return _latex_add(expr)
     if _is_function_instance(expr):
         return _latex_function(expr)
+    struct_args = getattr(expr, "_struct_args", None)
+    if struct_args is not None:
+        # Oracle: custom Expr subclasses render like applied operators
+        # (V(x, 2) -> \operatorname{V}\left(x, 2\right)).
+        inner = ", ".join(latex(a) if isinstance(a, Basic) else str(a) for a in struct_args)
+        return r"\operatorname{" + type(expr).__name__ + r"}\left(" + inner + r"\right)"
     raise NotImplementedError(
         f"latex printing is not implemented for {type(expr).__name__}"
     )

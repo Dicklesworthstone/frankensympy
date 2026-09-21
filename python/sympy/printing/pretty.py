@@ -23,6 +23,11 @@ def pretty(expr: Any) -> str:
 
 def _render(expr: Any) -> tuple[list[str], int]:
     """Return (lines, baseline_index). Baseline is the visual center row."""
+    struct_args = getattr(expr, "_struct_args", None)
+    if struct_args is not None:
+        # Oracle: custom Expr subclasses pretty-print like str
+        # (V(x, 2) -> 'V(x, 2)').
+        return [f"{type(expr).__name__}({', '.join(str(a) for a in struct_args)})"], 0
     if isinstance(expr, Integer):
         return [str(expr.p)], 0
     if isinstance(expr, Rational):

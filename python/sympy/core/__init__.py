@@ -677,9 +677,27 @@ def _exact_rational_argument(value: Any) -> tuple[int, int]:
 class Basic:
     """Base class for all SymPy objects in the compatibility shell."""
 
-    __slots__ = ("_value",)
+    __slots__ = ("_value", "_struct_args")
 
-    def __init__(self, src: Any = None):
+    def __new__(cls, *args: Any, **kwargs: Any):
+        # Oracle-pinned (SymPy 1.14.0 Basic.__new__): arbitrary user
+        # subclasses construct with structural args - V(x, 2) stores
+        # (x, 2), driving args/func/printers/eq/hash/copy/pickle
+        # generically. Native-backed shell types define their own
+        # __new__, so this path only activates for user subclasses.
+        mod = getattr(cls, "__module__", "") or ""
+        if not mod.startswith("sympy"):
+            # User-defined subclass (any module outside the shell package):
+            # structural args semantics, mirroring upstream Basic.__new__.
+            obj = object.__new__(cls)
+            obj._struct_args = args
+            return obj
+        return object.__new__(cls)
+
+    def __init__(self, *args: Any, **kwargs: Any):
+        if getattr(self, "_struct_args", None) is not None:
+            return  # structural subclass: no native handle, args drive all
+        src = args[0] if args else None
         if isinstance(src, Basic):
             self._value = src._value
         elif isinstance(src, _native.Expr):
@@ -697,6 +715,9 @@ class Basic:
 
     @property
     def args(self) -> tuple["Basic", ...]:
+        struct_args = getattr(self, "_struct_args", None)
+        if struct_args is not None:
+            return struct_args
         try:
             return tuple(_wrap(arg) for arg in _native_expr(self).args)
         except (NotImplementedError, TypeError):
@@ -710,6 +731,13 @@ class Basic:
 
     @property
     def free_symbols(self) -> set["Symbol"]:
+        struct_args = getattr(self, "_struct_args", None)
+        if struct_args is not None:
+            syms: set[Symbol] = set()
+            for a in struct_args:
+                if isinstance(a, Basic):
+                    syms |= a.free_symbols
+            return syms
         try:
             return {
                 _symbol_from_binding(binding)
@@ -875,16 +903,28 @@ class Basic:
         return "\n".join(_ascii_pretty_lines(self))
 
     def __str__(self) -> str:
+        struct_args = getattr(self, "_struct_args", None)
+        if struct_args is not None:
+            # Oracle: custom subclass str is generic over structural args
+            # (V(x, 2) -> 'V(x, 2)').
+            return f"{type(self).__name__}({', '.join(str(a) for a in struct_args)})"
         # SymPy 1.14.0 plain str printer (printer-parity bead qxr): Python
         # rendering over wrapped args; the native Display wraps every Add in
         # parentheses and keeps ' + -1' terms, which diverges from the oracle.
         return _str_expr(self)
 
     def __repr__(self) -> str:
+        struct_args = getattr(self, "_struct_args", None)
+        if struct_args is not None:
+            return f"{type(self).__name__}({', '.join(str(a) for a in struct_args)})"
         # Upstream SymPy: repr == str for core expressions (both StrPrinter).
         return _str_expr(self)
 
     def __hash__(self) -> int:
+        struct_args = getattr(self, "_struct_args", None)
+        if struct_args is not None:
+            # Oracle: equal structural instances hash equal (V(x, 2)).
+            return hash((type(self).__name__, struct_args))
         if type(self) not in _exact_surface_types() and not isinstance(self, Function):
             return object.__hash__(self)
         ratio = _exact_ratio(self)
@@ -895,6 +935,13 @@ class Basic:
         return hash(self._value)
 
     def __eq__(self, other: object) -> bool:
+        struct_args = getattr(self, "_struct_args", None)
+        if struct_args is not None:
+            # Oracle: structural subclass equality compares exact class and
+            # args (V(x, 2) == V(x, 2) True; V(x, 2) == V(x, 3) False).
+            if type(self) is not type(other):
+                return NotImplemented
+            return struct_args == getattr(other, "_struct_args", None)
         if type(self) not in _exact_surface_types() and not isinstance(self, Function):
             return self is other
         # Applied functions carry their defining class: two same-named custom
@@ -975,6 +1022,11 @@ class Basic:
         return type(self)(*self.args)
 
     def __reduce__(self):
+        struct_args = getattr(self, "_struct_args", None)
+        if struct_args is not None:
+            # Structural subclasses pickle by class reference plus the
+            # stored construction args - never the printed string.
+            return type(self), struct_args
         if type(self) is Dummy:
             return _restore_dummy, (self.name, self._dummy_number)
         if isinstance(self, AppliedUndef):
