@@ -960,6 +960,12 @@ class Basic:
             return _restore_dummy, (self.name, self._dummy_number)
         if isinstance(self, AppliedUndef):
             return _restore_applied_undef, (self._value.func_name, self.args)
+        if isinstance(self, Function):
+            # Custom applied Function subclasses pickle by class reference
+            # plus structural args (upstream SymPy parity: the defining
+            # module must provide the class at unpickle time). Never the
+            # printed-string fallthrough below - str() is not an identity.
+            return type(self), self.args
         if isinstance(self, Symbol):
             if self._assumptions:
                 return _restore_symbol, (
