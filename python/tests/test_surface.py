@@ -2891,10 +2891,11 @@ class SurfaceTests(unittest.TestCase):
 
         # as_relational
         rel_open = i_open.as_relational(x)
-        self.assertEqual(str(rel_open), "(Lt(0, x) & Lt(x, 1))")
+        # Oracle-pinned (SymPy 1.14.0): relationals render in operator form.
+        self.assertEqual(str(rel_open), "(0 < x) & (x < 1)")
 
         rel_closed = Interval(0, 1).as_relational(x)
-        self.assertEqual(str(rel_closed), "(Le(0, x) & Le(x, 1))")
+        self.assertEqual(str(rel_closed), "(0 <= x) & (x <= 1)")
 
         # Proper subset / superset
         s1 = FiniteSet(1)

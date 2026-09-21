@@ -13,6 +13,7 @@ from typing import Any
 
 from ..core import (
     Basic,
+    Relational,
     Add,
     ComplexInfinity,
     Function,
@@ -62,6 +63,18 @@ def latex(expr: Any) -> str:
             name = f"{stripped}_{{{digits}}}"
         inner = ", ".join(latex(a) if isinstance(a, Basic) else str(a) for a in struct_args)
         return r"\operatorname{" + name + r"}\left(" + inner + r"\right)"
+    if isinstance(expr, Relational):
+        from ..core import StrictLessThan, StrictGreaterThan, LessThan, GreaterThan, Equality, Unequality
+        ops = {
+            StrictLessThan: "<",
+            StrictGreaterThan: ">",
+            LessThan: r"\leq",
+            GreaterThan: r"\geq",
+            Equality: "=",
+            Unequality: r"\neq",
+        }
+        op = ops[type(expr)]
+        return f"{latex(expr.lhs)} {op} {latex(expr.rhs)}"
     raise NotImplementedError(
         f"latex printing is not implemented for {type(expr).__name__}"
     )

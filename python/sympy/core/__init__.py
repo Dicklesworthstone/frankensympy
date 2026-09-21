@@ -924,6 +924,9 @@ class Basic:
         return _str_expr(self)
 
     def __hash__(self) -> int:
+        if isinstance(self, Relational):
+            # Oracle: equal relationals hash equal (structural content).
+            return hash((type(self).__name__, self.args))
         struct_args = getattr(self, "_struct_args", None)
         if struct_args is not None:
             # Oracle: equal structural instances hash equal (V(x, 2)).
@@ -938,6 +941,12 @@ class Basic:
         return hash(self._value)
 
     def __eq__(self, other: object) -> bool:
+        if isinstance(self, Relational):
+            # Oracle: relationals compare structurally - exact class plus
+            # (lhs, rhs) (Lt(x, 3) == Lt(x, 3) True).
+            if not isinstance(other, Relational) or type(self) is not type(other):
+                return False
+            return self.args == other.args
         struct_args = getattr(self, "_struct_args", None)
         if struct_args is not None:
             # Oracle: structural subclass equality compares exact class and
@@ -2807,37 +2816,58 @@ class Relational(Expr):
         return self.args[1]
 
     def __repr__(self) -> str:
-        return f"{type(self).__name__}({self.lhs!r}, {self.rhs!r})"
+        return self.__str__()
 
     def __str__(self) -> str:
-        return f"{type(self).__name__}({self.lhs}, {self.rhs})"
+        # Oracle-pinned: strict/order relations render in operator form
+        # (Lt(x, 3) -> 'x < 3'); Equality/Unequality keep function form
+        # (Eq(x, 2), Ne(x, 2)).
+        if self.rel_op in ("<", ">", "<=", ">="):
+            return f"{self.lhs} {self.rel_op} {self.rhs}"
+        name = {Equality: "Eq", Unequality: "Ne"}.get(type(self), type(self).__name__)
+        return f"{name}({self.lhs}, {self.rhs})"
 
 
-class Eq(Relational):
+class Equality(Relational):
     rel_op = "=="
 
 
-Equality = Eq
+Eq = Equality
 
 
-class Ne(Relational):
+class Unequality(Relational):
     rel_op = "!="
 
 
-class Lt(Relational):
+Ne = Unequality
+
+
+class StrictLessThan(Relational):
     rel_op = "<"
 
 
-class Le(Relational):
+Lt = StrictLessThan
+
+
+class LessThan(Relational):
     rel_op = "<="
 
 
-class Gt(Relational):
+Le = LessThan
+
+
+class StrictGreaterThan(Relational):
     rel_op = ">"
 
 
-class Ge(Relational):
+Gt = StrictGreaterThan
+
+
+class GreaterThan(Relational):
     rel_op = ">="
+
+
+Ge = GreaterThan
 
 
 
