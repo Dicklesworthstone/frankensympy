@@ -1359,6 +1359,105 @@ class Min:
             )
 
 
+def minpoly(expr: Any, gen: Any = None) -> Any:
+    """Minimal polynomial of a quadratic surd expression.
+
+    Handles a + b*sqrt(c) forms (with rational a, b, c) by conjugate
+    elimination. Returns a Poly in *gen* (default x).
+    """
+    x = Symbol("x") if gen is None else gen
+    expr = sympify(expr) if "sympify" in globals() else expr
+    # Detect a + b*sqrt(c) with integer/rational a, b, c
+    if isinstance(expr, Add) and len(expr.args) == 2:
+        a_part, rest = expr.args
+        a_ok = isinstance(a_part, (Integer, Rational))
+        bare_surd = isinstance(rest, Pow) and len(rest.args) == 2 and rest.args[1] == Rational(1, 2)
+        if a_ok and bare_surd:
+            b_val, c_val, a_val = Integer(1), rest.args[0], a_part
+            two_a = Integer(2) * a_val
+            const = a_val**2 - b_val**2 * c_val
+            return Poly(x**2 - two_a * x + const, x)
+        if a_ok and isinstance(rest, Mul):
+            coeffs = [f for f in rest.args if isinstance(f, (Integer, Rational))]
+            surds = [f for f in rest.args if isinstance(f, Pow)]
+            if len(coeffs) == 1 and len(surds) == 1 and len(surds[0].args) == 2 and surds[0].args[1] == Rational(1, 2):
+                b_val = coeffs[0]
+                c_val = surds[0].args[0]
+                a_val = a_part
+                # (x - a)^2 = b^2 * c  =>  x^2 - 2a x + (a^2 - b^2 c)
+                two_a = Integer(2) * a_val
+                const = a_val**2 - b_val**2 * c_val
+                return Poly(x**2 - two_a * x + const, x)
+    if isinstance(expr, Pow) and len(expr.args) == 2 and expr.args[1] == Rational(1, 2):
+        # sqrt(c): x^2 - c
+        return Poly(x**2 - expr.args[0], x)
+    if isinstance(expr, Mul):
+        coeffs = [f for f in expr.args if isinstance(f, (Integer, Rational))]
+        surds = [f for f in expr.args if isinstance(f, Pow)]
+        if len(coeffs) == 1 and len(surds) == 1 and len(surds[0].args) == 2 and surds[0].args[1] == Rational(1, 2):
+            # b*sqrt(c): x^2 - b^2 c
+            b_val, c_val = coeffs[0], surds[0].args[0]
+            return Poly(x**2 - b_val**2 * c_val, x)
+    if isinstance(expr, (Integer, Rational)):
+        return Poly(x - expr, x)
+    raise NotImplementedError(
+        f"minpoly supports rational and quadratic surd forms, got {expr}"
+    )
+
+
+minimal_polynomial = minpoly
+
+
+def reduce_inequalities(inequalities: Any, symbols_list: Any = None) -> Any:
+    """Reduce a list of polynomial inequalities to solution intervals.
+
+    Returns a list of relational solutions (e.g. ``x > -2`` pairs).
+    Only strict polynomial inequalities in one variable are supported.
+    """
+    if not isinstance(inequalities, (list, tuple)):
+        inequalities = [inequalities]
+    var = symbols_list if symbols_list is not None else _free_var_of(inequalities[0])
+    results: list = []
+    for ineq in inequalities:
+        if isinstance(ineq, (Lt, Gt, Le, Ge)):
+            # ineq.lhs < ineq.rhs form: solve lhs - rhs against the sign
+            diff_expr = ineq.lhs - ineq.rhs
+            roots = solve(diff_expr, var)
+            test_points = _sample_points(roots, diff_expr, var)
+            holds = [bool(diff_expr.subs({var: p})) for p in test_points]
+            for tp, ok in zip(test_points, holds):
+                if ok:
+                    results.append((ineq, tp))
+        else:
+            raise NotImplementedError(
+                f"reduce_inequalities handles Lt/Gt/Le/Ge, got {type(ineq).__name__}"
+            )
+    return results
+
+
+def _free_var_of(expr: Any) -> Any:
+    syms = getattr(expr, "free_symbols", set())
+    if len(syms) != 1:
+        raise ValueError(
+            f"reduce_inequalities needs exactly one free variable, got {sorted(s.name for s in syms)}"
+        )
+    return next(iter(syms))
+
+
+def _sample_points(roots: list, expr: Any, var: Any) -> list:
+    """Pick one test point per interval defined by the roots."""
+    vals = sorted(float(r) for r in roots)
+    points: list = []
+    points.append(Integer(vals[0] - 1) if vals else Integer(0))
+    for i in range(len(vals) - 1):
+        points.append(Float((vals[i] + vals[i + 1]) / 2))
+    if vals:
+        points.append(Integer(vals[-1] + 1))
+    if not roots:
+        points = [Integer(0)]
+    return points
+
+
 __all__ = [
     "Abs",
     "AccumBounds",
@@ -1775,6 +1874,9 @@ __all__ = [
     "factor_terms",
     "Max",
     "Min",
+    "minpoly",
+    "minimal_polynomial",
+    "reduce_inequalities",
     "nroots",
     "deg",
     "coeff",
