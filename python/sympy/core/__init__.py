@@ -733,10 +733,13 @@ class Basic:
     def free_symbols(self) -> set["Symbol"]:
         struct_args = getattr(self, "_struct_args", None)
         if struct_args is not None:
+            # Oracle parity: union over ALL args - non-Basic args raise
+            # AttributeError exactly as upstream's Basic.free_symbols does
+            # (V(x, 2).free_symbols -> 'int' object has no attribute
+            # 'free_symbols').
             syms: set[Symbol] = set()
             for a in struct_args:
-                if isinstance(a, Basic):
-                    syms |= a.free_symbols
+                syms |= a.free_symbols
             return syms
         try:
             return {
@@ -1413,6 +1416,13 @@ class Expr(Basic):
         return factor(self, *gens)
 
     def expand(self) -> "Expr":
+        if getattr(self, "_struct_args", None) is not None:
+            # Oracle: expand of a structural subclass instance reconstructs
+            # with recursively expanded args (V(x, 2).expand() -> V(x, 2)).
+            new_args = tuple(
+                a.expand() if isinstance(a, Basic) else a for a in self._struct_args
+            )
+            return type(self)(*new_args)
         return expand(self)
 
     def as_expr(self) -> "Expr":
