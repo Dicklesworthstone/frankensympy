@@ -365,7 +365,10 @@ def _lift_builtin_result(value: Any) -> "Basic":
 
 
 def _restore_nary(cls, args):
-    return cls(*args, evaluate=False)
+    # Oracle-pinned (SymPy 1.14.0, Add(x, x, evaluate=False) probed):
+    # unpickling reconstructs through normal evaluation - the round trip
+    # re-canonicalizes held composites (args (x, x) -> (2*x,)).
+    return cls(*args)
 
 
 def _restore_pow(cls, base, exponent):

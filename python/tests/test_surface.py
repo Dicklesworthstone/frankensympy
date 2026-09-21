@@ -765,16 +765,24 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(expression.free_symbols, {x})
         self.assertEqual(expression.subs(x, 3), sympy.Integer(5))
 
-    def test_held_forms_copy_and_pickle_without_collapsing_identity(self):
+    def test_held_forms_copy_and_pickle_oracle_pinned(self):
+        # Comparator: SymPy 1.14.0 oracle, probed on this exact fixture.
+        # Construction preserves held args, but the oracle's copy,
+        # deepcopy, and pickle round-trip all RE-CANONIALIZE held
+        # composites (deepcopy(Add(x, x, evaluate=False)) -> 2*x, args
+        # (2, x), not identical and not equal to the held original).
         x = sympy.Symbol("x")
         held = sympy.Add(x, x, evaluate=False)
 
         self.assertIsInstance(held, sympy.Add)
-        self.assertEqual(len(held.args), 2)
-        self.assertIs(copy.deepcopy(held), held)
+        self.assertEqual(held.args, (x, x))  # construction preserves
         restored = pickle.loads(pickle.dumps(held))  # ubs:ignore — trusted in-process bytes
-        self.assertIsInstance(restored, sympy.Add)
-        self.assertEqual(restored.args, held.args)
+        self.assertEqual(restored.args, (2, x))  # oracle: re-canonicalized Mul(2, x)
+        self.assertEqual(restored, 2 * x)
+        deep = copy.deepcopy(held)
+        self.assertIsNot(deep, held)  # oracle: new object
+        self.assertEqual(deep, 2 * x)
+        self.assertEqual(copy.copy(held), 2 * x)
 
     def test_function_wrappers_return_expressions_not_wire_strings(self):
         x = sympy.Symbol("x")
