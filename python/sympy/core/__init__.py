@@ -951,9 +951,22 @@ class Basic:
             tuple(arg.sort_key() for arg in args),
         )
 
+    def __copy__(self) -> "Basic":
+        # Oracle-pinned (SymPy 1.14.0): copy.copy of an atom returns the
+        # same object; of a composite returns a NEW equal object. Copies
+        # go through construction, so held (evaluate=False) composites
+        # re-canonicalize exactly as the oracle's reduce-based copy does.
+        if not self.args:
+            return self
+        return type(self)(*self.args)
+
     def __deepcopy__(self, memo) -> "Basic":
+        # Oracle: deepcopy(symbol) is symbol; deepcopy(composite) is a new
+        # equal object (held Add re-evaluates: args (x, 2, 3) -> (5, x)).
         del memo
-        return self
+        if not self.args:
+            return self
+        return type(self)(*self.args)
 
     def __reduce__(self):
         if type(self) is Dummy:
