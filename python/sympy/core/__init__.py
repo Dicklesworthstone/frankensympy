@@ -1313,6 +1313,12 @@ def _str_term(expr: "Expr") -> tuple[bool, str]:
     if isinstance(expr, Dummy):
         # Oracle-pinned: Dummy renders '_<name>' (intern encoding internal).
         return False, str(expr)
+    if type(expr).__name__ == "Derivative":
+        # Oracle-pinned: str(Derivative(f(x, y), x)) ==
+        # 'Derivative(f(x, y), x)' - the native Display renders 'diff(...)'
+        # which diverges; print the Python-side structural form instead.
+        args = expr.args
+        return False, f"Derivative({', '.join(_str_expr(a) for a in args)})"
     return False, str(_native_expr(expr))
 
 

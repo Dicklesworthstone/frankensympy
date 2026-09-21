@@ -88,6 +88,14 @@ class Matrix(MatrixBase):
         """Construct a new matrix of the same class (preserving mutability/immutability)."""
         return self.__class__(*args, **kwargs)
 
+    def __reduce__(self) -> tuple:
+        # Oracle-pinned: upstream Matrices pickle structurally. The native
+        # handle is not serializable - reduce to (shape, nested entry lists)
+        # and reconstruct through the list-of-lists constructor path.
+        rows, cols = self._native.shape
+        entries = [[self[r, c] for c in range(cols)] for r in range(rows)]
+        return (self.__class__, (entries,))
+
     @property
     def shape(self):
         return self._native.shape
