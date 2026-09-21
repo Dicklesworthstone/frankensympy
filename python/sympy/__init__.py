@@ -1097,6 +1097,107 @@ class Product:
         return f"Product({self.function}, ({var}, {lo}, {hi}))"
 
 
+def nroots(expr: Any, n: int = 15) -> list:
+    """Numerical roots of a univariate polynomial, sorted by real part."""
+    sympify_expr = _wrap(_native_expr(expr))
+    var = _extract_single_symbol(expr)
+    if var is None:
+        raise ValueError("expression must contain exactly one free symbol")
+    exact_roots = solve(expr, var)
+    return [float(r.evalf(n)) if hasattr(r, "evalf") else float(r) for r in exact_roots]
+
+
+def _extract_single_symbol(expr: Any):
+    syms = getattr(expr, "free_symbols", set())
+    if len(syms) == 1:
+        return next(iter(syms))
+    return None
+
+
+def deg(poly: Any, gen: Any = None) -> int:
+    """Return the degree of the leading generator of *poly*."""
+    if isinstance(poly, Pow):
+        base, exp = poly.args
+        exp_int = _as_int_local(exp)
+        if exp_int is not None and exp_int > 0:
+            return deg(base, gen) * exp_int
+    if isinstance(poly, Mul):
+        return max(deg(f, gen) for f in poly.args)
+    if isinstance(poly, Symbol):
+        return 1
+    if isinstance(poly, (Integer, Rational)):
+        return 0
+    return 0
+
+
+def _as_int_local(expr: Any) -> int | None:
+    if isinstance(expr, Integer):
+        return expr.p
+    return None
+
+
+def coeff(expr: Any, sym: Any, n: int = 1) -> Any:
+    """Extract the coefficient of ``sym**n`` from *expr*."""
+    if n == 0:
+        # constant term: substitute 0 for sym
+        return expr.subs({sym: Integer(0)})
+    term_sym = Pow(sym, Integer(n)) if n != 1 else sym
+    if isinstance(expr, Add):
+        for term in expr.args:
+            if isinstance(term, Mul):
+                coeff_found = Integer(1)
+                has_target = False
+                for factor in term.args:
+                    if factor == term_sym:
+                        has_target = True
+                    elif factor == sym:
+                        has_target = True
+                        coeff_found = coeff_found * Integer(1)
+                    elif isinstance(factor, Integer):
+                        coeff_found = coeff_found * factor
+                if has_target:
+                    return coeff_found
+            elif term == term_sym:
+                return Integer(1)
+            elif term == sym:
+                return Integer(1)
+        return Integer(0)
+    if isinstance(expr, Mul):
+        coeff_found = Integer(1)
+        has_target = False
+        for factor in expr.args:
+            if factor == term_sym or factor == sym:
+                has_target = True
+            elif isinstance(factor, Integer):
+                coeff_found = coeff_found * factor
+        return coeff_found if has_target else Integer(0)
+    if expr == term_sym or expr == sym:
+        return Integer(1)
+    return Integer(0)
+
+
+def re(expr: Any) -> Any:
+    """Real part via as_real_imag decomposition."""
+    if hasattr(expr, "as_real_imag"):
+        return expr.as_real_imag()[0]
+    return expr
+
+
+def im(expr: Any) -> Any:
+    """Imaginary part via as_real_imag decomposition."""
+    if hasattr(expr, "as_real_imag"):
+        return expr.as_real_imag()[1]
+    return Integer(0)
+
+
+def conjugate(expr: Any) -> Any:
+    """Complex conjugate via as_real_imag decomposition."""
+    if hasattr(expr, "as_real_imag"):
+        re_part, im_part = expr.as_real_imag()
+        return re_part - im_part * I
+    return expr
+
+
 __all__ = [
     "Abs",
     "AccumBounds",
@@ -1472,6 +1573,7 @@ __all__ = [
     "sturm",
     "srepr",
     "sstr",
+    "sstr",
     "sqrt",
     "sqrt_mod",
     "stationary_points",
@@ -1505,6 +1607,12 @@ __all__ = [
     "wronskian",
     "yn",
     "zeros",
+    "nroots",
+    "deg",
+    "coeff",
+    "re",
+    "im",
+    "conjugate",
     "zeta",
     "zoo",
 ]
