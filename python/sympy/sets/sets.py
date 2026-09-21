@@ -341,6 +341,24 @@ class Interval(Set):
         right_rel = Lt(symbol, self.end) if self.right_open else Le(symbol, self.end)
         return And(left_rel, right_rel)
 
+    def __repr__(self) -> str:
+        return _interval_str(self)
+
+    def __str__(self) -> str:
+        return _interval_str(self)
+
+
+def _interval_str(interval) -> str:
+    start, end = str(interval.start), str(interval.end)
+    lo, ro = bool(interval.left_open), bool(interval.right_open)
+    if lo and ro:
+        return f"Interval.open({start}, {end})"
+    if ro:
+        return f"Interval.Ropen({start}, {end})"
+    if lo:
+        return f"Interval.Lopen({start}, {end})"
+    return f"Interval({start}, {end})"
+
 
 class FiniteSet(Set):
     """A discrete finite set of explicit elements."""
@@ -373,6 +391,14 @@ class FiniteSet(Set):
     def args(self) -> tuple[Expr, ...]:
         elems = self._native_set.elements or []
         return tuple(_wrap(e) for e in elems)
+
+    def __repr__(self) -> str:
+        # Oracle-pinned: FiniteSet str/repr renders braces ({1, 2, 3}).
+        elems = self._native_set.elements or []
+        return "{" + ", ".join(str(_wrap(e)) for e in elems) + "}"
+
+    def __str__(self) -> str:
+        return self.__repr__()
 
 
 class ProductSet(Set):

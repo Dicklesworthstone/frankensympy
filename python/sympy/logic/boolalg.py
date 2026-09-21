@@ -170,7 +170,7 @@ class And(BooleanFunction):
         if len(res_args) == 1:
             return res_args[0]
 
-        res_args.sort(key=str)
+        res_args.sort(key=lambda a: (type(a).__name__, str(a)))
         obj = object.__new__(cls)
         obj._args = tuple(res_args)
         return obj
@@ -215,7 +215,7 @@ class Or(BooleanFunction):
         if len(res_args) == 1:
             return res_args[0]
 
-        res_args.sort(key=str)
+        res_args.sort(key=lambda a: (type(a).__name__, str(a)))
         obj = object.__new__(cls)
         obj._args = tuple(res_args)
         return obj

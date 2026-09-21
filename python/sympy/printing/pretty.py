@@ -24,6 +24,13 @@ def pretty(expr: Any) -> str:
 def _render(expr: Any) -> tuple[list[str], int]:
     """Return (lines, baseline_index). Baseline is the visual center row."""
     struct_args = getattr(expr, "_struct_args", None)
+    if hasattr(expr, "rel_op"):
+        # Oracle-pinned: relations pretty-print in operator form with
+        # unicode operators (Eq -> '=', Ne -> unicode neq).
+        import sympy as _sp
+        ops = {"<": "<", ">": ">", "<=": "\u2264", ">=": "\u2265",
+               "==": "=", "!=": "\u2260"}
+        return [f"{_sp.pretty(expr.lhs)} {ops[expr.rel_op]} {_sp.pretty(expr.rhs)}"], 0
     if struct_args is not None:
         # Oracle: custom Expr subclasses pretty-print like str
         # (V(x, 2) -> 'V(x, 2)').

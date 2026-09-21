@@ -63,6 +63,12 @@ def latex(expr: Any) -> str:
             name = f"{stripped}_{{{digits}}}"
         inner = ", ".join(latex(a) if isinstance(a, Basic) else str(a) for a in struct_args)
         return r"\operatorname{" + name + r"}\left(" + inner + r"\right)"
+    if type(expr).__name__ == "Interval":
+        # Oracle-pinned: \\left[0, 1\\right] bracket style per openness.
+        lo, ro = bool(expr.left_open), bool(expr.right_open)
+        left = "(" if lo else r"\left["
+        right = ")" if ro else r"\right]"
+        return f"{left}{latex(expr.start)}, {latex(expr.end)}{right}"
     if isinstance(expr, Relational):
         from ..core import StrictLessThan, StrictGreaterThan, LessThan, GreaterThan, Equality, Unequality
         ops = {

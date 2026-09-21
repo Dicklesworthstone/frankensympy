@@ -1310,6 +1310,9 @@ def _str_term(expr: "Expr") -> tuple[bool, str]:
             cneg, cbody = _str_number(const)
             out += (f" - {cbody}") if cneg else (f" + {cbody}")
         return False, out
+    if isinstance(expr, Dummy):
+        # Oracle-pinned: Dummy renders '_<name>' (intern encoding internal).
+        return False, str(expr)
     return False, str(_native_expr(expr))
 
 
@@ -2189,6 +2192,14 @@ class Dummy(Symbol):
     """Dummy symbol whose identity is distinct across constructor calls."""
 
     __slots__ = ("_dummy_name", "_dummy_number")
+
+    is_Dummy = True
+    is_Symbol = True
+
+    def __str__(self) -> str:
+        # Oracle-pinned (SymPy 1.14.0): str(Dummy('d')) == '_d'; the
+        # intern encoding stays internal.
+        return f"_{self._dummy_name}"
 
     def __init__(self, name: str = "Dummy", **assumptions: Any):
         if assumptions:
