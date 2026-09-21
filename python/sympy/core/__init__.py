@@ -815,7 +815,10 @@ class Basic:
         if isinstance(self, Relational) or not self.args:
             return self
         new_args = tuple(arg.doit(**hints) if isinstance(arg, Basic) else arg for arg in self.args)
-        if new_args == self.args:
+        if new_args == self.args and not hasattr(self, "_args"):
+            # Held wrappers (evaluate=False) always evaluate through
+            # construction on doit (oracle: doit(Add(y, x, evaluate=False))
+            # -> canonical Add(x, y); doit(Add(x, x, evaluate=False)) -> 2*x).
             return self
         return self.func(*new_args)
 
@@ -2186,18 +2189,18 @@ class Number(AtomicExpr):
 class Rational(Number):
     __slots__ = ()
 
-    def __new__(cls, numerator: Any, denominator: Any = None):
+    def __new__(cls, p: Any, q: Any = None):
         if cls is Rational:
             # SymPy 1.14.0 construction semantics (bead
-            # fra-shell-number-canonical-construction-qf6): zero denominator
+            # fra-shell-number-canonical-construction-qf6): zero q
             # is nan for 0/0, otherwise zoo; exact integers promote to Integer
             # (routing the 0/1/-1 singletons); everything else normalizes sign.
-            if denominator is None:
-                numerator_p, numerator_q = _exact_rational_argument(numerator)
+            if q is None:
+                numerator_p, numerator_q = _exact_rational_argument(p)
                 denominator_p, denominator_q = 1, 1
             else:
-                numerator_p, numerator_q = _exact_rational_argument(numerator)
-                denominator_p, denominator_q = _exact_rational_argument(denominator)
+                numerator_p, numerator_q = _exact_rational_argument(p)
+                denominator_p, denominator_q = _exact_rational_argument(q)
             num = numerator_p * denominator_q
             den = numerator_q * denominator_p
             if den == 0:
@@ -2290,11 +2293,11 @@ class Rational(Number):
 class Integer(Rational):
     __slots__ = ()
 
-    def __new__(cls, value: int):
+    def __new__(cls, i: int):
         if cls is Integer:
             # Construction routing to the SymPy 1.14.0 integer singletons
             # (bead fra-shell-number-canonical-construction-qf6).
-            v = _exact_integer_argument(value)
+            v = _exact_integer_argument(i)
             if v == 0:
                 return _ZERO
             if v == 1:
@@ -2302,7 +2305,7 @@ class Integer(Rational):
             if v == -1:
                 return _NEGATIVE_ONE
         obj = object.__new__(cls)
-        obj._value = _native.py_integer(_exact_integer_argument(value))
+        obj._value = _native.py_integer(_exact_integer_argument(i))
         return obj
 
     def __init__(self, *args: Any, **kwargs: Any):
@@ -3370,6 +3373,20 @@ def replay_diff_receipt(receipt: dict[str, Any]) -> bool:
 
 
 def expand(expression: Any) -> Expr:
+    # Oracle-pinned (SymPy 1.14.0): expand of a held (evaluate=False) Add
+    # expands arguments recursively and reconstructs the Add UNEVALUATED -
+    # heldness survives expand for Add (expand(Add(x, x, evaluate=False))
+    # -> Add(x, x)). Held Mul/Pow are the distribution targets themselves
+    # and expand normally (expand(Mul(2, 3, evaluate=False)) -> 6).
+    if isinstance(expression, Add) and hasattr(expression, "_args"):
+        new_args = tuple(
+            a.expand() if isinstance(a, Basic) else a for a in expression.args
+        )
+        # Oracle: the held reconstruction uses canonical term order -
+        # non-numeric terms sorted, constants last ascending
+        # (expand(Add(y, x, evaluate=False)) -> Add(x, y) held).
+        held = Add(*new_args, evaluate=False)
+        return Add(*_add_ordered_terms(held), evaluate=False)
     return _lift_builtin_result(_native_expr(expression).expand())
 
 

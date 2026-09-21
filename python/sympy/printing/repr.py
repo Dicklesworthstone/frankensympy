@@ -43,7 +43,30 @@ def srepr(expr: Any) -> str:
             return f"Rational({expr.p}, {expr.q})"
         if str(expr) in ("pi", "E", "I", "oo", "zoo", "nan"):
             return str(expr)
-        args_s = ", ".join(srepr(a) for a in expr.args)
+        args = expr.args
+        if type(expr) is Add:
+            if hasattr(expr, "_args"):
+                # Held Add: oracle srepr prints the stored construction
+                # order verbatim (corpus-verified on held unevaluated Adds).
+                args = expr.args
+            else:
+                # Evaluated Add: oracle srepr applies the full canonical
+                # term ordering (monomial-lex, constants last) - it differs
+                # from stored args, which keep constants first.
+                from sympy.core import _add_ordered_terms
+                args = _add_ordered_terms(expr)
+        elif type(expr) is Mul and not hasattr(expr, "_args"):
+            # Evaluated Mul with a negative leading coefficient: oracle
+            # srepr splits it - Mul(-2, w) -> Mul(-1, 2, w) - so the
+            # printed structure re-evaluates to the same product.
+            first = expr.args[0] if expr.args else None
+            if isinstance(first, (Integer, Rational)) and first.p < 0:
+                parts: list = [Integer(-1)]
+                if first.q != 1 or first.p != -1:
+                    parts.append(Rational(-first.p, first.q) if first.q != 1 else Integer(-first.p))
+                parts.extend(expr.args[1:])
+                args = tuple(parts)
+        args_s = ", ".join(srepr(a) for a in args)
         return f"{cls_name}({args_s})"
 
     return repr(expr)
