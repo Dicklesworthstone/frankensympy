@@ -1132,6 +1132,22 @@ def _str_term(expr: "Expr") -> tuple[bool, str]:
         base, exp = expr.args
         return False, f"{_str_parenthesize(_str_expr(base), base)}**{_str_parenthesize(_str_expr(exp), exp)}"
     if type(expr) is Mul:
+        # Held Mul (evaluate=False): print stored args verbatim in given
+        # order (oracle: Mul(x, -3, y, evaluate=False) -> 'x*(-3)*y').
+        # Non-leading args are parenthesized iff a Number that is negative
+        # or a non-integer Rational, or an Add; everything else bare.
+        held_args = getattr(expr, "_args", None)
+        if held_args is not None:
+            parts = []
+            for i, a in enumerate(held_args):
+                s = _str_expr(a)
+                if i > 0 and (
+                    (isinstance(a, (Integer, Rational)) and (a.p < 0 or a.q != 1))
+                    or type(a) is Add
+                ):
+                    s = f"({s})"
+                parts.append(s)
+            return False, "*".join(parts)
         # Self-contained coefficient split (no as_coeff_Mul dependency).
         coeff_p, coeff_q = 1, 1
         rest = []
@@ -1161,6 +1177,21 @@ def _str_term(expr: "Expr") -> tuple[bool, str]:
             return neg, body
         return neg, f"{coeff_p}*{body}"
     if type(expr) is Add:
+        # Held Add (evaluate=False): non-numeric terms in stored order,
+        # then numeric terms in ascending numeric order, sign absorbed
+        # into separators (oracle: Add(x, -2, y, evaluate=False) ->
+        # 'x + y - 2'; Add(x, -2, 2, evaluate=False) -> 'x - 2 + 2').
+        held_args = getattr(expr, "_args", None)
+        if held_args is not None:
+            # Oracle sorts held Add terms canonically too (held
+            # add_noncanonical_order -> 'x + y'; 'z + w - 2' -> 'w + z - 2').
+            # _add_ordered_terms lands pure constants last, ascending.
+            rendered = [_str_term(a) for a in _add_ordered_terms(expr)]
+            first_neg, first_body = rendered[0]
+            out = ("-" + first_body) if first_neg else first_body
+            for neg, body in rendered[1:]:
+                out += (f" - {body}") if neg else (f" + {body}")
+            return False, out
         const = None
         rest = []
         for a in expr.args:
