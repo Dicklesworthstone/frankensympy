@@ -971,6 +971,84 @@ from .simplify import (
 )
 
 
+def lambdify(symbols_list: Any, expr: Any, modules: str = "math") -> Any:
+    """Convert a symbolic expression to a numerical callable.
+
+    Parameters
+    ----------
+    symbols_list : Symbol or tuple of Symbols
+        Free variable(s) in positional order.
+    expr : Expr
+        The expression to evaluate numerically.
+    modules : str
+        Module namespace for math functions (``"math"`` default).
+
+    Returns
+    -------
+    A callable ``f(*args)`` evaluating the expression numerically.
+    """
+    if isinstance(symbols_list, Symbol):
+        symbols_list = (symbols_list,)
+    arg_names = ", ".join(sym.name for sym in symbols_list)
+    import math as _math
+    code = f"lambda {arg_names}: {expr}"
+    namespace: dict[str, Any] = {}
+    exec(code, {"__builtins__": {}, **vars(_math), "Abs": abs}, namespace)
+    return namespace.popitem()[1]
+
+
+def nsolve(expr: Any, var: Any, initial: float, tol: float = 1e-12, maxiter: int = 200) -> Any:
+    """Numerically solve ``expr = 0`` for *var* starting from *initial*.
+
+    Uses Newton's method with symbolic differentiation for the Jacobian.
+    Returns the converged approximate root as a ``Float``.
+    """
+    derivative = diff(expr, var)
+    f = lambdify(var, expr)
+    fp = lambdify(var, derivative)
+    x_val = float(initial)
+    for _ in range(maxiter):
+        f_val = f(x_val)
+        fp_val = fp(x_val)
+        if abs(fp_val) < 1e-30:
+            raise ValueError(
+                f"Derivative is zero at x = {x_val}; Newton cannot continue"
+            )
+        x_new = x_val - f_val / fp_val
+        if abs(x_new - x_val) < tol:
+            return Float(x_new)
+        x_val = x_new
+    raise ValueError(
+        f"nsolve failed to converge in {maxiter} iterations (last x = {x_val})"
+    )
+
+
+def lambdify(symbols_list: Any, expr: Any, modules: str = "math") -> Any:
+    """Convert a symbolic expression to a numerical callable.
+
+    Parameters
+    ----------
+    symbols_list : Symbol or tuple of Symbols
+        The free variable(s) of the expression, in positional order.
+    expr : Expr
+        The expression to evaluate.
+    modules : str
+        The math module to use for numerical evaluation.
+
+    Returns
+    -------
+    A callable ``f(*args)`` that evaluates the expression numerically.
+    """
+    if isinstance(symbols_list, Symbol):
+        symbols_list = (symbols_list,)
+    arg_names = ", ".join(sym.name for sym in symbols_list)
+    expr_str = str(expr)
+    code = f"lambda {arg_names}: {expr_str}"
+    import math as _math
+    safe_globals: dict[str, Any] = {"__builtins__": {}, **vars(_math), "Abs": abs}
+    return eval(code, safe_globals)
+
+
 def sstr(expr: Any) -> str:
     """Return the string form of *expr* (same as ``str(expr)``)."""
     return str(expr)
@@ -1607,6 +1685,8 @@ __all__ = [
     "wronskian",
     "yn",
     "zeros",
+    "nsolve",
+    "lambdify",
     "nroots",
     "deg",
     "coeff",
