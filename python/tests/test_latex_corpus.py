@@ -24,6 +24,7 @@ CORPUS_FILES = [
     str(LAB / "fixtures" / "generated_corpus_r2.json"),
     str(LAB / "fixtures" / "seed_function_subclass.json"),
     str(LAB / "fixtures" / "adversarial_corpus_r2.json"),
+    str(LAB / "fixtures" / "seed_structural_subclass.json"),
 ]
 
 ORACLE_PYTHON_CANDIDATES = [
@@ -100,7 +101,34 @@ def build(fixture, sympy_mod):
             else:
                 call_args.append(sympy_mod.Integer(arg))
         return cls(*call_args)
+    if kind in ("expr_subclass", "basic_subclass"):
+        spec = fixture["subclass"]
+        base_name = "Expr" if kind == "expr_subclass" else "Basic"
+        cls = make_structural_subclass(spec["name"], base_name, sympy_mod)
+        call_args = []
+        for arg in fixture.get("call_args", []):
+            if isinstance(arg, dict):
+                call_args.append(
+                    build({**fixture, "kind": "symbol", "args": [arg]}, sympy_mod)
+                )
+            else:
+                call_args.append(arg)
+        return cls(*call_args)
     raise NotImplementedError(f"unsupported fixture kind {kind}")
+
+
+def make_structural_subclass(name, base_name, sympy_mod):
+    """Create an arbitrary Basic/Expr subclass with structural __new__."""
+    base = getattr(sympy_mod, base_name)
+
+    def structural_new(cls, *a, _base=base):
+        return _base.__new__(cls, *a)
+
+    cls = type(name, (base,), {"__new__": structural_new})
+    module = _sys.modules.get(cls.__module__)
+    if module is not None:
+        setattr(module, name, cls)
+    return cls
 
 
 def main() -> None:

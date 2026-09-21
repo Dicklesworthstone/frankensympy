@@ -45,21 +45,20 @@ def srepr(expr: Any) -> str:
             return str(expr)
         args = expr.args
         if type(expr) is Add:
-            if hasattr(expr, "_args"):
-                # Held Add: oracle srepr prints the stored construction
-                # order verbatim (corpus-verified on held unevaluated Adds).
-                args = expr.args
-            else:
-                # Evaluated Add: oracle srepr applies the full canonical
-                # term ordering (monomial-lex, constants last) - it differs
-                # from stored args, which keep constants first.
-                from sympy.core import _add_ordered_terms
-                args = _add_ordered_terms(expr)
-        elif type(expr) is Mul and not hasattr(expr, "_args"):
+            # Oracle: srepr orders ALL Adds canonically (monomial-lex,
+            # constants last ascending) - held Adds too (oracle:
+            # srepr(Add(y, x, evaluate=False)) == Add(x, y)).
+            from sympy.core import _add_ordered_terms
+            args = _add_ordered_terms(expr)
+        elif type(expr) is Mul and hasattr(expr, "_args"):
+            # Held Mul: oracle srepr sorts args by sort_key, numbers first
+            # (Mul(x, -3, y, evaluate=False) -> Mul(-3, x, y)).
+            args = tuple(sorted(expr.args, key=lambda a: a.sort_key()))
+        elif type(expr) is Mul and expr.args:
             # Evaluated Mul with a negative leading coefficient: oracle
             # srepr splits it - Mul(-2, w) -> Mul(-1, 2, w) - so the
             # printed structure re-evaluates to the same product.
-            first = expr.args[0] if expr.args else None
+            first = expr.args[0]
             if isinstance(first, (Integer, Rational)) and first.p < 0:
                 parts: list = [Integer(-1)]
                 if first.q != 1 or first.p != -1:

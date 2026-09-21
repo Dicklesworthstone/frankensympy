@@ -1,0 +1,44 @@
+[
+  {
+    "id": "struct/V_of_x",
+    "kind": "expr_subclass",
+    "subclass": {"name": "VecX"},
+    "call_args": [{"sym": "x"}],
+    "note": "Arbitrary Expr subclass with a single Symbol arg (deliverable: arbitrary Basic/Expr/Function subclasses)."
+  },
+  {
+    "id": "struct/V_of_x_two",
+    "kind": "expr_subclass",
+    "subclass": {"name": "VecX2"},
+    "call_args": [{"sym": "x"}, 2],
+    "note": "Mixed Symbol and raw-int structural args."
+  },
+  {
+    "id": "struct/V_pair_a",
+    "kind": "expr_subclass",
+    "subclass": {"name": "VecPairA"},
+    "call_args": [{"sym": "x"}, 3],
+    "note": "Equality pair member a (identical construction, distinct instance)."
+  },
+  {
+    "id": "struct/V_pair_b",
+    "kind": "expr_subclass",
+    "subclass": {"name": "VecPairB"},
+    "call_args": [{"sym": "x"}, 3],
+    "note": "Equality pair member b: same shape as a; class identity differs by corpus design (see surface-nvv re-registration note)."
+  },
+  {
+    "id": "struct/B_of_x",
+    "kind": "basic_subclass",
+    "subclass": {"name": "NodeB"},
+    "call_args": [{"sym": "x"}],
+    "note": "Arbitrary Basic subclass."
+  },
+  {
+    "id": "struct/B_of_x_k",
+    "kind": "basic_subclass",
+    "subclass": {"name": "NodeBK"},
+    "call_args": [{"sym": "x"}, 5],
+    "note": "Basic subclass with mixed args."
+  }
+]

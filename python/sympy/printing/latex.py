@@ -52,10 +52,16 @@ def latex(expr: Any) -> str:
         return _latex_function(expr)
     struct_args = getattr(expr, "_struct_args", None)
     if struct_args is not None:
-        # Oracle: custom Expr subclasses render like applied operators
-        # (V(x, 2) -> \operatorname{V}\left(x, 2\right)).
+        # Oracle: custom Expr subclasses render like applied operators with
+        # trailing name digits as LaTeX subscripts (VecX2(x, 2) ->
+        # \operatorname{VecX_{2}}\left(x, 2\right)).
+        name = type(expr).__name__
+        stripped = name.rstrip("0123456789")
+        digits = name[len(stripped):]
+        if digits:
+            name = f"{stripped}_{{{digits}}}"
         inner = ", ".join(latex(a) if isinstance(a, Basic) else str(a) for a in struct_args)
-        return r"\operatorname{" + type(expr).__name__ + r"}\left(" + inner + r"\right)"
+        return r"\operatorname{" + name + r"}\left(" + inner + r"\right)"
     raise NotImplementedError(
         f"latex printing is not implemented for {type(expr).__name__}"
     )
