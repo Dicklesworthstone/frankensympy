@@ -189,6 +189,21 @@ def _latex_mul(expr: Mul) -> str:
     if p < 0:
         sign = "- "
         p = -p
+    if q == 1 and denom_terms:
+        # Negative-integer-exponent factors (Pow(base, -n)) land in
+        # denom_terms even when the rational coefficient has q == 1 -
+        # dropping the denominator here silently lost factors
+        # (Mul(x**2 - 1, (x + 1)**-1) printed as 'x**2 - 1').
+        # Oracle-pinned: a fully \left(...\right)-wrapped denominator term
+        # renders bare inside the fraction (\frac{x**2 - 1}{x + 1}).
+        unwrapped = []
+        for term in denom_terms:
+            if term.startswith(r"\left(") and term.endswith(r"\right)"):
+                term = term[len(r"\left("):-len(r"\right)")]
+            unwrapped.append(term)
+        denom = " ".join(unwrapped)
+        numer_full = f"{p} {numer}".strip() if p != 1 else (numer if numer else "1")
+        return sign + _frac(numer_full, denom)
     if q == 1:
         if p != 1:
             coeff_str = str(p)

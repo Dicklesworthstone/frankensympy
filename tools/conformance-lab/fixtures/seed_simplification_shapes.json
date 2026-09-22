@@ -46,5 +46,11 @@
     "kind": "simplification_case",
     "case": "numeric_coeff_add",
     "note": "Numeric-coefficient Add: stored args order vs printed order pinned."
+  },
+  {
+    "id": "simp/rational_function",
+    "kind": "simplification_case",
+    "case": "rational_function",
+    "note": "Registered: the earlier \"div over-cancellation\" diagnosis was WRONG - construction preserves the fraction; the latex printer dropped the denominator (q==1 branch discarded denom_terms). Printer fixed. DEFERRED - div over-cancellation: shell cancels (x**2-1)/(x+1) to x-1 at construction; oracle keeps the fraction (cancellation is domain-unsound for x = -1 and not performed by upstream at construction). Deepest WS07 finding - requires div-path change with wide test blast radius. Univariate rational function."
   }
 ]

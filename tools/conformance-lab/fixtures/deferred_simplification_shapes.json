@@ -10,11 +10,5 @@
     "kind": "simplification_case",
     "case": "multivariate_rational",
     "note": "DEFERRED - Add printer ordering for function/negative-power terms pending upstream sort_key study. Multivariate rational: apart refuses, printers/other functions do not."
-  },
-  {
-    "id": "simp/rational_function",
-    "kind": "simplification_case",
-    "case": "rational_function",
-    "note": "DEFERRED - div over-cancellation: shell cancels (x**2-1)/(x+1) to x-1 at construction; oracle keeps the fraction (cancellation is domain-unsound for x = -1 and not performed by upstream at construction). Deepest WS07 finding - requires div-path change with wide test blast radius. Univariate rational function."
   }
 ]
