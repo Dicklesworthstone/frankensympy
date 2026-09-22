@@ -53,7 +53,8 @@ def latex(expr: Any) -> str:
                 if exp.p == 1:
                     return r"\sqrt{" + latex(base) + "}"
                 if exp.p == -1:
-                    return _frac("1", r"\sqrt{" + latex(base) + "}")
+                    # Oracle-pinned: Pow(b, -1/2) -> \frac{\sqrt{b}}{b}.
+                    return _frac(r"\sqrt{" + latex(base) + "}", latex(base))
             return _frac(str(exp.p), _latex_pow_positive(base, exp.q))
         # Symbolic exponent: base then ^{latex(exp)}.
         return _latex_pow_positive(base, 1) + "^{" + latex(exp) + "}"

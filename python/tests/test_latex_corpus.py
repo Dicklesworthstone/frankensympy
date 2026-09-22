@@ -25,10 +25,10 @@ CORPUS_FILES = [
     str(LAB / "fixtures" / "seed_function_subclass.json"),
     str(LAB / "fixtures" / "adversarial_corpus_r2.json"),
     str(LAB / "fixtures" / "seed_structural_subclass.json"),
-    # seed_simplification_shapes.json: builder support landed; 4 latex
-    # divergences pending (function-power exponent placement, Add
-    # function-term ordering, div over-cancellation, negative-Pow Add
-    # order). Register once those land - see surface-nvv bead.
+    str(LAB / "fixtures" / "seed_simplification_shapes.json"),
+    # deferred_simplification_shapes.json: trig-identity and
+    # multivariate-rational Add shapes pending upstream sort_key study on
+    # printer term ordering (see surface-nvv bead).
 ]
 
 ORACLE_PYTHON_CANDIDATES = [
