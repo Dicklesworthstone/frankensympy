@@ -1,14 +1,1 @@
-[
-  {
-    "id": "simp/trig_identity",
-    "kind": "simplification_case",
-    "case": "trig_identity",
-    "note": "DEFERRED - Add printer term ordering for this shape pending upstream sort_key study (trig_identity per-term latex placement is FIXED; only the sin/cos term order remains; multivariate_rational needs the negative-Pow descending-base rule 1/y before 1/x). Registered after function-power latex placement + ordering verification.DEFERRED - Add printer ordering for function/negative-power terms pending upstream sort_key study. Construction must NOT fold the Pythagorean identity (WS07)."
-  },
-  {
-    "id": "simp/multivariate_rational",
-    "kind": "simplification_case",
-    "case": "multivariate_rational",
-    "note": "DEFERRED - Add printer term ordering for this shape pending upstream sort_key study (trig_identity per-term latex placement is FIXED; only the sin/cos term order remains; multivariate_rational needs the negative-Pow descending-base rule 1/y before 1/x). Registered after function-power latex placement + ordering verification.DEFERRED - Add printer ordering for function/negative-power terms pending upstream sort_key study. Multivariate rational: apart refuses, printers/other functions do not."
-  }
-]
+[]

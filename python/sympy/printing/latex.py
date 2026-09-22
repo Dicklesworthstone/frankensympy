@@ -10,6 +10,7 @@ approximate output.
 from __future__ import annotations
 
 from typing import Any
+import functools
 
 from ..core import (
     Basic,
@@ -248,7 +249,67 @@ def _latex_add(expr: Add) -> str:
 
     numeric = [term for term in expr.args if isinstance(term, (Integer, Rational))]
     non_numeric = [term for term in expr.args if not isinstance(term, (Integer, Rational))]
-    non_numeric.sort(key=lambda term: (-total_degree(term), latex(term)))
+
+    import functools
+
+    def _class_rank(term: Any) -> int:
+        # Oracle-pinned: positive-integer Pows lead, then plain symbols,
+        # then negative-exponent Pows, then functions.
+        if isinstance(term, Pow):
+            exp_int = _as_int(term.args[1])
+            if exp_int is not None:
+                return 0 if exp_int > 0 else 2
+            return 3
+        if isinstance(term, Symbol):
+            return 1
+        if _is_function_instance(term):
+            return 3
+        return 1
+
+    def _term_name(term: Any) -> str:
+        if isinstance(term, Symbol):
+            return term.name
+        if isinstance(term, Pow):
+            return str(term.args[0])
+        if _is_function_instance(term):
+            return type(term).__name__
+        return latex(term)
+
+    from ..core import _FUNCTION_CLASS_RANK
+
+    def _pow_info(term: Any):
+        """(base, exp_int_or_None) for Pows; (term, None) otherwise."""
+        if isinstance(term, Pow):
+            return term.args[0], _as_int(term.args[1])
+        return term, None
+
+    def _cmp(a: Any, b: Any) -> int:
+        ra, rb = _class_rank(a), _class_rank(b)
+        if ra != rb:
+            return -1 if ra < rb else 1
+        ba, ea = _pow_info(a)
+        bb, eb = _pow_info(b)
+        fa, fb = _is_function_instance(ba), _is_function_instance(bb)
+        # Function bases first among same-rank powers, by class rank.
+        if ra == 0 and fa != fb:
+            return -1 if fa else 1
+        if fa and fb and ra in (0, 3):
+            na, nb = type(ba).__name__, type(bb).__name__
+            ka, kb = _FUNCTION_CLASS_RANK.get(na, 0), _FUNCTION_CLASS_RANK.get(nb, 0)
+            if ka != kb:
+                return -1 if ka < kb else 1
+        na, nb = _term_name(ba), _term_name(bb)
+        if na != nb:
+            # Negative-exponent powers sort by base name DESCENDING
+            # (1/y before 1/x); everything else ascending.
+            if ra == 2:
+                return -1 if na > nb else 1
+            return -1 if na < nb else 1
+        da = -_as_int(ea) if ea is not None else 0
+        db = -_as_int(eb) if eb is not None else 0
+        return da - db
+
+    non_numeric.sort(key=functools.cmp_to_key(_cmp))
 
     parts: list[str] = []
     ordered = non_numeric + numeric
