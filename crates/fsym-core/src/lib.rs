@@ -895,7 +895,10 @@ pub fn cmp_mul_factors(a: &Expr, b: &Expr) -> std::cmp::Ordering {
                     Expr::Integer(i) => format!("{:0>20}", i),
                     _ => format!("{}", exp),
                 };
-                (2, bk.1, ek)
+                // Base rank leads the string so Symbol bases sort before
+                // Add bases regardless of their Display text
+                // (Pow(x, 2) before Pow(Add(x, 1), -1) in Mul ordering).
+                (2, format!("{}|{}", bk.0, bk.1), ek)
             }
             Expr::Function(name, args) => {
                 let arg_keys: Vec<String> = args.iter().map(key).map(|k| k.1).collect();
