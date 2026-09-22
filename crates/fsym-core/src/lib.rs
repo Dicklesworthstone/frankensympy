@@ -857,6 +857,44 @@ fn cmp_slice_structural(a: &[Expr], b: &[Expr]) -> std::cmp::Ordering {
     })
 }
 
+/// Comparator for Mul non-numeric factors matching the pinned oracle's
+/// default_sort_key ordering probed on SymPy 1.14.0: class rank
+/// Symbol < Pow < Function, then name / base / argument ordering
+/// (cos(x) < tan(x); x < sin(x); y < x**2 - Pow factors sort after
+/// plain symbols).
+pub fn cmp_mul_factors(a: &Expr, b: &Expr) -> std::cmp::Ordering {
+    fn rank(e: &Expr) -> u8 {
+        match e {
+            Expr::Integer(_) | Expr::Rational(_) => 0,
+            Expr::Sym(_) => 1,
+            Expr::Pow(_, _) => 2,
+            Expr::Function(_, _) => 3,
+            _ => 4,
+        }
+    }
+    fn key(e: &Expr) -> (u8, String, String) {
+        match e {
+            Expr::Integer(i) => (0, format!("{:0>20}", i), String::new()),
+            Expr::Rational(r) => (0, format!("{:0>20}", r), String::new()),
+            Expr::Sym(sym) => (1, format!("{}", sym), String::new()),
+            Expr::Pow(base, exp) => {
+                let bk = key(base);
+                let ek = match exp.as_ref() {
+                    Expr::Integer(i) => format!("{:0>20}", i),
+                    _ => format!("{}", exp),
+                };
+                (2, bk.1, ek)
+            }
+            Expr::Function(name, args) => {
+                let arg_keys: Vec<String> = args.iter().map(key).map(|k| k.1).collect();
+                (3, name.clone(), arg_keys.join(","))
+            }
+            other => (4, format!("{}", other), String::new()),
+        }
+    }
+    key(a).cmp(&key(b))
+}
+
 /// Sorts Add arguments into canonical order in place.
 pub fn canonicalize_add_args(terms: &mut [Expr]) {
     terms.sort_by(cmp_add_args);
@@ -930,6 +968,9 @@ pub fn canonicalize_mul_args(factors: &mut Vec<Expr>) -> bool {
     if i_count % 2 == 1 {
         rest.push(Expr::Const(Constant::I));
     }
+    // Oracle-pinned factor order: non-numeric factors sort by
+    // default_sort_key (cos(x) < tan(x); x < sin(x); y < x**2).
+    rest.sort_by(cmp_mul_factors);
     if coeff.is_zero() && !rest.is_empty() {
         if rest.iter().any(has_pole) {
             factors.push(Expr::Integer(BigInt::from(0)));

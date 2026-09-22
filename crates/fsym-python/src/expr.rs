@@ -696,7 +696,11 @@ impl PyAdd {
             // fra-add-args-canonical-order-o1i): the pinned oracle sorts Add
             // args in every case — Add(-8, w) and Add(w, -8) both read
             // (-8, w); Add(z, y) and Add(y, z) both read (y, z).
-            let folded = fsym_simplify::simplify(&Expr::Add(exprs));
+            // Arithmetic-only simplification: trigonometric rewrite rules
+            // (e.g. the Pythagorean fold) must NOT fire at construction -
+            // the oracle keeps sin(x)**2 + cos(x)**2 unevaluated until an
+            // explicit simplification call (WS07 findings).
+            let folded = fsym_simplify::simplify_no_trig(&Expr::Add(exprs));
             match folded {
                 Expr::Add(mut terms) => {
                     fsym_core::canonicalize_add_args(&mut terms);
@@ -731,7 +735,9 @@ impl PyMul {
     pub fn new(args: Vec<PyExpr>, evaluate: bool) -> Self {
         let exprs: Vec<Expr> = args.into_iter().map(|a| a.inner).collect();
         let inner = if evaluate {
-            fsym_simplify::simplify(&Expr::Mul(exprs))
+            // Arithmetic-only at construction (see PyAdd note): the oracle
+            // applies no trigonometric rewrites on Mul construction either.
+            fsym_simplify::simplify_no_trig(&Expr::Mul(exprs))
         } else {
             Expr::Mul(exprs)
         };

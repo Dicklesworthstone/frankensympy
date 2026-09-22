@@ -134,7 +134,9 @@ pub(crate) fn split_coeff(term: &Expr) -> (BigRational, Expr) {
                 return (BigRational::one(), term.clone());
             }
             if rest.len() > 1 {
-                rest.sort();
+                // Oracle-pinned factor order (WS07): default_sort_key
+                // ranking, not the raw Expr variant order.
+                rest.sort_by(fsym_core::cmp_mul_factors);
             }
             let key = match rest.len() {
                 0 => Expr::from_i64(1),
@@ -184,6 +186,10 @@ fn collect_terms(terms: Vec<Expr>) -> Expr {
                     let mut parts = Vec::with_capacity(factors.len() + 1);
                     parts.push(rational_expr(coeff));
                     parts.extend(factors);
+                    // Oracle-pinned: compound (non-numeric) coefficients are
+                    // ordinary factors - sort, do not force them first
+                    // (Mul(x**2, a + b), never Mul(a + b, x**2)).
+                    parts.sort_by(fsym_core::cmp_mul_factors);
                     out_scaled.push(Expr::Mul(parts));
                 }
                 other => out_scaled.push(Expr::Mul(vec![rational_expr(coeff), other])),
@@ -264,6 +270,20 @@ pub fn try_simplify(expr: &Expr) -> Result<Expr, SimplifyError> {
     simplify_with(expr, &mut Unbounded)
 }
 
+/// Arithmetic-only variant (no trigonometric rewrite rules) with typed refusals.
+pub fn try_simplify_no_trig(expr: &Expr) -> Result<Expr, SimplifyError> {
+    simplify_counting_folds_no_trig(expr, &mut Unbounded).map(|(simplified, _)| simplified)
+}
+
+fn simplify_counting_folds_no_trig<M: BudgetMeter>(
+    expr: &Expr,
+    m: &mut M,
+) -> Result<(Expr, u64), SimplifyError> {
+    let mut folds = 0u64;
+    let simplified = simplify_at(expr, 0, m, &mut folds, false)?;
+    Ok((simplified, folds))
+}
+
 /// Simplify an algebraic expression recursively.
 ///
 /// This compatibility convenience falls back to the original unsimplified expression
@@ -271,6 +291,14 @@ pub fn try_simplify(expr: &Expr) -> Result<Expr, SimplifyError> {
 /// [`try_simplify`] or [`simplify_with`] for typed refusals.
 pub fn simplify(expr: &Expr) -> Expr {
     unwrap_legacy(try_simplify(expr), expr)
+}
+
+/// Arithmetic-only simplification: no trigonometric rewrite rules.
+/// Construction paths (Add/Mul pyclasses) use this so that building
+/// `sin(x)**2 + cos(x)**2` preserves the unevaluated Add, matching the
+/// pinned oracle.
+pub fn simplify_no_trig(expr: &Expr) -> Expr {
+    unwrap_legacy(try_simplify_no_trig(expr), expr)
 }
 
 /// Simplify under a caller-owned budget/cancellation meter.
@@ -283,7 +311,7 @@ fn simplify_counting_folds<M: BudgetMeter>(
     m: &mut M,
 ) -> Result<(Expr, u64), SimplifyError> {
     let mut folds = 0u64;
-    let simplified = simplify_at(expr, 0, m, &mut folds)?;
+    let simplified = simplify_at(expr, 0, m, &mut folds, true)?;
     Ok((simplified, folds))
 }
 
@@ -292,6 +320,7 @@ fn simplify_at<M: BudgetMeter>(
     depth: usize,
     m: &mut M,
     folds: &mut u64,
+    trig: bool,
 ) -> Result<Expr, SimplifyError> {
     if depth > MAX_RECURSION_DEPTH {
         return Err(SimplifyError::DepthLimitExceeded(depth));
@@ -304,9 +333,16 @@ fn simplify_at<M: BudgetMeter>(
             check_fanout(terms.len())?;
             let mut simplified = Vec::with_capacity(terms.len());
             for t in terms {
-                simplified.push(simplify_at(t, depth + 1, m, folds)?);
+                simplified.push(simplify_at(t, depth + 1, m, folds, trig)?);
             }
             let collected = collect_terms(simplified);
+            // Oracle-pinned (WS07 findings): construction-time Add must NOT
+            // apply trigonometric rewrite rules - sin(x)**2 + cos(x)**2
+            // stays an unevaluated Add until an explicit simplification
+            // call. The fold fires only on the full-simplify path.
+            if !trig {
+                return Ok(collected);
+            }
             let folded = match &collected {
                 Expr::Add(fold_terms) => {
                     rewrite::fold_pythagorean_terms(fold_terms).map(|folded| {
@@ -322,7 +358,7 @@ fn simplify_at<M: BudgetMeter>(
             check_fanout(factors.len())?;
             let mut simplified = Vec::with_capacity(factors.len());
             for f in factors {
-                simplified.push(simplify_at(f, depth + 1, m, folds)?);
+                simplified.push(simplify_at(f, depth + 1, m, folds, trig)?);
             }
             let mut coeff = BigRational::one();
             let mut rest: Vec<Expr> = Vec::new();
@@ -360,6 +396,7 @@ fn simplify_at<M: BudgetMeter>(
                     depth + 1,
                     m,
                     folds,
+                    trig,
                 )?;
                 if !simplified_exp.is_one() {
                     other_factors.push(simplified_exp);
@@ -395,7 +432,7 @@ fn simplify_at<M: BudgetMeter>(
                     powers[0].clone()
                 } else {
                     let sum = collect_terms(powers);
-                    simplify_at(&sum, depth + 1, m, folds)?
+                    simplify_at(&sum, depth + 1, m, folds, trig)?
                 };
 
                 if total_exp.is_zero() {
@@ -405,14 +442,17 @@ fn simplify_at<M: BudgetMeter>(
                     parts.push(base);
                 } else {
                     let folded = Expr::Pow(Arc::new(base), Arc::new(total_exp));
-                    let simplified_pow = simplify_at(&folded, depth + 1, m, folds)?;
+                    let simplified_pow = simplify_at(&folded, depth + 1, m, folds, trig)?;
                     if !simplified_pow.is_one() {
                         parts.push(simplified_pow);
                     }
                 }
             }
 
-            parts.sort();
+            // Oracle-pinned factor order (WS07): sort by the Mul factor
+            // key (Symbol < Pow < Function, then name/base), not the raw
+            // enum-variant order.
+            parts.sort_by(fsym_core::cmp_mul_factors);
             let mut final_parts: Vec<Expr> = Vec::with_capacity(parts.len() + 1);
             if !coeff.is_one() {
                 final_parts.push(rational_expr(coeff));
@@ -428,8 +468,8 @@ fn simplify_at<M: BudgetMeter>(
             }
         }
         Expr::Pow(base, exp) => {
-            let b = simplify_at(base, depth + 1, m, folds)?;
-            let e = simplify_at(exp, depth + 1, m, folds)?;
+            let b = simplify_at(base, depth + 1, m, folds, trig)?;
+            let e = simplify_at(exp, depth + 1, m, folds, trig)?;
             if e.is_zero() {
                 Ok(Expr::from_i64(1))
             } else if e.is_one() {
@@ -489,7 +529,7 @@ fn simplify_at<M: BudgetMeter>(
             check_fanout(args.len())?;
             let mut simplified_args = Vec::with_capacity(args.len());
             for a in args {
-                simplified_args.push(simplify_at(a, depth + 1, m, folds)?);
+                simplified_args.push(simplify_at(a, depth + 1, m, folds, trig)?);
             }
             if simplified_args.len() == 1 && simplified_args[0].is_zero() {
                 match name.as_str() {
