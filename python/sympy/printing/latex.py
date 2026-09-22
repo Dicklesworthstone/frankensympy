@@ -51,7 +51,7 @@ def latex(expr: Any) -> str:
             args = ",".join(latex(arg) for arg in base.args)
             return fname + "^{" + str(exp_int) + "}" + rf"{{\left({args} \right)}}"
         if exp_int is not None and exp_int < 0:
-            return _frac("1", _latex_pow_positive(base, -exp_int))
+            return _frac("1", _unwrap_latex_group(_latex_pow_positive(base, -exp_int)))
         if exp_int is not None:
             return _latex_pow_positive(base, exp_int)
         # Rational exponent: q == 2 renders as sqrt (oracle: \sqrt{2});
@@ -119,6 +119,15 @@ def _frac(numer: str, denom: str) -> str:
 
 def _wrap_atom_sensitive(base_str: str, is_atom: bool) -> str:
     return base_str if is_atom else rf"\left({base_str}\right)"
+
+
+def _unwrap_latex_group(rendered: str) -> str:
+    """Oracle-pinned: a fraction denominator that is a single fully
+    \\left(...\\right)-wrapped group renders bare (1/(x + 1) ->
+    \\frac{1}{x + 1})."""
+    if rendered.startswith(r"\left(") and rendered.endswith(r"\right)"):
+        return rendered[len(r"\left("):-len(r"\right)")]
+    return rendered
 
 
 def _latex_pow_positive(base: Any, exp: int) -> str:
@@ -309,7 +318,13 @@ def _latex_add(expr: Add) -> str:
         db = -_as_int(eb) if eb is not None else 0
         return da - db
 
-    non_numeric.sort(key=functools.cmp_to_key(_cmp))
+    # Oracle-pinned: positive terms render before negative terms; each
+    # group in the derived comparator order (signs become separators).
+    positives = [t for t in non_numeric if not _is_negative_term(t)]
+    negatives = [t for t in non_numeric if _is_negative_term(t)]
+    positives.sort(key=functools.cmp_to_key(_cmp))
+    negatives.sort(key=functools.cmp_to_key(_cmp))
+    non_numeric = positives + negatives
 
     parts: list[str] = []
     ordered = non_numeric + numeric
