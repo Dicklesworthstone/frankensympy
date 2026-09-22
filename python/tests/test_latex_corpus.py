@@ -25,6 +25,10 @@ CORPUS_FILES = [
     str(LAB / "fixtures" / "seed_function_subclass.json"),
     str(LAB / "fixtures" / "adversarial_corpus_r2.json"),
     str(LAB / "fixtures" / "seed_structural_subclass.json"),
+    # seed_simplification_shapes.json: builder support landed; 4 latex
+    # divergences pending (function-power exponent placement, Add
+    # function-term ordering, div over-cancellation, negative-Pow Add
+    # order). Register once those land - see surface-nvv bead.
 ]
 
 ORACLE_PYTHON_CANDIDATES = [
@@ -101,6 +105,36 @@ def build(fixture, sympy_mod):
             else:
                 call_args.append(sympy_mod.Integer(arg))
         return cls(*call_args)
+    if kind == "function":
+        fn = getattr(sympy_mod, fixture["name"])
+        call_args = []
+        for arg in fixture.get("args", []):
+            if isinstance(arg, dict):
+                call_args.append(
+                    build({**fixture, "kind": "symbol", "args": [arg]}, sympy_mod)
+                )
+            else:
+                call_args.append(sympy_mod.Integer(arg) if isinstance(arg, int) else arg)
+        return fn(*call_args)
+    if kind == "simplification_case":
+        x = sympy_mod.Symbol("x")
+        y = sympy_mod.Symbol("y")
+        a = sympy_mod.Symbol("a")
+        b = sympy_mod.Symbol("b")
+        cases = {
+            "trig_identity": sympy_mod.sin(x) ** 2 + sympy_mod.cos(x) ** 2,
+            "unsorted_mul": sympy_mod.tan(x) * sympy_mod.cos(x),
+            "same_base_pows": x ** 2 * x ** 3,
+            "nested_pow": (x ** 2) ** 3,
+            "exp_products": sympy_mod.exp(x) * sympy_mod.exp(y),
+            "symbolic_exp_pows": a ** x * a ** y,
+            "radical_constant": sympy_mod.sqrt(8),
+            "negative_half": 1 / sympy_mod.sqrt(2),
+            "rational_function": (x ** 2 - 1) / (x + 1),
+            "multivariate_rational": 1 / x + 1 / y,
+            "numeric_coeff_add": 2 * x + 4,
+        }
+        return cases[fixture["case"]]
     if kind in ("expr_subclass", "basic_subclass"):
         spec = fixture["subclass"]
         base_name = "Expr" if kind == "expr_subclass" else "Basic"

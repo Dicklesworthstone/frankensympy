@@ -44,7 +44,19 @@ def latex(expr: Any) -> str:
         exp_int = _as_int(exp)
         if exp_int is not None and exp_int < 0:
             return _frac("1", _latex_pow_positive(base, -exp_int))
-        return _latex_pow_positive(base, exp_int)
+        if exp_int is not None:
+            return _latex_pow_positive(base, exp_int)
+        # Rational exponent: q == 2 renders as sqrt (oracle: \sqrt{2});
+        # other rationals as \frac{p}{q}-style roots; symbolic as ^{...}.
+        if isinstance(exp, Rational):
+            if exp.q == 2:
+                if exp.p == 1:
+                    return r"\sqrt{" + latex(base) + "}"
+                if exp.p == -1:
+                    return _frac("1", r"\sqrt{" + latex(base) + "}")
+            return _frac(str(exp.p), _latex_pow_positive(base, exp.q))
+        # Symbolic exponent: base then ^{latex(exp)}.
+        return _latex_pow_positive(base, 1) + "^{" + latex(exp) + "}"
     if isinstance(expr, Mul):
         return _latex_mul(expr)
     if isinstance(expr, Add):
@@ -113,6 +125,10 @@ def _latex_base(base: Any) -> str:
         return latex(base)
     if isinstance(base, Rational):
         return latex(base)
+    if _is_function_instance(base):
+        # Oracle-pinned: function bases render with their operator form
+        # (sin(x) -> \\sin{\\left(x \\right)}).
+        return _latex_function(base)
     if isinstance(base, Pow):
         base_str = _latex_base(base.args[0]) + rf"^{{{base.args[1]}}}"
         return _wrap_atom_sensitive(base_str, isinstance(base.args[0], (Symbol, Integer)))
@@ -267,9 +283,30 @@ def _is_function_instance(expr: Any) -> bool:
     return isinstance(expr, Function)
 
 
+_LATEX_KNOWN_FUNCTIONS = {
+    "sin": r"\sin",
+    "cos": r"\cos",
+    "tan": r"\tan",
+    "cot": r"\cot",
+    "sec": r"\sec",
+    "csc": r"\csc",
+    "log": r"\log",
+    "ln": r"\ln",
+    "asin": r"\arcsin",
+    "acos": r"\arccos",
+    "atan": r"\arctan",
+    "sinh": r"\sinh",
+    "cosh": r"\cosh",
+    "tanh": r"\tanh",
+}
+
+
 def _latex_function_name(name: str) -> str:
-    # Pinned convention: a trailing digit run renders as a subscript after
-    # \operatorname; single-letter names print bare.
+    # Oracle-pinned: known built-ins render as their backslash forms
+    # (\sin, \cos, \tan, \log). A trailing digit run renders as a
+    # subscript after \operatorname; single-letter names print bare.
+    if name in _LATEX_KNOWN_FUNCTIONS:
+        return _LATEX_KNOWN_FUNCTIONS[name]
     if len(name) == 1:
         return name
     split = len(name)
@@ -281,6 +318,10 @@ def _latex_function_name(name: str) -> str:
 
 
 def _latex_function(expr: Any) -> str:
-    name = _latex_function_name(type(expr).__name__)
+    raw_name = type(expr).__name__
+    name = _latex_function_name(raw_name)
     args = ",".join(latex(arg) for arg in expr.args)
+    # exp(x) renders as e^{x} (oracle-pinned).
+    if raw_name == "exp" and len(expr.args) == 1:
+        return "e^{" + latex(expr.args[0]) + "}"
     return name + rf"{{\left({args} \right)}}"

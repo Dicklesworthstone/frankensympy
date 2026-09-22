@@ -896,7 +896,10 @@ pub fn py_mul(args: Vec<PyExpr>) -> PyExpr {
 /// Construct a Pow expression.
 #[pyfunction]
 pub fn py_pow(base: PyExpr, exp: PyExpr) -> PyExpr {
-    PyExpr::from_expr(Expr::Pow(Arc::new(base.inner), Arc::new(exp.inner)))
+    // Match PyPow::new construction semantics: arithmetic simplification
+    // applies (nested Pow flattening: (x**2)**3 -> x**6).
+    let raw = Expr::Pow(Arc::new(base.inner), Arc::new(exp.inner));
+    PyExpr::from_expr(fsym_simplify::simplify(&raw))
 }
 
 /// Construct a named function application.
