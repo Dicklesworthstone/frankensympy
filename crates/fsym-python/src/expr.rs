@@ -885,6 +885,13 @@ pub fn py_simplify_powsimp(expr: PyExpr) -> PyExpr {
     PyExpr::from_expr(fsym_simplify::simplify_powsimp(&expr.inner))
 }
 
+/// TrigOnly-mode simplification (trig folds, no exp combining).
+#[pyfunction]
+#[pyo3(signature = (expr))]
+pub fn py_simplify_trig_only(expr: PyExpr) -> PyExpr {
+    PyExpr::from_expr(fsym_simplify::simplify_trig_only(&expr.inner))
+}
+
 /// Construct a Mul expression.
 #[pyfunction]
 #[pyo3(signature = (*args))]

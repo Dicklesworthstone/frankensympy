@@ -266,6 +266,9 @@ fn check_fanout(actual: usize) -> Result<(), SimplifyError> {
 pub enum SimplifyMode {
     Construction,
     Powsimp,
+    /// Trigonometric folds fire, but exp products are NOT combined
+    /// (oracle: trigsimp(exp(x)*exp(y)) keeps the Mul).
+    TrigOnly,
     Full,
 }
 
@@ -307,6 +310,17 @@ pub fn try_simplify_powsimp(expr: &Expr) -> Result<Expr, SimplifyError> {
 
 pub fn simplify_powsimp(expr: &Expr) -> Expr {
     unwrap_legacy(try_simplify_powsimp(expr), expr)
+}
+
+/// TrigOnly-mode simplification (trig folds, no exp combining).
+pub fn try_simplify_trig_only(expr: &Expr) -> Result<Expr, SimplifyError> {
+    let mut folds = 0u64;
+    let simplified = simplify_at(expr, 0, &mut Unbounded, &mut folds, SimplifyMode::TrigOnly)?;
+    Ok(simplified)
+}
+
+pub fn simplify_trig_only(expr: &Expr) -> Expr {
+    unwrap_legacy(try_simplify_trig_only(expr), expr)
 }
 
 /// Simplify an algebraic expression recursively.
@@ -401,15 +415,20 @@ fn simplify_at<M: BudgetMeter>(
                 return Ok(Expr::from_i64(0));
             }
 
-            // Combine exponential factors: exp(a) * exp(b) -> exp(a + b)
+            // Combine exponential factors: exp(a) * exp(b) -> exp(a + b).
+            // Oracle-pinned: only powsimp and simplify combine exp products
+            // (construction and expand keep Mul(exp(x), exp(y)) unmerged).
             let mut exp_args: Vec<Expr> = Vec::new();
             let mut other_factors: Vec<Expr> = Vec::new();
             for f in rest {
-                if let Expr::Function(name, args) = &f
-                    && name == "exp"
-                    && args.len() == 1
+                let is_single_exp =
+                    matches!(&f, Expr::Function(name, args) if name == "exp" && args.len() == 1);
+                if is_single_exp
+                    && matches!(mode, SimplifyMode::Powsimp | SimplifyMode::Full)
                 {
-                    exp_args.push(args[0].clone());
+                    if let Expr::Function(_, args) = &f {
+                        exp_args.push(args[0].clone());
+                    }
                 } else {
                     other_factors.push(f);
                 }
@@ -766,8 +785,17 @@ fn expand_at<M: BudgetMeter>(expr: &Expr, depth: usize, m: &mut M) -> Result<Exp
                 let mut product_terms = Vec::with_capacity(product_count);
                 for a in &current {
                     for b in &next_terms {
-                        product_terms
-                            .push(simplify_with(&Expr::Mul(vec![a.clone(), b.clone()]), m)?);
+                        // Oracle-pinned: expand() distributes but does NOT
+                        // combine exp products (expand(exp(x)*exp(y)) keeps
+                        // the Mul) - the per-product cleanup is
+                        // arithmetic-only (Construction mode).
+                        product_terms.push(
+                            simplify_counting_folds_no_trig(
+                                &Expr::Mul(vec![a.clone(), b.clone()]),
+                                m,
+                            )
+                            .map(|(s, _)| s)?,
+                        );
                     }
                 }
                 // Collect like terms after EVERY factor: naive repeated

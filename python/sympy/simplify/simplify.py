@@ -16,6 +16,7 @@ from ..core import (
     pi,
     simplify as _core_simplify,
     simplify_no_trig as _core_simplify_arith,
+    simplify_trig_only as _core_simplify_trig_only,
     simplify_powsimp as _core_simplify_powsimp,
 
     sqrt,

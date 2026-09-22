@@ -3514,6 +3514,10 @@ def simplify_powsimp(expression: Any) -> Expr:
     """Powsimp-mode simplification: symbolic exponent merging, no trig."""
     return _lift_builtin_result(_native.py_simplify_powsimp(_native_expr(expression)))
 
+def simplify_trig_only(expression: Any) -> Expr:
+    """TrigOnly-mode simplification: trig folds, no exp combining."""
+    return _lift_builtin_result(_native.py_simplify_trig_only(_native_expr(expression)))
+
 
 class SympifyError(ValueError):
     """Exception raised when an expression cannot be sympified."""
