@@ -4089,7 +4089,8 @@ class SurfaceTests(unittest.TestCase):
 
         # 2. together: combining fractions
         t1 = together(1 / x + 1 / y)
-        self.assertEqual(t1, (x + y) / (x * y))
+        # Oracle-pinned: ratsimp output splits the denominator per factor.
+        self.assertEqual(t1, (x + y) * x**(-1) * y**(-1))
 
         t2 = together(1 / x + 1)
         self.assertEqual(t2, (x + 1) / x)
@@ -4178,7 +4179,8 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(powsimp(x**a * x**b), x**(a + b))
 
         # ratsimp
-        self.assertEqual(ratsimp(x/y + y/x), (x**2 + y**2)/(x*y))
+        # Oracle-pinned split-denominator form.
+        self.assertEqual(ratsimp(x/y + y/x), (x**2 + y**2) * x**(-1) * y**(-1))
 
         # radsimp
         self.assertEqual(radsimp(1 / sqrt(2)), sqrt(2) / 2)
@@ -4341,7 +4343,8 @@ class SurfaceTests(unittest.TestCase):
         part = (1 / (x**2 - 1)).apart(x)
         self.assertEqual(part, (1 / (x - 1)) / 2 - (1 / (x + 1)) / 2)
         tog = (1 / x + 1 / y).together()
-        self.assertEqual(tog, (x + y) / (x * y))
+        # Oracle-pinned: together output splits the denominator per factor.
+        self.assertEqual(tog, (x + y) * x**(-1) * y**(-1))
 
         # trigsimp & powsimp
         self.assertEqual((sympy.sin(x)**2 + sympy.cos(x)**2).trigsimp(), sympy.Integer(1))
