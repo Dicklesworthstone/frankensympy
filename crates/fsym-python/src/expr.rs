@@ -871,6 +871,20 @@ pub fn py_add(args: Vec<PyExpr>) -> PyExpr {
     PyExpr::from_expr(Expr::Add(exprs))
 }
 
+/// Arithmetic-only simplification (no trigonometric rewrite rules).
+#[pyfunction]
+#[pyo3(signature = (expr))]
+pub fn py_simplify_no_trig(expr: PyExpr) -> PyExpr {
+    PyExpr::from_expr(fsym_simplify::simplify_no_trig(&expr.inner))
+}
+
+/// Powsimp-mode simplification (symbolic exponent merging, no trig).
+#[pyfunction]
+#[pyo3(signature = (expr))]
+pub fn py_simplify_powsimp(expr: PyExpr) -> PyExpr {
+    PyExpr::from_expr(fsym_simplify::simplify_powsimp(&expr.inner))
+}
+
 /// Construct a Mul expression.
 #[pyfunction]
 #[pyo3(signature = (*args))]

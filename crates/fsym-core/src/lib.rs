@@ -857,6 +857,18 @@ fn cmp_slice_structural(a: &[Expr], b: &[Expr]) -> std::cmp::Ordering {
     })
 }
 
+
+fn merged_pow(factors: &mut Vec<Expr>, base: Expr, exp: Expr) {
+    if exp.is_zero() {
+        return; // b**0 = 1
+    }
+    if exp.is_one() {
+        factors.push(base);
+        return;
+    }
+    factors.push(Expr::Pow(Arc::new(base), Arc::new(exp)));
+}
+
 /// Comparator for Mul non-numeric factors matching the pinned oracle's
 /// default_sort_key ordering probed on SymPy 1.14.0: class rank
 /// Symbol < Pow < Function, then name / base / argument ordering
@@ -967,6 +979,38 @@ pub fn canonicalize_mul_args(factors: &mut Vec<Expr>) -> bool {
     }
     if i_count % 2 == 1 {
         rest.push(Expr::Const(Constant::I));
+    }
+    // Merge same-base powers (arithmetic): x**2 * x**3 -> x**5.
+    if rest.iter().any(|f| matches!(f, Expr::Pow(_, _))) {
+        let mut base_exps: std::collections::BTreeMap<Expr, Vec<Expr>> = std::collections::BTreeMap::new();
+        let mut plain: Vec<Expr> = Vec::new();
+        for f in rest.drain(..) {
+            // Oracle-pinned: only NUMERIC exponents merge (x**2 * x**3 ->
+            // x**5); symbolic-exponent powers stay unmerged
+            // (a**x * a**y keeps both factors).
+            if let Expr::Pow(ref b, ref e) = f {
+                if matches!(e.as_ref(), Expr::Integer(_) | Expr::Rational(_)) {
+                    base_exps
+                        .entry((**b).clone())
+                        .or_default()
+                        .push((**e).clone());
+                    continue;
+                }
+            }
+            plain.push(f);
+        }
+        for (base, mut exps) in base_exps {
+            if exps.len() == 1 {
+                merged_pow(&mut rest, base, exps.pop().expect("len checked"));
+            } else {
+                let mut sum = exps[0].clone();
+                for e in &exps[1..] {
+                    sum = sum + e.clone();
+                }
+                merged_pow(&mut rest, base, sum);
+            }
+        }
+        rest.extend(plain);
     }
     // Oracle-pinned factor order: non-numeric factors sort by
     // default_sort_key (cos(x) < tan(x); x < sin(x); y < x**2).

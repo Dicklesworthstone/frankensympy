@@ -1219,6 +1219,9 @@ def _str_term(expr: "Expr") -> tuple[bool, str]:
         return text.startswith("-"), text.lstrip("-")
     if type(expr) is Pow:
         base, exp = expr.args
+        # Oracle-pinned: x**(1/2) renders as sqrt(x) (SymPy sqrt printing).
+        if isinstance(exp, Rational) and exp.q == 2 and exp.p == 1:
+            return False, f"sqrt({_str_expr(base)})"
         return False, f"{_str_parenthesize(_str_expr(base), base)}**{_str_parenthesize(_str_expr(exp), exp)}"
     if type(expr) is Mul:
         # Held Mul (evaluate=False): print stored args verbatim in given
@@ -3501,6 +3504,15 @@ def expand(expression: Any) -> Expr:
 
 def simplify(expression: Any) -> Expr:
     return _lift_builtin_result(_native_expr(expression).simplify())
+
+
+def simplify_no_trig(expression: Any) -> Expr:
+    """Arithmetic-only simplification: no trigonometric rewrite rules."""
+    return _lift_builtin_result(_native.py_simplify_no_trig(_native_expr(expression)))
+
+def simplify_powsimp(expression: Any) -> Expr:
+    """Powsimp-mode simplification: symbolic exponent merging, no trig."""
+    return _lift_builtin_result(_native.py_simplify_powsimp(_native_expr(expression)))
 
 
 class SympifyError(ValueError):

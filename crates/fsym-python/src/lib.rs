@@ -959,6 +959,8 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_integer_from_python, m)?)?;
     m.add_function(wrap_pyfunction!(py_rational_from_python, m)?)?;
     m.add_function(wrap_pyfunction!(py_add, m)?)?;
+    m.add_function(wrap_pyfunction!(py_simplify_no_trig, m)?)?;
+    m.add_function(wrap_pyfunction!(py_simplify_powsimp, m)?)?;
     m.add_function(wrap_pyfunction!(py_mul, m)?)?;
     m.add_function(wrap_pyfunction!(py_pow, m)?)?;
     m.add_function(wrap_pyfunction!(py_function, m)?)?;

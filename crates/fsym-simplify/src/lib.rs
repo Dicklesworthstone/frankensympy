@@ -258,6 +258,17 @@ fn check_fanout(actual: usize) -> Result<(), SimplifyError> {
     }
 }
 
+/// Simplification mode. Oracle-pinned per-function behavior:
+/// Construction - numeric-only Mul merge, no trig;
+/// Powsimp - symbolic same-base merge allowed, no trig;
+/// Full - everything (simplify/trigsimp).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SimplifyMode {
+    Construction,
+    Powsimp,
+    Full,
+}
+
 fn unwrap_legacy(result: Result<Expr, SimplifyError>, fallback: &Expr) -> Expr {
     match result {
         Ok(e) => e,
@@ -280,8 +291,22 @@ fn simplify_counting_folds_no_trig<M: BudgetMeter>(
     m: &mut M,
 ) -> Result<(Expr, u64), SimplifyError> {
     let mut folds = 0u64;
-    let simplified = simplify_at(expr, 0, m, &mut folds, false)?;
+    let simplified = simplify_at(expr, 0, m, &mut folds, SimplifyMode::Construction)?;
     Ok((simplified, folds))
+}
+
+/// Powsimp-mode simplification: symbolic same-base exponent merging is
+/// allowed, but no trigonometric rewrite rules. Oracle-pinned:
+/// powsimp(x**a * x**b) -> x**(a + b) while sin(x)**2 + cos(x)**2 stays.
+pub fn try_simplify_powsimp(expr: &Expr) -> Result<Expr, SimplifyError> {
+    let mut folds = 0u64;
+    let simplified = simplify_at(expr, 0, &mut Unbounded, &mut folds, SimplifyMode::Powsimp)?;
+    let _ = folds;
+    Ok(simplified)
+}
+
+pub fn simplify_powsimp(expr: &Expr) -> Expr {
+    unwrap_legacy(try_simplify_powsimp(expr), expr)
 }
 
 /// Simplify an algebraic expression recursively.
@@ -311,7 +336,7 @@ fn simplify_counting_folds<M: BudgetMeter>(
     m: &mut M,
 ) -> Result<(Expr, u64), SimplifyError> {
     let mut folds = 0u64;
-    let simplified = simplify_at(expr, 0, m, &mut folds, true)?;
+    let simplified = simplify_at(expr, 0, m, &mut folds, SimplifyMode::Full)?;
     Ok((simplified, folds))
 }
 
@@ -320,7 +345,7 @@ fn simplify_at<M: BudgetMeter>(
     depth: usize,
     m: &mut M,
     folds: &mut u64,
-    trig: bool,
+    mode: SimplifyMode,
 ) -> Result<Expr, SimplifyError> {
     if depth > MAX_RECURSION_DEPTH {
         return Err(SimplifyError::DepthLimitExceeded(depth));
@@ -333,14 +358,14 @@ fn simplify_at<M: BudgetMeter>(
             check_fanout(terms.len())?;
             let mut simplified = Vec::with_capacity(terms.len());
             for t in terms {
-                simplified.push(simplify_at(t, depth + 1, m, folds, trig)?);
+                simplified.push(simplify_at(t, depth + 1, m, folds, mode)?);
             }
             let collected = collect_terms(simplified);
             // Oracle-pinned (WS07 findings): construction-time Add must NOT
             // apply trigonometric rewrite rules - sin(x)**2 + cos(x)**2
             // stays an unevaluated Add until an explicit simplification
             // call. The fold fires only on the full-simplify path.
-            if !trig {
+            if mode != SimplifyMode::Full {
                 return Ok(collected);
             }
             let folded = match &collected {
@@ -358,7 +383,7 @@ fn simplify_at<M: BudgetMeter>(
             check_fanout(factors.len())?;
             let mut simplified = Vec::with_capacity(factors.len());
             for f in factors {
-                simplified.push(simplify_at(f, depth + 1, m, folds, trig)?);
+                simplified.push(simplify_at(f, depth + 1, m, folds, mode)?);
             }
             let mut coeff = BigRational::one();
             let mut rest: Vec<Expr> = Vec::new();
@@ -396,7 +421,7 @@ fn simplify_at<M: BudgetMeter>(
                     depth + 1,
                     m,
                     folds,
-                    trig,
+                    mode,
                 )?;
                 if !simplified_exp.is_one() {
                     other_factors.push(simplified_exp);
@@ -417,11 +442,22 @@ fn simplify_at<M: BudgetMeter>(
             // Group factors by base: b^p1 * b^p2 -> b^(p1 + p2)
             let mut base_powers: BTreeMap<Expr, Vec<Expr>> = BTreeMap::new();
             for f in rest {
-                if let Expr::Pow(base, exp) = f {
+                if let Expr::Pow(ref base, ref exp) = f {
+                    // Oracle-pinned: symbolic exponents merge only when
+                    // explicitly requested (powsimp); numeric always.
+                    if mode == SimplifyMode::Construction
+                        && !matches!(exp.as_ref(), Expr::Integer(_) | Expr::Rational(_))
+                    {
+                        base_powers
+                            .entry(f.clone())
+                            .or_default()
+                            .push(Expr::from_i64(1));
+                        continue;
+                    }
                     base_powers
-                        .entry((*base).clone())
+                        .entry((**base).clone())
                         .or_default()
-                        .push((*exp).clone());
+                        .push((**exp).clone());
                 } else {
                     base_powers.entry(f).or_default().push(Expr::from_i64(1));
                 }
@@ -432,7 +468,7 @@ fn simplify_at<M: BudgetMeter>(
                     powers[0].clone()
                 } else {
                     let sum = collect_terms(powers);
-                    simplify_at(&sum, depth + 1, m, folds, trig)?
+                    simplify_at(&sum, depth + 1, m, folds, mode)?
                 };
 
                 if total_exp.is_zero() {
@@ -442,7 +478,7 @@ fn simplify_at<M: BudgetMeter>(
                     parts.push(base);
                 } else {
                     let folded = Expr::Pow(Arc::new(base), Arc::new(total_exp));
-                    let simplified_pow = simplify_at(&folded, depth + 1, m, folds, trig)?;
+                    let simplified_pow = simplify_at(&folded, depth + 1, m, folds, mode)?;
                     if !simplified_pow.is_one() {
                         parts.push(simplified_pow);
                     }
@@ -468,8 +504,20 @@ fn simplify_at<M: BudgetMeter>(
             }
         }
         Expr::Pow(base, exp) => {
-            let b = simplify_at(base, depth + 1, m, folds, trig)?;
-            let e = simplify_at(exp, depth + 1, m, folds, trig)?;
+            let b = simplify_at(base, depth + 1, m, folds, mode)?;
+            let e = simplify_at(exp, depth + 1, m, folds, mode)?;
+            // Oracle-pinned: nested Pow flattens only with an INTEGER
+            // outer exponent (Pow(Pow(x, 2), 3) -> Pow(x, 6)); a rational
+            // outer exponent stays (sign ambiguity: sqrt(x**2) != x).
+            if let Expr::Pow(inner_b, inner_e) = &b {
+                if matches!(e, Expr::Integer(_)) {
+                    let flat = Expr::Pow(
+                        inner_b.clone(),
+                        Arc::new((**inner_e).clone() * e.clone()),
+                    );
+                    return Ok(simplify_at(&flat, depth, m, folds, mode)?);
+                }
+            }
             if e.is_zero() {
                 Ok(Expr::from_i64(1))
             } else if e.is_one() {
@@ -529,7 +577,7 @@ fn simplify_at<M: BudgetMeter>(
             check_fanout(args.len())?;
             let mut simplified_args = Vec::with_capacity(args.len());
             for a in args {
-                simplified_args.push(simplify_at(a, depth + 1, m, folds, trig)?);
+                simplified_args.push(simplify_at(a, depth + 1, m, folds, mode)?);
             }
             if simplified_args.len() == 1 && simplified_args[0].is_zero() {
                 match name.as_str() {

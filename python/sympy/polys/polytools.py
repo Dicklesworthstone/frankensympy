@@ -2,6 +2,7 @@
 
 import math
 from typing import Any, List, Optional, Sequence, Tuple, Union
+from .polyerrors import PolynomialError
 from ..core import (
     Basic,
     Expr,
@@ -840,18 +841,25 @@ def apart(expr: Any, x: Any = None) -> Any:
     wrapped = expr.as_expr() if is_poly else _wrap(_native_expr(expr))
 
     if x is None:
+        # Oracle-pinned no-gens boundary (probed on SymPy 1.14.0):
+        # - bare rationals: identity
+        # - non-rational constants (sqrt(8)): PolynomialError
+        # - 2+ free symbols: NotImplementedError multivariate
+        # - single Function node with polynomial args (sin(2*x)): identity
+        # - function-bearing Add/Mul/Pow (sin**2 + cos**2, tan*cos): multivariate
         free = wrapped.free_symbols
         if not free:
-            # Oracle-pinned: apart(sqrt(8)) raises multivariate
-            # NotImplementedError; only bare rational numbers are identity.
-            if isinstance(expr, (Integer, Rational)) or _native_expr(expr).is_rational:
+            if isinstance(expr, (Integer, Rational)):
                 return expr
-            raise NotImplementedError("multivariate partial fraction decomposition")
+            raise PolynomialError(f"Cannot construct polynomials from {expr}, 1")
         if len(free) > 1:
             raise NotImplementedError("multivariate partial fraction decomposition")
-        # Oracle-pinned: function-bearing expressions (sin/cos/exp/tan and
-        # custom subclasses) refuse without explicit gens.
-        if wrapped.atoms(Function):
+        fn_atoms = wrapped.atoms(Function)
+        if fn_atoms:
+            # A single applied function node with polynomial content
+            # (sin(2*x)) passes through as identity, matching the oracle.
+            if len(fn_atoms) == 1 and isinstance(wrapped, Function):
+                return expr
             raise NotImplementedError("multivariate partial fraction decomposition")
         x_sym = next(iter(free))
     elif isinstance(x, str):

@@ -10,3 +10,7 @@ class BasePolynomialError(Exception):
 
 class GeneratorsError(BasePolynomialError):
     """Invalid polynomial generators."""
+
+
+class PolynomialError(BasePolynomialError):
+    """An expression is not a valid polynomial in the given generators."""
