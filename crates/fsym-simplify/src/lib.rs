@@ -379,7 +379,7 @@ fn simplify_at<M: BudgetMeter>(
             // apply trigonometric rewrite rules - sin(x)**2 + cos(x)**2
             // stays an unevaluated Add until an explicit simplification
             // call. The fold fires only on the full-simplify path.
-            if mode != SimplifyMode::Full {
+            if matches!(mode, SimplifyMode::Construction | SimplifyMode::Powsimp) {
                 return Ok(collected);
             }
             let folded = match &collected {

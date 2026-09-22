@@ -710,6 +710,16 @@ def factor(p: Any, *gens: Any) -> Any:
                 and isinstance(f.args[0], _Add)
             ):
                 return cancel(p)
+    # Oracle-pinned: an all-negative-power Add fuses over the common
+    # denominator (factor(1/x + 1/y) -> Pow(x, -1) * Pow(y, -1) * (x + y)).
+    if isinstance(p, _Add) and p.args and all(
+        isinstance(t, _Pow)
+        and isinstance(t.args[0], Symbol)
+        and isinstance(t.args[1], _Integer)
+        and t.args[1].p < 0
+        for t in p.args
+    ):
+        return together(p)
     """Factor polynomial into irreducible factors."""
     if isinstance(p, Poly):
         return p.factor()

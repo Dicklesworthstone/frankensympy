@@ -156,10 +156,12 @@ def _trigsimp_pass(expr: Any) -> Any:
 def trigsimp(expr: Any, **kwargs: Any) -> Any:
     """Trigonometric and hyperbolic expression simplification."""
     expr = sympify(expr)
-    c_res = _core_simplify(expr)
+    # Oracle-pinned: trigsimp applies trig folds but does NOT combine exp
+    # products (trigsimp(exp(x)*exp(y)) keeps the Mul).
+    c_res = _core_simplify_trig_only(expr)
     res = _trigsimp_pass(c_res)
     if res != c_res:
-        return _core_simplify(res)
+        return _core_simplify_trig_only(res)
     return res
 
 
@@ -437,6 +439,17 @@ def radsimp(expr: Any, **kwargs: Any) -> Any:
                 if isinstance(conj, Add):
                     return Add(*(t / den_norm for t in conj.args))
                 return conj / den_norm
+    # Oracle-pinned: an all-negative-power Add fuses over the common
+    # denominator (radsimp(1/x + 1/y) -> Pow(x, -1) * Pow(y, -1) * (x + y)).
+    from ..polys import together
+    if isinstance(expr, Add) and expr.args and all(
+        isinstance(t, Pow)
+        and isinstance(t.args[0], Symbol)
+        and isinstance(t.args[1], Integer)
+        and t.args[1].p < 0
+        for t in expr.args
+    ):
+        return together(expr)
     return expr
 
 
