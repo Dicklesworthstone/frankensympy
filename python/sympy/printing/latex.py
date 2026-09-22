@@ -41,7 +41,14 @@ def latex(expr: Any) -> str:
         return expr.name
     if isinstance(expr, Pow):
         base, exp = expr.args
+        # Oracle-pinned: a positive-integer power of an applied function
+        # renders the exponent between the name and the args
+        # (sin(x)**2 -> \sin^{2}{\left(x \right)}).
         exp_int = _as_int(exp)
+        if exp_int is not None and exp_int > 0 and _is_function_instance(base):
+            fname = _latex_function_name(type(base).__name__)
+            args = ",".join(latex(arg) for arg in base.args)
+            return fname + "^{" + str(exp_int) + "}" + rf"{{\left({args} \right)}}"
         if exp_int is not None and exp_int < 0:
             return _frac("1", _latex_pow_positive(base, -exp_int))
         if exp_int is not None:
