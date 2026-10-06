@@ -417,6 +417,16 @@ class LatexPrinter:
 
     def _print_Mul(self, e: Any) -> str:
         c = _core()
+        held = getattr(e, "_args", None)
+        if held is not None and type(e) is c.Mul:
+            # Upstream: an unevaluated Mul with a leading 1 or a later
+            # number prints its args exactly as stored.
+            args = list(e.args)
+            if args and (
+                (_kind(args[0]) == "Integer" and args[0].p == 1)
+                or any(_kind(a) in ("Integer", "Rational", "Float") for a in args[1:])
+            ):
+                return self._convert_args(args)
         coeff, rest = _as_coeff_mul(e)
         factors = ([] if coeff is None else [coeff]) + list(rest)
         tex = ""

@@ -726,6 +726,10 @@ def factor(p: Any, *gens: Any) -> Any:
     if isinstance(p, Poly):
         return p.factor()
     if not gens:
+        abstracted = _factor_function_generators(p)
+        if abstracted is not None:
+            return abstracted
+    if not gens:
         wrapped = _wrap(_native_expr(p))
         syms = sorted(getattr(wrapped, "free_symbols", set()), key=lambda s: s.name)
         if len(syms) > 1:
@@ -737,6 +741,109 @@ def factor(p: Any, *gens: Any) -> Any:
         return poly_p.factor()
     except Exception:
         return _wrap(_native_expr(p))
+
+
+def _function_generators(e, out):
+    from ..core import Function as _Function
+
+    if isinstance(e, _Function) and e.free_symbols:
+        out.add(e)
+        return
+    for a in getattr(e, "args", ()) or ():
+        if hasattr(a, "free_symbols"):
+            _function_generators(a, out)
+
+
+def _factor_function_generators(p):
+    """Upstream factors over function generators too
+    (factor(sin(x)**2 + 2*sin(x)*cos(x) + cos(x)**2) -> (sin(x) + cos(x))**2):
+    each maximal applied function becomes a fresh generator."""
+    from ..core import Dummy as _Dummy, sympify as _sympify
+
+    from fractions import Fraction as _Fraction
+    from math import gcd as _igcd, lcm as _ilcm
+    from ..core import Rational as _Rational
+    from ..functions import exp as _exp
+
+    p = _sympify(p)
+    gens = set()
+    _function_generators(p, gens)
+    if not gens:
+        return None
+    # exp(k*u) for rational k share the generator exp(g*u), g = gcd of k.
+    exp_groups: dict = {}
+    plain = []
+    for g in gens:
+        if type(g).__name__ == "exp":
+            arg = g.args[0]
+            coeff, rest = arg.as_coeff_Mul() if hasattr(arg, "as_coeff_Mul") else (_Rational(1), arg)
+            if not isinstance(coeff, _Rational):
+                coeff, rest = _Rational(1), arg
+            exp_groups.setdefault(rest, []).append((g, _Fraction(int(coeff.p), int(coeff.q))))
+        else:
+            plain.append(g)
+    replacements = []  # (old expr, new expr in dummies), back-map
+    back = []
+    index = 0
+    for g in sorted(plain, key=str):
+        d = _Dummy("g%d" % index)
+        index += 1
+        replacements.append((g, d))
+        back.append((d, g))
+    for rest, members in sorted(exp_groups.items(), key=lambda kv: str(kv[0])):
+        num = 0
+        den = 1
+        for _, c in members:
+            num = _igcd(num, abs(c.numerator))
+            den = _ilcm(den, c.denominator)
+        # Upstream treats exp(k*u) as exp(u)**k: the generator carries
+        # the unit numerator (exp(2*x) - 1 = (exp(x) - 1)*(exp(x) + 1)).
+        step = _Fraction(1, den)
+        d = _Dummy("g%d" % index)
+        index += 1
+        for g, c in members:
+            k = c / step
+            replacements.append((g, d ** int(k)))
+        back.append((d, _exp(_Rational(step.numerator, step.denominator) * rest)))
+    q = p
+    for g, d in replacements:
+        q = q.subs(g, d)
+    probe = set()
+    _function_generators(q, probe)
+    if probe:
+        return None
+    f = factor(q)
+    if f == q:
+        return None
+    f = _normalize_factor_signs(f, [d for d, _ in back])
+    for d, g in back:
+        f = f.subs(d, g)
+    return f
+
+
+def _normalize_factor_signs(f, syms):
+    """Upstream factor form: every polynomial factor has a positive leading
+    coefficient (lex in ``syms``) and the overall sign is pulled out."""
+    from ..core import Add as _Add, Integer as _Integer, Mul as _Mul, Pow as _Pow, expand
+
+    factors = list(f.args) if isinstance(f, _Mul) else [f]
+    sign = 1
+    out = []
+    for fac in factors:
+        base, k = (fac.args[0], fac.args[1]) if isinstance(fac, _Pow) else (fac, _Integer(1))
+        if isinstance(base, _Add) and isinstance(k, _Integer):
+            terms = expand(base).args
+            parsed = [_term_monomial(t, syms) for t in terms]
+            if all(pm is not None for pm in parsed):
+                lead = max(parsed, key=lambda cm: tuple(cm[1].get(s, 0) for s in syms))
+                if lead[0] < 0:
+                    base = -base
+                    if k.p % 2:
+                        sign = -sign
+                    out.append(base ** k)
+                    continue
+        out.append(fac)
+    return _Mul(_Integer(sign), *out)
 
 
 def _term_monomial(term, syms):

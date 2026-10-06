@@ -164,14 +164,15 @@ impl Integrator {
             let inner = product(rest);
             return self.int(&inner).map(|r| c * r);
         }
-        // exp(a + g(x)) = exp(a)*exp(g(x)) with a free of x.
+        if let Some(r) = self.table(f) {
+            return Some(r);
+        }
+        // exp(a + g(x)) = exp(a)*exp(g(x)) with a free of x, for integrands
+        // the table does not take whole (Gaussians in several variables).
         if let Some((free, dependent)) = split_exp_constant(f, &x) {
             return self.int(&dependent).map(|r| free * r);
         }
         if let Some(r) = self.quadratic_denominator(f) {
-            return Some(r);
-        }
-        if let Some(r) = self.table(f) {
             return Some(r);
         }
         if let Some(r) = self.rational(f) {

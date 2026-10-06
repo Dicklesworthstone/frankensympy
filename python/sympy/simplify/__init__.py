@@ -1,3 +1,4 @@
+from . import trigsimp as _trigsimp_module  # noqa: F401  (bind before the function export)
 from .simplify import (
     collect,
     combsimp,
@@ -5,6 +6,7 @@ from .simplify import (
     expand_power_base,
     expand_power_exp,
     expand_trig,
+    gammasimp,
     logcombine,
     nsimplify,
     powsimp,
@@ -25,6 +27,7 @@ __all__ = [
     "expand_power_base",
     "expand_power_exp",
     "expand_trig",
+    "gammasimp",
     "logcombine",
     "nsimplify",
     "powsimp",

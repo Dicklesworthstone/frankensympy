@@ -256,14 +256,7 @@ impl Expr {
                 .unwrap_or(Expr::from_i64(0)),
             Expr::Mul(factors) => {
                 let new_factors: Vec<Expr> = factors.iter().map(|f| f.subs(map)).collect();
-                if new_factors.iter().any(|f| f.is_zero()) && new_factors.iter().any(has_pole) {
-                    Expr::Mul(new_factors)
-                } else {
-                    new_factors
-                        .into_iter()
-                        .reduce(|a, b| a * b)
-                        .unwrap_or(Expr::from_i64(1))
-                }
+                rebuild_mul(new_factors)
             }
             Expr::Pow(b, e) => fold_pow_sub(b.subs(map), e.subs(map)),
             Expr::Function(name, args) => {
@@ -299,14 +292,7 @@ impl Expr {
             Expr::Mul(factors) => {
                 let new_factors: Vec<Expr> =
                     factors.iter().map(|f| f.subs_expr(old, new)).collect();
-                if new_factors.iter().any(|f| f.is_zero()) && new_factors.iter().any(has_pole) {
-                    Expr::Mul(new_factors)
-                } else {
-                    new_factors
-                        .into_iter()
-                        .reduce(|a, b| a * b)
-                        .unwrap_or(Expr::from_i64(1))
-                }
+                rebuild_mul(new_factors)
             }
             Expr::Pow(b, e) => fold_pow_sub(b.subs_expr(old, new), e.subs_expr(old, new)),
             Expr::Function(name, args) => {
@@ -1335,6 +1321,33 @@ impl std::ops::Mul for Expr {
             }
         }
     }
+}
+
+/// Rebuilds a product after substitution as one n-ary Mul, as upstream's
+/// `Mul(*args)` does: folding pairwise would distribute a numeric
+/// coefficient over the first sum factor (`-1*(a + b)*c` must stay a
+/// product, while a two-factor `-1*(a + b)` distributes).
+fn rebuild_mul(factors: Vec<Expr>) -> Expr {
+    if factors.iter().any(|f| f.is_zero()) {
+        if factors.iter().any(has_pole) {
+            return Expr::Mul(factors);
+        }
+        return Expr::from_i64(0);
+    }
+    let mut flat = Vec::with_capacity(factors.len());
+    for f in factors {
+        match f {
+            Expr::Mul(inner) => flat.extend(inner),
+            other => flat.push(other),
+        }
+    }
+    if flat.len() <= 2 {
+        return flat
+            .into_iter()
+            .reduce(|a, b| a * b)
+            .unwrap_or(Expr::from_i64(1));
+    }
+    wrap_mul_factors(flat)
 }
 
 fn wrap_mul_factors(mut factors: Vec<Expr>) -> Expr {

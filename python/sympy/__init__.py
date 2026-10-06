@@ -1051,6 +1051,7 @@ from .assumptions import (
 from .simplify import (
     collect,
     combsimp,
+    gammasimp,
     expand_log,
     expand_power_base,
     expand_power_exp,
@@ -1823,6 +1824,7 @@ __all__ = [
     "checksol",
     "collect",
     "combsimp",
+    "gammasimp",
     "conjugate",
     "content",
     "continuous_domain",

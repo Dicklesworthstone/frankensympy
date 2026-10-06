@@ -4198,8 +4198,9 @@ class SurfaceTests(unittest.TestCase):
         quad = collect(a*x**2 + b*x**2 + c*x + d, x)
         self.assertEqual(quad, (a + b)*x**2 + c*x + d)
 
-        # logcombine
-        self.assertEqual(logcombine(log(x) + log(y)), log(x*y))
+        # logcombine (oracle: combines only for positive arguments or force)
+        self.assertEqual(logcombine(log(x) + log(y)), log(x) + log(y))
+        self.assertEqual(logcombine(log(x) + log(y), force=True), log(x*y))
 
         # nsimplify
         self.assertEqual(nsimplify(0.3333333333333333), Rational(1, 3))
@@ -4514,7 +4515,7 @@ class SurfaceTests(unittest.TestCase):
         )
         self.assertEqual(
             sympy.trigsimp(1 + sympy.tan(x)**2),
-            sympy.sec(x)**2
+            sympy.cos(x)**(-2)  # oracle form
         )
         self.assertEqual(
             sympy.trigsimp(sympy.tan(x) * sympy.cos(x)),

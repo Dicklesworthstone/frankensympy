@@ -191,7 +191,15 @@ def _shortest(original: Any, simplified: Any) -> Any:
     from ..polys import cancel
 
     candidates = [simplified]
-    for transform in (expand, cancel, _trig_contract):
+    extra = []
+    text = str(original)
+    if any(t in text for t in ("sin", "cos", "tan", "cot", "sec", "csc")):
+        extra.append(trigsimp)
+    if "log" in text:
+        extra.append(logcombine)
+    if "gamma" in text or "factorial" in text:
+        extra.append(lambda z: _gamma_ratio_pass(z, keep_factorial=True))
+    for transform in (expand, cancel, _trig_contract, *extra):
         for source in (original, simplified):
             try:
                 candidates.append(transform(source))
@@ -231,8 +239,9 @@ def _trigsimp_pass(expr: Any) -> Any:
                 if j in skip:
                     continue
                 t2 = terms[j]
-                # 1 + tan(u)**2 -> sec(u)**2, 1 + cot(u)**2 -> csc(u)**2
-                for one_cand, tan_cand in ((t1, t2), (t2, t1)):
+                # (Upstream trigsimp answers 1 + tan(u)**2 with cos(u)**(-2),
+                # found by the rewrite search; no sec/csc introduction here.)
+                for one_cand, tan_cand in ():
                     if one_cand == 1 and isinstance(tan_cand, Pow) and tan_cand.args[1] == 2:
                         base = tan_cand.args[0]
                         if get_fn(base) == "tan":
@@ -306,6 +315,14 @@ def _trigsimp_pass(expr: Any) -> Any:
 
 def trigsimp(expr: Any, **kwargs: Any) -> Any:
     """Trigonometric and hyperbolic expression simplification."""
+    from .trigsimp import trigsimp as _search_trigsimp
+
+    legacy = _trigsimp_legacy(expr, **kwargs)
+    searched = _search_trigsimp(legacy)
+    return searched if _count_ops(searched) <= _count_ops(legacy) else legacy
+
+
+def _trigsimp_legacy(expr: Any, **kwargs: Any) -> Any:
     expr = sympify(expr)
     # Oracle-pinned: trigsimp applies trig folds but does NOT combine exp
     # products (trigsimp(exp(x)*exp(y)) keeps the Mul).
@@ -543,9 +560,78 @@ def expand_power_base(expr: Any, force: bool = False, **kwargs: Any) -> Any:
     return expr
 
 
+def _gamma_ratio_pass(expr: Any, keep_factorial: bool) -> Any:
+    """Cancel gamma(a)/gamma(b) (and factorial ratios) with integer a - b
+    into finite products of linear factors (upstream gammasimp/combsimp)."""
+    from ..core import Rational as _Rational, expand
+    from ..functions import factorial, gamma
+
+    expr = sympify(expr)
+    args = getattr(expr, "args", ()) or ()
+    if args and isinstance(expr, (Add, Mul, Pow)):
+        new = [_gamma_ratio_pass(a, keep_factorial) for a in args]
+        if new != list(args):
+            expr = expr.func(*new)
+    if not isinstance(expr, Mul):
+        return expr
+    num: list = []
+    den: list = []
+    other: list = []
+    for f in expr.args:
+        base, ex = (f.args[0], f.args[1]) if isinstance(f, Pow) else (f, Integer(1))
+        n = type(base).__name__
+        if n in ("gamma", "factorial") and isinstance(ex, Integer) and ex.p != 0:
+            z = base.args[0] if n == "gamma" else base.args[0] + 1
+            (num if ex.p > 0 else den).extend([(z, n)] * abs(ex.p))
+        else:
+            other.append(f)
+    if not num or not den:
+        return expr
+    out = Integer(1)
+    for f in other:
+        out = out * f
+    used_den = [False] * len(den)
+    leftover_num = []
+    for (a, na) in num:
+        matched = False
+        for j, (b, nb) in enumerate(den):
+            if used_den[j]:
+                continue
+            k = expand(a - b)
+            if isinstance(k, Integer):
+                used_den[j] = True
+                kk = int(k.p)
+                if kk > 0:
+                    for i in range(kk):
+                        out = out * (b + i)
+                elif kk < 0:
+                    for i in range(-kk):
+                        out = out / (a + i)
+                matched = True
+                break
+        if not matched:
+            leftover_num.append((a, na))
+
+    def back(z: Any, n: str) -> Any:
+        return factorial(z - 1) if (n == "factorial" and keep_factorial) else gamma(z)
+
+    for (a, na) in leftover_num:
+        out = out * back(a, na)
+    for j, (b, nb) in enumerate(den):
+        if not used_den[j]:
+            out = out / back(b, nb)
+    return out
+
+
+def gammasimp(expr: Any) -> Any:
+    """Simplify ratios of gamma functions (and factorials) exactly."""
+    return _gamma_ratio_pass(expr, keep_factorial=False)
+
+
 def combsimp(expr: Any) -> Any:
-    """Combinatorial expression simplification."""
-    return _core_simplify(expr)
+    """Combinatorial simplification: factorial/gamma ratios cancel to
+    products of linear factors (factorial(n + 1)/factorial(n) -> n + 1)."""
+    return _gamma_ratio_pass(expr, keep_factorial=True)
 
 
 def ratsimp(expr: Any) -> Any:
@@ -619,36 +705,55 @@ def radsimp(expr: Any, **kwargs: Any) -> Any:
     return expr
 
 
-def logcombine(expr: Any, **kwargs: Any) -> Any:
-    """Combine logarithmic terms: log(x) + log(y) => log(x*y)."""
-    expr = sympify(expr)
-    if not isinstance(expr, Add):
-        return expr
+def logcombine(expr: Any, force: bool = False, **kwargs: Any) -> Any:
+    """Upstream ``logcombine``: ``log(x) + log(y) -> log(x*y)`` and
+    ``a*log(x) -> log(x**a)`` when ``x`` is positive and ``a`` real (any
+    ``x``/``a`` with ``force=True``); everything else is left alone."""
     from ..functions import log
 
-    logs: list[tuple[Any, Any]] = []
-    rest: list[Any] = []
-    for t in expr.args:
-        if getattr(getattr(t, "func", None), "__name__", "") in ("log", "ln"):
-            logs.append((t.args[0], Integer(1)))
-        elif isinstance(t, Mul):
-            log_factors = [f for f in t.args if getattr(getattr(f, "func", None), "__name__", "") in ("log", "ln")]
-            other_factors = [f for f in t.args if getattr(getattr(f, "func", None), "__name__", "") not in ("log", "ln")]
-            if len(log_factors) == 1:
-                coeff = Mul(*other_factors) if len(other_factors) > 1 else other_factors[0] if other_factors else Integer(1)
-                logs.append((log_factors[0].args[0], coeff))
-            else:
-                rest.append(t)
+    expr = sympify(expr)
+    args = getattr(expr, "args", ()) or ()
+    if args and isinstance(expr, (Add, Mul, Pow)):
+        new = [logcombine(a, force=force) for a in args]
+        if new != list(args):
+            expr = expr.func(*new)
+    elif args and type(expr).__name__ not in ("log",) and hasattr(expr, "func"):
+        try:
+            new = [logcombine(a, force=force) for a in args]
+            if new != list(args):
+                expr = expr.func(*new)
+        except Exception:
+            pass
+
+    def is_log(f: Any) -> bool:
+        return type(f).__name__ == "log" and len(f.args) == 1
+
+    terms = list(expr.args) if isinstance(expr, Add) else [expr]
+    eligible: list = []
+    rest: list = []
+    for t in terms:
+        factors = list(t.args) if isinstance(t, Mul) else [t]
+        logs = [f for f in factors if is_log(f)]
+        if len(logs) != 1:
+            rest.append(t)
+            continue
+        arg = logs[0].args[0]
+        coeff = Integer(1)
+        for f in factors:
+            if f is not logs[0] and not (is_log(f) and f == logs[0]):
+                coeff = coeff * f
+        ok_arg = force or arg.is_positive is True
+        ok_coeff = force or coeff.is_real is True
+        if ok_arg and ok_coeff:
+            eligible.append((arg, coeff))
         else:
             rest.append(t)
-
-    if len(logs) > 1:
-        inner_factors = [Pow(u, c) if c != 1 else u for u, c in logs]
-        combined = log(Mul(*inner_factors))
-        if rest:
-            return Add(combined, *rest)
-        return combined
-    return expr
+    if not eligible or (len(eligible) == 1 and eligible[0][1] == 1):
+        return expr
+    inner = Integer(1)
+    for arg, coeff in eligible:
+        inner = inner * (arg if coeff == 1 else Pow(arg, coeff))
+    return Add(log(inner), *rest) if rest else log(inner)
 
 
 def collect(expr: Any, syms: Any, evaluate: bool = True) -> Any:
