@@ -232,6 +232,23 @@ def _native_symbol_key(symbol: "Symbol") -> str:
     return str(_native_expr(symbol))
 
 
+_FACT_NAMES = ("positive", "negative", "nonzero", "nonnegative", "nonpositive", "real", "integer")
+
+
+def _symbol_facts(*exprs: Any) -> list:
+    """Declared assumption facts of the free symbols of ``exprs``, keyed by
+    the printed native name, for the native algorithm lanes' fact scope."""
+    out: dict = {}
+    for e in exprs:
+        for sym in getattr(e, "free_symbols", ()) or ():
+            if not isinstance(sym, Symbol):
+                continue
+            names = [n for n in _FACT_NAMES if getattr(sym, "is_" + n, None) is True]
+            if names:
+                out[_native_symbol_key(sym)] = names
+    return list(out.items())
+
+
 def _register_surface_symbol(symbol: "Symbol") -> None:
     """Remember which Python object owns a typed symbol identity.
 
@@ -1262,6 +1279,21 @@ def _assumption_pow(base: Any, exponent: Any) -> Any:
             from ..functions.elementary.complexes import Abs as _Abs
 
             return _Abs(b)
+    if type(base) is Mul and isinstance(exponent, Rational) and not isinstance(exponent, Integer):
+        # Upstream Pow._eval_power splits nonnegative factors out of a
+        # fractional power: sqrt(4*a**2) -> 2*a for positive a.
+        args = list(base.args)
+        flags = [
+            not isinstance(f, Rational) and bool(f.free_symbols) and f.is_nonnegative is True
+            for f in args
+        ]
+        nonneg = [f for f, keep in zip(args, flags) if keep]
+        if nonneg:
+            rest = [f for f, keep in zip(args, flags) if not keep]
+            out = Pow(Mul(*rest), exponent) if rest else _ONE
+            for f in nonneg:
+                out = out * Pow(f, exponent)
+            return out
     return None
 
 

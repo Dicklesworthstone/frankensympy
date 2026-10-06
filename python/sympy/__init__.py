@@ -41,6 +41,7 @@ from .core import (
     _native,
     _native_expr,
     _native_symbol_key,
+    _symbol_facts,
     _parse_result,
     _require_symbol,
     _wrap,
@@ -138,6 +139,7 @@ def integrate(expression, *variables):
                 _native_symbol_key(symbol),
                 str(_native_expr(lower)),
                 str(_native_expr(upper)),
+                _symbol_facts(expression, lower, upper),
             )
             parsed = _parse_result(result)
             return parsed.subs({Symbol(symbol.name): symbol})
@@ -148,7 +150,8 @@ def integrate(expression, *variables):
     try:
         result = _parse_result(
             _native.integrate_expr(
-                str(_native_expr(expression)), _native_symbol_key(symbol)
+                str(_native_expr(expression)), _native_symbol_key(symbol),
+                _symbol_facts(expression),
             )
         )
         # Restore declared typed symbol (the native bridge lifts fresh atoms).

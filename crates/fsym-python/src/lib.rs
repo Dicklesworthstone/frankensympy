@@ -211,17 +211,33 @@ fn lower_with_identities(
 ///
 /// Raises `ValueError` when no rule applies — refusals are explicit.
 #[pyfunction]
-fn integrate_expr(src: &str, var: &str) -> PyResult<String> {
+#[pyo3(signature = (src, var, facts=Vec::new()))]
+fn integrate_expr(src: &str, var: &str, facts: Vec<(String, Vec<String>)>) -> PyResult<String> {
     let e = parse_expr(src)?;
-    integrate(&e, &Symbol::new(var))
+    with_symbol_facts(facts, || integrate(&e, &Symbol::new(var)))
         .map(|v| v.to_string())
         .map_err(to_value_error)
 }
 
+/// Runs `f` with the caller's declared symbol facts in scope.
+fn with_symbol_facts<R>(facts: Vec<(String, Vec<String>)>, f: impl FnOnce() -> R) -> R {
+    let scope = facts
+        .into_iter()
+        .map(|(name, names)| (name, fsym_core::assume::Facts::from_names(&names)))
+        .collect();
+    fsym_core::assume::with_facts(scope, f)
+}
+
 /// Limit of `src` as `var -> to` (`to` may be `"oo"` / `"-oo"`).
 #[pyfunction]
-#[pyo3(signature = (src, var, to, dir="+"))]
-fn limit_expr(src: &str, var: &str, to: &str, dir: &str) -> PyResult<String> {
+#[pyo3(signature = (src, var, to, dir="+", facts=Vec::new()))]
+fn limit_expr(
+    src: &str,
+    var: &str,
+    to: &str,
+    dir: &str,
+    facts: Vec<(String, Vec<String>)>,
+) -> PyResult<String> {
     let e = parse_expr(src)?;
     let point = parse_expr(to)?;
     let direction = match dir {
@@ -234,9 +250,11 @@ fn limit_expr(src: &str, var: &str, to: &str, dir: &str) -> PyResult<String> {
             )));
         }
     };
-    fsym_calculus::limit_dir(&e, &Symbol::new(var), &point, direction)
-        .map(|v| v.to_string())
-        .map_err(to_value_error)
+    with_symbol_facts(facts, || {
+        fsym_calculus::limit_dir(&e, &Symbol::new(var), &point, direction)
+    })
+    .map(|v| v.to_string())
+    .map_err(to_value_error)
 }
 
 /// Solve a linear equation `expr == 0` for `var`.
@@ -250,13 +268,22 @@ fn solve_linear_expr(src: &str, var: &str) -> PyResult<String> {
 
 /// Definite integral of `src` from `a` to `b` with respect to `var`.
 #[pyfunction]
-fn integrate_definite_expr(src: &str, var: &str, a_src: &str, b_src: &str) -> PyResult<String> {
+#[pyo3(signature = (src, var, a_src, b_src, facts=Vec::new()))]
+fn integrate_definite_expr(
+    src: &str,
+    var: &str,
+    a_src: &str,
+    b_src: &str,
+    facts: Vec<(String, Vec<String>)>,
+) -> PyResult<String> {
     let e = parse_expr(src)?;
     let a = parse_expr(a_src)?;
     let b = parse_expr(b_src)?;
-    fsym_calculus::integrate_definite(&e, &Symbol::new(var), &a, &b)
-        .map(|v| v.to_string())
-        .map_err(to_value_error)
+    with_symbol_facts(facts, || {
+        fsym_calculus::integrate_definite(&e, &Symbol::new(var), &a, &b)
+    })
+    .map(|v| v.to_string())
+    .map_err(to_value_error)
 }
 
 /// Laplace transform of `src(t)` to `s`.
@@ -1377,7 +1404,7 @@ mod tests {
     #[test]
     fn test_py_definite_integral_and_laplace() {
         // \int_0^1 2*x dx = 1
-        let def_int = integrate_definite_expr("2*x", "x", "0", "1").unwrap();
+        let def_int = integrate_definite_expr("2*x", "x", "0", "1", Vec::new()).unwrap();
         assert_eq!(def_int, "1");
 
         // L{1}(s) = 1/s

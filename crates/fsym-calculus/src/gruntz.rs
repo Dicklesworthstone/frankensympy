@@ -166,7 +166,8 @@ pub fn constant_sign(c: &Expr) -> Option<i32> {
         _ => {}
     }
     if !c.free_symbols().is_empty() {
-        return None;
+        // Parameters: only signs decided by declared facts.
+        return fsym_core::assume::sign(c).map(i32::from);
     }
     let v = complex_value(c)?;
     if !v.re.is_finite() || v.im.abs() > 1e-12 * (1.0 + v.re.abs()) {
@@ -219,13 +220,16 @@ struct Gruntz {
 impl Gruntz {
     fn is_positive(&self, e: &Expr) -> bool {
         match e {
-            Expr::Sym(s) => *s == self.x,
+            Expr::Sym(s) => *s == self.x || fsym_core::assume::sign(e) == Some(1),
             Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_) => constant_sign(e) == Some(1),
             Expr::Function(name, _) if name == "exp" => true,
             Expr::Mul(xs) => xs.iter().all(|f| self.is_positive(f)),
             Expr::Add(xs) => xs.iter().all(|f| self.is_positive(f)),
             Expr::Pow(b, _) => self.is_positive(b),
-            _ => e.free_symbols().is_empty() && constant_sign(e) == Some(1),
+            _ => {
+                (e.free_symbols().is_empty() && constant_sign(e) == Some(1))
+                    || fsym_core::assume::sign(e) == Some(1)
+            }
         }
     }
 

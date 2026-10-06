@@ -1068,7 +1068,8 @@ fn is_nonnegative_factor(e: &Expr) -> bool {
         Expr::Integer(n) => !n.is_negative(),
         Expr::Rational(r) => !r.is_negative(),
         Expr::Const(Constant::Pi | Constant::E) => true,
-        _ => false,
+        // Declared facts in the active assumption scope.
+        other => matches!(crate::assume::sign(other), Some(0 | 1)),
     }
 }
 
@@ -1222,7 +1223,14 @@ pub fn eval_pow(base: Expr, exp: Expr) -> Expr {
             };
         }
         (Expr::Pow(b, e1), _) => {
-            let combine = matches!(exp, Expr::Integer(_))
+            // (b**e1)**e = b**(e1*e) for integer e, for |e1| < 1 with a
+            // numeric e, and for any real exponents of a base that the
+            // active facts prove positive.
+            let positive_base = crate::assume::sign(b) == Some(1)
+                && crate::assume::is_real(e1)
+                && crate::assume::is_real(&exp);
+            let combine = positive_base
+                || matches!(exp, Expr::Integer(_))
                 || number(e1).is_some_and(|v| v.abs() < BigRational::one())
                     && number(&exp).is_some();
             if combine {

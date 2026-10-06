@@ -101,6 +101,9 @@ fn provably_nonzero(e: &Expr) -> bool {
     if let Some(v) = number(e) {
         return !v.is_zero();
     }
+    if fsym_core::assume::is_nonzero(e) {
+        return true;
+    }
     e.free_symbols().is_empty() && crate::gruntz::complex_value(e).is_some_and(|v| v.norm() > 1e-9)
 }
 
@@ -160,6 +163,13 @@ impl Integrator {
         if !c.is_one() {
             let inner = product(rest);
             return self.int(&inner).map(|r| c * r);
+        }
+        // exp(a + g(x)) = exp(a)*exp(g(x)) with a free of x.
+        if let Some((free, dependent)) = split_exp_constant(f, &x) {
+            return self.int(&dependent).map(|r| free * r);
+        }
+        if let Some(r) = self.quadratic_denominator(f) {
+            return Some(r);
         }
         if let Some(r) = self.table(f) {
             return Some(r);
@@ -299,6 +309,72 @@ impl Integrator {
         }
     }
 
+    /// `(p*x + q)/(A*x**2 + B*x + C)` with x-free (possibly symbolic)
+    /// coefficients whose discriminant sign is decided (exactly or by the
+    /// active facts): log + atan for `4AC - B^2 > 0`, log + log otherwise.
+    fn quadratic_denominator(&self, f: &Expr) -> Option<Expr> {
+        let x = &self.x;
+        let factors: Vec<Expr> = match f {
+            Expr::Mul(xs) => xs.clone(),
+            other => vec![other.clone()],
+        };
+        let mut den = None;
+        let mut num = Expr::from_i64(1);
+        for g in factors {
+            match &g {
+                Expr::Pow(b, e) if **e == Expr::from_i64(-1) && den.is_none() => {
+                    den = Some((**b).clone());
+                }
+                _ => num = num * g,
+            }
+        }
+        let den = den?;
+        if is_free_of(&den, x) || den.free_symbols().iter().all(|s| s == x) {
+            // Pure-rational cases belong to the exact partial-fraction lane.
+            return None;
+        }
+        let coeff = |e: &Expr, k: i64| -> Option<Expr> {
+            let d = (0..k).fold(e.clone(), |acc, _| crate::diff(&acc, x));
+            let v = d.subs(&HashMap::from([(x.clone(), Expr::from_i64(0))]));
+            let fact: i64 = (1..=k).product();
+            let c = fsym_simplify::expand(&(v * q(1, fact)));
+            is_free_of(&c, x).then_some(c)
+        };
+        let (a2, b1, c0) = (coeff(&den, 2)?, coeff(&den, 1)?, coeff(&den, 0)?);
+        if !fsym_simplify::expand(&crate::diff(&crate::diff(&crate::diff(&den, x), x), x)).is_zero()
+            || a2.is_zero()
+        {
+            return None;
+        }
+        let (p1, p0) = (coeff(&num, 1)?, coeff(&num, 0)?);
+        if !fsym_simplify::expand(&crate::diff(&crate::diff(&num, x), x)).is_zero() {
+            return None;
+        }
+        let disc = fsym_simplify::expand(
+            &(Expr::from_i64(4) * a2.clone() * c0.clone() - b1.clone() * b1.clone()),
+        );
+        let sign = match number(&disc) {
+            Some(v) => i8::from(v.is_positive()) - i8::from(v.is_negative()),
+            None => fsym_core::assume::sign(&disc)?,
+        };
+        if sign <= 0 || !provably_nonzero(&a2) {
+            return None;
+        }
+        let xe = self.xe();
+        let two_a = Expr::from_i64(2) * a2.clone();
+        let log_part = p1.clone() * recip(two_a.clone()) * func("log", den.clone());
+        let rest = p0 - p1 * b1.clone() * recip(two_a.clone());
+        let sd = fsym_simplify::simplify(&pow(disc, q(1, 2)));
+        let atan_part = Expr::from_i64(2)
+            * rest
+            * recip(sd.clone())
+            * func(
+                "atan",
+                fsym_simplify::simplify(&((two_a * xe + b1) * recip(sd))),
+            );
+        Some(log_part + atan_part)
+    }
+
     /// exp(-c*x**2) for a positive rational c: sqrt(pi)*erf(sqrt(c)*x)/(2*sqrt(c)).
     fn gaussian(&self, u: &Expr) -> Option<Expr> {
         let x = &self.x;
@@ -307,8 +383,11 @@ impl Integrator {
         if !is_free_of(&c, x) {
             return None;
         }
-        let cv = number(&c)?;
-        if !cv.is_positive() {
+        let positive = match number(&c) {
+            Some(cv) => cv.is_positive(),
+            None => fsym_core::assume::sign(&c) == Some(1),
+        };
+        if !positive {
             return None;
         }
         let sc = pow(c, q(1, 2));
@@ -756,6 +835,24 @@ impl Integrator {
 /// Rewrites `b**(n + f)` (integer `n >= 1`, `0 < f < 1`) as the expanded
 /// `b**n` times `b**f`, the shape upstream returns for substitution results
 /// (`(x**2 + 1)**(3/2)/3 -> x**2*sqrt(x**2 + 1)/3 + sqrt(x**2 + 1)/3`).
+/// `exp(a + g)` with `a` free of `x` and `g` not: `(exp(a), exp(g))`.
+fn split_exp_constant(f: &Expr, x: &Symbol) -> Option<(Expr, Expr)> {
+    let Expr::Function(name, args) = f else {
+        return None;
+    };
+    if name != "exp" || args.len() != 1 {
+        return None;
+    }
+    let Expr::Add(terms) = &args[0] else {
+        return None;
+    };
+    let (free, dep): (Vec<Expr>, Vec<Expr>) = terms.iter().cloned().partition(|t| is_free_of(t, x));
+    if free.is_empty() || dep.is_empty() {
+        return None;
+    }
+    Some((func("exp", sum(free)), func("exp", sum(dep))))
+}
+
 fn split_improper_powers(e: &Expr) -> Expr {
     fn walk(e: &Expr, changed: &mut bool) -> Expr {
         match e {

@@ -16,6 +16,7 @@ use thiserror::Error;
 
 pub mod algebraic;
 pub mod arith;
+pub mod assume;
 pub mod ball;
 pub mod canonical;
 pub mod dag;

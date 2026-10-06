@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ..core import (
+    _symbol_facts,
     Symbol,
     _native,
     _native_expr,
@@ -86,15 +87,21 @@ def limit(expression, variable=None, point=None, dir="+", **kwargs):
     symbol = _require_symbol(variable)
     if str(dir) not in ("+", "-", "+-"):
         raise ValueError("direction must be one of '+', '-' or '+-'")
-    result = _parse_result(
-        _native.limit_expr(
+    try:
+        native = _native.limit_expr(
             str(_native_expr(expression)),
             _native_symbol_key(symbol),
             str(_native_expr(point)),
             str(dir),
+            _symbol_facts(expression),
         )
-    )
-    return result
+    except ValueError as exc:
+        # Upstream answers an undecidable limit (e.g. an unknown parameter
+        # sign) with the unevaluated Limit object.
+        if "undetermined" in str(exc):
+            return Limit(expression, symbol, point, dir=str(dir))
+        raise
+    return _parse_result(native)
 
 
 class Limit(Expr):
