@@ -15,7 +15,7 @@
 #![forbid(unsafe_code)]
 
 use crate::series::{SeriesError, leading_term};
-use fsym_core::elementary::{eval_function, eval_pow, rational_expr};
+use fsym_core::elementary::{eval_function, eval_pow, negate, rational_expr};
 use fsym_core::{BigInt, BigRational, Constant, Expr, Symbol};
 use num_complex::Complex64;
 use num_traits::{Signed, Zero};
@@ -377,17 +377,26 @@ impl Gruntz {
     /// infinity (`erf`, `erfc`): termwise / factorwise algebra of limits
     /// when every part is determinate, `erf(+-oo) = +-1`.
     fn limit_of_special(&mut self, e: &Expr) -> LResult<Option<Expr>> {
-        if !contains_function(e, &["erf", "erfc"]) {
+        const SPECIAL: [&str; 5] = ["erf", "erfc", "Si", "Ci", "Ei"];
+        if !contains_function(e, &SPECIAL) {
             return Ok(None);
         }
         match e {
-            Expr::Function(name, args) if (name == "erf" || name == "erfc") && args.len() == 1 => {
+            Expr::Function(name, args) if SPECIAL.contains(&name.as_str()) && args.len() == 1 => {
                 let l = self.limitinf(&args[0])?;
+                let half_pi = Expr::Rational(BigRational::new(1.into(), 2.into()))
+                    * Expr::Const(Constant::Pi);
                 let v = match (name.as_str(), &l) {
                     ("erf", Expr::Const(Constant::Infinity)) => Expr::from_i64(1),
                     ("erf", Expr::Const(Constant::NegativeInfinity)) => Expr::from_i64(-1),
                     ("erfc", Expr::Const(Constant::Infinity)) => Expr::from_i64(0),
                     ("erfc", Expr::Const(Constant::NegativeInfinity)) => Expr::from_i64(2),
+                    // Sine/cosine/exponential integrals at infinity.
+                    ("Si", Expr::Const(Constant::Infinity)) => half_pi,
+                    ("Si", Expr::Const(Constant::NegativeInfinity)) => negate(&half_pi),
+                    ("Ci", Expr::Const(Constant::Infinity)) => Expr::from_i64(0),
+                    ("Ei", Expr::Const(Constant::NegativeInfinity)) => Expr::from_i64(0),
+                    ("Ei", Expr::Const(Constant::Infinity)) => Expr::Const(Constant::Infinity),
                     _ => func(name, l),
                 };
                 Ok(Some(v))

@@ -181,6 +181,19 @@ pub fn is_real(e: &Expr) -> bool {
     }
 }
 
+/// Whether `e` is an integer under the active facts (structural, exact).
+pub fn is_integer(e: &Expr) -> bool {
+    match e {
+        Expr::Integer(_) => true,
+        Expr::Sym(s) => facts_of(&s.name).is_some_and(|f| f.integer),
+        Expr::Add(xs) | Expr::Mul(xs) => xs.iter().all(is_integer),
+        Expr::Pow(b, x) => {
+            is_integer(b) && matches!(x.as_ref(), Expr::Integer(k) if !k.is_negative())
+        }
+        _ => false,
+    }
+}
+
 /// Whether `e` is nonzero under the active facts (structural, exact).
 pub fn is_nonzero(e: &Expr) -> bool {
     if let Some(s) = sign(e) {

@@ -418,6 +418,23 @@ pub fn diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
                 let term1 = Expr::Mul(vec![cos_u, inv_u]);
                 let term2 = Expr::Mul(vec![Expr::from_i64(-1), sin_u, inv_u_sq]);
                 Expr::Mul(vec![Expr::Add(vec![term1, term2]), du])
+            } else if matches!(name.as_str(), "Si" | "Ci" | "Ei" | "Shi" | "Chi") && args.len() == 1
+            {
+                // d/du Si(u) = sin(u)/u, Ci -> cos, Ei -> exp, Shi -> sinh, Chi -> cosh.
+                let u = &args[0];
+                let du = diff(u, var);
+                let kernel = match name.as_str() {
+                    "Si" => "sin",
+                    "Ci" => "cos",
+                    "Ei" => "exp",
+                    "Shi" => "sinh",
+                    _ => "cosh",
+                };
+                Expr::Mul(vec![
+                    Expr::Function(kernel.to_string(), vec![u.clone()]),
+                    Expr::pow(u.clone(), Expr::from_i64(-1)),
+                    du,
+                ])
             } else if name == "Heaviside" && args.len() == 1 {
                 let u = &args[0];
                 let du = diff(u, var);
@@ -1592,13 +1609,28 @@ mod tests {
         ]);
         let anti = integrate(&e, &x).expect("by-parts antiderivative");
         assert_eq!(simplify(&(diff(&anti, &x) - e)), Expr::from_i64(0));
-        // sin(x)/x has no elementary antiderivative: typed refusal, never a guess.
+        // sin(x)/x has no elementary antiderivative: upstream answers with
+        // the sine integral Si(x), which differentiates back exactly.
         let si = Expr::Mul(vec![
             Expr::Function("sin".to_string(), vec![Expr::symbol("x")]),
             Expr::Pow(Arc::new(Expr::symbol("x")), Arc::new(Expr::from_i64(-1))),
         ]);
+        let anti = integrate(&si, &x).expect("Si antiderivative");
+        assert_eq!(
+            anti,
+            Expr::Function("Si".to_string(), vec![Expr::symbol("x")])
+        );
+        assert_eq!(simplify(&(diff(&anti, &x) - si)), Expr::from_i64(0));
+        // exp(x**3) has no closed form in the supported rule set: typed refusal.
+        let hard = Expr::Function(
+            "exp".to_string(),
+            vec![Expr::Pow(
+                Arc::new(Expr::symbol("x")),
+                Arc::new(Expr::from_i64(3)),
+            )],
+        );
         assert!(matches!(
-            integrate(&si, &x),
+            integrate(&hard, &x),
             Err(CalculusError::IntegrationFailed(_))
         ));
     }

@@ -167,6 +167,9 @@ impl Integrator {
         if let Some(r) = self.table(f) {
             return Some(r);
         }
+        if let Some(r) = self.special_quotient(f) {
+            return Some(r);
+        }
         // exp(a + g(x)) = exp(a)*exp(g(x)) with a free of x, for integrands
         // the table does not take whole (Gaussians in several variables).
         if let Some((free, dependent)) = split_exp_constant(f, &x) {
@@ -176,6 +179,9 @@ impl Integrator {
             return Some(r);
         }
         if let Some(r) = self.rational(f) {
+            return Some(r);
+        }
+        if let Some(r) = self.biquadratic(f) {
             return Some(r);
         }
         if let Some(r) = self.trig_powers(f) {
@@ -221,15 +227,67 @@ impl Integrator {
                         _ => None,
                     };
                 }
+                // 1/(1 + cos(u)) = tan(u/2)', 1/(1 - cos(u)) = -cot(u/2)'.
+                if e == Expr::from_i64(-1)
+                    && let Expr::Add(ts) = &b
+                    && ts.len() == 2
+                {
+                    for (one, other) in [(&ts[0], &ts[1]), (&ts[1], &ts[0])] {
+                        if !one.is_one() {
+                            continue;
+                        }
+                        let (sign, cosine) = match other {
+                            Expr::Function(n, a) if n == "cos" && a.len() == 1 => (1, &a[0]),
+                            Expr::Mul(fs)
+                                if fs.len() == 2
+                                    && fs[0] == Expr::from_i64(-1)
+                                    && matches!(&fs[1], Expr::Function(n, a) if n == "cos" && a.len() == 1) =>
+                            {
+                                let Expr::Function(_, a) = &fs[1] else {
+                                    unreachable!()
+                                };
+                                (-1, &a[0])
+                            }
+                            _ => continue,
+                        };
+                        let Some((a, _)) = linear_coeffs(cosine, &x) else {
+                            continue;
+                        };
+                        let half = q(1, 2) * cosine.clone();
+                        return Some(if sign == 1 {
+                            recip(a) * func("tan", half)
+                        } else {
+                            -recip(a) * func("cot", half)
+                        });
+                    }
+                }
+                if e == Expr::from_i64(2)
+                    && let Expr::Function(fname, fargs) = &b
+                    && fargs.len() == 1
+                    && let Some((a, _)) = linear_coeffs(&fargs[0], &x)
+                    && matches!(fname.as_str(), "cosh" | "sinh")
+                {
+                    let u = fargs[0].clone();
+                    let sc = func("sinh", u.clone()) * func("cosh", u.clone());
+                    return Some(if fname == "cosh" {
+                        recip(a) * (q(1, 2) * u + q(1, 2) * sc)
+                    } else {
+                        recip(a) * (q(1, 2) * sc - q(1, 2) * u)
+                    });
+                }
                 if e == Expr::from_i64(2)
                     && let Expr::Function(fname, fargs) = &b
                     && fargs.len() == 1
                     && let Some((a, _)) = linear_coeffs(&fargs[0], &x)
                 {
                     let u = fargs[0].clone();
+                    let (s, c) = (func("sin", u.clone()), func("cos", u.clone()));
                     match fname.as_str() {
                         "sec" => return Some(recip(a) * func("tan", u)),
                         "csc" => return Some(-recip(a) * func("cot", u)),
+                        // tan**2 = sec**2 - 1, cot**2 = csc**2 - 1 (upstream forms).
+                        "tan" => return Some(recip(a) * s * recip(c) - xe.clone()),
+                        "cot" => return Some(-recip(a) * c * recip(s) - xe.clone()),
                         _ => {}
                     }
                 }
@@ -280,6 +338,18 @@ impl Integrator {
                     "sinh" => func("cosh", u),
                     "cosh" => func("sinh", u),
                     "tanh" => func("log", func("cosh", u)),
+                    "sec" => {
+                        let su = func("sin", u);
+                        q(1, 2)
+                            * (func("log", su.clone() + Expr::from_i64(1))
+                                - func("log", su - Expr::from_i64(1)))
+                    }
+                    "csc" => {
+                        let cu = func("cos", u);
+                        q(1, 2)
+                            * (func("log", cu.clone() - Expr::from_i64(1))
+                                - func("log", cu + Expr::from_i64(1)))
+                    }
                     "log" => u.clone() * func("log", u.clone()) - u,
                     "atan" => {
                         u.clone() * func("atan", u.clone())
@@ -308,6 +378,98 @@ impl Integrator {
             }
             _ => None,
         }
+    }
+
+    /// `N(x)/(x**4 + p*x**2 + q)` with rational `p, q`, `p**2 < 4q` and
+    /// `deg N <= 3`: the denominator splits over the reals as
+    /// `(x**2 - s*x + r)(x**2 + s*x + r)`, `r = sqrt(q)`,
+    /// `s = sqrt(2r - p)`; partial fractions solve in closed form and each
+    /// quadratic term integrates to log + atan (upstream's form for
+    /// `1/(x**4 + 1)`).
+    fn biquadratic(&self, f: &Expr) -> Option<Expr> {
+        let x = &self.x;
+        let (num, den) = rational_parts(f, x)?;
+        if den.degree()? != 4 || num.degree().unwrap_or(0) > 3 {
+            return None;
+        }
+        let lc = den.coeffs.last()?.clone();
+        let c = |i: usize, p: &UnivariatePoly| {
+            p.coeffs.get(i).cloned().unwrap_or_else(BigRational::zero) / lc.clone()
+        };
+        if !c(1, &den).is_zero() || !c(3, &den).is_zero() {
+            return None;
+        }
+        let (pv, qv) = (c(2, &den), c(0, &den));
+        if !qv.is_positive()
+            || pv.clone() * pv.clone() >= BigRational::from_integer(4.into()) * qv.clone()
+        {
+            return None;
+        }
+        let ncoef = |i: usize| rq(c(i, &num));
+        let (n0, n1, n2, n3) = (ncoef(0), ncoef(1), ncoef(2), ncoef(3));
+        let r = pow(rq(qv), q(1, 2));
+        let s = pow(Expr::from_i64(2) * r.clone() - rq(pv), q(1, 2));
+        let e = |v: Expr| fsym_simplify::expand(&v);
+        let h = q(1, 2);
+        let t1 = e((n2 - n0.clone() * recip(r.clone())) * recip(s.clone()));
+        let t2 = e((n1 - r.clone() * n3.clone()) * recip(s.clone()));
+        let base = e(n0 * recip(r.clone()));
+        let alpha = e(h.clone() * (n3.clone() + t1.clone()));
+        let gamma = e(h.clone() * (n3 - t1));
+        let beta = e(h.clone() * (base.clone() + t2.clone()));
+        let delta = e(h.clone() * (base - t2));
+        let xe = self.xe();
+        // int (P*x + Q)/(x**2 + b*x + c) for 4c - b**2 > 0.
+        let term = |pp: Expr, qq: Expr, b: Expr, cc: Expr| -> Expr {
+            let quad = e(pow(xe.clone(), Expr::from_i64(2)) + b.clone() * xe.clone() + cc.clone());
+            let disc = e(Expr::from_i64(4) * cc - b.clone() * b.clone());
+            let sd = pow(disc, q(1, 2));
+            let log_part = h.clone() * pp.clone() * func("log", quad);
+            let coeff = e(qq - h.clone() * pp * b.clone());
+            let atan_arg = e((Expr::from_i64(2) * xe.clone() + b) * recip(sd.clone()));
+            log_part + e(Expr::from_i64(2) * coeff * recip(sd)) * func("atan", atan_arg)
+        };
+        let ms = e(Expr::from_i64(-1) * s.clone());
+        Some(term(alpha, beta, ms, r.clone()) + term(gamma, delta, s, r))
+    }
+
+    /// `T(a*x)/x` for the non-elementary integrals: sin -> Si, cos -> Ci,
+    /// exp -> Ei, sinh -> Shi, cosh -> Chi.
+    fn special_quotient(&self, f: &Expr) -> Option<Expr> {
+        let Expr::Mul(fs) = f else {
+            return None;
+        };
+        if fs.len() != 2 {
+            return None;
+        }
+        let xe = self.xe();
+        let inv_x = pow(xe.clone(), Expr::from_i64(-1));
+        let other = if fs[0] == inv_x {
+            &fs[1]
+        } else if fs[1] == inv_x {
+            &fs[0]
+        } else {
+            return None;
+        };
+        let Expr::Function(name, args) = other else {
+            return None;
+        };
+        if args.len() != 1 {
+            return None;
+        }
+        let (_, b) = linear_coeffs(&args[0], &self.x)?;
+        if !b.is_zero() {
+            return None;
+        }
+        let target = match name.as_str() {
+            "sin" => "Si",
+            "cos" => "Ci",
+            "exp" => "Ei",
+            "sinh" => "Shi",
+            "cosh" => "Chi",
+            _ => return None,
+        };
+        Some(func(target, args[0].clone()))
     }
 
     /// `(p*x + q)/(A*x**2 + B*x + C)` with x-free (possibly symbolic)
@@ -413,7 +575,36 @@ impl Integrator {
             return None;
         }
         let (kv, cv) = (number(&k)?, number(&c2)?);
-        if !kv.is_positive() || cv.is_zero() {
+        if cv.is_zero() || kv.is_zero() {
+            return None;
+        }
+        let half = BigRational::new(BigInt::from(1), BigInt::from(2));
+        if cv.is_positive() {
+            let sc = pow(rq(cv.clone()), q(1, 2));
+            let root = pow(b.clone(), q(1, 2));
+            // log(sqrt(c)*x + sqrt(c*x**2 + k))/sqrt(c) for k < 0.
+            let log_form =
+                || func("log", sc.clone() * self.xe() + root.clone()) * recip(sc.clone());
+            if kv.is_negative() {
+                if ev == -half.clone() {
+                    return Some(log_form());
+                }
+                if ev == half {
+                    return Some(
+                        q(1, 2) * self.xe() * root.clone() + rq(kv.clone()) * q(1, 2) * log_form(),
+                    );
+                }
+                return None;
+            }
+            if ev == half {
+                let s = pow(rq(cv.clone() / kv.clone()), q(1, 2));
+                return Some(
+                    q(1, 2) * self.xe() * root
+                        + q(1, 2) * rq(kv) * func("asinh", s * self.xe()) * recip(sc),
+                );
+            }
+        }
+        if !kv.is_positive() {
             return None;
         }
         let s = pow(rq(cv.abs() / kv.clone()), q(1, 2));
@@ -712,7 +903,20 @@ impl Integrator {
             }
             let ratio = f.clone() * recip(dg);
             let ratio = fsym_simplify::simplify(&ratio);
-            let in_u = ratio.subs_expr(&g, &ue);
+            let mut in_u = ratio.subs_expr(&g, &ue);
+            if !is_free_of(&in_u, &x) {
+                // u = x**d: replace x**(k*d) by u**k.
+                if let Expr::Pow(base, d) = &g
+                    && **base == self.xe()
+                    && let Expr::Integer(d) = d.as_ref()
+                {
+                    in_u = replace_powers(&ratio, &x, d, &ue);
+                } else if let Some((a, b)) = linear_coeffs(&g, &x) {
+                    // u = a*x + b: rewrite x = (u - b)/a everywhere.
+                    let xu = (ue.clone() - b) * recip(a);
+                    in_u = fsym_simplify::simplify(&ratio.subs(&HashMap::from([(x.clone(), xu)])));
+                }
+            }
             if !is_free_of(&in_u, &x) {
                 continue;
             }
@@ -762,7 +966,7 @@ impl Integrator {
                     .filter(|(j, _)| *j != i)
                     .map(|(_, f)| f.clone()),
             );
-            if !is_polynomial_in(&dv, &x) {
+            if !is_polynomial_in(&dv, &x) && !is_rational_power_of(&dv, &x) {
                 continue;
             }
             let v = self.int(&dv)?;
@@ -778,6 +982,29 @@ impl Integrator {
             .partition(|f| is_polynomial_in(f, &x));
         if poly.is_empty() || other.is_empty() {
             return None;
+        }
+        // x**m * exp(q(x)) with q quadratic: u = x**(m-1), dv = x*exp(q)
+        // (dv integrates by substitution; reduces the Gaussian moments).
+        if other.len() == 1
+            && let Expr::Function(n, args) = &other[0]
+            && n == "exp"
+            && args.len() == 1
+            && !is_free_of(&args[0], &x)
+            && linear_coeffs(&args[0], &x).is_none()
+        {
+            let p = product(poly.clone());
+            let xe = self.xe();
+            let u = fsym_simplify::simplify(&(p * recip(xe.clone())));
+            if is_polynomial_in(&u, &x) && !is_free_of(&u, &x) {
+                let dv = xe * other[0].clone();
+                if let Some(v) = self.int(&dv) {
+                    let du = crate::diff(&u, &x);
+                    let rest = fsym_simplify::simplify(&(v.clone() * du));
+                    if let Some(r) = self.int(&rest) {
+                        return Some(u * v - r);
+                    }
+                }
+            }
         }
         let linear_fn = |g: &Expr| {
             matches!(g, Expr::Function(n, args)
@@ -989,6 +1216,19 @@ fn poly_antiderivative(p: &Expr, t: &Symbol) -> Option<Expr> {
     Some(poly.integrate(BigRational::zero()).ok()?.to_expr())
 }
 
+/// `c * x**r` with `c` free of `x` and rational `r != -1`.
+fn is_rational_power_of(e: &Expr, x: &Symbol) -> bool {
+    let (_, rest) = split_constant(e, x);
+    match rest.as_slice() {
+        [Expr::Pow(b, r)] => {
+            matches!(b.as_ref(), Expr::Sym(s) if s == x)
+                && number(r).is_some_and(|v| v != -BigRational::one())
+        }
+        [Expr::Sym(s)] => s == x,
+        _ => false,
+    }
+}
+
 fn is_polynomial_in(e: &Expr, x: &Symbol) -> bool {
     match e {
         Expr::Sym(_) | Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_) => true,
@@ -1061,6 +1301,25 @@ pub(crate) fn rational_parts(e: &Expr, x: &Symbol) -> Option<(UnivariatePoly, Un
     }
 }
 
+/// Replace `x**(k*d)` by `u**k` throughout `e` (for the substitution
+/// `u = x**d`); any other occurrence of `x` is left (and later rejects).
+fn replace_powers(e: &Expr, x: &Symbol, d: &BigInt, u: &Expr) -> Expr {
+    match e {
+        Expr::Pow(b, k) if matches!(b.as_ref(), Expr::Sym(s) if s == x) => match k.as_ref() {
+            Expr::Integer(k) if (k % d).is_zero() => pow(u.clone(), Expr::Integer(k / d)),
+            _ => e.clone(),
+        },
+        Expr::Add(xs) => sum(xs.iter().map(|t| replace_powers(t, x, d, u))),
+        Expr::Mul(xs) => product(xs.iter().map(|t| replace_powers(t, x, d, u))),
+        Expr::Pow(b, k) => pow(replace_powers(b, x, d, u), replace_powers(k, x, d, u)),
+        Expr::Function(n, args) => Expr::Function(
+            n.clone(),
+            args.iter().map(|a| replace_powers(a, x, d, u)).collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
 fn collect_candidates(e: &Expr, x: &Symbol, out: &mut Vec<Expr>) {
     let push = |c: &Expr, out: &mut Vec<Expr>| {
         if !is_free_of(c, x) && !matches!(c, Expr::Sym(_)) && !out.contains(c) {
@@ -1077,6 +1336,18 @@ fn collect_candidates(e: &Expr, x: &Symbol, out: &mut Vec<Expr>) {
         }
         Expr::Pow(b, p) => {
             push(b, out);
+            // x**k offers x**d for the proper divisors d of k (u = x**2 for x**4).
+            if let (Expr::Sym(s), Expr::Integer(k)) = (b.as_ref(), p.as_ref())
+                && s == x
+                && let Some(k) = k.to_i64()
+                && (2..=12).contains(&k)
+            {
+                for d in 2..k {
+                    if k % d == 0 {
+                        push(&pow(b.as_ref().clone(), Expr::from_i64(d)), out);
+                    }
+                }
+            }
             collect_candidates(b, x, out);
             if !is_free_of(p, x) {
                 push(p, out);

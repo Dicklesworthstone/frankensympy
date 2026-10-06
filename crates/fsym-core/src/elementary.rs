@@ -403,6 +403,35 @@ fn inverse_of(arg: &Expr, inverse: &str) -> Option<Expr> {
     }
 }
 
+/// `k` when `arg = k*pi` with `k` a (fact-)integer expression.
+fn integer_pi_multiple(arg: &Expr) -> Option<Expr> {
+    let Expr::Mul(fs) = arg else {
+        return None;
+    };
+    if !fs.iter().any(|f| matches!(f, Expr::Const(Constant::Pi))) {
+        return None;
+    }
+    let rest: Vec<Expr> = fs
+        .iter()
+        .filter(|f| !matches!(f, Expr::Const(Constant::Pi)))
+        .cloned()
+        .collect();
+    if rest.is_empty()
+        || fs
+            .iter()
+            .filter(|f| matches!(f, Expr::Const(Constant::Pi)))
+            .count()
+            != 1
+    {
+        return None;
+    }
+    let k = rest.into_iter().fold(Expr::from_i64(1), |a, b| a * b);
+    if number(&k).is_some() || !crate::assume::is_integer(&k) {
+        return None;
+    }
+    Some(k)
+}
+
 fn eval_circular(name: &str, arg: &Expr) -> Option<Expr> {
     let odd = matches!(name, "sin" | "tan" | "cot" | "csc");
     if matches!(arg, Expr::Const(Constant::NaN)) || *arg == zoo() {
@@ -425,6 +454,15 @@ fn eval_circular(name: &str, arg: &Expr) -> Option<Expr> {
     }
     if let Some(c) = pi_coeff(arg) {
         return eval_trig_pi(name, &c);
+    }
+    // k*pi with k an integer by the active facts: sin(k*pi) = 0 and
+    // cos(k*pi) = (-1)**k (upstream sin/cos.eval with integer k).
+    if let Some(k) = integer_pi_multiple(arg) {
+        match name {
+            "sin" | "tan" => return Some(Expr::from_i64(0)),
+            "cos" | "sec" => return Some(eval_pow(Expr::from_i64(-1), k)),
+            _ => {}
+        }
     }
     if let Expr::Add(terms) = arg
         && let Some(v) = peel_pi_half(name, terms)
@@ -1158,6 +1196,10 @@ pub fn eval_pow(base: Expr, exp: Expr) -> Expr {
             return rational_power(&bv, &ev);
         }
         if bv.is_zero() {
+            // 0**e for e positive by the active facts.
+            if crate::assume::sign(&exp) == Some(1) {
+                return Expr::from_i64(0);
+            }
             if matches!(exp, Expr::Const(Constant::Infinity)) {
                 return Expr::from_i64(0);
             }
@@ -1465,6 +1507,7 @@ pub fn eval_function(name: &str, args: &[Expr]) -> Option<Expr> {
             _ => None,
         },
         "sign" => eval_sign(arg),
+        "Si" | "Shi" | "erf" | "erfi" if arg.is_zero() => Some(Expr::from_i64(0)),
         "Heaviside" => eval_sign(arg).and_then(|s| match number(&s) {
             Some(v) if v.is_negative() => Some(Expr::from_i64(0)),
             Some(v) if v.is_zero() => Some(rational_expr(rat(1, 2))),
