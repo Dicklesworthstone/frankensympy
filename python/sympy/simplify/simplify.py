@@ -42,6 +42,7 @@ def simplify(expr: Any, **kwargs: Any) -> Any:
             ):
                 return _maybe_fuse_rational_add(cancel(expr))
 
+    original = expr
     expr = _core_simplify(expr)
     if isinstance(expr, Mul):
         for f in expr.args:
@@ -52,7 +53,120 @@ def simplify(expr: Any, **kwargs: Any) -> Any:
                 and isinstance(f.args[0], Add)
             ):
                 return _maybe_fuse_rational_add(cancel(expr))
-    return _maybe_fuse_rational_add(expr)
+    return _shortest(original, _maybe_fuse_rational_add(expr))
+
+
+def _count_ops(e: Any) -> int:
+    """Upstream-style operation count used as the simplification measure."""
+    args = getattr(e, "args", ())
+    if not args:
+        return 0
+    if isinstance(e, Add):
+        negs = sum(1 for a in args if str(a).startswith("-"))
+        return len(args) - 1 + negs + sum(_count_ops(a) for a in args)
+    if isinstance(e, Mul):
+        num = []
+        den = []
+        for a in args:
+            if isinstance(a, Pow) and isinstance(a.args[1], Integer) and a.args[1].p < 0:
+                den.append(a.args[0] if a.args[1].p == -1 else Pow(a.args[0], -a.args[1]))
+            else:
+                num.append(a)
+        ops = max(len(num) - 1, 0) + (1 if den else 0) + max(len(den) - 1, 0)
+        return ops + sum(_count_ops(a) for a in num) + sum(_count_ops(a) for a in den)
+    if isinstance(e, Pow):
+        return 1 + sum(_count_ops(a) for a in args)
+    return 1 + sum(_count_ops(a) for a in args)
+
+
+def _trig_contract(e: Any) -> Any:
+    """Contractions upstream's trigsimp performs: sin/cos -> tan,
+    cos/sin -> cot, 2*sin(u)*cos(u) -> sin(2*u), cos(u)**2 - sin(u)**2 ->
+    cos(2*u). Applied bottom-up; exact identities only."""
+    from ..functions import cos, cot, sin, tan
+
+    args = getattr(e, "args", ())
+    if not args or not isinstance(e, (Add, Mul, Pow)):
+        return e
+    new_args = [_trig_contract(a) for a in args]
+    if new_args != list(args):
+        e = e.func(*new_args)
+        if not isinstance(e, (Add, Mul, Pow)):
+            return e
+    name = lambda f: type(f).__name__
+    if isinstance(e, Mul):
+        sins: dict = {}
+        coss: dict = {}
+        others = []
+        for f in e.args:
+            base, ex = (f.args[0], f.args[1]) if isinstance(f, Pow) else (f, Integer(1))
+            if name(base) == "sin" and isinstance(ex, Integer):
+                sins[base.args[0]] = sins.get(base.args[0], 0) + ex.p
+            elif name(base) == "cos" and isinstance(ex, Integer):
+                coss[base.args[0]] = coss.get(base.args[0], 0) + ex.p
+            else:
+                others.append(f)
+        changed = False
+        out = list(others)
+        for u in set(sins) | set(coss):
+            a, b = sins.get(u, 0), coss.get(u, 0)
+            if a > 0 and b < 0 and a == -b:
+                out.append(tan(u) ** a)
+                changed = True
+            elif a < 0 and b > 0 and b == -a:
+                out.append(cot(u) ** b)
+                changed = True
+            elif a == 1 and b == 1 and any(o == 2 or (isinstance(o, Integer) and o.p % 2 == 0) for o in others):
+                coeff = [o for o in out if isinstance(o, Integer) and o.p % 2 == 0][0]
+                out.remove(coeff)
+                out.append(Integer(coeff.p // 2))
+                out.append(sin(2 * u))
+                changed = True
+            else:
+                if a:
+                    out.append(sin(u) ** a)
+                if b:
+                    out.append(cos(u) ** b)
+        if changed:
+            result = Integer(1)
+            for f in out:
+                result = result * f
+            return result
+        return e
+    if isinstance(e, Add) and len(e.args) == 2:
+        t1, t2 = e.args
+        for p_, n_ in ((t1, t2), (t2, t1)):
+            if (
+                isinstance(p_, Pow) and p_.args[1] == 2 and name(p_.args[0]) == "cos"
+                and isinstance(n_, Mul) and len(n_.args) == 2 and n_.args[0] == -1
+                and isinstance(n_.args[1], Pow) and n_.args[1].args[1] == 2
+                and name(n_.args[1].args[0]) == "sin"
+                and n_.args[1].args[0].args[0] == p_.args[0].args[0]
+            ):
+                return cos(2 * p_.args[0].args[0])
+    return e
+
+
+def _shortest(original: Any, simplified: Any) -> Any:
+    """Pick the cheapest of the native result and the standard rewrites,
+    as upstream simplify does by count_ops."""
+    from ..core import expand
+    from ..polys import cancel
+
+    candidates = [simplified]
+    for transform in (expand, cancel, _trig_contract):
+        for source in (original, simplified):
+            try:
+                candidates.append(transform(source))
+            except Exception:
+                continue
+    best = simplified
+    best_cost = _count_ops(simplified)
+    for c in candidates[1:]:
+        cost = _count_ops(c)
+        if cost < best_cost:
+            best, best_cost = c, cost
+    return best
 
 
 def _trigsimp_pass(expr: Any) -> Any:

@@ -725,11 +725,146 @@ def factor(p: Any, *gens: Any) -> Any:
     """Factor polynomial into irreducible factors."""
     if isinstance(p, Poly):
         return p.factor()
+    if not gens:
+        wrapped = _wrap(_native_expr(p))
+        syms = sorted(getattr(wrapped, "free_symbols", set()), key=lambda s: s.name)
+        if len(syms) > 1:
+            result = _factor_multivariate(wrapped, syms)
+            if result is not None:
+                return result
     try:
         poly_p = Poly(p, *gens)
         return poly_p.factor()
     except Exception:
         return _wrap(_native_expr(p))
+
+
+def _term_monomial(term, syms):
+    """(rational coefficient, {symbol: exponent}) of an expanded term, or None."""
+    from ..core import Mul as _Mul, Pow as _Pow, Integer as _Integer, Rational as _Rational
+    coeff = _Rational(1)
+    mon = {}
+    factors = term.args if isinstance(term, _Mul) else (term,)
+    for f in factors:
+        if isinstance(f, _Rational):
+            coeff = coeff * f
+        elif f in syms:
+            mon[f] = mon.get(f, 0) + 1
+        elif isinstance(f, _Pow) and f.args[0] in syms and isinstance(f.args[1], _Integer) and f.args[1].p > 0:
+            mon[f.args[0]] = mon.get(f.args[0], 0) + f.args[1].p
+        else:
+            return None
+    return coeff, mon
+
+
+def _factor_multivariate(expr, syms):
+    """Multivariate factoring by content extraction: numeric and monomial
+    content, the content of a bivariate polynomial with respect to its main
+    variable (a univariate gcd in the other), and homogeneous bivariate
+    primitive parts through dehomogenization. Returns None when the input
+    is not a polynomial in ``syms`` with rational coefficients."""
+    from ..core import Add as _Add, Mul as _Mul, Integer as _Integer, Rational as _Rational, expand
+    from math import gcd as _igcd
+
+    e = expand(expr)
+    terms = e.args if isinstance(e, _Add) else (e,)
+    parsed = []
+    for t in terms:
+        tm = _term_monomial(t, syms)
+        if tm is None:
+            return None
+        parsed.append(tm)
+    if not parsed:
+        return None
+    # numeric content (sign follows the leading term in sorted order)
+    num = 0
+    den = 1
+    for c, _ in parsed:
+        num = _igcd(num, abs(c.p))
+        den = den * c.q // _igcd(den, c.q)
+    content = _Rational(num, den)
+    lead = max(parsed, key=lambda cm: tuple(cm[1].get(s, 0) for s in syms))
+    if lead[0].p < 0:
+        content = -content
+    mono = {s: min(m.get(s, 0) for _, m in parsed) for s in syms}
+    rest = _Integer(0)
+    for c, m in parsed:
+        term = c / content
+        for s in syms:
+            k = m.get(s, 0) - mono[s]
+            if k:
+                term = term * s**k
+        rest = rest + term
+    outer = content
+    for s in syms:
+        if mono[s]:
+            outer = outer * s**mono[s]
+    inner = _factor_primitive(rest, syms)
+    result = outer * inner
+    return result
+
+
+def _factor_primitive(rest, syms):
+    from ..core import Add as _Add, Integer as _Integer, expand
+    present = [s for s in syms if s in rest.free_symbols]
+    if len(present) <= 1:
+        try:
+            return factor(rest) if present else rest
+        except Exception:
+            return rest
+    if len(present) != 2:
+        return rest
+    x, y = present
+    by_degree: dict = {}
+    for t in (rest.args if isinstance(rest, _Add) else (rest,)):
+        tm = _term_monomial(t, [x, y])
+        if tm is None:
+            return rest
+        c, m = tm
+        by_degree[m.get(x, 0)] = by_degree.get(m.get(x, 0), _Integer(0)) + c * y ** m.get(y, 0)
+    coeffs = [c for _, c in sorted(by_degree.items(), reverse=True) if c != 0]
+    from . import polytools as _pt
+    cont = _Integer(1)
+    if all(c.free_symbols for c in coeffs):
+        cont = coeffs[0]
+        for c in coeffs[1:]:
+            try:
+                cont = _pt.gcd(cont, c)
+            except Exception:
+                cont = _Integer(1)
+                break
+    factored = _Integer(1)
+    if cont.free_symbols:
+        quotient = cancel(rest / cont)
+        factored = factor(cont)
+        rest = expand(quotient)
+    # homogeneous primitive part: dehomogenize at y = 1
+    terms = rest.args if isinstance(rest, _Add) else (rest,)
+    degrees = set()
+    for t in terms:
+        tm = _term_monomial(t, [x, y])
+        if tm is None:
+            return factored * rest
+        degrees.add(tm[1].get(x, 0) + tm[1].get(y, 0))
+    if len(degrees) == 1 and rest.free_symbols >= {x, y}:
+        total = degrees.pop()
+        uni = rest.subs(y, 1)
+        try:
+            scale, flist = Poly(uni, x).factor_list()
+        except Exception:
+            return factored * rest
+        out = scale
+        used = 0
+        for f, mult in flist:
+            fx = f.as_expr()
+            d = Poly(fx, x).degree()
+            used += d * mult
+            homog = expand(fx.subs(x, x / y) * y**d)
+            out = out * homog**mult
+        if total > used:
+            out = out * y ** (total - used)
+        return factored * out
+    return factored * rest
 
 
 def roots(p: Any, *gens: Any) -> dict[Any, int]:

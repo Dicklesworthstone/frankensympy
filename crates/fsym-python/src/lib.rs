@@ -659,18 +659,48 @@ fn poly_factor_list_expr(p_src: &str, var: &str) -> PyResult<(String, Vec<(Strin
     let sym = Symbol::new(var);
     let poly =
         fsym_polys::univariate::UnivariatePoly::from_expr(&e, &sym).map_err(to_value_error)?;
-    let result = fsym_polys::factorization::bounded_rational_root_decomposition(&poly)
-        .map_err(to_value_error)?;
-    let scale_expr = if result.scale.is_integer() {
-        Expr::Integer(result.scale.to_integer())
+    // Complete factorization over Q (Zassenhaus with irreducibility
+    // witnesses), reported as upstream factor_list over ZZ: primitive
+    // integer factors with positive leading coefficient, content in scale.
+    let result =
+        fsym_polys::factorization::complete_factorization(&poly).map_err(to_value_error)?;
+    let mut scale = result.scale.clone();
+    let mut factors = Vec::new();
+    for f in result.factors {
+        let mut den = BigInt::from(1);
+        for c in &f.poly.coeffs {
+            let d = c.denom().clone();
+            let g = fsym_core::arith::gcd(&den, &d);
+            den = den * d / g;
+        }
+        let ints: Vec<BigInt> = f
+            .poly
+            .coeffs
+            .iter()
+            .map(|c| (c.clone() * BigRational::from_integer(den.clone())).to_integer())
+            .collect();
+        let mut content = BigInt::from(0);
+        for c in &ints {
+            content = fsym_core::arith::gcd(&content, c);
+        }
+        if content == BigInt::from(0) {
+            continue;
+        }
+        let multiplier = BigRational::new(den, content.clone());
+        let prim: Vec<BigRational> = ints
+            .into_iter()
+            .map(|c| BigRational::new(c, content.clone()))
+            .collect();
+        let prim_poly = fsym_polys::univariate::UnivariatePoly::new(sym.clone(), prim);
+        let k = i32::try_from(f.multiplicity).map_err(to_value_error)?;
+        scale /= multiplier.pow(k).map_err(to_value_error)?;
+        factors.push((prim_poly.to_expr().to_string(), f.multiplicity));
+    }
+    let scale_expr = if scale.is_integer() {
+        Expr::Integer(scale.to_integer())
     } else {
-        Expr::Rational(result.scale)
+        Expr::Rational(scale)
     };
-    let factors = result
-        .factors
-        .into_iter()
-        .map(|f| (f.poly.to_expr().to_string(), f.multiplicity))
-        .collect();
     Ok((scale_expr.to_string(), factors))
 }
 
