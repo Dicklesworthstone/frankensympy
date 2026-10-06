@@ -48,6 +48,38 @@ def _extract_linear_coeffs(expr, symbols):
     return coeffs, const
 
 
+def _cancel(e: Any) -> Any:
+    from ..polys import cancel
+
+    return cancel(e)
+
+
+def _generic_rref(M: Matrix) -> tuple:
+    """Gauss-Jordan elimination over rational functions, pivoting on the
+    first entry that is not identically zero (upstream's generic
+    solution semantics: pivots are assumed nonzero unless provably zero)."""
+    rows, cols = M.rows, M.cols
+    A = [[_cancel(M[i, j]) for j in range(cols)] for i in range(rows)]
+    pivots = []
+    r = 0
+    for c in range(cols):
+        if r >= rows:
+            break
+        pr = next((i for i in range(r, rows) if A[i][c] != 0), None)
+        if pr is None:
+            continue
+        A[r], A[pr] = A[pr], A[r]
+        piv = A[r][c]
+        A[r] = [_cancel(v / piv) for v in A[r]]
+        for i in range(rows):
+            if i != r and A[i][c] != 0:
+                f = A[i][c]
+                A[i] = [_cancel(a - f * b) for a, b in zip(A[i], A[r])]
+        pivots.append(c)
+        r += 1
+    return Matrix(A), tuple(pivots)
+
+
 def _solve_augmented_matrix_to_set(M: Matrix, sym_list: Optional[List[Symbol]]) -> Set:
     """Solve augmented matrix M using RREF and return FiniteSet or EmptySet."""
     n = M.cols - 1
@@ -56,7 +88,16 @@ def _solve_augmented_matrix_to_set(M: Matrix, sym_list: Optional[List[Symbol]]) 
     if sym_list is not None and len(set(sym_list)) != len(sym_list):
         raise GeneratorsError(f"duplicated generators: {tuple(sym_list)}")
 
-    rref_mat, pivots = M.rref()
+    generic = False
+    try:
+        rref_mat, pivots = M.rref()
+    except ValueError as exc:
+        if "symbolic pivot" not in str(exc):
+            raise
+        # Upstream solve/linsolve return the generic solution: a pivot that
+        # is not identically zero is used (the native lane refuses it).
+        rref_mat, pivots = _generic_rref(M)
+        generic = True
     # Check consistency: if the last column (index n) is a pivot, system is inconsistent (0 == 1)
     if n in pivots:
         return EmptySet()
@@ -89,7 +130,7 @@ def _solve_augmented_matrix_to_set(M: Matrix, sym_list: Optional[List[Symbol]]) 
                 coeff = rref_mat[r, fc]
                 if coeff != 0:
                     val = val - coeff * free_values[fc]
-            sol.append(simplify(val))
+            sol.append(_cancel(val) if generic else simplify(val))
         else:
             # Free variable
             sol.append(free_values[c])

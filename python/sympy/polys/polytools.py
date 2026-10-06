@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from fractions import Fraction
 from typing import Any, List, Optional, Sequence, Tuple, Union
 from .polyerrors import PolynomialError
 from ..core import (
@@ -467,12 +468,9 @@ class Poly(Basic):
                 terms.append(f_expr)
             else:
                 terms.append(f_expr**mult)
-        prod = terms[0]
-        for t in terms[1:]:
-            prod = prod * t
-        if scale != 1:
-            prod = scale * prod
-        return prod
+        from ..core import _keep_coeff
+
+        return _keep_coeff(scale, Mul(*terms))
 
     def roots(self) -> dict[Any, int]:
         """Compute polynomial roots over Q with multiplicities."""
@@ -758,9 +756,45 @@ def gcd(a: Any, b: Any) -> Any:
         return a.gcd(b)
     if isinstance(b, Poly):
         return b.gcd(a)
+    multi = _multivariate_gcd_lcm(a, b, lcm=False)
+    if multi is not None:
+        return multi
     p_a = Poly(a)
     res = p_a.gcd(b)
     return res.as_expr()
+
+
+def _multivariate_gcd_lcm(a: Any, b: Any, lcm: bool) -> Any:
+    """gcd/lcm over ZZ[x, y, ...] from the two complete factorizations:
+    shared irreducible factors at the min (max) multiplicity times the gcd
+    (lcm) of the integer contents, expanded as upstream returns it."""
+    from ..core import expand as _expand, sympify as _s
+
+    mgens = _multivariate_gens(_s(a) + _s(b) * Symbol("_fsym_gcd_probe"), ())
+    if mgens is None:
+        return None
+    mgens = [g for g in mgens if g.name != "_fsym_gcd_probe"]
+    if len(mgens) < 2:
+        return None
+    fa = _native_factor_multivariate(a, mgens)
+    fb = _native_factor_multivariate(b, mgens)
+    if fa is None or fb is None:
+        return None
+    (ca, la), (cb, lb) = fa, fb
+    if not (isinstance(ca, Integer) and isinstance(cb, Integer)) or ca == 0 or cb == 0:
+        return None
+    ia, ib = abs(int(ca)), abs(int(cb))
+    content = (ia * ib // math.gcd(ia, ib)) if lcm else math.gcd(ia, ib)
+    mult_b = {f: m for f, m in lb}
+    mult_a = {f: m for f, m in la}
+    out = Integer(content)
+    keys = list(mult_a) + [f for f in mult_b if f not in mult_a]
+    for f in keys:
+        ma, mb = mult_a.get(f, 0), mult_b.get(f, 0)
+        k = max(ma, mb) if lcm else min(ma, mb)
+        if k:
+            out = out * f**k
+    return _expand(out)
 
 
 def lcm(a: Any, b: Any) -> Any:
@@ -771,6 +805,9 @@ def lcm(a: Any, b: Any) -> Any:
         return a.lcm(b)
     if isinstance(b, Poly):
         return b.lcm(a)
+    multi = _multivariate_gcd_lcm(a, b, lcm=True)
+    if multi is not None:
+        return multi
     p_a = Poly(a)
     res = p_a.lcm(b)
     return res.as_expr()
@@ -944,6 +981,21 @@ def discriminant(p: Any, x: Any = None) -> Any:
 
 def sqf_list(p: Any, x: Any = None) -> Tuple[Any, List[Tuple[Any, int]]]:
     """Compute square-free factorization returning (scale, [(factor, multiplicity), ...])."""
+    if not isinstance(p, Poly):
+        mgens = _multivariate_gens(p, (x,) if x is not None else ())
+        if mgens is not None:
+            res = _native_factor_multivariate(p, mgens)
+            if res is not None:
+                # The square-free parts are the products of the irreducible
+                # factors sharing a multiplicity (upstream returns them
+                # expanded, by increasing multiplicity).
+                from ..core import expand as _expand
+
+                scale, factors = res
+                groups: dict = {}
+                for f, m in factors:
+                    groups[m] = groups.get(m, Integer(1)) * f
+                return scale, [(_expand(groups[m]), m) for m in sorted(groups)]
     poly_p = Poly(p, x) if x is not None else (p if isinstance(p, Poly) else Poly(p))
     scale, factors = poly_p.sqf_list()
     return (scale, [(f.as_expr(), mult) for f, mult in factors])
@@ -1093,17 +1145,134 @@ def groebner(F: Sequence[Any], *gens: Any, order: str = "lex", **args: Any) -> A
     return GroebnerBasis(exprs, gens_t, domain, order)
 
 
+def _dmp_rep(expr: Any, gens: list) -> Any:
+    """Dense recursive coefficient list (upstream DMP ``rep``), used only
+    as the factor ordering key."""
+    from ..core import expand as _expand, sympify
+
+    if not gens:
+        v = sympify(expr)
+        return Fraction(int(v.p), int(v.q)) if isinstance(v, Rational) else 0
+    x, rest = gens[0], gens[1:]
+    e = _expand(expr)
+    coeffs: dict = {}
+    for t in (e.args if type(e).__name__ == "Add" else (e,)):
+        k = 0
+        others = []
+        for fct in (t.args if type(t).__name__ == "Mul" else (t,)):
+            if fct == x:
+                k += 1
+            elif type(fct).__name__ == "Pow" and fct.args[0] == x:
+                k += int(fct.args[1])
+            else:
+                others.append(fct)
+        c = Integer(1)
+        for o in others:
+            c = c * o
+        coeffs[k] = coeffs.get(k, 0) + c
+    deg = max(coeffs) if coeffs else 0
+    return [_dmp_rep(coeffs.get(k, 0), rest) for k in range(deg, -1, -1)]
+
+
+def _native_factor_multivariate(expr: Any, gens: list) -> Tuple[Any, List[Tuple[Any, int]]] | None:
+    """Complete multivariate factorization over QQ (native Kronecker /
+    homogeneous lane with exact division checks), ordered as upstream
+    ``factor_list``: by degree in the first generator, multiplicity, rep.
+    None when the input is not a rational-coefficient polynomial in
+    ``gens`` or lies outside the native regime."""
+    try:
+        scale_raw, raw = _native.poly_factor_multivariate_expr(
+            str(_native_expr(expr)), [_native_symbol_key(g) for g in gens]
+        )
+    except Exception:
+        return None
+    factors = [(_parse_result(f), m) for f, m in raw]
+
+    def key(fm: Any) -> tuple:
+        rep = _dmp_rep(fm[0], list(gens))
+        return (len(rep), fm[1], rep)
+
+    try:
+        factors.sort(key=key)
+    except TypeError:
+        pass
+    return _parse_result(scale_raw), factors
+
+
+def _multivariate_gens(p: Any, gens: tuple) -> list | None:
+    syms = sorted(getattr(_wrap(_native_expr(p)), "free_symbols", set()), key=lambda s: s.name)
+    if gens:
+        extra = [s for s in syms if s not in gens]
+        out = list(gens) + extra
+    else:
+        out = syms
+    return out if len(out) > 1 else None
+
+
 def factor_list(p: Any, *gens: Any) -> Tuple[Any, List[Tuple[Any, int]]]:
     """Compute polynomial factor list returning (scale, [(factor, multiplicity), ...])."""
+    if not isinstance(p, Poly):
+        mgens = _multivariate_gens(p, gens)
+        if mgens is not None:
+            res = _native_factor_multivariate(p, mgens)
+            if res is not None:
+                return res
     poly_p = p if isinstance(p, Poly) else Poly(p, *gens)
     scale, factors = poly_p.factor_list()
     return (scale, [(f.as_expr(), mult) for f, mult in factors])
+
+
+def _factor_list_any(e: Any) -> tuple | None:
+    """(coefficient, [(irreducible, multiplicity)]) of a polynomial in its
+    free symbols over QQ, or None when ``e`` is not such a polynomial."""
+    from ..core import sympify as _s
+
+    e = _s(e)
+    syms = sorted(e.free_symbols, key=lambda s: s.name)
+    if not syms:
+        return (e, [])
+    if len(syms) == 1:
+        try:
+            scale, fl = Poly(e, syms[0]).factor_list()
+        except Exception:
+            return None
+        return scale, [(f.as_expr(), m) for f, m in fl]
+    return _native_factor_multivariate(e, syms)
+
+
+def _factor_rational(p: Any) -> Any:
+    """Upstream factor of a rational function: numerator and denominator
+    factored separately, one coefficient kept outside
+    (factor(1/(a**2 + 2*a + 1)) -> (a + 1)**(-2))."""
+    from ..core import _keep_coeff, sympify as _s
+    from .. import fraction as _fraction
+
+    expr = _wrap(_native_expr(p))
+    if not getattr(expr, "free_symbols", None):
+        return None
+    try:
+        n, d = _fraction(together(expr))
+    except Exception:
+        return None
+    if d == 1 or not _s(d).free_symbols:
+        return None
+    fn, fd = _factor_list_any(n), _factor_list_any(d)
+    if fn is None or fd is None:
+        return None
+    coeff = fn[0] / fd[0]
+    num = Mul(*[f if m == 1 else f**m for f, m in fn[1]])
+    den = Mul(*[f if m == 1 else f**m for f, m in fd[1]])
+    return _keep_coeff(coeff, num / den)
 
 
 def factor(p: Any, *gens: Any) -> Any:
     # Oracle-pinned: factor cancels rational functions
     # (factor((x**2 - 1)/(x + 1)) -> x - 1).
     from ..core import Mul as _Mul, Pow as _Pow, Add as _Add, Integer as _Integer
+    if not isinstance(p, Poly) and not gens:
+        rational = _factor_rational(p)
+        if rational is not None:
+            return rational
     if isinstance(p, _Mul):
         for f in p.args:
             if (
@@ -1130,6 +1299,15 @@ def factor(p: Any, *gens: Any) -> Any:
         abstracted = _factor_function_generators(p)
         if abstracted is not None:
             return abstracted
+    mgens = _multivariate_gens(p, gens)
+    if mgens is not None:
+        res = _native_factor_multivariate(p, mgens)
+        if res is not None:
+            from ..core import _keep_coeff
+
+            scale, factors = res
+            # One n-ary Mul: a pairwise 2*(x - y) would distribute.
+            return _keep_coeff(scale, Mul(*[f if m == 1 else f**m for f, m in factors]))
     if not gens:
         wrapped = _wrap(_native_expr(p))
         syms = sorted(getattr(wrapped, "free_symbols", set()), key=lambda s: s.name)
@@ -1405,7 +1583,9 @@ def cancel(f: Any, *gens: Any) -> Any:
         return f
     numer, denom = wrapped.as_numer_denom()
     if denom == 1 or denom == Integer(1):
-        return f if is_poly else numer
+        # Upstream cancel returns the polynomial expanded
+        # (cancel(x*(x + 1)) -> x**2 + x).
+        return f if is_poly else expand(numer)
 
     try:
         if gens:
@@ -1442,6 +1622,14 @@ def cancel(f: Any, *gens: Any) -> Any:
             num_final = expand(p_prim.as_expr() * c_num)
             den_final = expand(q_prim.as_expr() * c_den)
 
+        # Upstream cancel keeps the denominator's lex-leading coefficient
+        # positive: -1/(-a - 1) -> 1/(a + 1).
+        try:
+            lead_c, _ = _leading(den_final, all_gens)
+            if lead_c < 0:
+                num_final, den_final = expand(-num_final), expand(-den_final)
+        except Exception:
+            pass
         if den_final == 1 or den_final == Integer(1):
             res = num_final
         else:
@@ -1520,6 +1708,96 @@ def together(expr: Any) -> Any:
     return _split_combined_denominator(expr) if not is_poly else expr
 
 
+def _x_coeffs(expr: Any, x: Any) -> dict | None:
+    """``{k: coefficient}`` of a polynomial in ``x`` with x-free symbolic
+    coefficients, or None when ``expr`` is not polynomial in ``x``."""
+    from ..core import Add as _Add, expand as _expand
+
+    out: dict = {}
+    e = _expand(expr)
+    for t in (e.args if isinstance(e, _Add) else (e,)):
+        k = 0
+        rest = []
+        for f in (t.args if isinstance(t, Mul) else (t,)):
+            if f == x:
+                k += 1
+            elif isinstance(f, Pow) and f.args[0] == x and isinstance(f.args[1], Integer) and f.args[1] > 0:
+                k += int(f.args[1])
+            elif x in getattr(f, "free_symbols", set()):
+                return None
+            else:
+                rest.append(f)
+        out[k] = out.get(k, Integer(0)) + Mul(*rest)
+    return out
+
+
+def _apart_parametric(numer: Any, denom: Any, x: Any) -> Any:
+    """Partial fractions of ``numer/denom`` in ``x`` over QQ(params):
+    the denominator factors over ZZ[x, params]; the polynomial part and the
+    numerators ``A_ij`` (deg < deg q_i) come from one linear system in
+    undetermined coefficients, solved generically as upstream does."""
+    from ..core import Add as _Add, Dummy as _Dummy, expand as _expand
+
+    gens = [x] + sorted((numer.free_symbols | denom.free_symbols) - {x}, key=lambda s: s.name)
+    fl = _native_factor_multivariate(denom, gens)
+    if fl is None:
+        return None
+    scale, factors = fl
+    unit = scale
+    parts = []
+    for f, m in factors:
+        if x in f.free_symbols:
+            parts.append((f, m))
+        else:
+            unit = unit * f**m
+    nc = _x_coeffs(numer, x)
+    if nc is None or not parts:
+        return None
+    dx = _expand(Mul(*[f**m for f, m in parts]))
+    dc = _x_coeffs(dx, x)
+    deg_n, deg_d = max(nc), max(dc)
+    unknowns = []
+    poly_part = Integer(0)
+    for k in range(deg_n - deg_d + 1):
+        a = _Dummy("a")
+        unknowns.append(a)
+        poly_part = poly_part + a * x**k
+    pieces = []
+    total = _expand(poly_part * dx)
+    for f, m in parts:
+        dq = max(_x_coeffs(f, x))
+        for j in range(1, m + 1):
+            num = Integer(0)
+            for k in range(dq):
+                a = _Dummy("a")
+                unknowns.append(a)
+                num = num + a * x**k
+            cof = cancel(dx / f**j)
+            pieces.append((num, f, j))
+            total = total + _expand(num * cof)
+    target = _expand(numer / unit)
+    eqs = []
+    tc, gc = _x_coeffs(total, x), _x_coeffs(target, x)
+    if tc is None or gc is None:
+        return None
+    for k in set(tc) | set(gc):
+        eqs.append(_expand(tc.get(k, 0) - gc.get(k, 0)))
+    from ..solvers.solvers import linsolve as _linsolve
+
+    sol = _linsolve(eqs, unknowns)
+    if not sol:
+        return None
+    vals = dict(zip(unknowns, next(iter(sol))))
+    if any(v.free_symbols & set(unknowns) for v in vals.values()):
+        return None
+    out = [_expand(poly_part.subs(vals))]
+    for num, f, j in pieces:
+        n = factor(cancel(num.subs(vals)))
+        if n != 0:
+            out.append(n / f**j)
+    return _Add(*out)
+
+
 def apart(expr: Any, x: Any = None) -> Any:
     """Compute partial fraction decomposition of a rational function.
 
@@ -1577,6 +1855,11 @@ def apart(expr: Any, x: Any = None) -> Any:
     numer, denom = wrapped.as_numer_denom()
     if x_sym not in denom.free_symbols:
         return expr
+
+    if (numer.free_symbols | denom.free_symbols) - {x_sym}:
+        res = _apart_parametric(numer, denom, x_sym)
+        if res is not None:
+            return Poly(res, x_sym) if is_poly else res
 
     try:
         p_poly = Poly(numer, x_sym)

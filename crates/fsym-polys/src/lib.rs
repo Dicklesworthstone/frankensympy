@@ -9,6 +9,7 @@ pub mod factorization;
 pub mod gcd;
 pub mod groebner;
 pub mod identity;
+pub mod multifactor;
 pub mod multivariate;
 pub mod univariate;
 
@@ -16,6 +17,7 @@ pub use factorization::*;
 pub use gcd::*;
 pub use groebner::*;
 pub use identity::*;
+pub use multifactor::*;
 pub use multivariate::*;
 pub use univariate::*;
 

@@ -972,21 +972,50 @@ fn collect_like_terms(terms: &mut Vec<Expr>) {
             }
         }
     }
+    let mut nested = false;
     for (coefficient, base) in collected {
         if coefficient.is_zero() {
             continue;
         }
         if coefficient == BigRational::from_integer(BigInt::from(1)) {
+            nested |= matches!(base, Expr::Add(_));
             passthrough.push(base);
         } else {
-            let product = base
-                * (if coefficient.denom() == &BigInt::from(1) {
-                    Expr::Integer(coefficient.numer().clone())
-                } else {
-                    Expr::Rational(coefficient)
-                });
+            let c = if coefficient.denom() == &BigInt::from(1) {
+                Expr::Integer(coefficient.numer().clone())
+            } else {
+                Expr::Rational(coefficient)
+            };
+            // A coefficient on a sum stays a product term (upstream keeps
+            // 2*(x + y) + 1 as such); rebuilding through `*` would
+            // distribute it and leave an Add nested inside this Add.
+            let product = if matches!(base, Expr::Add(_)) {
+                Expr::Mul(vec![c, base])
+            } else {
+                base * c
+            };
             passthrough.push(product);
         }
+    }
+    if nested {
+        let mut flat = Vec::with_capacity(passthrough.len());
+        for t in passthrough.drain(..) {
+            match t {
+                Expr::Add(inner) => flat.extend(inner),
+                other => flat.push(other),
+            }
+        }
+        passthrough = flat;
+        if saw_constant {
+            passthrough.push(if constant.denom() == &BigInt::from(1) {
+                Expr::Integer(constant.numer().clone())
+            } else {
+                Expr::Rational(constant.clone())
+            });
+        }
+        collect_like_terms(&mut passthrough);
+        *terms = passthrough;
+        return;
     }
     *terms = passthrough;
     if saw_constant && (!constant.is_zero() || terms.is_empty()) {
@@ -1419,6 +1448,15 @@ impl std::ops::Mul for Expr {
         if other.is_numeric_one() {
             return self;
         }
+        // Upstream Mul.flatten 2-arg rule: a rational times an existing
+        // coefficient-on-sum product merges the coefficients and keeps the
+        // sum intact (3 * (2*(x + y)) -> 6*(x + y)); only a bare
+        // rational * Add distributes.
+        if let Some(merged) = merge_coefficient_on_sum(&self, &other)
+            .or_else(|| merge_coefficient_on_sum(&other, &self))
+        {
+            return merged;
+        }
         match (self, other) {
             (Expr::Integer(a), Expr::Integer(b)) => Expr::Integer(a * b),
             (Expr::Mul(mut factors_a), Expr::Mul(factors_b)) => {
@@ -1435,6 +1473,39 @@ impl std::ops::Mul for Expr {
             }
         }
     }
+}
+
+fn rational_of(e: &Expr) -> Option<BigRational> {
+    match e {
+        Expr::Integer(v) => Some(BigRational::from_integer(v.clone())),
+        Expr::Rational(r) => Some(r.clone()),
+        _ => None,
+    }
+}
+
+/// `r * (c*(a + b))` for rational `r`: `(r*c)*(a + b)` without
+/// distributing (None when the shape does not apply).
+fn merge_coefficient_on_sum(r: &Expr, prod: &Expr) -> Option<Expr> {
+    let rv = rational_of(r)?;
+    let Expr::Mul(fs) = prod else {
+        return None;
+    };
+    let [c, sum @ Expr::Add(_)] = fs.as_slice() else {
+        return None;
+    };
+    let total = rv * rational_of(c)?;
+    if total.is_zero() {
+        return None;
+    }
+    if total.is_one() {
+        return Some(sum.clone());
+    }
+    let coeff = if total.is_integer() {
+        Expr::Integer(total.to_integer())
+    } else {
+        Expr::Rational(total)
+    };
+    Some(Expr::Mul(vec![coeff, sum.clone()]))
 }
 
 /// Rebuilds a product after substitution as one n-ary Mul, as upstream's

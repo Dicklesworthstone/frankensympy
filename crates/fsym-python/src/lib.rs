@@ -723,6 +723,30 @@ fn poly_sqf_list_expr(p_src: &str, var: &str) -> PyResult<(String, Vec<(String, 
     Ok((scale_expr.to_string(), factors))
 }
 
+/// Multivariate factorization over QQ in the given generators:
+/// (scale, [(primitive integer factor, multiplicity), ...]).
+#[pyfunction]
+fn poly_factor_multivariate_expr(
+    p_src: &str,
+    gens: Vec<String>,
+) -> PyResult<(String, Vec<(String, usize)>)> {
+    let e = parse_expr(p_src)?;
+    let gens: Vec<Symbol> = gens.into_iter().map(Symbol::new).collect();
+    let poly =
+        fsym_polys::multivariate::MultivariatePoly::from_expr(&e, &gens).map_err(to_value_error)?;
+    let result = fsym_polys::multifactor::factor_multivariate(&poly).map_err(to_value_error)?;
+    let scale = if result.scale.is_integer() {
+        Expr::Integer(result.scale.to_integer())
+    } else {
+        Expr::Rational(result.scale)
+    };
+    let mut factors = Vec::new();
+    for (f, m) in result.factors {
+        factors.push((f.to_expr().map_err(to_value_error)?.to_string(), m));
+    }
+    Ok((scale.to_string(), factors))
+}
+
 /// Univariate polynomial factorization into rational factors: (scale, [(factor, multiplicity), ...]).
 #[pyfunction]
 fn poly_factor_list_expr(p_src: &str, var: &str) -> PyResult<(String, Vec<(String, usize)>)> {
@@ -1206,6 +1230,7 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(poly_shift_expr, m)?)?;
     m.add_function(wrap_pyfunction!(poly_sqf_list_expr, m)?)?;
     m.add_function(wrap_pyfunction!(poly_factor_list_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(poly_factor_multivariate_expr, m)?)?;
     m.add_function(wrap_pyfunction!(poly_roots_expr, m)?)?;
     m.add_function(wrap_pyfunction!(groebner_basis_expr, m)?)?;
     m.add_function(wrap_pyfunction!(poly_multivariate_gcd_expr, m)?)?;

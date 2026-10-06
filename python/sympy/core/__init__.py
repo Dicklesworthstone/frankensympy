@@ -1663,6 +1663,21 @@ def _str_term(expr: "Expr") -> tuple[bool, str]:
     return False, str(_native_expr(expr))
 
 
+def _keep_coeff(coeff: Any, expr: Any) -> Any:
+    """``coeff*expr`` keeping a rational coefficient outside a sum, as
+    upstream ``_keep_coeff`` does (2*(x + 1), -(y - 2)/3); plain
+    construction would distribute it."""
+    coeff = sympify(coeff)
+    expr = sympify(expr)
+    if coeff == 1:
+        return expr
+    if coeff == -1:
+        return -expr  # upstream: a bare -1 still distributes (-x - 1)
+    if isinstance(expr, Add) and isinstance(coeff, Rational) and coeff != 0:
+        return _wrap(_native.Mul(_native_expr(coeff), _native_expr(expr), evaluate=False).as_expr())
+    return coeff * expr
+
+
 def sort_key_of(a):
     return a.sort_key()
 

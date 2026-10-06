@@ -853,13 +853,12 @@ impl Matrix {
         match (Self::numeric(a), Self::numeric(b)) {
             (Some(x), Some(y)) if !y.is_zero() => Ok(from_rational(x / y)),
             (_, Some(y)) if y.is_zero() => Err(MatrixError::DivisionByZero),
-            (_, Some(_)) => Ok(simplify(&Expr::Mul(vec![
-                a.clone(),
-                Expr::Pow(
-                    std::sync::Arc::new(b.clone()),
-                    std::sync::Arc::new(Expr::from_i64(-1)),
-                ),
-            ]))),
+            // Multiply by the exact reciprocal through canonical Mul
+            // construction: a raw Mul(a, Pow(1/2, -1)) survived simplify
+            // unfolded and leaked non-canonical entries out of rref.
+            (_, Some(y)) => Ok(simplify(
+                &(a.clone() * from_rational(BigRational::one() / y)),
+            )),
             (_, None) => Err(MatrixError::SymbolicZeroUndetermined),
         }
     }
