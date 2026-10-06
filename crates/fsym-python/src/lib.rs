@@ -128,6 +128,24 @@ fn series_expansion_expr(
     ))
 }
 
+/// Closed form of `sum_{var=a}^{b} src`; `None` when no rule applies.
+#[pyfunction]
+fn summation_expr(src: &str, var: &str, a: &str, b: &str) -> PyResult<Option<String>> {
+    let e = parse_expr(src)?;
+    let lo = parse_expr(a)?;
+    let hi = parse_expr(b)?;
+    Ok(fsym_calculus::summation::summation(&e, &Symbol::new(var), &lo, &hi).map(|v| v.to_string()))
+}
+
+/// Closed form of `prod_{var=a}^{b} src`; `None` when no rule applies.
+#[pyfunction]
+fn product_expr(src: &str, var: &str, a: &str, b: &str) -> PyResult<Option<String>> {
+    let e = parse_expr(src)?;
+    let lo = parse_expr(a)?;
+    let hi = parse_expr(b)?;
+    Ok(fsym_calculus::summation::product(&e, &Symbol::new(var), &lo, &hi).map(|v| v.to_string()))
+}
+
 /// Differentiate `src` with respect to `var`.
 #[pyfunction]
 fn diff_expr(src: &str, var: &str) -> PyResult<String> {
@@ -1060,6 +1078,8 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(fourier_expr, m)?)?;
     m.add_function(wrap_pyfunction!(limit_expr, m)?)?;
     m.add_function(wrap_pyfunction!(series_expansion_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(summation_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(product_expr, m)?)?;
     m.add_function(wrap_pyfunction!(taylor_expr, m)?)?;
     m.add_function(wrap_pyfunction!(solve_linear_expr, m)?)?;
     m.add_function(wrap_pyfunction!(solve_expr, m)?)?;

@@ -1127,54 +1127,96 @@ def cbrt(expr: Any) -> Expr:
     return Pow(expr, Rational(1, 3))
 
 
-class Sum:
-    """Unevaluated symbolic summation."""
+def _limit_triples(limits):
+    from .core import sympify
 
-    def __init__(self, function, *limits):
-        self.function = function
-        self.limits = limits
-
-    def doit(self):
-        if len(self.limits) == 1 and isinstance(self.limits[0], (tuple, list)):
-            var, lo, hi = self.limits[0]
-            var = _require_symbol(var)
-            total = Integer(0)
-            for k in range(int(lo), int(hi) + 1):
-                total += self.function.subs({var: Integer(k)})
-            return total
-        raise NotImplementedError("multi-index symbolic summation not yet supported")
-
-    def __repr__(self):
-        return f"Sum({self.function}, {self.limits})"
-
-    def __str__(self):
-        var, lo, hi = self.limits[0] if self.limits else (None, None, None)
-        return f"Sum({self.function}, ({var}, {lo}, {hi}))"
+    out = []
+    for lim in limits:
+        if isinstance(lim, (tuple, list)) or type(lim).__name__ == "Tuple":
+            items = tuple(lim.args) if type(lim).__name__ == "Tuple" else tuple(lim)
+            if len(items) != 3:
+                raise ValueError("limits must be (index, lower, upper) triples")
+            var, lo, hi = items
+            out.append((_require_symbol(var), sympify(lo), sympify(hi)))
+        else:
+            raise ValueError("limits must be (index, lower, upper) triples")
+    return out
 
 
-class Product:
-    """Unevaluated symbolic product."""
+class _ConcreteOperator(Function):
+    """Shared shape of Sum / Product: args (function, Tuple(k, a, b), ...)."""
 
-    def __init__(self, function, *limits):
-        self.function = function
-        self.limits = limits
+    __slots__ = ()
+    _native_fn = ""
 
-    def doit(self):
-        if len(self.limits) == 1 and isinstance(self.limits[0], (tuple, list)):
-            var, lo, hi = self.limits[0]
-            var = _require_symbol(var)
-            total = Integer(1)
-            for k in range(int(lo), int(hi) + 1):
-                total *= self.function.subs({var: Integer(k)})
-            return total
-        raise NotImplementedError("multi-index symbolic product not yet supported")
+    def __new__(cls, function, *limits, **options):
+        from .core import sympify
 
-    def __repr__(self):
-        return f"Product({self.function}, {self.limits})"
+        triples = _limit_triples(limits)
+        args = [sympify(function)] + [Tuple(k, a, b) for k, a, b in triples]
+        return Function.__new__(cls, *args, evaluate=False)
 
-    def __str__(self):
-        var, lo, hi = self.limits[0] if self.limits else (None, None, None)
-        return f"Product({self.function}, ({var}, {lo}, {hi}))"
+    @property
+    def function(self):
+        return self.args[0]
+
+    @property
+    def limits(self):
+        return tuple(tuple(t.args) for t in self.args[1:])
+
+    @property
+    def variables(self):
+        return [lim[0] for lim in self.limits]
+
+    @property
+    def free_symbols(self):
+        syms = set(self.function.free_symbols)
+        for k, a, b in self.limits:
+            syms.discard(k)
+            syms |= set(getattr(a, "free_symbols", set()))
+            syms |= set(getattr(b, "free_symbols", set()))
+        return syms
+
+    def doit(self, **hints):
+        current = self.function
+        if hints.get("deep", True) and hasattr(current, "doit"):
+            current = current.doit(**hints)
+        for index, (k, a, b) in enumerate(self.limits):
+            native = getattr(_native, self._native_fn)(
+                str(_native_expr(current)),
+                _native_symbol_key(k),
+                str(_native_expr(a)),
+                str(_native_expr(b)),
+            )
+            if native is None:
+                remaining = self.limits[index:]
+                return type(self)(current, *remaining)
+            current = _parse_result(native).subs({Symbol(k.name): k})
+        return current
+
+
+class Sum(_ConcreteOperator):
+    """Unevaluated summation ``Sum(f, (k, a, b))``; ``doit`` finds closed forms."""
+
+    __slots__ = ()
+    _native_fn = "summation_expr"
+
+
+class Product(_ConcreteOperator):
+    """Unevaluated product ``Product(f, (k, a, b))``; ``doit`` finds closed forms."""
+
+    __slots__ = ()
+    _native_fn = "product_expr"
+
+
+def summation(f, *symbols, **kwargs):
+    """Closed form of a sum (upstream ``summation``); unevaluated ``Sum`` if none."""
+    return Sum(f, *symbols).doit(deep=False)
+
+
+def product(*args, **kwargs):
+    """Closed form of a product (upstream ``product``); unevaluated ``Product`` if none."""
+    return Product(*args).doit(deep=False)
 
 
 def nroots(expr: Any, n: int = 15) -> list:
@@ -1688,12 +1730,14 @@ __all__ = [
     "erfinv",
     "euler_equations",
     "exp",
+    "expand",
     "expand_log",
     "expand_power_base",
     "expand_power_exp",
     "expand_trig",
     "eye",
     "factor",
+    "fraction",
     "factor_list",
     "factorial",
     "factorint",
@@ -1755,6 +1799,7 @@ __all__ = [
     "lerchphi",
     "limit",
     "linsolve",
+    "latex",
     "log",
     "logcombine",
     "loggamma",
@@ -1787,6 +1832,7 @@ __all__ = [
     "pretty",
     "prevprime",
     "prime",
+    "product",
     "primitive",
     "primenu",
     "prime_big_omega",
@@ -1837,6 +1883,7 @@ __all__ = [
     "sstr",
     "sstr",
     "sqrt",
+    "summation",
     "sqrt_mod",
     "stationary_points",
     "subfactorial",

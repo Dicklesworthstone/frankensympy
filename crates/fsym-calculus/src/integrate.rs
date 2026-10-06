@@ -101,8 +101,7 @@ fn provably_nonzero(e: &Expr) -> bool {
     if let Some(v) = number(e) {
         return !v.is_zero();
     }
-    e.free_symbols().is_empty()
-        && crate::gruntz::complex_value(e).is_some_and(|v| v.norm() > 1e-9)
+    e.free_symbols().is_empty() && crate::gruntz::complex_value(e).is_some_and(|v| v.norm() > 1e-9)
 }
 
 /// Splits a product into (x-free factor, x-dependent factors).
@@ -907,7 +906,7 @@ fn is_polynomial_in(e: &Expr, x: &Symbol) -> bool {
 
 /// Numerator/denominator polynomials over Q when `e` is a rational function
 /// of `x` with rational coefficients.
-fn rational_parts(e: &Expr, x: &Symbol) -> Option<(UnivariatePoly, UnivariatePoly)> {
+pub(crate) fn rational_parts(e: &Expr, x: &Symbol) -> Option<(UnivariatePoly, UnivariatePoly)> {
     let one = || UnivariatePoly::one(x.clone());
     match e {
         Expr::Integer(_) | Expr::Rational(_) => {

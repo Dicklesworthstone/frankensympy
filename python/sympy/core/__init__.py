@@ -3307,11 +3307,10 @@ class Function(Application, metaclass=FunctionClass):
         return type(self)
 
     def __repr__(self) -> str:
-        arg_strs = ", ".join(repr(a) for a in self.args)
-        return f"{type(self).__name__}({arg_strs})"
+        return _str_expr(self)
 
     def __str__(self) -> str:
-        return repr(self)
+        return _str_expr(self)
 
 
 class AppliedUndef(Function):
@@ -3392,16 +3391,53 @@ def _restore_applied_undef(name: str, args: tuple[Any, ...]) -> AppliedUndef:
 Tuple = Function("Tuple")
 
 
+def _expand_symbol_range(name: str) -> list[str]:
+    """Upstream range syntax: 'a:3' -> a0 a1 a2, 'x1:4' -> x1 x2 x3,
+    'x:z' -> x y z, ':2' -> 0 1 (with an empty prefix)."""
+    if ":" not in name:
+        return [name]
+    head, _, tail = name.partition(":")
+    # split the numeric/letter start off the prefix
+    i = len(head)
+    while i > 0 and head[i - 1].isdigit():
+        i -= 1
+    prefix, start = head[:i], head[i:]
+    stop_digits = tail.isdigit()
+    if stop_digits or (tail == "" and start):
+        lo = int(start) if start else 0
+        hi = int(tail)
+        return [f"{prefix}{k}" for k in range(lo, hi)]
+    if len(head) >= 1 and len(tail) == 1 and tail.isalpha():
+        lo_ch = head[-1]
+        base = head[:-1]
+        return [f"{base}{chr(c)}" for c in range(ord(lo_ch), ord(tail) + 1)]
+    raise ValueError(f"invalid symbol range {name!r}")
+
+
 def symbols(names: str | Iterable[str], **assumptions: Any):
-    """Create one or more symbols without silently discarding assumptions."""
+    """Create one or more symbols (upstream ``symbols``).
+
+    Names split on commas/whitespace; ``a:3``, ``x1:4`` and ``x:z`` ranges
+    expand; ``cls=Function`` creates undefined functions; ``seq=True`` (or a
+    trailing comma) always returns a tuple.
+    """
+    seq = bool(assumptions.pop("seq", False))
+    cls = assumptions.pop("cls", Symbol)
     if isinstance(names, str):
-        parts = [part for part in names.replace(",", " ").split() if part]
+        if names.strip().endswith(","):
+            seq = True
+        raw = [part for part in names.replace(",", " ").split() if part]
+        parts: list[str] = []
+        for part in raw:
+            parts.extend(_expand_symbol_range(part))
     else:
-        parts = list(names)
+        return type(names)(symbols(n, cls=cls, **assumptions) for n in names)
     if not parts:
         raise ValueError("at least one symbol name is required")
-    result = tuple(Symbol(name, **assumptions) for name in parts)
-    return result if len(result) != 1 else result[0]
+    result = tuple(cls(name, **assumptions) for name in parts)
+    if len(result) == 1 and not seq and not any(":" in r for r in raw):
+        return result[0]
+    return result
 
 
 def _require_symbol(value: Any) -> Symbol:

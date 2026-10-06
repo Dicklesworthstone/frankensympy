@@ -7,6 +7,9 @@ pub mod gruntz;
 pub mod integrate;
 pub mod proof;
 pub mod series;
+pub mod summation;
+
+pub(crate) use integrate::rational_parts as integrate_rational_parts;
 pub mod sparse_jacobian;
 pub mod transforms;
 
@@ -1424,7 +1427,11 @@ mod tests {
         let roundtrip = |integrand: &Expr| {
             let anti = integrate(integrand, &x).expect("by-parts integral expected");
             let residual = fsym_simplify::expand(&(diff(&anti, &x) - integrand.clone()));
-            assert_eq!(simplify(&residual), Expr::from_i64(0), "{integrand} -> {anti}");
+            assert_eq!(
+                simplify(&residual),
+                Expr::from_i64(0),
+                "{integrand} -> {anti}"
+            );
         };
 
         roundtrip(&Expr::Mul(vec![

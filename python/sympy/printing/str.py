@@ -498,6 +498,11 @@ class StrPrinter:
         if getattr(e, "_struct_args", None) is not None:
             return self._fallback(e)
         name = type(e).__name__
+        if name in ("Sum", "Product") and len(e.args) >= 2:
+            limits = ", ".join(
+                "(%s)" % ", ".join(self._print(x) for x in t.args) for t in e.args[1:]
+            )
+            return "%s(%s, %s)" % (name, self._print(e.args[0]), limits)
         if name == "Order":
             args = e.args
             if len(args) == 3:

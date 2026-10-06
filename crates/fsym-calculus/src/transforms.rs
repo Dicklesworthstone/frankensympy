@@ -181,10 +181,17 @@ mod definite_integral_tests {
             simplify(&(one.clone() - Expr::Function("cos".to_string(), vec![one.clone()])))
         );
         assert_eq!(
-            integrate_definite(&Expr::Sym(x.clone()), &x, &Expr::from_i64(0), &Expr::Sym(y.clone()))
-                .unwrap(),
-            simplify(&(Expr::Rational(BigRational::new(BigInt::from(1), BigInt::from(2)))
-                * Expr::Pow(Arc::new(Expr::Sym(y)), Arc::new(Expr::from_i64(2)))))
+            integrate_definite(
+                &Expr::Sym(x.clone()),
+                &x,
+                &Expr::from_i64(0),
+                &Expr::Sym(y.clone())
+            )
+            .unwrap(),
+            simplify(
+                &(Expr::Rational(BigRational::new(BigInt::from(1), BigInt::from(2)))
+                    * Expr::Pow(Arc::new(Expr::Sym(y)), Arc::new(Expr::from_i64(2))))
+            )
         );
         assert_eq!(
             integrate_definite(&reciprocal, &x, &one, &Expr::from_i64(2)).unwrap(),

@@ -2334,9 +2334,9 @@ class SurfaceTests(unittest.TestCase):
 
         x = sympy.Symbol("x")
         o1 = sympy.Order(x**3)
-        self.assertEqual(str(o1), "Order(x**3)")
+        self.assertEqual(str(o1), "O(x**3)")
         o2 = sympy.O(x**3)
-        self.assertEqual(str(o2), "Order(x**3)")
+        self.assertEqual(str(o2), "O(x**3)")
 
         t = sympy.Tuple(1, 2, 3)
         self.assertEqual(len(t), 3)

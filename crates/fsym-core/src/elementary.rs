@@ -1229,6 +1229,67 @@ pub fn eval_pow(base: Expr, exp: Expr) -> Expr {
     raw_pow(base, exp)
 }
 
+/// Bernoulli numbers B_0..B_n (B_1 = -1/2).
+fn bernoulli_numbers(n: usize) -> Vec<BigRational> {
+    let binom = |n: i64, r: i64| {
+        let mut acc = BigRational::one();
+        for i in 0..r {
+            acc = acc * BigRational::from_integer(BigInt::from(n - i))
+                / BigRational::from_integer(BigInt::from(i + 1));
+        }
+        acc
+    };
+    let mut b = vec![BigRational::one()];
+    for m in 1..=n {
+        let mut s = BigRational::zero();
+        for (j, bj) in b.iter().enumerate() {
+            s += binom(m as i64 + 1, j as i64) * bj.clone();
+        }
+        b.push(-s / BigRational::from_integer(BigInt::from(m as i64 + 1)));
+    }
+    b
+}
+
+/// zeta at 0, 1, positive even integers and negative integers (exact).
+fn eval_zeta(arg: &Expr) -> Option<Expr> {
+    let Expr::Integer(n) = arg else {
+        return None;
+    };
+    let n = n.to_i64()?;
+    if n == 0 {
+        return Some(q(-1, 2));
+    }
+    if n == 1 {
+        return Some(zoo());
+    }
+    if n > 0 && n % 2 == 0 && n <= 200 {
+        // zeta(2m) = (-1)^(m+1) B_{2m} (2 pi)^{2m} / (2 (2m)!)
+        let b = bernoulli_numbers(n as usize);
+        let mut fact = BigInt::from(1);
+        for i in 2..=n {
+            fact *= BigInt::from(i);
+        }
+        let two_pow = BigInt::from(2).pow(n as u32);
+        let sign = if (n / 2) % 2 == 1 { 1 } else { -1 };
+        let coeff = b[n as usize].clone() * BigRational::from_integer(two_pow * BigInt::from(sign))
+            / BigRational::from_integer(fact * BigInt::from(2));
+        return Some(rational_expr(coeff) * eval_pow(pi(), Expr::from_i64(n)));
+    }
+    if n < 0 && n >= -200 {
+        // zeta(-m) = -B_{m+1}/(m+1)  (B_1 convention irrelevant for m >= 1)
+        let m = (-n) as usize;
+        let b = bernoulli_numbers(m + 1);
+        let mut bm = b[m + 1].clone();
+        if m + 1 == 1 {
+            bm = -bm;
+        }
+        return Some(rational_expr(
+            -bm / BigRational::from_integer(BigInt::from(m as i64 + 1)),
+        ));
+    }
+    None
+}
+
 /// Automatic evaluation of `name(args)`; `None` keeps the application.
 pub fn eval_function(name: &str, args: &[Expr]) -> Option<Expr> {
     let [arg] = args else {
@@ -1242,6 +1303,7 @@ pub fn eval_function(name: &str, args: &[Expr]) -> Option<Expr> {
         "exp" => eval_exp(arg),
         "log" | "ln" => eval_log(arg),
         "Abs" => eval_abs(arg),
+        "zeta" => eval_zeta(arg),
         "factorial" => match arg {
             Expr::Integer(n) if !n.is_negative() && *n <= BigInt::from(1000) => {
                 let mut acc = BigInt::from(1);
