@@ -418,7 +418,26 @@ fn verify_cauchy_euler_solution_expr(
     ))
 }
 
-/// Exact 2-variable polynomial system solver via Lex Groebner basis.
+/// Zero-dimensional polynomial system in any number of variables (lex Groebner).
+#[pyfunction]
+fn solve_polynomial_system_expr(
+    eq_sources: Vec<String>,
+    var_names: Vec<String>,
+) -> PyResult<Vec<Vec<String>>> {
+    let vars: Vec<Symbol> = var_names.into_iter().map(Symbol::new).collect();
+    let eqs = eq_sources
+        .iter()
+        .map(|s| parse_expr(s))
+        .collect::<PyResult<Vec<Expr>>>()?;
+    let sols =
+        fsym_solvers::polysys::solve_polynomial_system(&eqs, &vars).map_err(to_value_error)?;
+    Ok(fsym_solvers::polysys::sort_solutions(sols)
+        .into_iter()
+        .map(|s| s.into_iter().map(|e| e.to_string()).collect())
+        .collect())
+}
+
+/// Two-variable polynomial system (legacy lane).
 #[pyfunction]
 fn solve_poly_system_expr(
     eq_sources: Vec<String>,
@@ -1125,6 +1144,7 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(series_expansion_expr, m)?)?;
     m.add_function(wrap_pyfunction!(summation_expr, m)?)?;
     m.add_function(wrap_pyfunction!(solve_inequality_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(solve_polynomial_system_expr, m)?)?;
     m.add_function(wrap_pyfunction!(evalf_decimal_expr, m)?)?;
     m.add_function(wrap_pyfunction!(product_expr, m)?)?;
     m.add_function(wrap_pyfunction!(taylor_expr, m)?)?;

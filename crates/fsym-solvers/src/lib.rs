@@ -6,6 +6,7 @@
 
 pub mod inequality;
 pub mod ode;
+pub mod polysys;
 pub mod system;
 pub mod univariate;
 

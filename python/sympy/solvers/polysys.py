@@ -96,27 +96,24 @@ def solve_poly_system(
         sorted_roots = sorted(list(candidate_roots), key=lambda r: str(r))
         return [(r,) for r in sorted_roots]
 
-    if len(var_list) == 2:
-        x = _require_symbol(var_list[0])
-        y = _require_symbol(var_list[1])
-        eq_list = [str(eq) for eq in wrapped_eqs]
-        try:
-            raw_sols = _native.solve_poly_system_expr(
-                eq_list, _native_symbol_key(x), _native_symbol_key(y)
-            )
-        except ValueError as e:
-            if "No solution" in str(e):
-                return None
-            raise
-        if not raw_sols:
+    syms = [_require_symbol(v) for v in var_list]
+    try:
+        raw_sols = _native.solve_polynomial_system_expr(
+            [str(eq) for eq in wrapped_eqs], [_native_symbol_key(v) for v in syms]
+        )
+    except ValueError as e:
+        msg = str(e)
+        if "No solution" in msg:
             return None
-        return [
-            tuple(_parse_result(val) for val in sol) for sol in raw_sols
-        ]
-
-    raise NotImplementedError(
-        f"solve_poly_system currently supports up to 2-variable systems, got {len(var_list)} generators"
-    )
+        if "Infinite solutions" in msg:
+            raise NotImplementedError(
+                "only zero-dimensional systems supported (finite number of solutions)"
+            ) from None
+        raise
+    if not raw_sols:
+        return None
+    restore = {Symbol(v.name): v for v in syms}
+    return [tuple(_parse_result(val).subs(restore) for val in sol) for sol in raw_sols]
 
 
 def nonlinsolve(system: Iterable[Any], *symbols: Any) -> Set:

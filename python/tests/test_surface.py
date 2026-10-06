@@ -724,11 +724,14 @@ class SurfaceTests(unittest.TestCase):
 
     def test_solve_does_not_report_unsupported_systems_as_empty(self):
         x, y = sympy.symbols("x y")
-        # These constraints have complex solutions; refusal is not emptiness.
-        with self.assertRaisesRegex(ValueError, "not supported"):
-            sympy.solve([x*x + y*y - 1, y*y - 2], x, y)
-        with self.assertRaises(ValueError):
-            sympy.solve(x*x + y*y - 1, x, y)
+        # These constraints have complex solutions, never an empty answer
+        # (oracle values; the second equation leaves y free).
+        I = sympy.I
+        r2 = sympy.sqrt(2)
+        self.assertEqual(sympy.solve([x*x + y*y - 1, y*y - 2], x, y),
+                         [(-I, -r2), (-I, r2), (I, -r2), (I, r2)])
+        self.assertEqual(sympy.solve(x*x + y*y - 1, x, y),
+                         [(-sympy.sqrt(1 - y**2), y), (sympy.sqrt(1 - y**2), y)])
         self.assertEqual(sympy.solve([x + y - 5, x - y - 1], x, y),
                          {x: 3, y: 2})
         self.assertEqual(sympy.solve([x - 1, x - 2], x), [])

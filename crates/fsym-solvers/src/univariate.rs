@@ -590,13 +590,55 @@ fn solve_symbolic_quadratic(e: &Expr, x: &Symbol) -> Option<Vec<Expr>> {
         return Some(vec![expand(&(-c0 * eval_pow(c1, Expr::from_i64(-1))))]);
     }
     let disc = expand(&(c1.clone() * c1.clone() - Expr::from_i64(4) * c0 * c2.clone()));
-    let sq = eval_pow(disc, q(1, 2));
+    let sq = sqrt_with_content(disc);
     let inv = eval_pow(Expr::from_i64(2) * c2, Expr::from_i64(-1));
     let mb = -c1;
     Some(vec![
         expand(&((mb.clone() - sq.clone()) * inv.clone())),
         expand(&((mb + sq) * inv)),
     ])
+}
+
+/// `sqrt(d)` with the positive rational content of a sum pulled out:
+/// `sqrt(4 - 4*y**2) = 2*sqrt(1 - y**2)`.
+fn sqrt_with_content(d: Expr) -> Expr {
+    let Expr::Add(terms) = &d else {
+        return eval_pow(d, q(1, 2));
+    };
+    let mut num = BigInt::zero();
+    let mut den = BigInt::one();
+    for t in terms {
+        let c = number(t).unwrap_or_else(|| split_coeff(t).0);
+        num = gcd_int(&num, c.numer());
+        den = lcm_int(&den, c.denom());
+    }
+    if num.is_zero() {
+        return eval_pow(d, q(1, 2));
+    }
+    let g = BigRational::new(num.abs(), den);
+    if g.is_one() {
+        return eval_pow(d, q(1, 2));
+    }
+    let rest = expand(&(d * rq(BigRational::one() / g.clone())));
+    eval_pow(rq(g), q(1, 2)) * eval_pow(rest, q(1, 2))
+}
+
+fn gcd_int(a: &BigInt, b: &BigInt) -> BigInt {
+    let (mut a, mut b) = (a.abs(), b.abs());
+    while !b.is_zero() {
+        let r = a.clone() % b.clone();
+        a = b;
+        b = r;
+    }
+    a
+}
+
+fn lcm_int(a: &BigInt, b: &BigInt) -> BigInt {
+    let g = gcd_int(a, b);
+    if g.is_zero() {
+        return BigInt::zero();
+    }
+    (a.clone() * b.clone()).abs() / g
 }
 
 /// `e = P + Q*sqrt(g)`: solve `P**2 - Q**2*g = 0` (candidates are checked

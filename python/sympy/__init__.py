@@ -287,7 +287,21 @@ def solve(expression, *symbols, **flags):
         except (ValueError, TypeError):
             pass
 
-        sols = _sps([expr], *var_list)
+        try:
+            sols = _sps([expr], *var_list)
+        except NotImplementedError:
+            # Upstream: one equation in several symbols is solved for the
+            # first symbol it contains; the others stay free.
+            target = next((v for v in var_list if v in expr.free_symbols), None)
+            if target is None:
+                return []
+            roots = solve(expr, target)
+            if dict_flag:
+                return [{target: r} for r in roots]
+            tuples = [tuple(r if v == target else v for v in var_list) for r in roots]
+            if set_flag:
+                return (var_list, set(tuples))
+            return tuples
         if sols is not None:
             if dict_flag:
                 return [{sym: val for sym, val in zip(var_list, sol)} for sol in sols]
