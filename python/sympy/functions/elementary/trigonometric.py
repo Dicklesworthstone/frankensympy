@@ -58,3 +58,9 @@ class acsc(_NativeFunction):
 
 class sinc(_NativeFunction):
     __slots__ = ()
+
+
+class atan2(_NativeFunction):
+    """Two-argument arctangent: the principal argument of ``x + I*y``."""
+
+    __slots__ = ()

@@ -1852,33 +1852,41 @@ class Expr(Basic):
             return iter(self.args)
         raise TypeError(f"'{type(self).__name__}' object is not iterable")
 
-    def __lt__(self, other: Any) -> bool:
-        r1 = _exact_ratio(self)
-        r2 = _exact_ratio(other)
-        if r1 is not None and r2 is not None:
-            return r1[0] * r2[1] < r2[0] * r1[1]
-        return _native_expr(self) < _native_expr(other)
+    def __lt__(self, other: Any) -> Any:
+        # Upstream: symbolic comparisons build a relational; comparable
+        # real numbers evaluate to true/false.
+        try:
+            other = sympify(other, strict=True)
+        except SympifyError:
+            return NotImplemented
+        return StrictLessThan(self, other)
 
-    def __le__(self, other: Any) -> bool:
-        r1 = _exact_ratio(self)
-        r2 = _exact_ratio(other)
-        if r1 is not None and r2 is not None:
-            return r1[0] * r2[1] <= r2[0] * r1[1]
-        return _native_expr(self) <= _native_expr(other)
+    def __le__(self, other: Any) -> Any:
+        # Upstream: symbolic comparisons build a relational; comparable
+        # real numbers evaluate to true/false.
+        try:
+            other = sympify(other, strict=True)
+        except SympifyError:
+            return NotImplemented
+        return LessThan(self, other)
 
-    def __gt__(self, other: Any) -> bool:
-        r1 = _exact_ratio(self)
-        r2 = _exact_ratio(other)
-        if r1 is not None and r2 is not None:
-            return r1[0] * r2[1] > r2[0] * r1[1]
-        return _native_expr(self) > _native_expr(other)
+    def __gt__(self, other: Any) -> Any:
+        # Upstream: symbolic comparisons build a relational; comparable
+        # real numbers evaluate to true/false.
+        try:
+            other = sympify(other, strict=True)
+        except SympifyError:
+            return NotImplemented
+        return StrictGreaterThan(self, other)
 
-    def __ge__(self, other: Any) -> bool:
-        r1 = _exact_ratio(self)
-        r2 = _exact_ratio(other)
-        if r1 is not None and r2 is not None:
-            return r1[0] * r2[1] >= r2[0] * r1[1]
-        return _native_expr(self) >= _native_expr(other)
+    def __ge__(self, other: Any) -> Any:
+        # Upstream: symbolic comparisons build a relational; comparable
+        # real numbers evaluate to true/false.
+        try:
+            other = sympify(other, strict=True)
+        except SympifyError:
+            return NotImplemented
+        return GreaterThan(self, other)
 
     def __add__(self, other: Any) -> "Expr":
         try:
@@ -2014,6 +2022,16 @@ class Expr(Basic):
                 else:
                     return -I
         return _wrap(_native.py_pow(_native_expr(self), _native_expr(exponent)))
+
+    def __mod__(self, other: Any) -> "Expr":
+        from .mod import Mod
+
+        return Mod(self, other)
+
+    def __rmod__(self, other: Any) -> "Expr":
+        from .mod import Mod
+
+        return Mod(other, self)
 
     def __rpow__(self, other: Any) -> "Expr":
         if isinstance(other, (int, Fraction)) or type(other) is float:
@@ -2835,14 +2853,95 @@ class ComplexInfinity(AtomicExpr):
 zoo = ComplexInfinity("zoo")
 
 
+def _real_sign_of_difference(lhs: Any, rhs: Any) -> int | None:
+    """Sign of lhs - rhs for comparable real constants; None when unknown.
+
+    Exact for rationals; other symbol-free constants are decided only when a
+    floating evaluation is far from zero (no claim is made near zero).
+    Non-real constants raise TypeError, as upstream ordering does.
+    """
+    r1 = _exact_ratio(lhs)
+    r2 = _exact_ratio(rhs)
+    if r1 is not None and r2 is not None:
+        a = r1[0] * r2[1] - r2[0] * r1[1]
+        return (a > 0) - (a < 0)
+    if getattr(lhs, "free_symbols", None) or getattr(rhs, "free_symbols", None):
+        return None
+    for side in (lhs, rhs):
+        if side == I or (type(side) is Mul and any(a == I for a in side.args)):
+            raise TypeError(f"Invalid comparison of non-real {side}")
+    try:
+        d = float(lhs) - float(rhs)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if d != d:
+        return None
+    scale = 1.0 + abs(float(lhs)) + abs(float(rhs))
+    if abs(d) <= 1e-12 * scale:
+        return None
+    return 1 if d > 0 else -1
+
+
 class Relational(Expr):
     """Held comparison. Not a Boolean proof and not a mathematical order."""
 
     __slots__ = ()
     rel_op = "=="
 
-    def __init__(self, lhs: Any, rhs: Any):
-        self._value = _native.py_function(type(self).__name__, _native_expr(lhs), _native_expr(rhs))
+    def __new__(cls, lhs: Any, rhs: Any = 0, evaluate: bool = True, **kwargs: Any):
+        lhs = sympify(lhs)
+        rhs = sympify(rhs)
+        if evaluate:
+            decided = cls._decide(lhs, rhs)
+            if decided is not None:
+                from ..logic.boolalg import false, true
+
+                return true if decided else false
+        obj = object.__new__(cls)
+        obj._value = _native.py_function(cls.__name__, _native_expr(lhs), _native_expr(rhs))
+        return obj
+
+    def __init__(self, lhs: Any, rhs: Any = 0, evaluate: bool = True, **kwargs: Any):
+        pass
+
+    @classmethod
+    def _decide(cls, lhs: Any, rhs: Any) -> bool | None:
+        if cls.rel_op in ("==", "!="):
+            if lhs == rhs:
+                same = True
+            else:
+                sign = None
+                if not lhs.free_symbols and not rhs.free_symbols:
+                    try:
+                        sign = _real_sign_of_difference(lhs, rhs)
+                    except TypeError:
+                        sign = None
+                    if sign is None and _exact_ratio(lhs) is not None and _exact_ratio(rhs) is not None:
+                        sign = 0
+                if sign is None:
+                    return None
+                same = sign == 0
+            return same if cls.rel_op == "==" else not same
+        if lhs == rhs and _exact_ratio(lhs) is not None:
+            return cls.rel_op in ("<=", ">=")
+        sign = _real_sign_of_difference(lhs, rhs)
+        if sign is None:
+            return None
+        return {"<": sign < 0, "<=": sign <= 0, ">": sign > 0, ">=": sign >= 0}[cls.rel_op]
+
+    def __bool__(self) -> bool:
+        raise TypeError("cannot determine truth value of Relational")
+
+    def subs(self, *args: Any, **kwargs: Any) -> Any:
+        return type(self)(self.lhs.subs(*args, **kwargs), self.rhs.subs(*args, **kwargs))
+
+    @property
+    def lts(self) -> Basic:
+        return self.lhs if self.rel_op in ("<", "<=") else self.rhs
+
+    @property
+    def gts(self) -> Basic:
+        return self.lhs if self.rel_op in (">", ">=") else self.rhs
 
     @property
     def lhs(self) -> Basic:

@@ -1290,8 +1290,60 @@ fn eval_zeta(arg: &Expr) -> Option<Expr> {
     None
 }
 
+/// `atan2(y, x)` for exact rationals: the principal argument of x + I*y.
+fn eval_atan2(y: &Expr, x: &Expr) -> Option<Expr> {
+    let (yv, xv) = (number(y)?, number(x)?);
+    if xv.is_zero() && yv.is_zero() {
+        return Some(Expr::Const(Constant::NaN));
+    }
+    if xv.is_zero() {
+        return Some(pi_times(if yv.is_positive() {
+            rat(1, 2)
+        } else {
+            rat(-1, 2)
+        }));
+    }
+    let base = func("atan", rational_expr(yv.clone() / xv.clone()));
+    if xv.is_positive() {
+        return Some(base);
+    }
+    Some(if yv.is_negative() {
+        base - pi()
+    } else {
+        base + pi()
+    })
+}
+
+/// Integer-valued Mod for exact rationals: p - q*floor(p/q).
+fn eval_mod(p: &Expr, qq: &Expr) -> Option<Expr> {
+    let (pv, qv) = (number(p)?, number(qq)?);
+    if qv.is_zero() {
+        return Some(Expr::Const(Constant::NaN));
+    }
+    let f = floor_rat(&(pv.clone() / qv.clone()));
+    Some(rational_expr(pv - qv * BigRational::from_integer(f)))
+}
+
+/// Max/Min of exact rationals (all arguments numeric).
+fn eval_extremum(name: &str, args: &[Expr]) -> Option<Expr> {
+    let vals: Option<Vec<BigRational>> = args.iter().map(number).collect();
+    let vals = vals?;
+    let pick = if name == "Max" {
+        vals.into_iter().max()?
+    } else {
+        vals.into_iter().min()?
+    };
+    Some(rational_expr(pick))
+}
+
 /// Automatic evaluation of `name(args)`; `None` keeps the application.
 pub fn eval_function(name: &str, args: &[Expr]) -> Option<Expr> {
+    match (name, args) {
+        ("atan2", [y, x]) => return eval_atan2(y, x),
+        ("Mod", [p, qq]) => return eval_mod(p, qq),
+        ("Max" | "Min", _) if !args.is_empty() => return eval_extremum(name, args),
+        _ => {}
+    }
     let [arg] = args else {
         return None;
     };
@@ -1304,6 +1356,15 @@ pub fn eval_function(name: &str, args: &[Expr]) -> Option<Expr> {
         "log" | "ln" => eval_log(arg),
         "Abs" => eval_abs(arg),
         "zeta" => eval_zeta(arg),
+        "LambertW" => {
+            if arg.is_zero() {
+                Some(Expr::from_i64(0))
+            } else if matches!(arg, Expr::Const(Constant::E)) {
+                Some(Expr::from_i64(1))
+            } else {
+                None
+            }
+        }
         "factorial" => match arg {
             Expr::Integer(n) if !n.is_negative() && *n <= BigInt::from(1000) => {
                 let mut acc = BigInt::from(1);

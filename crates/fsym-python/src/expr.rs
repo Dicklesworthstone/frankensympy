@@ -982,10 +982,12 @@ pub fn py_eval_function(name: &str, args: Vec<PyExpr>) -> Option<PyExpr> {
                 "catalan" => catalan_expr(arg),
                 "bernoulli" => bernoulli_expr(arg),
                 "bell" => bell_expr(arg),
-                _ => return None,
+                other => fsym_core::elementary::eval_function(other, std::slice::from_ref(&arg))
+                    .unwrap_or_else(|| Expr::Function(other.to_string(), vec![arg])),
             }
         }
-        _ => return None,
+        _ => fsym_core::elementary::eval_function(name, &args)
+            .unwrap_or_else(|| Expr::Function(name.to_string(), args.clone())),
     };
     if value == unevaluated {
         None

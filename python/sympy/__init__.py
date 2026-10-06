@@ -1429,34 +1429,16 @@ def factor_terms(expr: Any) -> Any:
     return expr
 
 
-class Max:
-    """Maximum of arguments (evaluates numerically; raises on incomparable)."""
-
-    def __new__(cls, *args: Any) -> Any:
-        if len(args) == 1:
-            return args[0]
-        try:
-            vals = [float(a) for a in args]
-            return Float(max(vals))
-        except (TypeError, ValueError):
-            raise NotImplementedError(
-                "symbolic Max requires Piecewise (not in shell subset)"
-            )
-
-
-class Min:
-    """Minimum of arguments (evaluates numerically; raises on incomparable)."""
-
-    def __new__(cls, *args: Any) -> Any:
-        if len(args) == 1:
-            return args[0]
-        try:
-            vals = [float(a) for a in args]
-            return Float(min(vals))
-        except (TypeError, ValueError):
-            raise NotImplementedError(
-                "symbolic Min requires Piecewise (not in shell subset)"
-            )
+from .functions.elementary.miscellaneous import Max, Min
+from .functions.elementary.piecewise import ExprCondPair, Piecewise, piecewise_fold
+from .functions.elementary.trigonometric import atan2
+from .functions.elementary.exponential import LambertW, ln
+from .core.mod import Mod
+from .core.lambdify_subs import Lambda, Subs
+import sys as _sys
+for _obj in (Lambda, Subs):
+    _obj.__module__ = "sympy.core.function"
+    setattr(_sys.modules["sympy.core.function"], _obj.__name__, _obj)
 
 
 def minpoly(expr: Any, gen: Any = None) -> Any:
@@ -1990,4 +1972,13 @@ __all__ = [
     "conjugate",
     "zeta",
     "zoo",
+    "ExprCondPair",
+    "Lambda",
+    "LambertW",
+    "Mod",
+    "Piecewise",
+    "Subs",
+    "atan2",
+    "ln",
+    "piecewise_fold",
 ]

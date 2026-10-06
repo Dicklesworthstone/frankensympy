@@ -27,8 +27,8 @@ class log(_NativeFunction):
 ln = log
 
 
-class LambertW(Function):
-    """Lambert W function (principal branch); no automatic evaluation."""
+class LambertW(_NativeFunction):
+    """Lambert W function (principal branch): W(0) = 0, W(E) = 1."""
 
     __slots__ = ()
 

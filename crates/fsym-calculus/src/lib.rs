@@ -438,6 +438,37 @@ pub fn diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
                 ]);
                 let exp_neg_u_sq = Expr::Function("exp".to_string(), vec![neg_u_sq]);
                 Expr::Mul(vec![Expr::from_i64(-2), inv_sqrt_pi, exp_neg_u_sq, du])
+            } else if name == "LambertW" && args.len() == 1 {
+                // W'(u) = W(u) / (u * (1 + W(u))) * u'
+                let u = &args[0];
+                let du = diff(u, var);
+                let w = expr.clone();
+                Expr::Mul(vec![
+                    w.clone(),
+                    Expr::pow(
+                        Expr::Mul(vec![u.clone(), Expr::Add(vec![w, Expr::from_i64(1)])]),
+                        Expr::from_i64(-1),
+                    ),
+                    du,
+                ])
+            } else if name == "atan2" && args.len() == 2 {
+                // d atan2(y, x) = (x*y' - y*x') / (x^2 + y^2)
+                let (y, xx) = (&args[0], &args[1]);
+                let dy = diff(y, var);
+                let dx = diff(xx, var);
+                Expr::Mul(vec![
+                    Expr::Add(vec![
+                        Expr::Mul(vec![xx.clone(), dy]),
+                        Expr::Mul(vec![Expr::from_i64(-1), y.clone(), dx]),
+                    ]),
+                    Expr::pow(
+                        Expr::Add(vec![
+                            Expr::pow(xx.clone(), Expr::from_i64(2)),
+                            Expr::pow(y.clone(), Expr::from_i64(2)),
+                        ]),
+                        Expr::from_i64(-1),
+                    ),
+                ])
             } else if (name == "Derivative" || name == "diff") && !args.is_empty() {
                 if diff(&args[0], var).is_zero() {
                     Expr::from_i64(0)
