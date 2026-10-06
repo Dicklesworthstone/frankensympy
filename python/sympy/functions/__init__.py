@@ -48,6 +48,8 @@ from .elementary import (
     tanh,
 )
 from .special import (
+    DiracDelta,
+    Heaviside,
     Chi,
     Ci,
     Ei,
@@ -87,6 +89,8 @@ from .special import (
 )
 
 __all__ = [
+    "DiracDelta",
+    "Heaviside",
     "Abs",
     "Chi",
     "Ci",

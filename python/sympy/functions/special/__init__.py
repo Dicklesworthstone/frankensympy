@@ -12,6 +12,7 @@ from .bessel import (
     jn,
     yn,
 )
+from .delta_functions import DiracDelta, Heaviside
 from .error_functions import (
     Chi,
     Ci,
@@ -48,6 +49,8 @@ from .zeta_functions import (
 )
 
 __all__ = [
+    "DiracDelta",
+    "Heaviside",
     "Chi",
     "Ci",
     "Ei",

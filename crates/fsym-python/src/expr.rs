@@ -935,11 +935,14 @@ pub fn py_eval_function(name: &str, args: Vec<PyExpr>) -> Option<PyExpr> {
     let mut args: Vec<Expr> = args.into_iter().map(|a| a.inner).collect();
     let unevaluated = Expr::Function(name.to_string(), args.clone());
     let value = match (name, args.len()) {
-        ("binomial", 2) => {
-            let k = args.pop().expect("arity checked");
-            let n = args.pop().expect("arity checked");
-            binomial_expr(n, k)
-        }
+        ("binomial", 2) => match fsym_core::elementary::eval_function(name, &args) {
+            Some(v) => v,
+            None => {
+                let k = args.pop().expect("arity checked");
+                let n = args.pop().expect("arity checked");
+                binomial_expr(n, k)
+            }
+        },
         (_, 1) => {
             let arg = args.pop().expect("arity checked");
             match name {

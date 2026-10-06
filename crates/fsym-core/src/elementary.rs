@@ -1381,6 +1381,7 @@ pub fn eval_function(name: &str, args: &[Expr]) -> Option<Expr> {
         ("atan2", [y, x]) => return eval_atan2(y, x),
         ("Mod", [p, qq]) => return eval_mod(p, qq),
         ("Max" | "Min", _) if !args.is_empty() => return eval_extremum(name, args),
+        ("binomial", [n, k]) => return eval_binomial(n, k),
         _ => {}
     }
     let [arg] = args else {
@@ -1417,8 +1418,67 @@ pub fn eval_function(name: &str, args: &[Expr]) -> Option<Expr> {
             _ => None,
         },
         "sign" => eval_sign(arg),
+        "Heaviside" => eval_sign(arg).and_then(|s| match number(&s) {
+            Some(v) if v.is_negative() => Some(Expr::from_i64(0)),
+            Some(v) if v.is_zero() => Some(rational_expr(rat(1, 2))),
+            Some(_) => Some(Expr::from_i64(1)),
+            None => None,
+        }),
+        "DiracDelta" => eval_sign(arg).and_then(|s| match number(&s) {
+            Some(v) if !v.is_zero() => Some(Expr::from_i64(0)),
+            _ => None,
+        }),
+        "subfactorial" => match arg {
+            Expr::Integer(n) if !n.is_negative() && *n <= BigInt::from(1000) => {
+                // !0 = 1, !1 = 0, !n = (n - 1) * (!(n-1) + !(n-2)).
+                let n = n.to_i64()?;
+                let (mut prev, mut cur) = (BigInt::from(1), BigInt::from(0));
+                if n == 0 {
+                    return Some(Expr::Integer(prev));
+                }
+                for i in 2..=n {
+                    let next = BigInt::from(i - 1) * (cur.clone() + prev);
+                    prev = cur;
+                    cur = next;
+                }
+                Some(Expr::Integer(cur))
+            }
+            _ => None,
+        },
         _ => None,
     }
+}
+
+/// Upstream `binomial.eval` for an integer lower index: negative `k` gives
+/// 0, `k = 0, 1` give `1, n`, and a numeric `n` evaluates the falling
+/// factorial `n (n-1) ... (n-k+1) / k!` exactly (bounded `k`).
+fn eval_binomial(n: &Expr, k: &Expr) -> Option<Expr> {
+    let Expr::Integer(kk) = k else {
+        return None;
+    };
+    if kk.is_negative() {
+        return Some(Expr::from_i64(0));
+    }
+    if kk.is_zero() {
+        return Some(Expr::from_i64(1));
+    }
+    if *kk == BigInt::from(1) {
+        return Some(n.clone());
+    }
+    let nq = number(n)?;
+    let kv = kk.to_i64()?;
+    if kv > 1000 {
+        return None;
+    }
+    if nq.is_integer() && !nq.is_negative() && nq < BigRational::from_integer(kk.clone()) {
+        return Some(Expr::from_i64(0));
+    }
+    let mut acc = BigRational::one();
+    for i in 0..kv {
+        acc = acc * (nq.clone() - BigRational::from_integer(BigInt::from(i)))
+            / BigRational::from_integer(BigInt::from(i + 1));
+    }
+    Some(rational_expr(acc))
 }
 
 #[cfg(test)]

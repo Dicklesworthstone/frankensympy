@@ -634,6 +634,8 @@ def factorint(value):
 
 
 from .functions import (
+    DiracDelta,
+    Heaviside,
     Chi,
     Ci,
     Ei,
@@ -1614,6 +1616,8 @@ def reduce_inequalities(inequalities: Any, symbols: Any = None) -> Any:
 
 
 __all__ = [
+    "DiracDelta",
+    "Heaviside",
     "Abs",
     "AccumBounds",
     "AccumulationBounds",

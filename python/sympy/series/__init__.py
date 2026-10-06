@@ -107,7 +107,7 @@ class Limit(Expr):
         expression: Any,
         variable: Any,
         point: Any,
-        dir: str = "+-",
+        dir: str = "+",
         evaluate: bool = False,
     ):
         if evaluate:
@@ -124,6 +124,12 @@ class Limit(Expr):
         except (NotImplementedError, TypeError):
             from ..core import sympify
             obj._point = sympify(point)
+        # Upstream: the direction at +oo is always '-', at -oo always '+'.
+        point_text = str(obj._point)
+        if point_text == "oo":
+            dir = "-"
+        elif point_text == "-oo":
+            dir = "+"
         obj._dir = dir
         return obj
 
@@ -193,8 +199,14 @@ class Limit(Expr):
     def __hash__(self) -> int:
         return hash((self.__class__, self._expression, self._variable, self._point, self._dir))
 
+    @property
+    def args(self) -> tuple:
+        from ..core import Symbol
+
+        return (self._expression, self._variable, self._point, Symbol(self._dir))
+
     def __repr__(self) -> str:
-        return f"Limit({self._expression}, {self._variable}, {self._point})"
+        return f"Limit({self._expression}, {self._variable}, {self._point}, dir='{self._dir}')"
 
     def __str__(self) -> str:
         return self.__repr__()

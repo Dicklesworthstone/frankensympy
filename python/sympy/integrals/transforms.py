@@ -196,6 +196,13 @@ class InverseMellinTransform(Transform):
         return inverse_mellin_transform(F, s, x, **hints)
 
 
+
+def _has_integral(e: Any) -> bool:
+    """True when ``e`` still contains an unevaluated ``Integral``."""
+    if type(e).__name__ == "Integral":
+        return True
+    return any(_has_integral(a) for a in getattr(e, "args", ()) or ())
+
 def laplace_transform(expression: Any, t: Any, s: Any, noconds: bool = True, **kwargs: Any) -> Any:
     """Compute the Laplace transform of expression: L{f(t)}(s) = int_0^oo f(t) e^(-st) dt."""
     t_sym = _require_symbol(t)
@@ -277,7 +284,7 @@ def inverse_fourier_transform(F: Any, k: Any, x: Any, noconds: bool = True, **kw
 
     try:
         res = integrate(F * exp(2 * pi * I * k * x), (k, -oo, oo))
-        if res is not None and not isinstance(res, integrate.__class__):
+        if res is not None and not _has_integral(res):
             simplified = simplify(res)
             return simplified if noconds else (simplified, True)
     except Exception:
@@ -297,7 +304,7 @@ def sine_transform(f: Any, t: Any, k: Any, noconds: bool = True, **kwargs: Any) 
 
     try:
         res = integrate(f * sin(k * t), (t, 0, oo))
-        if res is not None:
+        if res is not None and not _has_integral(res):
             return simplify(res) if noconds else (simplify(res), True)
     except Exception:
         pass
@@ -315,7 +322,7 @@ def inverse_sine_transform(F: Any, k: Any, t: Any, noconds: bool = True, **kwarg
 
     try:
         res = integrate(Rational(2, 1) / pi * F * sin(k * t), (k, 0, oo))
-        if res is not None:
+        if res is not None and not _has_integral(res):
             return simplify(res) if noconds else (simplify(res), True)
     except Exception:
         pass
@@ -333,7 +340,7 @@ def cosine_transform(f: Any, t: Any, k: Any, noconds: bool = True, **kwargs: Any
 
     try:
         res = integrate(f * cos(k * t), (t, 0, oo))
-        if res is not None:
+        if res is not None and not _has_integral(res):
             return simplify(res) if noconds else (simplify(res), True)
     except Exception:
         pass
@@ -351,7 +358,7 @@ def inverse_cosine_transform(F: Any, k: Any, t: Any, noconds: bool = True, **kwa
 
     try:
         res = integrate(Rational(2, 1) / pi * F * cos(k * t), (k, 0, oo))
-        if res is not None:
+        if res is not None and not _has_integral(res):
             return simplify(res) if noconds else (simplify(res), True)
     except Exception:
         pass
@@ -371,7 +378,7 @@ def hankel_transform(f: Any, r: Any, k: Any, nu: Any, noconds: bool = True, **kw
 
     try:
         res = integrate(f * besselj(nu, k * r) * r, (r, 0, oo))
-        if res is not None:
+        if res is not None and not _has_integral(res):
             return simplify(res) if noconds else (simplify(res), True)
     except Exception:
         pass
@@ -391,7 +398,7 @@ def inverse_hankel_transform(F: Any, k: Any, r: Any, nu: Any, noconds: bool = Tr
 
     try:
         res = integrate(F * besselj(nu, k * r) * k, (k, 0, oo))
-        if res is not None:
+        if res is not None and not _has_integral(res):
             return simplify(res) if noconds else (simplify(res), True)
     except Exception:
         pass
@@ -409,7 +416,7 @@ def mellin_transform(f: Any, x: Any, s: Any, noconds: bool = True, **kwargs: Any
 
     try:
         res = integrate(f * (x ** (s - 1)), (x, 0, oo))
-        if res is not None:
+        if res is not None and not _has_integral(res):
             return simplify(res) if noconds else (simplify(res), True)
     except Exception:
         pass

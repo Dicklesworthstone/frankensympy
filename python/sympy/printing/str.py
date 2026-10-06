@@ -490,7 +490,9 @@ class StrPrinter:
         if k == "Float":
             text = self._fallback(e)
             return _strip_float(text) if self._level > 1 else text
-        if k == "Function" and type(e).__name__ not in ("Derivative",):
+        if isinstance(e, c.Derivative):
+            return self._print_Derivative(e)
+        if k == "Function":
             return self._print_Function(e)
         return self._fallback(e)
 
@@ -503,12 +505,41 @@ class StrPrinter:
                 "(%s)" % ", ".join(self._print(x) for x in t.args) for t in e.args[1:]
             )
             return "%s(%s, %s)" % (name, self._print(e.args[0]), limits)
+        if name == "Integral" and len(e.args) >= 2:
+            limits = []
+            for t in e.args[1:]:
+                items = t.args
+                if len(items) == 1:
+                    limits.append(self._print(items[0]))
+                else:
+                    limits.append("(%s)" % ", ".join(self._print(x) for x in items))
+            return "Integral(%s, %s)" % (self._print(e.args[0]), ", ".join(limits))
+        if name == "Tuple":
+            if len(e.args) == 1:
+                return "(%s,)" % self._print(e.args[0])
+            return "(%s)" % ", ".join(self._print(a) for a in e.args)
         if name == "Order":
             args = e.args
             if len(args) == 3:
                 return "O(%s, (%s, %s))" % (self._print(args[0]), self._print(args[1]), self._print(args[2]))
             return "O(%s)" % self._print(args[0])
         return name + "(%s)" % ", ".join(self._print(a) for a in e.args)
+
+    def _print_Derivative(self, e: Any) -> str:
+        """Upstream form: consecutive repeated variables print as (v, n)."""
+        args = e.args
+        if not args:
+            return self._fallback(e)
+        groups: list = []
+        for v in args[1:]:
+            if groups and groups[-1][0] == v:
+                groups[-1][1] += 1
+            else:
+                groups.append([v, 1])
+        parts = [self._print(args[0])]
+        for v, n in groups:
+            parts.append(self._print(v) if n == 1 else "(%s, %d)" % (self._print(v), n))
+        return "Derivative(%s)" % ", ".join(parts)
 
     def _print_Add(self, e: Any) -> str:
         terms = as_ordered_terms(e)

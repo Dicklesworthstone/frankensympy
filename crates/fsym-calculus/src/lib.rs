@@ -128,6 +128,9 @@ pub fn diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
                 Expr::Mul(vec![expr.clone(), Expr::Add(vec![term1, term2])])
             }
         }
+        Expr::Function(name, args) if matches!(name.as_str(), "Integral" | "Sum") => {
+            diff_binder(expr, name, args, var)
+        }
         Expr::Function(name, args) => {
             // If all arguments are independent of var, then by the chain rule d(f(args))/d(var) = 0.
             if name != "Derivative" && name != "diff" && args.iter().all(|a| diff(a, var).is_zero())
@@ -412,6 +415,13 @@ pub fn diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
                 let term1 = Expr::Mul(vec![cos_u, inv_u]);
                 let term2 = Expr::Mul(vec![Expr::from_i64(-1), sin_u, inv_u_sq]);
                 Expr::Mul(vec![Expr::Add(vec![term1, term2]), du])
+            } else if name == "Heaviside" && args.len() == 1 {
+                let u = &args[0];
+                let du = diff(u, var);
+                Expr::Mul(vec![
+                    Expr::Function("DiracDelta".to_string(), vec![u.clone()]),
+                    du,
+                ])
             } else if name == "erf" && args.len() == 1 {
                 let u = &args[0];
                 let du = diff(u, var);
@@ -485,6 +495,96 @@ pub fn diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
             }
         }
     }
+}
+
+/// One binder limit: variable and optional `(lower, upper)` bounds.
+type BinderLimit = (Symbol, Option<(Expr, Expr)>);
+
+fn binder_limits(args: &[Expr]) -> Option<Vec<BinderLimit>> {
+    args.iter()
+        .map(|lim| match lim {
+            Expr::Sym(v) => Some((v.clone(), None)),
+            Expr::Function(t, items) if t == "Tuple" => match items.as_slice() {
+                [Expr::Sym(v)] => Some((v.clone(), None)),
+                [Expr::Sym(v), a, b] => Some((v.clone(), Some((a.clone(), b.clone())))),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect()
+}
+
+fn limit_expr(lim: &BinderLimit) -> Expr {
+    match &lim.1 {
+        None => Expr::Function("Tuple".into(), vec![Expr::Sym(lim.0.clone())]),
+        Some((a, b)) => Expr::Function(
+            "Tuple".into(),
+            vec![Expr::Sym(lim.0.clone()), a.clone(), b.clone()],
+        ),
+    }
+}
+
+fn unevaluated_diff(expr: &Expr, var: &Symbol) -> Expr {
+    Expr::Function(
+        "diff".to_string(),
+        vec![expr.clone(), Expr::Sym(var.clone())],
+    )
+}
+
+/// Derivative of `Sum`/`Integral` with respect to `var`: the body is
+/// differentiated under the binder when `var` is free and the bounds do not
+/// depend on it; a definite integral with variable bounds uses the Leibniz
+/// rule (single limit). Any other shape stays unevaluated.
+fn diff_binder(expr: &Expr, name: &str, args: &[Expr], var: &Symbol) -> Expr {
+    let Some(limits) = binder_limits(&args[1..]) else {
+        return unevaluated_diff(expr, var);
+    };
+    let body = &args[0];
+    let depends = |e: &Expr| e.free_symbols().iter().any(|s| s == var);
+    let bound_dep = limits
+        .iter()
+        .any(|(_, b)| b.as_ref().is_some_and(|(a, c)| depends(a) || depends(c)));
+    let is_bound = limits.iter().any(|(v, _)| v == var);
+    if is_bound {
+        // var is a dummy of a definite limit: the result does not depend on it.
+        let definite = limits.iter().any(|(v, b)| v == var && b.is_some());
+        if name == "Sum" || definite {
+            if !bound_dep {
+                return Expr::from_i64(0);
+            }
+        } else if limits.len() == 1 {
+            // d/dx Integral(f(x), x) = f(x)
+            return body.clone();
+        }
+        return unevaluated_diff(expr, var);
+    }
+    if !bound_dep {
+        let mut new_args = vec![diff(body, var)];
+        new_args.extend(limits.iter().map(limit_expr));
+        if new_args[0].is_zero() {
+            return Expr::from_i64(0);
+        }
+        return Expr::Function(name.to_string(), new_args);
+    }
+    if name == "Integral" && limits.len() == 1 {
+        let (v, Some((a, b))) = &limits[0] else {
+            return unevaluated_diff(expr, var);
+        };
+        let at = |p: &Expr| body.subs(&HashMap::from([(v.clone(), p.clone())]));
+        let mut terms = vec![
+            at(b) * diff(b, var),
+            Expr::from_i64(-1) * at(a) * diff(a, var),
+        ];
+        let inner = diff(body, var);
+        if !inner.is_zero() {
+            terms.push(Expr::Function(
+                "Integral".into(),
+                vec![inner, limit_expr(&limits[0])],
+            ));
+        }
+        return Expr::Add(terms);
+    }
+    unevaluated_diff(expr, var)
 }
 
 fn eliminate_zero_products(expr: &Expr) -> Expr {

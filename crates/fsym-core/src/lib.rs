@@ -160,6 +160,38 @@ impl fmt::Display for Constant {
     }
 }
 
+/// Variables bound by a binding construct (`Sum`, `Product`, `Integral`)
+/// whose limits are `Tuple(v, ...)` or a bare symbol; `None` otherwise.
+pub fn binder_variables(name: &str, args: &[Expr]) -> Option<Vec<Symbol>> {
+    if !matches!(name, "Sum" | "Product" | "Integral") || args.len() < 2 {
+        return None;
+    }
+    let mut out = Vec::new();
+    for lim in &args[1..] {
+        match lim {
+            Expr::Sym(v) => out.push(v.clone()),
+            Expr::Function(t, items) if t == "Tuple" && !items.is_empty() => match &items[0] {
+                Expr::Sym(v) => out.push(v.clone()),
+                _ => return None,
+            },
+            _ => return None,
+        }
+    }
+    Some(out)
+}
+
+/// Apply `f` to the bounds of one binder limit, keeping its variable.
+fn subs_limit(lim: &Expr, f: impl Fn(&Expr) -> Expr) -> Expr {
+    match lim {
+        Expr::Function(t, items) if t == "Tuple" && !items.is_empty() => {
+            let mut new_items = vec![items[0].clone()];
+            new_items.extend(items[1..].iter().map(&f));
+            Expr::Function(t.clone(), new_items)
+        }
+        other => other.clone(),
+    }
+}
+
 impl Expr {
     /// Create a symbol expression.
     pub fn symbol(name: impl Into<String>) -> Self {
@@ -234,6 +266,17 @@ impl Expr {
             }
             Expr::Pow(b, e) => fold_pow_sub(b.subs(map), e.subs(map)),
             Expr::Function(name, args) => {
+                if let Some(bound) = binder_variables(name, args) {
+                    // Bound (dummy) variables are never substituted in the
+                    // body; limit bounds see the full substitution.
+                    let mut inner = map.clone();
+                    for v in &bound {
+                        inner.remove(v);
+                    }
+                    let mut new_args = vec![args[0].subs(&inner)];
+                    new_args.extend(args[1..].iter().map(|lim| subs_limit(lim, |e| e.subs(map))));
+                    return Expr::Function(name.clone(), new_args);
+                }
                 let new_args: Vec<Expr> = args.iter().map(|a| a.subs(map)).collect();
                 fold_fn_sub(name, new_args)
             }
@@ -266,6 +309,21 @@ impl Expr {
             }
             Expr::Pow(b, e) => fold_pow_sub(b.subs_expr(old, new), e.subs_expr(old, new)),
             Expr::Function(name, args) => {
+                if let Some(bound) = binder_variables(name, args) {
+                    let touches_bound = old.free_symbols().iter().any(|s| bound.contains(s));
+                    let body = if touches_bound {
+                        args[0].clone()
+                    } else {
+                        args[0].subs_expr(old, new)
+                    };
+                    let mut new_args = vec![body];
+                    new_args.extend(
+                        args[1..]
+                            .iter()
+                            .map(|lim| subs_limit(lim, |e| e.subs_expr(old, new))),
+                    );
+                    return Expr::Function(name.clone(), new_args);
+                }
                 let new_args: Vec<Expr> = args.iter().map(|a| a.subs_expr(old, new)).collect();
                 fold_fn_sub(name, new_args)
             }
