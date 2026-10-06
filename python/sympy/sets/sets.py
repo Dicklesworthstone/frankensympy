@@ -781,6 +781,10 @@ class Intersection(Set):
             native = _native.SymSet.intersection_many(native_sets)
             return _wrap_set(native)
 
+        names = [type(s).__name__ for s in wrapped_args]
+        if len(wrapped_args) == 2 and "Integers" in names and "Interval" in names:
+            ints = wrapped_args[names.index("Integers")]
+            return ints.intersect(wrapped_args[names.index("Interval")])
         filtered: list[Set] = []
         for s in wrapped_args:
             if isinstance(s, EmptySet) or getattr(s, "is_empty", None) is True:

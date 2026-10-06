@@ -861,10 +861,49 @@ class PrettyPrinter:
     _print_Matrix = _print_MutableDenseMatrix = _print_ImmutableDenseMatrix = _print_MatrixBase
     _print_DenseMatrix = _print_MatrixBase
 
+    def _hprint_vseparator(self, p1: Any, p2: Any, left: Any = None, right: Any = None,
+                           delimiter: str = "", ifascii_nougly: bool = False) -> prettyForm:
+        if ifascii_nougly and not self._use_unicode:
+            return self._print_seq((p1, "|", p2), left=left, right=right,
+                                   delimiter=delimiter, ifascii_nougly=True)
+        tmp = self._print_seq((p1, p2), left=left, right=right, delimiter=delimiter)
+        sep = stringPict(vobj("|", tmp.height()), baseline=tmp.baseline)
+        return self._print_seq((p1, sep, p2), left=left, right=right, delimiter=delimiter)
+
     def _print_Set(self, s: Any) -> prettyForm:
         from ..sets import FiniteSet, Interval
 
         name = type(s).__name__
+        inn = pretty_atom("SmallElementOf") if self._use_unicode else "in"
+        if name == "ImageSet":
+            lam = s.lamda
+            expr = self._print(lam.expr)
+            if len(lam.signature) == 1:
+                S = self._print_seq((lam.signature[0], inn, s.base_sets[0]), delimiter=" ")
+            else:
+                parts = []
+                for var, setv in zip(lam.signature, s.base_sets):
+                    parts += [var, " ", inn, " ", setv, ", "]
+                S = self._print_seq(parts[:-1], delimiter="")
+            return self._hprint_vseparator(expr, S, left="{", right="}",
+                                           ifascii_nougly=True, delimiter=" ")
+        if name == "ConditionSet":
+            _and = pretty_atom("And") if self._use_unicode else "and"
+            variables = self._print_seq((s.sym,))
+            cond = self._print(s.condition)
+            if self._use_unicode:
+                cond = prettyForm(*cond.parens())
+            if type(s.base_set).__name__ == "UniversalSet":
+                return self._hprint_vseparator(variables, cond, left="{", right="}",
+                                               ifascii_nougly=True, delimiter=" ")
+            C = self._print_seq((variables, inn, self._print(s.base_set), _and, cond), delimiter=" ")
+            return self._hprint_vseparator(variables, C, left="{", right="}",
+                                           ifascii_nougly=True, delimiter=" ")
+        if name == "Range":
+            dots = pretty_atom("Dots") if self._use_unicode else "..."
+            items = list(s)
+            shown = items if len(items) <= 4 else [items[0], items[1], dots, items[-1]]
+            return self._print_seq(shown, "{", "}", ", ")
         if name in ("EmptySet", "Reals", "Integers", "Naturals", "Naturals0", "Rationals",
                     "Complexes", "UniversalSet") or getattr(s, "is_empty", None) is True:
             key = "EmptySet" if getattr(s, "is_empty", None) is True and name != "Reals" else name

@@ -390,10 +390,25 @@ def solveset(expression, variable=None, domain=None):
     # unions); the native solver lists principal solutions only, which is
     # solve()'s contract but not solveset's. Refuse rather than truncate.
     periodic = ("sin", "cos", "tan", "cot", "sec", "csc")
-    if any(type(a).__name__ in periodic and symbol in a.free_symbols for a in _preorder_nodes(expr)):
-        raise ValueError(
-            "non-linear periodic equation: the complete (infinite) solution set is not supported"
-        )
+    from .sets import Reals as _RealsP
+
+    over_reals = domain is not None and (domain == _RealsP() or isinstance(domain, _RealsP))
+    complex_exp = not over_reals and any(
+        type(a).__name__ == "exp" and symbol in a.free_symbols for a in _preorder_nodes(expr)
+    )
+    if complex_exp or any(
+        type(a).__name__ in periodic and symbol in a.free_symbols for a in _preorder_nodes(expr)
+    ):
+        # Complete (infinite) solution sets as ImageSet unions; shapes
+        # outside the exact periodic solver raise instead of truncating.
+        from .solvers.solveset import solve_periodic
+
+        sol = solve_periodic(expr, symbol, domain)
+        if domain is not None and not over_reals and type(domain).__name__ != "Complexes":
+            from .sets import Intersection as _IntersectionP
+
+            return _IntersectionP(sol, domain)
+        return sol
     try:
         results = _native.solve_expr(str(_native_expr(expr)), _native_symbol_key(symbol))
     except ValueError as exc:
@@ -847,6 +862,15 @@ from . import (
     tensor,
 )
 from .sets import (
+    Complexes,
+    ConditionSet,
+    ImageSet,
+    Integers,
+    Naturals,
+    Naturals0,
+    Range,
+    Rationals,
+    imageset,
     Complement,
     EmptySet,
     FiniteSet,
@@ -1639,6 +1663,15 @@ def reduce_inequalities(inequalities: Any, symbols: Any = None) -> Any:
 
 
 __all__ = [
+    "imageset",
+    "Rationals",
+    "Range",
+    "Naturals0",
+    "Naturals",
+    "Integers",
+    "ImageSet",
+    "ConditionSet",
+    "Complexes",
     "invert",
     "interpolate",
     "LT",

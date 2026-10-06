@@ -3534,6 +3534,31 @@ class _SingletonRegistry:
         from ..sets.sets import Reals
         return Reals()
 
+    @property
+    def Integers(self) -> Any:
+        from ..sets.fancysets import Integers
+        return Integers()
+
+    @property
+    def Naturals(self) -> Any:
+        from ..sets.fancysets import Naturals
+        return Naturals()
+
+    @property
+    def Naturals0(self) -> Any:
+        from ..sets.fancysets import Naturals0
+        return Naturals0()
+
+    @property
+    def Rationals(self) -> Any:
+        from ..sets.fancysets import Rationals
+        return Rationals()
+
+    @property
+    def Complexes(self) -> Any:
+        from ..sets.fancysets import Complexes
+        return Complexes()
+
     def __call__(self, value: Any) -> Basic:
         if isinstance(value, Basic):
             return value

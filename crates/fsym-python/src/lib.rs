@@ -135,6 +135,14 @@ fn summation_expr(src: &str, var: &str, a: &str, b: &str) -> PyResult<Option<Str
     Ok(fsym_calculus::summation::summation(&e, &Symbol::new(var), &lo, &hi).map(|v| v.to_string()))
 }
 
+/// Floating complex value `(re, im)` of a symbol-free expression; a probe
+/// for locating candidates that callers must verify exactly.
+#[pyfunction]
+fn complex_value_expr(src: &str) -> PyResult<Option<(f64, f64)>> {
+    let e = parse_expr(src)?;
+    Ok(fsym_calculus::gruntz::complex_value(&e).map(|v| (v.re, v.im)))
+}
+
 /// Real solution set of the univariate inequality `src op 0`.
 #[pyfunction]
 fn solve_inequality_expr(src: &str, var: &str, op: &str) -> PyResult<sets::PySymSet> {
@@ -1158,6 +1166,7 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(series_expansion_expr, m)?)?;
     m.add_function(wrap_pyfunction!(summation_expr, m)?)?;
     m.add_function(wrap_pyfunction!(solve_inequality_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(complex_value_expr, m)?)?;
     m.add_function(wrap_pyfunction!(solve_polynomial_system_expr, m)?)?;
     m.add_function(wrap_pyfunction!(evalf_decimal_expr, m)?)?;
     m.add_function(wrap_pyfunction!(product_expr, m)?)?;

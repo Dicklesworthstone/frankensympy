@@ -2,6 +2,17 @@
 
 from __future__ import annotations
 
+from .fancysets import (
+    Complexes,
+    ConditionSet,
+    ImageSet,
+    Integers,
+    Naturals,
+    Naturals0,
+    Range,
+    Rationals,
+    imageset,
+)
 from .sets import (
     Complement,
     EmptySet,
@@ -17,6 +28,15 @@ from .sets import (
 )
 
 __all__ = [
+    "Complexes",
+    "ConditionSet",
+    "ImageSet",
+    "Integers",
+    "Naturals",
+    "Naturals0",
+    "Range",
+    "Rationals",
+    "imageset",
     "Complement",
     "EmptySet",
     "FiniteSet",

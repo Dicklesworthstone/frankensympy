@@ -909,6 +909,24 @@ class LatexPrinter:
         from ..sets import EmptySet, FiniteSet, Interval, Union
 
         name = type(s).__name__
+        if name == "ImageSet":
+            lam = s.lamda
+            xinys = ", ".join(r"%s \in %s" % (self._print(v), self._print(b))
+                              for v, b in zip(lam.signature, s.base_sets))
+            return r"\left\{%s\; \middle|\; %s\right\}" % (self._print(lam.expr), xinys)
+        if name == "ConditionSet":
+            v = self._print(s.sym)
+            if type(s.base_set).__name__ == "UniversalSet":
+                return r"\left\{%s\; \middle|\; %s \right\}" % (v, self._print(s.condition))
+            return r"\left\{%s\; \middle|\; %s \in %s \wedge %s \right\}" % (
+                v, v, self._print(s.base_set), self._print(s.condition))
+        if name == "Range":
+            items = list(s)
+            if len(items) < 4:
+                shown = [self._print(i) for i in items]
+            else:
+                shown = [self._print(items[0]), self._print(items[1]), r"\ldots", self._print(items[-1])]
+            return r"\left\{" + ", ".join(shown) + r"\right\}"
         if name == "Reals":
             return r"\mathbb{R}"
         if name in ("Integers", "Naturals", "Naturals0", "Rationals", "Complexes"):

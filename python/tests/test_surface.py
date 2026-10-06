@@ -717,8 +717,16 @@ class SurfaceTests(unittest.TestCase):
 
     def test_solveset_does_not_report_refused_equations_as_empty(self):
         x = sympy.Symbol("x")
-        with self.assertRaisesRegex(ValueError, "non-linear"):
-            sympy.solveset(sympy.sin(x), x)
+        # Periodic equations get their complete (infinite) solution set
+        # (oracle form), never a truncated finite one.
+        self.assertEqual(
+            str(sympy.solveset(sympy.sin(x), x)),
+            "Union(ImageSet(Lambda(_n, 2*_n*pi), Integers), "
+            "ImageSet(Lambda(_n, 2*_n*pi + pi), Integers))",
+        )
+        # Shapes outside the exact periodic solver refuse instead of guessing.
+        with self.assertRaises(NotImplementedError):
+            sympy.solveset(sympy.sin(x) + x, x)
         self.assertEqual(sympy.solveset(x - 1, x), sympy.FiniteSet(1))
         self.assertEqual(sympy.solveset(sympy.Integer(1), x), sympy.EmptySet())
 
