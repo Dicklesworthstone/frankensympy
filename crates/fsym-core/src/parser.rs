@@ -259,6 +259,18 @@ impl<'a> Parser<'a> {
                             }
                         }
                         parser.expect(&Tok::RParen)?;
+                        // `sqrt(a)` is notation for `a**(1/2)` (the printers
+                        // render half powers that way); keep the AST uniform.
+                        if name == "sqrt" && args.len() == 1 {
+                            let arg = args.pop().expect("one argument");
+                            return Ok(Expr::Pow(
+                                Arc::new(arg),
+                                Arc::new(Expr::Rational(BigRational::new(
+                                    BigInt::from(1),
+                                    BigInt::from(2),
+                                ))),
+                            ));
+                        }
                         Ok(Expr::Function(name, args))
                     })
                 } else {

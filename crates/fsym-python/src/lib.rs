@@ -3,7 +3,7 @@
 //! PyO3 bindings exposing FrankenSymPy to CPython as a native extension
 //! module. Strings cross the boundary; everything inside is exact.
 
-use fsym_calculus::{diff, integrate, limit, taylor};
+use fsym_calculus::{diff, integrate, taylor};
 use fsym_core::{BigInt, BigRational, Expr, Symbol, parse};
 use fsym_ntheory::{factorint, totient};
 use fsym_runtime::{Budget, BudgetLimits, FsymCx, RuntimeBudget};
@@ -105,6 +105,29 @@ fn taylor_expr(src: &str, var: &str, at: i64, order: usize) -> PyResult<String> 
         .map_err(to_value_error)
 }
 
+/// Generalized series about `x0` to absolute order `n`: returns the
+/// `(coefficient, exponent)` terms in the local variable and the remainder
+/// order (`None` when exact).
+#[pyfunction]
+fn series_expansion_expr(
+    src: &str,
+    var: &str,
+    x0: &str,
+    n: i64,
+) -> PyResult<(Vec<(String, String)>, Option<String>)> {
+    let e = parse_expr(src)?;
+    let point = parse_expr(x0)?;
+    let (terms, order) = fsym_calculus::series_expansion(&e, &Symbol::new(var), &point, n)
+        .map_err(to_value_error)?;
+    Ok((
+        terms
+            .into_iter()
+            .map(|(c, k)| (c.to_string(), k.to_string()))
+            .collect(),
+        order.map(|o| o.to_string()),
+    ))
+}
+
 /// Differentiate `src` with respect to `var`.
 #[pyfunction]
 fn diff_expr(src: &str, var: &str) -> PyResult<String> {
@@ -162,10 +185,21 @@ fn integrate_expr(src: &str, var: &str) -> PyResult<String> {
 
 /// Limit of `src` as `var -> to` (`to` may be `"oo"` / `"-oo"`).
 #[pyfunction]
-fn limit_expr(src: &str, var: &str, to: &str) -> PyResult<String> {
+#[pyo3(signature = (src, var, to, dir="+"))]
+fn limit_expr(src: &str, var: &str, to: &str, dir: &str) -> PyResult<String> {
     let e = parse_expr(src)?;
     let point = parse_expr(to)?;
-    limit(&e, &Symbol::new(var), &point)
+    let direction = match dir {
+        "+" => fsym_calculus::gruntz::Direction::Plus,
+        "-" => fsym_calculus::gruntz::Direction::Minus,
+        "+-" => fsym_calculus::gruntz::Direction::Both,
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "direction must be one of '+', '-', '+-', got {other:?}"
+            )));
+        }
+    };
+    fsym_calculus::limit_dir(&e, &Symbol::new(var), &point, direction)
         .map(|v| v.to_string())
         .map_err(to_value_error)
 }
@@ -1025,6 +1059,7 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(laplace_expr, m)?)?;
     m.add_function(wrap_pyfunction!(fourier_expr, m)?)?;
     m.add_function(wrap_pyfunction!(limit_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(series_expansion_expr, m)?)?;
     m.add_function(wrap_pyfunction!(taylor_expr, m)?)?;
     m.add_function(wrap_pyfunction!(solve_linear_expr, m)?)?;
     m.add_function(wrap_pyfunction!(solve_expr, m)?)?;

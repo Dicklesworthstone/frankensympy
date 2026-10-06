@@ -3,7 +3,9 @@
 //! Symbolic differentiation, integration, limits, and series expansion.
 
 pub mod compile;
+pub mod gruntz;
 pub mod proof;
+pub mod series;
 pub mod sparse_jacobian;
 pub mod transforms;
 
@@ -12,11 +14,10 @@ pub use proof::*;
 pub use sparse_jacobian::*;
 pub use transforms::*;
 
-use fsym_budget::Unbounded;
 use fsym_core::{BigInt, BigRational, Constant, CoreError, Expr, RealBall, Symbol};
-use fsym_simplify::{expand_with, simplify};
-use num_traits::{One, Signed, Zero};
-use std::collections::{BTreeMap, HashMap};
+use fsym_simplify::simplify;
+use num_traits::{One, Zero};
+use std::collections::HashMap;
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -510,6 +511,11 @@ fn is_free_of(expr: &Expr, var: &Symbol) -> bool {
 }
 
 /// Undifferentiated-derivative sentinel produced by [`diff`]'s fallback.
+/// Whether `expr` carries the non-differentiable sentinel of [`diff`].
+pub(crate) fn carries_diff_sentinel_pub(expr: &Expr) -> bool {
+    carries_diff_sentinel(expr)
+}
+
 fn carries_diff_sentinel(expr: &Expr) -> bool {
     match expr {
         Expr::Function(name, args)
@@ -942,70 +948,143 @@ pub fn integrate(expr: &Expr, var: &Symbol) -> Result<Expr, CalculusError> {
     }
 }
 
-/// Limit of a univariate polynomial as `var` approaches a numeric point or
-/// ±Infinity via direct substitution / degree analysis. Rational functions
-/// at indeterminate points report [`CalculusError::Undetermined`].
+/// Limit of `expr` as `var -> to` from the right (`dir = "+"`, the upstream
+/// default for finite points). See [`limit_dir`].
 pub fn limit(expr: &Expr, var: &Symbol, to: &Expr) -> Result<Expr, CalculusError> {
-    match to {
-        Expr::Const(Constant::Infinity) | Expr::Const(Constant::NegativeInfinity) => {
-            let expanded = expand_with(expr, &mut Unbounded)
-                .map_err(|error| CalculusError::Undetermined(error.to_string()))?;
-            if is_free_of(&expanded, var) {
-                return Ok(simplify(&expanded));
-            }
-            // Polynomial degree/leading-coefficient scan over additive terms.
-            let terms: Vec<Expr> = match &expanded {
-                Expr::Add(ts) => ts.clone(),
-                single => vec![single.clone()],
-            };
-            let mut coefficients = BTreeMap::<u64, BigRational>::new();
-            for t in &terms {
-                let Some((degree, coefficient)) = polynomial_term(t, var) else {
-                    return Err(CalculusError::Undetermined(expr.to_string()));
-                };
-                *coefficients.entry(degree).or_insert_with(BigRational::zero) += coefficient;
-            }
-            coefficients.retain(|_, coefficient| !coefficient.is_zero());
-            let Some((&degree, leading_coefficient)) = coefficients.iter().next_back() else {
-                return Ok(Expr::from_i64(0));
-            };
-            if degree == 0 {
-                return Ok(simplify(&expanded));
-            }
-            let mut positive = leading_coefficient.is_positive();
-            if *to == Expr::Const(Constant::NegativeInfinity) && degree % 2 == 1 {
-                positive = !positive;
-            }
-            Ok(Expr::Const(if positive {
-                Constant::Infinity
-            } else {
-                Constant::NegativeInfinity
-            }))
-        }
-        point => {
-            if unsafe_direct_substitution(expr) || unsafe_direct_substitution(point) {
-                return Err(CalculusError::Undetermined(
-                    UNSAFE_DIRECT_SUBSTITUTION.to_string(),
-                ));
-            }
-            let substituted = expr.subs(&HashMap::from([(var.clone(), point.clone())]));
-            if unsafe_direct_substitution(&substituted) {
-                return Err(CalculusError::Undetermined(
-                    UNSAFE_DIRECT_SUBSTITUTION.to_string(),
-                ));
-            }
-            let value = simplify(&substituted);
-            if unsafe_direct_substitution(&value) {
-                return Err(CalculusError::Undetermined(
-                    UNSAFE_DIRECT_SUBSTITUTION.to_string(),
-                ));
-            }
-            if !is_free_of(&value, var) || carries_diff_sentinel(&value) {
-                return Err(CalculusError::Undetermined(value.to_string()));
-            }
-            Ok(value)
-        }
+    limit_dir(expr, var, to, gruntz::Direction::Plus)
+}
+
+/// Limit of `expr` as `var -> to` in direction `dir`.
+///
+/// Finite points first try direct substitution when the expression is
+/// free of poles and discontinuous functions at the point; everything else
+/// (indeterminate forms, poles, essential singularities, limits at
+/// infinity) goes through the Gruntz algorithm in [`gruntz`]. Undecidable
+/// constants and unsupported functions refuse with
+/// [`CalculusError::Undetermined`]; a two-sided limit whose one-sided limits
+/// differ refuses as well.
+pub fn limit_dir(
+    expr: &Expr,
+    var: &Symbol,
+    to: &Expr,
+    dir: gruntz::Direction,
+) -> Result<Expr, CalculusError> {
+    if unsafe_direct_substitution(expr) || unsafe_direct_substitution(to) {
+        return Err(CalculusError::Undetermined(
+            UNSAFE_DIRECT_SUBSTITUTION.to_string(),
+        ));
     }
+    if carries_diff_sentinel(expr) {
+        return Err(CalculusError::Undetermined(expr.to_string()));
+    }
+    if is_free_of(expr, var) {
+        return Ok(expr.clone());
+    }
+    let infinite_point = matches!(
+        to,
+        Expr::Const(Constant::Infinity) | Expr::Const(Constant::NegativeInfinity)
+    );
+    if !infinite_point
+        && continuous_shape(expr)
+        && let Some(value) = direct_substitution(expr, var, to)
+    {
+        return Ok(value);
+    }
+    gruntz::limit(expr, var, to, dir).map_err(|e| CalculusError::Undetermined(e.to_string()))
+}
+
+/// Functions whose elementary formulas are continuous wherever they
+/// evaluate to a finite value (no jump discontinuities).
+fn continuous_shape(expr: &Expr) -> bool {
+    match expr {
+        Expr::Function(name, args) => {
+            !matches!(
+                name.as_str(),
+                "floor" | "ceiling" | "sign" | "frac" | "Heaviside" | "Piecewise" | "Mod"
+            ) && args.iter().all(continuous_shape)
+        }
+        Expr::Add(xs) | Expr::Mul(xs) => xs.iter().all(continuous_shape),
+        Expr::Pow(b, e) => continuous_shape(b) && continuous_shape(e),
+        _ => true,
+    }
+}
+
+fn has_infinity(expr: &Expr) -> bool {
+    match expr {
+        Expr::Const(
+            Constant::Infinity
+            | Constant::NegativeInfinity
+            | Constant::ComplexInfinity
+            | Constant::NaN,
+        ) => true,
+        Expr::Add(xs) | Expr::Mul(xs) | Expr::Function(_, xs) => xs.iter().any(has_infinity),
+        Expr::Pow(b, e) => has_infinity(b) || has_infinity(e),
+        _ => false,
+    }
+}
+
+/// Value at the point when exact substitution is finite and pole-free.
+fn direct_substitution(expr: &Expr, var: &Symbol, to: &Expr) -> Option<Expr> {
+    let substituted = expr.subs(&HashMap::from([(var.clone(), to.clone())]));
+    if unsafe_direct_substitution(&substituted) || has_infinity(&substituted) {
+        return None;
+    }
+    let value = simplify(&substituted);
+    if unsafe_direct_substitution(&value) || has_infinity(&value) || !is_free_of(&value, var) {
+        return None;
+    }
+    Some(value)
+}
+
+/// Generalized series of `expr` about `var = x0` to absolute order `n`.
+///
+/// Returns the nonzero terms as `(coefficient, exponent)` pairs in the
+/// local variable (`x - x0` for finite `x0`, `1/x` for `x0 = oo`, `-1/x`
+/// for `x0 = -oo`) and the order of the remainder (`None` when the
+/// expansion is exact). `log` terms of the local variable stay in the
+/// coefficients (`series(x*log(x))` keeps `x*log(x)`).
+pub fn series_expansion(
+    expr: &Expr,
+    var: &Symbol,
+    x0: &Expr,
+    n: i64,
+) -> Result<(Vec<(Expr, BigRational)>, Option<BigRational>), CalculusError> {
+    if unsafe_direct_substitution(expr) || unsafe_direct_substitution(x0) {
+        return Err(CalculusError::NonDifferentiable(
+            UNSAFE_DIRECT_SUBSTITUTION.to_string(),
+        ));
+    }
+    let t = Symbol::new("_fsym_series_t");
+    let te = Expr::Sym(t.clone());
+    let xe = Expr::Sym(var.clone());
+    let recip = |e: Expr| fsym_core::elementary::eval_pow(e, Expr::from_i64(-1));
+    let (replacement, log_t) = match x0 {
+        Expr::Const(Constant::Infinity) => (
+            recip(te.clone()),
+            -Expr::Function("log".into(), vec![xe.clone()]),
+        ),
+        Expr::Const(Constant::NegativeInfinity) => (
+            -recip(te.clone()),
+            -Expr::Function("log".into(), vec![-xe.clone()]),
+        ),
+        _ if x0.is_zero() => (te.clone(), Expr::Function("log".into(), vec![xe.clone()])),
+        _ => (
+            x0.clone() + te.clone(),
+            Expr::Function("log".into(), vec![xe.clone() - x0.clone()]),
+        ),
+    };
+    let local = expr.subs(&HashMap::from([(var.clone(), replacement)]));
+    let target = BigRational::from_integer(BigInt::from(n));
+    let s = series::series_in(&local, &t, &target, &log_t)
+        .map_err(|e| CalculusError::NonDifferentiable(e.to_string()))?;
+    let terms = s
+        .terms
+        .into_iter()
+        .map(|(k, c)| (simplify(&c), k))
+        .filter(|(c, _)| !c.is_zero())
+        .map(|(c, k)| (c, k))
+        .collect();
+    Ok((terms, s.order))
 }
 
 /// Fail-closed preflight for direct substitution and Taylor coefficients.
@@ -1071,44 +1150,6 @@ fn unsafe_direct_substitution(expr: &Expr) -> bool {
     }
 
     false
-}
-
-fn monomial_degree(expr: &Expr, var: &Symbol) -> Option<u64> {
-    match expr {
-        Expr::Sym(s) if s == var => Some(1),
-        Expr::Pow(b, e) => {
-            let Expr::Integer(exponent) = e.as_ref() else {
-                return None;
-            };
-            let exponent = u64::try_from(exponent).ok()?;
-            let base_deg = monomial_degree(b, var)?;
-            base_deg.checked_mul(exponent)
-        }
-        _ => None,
-    }
-}
-
-/// Parse one expanded term as an exact univariate monomial.
-///
-/// Only numeric coefficients are admitted. A symbolic coefficient may be
-/// positive, negative, or zero, so it cannot determine a limit at infinity
-/// without assumptions.
-fn polynomial_term(term: &Expr, var: &Symbol) -> Option<(u64, BigRational)> {
-    let mut degree = 0u64;
-    let mut coefficient = BigRational::from_integer(1.into());
-    let mut factors = vec![term];
-    while let Some(f) = factors.pop() {
-        match f {
-            Expr::Integer(value) => coefficient *= BigRational::from_integer(value.clone()),
-            Expr::Rational(value) => coefficient *= value,
-            Expr::Mul(nested) => factors.extend(nested),
-            other => {
-                let deg = monomial_degree(other, var)?;
-                degree = degree.checked_add(deg)?;
-            }
-        }
-    }
-    Some((degree, coefficient))
 }
 
 /// Taylor polynomial of `expr` around `var = at` through degree `order`.
@@ -1494,12 +1535,6 @@ mod tests {
             Expr::from_i64(-1),
             Expr::Pow(Arc::new(Expr::symbol("x")), Arc::new(Expr::from_i64(5))),
         ]);
-        let expanded_quintic = expand_with(&quintic, &mut Unbounded).unwrap();
-        assert_eq!(
-            polynomial_term(&expanded_quintic, &x),
-            Some((5, BigRational::from_integer(BigInt::from(-1)))),
-            "expanded quintic: {expanded_quintic:?}"
-        );
         assert_eq!(
             limit(&quintic, &x, &Expr::Const(Constant::NegativeInfinity)).unwrap(),
             Expr::Const(Constant::Infinity)
@@ -1536,10 +1571,10 @@ mod tests {
                 BigInt::from(2),
             ))),
         );
-        assert!(matches!(
-            limit(&fractional_power, &x, &Expr::Const(Constant::Infinity)),
-            Err(CalculusError::Undetermined(_))
-        ));
+        assert_eq!(
+            limit(&fractional_power, &x, &Expr::Const(Constant::Infinity)).unwrap(),
+            Expr::Const(Constant::Infinity)
+        );
 
         assert_eq!(
             limit(&Expr::symbol("a"), &x, &Expr::Const(Constant::Infinity)).unwrap(),
@@ -1556,10 +1591,12 @@ mod tests {
             .map(|i| Expr::Add(vec![Expr::symbol(format!("x{i}")), Expr::from_i64(1)]))
             .collect();
         let genuine_bomb = Expr::Mul(factors);
-        assert!(matches!(
-            limit(&genuine_bomb, &x, &Expr::Const(Constant::Infinity)),
-            Err(CalculusError::Undetermined(_))
-        ));
+        // Free of the limit variable: the expression is its own limit and
+        // nothing is expanded.
+        assert_eq!(
+            limit(&genuine_bomb, &x, &Expr::Const(Constant::Infinity)).unwrap(),
+            genuine_bomb
+        );
     }
 
     #[test]
@@ -1584,15 +1621,21 @@ mod tests {
     }
 
     #[test]
-    fn test_limit_zero_over_zero_is_undetermined() {
+    fn test_limit_zero_over_zero_resolves_through_series() {
         let x = Symbol::new("x");
-        // sin(x)/x at 0: structurally 0 * 0^-1 -> typed Undetermined.
+        // sin(x)/x at 0: indeterminate 0/0, resolved by the Gruntz lane.
         let e = Expr::Mul(vec![
             Expr::Function("sin".to_string(), vec![Expr::symbol("x")]),
             Expr::Pow(Arc::new(Expr::symbol("x")), Arc::new(Expr::from_i64(-1))),
         ]);
+        assert_eq!(
+            limit(&e, &x, &Expr::from_i64(0)).unwrap(),
+            Expr::from_i64(1)
+        );
+        // Two-sided: 1/x has different one-sided limits.
+        let recip = Expr::Pow(Arc::new(Expr::symbol("x")), Arc::new(Expr::from_i64(-1)));
         assert!(matches!(
-            limit(&e, &x, &Expr::from_i64(0)),
+            limit_dir(&recip, &x, &Expr::from_i64(0), gruntz::Direction::Both),
             Err(CalculusError::Undetermined(_))
         ));
 
@@ -1603,10 +1646,10 @@ mod tests {
                 BigInt::from(2),
             ))),
         );
-        assert!(matches!(
-            limit(&fractional_pole, &x, &Expr::from_i64(0)),
-            Err(CalculusError::Undetermined(_))
-        ));
+        assert_eq!(
+            limit(&fractional_pole, &x, &Expr::from_i64(0)).unwrap(),
+            Expr::Const(Constant::Infinity)
+        );
     }
 
     #[test]
@@ -1622,10 +1665,16 @@ mod tests {
             )],
         );
 
-        assert!(matches!(
-            limit(&nested, &x, &Expr::from_i64(0)),
-            Err(CalculusError::Undetermined(_))
-        ));
+        // exp(1/x) has an essential singularity: +oo from the right, 0
+        // from the left, so the two-sided limit refuses.
+        assert_eq!(
+            limit(&nested, &x, &Expr::from_i64(0)).unwrap(),
+            Expr::Const(Constant::Infinity)
+        );
+        assert_eq!(
+            limit_dir(&nested, &x, &Expr::from_i64(0), gruntz::Direction::Minus).unwrap(),
+            Expr::from_i64(0)
+        );
         assert!(matches!(
             limit(&held_derivative, &x, &Expr::from_i64(0)),
             Err(CalculusError::Undetermined(_))

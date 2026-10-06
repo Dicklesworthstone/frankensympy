@@ -14,47 +14,87 @@ from ..core import (
 
 
 def series(expression, x=None, x0=0, n=6, dir="+", **kwargs):
-    """Compute the Taylor series expansion of expression around variable = point."""
+    """Series expansion of ``expression`` about ``x = x0`` up to ``O((x - x0)**n)``.
+
+    Laurent and Puiseux terms, ``log`` terms and expansions at ``oo`` are
+    computed natively; the remainder is an ``Order`` term (omitted when the
+    expansion is exact, as for polynomials).
+    """
+    from ..core import sympify
+
     if "point" in kwargs:
         x0 = kwargs["point"]
     if "variable" in kwargs and x is None:
         x = kwargs["variable"]
 
-    expr = _wrap(_native_expr(expression))
+    expr = sympify(expression)
     if x is None:
         symbols = expr.free_symbols
         if len(symbols) == 1:
             symbol = next(iter(symbols))
         elif len(symbols) == 0:
-            symbol = Symbol("x")
+            return expr
         else:
-            raise ValueError("variable must be specified when multiple free symbols exist")
+            raise ValueError("x must be given for multivariate series")
     else:
         symbol = _require_symbol(x)
-    result = _native.taylor_expr(
-        str(expr), _native_symbol_key(symbol), int(x0), int(n)
+    x0 = sympify(x0)
+    if n is None:
+        raise NotImplementedError("lazy series (n=None) is not supported")
+    terms, order = _native.series_expansion_expr(
+        str(_native_expr(expr)),
+        _native_symbol_key(symbol),
+        str(_native_expr(x0)),
+        int(n),
     )
-    parsed = _parse_result(result)
-    # Restore declared typed symbol (the native bridge lifts fresh atoms).
-    return parsed.subs({Symbol(symbol.name): symbol})
+    from ..core import oo, Rational, Integer
+
+    plain = Symbol(symbol.name)
+    if x0 == 0:
+        local = plain
+    elif x0 == oo:
+        local = 1 / plain
+    elif x0 == -oo:
+        local = -1 / plain
+    else:
+        local = plain - x0
+    total = Integer(0)
+    for coeff, exponent in terms:
+        total = total + _parse_result(coeff) * local ** _parse_result(exponent)
+    if order is not None:
+        total = total + Order(local ** _parse_result(order), plain, x0)
+    if symbol is not plain:
+        total = total.subs({plain: symbol})
+    return total
 
 
 from ..core import Expr, Function
 
 
-def limit(expression, variable=None, point=None, dir="+-", **kwargs):
+def limit(expression, variable=None, point=None, dir="+", **kwargs):
+    """Limit of ``expression`` as ``variable -> point``.
+
+    ``dir`` is ``"+"`` (default, from the right), ``"-"`` or ``"+-"``
+    (two-sided; raises ``ValueError`` when the one-sided limits differ).
+    Indeterminate forms, poles and limits at infinity are computed natively
+    by the Gruntz algorithm.
+    """
     if variable is None and point is None:
         if isinstance(expression, Limit):
             return expression.doit()
         raise TypeError("limit requires variable and point")
     symbol = _require_symbol(variable)
-    return _parse_result(
+    if str(dir) not in ("+", "-", "+-"):
+        raise ValueError("direction must be one of '+', '-' or '+-'")
+    result = _parse_result(
         _native.limit_expr(
-            str(_wrap(_native_expr(expression))),
+            str(_native_expr(expression)),
             _native_symbol_key(symbol),
-            str(_wrap(_native_expr(point))),
+            str(_native_expr(point)),
+            str(dir),
         )
     )
+    return result
 
 
 class Limit(Expr):
@@ -128,7 +168,7 @@ class Limit(Expr):
         return len(self.free_symbols) == 0
 
     def doit(self, **hints: Any) -> Any:
-        return limit(self._expression, self._variable, self._point)
+        return limit(self._expression, self._variable, self._point, dir=self._dir)
 
     def _eval_subs(self, old: Any, new: Any) -> Any:
         if self == old:
@@ -160,7 +200,39 @@ class Limit(Expr):
         return self.__repr__()
 
 
-Order = Function("Order")
+class Order(Function):
+    """Big-O remainder of a series: ``O(expr)`` or ``O(expr, (x, x0))``.
+
+    Carried as a structural term so ``series`` results print as upstream
+    (``1 + x + O(x**2)``) and ``removeO`` / ``getO`` can strip or read it.
+    The kernel does not absorb higher-order terms into it.
+    """
+
+    __slots__ = ()
+
+    def __new__(cls, expr, *args, **options):
+        from ..core import sympify
+
+        expr = sympify(expr)
+        if len(args) == 1 and isinstance(args[0], (tuple, list)):
+            args = tuple(args[0])
+        if len(args) == 2:
+            var, point = sympify(args[0]), sympify(args[1])
+            if point != 0:
+                return Function.__new__(cls, expr, var, point, evaluate=False)
+        return Function.__new__(cls, expr, evaluate=False)
+
+    @property
+    def expr(self):
+        return self.args[0]
+
+    @property
+    def point(self):
+        from ..core import Integer
+
+        return (self.args[2],) if len(self.args) == 3 else (Integer(0),)
+
+
 O = Order
 
 

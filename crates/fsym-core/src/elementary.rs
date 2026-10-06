@@ -1242,6 +1242,18 @@ pub fn eval_function(name: &str, args: &[Expr]) -> Option<Expr> {
         "exp" => eval_exp(arg),
         "log" | "ln" => eval_log(arg),
         "Abs" => eval_abs(arg),
+        "factorial" => match arg {
+            Expr::Integer(n) if !n.is_negative() && *n <= BigInt::from(1000) => {
+                let mut acc = BigInt::from(1);
+                let mut i = BigInt::from(2);
+                while i <= *n {
+                    acc *= i.clone();
+                    i += BigInt::from(1);
+                }
+                Some(Expr::Integer(acc))
+            }
+            _ => None,
+        },
         "sign" => eval_sign(arg),
         _ => None,
     }

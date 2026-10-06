@@ -679,6 +679,7 @@ dependencies = [
  "fsym-evidence",
  "fsym-proof-kernel",
  "fsym-simplify",
+ "num-complex",
  "num-traits",
  "proptest",
  "serde",

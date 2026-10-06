@@ -1469,7 +1469,7 @@ class Expr(Basic):
         import sympy
         return sympy.integrate(self, *variables)
 
-    def limit(self, variable: Any, point: Any, dir: str = "+-", **kwargs: Any) -> "Expr":
+    def limit(self, variable: Any, point: Any, dir: str = "+", **kwargs: Any) -> "Expr":
         import sympy
         return sympy.limit(self, variable=variable, point=point, dir=dir, **kwargs)
 

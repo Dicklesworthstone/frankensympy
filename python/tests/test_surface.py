@@ -1559,7 +1559,7 @@ class SurfaceTests(unittest.TestCase):
         # 2. Series expansion (module-level and method-level)
         sin_series = sympy.series(sympy.sin(x), x, 0, 4)
         self.assertEqual(sin_series, sympy.sin(x).series(x, 0, 4))
-        self.assertEqual(str(sin_series), "-x**3/6 + x")
+        self.assertEqual(str(sin_series), "x - x**3/6 + O(x**4)")
 
         # 3. Integral transforms
         laplace_res = sympy.laplace_transform(sympy.exp(t), t, s)
@@ -4039,12 +4039,12 @@ class SurfaceTests(unittest.TestCase):
         s1 = sin(x).series(x=x, x0=0, n=4, dir="+")
         s2 = sin(x).series(x, 0, 4)
         self.assertEqual(s1, s2)
-        # removeO on plain Taylor polynomial returns the polynomial
-        self.assertEqual(s1.removeO(), s1)
-        # removeO removes Order terms
+        # Oracle form: the series carries its Order term.
+        self.assertEqual(str(s1), "x - x**3/6 + O(x**4)")
+        # removeO strips the Order term and is idempotent
+        self.assertEqual(s1.removeO(), x - x**3 / 6)
+        self.assertEqual(s1.removeO().removeO(), x - x**3 / 6)
         o_term = O(x**4)
-        s_with_o = s1 + o_term
-        self.assertEqual(s_with_o.removeO().expand(), s1.expand())
         self.assertEqual(o_term.removeO(), Integer(0))
         self.assertEqual(Order(x**3).removeO(), Integer(0))
 
