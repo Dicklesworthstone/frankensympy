@@ -1165,6 +1165,45 @@ pub fn eval_pow(base: Expr, exp: Expr) -> Expr {
                 return zoo();
             }
         }
+        // Negative bases to +-oo: |b| > 1 oscillates unboundedly (zoo),
+        // |b| < 1 decays to 0 (upstream).
+        if bv.is_negative() && bv != -BigRational::one() {
+            let small = -bv.clone() < BigRational::one();
+            match exp {
+                Expr::Const(Constant::Infinity) => {
+                    return if small { Expr::from_i64(0) } else { zoo() };
+                }
+                Expr::Const(Constant::NegativeInfinity) => {
+                    return if small {
+                        Expr::Const(Constant::NaN)
+                    } else {
+                        Expr::from_i64(0)
+                    };
+                }
+                _ => {}
+            }
+        }
+        // Positive rational bases to +-oo (upstream Pow._eval_power).
+        if bv.is_positive() && !bv.is_one() {
+            let small = bv < BigRational::one();
+            match exp {
+                Expr::Const(Constant::Infinity) => {
+                    return if small {
+                        Expr::from_i64(0)
+                    } else {
+                        Expr::Const(Constant::Infinity)
+                    };
+                }
+                Expr::Const(Constant::NegativeInfinity) => {
+                    return if small {
+                        Expr::Const(Constant::Infinity)
+                    } else {
+                        Expr::from_i64(0)
+                    };
+                }
+                _ => {}
+            }
+        }
         return raw_pow(base, exp);
     }
     // Negative integer powers of Gaussian rationals are evaluated:

@@ -54,7 +54,7 @@ from .core import (
     sympify,
     SympifyError,
 )
-from .printing import latex, pretty, srepr
+from .printing import latex, pprint, pprint_use_unicode, pretty, pretty_print, srepr
 from .core import nan as _core_nan, zoo as _core_zoo
 from .matrices import (
     DenseMatrix,
@@ -1963,7 +1963,10 @@ __all__ = [
     "polygamma",
     "polylog",
     "powsimp",
+    "pprint",
+    "pprint_use_unicode",
     "pretty",
+    "pretty_print",
     "prevprime",
     "prime",
     "product",
