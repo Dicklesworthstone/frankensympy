@@ -756,51 +756,116 @@ def logcombine(expr: Any, force: bool = False, **kwargs: Any) -> Any:
     return Add(log(inner), *rest) if rest else log(inner)
 
 
-def collect(expr: Any, syms: Any, evaluate: bool = True) -> Any:
-    """Collect additive terms with respect to a symbol or expression."""
+def _collect_power_parts(f: Any) -> tuple:
+    """``(base, exponent)`` of a factor; ``exp(u)`` reads as ``(E, u)``."""
+    from ..core import E
+
+    if isinstance(f, Pow):
+        return f.args[0], f.args[1]
+    if type(f).__name__ == "exp":
+        return E, f.args[0]
+    return f, Integer(1)
+
+
+def _collect_match(term: Any, pattern: Any) -> tuple | None:
+    """Split ``term`` as ``pattern**k * coeff`` (upstream ``collect`` term
+    parsing): every factor of ``pattern`` must occur in ``term`` with its
+    exponent scaled by one common ``k``. Returns ``(key, coeff)``."""
+    from ..core import expand
+
+    tf = [_collect_power_parts(f) for f in Mul.make_args(term)]
+    pf = [_collect_power_parts(f) for f in Mul.make_args(pattern)]
+    used: list = []
+    powers: list = []
+    ratios: list = []
+    for pb, pe in pf:
+        if isinstance(pb, Rational) and pe == 1:
+            continue  # a number matches everything
+        hit = None
+        for i, (tb, te) in enumerate(tf):
+            if i not in used and tb == pb:
+                hit = i
+                break
+        if hit is None:
+            return None
+        used.append(hit)
+        powers.append(pe)
+        ratios.append(expand(tf[hit][1] / pe))
+    factors = Mul.make_args(term)
+    rest = Mul(*[factors[i] for i in range(len(factors)) if i not in used])
+    if all(expand(r - ratios[0]) == 0 for r in ratios):
+        return Mul(*[factors[i] for i in used]), rest
+    # Mixed exponents (upstream): the key is pattern**k for the smallest
+    # ratio k >= 1 and each matched factor keeps its excess power.
+    if not all(isinstance(r, Rational) for r in ratios):
+        return None
+    k = min(ratios)
+    if k < 1:
+        return None
+    key = Mul(*[tf[i][0] ** (pe * k) for i, pe in zip(used, powers)])
+    extra = Mul(*[tf[i][0] ** expand(tf[i][1] - pe * k) for i, pe in zip(used, powers)])
+    return key, extra * rest
+
+
+def collect(
+    expr: Any,
+    syms: Any,
+    func: Any = None,
+    evaluate: bool = True,
+    exact: bool = False,
+    distribute_order_term: bool = True,
+) -> Any:
+    """Collect additive terms with respect to symbols or product patterns
+    (upstream ``collect``): each term goes to the first pattern ``s`` of
+    ``syms`` it contains as ``s**k``; terms sharing a key are summed. With
+    ``evaluate=False`` the ``{key: coefficient}`` dict is returned."""
+    del distribute_order_term
     expr = sympify(expr)
-    if isinstance(syms, (list, tuple, set)):
-        sym = next(iter(syms))
-    else:
-        sym = syms
+    if isinstance(func, bool):  # legacy positional ``evaluate``
+        evaluate, func = func, None
+    patterns = list(syms) if isinstance(syms, (list, tuple, set)) else [syms]
+    patterns = [sympify(p) for p in patterns]
+    if evaluate:
+        if isinstance(expr, Mul):
+            return Mul(*[collect(a, patterns, func, True, exact) for a in expr.args])
+        if isinstance(expr, Pow):
+            return Pow(collect(expr.args[0], patterns, func, True, exact), expr.args[1])
+        if isinstance(expr, Add):
+            expr = Add(*[collect(a, patterns, func, True, exact) for a in expr.args])
 
-    if not isinstance(expr, Add):
-        return expr
+    order: list = []
+    groups: dict = {}
+    for term in Add.make_args(expr):
+        placed = False
+        for pat in patterns:
+            m = _collect_match(term, pat)
+            if m is None:
+                continue
+            key, coeff = m
+            if exact and coeff.free_symbols & pat.free_symbols:
+                continue
+            if key not in groups:
+                groups[key] = []
+                order.append(key)
+            groups[key].append(coeff)
+            placed = True
+            break
+        if not placed:
+            one = Integer(1)
+            if one not in groups:
+                groups[one] = []
+                order.append(one)
+            groups[one].append(term)
 
-    coeff_map: dict[Any, list[Any]] = {}
-    rest: list[Any] = []
-    for term in expr.args:
-        if term == sym:
-            coeff_map.setdefault(1, []).append(Integer(1))
-        elif isinstance(term, Pow) and term.args[0] == sym:
-            coeff_map.setdefault(term.args[1], []).append(Integer(1))
-        elif isinstance(term, Mul) and sym in term.args:
-            factors = [f for f in term.args if f != sym]
-            c = Mul(*factors) if len(factors) > 1 else factors[0] if factors else Integer(1)
-            coeff_map.setdefault(1, []).append(c)
-        else:
-            found = False
-            if isinstance(term, Mul):
-                for i, f in enumerate(term.args):
-                    if isinstance(f, Pow) and f.args[0] == sym:
-                        factors = [term.args[j] for j in range(len(term.args)) if j != i]
-                        c = Mul(*factors) if len(factors) > 1 else factors[0] if factors else Integer(1)
-                        coeff_map.setdefault(f.args[1], []).append(c)
-                        found = True
-                        break
-            if not found:
-                rest.append(term)
-
-    res_terms: list[Any] = []
-    for p, coeffs in coeff_map.items():
-        c_expr = Add(*coeffs) if len(coeffs) > 1 else coeffs[0]
-        term = sym if p == 1 else Pow(sym, p)
-        res_terms.append(Mul(term, c_expr, evaluate=evaluate))
-    if rest:
-        res_terms.extend(rest)
-    if not res_terms:
-        return Integer(0)
-    return Add(*res_terms, evaluate=evaluate) if len(res_terms) > 1 else res_terms[0]
+    collected = {}
+    for key in order:
+        c = Add(*groups[key])
+        if func is not None:
+            c = func(c)
+        collected[key] = c
+    if not evaluate:
+        return collected
+    return Add(*[k * c for k, c in collected.items()])
 
 
 def separatevars(expr: Any, symbols: Any = None, dict: bool = False) -> Any:

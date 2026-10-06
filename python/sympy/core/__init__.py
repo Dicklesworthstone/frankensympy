@@ -3593,6 +3593,14 @@ class AssocOp(Basic):
 
     __slots__ = ()
 
+    @classmethod
+    def make_args(cls, expr: Any) -> tuple:
+        """``expr.args`` when ``expr`` is a ``cls`` node, else ``(expr,)``."""
+        expr = sympify(expr)
+        if isinstance(expr, cls):
+            return tuple(expr.args)
+        return (expr,)
+
 
 AssocOp.__module__ = "sympy.core.operations"
 

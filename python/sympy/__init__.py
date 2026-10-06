@@ -161,6 +161,31 @@ def integrate(expression, *variables):
         return Integral(expression, symbol)
 
 
+def _solve_rational_fallback(expr, symbol):
+    """Roots of a rational equation ``N/D = 0`` the native lanes reject:
+    the numerator of ``together(expr)`` is solved and roots that make the
+    denominator vanish are discarded. None when this changes nothing."""
+    from .polys import together as _together
+
+    num, den = fraction(_together(expr))
+    if symbol not in den.free_symbols:
+        return None
+    num = expand(num)
+    if num == expr or symbol not in num.free_symbols:
+        return None
+    try:
+        cands = solve(num, symbol)
+    except (ValueError, NotImplementedError):
+        return None
+    out = []
+    for r in cands:
+        d = expand(den.subs(symbol, r))
+        if d == 0 or simplify(d) == 0:
+            continue
+        out.append(r)
+    return out
+
+
 def solve(expression, *symbols, **flags):
     """Solve the algebraic equation or system of equations ``expression == 0``."""
     dict_flag = bool(flags.get("dict", False))
@@ -321,8 +346,11 @@ def solve(expression, *symbols, **flags):
         msg = str(exc)
         if "No solution found" in msg or "Infinite solutions" in msg:
             return []
-        raise
-    roots = [_parse_result(r) for r in results]
+        roots = _solve_rational_fallback(expr, symbol)
+        if roots is None:
+            raise
+    else:
+        roots = [_parse_result(r) for r in results]
     if dict_flag:
         return [{symbol: r} for r in roots]
     if set_flag:
@@ -996,6 +1024,7 @@ from .polys import (
     sqf_list,
     sqf_part,
     sturm,
+    terms_gcd,
     together,
     trailing_coeff,
 )
@@ -2059,6 +2088,7 @@ __all__ = [
     "sqf_list",
     "sqf_part",
     "sturm",
+    "terms_gcd",
     "srepr",
     "sstr",
     "sstr",

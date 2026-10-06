@@ -830,6 +830,103 @@ def resultant(p: Any, q: Any, x: Any = None) -> Any:
     return poly_p.resultant(q)
 
 
+def _decompose_power(f: Any) -> tuple:
+    """``f = base**e`` with integer ``e`` (upstream ``decompose_power``):
+    ``exp(3*x)`` is ``(exp(x), 3)``, ``x**(3/2)`` is ``(sqrt(x), 3)``;
+    a negative power flips to the reciprocal generator."""
+    from ..core import Pow as _Pow, Rational as _Rat, expand as _expand
+    from ..functions import exp as _exp
+
+    if isinstance(f, _Pow):
+        base, e = f.args
+    elif type(f).__name__ == "exp":
+        base, e = None, f.args[0]
+    else:
+        return f, 1
+    if isinstance(e, _Rat):
+        if base is None:
+            return f, 1
+        if e.q != 1:
+            base = _Pow(base, _Rat(1, e.q))
+        k = int(e.p)
+    else:
+        c = _Rat(1)
+        tail = e
+        if type(e).__name__ == "Mul" and isinstance(e.args[0], _Rat):
+            c = e.args[0]
+            tail = _expand(e / c)
+        k = int(c.p)
+        tail = tail / int(c.q)
+        base = _exp(tail) if base is None else _Pow(base, tail)
+    if k < 0:
+        return 1 / base, -k
+    return base, k
+
+
+def terms_gcd(f: Any, *gens: Any, clear: bool = True, deep: bool = False, expand: bool = True, **_: Any) -> Any:
+    """Remove the GCD of the terms of ``f`` (upstream ``terms_gcd``): the
+    common monomial and numeric content come out as a factor. Generators
+    are read structurally (``exp(3*x)`` is ``exp(x)**3``); nothing is
+    expanded, so ``expand`` only matters for upstream signature parity."""
+    from fractions import Fraction as _F
+    from math import gcd as _gcd, lcm as _lcm
+    from ..core import Add as _Add, Eq as _Eq, Integer as _Int, Mul as _Mul, Rational as _Rat, sympify as _s
+
+    del gens, expand
+    orig = _s(f)
+    if type(orig).__name__ in ("Equality",) or isinstance(orig, _Eq):
+        return _Eq(*(terms_gcd(a, clear=clear, deep=deep) for a in (orig.lhs, orig.rhs)))
+    args = getattr(orig, "args", ())
+    if not args:
+        return orig
+    if deep:
+        new = orig.func(*[terms_gcd(a, clear=clear, deep=True) for a in args])
+        return terms_gcd(new, clear=clear)
+    if not isinstance(orig, _Add):
+        return orig
+    rows = []
+    for t in orig.args:
+        coeff = _F(1)
+        mono: dict = {}
+        for fac in _Mul.make_args(t):
+            if isinstance(fac, _Rat):
+                coeff *= _F(int(fac.p), int(fac.q))
+                continue
+            if not fac.free_symbols and not isinstance(fac, _Rat) and fac.is_number and type(fac).__name__ in ("Float", "ImaginaryUnit"):
+                return orig
+            b, k = _decompose_power(fac)
+            mono[b] = mono.get(b, 0) + k
+        rows.append((coeff, mono))
+    common = dict(rows[0][1])
+    for _, mono in rows[1:]:
+        common = {b: min(k, mono[b]) for b, k in common.items() if b in mono}
+    common = {b: k for b, k in common.items() if k > 0}
+    den = 1
+    for c, _ in rows:
+        den = _lcm(den, c.denominator)
+    num = 0
+    for c, _ in rows:
+        num = _gcd(num, int(c * den))
+    content = _F(num, den)
+    if content == 1 and not common:
+        return orig
+    term = _Mul(*[b ** k for b, k in common.items()])
+    reduced = []
+    for c, mono in rows:
+        rest = _Mul(*[b ** (k - common.get(b, 0)) for b, k in mono.items()])
+        q = c / content
+        reduced.append(_Rat(q.numerator, q.denominator) * rest)
+    poly_part = _Add(*reduced)
+    k = _Rat(content.numerator, content.denominator)
+    if not clear and content.denominator != 1:
+        # clear=False (upstream ``_keep_coeff``) distributes the fractional
+        # content back when that leaves some term an integer coefficient.
+        if any(c.denominator == 1 for c, _ in rows):
+            poly_part = _Add(*[k * r for r in reduced])
+            k = _Int(1)
+    return _Mul(k, term, poly_part)
+
+
 def discriminant(p: Any, x: Any = None) -> Any:
     """Discriminant ``(-1)**(n(n-1)/2) * res(p, p') / lc(p)``."""
     from ..core import diff as _diff, expand, sympify as _sympify
@@ -1719,5 +1816,6 @@ __all__ = [
     "sqf_part",
     "sturm",
     "together",
+    "terms_gcd",
     "trailing_coeff",
 ]

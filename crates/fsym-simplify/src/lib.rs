@@ -781,15 +781,16 @@ fn expand_at<M: BudgetMeter>(expr: &Expr, depth: usize, m: &mut M) -> Result<Exp
                 for a in &current {
                     for b in &next_terms {
                         // Oracle-pinned: expand() distributes but does NOT
-                        // combine exp products (expand(exp(x)*exp(y)) keeps
-                        // the Mul) - the per-product cleanup is
-                        // arithmetic-only (Construction mode).
+                        // combine exp products with distinct exponents
+                        // (expand(exp(x)*exp(y)) keeps the Mul) - the
+                        // per-product cleanup is arithmetic-only
+                        // (Construction mode). The product itself goes
+                        // through canonical Mul construction, which merges
+                        // like exponents as upstream Mul.flatten does
+                        // (exp(-x)*exp(x) -> 1, exp(x)*exp(2*x) -> exp(3*x)).
                         product_terms.push(
-                            simplify_counting_folds_no_trig(
-                                &Expr::Mul(vec![a.clone(), b.clone()]),
-                                m,
-                            )
-                            .map(|(s, _)| s)?,
+                            simplify_counting_folds_no_trig(&(a.clone() * b.clone()), m)
+                                .map(|(s, _)| s)?,
                         );
                     }
                 }

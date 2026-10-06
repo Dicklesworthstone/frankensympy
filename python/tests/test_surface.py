@@ -2316,6 +2316,55 @@ class SurfaceTests(unittest.TestCase):
         sol_sep = dsolve_separable_linear(2 * x, x)
         self.assertTrue("C1" in str(sol_sep))
 
+    def test_dsolve_upstream_forms_and_validity(self):
+        # Oracle-pinned (SymPy 1.14) dsolve outputs: characteristic and
+        # Cauchy-Euler bases, undetermined coefficients, collect/terms_gcd
+        # shaping and constant renumbering; each is also substituted back.
+        x = sympy.Symbol("x")
+        f = sympy.Function("f")
+        D = lambda k: f(x).diff(x, k) if k > 1 else f(x).diff(x)  # noqa: E731
+        cases = [
+            (D(2) + f(x) - sympy.sin(x), "Eq(f(x), C2*sin(x) + (C1 - x/2)*cos(x))"),
+            (D(2) - 2 * D(1) + f(x) - sympy.exp(x), "Eq(f(x), (C1 + x*(C2 + x/2))*exp(x))"),
+            (D(3) - f(x), "Eq(f(x), C3*exp(x) + (C1*sin(sqrt(3)*x/2) + C2*cos(sqrt(3)*x/2))*exp(-x/2))"),
+            (D(3) - 3 * D(2) + 3 * D(1) - f(x), "Eq(f(x), (C1 + x*(C2 + C3*x))*exp(x))"),
+            (x**2 * D(2) + x * D(1) - f(x), "Eq(f(x), C1/x + C2*x)"),
+            (x**2 * D(2) - x * D(1) + f(x), "Eq(f(x), x*(C1 + C2*log(x)))"),
+            (x**2 * D(2) + x * D(1) + f(x), "Eq(f(x), C1*sin(log(x)) + C2*cos(log(x)))"),
+            (D(1) - f(x) * (1 - f(x)), "Eq(f(x), 1/(C1*exp(-x) + 1))"),
+            (D(1) - f(x) ** 2, "Eq(f(x), -1/(C1 + x))"),
+            (D(1) - x * f(x) ** 2, "Eq(f(x), -2/(C1 + x**2))"),
+            (D(1) - 3 * f(x) - sympy.exp(2 * x), "Eq(f(x), (C1*exp(x) - 1)*exp(2*x))"),
+            (D(1) - (1 + f(x) ** 2) * x, "Eq(f(x), tan(C1 + x**2/2))"),
+            (D(1) - 1 / f(x), "[Eq(f(x), -sqrt(C1 + 2*x)), Eq(f(x), sqrt(C1 + 2*x))]"),
+        ]
+        for eq, expected in cases:
+            sol = sympy.dsolve(eq, f(x))
+            self.assertEqual(str(sol), expected)
+            for s in sol if isinstance(sol, list) else [sol]:
+                resid = eq.subs(f(x), s.rhs).doit()
+                self.assertEqual(sympy.simplify(resid), 0, (eq, s))
+
+    def test_collect_terms_gcd_and_rational_solve(self):
+        x, y, a, b, C1, C2 = sympy.symbols("x y a b C1 C2")
+        E = sympy.exp
+        self.assertEqual(
+            str(sympy.collect(C1 * E(x) + C2 * x * E(x) + x**2 * E(x) / 2, x * E(x))),
+            "C1*exp(x) + x*(C2 + x/2)*exp(x)",
+        )
+        self.assertEqual(
+            sympy.collect(a * x**2 + b * x**2 + a * x - b * x + y, x, evaluate=False),
+            {sympy.Integer(1): y, x: a - b, x**2: a + b},
+        )
+        self.assertEqual(str(sympy.collect(a * E(2 * x) + b * E(2 * x), E(x))), "(a + b)*exp(2*x)")
+        self.assertEqual(str(sympy.terms_gcd(C1 * E(3 * x) - E(2 * x))), "(C1*exp(x) - 1)*exp(2*x)")
+        self.assertEqual(str(sympy.terms_gcd(x / 2 + x**2 / 4, clear=False)), "x*(x + 2)/4")
+        self.assertEqual(str(sympy.expand((1 - C1 * E(x)) * (-E(-x) / C1))), "1 - exp(-x)/C1")
+        # Rational equations and negative even powers keep every branch.
+        self.assertEqual(sympy.solve(x / (y + 1) - 2, y), [x / 2 - 1])
+        self.assertEqual(sympy.solve(1 / y**2 - x, y), [-sympy.sqrt(1 / x), sympy.sqrt(1 / x)])
+        self.assertEqual(sympy.solve((y**2 - 1) / (y - 1), y), [-1])
+
     def test_poly_system_solvers(self):
         from sympy.solvers import nonlinsolve, solve_poly_system
         self.assertIs(solve_poly_system, sympy.solve_poly_system)

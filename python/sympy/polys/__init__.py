@@ -36,6 +36,7 @@ from .polytools import (
     sqf_list,
     sqf_part,
     sturm,
+    terms_gcd,
     together,
     trailing_coeff,
 )
@@ -76,6 +77,7 @@ __all__ = [
     "sqf_list",
     "sqf_part",
     "sturm",
+    "terms_gcd",
     "together",
     "trailing_coeff",
 ]

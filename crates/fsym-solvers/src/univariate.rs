@@ -360,7 +360,10 @@ fn invert(lhs: &Expr, rhs: Expr, x: &Symbol, depth: usize) -> Result<Vec<Expr>, 
                     }
                     let principal = eval_pow(rhs, q(1, n));
                     let mut out = Vec::new();
-                    for k in 0..n {
+                    // Square roots list the negative branch first, as
+                    // upstream solve orders -sqrt(r), sqrt(r).
+                    let order: Vec<i64> = if n == 2 { vec![1, 0] } else { (0..n).collect() };
+                    for k in order {
                         let cand =
                             expand(&(principal.clone() * unit_root(k, n, BigRational::zero())));
                         out.extend(invert(b, cand, x, depth + 1)?);
@@ -372,8 +375,12 @@ fn invert(lhs: &Expr, rhs: Expr, x: &Symbol, depth: usize) -> Result<Vec<Expr>, 
                     let inv = rq(BigRational::one() / v);
                     invert(b, eval_pow(rhs, inv), x, depth + 1)
                 }
-                Some(v) if v.is_negative() => {
-                    invert(b, eval_pow(rhs, rq(BigRational::one() / v)), x, depth + 1)
+                Some(v) if v.is_negative() && !is_free_of(b, x) => {
+                    // b**(-n) = rhs -> b**n = 1/rhs: every n-th root
+                    // branch, not only the principal one (1/y**2 = x has
+                    // y = -1/sqrt(x) and y = 1/sqrt(x)).
+                    let pos = eval_pow((**b).clone(), rq(-v));
+                    invert(&pos, eval_pow(rhs, Expr::from_i64(-1)), x, depth + 1)
                 }
                 _ => Err(SolverError::NonLinear),
             }
