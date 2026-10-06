@@ -156,6 +156,77 @@ def _extract_facts(assumptions: Any) -> list[tuple[str, str]]:
     return []
 
 
+_SYMBOL_FACTS = (
+    "positive", "negative", "nonnegative", "nonpositive", "zero", "nonzero",
+    "real", "integer", "rational", "even", "odd", "prime", "finite", "infinite",
+    "complex", "imaginary", "irrational", "composite", "extended_real",
+)
+
+
+def _fact_pairs(assumptions: Any) -> list | None:
+    """(expr, predicate name) pairs of a conjunction of applied predicates;
+    None when the assumptions are not a plain conjunction."""
+    from ..logic.boolalg import And
+
+    if assumptions is None or assumptions is True:
+        return []
+    if isinstance(assumptions, AppliedPredicate):
+        return [(assumptions.expr, assumptions.predicate.name)]
+    if isinstance(assumptions, (list, tuple, set, frozenset, AssumptionsContext)):
+        out: list = []
+        for item in assumptions:
+            sub = _fact_pairs(item)
+            if sub is None:
+                return None
+            out.extend(sub)
+        return out
+    if isinstance(assumptions, And):
+        out = []
+        for item in assumptions.args:
+            sub = _fact_pairs(item)
+            if sub is None:
+                return None
+            out.extend(sub)
+        return out
+    return None
+
+
+def _ask_via_properties(expr: Any, pred: str, pairs: list) -> bool | None:
+    """Answer through the shell's exact assumption properties, with each
+    symbol that carries given facts replaced by a fresh symbol declaring
+    them together with its own assumptions."""
+    from ..core import Dummy, sympify
+
+    expr = sympify(expr)
+    attr = "is_" + pred
+    by_symbol: dict = {}
+    for target, name in pairs:
+        if isinstance(target, Symbol) and name in _SYMBOL_FACTS:
+            by_symbol.setdefault(target, []).append(name)
+    if by_symbol:
+        mapping = {}
+        for sym, names in by_symbol.items():
+            declared = {k: v for k, v in getattr(sym, "_assumptions", {}).items()}
+            for n in names:
+                if declared.get(n) is False:
+                    raise ValueError("inconsistent assumptions %s" % pairs)
+                declared[n] = True
+            try:
+                # Dummy carries no assumptions in this profile; a private
+                # symbol name keeps the replacement distinct from user atoms.
+                mapping[sym] = Symbol("_fsym_ask_" + sym.name, **declared)
+            except Exception:
+                return None
+        try:
+            expr = expr.subs(mapping)
+        except Exception:
+            return None
+    value = getattr(expr, attr, None)
+    if value is None or callable(value):
+        return None
+    return bool(value) if isinstance(value, bool) else None
+
+
 def ask(query: Any, assumptions: Any = None) -> bool | None:
     """Evaluate an assumption query in multi-valued logic.
 
@@ -198,6 +269,17 @@ def ask(query: Any, assumptions: Any = None) -> bool | None:
 
     if isinstance(assumptions, AssumptionsContext):
         return assumptions.is_true(expr, pred_name)
+
+    pairs = _fact_pairs(assumptions)
+    global_pairs = _fact_pairs(global_assumptions) or []
+    if pairs is not None:
+        # A fact about the queried expression itself decides directly.
+        for target, name in pairs + global_pairs:
+            if target == expr and name == pred_name:
+                return True
+        answer = _ask_via_properties(expr, pred_name, pairs + global_pairs)
+        if answer is not None:
+            return answer
 
     facts = _extract_facts(global_assumptions)
     if assumptions is not None and assumptions is not True:

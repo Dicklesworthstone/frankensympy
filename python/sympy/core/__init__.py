@@ -1154,6 +1154,136 @@ _SIGN_ZERO = frozenset({0})
 _SIGN_ALL = frozenset({-1, 0, 1})
 
 
+_FACT_UNKNOWN = {
+    "integer": None, "rational": None, "even": None, "odd": None,
+    "irrational": None, "imaginary": None, "finite": None,
+}
+
+
+def _num_facts(e: Any, depth: int = 0) -> dict:
+    """Exact integer/rational/parity/irrationality facts of ``e`` derived
+    structurally (upstream ``_eval_is_integer`` and friends): every value
+    is True, False or None (unknown); nothing is guessed."""
+    out = dict(_FACT_UNKNOWN)
+    if depth > 40:
+        return out
+    if isinstance(e, Rational):
+        integer = e.q == 1
+        out.update(integer=integer, rational=True, irrational=False, imaginary=False, finite=True)
+        out["even"] = integer and e.p % 2 == 0
+        out["odd"] = integer and e.p % 2 != 0
+        return out
+    if isinstance(e, Symbol):
+        get = e._get_assumption
+        integer = get("integer")
+        even, odd = get("even"), get("odd")
+        if even or odd:
+            integer = True
+        rational = get("rational")
+        if integer:
+            rational = True
+        out.update(integer=integer, rational=rational, even=even, odd=odd)
+        if integer is True and even is None and odd is True:
+            out["even"] = False
+        if integer is True and odd is None and even is True:
+            out["odd"] = False
+        if rational is True:
+            out["irrational"] = False
+        real = get("real")
+        if real is True or rational is True:
+            out["imaginary"] = False
+        out["finite"] = get("finite")
+        if rational is True or integer is True or real is True:
+            out["finite"] = True if out["finite"] is None else out["finite"]
+        return out
+    if type(e) is Expr and not e.args:
+        text = str(e._value)
+        if text in ("pi", "E", "EulerGamma", "GoldenRatio", "Catalan"):
+            irr = text in ("pi", "E", "GoldenRatio")
+            out.update(integer=False, rational=False if irr else None, even=False, odd=False,
+                       irrational=True if irr else None, imaginary=False, finite=True)
+        elif text == "I":
+            out.update(integer=False, rational=False, even=False, odd=False,
+                       irrational=False, imaginary=True, finite=True)
+        elif text in ("oo", "-oo", "zoo"):
+            out.update(integer=False, rational=False, even=False, odd=False,
+                       irrational=False, imaginary=False, finite=False)
+        return out
+    args = getattr(e, "args", ()) or ()
+    if isinstance(e, Add):
+        fs = [_num_facts(a, depth + 1) for a in args]
+        if all(f["finite"] is True for f in fs):
+            out["finite"] = True
+        if all(f["integer"] is True for f in fs):
+            out.update(integer=True, rational=True, irrational=False)
+            if all(f["odd"] is not None for f in fs):
+                odd = sum(1 for f in fs if f["odd"]) % 2 == 1
+                out.update(odd=odd, even=not odd)
+            return out
+        if all(f["rational"] is True for f in fs):
+            out.update(rational=True, irrational=False)
+            nonint = [f for f in fs if f["integer"] is False]
+            if len(nonint) == 1 and all(f["integer"] is True for f in fs if f is not nonint[0]):
+                out.update(integer=False, even=False, odd=False)
+            return out
+        irr = [f for f in fs if f["irrational"] is True]
+        if len(irr) == 1 and all(f["rational"] is True for f in fs if f is not irr[0]):
+            out.update(irrational=True, rational=False, integer=False, even=False, odd=False)
+        return out
+    if isinstance(e, Mul):
+        fs = [_num_facts(a, depth + 1) for a in args]
+        if all(f["finite"] is True for f in fs):
+            out["finite"] = True
+        if all(f["integer"] is True for f in fs):
+            out.update(integer=True, rational=True, irrational=False)
+            if any(f["even"] is True for f in fs):
+                out.update(even=True, odd=False)
+            elif all(f["odd"] is True for f in fs):
+                out.update(odd=True, even=False)
+            return out
+        if all(f["rational"] is True for f in fs):
+            out.update(rational=True, irrational=False)
+            return out
+        irr = [f for f in fs if f["irrational"] is True]
+        others = [a for a, f in zip(args, fs) if f["irrational"] is not True]
+        if len(irr) == 1 and all(
+            _num_facts(a, depth + 1)["rational"] is True and getattr(a, "is_zero", None) is False
+            for a in others
+        ):
+            out.update(irrational=True, rational=False, integer=False, even=False, odd=False)
+        return out
+    if isinstance(e, Pow):
+        b, x = args
+        fb = _num_facts(b, depth + 1)
+        if isinstance(x, Integer):
+            k = x.p
+            if k >= 0:
+                if fb["integer"] is True:
+                    out.update(integer=True, rational=True, irrational=False)
+                    if k > 0 and fb["even"] is not None:
+                        out.update(even=fb["even"], odd=not fb["even"])
+                    elif k == 0:
+                        out.update(even=False, odd=True)
+                elif fb["rational"] is True:
+                    out.update(rational=True, irrational=False)
+            elif fb["rational"] is True and getattr(b, "is_zero", None) is False:
+                out.update(rational=True, irrational=False)
+            if fb["finite"] is True and (k >= 0 or getattr(b, "is_zero", None) is False):
+                out["finite"] = True
+            return out
+        if isinstance(b, Rational) and b.p > 0 and isinstance(x, Rational):
+            # The kernel extracts perfect powers, so a surviving rational
+            # power of a positive rational is irrational.
+            out.update(irrational=True, rational=False, integer=False, even=False, odd=False,
+                       imaginary=False, finite=True)
+        return out
+    name = type(e).__name__
+    if name in ("factorial", "binomial", "fibonacci", "lucas", "subfactorial", "catalan", "bell"):
+        if all(_num_facts(a, depth + 1)["integer"] is True for a in args):
+            out.update(integer=True, rational=True, irrational=False, finite=True)
+    return out
+
+
 def _sign_info(e: Any, depth: int = 0) -> tuple:
     """(is_real, possible_signs) inferred structurally; signs is a subset of
     {-1, 0, 1} for real values, None when unknown. Never numeric."""
@@ -1597,26 +1727,53 @@ class Expr(Basic):
 
     @property
     def is_complex(self) -> bool | None:
+        if _num_facts(self)["finite"] is True:
+            return True
         return None
 
     @property
     def is_rational(self) -> bool | None:
-        return None
+        return _num_facts(self)["rational"]
+
+    @property
+    def is_irrational(self) -> bool | None:
+        return _num_facts(self)["irrational"]
 
     @property
     def is_integer(self) -> bool | None:
-        return None
+        return _num_facts(self)["integer"]
 
     @property
     def is_even(self) -> bool | None:
-        return None
+        return _num_facts(self)["even"]
 
     @property
     def is_odd(self) -> bool | None:
+        return _num_facts(self)["odd"]
+
+    @property
+    def is_imaginary(self) -> bool | None:
+        f = _num_facts(self)
+        if f["imaginary"] is not None:
+            return f["imaginary"]
+        if self.is_real is True:
+            return False
         return None
 
     @property
+    def is_commutative(self) -> bool:
+        return True
+
+    @property
     def is_prime(self) -> bool | None:
+        if _num_facts(self)["integer"] is False:
+            return False
+        return None
+
+    @property
+    def is_composite(self) -> bool | None:
+        if _num_facts(self)["integer"] is False:
+            return False
         return None
 
     @property
@@ -1629,11 +1786,12 @@ class Expr(Basic):
 
     @property
     def is_finite(self) -> bool | None:
-        return None
+        return _num_facts(self)["finite"]
 
     @property
     def is_infinite(self) -> bool | None:
-        return None
+        f = _num_facts(self)["finite"]
+        return None if f is None else not f
 
     def diff(self, *variables: Any) -> "Expr":
         return diff(self, *variables)
@@ -2663,6 +2821,28 @@ class Rational(Number):
     @property
     def is_integer(self) -> bool:
         return self.q == 1
+
+    @property
+    def is_even(self) -> bool:
+        return self.q == 1 and self.p % 2 == 0
+
+    @property
+    def is_odd(self) -> bool:
+        return self.q == 1 and self.p % 2 != 0
+
+    @property
+    def is_prime(self) -> bool:
+        if self.q != 1 or self.p < 2:
+            return False
+        from ..ntheory import isprime as _isprime
+
+        return bool(_isprime(int(self.p)))
+
+    @property
+    def is_composite(self) -> bool:
+        if self.q != 1 or self.p < 4:
+            return False
+        return not self.is_prime
 
 
 class Integer(Rational):
