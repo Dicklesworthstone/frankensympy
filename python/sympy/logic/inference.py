@@ -109,11 +109,10 @@ def pl_true(expr: Any, model: dict[Any, bool] | None = None) -> bool | None:
             return None
         return all(v == vals[0] for v in vals)
     if isinstance(expr, Xor):
-        a_val = pl_true(expr.args[0], model)
-        b_val = pl_true(expr.args[1], model)
-        if a_val is None or b_val is None:
+        vals = [pl_true(a, model) for a in expr.args]
+        if None in vals:
             return None
-        return a_val != b_val
+        return sum(vals) % 2 == 1
     if isinstance(expr, Nand):
         a = pl_true(And(*expr.args), model)
         return None if a is None else not a
@@ -130,7 +129,7 @@ def pl_true(expr: Any, model: dict[Any, bool] | None = None) -> bool | None:
         if c_val is False:
             return pl_true(expr.args[2], model)
         return None
-    return None
+    return model.get(expr, None)
 
 
 __all__ = [

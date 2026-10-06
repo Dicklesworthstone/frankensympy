@@ -1881,7 +1881,7 @@ class SurfaceTests(unittest.TestCase):
         sop = SOPform([x, y], [3])
         self.assertEqual(sop, x & y)
         pos = POSform([x, y], [0])
-        self.assertEqual(pos, x | y)
+        self.assertEqual(pos, ~x & ~y)  # oracle: POSform([x, y], [0])
 
         # Multi-model satisfiability
         models = list(satisfiable(x | y, all_models=True))

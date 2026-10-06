@@ -3149,6 +3149,33 @@ class Relational(Expr):
     def __bool__(self) -> bool:
         raise TypeError("cannot determine truth value of Relational")
 
+    @property
+    def negated(self) -> "Relational":
+        """The logical complement (upstream ``Relational.negated``)."""
+        inverse = {
+            "==": Unequality, "!=": Equality, "<": GreaterThan,
+            "<=": StrictGreaterThan, ">": LessThan, ">=": StrictLessThan,
+        }[self.rel_op]
+        return inverse(self.lhs, self.rhs, evaluate=False)
+
+    @property
+    def canonical(self) -> "Relational":
+        """Upstream ``canonical`` (subset): numbers move to the right side."""
+        lhs, rhs = self.lhs, self.rhs
+        if _exact_ratio(lhs) is not None and _exact_ratio(rhs) is None:
+            return self.reversed
+        if not lhs.free_symbols and rhs.free_symbols:
+            return self.reversed
+        return self
+
+    @property
+    def reversed(self) -> "Relational":
+        flipped = {
+            "==": Equality, "!=": Unequality, "<": StrictGreaterThan,
+            "<=": GreaterThan, ">": StrictLessThan, ">=": LessThan,
+        }[self.rel_op]
+        return flipped(self.rhs, self.lhs, evaluate=False)
+
     def subs(self, *args: Any, **kwargs: Any) -> Any:
         return type(self)(self.lhs.subs(*args, **kwargs), self.rhs.subs(*args, **kwargs))
 
