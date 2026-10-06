@@ -456,6 +456,41 @@ impl Expr {
     /// Working precision doubles deterministically when composition amplifies
     /// uncertainty; failure to meet the target within the declared precision
     /// envelope is refused. Existing arithmetic/resource refusals propagate.
+    /// `digits` significant decimal digits of a real constant, correctly
+    /// rounded (half-even on the certified midpoint once both ball ends
+    /// round identically). Returns `(sign_and_digits, decimal_exponent)` as
+    /// a scientific string `d.ddd...e<exp>`; refuses when the enclosure
+    /// cannot separate the rounding or the value is not a real constant.
+    pub fn evalf_decimal(&self, digits: u32) -> Result<String, CoreError> {
+        if digits == 0 || digits > 1000 {
+            return Err(CoreError::InvalidOperation(
+                "digits must be in 1..=1000".into(),
+            ));
+        }
+        let mut extra = 10u32;
+        for _ in 0..5 {
+            let ball = self.evalf_ball(digits + extra)?;
+            let lo = ball.lower();
+            let hi = ball.upper();
+            if ball.contains_zero() {
+                if lo.is_zero() && hi.is_zero() {
+                    return Ok("0".to_string());
+                }
+                extra *= 2;
+                continue;
+            }
+            let (a, ea) = round_significant(&lo, digits);
+            let (b, eb) = round_significant(&hi, digits);
+            if a == b && ea == eb {
+                return Ok(format!("{a}e{ea}"));
+            }
+            extra *= 2;
+        }
+        Err(CoreError::InvalidOperation(
+            "certified enclosure could not separate the requested rounding".into(),
+        ))
+    }
+
     pub fn evalf_ball(&self, precision_digits: u32) -> Result<RealBall, CoreError> {
         let maximum = RealBall::MAX_TRANSCENDENTAL_PRECISION_DIGITS;
         if precision_digits == 0 || precision_digits > maximum {
@@ -529,7 +564,21 @@ impl Expr {
                         Some(exp_i32) => map(base_ball.pow(exp_i32)),
                         None => refuse("integer power exponent out of range"),
                     },
-                    None => refuse("non-integer power"),
+                    None => {
+                        // b**e = exp(e*ln(b)) over a positive base ball;
+                        // half-integer exponents go through the exact sqrt.
+                        if let Expr::Rational(r) = exponent.as_ref()
+                            && r.denom() == &BigInt::from(2)
+                            && let Some(p) = r.numer().to_i32()
+                        {
+                            let bits = precision_digits.saturating_mul(4).saturating_add(64);
+                            let root = map(base_ball.sqrt(bits))?;
+                            return map(root.pow(p));
+                        }
+                        let e = exponent.evalf_ball_at_working_precision(precision_digits)?;
+                        let l = map(base_ball.ln(precision_digits + 4))?;
+                        map(l.mul(&e).exp(precision_digits))
+                    }
                 }
             }
             Expr::Function(name, args) => {
@@ -541,6 +590,50 @@ impl Expr {
                     "sin" => map(arg.sin(precision_digits)),
                     "cos" => map(arg.cos(precision_digits)),
                     "exp" => map(arg.exp(precision_digits)),
+                    "log" | "ln" => map(arg.ln(precision_digits)),
+                    "atan" => map(arg.atan(precision_digits)),
+                    "tan" => {
+                        let s = map(arg.sin(precision_digits + 4))?;
+                        let c = map(arg.cos(precision_digits + 4))?;
+                        map(s.div(&c))
+                    }
+                    "cot" | "sec" | "csc" => {
+                        let s = map(arg.sin(precision_digits + 4))?;
+                        let c = map(arg.cos(precision_digits + 4))?;
+                        match name.as_str() {
+                            "cot" => map(c.div(&s)),
+                            "sec" => map(c.inv()),
+                            _ => map(s.inv()),
+                        }
+                    }
+                    "sinh" | "cosh" | "tanh" => {
+                        let ep = map(arg.exp(precision_digits + 4))?;
+                        let em = map(arg.neg().exp(precision_digits + 4))?;
+                        let two = RealBall::from_i64(2);
+                        match name.as_str() {
+                            "sinh" => map(ep.sub(&em).div(&two)),
+                            "cosh" => map(ep.add(&em).div(&two)),
+                            _ => map(ep.sub(&em).div(&ep.add(&em))),
+                        }
+                    }
+                    "asin" | "acos" => {
+                        let one = RealBall::from_i64(1);
+                        let bits = precision_digits.saturating_mul(4).saturating_add(64);
+                        let root = map(one.sub(&arg.mul(&arg)).sqrt(bits))?;
+                        let asin = map(map(arg.div(&root))?.atan(precision_digits + 4))?;
+                        if name == "asin" {
+                            Ok(asin)
+                        } else {
+                            let half_pi = map(map(RealBall::pi(precision_digits + 4))?
+                                .div(&RealBall::from_i64(2)))?;
+                            Ok(half_pi.sub(&asin))
+                        }
+                    }
+                    "Abs" => Ok(arg.abs()),
+                    "sqrt" => {
+                        let bits = precision_digits.saturating_mul(4).saturating_add(64);
+                        map(arg.sqrt(bits))
+                    }
                     other => refuse(&format!("function `{other}`")),
                 }
             }
@@ -549,6 +642,50 @@ impl Expr {
             )),
         }
     }
+}
+
+/// `q` rounded to `digits` significant digits: ("-d.ddd", exponent).
+fn round_significant(q: &BigRational, digits: u32) -> (String, i64) {
+    let negative = q.numer().is_negative();
+    let a = if negative { -q.clone() } else { q.clone() };
+    // exponent e with 10^e <= a < 10^(e+1)
+    let mut e: i64 = a.numer().to_string().len() as i64 - a.denom().to_string().len() as i64;
+    let ten = BigRational::from_integer(BigInt::from(10));
+    let pow10 = |k: i64| -> BigRational {
+        if k >= 0 {
+            BigRational::from_integer(BigInt::from(10).pow(k as u32))
+        } else {
+            BigRational::new(BigInt::from(1), BigInt::from(10).pow((-k) as u32))
+        }
+    };
+    while a >= pow10(e + 1) {
+        e += 1;
+    }
+    while a < pow10(e) {
+        e -= 1;
+    }
+    let scaled = a.clone() * pow10(i64::from(digits) - 1 - e);
+    // round half to even
+    let fl = scaled.numer().clone() / scaled.denom().clone();
+    let frac = scaled.clone() - BigRational::from_integer(fl.clone());
+    let half = BigRational::new(BigInt::from(1), BigInt::from(2));
+    let mut n = fl.clone();
+    if frac > half || (frac == half && (fl.clone() % BigInt::from(2)) != BigInt::from(0)) {
+        n += BigInt::from(1);
+    }
+    let _ = ten;
+    let mut s = n.to_string();
+    if s.len() as u32 > digits {
+        // rounding carried into a new digit
+        s.truncate(digits as usize);
+        e += 1;
+    }
+    let body = if digits > 1 {
+        format!("{}.{}", &s[..1], &s[1..])
+    } else {
+        s.clone()
+    };
+    (if negative { format!("-{body}") } else { body }, e)
 }
 
 impl std::ops::Add for Expr {

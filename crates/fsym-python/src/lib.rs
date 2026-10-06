@@ -146,6 +146,14 @@ fn product_expr(src: &str, var: &str, a: &str, b: &str) -> PyResult<Option<Strin
     Ok(fsym_calculus::summation::product(&e, &Symbol::new(var), &lo, &hi).map(|v| v.to_string()))
 }
 
+/// `digits` correctly rounded significant digits of a real constant as
+/// `d.ddd...e<exp>` from a certified ball enclosure (refuses otherwise).
+#[pyfunction]
+fn evalf_decimal_expr(src: &str, digits: u32) -> PyResult<String> {
+    let e = parse_expr(src)?;
+    e.evalf_decimal(digits).map_err(to_value_error)
+}
+
 /// Differentiate `src` with respect to `var`.
 #[pyfunction]
 fn diff_expr(src: &str, var: &str) -> PyResult<String> {
@@ -1080,6 +1088,7 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(limit_expr, m)?)?;
     m.add_function(wrap_pyfunction!(series_expansion_expr, m)?)?;
     m.add_function(wrap_pyfunction!(summation_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(evalf_decimal_expr, m)?)?;
     m.add_function(wrap_pyfunction!(product_expr, m)?)?;
     m.add_function(wrap_pyfunction!(taylor_expr, m)?)?;
     m.add_function(wrap_pyfunction!(solve_linear_expr, m)?)?;

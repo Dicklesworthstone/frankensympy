@@ -100,7 +100,7 @@ def _exact_surface_types():
         Application,
         Function,
     ]
-    for name in ("Relational", "Eq", "Ne", "Lt", "Le", "Gt", "Ge"):
+    for name in ("Relational", "Eq", "Ne", "Lt", "Le", "Gt", "Ge", "_ExactDecimalFloat"):
         cls = globals().get(name)
         if cls is not None:
             types.append(cls)
@@ -1663,6 +1663,9 @@ class Expr(Basic):
     def evalf(self, n: int = 15) -> "Float":
         if type(n) is not int or n < 1:
             raise TypeError("evalf dps must be a positive int")
+        certified = _certified_float(self, n)
+        if certified is not None:
+            return certified
         try:
             return Float(_native_expr(self).evalf(), n)
         except (NotImplementedError, TypeError):
@@ -3873,6 +3876,42 @@ _ExactDecimalFloat.__qualname__ = "Float"
 _ExactDecimalFloat.__module__ = "sympy.core.numbers"
 
 
+def _format_decimal(sci: str, n: int) -> str:
+    """Upstream Float str for n significant digits from 'd.ddde<E>'."""
+    if sci == "0":
+        return "0"
+    mantissa, _, exp_text = sci.partition("e")
+    exponent = int(exp_text)
+    negative = mantissa.startswith("-")
+    digits = mantissa.lstrip("-").replace(".", "")
+    sign = "-" if negative else ""
+    if -5 < exponent < n:
+        if exponent >= 0:
+            int_part = digits[: exponent + 1]
+            frac = digits[exponent + 1:]
+            return sign + int_part + ("." + frac if frac else "")
+        return sign + "0." + "0" * (-exponent - 1) + digits
+    body = digits[0] + ("." + digits[1:] if len(digits) > 1 else "")
+    return f"{sign}{body}e{'+' if exponent > 0 else '-'}{abs(exponent)}"
+
+
+def _certified_float(expression: Any, n: int) -> Any:
+    """Correctly rounded Float of a real constant from a certified native
+    ball enclosure, or None when the expression is outside that lane."""
+    if not isinstance(expression, Basic) or type(expression) is Float:
+        return None
+    try:
+        if expression.free_symbols:
+            return None
+    except Exception:
+        return None
+    try:
+        sci = _native.evalf_decimal_expr(str(_native_expr(expression)), int(n))
+    except Exception:
+        return None
+    return _ExactDecimalFloat(_format_decimal(sci, n), n)
+
+
 def N(expression: Any, n: Any = None) -> Basic:
     """Evaluate to a compatibility Float. Precision-honest (bead
     fra-fra-native-evalf-precision-honesty-ke8): ``N(pi, d)`` computes the
@@ -3903,6 +3942,9 @@ def N(expression: Any, n: Any = None) -> Basic:
             raise ValueError(f"pi digit stream length {len(digits)} != {n}")
         decimal = digits[0] + "." + digits[1:]
         return _ExactDecimalFloat(decimal, n)
+    certified = _certified_float(expression, n)
+    if certified is not None:
+        return certified
     if isinstance(expression, Basic) and n > _F64_HONEST_DIGITS:
         raise NotImplementedError(
             f"precision-honest N: this shell evaluates through binary64 and "

@@ -1235,7 +1235,20 @@ class Matrix(MatrixBase):
         return diag(*entries)
 
     def __repr__(self):
-        return f"Matrix({self.tolist()})"
+        # Upstream repr: one row per line, columns right-aligned.
+        rows, cols = self.shape
+        if rows == 0 or cols == 0:
+            return f"Matrix({rows}, {cols}, [])"
+        data = self.tolist()
+        if rows == 1:
+            return "Matrix([[" + ", ".join(str(e) for e in data[0]) + "]])"
+        strs = [[str(e) for e in row] for row in data]
+        widths = [max(len(strs[i][j]) for i in range(rows)) for j in range(cols)]
+        lines = [
+            "[" + ", ".join(strs[i][j].rjust(widths[j]) for j in range(cols)) + "]"
+            for i in range(rows)
+        ]
+        return "Matrix([\n" + ",\n".join(lines) + "])"
 
     def __str__(self):
         # Oracle parity: str(Matrix(...)) is the single-line form (finding 6,

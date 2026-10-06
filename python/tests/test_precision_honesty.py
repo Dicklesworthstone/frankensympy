@@ -55,12 +55,20 @@ class PrecisionHonestN(unittest.TestCase):
         self.assertEqual(str(sympy.N(sympy.pi)), "3.14159265358979")
 
     def test_non_pi_beyond_f64_honest_digits_refuses(self):
+        # A free symbol has no value: still a refusal.
         with self.assertRaises(NotImplementedError):
             sympy.N(x, 30)
-        with self.assertRaises(NotImplementedError):
-            sympy.N(sympy.Integer(2), 16)
-        with self.assertRaises(NotImplementedError):
-            sympy.N(sympy.E, 100)
+
+    def test_certified_constants_beyond_f64_are_exact(self):
+        # Real constants now evaluate through certified ball enclosures and
+        # are correctly rounded (no binary64 digits are extended).
+        self.assertEqual(str(sympy.N(sympy.Integer(2), 16)), "2.000000000000000")
+        e100 = str(sympy.N(sympy.E, 100))
+        self.assertEqual(len(e100.replace(".", "")), 100)
+        self.assertTrue(e100.startswith("2.718281828459045235360287471352662497757247093699959574966967627724076630353547594571382178525166427"[:100]))
+        self.assertEqual(
+            str(sympy.N(sympy.sqrt(2), 30)), "1.41421356237309504880168872421"
+        )
 
     def test_pi_cap_refuses_beyond_10000(self):
         with self.assertRaises(NotImplementedError):
