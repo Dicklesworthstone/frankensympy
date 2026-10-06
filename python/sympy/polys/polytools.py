@@ -80,7 +80,7 @@ class Poly(Basic):
 
     def all_coeffs(self) -> List[Any]:
         """Return all coefficients of the polynomial in descending degree order."""
-        raw = _native.poly_coeffs_expr(str(self._expr), _native_symbol_key(self.gen))
+        raw = _native.poly_coeffs_expr(str(_native_expr(self._expr)), _native_symbol_key(self.gen))
         return [_parse_result(c) for c in raw]
 
     def coeffs(self) -> List[Any]:
@@ -96,14 +96,14 @@ class Poly(Basic):
                 target_gen = self._gens[gen] if isinstance(gen, int) else _require_symbol(gen)
                 target_key = _native_symbol_key(target_gen)
             return _native.poly_multivariate_degree_expr(
-                str(self._expr), var_names, target_key
+                str(_native_expr(self._expr)), var_names, target_key
             )
         target_gen = self._gens[gen] if isinstance(gen, int) else _require_symbol(gen)
-        return _native.poly_degree_expr(str(self._expr), _native_symbol_key(target_gen))
+        return _native.poly_degree_expr(str(_native_expr(self._expr)), _native_symbol_key(target_gen))
 
     def leading_coeff(self) -> Any:
         """Return the leading coefficient."""
-        raw = _native.poly_leading_coeff_expr(str(self._expr), _native_symbol_key(self.gen))
+        raw = _native.poly_leading_coeff_expr(str(_native_expr(self._expr)), _native_symbol_key(self.gen))
         return _parse_result(raw)
 
     def LC(self) -> Any:
@@ -314,7 +314,7 @@ class Poly(Basic):
 
     def monic(self) -> "Poly":
         """Return the monic associate of this polynomial."""
-        raw = _native.poly_monic_expr(str(self._expr), _native_symbol_key(self.gen))
+        raw = _native.poly_monic_expr(str(_native_expr(self._expr)), _native_symbol_key(self.gen))
         return Poly(_parse_result(raw), *self._gens)
 
     def div(self, other: Any) -> Tuple["Poly", "Poly"]:
@@ -325,14 +325,14 @@ class Poly(Basic):
             all_gens = tuple(dict.fromkeys(self._gens + other_gens))
             var_names = [_native_symbol_key(g) for g in all_gens]
             q_raw, r_raw = _native.poly_multivariate_div_rem_expr(
-                str(self._expr), str(other_expr), var_names
+                str(_native_expr(self._expr)), str(other_expr), var_names
             )
             return (
                 Poly(_parse_result(q_raw), *all_gens),
                 Poly(_parse_result(r_raw), *all_gens),
             )
         q_raw, r_raw = _native.poly_div_rem_expr(
-            str(self._expr), str(other_expr), _native_symbol_key(self.gen)
+            str(_native_expr(self._expr)), str(other_expr), _native_symbol_key(self.gen)
         )
         return (
             Poly(_parse_result(q_raw), *self._gens),
@@ -355,13 +355,13 @@ class Poly(Basic):
         """Resultant with respect to the primary generator."""
         other_expr = other.as_expr() if isinstance(other, Poly) else _wrap(_native_expr(other))
         raw = _native.poly_resultant_expr(
-            str(self._expr), str(other_expr), _native_symbol_key(self.gen)
+            str(_native_expr(self._expr)), str(other_expr), _native_symbol_key(self.gen)
         )
         return _parse_result(raw)
 
     def discriminant(self) -> Any:
         """Discriminant with respect to the primary generator."""
-        raw = _native.poly_discriminant_expr(str(self._expr), _native_symbol_key(self.gen))
+        raw = _native.poly_discriminant_expr(str(_native_expr(self._expr)), _native_symbol_key(self.gen))
         return _parse_result(raw)
 
     def gcd(self, other: Any) -> "Poly":
@@ -372,11 +372,11 @@ class Poly(Basic):
             all_gens = tuple(dict.fromkeys(self._gens + other_gens))
             var_names = [_native_symbol_key(g) for g in all_gens]
             raw = _native.poly_multivariate_gcd_expr(
-                str(self._expr), str(other_expr), var_names
+                str(_native_expr(self._expr)), str(other_expr), var_names
             )
             return Poly(_parse_result(raw), *all_gens)
         raw = _native.poly_gcd_expr(
-            str(self._expr), str(other_expr), _native_symbol_key(self.gen)
+            str(_native_expr(self._expr)), str(other_expr), _native_symbol_key(self.gen)
         )
         return Poly(_parse_result(raw), *self._gens)
 
@@ -388,11 +388,11 @@ class Poly(Basic):
             all_gens = tuple(dict.fromkeys(self._gens + other_gens))
             var_names = [_native_symbol_key(g) for g in all_gens]
             raw = _native.poly_multivariate_lcm_expr(
-                str(self._expr), str(other_expr), var_names
+                str(_native_expr(self._expr)), str(other_expr), var_names
             )
             return Poly(_parse_result(raw), *all_gens)
         raw = _native.poly_lcm_expr(
-            str(self._expr), str(other_expr), _native_symbol_key(self.gen)
+            str(_native_expr(self._expr)), str(other_expr), _native_symbol_key(self.gen)
         )
         return Poly(_parse_result(raw), *self._gens)
 
@@ -400,7 +400,7 @@ class Poly(Basic):
         """Extended Euclidean algorithm: returns (s, t, h) such that s*self + t*other = h."""
         other_poly = other if isinstance(other, Poly) else Poly(other, *self._gens)
         raw_s, raw_t, raw_h = _native.poly_gcdex_expr(
-            str(self._expr), str(other_poly._expr), _native_symbol_key(self.gen)
+            str(_native_expr(self._expr)), str(other_poly._expr), _native_symbol_key(self.gen)
         )
         return (
             Poly(_parse_result(raw_s), *self._gens),
@@ -417,21 +417,21 @@ class Poly(Basic):
         """Compute polynomial composition self(other)."""
         other_poly = other if isinstance(other, Poly) else Poly(other, *self._gens)
         raw = _native.poly_compose_expr(
-            str(self._expr), str(other_poly._expr), _native_symbol_key(self.gen)
+            str(_native_expr(self._expr)), str(other_poly._expr), _native_symbol_key(self.gen)
         )
         return Poly(_parse_result(raw), *self._gens)
 
     def shift(self, a: Any) -> "Poly":
         """Compute polynomial shift self(x + a)."""
         raw = _native.poly_shift_expr(
-            str(self._expr), str(a), _native_symbol_key(self.gen)
+            str(_native_expr(self._expr)), str(a), _native_symbol_key(self.gen)
         )
         return Poly(_parse_result(raw), *self._gens)
 
     def sqf_list(self) -> Tuple[Any, List[Tuple["Poly", int]]]:
         """Square-free factorization returning (scale, [(factor, multiplicity), ...])."""
         scale_raw, factors_raw = _native.poly_sqf_list_expr(
-            str(self._expr), _native_symbol_key(self.gen)
+            str(_native_expr(self._expr)), _native_symbol_key(self.gen)
         )
         scale = _parse_result(scale_raw)
         factors = [
@@ -450,7 +450,7 @@ class Poly(Basic):
     def factor_list(self) -> Tuple[Any, List[Tuple["Poly", int]]]:
         """Factorization over Q returning (scale, [(factor, multiplicity), ...])."""
         scale_raw, factors_raw = _native.poly_factor_list_expr(
-            str(self._expr), _native_symbol_key(self.gen)
+            str(_native_expr(self._expr)), _native_symbol_key(self.gen)
         )
         scale = _parse_result(scale_raw)
         factors = [
@@ -480,7 +480,7 @@ class Poly(Basic):
     def roots(self) -> dict[Any, int]:
         """Compute polynomial roots over Q with multiplicities."""
         roots_raw = _native.poly_roots_expr(
-            str(self._expr), _native_symbol_key(self.gen)
+            str(_native_expr(self._expr)), _native_symbol_key(self.gen)
         )
         return {_parse_result(r): mult for r, mult in roots_raw}
 

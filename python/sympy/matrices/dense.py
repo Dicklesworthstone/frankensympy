@@ -222,7 +222,22 @@ class Matrix(MatrixBase):
         return _wrap(self._native.det())
 
     def inv(self, method=None, **kwargs):
-        return self._new(self._native.inv())
+        try:
+            return self._new(self._native.inv())
+        except ValueError as exc:
+            if "symbolic" not in str(exc):
+                raise
+        # Symbolic entries: adjugate / det, refusing only a provably
+        # singular matrix (upstream raises for det == 0 the same way).
+        from ..simplify import simplify as _simplify
+
+        if not self.is_square:
+            raise ValueError("Matrix must be square to invert") from None
+        d = self.det()
+        if d == 0 or _simplify(d) == 0:
+            raise ValueError("Matrix det == 0; not invertible.") from None
+        adj = self.adjugate()
+        return self._new(self.rows, self.cols, lambda i, j: adj[i, j] / d)
 
     def inverse(self, method=None, **kwargs):
         return self.inv(method=method, **kwargs)
@@ -525,11 +540,41 @@ class Matrix(MatrixBase):
                 return dict(rts)
         except Exception:
             pass
+        symbolic = self._symbolic_eigenvals()
+        if symbolic is not None:
+            return symbolic
         evals = self.eigenvalues()
         res = {}
         for ev in evals:
             res[ev] = res.get(ev, 0) + 1
         return res
+
+    def _symbolic_eigenvals(self):
+        """Eigenvalues of a matrix with symbolic entries: exact roots of the
+        characteristic polynomial in a fresh variable, with multiplicities
+        from vanishing derivatives. None when the roots are incomplete."""
+        from ..core import Dummy, diff, expand
+        from ..simplify import simplify as _simplify
+        from .. import solve as _solve
+
+        if not self.free_symbols:
+            return None
+        lam = Dummy("lambda")
+        cp = expand(self.charpoly(lam).as_expr())
+        try:
+            rts = _solve(cp, lam)
+        except Exception:
+            return None
+        out = {}
+        for r in rts:
+            r = _simplify(r)
+            mult = 1
+            while mult < self.rows and _simplify(diff(cp, lam, mult).subs(lam, r)) == 0:
+                mult += 1
+            out[r] = mult
+        if sum(out.values()) != self.rows:
+            return None
+        return out
 
     def eigenvects(self):
         """Return eigenvalues, multiplicities, and eigenvectors: [(eval, mult, [evec, ...]), ...]."""
@@ -605,6 +650,20 @@ class Matrix(MatrixBase):
                 eval_list.append(ev)
         if len(all_evecs) < self.rows:
             raise ValueError("Matrix is not diagonalizable (insufficient eigenvectors)")
+        # Upstream clears rational denominators of each eigenvector column.
+        from math import lcm as _lcm
+
+        cleared = []
+        for v in all_evecs:
+            entries = [v[i, 0] for i in range(v.rows)]
+            if all(isinstance(e, Rational) for e in entries):
+                den = 1
+                for e in entries:
+                    den = _lcm(den, int(e.q))
+                if den != 1:
+                    v = v * den
+            cleared.append(v)
+        all_evecs = cleared
         P = Matrix.hstack(*all_evecs)
         D = diag(*eval_list)
         return P, D

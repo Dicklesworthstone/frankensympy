@@ -73,7 +73,7 @@ def solve_poly_system(
                 return None
             constrained = True
             try:
-                raw = _native.solve_expr(str(eq), _native_symbol_key(x))
+                raw = _native.solve_expr(str(_native_expr(eq)), _native_symbol_key(x))
             except Exception as e:
                 msg = str(e)
                 if "No solution" in msg or "Infinite solutions" in msg:
@@ -99,7 +99,7 @@ def solve_poly_system(
     syms = [_require_symbol(v) for v in var_list]
     try:
         raw_sols = _native.solve_polynomial_system_expr(
-            [str(eq) for eq in wrapped_eqs], [_native_symbol_key(v) for v in syms]
+            [str(_native_expr(eq)) for eq in wrapped_eqs], [_native_symbol_key(v) for v in syms]
         )
     except ValueError as e:
         msg = str(e)

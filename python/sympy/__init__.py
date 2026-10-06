@@ -315,7 +315,7 @@ def solve(expression, *symbols, **flags):
 
     try:
         results = _native.solve_expr(
-            str(expr), _native_symbol_key(symbol)
+            str(_native_expr(expr)), _native_symbol_key(symbol)
         )
     except Exception as exc:
         msg = str(exc)
@@ -395,7 +395,7 @@ def solveset(expression, variable=None, domain=None):
             "non-linear periodic equation: the complete (infinite) solution set is not supported"
         )
     try:
-        results = _native.solve_expr(str(expr), _native_symbol_key(symbol))
+        results = _native.solve_expr(str(_native_expr(expr)), _native_symbol_key(symbol))
     except ValueError as exc:
         if str(exc) != "No solution found for equation":
             raise
@@ -1549,7 +1549,7 @@ def _solve_inequality_set(rel: Any, symbol: Any) -> Any:
 
     f = _wrap(_native_expr(rel.lhs - rel.rhs))
     try:
-        native = _native.solve_inequality_expr(str(f), _native_symbol_key(symbol), rel.rel_op)
+        native = _native.solve_inequality_expr(str(_native_expr(f)), _native_symbol_key(symbol), rel.rel_op)
     except ValueError as exc:
         raise NotImplementedError(
             f"The inequality, {rel}, cannot be solved by the exact real inequality solver: {exc}"
