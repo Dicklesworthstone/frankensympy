@@ -1005,6 +1005,7 @@ dependencies = [
  "fsym-calculus",
  "fsym-core",
  "fsym-polys",
+ "fsym-sets",
  "fsym-simplify",
  "num-traits",
  "proptest",

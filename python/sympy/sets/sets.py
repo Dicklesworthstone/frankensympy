@@ -206,7 +206,7 @@ class Set(Basic):
     def __repr__(self) -> str:
         s_nat = getattr(self, "_native_set", None)
         if s_nat is not None:
-            return str(s_nat)
+            return _native_set_str(s_nat)
         return f"{self.__class__.__name__}()"
 
     def __str__(self) -> str:
@@ -349,15 +349,58 @@ class Interval(Set):
 
 
 def _interval_str(interval) -> str:
-    start, end = str(interval.start), str(interval.end)
+    """Upstream ``StrPrinter._print_Interval``."""
+    a, b = interval.start, interval.end
     lo, ro = bool(interval.left_open), bool(interval.right_open)
-    if lo and ro:
-        return f"Interval.open({start}, {end})"
-    if ro:
-        return f"Interval.Ropen({start}, {end})"
-    if lo:
-        return f"Interval.Lopen({start}, {end})"
-    return f"Interval({start}, {end})"
+    a_inf = str(a) in ("oo", "-oo")
+    b_inf = str(b) in ("oo", "-oo")
+    if a_inf and b_inf:
+        m = ""
+    elif a_inf and not ro:
+        m = ""
+    elif b_inf and not lo:
+        m = ""
+    elif not lo and not ro:
+        m = ""
+    elif lo and ro:
+        m = ".open"
+    elif lo:
+        m = ".Lopen"
+    else:
+        m = ".Ropen"
+    return f"Interval{m}({a}, {b})"
+
+
+def _native_set_str(ns: Any) -> str:
+    """Upstream str form of a native set tree."""
+    kind = ns.kind
+    if kind in ("EmptySet", "UniversalSet"):
+        return kind
+    wrapped = _wrap_set(ns)
+    if kind in ("Interval", "FiniteSet"):
+        return str(wrapped)
+    parts = list(ns.args)
+    if kind == "Union":
+        return "Union(%s)" % ", ".join(_native_set_str(p) for p in parts)
+    if kind == "Intersection":
+        # A \ B is stored as A & Complement(B).
+        comps = [p for p in parts if p.kind == "Complement"]
+        rest = [p for p in parts if p.kind != "Complement"]
+        if comps and rest:
+            base = (
+                _native_set_str(rest[0]) if len(rest) == 1
+                else "Intersection(%s)" % ", ".join(_native_set_str(p) for p in rest)
+            )
+            removed = [c.args[0] for c in comps]
+            sub = (
+                _native_set_str(removed[0]) if len(removed) == 1
+                else "Union(%s)" % ", ".join(_native_set_str(p) for p in removed)
+            )
+            return f"Complement({base}, {sub})"
+        return "Intersection(%s)" % ", ".join(_native_set_str(p) for p in parts)
+    if kind == "Complement":
+        return f"Complement(UniversalSet, {_native_set_str(parts[0])})"
+    return str(ns)
 
 
 class FiniteSet(Set):
@@ -394,8 +437,14 @@ class FiniteSet(Set):
 
     def __repr__(self) -> str:
         # Oracle-pinned: FiniteSet str/repr renders braces ({1, 2, 3}).
-        elems = self._native_set.elements or []
-        return "{" + ", ".join(str(_wrap(e)) for e in elems) + "}"
+        items = [_wrap(e) for e in (self._native_set.elements or [])]
+        try:
+            from ..printing.str import sort_key
+
+            items.sort(key=sort_key)
+        except Exception:
+            pass
+        return "{" + ", ".join(str(e) for e in items) + "}"
 
     def __str__(self) -> str:
         return self.__repr__()
@@ -700,7 +749,7 @@ class Union(Set):
     def __repr__(self) -> str:
         if getattr(self, "_py_args", None) is not None:
             return f"Union({', '.join(repr(a) for a in self._py_args)})"
-        return str(self._native_set)
+        return _native_set_str(self._native_set)
 
 
 class Intersection(Set):
@@ -780,7 +829,7 @@ class Intersection(Set):
     def __repr__(self) -> str:
         if getattr(self, "_py_args", None) is not None:
             return f"Intersection({', '.join(repr(a) for a in self._py_args)})"
-        return str(self._native_set)
+        return _native_set_str(self._native_set)
 
 
 class Complement(Set):

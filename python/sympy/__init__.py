@@ -163,6 +163,10 @@ def solve(expression, *symbols, **flags):
     dict_flag = bool(flags.get("dict", False))
     set_flag = bool(flags.get("set", False))
 
+    ineqs = expression if isinstance(expression, (list, tuple)) else [expression]
+    if ineqs and any(_is_inequality(e) for e in ineqs):
+        return reduce_inequalities(list(ineqs), symbols[0] if len(symbols) == 1 else (list(symbols) or None))
+
     if len(symbols) == 1 and isinstance(symbols[0], (list, tuple)):
         var_list = list(symbols[0])
     elif len(symbols) == 1 and symbols[0] is None:
@@ -321,6 +325,20 @@ def solveset(expression, variable=None, domain=None):
             domain = domain()
         if not isinstance(domain, Set):
             raise ValueError(f"{domain} is not a valid domain")
+    if _is_inequality(expression):
+        if variable is None:
+            variable = _inequality_symbol([expression], ())
+        from .sets import Reals as _RealsSet
+        if domain is None:
+            raise ValueError(
+                "Inequalities in the complex domain are not supported. "
+                "Try the real domain by setting domain=S.Reals"
+            )
+        sol = _solve_inequality_set(expression, _require_symbol(variable))
+        if domain == _RealsSet() or isinstance(domain, _RealsSet):
+            return sol
+        from .sets import Intersection as _Intersection
+        return _Intersection(sol, domain)
     if type(expression) is Eq:
         expression = expression.lhs - expression.rhs
     expr = _wrap(_native_expr(expression))
@@ -1497,54 +1515,102 @@ def minpoly(expr: Any, gen: Any = None) -> Any:
 minimal_polynomial = minpoly
 
 
-def reduce_inequalities(inequalities: Any, symbols_list: Any = None) -> Any:
-    """Reduce a list of polynomial inequalities to solution intervals.
+from .core import Relational
 
-    Returns a list of relational solutions (e.g. ``x > -2`` pairs).
-    Only strict polynomial inequalities in one variable are supported.
-    """
-    if not isinstance(inequalities, (list, tuple)):
-        inequalities = [inequalities]
-    var = symbols_list if symbols_list is not None else _free_var_of(inequalities[0])
-    results: list = []
-    for ineq in inequalities:
-        if isinstance(ineq, (Lt, Gt, Le, Ge)):
-            # ineq.lhs < ineq.rhs form: solve lhs - rhs against the sign
-            diff_expr = ineq.lhs - ineq.rhs
-            roots = solve(diff_expr, var)
-            test_points = _sample_points(roots, diff_expr, var)
-            holds = [bool(diff_expr.subs({var: p})) for p in test_points]
-            for tp, ok in zip(test_points, holds):
-                if ok:
-                    results.append((ineq, tp))
-        else:
-            raise NotImplementedError(
-                f"reduce_inequalities handles Lt/Gt/Le/Ge, got {type(ineq).__name__}"
-            )
-    return results
+_INEQUALITY_OPS = ("<", "<=", ">", ">=")
 
 
-def _free_var_of(expr: Any) -> Any:
-    syms = getattr(expr, "free_symbols", set())
-    if len(syms) != 1:
-        raise ValueError(
-            f"reduce_inequalities needs exactly one free variable, got {sorted(s.name for s in syms)}"
+def _is_inequality(e: Any) -> bool:
+    return isinstance(e, Relational) and e.rel_op in _INEQUALITY_OPS
+
+
+def _solve_inequality_set(rel: Any, symbol: Any) -> Any:
+    """Real solution set of a univariate inequality (native, certified)."""
+    from .sets.sets import _wrap_set
+
+    f = _wrap(_native_expr(rel.lhs - rel.rhs))
+    try:
+        native = _native.solve_inequality_expr(str(f), _native_symbol_key(symbol), rel.rel_op)
+    except ValueError as exc:
+        raise NotImplementedError(
+            f"The inequality, {rel}, cannot be solved by the exact real inequality solver: {exc}"
+        ) from None
+    return _wrap_set(native)
+
+
+def _set_as_relational(s: Any, x: Any) -> Any:
+    """Upstream ``Set.as_relational`` for real-line sets."""
+    from .logic.boolalg import And, Or, false
+    from .sets import EmptySet, FiniteSet, Interval, Union
+
+    if s is EmptySet() or getattr(s, "is_empty", None) is True:
+        return false
+    if isinstance(s, FiniteSet):
+        return Or(*[Eq(x, e) for e in s.args])
+    if isinstance(s, Interval):
+        lo = Lt(s.start, x, evaluate=False) if s.left_open else Le(s.start, x, evaluate=False)
+        hi = Lt(x, s.end, evaluate=False) if s.right_open else Le(x, s.end, evaluate=False)
+        return And(lo, hi)
+    if isinstance(s, Union):
+        return Or(*[_set_as_relational(a, x) for a in s.args])
+    raise NotImplementedError(f"as_relational for {type(s).__name__}")
+
+
+def _inequality_symbol(rels: list, symbols: Any) -> Any:
+    if symbols:
+        syms = list(symbols[0]) if isinstance(symbols[0], (list, tuple, set)) else list(symbols)
+        if len(syms) != 1:
+            raise NotImplementedError("only univariate inequalities are supported")
+        return syms[0]
+    free: set = set()
+    for r in rels:
+        free |= r.free_symbols
+    if len(free) != 1:
+        raise NotImplementedError(
+            "inequality systems need exactly one free variable, got %s"
+            % sorted(str(v) for v in free)
         )
-    return next(iter(syms))
+    return next(iter(free))
 
 
-def _sample_points(roots: list, expr: Any, var: Any) -> list:
-    """Pick one test point per interval defined by the roots."""
-    vals = sorted(float(r) for r in roots)
-    points: list = []
-    points.append(Integer(vals[0] - 1) if vals else Integer(0))
-    for i in range(len(vals) - 1):
-        points.append(Float((vals[i] + vals[i + 1]) / 2))
-    if vals:
-        points.append(Integer(vals[-1] + 1))
-    if not roots:
-        points = [Integer(0)]
-    return points
+def reduce_inequalities(inequalities: Any, symbols: Any = None) -> Any:
+    """Reduce a univariate system of inequalities to a relational form.
+
+    The real solution set of each inequality comes from the native exact
+    inequality solver; their intersection is returned as relationals
+    (upstream ``reduce_inequalities`` shape). Unsupported systems raise.
+    """
+    from .logic.boolalg import BooleanAtom
+    from .sets import Intersection, Reals
+
+    if not isinstance(inequalities, (list, tuple, set)):
+        inequalities = [inequalities]
+    rels = []
+    for ineq in inequalities:
+        ineq = sympify(ineq) if not isinstance(ineq, (Relational, BooleanAtom)) else ineq
+        if isinstance(ineq, BooleanAtom):
+            if not ineq:
+                from .logic.boolalg import false
+                return false
+            continue
+        if type(ineq) is Eq or (isinstance(ineq, Relational) and ineq.rel_op == "=="):
+            rels.append(ineq)
+            continue
+        if not _is_inequality(ineq):
+            raise NotImplementedError(f"reduce_inequalities cannot handle {ineq}")
+        rels.append(ineq)
+    if not rels:
+        from .logic.boolalg import true
+        return true
+    x = _inequality_symbol(rels, (symbols,) if symbols is not None else ())
+    sol = Reals()
+    for r in rels:
+        if _is_inequality(r):
+            part = _solve_inequality_set(r, x)
+        else:
+            part = solveset(r.lhs - r.rhs, x, Reals())
+        sol = Intersection(sol, part)
+    return _set_as_relational(sol, x)
 
 
 __all__ = [

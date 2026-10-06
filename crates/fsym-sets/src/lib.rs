@@ -10,6 +10,8 @@ use std::collections::BTreeSet;
 use std::fmt;
 use thiserror::Error;
 
+pub mod realline;
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum SetError {
     #[error("Invalid interval bounds: start ({0}) > end ({1})")]
@@ -100,6 +102,10 @@ impl SymSet {
         if self == other {
             return self;
         }
+        let combined = SymSet::Union(vec![self.clone(), other.clone()]);
+        if let Some(simplified) = realline::simplify(&combined) {
+            return simplified;
+        }
         match (self, other) {
             (SymSet::EmptySet, s) | (s, SymSet::EmptySet) => s,
             (SymSet::UniversalSet, _) | (_, SymSet::UniversalSet) => SymSet::UniversalSet,
@@ -118,6 +124,10 @@ impl SymSet {
     pub fn intersection(self, other: SymSet) -> Self {
         if self == other {
             return self;
+        }
+        let combined = SymSet::Intersection(vec![self.clone(), other.clone()]);
+        if let Some(simplified) = realline::simplify(&combined) {
+            return simplified;
         }
         if self.is_disjoint(&other) == Some(true) {
             return SymSet::EmptySet;
@@ -174,6 +184,11 @@ impl SymSet {
     /// Three-valued membership: `Some(decision)` or `None` when the set is
     /// too symbolic to decide for this element.
     pub fn contains(&self, elem: &Expr) -> Option<bool> {
+        if !matches!(self, SymSet::FiniteSet(_))
+            && let Some(decided) = realline::contains(self, elem)
+        {
+            return Some(decided);
+        }
         match self {
             SymSet::EmptySet => Some(false),
             SymSet::UniversalSet => Some(true),
@@ -313,6 +328,9 @@ impl SymSet {
 
     /// Set difference computed as `self ∩ otherᶜ`.
     pub fn difference(self, other: SymSet) -> Self {
+        if let Some(d) = realline::difference(&self, &other) {
+            return d;
+        }
         self.intersection(other.complement())
     }
 
@@ -1105,8 +1123,9 @@ mod tests {
     fn test_finite_set_and_interval() {
         let set = SymSet::finite(vec![Expr::from_i64(1), Expr::from_i64(2)]);
         let interval = SymSet::interval_closed(Expr::from_i64(0), Expr::from_i64(5));
-        let union = set.union(interval);
-        assert!(matches!(union, SymSet::Union(_)));
+        let union = set.union(interval.clone());
+        // Points inside the interval are absorbed (upstream: Interval(0, 5)).
+        assert_eq!(union, interval);
     }
 
     #[test]

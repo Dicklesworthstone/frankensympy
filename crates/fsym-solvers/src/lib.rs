@@ -4,6 +4,7 @@
 //!
 //! This crate does not yet provide the full SymPy `solveset` or `dsolve` surfaces.
 
+pub mod inequality;
 pub mod ode;
 pub mod system;
 pub mod univariate;

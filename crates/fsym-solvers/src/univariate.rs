@@ -509,7 +509,7 @@ fn collect_generators(e: &Expr, x: &Symbol, out: &mut Vec<Expr>) {
             let (c, rest) = split_coeff(&args[0]);
             let base = Expr::Function("exp".into(), vec![rest.clone()]);
             let _ = c;
-            if !out.iter().any(|o| *o == base) {
+            if !out.contains(&base) {
                 out.push(base);
             }
         }

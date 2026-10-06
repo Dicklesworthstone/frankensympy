@@ -2053,7 +2053,9 @@ class SurfaceTests(unittest.TestCase):
         self.assertTrue(2 in u)
 
         inter = iv & FiniteSet(2, 3, 7)
-        self.assertIsInstance(inter, Intersection)
+        # Oracle: Interval(0, 5) & {2, 3, 7} evaluates to {2, 3}.
+        self.assertIsInstance(inter, FiniteSet)
+        self.assertEqual(str(inter), "{2, 3}")
         self.assertTrue(2 in inter)
         self.assertTrue(3 in inter)
         self.assertFalse(7 in inter)

@@ -137,6 +137,17 @@ fn summation_expr(src: &str, var: &str, a: &str, b: &str) -> PyResult<Option<Str
     Ok(fsym_calculus::summation::summation(&e, &Symbol::new(var), &lo, &hi).map(|v| v.to_string()))
 }
 
+/// Real solution set of the univariate inequality `src op 0`.
+#[pyfunction]
+fn solve_inequality_expr(src: &str, var: &str, op: &str) -> PyResult<sets::PySymSet> {
+    let e = parse_expr(src)?;
+    let op = fsym_solvers::inequality::IneqOp::from_str_op(op)
+        .ok_or_else(|| PyValueError::new_err(format!("unsupported inequality operator {op}")))?;
+    fsym_solvers::inequality::solve_univariate_inequality(&e, &Symbol::new(var), op)
+        .map(|inner| sets::PySymSet { inner })
+        .map_err(to_value_error)
+}
+
 /// Closed form of `prod_{var=a}^{b} src`; `None` when no rule applies.
 #[pyfunction]
 fn product_expr(src: &str, var: &str, a: &str, b: &str) -> PyResult<Option<String>> {
@@ -1088,6 +1099,7 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(limit_expr, m)?)?;
     m.add_function(wrap_pyfunction!(series_expansion_expr, m)?)?;
     m.add_function(wrap_pyfunction!(summation_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(solve_inequality_expr, m)?)?;
     m.add_function(wrap_pyfunction!(evalf_decimal_expr, m)?)?;
     m.add_function(wrap_pyfunction!(product_expr, m)?)?;
     m.add_function(wrap_pyfunction!(taylor_expr, m)?)?;

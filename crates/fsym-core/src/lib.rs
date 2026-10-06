@@ -941,15 +941,6 @@ fn cmp_slice_structural(a: &[Expr], b: &[Expr]) -> std::cmp::Ordering {
 /// (cos(x) < tan(x); x < sin(x); y < x**2 - Pow factors sort after
 /// plain symbols).
 pub fn cmp_mul_factors(a: &Expr, b: &Expr) -> std::cmp::Ordering {
-    fn rank(e: &Expr) -> u8 {
-        match e {
-            Expr::Integer(_) | Expr::Rational(_) => 0,
-            Expr::Sym(_) => 1,
-            Expr::Pow(_, _) => 2,
-            Expr::Function(_, _) => 3,
-            _ => 4,
-        }
-    }
     fn key(e: &Expr) -> (u8, String, String) {
         match e {
             Expr::Integer(i) => (0, format!("{:0>20}", i), String::new()),
