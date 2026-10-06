@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from . import Expr
+from . import Expr, Function
 
 
 class Lambda(Expr):
@@ -51,34 +51,56 @@ class Lambda(Expr):
     __repr__ = __str__
 
 
-class Subs(Expr):
-    """Unevaluated substitution ``Subs(expr, x, point)``; ``doit`` applies it."""
+class Subs(Function):
+    """Unevaluated substitution ``Subs(expr, x, point)``: a native binding
+    construct with args ``(expr, Tuple(vars), Tuple(points))``."""
 
     __slots__ = ()
 
-    def __new__(cls, expr: Any, variables: Any, point: Any):
-        from . import sympify
+    def __new__(cls, expr: Any, variables: Any, point: Any, **options: Any):
+        from . import Tuple, sympify
 
-        vs = tuple(variables) if isinstance(variables, (tuple, list)) else (variables,)
-        ps = tuple(point) if isinstance(point, (tuple, list)) else (point,)
-        obj = object.__new__(cls)
-        obj._struct_args = (sympify(expr), vs, tuple(sympify(p) for p in ps))
-        return obj
+        def items(v: Any) -> tuple:
+            if type(v).__name__ == "Tuple":
+                return tuple(v.args)
+            return tuple(v) if isinstance(v, (tuple, list)) else (v,)
+
+        vs = tuple(sympify(v) for v in items(variables))
+        ps = tuple(sympify(p) for p in items(point))
+        if len(vs) != len(ps):
+            raise ValueError("Number of point values must be the same as the number of variables.")
+        expr = sympify(expr)
+        keep = [(v, p) for v, p in zip(vs, ps) if v in expr.free_symbols and v != p]
+        if not keep:
+            return expr
+        return Function.__new__(
+            cls, expr, Tuple(*[v for v, _ in keep]), Tuple(*[p for _, p in keep]), evaluate=False
+        )
 
     @property
     def expr(self):
-        return self._struct_args[0]
+        return self.args[0]
 
     @property
     def variables(self):
-        return self._struct_args[1]
+        return tuple(self.args[1].args)
 
     @property
     def point(self):
-        return self._struct_args[2]
+        return tuple(self.args[2].args)
+
+    @property
+    def free_symbols(self) -> set:
+        syms = set(self.expr.free_symbols) - set(self.variables)
+        for p in self.point:
+            syms |= set(getattr(p, "free_symbols", set()))
+        return syms
 
     def doit(self, **hints: Any) -> Any:
-        return self.expr.subs(dict(zip(self.variables, self.point)))
+        e = self.expr
+        if hints.get("deep", True) and hasattr(e, "doit"):
+            e = e.doit(**hints)
+        return e.subs(dict(zip(self.variables, self.point)))
 
     def __str__(self) -> str:
         def tup(t):

@@ -181,6 +181,47 @@ pub fn binder_variables(name: &str, args: &[Expr]) -> Option<Vec<Symbol>> {
     Some(out)
 }
 
+/// Differentiation variables of `Derivative(e, v1, v2, ...)` (all symbols).
+fn derivative_variables(name: &str, args: &[Expr]) -> Option<Vec<Symbol>> {
+    if !matches!(name, "Derivative" | "diff") || args.len() < 2 {
+        return None;
+    }
+    let mut out: Vec<Symbol> = Vec::new();
+    for a in &args[1..] {
+        match a {
+            Expr::Sym(v) => {
+                if !out.contains(v) {
+                    out.push(v.clone());
+                }
+            }
+            _ => return None,
+        }
+    }
+    Some(out)
+}
+
+fn tuple_expr(items: Vec<Expr>) -> Expr {
+    Expr::Function("Tuple".into(), items)
+}
+
+/// `Subs(expr, Tuple(vars), Tuple(points))` parts.
+fn subs_parts(args: &[Expr]) -> Option<(Vec<Symbol>, Vec<Expr>)> {
+    let [_, Expr::Function(tv, vars), Expr::Function(tp, points)] = args else {
+        return None;
+    };
+    if tv != "Tuple" || tp != "Tuple" || vars.len() != points.len() {
+        return None;
+    }
+    let syms = vars
+        .iter()
+        .map(|v| match v {
+            Expr::Sym(s) => Some(s.clone()),
+            _ => None,
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some((syms, points.clone()))
+}
+
 /// Apply `f` to the bounds of one binder limit, keeping its variable.
 fn subs_limit(lim: &Expr, f: impl Fn(&Expr) -> Expr) -> Expr {
     match lim {
@@ -271,6 +312,47 @@ impl Expr {
                     new_args.extend(args[1..].iter().map(|lim| subs_limit(lim, |e| e.subs(map))));
                     return Expr::Function(name.clone(), new_args);
                 }
+                if name == "Subs"
+                    && let Some((vars, points)) = subs_parts(args)
+                {
+                    let mut inner = map.clone();
+                    for v in &vars {
+                        inner.remove(v);
+                    }
+                    return Expr::Function(
+                        name.clone(),
+                        vec![
+                            args[0].subs(&inner),
+                            args[1].clone(),
+                            tuple_expr(points.iter().map(|p| p.subs(map)).collect()),
+                        ],
+                    );
+                }
+                if let Some(vars) = derivative_variables(name, args) {
+                    // Upstream Derivative._eval_subs: replacing a variable of
+                    // differentiation by a non-symbol yields Subs(...).
+                    let hit: Vec<(Symbol, Expr)> = vars
+                        .iter()
+                        .filter_map(|v| map.get(v).map(|e| (v.clone(), e.clone())))
+                        .filter(|(v, e)| !matches!(e, Expr::Sym(s) if s == v))
+                        .collect();
+                    if !hit.is_empty() && hit.iter().any(|(_, e)| !matches!(e, Expr::Sym(_))) {
+                        let mut inner = map.clone();
+                        for (v, _) in &hit {
+                            inner.remove(v);
+                        }
+                        let mut dargs = vec![args[0].subs(&inner)];
+                        dargs.extend(args[1..].iter().cloned());
+                        return Expr::Function(
+                            "Subs".into(),
+                            vec![
+                                Expr::Function(name.clone(), dargs),
+                                tuple_expr(hit.iter().map(|(v, _)| Expr::Sym(v.clone())).collect()),
+                                tuple_expr(hit.into_iter().map(|(_, e)| e).collect()),
+                            ],
+                        );
+                    }
+                }
                 let new_args: Vec<Expr> = args.iter().map(|a| a.subs(map)).collect();
                 fold_fn_sub(name, new_args)
             }
@@ -310,6 +392,38 @@ impl Expr {
                             .map(|lim| subs_limit(lim, |e| e.subs_expr(old, new))),
                     );
                     return Expr::Function(name.clone(), new_args);
+                }
+                if name == "Subs"
+                    && let Some((vars, points)) = subs_parts(args)
+                {
+                    let touches = old.free_symbols().iter().any(|s| vars.contains(s));
+                    let body = if touches {
+                        args[0].clone()
+                    } else {
+                        args[0].subs_expr(old, new)
+                    };
+                    return Expr::Function(
+                        name.clone(),
+                        vec![
+                            body,
+                            args[1].clone(),
+                            tuple_expr(points.iter().map(|p| p.subs_expr(old, new)).collect()),
+                        ],
+                    );
+                }
+                if let Some(vars) = derivative_variables(name, args)
+                    && let Expr::Sym(v) = old
+                    && vars.contains(v)
+                    && !matches!(new, Expr::Sym(_))
+                {
+                    return Expr::Function(
+                        "Subs".into(),
+                        vec![
+                            self.clone(),
+                            tuple_expr(vec![old.clone()]),
+                            tuple_expr(vec![new.clone()]),
+                        ],
+                    );
                 }
                 let new_args: Vec<Expr> = args.iter().map(|a| a.subs_expr(old, new)).collect();
                 fold_fn_sub(name, new_args)

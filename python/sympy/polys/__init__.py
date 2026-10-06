@@ -2,7 +2,10 @@
 
 from .polytools import (
     EC,
+    GroebnerBasis,
     LC,
+    LM,
+    LT,
     Poly,
     TC,
     apart,
@@ -19,6 +22,8 @@ from .polytools import (
     gcdex,
     groebner,
     half_gcdex,
+    interpolate,
+    invert,
     lcm,
     monic,
     poly,
@@ -37,7 +42,10 @@ from .polytools import (
 
 __all__ = [
     "EC",
+    "GroebnerBasis",
     "LC",
+    "LM",
+    "LT",
     "Poly",
     "TC",
     "apart",
@@ -54,6 +62,8 @@ __all__ = [
     "gcdex",
     "groebner",
     "half_gcdex",
+    "interpolate",
+    "invert",
     "lcm",
     "monic",
     "poly",

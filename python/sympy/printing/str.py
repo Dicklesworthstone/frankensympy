@@ -514,6 +514,13 @@ class StrPrinter:
                 else:
                     limits.append("(%s)" % ", ".join(self._print(x) for x in items))
             return "Integral(%s, %s)" % (self._print(e.args[0]), ", ".join(limits))
+        if name == "Subs" and len(e.args) == 3:
+            def tup(t: Any) -> str:
+                items = t.args
+                if len(items) == 1:
+                    return self._print(items[0])
+                return "(%s)" % ", ".join(self._print(a) for a in items)
+            return "Subs(%s, %s, %s)" % (self._print(e.args[0]), tup(e.args[1]), tup(e.args[2]))
         if name == "Tuple":
             if len(e.args) == 1:
                 return "(%s,)" % self._print(e.args[0])

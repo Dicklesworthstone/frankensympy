@@ -937,6 +937,11 @@ from .logic import (
     valid,
 )
 from .polys import (
+    GroebnerBasis,
+    LM,
+    LT,
+    interpolate,
+    invert,
     EC,
     LC,
     Poly,
@@ -1634,6 +1639,11 @@ def reduce_inequalities(inequalities: Any, symbols: Any = None) -> Any:
 
 
 __all__ = [
+    "invert",
+    "interpolate",
+    "LT",
+    "LM",
+    "GroebnerBasis",
     "DiracDelta",
     "Heaviside",
     "Abs",

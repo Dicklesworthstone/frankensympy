@@ -131,6 +131,9 @@ pub fn diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
         Expr::Function(name, args) if matches!(name.as_str(), "Integral" | "Sum") => {
             diff_binder(expr, name, args, var)
         }
+        Expr::Function(name, args) if name == "Subs" && args.len() == 3 => {
+            diff_subs(expr, args, var)
+        }
         Expr::Function(name, args) => {
             // If all arguments are independent of var, then by the chain rule d(f(args))/d(var) = 0.
             if name != "Derivative" && name != "diff" && args.iter().all(|a| diff(a, var).is_zero())
@@ -585,6 +588,52 @@ fn diff_binder(expr: &Expr, name: &str, args: &[Expr], var: &Symbol) -> Expr {
         return Expr::Add(terms);
     }
     unevaluated_diff(expr, var)
+}
+
+/// d/dy Subs(e, (v_i), (p_i)) = Subs(de/dy, v, p) + sum_i Subs(de/dv_i, v, p) * dp_i/dy
+/// for y not among the bound v_i (chain rule through the points).
+fn diff_subs(expr: &Expr, args: &[Expr], var: &Symbol) -> Expr {
+    let (Expr::Function(tv, vars), Expr::Function(_, points)) = (&args[1], &args[2]) else {
+        return unevaluated_diff(expr, var);
+    };
+    if tv != "Tuple" || vars.len() != points.len() {
+        return unevaluated_diff(expr, var);
+    }
+    let body = &args[0];
+    let bound = vars.iter().any(|v| matches!(v, Expr::Sym(s) if s == var));
+    // With symbol points the substitution is a plain renaming (upstream
+    // evaluates such Subs when differentiating).
+    let renaming: Option<HashMap<Symbol, Expr>> = vars
+        .iter()
+        .zip(points)
+        .map(|(v, p)| match (v, p) {
+            (Expr::Sym(vs), Expr::Sym(_)) => Some((vs.clone(), p.clone())),
+            _ => None,
+        })
+        .collect();
+    let wrap = |e: Expr| -> Expr {
+        if e.is_zero() {
+            return e;
+        }
+        if let Some(map) = &renaming {
+            return e.subs(map);
+        }
+        Expr::Function("Subs".into(), vec![e, args[1].clone(), args[2].clone()])
+    };
+    let mut terms = Vec::new();
+    if !bound {
+        terms.push(wrap(diff(body, var)));
+    }
+    for (v, p) in vars.iter().zip(points) {
+        let Expr::Sym(vs) = v else {
+            return unevaluated_diff(expr, var);
+        };
+        let dp = diff(p, var);
+        if !dp.is_zero() {
+            terms.push(wrap(diff(body, vs)) * dp);
+        }
+    }
+    terms.into_iter().fold(Expr::from_i64(0), |a, b| a + b)
 }
 
 fn eliminate_zero_products(expr: &Expr) -> Expr {

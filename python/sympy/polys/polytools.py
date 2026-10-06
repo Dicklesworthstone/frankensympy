@@ -61,11 +61,8 @@ class Poly(Basic):
         obj._expr = wrapped_expr
         obj._gens = tuple(generator_list)
         obj._domain = kwargs.get("domain", "QQ")
+        obj._domain_given = "domain" in kwargs
         return obj
-
-    @property
-    def domain(self) -> Any:
-        return self._domain
 
     @property
     def gen(self) -> Symbol:
@@ -542,9 +539,99 @@ class Poly(Basic):
     def __hash__(self) -> int:
         return hash((self._expr, self._gens))
 
+    def terms(self) -> list:
+        """(monomial exponents, coefficient) pairs, lex-descending in gens."""
+        from ..core import Add as _Add, Integer as _Integer, Mul as _Mul, Pow as _Pow, expand
+
+        gens = list(self._gens)
+        e = expand(self._expr)
+        acc: dict = {}
+        for t in (e.args if isinstance(e, _Add) else (e,)):
+            if t == 0:
+                continue
+            exps = [0] * len(gens)
+            coeff = _Integer(1)
+            for f in (t.args if isinstance(t, _Mul) else (t,)):
+                base, k = (f.args[0], f.args[1]) if isinstance(f, _Pow) else (f, _Integer(1))
+                if base in gens and isinstance(k, _Integer) and k.p > 0:
+                    exps[gens.index(base)] += int(k.p)
+                else:
+                    coeff = coeff * f
+            key = tuple(exps)
+            acc[key] = acc.get(key, _Integer(0)) + coeff
+        items = [(m, c) for m, c in acc.items() if c != 0]
+        items.sort(key=lambda mc: mc[0], reverse=True)
+        return items or [(tuple([0] * len(gens)), _Integer(0))]
+
+    def as_dict(self) -> dict:
+        return {m: c for m, c in reversed(self.terms()) if c != 0}
+
+    def _infer_domain(self) -> str:
+        from ..core import Float as _Float, Integer as _Integer, Rational as _Rational
+
+        coeffs = [c for _, c in self.terms()]
+        if all(isinstance(c, _Integer) for c in coeffs):
+            return "ZZ"
+        if all(isinstance(c, _Rational) for c in coeffs):
+            return "QQ"
+        if all(isinstance(c, (_Rational, _Float)) for c in coeffs):
+            return "RR"
+        extra = set()
+        numeric_ok = True
+        integral = True
+        for c in coeffs:
+            extra |= set(c.free_symbols)
+            sub = Poly(c, *sorted(c.free_symbols, key=lambda v: v.name)) if c.free_symbols else None
+            parts = [cc for _, cc in sub.terms()] if sub is not None else [c]
+            for cc in parts:
+                if isinstance(cc, _Integer):
+                    continue
+                if isinstance(cc, _Rational):
+                    integral = False
+                    continue
+                numeric_ok = False
+        if not extra or not numeric_ok:
+            return "EX"
+        names = ",".join(str(v) for v in sorted(extra, key=lambda v: v.name))
+        return "%s[%s]" % ("ZZ" if integral else "QQ", names)
+
+    @property
+    def domain(self) -> Any:
+        return self._domain if self._domain_given else self._infer_domain()
+
     def __repr__(self) -> str:
-        gen_str = ", ".join(str(g) for g in self._gens)
-        return f"Poly({self.as_expr()}, {gen_str}, domain='QQ')"
+        """Upstream ``StrPrinter._print_Poly``."""
+        from ..core import Add as _Add, Integer as _Integer
+
+        gens = [str(g) for g in self._gens]
+        terms: list = []
+        for monom, coeff in self.terms():
+            parts = []
+            for i, ex in enumerate(monom):
+                if ex > 0:
+                    parts.append(gens[i] if ex == 1 else gens[i] + "**%d" % ex)
+            s_monom = "*".join(parts)
+            if isinstance(coeff, _Add):
+                s_coeff = "(" + str(coeff) + ")" if s_monom else str(coeff)
+            else:
+                if s_monom:
+                    if coeff == 1:
+                        terms.extend(["+", s_monom])
+                        continue
+                    if coeff == -1:
+                        terms.extend(["-", s_monom])
+                        continue
+                s_coeff = str(coeff)
+            s_term = s_coeff if not s_monom else s_coeff + "*" + s_monom
+            if s_term.startswith("-"):
+                terms.extend(["-", s_term[1:]])
+            else:
+                terms.extend(["+", s_term])
+        if terms and terms[0] in ("-", "+"):
+            modifier = terms.pop(0)
+            if modifier == "-":
+                terms[0] = "-" + terms[0]
+        return "Poly(%s, %s, domain='%s')" % (" ".join(terms), ", ".join(gens), self.domain)
 
     def __str__(self) -> str:
         return self.__repr__()
@@ -559,13 +646,85 @@ def degree(f: Any, gen: Any = 0) -> Optional[int]:
     return p.degree(gen)
 
 
-def LC(f: Any) -> Any:
-    """Return polynomial leading coefficient."""
-    if not isinstance(f, Poly):
-        p = Poly(f)
+def _coeffs_in(f: Any, x: Any) -> list:
+    """Coefficients of ``f`` as a polynomial in ``x`` (descending), with
+    arbitrary x-free coefficients."""
+    p = Poly(f, x)
+    terms = p.terms()
+    deg = terms[0][0][0]
+    out = [0] * (deg + 1)
+    for (k,), c in terms:
+        out[deg - k] = c
+    from ..core import sympify as _sympify
+
+    return [_sympify(c) for c in out]
+
+
+def _leading(f: Any, gens: tuple) -> tuple:
+    """(coefficient, monomial expr) of the lex-leading term."""
+    from ..core import Integer as _Integer
+
+    p = f if isinstance(f, Poly) else Poly(f, *gens)
+    monom, coeff = p.terms()[0]
+    m = _Integer(1)
+    for g, k in zip(p.gens, monom):
+        if k:
+            m = m * g ** k
+    return coeff, m
+
+
+def LC(f: Any, *gens: Any) -> Any:
+    """Leading coefficient (lex order in the generators)."""
+    return _leading(f, gens)[0]
+
+
+def LM(f: Any, *gens: Any) -> Any:
+    """Leading monomial."""
+    return _leading(f, gens)[1]
+
+
+def LT(f: Any, *gens: Any) -> Any:
+    """Leading term."""
+    c, m = _leading(f, gens)
+    return c * m
+
+
+def invert(f: Any, g: Any, *gens: Any) -> Any:
+    """Inverse of ``f`` modulo ``g`` (integers or univariate polynomials)."""
+    from ..core import Integer as _Integer, sympify as _sympify
+
+    if isinstance(f, (int, _Integer)) and isinstance(g, (int, _Integer)):
+        return _Integer(pow(int(f), -1, int(g)))
+    x = gens[0] if gens else None
+    s_, _t, h = gcdex(f, g, x)
+    h = _sympify(h)
+    if h.free_symbols:
+        raise ValueError("zero divisor: %s is not invertible modulo %s" % (f, g))
+    return cancel(_sympify(s_) / h)
+
+
+def interpolate(data: Any, x: Any) -> Any:
+    """Lagrange interpolating polynomial: values at 1..n, (x, y) pairs or a
+    dict {x: y} (upstream ``interpolate``)."""
+    from ..core import Integer as _Integer, expand, sympify as _sympify
+
+    if isinstance(data, dict):
+        pts = list(data.items())
     else:
-        p = f
-    return p.LC()
+        data = list(data)
+        if data and isinstance(data[0], (tuple, list)):
+            pts = [tuple(p) for p in data]
+        else:
+            pts = [(_Integer(i + 1), v) for i, v in enumerate(data)]
+    pts = [(_sympify(a), _sympify(b)) for a, b in pts]
+    total = _Integer(0)
+    for i, (xi, yi) in enumerate(pts):
+        term = yi
+        for j, (xj, _) in enumerate(pts):
+            if i != j:
+                term = term * (x - xj) / (xi - xj)
+        total = total + term
+    return expand(total)
 
 
 def trailing_coeff(f: Any, *gens: Any) -> Any:
@@ -633,14 +792,55 @@ def half_gcdex(f: Any, g: Any, x: Any = None) -> Tuple[Any, Any]:
     return s, h
 
 
+def _sylvester_resultant(p: Any, q: Any, x: Any) -> Any:
+    from ..core import expand
+    from ..matrices import Matrix
+
+    a = _coeffs_in(p, x)
+    b = _coeffs_in(q, x)
+    m, n = len(a) - 1, len(b) - 1
+    if m == 0 and n == 0:
+        return 1
+    if m == 0:
+        return expand(a[0] ** n)
+    if n == 0:
+        return expand(b[0] ** m)
+    size = m + n
+    rows = []
+    for i in range(n):
+        rows.append([0] * i + a + [0] * (size - m - 1 - i))
+    for i in range(m):
+        rows.append([0] * i + b + [0] * (size - n - 1 - i))
+    return expand(Matrix(rows).det())
+
+
+def _has_parameters(f: Any, x: Any) -> bool:
+    from ..core import sympify as _sympify
+
+    expr = f.as_expr() if isinstance(f, Poly) else _sympify(f)
+    return bool(set(expr.free_symbols) - {x})
+
+
 def resultant(p: Any, q: Any, x: Any = None) -> Any:
-    """Compute the resultant of two polynomials."""
+    """Resultant of two polynomials in ``x`` (Sylvester determinant when
+    the coefficients are symbolic)."""
+    if x is not None and (_has_parameters(p, x) or _has_parameters(q, x)):
+        return _sylvester_resultant(p, q, x)
     poly_p = Poly(p, x) if x is not None else (p if isinstance(p, Poly) else Poly(p))
     return poly_p.resultant(q)
 
 
 def discriminant(p: Any, x: Any = None) -> Any:
-    """Compute the discriminant of a polynomial."""
+    """Discriminant ``(-1)**(n(n-1)/2) * res(p, p') / lc(p)``."""
+    from ..core import diff as _diff, expand, sympify as _sympify
+
+    if x is not None and _has_parameters(p, x):
+        expr = p.as_expr() if isinstance(p, Poly) else _sympify(p)
+        a = _coeffs_in(expr, x)
+        n = len(a) - 1
+        r = _sylvester_resultant(expr, _diff(expr, x), x)
+        sign = -1 if (n * (n - 1) // 2) % 2 else 1
+        return expand(cancel(sign * r / a[0]))
     poly_p = Poly(p, x) if x is not None else (p if isinstance(p, Poly) else Poly(p))
     return poly_p.discriminant()
 
@@ -672,8 +872,100 @@ def sqf(p: Any, x: Any = None) -> Any:
     return prod
 
 
-def groebner(F: Sequence[Any], *gens: Any) -> List[Any]:
-    """Compute a Groebner basis under Lexicographical order."""
+class GroebnerBasis:
+    """Reduced Groebner basis (upstream ``GroebnerBasis`` surface): a
+    sequence of polynomial expressions with generators, domain and order."""
+
+    def __init__(self, exprs: list, gens: tuple, domain: str, order: str) -> None:
+        self.exprs = list(exprs)
+        self.gens = tuple(gens)
+        self.domain = domain
+        self.order = order
+
+    @property
+    def args(self) -> tuple:
+        return (tuple(self.exprs), self.gens)
+
+    def __iter__(self):
+        return iter(self.exprs)
+
+    def __len__(self) -> int:
+        return len(self.exprs)
+
+    def __getitem__(self, i: Any) -> Any:
+        return self.exprs[i]
+
+    def __eq__(self, other: Any) -> bool:
+        if isinstance(other, GroebnerBasis):
+            return self.exprs == other.exprs and self.gens == other.gens
+        if isinstance(other, (list, tuple)):
+            return self.exprs == list(other)
+        return NotImplemented
+
+    def __hash__(self) -> int:
+        return hash((tuple(self.exprs), self.gens, self.order))
+
+    def _ordered_str(self, e: Any) -> str:
+        """``e`` printed with its terms in the basis' monomial order."""
+        from ..core import Add as _Add, Integer as _Integer
+
+        if self.order == "lex" or not isinstance(e, _Add):
+            return str(e)
+        p = Poly(e, *self.gens)
+
+        def key(mc: tuple) -> tuple:
+            m = mc[0]
+            if self.order == "grlex":
+                return (sum(m), m)
+            return (sum(m), tuple(-k for k in reversed(m)))
+
+        out = ""
+        for i, (m, c) in enumerate(sorted(p.terms(), key=key, reverse=True)):
+            mono = _Integer(1)
+            for g, k in zip(self.gens, m):
+                if k:
+                    mono = mono * g ** k
+            t = str(c * mono)
+            if i == 0:
+                out = t
+            elif t.startswith("-"):
+                out += " - " + t[1:]
+            else:
+                out += " + " + t
+        return out
+
+    def __repr__(self) -> str:
+        args = ["[%s]" % ", ".join(self._ordered_str(e) for e in self.exprs)] + [str(g) for g in self.gens]
+        args += ["domain='%s'" % self.domain, "order='%s'" % self.order]
+        return "GroebnerBasis(%s)" % ", ".join(args)
+
+    __str__ = __repr__
+
+
+def _primitive_integer(e: Any, gens: tuple) -> Any:
+    """Scale to integer coefficients with positive leading coefficient
+    and unit content (upstream ZZ-domain basis normalization)."""
+    from math import gcd as _igcd, lcm as _ilcm
+    from ..core import Integer as _Integer, Rational as _Rational, expand
+
+    p = Poly(e, *gens)
+    terms = p.terms()
+    if not all(isinstance(c, _Rational) for _, c in terms):
+        return e
+    den = 1
+    for _, c in terms:
+        den = _ilcm(den, int(c.q))
+    num = 0
+    for _, c in terms:
+        num = _igcd(num, abs(int(c.p * (den // c.q))))
+    scale = _Rational(den, num or 1)
+    if terms[0][1] < 0:
+        scale = -scale
+    return expand(e * scale)
+
+
+def groebner(F: Sequence[Any], *gens: Any, order: str = "lex", **args: Any) -> Any:
+    """Reduced Groebner basis of ``F`` (orders lex, grlex, grevlex)."""
     if len(gens) == 1 and isinstance(gens[0], (list, tuple)):
         var_list = list(gens[0])
     else:
@@ -686,10 +978,22 @@ def groebner(F: Sequence[Any], *gens: Any) -> List[Any]:
             symbols.update(wrapped.free_symbols)
         var_list = sorted(list(symbols), key=lambda s: s.name)
 
-    eq_sources = [str(_wrap(_native_expr(e))) for e in F]
+    eq_sources = [str(_native_expr(e)) for e in F]
     var_names = [_native_symbol_key(_require_symbol(g)) for g in var_list]
-    raw = _native.groebner_basis_expr(eq_sources, var_names)
-    return [_parse_result(r) for r in raw]
+    if order not in ("lex", "grlex", "grevlex"):
+        raise ValueError("unknown monomial order %r" % order)
+    raw = _native.groebner_basis_expr(eq_sources, var_names, order)
+    gens_t = tuple(var_list)
+    exprs = [_primitive_integer(_parse_result(r), gens_t) for r in raw]
+    from ..printing.str import sort_key as _sk
+
+    def lead_key(e: Any) -> tuple:
+        return tuple(Poly(e, *gens_t).terms()[0][0])
+
+    if order == "lex":
+        exprs.sort(key=lead_key, reverse=True)
+    domain = "ZZ" if all(Poly(e, *gens_t)._infer_domain() == "ZZ" for e in exprs) else "QQ"
+    return GroebnerBasis(exprs, gens_t, domain, order)
 
 
 def factor_list(p: Any, *gens: Any) -> Tuple[Any, List[Tuple[Any, int]]]:

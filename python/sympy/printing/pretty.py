@@ -499,6 +499,21 @@ class PrettyPrinter:
         pform = prettyForm(*pform.parens())
         return prettyForm(*pform.left("O"))
 
+    def _print_Subs(self, e: Any) -> prettyForm:
+        pform = self._print(e.expr)
+        pform = prettyForm(*pform.parens())
+        h = pform.height() if pform.height() > 1 else 2
+        rvert = stringPict(vobj("|", h), baseline=pform.baseline)
+        pform = prettyForm(*pform.right(rvert))
+        b = pform.baseline
+        pform.baseline = pform.height() - 1
+        pform = prettyForm(*pform.right(self._print_seq([
+            self._print_seq((self._print(v), xsym("=="), self._print(p)), delimiter="")
+            for v, p in zip(e.variables, e.point)
+        ])))
+        pform.baseline = b
+        return pform
+
     def _print_Tuple(self, e: Any) -> prettyForm:
         return self._print_tuple(tuple(e.args))
 

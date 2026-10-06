@@ -710,6 +710,12 @@ class LatexPrinter:
             s += "; %s\\rightarrow %s" % (self._print(args[1]), self._print(args[2]))
         return r"O\left(%s\right)" % s
 
+    def _print_Subs(self, e: Any) -> str:
+        subs = r"\\ ".join(
+            self._print(v) + "=" + self._print(p) for v, p in zip(e.variables, e.point)
+        )
+        return r"\left. %s \right|_{\substack{ %s }}" % (self._print(e.expr), subs)
+
     def _print_Tuple(self, e: Any) -> str:
         return self._print_seq(tuple(e.args), False)
 

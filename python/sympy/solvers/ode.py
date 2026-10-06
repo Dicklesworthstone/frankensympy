@@ -328,7 +328,52 @@ def _particular_vop(basis, g, lead, x):
     raise NotImplementedError("dsolve: inhomogeneous equations of order > 2")
 
 
-def dsolve(eq, func=None, hint="default", **kwargs):
+def dsolve(eq, func=None, hint="default", ics=None, **kwargs):
+    """Solve an ordinary differential equation for ``func`` (upstream
+    ``dsolve``); ``ics`` fixes the integration constants from initial
+    conditions ``{f(x0): v, f(x).diff(x).subs(x, x0): v1, ...}``."""
+    sol = _dsolve_general(eq, func, hint, **kwargs)
+    if ics:
+        sol = _apply_ics(sol, ics)
+    return sol
+
+
+def _apply_ics(sol, ics):
+    """Solve for the constants C1, C2, ... from initial conditions."""
+    import re as _re
+    from ..core import Eq as _Eq, diff, Symbol as _Sym
+    from .. import solve as _solve
+
+    if isinstance(sol, list):
+        return [_apply_ics(s, ics) for s in sol]
+    lhs, rhs = sol.lhs, sol.rhs
+    x = lhs.args[0]
+    consts = sorted((s for s in rhs.free_symbols if _re.fullmatch(r"C\d+", s.name)),
+                    key=lambda s: int(s.name[1:]))
+    equations = []
+    for key, value in ics.items():
+        name = type(key).__name__
+        if name == "Subs":
+            inner = key.expr
+            if type(inner).__name__ != "Derivative" or len(key.variables) != 1:
+                raise NotImplementedError("unsupported initial condition %s" % key)
+            order = sum(1 for v in inner.args[1:] if v == key.variables[0])
+            point = key.point[0]
+            equations.append(diff(rhs, x, order).subs(x, point) - value)
+        elif type(key) is type(lhs) and len(key.args) == 1:
+            equations.append(rhs.subs(x, key.args[0]) - value)
+        else:
+            raise NotImplementedError("unsupported initial condition %s" % key)
+    if not consts:
+        return sol
+    found = _solve(equations, consts, dict=True)
+    if not found:
+        raise ValueError("Couldn't solve for initial conditions")
+    choice = found[0] if isinstance(found, list) else found
+    return _Eq(lhs, rhs.subs(choice))
+
+
+def _dsolve_general(eq, func=None, hint="default", **kwargs):
     """Solve an ordinary differential equation for ``func`` (upstream ``dsolve``).
 
     Supported classes: linear equations with constant coefficients of any

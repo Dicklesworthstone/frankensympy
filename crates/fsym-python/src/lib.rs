@@ -803,9 +803,24 @@ fn poly_roots_expr(p_src: &str, var: &str) -> PyResult<Vec<(String, usize)>> {
         .collect())
 }
 
-/// Multivariate Groebner basis under Lex order.
+/// Reduced multivariate Groebner basis under `order` (lex, grlex, grevlex).
 #[pyfunction]
-fn groebner_basis_expr(eq_sources: Vec<String>, var_names: Vec<String>) -> PyResult<Vec<String>> {
+#[pyo3(signature = (eq_sources, var_names, order="lex"))]
+fn groebner_basis_expr(
+    eq_sources: Vec<String>,
+    var_names: Vec<String>,
+    order: &str,
+) -> PyResult<Vec<String>> {
+    let term_order = match order {
+        "lex" => fsym_polys::TermOrder::Lex,
+        "grlex" => fsym_polys::TermOrder::DegLex,
+        "grevlex" => fsym_polys::TermOrder::DegRevLex,
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "unknown monomial order {other:?}"
+            )));
+        }
+    };
     let gens: Vec<Symbol> = var_names.into_iter().map(Symbol::new).collect();
     let mut polys = Vec::with_capacity(eq_sources.len());
     for s in &eq_sources {
@@ -814,8 +829,7 @@ fn groebner_basis_expr(eq_sources: Vec<String>, var_names: Vec<String>) -> PyRes
             .map_err(to_value_error)?;
         polys.push(p);
     }
-    let basis = fsym_polys::groebner::groebner_basis(&polys, fsym_polys::TermOrder::Lex)
-        .map_err(to_value_error)?;
+    let basis = fsym_polys::groebner::groebner_basis(&polys, term_order).map_err(to_value_error)?;
     let mut out = Vec::with_capacity(basis.len());
     for p in basis {
         let expr = p.to_expr().map_err(to_value_error)?;
@@ -1729,6 +1743,7 @@ mod tests {
         let gb = groebner_basis_expr(
             vec!["x*y - 2*y".to_string(), "2*y**2 - x**2".to_string()],
             vec!["x".to_string(), "y".to_string()],
+            "lex",
         )
         .unwrap();
         assert!(!gb.is_empty());
