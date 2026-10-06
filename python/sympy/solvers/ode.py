@@ -1,5 +1,7 @@
 """Exact ordinary differential equation (ODE) solvers for FrankenSymPy (WS19)."""
 
+from __future__ import annotations
+
 from typing import Any
 from ..core import (
     Symbol,

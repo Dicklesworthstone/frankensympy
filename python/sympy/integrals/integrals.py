@@ -1,5 +1,7 @@
 """Integration expressions and classes for FrankenSymPy."""
 
+from __future__ import annotations
+
 from typing import Any, Tuple
 from ..core import Basic, Expr, Symbol, _native_expr, _wrap
 

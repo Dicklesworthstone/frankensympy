@@ -1,5 +1,7 @@
 """Series expansion and limits for FrankenSymPy."""
 
+from __future__ import annotations
+
 from ..core import (
     Symbol,
     _native,

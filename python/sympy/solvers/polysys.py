@@ -1,5 +1,7 @@
 """Polynomial system solvers for FrankenSymPy (WS19)."""
 
+from __future__ import annotations
+
 from typing import Any, Iterable, List, Optional, Sequence, Tuple
 from ..core import (
     Eq,

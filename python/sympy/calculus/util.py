@@ -1,5 +1,7 @@
 """Calculus utilities for FrankenSymPy."""
 
+from __future__ import annotations
+
 from typing import Any
 from ..core import Basic, Expr, Integer, Symbol, _native_expr, _require_symbol, _wrap
 from ..sets import Complement, EmptySet, FiniteSet, Interval, Reals, Set

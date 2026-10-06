@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Any
 
 from ...core import Abs, Function, _native, _native_expr, _wrap

@@ -56,7 +56,7 @@ install_path="$repo_root/python/fsym_python.so"
 # so the same bytes are also installed next to frankensympy/__init__.py with the
 # interpreter's ABI-tagged filename. One build, two consumers, no divergent copy.
 package_dir="$repo_root/python/frankensympy"
-"$py" - "$install_path" "$package_dir" <<'PY'
+"$py" - "$so" "$package_dir" <<'PY'
 import shutil
 import sys
 import sysconfig

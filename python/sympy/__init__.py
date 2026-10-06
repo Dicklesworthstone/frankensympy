@@ -4,6 +4,8 @@ Only the names exported here are wired to native behavior. Unsupported SymPy
 operations fail explicitly; upstream SymPy is never used as a fallback.
 """
 
+from __future__ import annotations
+
 from .core import (
     Abs,
     Add,

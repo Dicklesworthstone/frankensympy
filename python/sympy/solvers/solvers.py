@@ -1,5 +1,7 @@
 """General equation solvers and linear system solvers for FrankenSymPy (WS19)."""
 
+from __future__ import annotations
+
 from typing import Any, Iterable, List, Optional, Sequence, Tuple, Union
 from ..core import (
     Basic,

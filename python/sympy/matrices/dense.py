@@ -1,5 +1,7 @@
 """Dense matrix implementations for FrankenSymPy compatibility (WS05, WS10)."""
 
+from __future__ import annotations
+
 from ..core import Basic, Expr, Rational, _native, _native_expr, _wrap
 
 _NativeMatrix = _native.Matrix

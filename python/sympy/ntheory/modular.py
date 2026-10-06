@@ -1,5 +1,7 @@
 """Modular arithmetic and Chinese Remainder Theorem for FrankenSymPy (WS18)."""
 
+from __future__ import annotations
+
 from typing import Any, Optional, Sequence, Tuple
 from ..core import Integer, _native
 

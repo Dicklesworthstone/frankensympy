@@ -1,5 +1,7 @@
 """Geometry utility functions for FrankenSymPy."""
 
+from __future__ import annotations
+
 from typing import Any, List
 from .point import Point, Point2D, Point3D
 from .polygon import Triangle, Polygon

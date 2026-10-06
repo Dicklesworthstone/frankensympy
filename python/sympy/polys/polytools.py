@@ -1,5 +1,7 @@
 """Polynomial tools and representations for FrankenSymPy (WS08, WS09)."""
 
+from __future__ import annotations
+
 import math
 from typing import Any, List, Optional, Sequence, Tuple, Union
 from .polyerrors import PolynomialError

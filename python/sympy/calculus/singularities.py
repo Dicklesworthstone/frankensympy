@@ -1,5 +1,7 @@
 """Singularities and monotonicity functions for FrankenSymPy calculus."""
 
+from __future__ import annotations
+
 from typing import Any
 from ..core import Basic, Expr, Symbol, _native_expr, _require_symbol, _wrap
 from ..sets import EmptySet, FiniteSet, Reals, Set

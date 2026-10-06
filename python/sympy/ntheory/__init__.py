@@ -1,5 +1,7 @@
 """Number theory algorithms and functions for FrankenSymPy."""
 
+from __future__ import annotations
+
 from typing import Any
 from ..core import _native
 from .. import (

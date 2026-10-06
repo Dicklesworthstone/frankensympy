@@ -1,5 +1,7 @@
 """Sparse matrix implementations for FrankenSymPy compatibility (WS05, WS10)."""
 
+from __future__ import annotations
+
 from typing import Any, Dict, Tuple
 from ..core import Basic, Expr, _native, _native_expr, _wrap
 from .dense import Matrix, MatrixBase
