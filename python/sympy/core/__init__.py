@@ -1131,6 +1131,170 @@ def _expr_degree(expr: "Expr") -> int:
     if type(expr) is Mul:
         return sum(_expr_degree(a) for a in expr.args)
     return 0
+_SIGN_POS = frozenset({1})
+_SIGN_NEG = frozenset({-1})
+_SIGN_ZERO = frozenset({0})
+_SIGN_ALL = frozenset({-1, 0, 1})
+
+
+def _sign_info(e: Any, depth: int = 0) -> tuple:
+    """(is_real, possible_signs) inferred structurally; signs is a subset of
+    {-1, 0, 1} for real values, None when unknown. Never numeric."""
+    if depth > 60:
+        return (None, None)
+    t = type(e)
+    if isinstance(e, Rational):
+        v = e.p
+        return (True, frozenset({(v > 0) - (v < 0)}))
+    if t is Float:
+        v = e._as_python_float()
+        if v != v:
+            return (None, None)
+        return (True, frozenset({(v > 0) - (v < 0)}))
+    if t is Expr and not e.args:
+        name = str(e._value)
+        if name in ("pi", "E", "EulerGamma", "GoldenRatio", "Catalan"):
+            return (True, _SIGN_POS)
+        if name == "I":
+            return (False, None)
+        return (None, None)
+    if isinstance(e, Symbol):
+        real = e.is_real
+        if e.is_zero:
+            return (True, _SIGN_ZERO)
+        if e.is_positive:
+            return (True, _SIGN_POS)
+        if e.is_negative:
+            return (True, _SIGN_NEG)
+        if e.is_nonnegative:
+            return (True, frozenset({0, 1}))
+        if e.is_nonpositive:
+            return (True, frozenset({-1, 0}))
+        return (real, _SIGN_ALL if real else None)
+    if t is Add:
+        infos = [_sign_info(a, depth + 1) for a in e.args]
+        reals = [r for r, _ in infos]
+        if any(r is None for r in reals):
+            return (None, None)
+        nonreal = sum(1 for r in reals if r is False)
+        if nonreal:
+            return ((False if nonreal == 1 else None), None)
+        sets = [sg for _, sg in infos]
+        if any(sg is None for sg in sets):
+            return (True, None)
+        if all(sg <= {0, 1} for sg in sets):
+            return (True, _SIGN_POS if any(sg == _SIGN_POS for sg in sets) else frozenset({0, 1}) if any(1 in sg for sg in sets) else _SIGN_ZERO)
+        if all(sg <= {-1, 0} for sg in sets):
+            return (True, _SIGN_NEG if any(sg == _SIGN_NEG for sg in sets) else frozenset({-1, 0}) if any(-1 in sg for sg in sets) else _SIGN_ZERO)
+        return (True, _SIGN_ALL)
+    if t is Mul:
+        real = True
+        signs = frozenset({1})
+        for a in e.args:
+            r, sg = _sign_info(a, depth + 1)
+            if r is not True:
+                return (_mul_nonreal(e.args, depth), None)
+            if sg is None:
+                return (True, None)
+            signs = frozenset(x * y for x in signs for y in sg)
+        return (real, signs)
+    if t is Pow:
+        b, x = e.args
+        rb, sb = _sign_info(b, depth + 1)
+        rx, _ = _sign_info(x, depth + 1)
+        if sb == _SIGN_POS and rx:
+            return (True, _SIGN_POS)
+        if isinstance(x, Integer) and rb:
+            k = x.p
+            if sb is None:
+                return (True, None) if k >= 0 else (True, None)
+            if k < 0 and 0 in sb:
+                return (None, None)
+            return (True, frozenset(sg ** k if k else 1 for sg in sb))
+        if isinstance(x, Rational) and x.q % 2 == 0 and sb is not None and sb <= {0, 1}:
+            return (True, sb)
+        return (None, None)
+    name = t.__name__
+    if isinstance(e, Function) and len(e.args) == 1:
+        ra, sa = _sign_info(e.args[0], depth + 1)
+        if name == "exp" and ra:
+            return (True, _SIGN_POS)
+        if name == "Abs":
+            if ra is None and sa is None:
+                return (True, frozenset({0, 1}))
+            return (True, _SIGN_POS if (sa is not None and 0 not in sa) else frozenset({0, 1}))
+        if name in ("sinh", "atan", "tanh", "asinh", "cbrt") and ra:
+            return (True, sa)
+        if name == "cosh" and ra:
+            return (True, _SIGN_POS)
+        if name in ("sin", "cos", "tan", "cot", "sec", "csc", "acot", "floor", "ceiling", "sign") and ra:
+            return (True, _SIGN_ALL)
+        if name == "log" and sa == _SIGN_POS:
+            return (True, _SIGN_ALL)
+    return (None, None)
+
+
+def _mul_nonreal(args: Any, depth: int) -> bool | None:
+    """A product with exactly one non-real factor and nonzero real others
+    is non-real; anything else is undecided."""
+    infos = [_sign_info(a, depth + 1) for a in args]
+    if any(r is None for r, _ in infos):
+        return None
+    nonreal = [i for i in infos if i[0] is False]
+    if len(nonreal) != 1:
+        return None
+    if all(sg is not None and 0 not in sg for r, sg in infos if r):
+        return False
+    return None
+
+
+def _assumption_pow(base: Any, exponent: Any) -> Any:
+    """Upstream assumption-driven power folds: (b**e1)**e2 -> b**(e1*e2) for
+    nonnegative b and real exponents; (b**(2k))**(1/(2k)) -> Abs(b) for real
+    b. Returns None when no rule applies."""
+    if type(base) is Pow:
+        b, e1 = base.args
+        if not isinstance(e1, Rational) or not isinstance(exponent, Rational):
+            return None
+        if b.is_nonnegative:
+            return Pow(b, e1 * exponent)
+        if b.is_real and isinstance(e1, Integer) and e1.p % 2 == 0 and e1 * exponent == 1:
+            from ..functions.elementary.complexes import Abs as _Abs
+
+            return _Abs(b)
+    return None
+
+
+def _sign_query(e: Any, prop: str) -> bool | None:
+    try:
+        real, signs = _sign_info(e)
+    except Exception:
+        return None
+    if prop in ("positive", "negative", "nonnegative", "nonpositive") and real is False:
+        return False
+    if signs is None or real is not True:
+        return None
+    if prop == "positive":
+        return True if signs == _SIGN_POS else (False if 1 not in signs else None)
+    if prop == "negative":
+        return True if signs == _SIGN_NEG else (False if -1 not in signs else None)
+    if prop == "zero":
+        return True if signs == _SIGN_ZERO else (False if 0 not in signs else None)
+    if prop == "nonzero":
+        return True if 0 not in signs else (False if signs == _SIGN_ZERO else None)
+    if prop == "nonnegative":
+        return True if signs <= {0, 1} else (False if signs == _SIGN_NEG else None)
+    if prop == "nonpositive":
+        return True if signs <= {-1, 0} else (False if signs == _SIGN_POS else None)
+    return None
+
+
+def _contains_node(e: Any, target: Any) -> bool:
+    if e == target:
+        return True
+    return any(_contains_node(a, target) for a in getattr(e, "args", ()))
+
+
 def _str_expr(expr: "Expr") -> str:
     """SymPy 1.14.0-faithful plain str printer.
 
@@ -1374,29 +1538,30 @@ class Expr(Basic):
     def is_number(self) -> bool:
         return self._value.is_number
 
-    # Tri-valued assumption family at the base: symbolic compounds (Add/Mul/
-    # Pow) answer None exactly like the pinned oracle; concrete numbers and
-    # Symbols override with definite / assumption-driven answers.
+    # Tri-valued assumption family at the base: compounds infer from their
+    # parts (upstream _eval_is_* rules: products/sums/powers of signed reals,
+    # exp of a real is positive, ...); unknown stays None. Concrete numbers
+    # and Symbols override with definite / assumption-driven answers.
     # (bead fra-fra-shell-atom-assumptions-bypasses-7o3)
     @property
     def is_positive(self) -> bool | None:
-        return None
+        return _sign_query(self, "positive")
 
     @property
     def is_negative(self) -> bool | None:
-        return None
+        return _sign_query(self, "negative")
 
     @property
     def is_zero(self) -> bool | None:
-        return None
+        return _sign_query(self, "zero")
 
     @property
     def is_nonzero(self) -> bool | None:
-        return None
+        return _sign_query(self, "nonzero")
 
     @property
     def is_real(self) -> bool | None:
-        return None
+        return _sign_info(self)[0]
 
     @property
     def is_complex(self) -> bool | None:
@@ -1424,11 +1589,11 @@ class Expr(Basic):
 
     @property
     def is_nonnegative(self) -> bool | None:
-        return None
+        return _sign_query(self, "nonnegative")
 
     @property
     def is_nonpositive(self) -> bool | None:
-        return None
+        return _sign_query(self, "nonpositive")
 
     @property
     def is_finite(self) -> bool | None:
@@ -1448,7 +1613,7 @@ class Expr(Basic):
         from ..polys import factor
         return factor(self, *gens)
 
-    def expand(self) -> "Expr":
+    def expand(self, *args: Any, **hints: Any) -> "Expr":
         if getattr(self, "_struct_args", None) is not None:
             # Oracle: expand of a structural subclass instance reconstructs
             # with recursively expanded args (V(x, 2).expand() -> V(x, 2)).
@@ -1456,7 +1621,53 @@ class Expr(Basic):
                 a.expand() if isinstance(a, Basic) else a for a in self._struct_args
             )
             return type(self)(*new_args)
-        return expand(self)
+        return expand(self, *args, **hints)
+
+    def coeff(self, x: Any, n: Any = 1, right: bool = False) -> "Expr":
+        """Coefficient of ``x**n`` in the expanded sum (upstream ``coeff``)."""
+        x = sympify(x)
+        n = sympify(n)
+        target = _ONE if n == 0 else (x if n == 1 else Pow(x, n))
+        terms = self.args if type(self) is Add else (self,)
+        total = _ZERO
+        for t in terms:
+            if n == 0:
+                if x not in getattr(t, "free_symbols", set()) and not (
+                    type(x) is not Symbol and _contains_node(t, x)
+                ):
+                    total = total + t
+                continue
+            factors = t.args if type(t) is Mul else (t,)
+            if target in factors:
+                rest = _ONE
+                removed = False
+                for f in factors:
+                    if f == target and not removed:
+                        removed = True
+                        continue
+                    rest = rest * f
+                if x not in getattr(rest, "free_symbols", set()):
+                    total = total + rest
+            elif t == target:
+                total = total + _ONE
+        return total
+
+    def as_coeff_exponent(self, x: Any) -> tuple:
+        """``c*x**e -> (c, e)`` (upstream ``as_coeff_exponent``)."""
+        x = sympify(x)
+        factors = self.args if type(self) is Mul else (self,)
+        coeff = _ONE
+        exponent = _ZERO
+        for f in factors:
+            if f == x:
+                exponent = exponent + 1
+            elif type(f) is Pow and f.args[0] == x and x not in f.args[1].free_symbols:
+                exponent = exponent + f.args[1]
+            else:
+                coeff = coeff * f
+        if x in getattr(coeff, "free_symbols", set()):
+            return (self, _ZERO)
+        return (coeff, exponent)
 
     def as_expr(self) -> "Expr":
         return self
@@ -2024,6 +2235,9 @@ class Expr(Basic):
                     return _NEGATIVE_ONE
                 else:
                     return -I
+        folded = _assumption_pow(self, sympify(exponent))
+        if folded is not None:
+            return folded
         return _wrap(_native.py_pow(_native_expr(self), _native_expr(exponent)))
 
     def __mod__(self, other: Any) -> "Expr":
@@ -3201,6 +3415,9 @@ class Pow(Expr):
 
     def __new__(cls, base: Any, exponent: Any, evaluate: bool = True):
         if evaluate:
+            folded = _assumption_pow(base, exponent)
+            if folded is not None:
+                return folded
             # SymPy 1.14.0 construction folds (bead
             # fra-shell-number-canonical-construction-qf6): 1**x -> 1,
             # x**0 -> 1, 0**0 -> 1, 0**positive -> 0, 0**negative -> zoo.
@@ -3669,22 +3886,99 @@ def replay_diff_receipt(receipt: dict[str, Any]) -> bool:
     )
 
 
-def expand(expression: Any) -> Expr:
+def _expand_power_exp_pass(e: Any) -> Any:
+    """power_exp hint: exp(a + b) -> exp(a)*exp(b), x**(a + b) -> x**a*x**b."""
+    args = getattr(e, "args", ())
+    if not args or not isinstance(e, (Add, Mul, Pow, Function)):
+        return e
+    if isinstance(e, Function) and getattr(e, "_struct_args", None) is not None:
+        return e
+    new_args = [_expand_power_exp_pass(a) for a in args]
+    if new_args != list(args):
+        e = e.func(*new_args)
+        args = getattr(e, "args", ())
+    if type(e).__name__ == "exp" and isinstance(args[0], Add):
+        from ..functions import exp as _exp
+
+        out = _ONE
+        for t in args[0].args:
+            out = out * _exp(t)
+        return out
+    if type(e) is Pow and isinstance(args[1], Add):
+        out = _ONE
+        for t in args[1].args:
+            out = out * Pow(args[0], t)
+        return out
+    return e
+
+
+def _expand_func_pass(e: Any) -> Any:
+    """func hint: binomial(n, k) with integer k -> falling factorial / k!."""
+    args = getattr(e, "args", ())
+    if not args:
+        return e
+    new_args = [_expand_func_pass(a) for a in args]
+    if new_args != list(args) and isinstance(e, (Add, Mul, Pow, Function)):
+        e = e.func(*new_args)
+        args = e.args
+    if type(e).__name__ == "binomial" and isinstance(args[1], Integer) and args[1].p >= 0:
+        n, k = args[0], args[1].p
+        num = _ONE
+        for i in range(k):
+            num = num * (n - i)
+        den = 1
+        for i in range(2, k + 1):
+            den *= i
+        return expand(num / den)
+    return e
+
+
+def expand(expression: Any, deep: bool = True, modulus: Any = None, power_base: bool = True,
+           power_exp: bool = True, mul: bool = True, log: bool = True,
+           multinomial: bool = True, basic: bool = True, **hints: Any) -> Expr:
+    """Upstream ``expand`` with hints: ``mul``/``multinomial`` (native),
+    ``power_exp`` (exp(x + y) -> exp(x)*exp(y)), ``log`` (with ``force``
+    or positivity), ``trig=True``, ``func=True``; hints iterate to a fixed
+    point. Held Adds keep their oracle-pinned behavior."""
+    if isinstance(expression, Add) and hasattr(expression, "_args"):
+        return _expand_held(expression)
+    result = sympify(expression)
+    force = bool(hints.get("force", False))
+    for _ in range(6):
+        previous = result
+        if mul or multinomial:
+            result = _lift_builtin_result(_native_expr(result).expand())
+        if power_exp:
+            result = _expand_power_exp_pass(result)
+        if log:
+            from ..simplify.simplify import expand_log as _expand_log
+
+            result = _expand_log(result, force=force)
+        if hints.get("trig", False):
+            from ..simplify.simplify import expand_trig as _expand_trig
+
+            result = _expand_trig(result)
+        if hints.get("func", False):
+            result = _expand_func_pass(result)
+        if result == previous:
+            break
+    return result
+
+
+def _expand_held(expression: Any) -> Expr:
     # Oracle-pinned (SymPy 1.14.0): expand of a held (evaluate=False) Add
     # expands arguments recursively and reconstructs the Add UNEVALUATED -
     # heldness survives expand for Add (expand(Add(x, x, evaluate=False))
     # -> Add(x, x)). Held Mul/Pow are the distribution targets themselves
     # and expand normally (expand(Mul(2, 3, evaluate=False)) -> 6).
-    if isinstance(expression, Add) and hasattr(expression, "_args"):
-        new_args = tuple(
-            a.expand() if isinstance(a, Basic) else a for a in expression.args
-        )
-        # Oracle: the held reconstruction uses canonical term order -
-        # non-numeric terms sorted, constants last ascending
-        # (expand(Add(y, x, evaluate=False)) -> Add(x, y) held).
-        held = Add(*new_args, evaluate=False)
-        return Add(*_add_ordered_terms(held), evaluate=False)
-    return _lift_builtin_result(_native_expr(expression).expand())
+    new_args = tuple(
+        a.expand() if isinstance(a, Basic) else a for a in expression.args
+    )
+    # Oracle: the held reconstruction uses canonical term order -
+    # non-numeric terms sorted, constants last ascending
+    # (expand(Add(y, x, evaluate=False)) -> Add(x, y) held).
+    held = Add(*new_args, evaluate=False)
+    return Add(*_add_ordered_terms(held), evaluate=False)
 
 
 def simplify(expression: Any) -> Expr:
@@ -3799,9 +4093,21 @@ def sqrt(expression: Any, evaluate: bool = True) -> Expr:
 
 
 class Abs(_NativeFunction):
-    """Absolute value; exact values and sign/coefficient extraction are native."""
+    """Absolute value; exact values and sign/coefficient extraction are native,
+    assumption-known signs fold (Abs(p) = p for positive p)."""
 
     __slots__ = ()
+
+    @classmethod
+    def eval(cls, arg: Any) -> Any:
+        try:
+            if arg.is_nonnegative and not isinstance(arg, Rational):
+                return arg
+            if arg.is_nonpositive and not isinstance(arg, Rational):
+                return -arg
+        except Exception:
+            pass
+        return super().eval(arg)
 
 
 def _ascii_pretty_lines(expression: Any) -> list[str]:

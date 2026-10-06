@@ -1075,6 +1075,30 @@ fn is_nonnegative_factor(e: &Expr) -> bool {
     }
 }
 
+/// `(a, b)` when `e == a + b*I` with exact rationals a, b.
+fn gaussian_parts(e: &Expr) -> Option<(BigRational, BigRational)> {
+    match e {
+        Expr::Const(Constant::I) => Some((BigRational::zero(), BigRational::one())),
+        Expr::Add(terms) => {
+            let mut re = BigRational::zero();
+            let mut im = BigRational::zero();
+            for t in terms {
+                if let Some(v) = number(t) {
+                    re += v;
+                } else if let Some(c) = imaginary_coeff(t).and_then(|c| number(&c)) {
+                    im += c;
+                } else {
+                    return None;
+                }
+            }
+            Some((re, im))
+        }
+        other => imaginary_coeff(other)
+            .and_then(|c| number(&c))
+            .map(|c| (BigRational::zero(), c)),
+    }
+}
+
 /// Canonical `base**exp` (upstream automatic power evaluation).
 pub fn eval_pow(base: Expr, exp: Expr) -> Expr {
     if exp.is_zero() {
@@ -1146,6 +1170,26 @@ pub fn eval_pow(base: Expr, exp: Expr) -> Expr {
             }
         }
         return raw_pow(base, exp);
+    }
+    // Negative integer powers of Gaussian rationals are evaluated:
+    // (a + b*I)**-n = ((a - b*I)/(a^2 + b^2))**n, multiplied out exactly.
+    if let Expr::Integer(k) = &exp
+        && k.is_negative()
+        && let Some((a, b)) = gaussian_parts(&base)
+        && !b.is_zero()
+        && let Some(n) = (-k.clone()).to_i64()
+        && n <= 64
+    {
+        let norm = a.clone() * a.clone() + b.clone() * b.clone();
+        let (wr, wi) = (a / norm.clone(), -b / norm);
+        let (mut re, mut im) = (BigRational::one(), BigRational::zero());
+        for _ in 0..n {
+            let nr = re.clone() * wr.clone() - im.clone() * wi.clone();
+            let ni = re * wi.clone() + im * wr.clone();
+            re = nr;
+            im = ni;
+        }
+        return rational_expr(re) + rational_expr(im) * imag();
     }
     match (&base, &exp) {
         (Expr::Const(Constant::I), Expr::Integer(k)) => {

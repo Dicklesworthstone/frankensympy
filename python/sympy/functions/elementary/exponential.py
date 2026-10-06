@@ -12,6 +12,13 @@ class log(_NativeFunction):
 
     __slots__ = ()
 
+    @classmethod
+    def eval(cls, arg):
+        # log(exp(a)) = a for real a (principal branch).
+        if type(arg).__name__ == "exp" and getattr(arg.args[0], "is_real", None):
+            return arg.args[0]
+        return super().eval(arg)
+
     def __new__(cls, arg, base=None, **options):
         if base is not None:
             from ...core import sympify

@@ -510,7 +510,21 @@ class Matrix(MatrixBase):
         return [_wrap(e) for e in self._native.eigenvalues()]
 
     def eigenvals(self):
-        """Return a dict mapping eigenvalue -> multiplicity."""
+        """Return a dict mapping eigenvalue -> multiplicity.
+
+        Roots of the characteristic polynomial from the exact radical
+        roots() engine (canonical forms, upstream order); falls back to the
+        native eigenvalue lane when some roots are not expressible."""
+        try:
+            from ..core import Symbol as _Symbol
+            from ..polys.polytools import Poly, roots
+
+            lam = _Symbol("_fsym_lambda")
+            rts = roots(Poly(self.charpoly(lam).as_expr(), lam))
+            if sum(rts.values()) == self.rows:
+                return dict(rts)
+        except Exception:
+            pass
         evals = self.eigenvalues()
         res = {}
         for ev in evals:
@@ -525,9 +539,58 @@ class Matrix(MatrixBase):
         res = []
         for ev, mult in eval_dict.items():
             M = self - ev * I
-            basis = M.nullspace()
+            try:
+                basis = M.nullspace()
+            except Exception:
+                basis = M._nullspace_exact()
             res.append((ev, mult, basis))
         return res
+
+    def _nullspace_exact(self):
+        """Nullspace by fraction-free-free RREF with exact zero tests
+        (expand + simplify), for entries the native lane refuses (radicals).
+        Free variables are set to 1 as upstream does."""
+        from ..core import expand
+        from ..simplify import simplify
+
+        rows, cols = self.shape
+        a = [[self[i, j] for j in range(cols)] for i in range(rows)]
+
+        def is_zero(e):
+            return simplify(expand(e)) == 0
+
+        pivots = []
+        r = 0
+        for c in range(cols):
+            pivot = None
+            for i in range(r, rows):
+                if not is_zero(a[i][c]):
+                    pivot = i
+                    break
+            if pivot is None:
+                continue
+            a[r], a[pivot] = a[pivot], a[r]
+            pv = a[r][c]
+            a[r] = [simplify(expand(v / pv)) for v in a[r]]
+            for i in range(rows):
+                if i != r and not is_zero(a[i][c]):
+                    factor = a[i][c]
+                    a[i] = [simplify(expand(a[i][j] - factor * a[r][j])) for j in range(cols)]
+            pivots.append(c)
+            r += 1
+            if r == rows:
+                break
+        free = [c for c in range(cols) if c not in pivots]
+        basis = []
+        for fv in free:
+            vec = [0] * cols
+            vec[fv] = 1
+            for i, pc in enumerate(pivots):
+                from ..simplify import radsimp
+
+                vec[pc] = expand(radsimp(simplify(expand(-a[i][fv]))))
+            basis.append(self._new([[v] for v in vec]))
+        return basis
 
     def diagonalize(self):
         """Diagonalize matrix M = P * D * P^-1 returning (P, D)."""

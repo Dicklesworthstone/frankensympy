@@ -1354,26 +1354,7 @@ def coeff(expr: Any, sym: Any, n: int = 1) -> Any:
     return Integer(0)
 
 
-def re(expr: Any) -> Any:
-    """Real part via as_real_imag decomposition."""
-    if hasattr(expr, "as_real_imag"):
-        return expr.as_real_imag()[0]
-    return expr
-
-
-def im(expr: Any) -> Any:
-    """Imaginary part via as_real_imag decomposition."""
-    if hasattr(expr, "as_real_imag"):
-        return expr.as_real_imag()[1]
-    return Integer(0)
-
-
-def conjugate(expr: Any) -> Any:
-    """Complex conjugate via as_real_imag decomposition."""
-    if hasattr(expr, "as_real_imag"):
-        re_part, im_part = expr.as_real_imag()
-        return re_part - im_part * I
-    return expr
+from .functions.elementary.complexes import conjugate, im, re
 
 
 def count_ops(expr: Any) -> Integer:
@@ -1434,6 +1415,32 @@ from .functions.elementary.piecewise import ExprCondPair, Piecewise, piecewise_f
 from .functions.elementary.trigonometric import atan2
 from .functions.elementary.exponential import LambertW, ln
 from .core.mod import Mod
+
+
+def numer(expr: Any) -> Any:
+    """Numerator of ``expr`` (upstream ``numer``)."""
+    return sympify(expr).as_numer_denom()[0]
+
+
+def denom(expr: Any) -> Any:
+    """Denominator of ``expr`` (upstream ``denom``)."""
+    return sympify(expr).as_numer_denom()[1]
+
+
+def expand_mul(expr: Any, deep: bool = True) -> Any:
+    """Distribute products over sums only (upstream ``expand_mul``)."""
+    return expand(expr, power_exp=False, log=False, power_base=False)
+
+
+def expand_multinomial(expr: Any, deep: bool = True) -> Any:
+    """Expand integer powers of sums (upstream ``expand_multinomial``)."""
+    return expand(expr, power_exp=False, log=False, power_base=False)
+
+
+def expand_func(expr: Any, deep: bool = True) -> Any:
+    """Expand special functions into elementary ones where possible."""
+    return expand(expr, func=True, power_exp=False, log=False)
+
 from .core.lambdify_subs import Lambda, Subs
 import sys as _sys
 for _obj in (Lambda, Subs):
@@ -1981,4 +1988,9 @@ __all__ = [
     "atan2",
     "ln",
     "piecewise_fold",
+    "numer",
+    "denom",
+    "expand_mul",
+    "expand_multinomial",
+    "expand_func",
 ]

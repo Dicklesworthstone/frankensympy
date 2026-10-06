@@ -6,9 +6,51 @@ from ...core import Abs, Function, _NativeFunction, _native, _native_expr, _wrap
 
 
 class sign(_NativeFunction):
-    """Complex sign; exact values and factor extraction are native."""
+    """Complex sign; exact values and factor extraction are native,
+    assumption-known signs fold."""
 
     __slots__ = ()
+
+    @classmethod
+    def eval(cls, arg):
+        from ...core import Integer, Rational
+
+        if not isinstance(arg, Rational):
+            if arg.is_positive:
+                return Integer(1)
+            if arg.is_negative:
+                return Integer(-1)
+            if arg.is_zero:
+                return Integer(0)
+        return super().eval(arg)
+
+
+def _split_real_imag(arg: Any):
+    """(re, im) of an expression whose expanded terms are each real or a
+    real multiple of I; None when some term is undecided."""
+    from ...core import Add, I, Integer, Mul, expand
+
+    e = expand(arg)
+    terms = e.args if isinstance(e, Add) else (e,)
+    re_part = Integer(0)
+    im_part = Integer(0)
+    for t in terms:
+        if getattr(t, "is_real", None) is True:
+            re_part = re_part + t
+            continue
+        if t == I:
+            im_part = im_part + 1
+            continue
+        if isinstance(t, Mul) and I in t.args:
+            rest = Integer(1)
+            for f in t.args:
+                if f != I:
+                    rest = rest * f
+            if getattr(rest, "is_real", None) is True:
+                im_part = im_part + rest
+                continue
+        return None
+    return re_part, im_part
 
 
 class re(Function):
@@ -21,6 +63,9 @@ class re(Function):
         from ...core import S
         if getattr(arg, "is_real", None) is True:
             return arg
+        split = _split_real_imag(arg)
+        if split is not None:
+            return split[0]
         if getattr(arg, "is_imaginary", None) is True:
             return S.Zero
         if hasattr(arg, "as_real_imag"):
@@ -43,6 +88,9 @@ class im(Function):
         from ...core import S
         if getattr(arg, "is_real", None) is True:
             return S.Zero
+        split = _split_real_imag(arg)
+        if split is not None:
+            return split[1]
         if hasattr(arg, "as_real_imag"):
             try:
                 _, i = arg.as_real_imag()

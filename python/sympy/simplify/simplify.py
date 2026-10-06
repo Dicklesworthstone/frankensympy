@@ -481,6 +481,13 @@ def expand_log(expr: Any, force: bool = False, **kwargs: Any) -> Any:
                 for f in arg.args:
                     terms.append(expand_log(log(f), force=force, **kwargs))
                 return Add(*terms)
+            # Positive factors split off: log(p*x) = log(p) + log(x).
+            pos = [f for f in arg.args if getattr(f, "is_positive", None) is True]
+            if pos:
+                rest = Mul(*[f for f in arg.args if f not in pos])
+                terms = [expand_log(log(f), force=force, **kwargs) for f in pos]
+                terms.append(log(rest))
+                return Add(*terms)
         if isinstance(arg, Pow):
             base, exponent = arg.args
             if force or getattr(base, "is_positive", None) is True:
@@ -549,6 +556,14 @@ def ratsimp(expr: Any) -> Any:
 def radsimp(expr: Any, **kwargs: Any) -> Any:
     """Rationalize the denominator of a radical expression."""
     expr = sympify(expr)
+    if isinstance(expr, (Mul, Add)):
+        parts = [radsimp(a, **kwargs) for a in expr.args]
+        if parts != list(expr.args):
+            from ..core import expand as _expand
+
+            rebuilt = Mul(*parts) if isinstance(expr, Mul) else Add(*parts)
+            return _expand(rebuilt) if isinstance(expr, Mul) else rebuilt
+        return expr
     # Oracle-pinned: Pow(c, -1/2) rationalizes to sqrt(c)/2
     # (radsimp(1/sqrt(2)) -> Mul(Rational(1, 2), Pow(2, 1/2))).
     if isinstance(expr, Pow) and isinstance(expr.args[1], Rational) and expr.args[1] == Rational(-1, 2):
