@@ -526,12 +526,11 @@ fn simplify_at<M: BudgetMeter>(
             // Oracle-pinned: nested Pow flattens only with an INTEGER
             // outer exponent (Pow(Pow(x, 2), 3) -> Pow(x, 6)); a rational
             // outer exponent stays (sign ambiguity: sqrt(x**2) != x).
-            if let Expr::Pow(inner_b, inner_e) = &b {
-                if matches!(e, Expr::Integer(_)) {
-                    let flat =
-                        Expr::Pow(inner_b.clone(), Arc::new((**inner_e).clone() * e.clone()));
-                    return Ok(simplify_at(&flat, depth, m, folds, mode)?);
-                }
+            if let Expr::Pow(inner_b, inner_e) = &b
+                && matches!(e, Expr::Integer(_))
+            {
+                let flat = Expr::Pow(inner_b.clone(), Arc::new((**inner_e).clone() * e.clone()));
+                return simplify_at(&flat, depth, m, folds, mode);
             }
             if e.is_zero() {
                 Ok(Expr::from_i64(1))

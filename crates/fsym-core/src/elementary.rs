@@ -894,12 +894,9 @@ fn integer_nthroot(m: &BigInt, n: u32) -> Option<BigInt> {
         return None;
     }
     let g = BigInt::from(guess as i64);
-    for cand in [g.clone() - BigInt::from(1), g.clone(), g + BigInt::from(1)] {
-        if !cand.is_negative() && cand.pow(n) == *m {
-            return Some(cand);
-        }
-    }
-    None
+    [g.clone() - BigInt::from(1), g.clone(), g + BigInt::from(1)]
+        .into_iter()
+        .find(|cand| !cand.is_negative() && cand.pow(n) == *m)
 }
 
 /// Trial-division factorization of `m > 0`; the unfactored cofactor (if any)
@@ -1085,10 +1082,8 @@ fn gaussian_parts(e: &Expr) -> Option<(BigRational, BigRational)> {
             for t in terms {
                 if let Some(v) = number(t) {
                     re += v;
-                } else if let Some(c) = imaginary_coeff(t).and_then(|c| number(&c)) {
-                    im += c;
                 } else {
-                    return None;
+                    im += imaginary_coeff(t).and_then(|c| number(&c))?;
                 }
             }
             Some((re, im))
@@ -1319,7 +1314,7 @@ fn eval_zeta(arg: &Expr) -> Option<Expr> {
             / BigRational::from_integer(fact * BigInt::from(2));
         return Some(rational_expr(coeff) * eval_pow(pi(), Expr::from_i64(n)));
     }
-    if n < 0 && n >= -200 {
+    if (-200..0).contains(&n) {
         // zeta(-m) = -B_{m+1}/(m+1)  (B_1 convention irrelevant for m >= 1)
         let m = (-n) as usize;
         let b = bernoulli_numbers(m + 1);

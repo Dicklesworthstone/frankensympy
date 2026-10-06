@@ -488,7 +488,7 @@ fn expand_pow(base: &Expr, exp: &Expr, target: &BigRational, ctx: &mut Ctx) -> S
 fn retry_until_term(e: &Expr, target: &BigRational, ctx: &mut Ctx) -> SResult<Series> {
     let mut t = target.clone();
     for _ in 0..6 {
-        t = t + q(4);
+        t += q(4);
         let s = expand_at(e, &t, ctx)?;
         if !s.terms.is_empty() {
             return Ok(s);

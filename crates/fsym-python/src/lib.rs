@@ -105,16 +105,14 @@ fn taylor_expr(src: &str, var: &str, at: i64, order: usize) -> PyResult<String> 
         .map_err(to_value_error)
 }
 
+/// `(coefficient, exponent)` term strings and the remainder order string.
+type SeriesTermStrings = (Vec<(String, String)>, Option<String>);
+
 /// Generalized series about `x0` to absolute order `n`: returns the
 /// `(coefficient, exponent)` terms in the local variable and the remainder
 /// order (`None` when exact).
 #[pyfunction]
-fn series_expansion_expr(
-    src: &str,
-    var: &str,
-    x0: &str,
-    n: i64,
-) -> PyResult<(Vec<(String, String)>, Option<String>)> {
+fn series_expansion_expr(src: &str, var: &str, x0: &str, n: i64) -> PyResult<SeriesTermStrings> {
     let e = parse_expr(src)?;
     let point = parse_expr(x0)?;
     let (terms, order) = fsym_calculus::series_expansion(&e, &Symbol::new(var), &point, n)
@@ -1610,8 +1608,11 @@ mod tests {
         assert!(finite.contains(&py_integer(2)).unwrap());
         assert!(!finite.contains(&py_integer(4)).unwrap());
 
+        // {1, 2, 3} lies inside [0, 5]: the union is the interval itself.
         let u = iv.union(&finite);
-        assert_eq!(u.kind(), "Union");
+        assert_eq!(u.kind(), "Interval");
+        let outside = PySymSet::finite(vec![py_integer(7)]);
+        assert_eq!(iv.union(&outside).kind(), "Union");
 
         let inter = iv.intersection(&finite);
         assert!(inter.contains(&py_integer(2)).unwrap());

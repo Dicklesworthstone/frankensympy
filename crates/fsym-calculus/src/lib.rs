@@ -1079,6 +1079,9 @@ fn direct_substitution(expr: &Expr, var: &Symbol, to: &Expr) -> Option<Expr> {
     Some(value)
 }
 
+/// Series terms `(coefficient, exponent)` and the remainder order.
+pub type SeriesTerms = (Vec<(Expr, BigRational)>, Option<BigRational>);
+
 /// Generalized series of `expr` about `var = x0` to absolute order `n`.
 ///
 /// Returns the nonzero terms as `(coefficient, exponent)` pairs in the
@@ -1086,12 +1089,14 @@ fn direct_substitution(expr: &Expr, var: &Symbol, to: &Expr) -> Option<Expr> {
 /// for `x0 = -oo`) and the order of the remainder (`None` when the
 /// expansion is exact). `log` terms of the local variable stay in the
 /// coefficients (`series(x*log(x))` keeps `x*log(x)`).
+///
+/// Returns `(coefficient, exponent)` pairs and the remainder order.
 pub fn series_expansion(
     expr: &Expr,
     var: &Symbol,
     x0: &Expr,
     n: i64,
-) -> Result<(Vec<(Expr, BigRational)>, Option<BigRational>), CalculusError> {
+) -> Result<SeriesTerms, CalculusError> {
     if unsafe_direct_substitution(expr) || unsafe_direct_substitution(x0) {
         return Err(CalculusError::NonDifferentiable(
             UNSAFE_DIRECT_SUBSTITUTION.to_string(),
@@ -1125,7 +1130,6 @@ pub fn series_expansion(
         .into_iter()
         .map(|(k, c)| (simplify(&c), k))
         .filter(|(c, _)| !c.is_zero())
-        .map(|(c, k)| (c, k))
         .collect();
     Ok((terms, s.order))
 }

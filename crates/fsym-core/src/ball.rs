@@ -926,6 +926,195 @@ fn exp_series_interval(x: &RealBall, digits: u32) -> Result<RealBall, BallError>
     RealBall::new(acc.midpoint().clone(), acc.radius() + tail)
 }
 
+// ---------------------------------------------------------------------------
+// Logarithm and arctangent enclosures (monotone; rational-point series with
+// explicit tail bounds, midpoints rounded onto a decimal grid with the
+// rounding error added to the radius).
+// ---------------------------------------------------------------------------
+
+/// Rounds the midpoint to the 10^-(digits) grid, widening the radius by the
+/// rounding error so the enclosure stays valid while operands stay small.
+fn round_onto_grid(ball: RealBall, digits: u32) -> RealBall {
+    let scale = BigInt::from(10).pow(digits);
+    let m = ball.midpoint().clone() * BigRational::from_integer(scale.clone());
+    let rounded = bigdiv_floor(&(m.numer() * 2 + m.denom()), &(m.denom() * 2));
+    let new_mid = BigRational::new(rounded, scale);
+    let err = (ball.midpoint().clone() - new_mid.clone()).abs();
+    RealBall {
+        midpoint: new_mid,
+        radius: ball.radius().clone() + err,
+    }
+}
+
+/// Enclosure of atanh(z) for exact rational |z| <= 1/2.
+fn atanh_rational(z: &BigRational, digits: u32) -> Result<RealBall, BallError> {
+    let target = ten_pow_rational(digits + 4);
+    let z2 = z.clone() * z.clone();
+    let mut pow = z.clone();
+    let mut sum = BigRational::zero();
+    let grid = digits + 12;
+    let mut n: i64 = 0;
+    loop {
+        let term = pow.clone() / BigRational::from_integer(BigInt::from(2 * n + 1));
+        if term.abs() <= target {
+            // tail <= |term| / (1 - z^2) <= 2|term| for |z| <= 1/2
+            let tail = term.abs() * BigRational::from_integer(BigInt::from(2));
+            let ball = RealBall {
+                midpoint: sum,
+                radius: tail,
+            };
+            return Ok(round_onto_grid(ball, grid));
+        }
+        sum += term;
+        pow = round_rational(&(pow * z2.clone()), grid + 4);
+        n += 1;
+        if n > 1_000_000 {
+            return Err(transcendental_arithmetic_overflow());
+        }
+    }
+}
+
+/// Rational rounded to the 10^-digits grid (used for series powers whose
+/// rounding error is far below the requested target).
+fn round_rational(q: &BigRational, digits: u32) -> BigRational {
+    let scale = BigInt::from(10).pow(digits);
+    let m = q.clone() * BigRational::from_integer(scale.clone());
+    let rounded = bigdiv_floor(&(m.numer() * 2 + m.denom()), &(m.denom() * 2));
+    BigRational::new(rounded, scale)
+}
+
+/// Enclosure of ln(q) for an exact positive rational q.
+fn ln_rational(q: &BigRational, digits: u32) -> Result<RealBall, BallError> {
+    if !q.is_positive() {
+        return Err(BallError::ArgumentOutsideDeclaredEnvelope(format!(
+            "log of non-positive value {q}"
+        )));
+    }
+    let one = BigRational::one();
+    if *q == one {
+        return Ok(RealBall::from_i64(0));
+    }
+    // q = 2^k * m with m in [2/3, 4/3]
+    let mut k: i64 = q.numer().bits() as i64 - q.denom().bits() as i64;
+    let two = BigRational::from_integer(BigInt::from(2));
+    let mut m = q.clone()
+        / two
+            .pow(k as i32)
+            .map_err(|_| transcendental_arithmetic_overflow())?;
+    let lo = BigRational::new(BigInt::from(2), BigInt::from(3));
+    let hi = BigRational::new(BigInt::from(4), BigInt::from(3));
+    while m > hi {
+        m /= two.clone();
+        k += 1;
+    }
+    while m < lo {
+        m *= two.clone();
+        k -= 1;
+    }
+    let extra = (k.unsigned_abs() as f64).log10().max(0.0) as u32 + 2;
+    let z = (m.clone() - one.clone()) / (m + one);
+    let ln_m = atanh_rational(&z, digits + extra)?;
+    let ln_m = RealBall {
+        midpoint: ln_m.midpoint().clone() * two.clone(),
+        radius: ln_m.radius().clone() * two.clone(),
+    };
+    if k == 0 {
+        return Ok(ln_m);
+    }
+    let third = BigRational::new(BigInt::from(1), BigInt::from(3));
+    let ln2_half = atanh_rational(&third, digits + extra)?;
+    let kq = BigRational::from_integer(BigInt::from(k));
+    let ln2k = RealBall {
+        midpoint: ln2_half.midpoint().clone() * two.clone() * kq.clone(),
+        radius: ln2_half.radius().clone() * two * kq.abs(),
+    };
+    Ok(round_onto_grid(ln_m.add(&ln2k), digits + 12))
+}
+
+/// Enclosure of atan(q) for an exact rational q.
+fn atan_rational(q: &BigRational, digits: u32) -> Result<RealBall, BallError> {
+    if q.is_negative() {
+        return Ok(atan_rational(&(-q.clone()), digits)?.neg());
+    }
+    let one = BigRational::one();
+    if *q > one {
+        let pi = RealBall::pi(digits + 2)?;
+        let half_pi = pi.div(&RealBall::from_i64(2))?;
+        return Ok(half_pi.sub(&atan_rational(&(one / q.clone()), digits)?));
+    }
+    let half = BigRational::new(BigInt::from(1), BigInt::from(2));
+    if *q > half {
+        let pi = RealBall::pi(digits + 2)?;
+        let quarter_pi = pi.div(&RealBall::from_i64(4))?;
+        let z = (q.clone() - one.clone()) / (q.clone() + one);
+        return Ok(quarter_pi.add(&atan_rational(&z, digits)?));
+    }
+    // |q| <= 1/2: alternating series, tail <= first omitted term.
+    let target = ten_pow_rational(digits + 4);
+    let q2 = q.clone() * q.clone();
+    let grid = digits + 12;
+    let mut pow = q.clone();
+    let mut sum = BigRational::zero();
+    let mut n: i64 = 0;
+    loop {
+        let term = pow.clone() / BigRational::from_integer(BigInt::from(2 * n + 1));
+        if term.abs() <= target {
+            let ball = RealBall {
+                midpoint: sum,
+                radius: term.abs(),
+            };
+            return Ok(round_onto_grid(ball, grid));
+        }
+        if n % 2 == 0 {
+            sum += term;
+        } else {
+            sum -= term;
+        }
+        pow = round_rational(&(pow * q2.clone()), grid + 4);
+        n += 1;
+        if n > 1_000_000 {
+            return Err(transcendental_arithmetic_overflow());
+        }
+    }
+}
+
+impl RealBall {
+    /// Certified enclosure of ln(x) over a positive ball (monotone).
+    pub fn ln(&self, precision_digits: u32) -> Result<Self, BallError> {
+        Self::precision_target(precision_digits)?;
+        let lo = self.lower();
+        let hi = self.upper();
+        if !lo.is_positive() {
+            return Err(BallError::ArgumentOutsideDeclaredEnvelope(
+                "log of a ball that is not strictly positive".to_string(),
+            ));
+        }
+        let a = ln_rational(&lo, precision_digits)?;
+        let b = ln_rational(&hi, precision_digits)?;
+        let low = a.lower();
+        let high = b.upper();
+        let two = BigRational::from_integer(BigInt::from(2));
+        Ok(Self {
+            midpoint: (low.clone() + high.clone()) / two.clone(),
+            radius: (high - low) / two,
+        })
+    }
+
+    /// Certified enclosure of atan(x) over a ball (monotone).
+    pub fn atan(&self, precision_digits: u32) -> Result<Self, BallError> {
+        Self::precision_target(precision_digits)?;
+        let a = atan_rational(&self.lower(), precision_digits)?;
+        let b = atan_rational(&self.upper(), precision_digits)?;
+        let low = a.lower();
+        let high = b.upper();
+        let two = BigRational::from_integer(BigInt::from(2));
+        Ok(Self {
+            midpoint: (low.clone() + high.clone()) / two.clone(),
+            radius: (high - low) / two,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1402,194 +1591,5 @@ mod tests {
             sin_huge.sin(10),
             Err(BallError::ArgumentOutsideDeclaredEnvelope(_))
         ));
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Logarithm and arctangent enclosures (monotone; rational-point series with
-// explicit tail bounds, midpoints rounded onto a decimal grid with the
-// rounding error added to the radius).
-// ---------------------------------------------------------------------------
-
-/// Rounds the midpoint to the 10^-(digits) grid, widening the radius by the
-/// rounding error so the enclosure stays valid while operands stay small.
-fn round_onto_grid(ball: RealBall, digits: u32) -> RealBall {
-    let scale = BigInt::from(10).pow(digits);
-    let m = ball.midpoint().clone() * BigRational::from_integer(scale.clone());
-    let rounded = bigdiv_floor(&(m.numer() * 2 + m.denom()), &(m.denom() * 2));
-    let new_mid = BigRational::new(rounded, scale);
-    let err = (ball.midpoint().clone() - new_mid.clone()).abs();
-    RealBall {
-        midpoint: new_mid,
-        radius: ball.radius().clone() + err,
-    }
-}
-
-/// Enclosure of atanh(z) for exact rational |z| <= 1/2.
-fn atanh_rational(z: &BigRational, digits: u32) -> Result<RealBall, BallError> {
-    let target = ten_pow_rational(digits + 4);
-    let z2 = z.clone() * z.clone();
-    let mut pow = z.clone();
-    let mut sum = BigRational::zero();
-    let grid = digits + 12;
-    let mut n: i64 = 0;
-    loop {
-        let term = pow.clone() / BigRational::from_integer(BigInt::from(2 * n + 1));
-        if term.abs() <= target {
-            // tail <= |term| / (1 - z^2) <= 2|term| for |z| <= 1/2
-            let tail = term.abs() * BigRational::from_integer(BigInt::from(2));
-            let ball = RealBall {
-                midpoint: sum,
-                radius: tail,
-            };
-            return Ok(round_onto_grid(ball, grid));
-        }
-        sum += term;
-        pow = round_rational(&(pow * z2.clone()), grid + 4);
-        n += 1;
-        if n > 1_000_000 {
-            return Err(transcendental_arithmetic_overflow());
-        }
-    }
-}
-
-/// Rational rounded to the 10^-digits grid (used for series powers whose
-/// rounding error is far below the requested target).
-fn round_rational(q: &BigRational, digits: u32) -> BigRational {
-    let scale = BigInt::from(10).pow(digits);
-    let m = q.clone() * BigRational::from_integer(scale.clone());
-    let rounded = bigdiv_floor(&(m.numer() * 2 + m.denom()), &(m.denom() * 2));
-    BigRational::new(rounded, scale)
-}
-
-/// Enclosure of ln(q) for an exact positive rational q.
-fn ln_rational(q: &BigRational, digits: u32) -> Result<RealBall, BallError> {
-    if !q.is_positive() {
-        return Err(BallError::ArgumentOutsideDeclaredEnvelope(format!(
-            "log of non-positive value {q}"
-        )));
-    }
-    let one = BigRational::one();
-    if *q == one {
-        return Ok(RealBall::from_i64(0));
-    }
-    // q = 2^k * m with m in [2/3, 4/3]
-    let mut k: i64 = q.numer().bits() as i64 - q.denom().bits() as i64;
-    let two = BigRational::from_integer(BigInt::from(2));
-    let mut m = q.clone()
-        / two
-            .pow(k as i32)
-            .map_err(|_| transcendental_arithmetic_overflow())?;
-    let lo = BigRational::new(BigInt::from(2), BigInt::from(3));
-    let hi = BigRational::new(BigInt::from(4), BigInt::from(3));
-    while m > hi {
-        m /= two.clone();
-        k += 1;
-    }
-    while m < lo {
-        m *= two.clone();
-        k -= 1;
-    }
-    let extra = (k.unsigned_abs() as f64).log10().max(0.0) as u32 + 2;
-    let z = (m.clone() - one.clone()) / (m + one);
-    let ln_m = atanh_rational(&z, digits + extra)?;
-    let ln_m = RealBall {
-        midpoint: ln_m.midpoint().clone() * two.clone(),
-        radius: ln_m.radius().clone() * two.clone(),
-    };
-    if k == 0 {
-        return Ok(ln_m);
-    }
-    let third = BigRational::new(BigInt::from(1), BigInt::from(3));
-    let ln2_half = atanh_rational(&third, digits + extra)?;
-    let kq = BigRational::from_integer(BigInt::from(k));
-    let ln2k = RealBall {
-        midpoint: ln2_half.midpoint().clone() * two.clone() * kq.clone(),
-        radius: ln2_half.radius().clone() * two * kq.abs(),
-    };
-    Ok(round_onto_grid(ln_m.add(&ln2k), digits + 12))
-}
-
-/// Enclosure of atan(q) for an exact rational q.
-fn atan_rational(q: &BigRational, digits: u32) -> Result<RealBall, BallError> {
-    if q.is_negative() {
-        return Ok(atan_rational(&(-q.clone()), digits)?.neg());
-    }
-    let one = BigRational::one();
-    if *q > one {
-        let pi = RealBall::pi(digits + 2)?;
-        let half_pi = pi.div(&RealBall::from_i64(2))?;
-        return Ok(half_pi.sub(&atan_rational(&(one / q.clone()), digits)?));
-    }
-    let half = BigRational::new(BigInt::from(1), BigInt::from(2));
-    if *q > half {
-        let pi = RealBall::pi(digits + 2)?;
-        let quarter_pi = pi.div(&RealBall::from_i64(4))?;
-        let z = (q.clone() - one.clone()) / (q.clone() + one);
-        return Ok(quarter_pi.add(&atan_rational(&z, digits)?));
-    }
-    // |q| <= 1/2: alternating series, tail <= first omitted term.
-    let target = ten_pow_rational(digits + 4);
-    let q2 = q.clone() * q.clone();
-    let grid = digits + 12;
-    let mut pow = q.clone();
-    let mut sum = BigRational::zero();
-    let mut n: i64 = 0;
-    loop {
-        let term = pow.clone() / BigRational::from_integer(BigInt::from(2 * n + 1));
-        if term.abs() <= target {
-            let ball = RealBall {
-                midpoint: sum,
-                radius: term.abs(),
-            };
-            return Ok(round_onto_grid(ball, grid));
-        }
-        if n % 2 == 0 {
-            sum += term;
-        } else {
-            sum -= term;
-        }
-        pow = round_rational(&(pow * q2.clone()), grid + 4);
-        n += 1;
-        if n > 1_000_000 {
-            return Err(transcendental_arithmetic_overflow());
-        }
-    }
-}
-
-impl RealBall {
-    /// Certified enclosure of ln(x) over a positive ball (monotone).
-    pub fn ln(&self, precision_digits: u32) -> Result<Self, BallError> {
-        Self::precision_target(precision_digits)?;
-        let lo = self.lower();
-        let hi = self.upper();
-        if !lo.is_positive() {
-            return Err(BallError::ArgumentOutsideDeclaredEnvelope(
-                "log of a ball that is not strictly positive".to_string(),
-            ));
-        }
-        let a = ln_rational(&lo, precision_digits)?;
-        let b = ln_rational(&hi, precision_digits)?;
-        let low = a.lower();
-        let high = b.upper();
-        let two = BigRational::from_integer(BigInt::from(2));
-        Ok(Self {
-            midpoint: (low.clone() + high.clone()) / two.clone(),
-            radius: (high - low) / two,
-        })
-    }
-
-    /// Certified enclosure of atan(x) over a ball (monotone).
-    pub fn atan(&self, precision_digits: u32) -> Result<Self, BallError> {
-        Self::precision_target(precision_digits)?;
-        let a = atan_rational(&self.lower(), precision_digits)?;
-        let b = atan_rational(&self.upper(), precision_digits)?;
-        let low = a.lower();
-        let high = b.upper();
-        let two = BigRational::from_integer(BigInt::from(2));
-        Ok(Self {
-            midpoint: (low.clone() + high.clone()) / two.clone(),
-            radius: (high - low) / two,
-        })
     }
 }
