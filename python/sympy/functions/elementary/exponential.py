@@ -1,17 +1,41 @@
 """Exponential and logarithmic functions for FrankenSymPy."""
 
-from ...core import _native, _native_expr, _wrap
+from ...core import Function, _NativeFunction
 
 
-def exp(expression):
-    return _wrap(_native.py_exp(_native_expr(expression)))
+class exp(_NativeFunction):
+    __slots__ = ()
 
 
-def log(expression):
-    return _wrap(_native.py_log(_native_expr(expression)))
+class log(_NativeFunction):
+    """Natural logarithm; ``log(x, b)`` is ``log(x)/log(b)`` as upstream."""
+
+    __slots__ = ()
+
+    def __new__(cls, arg, base=None, **options):
+        if base is not None:
+            from ...core import sympify
+
+            base = sympify(base)
+            numerator = cls(arg, **options)
+            if base == sympify(1):
+                raise ValueError("log base must not be 1")
+            return numerator / cls(base, **options)
+        return super().__new__(cls, arg, **options)
+
+
+ln = log
+
+
+class LambertW(Function):
+    """Lambert W function (principal branch); no automatic evaluation."""
+
+    __slots__ = ()
 
 
 __all__ = [
+    "LambertW",
     "exp",
+    "ln",
     "log",
 ]

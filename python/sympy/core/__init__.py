@@ -1132,7 +1132,19 @@ def _expr_degree(expr: "Expr") -> int:
         return sum(_expr_degree(a) for a in expr.args)
     return 0
 def _str_expr(expr: "Expr") -> str:
-    """SymPy 1.14.0-faithful plain str printer (printer-parity bead qxr)."""
+    """SymPy 1.14.0-faithful plain str printer.
+
+    The arithmetic core (Add/Mul/Pow, numbers, functions) is printed by the
+    StrPrinter port in ``sympy.printing.str``; held forms and structural
+    classes keep their oracle-pinned renderings via ``_str_expr_legacy``.
+    """
+    from ..printing.str import StrPrinter
+
+    return StrPrinter(_str_expr_legacy).doprint(expr)
+
+
+def _str_expr_legacy(expr: "Expr") -> str:
+    """Pre-port renderer kept for held forms and structural classes."""
     neg, body = _str_term(expr)
     return ("-" + body) if neg else body
 
@@ -2002,6 +2014,11 @@ class Expr(Basic):
                 else:
                     return -I
         return _wrap(_native.py_pow(_native_expr(self), _native_expr(exponent)))
+
+    def __rpow__(self, other: Any) -> "Expr":
+        if isinstance(other, (int, Fraction)) or type(other) is float:
+            return sympify(other) ** self
+        return NotImplemented
 
     def __neg__(self) -> "Expr":
         return _wrap(-_native_expr(self))
@@ -3312,6 +3329,36 @@ class AppliedUndef(Function):
         return super().__new__(cls, *args, **options)
 
 
+
+class _NativeFunction(Function):
+    """Known function whose automatic evaluation is the native kernel's.
+
+    Instances are ordinary Function applications with an exact class (so
+    ``isinstance(e, sin)`` and ``e.func is sin`` hold); construction routes
+    through the native ``eval`` rules (special values, parity, inverse
+    compositions). Exact numeric arguments stay exact; a Float argument
+    evaluates numerically at that Float's precision, as upstream does.
+    """
+
+    __slots__ = ()
+
+    @classmethod
+    def eval(cls, *args: Any) -> Any:
+        native_args = [_native_expr(a) for a in args]
+        value = _native.py_eval_function(cls.__name__, native_args)
+        if value is not None:
+            return _wrap(value)
+        floats = [a for a in args if type(a) is Float]
+        if floats and all(getattr(a, "is_number", False) for a in args):
+            dps = max(f._dps for f in floats)
+            held = Function.__new__(cls, *args, evaluate=False)
+            try:
+                return held.evalf(dps)
+            except Exception:
+                return None
+        return None
+
+
 _undefined_functions: dict[str, Any] = {}
 
 
@@ -3613,9 +3660,10 @@ def sqrt(expression: Any, evaluate: bool = True) -> Expr:
     return Pow(sympify(expression), S.Half, evaluate=False)
 
 
-def Abs(expression: Any) -> Expr:
-    """Return the absolute value of expression."""
-    return _wrap(_native.py_abs(_native_expr(expression)))
+class Abs(_NativeFunction):
+    """Absolute value; exact values and sign/coefficient extraction are native."""
+
+    __slots__ = ()
 
 
 def _ascii_pretty_lines(expression: Any) -> list[str]:

@@ -1,14 +1,14 @@
 """Integer-valued elementary functions for FrankenSymPy."""
 
-from ...core import _native, _native_expr, _wrap
+from ...core import _NativeFunction
 
 
-def floor(expression):
-    return _wrap(_native.py_floor(_native_expr(expression)))
+class floor(_NativeFunction):
+    __slots__ = ()
 
 
-def ceiling(expression):
-    return _wrap(_native.py_ceiling(_native_expr(expression)))
+class ceiling(_NativeFunction):
+    __slots__ = ()
 
 
 __all__ = [

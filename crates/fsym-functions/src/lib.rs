@@ -9,12 +9,19 @@
 
 use fsym_core::{BigInt, BigRational, Constant, Expr};
 
+/// Applies `name` to `arg` through the native automatic-evaluation rules,
+/// keeping the unevaluated application when no exact rule fires.
+fn applied(name: &str, arg: Expr) -> Expr {
+    fsym_core::elementary::eval_function(name, std::slice::from_ref(&arg))
+        .unwrap_or_else(|| Expr::Function(name.to_string(), vec![arg]))
+}
+
 /// Create a sine function expression: sin(x).
 pub fn sin(arg: Expr) -> Expr {
     if arg.is_zero() {
         return Expr::from_i64(0);
     }
-    Expr::Function("sin".to_string(), vec![arg])
+    applied("sin", arg)
 }
 
 /// Create a cosine function expression: cos(x).
@@ -22,7 +29,7 @@ pub fn cos(arg: Expr) -> Expr {
     if arg.is_zero() {
         return Expr::from_i64(1);
     }
-    Expr::Function("cos".to_string(), vec![arg])
+    applied("cos", arg)
 }
 
 /// Create a tangent function expression: tan(x).
@@ -30,12 +37,12 @@ pub fn tan(arg: Expr) -> Expr {
     if arg.is_zero() {
         return Expr::from_i64(0);
     }
-    Expr::Function("tan".to_string(), vec![arg])
+    applied("tan", arg)
 }
 
 /// Create a cotangent function expression: cot(x).
 pub fn cot(arg: Expr) -> Expr {
-    Expr::Function("cot".to_string(), vec![arg])
+    applied("cot", arg)
 }
 
 /// Create a secant function expression: sec(x).
@@ -43,12 +50,12 @@ pub fn sec(arg: Expr) -> Expr {
     if arg.is_zero() {
         return Expr::from_i64(1);
     }
-    Expr::Function("sec".to_string(), vec![arg])
+    applied("sec", arg)
 }
 
 /// Create a cosecant function expression: csc(x).
 pub fn csc(arg: Expr) -> Expr {
-    Expr::Function("csc".to_string(), vec![arg])
+    applied("csc", arg)
 }
 
 /// Create an arcsine function expression: asin(x).
@@ -56,7 +63,7 @@ pub fn asin(arg: Expr) -> Expr {
     if arg.is_zero() {
         return Expr::from_i64(0);
     }
-    Expr::Function("asin".to_string(), vec![arg])
+    applied("asin", arg)
 }
 
 /// Create an arccosine function expression: acos(x).
@@ -64,7 +71,7 @@ pub fn acos(arg: Expr) -> Expr {
     if arg.is_one() {
         return Expr::from_i64(0);
     }
-    Expr::Function("acos".to_string(), vec![arg])
+    applied("acos", arg)
 }
 
 /// Create an arctangent function expression: atan(x).
@@ -72,12 +79,12 @@ pub fn atan(arg: Expr) -> Expr {
     if arg.is_zero() {
         return Expr::from_i64(0);
     }
-    Expr::Function("atan".to_string(), vec![arg])
+    applied("atan", arg)
 }
 
 /// Create an arccotangent function expression: acot(x).
 pub fn acot(arg: Expr) -> Expr {
-    Expr::Function("acot".to_string(), vec![arg])
+    applied("acot", arg)
 }
 
 /// Create an arcsecant function expression: asec(x).
@@ -98,7 +105,7 @@ pub fn sinh(arg: Expr) -> Expr {
     if arg.is_zero() {
         return Expr::from_i64(0);
     }
-    Expr::Function("sinh".to_string(), vec![arg])
+    applied("sinh", arg)
 }
 
 /// Create a hyperbolic cosine function expression: cosh(x).
@@ -106,7 +113,7 @@ pub fn cosh(arg: Expr) -> Expr {
     if arg.is_zero() {
         return Expr::from_i64(1);
     }
-    Expr::Function("cosh".to_string(), vec![arg])
+    applied("cosh", arg)
 }
 
 /// Create a hyperbolic tangent function expression: tanh(x).
@@ -114,12 +121,12 @@ pub fn tanh(arg: Expr) -> Expr {
     if arg.is_zero() {
         return Expr::from_i64(0);
     }
-    Expr::Function("tanh".to_string(), vec![arg])
+    applied("tanh", arg)
 }
 
 /// Create a hyperbolic cotangent function expression: coth(x).
 pub fn coth(arg: Expr) -> Expr {
-    Expr::Function("coth".to_string(), vec![arg])
+    applied("coth", arg)
 }
 
 /// Create a hyperbolic secant function expression: sech(x).
@@ -127,12 +134,12 @@ pub fn sech(arg: Expr) -> Expr {
     if arg.is_zero() {
         return Expr::from_i64(1);
     }
-    Expr::Function("sech".to_string(), vec![arg])
+    applied("sech", arg)
 }
 
 /// Create a hyperbolic cosecant function expression: csch(x).
 pub fn csch(arg: Expr) -> Expr {
-    Expr::Function("csch".to_string(), vec![arg])
+    applied("csch", arg)
 }
 
 /// Create an inverse hyperbolic sine expression: asinh(x).
@@ -140,7 +147,7 @@ pub fn asinh(arg: Expr) -> Expr {
     if arg.is_zero() {
         return Expr::from_i64(0);
     }
-    Expr::Function("asinh".to_string(), vec![arg])
+    applied("asinh", arg)
 }
 
 /// Create an inverse hyperbolic cosine expression: acosh(x).
@@ -148,7 +155,7 @@ pub fn acosh(arg: Expr) -> Expr {
     if arg.is_one() {
         return Expr::from_i64(0);
     }
-    Expr::Function("acosh".to_string(), vec![arg])
+    applied("acosh", arg)
 }
 
 /// Create an inverse hyperbolic tangent expression: atanh(x).
@@ -156,12 +163,12 @@ pub fn atanh(arg: Expr) -> Expr {
     if arg.is_zero() {
         return Expr::from_i64(0);
     }
-    Expr::Function("atanh".to_string(), vec![arg])
+    applied("atanh", arg)
 }
 
 /// Create an inverse hyperbolic cotangent expression: acoth(x).
 pub fn acoth(arg: Expr) -> Expr {
-    Expr::Function("acoth".to_string(), vec![arg])
+    applied("acoth", arg)
 }
 
 /// Create an inverse hyperbolic secant expression: asech(x).
@@ -174,7 +181,7 @@ pub fn asech(arg: Expr) -> Expr {
 
 /// Create an inverse hyperbolic cosecant expression: acsch(x).
 pub fn acsch(arg: Expr) -> Expr {
-    Expr::Function("acsch".to_string(), vec![arg])
+    applied("acsch", arg)
 }
 
 /// Create an unnormalized sinc expression: sinc(x) = sin(x)/x with sinc(0) = 1.
@@ -235,7 +242,7 @@ pub fn abs_val(arg: Expr) -> Expr {
     if arg == Expr::Const(Constant::NaN) {
         return Expr::Const(Constant::NaN);
     }
-    Expr::Function("Abs".to_string(), vec![arg])
+    applied("Abs", arg)
 }
 
 /// Create a signum function expression: sign(x).
@@ -265,7 +272,7 @@ pub fn sign(arg: Expr) -> Expr {
     if arg == Expr::Const(Constant::NaN) {
         return Expr::Const(Constant::NaN);
     }
-    Expr::Function("sign".to_string(), vec![arg])
+    applied("sign", arg)
 }
 
 /// Create an exponential function expression: exp(x).
@@ -273,7 +280,7 @@ pub fn exp(arg: Expr) -> Expr {
     if arg.is_zero() {
         return Expr::from_i64(1);
     }
-    Expr::Function("exp".to_string(), vec![arg])
+    applied("exp", arg)
 }
 
 /// Create a natural logarithm function expression: log(x).
@@ -284,7 +291,7 @@ pub fn log(arg: Expr) -> Expr {
     if arg == Expr::Const(Constant::E) {
         return Expr::from_i64(1);
     }
-    Expr::Function("log".to_string(), vec![arg])
+    applied("log", arg)
 }
 
 /// Create a Gamma function expression: Γ(x).
@@ -871,14 +878,18 @@ mod tests {
             assert_eq!(inner.0, *expected_name, "{label}: function name");
             assert_eq!(inner.1, vec![Expr::symbol("x")], "{label}: arg passthrough");
         }
-        // Same constructors also emit the function form for integer / Rational
-        // inputs that would be singular (cot 0, csc 0, zeta 1, ...). The
-        // constructor does not refuse or refuse-fold these; it surfaces them
-        // to the simplifier / kernel as opaque forms.
+        // Upstream automatic evaluation at the circular poles/special
+        // points: cot(0) = csc(0) = zoo and acot(0) = pi/2.
+        assert_eq!(cot(Expr::from_i64(0)), Expr::Const(Constant::ComplexInfinity));
+        assert_eq!(csc(Expr::from_i64(0)), Expr::Const(Constant::ComplexInfinity));
+        assert_eq!(
+            acot(Expr::from_i64(0)),
+            Expr::Rational(BigRational::new(BigInt::from(1), BigInt::from(2)))
+                * Expr::Const(Constant::Pi)
+        );
+        // The remaining singular inputs keep the opaque function form; the
+        // constructor does not refuse or refuse-fold these.
         for (label, value) in [
-            ("cot(0)", cot(Expr::from_i64(0))),
-            ("csc(0)", csc(Expr::from_i64(0))),
-            ("acot(0)", acot(Expr::from_i64(0))),
             ("acsc(0)", acsc(Expr::from_i64(0))),
             ("acoth(0)", acoth(Expr::from_i64(0))),
             ("acsch(0)", acsch(Expr::from_i64(0))),

@@ -1,30 +1,30 @@
 """Combinatorial number functions for FrankenSymPy."""
 
-from ...core import _native, _native_expr, _wrap
+from ...core import _NativeFunction
 
 
-def fibonacci(expression):
-    return _wrap(_native.py_fibonacci(_native_expr(expression)))
+class fibonacci(_NativeFunction):
+    __slots__ = ()
 
 
-def lucas(expression):
-    return _wrap(_native.py_lucas(_native_expr(expression)))
+class lucas(_NativeFunction):
+    __slots__ = ()
 
 
-def bernoulli(expression):
-    return _wrap(_native.py_bernoulli(_native_expr(expression)))
+class bernoulli(_NativeFunction):
+    __slots__ = ()
 
 
-def bell(expression):
-    return _wrap(_native.py_bell(_native_expr(expression)))
+class bell(_NativeFunction):
+    __slots__ = ()
 
 
-def harmonic(expression):
-    return _wrap(_native.py_harmonic(_native_expr(expression)))
+class harmonic(_NativeFunction):
+    __slots__ = ()
 
 
-def catalan(expression):
-    return _wrap(_native.py_catalan(_native_expr(expression)))
+class catalan(_NativeFunction):
+    __slots__ = ()
 
 
 __all__ = [

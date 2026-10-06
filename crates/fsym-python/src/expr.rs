@@ -765,7 +765,10 @@ impl PyPow {
     pub fn new(base: PyExpr, exp: PyExpr, evaluate: bool) -> Self {
         let raw = Expr::Pow(Arc::new(base.inner), Arc::new(exp.inner));
         let inner = if evaluate {
-            fsym_simplify::simplify(&raw)
+            match raw {
+                Expr::Pow(b, e) => fsym_core::elementary::eval_pow((*b).clone(), (*e).clone()),
+                other => other,
+            }
         } else {
             raw
         };
@@ -905,8 +908,7 @@ pub fn py_mul(args: Vec<PyExpr>) -> PyExpr {
 pub fn py_pow(base: PyExpr, exp: PyExpr) -> PyExpr {
     // Match PyPow::new construction semantics: arithmetic simplification
     // applies (nested Pow flattening: (x**2)**3 -> x**6).
-    let raw = Expr::Pow(Arc::new(base.inner), Arc::new(exp.inner));
-    PyExpr::from_expr(fsym_simplify::simplify(&raw))
+    PyExpr::from_expr(fsym_core::elementary::eval_pow(base.inner, exp.inner))
 }
 
 /// Construct a named function application.
@@ -920,6 +922,76 @@ pub fn py_function(name: String, args: Vec<PyExpr>) -> PyResult<PyExpr> {
         name,
         args.into_iter().map(|arg| arg.inner).collect(),
     )))
+}
+
+/// Native automatic evaluation of a named function application.
+///
+/// Returns the evaluated expression when an exact rule fires, and `None`
+/// when the application stays unevaluated (or the name/arity is not a
+/// natively evaluated function). Python function classes use this as their
+/// `eval` hook so construction semantics live in the native kernel.
+#[pyfunction]
+pub fn py_eval_function(name: &str, args: Vec<PyExpr>) -> Option<PyExpr> {
+    let mut args: Vec<Expr> = args.into_iter().map(|a| a.inner).collect();
+    let unevaluated = Expr::Function(name.to_string(), args.clone());
+    let value = match (name, args.len()) {
+        ("binomial", 2) => {
+            let k = args.pop().expect("arity checked");
+            let n = args.pop().expect("arity checked");
+            binomial_expr(n, k)
+        }
+        (_, 1) => {
+            let arg = args.pop().expect("arity checked");
+            match name {
+                "sin" => sin_expr(arg),
+                "cos" => cos_expr(arg),
+                "tan" => tan_expr(arg),
+                "cot" => cot_expr(arg),
+                "sec" => sec_expr(arg),
+                "csc" => csc_expr(arg),
+                "asin" => asin_expr(arg),
+                "acos" => acos_expr(arg),
+                "atan" => atan_expr(arg),
+                "acot" => acot_expr(arg),
+                "asec" => asec_expr(arg),
+                "acsc" => acsc_expr(arg),
+                "sinh" => sinh_expr(arg),
+                "cosh" => cosh_expr(arg),
+                "tanh" => tanh_expr(arg),
+                "coth" => coth_expr(arg),
+                "sech" => sech_expr(arg),
+                "csch" => csch_expr(arg),
+                "asinh" => asinh_expr(arg),
+                "acosh" => acosh_expr(arg),
+                "atanh" => atanh_expr(arg),
+                "acoth" => acoth_expr(arg),
+                "asech" => asech_expr(arg),
+                "acsch" => acsch_expr(arg),
+                "sinc" => sinc_expr(arg),
+                "exp" => exp_expr(arg),
+                "log" => log_expr(arg),
+                "Abs" => abs_expr(arg),
+                "sign" => sign_expr(arg),
+                "floor" => floor_expr(arg),
+                "ceiling" => ceiling_expr(arg),
+                "factorial" => factorial_expr(arg),
+                "subfactorial" => subfactorial_expr(arg),
+                "fibonacci" => fibonacci_expr(arg),
+                "lucas" => lucas_expr(arg),
+                "harmonic" => harmonic_expr(arg),
+                "catalan" => catalan_expr(arg),
+                "bernoulli" => bernoulli_expr(arg),
+                "bell" => bell_expr(arg),
+                _ => return None,
+            }
+        }
+        _ => return None,
+    };
+    if value == unevaluated {
+        None
+    } else {
+        Some(PyExpr::from_expr(value))
+    }
 }
 
 /// Exact absolute value constructor.

@@ -966,6 +966,7 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_pow, m)?)?;
     m.add_function(wrap_pyfunction!(py_function, m)?)?;
     m.add_function(wrap_pyfunction!(py_abs, m)?)?;
+    m.add_function(wrap_pyfunction!(py_eval_function, m)?)?;
     m.add_function(wrap_pyfunction!(py_sin, m)?)?;
     m.add_function(wrap_pyfunction!(py_cos, m)?)?;
     m.add_function(wrap_pyfunction!(py_tan, m)?)?;

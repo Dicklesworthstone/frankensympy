@@ -20,6 +20,7 @@ pub mod ball;
 pub mod canonical;
 pub mod dag;
 pub mod domain;
+pub mod elementary;
 mod parser;
 pub mod sort;
 
@@ -349,70 +350,7 @@ impl Expr {
 }
 
 fn fold_pow_sub(b: Expr, e: Expr) -> Expr {
-    if let Some(val) = Expr::Pow(Arc::new(b.clone()), Arc::new(e.clone())).const_integer_value() {
-        return Expr::Integer(val);
-    }
-    if b.is_one() || e.is_zero() {
-        return Expr::from_i64(1);
-    }
-    if b.is_zero() && matches!(&e, Expr::Integer(exp) if exp > &BigInt::zero()) {
-        return Expr::from_i64(0);
-    }
-    match (&b, &e) {
-        (Expr::Const(Constant::I), Expr::Integer(exp)) => {
-            let four = BigInt::from(4);
-            let m = (((exp % &four) + &four) % &four).to_i64().unwrap_or(0);
-            match m {
-                0 => return Expr::from_i64(1),
-                1 => return Expr::Const(Constant::I),
-                2 => return Expr::from_i64(-1),
-                3 => return Expr::Mul(vec![Expr::from_i64(-1), Expr::Const(Constant::I)]),
-                _ => {}
-            }
-        }
-        (Expr::Mul(factors), Expr::Integer(exp)) => {
-            if factors.iter().all(|f| {
-                matches!(
-                    f,
-                    Expr::Integer(_) | Expr::Rational(_) | Expr::Const(Constant::I)
-                )
-            }) {
-                let folded_factors: Vec<Expr> = factors
-                    .iter()
-                    .map(|f| fold_pow_sub(f.clone(), Expr::Integer(exp.clone())))
-                    .collect();
-                return folded_factors
-                    .into_iter()
-                    .reduce(|a, b| a * b)
-                    .unwrap_or(Expr::from_i64(1));
-            }
-        }
-        (Expr::Integer(n), Expr::Integer(exp)) if !n.is_zero() => {
-            if let Some(exp_i) = exp.to_i64()
-                && (-100..0).contains(&exp_i)
-            {
-                let p_exp = (-exp_i) as u32;
-                let den = n.pow(p_exp);
-                return Expr::Rational(BigRational::new(BigInt::one(), den));
-            }
-        }
-        (Expr::Rational(r), Expr::Integer(exp)) if !r.is_zero() => {
-            if let Some(exp_i) = exp.to_i64() {
-                if (0..=100).contains(&exp_i) {
-                    let num = r.numer().pow(exp_i as u32);
-                    let den = r.denom().pow(exp_i as u32);
-                    return Expr::Rational(BigRational::new(num, den));
-                } else if (-100..0).contains(&exp_i) {
-                    let p_exp = (-exp_i) as u32;
-                    let num = r.denom().pow(p_exp);
-                    let den = r.numer().pow(p_exp);
-                    return Expr::Rational(BigRational::new(num, den));
-                }
-            }
-        }
-        _ => {}
-    }
-    Expr::Pow(Arc::new(b), Arc::new(e))
+    elementary::eval_pow(b, e)
 }
 
 fn fold_fn_sub(name: &str, args: Vec<Expr>) -> Expr {
@@ -434,6 +372,9 @@ fn fold_fn_sub(name: &str, args: Vec<Expr>) -> Expr {
                 _ => {}
             }
         }
+    }
+    if let Some(value) = elementary::eval_function(name, &args) {
+        return value;
     }
     Expr::Function(name.to_string(), args)
 }
@@ -857,18 +798,6 @@ fn cmp_slice_structural(a: &[Expr], b: &[Expr]) -> std::cmp::Ordering {
     })
 }
 
-
-fn merged_pow(factors: &mut Vec<Expr>, base: Expr, exp: Expr) {
-    if exp.is_zero() {
-        return; // b**0 = 1
-    }
-    if exp.is_one() {
-        factors.push(base);
-        return;
-    }
-    factors.push(Expr::Pow(Arc::new(base), Arc::new(exp)));
-}
-
 /// Comparator for Mul non-numeric factors matching the pinned oracle's
 /// default_sort_key ordering probed on SymPy 1.14.0: class rank
 /// Symbol < Pow < Function, then name / base / argument ordering
@@ -983,37 +912,144 @@ pub fn canonicalize_mul_args(factors: &mut Vec<Expr>) -> bool {
     if i_count % 2 == 1 {
         rest.push(Expr::Const(Constant::I));
     }
-    // Merge same-base powers (arithmetic): x**2 * x**3 -> x**5.
-    if rest.iter().any(|f| matches!(f, Expr::Pow(_, _))) {
-        let mut base_exps: std::collections::BTreeMap<Expr, Vec<Expr>> = std::collections::BTreeMap::new();
-        let mut plain: Vec<Expr> = Vec::new();
+    // Combine equal bases by summing exponents (x * x**-1 -> 1,
+    // x**y * x**z -> x**(y + z), exp(x)*exp(y) -> exp(x + y)) and multiply
+    // numeric radicals sharing an exponent (sqrt(2)*sqrt(3) -> sqrt(6)),
+    // as upstream Mul.flatten does. Combined powers are rebuilt through
+    // the canonical power constructor and re-flattened once.
+    if rest.len() > 1 && !rest.iter().any(has_pole) {
+        // Group key: (base, non-numeric part of the exponent); numeric
+        // exponent coefficients sum within a group (x*x**2 -> x**3,
+        // x**y*x**(2*y) -> x**(3*y)) while distinct symbolic exponents stay
+        // separate (x**y*x**z, exp(x)*exp(y)) as upstream _gather does.
+        let mut groups: Vec<((Expr, Expr), Vec<Expr>)> = Vec::new();
         for f in rest.drain(..) {
-            // Oracle-pinned: only NUMERIC exponents merge (x**2 * x**3 ->
-            // x**5); symbolic-exponent powers stay unmerged
-            // (a**x * a**y keeps both factors).
-            if let Expr::Pow(ref b, ref e) = f {
-                if matches!(e.as_ref(), Expr::Integer(_) | Expr::Rational(_)) {
-                    base_exps
-                        .entry((**b).clone())
-                        .or_default()
-                        .push((**e).clone());
-                    continue;
+            let (base, exp) = match f {
+                Expr::Pow(b, e) => ((*b).clone(), (*e).clone()),
+                Expr::Function(ref name, ref args) if name == "exp" && args.len() == 1 => {
+                    (Expr::Const(Constant::E), args[0].clone())
                 }
+                other => (other, Expr::from_i64(1)),
+            };
+            let (c, term) = match exp {
+                Expr::Integer(_) | Expr::Rational(_) => (exp, Expr::from_i64(1)),
+                other => {
+                    let (c, t) = split_term_coefficient(other);
+                    (
+                        if c.is_integer() {
+                            Expr::Integer(c.to_integer())
+                        } else {
+                            Expr::Rational(c)
+                        },
+                        t,
+                    )
+                }
+            };
+            let key = (base, term);
+            match groups.iter_mut().find(|(k, _)| *k == key) {
+                Some((_, coeffs)) => coeffs.push(c),
+                None => groups.push((key, vec![c])),
             }
-            plain.push(f);
         }
-        for (base, mut exps) in base_exps {
-            if exps.len() == 1 {
-                merged_pow(&mut rest, base, exps.pop().expect("len checked"));
+        let groups: Vec<(Expr, Vec<Expr>)> = groups
+            .into_iter()
+            .map(|((base, term), coeffs)| {
+                let exps = coeffs.into_iter().map(|c| c * term.clone()).collect();
+                (base, exps)
+            })
+            .collect();
+        let mut rebuilt: Vec<Expr> = Vec::new();
+        let mut radicals: Vec<(Expr, Vec<Expr>)> = Vec::new();
+        let mut changed = false;
+        for (base, exps) in groups {
+            let merged = exps.len() > 1;
+            changed |= merged;
+            let total = if merged {
+                exps.into_iter().fold(Expr::from_i64(0), |acc, e| acc + e)
             } else {
-                let mut sum = exps[0].clone();
-                for e in &exps[1..] {
-                    sum = sum + e.clone();
+                exps.into_iter().next().expect("non-empty group")
+            };
+            if matches!(base, Expr::Integer(_) | Expr::Rational(_))
+                && matches!(total, Expr::Rational(_))
+            {
+                match radicals.iter_mut().find(|(e, _)| *e == total) {
+                    Some((_, bases)) => {
+                        bases.push(base);
+                        changed = true;
+                    }
+                    None => radicals.push((total, vec![base])),
                 }
-                merged_pow(&mut rest, base, sum);
+                continue;
             }
+            if !merged {
+                rebuilt.push(if total.is_one() {
+                    base
+                } else if matches!(base, Expr::Const(Constant::E)) {
+                    Expr::Function("exp".to_string(), vec![total])
+                } else {
+                    Expr::Pow(Arc::new(base), Arc::new(total))
+                });
+                continue;
+            }
+            rebuilt.push(elementary::eval_pow(base, total));
         }
-        rest.extend(plain);
+        for (exp, bases) in radicals {
+            if bases.len() == 1 {
+                rebuilt.push(Expr::Pow(
+                    Arc::new(bases.into_iter().next().expect("one base")),
+                    Arc::new(exp),
+                ));
+                continue;
+            }
+            let product = bases.into_iter().fold(Expr::from_i64(1), |acc, b| acc * b);
+            rebuilt.push(elementary::eval_pow(product, exp));
+        }
+        if changed {
+            // Re-flatten: merged powers may produce numbers, products or 1.
+            let mut again: Vec<Expr> = Vec::new();
+            for f in rebuilt {
+                match f {
+                    Expr::Mul(inner) => again.extend(inner),
+                    Expr::Integer(v) => coeff *= BigRational::from_integer(v),
+                    Expr::Rational(r) => coeff *= r,
+                    Expr::Const(Constant::I) => again.push(Expr::Const(Constant::I)),
+                    other => again.push(other),
+                }
+            }
+            let i_extra = again
+                .iter()
+                .filter(|f| matches!(f, Expr::Const(Constant::I)))
+                .count();
+            again.retain(|f| !matches!(f, Expr::Const(Constant::I)));
+            let total_i = i_extra;
+            if (total_i / 2) % 2 == 1 {
+                coeff *= BigRational::from_integer(BigInt::from(-1));
+            }
+            if total_i % 2 == 1 {
+                again.push(Expr::Const(Constant::I));
+            }
+            rest = again;
+        } else {
+            rest = rebuilt;
+        }
+    }
+    // Signed infinities absorb a nonzero exact coefficient
+    // (2*oo -> oo, -oo -> NegativeInfinity, -3*oo*x -> -oo*x).
+    if !coeff.is_zero()
+        && let Some(pos) = rest.iter().position(|f| {
+            matches!(
+                f,
+                Expr::Const(Constant::Infinity | Constant::NegativeInfinity)
+            )
+        })
+    {
+        if coeff < BigRational::zero() {
+            rest[pos] = match rest[pos] {
+                Expr::Const(Constant::Infinity) => Expr::Const(Constant::NegativeInfinity),
+                _ => Expr::Const(Constant::Infinity),
+            };
+        }
+        coeff = BigRational::from_integer(BigInt::from(1));
     }
     // Oracle-pinned factor order: non-numeric factors sort by
     // default_sort_key (cos(x) < tan(x); x < sin(x); y < x**2).

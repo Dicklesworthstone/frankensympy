@@ -1563,7 +1563,7 @@ class SurfaceTests(unittest.TestCase):
 
         # 3. Integral transforms
         laplace_res = sympy.laplace_transform(sympy.exp(t), t, s)
-        self.assertEqual(str(laplace_res), "(s - 1)**(-1)")
+        self.assertEqual(str(laplace_res), "1/(s - 1)")
         fourier_res = sympy.fourier_transform(sympy.Integer(5), t, w)
         self.assertEqual(str(fourier_res), "10*pi*dirac(w)")
 
@@ -2863,13 +2863,13 @@ class SurfaceTests(unittest.TestCase):
 
         # Symbolic differentiation of extended functions
         d_sec = diff(sec(x), x)
-        self.assertEqual(str(d_sec), "sec(x)*tan(x)")
+        self.assertEqual(str(d_sec), "tan(x)*sec(x)")
         d_csc = diff(csc(x), x)
         self.assertEqual(str(d_csc), "-cot(x)*csc(x)")
         d_cot = diff(cot(x), x)
         self.assertEqual(str(d_cot), "-(cot(x)**2 + 1)")
         d_sech = diff(sech(x), x)
-        self.assertEqual(str(d_sech), "-sech(x)*tanh(x)")
+        self.assertEqual(str(d_sech), "-tanh(x)*sech(x)")
 
     def test_sets_extended(self):
         from sympy import Interval, FiniteSet, SymmetricDifference, Symbol
@@ -4797,7 +4797,7 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(sympy.laplace_transform(sympy.exp(t), t, s), (s - 1)**(-1))
 
         ilt = sympy.InverseLaplaceTransform(1 / (s - 1), s, t)
-        self.assertEqual(str(ilt), "InverseLaplaceTransform((s - 1)**(-1), s, t)")
+        self.assertEqual(str(ilt), "InverseLaplaceTransform(1/(s - 1), s, t)")
         self.assertEqual(ilt.doit(), sympy.exp(t))
         self.assertEqual(sympy.inverse_laplace_transform(1 / (s - 1), s, t), sympy.exp(t))
 

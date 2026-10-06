@@ -423,9 +423,7 @@ fn simplify_at<M: BudgetMeter>(
             for f in rest {
                 let is_single_exp =
                     matches!(&f, Expr::Function(name, args) if name == "exp" && args.len() == 1);
-                if is_single_exp
-                    && matches!(mode, SimplifyMode::Powsimp | SimplifyMode::Full)
-                {
+                if is_single_exp && matches!(mode, SimplifyMode::Powsimp | SimplifyMode::Full) {
                     if let Expr::Function(_, args) = &f {
                         exp_args.push(args[0].clone());
                     }
@@ -530,10 +528,8 @@ fn simplify_at<M: BudgetMeter>(
             // outer exponent stays (sign ambiguity: sqrt(x**2) != x).
             if let Expr::Pow(inner_b, inner_e) = &b {
                 if matches!(e, Expr::Integer(_)) {
-                    let flat = Expr::Pow(
-                        inner_b.clone(),
-                        Arc::new((**inner_e).clone() * e.clone()),
-                    );
+                    let flat =
+                        Expr::Pow(inner_b.clone(), Arc::new((**inner_e).clone() * e.clone()));
                     return Ok(simplify_at(&flat, depth, m, folds, mode)?);
                 }
             }

@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...core import Abs, Function, _native, _native_expr, _wrap
+from ...core import Abs, Function, _NativeFunction, _native, _native_expr, _wrap
 
 
-def sign(expression):
-    return _wrap(_native.py_sign(_native_expr(expression)))
+class sign(_NativeFunction):
+    """Complex sign; exact values and factor extraction are native."""
+
+    __slots__ = ()
 
 
 class re(Function):

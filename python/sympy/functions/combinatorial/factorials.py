@@ -1,18 +1,18 @@
 """Combinatorial factorial functions for FrankenSymPy."""
 
-from ...core import _native, _native_expr, _wrap
+from ...core import _NativeFunction
 
 
-def factorial(expression):
-    return _wrap(_native.py_factorial(_native_expr(expression)))
+class factorial(_NativeFunction):
+    __slots__ = ()
 
 
-def subfactorial(expression):
-    return _wrap(_native.py_subfactorial(_native_expr(expression)))
+class subfactorial(_NativeFunction):
+    __slots__ = ()
 
 
-def binomial(n, k):
-    return _wrap(_native.py_binomial(_native_expr(n), _native_expr(k)))
+class binomial(_NativeFunction):
+    __slots__ = ()
 
 
 __all__ = [

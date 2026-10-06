@@ -1053,6 +1053,9 @@ fn unsafe_direct_substitution(expr: &Expr) -> bool {
                 continue;
             }
             Expr::Add(children) | Expr::Mul(children) | Expr::Function(_, children) => children,
+            // Exact substitution folds `0**-1` to `zoo`; an undefined value
+            // is a pole for the purposes of direct substitution.
+            Expr::Const(Constant::ComplexInfinity | Constant::NaN) => return true,
             _ => continue,
         };
 

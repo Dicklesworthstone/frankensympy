@@ -1,67 +1,51 @@
-"""Hyperbolic functions for FrankenSymPy."""
+"""Hyperbolic functions for FrankenSymPy (native automatic evaluation)."""
 
-from ...core import _native, _native_expr, _wrap
-
-
-def sinh(expression):
-    return _wrap(_native.py_sinh(_native_expr(expression)))
+from ...core import _NativeFunction
 
 
-def cosh(expression):
-    return _wrap(_native.py_cosh(_native_expr(expression)))
+class sinh(_NativeFunction):
+    __slots__ = ()
 
 
-def tanh(expression):
-    return _wrap(_native.py_tanh(_native_expr(expression)))
+class cosh(_NativeFunction):
+    __slots__ = ()
 
 
-def coth(expression):
-    return _wrap(_native.py_coth(_native_expr(expression)))
+class tanh(_NativeFunction):
+    __slots__ = ()
 
 
-def sech(expression):
-    return _wrap(_native.py_sech(_native_expr(expression)))
+class coth(_NativeFunction):
+    __slots__ = ()
 
 
-def csch(expression):
-    return _wrap(_native.py_csch(_native_expr(expression)))
+class sech(_NativeFunction):
+    __slots__ = ()
 
 
-def asinh(expression):
-    return _wrap(_native.py_asinh(_native_expr(expression)))
+class csch(_NativeFunction):
+    __slots__ = ()
 
 
-def acosh(expression):
-    return _wrap(_native.py_acosh(_native_expr(expression)))
+class asinh(_NativeFunction):
+    __slots__ = ()
 
 
-def atanh(expression):
-    return _wrap(_native.py_atanh(_native_expr(expression)))
+class acosh(_NativeFunction):
+    __slots__ = ()
 
 
-def acoth(expression):
-    return _wrap(_native.py_acoth(_native_expr(expression)))
+class atanh(_NativeFunction):
+    __slots__ = ()
 
 
-def asech(expression):
-    return _wrap(_native.py_asech(_native_expr(expression)))
+class acoth(_NativeFunction):
+    __slots__ = ()
 
 
-def acsch(expression):
-    return _wrap(_native.py_acsch(_native_expr(expression)))
+class asech(_NativeFunction):
+    __slots__ = ()
 
 
-__all__ = [
-    "acosh",
-    "acoth",
-    "acsch",
-    "asech",
-    "asinh",
-    "atanh",
-    "cosh",
-    "coth",
-    "csch",
-    "sech",
-    "sinh",
-    "tanh",
-]
+class acsch(_NativeFunction):
+    __slots__ = ()

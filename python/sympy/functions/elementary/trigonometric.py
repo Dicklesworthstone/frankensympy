@@ -1,72 +1,60 @@
-"""Trigonometric functions for FrankenSymPy."""
+"""Trigonometric functions for FrankenSymPy.
 
-from ...core import _native, _native_expr, _wrap
+Each function is a real Function subclass whose automatic evaluation
+(special values at rational multiples of pi, parity, period reduction,
+inverse compositions) is performed by the native kernel.
+"""
 
-
-def sin(expression):
-    return _wrap(_native.py_sin(_native_expr(expression)))
-
-
-def cos(expression):
-    return _wrap(_native.py_cos(_native_expr(expression)))
+from ...core import _NativeFunction
 
 
-def tan(expression):
-    return _wrap(_native.py_tan(_native_expr(expression)))
+class sin(_NativeFunction):
+    __slots__ = ()
 
 
-def cot(expression):
-    return _wrap(_native.py_cot(_native_expr(expression)))
+class cos(_NativeFunction):
+    __slots__ = ()
 
 
-def sec(expression):
-    return _wrap(_native.py_sec(_native_expr(expression)))
+class tan(_NativeFunction):
+    __slots__ = ()
 
 
-def csc(expression):
-    return _wrap(_native.py_csc(_native_expr(expression)))
+class cot(_NativeFunction):
+    __slots__ = ()
 
 
-def asin(expression):
-    return _wrap(_native.py_asin(_native_expr(expression)))
+class sec(_NativeFunction):
+    __slots__ = ()
 
 
-def acos(expression):
-    return _wrap(_native.py_acos(_native_expr(expression)))
+class csc(_NativeFunction):
+    __slots__ = ()
 
 
-def atan(expression):
-    return _wrap(_native.py_atan(_native_expr(expression)))
+class asin(_NativeFunction):
+    __slots__ = ()
 
 
-def acot(expression):
-    return _wrap(_native.py_acot(_native_expr(expression)))
+class acos(_NativeFunction):
+    __slots__ = ()
 
 
-def asec(expression):
-    return _wrap(_native.py_asec(_native_expr(expression)))
+class atan(_NativeFunction):
+    __slots__ = ()
 
 
-def acsc(expression):
-    return _wrap(_native.py_acsc(_native_expr(expression)))
+class acot(_NativeFunction):
+    __slots__ = ()
 
 
-def sinc(expression):
-    return _wrap(_native.py_sinc(_native_expr(expression)))
+class asec(_NativeFunction):
+    __slots__ = ()
 
 
-__all__ = [
-    "acos",
-    "acot",
-    "acsc",
-    "asec",
-    "asin",
-    "atan",
-    "cos",
-    "cot",
-    "csc",
-    "sec",
-    "sin",
-    "sinc",
-    "tan",
-]
+class acsc(_NativeFunction):
+    __slots__ = ()
+
+
+class sinc(_NativeFunction):
+    __slots__ = ()
