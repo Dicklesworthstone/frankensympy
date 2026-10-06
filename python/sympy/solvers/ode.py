@@ -173,3 +173,239 @@ __all__ = [
     "verify_const_coeff_second_order_solution",
     "verify_linear_first_order_solution",
 ]
+
+
+# ---------------------------------------------------------------------------
+# General dsolve
+# ---------------------------------------------------------------------------
+
+
+def _preorder(e):
+    yield e
+    for a in getattr(e, "args", ()):
+        yield from _preorder(a)
+
+
+def _find_function(eq):
+    from ..core import AppliedUndef
+
+    found = [n for n in _preorder(eq) if isinstance(n, AppliedUndef)]
+    funcs = []
+    for n in found:
+        if n not in funcs:
+            funcs.append(n)
+    if len(funcs) != 1:
+        raise ValueError(f"The function cannot be automatically detected for {eq}.")
+    return funcs[0]
+
+
+def _derivative_order(d, f, x):
+    """Order of Derivative d of f wrt x, or None when it is not one."""
+    if type(d).__name__ != "Derivative":
+        return None
+    args = d.args
+    if args[0] != f:
+        return None
+    variables = list(args[1:])
+    if any(v != x for v in variables):
+        return None
+    return len(variables)
+
+
+def _ode_to_symbols(eq, f, x):
+    """Replace f(x) and its x-derivatives by symbols y0, y1, ..."""
+    from ..core import Symbol as _S
+
+    orders = {}
+    for n in _preorder(eq):
+        k = _derivative_order(n, f, x)
+        if k is not None:
+            orders[k] = n
+    n_order = max(orders) if orders else 0
+    ys = [_S(f"_fsym_y{k}") for k in range(n_order + 1)]
+    out = eq
+    for k in sorted(orders, reverse=True):
+        out = out.subs(orders[k], ys[k])
+    out = out.subs(f, ys[0])
+    return out, ys, n_order
+
+
+def _constants(start, count):
+    from ..core import Symbol as _S
+
+    return [_S(f"C{i}") for i in range(start, start + count)]
+
+
+def _homogeneous_basis(coeffs, x):
+    """Fundamental solutions of sum a_k y^(k) = 0 with constant a_k."""
+    from ..core import Symbol as _S, I, Integer, Rational
+    from ..functions import exp, sin, cos
+    from ..polys.polytools import Poly, roots
+    from ..core import expand
+
+    r = _S("_fsym_r")
+    char = sum((c * r**k for k, c in enumerate(coeffs)), Integer(0))
+    rts = roots(Poly(expand(char), r))
+    if sum(rts.values()) != len(coeffs) - 1:
+        raise NotImplementedError("dsolve: characteristic roots are not all expressible")
+    real = []
+    pairs = []
+    seen = set()
+    for root, mult in rts.items():
+        re_part = expand(root.subs(I, 0))
+        im_part = expand((root - re_part) / I)
+        if im_part == 0:
+            real.append((root, mult))
+        else:
+            key = (str(re_part), str(abs(im_part)))
+            if key in seen:
+                continue
+            seen.add(key)
+            pairs.append((re_part, abs(im_part), mult))
+    real.sort(key=lambda rm: float(rm[0]))
+    groups = []
+    for root, mult in real:
+        groups.append(("real", root, mult))
+    for a, b, mult in pairs:
+        groups.append(("pair", (a, b), mult))
+    return groups
+
+
+def _assemble(groups, x, start=1):
+    from ..core import Integer
+    from ..functions import exp, sin, cos
+
+    terms = []
+    basis = []
+    idx = start
+    for kind, data, mult in groups:
+        if kind == "real":
+            cs = _constants(idx, mult)
+            idx += mult
+            poly = sum((c * x**j for j, c in enumerate(cs)), Integer(0))
+            terms.append(poly * exp(data * x))
+            basis.extend(x**j * exp(data * x) for j in range(mult))
+        else:
+            a, b = data
+            sin_poly = Integer(0)
+            cos_poly = Integer(0)
+            for j in range(mult):
+                c1, c2 = _constants(idx, 2)
+                idx += 2
+                sin_poly = sin_poly + c1 * x**j
+                cos_poly = cos_poly + c2 * x**j
+                basis.append(x**j * exp(a * x) * sin(b * x))
+                basis.append(x**j * exp(a * x) * cos(b * x))
+            terms.append((sin_poly * sin(b * x) + cos_poly * cos(b * x)) * exp(a * x))
+    total = Integer(0)
+    for t in terms:
+        total = total + t
+    return total, basis
+
+
+def _particular_vop(basis, g, lead, x):
+    """Variation of parameters for order 1 or 2."""
+    from ..core import Integer, diff, expand
+    from ..simplify import simplify
+    from .. import integrate as _integrate
+    from ..integrals import Integral
+
+    g = g / lead
+    if len(basis) == 1:
+        y1 = basis[0]
+        integral = _integrate(simplify(g / y1), x)
+        if isinstance(integral, Integral):
+            raise NotImplementedError("dsolve: particular integral not found")
+        return simplify(expand(y1 * integral))
+    if len(basis) == 2:
+        y1, y2 = basis
+        w = simplify(y1 * diff(y2, x) - y2 * diff(y1, x))
+        i1 = _integrate(simplify(y2 * g / w), x)
+        i2 = _integrate(simplify(y1 * g / w), x)
+        if isinstance(i1, Integral) or isinstance(i2, Integral):
+            raise NotImplementedError("dsolve: particular integral not found")
+        return simplify(expand(-y1 * i1 + y2 * i2))
+    raise NotImplementedError("dsolve: inhomogeneous equations of order > 2")
+
+
+def dsolve(eq, func=None, hint="default", **kwargs):
+    """Solve an ordinary differential equation for ``func`` (upstream ``dsolve``).
+
+    Supported classes: linear equations with constant coefficients of any
+    order (homogeneous; inhomogeneous through variation of parameters up to
+    order 2), first-order linear equations (integrating factor) and
+    separable first-order equations. Returns ``Eq(f(x), solution)`` with
+    constants ``C1, C2, ...``; other equations raise NotImplementedError.
+    """
+    from ..core import Eq as _Eq, Integer, diff, expand, Symbol as _S
+    from ..simplify import simplify
+    from .. import integrate as _integrate, solve as _solve
+    from ..integrals import Integral
+    from ..functions import exp
+
+    if type(eq) is _Eq:
+        eq = eq.lhs - eq.rhs
+    f = func if func is not None else _find_function(eq)
+    if len(f.args) != 1:
+        raise NotImplementedError("dsolve: only ordinary (single-variable) equations")
+    x = f.args[0]
+    E, ys, n = _ode_to_symbols(eq, f, x)
+    E = expand(E)
+    if n == 0:
+        raise ValueError("dsolve: the equation contains no derivative of the function")
+
+    # Linear in y0..yn?
+    coeffs = [simplify(diff(E, y)) for y in ys]
+    linear = all(not (c.free_symbols & set(ys)) for c in coeffs)
+    if linear:
+        rest = simplify(expand(E - sum((c * y for c, y in zip(coeffs, ys)), Integer(0))))
+        linear = not (rest.free_symbols & set(ys))
+    if linear:
+        g = -rest
+        if all(x not in c.free_symbols for c in coeffs):
+            groups = _homogeneous_basis(coeffs, x)
+            hom, basis = _assemble(groups, x)
+            if g == 0:
+                return _Eq(f, hom)
+            part = _particular_vop(basis, g, coeffs[-1], x)
+            return _Eq(f, hom + part)
+        if n == 1:
+            p = simplify(coeffs[0] / coeffs[1])
+            q = simplify(g / coeffs[1])
+            ip = _integrate(p, x)
+            if isinstance(ip, Integral):
+                raise NotImplementedError("dsolve: integrating factor not found")
+            mu = exp(ip)
+            iq = _integrate(simplify(q * mu), x)
+            if isinstance(iq, Integral):
+                raise NotImplementedError("dsolve: integral of the forcing term not found")
+            (c1,) = _constants(1, 1)
+            return _Eq(f, simplify((c1 + iq) / mu))
+        raise NotImplementedError("dsolve: linear equations with variable coefficients of order > 1")
+
+    if n == 1:
+        sols = _solve(E, ys[1])
+        if len(sols) == 1:
+            F = sols[0]
+            factors = F.args if type(F).__name__ == "Mul" else (F,)
+            gx = Integer(1)
+            hy = Integer(1)
+            for fac in factors:
+                syms = fac.free_symbols
+                if ys[0] in syms and x in syms:
+                    raise NotImplementedError("dsolve: equation is not separable")
+                if ys[0] in syms:
+                    hy = hy * fac
+                else:
+                    gx = gx * fac
+            left = _integrate(1 / hy, ys[0])
+            right = _integrate(gx, x)
+            if isinstance(left, Integral) or isinstance(right, Integral):
+                raise NotImplementedError("dsolve: separable integrals not found")
+            (c1,) = _constants(1, 1)
+            solved = _solve(left - right - c1, ys[0])
+            if not solved:
+                raise NotImplementedError("dsolve: implicit solution only")
+            out = [_Eq(f, simplify(s)) for s in solved]
+            return out[0] if len(out) == 1 else out
+    raise NotImplementedError("dsolve: equation class not supported")

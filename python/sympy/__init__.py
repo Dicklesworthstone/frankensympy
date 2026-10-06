@@ -571,13 +571,11 @@ def inverse_mellin_transform(F, s, x, strip=None, noconds=True, **kwargs):
     return _imt(F, s, x, strip=strip, noconds=noconds, **kwargs)
 
 
-def dsolve(equation, func=None):
-    """Refuse the unsupported general SymPy ODE-equation interface."""
-    del equation, func
-    raise NotImplementedError(
-        "general dsolve equation parsing is not implemented; "
-        "the native coefficient-form solvers are not a drop-in dsolve interface"
-    )
+def dsolve(equation, func=None, hint="default", **kwargs):
+    """Solve an ordinary differential equation (see sympy.solvers.ode.dsolve)."""
+    from .solvers.ode import dsolve as _dsolve
+
+    return _dsolve(equation, func, hint=hint, **kwargs)
 
 
 def _exact_integer_value(value):

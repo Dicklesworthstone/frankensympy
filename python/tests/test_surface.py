@@ -797,7 +797,8 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(sympy.integrate(2 * x, (x, 0, 1)), sympy.Integer(1))
         self.assertEqual(sympy.solve(2 * x - 4, x), [sympy.Integer(2)])
         self.assertEqual(sympy.solve(sympy.Eq(2 * x, 4), x), [sympy.Integer(2)])
-        with self.assertRaises(NotImplementedError):
+        # Oracle: no unknown function to detect -> ValueError.
+        with self.assertRaisesRegex(ValueError, "cannot be automatically detected"):
             sympy.dsolve(x)
 
     def test_atoms_and_held_equality(self):

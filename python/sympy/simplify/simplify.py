@@ -133,6 +133,43 @@ def _trig_contract(e: Any) -> Any:
                 result = result * f
             return result
         return e
+    if isinstance(e, Add):
+        # c*sin(u)**2 + c*cos(u)**2 -> c for any common cofactor c.
+        def split_sq(t):
+            fs = list(t.args) if isinstance(t, Mul) else [t]
+            for i, f in enumerate(fs):
+                if (
+                    isinstance(f, Pow) and f.args[1] == 2
+                    and name(f.args[0]) in ("sin", "cos")
+                ):
+                    rest = Integer(1)
+                    for j, g in enumerate(fs):
+                        if j != i:
+                            rest = rest * g
+                    return name(f.args[0]), f.args[0].args[0], rest
+            return None
+        parts = [split_sq(t) for t in e.args]
+        used = set()
+        merged = []
+        for i, pi in enumerate(parts):
+            if pi is None or i in used:
+                continue
+            for j in range(i + 1, len(parts)):
+                pj = parts[j]
+                if pj is None or j in used:
+                    continue
+                if {pi[0], pj[0]} == {"sin", "cos"} and pi[1] == pj[1] and pi[2] == pj[2]:
+                    used.update((i, j))
+                    merged.append(pi[2])
+                    break
+        if merged:
+            total = Integer(0)
+            for i, t in enumerate(e.args):
+                if i not in used:
+                    total = total + t
+            for m in merged:
+                total = total + m
+            return total
     if isinstance(e, Add) and len(e.args) == 2:
         t1, t2 = e.args
         for p_, n_ in ((t1, t2), (t2, t1)):
