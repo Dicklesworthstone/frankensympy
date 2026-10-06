@@ -880,8 +880,14 @@ mod tests {
         }
         // Upstream automatic evaluation at the circular poles/special
         // points: cot(0) = csc(0) = zoo and acot(0) = pi/2.
-        assert_eq!(cot(Expr::from_i64(0)), Expr::Const(Constant::ComplexInfinity));
-        assert_eq!(csc(Expr::from_i64(0)), Expr::Const(Constant::ComplexInfinity));
+        assert_eq!(
+            cot(Expr::from_i64(0)),
+            Expr::Const(Constant::ComplexInfinity)
+        );
+        assert_eq!(
+            csc(Expr::from_i64(0)),
+            Expr::Const(Constant::ComplexInfinity)
+        );
         assert_eq!(
             acot(Expr::from_i64(0)),
             Expr::Rational(BigRational::new(BigInt::from(1), BigInt::from(2)))

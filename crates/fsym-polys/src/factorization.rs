@@ -1031,7 +1031,7 @@ fn fp_distinct_degree(f: &[u64], p: u64) -> Vec<(usize, Vec<u64>)> {
         let diff = fp_sub(&frob, &x, p);
         let g = {
             let g = fp_gcd(diff, remaining.clone(), p);
-            #[cfg(any(test, debug_assertions))]
+            #[cfg(test)]
             eprintln!(
                 "[ddf] degree={degree} g_len={} remaining_len={}",
                 g.len(),
@@ -1167,10 +1167,10 @@ fn fp_factor_squarefree(
     )?;
     let mut out: Vec<Vec<u64>> = Vec::new();
     let classes = fp_distinct_degree(f, p);
-    #[cfg(any(test, debug_assertions))]
+    #[cfg(test)]
     eprintln!("[ddf] p={p} deg={} classes={}", f.len() - 1, classes.len());
     for (class_degree, product) in classes {
-        #[cfg(any(test, debug_assertions))]
+        #[cfg(test)]
         eprintln!(
             "[ddf]   class_degree={class_degree} product_len={}",
             product.len()
@@ -1646,7 +1646,7 @@ fn zassenhaus_monic(
     while target <= twice {
         target = target.clone() * BigInt::from_u64(p);
     }
-    #[cfg(any(test, debug_assertions))]
+    #[cfg(test)]
     eprintln!(
         "[zassenhaus] degree={} prime={} modp_factors={} target={}",
         degree,
@@ -1654,7 +1654,7 @@ fn zassenhaus_monic(
         modp_factors.len(),
         target
     );
-    #[cfg(any(test, debug_assertions))]
+    #[cfg(test)]
     for (idx, fp_factor) in modp_factors.iter().enumerate() {
         eprintln!("[zassenhaus]   u_{idx} = {fp_factor:?}");
     }

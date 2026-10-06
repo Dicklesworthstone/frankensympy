@@ -134,10 +134,10 @@ def integrate(expression, *variables):
         symbol = _require_symbol(variable)
         try:
             result = _native.integrate_definite_expr(
-                str(_wrap(_native_expr(expression))),
+                str(_native_expr(expression)),
                 _native_symbol_key(symbol),
-                str(_wrap(_native_expr(lower))),
-                str(_wrap(_native_expr(upper))),
+                str(_native_expr(lower)),
+                str(_native_expr(upper)),
             )
             parsed = _parse_result(result)
             return parsed.subs({Symbol(symbol.name): symbol})
@@ -148,7 +148,7 @@ def integrate(expression, *variables):
     try:
         result = _parse_result(
             _native.integrate_expr(
-                str(_wrap(_native_expr(expression))), _native_symbol_key(symbol)
+                str(_native_expr(expression)), _native_symbol_key(symbol)
             )
         )
         # Restore declared typed symbol (the native bridge lifts fresh atoms).

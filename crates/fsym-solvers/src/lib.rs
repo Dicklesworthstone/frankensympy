@@ -741,7 +741,15 @@ mod tests {
         let num_val = ode_eval.subs(&map).evalf().unwrap();
         assert!(num_val.abs() < 1e-10, "ODE residual must be zero");
 
-        let unsupported = Expr::Function("log".to_string(), vec![Expr::Sym(x.clone())]);
+        // exp(x**2) has no elementary antiderivative: the coefficient
+        // integration itself refuses.
+        let unsupported = Expr::Function(
+            "exp".to_string(),
+            vec![Expr::Pow(
+                std::sync::Arc::new(Expr::Sym(x.clone())),
+                std::sync::Arc::new(Expr::from_i64(2)),
+            )],
+        );
         assert!(matches!(
             dsolve_linear_first_order(&unsupported, &q_expr, &x, &c1),
             Err(SolverError::IncompleteSolutionSet(message))

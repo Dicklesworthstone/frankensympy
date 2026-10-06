@@ -119,6 +119,9 @@ pub fn integrate_definite(
     a: &Expr,
     b: &Expr,
 ) -> Result<Expr, CalculusError> {
+    if let Some(value) = crate::integrate::definite(expr, var, a, b) {
+        return Ok(value);
+    }
     let exact_finite_endpoint =
         |endpoint: &Expr| matches!(endpoint, Expr::Integer(_) | Expr::Rational(_));
     if !exact_finite_endpoint(a) || !exact_finite_endpoint(b) || !is_total_polynomial_fragment(expr)
@@ -170,14 +173,25 @@ mod definite_integral_tests {
         let sin_x = Expr::Function("sin".to_string(), vec![Expr::Sym(x.clone())]);
         let reciprocal = Expr::Pow(Arc::new(Expr::Sym(x.clone())), Arc::new(Expr::from_i64(-1)));
 
-        assert!(integrate_definite(&sin_x, &x, &Expr::from_i64(0), &Expr::from_i64(1)).is_err());
-        assert!(
-            integrate_definite(&Expr::Sym(x.clone()), &x, &Expr::from_i64(0), &Expr::Sym(y),)
-                .is_err()
+        // Formerly unadmitted shapes evaluate exactly through the
+        // antiderivative and endpoint limits.
+        let one = Expr::from_i64(1);
+        assert_eq!(
+            integrate_definite(&sin_x, &x, &Expr::from_i64(0), &one).unwrap(),
+            simplify(&(one.clone() - Expr::Function("cos".to_string(), vec![one.clone()])))
         );
-        assert!(
-            integrate_definite(&reciprocal, &x, &Expr::from_i64(1), &Expr::from_i64(2),).is_err()
+        assert_eq!(
+            integrate_definite(&Expr::Sym(x.clone()), &x, &Expr::from_i64(0), &Expr::Sym(y.clone()))
+                .unwrap(),
+            simplify(&(Expr::Rational(BigRational::new(BigInt::from(1), BigInt::from(2)))
+                * Expr::Pow(Arc::new(Expr::Sym(y)), Arc::new(Expr::from_i64(2)))))
         );
+        assert_eq!(
+            integrate_definite(&reciprocal, &x, &one, &Expr::from_i64(2)).unwrap(),
+            Expr::Function("log".to_string(), vec![Expr::from_i64(2)])
+        );
+        // An interior pole still refuses.
+        assert!(integrate_definite(&reciprocal, &x, &Expr::from_i64(-1), &one).is_err());
     }
 
     #[test]

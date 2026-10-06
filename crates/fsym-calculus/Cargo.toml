@@ -11,6 +11,7 @@ categories.workspace = true
 
 [dependencies]
 fsym-core.workspace = true
+fsym-polys.workspace = true
 num-complex.workspace = true
 fsym-simplify.workspace = true
 fsym-proof-kernel.workspace = true

@@ -677,6 +677,7 @@ dependencies = [
  "fsym-budget",
  "fsym-core",
  "fsym-evidence",
+ "fsym-polys",
  "fsym-proof-kernel",
  "fsym-simplify",
  "num-complex",

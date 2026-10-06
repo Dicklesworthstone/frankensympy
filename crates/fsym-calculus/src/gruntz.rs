@@ -323,6 +323,9 @@ impl Gruntz {
         if e == Expr::Sym(self.x.clone()) {
             return Ok(oo());
         }
+        if let Some(v) = self.limit_of_special(&e)? {
+            return Ok(v);
+        }
         // bounded * (-> 0) -> 0 for oscillating sin/cos factors whose
         // argument diverges (no series exists at such a point).
         if let Expr::Mul(factors) = &e {
@@ -364,6 +367,51 @@ impl Gruntz {
             };
         }
         self.limitinf(&c0)
+    }
+
+    /// Limits of expressions built from functions without a series at
+    /// infinity (`erf`, `erfc`): termwise / factorwise algebra of limits
+    /// when every part is determinate, `erf(+-oo) = +-1`.
+    fn limit_of_special(&mut self, e: &Expr) -> LResult<Option<Expr>> {
+        if !contains_function(e, &["erf", "erfc"]) {
+            return Ok(None);
+        }
+        match e {
+            Expr::Function(name, args) if (name == "erf" || name == "erfc") && args.len() == 1 => {
+                let l = self.limitinf(&args[0])?;
+                let v = match (name.as_str(), &l) {
+                    ("erf", Expr::Const(Constant::Infinity)) => Expr::from_i64(1),
+                    ("erf", Expr::Const(Constant::NegativeInfinity)) => Expr::from_i64(-1),
+                    ("erfc", Expr::Const(Constant::Infinity)) => Expr::from_i64(0),
+                    ("erfc", Expr::Const(Constant::NegativeInfinity)) => Expr::from_i64(2),
+                    _ => func(name, l),
+                };
+                Ok(Some(v))
+            }
+            Expr::Add(terms) => {
+                let mut acc = Expr::from_i64(0);
+                for t in terms {
+                    let l = self.limitinf(t)?;
+                    if is_infinite(&l) {
+                        return Ok(None);
+                    }
+                    acc = acc + l;
+                }
+                Ok(Some(acc))
+            }
+            Expr::Mul(factors) => {
+                let mut acc = Expr::from_i64(1);
+                for f in factors {
+                    let l = self.limitinf(f)?;
+                    if is_infinite(&l) || l.is_zero() {
+                        return Ok(None);
+                    }
+                    acc = acc * l;
+                }
+                Ok(Some(acc))
+            }
+            _ => Ok(None),
+        }
     }
 
     /// Sign of `e` as `x -> oo` (eventually constant).
@@ -652,6 +700,17 @@ fn hyperbolic_as_exp(name: &str, a: &Expr) -> Option<Expr> {
 /// Bounded oscillating factor: `sin`/`cos` of a real argument.
 fn is_bounded_oscillator(e: &Expr) -> bool {
     matches!(e, Expr::Function(n, args) if (n == "sin" || n == "cos") && args.len() == 1)
+}
+
+fn contains_function(e: &Expr, names: &[&str]) -> bool {
+    match e {
+        Expr::Function(n, args) => {
+            names.contains(&n.as_str()) || args.iter().any(|a| contains_function(a, names))
+        }
+        Expr::Add(xs) | Expr::Mul(xs) => xs.iter().any(|a| contains_function(a, names)),
+        Expr::Pow(b, p) => contains_function(b, names) || contains_function(p, names),
+        _ => false,
+    }
 }
 
 fn expr_size(e: &Expr) -> usize {

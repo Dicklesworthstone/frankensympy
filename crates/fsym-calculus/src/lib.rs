@@ -4,6 +4,7 @@
 
 pub mod compile;
 pub mod gruntz;
+pub mod integrate;
 pub mod proof;
 pub mod series;
 pub mod sparse_jacobian;
@@ -906,6 +907,14 @@ fn try_integrate_by_parts(var_parts: &[Expr], var: &Symbol) -> Option<Expr> {
 /// [`integral_term`]; anything else fails as
 /// [`CalculusError::IntegrationFailed`] rather than returning a guess.
 pub fn integrate(expr: &Expr, var: &Symbol) -> Result<Expr, CalculusError> {
+    if let Some(anti) = integrate::antiderivative(expr, var) {
+        return Ok(anti);
+    }
+    integrate_basic(expr, var)
+}
+
+/// The original term-table integrator, kept as a fallback lane.
+fn integrate_basic(expr: &Expr, var: &Symbol) -> Result<Expr, CalculusError> {
     match expr {
         Expr::Add(terms) => {
             let mut parts = Vec::new();
@@ -1389,13 +1398,20 @@ mod tests {
     #[test]
     fn test_integrate_typed_refusal_on_unsupported_product() {
         let x = Symbol::new("x");
-        // x * log(x) has no rule yet: typed refusal, never a guess.
+        // x * log(x) integrates by parts: x**2*log(x)/2 - x**2/4.
         let e = Expr::Mul(vec![
             Expr::symbol("x"),
             Expr::Function("log".to_string(), vec![Expr::symbol("x")]),
         ]);
+        let anti = integrate(&e, &x).expect("by-parts antiderivative");
+        assert_eq!(simplify(&(diff(&anti, &x) - e)), Expr::from_i64(0));
+        // sin(x)/x has no elementary antiderivative: typed refusal, never a guess.
+        let si = Expr::Mul(vec![
+            Expr::Function("sin".to_string(), vec![Expr::symbol("x")]),
+            Expr::Pow(Arc::new(Expr::symbol("x")), Arc::new(Expr::from_i64(-1))),
+        ]);
         assert!(matches!(
-            integrate(&e, &x),
+            integrate(&si, &x),
             Err(CalculusError::IntegrationFailed(_))
         ));
     }
@@ -1407,7 +1423,8 @@ mod tests {
         let x_pow = |n: i64| Expr::Pow(Arc::new(Expr::symbol("x")), Arc::new(Expr::from_i64(n)));
         let roundtrip = |integrand: &Expr| {
             let anti = integrate(integrand, &x).expect("by-parts integral expected");
-            assert_eq!(simplify(&diff(&anti, &x)), simplify(integrand));
+            let residual = fsym_simplify::expand(&(diff(&anti, &x) - integrand.clone()));
+            assert_eq!(simplify(&residual), Expr::from_i64(0), "{integrand} -> {anti}");
         };
 
         roundtrip(&Expr::Mul(vec![
@@ -1461,8 +1478,32 @@ mod tests {
                 Err(CalculusError::IntegrationFailed(_))
             ));
         };
-        // Nonlinear analytic argument.
-        refused(&Expr::Mul(vec![
+        // Non-elementary: sin(x**2) (Fresnel) and exp(x**2) (erfi).
+        refused(&Expr::Function(
+            "sin".to_string(),
+            vec![Expr::Pow(
+                Arc::new(Expr::symbol("x")),
+                Arc::new(Expr::from_i64(2)),
+            )],
+        ));
+        refused(&Expr::Function(
+            "exp".to_string(),
+            vec![Expr::Pow(
+                Arc::new(Expr::symbol("x")),
+                Arc::new(Expr::from_i64(2)),
+            )],
+        ));
+        // Previously refused shapes now integrate exactly; the derivative
+        // of each antiderivative reproduces the integrand.
+        let verified = |integrand: &Expr| {
+            let anti = integrate(integrand, &x).expect("antiderivative expected");
+            assert_eq!(
+                simplify(&(diff(&anti, &x) - integrand.clone())),
+                Expr::from_i64(0),
+                "{integrand} -> {anti}"
+            );
+        };
+        verified(&Expr::Mul(vec![
             Expr::symbol("x"),
             Expr::Function(
                 "sin".to_string(),
@@ -1472,14 +1513,7 @@ mod tests {
                 )],
             ),
         ]));
-        // Two analytic factors.
-        refused(&Expr::Mul(vec![
-            Expr::symbol("x"),
-            Expr::Function("sin".to_string(), vec![Expr::symbol("x")]),
-            Expr::Function("exp".to_string(), vec![Expr::symbol("x")]),
-        ]));
-        // Polynomial degree above the bounded cap.
-        refused(&Expr::Mul(vec![
+        verified(&Expr::Mul(vec![
             Expr::Pow(Arc::new(Expr::symbol("x")), Arc::new(Expr::from_i64(9))),
             Expr::Function("sin".to_string(), vec![Expr::symbol("x")]),
         ]));
