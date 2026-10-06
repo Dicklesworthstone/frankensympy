@@ -351,6 +351,14 @@ def solveset(expression, variable=None, domain=None):
         from .sets import EmptySet
         return EmptySet()
 
+    # Periodic equations have infinite solution sets (upstream ImageSet
+    # unions); the native solver lists principal solutions only, which is
+    # solve()'s contract but not solveset's. Refuse rather than truncate.
+    periodic = ("sin", "cos", "tan", "cot", "sec", "csc")
+    if any(type(a).__name__ in periodic and symbol in a.free_symbols for a in _preorder_nodes(expr)):
+        raise ValueError(
+            "non-linear periodic equation: the complete (infinite) solution set is not supported"
+        )
     try:
         results = _native.solve_expr(str(expr), _native_symbol_key(symbol))
     except ValueError as exc:
@@ -380,7 +388,11 @@ def solveset(expression, variable=None, domain=None):
         # of discarding the candidate through boolean containment coercion.
         retained = []
         unknown = False
+        from .sets import Reals as _Reals
         for root in roots:
+            if (isinstance(domain, _Reals) or domain == _Reals()) and _is_real_constant(root):
+                retained.append(root)
+                continue
             membership = domain.contains(root)
             if membership is False:
                 continue
@@ -391,6 +403,52 @@ def solveset(expression, variable=None, domain=None):
     if not roots:
         return EmptySet()
     return FiniteSet(*roots)
+
+
+def _preorder_nodes(e):
+    yield e
+    for a in getattr(e, "args", ()):
+        yield from _preorder_nodes(a)
+
+
+def _is_real_constant(e) -> bool:
+    """Structural real-valuedness of a symbol-free constant (no numerics)."""
+    if getattr(e, "free_symbols", None):
+        return False
+    if isinstance(e, (Integer, Rational, Float)):
+        return True
+    name = str(e) if type(e) is Expr else None
+    if name in ("pi", "E", "EulerGamma", "GoldenRatio", "Catalan"):
+        return True
+    if name == "I":
+        return False
+    if type(e) in (Add, Mul):
+        return all(_is_real_constant(a) for a in e.args)
+    if type(e) is Pow:
+        b, p = e.args
+        return _is_real_constant(b) and _is_real_constant(p) and _is_positive_constant(b)
+    fname = type(e).__name__
+    if fname in ("exp", "sin", "cos", "atan", "sinh", "cosh", "tanh", "Abs"):
+        return all(_is_real_constant(a) for a in e.args)
+    if fname == "log":
+        return _is_positive_constant(e.args[0])
+    return False
+
+
+def _is_positive_constant(e) -> bool:
+    if isinstance(e, (Integer, Rational)):
+        return e.p > 0
+    if type(e) is Expr and str(e) in ("pi", "E"):
+        return True
+    if type(e) is Mul:
+        return all(_is_positive_constant(a) for a in e.args)
+    if type(e) is Add:
+        return all(_is_positive_constant(a) for a in e.args)
+    if type(e) is Pow:
+        return _is_positive_constant(e.args[0]) and _is_real_constant(e.args[1])
+    if type(e).__name__ == "exp":
+        return _is_real_constant(e.args[0])
+    return False
 
 
 def checksol(expression, symbol, val=None):

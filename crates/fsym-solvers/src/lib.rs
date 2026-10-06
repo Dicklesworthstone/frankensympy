@@ -6,6 +6,7 @@
 
 pub mod ode;
 pub mod system;
+pub mod univariate;
 
 pub use ode::*;
 pub use system::*;
@@ -576,6 +577,11 @@ pub fn solve_quadratic(expr: &Expr, var: &Symbol) -> Result<Vec<Expr>, SolverErr
 /// `NonLinear` is reserved for expressions the polynomial encoder cannot
 /// admit (transcendental functions, non-integer powers, unbounded shape).
 pub fn solve(expr: &Expr, var: &Symbol) -> Result<Vec<Expr>, SolverError> {
+    match univariate::solve_univariate(expr, var) {
+        Ok(roots) => return Ok(roots),
+        Err(SolverError::InfiniteSolutions) => return Err(SolverError::InfiniteSolutions),
+        Err(_) => {}
+    }
     match solve_linear(expr, var) {
         Ok(root) => Ok(vec![root]),
         Err(SolverError::NonLinear) => match solve_quadratic(expr, var) {
@@ -608,7 +614,7 @@ fn solve_higher_degree(expr: &Expr, var: &Symbol) -> Result<Vec<Expr>, SolverErr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fsym_core::BigInt;
+    use fsym_core::{BigInt, Constant};
 
     #[test]
     fn test_solve_linear_poly() {
@@ -1381,10 +1387,16 @@ mod tests {
         ]);
         let rep_roots = solve(&eq_repeated, &x).unwrap();
         assert_eq!(rep_roots, vec![Expr::from_i64(4)]);
-        // Test non-linear rejection: the encoder refuses transcendental
-        // function calls (sin(x)) that the polynomial lane cannot admit.
+        // Transcendental equations solve by inversion with upstream's
+        // principal solution list: solve(sin(x), x) = [0, pi].
         let s = Expr::Function("sin".into(), vec![Expr::Sym(x.clone())]);
-        assert_eq!(solve(&s, &x), Err(SolverError::NonLinear));
+        assert_eq!(
+            solve(&s, &x),
+            Ok(vec![Expr::from_i64(0), Expr::Const(Constant::Pi)])
+        );
+        // No inverse is known for an undefined function: typed refusal.
+        let opaque = Expr::Function("f".into(), vec![Expr::Sym(x.clone())]);
+        assert!(solve(&opaque, &x).is_err());
 
         // Test bounded higher-degree dispatch: x^3 - 1 factors as
         // (x - 1)(x^2 + x + 1); the rational linear factor is recovered by

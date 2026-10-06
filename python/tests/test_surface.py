@@ -4586,7 +4586,8 @@ class SurfaceTests(unittest.TestCase):
         from sympy.core import _native
         res = _native.solve_expr("x**2 + 1", "x")
         self.assertEqual(len(res), 2)
-        self.assertIn("(-4)**(1/2)", res[0])
+        # Oracle roots [-I, I]: the radical sqrt(-4)/2 is evaluated exactly.
+        self.assertEqual([sympy.sympify(r) for r in res], [-sympy.I, sympy.I])
 
     def test_special_functions_suite(self):
         x = sympy.Symbol("x")

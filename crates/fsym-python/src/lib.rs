@@ -677,66 +677,37 @@ fn poly_factor_list_expr(p_src: &str, var: &str) -> PyResult<(String, Vec<(Strin
 /// Univariate polynomial roots with multiplicities: [(root, multiplicity), ...].
 #[pyfunction]
 fn poly_roots_expr(p_src: &str, var: &str) -> PyResult<Vec<(String, usize)>> {
+    // Exact roots by radicals for every factor of the complete factorization
+    // over Q that admits them (linear, quadratic, binomial, biquadratic,
+    // cubic); other irreducible factors contribute nothing, as upstream
+    // roots() omits roots it cannot express.
     let e = parse_expr(p_src)?;
     let sym = Symbol::new(var);
     let poly =
         fsym_polys::univariate::UnivariatePoly::from_expr(&e, &sym).map_err(to_value_error)?;
-    let decomp = fsym_polys::factorization::bounded_rational_root_decomposition(&poly)
-        .map_err(to_value_error)?;
-    let mut roots = Vec::new();
-    for factor in decomp.factors {
-        let deg = factor.poly.degree().unwrap_or(0);
-        match (deg, factor.poly.coeffs.as_slice()) {
-            (1, [c0, c1, ..]) => {
-                let root = -c0 / c1;
-                let root_expr = if root.is_integer() {
-                    Expr::Integer(root.to_integer())
-                } else {
-                    Expr::Rational(root)
-                };
-                roots.push((root_expr.to_string(), factor.multiplicity));
-            }
-            (2, [c0, c1, c2, ..]) => {
-                let four = fsym_core::BigRational::from_integer(fsym_core::BigInt::from(4));
-                let discr = c1 * c1 - four * c2 * c0;
-                let zero = fsym_core::BigRational::from_integer(fsym_core::BigInt::from(0));
-                if discr >= zero {
-                    let maybe_sqrt = match (discr.numer().sqrt(), discr.denom().sqrt()) {
-                        (Some(num_s), Some(den_s))
-                            if &num_s * &num_s == *discr.numer()
-                                && &den_s * &den_s == *discr.denom() =>
-                        {
-                            Some(fsym_core::BigRational::new(num_s, den_s))
-                        }
-                        _ => None,
-                    };
-                    if let Some(sqrt_d) = maybe_sqrt {
-                        let two = fsym_core::BigRational::from_integer(fsym_core::BigInt::from(2));
-                        let two_a = two * c2;
-                        let r1 = (-c1 + &sqrt_d) / &two_a;
-                        let r2 = (-c1 - &sqrt_d) / &two_a;
-                        let same = r1 == r2;
-                        let r1_expr = if r1.is_integer() {
-                            Expr::Integer(r1.to_integer())
-                        } else {
-                            Expr::Rational(r1)
-                        };
-                        roots.push((r1_expr.to_string(), factor.multiplicity));
-                        if !same {
-                            let r2_expr = if r2.is_integer() {
-                                Expr::Integer(r2.to_integer())
-                            } else {
-                                Expr::Rational(r2)
-                            };
-                            roots.push((r2_expr.to_string(), factor.multiplicity));
-                        }
-                    }
-                }
-            }
-            _ => {}
+    if poly.is_zero() {
+        return Err(PyValueError::new_err(
+            "roots of the zero polynomial are undefined",
+        ));
+    }
+    let fact = fsym_polys::factorization::complete_factorization(&poly).map_err(to_value_error)?;
+    let mut found: Vec<(Expr, usize)> = Vec::new();
+    for t in &fact.factors {
+        if let Ok(rs) = fsym_solvers::univariate::poly_roots(&t.poly) {
+            found.extend(rs.into_iter().map(|(r, _)| (r, t.multiplicity)));
         }
     }
-    Ok(roots)
+    let order =
+        fsym_solvers::univariate::sort_roots(found.iter().map(|(r, _)| r.clone()).collect());
+    Ok(order
+        .into_iter()
+        .filter_map(|r| {
+            found
+                .iter()
+                .find(|(f, _)| *f == r)
+                .map(|(_, m)| (r.to_string(), *m))
+        })
+        .collect())
 }
 
 /// Multivariate Groebner basis under Lex order.
