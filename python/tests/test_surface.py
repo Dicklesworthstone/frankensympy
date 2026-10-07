@@ -2658,6 +2658,28 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(sympy.rust_code(sympy.exp(-x) * sympy.cos(y)), "(-x).exp()*y.cos()")
         self.assertEqual(sympy.fcode(x / 3), "      (1.0d0/3.0d0)*x")
 
+    def test_diophantine(self):
+        x, y, z, w = sympy.symbols("x y z w", integer=True)
+        t0, t1, t2 = sympy.symbols("t_0 t_1 t_2", integer=True)
+        D = sympy.diophantine
+        self.assertEqual(D(2 * x + 3 * y - 5), {(3 * t0 - 5, 5 - 2 * t0)})
+        self.assertEqual(D(4 * x + 6 * y - 3), set())
+        self.assertEqual(D(x + y + z - 3), {(t0, t0 + t1, -2 * t0 - t1 + 3)})
+        self.assertEqual(
+            D(x + 2 * y + 3 * z + 4 * w - 5),
+            {(t0, t0 + t1, 8 * t0 + 4 * t1 + 3 * t2 - 5, -7 * t0 - 3 * t1 - 2 * t2 + 5)},
+        )
+        self.assertEqual(D(x**2 - y**2), {(t0, t0), (t0, -t0)})
+        self.assertEqual(len(D(x * y - 6)), 8)
+        self.assertEqual(len(D(x**2 + y**2 - 25)), 12)
+        p, q = sympy.symbols("p q", integer=True)
+        self.assertEqual(D(x**2 + y**2 - z**2), {(2 * p * q, p**2 - q**2, p**2 + q**2)})
+        self.assertEqual(D(x**2 - 4), {(2,), (-2,)})
+        # Every linear solution satisfies the equation identically.
+        e = 6 * x + 10 * y + 15 * z - 1
+        (sol,) = D(e)
+        self.assertEqual(sympy.expand(e.subs(dict(zip([x, y, z], sol)))), 0)
+
     def test_poly_system_solvers(self):
         from sympy.solvers import nonlinsolve, solve_poly_system
         self.assertIs(solve_poly_system, sympy.solve_poly_system)

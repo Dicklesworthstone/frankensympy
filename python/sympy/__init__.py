@@ -2386,3 +2386,7 @@ __all__ += [
     "ccode", "fcode", "jscode", "julia_code", "mathematica_code", "octave_code", "print_ccode",
     "print_fcode", "pycode", "rust_code",
 ]
+
+from .solvers.diophantine import diophantine  # noqa: E402
+
+__all__ += ["diophantine"]
