@@ -2640,6 +2640,24 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(str(x ** sympy.Rational(3, 2) + x), "x**(3/2) + x")
         self.assertEqual(str(x ** (n + 1) + x**n), "x**n + x**(n + 1)")
 
+    def test_code_printers(self):
+        x, y = sympy.symbols("x y")
+        pw = sympy.Piecewise((x, x > 0), (-x, True))
+        self.assertEqual(sympy.pycode(x**2 + sympy.sin(x)), "x**2 + math.sin(x)")
+        self.assertEqual(sympy.pycode(sympy.sqrt(x) / 2), "(1/2)*math.sqrt(x)")
+        self.assertEqual(sympy.pycode(pw), "((x) if (x > 0) else (-x))")
+        self.assertEqual(sympy.ccode(x ** sympy.Rational(3, 2)), "pow(x, 3.0/2.0)")
+        self.assertEqual(sympy.ccode(sympy.exp(-x) * sympy.cos(y)), "exp(-x)*cos(y)")
+        self.assertEqual(sympy.ccode(sympy.Max(x, y)), "fmax(x, y)")
+        self.assertEqual(sympy.ccode(x**2 + 1, assign_to="y"), "y = pow(x, 2) + 1;")
+        self.assertEqual(sympy.jscode(-x + y**3), "-x + Math.pow(y, 3)")
+        self.assertEqual(sympy.octave_code(2 * x / (3 * y)), "2*x./(3*y)")
+        self.assertEqual(sympy.octave_code(pw), "((x > 0).*(x) + (~(x > 0)).*(-x))")
+        self.assertEqual(sympy.julia_code(2 * x / (3 * y)), "(2 // 3) * x ./ y")
+        self.assertEqual(sympy.mathematica_code(sympy.atan2(y, x)), "ArcTan[x, y]")
+        self.assertEqual(sympy.rust_code(sympy.exp(-x) * sympy.cos(y)), "(-x).exp()*y.cos()")
+        self.assertEqual(sympy.fcode(x / 3), "      (1.0d0/3.0d0)*x")
+
     def test_poly_system_solvers(self):
         from sympy.solvers import nonlinsolve, solve_poly_system
         self.assertIs(solve_poly_system, sympy.solve_poly_system)

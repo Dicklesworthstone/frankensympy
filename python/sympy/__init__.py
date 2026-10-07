@@ -2376,3 +2376,13 @@ __all__ += [
     "default_sort_key", "flatten", "has_dups", "has_variety", "ordered", "postfixes", "prefixes",
     "sift", "subsets", "topological_sort", "unflatten", "var", "variations",
 ]
+
+from .printing.codeprinter import (  # noqa: E402
+    ccode, fcode, jscode, julia_code, mathematica_code, octave_code, print_ccode, print_fcode,
+    pycode, rust_code,
+)
+
+__all__ += [
+    "ccode", "fcode", "jscode", "julia_code", "mathematica_code", "octave_code", "print_ccode",
+    "print_fcode", "pycode", "rust_code",
+]
