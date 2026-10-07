@@ -454,6 +454,40 @@ pub fn diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
                     })
                     .collect();
                 Expr::Function("Piecewise".to_string(), branches)
+            } else if matches!(
+                name.as_str(),
+                "legendre" | "chebyshevt" | "chebyshevu" | "hermite" | "laguerre"
+            ) && args.len() == 2
+                && is_free_of(&args[0], var)
+            {
+                // Upstream fdiff rules of the classical orthogonal families.
+                let n = args[0].clone();
+                let u = args[1].clone();
+                let du = diff(&u, var);
+                let one = Expr::from_i64(1);
+                let f = |nm: &str, k: Expr| Expr::Function(nm.to_string(), vec![k, u.clone()]);
+                let inner = match name.as_str() {
+                    "legendre" => {
+                        n.clone()
+                            * (u.clone() * f("legendre", n.clone())
+                                - f("legendre", n.clone() - one.clone()))
+                            * Expr::pow(u.clone() * u.clone() - one.clone(), Expr::from_i64(-1))
+                    }
+                    "chebyshevt" => n.clone() * f("chebyshevu", n.clone() - one.clone()),
+                    "chebyshevu" => {
+                        ((n.clone() + one.clone()) * f("chebyshevt", n.clone() + one.clone())
+                            - u.clone() * f("chebyshevu", n.clone()))
+                            * Expr::pow(u.clone() * u.clone() - one.clone(), Expr::from_i64(-1))
+                    }
+                    "hermite" => {
+                        Expr::from_i64(2) * n.clone() * f("hermite", n.clone() - one.clone())
+                    }
+                    _ => -Expr::Function(
+                        "assoc_laguerre".to_string(),
+                        vec![n.clone() - one.clone(), one.clone(), u.clone()],
+                    ),
+                };
+                inner * du
             } else if name == "Heaviside" && args.len() == 1 {
                 let u = &args[0];
                 let du = diff(u, var);

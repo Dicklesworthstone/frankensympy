@@ -1477,6 +1477,10 @@ pub fn eval_function(name: &str, args: &[Expr]) -> Option<Expr> {
             [a, b],
         ) => return eval_relational(name, a, b),
         ("Piecewise", _) if !args.is_empty() => return eval_piecewise(args),
+        (
+            "legendre" | "chebyshevt" | "chebyshevu" | "hermite" | "hermite_prob" | "laguerre",
+            [n, x],
+        ) => return eval_orthogonal(name, n, x),
         ("And" | "Or", _) if !args.is_empty() => return eval_and_or(name, args),
         _ => {}
     }
@@ -1576,6 +1580,117 @@ fn eval_binomial(n: &Expr, k: &Expr) -> Option<Expr> {
             / BigRational::from_integer(BigInt::from(i + 1));
     }
     Some(rational_expr(acc))
+}
+
+/// Dense coefficients (ascending powers) of a classical orthogonal
+/// polynomial of degree `n`, by its exact three-term recurrence.
+fn orthogonal_coeffs(name: &str, n: usize) -> Vec<BigRational> {
+    let r = |p: i64, q: i64| BigRational::new(BigInt::from(p), BigInt::from(q));
+    let zero = || BigRational::zero();
+    let shift = |v: &[BigRational]| {
+        let mut out = vec![zero()];
+        out.extend(v.iter().cloned());
+        out
+    };
+    let axpy = |a: &[BigRational], ca: BigRational, b: &[BigRational], cb: BigRational| {
+        let len = a.len().max(b.len());
+        (0..len)
+            .map(|i| {
+                a.get(i).cloned().unwrap_or_else(zero) * ca.clone()
+                    + b.get(i).cloned().unwrap_or_else(zero) * cb.clone()
+            })
+            .collect::<Vec<_>>()
+    };
+    let mut prev = vec![BigRational::one()];
+    let mut cur = match name {
+        "chebyshevu" | "hermite" => vec![zero(), r(2, 1)],
+        "laguerre" => vec![r(1, 1), r(-1, 1)],
+        _ => vec![zero(), r(1, 1)],
+    };
+    if n == 0 {
+        return prev;
+    }
+    for k in 1..n {
+        let ki = k as i64;
+        let xcur = shift(&cur);
+        let next = match name {
+            "legendre" => axpy(&xcur, r(2 * ki + 1, ki + 1), &prev, r(-ki, ki + 1)),
+            "chebyshevt" | "chebyshevu" => axpy(&xcur, r(2, 1), &prev, r(-1, 1)),
+            "hermite" => axpy(&xcur, r(2, 1), &prev, r(-2 * ki, 1)),
+            "hermite_prob" => axpy(&xcur, r(1, 1), &prev, r(-ki, 1)),
+            _ => {
+                // (k+1) L_{k+1} = (2k + 1 - x) L_k - k L_{k-1}
+                let a = axpy(&cur, r(2 * ki + 1, ki + 1), &xcur, r(-1, ki + 1));
+                axpy(&a, r(1, 1), &prev, r(-ki, ki + 1))
+            }
+        };
+        prev = cur;
+        cur = next;
+    }
+    cur
+}
+
+fn rational_expr_of(v: &BigRational) -> Expr {
+    if v.is_integer() {
+        Expr::Integer(v.to_integer())
+    } else {
+        Expr::Rational(v.clone())
+    }
+}
+
+/// Classical orthogonal polynomials: explicit for integer degree (with
+/// the upstream reflections for negative degree), closed forms at the
+/// special points for symbolic degree; None otherwise.
+fn eval_orthogonal(name: &str, n: &Expr, x: &Expr) -> Option<Expr> {
+    if let Expr::Integer(k) = n {
+        let mut k = k.clone();
+        let mut sign = BigInt::one();
+        if k.is_negative() {
+            match name {
+                "legendre" => k = -k - BigInt::one(),
+                "chebyshevt" => k = -k,
+                "chebyshevu" => {
+                    if k == -BigInt::one() {
+                        return Some(Expr::from_i64(0));
+                    }
+                    k = -k - BigInt::from(2);
+                    sign = -BigInt::one();
+                }
+                _ => return None,
+            }
+        }
+        if k > BigInt::from(400) {
+            return None;
+        }
+        let deg = usize::try_from(k.to_u64()?).ok()?;
+        let coeffs = orthogonal_coeffs(name, deg);
+        let mut total = Expr::from_i64(0);
+        for (i, c) in coeffs.iter().enumerate() {
+            if c.is_zero() {
+                continue;
+            }
+            let term = if i == 0 {
+                rational_expr_of(c)
+            } else {
+                rational_expr_of(c) * eval_pow(x.clone(), Expr::from_i64(i as i64))
+            };
+            total = total + term;
+        }
+        return Some(total * Expr::Integer(sign));
+    }
+    let one = Expr::from_i64(1);
+    let minus_one = Expr::from_i64(-1);
+    let pow_neg1 = |e: Expr| eval_pow(minus_one.clone(), e);
+    match name {
+        "legendre" if *x == one => Some(one),
+        "legendre" if *x == minus_one => Some(pow_neg1(n.clone())),
+        "chebyshevt" if *x == one => Some(one),
+        "chebyshevt" if *x == minus_one => Some(pow_neg1(n.clone())),
+        "chebyshevu" if *x == one => Some(n.clone() + one),
+        "chebyshevu" if *x == minus_one => Some(pow_neg1(n.clone()) * (n.clone() + one)),
+        "laguerre" if x.is_zero() => Some(one),
+        _ => None,
+    }
 }
 
 fn truth(value: bool) -> Expr {

@@ -2571,6 +2571,24 @@ class SurfaceTests(unittest.TestCase):
         self.assertFalse((1 / x).is_polynomial(x))
         self.assertTrue((x / (x + 1)).is_rational_function(x))
 
+    def test_orthogonal_polynomials(self):
+        x, n, a, b = sympy.symbols("x n a b")
+        self.assertEqual(str(sympy.legendre(3, x)), "5*x**3/2 - 3*x/2")
+        self.assertEqual(str(sympy.chebyshevt(4, x)), "8*x**4 - 8*x**2 + 1")
+        self.assertEqual(str(sympy.hermite(3, x)), "8*x**3 - 12*x")
+        self.assertEqual(str(sympy.laguerre(3, x)), "-x**3/6 + 3*x**2/2 - 3*x + 1")
+        self.assertEqual(str(sympy.assoc_laguerre(2, a, x)), "a**2/2 + 3*a/2 + x**2/2 + x*(-a - 2) + 1")
+        self.assertEqual(str(sympy.assoc_legendre(2, 1, x)), "-3*x*sqrt(1 - x**2)")
+        self.assertEqual(str(sympy.gegenbauer(2, a, x)), "-a + x**2*(2*a**2 + 2*a)")
+        self.assertEqual(str(sympy.jacobi(1, a, b, x)), "a/2 - b/2 + x*(a/2 + b/2 + 1)")
+        self.assertEqual(sympy.legendre(n, 1), 1)
+        self.assertEqual(sympy.legendre(n, -1), (-1) ** n)
+        self.assertEqual(sympy.legendre(n, x).subs(n, 2), 3 * x**2 / 2 - sympy.Rational(1, 2))
+        self.assertEqual(str(sympy.diff(sympy.legendre(n, x), x)), "n*(x*legendre(n, x) - legendre(n - 1, x))/(x**2 - 1)")
+        self.assertEqual(str(sympy.chebyshevt(n, x).diff(x)), "n*chebyshevu(n - 1, x)")
+        self.assertEqual(sympy.integrate(sympy.legendre(2, x) * sympy.legendre(3, x), (x, -1, 1)), 0)
+        self.assertEqual(sympy.latex(sympy.legendre(n, x) ** 2), r"\left(P_{n}\left(x\right)\right)^{2}")
+
     def test_poly_system_solvers(self):
         from sympy.solvers import nonlinsolve, solve_poly_system
         self.assertIs(solve_poly_system, sympy.solve_poly_system)

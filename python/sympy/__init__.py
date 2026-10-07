@@ -2319,3 +2319,13 @@ __all__ = [
 from .core.match import Wild, WildFunction, bottom_up, postorder_traversal, preorder_traversal  # noqa: E402
 
 __all__ += ["Wild", "WildFunction", "bottom_up", "postorder_traversal", "preorder_traversal"]
+
+from .functions.special.polynomials import (  # noqa: E402
+    assoc_laguerre, assoc_legendre, chebyshevt, chebyshevt_poly, chebyshevt_root, chebyshevu,
+    chebyshevu_poly, chebyshevu_root, gegenbauer, gegenbauer_poly, hermite, hermite_poly,
+    hermite_prob, hermite_prob_poly, jacobi, jacobi_poly, laguerre, laguerre_poly, legendre,
+    legendre_poly,
+)
+from .functions.special import polynomials as _orthopoly  # noqa: E402
+
+__all__ += list(_orthopoly.__all__)

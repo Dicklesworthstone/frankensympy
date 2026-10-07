@@ -278,7 +278,8 @@ class LatexPrinter:
         "Abs", "log", "exp", "factorial", "subfactorial", "factorial2", "binomial",
         "floor", "ceiling", "conjugate", "re", "im", "Max", "Min", "gamma", "zeta",
         "Mod", "besselj", "bessely", "besseli", "besselk", "LambertW", "Heaviside",
-        "DiracDelta",
+        "DiracDelta", "legendre", "chebyshevt", "chebyshevu", "hermite", "laguerre",
+        "assoc_laguerre", "assoc_legendre", "jacobi", "gegenbauer",
     })
 
     # -- helpers ----------------------------------------------------------
@@ -563,6 +564,40 @@ class LatexPrinter:
         if sub > 0:
             return r"\operatorname{%s}%s" % (func[:sub], func[sub:])
         return r"\operatorname{%s}" % func
+
+    def _orthopoly(self, letter: str, e: Any, upper: int = 0, exp: str | None = None) -> str:
+        args = [self._print(a) for a in e.args]
+        n, params, x = args[0], args[1:1 + upper], args[-1]
+        sup = "^{\\left(%s\\right)}" % ",".join(params) if upper else ""
+        tex = "%s_{%s}%s\\left(%s\\right)" % (letter, n, sup, x)
+        return "\\left(%s\\right)^{%s}" % (tex, exp) if exp is not None else tex
+
+    def _print_legendre(self, e: Any, exp: str | None = None) -> str:
+        return self._orthopoly("P", e, 0, exp)
+
+    def _print_chebyshevt(self, e: Any, exp: str | None = None) -> str:
+        return self._orthopoly("T", e, 0, exp)
+
+    def _print_chebyshevu(self, e: Any, exp: str | None = None) -> str:
+        return self._orthopoly("U", e, 0, exp)
+
+    def _print_hermite(self, e: Any, exp: str | None = None) -> str:
+        return self._orthopoly("H", e, 0, exp)
+
+    def _print_laguerre(self, e: Any, exp: str | None = None) -> str:
+        return self._orthopoly("L", e, 0, exp)
+
+    def _print_assoc_laguerre(self, e: Any, exp: str | None = None) -> str:
+        return self._orthopoly("L", e, 1, exp)
+
+    def _print_assoc_legendre(self, e: Any, exp: str | None = None) -> str:
+        return self._orthopoly("P", e, 1, exp)
+
+    def _print_jacobi(self, e: Any, exp: str | None = None) -> str:
+        return self._orthopoly("P", e, 2, exp)
+
+    def _print_gegenbauer(self, e: Any, exp: str | None = None) -> str:
+        return self._orthopoly("C", e, 1, exp)
 
     def _print_Function(self, e: Any, exp: str | None = None) -> str:
         c = _core()
