@@ -2609,6 +2609,37 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(str(sympy.exp(I).evalf(5)), "0.5403 + 0.84147*I")
         self.assertAlmostEqual(complex(sympy.sqrt(2) + I), complex(2**0.5, 1), places=14)
 
+    def test_cse_parse_expr_utilities_and_term_order(self):
+        x, y, z = sympy.symbols("x y z")
+        x0, x1 = sympy.symbols("x0 x1")
+        self.assertEqual(sympy.cse((x + y) ** 2 + sympy.sqrt(x + y)), ([(x0, x + y)], [sympy.sqrt(x0) + x0**2]))
+        self.assertEqual(sympy.cse([(x + y) * z, (x + y) * z + 1]), ([(x0, z * (x + y))], [x0, x0 + 1]))
+        self.assertEqual(
+            sympy.cse(sympy.exp(x * y) + sympy.exp(x * y) ** 2 * (x * y)),
+            ([(x0, x * y)], [x0 * sympy.exp(2 * x0) + sympy.exp(x0)]),
+        )
+        self.assertEqual(sympy.cse((x * y) ** 2 + x * y + 3), ([], [x**2 * y**2 + x * y + 3]))
+        from sympy.parsing.sympy_parser import (
+            convert_xor,
+            implicit_multiplication_application,
+            parse_expr,
+            standard_transformations,
+        )
+
+        T = standard_transformations + (implicit_multiplication_application,)
+        self.assertEqual(parse_expr("2x sin x", transformations=T), 2 * x * sympy.sin(x))
+        self.assertEqual(str(parse_expr("(x+1)(x-1)", transformations=T)), "(x - 1)*(x + 1)")
+        self.assertEqual(parse_expr("x^2", transformations=standard_transformations + (convert_xor,)), x**2)
+        self.assertEqual(str(parse_expr("a*b", local_dict={"a": sympy.Symbol("q")})), "b*q")
+        self.assertEqual(list(sympy.ordered([x**2, y, 1, x])), [1, x, y, x**2])
+        self.assertEqual(sympy.flatten([[1, [2]], 3]), [1, 2, 3])
+        self.assertEqual(dict(sympy.sift([1, 2, 3, 4], lambda v: v % 2)), {1: [1, 3], 0: [2, 4]})
+        # Upstream Add term order with fractional and symbolic powers.
+        n = sympy.Symbol("n")
+        self.assertEqual(str(sympy.sqrt(x) + x**2), "sqrt(x) + x**2")
+        self.assertEqual(str(x ** sympy.Rational(3, 2) + x), "x**(3/2) + x")
+        self.assertEqual(str(x ** (n + 1) + x**n), "x**n + x**(n + 1)")
+
     def test_poly_system_solvers(self):
         from sympy.solvers import nonlinsolve, solve_poly_system
         self.assertIs(solve_poly_system, sympy.solve_poly_system)

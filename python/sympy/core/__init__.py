@@ -4499,7 +4499,16 @@ def sympify(
         return a._sympy_()
     if isinstance(a, str):
         try:
-            return _parse_result(a)
+            parsed = _parse_result(a)
+            if locals:
+                # Names bound in ``locals`` replace the parsed atoms.
+                rule = {}
+                for name, value in locals.items():
+                    if isinstance(value, Basic) and not isinstance(value, type):
+                        rule[Symbol(name)] = value
+                if rule:
+                    parsed = parsed.xreplace(rule)
+            return parsed
         except Exception as exc:
             if strict:
                 raise SympifyError(f"cannot sympify {a!r}") from exc

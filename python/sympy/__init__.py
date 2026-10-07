@@ -2333,3 +2333,46 @@ __all__ += list(_orthopoly.__all__)
 from .solvers.recurr import rsolve  # noqa: E402
 
 __all__ += ["rsolve"]
+
+from .simplify.cse_main import cse, numbered_symbols  # noqa: E402
+
+__all__ += ["cse", "numbered_symbols"]
+
+from .parsing.sympy_parser import parse_expr  # noqa: E402
+from . import parsing  # noqa: E402,F401
+
+__all__ += ["parse_expr"]
+
+from .utilities.iterables import (  # noqa: E402
+    default_sort_key, flatten, has_dups, has_variety, ordered, postfixes, prefixes, sift,
+    subsets, topological_sort, unflatten, variations,
+)
+from . import utilities  # noqa: E402,F401
+
+
+def var(names, **args):
+    """Create symbols and inject them into the caller's global namespace."""
+    import inspect
+
+    frame = inspect.currentframe().f_back
+    try:
+        syms = symbols(names, **args)
+        seq = syms if isinstance(syms, (list, tuple)) else (syms,)
+
+        def inject(s):
+            if isinstance(s, (list, tuple)):
+                for t in s:
+                    inject(t)
+            else:
+                frame.f_globals[s.name] = s
+
+        inject(seq)
+        return syms
+    finally:
+        del frame
+
+
+__all__ += [
+    "default_sort_key", "flatten", "has_dups", "has_variety", "ordered", "postfixes", "prefixes",
+    "sift", "subsets", "topological_sort", "unflatten", "var", "variations",
+]

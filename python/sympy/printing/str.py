@@ -338,12 +338,16 @@ def _decompose_power(f: Any) -> tuple[Any, Any]:
 def _gen_key(g: Any) -> tuple:
     if isinstance(g, tuple):
         tag = g[0]
+        # Upstream Expr.sort_key of b**e: b's class key and args, then the
+        # exponent's key (so sqrt(x) sorts with x, ahead of it).
         if tag == "rootpow":
             _, base, qd = g
-            return ((3, 2, "Pow"), (1, (sort_key(base),)), ((1, 0, "Number"), (0, ()), (), Fraction(1, qd)), Fraction(1))
+            bk = sort_key(base)
+            return (bk[0], bk[1], ((1, 0, "Number"), (0, ()), (), Fraction(1, qd)), Fraction(1))
         if tag == "pow":
             _, base, tail = g
-            return ((3, 2, "Pow"), (1, (sort_key(base),)), _gen_key(tail), Fraction(1))
+            bk = sort_key(base)
+            return (bk[0], bk[1], _gen_key(tail), Fraction(1))
         if tag == "exp":
             _, tail = g
             return ((4, 10, "exp"), (1, (_gen_key(tail),)), _ONE_KEY, Fraction(1))
