@@ -179,9 +179,9 @@ def _diop_quadratic(coeffs: dict, x: Any, y: Any) -> set:
             num, den = -b + sgn * r, 2 * a
             g = gcd(num, den)
             num, den = num // g, den // g
-            if den < 0:
-                num, den = -num, -den
-            out.add((num * t, den * t))
+            # x = (num/den)*y, i.e. den*x - num*y = 0, through the linear
+            # base solution (upstream's sign conventions).
+            out.add(base_solution_linear(0, den, -num, t))
         return out
     if disc < 0:
         # bounded ellipse: enumerate x where the quadratic in y has roots
