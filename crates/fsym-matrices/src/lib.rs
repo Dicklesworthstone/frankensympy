@@ -592,10 +592,7 @@ impl Matrix {
         let total = self.data.len();
         let mut data = Vec::with_capacity(total);
         for i in 0..total {
-            data.push(simplify(&Expr::Add(vec![
-                self.data[i].clone(),
-                other.data[i].clone(),
-            ])));
+            data.push(simplify(&(self.data[i].clone() + other.data[i].clone())));
         }
         Self::new(self.rows, self.cols, data)
     }
@@ -612,10 +609,7 @@ impl Matrix {
         let total = self.data.len();
         let mut data = Vec::with_capacity(total);
         for i in 0..total {
-            data.push(simplify(&Expr::Add(vec![
-                self.data[i].clone(),
-                Expr::Mul(vec![Expr::from_i64(-1), other.data[i].clone()]),
-            ])));
+            data.push(simplify(&(self.data[i].clone() - other.data[i].clone())));
         }
         Self::new(self.rows, self.cols, data)
     }
@@ -626,7 +620,7 @@ impl Matrix {
         let total = self.data.len();
         let mut data = Vec::with_capacity(total);
         for entry in &self.data {
-            data.push(simplify(&Expr::Mul(vec![scalar.clone(), entry.clone()])));
+            data.push(simplify(&(scalar.clone() * entry.clone())));
         }
         Self::new(self.rows, self.cols, data)
     }
@@ -643,10 +637,7 @@ impl Matrix {
         let total = self.data.len();
         let mut data = Vec::with_capacity(total);
         for i in 0..total {
-            data.push(simplify(&Expr::Mul(vec![
-                self.data[i].clone(),
-                other.data[i].clone(),
-            ])));
+            data.push(simplify(&(self.data[i].clone() * other.data[i].clone())));
         }
         Self::new(self.rows, self.cols, data)
     }
@@ -748,7 +739,7 @@ impl Matrix {
                     let a_elem = self.get(r_a, c_a)?;
                     for c_b in 0..other.cols {
                         let b_elem = other.get(r_b, c_b)?;
-                        let prod = simplify(&Expr::Mul(vec![a_elem.clone(), b_elem.clone()]));
+                        let prod = simplify(&(a_elem.clone() * b_elem.clone()));
                         data.push(prod);
                     }
                 }
@@ -777,9 +768,7 @@ impl Matrix {
                 let b = &self.data[1];
                 let c = &self.data[2];
                 let d = &self.data[3];
-                let ad = Expr::Mul(vec![a.clone(), d.clone()]);
-                let bc = Expr::Mul(vec![Expr::from_i64(-1), b.clone(), c.clone()]);
-                Ok(simplify(&Expr::Add(vec![ad, bc])))
+                Ok(simplify(&(a.clone() * d.clone() - b.clone() * c.clone())))
             }
             n => {
                 // Laplace expansion along row 0
@@ -792,9 +781,11 @@ impl Matrix {
                     let sub = self.minor_matrix(0, c)?;
                     let sub_det = sub.det()?;
                     let sign = if c % 2 == 0 { 1 } else { -1 };
-                    terms.push(Expr::Mul(vec![Expr::from_i64(sign), elem.clone(), sub_det]));
+                    terms.push(Expr::from_i64(sign) * elem.clone() * sub_det);
                 }
-                Ok(simplify(&Expr::Add(terms)))
+                Ok(simplify(
+                    &terms.into_iter().fold(Expr::from_i64(0), |acc, t| acc + t),
+                ))
             }
         }
     }

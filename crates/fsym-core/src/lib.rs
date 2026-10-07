@@ -1512,7 +1512,7 @@ fn merge_coefficient_on_sum(r: &Expr, prod: &Expr) -> Option<Expr> {
 /// `Mul(*args)` does: folding pairwise would distribute a numeric
 /// coefficient over the first sum factor (`-1*(a + b)*c` must stay a
 /// product, while a two-factor `-1*(a + b)` distributes).
-fn rebuild_mul(factors: Vec<Expr>) -> Expr {
+pub fn rebuild_mul(factors: Vec<Expr>) -> Expr {
     if factors.iter().any(|f| f.is_zero()) {
         if factors.iter().any(has_pole) {
             return Expr::Mul(factors);

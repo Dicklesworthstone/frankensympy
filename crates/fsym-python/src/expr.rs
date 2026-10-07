@@ -737,7 +737,15 @@ impl PyMul {
         let inner = if evaluate {
             // Arithmetic-only at construction (see PyAdd note): the oracle
             // applies no trigonometric rewrites on Mul construction either.
-            fsym_simplify::simplify_no_trig(&Expr::Mul(exprs))
+            // The n-ary product is built first with upstream Mul.flatten
+            // semantics (a two-factor Number*Add distributes:
+            // Mul(-1, x - 1) -> 1 - x).
+            let built = if exprs.len() == 2 {
+                fsym_core::rebuild_mul(exprs)
+            } else {
+                Expr::Mul(exprs)
+            };
+            fsym_simplify::simplify_no_trig(&built)
         } else {
             Expr::Mul(exprs)
         };

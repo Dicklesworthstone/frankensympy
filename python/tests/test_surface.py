@@ -2446,6 +2446,37 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(P(x**2 + a * x + 1, x).gens, (x,))
         self.assertEqual(P(x**2 - a**2).gens, (x, a))
 
+    def test_together_eigenvects_jordan_and_purepoly(self):
+        x, y, a = sympy.symbols("x y a")
+        T = sympy.together
+        # Oracle-pinned upstream together shapes (structural lcm, no expansion).
+        self.assertEqual(str(T(1 / x + 1 / (x + 1))), "(2*x + 1)/(x*(x + 1))")
+        self.assertEqual(str(T(1 / (x + 1) + 1 / (x + 1) ** 2)), "(x + 2)/(x + 1)**2")
+        self.assertEqual(str(T(x / 2 + y / 3)), "(3*x + 2*y)/6")
+        self.assertEqual(str(T(a / (x - 1) + 1 / (x + 1))), "(a*(x + 1) + x - 1)/((x - 1)*(x + 1))")
+        self.assertEqual(str(T(x + 1 / (x - y))), "(x*(x - y) + 1)/(x - y)")
+        self.assertEqual(str(sympy.Mul(-1, x - 1)), "1 - x")
+        self.assertEqual(str(sympy.apart(1 / (x**3 - 1))), "-(x + 2)/(3*(x**2 + x + 1)) + 1/(3*(x - 1))")
+        # Eigenvectors at irrational eigenvalues are found (not empty).
+        M = sympy.Matrix([[1, 2], [3, 4]])
+        for ev, mult, vecs in M.eigenvects():
+            self.assertEqual(len(vecs), 1)
+            resid = (M - ev * sympy.eye(2)) * vecs[0]
+            self.assertTrue(all(sympy.radsimp(sympy.expand(e)) == 0 for e in resid))
+        # Jordan form reproduces the matrix.
+        for A in [
+            sympy.Matrix([[a, 1], [0, a]]),
+            sympy.Matrix([[2, 1, 1], [0, 2, 1], [0, 0, 2]]),
+            sympy.Matrix([[5, 4, 2, 1], [0, 1, -1, -1], [-1, -1, 3, 0], [1, 1, -1, 2]]),
+        ]:
+            P, J = A.jordan_form()
+            self.assertEqual((P * J * P.inv() - A).applyfunc(sympy.simplify), sympy.zeros(*A.shape))
+        P, J = sympy.Matrix([[5, 4, 2, 1], [0, 1, -1, -1], [-1, -1, 3, 0], [1, 1, -1, 2]]).jordan_form()
+        self.assertEqual(J, sympy.Matrix([[1, 0, 0, 0], [0, 2, 0, 0], [0, 0, 4, 1], [0, 0, 0, 4]]))
+        cp = M.charpoly(x)
+        self.assertEqual(str(cp), "PurePoly(x**2 - 5*x - 2, x, domain='ZZ')")
+        self.assertEqual(cp, M.charpoly(y))
+
     def test_poly_system_solvers(self):
         from sympy.solvers import nonlinsolve, solve_poly_system
         self.assertIs(solve_poly_system, sympy.solve_poly_system)
@@ -3011,7 +3042,7 @@ class SurfaceTests(unittest.TestCase):
         d_csc = diff(csc(x), x)
         self.assertEqual(str(d_csc), "-cot(x)*csc(x)")
         d_cot = diff(cot(x), x)
-        self.assertEqual(str(d_cot), "-(cot(x)**2 + 1)")
+        self.assertEqual(str(d_cot), "-cot(x)**2 - 1")  # oracle: two-arg -1*Add distributes
         d_sech = diff(sech(x), x)
         self.assertEqual(str(d_sech), "-tanh(x)*sech(x)")
 
@@ -4214,7 +4245,10 @@ class SurfaceTests(unittest.TestCase):
         # 1. apart: partial fraction decomposition
         # Distinct linear factors
         ap1 = apart(1 / (x**2 - 1), x)
-        self.assertEqual(together(ap1), 1 / (x**2 - 1))
+        # together combines structurally (oracle: 1/((x - 1)*(x + 1)));
+        # the decomposition must round-trip exactly.
+        self.assertEqual(str(together(ap1)), "1/((x - 1)*(x + 1))")
+        self.assertEqual(cancel(together(ap1) - 1 / (x**2 - 1)), 0)
 
         # Improper rational fraction
         ap2 = apart((x + 2) / (x + 1), x)
@@ -4222,7 +4256,7 @@ class SurfaceTests(unittest.TestCase):
 
         # Repeated linear factors
         ap3 = apart(1 / (x**2 * (x - 1)), x)
-        self.assertEqual(together(ap3), 1 / (x**3 - x**2))
+        self.assertEqual(cancel(together(ap3) - 1 / (x**3 - x**2)), 0)
 
         # Default variable detection
         ap4 = apart((x + 2) / (x + 1))

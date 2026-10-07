@@ -627,9 +627,20 @@ class Poly(Basic):
         return self.div(other)
 
     def __eq__(self, other: Any) -> bool:
-        if isinstance(other, Poly):
-            if self._gens != other._gens:
+        if not isinstance(other, Poly):
+            # Upstream converts the other side into this ring first
+            # (Poly(x**2, x) == x**2 is True).
+            try:
+                other = type(self)(other, *self._gens)
+            except Exception:
                 return False
+        if isinstance(other, Poly):
+            if self._gens != other._gens and not (
+                isinstance(self, PurePoly) and len(self._gens) == len(other._gens)
+            ):
+                return False
+            if isinstance(self, PurePoly) and self._gens != other._gens:
+                other = Poly(other.as_expr().subs(dict(zip(other._gens, self._gens))), *self._gens)
             if self.as_expr() == other.as_expr():
                 return True
             try:
@@ -748,6 +759,19 @@ class Poly(Basic):
 
     def __str__(self) -> str:
         return self.__repr__()
+
+
+class PurePoly(Poly):
+    """A polynomial whose identity ignores the generator names (upstream
+    ``PurePoly``: charpoly results compare equal across symbols)."""
+
+    def __repr__(self) -> str:
+        return "Pure" + super().__repr__()
+
+    __str__ = __repr__
+
+    def __hash__(self) -> int:
+        return hash(("PurePoly", tuple(c for _, c in self.terms())))
 
 
 def _is_rational_function(c: Any) -> bool:
@@ -1928,8 +1952,119 @@ def _split_combined_denominator(expr: Any) -> Any:
     return Mul(*new_factors)
 
 
-def together(expr: Any) -> Any:
-    """Combine symbolic expressions into a single rational function.
+def _gt_parse(t: Any) -> tuple:
+    """Term -> (rational coefficient, {base: exp} numerator, {base: exp}
+    denominator), upstream ``Factors`` style: ``exp(u)`` is ``E**u`` and a
+    negative (or minus-signed) exponent goes to the denominator."""
+    from fractions import Fraction as _F
+    from ..core import E as _E
+
+    coeff = _F(1)
+    num: dict = {}
+    den: dict = {}
+    for f in Mul.make_args(t):
+        if isinstance(f, Rational):
+            coeff *= _F(int(f.p), int(f.q))
+            continue
+        if isinstance(f, Pow):
+            base, e = f.args
+        elif type(f).__name__ == "exp":
+            base, e = _E, f.args[0]
+        else:
+            base, e = f, Integer(1)
+        neg = (isinstance(e, Rational) and e < 0) or (
+            not isinstance(e, Rational) and Mul.make_args(e)[0] is not None
+            and isinstance(Mul.make_args(e)[0], Rational) and Mul.make_args(e)[0] < 0
+        )
+        target = den if neg else num
+        e = -e if neg else e
+        target[base] = target.get(base, Integer(0)) + e
+    return coeff, num, den
+
+
+def _gt_merge(d1: dict, d2: dict, pick: Any) -> dict:
+    """Per-base min (gcd) or max (lcm) of exponents; bases whose exponents
+    differ by a non-number are kept apart by the caller's ``pick``."""
+    from ..core import expand as _expand
+
+    out = {}
+    for base in set(d1) | set(d2):
+        e1, e2 = d1.get(base), d2.get(base)
+        if e1 is None or e2 is None:
+            if pick == "max":
+                out[base] = e1 if e2 is None else e2
+            continue
+        diff = _expand(e1 - e2)
+        if isinstance(diff, Rational):
+            out[base] = (e1 if diff >= 0 else e2) if pick == "max" else (e2 if diff >= 0 else e1)
+        elif pick == "max":
+            out[base] = _expand(e1 + e2)
+    return out
+
+
+def _gt_sub(d1: dict, d2: dict) -> dict:
+    from ..core import expand as _expand
+
+    out = {}
+    for base, e in d1.items():
+        r = _expand(e - d2.get(base, 0))
+        if r != 0:
+            out[base] = r
+    return out
+
+
+def _gt_expr(d: dict) -> list:
+    return [b**e for b, e in d.items()]
+
+
+def _gcd_terms_fraction(terms: list) -> Any:
+    """Upstream ``gcd_terms(terms, fraction=True)``: common content out,
+    numerators over the structural lcm of the denominators, unexpanded."""
+    from fractions import Fraction as _F
+    from math import gcd as _g, lcm as _l
+    from ..core import Add as _Add, _keep_coeff
+
+    parsed = [_gt_parse(t) for t in terms if t != 0]
+    if not parsed:
+        return Integer(0)
+
+    def fgcd(a: _F, b: _F) -> _F:
+        return _F(_g(a.numerator, b.numerator), _l(a.denominator, b.denominator))
+
+    cc, cn, cd = parsed[0]
+    cc = abs(cc)
+    for c, n, d in parsed[1:]:
+        cc = fgcd(cc, abs(c))
+        cn = _gt_merge(cn, n, "min")
+        cd = _gt_merge(cd, d, "min")
+    reduced = [(c / cc, _gt_sub(n, cn), _gt_sub(d, cd)) for c, n, d in parsed]
+    den = reduced[0][2]
+    for _, _, d in reduced[1:]:
+        den = _gt_merge(den, d, "max")
+    numers = []
+    for c, n, d in reduced:
+        cof = _gt_sub(den, d)
+        numers.append(Mul(Rational(c.numerator, c.denominator), *_gt_expr(n), *_gt_expr(cof)))
+    numer = _Add(*numers)
+    if isinstance(numer, _Add):
+        # Add.primitive: positive rational content of the numerator.
+        content = _F(0)
+        for t in numer.args:
+            k = Mul.make_args(t)[0]
+            v = _F(int(k.p), int(k.q)) if isinstance(k, Rational) else _F(1)
+            content = fgcd(content, abs(v)) if content else abs(v)
+        if content and content != 1:
+            numer = _Add(*[t / Rational(content.numerator, content.denominator) for t in numer.args])
+            cc *= content
+    body = Mul(*_gt_expr(cn), numer, *[b ** (-e) for b, e in cd.items()], *[b ** (-e) for b, e in den.items()])
+    return _keep_coeff(Rational(cc.numerator, cc.denominator), body)
+
+
+def together(expr: Any, deep: bool = False, fraction: bool = True) -> Any:
+    """Combine an expression over a common denominator (upstream
+    ``together``): denominators are combined structurally (their lcm as
+    products of powers, nothing is expanded or cancelled) and function
+    arguments are left alone unless ``deep``.
 
     Examples
     ========
@@ -1940,31 +2075,28 @@ def together(expr: Any) -> Any:
     >>> together(1/x + 1)
     (x + 1)/x
     """
-    from ..core import Add, expand
+    from ..core import Add, Function as _Function
+
     is_poly = isinstance(expr, Poly)
     wrapped = expr.as_expr() if is_poly else _wrap(_native_expr(expr))
 
-    if isinstance(wrapped, Add):
-        terms = list(wrapped.args)
-        if not terms:
-            return expr
-        num_acc, den_acc = terms[0].as_numer_denom()
-        for term in terms[1:]:
-            n, d = term.as_numer_denom()
-            num_acc = expand(num_acc * d + n * den_acc)
-            den_acc = expand(den_acc * d)
+    def _together(e: Any) -> Any:
+        args = getattr(e, "args", ())
+        if not args:
+            return e
+        if isinstance(e, _Function) and not deep:
+            return e
+        if isinstance(e, Add):
+            return _gcd_terms_fraction([_together(t) for t in e.args])
+        if isinstance(e, Pow):
+            return Pow(_together(e.args[0]), e.args[1])
+        try:
+            return e.func(*[_together(a) for a in args])
+        except Exception:
+            return e
 
-        combined = num_acc / den_acc if den_acc != 1 else num_acc
-        res = cancel(combined)
-        return Poly(res, *expr._gens) if is_poly else _split_combined_denominator(res)
-
-    elif hasattr(wrapped, "args") and wrapped.args:
-        new_args = [together(a) for a in wrapped.args]
-        if new_args != list(wrapped.args):
-            res = type(wrapped)(*new_args)
-            return Poly(res, *expr._gens) if is_poly else res
-
-    return _split_combined_denominator(expr) if not is_poly else expr
+    res = _together(wrapped)
+    return Poly(res, *expr._gens) if is_poly else res
 
 
 def _x_coeffs(expr: Any, x: Any) -> dict | None:
@@ -2159,7 +2291,11 @@ def apart(expr: Any, x: Any = None) -> Any:
             q, r = cur.div(base)
             if not r.is_zero:
                 d = base.as_expr() ** i if i > 1 else base.as_expr()
-                res.append(r.as_expr() / d)
+                # Upstream apart factors each numerator: -(x + 2)/3.
+                n = r.as_expr()
+                if n.free_symbols:
+                    n = factor(n)
+                res.append(n / d)
             cur = q
         return res
 
@@ -2358,6 +2494,7 @@ __all__ = [
     "sqf_part",
     "sturm",
     "together",
+    "PurePoly",
     "terms_gcd",
     "trailing_coeff",
 ]

@@ -602,7 +602,19 @@ class Matrix(MatrixBase):
         a = [[self[i, j] for j in range(cols)] for i in range(rows)]
 
         def is_zero(e):
-            return simplify(expand(e)) == 0
+            e = expand(e)
+            if e == 0:
+                return True
+            if not e.free_symbols:
+                # Constant algebraic entries: rationalize denominators
+                # first (radicals like 6/(sqrt(33)/2 - 3/2) hide zeros).
+                from ..simplify import radsimp
+
+                r = expand(radsimp(e))
+                if r == 0:
+                    return True
+                return simplify(r) == 0
+            return simplify(e) == 0
 
         pivots = []
         r = 0
@@ -667,6 +679,79 @@ class Matrix(MatrixBase):
         P = Matrix.hstack(*all_evecs)
         D = diag(*eval_list)
         return P, D
+
+    def _kernel(self):
+        try:
+            return self.nullspace()
+        except Exception:
+            return self._nullspace_exact()
+
+    def jordan_form(self, calc_transform=True):
+        """Jordan normal form: ``(P, J)`` with ``self == P*J*P**-1`` (or
+        ``J`` alone when ``calc_transform=False``). Block sizes come from
+        the kernel dimensions of ``(A - l*I)**k``; each block's chain is
+        ``N**(s-1)*v, ..., N*v, v`` for a top vector ``v`` outside the
+        smaller kernels and the chains already taken."""
+        from ..core import expand
+
+        if not self.is_square:
+            raise ValueError("Only square matrices have a Jordan form")
+        n = self.rows
+        I_n = eye(n)
+
+        def clean(M):
+            return M.applyfunc(lambda e: expand(e))
+
+        def independent(vectors):
+            if not vectors:
+                return True
+            M = Matrix.hstack(*vectors)
+            return len(M._kernel()) == 0
+
+        blocks = []
+        chains = []
+        for ev, mult in self.eigenvals().items():
+            N = clean(self - ev * I_n)
+            powers = [I_n]
+            kernels = [[]]
+            while len(kernels[-1]) < mult:
+                powers.append(clean(powers[-1] * N))
+                kernels.append(powers[-1]._kernel())
+                if len(kernels) > n + 1:
+                    raise NotImplementedError("Jordan chain computation did not stabilize")
+            dims = [len(k) for k in kernels]
+            top = len(dims) - 1
+            # Blocks of size >= k: dims[k] - dims[k-1].
+            at_least = [0] + [dims[k] - dims[k - 1] for k in range(1, top + 1)]
+            taken = []
+            for size in range(top, 0, -1):
+                count = at_least[size] - (at_least[size + 1] if size + 1 <= top else 0)
+                for _ in range(count):
+                    for v in kernels[size]:
+                        cand = list(kernels[size - 1]) + taken + [v]
+                        if independent(cand):
+                            chain = [v]
+                            for _k in range(size - 1):
+                                chain.insert(0, clean(N * chain[0]))
+                            chains.extend(chain)
+                            # Every vector of the chain spans the levels below.
+                            for level, w in enumerate(chain):
+                                taken.append(w)
+                            blocks.append((ev, size))
+                            break
+                    else:
+                        raise NotImplementedError("Jordan chain vector not found")
+        J = zeros(n, n)
+        pos = 0
+        for ev, size in blocks:
+            for i in range(size):
+                J[pos + i, pos + i] = ev
+                if i + 1 < size:
+                    J[pos + i, pos + i + 1] = 1
+            pos += size
+        if not calc_transform:
+            return J
+        return Matrix.hstack(*chains), J
 
     def is_diagonalizable(self, reals_only=False):
         """Return True if matrix is diagonalizable (and has real eigenvalues if reals_only=True)."""
@@ -979,7 +1064,9 @@ class Matrix(MatrixBase):
             else:
                 terms.append(c_expr * (x ** power))
         from ..core import Add
-        return Add(*terms)
+        from ..polys.polytools import PurePoly
+
+        return PurePoly(Add(*terms), x)
 
     def kron(self, other):
         if not isinstance(other, Matrix):
