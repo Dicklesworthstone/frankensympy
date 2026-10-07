@@ -630,9 +630,57 @@ impl Integrator {
     // Rational functions
     // -----------------------------------------------------------------------
 
+    /// `x**(k-1) * R(x**k)` with `k >= 2` integrates as
+    /// `(1/k) * int R(u) du` at `u = x**k` (upstream's results for
+    /// x/(x**4 + 1) -> atan(x**2)/2, x**3/(x**8 + 1) -> atan(x**4)/4).
+    fn rational_power_substitution(
+        &mut self,
+        num: &UnivariatePoly,
+        den: &UnivariatePoly,
+    ) -> Option<Expr> {
+        let exps = |p: &UnivariatePoly, shift: usize| -> Vec<usize> {
+            p.coeffs
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| !c.is_zero())
+                .map(|(i, _)| i + shift)
+                .collect()
+        };
+        let mut g = 0usize;
+        for e in exps(den, 0).into_iter().chain(exps(num, 1)) {
+            g = gcd_usize(g, e);
+        }
+        if g < 2 || den.degree()? == 0 {
+            return None;
+        }
+        let u = Symbol::new("_fsym_kronecker_u");
+        let shrink = |p: &UnivariatePoly, shift: usize| -> UnivariatePoly {
+            let deg = (p.coeffs.len() - 1 + shift) / g;
+            let mut coeffs = vec![BigRational::zero(); deg + 1];
+            for (i, c) in p.coeffs.iter().enumerate() {
+                if !c.is_zero() {
+                    coeffs[(i + shift) / g - usize::from(shift > 0)] += c.clone();
+                }
+            }
+            UnivariatePoly::new(u.clone(), coeffs)
+        };
+        let reduced = shrink(num, 1).to_expr() * recip(shrink(den, 0).to_expr());
+        let mut sub = Integrator {
+            x: u.clone(),
+            depth: self.depth + 1,
+        };
+        let anti = sub.int(&reduced)?;
+        let xk = pow(self.xe(), Expr::from_i64(i64::try_from(g).ok()?));
+        let back = anti.subs(&HashMap::from([(u, xk)]));
+        Some(rq(BigRational::new(BigInt::one(), BigInt::from(g as u64))) * back)
+    }
+
     fn rational(&mut self, f: &Expr) -> Option<Expr> {
         let x = self.x.clone();
         let (num, den) = rational_parts(f, &x)?;
+        if let Some(r) = self.rational_power_substitution(&num, &den) {
+            return Some(r);
+        }
         if den.degree()? == 0 {
             let p = num
                 .mul(&UnivariatePoly::new(x.clone(), vec![den.coeffs[0].recip()]))
@@ -689,6 +737,10 @@ impl Integrator {
                 out = out + self.partial_term(&c, p, m, &mut logs)?;
             }
         }
+        // Upstream ratint returns the Hermite rational part as ONE fraction
+        // in cancel form (-1/(2*x**2 + 2), (-2*x - 1)/(x**2 + x)): merge the
+        // function-free, non-polynomial terms of `out`.
+        out = merge_rational_part(out, &x);
         // Upstream's log part groups factors sharing a log coefficient into
         // one logarithm: log(x + 1) + log(x + 2) -> log(x**2 + 3*x + 2).
         let mut grouped: Vec<(BigRational, UnivariatePoly)> = Vec::new();
@@ -1370,7 +1422,13 @@ pub fn antiderivative(f: &Expr, x: &Symbol) -> Option<Expr> {
         x: x.clone(),
         depth: 0,
     };
-    it.int(f)
+    let r = it.int(f)?;
+    // Rational integrands: upstream (ratint) reports the rational part as
+    // one fraction in cancel form whichever lane found it.
+    if rational_parts(f, x).is_some() {
+        return Some(merge_rational_part(r, x));
+    }
+    Some(r)
 }
 
 /// Whether the integrand has a pole strictly inside `(a, b)`: exact for
@@ -1459,6 +1517,96 @@ pub fn definite(f: &Expr, x: &Symbol, a: &Expr, b: &Expr) -> Option<Expr> {
     }
     let value = upper - lower;
     Some(fsym_simplify::simplify(&value))
+}
+
+fn gcd_usize(a: usize, b: usize) -> usize {
+    if b == 0 { a } else { gcd_usize(b, a % b) }
+}
+
+fn has_function(e: &Expr) -> bool {
+    match e {
+        Expr::Function(_, _) => true,
+        Expr::Add(xs) | Expr::Mul(xs) => xs.iter().any(has_function),
+        Expr::Pow(b, k) => has_function(b) || has_function(k),
+        _ => false,
+    }
+}
+
+/// Integer cancel form of `num/den` (upstream ``cancel``): both sides
+/// primitive over ZZ with the rational content split as p/q into the
+/// numerator and denominator, denominator leading coefficient positive.
+fn cancel_form(num: &UnivariatePoly, den: &UnivariatePoly) -> Option<Expr> {
+    fn integer_primitive(p: &UnivariatePoly) -> (BigRational, Vec<BigInt>) {
+        let mut l = BigInt::one();
+        for c in &p.coeffs {
+            let d = c.denom().clone();
+            let g = fsym_core::arith::gcd(&l, &d);
+            l = l * d / g;
+        }
+        let ints: Vec<BigInt> = p
+            .coeffs
+            .iter()
+            .map(|c| (c.clone() * BigRational::from_integer(l.clone())).to_integer())
+            .collect();
+        let mut g = BigInt::zero();
+        for c in &ints {
+            g = fsym_core::arith::gcd(&g, c);
+        }
+        if g.is_zero() {
+            return (BigRational::zero(), ints);
+        }
+        let lead_neg = ints
+            .iter()
+            .rev()
+            .find(|c| !c.is_zero())
+            .is_some_and(|c| c.is_negative());
+        let g = if lead_neg { -g } else { g };
+        let prim = ints.iter().map(|c| c.clone() / g.clone()).collect();
+        (BigRational::new(g, l), prim)
+    }
+    let (cn, pn) = integer_primitive(num);
+    let (cd, pd) = integer_primitive(den);
+    if cd.is_zero() {
+        return None;
+    }
+    let c = cn / cd;
+    let (p, q) = (c.numer().clone(), c.denom().clone());
+    let x = num.gen_sym.clone();
+    let to_poly = |v: Vec<BigInt>, k: &BigInt| {
+        UnivariatePoly::new(
+            x.clone(),
+            v.into_iter()
+                .map(|a| BigRational::from_integer(a * k.clone()))
+                .collect(),
+        )
+    };
+    let top = to_poly(pn, &p).to_expr();
+    let bottom = to_poly(pd, &q).to_expr();
+    Some(top * Expr::pow(bottom, Expr::from_i64(-1)))
+}
+
+fn merge_rational_part(out: Expr, x: &Symbol) -> Expr {
+    let terms = match &out {
+        Expr::Add(ts) => ts.clone(),
+        other => vec![other.clone()],
+    };
+    let (rational, rest): (Vec<Expr>, Vec<Expr>) = terms
+        .into_iter()
+        .partition(|t| !has_function(t) && !is_free_of(t, x) && !is_polynomial_in(t, x));
+    if rational.is_empty() {
+        return out;
+    }
+    let Some((num, den)) = rational_parts(&sum(rational.clone()), x) else {
+        return out;
+    };
+    let Ok(g) = num.gcd(&den) else { return out };
+    let (Ok((num, _)), Ok((den, _))) = (num.div_rem(&g), den.div_rem(&g)) else {
+        return out;
+    };
+    match cancel_form(&num, &den) {
+        Some(frac) => sum(rest.into_iter().chain(std::iter::once(frac))),
+        None => out,
+    }
 }
 
 #[cfg(test)]

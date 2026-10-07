@@ -435,6 +435,25 @@ pub fn diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
                     Expr::pow(u.clone(), Expr::from_i64(-1)),
                     du,
                 ])
+            } else if name == "Piecewise"
+                && !args.is_empty()
+                && args.iter().all(
+                    |a| matches!(a, Expr::Function(t, pair) if t == "Tuple" && pair.len() == 2),
+                )
+            {
+                // d/dx Piecewise((e_i, c_i), ...) = Piecewise((de_i/dx, c_i), ...)
+                // (upstream Piecewise._eval_derivative; conditions are kept).
+                let branches = args
+                    .iter()
+                    .map(|a| match a {
+                        Expr::Function(_, pair) => Expr::Function(
+                            "Tuple".to_string(),
+                            vec![diff(&pair[0], var), pair[1].clone()],
+                        ),
+                        other => other.clone(),
+                    })
+                    .collect();
+                Expr::Function("Piecewise".to_string(), branches)
             } else if name == "Heaviside" && args.len() == 1 {
                 let u = &args[0];
                 let du = diff(u, var);

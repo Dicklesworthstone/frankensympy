@@ -21,7 +21,9 @@ from ..core import (
     _parse_result,
     _require_symbol,
     _wrap,
+    Pow,
     diff,
+    expand,
     oo,
     pi,
     sympify,
@@ -72,6 +74,7 @@ class LaplaceTransform(Transform):
 
     def doit(self, **hints: Any) -> Any:
         f, t, s = self.args
+        hints.setdefault("noconds", True)
         return laplace_transform(f, t, s, **hints)
 
 
@@ -203,44 +206,207 @@ def _has_integral(e: Any) -> bool:
         return True
     return any(_has_integral(a) for a in getattr(e, "args", ()) or ())
 
-def laplace_transform(expression: Any, t: Any, s: Any, noconds: bool = True, **kwargs: Any) -> Any:
-    """Compute the Laplace transform of expression: L{f(t)}(s) = int_0^oo f(t) e^(-st) dt."""
-    t_sym = _require_symbol(t)
-    s_sym = _require_symbol(s)
+def _laplace_abscissa(F: Any, s: Any) -> Any:
+    """Convergence abscissa from the poles of F: the largest real part
+    (upstream reports it as ``a`` in ``(F, a, cond)``); -oo when entire."""
+    from .. import fraction
+    from ..core import S as _S
+    from ..functions import re
+    from ..functions.elementary.miscellaneous import Max
+    from ..polys import roots as _roots
+
+    from ..polys import together
+
+    _, den = fraction(together(F))
+    if s not in den.free_symbols:
+        return _S.NegativeInfinity
+    try:
+        rts = list(_roots(den, s))
+    except Exception:
+        rts = []
+    if not rts:
+        return Integer(0)
+    parts = []
+    for r in rts:
+        v = re(r)
+        if v not in parts:
+            parts.append(v)
+    try:
+        return max(parts, key=float) if all(v.is_number for v in parts) else Max(*parts)
+    except Exception:
+        return Max(*parts)
+
+
+def _heaviside_shift(f: Any, t: Any) -> Any:
+    """``(c, g)`` with ``f = Heaviside(t - c) * g(t)``, c > 0 constant."""
+    from ..core import Mul
+
+    factors = list(f.args) if isinstance(f, Mul) else [f]
+    hs = [h for h in factors if type(h).__name__ == "Heaviside"]
+    if len(hs) != 1:
+        return None
+    arg = expand(hs[0].args[0])
+    c = expand(t - arg)
+    if t in c.free_symbols or c == 0 or expand(arg - (t - c)) != 0:
+        return None
+    rest = Mul(*[h for h in factors if h is not hs[0]])
+    return c, rest
+
+
+def _laplace_F(expression: Any, t: Any, s: Any) -> Any:
+    from ..core import Add
+    from ..functions import exp as _exp
+
+    expression = sympify(expression)
+    if isinstance(expression, Add):
+        return Add(*[_laplace_F(term, t, s) for term in expression.args])
+    shifted = _heaviside_shift(expression, t)
+    if shifted is not None:
+        # L{H(t - c) g(t)} = exp(-c*s) * L{g(t + c)}.
+        c, g = shifted
+        return _exp(-c * s) * _laplace_F(expand(g.subs(t, t + c)), t, s)
     result = _native.laplace_expr(
         str(_wrap(_native_expr(expression))),
-        _native_symbol_key(t_sym),
-        _native_symbol_key(s_sym),
+        _native_symbol_key(t),
+        _native_symbol_key(s),
     )
-    res = _parse_result(result)
+    return _parse_result(result)
+
+
+def laplace_transform(expression: Any, t: Any, s: Any, noconds: bool = False, **kwargs: Any) -> Any:
+    """Laplace transform L{f(t)}(s) = int_0^oo f(t) exp(-s*t) dt.
+
+    As upstream, returns ``(F, a, cond)`` with the convergence abscissa
+    ``a`` (Re(s) > a) unless ``noconds=True``.
+    """
+    t_sym = _require_symbol(t)
+    s_sym = _require_symbol(s)
+    res = _laplace_F(expression, t_sym, s_sym)
     if noconds:
         return res
-    return (res, Integer(0), True)
+    return (res, _laplace_abscissa(res, s_sym), True)
+
+
+def _inverse_rational_term(term: Any, s: Any, t: Any) -> Any:
+    """Inverse of one real partial fraction A/(s - r)**m or
+    (A*s + B)/(quadratic) via the table; None otherwise."""
+    from .. import fraction
+    from ..core import sqrt as _sqrt
+    from ..functions import exp as _exp, factorial as _fact
+    from ..functions import cos as _cos, sin as _sin
+    from ..polys.polytools import Poly as _Poly
+
+    num, den = fraction(term)
+    if s not in den.free_symbols:
+        return None
+    try:
+        pn = _Poly(num, s)
+        base, m = den, 1
+        if isinstance(den, Pow) and isinstance(den.args[1], Integer):
+            base, m = den.args[0], int(den.args[1])
+        # A rational coefficient in the denominator (3*(s + 2)).
+        k = Integer(1)
+        if type(base).__name__ == "Mul":
+            consts = [f for f in base.args if s not in f.free_symbols]
+            others = [f for f in base.args if s in f.free_symbols]
+            if len(others) == 1:
+                k = _mul(consts)
+                base = others[0]
+                if isinstance(base, Pow) and isinstance(base.args[1], Integer):
+                    base, m = base.args[0], m * int(base.args[1])
+                    k = k ** 1
+        pb = _Poly(base, s)
+    except Exception:
+        return None
+    if pn.degree() < 0:
+        return Integer(0)
+    db = pb.degree()
+    coeffs = pb.all_coeffs()
+    lead = coeffs[0]
+    if db == 1 and pn.degree() == 0:
+        r = -coeffs[1] / lead
+        A = num / (k * lead**m)
+        return expand(A * t ** (m - 1) / _fact(m - 1) * _exp(r * t))
+    if db == 2 and m == 1 and pn.degree() <= 1:
+        b2, c2 = coeffs[1] / lead, coeffs[2] / lead
+        p = b2 / 2
+        w2 = expand(c2 - p**2)
+        if not (w2.is_positive is True):
+            return None
+        w = _sqrt(w2)
+        nc = pn.all_coeffs()
+        A = nc[0] / (k * lead) if len(nc) == 2 else Integer(0)
+        B = (nc[-1]) / (k * lead)
+        damp = _exp(-p * t)
+        return expand(damp * (A * _cos(w * t) + (B - A * p) / w * _sin(w * t)))
+    return None
+
+
+def _mul(xs: list) -> Any:
+    out = Integer(1)
+    for x_ in xs:
+        out = out * x_
+    return out
+
+
+def _split_exp_shift(F: Any, s: Any) -> tuple:
+    """``F = exp(-c*s) * G(s)`` -> (c, G) with c free of s (c may be 0)."""
+    from ..core import Mul
+
+    factors = list(F.args) if isinstance(F, Mul) else [F]
+    c = Integer(0)
+    rest = []
+    for f in factors:
+        if type(f).__name__ == "exp":
+            arg = expand(f.args[0])
+            lin = expand(arg / s)
+            if s not in lin.free_symbols and expand(arg - lin * s) == 0:
+                c = c - lin
+                continue
+        rest.append(f)
+    return c, _mul(rest)
 
 
 def inverse_laplace_transform(F: Any, s: Any, t: Any, plane: Any = None, noconds: bool = True, **kwargs: Any) -> Any:
-    """Compute the inverse Laplace transform: L^-1{F(s)}(t) via Bromwich residue theorem."""
-    from ..solvers import solve
+    """Inverse Laplace transform (causal): rational F through real partial
+    fractions and the transform table, ``exp(-c*s)`` factors as time
+    shifts, each term carrying ``Heaviside(t - c)`` as upstream returns."""
+    from ..core import Add
+    from ..functions.special.delta_functions import Heaviside
     from ..polys import apart
-    from ..simplify import simplify
 
     F = sympify(F)
     s = Symbol(str(s)) if not isinstance(s, Symbol) else s
     t = Symbol(str(t)) if not isinstance(t, Symbol) else t
 
-    # Try partial fraction expansion for rational functions
-    try:
-        F_apart = apart(F, s)
-        if F_apart != F:
-            if hasattr(F_apart, "args") and F_apart.func.__name__ == "Add":
-                terms = [inverse_laplace_transform(term, s, t, noconds=True) for term in F_apart.args]
-                res = sum(terms, Integer(0))
-                return res if noconds else (res, Integer(0), True)
-    except Exception:
-        pass
+    total = Integer(0)
+    ok = True
+    for term in Add.make_args(expand(F)):
+        c, G = _split_exp_shift(term, s)
+        try:
+            pieces = Add.make_args(apart(G, s))
+        except Exception:
+            pieces = (G,)
+        for piece in pieces:
+            f = _inverse_rational_term(piece, s, t)
+            if f is None:
+                ok = False
+                break
+            if c != 0:
+                f = expand(f.subs(t, t - c))
+            for part in Add.make_args(f):
+                total = total + part * Heaviside(t - c)
+        if not ok:
+            break
+    if ok:
+        return total if noconds else (total, Integer(0), True)
+    return _inverse_laplace_residue(F, s, t, noconds)
 
-    # Direct residue theorem for meromorphic / rational functions:
-    # L^-1{F(s)}(t) = sum_k Res(F(s) * exp(s * t), s_k)
+
+def _inverse_laplace_residue(F: Any, s: Any, t: Any, noconds: bool) -> Any:
+    from ..solvers import solve
+    from ..simplify import simplify
+
     num, den = F.as_numer_denom()
     try:
         roots = solve(den, s)
@@ -253,8 +419,6 @@ def inverse_laplace_transform(F: Any, s: Any, t: Any, plane: Any = None, noconds
             return simplified if noconds else (simplified, Integer(0), True)
     except Exception:
         pass
-
-    # Fallback to unevaluated transform
     return InverseLaplaceTransform(F, s, t) if noconds else (InverseLaplaceTransform(F, s, t), Integer(0), True)
 
 

@@ -342,6 +342,10 @@ def _wrap(value: Any) -> "Basic":
         func_cls = _known_functions.get(value.func_name)
         if func_cls is None:
             func_cls = Function(value.func_name)
+        if value.func_name == "Piecewise" and hasattr(func_cls, "_from_native"):
+            # Built-in: re-evaluate branches (false conditions drop) after
+            # native work such as subs.
+            return func_cls._from_native(value)
         obj = object.__new__(func_cls)
         obj._value = value
         return obj

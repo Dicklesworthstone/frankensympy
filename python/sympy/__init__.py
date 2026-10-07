@@ -147,6 +147,9 @@ def integrate(expression, *variables):
             return Integral(expression, (variable, lower, upper))
 
     symbol = _require_symbol(spec)
+    special = _integrate_symbolic_power(expression, symbol)
+    if special is not None:
+        return special
     try:
         result = _parse_result(
             _native.integrate_expr(
@@ -159,6 +162,50 @@ def integrate(expression, *variables):
         return result
     except (ValueError, NotImplementedError, TypeError):
         return Integral(expression, symbol)
+
+
+def _integrate_symbolic_power(expression, x):
+    """Terms ``c*x**e`` with a symbolic exponent that may equal -1 integrate
+    to upstream's ``c*Piecewise((x**(e + 1)/(e + 1), Ne(e, -1)),
+    (log(x), True))``; the remaining terms go through the native lane.
+    None when no term has that shape."""
+    from .functions.elementary.piecewise import Piecewise as _Piecewise
+
+    expr = sympify(expression)
+    terms = list(expr.args) if isinstance(expr, Add) else [expr]
+    special, rest = [], []
+    for t in terms:
+        factors = list(t.args) if isinstance(t, Mul) else [t]
+        powers = [f for f in factors if isinstance(f, Pow) and f.args[0] == x
+                  and x not in f.args[1].free_symbols and f.args[1].free_symbols]
+        others = [f for f in factors if f not in powers]
+        if len(powers) == 1 and all(x not in f.free_symbols for f in others):
+            e = powers[0].args[1]
+            if (e + 1).is_zero is False:
+                rest.append(t)
+                continue
+            c = Mul(*others)
+            cond = Ne(e, -1)
+            syms = list(e.free_symbols)
+            if len(syms) == 1 and e != syms[0]:
+                # Upstream states the condition on the symbol itself:
+                # x**(n - 1) -> Ne(n, 0).
+                try:
+                    sol = solve(e + 1, syms[0])
+                    if len(sol) == 1:
+                        cond = Ne(syms[0], sol[0])
+                except Exception:
+                    pass
+            pw = _Piecewise((x ** (e + 1) / (e + 1), cond), (log(x), True))
+            special.append(c * pw)
+        else:
+            rest.append(t)
+    if not special:
+        return None
+    total = Add(*special)
+    if rest:
+        total = integrate(Add(*rest), x) + total
+    return total
 
 
 def _solve_rational_fallback(expr, symbol):
@@ -589,7 +636,7 @@ def checksol(expression, symbol, val=None):
     return False
 
 
-def laplace_transform(expression, t, s, noconds=True, **kwargs):
+def laplace_transform(expression, t, s, noconds=False, **kwargs):
     from .integrals.transforms import laplace_transform as _lt
     return _lt(expression, t, s, noconds=noconds, **kwargs)
 

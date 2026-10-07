@@ -478,6 +478,10 @@ class StrPrinter:
         c = _core()
         if not isinstance(e, c.Basic):
             return str(e)
+        if type(e).__name__ == "ExprCondPair":
+            return "(%s, %s)" % (self._print(e.expr), self._print(e.cond))
+        if type(e).__module__.startswith("sympy.logic") or isinstance(e, getattr(c, "Relational", ())):
+            return str(e)  # booleans and relationals carry their own printer
         if _is_held(e):
             return self._fallback(e)
         k = _kind(e)

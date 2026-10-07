@@ -1471,6 +1471,13 @@ pub fn eval_function(name: &str, args: &[Expr]) -> Option<Expr> {
         ("Mod", [p, qq]) => return eval_mod(p, qq),
         ("Max" | "Min", _) if !args.is_empty() => return eval_extremum(name, args),
         ("binomial", [n, k]) => return eval_binomial(n, k),
+        (
+            "Equality" | "Unequality" | "StrictLessThan" | "LessThan" | "StrictGreaterThan"
+            | "GreaterThan",
+            [a, b],
+        ) => return eval_relational(name, a, b),
+        ("Piecewise", _) if !args.is_empty() => return eval_piecewise(args),
+        ("And" | "Or", _) if !args.is_empty() => return eval_and_or(name, args),
         _ => {}
     }
     let [arg] = args else {
@@ -1569,6 +1576,97 @@ fn eval_binomial(n: &Expr, k: &Expr) -> Option<Expr> {
             / BigRational::from_integer(BigInt::from(i + 1));
     }
     Some(rational_expr(acc))
+}
+
+fn truth(value: bool) -> Expr {
+    Expr::Sym(crate::Symbol::new(if value { "True" } else { "False" }))
+}
+
+fn truth_of(e: &Expr) -> Option<bool> {
+    match e {
+        Expr::Sym(s) if s.name == "True" => Some(true),
+        Expr::Sym(s) if s.name == "False" => Some(false),
+        _ => None,
+    }
+}
+
+fn exact_rational(e: &Expr) -> Option<BigRational> {
+    match e {
+        Expr::Integer(v) => Some(BigRational::from_integer(v.clone())),
+        Expr::Rational(r) => Some(r.clone()),
+        _ => None,
+    }
+}
+
+/// Relationals between exact rationals decide (upstream Ne(-1, -1) is
+/// False); everything else stays held.
+fn eval_relational(name: &str, a: &Expr, b: &Expr) -> Option<Expr> {
+    let (x, y) = (exact_rational(a)?, exact_rational(b)?);
+    let v = match name {
+        "Equality" => x == y,
+        "Unequality" => x != y,
+        "StrictLessThan" => x < y,
+        "LessThan" => x <= y,
+        "StrictGreaterThan" => x > y,
+        _ => x >= y,
+    };
+    Some(truth(v))
+}
+
+/// Piecewise(Tuple(e, c), ...): false branches drop, a branch whose
+/// condition is true ends the list, a leading true branch is the value.
+fn eval_piecewise(args: &[Expr]) -> Option<Expr> {
+    let mut kept: Vec<Expr> = Vec::new();
+    let mut changed = false;
+    for a in args {
+        let Expr::Function(t, pair) = a else {
+            return None;
+        };
+        if t != "Tuple" || pair.len() != 2 {
+            return None;
+        }
+        match truth_of(&pair[1]) {
+            Some(false) => {
+                changed = true;
+                continue;
+            }
+            Some(true) => {
+                if kept.is_empty() {
+                    return Some(pair[0].clone());
+                }
+                kept.push(a.clone());
+                changed |= kept.len() < args.len();
+                break;
+            }
+            None => kept.push(a.clone()),
+        }
+    }
+    if kept.is_empty() {
+        return Some(Expr::Const(Constant::NaN));
+    }
+    if changed {
+        Some(Expr::Function("Piecewise".to_string(), kept))
+    } else {
+        None
+    }
+}
+
+fn eval_and_or(name: &str, args: &[Expr]) -> Option<Expr> {
+    let absorbing = name == "Or";
+    let mut kept = Vec::new();
+    for a in args {
+        match truth_of(a) {
+            Some(v) if v == absorbing => return Some(truth(absorbing)),
+            Some(_) => {}
+            None => kept.push(a.clone()),
+        }
+    }
+    match kept.len() {
+        0 => Some(truth(!absorbing)),
+        1 => Some(kept.pop().expect("one argument")),
+        n if n < args.len() => Some(Expr::Function(name.to_string(), kept)),
+        _ => None,
+    }
 }
 
 #[cfg(test)]

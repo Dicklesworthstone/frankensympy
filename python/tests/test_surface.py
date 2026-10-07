@@ -1575,7 +1575,8 @@ class SurfaceTests(unittest.TestCase):
 
         # 3. Integral transforms
         laplace_res = sympy.laplace_transform(sympy.exp(t), t, s)
-        self.assertEqual(str(laplace_res), "1/(s - 1)")
+        # Oracle: (F, convergence abscissa, condition).
+        self.assertEqual(str(laplace_res), "(1/(s - 1), 1, True)")
         fourier_res = sympy.fourier_transform(sympy.Integer(5), t, w)
         self.assertEqual(str(fourier_res), "10*pi*dirac(w)")
 
@@ -2476,6 +2477,38 @@ class SurfaceTests(unittest.TestCase):
         cp = M.charpoly(x)
         self.assertEqual(str(cp), "PurePoly(x**2 - 5*x - 2, x, domain='ZZ')")
         self.assertEqual(cp, M.charpoly(y))
+
+    def test_piecewise_power_integrals_and_laplace(self):
+        x, n, t, s = sympy.symbols("x n t s")
+        pw = sympy.Piecewise((x ** (n + 1) / (n + 1), sympy.Ne(n, -1)), (sympy.log(x), True))
+        # Piecewise is native-lowered: arithmetic, subs and diff work.
+        self.assertEqual(str(2 * pw), "2*Piecewise((x**(n + 1)/(n + 1), Ne(n, -1)), (log(x), True))")
+        self.assertEqual((3 * pw).subs(n, -1), 3 * sympy.log(x))
+        self.assertEqual(pw.subs(n, 2), x**3 / 3)
+        self.assertEqual(str(sympy.diff(pw, x)), "Piecewise((x**n, Ne(n, -1)), (1/x, True))")
+        q = sympy.Piecewise((x, x > 0), (-x, True))
+        self.assertEqual((q * x).subs(x, -3), -9)
+        # Oracle-pinned integrals.
+        self.assertEqual(sympy.integrate(x**n, x), pw)
+        self.assertEqual(str(sympy.integrate(x ** (n - 1), x)), "Piecewise((x**n/n, Ne(n, 0)), (log(x), True))")
+        self.assertEqual(str(sympy.integrate(x / (x**4 + 1), x)), "atan(x**2)/2")
+        self.assertEqual(str(sympy.integrate(x**3 / (x**8 + 1), x)), "atan(x**4)/4")
+        self.assertEqual(str(sympy.integrate(x / (x**2 + 1) ** 2, x)), "-1/(2*x**2 + 2)")
+        self.assertEqual(
+            str(sympy.integrate(1 / (x**2 * (x + 1) ** 2), x)),
+            "(-2*x - 1)/(x**2 + x) - 2*log(x) + 2*log(x + 1)",
+        )
+        # Laplace transforms: (F, a, cond) and causal inverses.
+        self.assertEqual(str(sympy.laplace_transform(sympy.t if False else sympy.exp(-t), t, s)), "(1/(s + 1), -1, True)")
+        self.assertEqual(str(sympy.laplace_transform(sympy.Heaviside(t - 1), t, s)), "(exp(-s)/s, 0, True)")
+        ilt = sympy.inverse_laplace_transform
+        self.assertEqual(str(ilt(1 / (s**2 + 1), s, t)), "sin(t)*Heaviside(t)")
+        self.assertEqual(str(ilt(sympy.exp(-s) / s, s, t)), "Heaviside(t - 1)")
+        self.assertEqual(str(ilt((s + 1) / (s**2 + 2 * s + 5), s, t)), "exp(-t)*cos(2*t)*Heaviside(t)")
+        self.assertEqual(
+            str(ilt(1 / ((s + 1) * (s + 2)), s, t)),
+            "exp(-t)*Heaviside(t) - exp(-2*t)*Heaviside(t)",
+        )
 
     def test_poly_system_solvers(self):
         from sympy.solvers import nonlinsolve, solve_poly_system
@@ -4974,12 +5007,14 @@ class SurfaceTests(unittest.TestCase):
         lt = sympy.LaplaceTransform(sympy.exp(t), t, s)
         self.assertEqual(str(lt), "LaplaceTransform(exp(t), t, s)")
         self.assertEqual(lt.doit(), (s - 1)**(-1))
-        self.assertEqual(sympy.laplace_transform(sympy.exp(t), t, s), (s - 1)**(-1))
+        self.assertEqual(sympy.laplace_transform(sympy.exp(t), t, s), ((s - 1)**(-1), 1, True))
+        self.assertEqual(sympy.laplace_transform(sympy.exp(t), t, s, noconds=True), (s - 1)**(-1))
 
         ilt = sympy.InverseLaplaceTransform(1 / (s - 1), s, t)
         self.assertEqual(str(ilt), "InverseLaplaceTransform(1/(s - 1), s, t)")
-        self.assertEqual(ilt.doit(), sympy.exp(t))
-        self.assertEqual(sympy.inverse_laplace_transform(1 / (s - 1), s, t), sympy.exp(t))
+        # Oracle: the causal inverse carries Heaviside(t).
+        self.assertEqual(ilt.doit(), sympy.exp(t) * sympy.Heaviside(t))
+        self.assertEqual(sympy.inverse_laplace_transform(1 / (s - 1), s, t), sympy.exp(t) * sympy.Heaviside(t))
 
         # Fourier and Inverse Fourier
         ft = sympy.FourierTransform(sympy.Integer(5), t, x)
