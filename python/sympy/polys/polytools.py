@@ -574,6 +574,11 @@ class Poly(Basic):
 
         return _keep_coeff(scale, Mul(*terms))
 
+    def nroots(self, n: int = 15, maxsteps: int = 50, cleanup: bool = True) -> list:
+        from .. import nroots as _nroots
+
+        return _nroots(self, n=n, maxsteps=maxsteps, cleanup=cleanup)
+
     def roots(self) -> dict[Any, int]:
         """Compute polynomial roots over Q with multiplicities."""
         if self._parametric:

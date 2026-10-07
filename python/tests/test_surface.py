@@ -2510,6 +2510,39 @@ class SurfaceTests(unittest.TestCase):
             "exp(-t)*Heaviside(t) - exp(-2*t)*Heaviside(t)",
         )
 
+    def test_nroots_matrix_exp_complex_parts_and_assumptions(self):
+        x = sympy.Symbol("x")
+        self.assertEqual(
+            str(sympy.nroots(x**3 - 2 * x - 5, n=10)),
+            "[2.094551482, -1.047275741 - 1.135939889*I, -1.047275741 + 1.135939889*I]",
+        )
+        self.assertEqual(
+            str(sympy.nroots(x**4 - 2)),
+            "[-1.18920711500272, 1.18920711500272, -1.18920711500272*I, 1.18920711500272*I]",
+        )
+        self.assertEqual(str(sympy.nroots(x**2 - 2 * x + 1)), "[1.00000000000000, 1.00000000000000]")
+        with self.assertRaises(NotImplementedError):
+            sympy.nroots(x**2 - 2, n=30)  # binary64 is honest to 15 digits only
+        I = sympy.I
+        self.assertEqual(sympy.re(sympy.exp(I) / 2 + sympy.exp(-I) / 2), sympy.cos(1))
+        self.assertEqual(sympy.im(sympy.exp(2 * I)), sympy.sin(2))
+        self.assertEqual(
+            str(sympy.Matrix([[0, 1], [-1, 0]]).exp()),
+            "Matrix([[cos(1), sin(1)], [-sin(1), cos(1)]])",
+        )
+        self.assertEqual(
+            str(sympy.Matrix([[2, 1, 0], [0, 2, 1], [0, 0, 2]]).exp()),
+            "Matrix([[exp(2), exp(2), exp(2)/2], [0, exp(2), exp(2)], [0, 0, exp(2)]])",
+        )
+        m = sympy.Symbol("m", integer=True, positive=True)
+        e = sympy.Symbol("e", even=True)
+        n = sympy.Symbol("n", integer=True)
+        self.assertIs((m - 1).is_nonnegative, True)
+        self.assertIs(sympy.factorial(m).is_positive, True)
+        self.assertIs((e / 2).is_integer, True)
+        self.assertIsNone((n / 2).is_integer)
+        self.assertIs(sympy.ask(sympy.Q.positive(x**2), sympy.Q.real(x) & sympy.Q.nonzero(x)), True)
+
     def test_poly_system_solvers(self):
         from sympy.solvers import nonlinsolve, solve_poly_system
         self.assertIs(solve_poly_system, sympy.solve_poly_system)

@@ -1419,14 +1419,121 @@ def product(*args, **kwargs):
     return Product(*args).doit(deep=False)
 
 
-def nroots(expr: Any, n: int = 15) -> list:
-    """Numerical roots of a univariate polynomial, sorted by real part."""
-    sympify_expr = _wrap(_native_expr(expr))
-    var = _extract_single_symbol(expr)
-    if var is None:
-        raise ValueError("expression must contain exactly one free symbol")
-    exact_roots = solve(expr, var)
-    return [float(r.evalf(n)) if hasattr(r, "evalf") else float(r) for r in exact_roots]
+def _numeric_poly_roots(coeffs: list) -> list:
+    """All complex roots of a polynomial (descending coefficients) by
+    Aberth-Ehrlich simultaneous iteration, polished by Newton steps."""
+    import cmath
+
+    while coeffs and coeffs[0] == 0:
+        coeffs = coeffs[1:]
+    deg = len(coeffs) - 1
+    if deg < 1:
+        return []
+    lead = coeffs[0]
+    a = [c / lead for c in coeffs]
+    zeros = 0
+    while deg > 0 and a[-1] == 0:
+        a.pop()
+        deg -= 1
+        zeros += 1
+
+    def ev(z: complex) -> tuple:
+        pv, dv = 0j, 0j
+        for c in a:
+            dv = dv * z + pv
+            pv = pv * z + c
+        return pv, dv
+
+    roots = []
+    if deg > 0:
+        radius = 1 + max(abs(c) for c in a[1:])
+        zs = [radius * 0.5 * cmath.exp(2j * cmath.pi * (k + 0.25) / deg) for k in range(deg)]
+        for _ in range(500):
+            done = True
+            for i in range(deg):
+                pv, dv = ev(zs[i])
+                if pv == 0:
+                    continue
+                ratio = pv / dv if dv != 0 else 1e-3
+                corr = sum(1 / (zs[i] - zs[j]) for j in range(deg) if j != i and zs[i] != zs[j])
+                w = ratio / (1 - ratio * corr)
+                zs[i] -= w
+                if abs(w) > 1e-17 * max(1.0, abs(zs[i])):
+                    done = False
+            if done:
+                break
+        for z in zs:
+            for _ in range(3):
+                pv, dv = ev(z)
+                if dv == 0:
+                    break
+                step = pv / dv
+                if abs(step) > 1e-6 * max(1.0, abs(z)):
+                    break
+                z -= step
+            roots.append(z)
+    return roots + [0j] * zeros
+
+
+def _float_digits(v: float, n: int) -> Any:
+    from .core import _ExactDecimalFloat
+
+    if v == 0:
+        return Integer(0)
+    text = f"{v:#.{n}g}"
+    if "e" not in text and text.endswith("."):
+        text = text + "0"
+    return _ExactDecimalFloat(text, n)
+
+
+def nroots(f: Any, n: int = 15, maxsteps: int = 50, cleanup: bool = True) -> list:
+    """Numerical roots of a univariate polynomial with numeric coefficients
+    (upstream ``nroots``): real roots first in increasing order, then the
+    complex ones by real and imaginary part. Binary64-backed, so at most
+    15 significant digits are honest; more is refused."""
+    del maxsteps, cleanup
+    if n > 15:
+        raise NotImplementedError(
+            "precision-honest nroots: this shell computes roots in binary64 and "
+            "is honest to at most 15 significant digits; requested %d" % n
+        )
+    from .polys.polytools import Poly as _Poly
+
+    p = f if isinstance(f, _Poly) else _Poly(f)
+    if len(p.gens) != 1:
+        raise ValueError("nroots requires a univariate polynomial")
+    # Exact square-free parts first: simultaneous iteration only reaches
+    # sqrt(eps) on a repeated root.
+    parts = [(p, 1)]
+    try:
+        _, sq = p.sqf_list()
+        if sq:
+            parts = sq
+    except Exception:
+        pass
+    roots = []
+    for part, mult in parts:
+        coeffs = []
+        for c in part.all_coeffs():
+            try:
+                coeffs.append(complex(N(c)))
+            except Exception:
+                raise ValueError("nroots requires numeric coefficients, got %s" % c)
+        roots.extend(_numeric_poly_roots(coeffs) * mult)
+    scale = max([1.0] + [abs(z) for z in roots])
+    real, cplx = [], []
+    for z in roots:
+        if abs(z.imag) <= 1e-10 * scale:
+            real.append(z.real)
+        else:
+            cplx.append(z)
+    real.sort()
+    cplx.sort(key=lambda z: (round(z.real, 10), z.imag))
+    out = [_float_digits(r, n) for r in real]
+    for z in cplx:
+        re_part = _float_digits(z.real, n) if abs(z.real) > 1e-14 * scale else Integer(0)
+        out.append(re_part + _float_digits(z.imag, n) * I)
+    return out
 
 
 def _extract_single_symbol(expr: Any):

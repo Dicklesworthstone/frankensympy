@@ -25,32 +25,69 @@ class sign(_NativeFunction):
         return super().eval(arg)
 
 
-def _split_real_imag(arg: Any):
-    """(re, im) of an expression whose expanded terms are each real or a
-    real multiple of I; None when some term is undecided."""
-    from ...core import Add, I, Integer, Mul, expand
+def _ri(e: Any) -> Any:
+    """(re, im) of ``e`` built from real parts, ``I``, sums, products,
+    integer powers and ``exp`` of a complex argument; None when some piece
+    is undecided."""
+    from ...core import Add, I, Integer, Mul, Pow
 
-    e = expand(arg)
-    terms = e.args if isinstance(e, Add) else (e,)
-    re_part = Integer(0)
-    im_part = Integer(0)
-    for t in terms:
-        if getattr(t, "is_real", None) is True:
-            re_part = re_part + t
-            continue
-        if t == I:
-            im_part = im_part + 1
-            continue
-        if isinstance(t, Mul) and I in t.args:
-            rest = Integer(1)
-            for f in t.args:
-                if f != I:
-                    rest = rest * f
-            if getattr(rest, "is_real", None) is True:
-                im_part = im_part + rest
-                continue
+    if getattr(e, "is_real", None) is True:
+        return e, Integer(0)
+    if e == I:
+        return Integer(0), Integer(1)
+    if isinstance(e, Add):
+        r, i = Integer(0), Integer(0)
+        for t in e.args:
+            part = _ri(t)
+            if part is None:
+                return None
+            r, i = r + part[0], i + part[1]
+        return r, i
+    if isinstance(e, Mul):
+        r, i = Integer(1), Integer(0)
+        for f in e.args:
+            part = _ri(f)
+            if part is None:
+                return None
+            a, b = part
+            r, i = r * a - i * b, r * b + i * a
+        return r, i
+    if isinstance(e, Pow) and isinstance(e.args[1], Integer):
+        part = _ri(e.args[0])
+        if part is None:
+            return None
+        k = int(e.args[1])
+        a, b = part
+        if k < 0:
+            d = a**2 + b**2
+            a, b, k = a / d, -b / d, -k
+        if k > 12:
+            return None
+        r, i = Integer(1), Integer(0)
+        for _ in range(k):
+            r, i = r * a - i * b, r * b + i * a
+        return r, i
+    if type(e).__name__ == "exp":
+        part = _ri(e.args[0])
+        if part is None:
+            return None
+        from .. import cos, exp, sin
+
+        a, b = part
+        if b == 0:
+            return e, Integer(0)
+        return exp(a) * cos(b), exp(a) * sin(b)
+    return None
+
+
+def _split_real_imag(arg: Any):
+    """(re, im) of an expression decomposable by ``_ri``, expanded."""
+    from ...core import expand
+
+    part = _ri(expand(arg))
+    if part is None:
         return None
-    return re_part, im_part
+    return expand(part[0]), expand(part[1])
 
 
 class re(Function):

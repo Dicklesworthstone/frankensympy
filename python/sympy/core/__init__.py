@@ -1238,6 +1238,11 @@ def _num_facts(e: Any, depth: int = 0) -> dict:
         fs = [_num_facts(a, depth + 1) for a in args]
         if all(f["finite"] is True for f in fs):
             out["finite"] = True
+        if args and isinstance(args[0], Rational) and args[0].q == 2 and all(f["integer"] is True for f in fs[1:]):
+            # (even integer)/2 is an integer (upstream e/2 for even e).
+            if any(f["even"] is True for f in fs[1:]):
+                out.update(integer=True, rational=True, irrational=False, even=None, odd=None)
+                return out
         if all(f["integer"] is True for f in fs):
             out.update(integer=True, rational=True, irrational=False)
             if any(f["even"] is True for f in fs):
@@ -1321,6 +1326,8 @@ def _sign_info(e: Any, depth: int = 0) -> tuple:
             return (True, frozenset({0, 1}))
         if e.is_nonpositive:
             return (True, frozenset({-1, 0}))
+        if real and e.is_nonzero:
+            return (True, frozenset({-1, 1}))
         return (real, _SIGN_ALL if real else None)
     if t is Add:
         infos = [_sign_info(a, depth + 1) for a in e.args]
@@ -1337,6 +1344,13 @@ def _sign_info(e: Any, depth: int = 0) -> tuple:
             return (True, _SIGN_POS if any(sg == _SIGN_POS for sg in sets) else frozenset({0, 1}) if any(1 in sg for sg in sets) else _SIGN_ZERO)
         if all(sg <= {-1, 0} for sg in sets):
             return (True, _SIGN_NEG if any(sg == _SIGN_NEG for sg in sets) else frozenset({-1, 0}) if any(-1 in sg for sg in sets) else _SIGN_ZERO)
+        bound = _integer_lower_bound(e, depth)
+        if bound is not None:
+            value, strict = bound
+            if value > 0 or (value == 0 and strict):
+                return (True, _SIGN_POS)
+            if value == 0:
+                return (True, frozenset({0, 1}))
         return (True, _SIGN_ALL)
     if t is Mul:
         real = True
@@ -1378,11 +1392,47 @@ def _sign_info(e: Any, depth: int = 0) -> tuple:
             return (True, sa)
         if name == "cosh" and ra:
             return (True, _SIGN_POS)
+        if name == "factorial" and ra and sa is not None and sa <= {0, 1} and _num_facts(e.args[0])["integer"] is True:
+            return (True, _SIGN_POS)
         if name in ("sin", "cos", "tan", "cot", "sec", "csc", "acot", "floor", "ceiling", "sign") and ra:
             return (True, _SIGN_ALL)
         if name == "log" and sa == _SIGN_POS:
             return (True, _SIGN_ALL)
     return (None, None)
+
+
+def _integer_lower_bound(e: Any, depth: int) -> tuple | None:
+    """(lower bound, strict) of a sum from integer facts: a positive
+    integer is >= 1 (upstream: m - 1 is nonnegative for positive integer
+    m), a nonnegative integer >= 0, a positive real > 0; None when some
+    term has no lower bound."""
+    from fractions import Fraction as _F
+
+    total = _F(0)
+    strict = False
+    for t in e.args:
+        if isinstance(t, Rational):
+            total += _F(int(t.p), int(t.q))
+            continue
+        coeff = _F(1)
+        rest = t
+        if type(t) is Mul and isinstance(t.args[0], Rational):
+            coeff = _F(int(t.args[0].p), int(t.args[0].q))
+            rest = Mul(*t.args[1:])
+        if coeff <= 0:
+            return None
+        real, signs = _sign_info(rest, depth + 1)
+        if real is not True or signs is None or not signs <= {0, 1}:
+            return None
+        integer = _num_facts(rest)["integer"] is True
+        if signs == _SIGN_POS:
+            if integer:
+                total += coeff
+            else:
+                strict = True
+        elif not integer:
+            return None
+    return total, strict
 
 
 def _mul_nonreal(args: Any, depth: int) -> bool | None:

@@ -822,12 +822,31 @@ class Matrix(MatrixBase):
         if is_diag:
             return diag(*[spexp(self[i, i]) for i in range(n)])
 
-        # Diagonalizable path
+        # Upstream: exp(P*J*P**-1) = P*exp(J)*P**-1 with exp of a Jordan
+        # block e**l * N**j/j!; a real matrix keeps the real part of each
+        # entry (exp(I)/2 + exp(-I)/2 -> cos(1)).
         try:
-            if self.is_diagonalizable():
-                P, D = self.diagonalize()
-                exp_diag = [spexp(D[i, i]) for i in range(n)]
-                return P * diag(*exp_diag) * P.inv()
+            from math import factorial as _fact
+            from ..core import expand as _expand
+            from ..functions import re as _re
+
+            P, J = self.jordan_form()
+            eJ = zeros(n, n)
+            i = 0
+            while i < n:
+                lam = J[i, i]
+                size = 1
+                while i + size < n and J[i + size - 1, i + size] == 1:
+                    size += 1
+                el = spexp(lam)
+                for r in range(size):
+                    for c in range(r, size):
+                        eJ[i + r, i + c] = el * Rational(1, _fact(c - r))
+                i += size
+            ret = (P * eJ * P.inv()).applyfunc(_expand)
+            if all(getattr(v, "is_real", None) is True for v in self):
+                ret = ret.applyfunc(lambda e: _expand(_re(e)))
+            return ret
         except Exception:
             pass
 
