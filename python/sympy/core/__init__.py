@@ -104,6 +104,9 @@ def _exact_surface_types():
         cls = globals().get(name)
         if cls is not None:
             types.append(cls)
+    wild = sys.modules.get(__name__ + ".match")
+    if wild is not None:
+        types.append(wild.Wild)  # built-in pattern atom with a native name
     return tuple(types)
 
 
@@ -280,6 +283,12 @@ def _symbol_from_binding(binding: Any) -> "Symbol":
     registered = _surface_symbols.get((binding.name, binding.identity_hex))
     if registered is not None:
         return registered
+    if binding.name.startswith("__fsymWild_"):
+        from .match import _wild_from_native
+
+        wild = _wild_from_native(binding.name)
+        if wild is not None:
+            return wild
     if binding.plain:
         return _symbol_from_intern_name(binding.name)
     raise NotImplementedError(
@@ -314,6 +323,13 @@ def _wrap(value: Any) -> "Basic":
         if parsed is not None:
             number, name = parsed
             return Dummy._from_intern(name, number, value)
+        text = str(value)
+        if text.startswith("__fsymWild_"):
+            from .match import _wild_from_native
+
+            wild = _wild_from_native(text)
+            if wild is not None:
+                return wild
         return _surface_symbol(value)
     if value.func_name == "Constant":
         if str(value) == "zoo":
@@ -773,6 +789,82 @@ class Basic:
                 if hasattr(arg, "free_symbols"):
                     syms.update(arg.free_symbols)
             return syms
+
+    # Pattern matching, structural replacement and decompositions
+    # (upstream Basic/Expr API; implemented in sympy.core.match).
+    def match(self, pattern: Any, old: bool = False) -> Any:
+        from .match import match as _m
+
+        return _m(self, pattern, old)
+
+    def replace(self, query: Any, value: Any, map: bool = False, simultaneous: bool = True, exact: Any = None) -> Any:
+        from .match import replace as _r
+
+        return _r(self, query, value, map=map, simultaneous=simultaneous, exact=exact)
+
+    def find(self, query: Any, group: bool = False) -> Any:
+        from .match import find as _f
+
+        return _f(self, query, group)
+
+    def count(self, query: Any) -> int:
+        from .match import count as _c
+
+        return _c(self, query)
+
+    def as_independent(self, *deps: Any, **hint: Any) -> tuple:
+        from .match import as_independent as _ai
+
+        return _ai(self, *deps, **hint)
+
+    def as_coefficients_dict(self, *syms: Any) -> Any:
+        from .match import as_coefficients_dict as _acd
+
+        return _acd(self, *syms)
+
+    def as_coeff_mul(self, *deps: Any, **kwargs: Any) -> tuple:
+        from .match import as_coeff_mul as _acm
+
+        return _acm(self, *deps)
+
+    def as_coeff_add(self, *deps: Any) -> tuple:
+        from .match import as_coeff_add as _aca
+
+        return _aca(self, *deps)
+
+    def is_polynomial(self, *syms: Any) -> bool:
+        from .match import is_polynomial as _ip
+
+        return _ip(self, *syms)
+
+    def is_rational_function(self, *syms: Any) -> bool:
+        from .match import is_rational_function as _irf
+
+        return _irf(self, *syms)
+
+    def as_poly(self, *gens: Any, **args: Any) -> Any:
+        from ..polys.polytools import Poly as _Poly
+
+        try:
+            return _Poly(self, *gens, **args)
+        except Exception:
+            return None
+
+    @property
+    def is_Symbol(self) -> bool:
+        return isinstance(self, Symbol)
+
+    @property
+    def is_Function(self) -> bool:
+        return isinstance(self, Function)
+
+    @property
+    def is_Number(self) -> bool:
+        return isinstance(self, (Rational, Float))
+
+    @property
+    def is_Wild(self) -> bool:
+        return False
 
     def has(self, pattern: Any) -> bool:
         try:
@@ -3753,6 +3845,14 @@ class Mul(Expr, AssocOp):
 
 class Pow(Expr):
     __slots__ = ()
+
+    @property
+    def base(self) -> "Expr":
+        return self.args[0]
+
+    @property
+    def exp(self) -> "Expr":
+        return self.args[1]
 
     def __new__(cls, base: Any, exponent: Any, evaluate: bool = True):
         if evaluate:

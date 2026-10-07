@@ -2315,3 +2315,7 @@ __all__ = [
     "expand_multinomial",
     "expand_func",
 ]
+
+from .core.match import Wild, WildFunction, bottom_up, postorder_traversal, preorder_traversal  # noqa: E402
+
+__all__ += ["Wild", "WildFunction", "bottom_up", "postorder_traversal", "preorder_traversal"]

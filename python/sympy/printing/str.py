@@ -478,6 +478,8 @@ class StrPrinter:
         c = _core()
         if not isinstance(e, c.Basic):
             return str(e)
+        if getattr(e, "is_Wild", False) is True:
+            return str(e)
         if type(e).__name__ == "ExprCondPair":
             return "(%s, %s)" % (self._print(e.expr), self._print(e.cond))
         if type(e).__module__.startswith("sympy.logic") or isinstance(e, getattr(c, "Relational", ())):
