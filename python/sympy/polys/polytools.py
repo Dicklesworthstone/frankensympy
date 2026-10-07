@@ -24,6 +24,26 @@ from ..core import (
 )
 
 
+_GENS_ORDER = {
+    "a": 301, "b": 302, "c": 303, "d": 304, "e": 305, "f": 306, "g": 307,
+    "h": 308, "i": 309, "j": 310, "k": 311, "l": 312, "m": 313, "n": 314,
+    "o": 315, "p": 216, "q": 217, "r": 218, "s": 219, "t": 220, "u": 221,
+    "v": 222, "w": 223, "x": 124, "y": 125, "z": 126,
+}
+
+
+def _sort_gens(gens: Any) -> list:
+    """Upstream ``_sort_gens`` default order: x, y, z first, then p..w,
+    then a..o, then other names; a trailing number orders numerically."""
+    import re as _re
+
+    def key(g: Any) -> tuple:
+        name, index = _re.match(r"^(.*?)(\d*)$", str(g)).groups()
+        return (_GENS_ORDER.get(name, 1000), name, int(index) if index else 0)
+
+    return sorted(gens, key=key)
+
+
 class Poly(Basic):
     """Exact polynomial representation over rational field QQ."""
 
@@ -34,6 +54,7 @@ class Poly(Basic):
         if isinstance(expr, Poly):
             if not gens and "gens" not in kwargs:
                 return expr
+            kwargs.setdefault("_extra", expr._domain_syms())
             expr = expr.as_expr()
 
         if not gens and "gens" in kwargs and kwargs["gens"] is not None:
@@ -56,14 +77,26 @@ class Poly(Basic):
             elif len(free) == 1:
                 generator_list = [next(iter(free))]
             else:
-                generator_list = sorted(list(free), key=lambda s: s.name)
+                generator_list = _sort_gens(free)
 
         obj = object.__new__(cls)
         obj._expr = wrapped_expr
         obj._gens = tuple(generator_list)
         obj._domain = kwargs.get("domain", "QQ")
         obj._domain_given = "domain" in kwargs
+        # Coefficient symbols the domain carries beyond the current
+        # coefficients (upstream Poly keeps its domain through diff/div).
+        obj._extra_syms = frozenset(kwargs.get("_extra", ())) - set(generator_list)
         return obj
+
+    def _domain_syms(self) -> frozenset:
+        return frozenset(self._expr.free_symbols - set(self._gens)) | self._extra_syms
+
+    def _like(self, expr: Any, other: Any = None) -> "Poly":
+        extra = self._domain_syms()
+        if isinstance(other, Poly):
+            extra = extra | other._domain_syms()
+        return Poly(expr, *self._gens, _extra=extra)
 
     @property
     def gen(self) -> Symbol:
@@ -76,8 +109,36 @@ class Poly(Basic):
     def as_expr(self) -> Expr:
         return self._expr
 
+    @property
+    def _parametric(self) -> bool:
+        """Coefficients involve symbols outside the generators (domain
+        ZZ[a, ...] / QQ(a, ...)); such polynomials take the Python lanes."""
+        return bool(self._expr.free_symbols - set(self._gens))
+
+    def _gen_index(self, gen: Any) -> int:
+        return gen if isinstance(gen, int) else self._gens.index(_require_symbol(gen))
+
+    def _univariate_coeffs(self) -> List[Any]:
+        from ..core import Integer as _Integer
+
+        terms = self.terms()
+        deg = max(m[0] for m, _ in terms)
+        out = [_Integer(0)] * (deg + 1)
+        for m, c in terms:
+            out[deg - m[0]] = out[deg - m[0]] + c
+        return out
+
+    def total_degree(self) -> Any:
+        from ..core import S as _S
+
+        if self.as_expr() == 0:
+            return _S.NegativeInfinity
+        return max(sum(m) for m, _ in self.terms())
+
     def all_coeffs(self) -> List[Any]:
         """Return all coefficients of the polynomial in descending degree order."""
+        if self._parametric:
+            return self._univariate_coeffs()
         raw = _native.poly_coeffs_expr(str(_native_expr(self._expr)), _native_symbol_key(self.gen))
         return [_parse_result(c) for c in raw]
 
@@ -87,6 +148,13 @@ class Poly(Basic):
 
     def degree(self, gen: Any = 0) -> Optional[int]:
         """Return polynomial degree."""
+        if self._parametric:
+            from ..core import S as _S
+
+            if self.as_expr() == 0:
+                return _S.NegativeInfinity
+            i = self._gen_index(gen)
+            return max(m[i] for m, _ in self.terms())
         if len(self._gens) > 1:
             var_names = [_native_symbol_key(g) for g in self._gens]
             target_key = None
@@ -101,6 +169,8 @@ class Poly(Basic):
 
     def leading_coeff(self) -> Any:
         """Return the leading coefficient."""
+        if self._parametric:
+            return self.terms()[0][1]
         raw = _native.poly_leading_coeff_expr(str(_native_expr(self._expr)), _native_symbol_key(self.gen))
         return _parse_result(raw)
 
@@ -148,7 +218,7 @@ class Poly(Basic):
     def diff(self, *specs: Any) -> "Poly":
         """Differentiate polynomial."""
         from ..core import diff
-        return Poly(diff(self.as_expr(), *(specs or (self.gen,))), *self._gens)
+        return self._like(diff(self.as_expr(), *(specs or (self.gen,))))
 
     def integrate(self, *specs: Any) -> "Poly":
         """Integrate polynomial."""
@@ -224,6 +294,11 @@ class Poly(Basic):
         """Compute the content (GCD of coefficients) of this polynomial."""
         from functools import reduce
         from ..core import Add, Integer, Rational
+        if self._parametric:
+            g = Integer(0)
+            for _, c in self.terms():
+                g = c if g == 0 else gcd(g, c)
+            return g
         if len(self._gens) > 1:
             expr = self._expr
             terms = expr.args if isinstance(expr, Add) else [expr]
@@ -267,8 +342,8 @@ class Poly(Basic):
         cont = self.content()
         if cont == 0:
             return (Integer(0), Poly(0, *self._gens))
-        prim_expr = expand(self.as_expr() / cont)
-        return (cont, Poly(prim_expr, *self._gens))
+        prim_expr = expand(cancel(self.as_expr() / cont)) if self._parametric else expand(self.as_expr() / cont)
+        return (cont, self._like(prim_expr))
 
     @classmethod
     def from_list(cls, coeffs: Sequence[Any], gens: Any = None) -> "Poly":
@@ -312,6 +387,15 @@ class Poly(Basic):
 
     def monic(self) -> "Poly":
         """Return the monic associate of this polynomial."""
+        if self._parametric:
+            lc = self.leading_coeff()
+            out = Integer(0)
+            for m, c in self.terms():
+                mono = Integer(1)
+                for g, k in zip(self._gens, m):
+                    mono = mono * g**k
+                out = out + cancel(c / lc) * mono
+            return Poly(out, *self._gens)
         raw = _native.poly_monic_expr(str(_native_expr(self._expr)), _native_symbol_key(self.gen))
         return Poly(_parse_result(raw), *self._gens)
 
@@ -319,6 +403,11 @@ class Poly(Basic):
         """Polynomial division with remainder returning (quotient, remainder)."""
         other_expr = other.as_expr() if isinstance(other, Poly) else _wrap(_native_expr(other))
         other_gens = other._gens if isinstance(other, Poly) else ()
+        if len(self._gens) == 1 and len(other_gens) <= 1 and (
+            self._parametric or (other_expr.free_symbols - set(self._gens))
+        ):
+            q, r = _parametric_div(self._expr, other_expr, self.gen)
+            return self._like(q, other), self._like(r, other)
         if len(self._gens) > 1 or len(other_gens) > 1:
             all_gens = tuple(dict.fromkeys(self._gens + other_gens))
             var_names = [_native_symbol_key(g) for g in all_gens]
@@ -447,6 +536,19 @@ class Poly(Basic):
 
     def factor_list(self) -> Tuple[Any, List[Tuple["Poly", int]]]:
         """Factorization over Q returning (scale, [(factor, multiplicity), ...])."""
+        if self._parametric or len(self._gens) > 1:
+            res = _native_factor_multivariate(
+                self._expr, list(self._gens) + _sort_gens(self._expr.free_symbols - set(self._gens))
+            )
+            if res is not None:
+                scale, fl = res
+                out = []
+                for f, m in fl:
+                    if f.free_symbols & set(self._gens):
+                        out.append((self._like(f), m))
+                    else:
+                        scale = scale * f**m
+                return scale, out
         scale_raw, factors_raw = _native.poly_factor_list_expr(
             str(_native_expr(self._expr)), _native_symbol_key(self.gen)
         )
@@ -474,6 +576,8 @@ class Poly(Basic):
 
     def roots(self) -> dict[Any, int]:
         """Compute polynomial roots over Q with multiplicities."""
+        if self._parametric:
+            return _parametric_roots(self)
         roots_raw = _native.poly_roots_expr(
             str(_native_expr(self._expr)), _native_symbol_key(self.gen)
         )
@@ -481,28 +585,28 @@ class Poly(Basic):
 
     def __add__(self, other: Any) -> "Poly":
         other_expr = other.as_expr() if isinstance(other, Poly) else other
-        return Poly(self.as_expr() + other_expr, *self._gens)
+        return self._like(self.as_expr() + other_expr, other)
 
     def __radd__(self, other: Any) -> "Poly":
         return self.__add__(other)
 
     def __sub__(self, other: Any) -> "Poly":
         other_expr = other.as_expr() if isinstance(other, Poly) else other
-        return Poly(self.as_expr() - other_expr, *self._gens)
+        return self._like(self.as_expr() - other_expr, other)
 
     def __rsub__(self, other: Any) -> "Poly":
         other_expr = other.as_expr() if isinstance(other, Poly) else other
-        return Poly(other_expr - self.as_expr(), *self._gens)
+        return self._like(other_expr - self.as_expr(), other)
 
     def __mul__(self, other: Any) -> "Poly":
         other_expr = other.as_expr() if isinstance(other, Poly) else other
-        return Poly(self.as_expr() * other_expr, *self._gens)
+        return self._like(self.as_expr() * other_expr, other)
 
     def __rmul__(self, other: Any) -> "Poly":
         return self.__mul__(other)
 
     def __neg__(self) -> "Poly":
-        return Poly(-self.as_expr(), *self._gens)
+        return self._like(-self.as_expr())
 
     def __pos__(self) -> "Poly":
         return self
@@ -511,7 +615,7 @@ class Poly(Basic):
         if not isinstance(n, int) or n < 0:
             raise ValueError("Polynomial exponent must be a non-negative integer")
         from ..core import expand
-        return Poly(expand(self.as_expr() ** n), *self._gens)
+        return self._like(expand(self.as_expr() ** n))
 
     def __floordiv__(self, other: Any) -> "Poly":
         return self.div(other)[0]
@@ -568,13 +672,14 @@ class Poly(Basic):
         from ..core import Float as _Float, Integer as _Integer, Rational as _Rational
 
         coeffs = [c for _, c in self.terms()]
+        carried = sorted(getattr(self, "_extra_syms", ()), key=lambda v: v.name)
         if all(isinstance(c, _Integer) for c in coeffs):
-            return "ZZ"
+            return "ZZ[%s]" % ",".join(map(str, carried)) if carried else "ZZ"
         if all(isinstance(c, _Rational) for c in coeffs):
-            return "QQ"
+            return "QQ[%s]" % ",".join(map(str, carried)) if carried else "QQ"
         if all(isinstance(c, (_Rational, _Float)) for c in coeffs):
             return "RR"
-        extra = set()
+        extra = set(getattr(self, "_extra_syms", ()))
         numeric_ok = True
         integral = True
         for c in coeffs:
@@ -588,7 +693,17 @@ class Poly(Basic):
                     integral = False
                     continue
                 numeric_ok = False
-        if not extra or not numeric_ok:
+        if not extra:
+            return "EX"
+        if not numeric_ok:
+            from .. import fraction as _fraction
+
+            if all(
+                not _fraction(c)[1].free_symbols or True
+                for c in coeffs
+            ) and all(_is_rational_function(c) for c in coeffs):
+                names = ",".join(str(v) for v in sorted(extra, key=lambda v: v.name))
+                return "ZZ(%s)" % names
             return "EX"
         names = ",".join(str(v) for v in sorted(extra, key=lambda v: v.name))
         return "%s[%s]" % ("ZZ" if integral else "QQ", names)
@@ -633,6 +748,150 @@ class Poly(Basic):
 
     def __str__(self) -> str:
         return self.__repr__()
+
+
+def _is_rational_function(c: Any) -> bool:
+    from .. import fraction as _fraction
+
+    n, d = _fraction(c)
+    for part in (n, d):
+        syms = sorted(part.free_symbols, key=lambda v: v.name)
+        if not syms:
+            continue
+        try:
+            for _, cc in Poly(part, *syms).terms():
+                if not isinstance(cc, Rational):
+                    return False
+        except Exception:
+            return False
+    return True
+
+
+def _parametric_div(f: Any, g: Any, x: Any) -> tuple:
+    """Univariate division over the coefficient fraction field."""
+    from ..core import expand as _expand
+
+    fc = Poly(f, x)
+    gc = Poly(g, x)
+    dg = gc.degree()
+    lg = gc.leading_coeff()
+    q = Integer(0)
+    r = _expand(f)
+    while r != 0:
+        pr = Poly(r, x)
+        dr = pr.degree()
+        if dr < dg:
+            break
+        t = cancel(pr.leading_coeff() / lg) * x ** (dr - dg)
+        q = q + t
+        r = _expand(cancel(r - t * g))
+    del fc
+    return _expand(q), r
+
+
+def _sqrt_squares_out(d: Any) -> Any:
+    """Upstream roots_quadratic ``_sqrt``: even powers leave the radical
+    (both signs are roots, so no absolute value is introduced)."""
+    from ..core import sqrt as _sqrt
+
+    co, other = [], []
+    for di in Mul.make_args(d):
+        if isinstance(di, Pow) and isinstance(di.args[1], Integer) and int(di.args[1]) % 2 == 0:
+            co.append(di.args[0] ** (int(di.args[1]) // 2))
+        else:
+            other.append(di)
+    if co:
+        return Mul(*co) * _sqrt(Mul(*other))
+    return _sqrt(d)
+
+
+def _quadratic_roots(c2: Any, c1: Any, c0: Any) -> list:
+    """Upstream ``roots_quadratic`` shapes."""
+    if c0 == 0:
+        return [Integer(0), -c1 / c2]
+    if c1 == 0:
+        r = _sqrt_squares_out(cancel(-c0 / c2))
+        return [-r, r]
+    d = c1**2 - 4 * c2 * c0
+    A = 2 * c2
+    B = -c1 / A
+    D = _sqrt_squares_out(d) / A
+    return [B - D, B + D]
+
+
+def _binomial_roots(cn: Any, c0: Any, n: int) -> list:
+    """``cn*x**n + c0``: base * every n-th root of unity (upstream
+    ``roots_binomial`` order: 1 first, then conjugate pairs)."""
+    from ..core import I as _I, Rational as _R, expand as _expand, pi as _pi
+    from ..functions import cos as _cos, sin as _sin
+
+    alpha = cancel(-c0 / cn)
+    co, other = [], []
+    for f in Mul.make_args(alpha):
+        if isinstance(f, Pow) and isinstance(f.args[1], Integer) and int(f.args[1]) % n == 0:
+            co.append(f.args[0] ** (int(f.args[1]) // n))
+        else:
+            other.append(f)
+    base = Mul(*co) * Mul(*other) ** _R(1, n) if co else alpha ** _R(1, n)
+    order = [0]
+    for k in range(1, n // 2 + 1):
+        order.extend([n - k, k] if n - k != k else [k])
+    out = []
+    for k in order:
+        ang = _R(2 * k, n) * _pi
+        zeta = _expand(_cos(ang) + _I * _sin(ang))
+        out.append(base if zeta == 1 else base * zeta)
+    return out
+
+
+def _root_heuristics(f: Any, x: Any) -> list:
+    cs = Poly(f, x).all_coeffs()
+    n = len(cs) - 1
+    nonzero = [c for c in cs if c != 0]
+    if n == 1:
+        return [cancel(-cs[1] / cs[0])]
+    if len(nonzero) == 2 and cs[-1] != 0:
+        return _quadratic_roots(*cs) if n == 2 else _binomial_roots(cs[0], cs[-1], n)
+    if n == 2:
+        return [cancel(r) for r in _quadratic_roots(*cs)]
+    raise NotImplementedError("roots of a degree-%d parametric factor" % n)
+
+
+def _parametric_roots(p: "Poly") -> dict:
+    """Roots of a univariate polynomial with symbolic coefficients
+    (upstream ``roots``): linear and two-term polynomials by formula,
+    otherwise factor over all symbols and solve each factor."""
+    from ..core import Add
+
+    x = p.gen
+    cs = p.all_coeffs()
+    k = 0
+    while len(cs) > 1 and cs[-1] == 0:
+        cs.pop()
+        k += 1
+    out: dict = {}
+    f = Add(*[c * x ** (len(cs) - 1 - i) for i, c in enumerate(cs)])
+    n = len(cs) - 1
+    nonzero = [c for c in cs if c != 0]
+    if n >= 1:
+        if n == 1 or len(nonzero) == 2:
+            for r in _root_heuristics(f, x):
+                out[r] = out.get(r, 0) + 1
+        else:
+            # Upstream roots factors with the variable replaced by a Dummy
+            # ``_x0``, which sorts after every named generator.
+            res = _native_factor_multivariate(f, _sort_gens(f.free_symbols - {x}) + [x])
+            factors = [(g, m) for g, m in (res[1] if res is not None else []) if x in g.free_symbols]
+            if len(factors) <= 1 and n == 2:
+                for r in _quadratic_roots(*cs):
+                    out[r] = out.get(r, 0) + 1
+            else:
+                for g, m in factors or [(f, 1)]:
+                    for r in _root_heuristics(g, x):
+                        out[r] = out.get(r, 0) + m
+    if k:
+        out[Integer(0)] = out.get(Integer(0), 0) + k
+    return out
 
 
 def degree(f: Any, gen: Any = 0) -> Optional[int]:
@@ -770,11 +1029,8 @@ def _multivariate_gcd_lcm(a: Any, b: Any, lcm: bool) -> Any:
     (lcm) of the integer contents, expanded as upstream returns it."""
     from ..core import expand as _expand, sympify as _s
 
-    mgens = _multivariate_gens(_s(a) + _s(b) * Symbol("_fsym_gcd_probe"), ())
-    if mgens is None:
-        return None
-    mgens = [g for g in mgens if g.name != "_fsym_gcd_probe"]
-    if len(mgens) < 2:
+    mgens = _sort_gens(_s(a).free_symbols | _s(b).free_symbols)
+    if not mgens:
         return None
     fa = _native_factor_multivariate(a, mgens)
     fb = _native_factor_multivariate(b, mgens)
@@ -1170,7 +1426,10 @@ def _dmp_rep(expr: Any, gens: list) -> Any:
         for o in others:
             c = c * o
         coeffs[k] = coeffs.get(k, 0) + c
-    deg = max(coeffs) if coeffs else 0
+    coeffs = {k: c for k, c in coeffs.items() if c != 0}
+    if not coeffs:
+        return []  # the zero polynomial (upstream DMP strips it to [])
+    deg = max(coeffs)
     return [_dmp_rep(coeffs.get(k, 0), rest) for k in range(deg, -1, -1)]
 
 
@@ -1200,7 +1459,7 @@ def _native_factor_multivariate(expr: Any, gens: list) -> Tuple[Any, List[Tuple[
 
 
 def _multivariate_gens(p: Any, gens: tuple) -> list | None:
-    syms = sorted(getattr(_wrap(_native_expr(p)), "free_symbols", set()), key=lambda s: s.name)
+    syms = _sort_gens(getattr(_wrap(_native_expr(p)), "free_symbols", set()))
     if gens:
         extra = [s for s in syms if s not in gens]
         out = list(gens) + extra
@@ -1228,7 +1487,7 @@ def _factor_list_any(e: Any) -> tuple | None:
     from ..core import sympify as _s
 
     e = _s(e)
-    syms = sorted(e.free_symbols, key=lambda s: s.name)
+    syms = _sort_gens(e.free_symbols)
     if not syms:
         return (e, [])
     if len(syms) == 1:
@@ -1310,7 +1569,7 @@ def factor(p: Any, *gens: Any) -> Any:
             return _keep_coeff(scale, Mul(*[f if m == 1 else f**m for f, m in factors]))
     if not gens:
         wrapped = _wrap(_native_expr(p))
-        syms = sorted(getattr(wrapped, "free_symbols", set()), key=lambda s: s.name)
+        syms = _sort_gens(getattr(wrapped, "free_symbols", set()))
         if len(syms) > 1:
             result = _factor_multivariate(wrapped, syms)
             if result is not None:
@@ -1738,7 +1997,7 @@ def _apart_parametric(numer: Any, denom: Any, x: Any) -> Any:
     undetermined coefficients, solved generically as upstream does."""
     from ..core import Add as _Add, Dummy as _Dummy, expand as _expand
 
-    gens = [x] + sorted((numer.free_symbols | denom.free_symbols) - {x}, key=lambda s: s.name)
+    gens = [x] + _sort_gens((numer.free_symbols | denom.free_symbols) - {x})
     fl = _native_factor_multivariate(denom, gens)
     if fl is None:
         return None

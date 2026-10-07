@@ -2411,6 +2411,41 @@ class SurfaceTests(unittest.TestCase):
             "-(y - 2)/(3*(x + 2)) + (y + 1)/(3*(x - 1))",
         )
 
+    def test_parametric_poly_surface(self):
+        # Oracle-pinned (SymPy 1.14): Poly over ZZ[a, ...] / ZZ(a, ...).
+        x, y, a, b, c = sympy.symbols("x y a b c")
+        P = sympy.Poly
+        self.assertEqual(P(x**2 * y + 3 * x + y, x).all_coeffs(), [y, 3, y])
+        self.assertEqual(P(x**2 * y + 3 * x + y, x).degree(), 2)
+        self.assertEqual(P(a * x**2 + b * x + c, x).LC(), a)
+        self.assertEqual(sympy.degree(a * x**3 + b, x), 3)
+        self.assertEqual(str(P(a * x**2 + b * x + c, x).diff(x)), "Poly(2*a*x + b, x, domain='ZZ[a,b,c]')")
+        self.assertEqual(str(P(a * x**2 + b * x + c, x).monic()), "Poly(x**2 + b/a*x + c/a, x, domain='ZZ(a,b,c)')")
+        self.assertEqual(
+            str(sympy.div(P(x**2 + a * x, x), P(x + a, x))),
+            "(Poly(x, x, domain='ZZ[a]'), Poly(0, x, domain='ZZ[a]'))",
+        )
+        self.assertEqual(str(P(2 * a * x + 4 * a, x).primitive()), "(2*a, Poly(x + 2, x, domain='ZZ[a]'))")
+        self.assertEqual(sympy.quo(x**2 - a**2, x - a, x), a + x)
+        self.assertEqual(sympy.rem(x**3 + a, x - 1, x), a + 1)
+        self.assertEqual(str(sympy.roots(x**2 - a**2, x)), "{-a: 1, a: 1}")
+        self.assertEqual(
+            str(sympy.roots(x**2 + b * x + c, x)),
+            "{-b/2 - sqrt(b**2 - 4*c)/2: 1, -b/2 + sqrt(b**2 - 4*c)/2: 1}",
+        )
+        self.assertEqual(
+            str(sympy.roots(x**3 - a**3, x)),
+            "{a: 1, a*(-1/2 - sqrt(3)*I/2): 1, a*(-1/2 + sqrt(3)*I/2): 1}",
+        )
+        self.assertEqual(
+            str(P(x**3 * y - x * y**3, x, y).factor_list()),
+            "(1, [(Poly(y, x, y, domain='ZZ'), 1), (Poly(x, x, y, domain='ZZ'), 1), "
+            "(Poly(x - y, x, y, domain='ZZ'), 1), (Poly(x + y, x, y, domain='ZZ'), 1)])",
+        )
+        self.assertEqual(sympy.gcd(2 * x + 2, 4 * x + 4), 2 * x + 2)
+        self.assertEqual(P(x**2 + a * x + 1, x).gens, (x,))
+        self.assertEqual(P(x**2 - a**2).gens, (x, a))
+
     def test_poly_system_solvers(self):
         from sympy.solvers import nonlinsolve, solve_poly_system
         self.assertIs(solve_poly_system, sympy.solve_poly_system)
