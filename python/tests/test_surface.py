@@ -2589,6 +2589,26 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(sympy.integrate(sympy.legendre(2, x) * sympy.legendre(3, x), (x, -1, 1)), 0)
         self.assertEqual(sympy.latex(sympy.legendre(n, x) ** 2), r"\left(P_{n}\left(x\right)\right)^{2}")
 
+    def test_rsolve_and_complex_evalf(self):
+        n = sympy.Symbol("n", integer=True)
+        y = sympy.Function("y")
+        rs = sympy.rsolve
+        self.assertEqual(str(rs(y(n + 1) - 2 * y(n), y(n))), "2**n*C0")
+        self.assertEqual(
+            str(rs(y(n + 2) - y(n + 1) - y(n), y(n), {y(0): 0, y(1): 1})),
+            "-sqrt(5)*(1/2 - sqrt(5)/2)**n/5 + sqrt(5)*(1/2 + sqrt(5)/2)**n/5",
+        )
+        self.assertEqual(str(rs(y(n + 1) - y(n) - n, y(n))), "C0 + n*(n - 1)/2")
+        self.assertEqual(str(rs(y(n + 2) - 4 * y(n + 1) + 4 * y(n), y(n))), "2**n*C0 + 2**(n - 1)*C1*n")
+        self.assertEqual(str(rs(y(n + 1) - 3 * y(n) - 2**n, y(n))), "-2**n + 3**n*C0")
+        self.assertEqual(rs(y(n) - y(n - 1) - 2, y(n), {y(0): 1}), 2 * n + 1)
+        self.assertEqual(str(rs(y(n + 1) - (n + 1) * y(n), y(n))), "C0*factorial(n)")
+        self.assertEqual(str(rs(y(n + 2) + y(n), y(n))), "I**n*C0 + C1*(-I)**n")
+        I = sympy.I
+        self.assertEqual(str(sympy.N(1 + 2 * I)), "1.0 + 2.0*I")
+        self.assertEqual(str(sympy.exp(I).evalf(5)), "0.5403 + 0.84147*I")
+        self.assertAlmostEqual(complex(sympy.sqrt(2) + I), complex(2**0.5, 1), places=14)
+
     def test_poly_system_solvers(self):
         from sympy.solvers import nonlinsolve, solve_poly_system
         self.assertIs(solve_poly_system, sympy.solve_poly_system)

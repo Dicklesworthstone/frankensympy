@@ -1824,6 +1824,15 @@ def _keep_coeff(coeff: Any, expr: Any) -> Any:
     return coeff * expr
 
 
+def _complex_value(e: Any) -> complex | None:
+    """binary64 complex value of a constant expression, or None."""
+    try:
+        v = _native.complex_value_expr(str(_native_expr(e)))
+    except Exception:
+        return None
+    return None if v is None else complex(v[0], v[1])
+
+
 def sort_key_of(a):
     return a.sort_key()
 
@@ -2230,11 +2239,36 @@ class Expr(Basic):
             return certified
         try:
             return Float(_native_expr(self).evalf(), n)
+        except ValueError as exc:
+            # Non-real numbers evaluate as re + im*I (upstream N(1 + 2*I)).
+            if "not real-valued" not in str(exc) or self.free_symbols:
+                raise
+            value = _complex_value(self)
+            if value is None:
+                raise
+            def digits(v: float) -> Any:
+                text = f"{v:#.{min(n, _F64_HONEST_DIGITS)}g}"
+                if "e" not in text and text.endswith("."):
+                    text += "0"
+                return _ExactDecimalFloat(text, n)
+
+            re_part = digits(value.real) if value.real != 0 else _ZERO
+            return re_part + digits(value.imag) * I
         except (NotImplementedError, TypeError):
             return super().evalf(n)
 
     def n(self, n: int = 15) -> Any:
         return self.evalf(n=n)
+
+    def __complex__(self) -> complex:
+        try:
+            return complex(float(self))
+        except (TypeError, ValueError):
+            pass
+        value = _complex_value(self)
+        if value is None:
+            raise TypeError(f"cannot convert {self} to complex")
+        return value
 
     def __float__(self) -> float:
         ratio = _exact_ratio(self)

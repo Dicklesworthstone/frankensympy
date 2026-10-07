@@ -2329,3 +2329,7 @@ from .functions.special.polynomials import (  # noqa: E402
 from .functions.special import polynomials as _orthopoly  # noqa: E402
 
 __all__ += list(_orthopoly.__all__)
+
+from .solvers.recurr import rsolve  # noqa: E402
+
+__all__ += ["rsolve"]
