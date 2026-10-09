@@ -2697,6 +2697,36 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(str(sympy.Poly(x**2 + x - 1).all_roots()), "[-sqrt(5)/2 - 1/2, -1/2 + sqrt(5)/2]")
         self.assertAlmostEqual(float(C(x**3 - x - 1, 0)), 1.324717957244746, places=14)
 
+    def test_float_coefficient_arithmetic_and_float_solve(self):
+        # Oracle-pinned (SymPy 1.14.0) Float coefficient folding.
+        x = sympy.Symbol("x")
+        F = sympy.Float
+        self.assertEqual(sympy.srepr(x - 2.0), "Add(Symbol('x'), Float(-2.0))")
+        self.assertEqual(str((x + 1) * 0.5), "0.5*x + 0.5")
+        self.assertEqual(str(x + 0.5 * x), "1.5*x")
+        self.assertEqual(str(2 * x + 0.5 * x), "2.5*x")
+        self.assertEqual(str(-2.5 * x), "-2.5*x")
+        self.assertEqual(str(x / 2.0), "0.5*x")
+        self.assertEqual(str((2.0 * x) ** 2), "4.0*x**2")
+        self.assertEqual(str(sympy.expand((x + 0.5) ** 2)), "x**2 + 1.0*x + 0.25")
+        self.assertEqual(sympy.Mul(3, F(2.0)), F(6.0))
+        self.assertEqual(sympy.Integer(2**53 + 1) - F(2**53), F(1.0))
+        self.assertIs(0.0 * x, sympy.S.Zero)
+        self.assertEqual(sympy.Add(F(0.0), x), x)
+        self.assertEqual(str(F(-2.0) ** sympy.Rational(1, 2)), "1.4142135623731*I")
+        # Planted negative: exact arithmetic never turns into Floats.
+        self.assertEqual(str(x / 2 + sympy.Rational(1, 3)), "x/2 + 1/3")
+        # String decimals are Floats; rational=True keeps them exact.
+        self.assertEqual(sympy.srepr(sympy.sympify("x-2.5")), "Add(Symbol('x'), Float(-2.5))")
+        self.assertEqual(sympy.sympify("0.1", rational=True), sympy.Rational(1, 10))
+        self.assertEqual(sympy.sympify("3"), 3)
+        self.assertEqual(str(sympy.nsimplify(x + 0.1)), "x + 1/10")
+        self.assertEqual(str(sympy.nsimplify(x + 1.4142135623730951)), "x + 14142135623731/10000000000000")
+        self.assertEqual(str(sympy.solve(x**2 - 2.0, x)), "[-1.41421356237310, 1.41421356237310]")
+        self.assertEqual(str(sympy.solve(0.5 * x - 1, x)), "[2.00000000000000]")
+        self.assertEqual(str(sympy.solve(1.5 * x**2 + x, x)), "[-0.666666666666667, 0.0]")
+        self.assertEqual(sympy.solve(x**2 - 2.0, x, rational=False) != [], True)
+
     def test_poly_system_solvers(self):
         from sympy.solvers import nonlinsolve, solve_poly_system
         self.assertIs(solve_poly_system, sympy.solve_poly_system)

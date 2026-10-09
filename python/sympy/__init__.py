@@ -262,10 +262,53 @@ def _solve_rational_fallback(expr, symbol):
     return out
 
 
+_NO_FLOATS = object()
+
+
+def _solve_rationalized(expression, symbols, flags):
+    """Upstream solve with Float input: the equations are solved with
+    every Float replaced by its rational value (nsimplify rational=True)
+    and the solutions come back as Floats (nfloat)."""
+    from .simplify.simplify import _real_to_rational
+
+    eqs = expression if isinstance(expression, (list, tuple)) else [expression]
+    eqs = [sympify(e) for e in eqs]
+    if flags.get("rational") is False or not any(
+            isinstance(e, Basic) and e.atoms(Float) for e in eqs):
+        return _NO_FLOATS
+    rat = [_real_to_rational(e) for e in eqs]
+    if not isinstance(expression, (list, tuple)):
+        rat = rat[0]
+    return _nfloat_tree(solve(rat, *symbols, **flags))
+
+
+def _nfloat_tree(obj):
+    if isinstance(obj, list):
+        return [_nfloat_tree(o) for o in obj]
+    if isinstance(obj, tuple):
+        return tuple(_nfloat_tree(o) for o in obj)
+    if isinstance(obj, set):
+        return {_nfloat_tree(o) for o in obj}
+    if isinstance(obj, dict):
+        return {k: _nfloat_tree(v) for k, v in obj.items()}
+    if isinstance(obj, Symbol) or not isinstance(obj, Basic):
+        return obj
+    if isinstance(obj, Rational):
+        return Float(float(obj))
+    v = obj.evalf()
+    if isinstance(v, Rational):
+        return Float(v)
+    return v
+
+
 def solve(expression, *symbols, **flags):
     """Solve the algebraic equation or system of equations ``expression == 0``."""
     dict_flag = bool(flags.get("dict", False))
     set_flag = bool(flags.get("set", False))
+
+    floated = _solve_rationalized(expression, symbols, flags)
+    if floated is not _NO_FLOATS:
+        return floated
 
     ineqs = expression if isinstance(expression, (list, tuple)) else [expression]
     if ineqs and any(_is_inequality(e) for e in ineqs):

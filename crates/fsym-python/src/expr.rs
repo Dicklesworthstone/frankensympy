@@ -202,6 +202,12 @@ impl PyExpr {
         expr_contains(&self.inner, &pattern.inner)
     }
 
+    /// True when some applied function named ``name`` occurs in the tree
+    /// (the shell uses it to detect interned Float payloads cheaply).
+    pub fn has_function(&self, name: &str) -> bool {
+        expr_has_function(&self.inner, name)
+    }
+
     #[getter]
     pub fn is_integer(&self) -> bool {
         matches!(&self.inner, Expr::Integer(_))
@@ -534,6 +540,15 @@ fn expr_contains(haystack: &Expr, needle: &Expr) -> bool {
         Expr::Add(terms) | Expr::Mul(terms) => terms.iter().any(|t| expr_contains(t, needle)),
         Expr::Pow(b, e) => expr_contains(b, needle) || expr_contains(e, needle),
         Expr::Function(_, args) => args.iter().any(|a| expr_contains(a, needle)),
+        _ => false,
+    }
+}
+
+fn expr_has_function(e: &Expr, name: &str) -> bool {
+    match e {
+        Expr::Add(terms) | Expr::Mul(terms) => terms.iter().any(|t| expr_has_function(t, name)),
+        Expr::Pow(b, x) => expr_has_function(b, name) || expr_has_function(x, name),
+        Expr::Function(f, args) => f == name || args.iter().any(|a| expr_has_function(a, name)),
         _ => false,
     }
 }

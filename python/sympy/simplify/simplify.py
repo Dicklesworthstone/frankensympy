@@ -876,8 +876,29 @@ def separatevars(expr: Any, symbols: Any = None, dict: bool = False) -> Any:
     return _maybe_fuse_rational_add(expr)
 
 
+def _real_to_rational(expr: Any, tolerance: float | None = None) -> Any:
+    """Every Float atom replaced by a Rational (upstream base10 conversion):
+    the simple number nsimplify finds when it is rational, else the
+    Float's 15-significant-digit decimal value."""
+    from ..core import Float
+
+    reps = {}
+    for fl in expr.atoms(Float):
+        if tolerance is not None and abs(float(fl)) < tolerance:
+            reps[fl] = Integer(0)
+            continue
+        r = nsimplify(fl, rational=False)
+        if not isinstance(r, Rational):
+            r = Rational(format(float(fl), ".15g"))
+        reps[fl] = r
+    return expr.xreplace(reps) if reps else expr
+
+
 def nsimplify(expr: Any, constants: Iterable[Any] = (), tolerance: float | None = None, full: bool = False, rational: bool | None = None) -> Any:
     """Find a simple exact formula that approximates a numerical expression."""
+    expr = sympify(expr)
+    if rational or getattr(expr, "free_symbols", None):
+        return _real_to_rational(expr, tolerance)
     tol = tolerance if tolerance is not None else 1e-10
     try:
         val = float(expr)

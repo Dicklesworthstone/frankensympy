@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import decimal
 import math
+import re
 import struct
 import sys
 from collections import OrderedDict
@@ -385,7 +386,7 @@ def _wrap(value: Any) -> "Basic":
 
 
 def _parse_result(value: str) -> "Expr":
-    return _wrap(_native.Expr(value))
+    return _fold_floats(_wrap(_native.Expr(value)))
 
 
 def _lift_builtin_result(value: Any) -> "Basic":
@@ -2304,6 +2305,10 @@ class Expr(Basic):
                 return coeff, Integer(1)
             if len(rest) == 1:
                 return coeff, rest[0]
+            if any(type(a) is Float for a in rest):
+                # A Float magnitude kept in the remainder is its numeric
+                # coefficient again (upstream Mul._from_args canonical form).
+                return coeff, Mul(*rest)
             return coeff, Mul(*rest, evaluate=False)
         if _is_numeric_coeff(self, rational):
             return self, Integer(1)
@@ -2492,7 +2497,7 @@ class Expr(Basic):
             if (_is_numeric_coeff(self, True) and type(other) is Float
                     and math.isfinite(other._as_python_float())):
                 return other.__radd__(self)
-            return _wrap(_native_expr(self) + _native_expr(other))
+            return _fold_floats(_wrap(_native_expr(self) + _native_expr(other)))
         except TypeError:
             if _is_sympy_operand(other):
                 return NotImplemented
@@ -2500,7 +2505,7 @@ class Expr(Basic):
 
     def __radd__(self, other: Any) -> "Expr":
         try:
-            return _wrap(_native_expr(other) + _native_expr(self))
+            return _fold_floats(_wrap(_native_expr(other) + _native_expr(self)))
         except TypeError:
             if _is_sympy_operand(other):
                 return NotImplemented
@@ -2511,7 +2516,7 @@ class Expr(Basic):
             if (_is_numeric_coeff(self, True) and type(other) is Float
                     and math.isfinite(other._as_python_float())):
                 return other.__rsub__(self)
-            return _wrap(_native_expr(self) - _native_expr(other))
+            return _fold_floats(_wrap(_native_expr(self) - _native_expr(other)))
         except TypeError:
             if _is_sympy_operand(other):
                 return NotImplemented
@@ -2519,7 +2524,7 @@ class Expr(Basic):
 
     def __rsub__(self, other: Any) -> "Expr":
         try:
-            return _wrap(_native_expr(other) - _native_expr(self))
+            return _fold_floats(_wrap(_native_expr(other) - _native_expr(self)))
         except TypeError:
             if _is_sympy_operand(other):
                 return NotImplemented
@@ -2530,7 +2535,7 @@ class Expr(Basic):
             if (_is_numeric_coeff(self, True) and type(other) is Float
                     and math.isfinite(other._as_python_float())):
                 return other.__rmul__(self)
-            return _wrap(_native_expr(self) * _native_expr(other))
+            return _fold_floats(_wrap(_native_expr(self) * _native_expr(other)))
         except TypeError:
             if _is_sympy_operand(other):
                 return NotImplemented
@@ -2538,7 +2543,7 @@ class Expr(Basic):
 
     def __rmul__(self, other: Any) -> "Expr":
         try:
-            return _wrap(_native_expr(other) * _native_expr(self))
+            return _fold_floats(_wrap(_native_expr(other) * _native_expr(self)))
         except TypeError:
             if _is_sympy_operand(other):
                 return NotImplemented
@@ -2562,9 +2567,9 @@ class Expr(Basic):
                 if ratio_other is not None:
                     p2, q2 = ratio_other
                     if p2 != 0:
-                        return _wrap(_native_expr(self) * _native_expr(Rational(q2, p2)))
+                        return _fold_floats(_wrap(_native_expr(self) * _native_expr(Rational(q2, p2))))
             reciprocal = Pow(other, -1)
-            return _wrap(_native_expr(self) * _native_expr(reciprocal))
+            return _fold_floats(_wrap(_native_expr(self) * _native_expr(reciprocal)))
         except TypeError:
             if _is_sympy_operand(other):
                 return NotImplemented
@@ -2584,7 +2589,7 @@ class Expr(Basic):
                     p2, q2 = ratio_self
                     return Rational(p1 * q2, q1 * p2)
             reciprocal = Pow(self, -1)
-            return _wrap(_native_expr(other) * _native_expr(reciprocal))
+            return _fold_floats(_wrap(_native_expr(other) * _native_expr(reciprocal)))
         except TypeError:
             if _is_sympy_operand(other):
                 return NotImplemented
@@ -2620,10 +2625,13 @@ class Expr(Basic):
                     return _NEGATIVE_ONE
                 else:
                     return -I
+        folded = _float_pow(self, sympify(exponent))
+        if folded is not None:
+            return folded
         folded = _assumption_pow(self, sympify(exponent))
         if folded is not None:
             return folded
-        return _wrap(_native.py_pow(_native_expr(self), _native_expr(exponent)))
+        return _fold_floats(_wrap(_native.py_pow(_native_expr(self), _native_expr(exponent))))
 
     def __mod__(self, other: Any) -> "Expr":
         from .mod import Mod
@@ -2641,7 +2649,7 @@ class Expr(Basic):
         return NotImplemented
 
     def __neg__(self) -> "Expr":
-        return _wrap(-_native_expr(self))
+        return _fold_floats(_wrap(-_native_expr(self)))
 
     def __abs__(self) -> "Expr":
         return _wrap(_native.py_abs(_native_expr(self)))
@@ -3212,6 +3220,147 @@ def _maybe_arithmetic_float(value: Any) -> float | None:
         if not math.isfinite(result) or result.as_integer_ratio() != _exact_ratio(value):
             return None
     return result
+
+
+def _has_float(value: Any) -> bool:
+    native = getattr(value, "_value", None)
+    return isinstance(native, _native.Expr) and native.has_function(_FLOAT_INTERN)
+
+
+def _num_fraction(value: Any) -> Fraction | None:
+    """Exact value of a finite Integer/Rational/built-in Float atom, else
+    None (Float subclasses stay off this fast path)."""
+    if type(value) is Float:
+        f = value._as_python_float()
+        return Fraction(f) if math.isfinite(f) else None
+    ratio = _exact_ratio(value) if isinstance(value, Rational) else None
+    return Fraction(*ratio) if ratio is not None else None
+
+
+def _raw_add(args: list) -> "Expr":
+    if len(args) == 1:
+        return args[0]
+    return _wrap(_native.Add(*[_native_expr(a) for a in args], evaluate=True).as_expr())
+
+
+def _raw_mul(args: list) -> "Expr":
+    if len(args) == 1:
+        return args[0]
+    return _wrap(_native.Mul(*[_native_expr(a) for a in args], evaluate=True).as_expr())
+
+
+def _float_pow(base: Any, exponent: Any) -> Any:
+    """Numeric powers with a Float operand evaluate to a Float (upstream
+    Float(2.0)**-1 -> 0.5, 2**Float(0.5) -> 1.414..., Float(-2.0)**(1/2)
+    -> 1.414...*I); None when not admitted (zero base, non-half-integer
+    power of a negative base, non-finite operands)."""
+    if type(exponent) is int:
+        exponent = Integer(exponent)
+    if type(base) is int:
+        base = Integer(base)
+    if not (type(base) is Float or type(exponent) is Float):
+        return None
+    b, e = _num_fraction(base), _num_fraction(exponent)
+    if b is None or e is None:
+        return None
+    if b == 0:
+        return zoo if e < 0 else None
+    try:
+        if b > 0:
+            return _admitted_float(float(b) ** float(e))
+        if e.denominator == 1:
+            return _admitted_float(float(b) ** int(e))
+        if (2 * e).denominator != 1:
+            return None
+        mag = _admitted_float(float(-b) ** float(e))
+    except (OverflowError, ZeroDivisionError):
+        return None
+    if mag is not None:
+        quarter = int(2 * e) % 4
+        return mag * I if quarter == 1 else -mag * I
+    return None
+
+
+def _admitted_float(value: float) -> "Float | None":
+    """A finite nonzero binary64 result, else None (keep exact form)."""
+    return Float(value) if math.isfinite(value) and value != 0.0 else None
+
+
+def _fraction_float(value: Fraction) -> "Float | None":
+    try:
+        return _admitted_float(float(value))
+    except OverflowError:
+        return None
+
+
+def _fold_floats(expr: Any) -> Any:
+    """SymPy 1.14 Float coefficient arithmetic over an evaluated tree the
+    native kernel built with Floats as opaque atoms: the numbers of a Mul
+    combine into one Float (exact sum/product, rounded once), a Float
+    coefficient distributes over a single Add factor, and Add terms with
+    the same non-numeric part and a Float coefficient combine. A Float
+    zero coefficient annihilates a Mul; a Float zero term drops from an
+    Add (upstream: 0.0*x -> 0, 0.0 + x -> x)."""
+    if isinstance(expr, Float) or not _has_float(expr):
+        return expr
+    if isinstance(expr, Pow):
+        folded = _float_pow(*expr.args)
+        return expr if folded is None else folded
+    if not isinstance(expr, (Add, Mul)) or hasattr(expr, "_args"):
+        return expr
+    args = [_fold_floats(a) for a in expr.args]
+    if isinstance(expr, Mul):
+        nums = [a for a in args if _num_fraction(a) is not None]
+        rest = [a for a in args if _num_fraction(a) is None]
+        if not any(type(n) is Float for n in nums):
+            return _raw_mul(args)
+        prod = Fraction(1)
+        for n in nums:
+            prod *= _num_fraction(n)
+        if prod == 0:
+            return _ZERO
+        coeff = _fraction_float(prod)
+        if coeff is None:
+            return expr
+        if not rest:
+            return coeff
+        if len(rest) == 1 and isinstance(rest[0], Add):
+            return _fold_floats(_raw_add([_raw_mul([coeff, t]) for t in rest[0].args]))
+        return _raw_mul([coeff] + rest)
+    groups: dict = {}
+    order: list = []
+    for t in args:
+        factors = list(t.args) if isinstance(t, Mul) else [t]
+        nums = [f for f in factors if _num_fraction(f) is not None]
+        rest = [f for f in factors if _num_fraction(f) is None]
+        key = _raw_mul(rest) if rest else _ONE
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(nums)
+    terms = []
+    for key in order:
+        entries = groups[key]
+        floaty = any(type(n) is Float for nums in entries for n in nums)
+        if not floaty:
+            for nums in entries:
+                terms.append(_raw_mul(nums + ([key] if key != _ONE else [])) if nums else key)
+            continue
+        total = Fraction(0)
+        for nums in entries:
+            c = Fraction(1)
+            for n in nums:
+                c *= _num_fraction(n)
+            total += c
+        if total == 0:
+            continue
+        coeff = _fraction_float(total)
+        if coeff is None:
+            return expr
+        terms.append(coeff if key == _ONE else _raw_mul([coeff, key]))
+    if not terms:
+        return _ZERO
+    return _raw_add(terms)
 
 
 class Float(Number):
@@ -3810,6 +3959,8 @@ class Add(Expr, AssocOp):
             return args[0] if isinstance(args[0], Basic) else _wrap(_native_expr(args[0]))
         native_args = [_native_expr(arg) for arg in args]
         val = _native.Add(*native_args, evaluate=evaluate).as_expr()
+        if evaluate and val.has_function(_FLOAT_INTERN):
+            return _fold_floats(_wrap(val))
         if evaluate:
             # Canonical args order (bead fra-add-args-canonical-order-o1i):
             # the pinned oracle sorts Add args in EVERY case — Add(-8, w)
@@ -3851,7 +4002,7 @@ class Mul(Expr, AssocOp):
         native_args = [_native_expr(arg) for arg in args]
         val = _native.Mul(*native_args, evaluate=evaluate).as_expr()
         if evaluate:
-            return _wrap(val)
+            return _fold_floats(_wrap(val))
         obj = object.__new__(cls)
         obj._args = tuple(a if isinstance(a, Basic) else _wrap(_native_expr(a)) for a in args)
         obj._value = val
@@ -3864,7 +4015,12 @@ class Mul(Expr, AssocOp):
     def args(self) -> tuple["Basic", ...]:
         if hasattr(self, "_args"):
             return self._args
-        return super().args
+        args = super().args
+        # The native kernel orders an interned Float after the symbolic
+        # factors; upstream's Mul keeps its Number coefficient first.
+        if len(args) > 1 and not isinstance(args[0], Number) and any(isinstance(a, Float) for a in args):
+            args = tuple([a for a in args if isinstance(a, Number)] + [a for a in args if not isinstance(a, Number)])
+        return args
 
     def __neg__(self) -> "Expr":
         # Profile-correct vs SymPy 1.14.0 Mul.__neg__: flip the leading Number
@@ -3890,6 +4046,9 @@ class Pow(Expr):
 
     def __new__(cls, base: Any, exponent: Any, evaluate: bool = True):
         if evaluate:
+            folded = _float_pow(base, exponent)
+            if folded is not None:
+                return folded
             folded = _assumption_pow(base, exponent)
             if folded is not None:
                 return folded
@@ -4478,6 +4637,39 @@ class SympifyError(ValueError):
     pass
 
 
+_FLOAT_LITERAL_HINT = re.compile(r"\d\.|\.\d|\d[eE]")
+
+
+def _extract_float_literals(text: str) -> tuple[str, dict]:
+    """Decimal literals in ``text`` replaced by placeholder names (the
+    native parser reads decimals as exact rationals; upstream sympify
+    reads them as Floats). Returns the rewritten text and the
+    placeholder -> literal map; the text is unchanged when it has none."""
+    if not _FLOAT_LITERAL_HINT.search(text):
+        return text, {}
+    import io
+    import tokenize
+
+    try:
+        tokens = list(tokenize.generate_tokens(io.StringIO(text).readline))
+    except (tokenize.TokenError, SyntaxError, IndentationError):
+        return text, {}
+    floats: dict = {}
+    out = []
+    for tok in tokens:
+        if (tok.type == tokenize.NUMBER and ("." in tok.string or "e" in tok.string.lower())
+                and not tok.string.lower().endswith("j")
+                and not tok.string.lower().startswith(("0x", "0o", "0b"))):
+            name = "_fsymflt%d_" % len(floats)
+            floats[name] = tok.string
+            out.append((tokenize.NAME, name))
+        else:
+            out.append((tok.type, tok.string))
+    if not floats:
+        return text, {}
+    return tokenize.untokenize(out), floats
+
+
 def sympify(
     a: Any,
     locals: dict[str, Any] | None = None,
@@ -4499,7 +4691,13 @@ def sympify(
         return a._sympy_()
     if isinstance(a, str):
         try:
-            parsed = _parse_result(a)
+            text, floats = _extract_float_literals(a)
+            parsed = _parse_result(text)
+            if floats:
+                parsed = parsed.xreplace({
+                    Symbol(name): (Rational(literal) if rational else Float(float(literal)))
+                    for name, literal in floats.items()
+                })
             if locals:
                 # Names bound in ``locals`` replace the parsed atoms.
                 rule = {}

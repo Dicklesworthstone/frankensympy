@@ -593,7 +593,7 @@ class StrPrinter:
         factors: list = []
         if cval == float("inf"):
             factors.append(c.oo)
-        elif cval is not None and cval != 1:
+        elif cval is not None and (cval != 1 or _kind(coeff) == "Float"):
             if isinstance(cval, Fraction):
                 factors.append(c.Rational(cval.numerator, cval.denominator))
             else:
