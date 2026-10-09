@@ -388,6 +388,74 @@ pub fn factor_multivariate(p: &MultivariatePoly) -> Result<MultivariateFactoriza
     Ok(MultivariateFactorization { scale, factors })
 }
 
+/// Independent verification lane for a multivariate factorization claim.
+///
+/// Checks, without reusing the generator's search: every factor is
+/// non-constant, integral, primitive (coefficient gcd 1) with a positive
+/// lex-leading coefficient; multiplicities are positive; no factor repeats;
+/// distinct factors are not associates; and `scale * prod(f_i^m_i)` equals
+/// the input exactly. Irreducibility is NOT claimed by this lane.
+pub fn verify_multivariate_factorization(
+    p: &MultivariatePoly,
+    claim: &MultivariateFactorization,
+) -> Result<(), PolyError> {
+    let reject = |why: &str| {
+        Err(PolyError::IdentityCheckFailed(format!(
+            "factorization rejected: {why}"
+        )))
+    };
+    if p.is_zero() {
+        return if claim.scale.is_zero() && claim.factors.is_empty() {
+            Ok(())
+        } else {
+            reject("zero polynomial must have scale 0 and no factors")
+        };
+    }
+    let mut product = MultivariatePoly::one(p.generators.clone());
+    for (idx, (f, m)) in claim.factors.iter().enumerate() {
+        if f.generators != p.generators {
+            return reject("factor generators differ from the input");
+        }
+        if *m == 0 {
+            return reject("zero multiplicity");
+        }
+        if f.terms.keys().all(|e| e.iter().all(|&k| k == 0)) {
+            return reject("constant factor");
+        }
+        let mut g = BigInt::zero();
+        for c in f.terms.values() {
+            if !c.is_integer() {
+                return reject("non-integral factor coefficient");
+            }
+            g = gcd_int(&g, &c.to_integer());
+        }
+        if g != BigInt::one() {
+            return reject("factor is not primitive");
+        }
+        if lex_lead(f).is_negative() {
+            return reject("factor lex-leading coefficient is negative");
+        }
+        for (other, _) in claim.factors.iter().skip(idx + 1) {
+            if other == f {
+                return reject("repeated factor (multiplicities must be merged)");
+            }
+        }
+        product = product.mul(&f.pow(u32::try_from(*m).map_err(|_| {
+            PolyError::IdentityCheckFailed("multiplicity out of range".to_string())
+        })?)?)?;
+    }
+    let scaled: BTreeMap<Vec<u32>, BigRational> = product
+        .terms
+        .iter()
+        .map(|(e, c)| (e.clone(), c.clone() * claim.scale.clone()))
+        .collect();
+    let check = MultivariatePoly::new(p.generators.clone(), scaled)?;
+    if check != *p {
+        return reject("scale * product does not reproduce the input");
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -436,5 +504,64 @@ mod tests {
     fn three_variable_difference_of_squares() {
         let (_, f) = factor_strings("x**2 + 2*x*y + y**2 - z**2", &["x", "y", "z"]);
         assert_eq!(f.len(), 2);
+    }
+
+    fn claim_of(src: &str, gens: &[&str]) -> (MultivariatePoly, MultivariateFactorization) {
+        let p = poly(src, gens);
+        let f = factor_multivariate(&p).expect("factor");
+        (p, f)
+    }
+
+    #[test]
+    fn verifier_accepts_generated_factorizations() {
+        for (src, gens) in [
+            ("x**2*y + x*y**2 + x + y", vec!["x", "y"]),
+            ("6*x**2*z + 24*x*y*z + 24*y**2*z", vec!["x", "y", "z"]),
+            ("x**6 - y**6", vec!["x", "y"]),
+            ("x**3 + y**3 + z**3 - 3*x*y*z", vec!["x", "y", "z"]),
+        ] {
+            let (p, f) = claim_of(src, &gens);
+            verify_multivariate_factorization(&p, &f).expect("generated claim verifies");
+        }
+    }
+
+    #[test]
+    fn verifier_rejects_planted_wrong_claims() {
+        let (p, f) = claim_of("x**2*y + x*y**2 + x + y", &["x", "y"]);
+        // wrong scale
+        let mut bad = f.clone();
+        bad.scale = bad.scale.clone() * BigRational::from_integer(BigInt::from(2));
+        assert!(verify_multivariate_factorization(&p, &bad).is_err());
+        // wrong multiplicity
+        let mut bad = f.clone();
+        bad.factors[0].1 += 1;
+        assert!(verify_multivariate_factorization(&p, &bad).is_err());
+        // perturbed factor coefficient
+        let mut bad = f.clone();
+        let key = bad.factors[0].0.terms.keys().next().cloned().expect("term");
+        let c = bad.factors[0].0.terms[&key].clone();
+        bad.factors[0].0.terms.insert(key, c + BigRational::one());
+        assert!(verify_multivariate_factorization(&p, &bad).is_err());
+        // non-primitive factor with compensating scale (product still equal)
+        let mut bad = f.clone();
+        let doubled: BTreeMap<Vec<u32>, BigRational> = bad.factors[0]
+            .0
+            .terms
+            .iter()
+            .map(|(e, c)| {
+                (
+                    e.clone(),
+                    c.clone() * BigRational::from_integer(BigInt::from(2)),
+                )
+            })
+            .collect();
+        bad.factors[0].0 =
+            MultivariatePoly::new(bad.factors[0].0.generators.clone(), doubled).expect("poly");
+        bad.scale = bad.scale.clone() / BigRational::from_integer(BigInt::from(2));
+        assert!(verify_multivariate_factorization(&p, &bad).is_err());
+        // dropped factor
+        let mut bad = f.clone();
+        bad.factors.pop();
+        assert!(verify_multivariate_factorization(&p, &bad).is_err());
     }
 }
