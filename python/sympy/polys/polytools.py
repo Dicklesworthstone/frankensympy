@@ -574,6 +574,16 @@ class Poly(Basic):
 
         return _keep_coeff(scale, Mul(*terms))
 
+    def all_roots(self, multiple: bool = True, radicals: bool = True) -> list:
+        from .rootoftools import all_roots as _ar
+
+        return _ar(self, radicals=radicals)
+
+    def real_roots(self, multiple: bool = True, radicals: bool = True) -> list:
+        from .rootoftools import real_roots as _rr
+
+        return _rr(self, radicals=radicals)
+
     def nroots(self, n: int = 15, maxsteps: int = 50, cleanup: bool = True) -> list:
         from .. import nroots as _nroots
 

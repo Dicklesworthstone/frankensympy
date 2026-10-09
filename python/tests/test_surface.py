@@ -2680,6 +2680,23 @@ class SurfaceTests(unittest.TestCase):
         (sol,) = D(e)
         self.assertEqual(sympy.expand(e.subs(dict(zip([x, y, z], sol)))), 0)
 
+    def test_crootof_and_solve_beyond_radicals(self):
+        x = sympy.Symbol("x")
+        C = sympy.CRootOf
+        f = x**5 - x + 1
+        self.assertEqual(sympy.solve(f, x), [C(f, i) for i in range(5)])
+        self.assertEqual(str(C(f, 0)), "CRootOf(x**5 - x + 1, 0)")
+        self.assertEqual(str(C(f, 0).evalf()), "-1.16730397826142")
+        self.assertEqual(str(sympy.N(C(f, 1))), "-0.181232444469875 - 1.08395410131771*I")
+        self.assertIs(C(f, 0).is_real, True)
+        self.assertEqual(str(C(x**2 - 2, 0)), "CRootOf(x**2 - 2, 0)")
+        self.assertEqual(C(x**2 - 1, 1), 1)
+        self.assertEqual(str(sympy.real_roots((x - 1) * f)), "[CRootOf(x**5 - x + 1, 0), 1]")
+        self.assertEqual(str(sympy.solve((x - 2) * f, x)[0]), "2")
+        self.assertEqual(str(sympy.Poly(x**4 - 1).all_roots()), "[-1, 1, -I, I]")
+        self.assertEqual(str(sympy.Poly(x**2 + x - 1).all_roots()), "[-sqrt(5)/2 - 1/2, -1/2 + sqrt(5)/2]")
+        self.assertAlmostEqual(float(C(x**3 - x - 1, 0)), 1.324717957244746, places=14)
+
     def test_poly_system_solvers(self):
         from sympy.solvers import nonlinsolve, solve_poly_system
         self.assertIs(solve_poly_system, sympy.solve_poly_system)

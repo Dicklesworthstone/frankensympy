@@ -208,6 +208,35 @@ def _integrate_symbolic_power(expression, x):
     return total
 
 
+def _solve_by_rootof(expr, symbol):
+    """Polynomials the radical lanes cannot finish: each irreducible
+    factor is solved by the native lanes when it can be, otherwise its
+    roots are the indexed CRootOf objects (upstream solve(x**5 - x + 1))."""
+    from .polys.polytools import Poly as _Poly
+    from .polys.rootoftools import CRootOf
+
+    try:
+        p = _Poly(expr, symbol)
+        if p._parametric:
+            return None
+        _, factors = p.factor_list()
+    except Exception:
+        return None
+    out = []
+    for fac, _mult in factors:
+        if fac.degree() <= 0:
+            continue
+        try:
+            rs = [_parse_result(r) for r in _native.solve_expr(
+                str(_native_expr(fac.as_expr())), _native_symbol_key(symbol))]
+        except Exception:
+            rs = [CRootOf(fac.as_expr(), symbol, i) for i in range(fac.degree())]
+        for r in rs:
+            if r not in out:
+                out.append(r)
+    return out
+
+
 def _solve_rational_fallback(expr, symbol):
     """Roots of a rational equation ``N/D = 0`` the native lanes reject:
     the numerator of ``together(expr)`` is solved and roots that make the
@@ -394,6 +423,8 @@ def solve(expression, *symbols, **flags):
         if "No solution found" in msg or "Infinite solutions" in msg:
             return []
         roots = _solve_rational_fallback(expr, symbol)
+        if roots is None:
+            roots = _solve_by_rootof(expr, symbol)
         if roots is None:
             raise
     else:
@@ -2390,3 +2421,7 @@ __all__ += [
 from .solvers.diophantine import diophantine  # noqa: E402
 
 __all__ += ["diophantine"]
+
+from .polys.rootoftools import CRootOf, ComplexRootOf, RootOf, all_roots, real_roots, rootof  # noqa: E402
+
+__all__ += ["CRootOf", "ComplexRootOf", "RootOf", "real_roots", "rootof"]
