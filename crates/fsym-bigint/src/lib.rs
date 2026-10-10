@@ -1741,17 +1741,14 @@ fn metered_multiply_capped<M: BudgetMeter>(
     }
 }
 
-fn charge_substrate_product_lift<M: BudgetMeter>(
-    product: &[u32],
-    meter: &mut M,
-) -> Result<(), MeterError> {
+fn charge_substrate_lift<M: BudgetMeter>(digits: &[u32], meter: &mut M) -> Result<(), MeterError> {
     // num-bigint stores one u64 digit inline on 64-bit targets. More than two canonical u32
-    // digits therefore make BigUint::new repack the product into a newly allocated Vec<u64>.
+    // digits therefore make BigUint::new repack the result into a newly allocated Vec<u64>.
     // Account for that otherwise-hidden allocation before it occurs. On 32-bit targets the
     // substrate adopts the Vec<u32> directly, so there is no additional allocation to charge.
     #[cfg(target_pointer_width = "64")]
     {
-        let native_digits = product.len().div_ceil(2);
+        let native_digits = digits.len().div_ceil(2);
         if native_digits > 1 {
             meter.checkpoint()?;
             meter.charge_batch(&[
@@ -1769,7 +1766,7 @@ fn charge_substrate_product_lift<M: BudgetMeter>(
 
     #[cfg(not(target_pointer_width = "64"))]
     {
-        let _ = (product, meter);
+        let _ = (digits, meter);
     }
 
     Ok(())
@@ -1852,7 +1849,7 @@ pub fn metered_multiply<M: BudgetMeter>(
     while product.last() == Some(&0) {
         product.pop();
     }
-    charge_substrate_product_lift(&product, meter)?;
+    charge_substrate_lift(&product, meter)?;
     let magnitude = BigUint::new(product);
     let sign = if a.0.sign() == b.0.sign() {
         Sign::Plus
@@ -2800,8 +2797,9 @@ fn try_u32_vec(capacity: usize) -> Result<Vec<u32>, MeteredMultiplyError> {
 /// This is a scalar reference lane, not the ordinary performance path. It copies magnitudes into
 /// owned base-$2^{32}$ digits, then performs binary long division. Every digit copy, remainder
 /// shift, comparison digit, and subtraction digit is charged and preceded by a cancellation
-/// checkpoint. All four transient digit buffers are charged before allocation. A final checkpoint
-/// occurs after the complete optional result exists and before it is published.
+/// checkpoint. All four transient digit buffers and any native output repacking are charged
+/// before allocation. A final checkpoint occurs after the complete optional result exists and
+/// before it is published.
 pub fn metered_div_rem<M: BudgetMeter>(
     dividend: &BigInt,
     divisor: &BigInt,
@@ -2891,6 +2889,8 @@ pub fn metered_div_rem_nonzero<M: BudgetMeter>(
     meter.checkpoint()?;
     trim_digits(&mut quotient_digits, meter)?;
     trim_digits(&mut remainder_digits, meter)?;
+    charge_substrate_lift(&quotient_digits, meter)?;
+    charge_substrate_lift(&remainder_digits, meter)?;
     let quotient_magnitude = BigUint::new(quotient_digits);
     let remainder_magnitude = BigUint::new(remainder_digits);
     let quotient_sign = if quotient_magnitude.is_zero() {
@@ -3079,6 +3079,7 @@ fn metered_signed_sum<M: BudgetMeter>(
     };
 
     meter.checkpoint()?;
+    charge_substrate_lift(&digits, meter)?;
     let magnitude = BigUint::new(digits);
     let sign = if magnitude.is_zero() {
         Sign::NoSign
@@ -5891,6 +5892,180 @@ mod tests {
         );
         assert_eq!(inline_budget.remaining(Dimension::MemoryBytes), 0);
         assert_eq!(inline_budget.remaining(Dimension::AllocationCount), 0);
+    }
+
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    fn metered_signed_sums_charge_native_lift_before_publication() {
+        let one = BigInt::one();
+        let wide = &one << 64u32;
+        for (lhs, subtract, expected) in [
+            (wide.clone(), false, &wide + &one),
+            (&wide + &one, true, wide.clone()),
+        ] {
+            let run = |budget: &mut Budget| {
+                if subtract {
+                    metered_subtract(&lhs, &one, budget)
+                } else {
+                    metered_add(&lhs, &one, budget)
+                }
+            };
+            // Three u32 work buffers use 32 bytes. The canonical 65-bit result then
+            // needs a separate two-u64 allocation, admitted as one atomic batch.
+            for (
+                memory,
+                allocations,
+                dimension,
+                requested,
+                remaining_memory,
+                remaining_allocations,
+            ) in [
+                (32, 3, Dimension::MemoryBytes, 16, 0, 0),
+                (32, 4, Dimension::MemoryBytes, 16, 0, 1),
+                (48, 3, Dimension::AllocationCount, 1, 16, 0),
+            ] {
+                let mut limits = BudgetLimits::uniform(1_000_000, 0);
+                limits.dimensions[Dimension::MemoryBytes.index()] = memory;
+                limits.dimensions[Dimension::AllocationCount.index()] = allocations;
+                let mut budget = Budget::new(limits);
+                assert_eq!(
+                    run(&mut budget),
+                    Err(MeterError::Budget(fsym_budget::BudgetError::Exhausted {
+                        dimension,
+                        requested,
+                        remaining: 0,
+                    }))
+                );
+                assert_eq!(budget.remaining(Dimension::MemoryBytes), remaining_memory);
+                assert_eq!(
+                    budget.remaining(Dimension::AllocationCount),
+                    remaining_allocations
+                );
+            }
+
+            let mut limits = BudgetLimits::uniform(1_000_000, 0);
+            limits.dimensions[Dimension::MemoryBytes.index()] = 48;
+            limits.dimensions[Dimension::AllocationCount.index()] = 4;
+            let mut budget = Budget::new(limits);
+            assert_eq!(run(&mut budget), Ok(expected));
+            assert_eq!(budget.remaining(Dimension::MemoryBytes), 0);
+            assert_eq!(budget.remaining(Dimension::AllocationCount), 0);
+        }
+
+        // Results fitting one native digit do not need the extra allocation.
+        let inline = &one << 32u32;
+        for subtract in [false, true] {
+            let mut limits = BudgetLimits::uniform(1_000_000, 0);
+            limits.dimensions[Dimension::MemoryBytes.index()] = 24;
+            limits.dimensions[Dimension::AllocationCount.index()] = 3;
+            let mut budget = Budget::new(limits);
+            let (result, expected) = if subtract {
+                (metered_subtract(&inline, &one, &mut budget), &inline - &one)
+            } else {
+                (metered_add(&inline, &one, &mut budget), &inline + &one)
+            };
+            assert_eq!(result, Ok(expected));
+            assert_eq!(budget.remaining(Dimension::MemoryBytes), 0);
+            assert_eq!(budget.remaining(Dimension::AllocationCount), 0);
+        }
+    }
+
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    fn metered_division_charges_both_native_lifts_before_publication() {
+        let wide = BigInt::one() << 64u32;
+        for (memory, allocations, dimension, requested) in [
+            (36, 4, Dimension::MemoryBytes, 16),
+            (52, 4, Dimension::AllocationCount, 1),
+        ] {
+            let mut limits = BudgetLimits::uniform(1_000_000, 0);
+            limits.dimensions[Dimension::MemoryBytes.index()] = memory;
+            limits.dimensions[Dimension::AllocationCount.index()] = allocations;
+            let mut budget = Budget::new(limits);
+            assert_eq!(
+                metered_div_rem(&wide, &BigInt::one(), &mut budget),
+                Err(MeterError::Budget(fsym_budget::BudgetError::Exhausted {
+                    dimension,
+                    requested,
+                    remaining: 0,
+                }))
+            );
+        }
+        let mut limits = BudgetLimits::uniform(1_000_000, 0);
+        limits.dimensions[Dimension::MemoryBytes.index()] = 52;
+        limits.dimensions[Dimension::AllocationCount.index()] = 5;
+        let mut budget = Budget::new(limits);
+        assert_eq!(
+            metered_div_rem(&wide, &BigInt::one(), &mut budget),
+            Ok(Some((wide, BigInt::zero())))
+        );
+        assert_eq!(budget.remaining(Dimension::MemoryBytes), 0);
+        assert_eq!(budget.remaining(Dimension::AllocationCount), 0);
+
+        // (2^130 + 2^64) / 2^65 = 2^65, remainder 2^64. Both outputs
+        // need separate two-u64 allocations after the 68-byte u32 work buffers.
+        let dividend = (BigInt::one() << 130u32) + (BigInt::one() << 64u32);
+        let divisor = BigInt::one() << 65u32;
+        let expected = Some((divisor.clone(), BigInt::one() << 64u32));
+        for (memory, allocations, dimension, requested, remaining_memory, remaining_allocations) in [
+            (68, 6, Dimension::MemoryBytes, 16, 0, 2),
+            (100, 4, Dimension::AllocationCount, 1, 32, 0),
+            (84, 6, Dimension::MemoryBytes, 16, 0, 1),
+            (100, 5, Dimension::AllocationCount, 1, 16, 0),
+        ] {
+            let mut limits = BudgetLimits::uniform(1_000_000, 0);
+            limits.dimensions[Dimension::MemoryBytes.index()] = memory;
+            limits.dimensions[Dimension::AllocationCount.index()] = allocations;
+            let mut budget = Budget::new(limits);
+            assert_eq!(
+                metered_div_rem(&dividend, &divisor, &mut budget),
+                Err(MeterError::Budget(fsym_budget::BudgetError::Exhausted {
+                    dimension,
+                    requested,
+                    remaining: 0,
+                }))
+            );
+            assert_eq!(budget.remaining(Dimension::MemoryBytes), remaining_memory);
+            assert_eq!(
+                budget.remaining(Dimension::AllocationCount),
+                remaining_allocations
+            );
+        }
+
+        let mut limits = BudgetLimits::uniform(1_000_000, 0);
+        limits.dimensions[Dimension::MemoryBytes.index()] = 100;
+        limits.dimensions[Dimension::AllocationCount.index()] = 6;
+        let mut budget = Budget::new(limits);
+        assert_eq!(
+            metered_div_rem(&dividend, &divisor, &mut budget),
+            Ok(expected)
+        );
+        assert_eq!(budget.remaining(Dimension::MemoryBytes), 0);
+        assert_eq!(budget.remaining(Dimension::AllocationCount), 0);
+
+        let inline = BigInt::one() << 32u32;
+        let mut limits = BudgetLimits::uniform(1_000_000, 0);
+        limits.dimensions[Dimension::MemoryBytes.index()] = 28;
+        limits.dimensions[Dimension::AllocationCount.index()] = 4;
+        let mut budget = Budget::new(limits);
+        assert_eq!(
+            metered_div_rem(&inline, &BigInt::one(), &mut budget),
+            Ok(Some((inline, BigInt::zero())))
+        );
+        assert_eq!(budget.remaining(Dimension::MemoryBytes), 0);
+        assert_eq!(budget.remaining(Dimension::AllocationCount), 0);
+    }
+
+    #[test]
+    fn metered_native_lifts_cancel_without_publishing_results() {
+        let wide = BigInt::one() << 64u32;
+        let one = BigInt::one();
+        assert_cancels_at_every_checkpoint(|meter| metered_add(&wide, &one, meter));
+        let sum = &wide + &one;
+        assert_cancels_at_every_checkpoint(|meter| metered_subtract(&sum, &one, meter));
+        let dividend = (BigInt::one() << 130u32) + &wide;
+        let divisor = BigInt::one() << 65u32;
+        assert_cancels_at_every_checkpoint(|meter| metered_div_rem(&dividend, &divisor, meter));
     }
 
     #[test]
