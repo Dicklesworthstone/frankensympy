@@ -102,6 +102,8 @@ pub enum RemoteWorkerError {
     PayloadTooLarge { limit: usize },
     #[error("Coordinator assignment exceeds trusted verification bounds")]
     InvalidAssignment,
+    #[error("Duplicate or late remote worker response for task {task_id} refused")]
+    DuplicateOrLateResponse { task_id: u64 },
 }
 
 /// A candidate produced by an untrusted remote worker.
@@ -282,6 +284,52 @@ impl CoordinatorVerifier {
             context_digest: self.context.digest(),
             verifier_receipt_digest,
         })
+    }
+}
+
+/// Stateful coordinator session enforcing single-publication semantics so duplicate or
+/// late worker responses cannot double-publish or enter the accepted namespace after cancellation.
+pub struct CoordinatorSession {
+    verifier: CoordinatorVerifier,
+    accepted: Option<VerifiedAcceptedResult>,
+    cancelled: bool,
+}
+
+impl CoordinatorSession {
+    pub fn new(verifier: CoordinatorVerifier) -> Self {
+        Self {
+            verifier,
+            accepted: None,
+            cancelled: false,
+        }
+    }
+
+    pub fn cancel_assignment(&mut self) {
+        self.cancelled = true;
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled
+    }
+
+    pub fn accepted_result(&self) -> Option<&VerifiedAcceptedResult> {
+        self.accepted.as_ref()
+    }
+
+    /// Accepts at most one verified candidate for the assigned task.
+    /// Subsequent duplicate or late responses after acceptance or cancellation fail closed.
+    pub fn accept_once(
+        &mut self,
+        candidate: &RemoteCandidate,
+    ) -> Result<&VerifiedAcceptedResult, RemoteWorkerError> {
+        if self.cancelled || self.accepted.is_some() {
+            return Err(RemoteWorkerError::DuplicateOrLateResponse {
+                task_id: self.verifier.task_id,
+            });
+        }
+        let verified = self.verifier.verify_remote_candidate(candidate)?;
+        self.accepted = Some(verified);
+        Ok(self.accepted.as_ref().expect("just stored"))
     }
 }
 

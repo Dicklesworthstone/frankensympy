@@ -486,6 +486,14 @@ mod tests {
 
     #[test]
     fn test_paired_benchmark_with_semantic_admission() {
+        let suite = run_standard_ws22_suite().unwrap();
+        assert_eq!(suite.len(), 4);
+        for entry in &suite {
+            assert!(entry.semantic_equivalence_verified);
+            assert!(!entry.raw_candidate_samples_ns.is_empty());
+            assert!(!entry.raw_reference_samples_ns.is_empty());
+        }
+
         // Paired run where candidate matches reference
         let res = run_paired_benchmark(
             "karatsuba_vs_naive_poly_mul",

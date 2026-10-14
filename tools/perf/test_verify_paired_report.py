@@ -239,6 +239,92 @@ class PairedReportValidatorTests(unittest.TestCase):
         self.assertTrue(verdict["settings_declared"])
         self.assertEqual(refuses(report(), require_settings=True), "settings_undeclared")
 
+    def test_unmatched_durability_or_evidence_settings_are_refused(self):
+        base_policy = {
+            "durability_mode": "in_memory_none",
+            "evidence_policy": "parity_gated_t1_structural_and_mathematical",
+            "cache_policy": "fresh_per_case_isolated_process",
+            "thread_count": 1,
+            "budget_policy": "120s_per_case_wall_clock",
+        }
+        for key, bad_val in (
+            ("durability_mode", "fsync_wal"),
+            ("evidence_policy", "unchecked_candidate"),
+            ("cache_policy", "warm_shared"),
+            ("thread_count", 8),
+            ("budget_policy", "unbounded"),
+        ):
+            mutant = copy.deepcopy(report())
+            oracle_policy = dict(base_policy)
+            oracle_policy[key] = bad_val
+            mutant["settings"] = {
+                "subject_settings": dict(base_policy),
+                "oracle_settings": oracle_policy,
+            }
+            self.assertEqual(refuses(mutant, require_settings=True), "unmatched_settings")
+
+    def test_engine_attestation_rejects_oracle_loading_candidate_or_same_sympy_file(self):
+        mutant = copy.deepcopy(report())
+        mutant["settings"] = {
+            "engine_attestation": {
+                "subject": {"sympy_file": "/repo/python/sympy/__init__.py", "fsym_python_loaded": True},
+                "oracle": {"sympy_file": "/venv/sympy/__init__.py", "fsym_python_loaded": True},
+            }
+        }
+        self.assertEqual(refuses(mutant, require_settings=True), "wrong_engine")
+
+        mutant2 = copy.deepcopy(report())
+        mutant2["settings"] = {
+            "engine_attestation": {
+                "subject": {"sympy_file": "/repo/python/sympy/__init__.py", "fsym_python_loaded": True},
+                "oracle": {"sympy_file": "/repo/python/sympy/__init__.py", "fsym_python_loaded": False},
+            }
+        }
+        self.assertEqual(refuses(mutant2, require_settings=True), "wrong_engine")
+
+    def test_mismatching_objects_with_same_print_are_rejected_by_structural_envelope(self):
+        import paired_bench
+
+        class FakeSymbol:
+            def __str__(self) -> str:
+                return "x + 1"
+
+        class FakeAdd:
+            args = (1, 2)
+
+            def __str__(self) -> str:
+                return "x + 1"
+
+        self.assertNotEqual(
+            paired_bench.compute_structural_envelope("x + 1"),
+            paired_bench.compute_structural_envelope(FakeSymbol()),
+        )
+        self.assertNotEqual(
+            paired_bench.compute_structural_envelope(FakeSymbol()),
+            paired_bench.compute_structural_envelope(FakeAdd()),
+        )
+        self.assertNotEqual(
+            paired_bench.compute_structural_envelope([1, 2]),
+            paired_bench.compute_structural_envelope((1, 2)),
+        )
+
+    def test_failed_aa_control_in_paired_bench_returns_valid_python_false_dict(self):
+        import unittest.mock as mock
+        import paired_bench
+
+        with mock.patch.object(
+            paired_bench,
+            "run_case_isolated",
+            return_value={"case": "matrix_det4", "result": None, "error": "simulated crash", "ms": None},
+        ):
+            aa = paired_bench.run_aa_control(rounds=5)
+        self.assertIs(aa["verified"], False)
+        self.assertEqual(len(aa["arm_a_samples"]), 5)
+        mutant = copy.deepcopy(report())
+        mutant["aa_control"] = aa
+        mutant["summary"]["aa_control_verified"] = False
+        self.assertEqual(refuses(mutant), "invalid_measurement")
+
 
 class PairedReportCliTests(unittest.TestCase):
     def run_cli(self, report_dict: dict, *extra: str) -> tuple[int, dict]:
@@ -268,3 +354,4 @@ class PairedReportCliTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

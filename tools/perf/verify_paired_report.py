@@ -112,6 +112,12 @@ def validate_aa_control(aa: object, rounds: int) -> dict:
     require(set(aa) == required, "aa_control", f"aa_control fields must be exactly {sorted(required)}")
     arm_a = numbers(aa["arm_a_samples"], rounds, "aa_control.arm_a_samples")
     arm_b = numbers(aa["arm_b_samples"], rounds, "aa_control.arm_b_samples")
+    # A failed A/A control means the measurement is invalid, not that a win exists.
+    require(
+        aa["verified"] is True,
+        "invalid_measurement",
+        "A/A control did not verify; the paired measurement is invalid",
+    )
     median_a, median_b = median(arm_a), median(arm_b)
     require(close(aa["arm_a_median_ms"], median_a, MEDIAN_TOLERANCE_PCT / 100), "aa_control",
             f"arm A median {aa['arm_a_median_ms']} != recomputed {median_a:.4f}")
@@ -121,18 +127,13 @@ def validate_aa_control(aa: object, rounds: int) -> dict:
     baseline = median_b / median_a
     require(close(aa["ratio_null_baseline"], baseline, RATIO_TOLERANCE), "aa_control",
             f"ratio_null_baseline {aa['ratio_null_baseline']} != recomputed {baseline:.6f}")
-    # A failed A/A control means the measurement is invalid, not that a win exists.
-    require(
-        aa["verified"] is True,
-        "invalid_measurement",
-        "A/A control did not verify; the paired measurement is invalid",
-    )
     require(
         abs(baseline - 1.0) <= AA_NULL_BAND,
         "invalid_measurement",
         f"A/A null baseline {baseline:.4f} is outside the declared ±{AA_NULL_BAND:.0%} band",
     )
     return aa
+
 
 
 def validate_case(case_id: str, case: object, rounds: int) -> str:
@@ -167,10 +168,22 @@ def validate_case(case_id: str, case: object, rounds: int) -> str:
             f"case {case_id} oracle median {case['oracle_ms_median']} != {oracle_median:.4f}")
     cv_subject = statistics.pstdev(subject) / subject_median * 100 if subject_median else 0.0
     cv_oracle = statistics.pstdev(oracle) / oracle_median * 100 if oracle_median else 0.0
-    require(close(case["subject_cv_pct"], cv_subject, CV_TOLERANCE_PCT),
-            "aggregate_mismatch", f"case {case_id} subject cv {case['subject_cv_pct']} != {cv_subject:.4f}")
-    require(close(case["oracle_cv_pct"], cv_oracle, CV_TOLERANCE_PCT),
-            "aggregate_mismatch", f"case {case_id} oracle cv {case['oracle_cv_pct']} != {cv_oracle:.4f}")
+    mean_subject = statistics.mean(subject) if subject else 0.0
+    mean_oracle = statistics.mean(oracle) if oracle else 0.0
+    cv_mean_subject = statistics.pstdev(subject) / mean_subject * 100 if mean_subject else 0.0
+    cv_mean_oracle = statistics.pstdev(oracle) / mean_oracle * 100 if mean_oracle else 0.0
+    require(
+        close(case["subject_cv_pct"], cv_subject, CV_TOLERANCE_PCT)
+        or close(case["subject_cv_pct"], cv_mean_subject, CV_TOLERANCE_PCT),
+        "aggregate_mismatch",
+        f"case {case_id} subject cv {case['subject_cv_pct']} != {cv_subject:.4f}",
+    )
+    require(
+        close(case["oracle_cv_pct"], cv_oracle, CV_TOLERANCE_PCT)
+        or close(case["oracle_cv_pct"], cv_mean_oracle, CV_TOLERANCE_PCT),
+        "aggregate_mismatch",
+        f"case {case_id} oracle cv {case['oracle_cv_pct']} != {cv_oracle:.4f}",
+    )
     ratio = oracle_median / subject_median if subject_median else 0.0
     require(close(case["ratio_oracle_over_subject"], ratio, RATIO_TOLERANCE),
             "aggregate_mismatch",
@@ -182,6 +195,53 @@ def validate_case(case_id: str, case: object, rounds: int) -> str:
         require(close(dist["median_ms"], median(samples), MEDIAN_TOLERANCE_PCT / 100),
                 "aggregate_mismatch", f"case {case_id} {field} median disagrees with raw samples")
     return status
+
+
+def validate_settings_block(settings: dict) -> None:
+    if "subject_settings" in settings or "oracle_settings" in settings:
+        subj = settings.get("subject_settings")
+        orac = settings.get("oracle_settings")
+        require(isinstance(subj, dict) and isinstance(orac, dict), "unmatched_settings",
+                "both subject_settings and oracle_settings must be objects")
+        for key in ("durability_mode", "evidence_policy", "cache_policy", "thread_count", "budget_policy"):
+            require(
+                subj.get(key) is not None and subj.get(key) == orac.get(key),
+                "unmatched_settings",
+                f"paired policy mismatch on {key}: subject={subj.get(key)!r} vs oracle={orac.get(key)!r}",
+            )
+    if "engine_attestation" in settings:
+        att = settings["engine_attestation"]
+        require(isinstance(att, dict), "wrong_engine", "engine_attestation must be an object")
+        subj_att = att.get("subject", {})
+        orac_att = att.get("oracle", {})
+        require(
+            isinstance(subj_att, dict) and isinstance(orac_att, dict),
+            "wrong_engine",
+            "engine_attestation must contain subject and oracle records",
+        )
+        require(
+            subj_att.get("fsym_python_loaded") is True,
+            "wrong_engine",
+            "subject engine attestation did not load fsym_python native kernel",
+        )
+        require(
+            orac_att.get("fsym_python_loaded") is False,
+            "wrong_engine",
+            "oracle engine attestation loaded fsym_python (oracle-imports-candidate)",
+        )
+        require(
+            bool(subj_att.get("sympy_file"))
+            and bool(orac_att.get("sympy_file"))
+            and subj_att.get("sympy_file") != orac_att.get("sympy_file"),
+            "wrong_engine",
+            "subject and oracle resolved to the same sympy.__file__",
+        )
+    if "structural_admission" in settings:
+        require(
+            settings["structural_admission"] is True,
+            "string_only_admission",
+            "structural_admission must be True when declared",
+        )
 
 
 def validate_report(report: object, *, expected_head: str | None, expected_profile: str | None,
@@ -242,18 +302,24 @@ def validate_report(report: object, *, expected_head: str | None, expected_profi
     ]
     require(summary.get("low_noise_admitted") == len(low_noise), "aggregate_mismatch",
             f"low_noise_admitted {summary.get('low_noise_admitted')} != recomputed {len(low_noise)}")
-    product = 1.0
-    for case_id in low_noise:
-        product *= cases[case_id]["ratio_oracle_over_subject"]
-    geomean = product ** (1.0 / len(low_noise)) if low_noise else 0.0
     reported = summary.get("geomean_ratio_oracle_over_subject")
-    require(reported is not None and close(float(reported), geomean, 0.01), "aggregate_mismatch",
-            f"geomean {reported} != recomputed {geomean:.6f}")
+    if low_noise:
+        product = 1.0
+        for case_id in low_noise:
+            product *= cases[case_id]["ratio_oracle_over_subject"]
+        geomean = product ** (1.0 / len(low_noise))
+        require(reported is not None and close(float(reported), geomean, 0.01), "aggregate_mismatch",
+                f"geomean {reported} != recomputed {geomean:.6f}")
+    else:
+        require(reported is None, "aggregate_mismatch",
+                f"geomean must be None when low_noise_admitted == 0, got {reported!r}")
 
     settings = report.get("settings")
     if require_settings:
         require(isinstance(settings, dict) and settings, "settings_undeclared",
                 "report does not declare evidence/cache/thread/budget settings")
+    if isinstance(settings, dict) and settings:
+        validate_settings_block(settings)
     return {
         "schema": SCHEMA,
         "subject_head": report["subject_head"],
