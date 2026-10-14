@@ -7,10 +7,18 @@
 
 #![forbid(unsafe_code)]
 
-use crate::workspace::SemanticWorkspace;
-use fsym_calculus::diff;
+use crate::workspace::{SemanticWorkspace, WorkspaceError, WorkspacePatch};
+use fsym_budget::Unbounded;
+use fsym_calculus::{diff, integrate, limit};
 use fsym_core::{Expr, Symbol};
+use fsym_polys::{
+    MultivariatePoly, factor_multivariate, verify_multivariate_factorization,
+};
+use fsym_proof_kernel::{CertificatePayload, Claim, ProofKernel, verify_derivation_independent};
+use fsym_solvers::solve;
+use num_traits::One;
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::{self, Write as _};
 use std::io;
 
@@ -21,6 +29,7 @@ pub const MAX_AGENT_EXPRESSION_BYTES: usize = 64 * 1024;
 /// Maximum encoded size of one provisional response envelope.
 pub const MAX_AGENT_NDJSON_RESPONSE_BYTES: usize = 1024 * 1024;
 const MAX_AGENT_NAME_BYTES: usize = 1024;
+const MAX_SESSION_BRANCHES: usize = 256;
 
 const GENERAL_EXPRESSION_LIMITS: ExpressionLimits = ExpressionLimits {
     max_nodes: 8_192,
@@ -155,16 +164,59 @@ pub enum ProtocolErrorCode {
     InternalSerialization,
 }
 
-/// Request packet accepted by the provisional facade.
+/// Request packet accepted by the agent protocol and session facade.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload")]
 #[serde(deny_unknown_fields)]
 pub enum AgentRequest {
-    Bind { symbol: String, expr: String },
-    Eval { expr: String },
-    Simplify { expr: String },
-    Diff { expr: String, var: String },
-    Fork { branch_name: String },
+    Bind {
+        symbol: String,
+        expr: String,
+    },
+    Eval {
+        expr: String,
+    },
+    Simplify {
+        expr: String,
+    },
+    Diff {
+        expr: String,
+        var: String,
+    },
+    Factor {
+        expr: String,
+    },
+    Solve {
+        expr: String,
+        var: String,
+    },
+    Integrate {
+        expr: String,
+        var: String,
+    },
+    Limit {
+        expr: String,
+        var: String,
+        point: String,
+    },
+    Prove {
+        lhs: String,
+        rhs: String,
+    },
+    Fork {
+        branch_name: String,
+    },
+    Checkout {
+        branch_name: String,
+    },
+    ApplyPatch {
+        updated_bindings: BTreeMap<String, String>,
+        removed_bindings: Vec<String>,
+    },
+    MergeBranch {
+        source_branch: String,
+    },
+    StateRoot,
 }
 
 /// Response packet emitted by the provisional facade.
@@ -207,6 +259,62 @@ fn valid_symbol_name(name: &str) -> bool {
         fsym_core::parse(name),
         Ok(Expr::Sym(symbol)) if symbol.name == name
     )
+}
+
+fn valid_branch_name(name: &str) -> bool {
+    !name.is_empty() && name.len() <= MAX_AGENT_NAME_BYTES
+}
+
+fn hex_encode_digest(digest: &[u8; 32]) -> String {
+    let mut out = String::with_capacity(64);
+    for byte in digest {
+        let _ = write!(&mut out, "{byte:02x}");
+    }
+    out
+}
+
+fn factor_expression_to_expr(expr: &Expr) -> Result<Expr, &'static str> {
+    let mut generators: Vec<Symbol> = expr.free_symbols().into_iter().collect();
+    generators.sort();
+    if generators.is_empty() {
+        return Ok(fsym_simplify::simplify(expr));
+    }
+    let poly = MultivariatePoly::from_expr(expr, &generators)
+        .map_err(|_| "expression is not a polynomial over Q")?;
+    let factored =
+        factor_multivariate(&poly).map_err(|_| "polynomial factorization refused or failed")?;
+    verify_multivariate_factorization(&poly, &factored)
+        .map_err(|_| "independent factorization verification failed")?;
+    if factored.factors.is_empty() {
+        return Ok(if factored.scale.is_integer() {
+            Expr::Integer(factored.scale.to_integer())
+        } else {
+            Expr::Rational(factored.scale)
+        });
+    }
+    let mut factors = Vec::new();
+    if !factored.scale.is_one() {
+        factors.push(if factored.scale.is_integer() {
+            Expr::Integer(factored.scale.to_integer())
+        } else {
+            Expr::Rational(factored.scale)
+        });
+    }
+    for (factor_poly, mult) in &factored.factors {
+        let factor_expr = factor_poly
+            .to_expr()
+            .map_err(|_| "factored polynomial conversion failed")?;
+        if *mult == 1 {
+            factors.push(factor_expr);
+        } else {
+            factors.push(Expr::pow(factor_expr, Expr::from_i64(*mult as i64)));
+        }
+    }
+    if factors.len() == 1 {
+        Ok(factors.pop().expect("len == 1"))
+    } else {
+        Ok(Expr::Mul(factors))
+    }
 }
 
 fn node_payload_bytes(node: &Expr) -> Result<usize, ExpressionValidationError> {
@@ -344,25 +452,25 @@ fn render_binding(symbol: &str, expression: &Expr) -> Result<String, AgentRespon
     Ok(writer.rendered)
 }
 
-/// Dispatches a single NDJSON line against the active semantic workspace.
-pub fn handle_agent_ndjson(line: &str, workspace: &mut SemanticWorkspace) -> String {
-    if line.len() > MAX_AGENT_NDJSON_REQUEST_BYTES {
-        return encode_response(&error_response(
-            ProtocolErrorCode::RequestTooLarge,
-            "request exceeds protocol envelope limit",
-        ));
+fn eval_with_workspace_limits(
+    expression: &Expr,
+    workspace: &SemanticWorkspace,
+) -> Result<Expr, AgentResponse> {
+    match validate_expression_shape(expression, Some(workspace), EVALUATED_EXPRESSION_LIMITS) {
+        Err(ExpressionValidationError::StructuralLimit) => Err(error_response(
+            ProtocolErrorCode::ResourceLimitExceeded,
+            "workspace substitution exceeds protocol structural limits",
+        )),
+        Err(ExpressionValidationError::PayloadLimit) => Err(error_response(
+            ProtocolErrorCode::OutputLimitExceeded,
+            "workspace substitution payload exceeds protocol output limit",
+        )),
+        Ok(()) => Ok(expression.subs(&workspace.bindings)),
     }
-    let req: AgentRequest = match serde_json::from_str(line) {
-        Ok(r) => r,
-        Err(_) => {
-            return encode_response(&error_response(
-                ProtocolErrorCode::MalformedRequest,
-                "request is not a recognized provisional envelope",
-            ));
-        }
-    };
+}
 
-    let resp = match req {
+fn dispatch_workspace_request(req: AgentRequest, workspace: &mut SemanticWorkspace) -> AgentResponse {
+    match req {
         AgentRequest::Bind { symbol, expr } => {
             if !valid_symbol_name(&symbol) {
                 error_response(
@@ -384,29 +492,16 @@ pub fn handle_agent_ndjson(line: &str, workspace: &mut SemanticWorkspace) -> Str
         }
         AgentRequest::Eval { expr } | AgentRequest::Simplify { expr } => {
             match parse_expression(&expr, GENERAL_EXPRESSION_LIMITS) {
-                Ok(expression) => {
-                    match validate_expression_shape(
-                        &expression,
-                        Some(workspace),
-                        EVALUATED_EXPRESSION_LIMITS,
-                    ) {
-                        Err(ExpressionValidationError::StructuralLimit) => error_response(
-                            ProtocolErrorCode::ResourceLimitExceeded,
-                            "workspace substitution exceeds protocol structural limits",
-                        ),
-                        Err(ExpressionValidationError::PayloadLimit) => error_response(
-                            ProtocolErrorCode::OutputLimitExceeded,
-                            "workspace substitution payload exceeds protocol output limit",
-                        ),
-                        Ok(()) => {
-                            let result = workspace.eval(&expression);
-                            match render_expression(&result) {
-                                Ok(result) => AgentResponse::Success { result },
-                                Err(error) => error,
-                            }
+                Ok(expression) => match eval_with_workspace_limits(&expression, workspace) {
+                    Ok(_) => {
+                        let result = workspace.eval(&expression);
+                        match render_expression(&result) {
+                            Ok(result) => AgentResponse::Success { result },
+                            Err(error) => error,
                         }
                     }
-                }
+                    Err(error) => error,
+                },
                 Err(error) => error,
             }
         }
@@ -429,12 +524,404 @@ pub fn handle_agent_ndjson(line: &str, workspace: &mut SemanticWorkspace) -> Str
                 }
             }
         }
-        AgentRequest::Fork { branch_name: _ } => error_response(
+        AgentRequest::Factor { expr } => match parse_expression(&expr, GENERAL_EXPRESSION_LIMITS) {
+            Ok(expression) => match eval_with_workspace_limits(&expression, workspace) {
+                Ok(substituted) => match factor_expression_to_expr(&substituted) {
+                    Ok(factored) => match render_expression(&factored) {
+                        Ok(result) => AgentResponse::Success { result },
+                        Err(error) => error,
+                    },
+                    Err(reason) => error_response(ProtocolErrorCode::UnsupportedOperation, reason),
+                },
+                Err(error) => error,
+            },
+            Err(error) => error,
+        },
+        AgentRequest::Solve { expr, var } => {
+            if !valid_symbol_name(&var) {
+                error_response(
+                    ProtocolErrorCode::InvalidName,
+                    "solver variable is not a bounded parser identifier",
+                )
+            } else {
+                match parse_expression(&expr, GENERAL_EXPRESSION_LIMITS) {
+                    Ok(expression) => match eval_with_workspace_limits(&expression, workspace) {
+                        Ok(substituted) => match solve(&substituted, &Symbol::new(var)) {
+                            Ok(roots) => {
+                                let mut rendered_roots = Vec::with_capacity(roots.len());
+                                for root in &roots {
+                                    match render_expression(root) {
+                                        Ok(s) => rendered_roots.push(s),
+                                        Err(error) => return error,
+                                    }
+                                }
+                                AgentResponse::Success {
+                                    result: format!("[{}]", rendered_roots.join(", ")),
+                                }
+                            }
+                            Err(_) => error_response(
+                                ProtocolErrorCode::UnsupportedOperation,
+                                "equation could not be solved in the admitted exact regime",
+                            ),
+                        },
+                        Err(error) => error,
+                    },
+                    Err(error) => error,
+                }
+            }
+        }
+        AgentRequest::Integrate { expr, var } => {
+            if !valid_symbol_name(&var) {
+                error_response(
+                    ProtocolErrorCode::InvalidName,
+                    "integration variable is not a bounded parser identifier",
+                )
+            } else {
+                match parse_expression(&expr, GENERAL_EXPRESSION_LIMITS) {
+                    Ok(expression) => match eval_with_workspace_limits(&expression, workspace) {
+                        Ok(substituted) => match integrate(&substituted, &Symbol::new(var)) {
+                            Ok(antideriv) => match render_expression(&antideriv) {
+                                Ok(result) => AgentResponse::Success { result },
+                                Err(error) => error,
+                            },
+                            Err(_) => error_response(
+                                ProtocolErrorCode::UnsupportedOperation,
+                                "symbolic antiderivative could not be computed in the admitted regime",
+                            ),
+                        },
+                        Err(error) => error,
+                    },
+                    Err(error) => error,
+                }
+            }
+        }
+        AgentRequest::Limit { expr, var, point } => {
+            if !valid_symbol_name(&var) {
+                error_response(
+                    ProtocolErrorCode::InvalidName,
+                    "limit variable is not a bounded parser identifier",
+                )
+            } else {
+                match (
+                    parse_expression(&expr, GENERAL_EXPRESSION_LIMITS),
+                    parse_expression(&point, GENERAL_EXPRESSION_LIMITS),
+                ) {
+                    (Ok(expression), Ok(point_expr)) => {
+                        match eval_with_workspace_limits(&expression, workspace) {
+                            Ok(substituted) => {
+                                match limit(&substituted, &Symbol::new(var), &point_expr) {
+                                    Ok(lim) => match render_expression(&lim) {
+                                        Ok(result) => AgentResponse::Success { result },
+                                        Err(error) => error,
+                                    },
+                                    Err(_) => error_response(
+                                        ProtocolErrorCode::UnsupportedOperation,
+                                        "limit could not be determined in the admitted regime",
+                                    ),
+                                }
+                            }
+                            Err(error) => error,
+                        }
+                    }
+                    (Err(error), _) | (_, Err(error)) => error,
+                }
+            }
+        }
+        AgentRequest::Prove { lhs, rhs } => match (
+            parse_expression(&lhs, GENERAL_EXPRESSION_LIMITS),
+            parse_expression(&rhs, GENERAL_EXPRESSION_LIMITS),
+        ) {
+            (Ok(lhs_expr), Ok(rhs_expr)) => match (
+                eval_with_workspace_limits(&lhs_expr, workspace),
+                eval_with_workspace_limits(&rhs_expr, workspace),
+            ) {
+                (Ok(lhs_sub), Ok(rhs_sub)) => {
+                    let mut kernel = ProofKernel::new((*workspace.assumptions).clone());
+                    let step_res = if lhs_sub == rhs_sub {
+                        kernel.prove_reflexivity(lhs_sub, &mut Unbounded)
+                    } else {
+                        kernel.prove_certificate_lemma(
+                            "PolynomialNormalForm",
+                            Claim::equality(lhs_sub, rhs_sub),
+                            CertificatePayload::PolynomialNormalForm,
+                            &mut Unbounded,
+                        )
+                    };
+                    let Ok(step_id) = step_res else {
+                        return error_response(
+                            ProtocolErrorCode::UnsupportedOperation,
+                            "equational claim was rejected by the proof kernel",
+                        );
+                    };
+                    let Ok(derivation) = kernel.export_derivation(step_id) else {
+                        return error_response(
+                            ProtocolErrorCode::UnsupportedOperation,
+                            "derivation export failed",
+                        );
+                    };
+                    if verify_derivation_independent(&derivation, &workspace.assumptions).is_err() {
+                        return error_response(
+                            ProtocolErrorCode::UnsupportedOperation,
+                            "independent derivation verification rejected the claim",
+                        );
+                    }
+                    let digest_hex = hex_encode_digest(&derivation.digest());
+                    if !workspace.derivations.contains(&derivation) {
+                        workspace.derivations.push(derivation);
+                    }
+                    AgentResponse::Success {
+                        result: format!("verified:{digest_hex}"),
+                    }
+                }
+                (Err(error), _) | (_, Err(error)) => error,
+            },
+            (Err(error), _) | (_, Err(error)) => error,
+        },
+        AgentRequest::ApplyPatch {
+            updated_bindings,
+            removed_bindings,
+        } => {
+            let mut parsed_updates = HashMap::new();
+            for (symbol, expr_src) in updated_bindings {
+                if !valid_symbol_name(&symbol) {
+                    return error_response(
+                        ProtocolErrorCode::InvalidName,
+                        "patch symbol name is not a bounded parser identifier",
+                    );
+                }
+                let expr = match parse_expression(&expr_src, GENERAL_EXPRESSION_LIMITS) {
+                    Ok(e) => e,
+                    Err(error) => return error,
+                };
+                parsed_updates.insert(Symbol::new(symbol), expr);
+            }
+            let mut parsed_removals = Vec::with_capacity(removed_bindings.len());
+            for symbol in removed_bindings {
+                if !valid_symbol_name(&symbol) {
+                    return error_response(
+                        ProtocolErrorCode::InvalidName,
+                        "patch removal symbol name is not a bounded parser identifier",
+                    );
+                }
+                parsed_removals.push(Symbol::new(symbol));
+            }
+            let patch = WorkspacePatch {
+                updated_bindings: parsed_updates,
+                removed_bindings: parsed_removals,
+            };
+            match workspace.apply_patch(&patch) {
+                Ok(()) => AgentResponse::Success {
+                    result: format!("patched:{} bindings", workspace.bindings.len()),
+                },
+                Err(WorkspaceError::AmbiguousBindingEdit { .. }) => error_response(
+                    ProtocolErrorCode::MalformedRequest,
+                    "patch cannot simultaneously update and remove the same symbol",
+                ),
+                Err(_) => error_response(
+                    ProtocolErrorCode::ResourceLimitExceeded,
+                    "workspace patch exceeded resource limits",
+                ),
+            }
+        }
+        AgentRequest::StateRoot => match workspace.state_root() {
+            Ok(root) => AgentResponse::Success {
+                result: hex_encode_digest(&root),
+            },
+            Err(_) => error_response(
+                ProtocolErrorCode::ResourceLimitExceeded,
+                "workspace state root exceeded resource limits",
+            ),
+        },
+        AgentRequest::Fork { branch_name: _ }
+        | AgentRequest::Checkout { branch_name: _ }
+        | AgentRequest::MergeBranch { source_branch: _ } => error_response(
             ProtocolErrorCode::UnsupportedOperation,
-            "fork requires the planned versioned workspace-reference protocol",
+            "multi-branch operations require a ProtocolSession",
         ),
+    }
+}
+
+/// Dispatches a single NDJSON line against a single semantic workspace.
+///
+/// Branch-switching operations (`Fork`, `Checkout`, `MergeBranch`) require a
+/// multi-branch [`ProtocolSession`] and are refused with `UnsupportedOperation`
+/// here so no forked branch is silently discarded.
+pub fn handle_agent_ndjson(line: &str, workspace: &mut SemanticWorkspace) -> String {
+    if line.len() > MAX_AGENT_NDJSON_REQUEST_BYTES {
+        return encode_response(&error_response(
+            ProtocolErrorCode::RequestTooLarge,
+            "request exceeds protocol envelope limit",
+        ));
+    }
+    let req: AgentRequest = match serde_json::from_str(line) {
+        Ok(r) => r,
+        Err(_) => {
+            return encode_response(&error_response(
+                ProtocolErrorCode::MalformedRequest,
+                "request is not a recognized provisional envelope",
+            ));
+        }
     };
 
+    let resp = dispatch_workspace_request(req, workspace);
+    encode_response(&resp)
+}
+
+/// Multi-branch protocol session supporting `Fork`, `Checkout`, `MergeBranch`,
+/// `ApplyPatch`, `StateRoot`, and all algebraic/calculus/proof requests.
+#[derive(Debug, Clone)]
+pub struct ProtocolSession {
+    branches: BTreeMap<String, SemanticWorkspace>,
+    active_branch: String,
+}
+
+impl ProtocolSession {
+    /// Creates a new protocol session with an initial branch (e.g. `"main"`).
+    pub fn new(initial_branch: impl Into<String>) -> Self {
+        let branch_name = initial_branch.into();
+        let mut branches = BTreeMap::new();
+        branches.insert(
+            branch_name.clone(),
+            SemanticWorkspace::new(branch_name.clone()),
+        );
+        Self {
+            branches,
+            active_branch: branch_name,
+        }
+    }
+
+    /// Returns the name of the currently active branch.
+    pub fn active_branch_name(&self) -> &str {
+        &self.active_branch
+    }
+
+    /// Immutable reference to the currently active workspace.
+    pub fn active_workspace(&self) -> &SemanticWorkspace {
+        self.branches
+            .get(&self.active_branch)
+            .expect("active branch always exists in ProtocolSession")
+    }
+
+    /// Mutable reference to the currently active workspace.
+    pub fn active_workspace_mut(&mut self) -> &mut SemanticWorkspace {
+        self.branches
+            .get_mut(&self.active_branch)
+            .expect("active branch always exists in ProtocolSession")
+    }
+
+    /// Lookup a branch by name.
+    pub fn branch(&self, branch_name: &str) -> Option<&SemanticWorkspace> {
+        self.branches.get(branch_name)
+    }
+
+    /// Dispatches a typed [`AgentRequest`] against this multi-branch session.
+    pub fn dispatch(&mut self, req: AgentRequest) -> AgentResponse {
+        match req {
+            AgentRequest::Fork { branch_name } => {
+                if !valid_branch_name(&branch_name) {
+                    return error_response(
+                        ProtocolErrorCode::InvalidName,
+                        "branch name must be non-empty and within protocol length limits",
+                    );
+                }
+                if self.branches.contains_key(&branch_name) {
+                    return error_response(
+                        ProtocolErrorCode::InvalidName,
+                        "branch name already exists in session",
+                    );
+                }
+                if self.branches.len() >= MAX_SESSION_BRANCHES {
+                    return error_response(
+                        ProtocolErrorCode::ResourceLimitExceeded,
+                        "session branch count limit exceeded",
+                    );
+                }
+                let forked = self.active_workspace().fork(branch_name.clone());
+                self.branches.insert(branch_name.clone(), forked);
+                self.active_branch = branch_name.clone();
+                AgentResponse::Success {
+                    result: format!("forked:{branch_name}"),
+                }
+            }
+            AgentRequest::Checkout { branch_name } => {
+                if !self.branches.contains_key(&branch_name) {
+                    return error_response(
+                        ProtocolErrorCode::InvalidName,
+                        "requested branch does not exist in session",
+                    );
+                }
+                self.active_branch = branch_name.clone();
+                AgentResponse::Success {
+                    result: format!("checked_out:{branch_name}"),
+                }
+            }
+            AgentRequest::MergeBranch { source_branch } => {
+                if source_branch == self.active_branch {
+                    return error_response(
+                        ProtocolErrorCode::InvalidName,
+                        "cannot merge a branch into itself",
+                    );
+                }
+                let Some(incoming) = self.branches.get(&source_branch).cloned() else {
+                    return error_response(
+                        ProtocolErrorCode::InvalidName,
+                        "source branch does not exist in session",
+                    );
+                };
+                match self
+                    .active_workspace_mut()
+                    .merge_with_certificate(&incoming, 1, 1)
+                {
+                    Ok(cert) => AgentResponse::Success {
+                        result: format!("merged:{}", hex_encode_digest(&cert.result_root)),
+                    },
+                    Err(WorkspaceError::BindingConflict { .. }) => error_response(
+                        ProtocolErrorCode::UnsupportedOperation,
+                        "semantic merge refused due to conflicting binding",
+                    ),
+                    Err(WorkspaceError::AssumptionContextMismatch { .. }) => error_response(
+                        ProtocolErrorCode::UnsupportedOperation,
+                        "semantic merge refused due to assumption context mismatch",
+                    ),
+                    Err(WorkspaceError::DerivationVerificationFailed) => error_response(
+                        ProtocolErrorCode::UnsupportedOperation,
+                        "semantic merge refused due to unverified incoming derivation",
+                    ),
+                    Err(_) => error_response(
+                        ProtocolErrorCode::ResourceLimitExceeded,
+                        "semantic merge exceeded workspace limits",
+                    ),
+                }
+            }
+            other => dispatch_workspace_request(other, self.active_workspace_mut()),
+        }
+    }
+}
+
+impl Default for ProtocolSession {
+    fn default() -> Self {
+        Self::new("main")
+    }
+}
+
+/// Dispatches a single NDJSON line against a multi-branch [`ProtocolSession`].
+pub fn handle_agent_session_ndjson(line: &str, session: &mut ProtocolSession) -> String {
+    if line.len() > MAX_AGENT_NDJSON_REQUEST_BYTES {
+        return encode_response(&error_response(
+            ProtocolErrorCode::RequestTooLarge,
+            "request exceeds protocol envelope limit",
+        ));
+    }
+    let req: AgentRequest = match serde_json::from_str(line) {
+        Ok(r) => r,
+        Err(_) => {
+            return encode_response(&error_response(
+                ProtocolErrorCode::MalformedRequest,
+                "request is not a recognized provisional envelope",
+            ));
+        }
+    };
+    let resp = session.dispatch(req);
     encode_response(&resp)
 }
 

@@ -338,6 +338,48 @@ pub fn run_portfolio_race<Caps>(
     }
 }
 
+fn observe_portfolio_outcome(
+    monitor: &mut crate::monitor::PortfolioOutcomeRegressionMonitor,
+    outcome: &Result<VerifiedPortfolioOutcome, PortfolioError>,
+) -> crate::monitor::MonitorDecision {
+    use crate::monitor::{FailureKind, Observation};
+    let observation = match outcome {
+        Ok(_) => Observation::Completed { discrepancy: false },
+        Err(PortfolioError::Cancelled) => Observation::Failed {
+            kind: FailureKind::Cancelled,
+        },
+        Err(PortfolioError::BudgetExhausted(_)) => Observation::Failed {
+            kind: FailureKind::ResourceExhausted,
+        },
+        Err(
+            PortfolioError::AllStrategiesFailed(_)
+            | PortfolioError::WinnerVerificationFailed(_)
+            | PortfolioError::NoVerifierLease
+            | PortfolioError::BudgetAccountingFailed(_)
+            | PortfolioError::InvalidPortfolio(_)
+            | PortfolioError::StructuredExecutionFailed(_),
+        ) => Observation::Completed { discrepancy: true },
+    };
+    monitor.observe(observation)
+}
+
+/// Executes [`run_portfolio_race`] and records the outcome in the registered
+/// `portfolio_outcome_regression_v1` operational monitor.
+pub fn run_portfolio_race_monitored<Caps>(
+    cx: &mut FsymCx<'_, Caps>,
+    context: &Arc<ImmutableAssumptionsSnapshot>,
+    requested_claim: &Claim,
+    strategies: Vec<NamedStrategy<Caps>>,
+    monitor: &mut crate::monitor::PortfolioOutcomeRegressionMonitor,
+) -> (
+    Result<VerifiedPortfolioOutcome, PortfolioError>,
+    crate::monitor::MonitorDecision,
+) {
+    let outcome = run_portfolio_race(cx, context, requested_claim, strategies);
+    let decision = observe_portfolio_outcome(monitor, &outcome);
+    (outcome, decision)
+}
+
 /// Generates candidates from two or more strategies in an asupersync scoped CPU region, drains
 /// every worker, then verifies candidates in deterministic registration order. Generator success
 /// never cancels a sibling or selects a winner: only protected verification can do that.
@@ -356,6 +398,23 @@ pub fn run_portfolio_concurrent_race<Caps: Send + Sync + 'static>(
         outcomes,
         initial_compute_remaining,
     )
+}
+
+/// Executes [`run_portfolio_concurrent_race`] and records the outcome in the registered
+/// `portfolio_outcome_regression_v1` operational monitor.
+pub fn run_portfolio_concurrent_race_monitored<Caps: Send + Sync + 'static>(
+    cx: &mut FsymCx<'_, Caps>,
+    context: &Arc<ImmutableAssumptionsSnapshot>,
+    requested_claim: &Claim,
+    strategies: Vec<NamedConcurrentStrategy<Caps>>,
+    monitor: &mut crate::monitor::PortfolioOutcomeRegressionMonitor,
+) -> (
+    Result<VerifiedPortfolioOutcome, PortfolioError>,
+    crate::monitor::MonitorDecision,
+) {
+    let outcome = run_portfolio_concurrent_race(cx, context, requested_claim, strategies);
+    let decision = observe_portfolio_outcome(monitor, &outcome);
+    (outcome, decision)
 }
 
 pub(crate) struct WorkerOutcome {

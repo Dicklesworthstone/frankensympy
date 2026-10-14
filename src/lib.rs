@@ -22,7 +22,9 @@ pub use fsym_proof_kernel::{
     MergeCertError, MergePolicy, SemanticMergeCertificate, WitnessKind, verify_merge_certificate,
 };
 pub use fsym_runtime::fmap::{FmapBundle, ReplayOutcome, replay_fmap_bundle};
-pub use fsym_runtime::protocol::{AgentRequest, AgentResponse, ProtocolErrorCode};
+pub use fsym_runtime::protocol::{
+    AgentRequest, AgentResponse, ProtocolErrorCode, ProtocolSession, handle_agent_session_ndjson,
+};
 pub use fsym_runtime::publication::{PublicationError, PublicationGate};
 pub use fsym_runtime::workspace::{
     MergeReceipt, SemanticWorkspace, WorkspaceError, WorkspacePatch,

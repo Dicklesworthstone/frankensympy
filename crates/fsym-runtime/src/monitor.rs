@@ -32,6 +32,23 @@ use serde::{Deserialize, Serialize};
 
 /// Registered monitor identifier implemented by this module.
 pub const COMPATIBILITY_DRIFT_MONITOR_ID: &str = "compatibility_drift_v1";
+/// Registered monitor identifier for portfolio outcome regression.
+pub const PORTFOLIO_OUTCOME_REGRESSION_MONITOR_ID: &str = "portfolio_outcome_regression_v1";
+/// Registered monitor identifier for dual-checked verifier disagreement.
+pub const VERIFIER_DISAGREEMENT_MONITOR_ID: &str = "verifier_disagreement_v1";
+/// Registered monitor identifier for runtime obligation leaks.
+pub const OBLIGATION_LEAK_MONITOR_ID: &str = "obligation_leak_v1";
+/// Registered monitor identifier for performance route regression.
+pub const PERFORMANCE_REGRESSION_MONITOR_ID: &str = "performance_regression_v1";
+
+/// All 5 registered operational monitor identifiers from `registries/monitor_profiles.toml`.
+pub const REGISTERED_MONITOR_IDS: [&str; 5] = [
+    PORTFOLIO_OUTCOME_REGRESSION_MONITOR_ID,
+    COMPATIBILITY_DRIFT_MONITOR_ID,
+    VERIFIER_DISAGREEMENT_MONITOR_ID,
+    OBLIGATION_LEAK_MONITOR_ID,
+    PERFORMANCE_REGRESSION_MONITOR_ID,
+];
 
 /// Minimum admitted null rate: open interval bound keeps the likelihood ratio finite.
 const MIN_RATE: f64 = 1e-9;
@@ -159,9 +176,9 @@ impl MonitorSnapshot {
     }
 }
 
-/// The registered `compatibility_drift_v1` e-process monitor.
 #[derive(Debug, Clone, PartialEq)]
-pub struct CompatibilityDriftMonitor {
+struct EProcessCore {
+    monitor_id: &'static str,
     null_rate: f64,
     alternative_rate: f64,
     alpha: f64,
@@ -170,12 +187,13 @@ pub struct CompatibilityDriftMonitor {
     state: MonitorSnapshot,
 }
 
-impl CompatibilityDriftMonitor {
-    /// Construct the monitor for a declared null and alternative rate.
-    ///
-    /// `0 < p0 < p1 < 1` and `0 < alpha < 1` are required; anything else is a
-    /// typed refusal rather than a silent clamp.
-    pub fn new(null_rate: f64, alternative_rate: f64, alpha: f64) -> Result<Self, MonitorError> {
+impl EProcessCore {
+    fn new(
+        monitor_id: &'static str,
+        null_rate: f64,
+        alternative_rate: f64,
+        alpha: f64,
+    ) -> Result<Self, MonitorError> {
         if !(MIN_RATE..=MAX_RATE).contains(&null_rate) {
             return Err(MonitorError::InvalidSpec("null rate outside (0, 1)"));
         }
@@ -202,13 +220,14 @@ impl CompatibilityDriftMonitor {
             ));
         }
         Ok(Self {
+            monitor_id,
             null_rate,
             alternative_rate,
             alpha,
             log_discrepancy,
             log_agreement,
             state: MonitorSnapshot {
-                monitor_id: COMPATIBILITY_DRIFT_MONITOR_ID.to_string(),
+                monitor_id: monitor_id.to_string(),
                 null_rate,
                 alternative_rate,
                 alpha,
@@ -230,17 +249,7 @@ impl CompatibilityDriftMonitor {
         })
     }
 
-    /// The registered monitor identifier.
-    pub fn monitor_id(&self) -> &'static str {
-        COMPATIBILITY_DRIFT_MONITOR_ID
-    }
-
-    /// Observe one stream element and return the monitor's recommendation.
-    ///
-    /// A failure is an observation: it advances the wealth as an observed
-    /// divergence and lands in its own counter, so no failure can vanish from
-    /// the monitored stream.
-    pub fn observe(&mut self, observation: Observation) -> MonitorDecision {
+    fn observe(&mut self, observation: Observation) -> MonitorDecision {
         // One-way until reset: once alarmed, every later observation keeps
         // returning Alarm (a non-finite candidate still returns Fault, per
         // the fault policy). Either way the observation is charged FIRST —
@@ -297,8 +306,7 @@ impl CompatibilityDriftMonitor {
         MonitorDecision::Continue
     }
 
-    /// Open a new generation: zero the wealth, keep every cumulative counter.
-    pub fn reset(&mut self) {
+    fn reset(&mut self) {
         self.state.generation += 1;
         self.state.resets += 1;
         self.state.log_wealth = 0.0;
@@ -309,22 +317,18 @@ impl CompatibilityDriftMonitor {
         self.state.faulted = false;
     }
 
-    /// Current observable state.
-    pub fn snapshot(&self) -> MonitorSnapshot {
+    fn snapshot(&self) -> MonitorSnapshot {
         self.state.clone()
     }
 
-    /// Resume from a snapshot produced by this monitor construction.
-    ///
-    /// The declared rates must match, so a snapshot cannot silently change the
-    /// hypothesis it was computed under.
-    pub fn resume(snapshot: MonitorSnapshot) -> Result<Self, MonitorError> {
+    fn resume(monitor_id: &'static str, snapshot: MonitorSnapshot) -> Result<Self, MonitorError> {
         let rebuilt = Self::new(
+            monitor_id,
             snapshot.null_rate,
             snapshot.alternative_rate,
             snapshot.alpha,
         )?;
-        if snapshot.monitor_id != COMPATIBILITY_DRIFT_MONITOR_ID {
+        if snapshot.monitor_id != monitor_id {
             return Err(MonitorError::InvalidSpec("snapshot names another monitor"));
         }
         Ok(Self {
@@ -332,16 +336,421 @@ impl CompatibilityDriftMonitor {
             ..rebuilt
         })
     }
+}
+
+/// The registered `compatibility_drift_v1` e-process monitor.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CompatibilityDriftMonitor {
+    core: EProcessCore,
+}
+
+impl CompatibilityDriftMonitor {
+    /// Construct the monitor for a declared null and alternative rate.
+    ///
+    /// `0 < p0 < p1 < 1` and `0 < alpha < 1` are required; anything else is a
+    /// typed refusal rather than a silent clamp.
+    pub fn new(null_rate: f64, alternative_rate: f64, alpha: f64) -> Result<Self, MonitorError> {
+        Ok(Self {
+            core: EProcessCore::new(
+                COMPATIBILITY_DRIFT_MONITOR_ID,
+                null_rate,
+                alternative_rate,
+                alpha,
+            )?,
+        })
+    }
+
+    /// The registered monitor identifier.
+    pub fn monitor_id(&self) -> &'static str {
+        COMPATIBILITY_DRIFT_MONITOR_ID
+    }
+
+    /// Registered safe fallback for `compatibility_drift_v1`.
+    pub fn safe_fallback(&self) -> &'static str {
+        "retain_previous_certified_profile"
+    }
+
+    /// Observe one stream element and return the monitor's recommendation.
+    ///
+    /// A failure is an observation: it advances the wealth as an observed
+    /// divergence and lands in its own counter, so no failure can vanish from
+    /// the monitored stream.
+    pub fn observe(&mut self, observation: Observation) -> MonitorDecision {
+        self.core.observe(observation)
+    }
+
+    /// Open a new generation: zero the wealth, keep every cumulative counter.
+    pub fn reset(&mut self) {
+        self.core.reset();
+    }
+
+    /// Current observable state.
+    pub fn snapshot(&self) -> MonitorSnapshot {
+        self.core.snapshot()
+    }
+
+    /// Resume from a snapshot produced by this monitor construction.
+    ///
+    /// The declared rates must match, so a snapshot cannot silently change the
+    /// hypothesis it was computed under.
+    pub fn resume(snapshot: MonitorSnapshot) -> Result<Self, MonitorError> {
+        Ok(Self {
+            core: EProcessCore::resume(COMPATIBILITY_DRIFT_MONITOR_ID, snapshot)?,
+        })
+    }
 
     /// The registered action recommended for the current state.
     pub fn recommended_action(&self) -> &'static str {
-        if self.state.faulted {
+        if self.core.state.faulted {
             "increase_sampling"
-        } else if self.state.alarmed {
+        } else if self.core.state.alarmed {
             "block_profile_promotion"
         } else {
             "open_discrepancy"
         }
+    }
+}
+
+/// The registered `portfolio_outcome_regression_v1` e-process monitor.
+///
+/// Population: `completed_and_inconclusive_portfolio_attempts`.
+/// Actions: `["warn", "quarantine_route", "baseline_fallback", "recalibrate"]`.
+/// Safe fallback: `"deterministic_baseline"`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PortfolioOutcomeRegressionMonitor {
+    core: EProcessCore,
+}
+
+impl PortfolioOutcomeRegressionMonitor {
+    /// Construct the monitor for a declared null and alternative inconclusive/regression rate.
+    pub fn new(null_rate: f64, alternative_rate: f64, alpha: f64) -> Result<Self, MonitorError> {
+        Ok(Self {
+            core: EProcessCore::new(
+                PORTFOLIO_OUTCOME_REGRESSION_MONITOR_ID,
+                null_rate,
+                alternative_rate,
+                alpha,
+            )?,
+        })
+    }
+
+    /// Construct with the default operational hypothesis (`p0 = 0.05, p1 = 0.25, alpha = 0.05`).
+    pub fn default_spec() -> Self {
+        Self::new(0.05, 0.25, 0.05).expect("default portfolio regression spec is valid")
+    }
+
+    /// The registered monitor identifier.
+    pub fn monitor_id(&self) -> &'static str {
+        PORTFOLIO_OUTCOME_REGRESSION_MONITOR_ID
+    }
+
+    /// Registered safe fallback for `portfolio_outcome_regression_v1`.
+    pub fn safe_fallback(&self) -> &'static str {
+        "deterministic_baseline"
+    }
+
+    /// Observe one portfolio attempt (completed verified vs failed/inconclusive/timeout/cancelled).
+    pub fn observe(&mut self, observation: Observation) -> MonitorDecision {
+        self.core.observe(observation)
+    }
+
+    /// Open a new generation: zero the wealth, keep every cumulative counter.
+    pub fn reset(&mut self) {
+        self.core.reset();
+    }
+
+    /// Current observable state.
+    pub fn snapshot(&self) -> MonitorSnapshot {
+        self.core.snapshot()
+    }
+
+    /// Resume from a snapshot produced by this monitor construction.
+    pub fn resume(snapshot: MonitorSnapshot) -> Result<Self, MonitorError> {
+        Ok(Self {
+            core: EProcessCore::resume(PORTFOLIO_OUTCOME_REGRESSION_MONITOR_ID, snapshot)?,
+        })
+    }
+
+    /// The registered action recommended for the current state.
+    pub fn recommended_action(&self) -> &'static str {
+        if self.core.state.faulted {
+            "recalibrate"
+        } else if self.core.state.alarmed {
+            "quarantine_route"
+        } else if self.core.state.log_wealth > 0.0 {
+            "warn"
+        } else {
+            "baseline_fallback"
+        }
+    }
+}
+
+impl Default for PortfolioOutcomeRegressionMonitor {
+    fn default() -> Self {
+        Self::default_spec()
+    }
+}
+
+/// The registered `verifier_disagreement_v1` exact-fault / e-process monitor.
+///
+/// Population: `dual_checked_certificates`.
+/// Actions: `["immediate_quarantine", "block_publication", "preserve_repro_bundle"]`.
+/// Safe fallback: `"reference_checker_only_after_investigation"`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct VerifierDisagreementMonitor {
+    core: EProcessCore,
+}
+
+impl VerifierDisagreementMonitor {
+    /// Construct the monitor for a declared null and alternative disagreement rate.
+    pub fn new(null_rate: f64, alternative_rate: f64, alpha: f64) -> Result<Self, MonitorError> {
+        Ok(Self {
+            core: EProcessCore::new(
+                VERIFIER_DISAGREEMENT_MONITOR_ID,
+                null_rate,
+                alternative_rate,
+                alpha,
+            )?,
+        })
+    }
+
+    /// Construct with the registered exact-fault-trigger calibration (`p0 = 1e-6, p1 = 0.99, alpha = 0.05`)
+    /// so that a single disagreement or failure immediately crosses `ln(1 / alpha)` and alarms.
+    pub fn new_exact_fault_trigger() -> Self {
+        Self::new(1e-6, 0.99, 0.05).expect("exact fault trigger spec is valid")
+    }
+
+    /// The registered monitor identifier.
+    pub fn monitor_id(&self) -> &'static str {
+        VERIFIER_DISAGREEMENT_MONITOR_ID
+    }
+
+    /// Registered safe fallback for `verifier_disagreement_v1`.
+    pub fn safe_fallback(&self) -> &'static str {
+        "reference_checker_only_after_investigation"
+    }
+
+    /// Observe one dual-checked certificate comparison.
+    pub fn observe(&mut self, observation: Observation) -> MonitorDecision {
+        self.core.observe(observation)
+    }
+
+    /// Observe whether the optimized verifier and reference verifier agreed.
+    pub fn observe_dual_check(&mut self, agreed: bool) -> MonitorDecision {
+        self.observe(Observation::Completed {
+            discrepancy: !agreed,
+        })
+    }
+
+    /// Open a new generation: zero the wealth, keep every cumulative counter.
+    pub fn reset(&mut self) {
+        self.core.reset();
+    }
+
+    /// Current observable state.
+    pub fn snapshot(&self) -> MonitorSnapshot {
+        self.core.snapshot()
+    }
+
+    /// Resume from a snapshot produced by this monitor construction.
+    pub fn resume(snapshot: MonitorSnapshot) -> Result<Self, MonitorError> {
+        Ok(Self {
+            core: EProcessCore::resume(VERIFIER_DISAGREEMENT_MONITOR_ID, snapshot)?,
+        })
+    }
+
+    /// The registered action recommended for the current state.
+    pub fn recommended_action(&self) -> &'static str {
+        if self.core.state.faulted {
+            "preserve_repro_bundle"
+        } else if self.core.state.alarmed {
+            "immediate_quarantine"
+        } else {
+            "block_publication"
+        }
+    }
+}
+
+impl Default for VerifierDisagreementMonitor {
+    fn default() -> Self {
+        Self::new_exact_fault_trigger()
+    }
+}
+
+/// The registered `obligation_leak_v1` anytime-valid / exact-balance monitor.
+///
+/// Population: `all_acquired_runtime_obligations`.
+/// Actions: `["warn", "cancel_region", "block_release"]`.
+/// Safe fallback: `"exact_balance_invariant_and_conservative_shutdown"`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ObligationLeakMonitor {
+    core: EProcessCore,
+}
+
+impl ObligationLeakMonitor {
+    /// Construct the monitor for a declared null and alternative leak rate.
+    pub fn new(null_rate: f64, alternative_rate: f64, alpha: f64) -> Result<Self, MonitorError> {
+        Ok(Self {
+            core: EProcessCore::new(OBLIGATION_LEAK_MONITOR_ID, null_rate, alternative_rate, alpha)?,
+        })
+    }
+
+    /// Construct with the registered exact-fault calibration (`p0 = 1e-6, p1 = 0.99, alpha = 0.05`)
+    /// so that a single obligation leak immediately crosses `ln(1 / alpha)` and blocks release.
+    pub fn new_exact_fault_trigger() -> Self {
+        Self::new(1e-6, 0.99, 0.05).expect("obligation leak exact fault trigger spec is valid")
+    }
+
+    /// The registered monitor identifier.
+    pub fn monitor_id(&self) -> &'static str {
+        OBLIGATION_LEAK_MONITOR_ID
+    }
+
+    /// Registered safe fallback for `obligation_leak_v1`.
+    pub fn safe_fallback(&self) -> &'static str {
+        "exact_balance_invariant_and_conservative_shutdown"
+    }
+
+    /// Observe one obligation lifecycle outcome.
+    pub fn observe(&mut self, observation: Observation) -> MonitorDecision {
+        self.core.observe(observation)
+    }
+
+    /// Observe a region's obligation balance (`acquired` vs `reconciled`).
+    pub fn observe_balance(&mut self, acquired: u64, reconciled: u64) -> MonitorDecision {
+        self.observe(Observation::Completed {
+            discrepancy: acquired != reconciled,
+        })
+    }
+
+    /// Open a new generation: zero the wealth, keep every cumulative counter.
+    pub fn reset(&mut self) {
+        self.core.reset();
+    }
+
+    /// Current observable state.
+    pub fn snapshot(&self) -> MonitorSnapshot {
+        self.core.snapshot()
+    }
+
+    /// Resume from a snapshot produced by this monitor construction.
+    pub fn resume(snapshot: MonitorSnapshot) -> Result<Self, MonitorError> {
+        Ok(Self {
+            core: EProcessCore::resume(OBLIGATION_LEAK_MONITOR_ID, snapshot)?,
+        })
+    }
+
+    /// The registered action recommended for the current state.
+    pub fn recommended_action(&self) -> &'static str {
+        if self.core.state.faulted {
+            "cancel_region"
+        } else if self.core.state.alarmed {
+            "block_release"
+        } else {
+            "warn"
+        }
+    }
+}
+
+impl Default for ObligationLeakMonitor {
+    fn default() -> Self {
+        Self::new_exact_fault_trigger()
+    }
+}
+
+/// The registered `performance_regression_v1` e-process / conformal ratio monitor.
+///
+/// Population: `pinned_route_corpus_machine_observations`.
+/// Actions: `["warn", "quarantine_optimized_route", "revert_default"]`.
+/// Safe fallback: `"last_certified_route"`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PerformanceRegressionMonitor {
+    core: EProcessCore,
+}
+
+impl PerformanceRegressionMonitor {
+    /// Construct the monitor for a declared null and alternative regression exceedance rate.
+    pub fn new(null_rate: f64, alternative_rate: f64, alpha: f64) -> Result<Self, MonitorError> {
+        Ok(Self {
+            core: EProcessCore::new(
+                PERFORMANCE_REGRESSION_MONITOR_ID,
+                null_rate,
+                alternative_rate,
+                alpha,
+            )?,
+        })
+    }
+
+    /// Construct with the default operational hypothesis (`p0 = 0.05, p1 = 0.25, alpha = 0.05`).
+    pub fn default_spec() -> Self {
+        Self::new(0.05, 0.25, 0.05).expect("default performance regression spec is valid")
+    }
+
+    /// The registered monitor identifier.
+    pub fn monitor_id(&self) -> &'static str {
+        PERFORMANCE_REGRESSION_MONITOR_ID
+    }
+
+    /// Registered safe fallback for `performance_regression_v1`.
+    pub fn safe_fallback(&self) -> &'static str {
+        "last_certified_route"
+    }
+
+    /// Observe one benchmark/route observation.
+    pub fn observe(&mut self, observation: Observation) -> MonitorDecision {
+        self.core.observe(observation)
+    }
+
+    /// Observe a paired latency measurement against a conformal ratio bound `max_ratio`.
+    pub fn observe_latency_ratio(
+        &mut self,
+        candidate_ns: u64,
+        baseline_ns: u64,
+        max_ratio: f64,
+    ) -> MonitorDecision {
+        if baseline_ns == 0 || !max_ratio.is_finite() || max_ratio <= 0.0 {
+            return self.observe(Observation::Failed {
+                kind: FailureKind::ResourceExhausted,
+            });
+        }
+        let regressed = (candidate_ns as f64) > (baseline_ns as f64) * max_ratio;
+        self.observe(Observation::Completed {
+            discrepancy: regressed,
+        })
+    }
+
+    /// Open a new generation: zero the wealth, keep every cumulative counter.
+    pub fn reset(&mut self) {
+        self.core.reset();
+    }
+
+    /// Current observable state.
+    pub fn snapshot(&self) -> MonitorSnapshot {
+        self.core.snapshot()
+    }
+
+    /// Resume from a snapshot produced by this monitor construction.
+    pub fn resume(snapshot: MonitorSnapshot) -> Result<Self, MonitorError> {
+        Ok(Self {
+            core: EProcessCore::resume(PERFORMANCE_REGRESSION_MONITOR_ID, snapshot)?,
+        })
+    }
+
+    /// The registered action recommended for the current state.
+    pub fn recommended_action(&self) -> &'static str {
+        if self.core.state.faulted {
+            "revert_default"
+        } else if self.core.state.alarmed {
+            "quarantine_optimized_route"
+        } else {
+            "warn"
+        }
+    }
+}
+
+impl Default for PerformanceRegressionMonitor {
+    fn default() -> Self {
+        Self::default_spec()
     }
 }
 
@@ -493,5 +902,81 @@ mod tests {
         }
         assert!(!monitor.snapshot().alarmed);
         assert_eq!(monitor.recommended_action(), "increase_sampling");
+    }
+
+    #[test]
+    fn all_five_registered_monitors_instantiate_and_enforce_policies() {
+        assert_eq!(REGISTERED_MONITOR_IDS.len(), 5);
+
+        // 1. portfolio_outcome_regression_v1
+        let mut portfolio_mon = PortfolioOutcomeRegressionMonitor::default_spec();
+        assert_eq!(
+            portfolio_mon.monitor_id(),
+            PORTFOLIO_OUTCOME_REGRESSION_MONITOR_ID
+        );
+        assert_eq!(portfolio_mon.safe_fallback(), "deterministic_baseline");
+        assert_eq!(
+            portfolio_mon.observe(Observation::Completed { discrepancy: true }),
+            MonitorDecision::Continue
+        );
+        assert_eq!(portfolio_mon.recommended_action(), "warn");
+        portfolio_mon.observe(Observation::Failed {
+            kind: FailureKind::Timeout,
+        });
+        assert!(matches!(
+            portfolio_mon.observe(Observation::Completed { discrepancy: true }),
+            MonitorDecision::Alarm { .. }
+        ));
+        assert_eq!(portfolio_mon.recommended_action(), "quarantine_route");
+
+        // 2. verifier_disagreement_v1: exact fault trigger alarms immediately on a single disagreement
+        let mut verifier_mon = VerifierDisagreementMonitor::new_exact_fault_trigger();
+        assert_eq!(verifier_mon.monitor_id(), VERIFIER_DISAGREEMENT_MONITOR_ID);
+        assert_eq!(
+            verifier_mon.safe_fallback(),
+            "reference_checker_only_after_investigation"
+        );
+        assert_eq!(verifier_mon.observe_dual_check(true), MonitorDecision::Continue);
+        assert!(matches!(
+            verifier_mon.observe_dual_check(false),
+            MonitorDecision::Alarm { .. }
+        ));
+        assert_eq!(verifier_mon.recommended_action(), "immediate_quarantine");
+
+        // 3. obligation_leak_v1: exact fault trigger alarms immediately on a single balance mismatch
+        let mut leak_mon = ObligationLeakMonitor::new_exact_fault_trigger();
+        assert_eq!(leak_mon.monitor_id(), OBLIGATION_LEAK_MONITOR_ID);
+        assert_eq!(
+            leak_mon.safe_fallback(),
+            "exact_balance_invariant_and_conservative_shutdown"
+        );
+        assert_eq!(leak_mon.observe_balance(4, 4), MonitorDecision::Continue);
+        assert!(matches!(
+            leak_mon.observe_balance(4, 3),
+            MonitorDecision::Alarm { .. }
+        ));
+        assert_eq!(leak_mon.recommended_action(), "block_release");
+
+        // 4. performance_regression_v1: ratio exceedance e-process
+        let mut perf_mon = PerformanceRegressionMonitor::default_spec();
+        assert_eq!(perf_mon.monitor_id(), PERFORMANCE_REGRESSION_MONITOR_ID);
+        assert_eq!(perf_mon.safe_fallback(), "last_certified_route");
+        assert_eq!(
+            perf_mon.observe_latency_ratio(110, 100, 1.25),
+            MonitorDecision::Continue
+        );
+        assert_eq!(
+            perf_mon.observe_latency_ratio(150, 100, 1.25),
+            MonitorDecision::Continue
+        );
+        assert_eq!(
+            perf_mon.observe_latency_ratio(160, 100, 1.25),
+            MonitorDecision::Continue
+        );
+        assert!(matches!(
+            perf_mon.observe_latency_ratio(200, 100, 1.25),
+            MonitorDecision::Alarm { .. }
+        ));
+        assert_eq!(perf_mon.recommended_action(), "quarantine_optimized_route");
     }
 }

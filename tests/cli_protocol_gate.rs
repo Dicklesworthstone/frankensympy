@@ -279,3 +279,101 @@ fn cli_survives_deep_nesting_and_garbage_on_stdin() {
         "one response per request line, including refusals"
     );
 }
+
+#[test]
+fn verify_claim_accepts_equational_identities_and_rejects_false_equations() {
+    let mut session = Session::new(SessionBudgets::default());
+    let valid_eq = session
+        .construct_claim("(x + 1)^2 = x^2 + 2*x + 1")
+        .expect("constructs equational candidate");
+    assert_eq!(valid_eq.status, ClaimStatus::Candidate);
+    let accepted = session
+        .verify_claim(&valid_eq)
+        .expect("algebraically equivalent equation must verify");
+    assert_eq!(accepted.status, ClaimStatus::Accepted);
+    assert!(accepted.derivation_digest.is_some());
+
+    let false_eq = session
+        .construct_claim("x + 1 = x + 2")
+        .expect("constructs false candidate");
+    assert_eq!(
+        session.verify_claim(&false_eq),
+        Err(SessionError::CandidateNotAccepted),
+        "false equation must be rejected by the proof kernel"
+    );
+}
+
+#[test]
+fn session_and_cli_execute_l3_operations_and_multi_branch_workspaces() {
+    let requests = vec![
+        r#"{"id":"1","type":"Factor","payload":{"expr":"x^2 - 1"}}"#.to_string(),
+        r#"{"id":"2","type":"Solve","payload":{"expr":"x^2 - 4","var":"x"}}"#.to_string(),
+        r#"{"id":"3","type":"Integrate","payload":{"expr":"2*x","var":"x"}}"#.to_string(),
+        r#"{"id":"4","type":"Limit","payload":{"expr":"sin(x)/x","var":"x","point":"0"}}"#
+            .to_string(),
+        r#"{"id":"5","type":"Prove","payload":{"lhs":"(x + 1)*(x - 1)","rhs":"x^2 - 1"}}"#
+            .to_string(),
+        r#"{"id":"6","type":"Prove","payload":{"lhs":"x + 1","rhs":"x + 2"}}"#.to_string(),
+        r#"{"id":"7","type":"Bind","payload":{"symbol":"a","expr":"10"}}"#.to_string(),
+        r#"{"id":"8","type":"Fork","payload":{"branch_name":"feature"}}"#.to_string(),
+        r#"{"id":"9","type":"ApplyPatch","payload":{"updated_bindings":{"b":"20"},"removed_bindings":[]}}"#.to_string(),
+        r#"{"id":"10","type":"Checkout","payload":{"branch_name":"session"}}"#.to_string(),
+        r#"{"id":"11","type":"MergeBranch","payload":{"source_branch":"feature"}}"#.to_string(),
+        r#"{"id":"12","type":"Eval","payload":{"expr":"a + b"}}"#.to_string(),
+        r#"{"id":"13","type":"Fork","payload":{"branch_name":"conflict"}}"#.to_string(),
+        r#"{"id":"14","type":"Bind","payload":{"symbol":"a","expr":"999"}}"#.to_string(),
+        r#"{"id":"15","type":"Checkout","payload":{"branch_name":"session"}}"#.to_string(),
+        r#"{"id":"16","type":"MergeBranch","payload":{"source_branch":"conflict"}}"#.to_string(),
+    ];
+    let (stdout, stderr, code) = spawn_cli(&requests);
+    assert_eq!(code, 0, "stderr: {stderr}");
+    let responses: Vec<serde_json::Value> = stdout
+        .lines()
+        .map(|l| serde_json::from_str(l).expect("json line"))
+        .collect();
+    assert_eq!(responses.len(), requests.len());
+
+    // 1. Factor x^2 - 1
+    assert_eq!(responses[0]["status"], "success");
+    // 2. Solve x^2 - 4
+    assert_eq!(responses[1]["status"], "success");
+    assert!(responses[1]["result"].as_str().unwrap().contains("-2"));
+    assert!(responses[1]["result"].as_str().unwrap().contains('2'));
+    // 3. Integrate 2*x -> x**2
+    assert_eq!(responses[2]["status"], "success");
+    assert_eq!(responses[2]["result"], "x**2");
+    // 4. Limit sin(x)/x as x -> 0 -> 1
+    assert_eq!(responses[3]["status"], "success");
+    assert_eq!(responses[3]["result"], "1");
+    // 5. Prove (x + 1)*(x - 1) = x^2 - 1 -> verified
+    assert_eq!(responses[4]["status"], "success");
+    assert!(
+        responses[4]["result"]
+            .as_str()
+            .unwrap()
+            .starts_with("verified:")
+    );
+    // 6. Prove x + 1 = x + 2 -> refused
+    assert_eq!(responses[5]["status"], "error");
+    assert_eq!(responses[5]["code"], "refused");
+    // 7..12. Bind a=10, Fork feature, ApplyPatch b=20, Checkout session, MergeBranch feature, Eval a+b -> 30
+    assert_eq!(responses[6]["status"], "success");
+    assert_eq!(responses[7]["status"], "success");
+    assert_eq!(responses[8]["status"], "success");
+    assert_eq!(responses[9]["status"], "success");
+    assert_eq!(responses[10]["status"], "success");
+    assert!(
+        responses[10]["result"]
+            .as_str()
+            .unwrap()
+            .starts_with("merged:")
+    );
+    assert_eq!(responses[11]["status"], "success");
+    assert_eq!(responses[11]["result"], "30");
+    // 13..16. Conflicting branch merge fails closed
+    assert_eq!(responses[12]["status"], "success");
+    assert_eq!(responses[13]["status"], "success");
+    assert_eq!(responses[14]["status"], "success");
+    assert_eq!(responses[15]["status"], "error");
+    assert_eq!(responses[15]["code"], "refused");
+}

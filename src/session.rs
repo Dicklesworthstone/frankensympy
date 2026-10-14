@@ -13,12 +13,16 @@
 use fsym_assumptions::ImmutableAssumptionsSnapshot;
 use fsym_budget::{Budget, BudgetLimits, Dimension};
 use fsym_core::{Expr, Symbol};
-use fsym_proof_kernel::{DerivationTree, ProofKernel};
+use fsym_polys::{MultivariatePoly, factor_multivariate, verify_multivariate_factorization};
+use fsym_proof_kernel::{CertificatePayload, Claim, DerivationTree, ProofKernel};
+use num_traits::One;
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, HashMap};
+use std::fmt::Write as _;
 use std::sync::Arc;
 use thiserror::Error;
 
-/// Maximum accepted request-frame size for [`handle_envelope`].
+/// Maximum accepted request-frame size for [`Session::handle_envelope`].
 pub const MAX_ENVELOPE_BYTES: usize = 64 * 1024;
 /// Maximum source-expression bytes accepted by [`Session::construct`].
 pub const MAX_SOURCE_BYTES: usize = 4 * 1024;
@@ -48,11 +52,18 @@ pub enum SessionError {
     #[error(
         "import refused: export originated in a different assumption universe (context digest {found:02x?}, expected {expected:02x?})"
     )]
-    UniverseMismatch { found: [u8; 32], expected: [u8; 32] },
-    #[error("replay refused: the re-verified derivation digest does not match the exported digest")]
+    UniverseMismatch {
+        found: [u8; 32],
+        expected: [u8; 32],
+    },
+    #[error(
+        "replay refused: the re-verified derivation digest does not match the exported digest"
+    )]
     ReplayDigestMismatch,
     #[error("session serialization failed: {0}")]
     Serialization(String),
+    #[error("workspace operation refused: {0}")]
+    Workspace(String),
 }
 
 /// Whether a claim has been accepted by independent verification.
@@ -104,9 +115,76 @@ impl Default for SessionBudgets {
     }
 }
 
+fn parse_claim_sides(source: &str) -> Result<(Expr, Option<Expr>), SessionError> {
+    if let Some((lhs_src, rhs_src)) = source.split_once('=') {
+        if rhs_src.contains('=') {
+            return Err(SessionError::ParseFailed);
+        }
+        let lhs = fsym_core::parse(lhs_src.trim()).map_err(|_| SessionError::ParseFailed)?;
+        let rhs = fsym_core::parse(rhs_src.trim()).map_err(|_| SessionError::ParseFailed)?;
+        Ok((lhs, Some(rhs)))
+    } else {
+        let lhs = fsym_core::parse(source).map_err(|_| SessionError::ParseFailed)?;
+        Ok((lhs, None))
+    }
+}
+
+fn factor_expr_for_session(expr: &Expr) -> Result<Expr, String> {
+    let mut generators: Vec<Symbol> = expr.free_symbols().into_iter().collect();
+    generators.sort();
+    if generators.is_empty() {
+        return Ok(fsym_simplify::simplify(expr));
+    }
+    let poly = MultivariatePoly::from_expr(expr, &generators)
+        .map_err(|e| format!("non-polynomial expression: {e}"))?;
+    let factored =
+        factor_multivariate(&poly).map_err(|e| format!("factorization refused: {e}"))?;
+    verify_multivariate_factorization(&poly, &factored)
+        .map_err(|e| format!("factorization verification failed: {e}"))?;
+    if factored.factors.is_empty() {
+        return Ok(if factored.scale.is_integer() {
+            Expr::Integer(factored.scale.to_integer())
+        } else {
+            Expr::Rational(factored.scale)
+        });
+    }
+    let mut factors = Vec::new();
+    if !factored.scale.is_one() {
+        factors.push(if factored.scale.is_integer() {
+            Expr::Integer(factored.scale.to_integer())
+        } else {
+            Expr::Rational(factored.scale)
+        });
+    }
+    for (factor_poly, mult) in &factored.factors {
+        let factor_expr = factor_poly
+            .to_expr()
+            .map_err(|e| format!("factor expression conversion failed: {e}"))?;
+        if *mult == 1 {
+            factors.push(factor_expr);
+        } else {
+            factors.push(Expr::pow(factor_expr, Expr::from_i64(*mult as i64)));
+        }
+    }
+    if factors.len() == 1 {
+        Ok(factors.pop().expect("len == 1"))
+    } else {
+        Ok(Expr::Mul(factors))
+    }
+}
+
+fn hex_digest(digest: &[u8; 32]) -> String {
+    let mut out = String::with_capacity(64);
+    for b in digest {
+        let _ = write!(&mut out, "{b:02x}");
+    }
+    out
+}
+
 /// A bounded native-request session.
 pub struct Session {
     workspace: fsym_runtime::workspace::SemanticWorkspace,
+    branches: BTreeMap<String, fsym_runtime::workspace::SemanticWorkspace>,
     kernel: ProofKernel,
     context: Arc<ImmutableAssumptionsSnapshot>,
     budget: Budget,
@@ -130,8 +208,13 @@ impl Session {
     ) -> Self {
         let context = Arc::new(ImmutableAssumptionsSnapshot::clone(&context));
         let kernel = ProofKernel::new((*context).clone());
+        let mut workspace = fsym_runtime::workspace::SemanticWorkspace::new("session");
+        workspace.assumptions = Arc::clone(&context);
+        let mut branches = BTreeMap::new();
+        branches.insert("session".to_string(), workspace.clone());
         Self {
-            workspace: fsym_runtime::workspace::SemanticWorkspace::new("session"),
+            workspace,
+            branches,
             kernel,
             context,
             budget: Budget::new(BudgetLimits::uniform(
@@ -149,6 +232,16 @@ impl Session {
         self.context.digest()
     }
 
+    /// Active branch name of the session workspace.
+    pub fn active_branch(&self) -> &str {
+        &self.workspace.branch_name
+    }
+
+    fn sync_active_branch(&mut self) {
+        self.branches
+            .insert(self.workspace.branch_name.clone(), self.workspace.clone());
+    }
+
     /// Constructs a binding: parses `source` under the declared source cap
     /// and binds it to `symbol`.
     pub fn construct(&mut self, symbol: &str, source: &str) -> Result<Expr, SessionError> {
@@ -163,6 +256,7 @@ impl Session {
         }
         let expr = fsym_core::parse(source).map_err(|_| SessionError::ParseFailed)?;
         self.workspace.bind(Symbol::new(symbol), expr.clone());
+        self.sync_active_branch();
         Ok(expr)
     }
 
@@ -182,8 +276,99 @@ impl Session {
         Ok(derivative.to_string())
     }
 
-    /// Constructs a *candidate* claim for `source` (reflexivity), metered by
-    /// the session budget. The candidate is not accepted evidence until
+    /// Forks the active workspace into `branch_name` and switches to it.
+    pub fn fork_branch(&mut self, branch_name: &str) -> Result<String, SessionError> {
+        if branch_name.is_empty() || branch_name.len() > 256 {
+            return Err(SessionError::InvalidName);
+        }
+        self.sync_active_branch();
+        if self.branches.contains_key(branch_name) {
+            return Err(SessionError::Workspace(format!(
+                "branch `{branch_name}` already exists"
+            )));
+        }
+        let forked = self.workspace.fork(branch_name);
+        self.branches.insert(branch_name.to_string(), forked.clone());
+        self.workspace = forked;
+        Ok(branch_name.to_string())
+    }
+
+    /// Switches the active workspace to an existing `branch_name`.
+    pub fn checkout_branch(&mut self, branch_name: &str) -> Result<String, SessionError> {
+        self.sync_active_branch();
+        let Some(target) = self.branches.get(branch_name).cloned() else {
+            return Err(SessionError::Workspace(format!(
+                "branch `{branch_name}` does not exist"
+            )));
+        };
+        self.workspace = target;
+        Ok(branch_name.to_string())
+    }
+
+    /// Applies an atomic binding patch to the active workspace.
+    pub fn apply_patch(
+        &mut self,
+        updated_bindings: &BTreeMap<String, String>,
+        removed_bindings: &[String],
+    ) -> Result<usize, SessionError> {
+        let mut updates = HashMap::new();
+        for (sym, src) in updated_bindings {
+            if sym.is_empty() || sym.len() > 256 {
+                return Err(SessionError::InvalidName);
+            }
+            if src.len() > MAX_SOURCE_BYTES {
+                return Err(SessionError::SourceTooLarge {
+                    size: src.len(),
+                    limit: MAX_SOURCE_BYTES,
+                });
+            }
+            let expr = fsym_core::parse(src).map_err(|_| SessionError::ParseFailed)?;
+            updates.insert(Symbol::new(sym), expr);
+        }
+        let mut removals = Vec::with_capacity(removed_bindings.len());
+        for sym in removed_bindings {
+            if sym.is_empty() || sym.len() > 256 {
+                return Err(SessionError::InvalidName);
+            }
+            removals.push(Symbol::new(sym));
+        }
+        let patch = fsym_runtime::workspace::WorkspacePatch {
+            updated_bindings: updates,
+            removed_bindings: removals,
+        };
+        self.workspace
+            .apply_patch(&patch)
+            .map_err(|e| SessionError::Workspace(e.to_string()))?;
+        self.sync_active_branch();
+        Ok(self.workspace.bindings.len())
+    }
+
+    /// Merges `source_branch` into the active branch with a verified [`fsym_proof_kernel::SemanticMergeCertificate`].
+    pub fn merge_branch(
+        &mut self,
+        source_branch: &str,
+    ) -> Result<fsym_proof_kernel::SemanticMergeCertificate, SessionError> {
+        self.sync_active_branch();
+        if source_branch == self.workspace.branch_name {
+            return Err(SessionError::Workspace(
+                "cannot merge a branch into itself".to_string(),
+            ));
+        }
+        let Some(incoming) = self.branches.get(source_branch).cloned() else {
+            return Err(SessionError::Workspace(format!(
+                "source branch `{source_branch}` does not exist"
+            )));
+        };
+        let cert = self
+            .workspace
+            .merge_with_certificate(&incoming, 1, 1)
+            .map_err(|e| SessionError::Workspace(e.to_string()))?;
+        self.sync_active_branch();
+        Ok(cert)
+    }
+
+    /// Constructs a *candidate* claim for `source` (reflexivity or `lhs = rhs`),
+    /// metered by the session budget. The candidate is not accepted evidence until
     /// [`Session::verify_claim`] independently accepts it.
     pub fn construct_claim(&mut self, source: &str) -> Result<ClaimRecord, SessionError> {
         if source.len() > MAX_SOURCE_BYTES {
@@ -192,7 +377,7 @@ impl Session {
                 limit: MAX_SOURCE_BYTES,
             });
         }
-        let _expr = fsym_core::parse(source).map_err(|_| SessionError::ParseFailed)?;
+        let _ = parse_claim_sides(source)?;
         if self.claims.len() >= self.budgets.verify_step_budget {
             return Err(SessionError::BudgetExhausted { charged: 0 });
         }
@@ -208,26 +393,67 @@ impl Session {
         Ok(record)
     }
 
-    /// Independently verifies a candidate claim: the kernel proves the
-    /// reflexivity step under the session budget, the derivation is
-    /// exported, and `verify_derivation_independent` must accept it before
-    /// the record is promoted to `Accepted`.
+    /// Independently verifies a candidate claim:
+    /// - For single-expression claims (`expr`), proves reflexivity + symmetry.
+    /// - For equational claims (`lhs = rhs`), substitutes workspace bindings,
+    ///   proves the equational identity via `ProofKernel` (`Reflexivity` or
+    ///   `CertificatePayload::PolynomialNormalForm` + symmetry round-trip),
+    ///   rejects false claims (`lhs != rhs`) with `SessionError::CandidateNotAccepted`,
+    ///   and runs `verify_derivation_independent` before promoting to `Accepted`.
     pub fn verify_claim(&mut self, claim: &ClaimRecord) -> Result<ClaimRecord, SessionError> {
-        let expr = fsym_core::parse(&claim.source).map_err(|_| SessionError::ParseFailed)?;
+        let (lhs_raw, rhs_raw_opt) = parse_claim_sides(&claim.source)?;
+        let lhs = lhs_raw.subs(&self.workspace.bindings);
         let meter = &mut self.budget;
-        let step = self
-            .kernel
-            .prove_reflexivity(expr, meter)
-            .map_err(|_| SessionError::BudgetExhausted { charged: 0 })?;
-        // Second step: the symmetry of the reflexivity claim gives exports a
-        // real multi-step derivation so pagination is exercised honestly.
-        let symmetry_step = self
-            .kernel
-            .prove_symmetry(step, meter)
-            .map_err(|_| SessionError::BudgetExhausted { charged: 0 })?;
+        let root_step = match rhs_raw_opt {
+            None => {
+                let step = self
+                    .kernel
+                    .prove_reflexivity(lhs, meter)
+                    .map_err(|_| SessionError::BudgetExhausted { charged: 0 })?;
+                // Second step: symmetry of reflexivity gives exports a real
+                // multi-step derivation so pagination is exercised honestly.
+                self.kernel
+                    .prove_symmetry(step, meter)
+                    .map_err(|_| SessionError::BudgetExhausted { charged: 0 })?
+            }
+            Some(rhs_raw) => {
+                let rhs = rhs_raw.subs(&self.workspace.bindings);
+                if lhs == rhs {
+                    let step = self
+                        .kernel
+                        .prove_reflexivity(lhs, meter)
+                        .map_err(|_| SessionError::BudgetExhausted { charged: 0 })?;
+                    self.kernel
+                        .prove_symmetry(step, meter)
+                        .map_err(|_| SessionError::BudgetExhausted { charged: 0 })?
+                } else {
+                    let lemma_step = self
+                        .kernel
+                        .prove_certificate_lemma(
+                            "PolynomialNormalForm",
+                            Claim::equality(lhs.clone(), rhs.clone()),
+                            CertificatePayload::PolynomialNormalForm,
+                            meter,
+                        )
+                        .map_err(|err| match err {
+                            fsym_proof_kernel::KernelError::Budget(_) => {
+                                SessionError::BudgetExhausted { charged: 0 }
+                            }
+                            _ => SessionError::CandidateNotAccepted,
+                        })?;
+                    let sym_step = self
+                        .kernel
+                        .prove_symmetry(lemma_step, meter)
+                        .map_err(|_| SessionError::BudgetExhausted { charged: 0 })?;
+                    self.kernel
+                        .prove_symmetry(sym_step, meter)
+                        .map_err(|_| SessionError::BudgetExhausted { charged: 0 })?
+                }
+            }
+        };
         let derivation = self
             .kernel
-            .export_derivation(symmetry_step)
+            .export_derivation(root_step)
             .map_err(|_| SessionError::UnknownDerivation)?;
         // Independent re-verification: the generator (kernel) output is
         // checked by the separate verifier lane before acceptance.
@@ -240,6 +466,10 @@ impl Session {
             derivation_digest: Some(derivation.digest()),
             context_digest: claim.context_digest,
         };
+        if !self.workspace.derivations.contains(&derivation) {
+            self.workspace.derivations.push(derivation.clone());
+            self.sync_active_branch();
+        }
         self.derivations.push(derivation);
         if let Some(existing) = self
             .claims
@@ -380,15 +610,119 @@ impl Session {
                 .map_err(|error| error.to_string()),
             fsym_runtime::protocol::AgentRequest::Eval { expr }
             | fsym_runtime::protocol::AgentRequest::Simplify { expr } => {
-                match fsym_core::parse(expr) {
-                    Ok(parsed) => Ok(self.workspace.eval(&parsed).to_string()),
-                    Err(_) => Err("source expression failed to parse".to_string()),
+                if expr.len() > MAX_SOURCE_BYTES {
+                    Err("source expression exceeds session limit".to_string())
+                } else {
+                    match fsym_core::parse(expr) {
+                        Ok(parsed) => Ok(self.workspace.eval(&parsed).to_string()),
+                        Err(_) => Err("source expression failed to parse".to_string()),
+                    }
                 }
             }
-            other => {
-                let _ = other;
-                Err("unsupported request in the declared session subset".to_string())
+            fsym_runtime::protocol::AgentRequest::Factor { expr } => {
+                if expr.len() > MAX_SOURCE_BYTES {
+                    Err("source expression exceeds session limit".to_string())
+                } else {
+                    match fsym_core::parse(expr) {
+                        Ok(parsed) => {
+                            let sub = parsed.subs(&self.workspace.bindings);
+                            factor_expr_for_session(&sub).map(|e| e.to_string())
+                        }
+                        Err(_) => Err("source expression failed to parse".to_string()),
+                    }
+                }
             }
+            fsym_runtime::protocol::AgentRequest::Solve { expr, var } => {
+                if var.is_empty() || var.len() > 256 || expr.len() > MAX_SOURCE_BYTES {
+                    Err("invalid variable or expression exceeds limit".to_string())
+                } else {
+                    match fsym_core::parse(expr) {
+                        Ok(parsed) => {
+                            let sub = parsed.subs(&self.workspace.bindings);
+                            match fsym_solvers::solve(&sub, &Symbol::new(var)) {
+                                Ok(roots) => {
+                                    let rendered: Vec<String> =
+                                        roots.iter().map(ToString::to_string).collect();
+                                    Ok(format!("[{}]", rendered.join(", ")))
+                                }
+                                Err(e) => Err(e.to_string()),
+                            }
+                        }
+                        Err(_) => Err("source expression failed to parse".to_string()),
+                    }
+                }
+            }
+            fsym_runtime::protocol::AgentRequest::Integrate { expr, var } => {
+                if var.is_empty() || var.len() > 256 || expr.len() > MAX_SOURCE_BYTES {
+                    Err("invalid variable or expression exceeds limit".to_string())
+                } else {
+                    match fsym_core::parse(expr) {
+                        Ok(parsed) => {
+                            let sub = parsed.subs(&self.workspace.bindings);
+                            fsym_calculus::integrate(&sub, &Symbol::new(var))
+                                .map(|e| e.to_string())
+                                .map_err(|e| e.to_string())
+                        }
+                        Err(_) => Err("source expression failed to parse".to_string()),
+                    }
+                }
+            }
+            fsym_runtime::protocol::AgentRequest::Limit { expr, var, point } => {
+                if var.is_empty()
+                    || var.len() > 256
+                    || expr.len() > MAX_SOURCE_BYTES
+                    || point.len() > MAX_SOURCE_BYTES
+                {
+                    Err("invalid variable or expression exceeds limit".to_string())
+                } else {
+                    match (fsym_core::parse(expr), fsym_core::parse(point)) {
+                        (Ok(parsed_expr), Ok(parsed_point)) => {
+                            let sub = parsed_expr.subs(&self.workspace.bindings);
+                            fsym_calculus::limit(&sub, &Symbol::new(var), &parsed_point)
+                                .map(|e| e.to_string())
+                                .map_err(|e| e.to_string())
+                        }
+                        _ => Err("source expression or limit point failed to parse".to_string()),
+                    }
+                }
+            }
+            fsym_runtime::protocol::AgentRequest::Prove { lhs, rhs } => {
+                let claim_src = format!("{lhs} = {rhs}");
+                match self
+                    .construct_claim(&claim_src)
+                    .and_then(|cand| self.verify_claim(&cand))
+                {
+                    Ok(accepted) => {
+                        let digest = accepted.derivation_digest.unwrap_or([0u8; 32]);
+                        Ok(format!("verified:{}", hex_digest(&digest)))
+                    }
+                    Err(e) => Err(e.to_string()),
+                }
+            }
+            fsym_runtime::protocol::AgentRequest::Fork { branch_name } => self
+                .fork_branch(branch_name)
+                .map(|b| format!("forked:{b}"))
+                .map_err(|e| e.to_string()),
+            fsym_runtime::protocol::AgentRequest::Checkout { branch_name } => self
+                .checkout_branch(branch_name)
+                .map(|b| format!("checked_out:{b}"))
+                .map_err(|e| e.to_string()),
+            fsym_runtime::protocol::AgentRequest::ApplyPatch {
+                updated_bindings,
+                removed_bindings,
+            } => self
+                .apply_patch(updated_bindings, removed_bindings)
+                .map(|count| format!("patched:{count} bindings"))
+                .map_err(|e| e.to_string()),
+            fsym_runtime::protocol::AgentRequest::MergeBranch { source_branch } => self
+                .merge_branch(source_branch)
+                .map(|cert| format!("merged:{}", hex_digest(&cert.result_root)))
+                .map_err(|e| e.to_string()),
+            fsym_runtime::protocol::AgentRequest::StateRoot => self
+                .workspace
+                .state_root()
+                .map(|root| hex_digest(&root))
+                .map_err(|e| e.to_string()),
         };
         let mut response = match body {
             Ok(result) => serde_json::json!({ "status": "success", "result": result }),
