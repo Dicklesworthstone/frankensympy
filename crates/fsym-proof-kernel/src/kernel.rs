@@ -703,6 +703,15 @@ impl DerivationPreflight {
                 self.add_numeric_limbs(ball.radius().numer().limb_count())?;
                 self.add_numeric_limbs(ball.radius().denom().limb_count())
             }
+            CertificatePayload::PolynomialNormalForm => self.add_work(1),
+            CertificatePayload::RabinIrreducibilityModPrime { coeffs, prime } => {
+                self.add_work(coeffs.len() as u64)?;
+                self.add_numeric_limbs(prime.limb_count())?;
+                for coeff in coeffs {
+                    self.add_numeric_limbs(coeff.limb_count())?;
+                }
+                Ok(())
+            }
             CertificatePayload::Opaque { .. } => self.add_work(1),
         }
     }
@@ -1006,10 +1015,294 @@ fn dispatch_certificate_lemma(
 ) -> Result<Claim, KernelError> {
     match family {
         "RealBall" => check_real_ball_certificate(claim, certificate, context),
+        "PolynomialNormalForm" => check_polynomial_normal_form_certificate(claim, certificate),
+        "RabinIrreducibilityModPrime" => check_rabin_irreducibility_certificate(claim, certificate),
         _ => Err(KernelError::UnverifiedCertificateLemma {
             family: family.to_string(),
         }),
     }
+}
+
+fn check_polynomial_normal_form_certificate(
+    claim: &Claim,
+    certificate: &CertificatePayload,
+) -> Result<Claim, KernelError> {
+    if !matches!(certificate, CertificatePayload::PolynomialNormalForm) {
+        return Err(KernelError::InvalidCertificateLemma {
+            family: "PolynomialNormalForm".to_string(),
+            reason: "PolynomialNormalForm requires CertificatePayload::PolynomialNormalForm"
+                .to_string(),
+        });
+    }
+    match claim {
+        Claim::Equality { lhs, rhs } | Claim::AlgebraicIdentity { lhs, rhs } => {
+            check_polynomial_normal_form(lhs, rhs, "PolynomialNormalForm").map_err(|err| {
+                KernelError::InvalidCertificateLemma {
+                    family: "PolynomialNormalForm".to_string(),
+                    reason: err.to_string(),
+                }
+            })?;
+            Ok(claim.clone())
+        }
+        other => Err(KernelError::InvalidCertificateLemma {
+            family: "PolynomialNormalForm".to_string(),
+            reason: format!(
+                "PolynomialNormalForm only certifies Equality or AlgebraicIdentity, not `{other:?}`"
+            ),
+        }),
+    }
+}
+
+fn check_rabin_irreducibility_certificate(
+    claim: &Claim,
+    certificate: &CertificatePayload,
+) -> Result<Claim, KernelError> {
+    let CertificatePayload::RabinIrreducibilityModPrime { coeffs, prime } = certificate else {
+        return Err(KernelError::InvalidCertificateLemma {
+            family: "RabinIrreducibilityModPrime".to_string(),
+            reason:
+                "RabinIrreducibilityModPrime requires CertificatePayload::RabinIrreducibilityModPrime"
+                    .to_string(),
+        });
+    };
+    if !kernel_verify_rabin_irreducible_mod_prime(coeffs, prime) {
+        return Err(KernelError::InvalidCertificateLemma {
+            family: "RabinIrreducibilityModPrime".to_string(),
+            reason: format!(
+                "polynomial coefficients failed independent Rabin irreducibility verification modulo {prime}"
+            ),
+        });
+    }
+    match claim {
+        Claim::NonZero(_) | Claim::PredicateHold { .. } => Ok(claim.clone()),
+        Claim::Equality { lhs, rhs } | Claim::AlgebraicIdentity { lhs, rhs } if lhs == rhs => {
+            Ok(claim.clone())
+        }
+        other => Err(KernelError::InvalidCertificateLemma {
+            family: "RabinIrreducibilityModPrime".to_string(),
+            reason: format!("unsupported claim shape for RabinIrreducibilityModPrime: `{other:?}`"),
+        }),
+    }
+}
+
+fn kernel_verify_rabin_irreducible_mod_prime(coeffs: &[BigInt], prime: &BigInt) -> bool {
+    if prime.is_negative() || prime.bits() > 32 || coeffs.len() <= 1 {
+        return false;
+    }
+    let bytes = prime.to_bytes_le();
+    let mut p = 0u64;
+    for (i, b) in bytes.iter().enumerate().take(8) {
+        p |= (*b as u64) << (8 * i);
+    }
+    if p < 2 || !kernel_is_u64_prime(p) {
+        return false;
+    }
+    let mut f: Vec<u64> = coeffs
+        .iter()
+        .map(|c| {
+            let p_big = BigInt::from(p);
+            let r = ((c % &p_big) + &p_big) % &p_big;
+            let rb = r.to_bytes_le();
+            let mut val = 0u64;
+            for (i, b) in rb.iter().enumerate().take(8) {
+                val |= (*b as u64) << (8 * i);
+            }
+            val
+        })
+        .collect();
+    while f.last() == Some(&0) {
+        f.pop();
+    }
+    if f.len() != coeffs.len() || f.len() <= 1 {
+        return false;
+    }
+    let lc_inv = match kernel_fp_inv(*f.last().unwrap(), p) {
+        Some(inv) => inv,
+        None => return false,
+    };
+    for c in &mut f {
+        *c = ((*c as u128 * lc_inv as u128) % p as u128) as u64;
+    }
+    let deriv = kernel_fp_derivative(&f, p);
+    if kernel_fp_gcd(f.clone(), deriv, p).len() > 1 {
+        return false;
+    }
+    let d = (f.len() - 1) as u64;
+    let mut powers = Vec::with_capacity(d as usize + 1);
+    powers.push(vec![0u64, 1]);
+    for _ in 0..d {
+        let next = kernel_fp_pow_mod(&powers[powers.len() - 1], p, &f, p);
+        powers.push(next);
+    }
+    let x_mod_f = kernel_fp_rem_monic(&[0u64, 1], &f, p);
+    if powers[d as usize] != x_mod_f {
+        return false;
+    }
+    let mut rem_d = d;
+    let mut div = 2u64;
+    while div.saturating_mul(div) <= rem_d {
+        if rem_d.is_multiple_of(div) {
+            let diff = kernel_fp_sub(&powers[(d / div) as usize], &[0, 1], p);
+            if kernel_fp_gcd(diff, f.clone(), p).len() > 1 {
+                return false;
+            }
+            while rem_d.is_multiple_of(div) {
+                rem_d /= div;
+            }
+        }
+        div += if div == 2 { 1 } else { 2 };
+    }
+    if rem_d > 1 {
+        let diff = kernel_fp_sub(&powers[(d / rem_d) as usize], &[0, 1], p);
+        if kernel_fp_gcd(diff, f, p).len() > 1 {
+            return false;
+        }
+    }
+    true
+}
+
+fn kernel_is_u64_prime(n: u64) -> bool {
+    if n < 2 {
+        return false;
+    }
+    if n == 2 || n == 3 {
+        return true;
+    }
+    if n.is_multiple_of(2) || n.is_multiple_of(3) {
+        return false;
+    }
+    let mut d = 5u64;
+    while d.saturating_mul(d) <= n {
+        if n.is_multiple_of(d) || n.is_multiple_of(d + 2) {
+            return false;
+        }
+        d += 6;
+    }
+    true
+}
+
+fn kernel_fp_inv(a: u64, p: u64) -> Option<u64> {
+    if a == 0 {
+        return None;
+    }
+    let (mut t, mut new_t) = (0i128, 1i128);
+    let (mut r, mut new_r) = (p as i128, (a % p) as i128);
+    while new_r != 0 {
+        let q = r / new_r;
+        (t, new_t) = (new_t, t - q * new_t);
+        (r, new_r) = (new_r, r - q * new_r);
+    }
+    if r > 1 {
+        return None;
+    }
+    if t < 0 {
+        t += p as i128;
+    }
+    Some(t as u64)
+}
+
+fn kernel_fp_trim(mut a: Vec<u64>) -> Vec<u64> {
+    while a.last() == Some(&0) {
+        a.pop();
+    }
+    a
+}
+
+fn kernel_fp_sub(a: &[u64], b: &[u64], p: u64) -> Vec<u64> {
+    let n = a.len().max(b.len());
+    let mut out = vec![0u64; n];
+    for (i, slot) in out.iter_mut().enumerate() {
+        let av = a.get(i).copied().unwrap_or(0);
+        let bv = b.get(i).copied().unwrap_or(0);
+        *slot = (av + p - (bv % p)) % p;
+    }
+    kernel_fp_trim(out)
+}
+
+fn kernel_fp_mul(a: &[u64], b: &[u64], p: u64) -> Vec<u64> {
+    if a.is_empty() || b.is_empty() {
+        return Vec::new();
+    }
+    let mut out = vec![0u64; a.len() + b.len() - 1];
+    for (i, &av) in a.iter().enumerate() {
+        for (j, &bv) in b.iter().enumerate() {
+            let prod = (av as u128 * bv as u128) % p as u128;
+            out[i + j] = ((out[i + j] as u128 + prod) % p as u128) as u64;
+        }
+    }
+    kernel_fp_trim(out)
+}
+
+fn kernel_fp_rem_monic(a: &[u64], m: &[u64], p: u64) -> Vec<u64> {
+    let mut rem = a.to_vec();
+    rem = kernel_fp_trim(rem);
+    let m_deg = m.len() - 1;
+    while rem.len() >= m.len() && !rem.is_empty() {
+        let lead = *rem.last().unwrap();
+        let shift = rem.len() - m.len();
+        for (i, &mv) in m.iter().enumerate() {
+            let sub = ((lead as u128 * mv as u128) % p as u128) as u64;
+            rem[shift + i] = (rem[shift + i] + p - sub) % p;
+        }
+        rem = kernel_fp_trim(rem);
+        if rem.len() <= m_deg {
+            break;
+        }
+    }
+    rem
+}
+
+fn kernel_fp_pow_mod(base: &[u64], mut exp: u64, m: &[u64], p: u64) -> Vec<u64> {
+    let mut result = vec![1u64];
+    let mut cur = kernel_fp_rem_monic(base, m, p);
+    while exp > 0 {
+        if exp & 1 == 1 {
+            let prod = kernel_fp_mul(&result, &cur, p);
+            result = kernel_fp_rem_monic(&prod, m, p);
+        }
+        exp >>= 1;
+        if exp > 0 {
+            let sq = kernel_fp_mul(&cur, &cur, p);
+            cur = kernel_fp_rem_monic(&sq, m, p);
+        }
+    }
+    result
+}
+
+fn kernel_fp_derivative(a: &[u64], p: u64) -> Vec<u64> {
+    if a.len() <= 1 {
+        return Vec::new();
+    }
+    let mut out = Vec::with_capacity(a.len() - 1);
+    for (i, &c) in a.iter().enumerate().skip(1) {
+        out.push(((i as u128 * c as u128) % p as u128) as u64);
+    }
+    kernel_fp_trim(out)
+}
+
+fn kernel_fp_gcd(mut a: Vec<u64>, mut b: Vec<u64>, p: u64) -> Vec<u64> {
+    a = kernel_fp_trim(a);
+    b = kernel_fp_trim(b);
+    while !b.is_empty() {
+        let lc_inv = match kernel_fp_inv(*b.last().unwrap(), p) {
+            Some(inv) => inv,
+            None => return vec![0, 1],
+        };
+        for c in &mut b {
+            *c = ((*c as u128 * lc_inv as u128) % p as u128) as u64;
+        }
+        let r = kernel_fp_rem_monic(&a, &b, p);
+        a = b;
+        b = r;
+    }
+    if !a.is_empty() {
+        if let Some(inv) = kernel_fp_inv(*a.last().unwrap(), p) {
+            for c in &mut a {
+                *c = ((*c as u128 * inv as u128) % p as u128) as u64;
+            }
+        }
+    }
+    a
 }
 
 /// Validates a typed RealBall certificate lemma against ground term arithmetic.
@@ -1020,7 +1313,7 @@ fn check_real_ball_certificate(
 ) -> Result<Claim, KernelError> {
     let ball = match certificate {
         CertificatePayload::RealBall(ball) => ball,
-        CertificatePayload::Opaque { .. } => {
+        _ => {
             return Err(KernelError::InvalidCertificateLemma {
                 family: "RealBall".to_string(),
                 reason:

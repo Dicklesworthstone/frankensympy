@@ -60,6 +60,14 @@ pub enum ProofRule {
 pub enum CertificatePayload {
     /// Certified real ball enclosure $\mathcal{B}(m, r) = [m - r, m + r]$.
     RealBall(fsym_core::RealBall),
+    /// Exact polynomial ring normal-form equivalence certificate over $\mathbb{Q}[x_1,\dots,x_n]$.
+    PolynomialNormalForm,
+    /// Rabin modular irreducibility witness certifying that the integer polynomial
+    /// with ascending coefficients `coeffs` is irreducible modulo `prime`.
+    RabinIrreducibilityModPrime {
+        coeffs: Vec<fsym_core::BigInt>,
+        prime: fsym_core::BigInt,
+    },
     /// Unverified or opaque receipt digest for external/unimplemented families.
     Opaque { receipt_digest: [u8; 32] },
 }

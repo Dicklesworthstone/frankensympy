@@ -95,6 +95,10 @@ pub enum MergeCertError {
     #[error("conservative policy forbids read and absence witnesses on the same symbol {0:?}")]
     ReadAbsenceOverlap([u8; 32]),
     #[error(
+        "conservative policy requires read and write value digests to match on symbol {symbol_digest:02x?}"
+    )]
+    ConflictingReadWriteValue { symbol_digest: [u8; 32] },
+    #[error(
         "merge certificate commitment mismatch: the recorded result root does not follow from the bound inputs"
     )]
     ForgedCommitment,
@@ -203,10 +207,19 @@ pub fn verify_merge_certificate(
     }
     for witness in &certificate.witnesses {
         match witness.kind {
-            WitnessKind::Absence | WitnessKind::Predicate => {
-                if witness.value_digest != ZERO_DIGEST && witness.kind == WitnessKind::Absence {
+            WitnessKind::Absence => {
+                if witness.value_digest != ZERO_DIGEST {
                     return Err(MergeCertError::NonZeroDigestForWitnessKind {
                         kind: WitnessKind::Absence,
+                    });
+                }
+            }
+            WitnessKind::Predicate => {
+                if witness.value_digest != ZERO_DIGEST
+                    && witness.value_digest != certificate.context_digest
+                {
+                    return Err(MergeCertError::NonZeroDigestForWitnessKind {
+                        kind: WitnessKind::Predicate,
                     });
                 }
             }
@@ -220,18 +233,22 @@ pub fn verify_merge_certificate(
         symbols.insert(witness.symbol_digest);
     }
     for symbol in &symbols {
-        let has_read = certificate
+        let reads: Vec<&MergeWitness> = certificate
             .witnesses
             .iter()
-            .any(|w| w.symbol_digest == *symbol && w.kind == WitnessKind::Read);
+            .filter(|w| w.symbol_digest == *symbol && w.kind == WitnessKind::Read)
+            .collect();
+        let writes: Vec<&MergeWitness> = certificate
+            .witnesses
+            .iter()
+            .filter(|w| w.symbol_digest == *symbol && w.kind == WitnessKind::Write)
+            .collect();
+        let has_read = !reads.is_empty();
         let has_absence = certificate
             .witnesses
             .iter()
             .any(|w| w.symbol_digest == *symbol && w.kind == WitnessKind::Absence);
-        let has_write = certificate
-            .witnesses
-            .iter()
-            .any(|w| w.symbol_digest == *symbol && w.kind == WitnessKind::Write);
+        let has_write = !writes.is_empty();
         if has_read && has_absence {
             return Err(MergeCertError::ReadAbsenceOverlap(*symbol));
         }
@@ -263,6 +280,30 @@ pub fn verify_merge_certificate(
     );
     if recomputed != certificate.result_root {
         return Err(MergeCertError::ForgedCommitment);
+    }
+
+    if matches!(certificate.policy, MergePolicy::Conservative) {
+        for symbol in &symbols {
+            let reads: Vec<&MergeWitness> = certificate
+                .witnesses
+                .iter()
+                .filter(|w| w.symbol_digest == *symbol && w.kind == WitnessKind::Read)
+                .collect();
+            let writes: Vec<&MergeWitness> = certificate
+                .witnesses
+                .iter()
+                .filter(|w| w.symbol_digest == *symbol && w.kind == WitnessKind::Write)
+                .collect();
+            for r in &reads {
+                for w in &writes {
+                    if r.value_digest != w.value_digest {
+                        return Err(MergeCertError::ConflictingReadWriteValue {
+                            symbol_digest: *symbol,
+                        });
+                    }
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -407,6 +448,33 @@ mod tests {
         assert_eq!(
             verify_merge_certificate(&cert),
             Err(MergeCertError::UnsupportedPolicyVersion { found: 2 })
+        );
+    }
+
+    #[test]
+    fn rejects_conflicting_read_write_under_conservative_policy() {
+        let mut cert = sample_certificate();
+        for w in &mut cert.witnesses {
+            if w.symbol_digest[0] == 1 && w.kind == WitnessKind::Write {
+                w.value_digest[0] ^= 0x55;
+            }
+        }
+        cert.witnesses.sort();
+        let witnesses: BTreeSet<MergeWitness> = cert.witnesses.iter().cloned().collect();
+        cert.result_root = merge_commitment(
+            cert.base_root,
+            cert.context_digest,
+            cert.profile_version,
+            cert.registry_version,
+            cert.policy,
+            &witnesses,
+            &BTreeSet::from([[7u8; 32]]),
+        );
+        assert_eq!(
+            verify_merge_certificate(&cert),
+            Err(MergeCertError::ConflictingReadWriteValue {
+                symbol_digest: symbol_for_seed(1),
+            })
         );
     }
 

@@ -1442,11 +1442,49 @@ fn mignotte_bound(z: &[BigInt]) -> BigInt {
     binom * BigInt::from_u64((d + 1) as u64) * max_abs
 }
 
+fn is_u64_prime(n: u64) -> bool {
+    if n < 2 {
+        return false;
+    }
+    if n == 2 || n == 3 {
+        return true;
+    }
+    if n.is_multiple_of(2) || n.is_multiple_of(3) {
+        return false;
+    }
+    let mut d = 5u64;
+    while d.saturating_mul(d) <= n {
+        if n.is_multiple_of(d) || n.is_multiple_of(d + 2) {
+            return false;
+        }
+        d += 6;
+    }
+    true
+}
+
+fn prime_divisors_u64(mut n: u64) -> Vec<u64> {
+    let mut divisors = Vec::new();
+    let mut d = 2u64;
+    while d.saturating_mul(d) <= n {
+        if n.is_multiple_of(d) {
+            divisors.push(d);
+            while n.is_multiple_of(d) {
+                n /= d;
+            }
+        }
+        d += if d == 2 { 1 } else { 2 };
+    }
+    if n > 1 {
+        divisors.push(n);
+    }
+    divisors
+}
+
 /// Independent Rabin check used by the verifier lane (deliberately coded
 /// separately from the generator's `fp_rabin_irreducible`).
 fn verify_irreducible_mod_prime(int_poly: &[BigInt], prime: &BigInt) -> bool {
     // The verifier regime caps primes below 2^32 so GF(p) coefficients fit u64.
-    if prime.bits() > 32 {
+    if prime.is_negative() || prime.bits() > 32 {
         return false;
     }
     let bytes = prime.to_bytes_le();
@@ -1454,11 +1492,19 @@ fn verify_irreducible_mod_prime(int_poly: &[BigInt], prime: &BigInt) -> bool {
     for (i, b) in bytes.iter().enumerate().take(8) {
         p |= (*b as u64) << (8 * i);
     }
-    if p < 2 {
+    // Independently verify that `prime` is genuinely prime (both deterministic
+    // trial division on u64 and Baillie-PSW in fsym-modular).
+    if p < 2 || !is_u64_prime(p) || !fsym_modular::is_probable_prime(prime) {
+        return false;
+    }
+    // Leading coefficient of the integer polynomial must not vanish mod p,
+    // otherwise degree drops mod p and modular irreducibility does not certify
+    // irreducibility of the full-degree polynomial over Z.
+    if int_poly.len() <= 1 {
         return false;
     }
     let f = z_to_fp(int_poly, p);
-    if f.len() <= 1 {
+    if f.len() != int_poly.len() || f.len() <= 1 {
         return false;
     }
     // Square-free check.
@@ -1482,14 +1528,10 @@ fn verify_irreducible_mod_prime(int_poly: &[BigInt], prime: &BigInt) -> bool {
         let next = fp_pow_mod(&powers[powers.len() - 1], p, &f, p);
         powers.push(next);
     }
-    for ell in [
-        2u64, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61,
-    ] {
-        if ell <= d && d.is_multiple_of(ell) {
-            let diff = fp_sub(&powers[(d / ell) as usize], &[0, 1], p);
-            if fp_gcd(diff, f.clone(), p).len() > 1 {
-                return false;
-            }
+    for ell in prime_divisors_u64(d) {
+        let diff = fp_sub(&powers[(d / ell) as usize], &[0, 1], p);
+        if fp_gcd(diff, f.clone(), p).len() > 1 {
+            return false;
         }
     }
     true
@@ -2066,10 +2108,61 @@ pub fn verify_complete_factorization(
     Ok(())
 }
 
+/// Strict verifier for certified irreducible factorizations over $\mathbb{Q}[x]$:
+/// enforces all `verify_complete_factorization` invariants and additionally
+/// requires every factor of degree $\ge 2$ to carry an independently verified
+/// [`IrreducibilityWitness`].
+pub fn verify_certified_irreducible_factorization(
+    poly: &UnivariatePoly,
+    factorization: &CompleteFactorization,
+) -> Result<(), PolyError> {
+    verify_complete_factorization(poly, factorization)?;
+    for term in &factorization.factors {
+        if term.poly.degree().unwrap_or(0) >= 2 && term.irreducibility.is_none() {
+            return Err(PolyError::IdentityCheckFailed(
+                "certified irreducible factorization requires an irreducibility witness for every factor of degree >= 2".to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+impl UnivariatePoly {
+    /// Compute the complete factorization of this univariate polynomial over $\mathbb{Q}[x]$.
+    pub fn factor(&self) -> Result<CompleteFactorization, PolyError> {
+        complete_factorization(self)
+    }
+}
+
 #[cfg(test)]
 mod complete_factorization_tests {
     use super::*;
     use fsym_budget::{Dimension, MeterError};
+
+    #[test]
+    fn verifier_rejects_composite_modulus_witness() {
+        let p = ipoly(&[1, 1, 1]); // x^2 + x + 1
+        let mut fact = complete_factorization(&p).expect("factorization");
+        assert_eq!(fact.factors.len(), 1);
+        for composite in [4u64, 6, 8, 9, 15, 21, 25, 49, 561] {
+            fact.factors[0].irreducibility = Some(IrreducibilityWitness {
+                prime: BigInt::from_u64(composite),
+            });
+            assert!(
+                verify_complete_factorization(&p, &fact).is_err(),
+                "composite modulus {composite} must be rejected by independent verifier"
+            );
+        }
+    }
+
+    #[test]
+    fn certified_irreducible_factorization_requires_higher_degree_witness() {
+        let p = ipoly(&[1, 1, 1]); // x^2 + x + 1
+        let mut fact = p.factor().expect("factorization");
+        assert!(verify_certified_irreducible_factorization(&p, &fact).is_ok());
+        fact.factors[0].irreducibility = None;
+        assert!(verify_certified_irreducible_factorization(&p, &fact).is_err());
+    }
 
     fn sym() -> Symbol {
         Symbol::new("x")

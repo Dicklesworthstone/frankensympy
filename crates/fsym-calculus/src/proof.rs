@@ -2,7 +2,7 @@
 
 #![forbid(unsafe_code)]
 
-use crate::{diff, diff_unsimplified};
+use crate::diff_unsimplified;
 use fsym_core::{BigInt, BigRational, Constant, Expr, Symbol};
 use fsym_proof_kernel::{Claim, DerivationStep, DerivationTree, KernelError, ProofRule, StepId};
 use std::sync::Arc;
@@ -112,7 +112,7 @@ pub fn verify_diff_receipt(
     rhs_text: &str,
     deriv_text: &str,
 ) -> Result<(), KernelError> {
-    let deriv = diff_unsimplified(expr, var);
+    let deriv = reference_unsimplified_diff(expr, var);
     let diff_term = make_diff_term(expr, var);
     let tree = DerivationTree {
         steps: vec![DerivationStep {
@@ -202,6 +202,222 @@ pub fn verify_diff_derivation(
     Ok(())
 }
 
+/// Verifier-local zero-product elimination (independent of `crate::eliminate_zero_products`).
+fn reference_eliminate_zero_products(expr: &Expr) -> Expr {
+    match expr {
+        Expr::Add(terms) => {
+            let non_zero: Vec<Expr> = terms
+                .iter()
+                .map(reference_eliminate_zero_products)
+                .filter(|t| !t.is_zero())
+                .collect();
+            match non_zero.len() {
+                0 => Expr::from_i64(0),
+                1 => non_zero.into_iter().next().expect("len checked"),
+                _ => Expr::Add(non_zero),
+            }
+        }
+        Expr::Mul(factors) => {
+            let mapped: Vec<Expr> = factors
+                .iter()
+                .map(reference_eliminate_zero_products)
+                .collect();
+            if mapped.iter().any(|f| f.is_zero()) {
+                Expr::from_i64(0)
+            } else {
+                match mapped.len() {
+                    0 => Expr::from_i64(1),
+                    1 => mapped.into_iter().next().expect("len checked"),
+                    _ => Expr::Mul(mapped),
+                }
+            }
+        }
+        Expr::Pow(base, exp) => Expr::Pow(
+            Arc::new(reference_eliminate_zero_products(base)),
+            Arc::new(reference_eliminate_zero_products(exp)),
+        ),
+        Expr::Function(name, args) => Expr::Function(
+            name.clone(),
+            args.iter()
+                .map(reference_eliminate_zero_products)
+                .collect(),
+        ),
+        _ => expr.clone(),
+    }
+}
+
+/// Verifier-local reference sub-derivative (never invokes `crate::diff` or `crate::diff_unsimplified`).
+fn reference_sub_derivative(expr: &Expr, var: &Symbol) -> Expr {
+    let raw = reference_unsimplified_diff(expr, var);
+    let cleaned = reference_eliminate_zero_products(&raw);
+    fsym_simplify::simplify(&cleaned)
+}
+
+/// Verifier-local formal differentiation rule table (independent of `crate::diff_unsimplified`).
+fn reference_unsimplified_diff(expr: &Expr, var: &Symbol) -> Expr {
+    match expr {
+        Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_) => Expr::from_i64(0),
+        Expr::Sym(s) if s == var => Expr::from_i64(1),
+        Expr::Sym(_) => Expr::from_i64(0),
+        Expr::Add(terms) => Expr::Add(
+            terms
+                .iter()
+                .map(|t| reference_sub_derivative(t, var))
+                .collect(),
+        ),
+        Expr::Mul(factors) => {
+            let mut add_terms = Vec::with_capacity(factors.len());
+            for i in 0..factors.len() {
+                let mut prod_factors = Vec::with_capacity(factors.len());
+                for (j, factor) in factors.iter().enumerate() {
+                    if i == j {
+                        prod_factors.push(reference_sub_derivative(factor, var));
+                    } else {
+                        prod_factors.push(factor.clone());
+                    }
+                }
+                add_terms.push(Expr::Mul(prod_factors));
+            }
+            Expr::Add(add_terms)
+        }
+        Expr::Pow(base, exp) => {
+            if let Expr::Integer(n) = exp.as_ref() {
+                let n_minus_1 = n - BigInt::from(1);
+                let du = reference_sub_derivative(base, var);
+                if du.is_zero() {
+                    Expr::from_i64(0)
+                } else {
+                    Expr::Mul(vec![
+                        Expr::Integer(n.clone()),
+                        Expr::Pow(base.clone(), Arc::new(Expr::Integer(n_minus_1))),
+                        du,
+                    ])
+                }
+            } else {
+                make_diff_term(expr, var)
+            }
+        }
+        Expr::Function(name, args) if args.len() == 1 => {
+            let u = &args[0];
+            let du = reference_sub_derivative(u, var);
+            if name != "Derivative" && name != "diff" && du.is_zero() {
+                return Expr::from_i64(0);
+            }
+            match name.as_str() {
+                "sin" => Expr::Mul(vec![Expr::Function("cos".to_string(), vec![u.clone()]), du]),
+                "cos" => Expr::Mul(vec![
+                    Expr::from_i64(-1),
+                    Expr::Function("sin".to_string(), vec![u.clone()]),
+                    du,
+                ]),
+                "tan" => {
+                    let tan_u_sq = Expr::pow(
+                        Expr::Function("tan".to_string(), vec![u.clone()]),
+                        Expr::from_i64(2),
+                    );
+                    Expr::Mul(vec![Expr::Add(vec![Expr::from_i64(1), tan_u_sq]), du])
+                }
+                "exp" => Expr::Mul(vec![Expr::Function("exp".to_string(), vec![u.clone()]), du]),
+                "sinh" => Expr::Mul(vec![
+                    Expr::Function("cosh".to_string(), vec![u.clone()]),
+                    du,
+                ]),
+                "cosh" => Expr::Mul(vec![
+                    Expr::Function("sinh".to_string(), vec![u.clone()]),
+                    du,
+                ]),
+                "tanh" => {
+                    let tanh_u_sq = Expr::pow(
+                        Expr::Function("tanh".to_string(), vec![u.clone()]),
+                        Expr::from_i64(2),
+                    );
+                    Expr::Mul(vec![
+                        Expr::Add(vec![
+                            Expr::from_i64(1),
+                            Expr::Mul(vec![Expr::from_i64(-1), tanh_u_sq]),
+                        ]),
+                        du,
+                    ])
+                }
+                "log" | "ln" => Expr::Mul(vec![
+                    Expr::Pow(Arc::new(u.clone()), Arc::new(Expr::from_i64(-1))),
+                    du,
+                ]),
+                "asin" => {
+                    let one_minus_u_sq = Expr::Add(vec![
+                        Expr::from_i64(1),
+                        Expr::Mul(vec![
+                            Expr::from_i64(-1),
+                            Expr::pow(u.clone(), Expr::from_i64(2)),
+                        ]),
+                    ]);
+                    let neg_half =
+                        Expr::Rational(BigRational::new(BigInt::from(-1), BigInt::from(2)));
+                    Expr::Mul(vec![Expr::pow(one_minus_u_sq, neg_half), du])
+                }
+                "acos" => {
+                    let one_minus_u_sq = Expr::Add(vec![
+                        Expr::from_i64(1),
+                        Expr::Mul(vec![
+                            Expr::from_i64(-1),
+                            Expr::pow(u.clone(), Expr::from_i64(2)),
+                        ]),
+                    ]);
+                    let neg_half =
+                        Expr::Rational(BigRational::new(BigInt::from(-1), BigInt::from(2)));
+                    Expr::Mul(vec![
+                        Expr::from_i64(-1),
+                        Expr::pow(one_minus_u_sq, neg_half),
+                        du,
+                    ])
+                }
+                "atan" => {
+                    let denom = Expr::Add(vec![
+                        Expr::from_i64(1),
+                        Expr::pow(u.clone(), Expr::from_i64(2)),
+                    ]);
+                    Expr::Mul(vec![Expr::pow(denom, Expr::from_i64(-1)), du])
+                }
+                "erf" => {
+                    let pi = Expr::Const(Constant::Pi);
+                    let half = Expr::Rational(BigRational::new(BigInt::from(1), BigInt::from(2)));
+                    let sqrt_pi = Expr::pow(pi, half);
+                    let inv_sqrt_pi = Expr::pow(sqrt_pi, Expr::from_i64(-1));
+                    let neg_u_sq = Expr::Mul(vec![
+                        Expr::from_i64(-1),
+                        Expr::pow(u.clone(), Expr::from_i64(2)),
+                    ]);
+                    let exp_neg_u_sq = Expr::Function("exp".to_string(), vec![neg_u_sq]);
+                    Expr::Mul(vec![Expr::from_i64(2), inv_sqrt_pi, exp_neg_u_sq, du])
+                }
+                "erfc" => {
+                    let pi = Expr::Const(Constant::Pi);
+                    let half = Expr::Rational(BigRational::new(BigInt::from(1), BigInt::from(2)));
+                    let sqrt_pi = Expr::pow(pi, half);
+                    let inv_sqrt_pi = Expr::pow(sqrt_pi, Expr::from_i64(-1));
+                    let neg_u_sq = Expr::Mul(vec![
+                        Expr::from_i64(-1),
+                        Expr::pow(u.clone(), Expr::from_i64(2)),
+                    ]);
+                    let exp_neg_u_sq = Expr::Function("exp".to_string(), vec![neg_u_sq]);
+                    Expr::Mul(vec![Expr::from_i64(-2), inv_sqrt_pi, exp_neg_u_sq, du])
+                }
+                "sinc" => {
+                    let cos_u = Expr::Function("cos".to_string(), vec![u.clone()]);
+                    let sin_u = Expr::Function("sin".to_string(), vec![u.clone()]);
+                    let inv_u = Expr::pow(u.clone(), Expr::from_i64(-1));
+                    let inv_u_sq = Expr::pow(u.clone(), Expr::from_i64(-2));
+                    let term1 = Expr::Mul(vec![cos_u, inv_u]);
+                    let term2 = Expr::Mul(vec![Expr::from_i64(-1), sin_u, inv_u_sq]);
+                    Expr::Mul(vec![Expr::Add(vec![term1, term2]), du])
+                }
+                _ => make_diff_term(expr, var),
+            }
+        }
+        _ => make_diff_term(expr, var),
+    }
+}
+
 /// Validates that the RHS formula corresponds to the mathematical differentiation rule.
 fn verify_rule_reduction_semantics(
     expr: &Expr,
@@ -236,7 +452,10 @@ fn verify_rule_reduction_semantics(
         }
         RULE_DIFF_SUM => {
             if let Expr::Add(terms) = expr {
-                let expected_terms: Vec<Expr> = terms.iter().map(|t| diff(t, var)).collect();
+                let expected_terms: Vec<Expr> = terms
+                    .iter()
+                    .map(|t| reference_sub_derivative(t, var))
+                    .collect();
                 let expected_rhs = Expr::Add(expected_terms);
                 if deriv != &expected_rhs {
                     return Err(KernelError::InvalidDefinitionalReduction {
@@ -260,7 +479,7 @@ fn verify_rule_reduction_semantics(
                     let mut prod_factors = Vec::new();
                     for (j, factor) in factors.iter().enumerate() {
                         if i == j {
-                            prod_factors.push(diff(factor, var));
+                            prod_factors.push(reference_sub_derivative(factor, var));
                         } else {
                             prod_factors.push(factor.clone());
                         }
@@ -288,7 +507,7 @@ fn verify_rule_reduction_semantics(
                 && let Expr::Integer(n) = exp.as_ref()
             {
                 let n_minus_1 = n - BigInt::from(1);
-                let du = diff(base, var);
+                let du = reference_sub_derivative(base, var);
                 let expected_rhs = Expr::Mul(vec![
                     Expr::Integer(n.clone()),
                     Expr::Pow(base.clone(), Arc::new(Expr::Integer(n_minus_1))),
@@ -316,7 +535,7 @@ fn verify_rule_reduction_semantics(
                 && args.len() == 1
             {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = reference_sub_derivative(u, var);
                 let expected_rhs =
                     Expr::Mul(vec![Expr::Function("cos".to_string(), vec![u.clone()]), du]);
                 if deriv != &expected_rhs {
@@ -335,7 +554,7 @@ fn verify_rule_reduction_semantics(
                 && args.len() == 1
             {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = reference_sub_derivative(u, var);
                 let expected_rhs = Expr::Mul(vec![
                     Expr::from_i64(-1),
                     Expr::Function("sin".to_string(), vec![u.clone()]),
@@ -357,7 +576,7 @@ fn verify_rule_reduction_semantics(
                 && args.len() == 1
             {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = reference_sub_derivative(u, var);
                 let expected_rhs =
                     Expr::Mul(vec![Expr::Function("exp".to_string(), vec![u.clone()]), du]);
                 if deriv != &expected_rhs {
@@ -376,7 +595,7 @@ fn verify_rule_reduction_semantics(
                 && args.len() == 1
             {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = reference_sub_derivative(u, var);
                 let expected_rhs = Expr::Mul(vec![
                     Expr::Function("cosh".to_string(), vec![u.clone()]),
                     du,
@@ -397,7 +616,7 @@ fn verify_rule_reduction_semantics(
                 && args.len() == 1
             {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = reference_sub_derivative(u, var);
                 let expected_rhs = Expr::Mul(vec![
                     Expr::Function("sinh".to_string(), vec![u.clone()]),
                     du,
@@ -418,7 +637,7 @@ fn verify_rule_reduction_semantics(
                 && args.len() == 1
             {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = reference_sub_derivative(u, var);
                 let expected_rhs = Expr::Mul(vec![
                     Expr::Pow(Arc::new(u.clone()), Arc::new(Expr::from_i64(-1))),
                     du,
@@ -439,7 +658,7 @@ fn verify_rule_reduction_semantics(
                 && args.len() == 1
             {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = reference_sub_derivative(u, var);
                 let tan_u_sq = Expr::pow(
                     Expr::Function("tan".to_string(), vec![u.clone()]),
                     Expr::from_i64(2),
@@ -467,7 +686,7 @@ fn verify_rule_reduction_semantics(
                 && args.len() == 1
             {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = reference_sub_derivative(u, var);
                 let tanh_u_sq = Expr::pow(
                     Expr::Function("tanh".to_string(), vec![u.clone()]),
                     Expr::from_i64(2),
@@ -500,7 +719,7 @@ fn verify_rule_reduction_semantics(
                 && args.len() == 1
             {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = reference_sub_derivative(u, var);
                 let one_minus_u_sq = Expr::Add(vec![
                     Expr::from_i64(1),
                     Expr::Mul(vec![
@@ -531,7 +750,7 @@ fn verify_rule_reduction_semantics(
                 && args.len() == 1
             {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = reference_sub_derivative(u, var);
                 let one_minus_u_sq = Expr::Add(vec![
                     Expr::from_i64(1),
                     Expr::Mul(vec![
@@ -566,7 +785,7 @@ fn verify_rule_reduction_semantics(
                 && args.len() == 1
             {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = reference_sub_derivative(u, var);
                 let denom = Expr::Add(vec![
                     Expr::from_i64(1),
                     Expr::pow(u.clone(), Expr::from_i64(2)),
@@ -593,7 +812,7 @@ fn verify_rule_reduction_semantics(
                 && args.len() == 1
             {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = reference_sub_derivative(u, var);
                 let pi = Expr::Const(Constant::Pi);
                 let half = Expr::Rational(BigRational::new(BigInt::from(1), BigInt::from(2)));
                 let sqrt_pi = Expr::pow(pi, half);
@@ -626,7 +845,7 @@ fn verify_rule_reduction_semantics(
                 && args.len() == 1
             {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = reference_sub_derivative(u, var);
                 let pi = Expr::Const(Constant::Pi);
                 let half = Expr::Rational(BigRational::new(BigInt::from(1), BigInt::from(2)));
                 let sqrt_pi = Expr::pow(pi, half);
@@ -659,7 +878,7 @@ fn verify_rule_reduction_semantics(
                 && args.len() == 1
             {
                 let u = &args[0];
-                let du = diff(u, var);
+                let du = reference_sub_derivative(u, var);
                 let cos_u = Expr::Function("cos".to_string(), vec![u.clone()]);
                 let sin_u = Expr::Function("sin".to_string(), vec![u.clone()]);
                 let inv_u = Expr::pow(u.clone(), Expr::from_i64(-1));

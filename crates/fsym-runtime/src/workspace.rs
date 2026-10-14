@@ -509,17 +509,17 @@ impl SemanticWorkspace {
         registry_version: u32,
     ) -> Result<SemanticMergeCertificate, WorkspaceError> {
         let base_root = self.state_root()?;
-        self.merge(incoming)?;
 
-        // Witnesses, in canonical order (sorted by symbol digest, then kind).
+        // Collect witnesses and newly imported derivations against the pre-merge
+        // base state before mutating `self` via `self.merge(incoming)`.
         let mut witness_set: std::collections::BTreeSet<MergeWitness> =
             std::collections::BTreeSet::new();
         let mut sorted_incoming: Vec<(&Symbol, &Expr)> = incoming.bindings.iter().collect();
         sorted_incoming.sort_unstable_by_key(|(symbol, _)| *symbol);
-        let mut imported_new_derivations: Vec<&fsym_proof_kernel::DerivationTree> = Vec::new();
+        let mut imported_new_derivations: Vec<fsym_proof_kernel::DerivationTree> = Vec::new();
         for deriv in &incoming.derivations {
             if !self.derivations.contains(deriv) {
-                imported_new_derivations.push(deriv);
+                imported_new_derivations.push(deriv.clone());
             }
         }
         for (symbol, incoming_expr) in &sorted_incoming {
@@ -556,6 +556,8 @@ impl SemanticWorkspace {
             kind: WitnessKind::Predicate,
             value_digest: ZERO_DIGEST,
         });
+
+        self.merge(incoming)?;
 
         let derivation_digests: Vec<[u8; 32]> = imported_new_derivations
             .iter()
