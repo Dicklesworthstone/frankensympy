@@ -1295,11 +1295,11 @@ fn kernel_fp_gcd(mut a: Vec<u64>, mut b: Vec<u64>, p: u64) -> Vec<u64> {
         a = b;
         b = r;
     }
-    if !a.is_empty() {
-        if let Some(inv) = kernel_fp_inv(*a.last().unwrap(), p) {
-            for c in &mut a {
-                *c = ((*c as u128 * inv as u128) % p as u128) as u64;
-            }
+    if !a.is_empty()
+        && let Some(inv) = kernel_fp_inv(*a.last().unwrap(), p)
+    {
+        for c in &mut a {
+            *c = ((*c as u128 * inv as u128) % p as u128) as u64;
         }
     }
     a

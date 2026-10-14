@@ -20,6 +20,10 @@ pub type RuleTransform = fn(&Expr, &Arc<ImmutableAssumptionsSnapshot>) -> Option
 pub enum SideConditionOperand {
     /// The base of a `Pow` expression.
     Base,
+    /// The inner base `u` of a nested power `(u^k)^m` or function of a power `f(u^k)`.
+    InnerBase,
+    /// The inner exponent `v` of a function of a power `f(u^v)`.
+    InnerExp,
     /// The n-th argument of a function application.
     Arg(usize),
     /// The `inner`-th argument of the `outer`-th argument's function
@@ -59,6 +63,18 @@ pub struct RewriteRule {
 fn resolve_operand<'a>(expr: &'a Expr, operand: &SideConditionOperand) -> Option<&'a Expr> {
     match (operand, expr) {
         (SideConditionOperand::Base, Expr::Pow(base, _)) => Some(base),
+        (SideConditionOperand::InnerBase, Expr::Pow(base, _)) => match base.as_ref() {
+            Expr::Pow(inner_base, _) => Some(inner_base),
+            _ => None,
+        },
+        (SideConditionOperand::InnerBase, Expr::Function(_, args)) => match args.first() {
+            Some(Expr::Pow(inner_base, _)) => Some(inner_base),
+            _ => None,
+        },
+        (SideConditionOperand::InnerExp, Expr::Function(_, args)) => match args.first() {
+            Some(Expr::Pow(_, inner_exp)) => Some(inner_exp),
+            _ => None,
+        },
         (SideConditionOperand::Arg(index), Expr::Function(_, args)) => args.get(*index),
         (SideConditionOperand::NestedArg { outer, inner }, Expr::Function(_, outer_args)) => {
             outer_args
@@ -380,6 +396,145 @@ pub fn standard_rules() -> Vec<RewriteRule> {
                     ))
                 }
                 _ => None,
+            },
+        },
+        RewriteRule {
+            name: "log_power_pullout",
+            description: "log(u^v) => v * log(u) and ln(u^v) => v * ln(u) (only when u is Positive and v is Real)",
+            side_conditions: &[
+                SideCondition::Entailed {
+                    operand: SideConditionOperand::InnerBase,
+                    predicate: Predicate::Positive,
+                },
+                SideCondition::Entailed {
+                    operand: SideConditionOperand::InnerExp,
+                    predicate: Predicate::Real,
+                },
+            ],
+            transform: |expr, ctx| match expr {
+                Expr::Function(name, args)
+                    if matches!(name.as_str(), "log" | "ln") && args.len() == 1 =>
+                {
+                    let Expr::Pow(u, v) = &args[0] else {
+                        return None;
+                    };
+                    if !ctx.query(u, Predicate::Positive).is_entailed_true()
+                        || !ctx.query(v, Predicate::Real).is_entailed_true()
+                    {
+                        return None;
+                    }
+                    let log_u = Expr::Function(name.clone(), vec![(**u).clone()]);
+                    let out = Expr::Mul(vec![(**v).clone(), log_u]);
+                    Some((
+                        out.clone(),
+                        ProofRule::DefinitionalReduction {
+                            lhs: expr.clone(),
+                            rhs: out,
+                            rule_name: "log_power_pullout".into(),
+                        },
+                    ))
+                }
+                _ => None,
+            },
+        },
+        RewriteRule {
+            name: "pow_even_root_positive",
+            description: "(u^2)^(1/2) => u and sqrt(u^2) => u (only when u is NonNegative)",
+            side_conditions: &[SideCondition::Entailed {
+                operand: SideConditionOperand::InnerBase,
+                predicate: Predicate::NonNegative,
+            }],
+            transform: |expr, ctx| {
+                let u = match expr {
+                    Expr::Pow(base, exp) => {
+                        let half = Expr::Rational(BigRational::new(
+                            fsym_core::BigInt::from(1),
+                            fsym_core::BigInt::from(2),
+                        ));
+                        if **exp != half {
+                            return None;
+                        }
+                        let Expr::Pow(inner_u, inner_exp) = base.as_ref() else {
+                            return None;
+                        };
+                        if **inner_exp != Expr::from_i64(2) {
+                            return None;
+                        }
+                        inner_u.as_ref()
+                    }
+                    Expr::Function(name, args) if name == "sqrt" && args.len() == 1 => {
+                        let Expr::Pow(inner_u, inner_exp) = &args[0] else {
+                            return None;
+                        };
+                        if **inner_exp != Expr::from_i64(2) {
+                            return None;
+                        }
+                        inner_u.as_ref()
+                    }
+                    _ => return None,
+                };
+                if !ctx.query(u, Predicate::NonNegative).is_entailed_true() {
+                    return None;
+                }
+                let out = u.clone();
+                Some((
+                    out.clone(),
+                    ProofRule::DefinitionalReduction {
+                        lhs: expr.clone(),
+                        rhs: out,
+                        rule_name: "pow_even_root_positive".into(),
+                    },
+                ))
+            },
+        },
+        RewriteRule {
+            name: "pow_even_root_negative",
+            description: "(u^2)^(1/2) => -u and sqrt(u^2) => -u (only when u is Negative)",
+            side_conditions: &[SideCondition::Entailed {
+                operand: SideConditionOperand::InnerBase,
+                predicate: Predicate::Negative,
+            }],
+            transform: |expr, ctx| {
+                let u = match expr {
+                    Expr::Pow(base, exp) => {
+                        let half = Expr::Rational(BigRational::new(
+                            fsym_core::BigInt::from(1),
+                            fsym_core::BigInt::from(2),
+                        ));
+                        if **exp != half {
+                            return None;
+                        }
+                        let Expr::Pow(inner_u, inner_exp) = base.as_ref() else {
+                            return None;
+                        };
+                        if **inner_exp != Expr::from_i64(2) {
+                            return None;
+                        }
+                        inner_u.as_ref()
+                    }
+                    Expr::Function(name, args) if name == "sqrt" && args.len() == 1 => {
+                        let Expr::Pow(inner_u, inner_exp) = &args[0] else {
+                            return None;
+                        };
+                        if **inner_exp != Expr::from_i64(2) {
+                            return None;
+                        }
+                        inner_u.as_ref()
+                    }
+                    _ => return None,
+                };
+                if !ctx.query(u, Predicate::Negative).is_entailed_true() {
+                    return None;
+                }
+                let out = Expr::Mul(vec![Expr::from_i64(-1), u.clone()]);
+                Some((
+                    out.clone(),
+                    ProofRule::DefinitionalReduction {
+                        lhs: expr.clone(),
+                        rhs: out,
+                        rule_name: "pow_even_root_negative".into(),
+                    },
+                ))
             },
         },
     ]

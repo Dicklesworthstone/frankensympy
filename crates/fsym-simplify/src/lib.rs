@@ -839,6 +839,194 @@ fn expand_at<M: BudgetMeter>(expr: &Expr, depth: usize, m: &mut M) -> Result<Exp
     }
 }
 
+/// Simplifies an expression under an explicit assumption snapshot, applying both
+/// algebraic canonicalization and discharged conditional rewrite rules (log/exp
+/// inverses, log power pullout, even-root sign resolution, nonzero zero-powers).
+pub fn simplify_with_assumptions(
+    expr: &Expr,
+    context: &Arc<ImmutableAssumptionsSnapshot>,
+) -> Expr {
+    let rules = rewrite::standard_rules();
+    let rewritten = apply_rules_bottom_up(expr, &rules, context, 0);
+    simplify(&rewritten)
+}
+
+fn apply_rules_bottom_up(
+    expr: &Expr,
+    rules: &[rewrite::RewriteRule],
+    context: &Arc<ImmutableAssumptionsSnapshot>,
+    depth: usize,
+) -> Expr {
+    if depth > MAX_RECURSION_DEPTH {
+        return expr.clone();
+    }
+    let mapped = match expr {
+        Expr::Add(terms) => Expr::Add(
+            terms
+                .iter()
+                .map(|t| apply_rules_bottom_up(t, rules, context, depth + 1))
+                .collect(),
+        ),
+        Expr::Mul(factors) => Expr::Mul(
+            factors
+                .iter()
+                .map(|f| apply_rules_bottom_up(f, rules, context, depth + 1))
+                .collect(),
+        ),
+        Expr::Pow(base, exp) => Expr::Pow(
+            Arc::new(apply_rules_bottom_up(base, rules, context, depth + 1)),
+            Arc::new(apply_rules_bottom_up(exp, rules, context, depth + 1)),
+        ),
+        Expr::Function(name, args) => Expr::Function(
+            name.clone(),
+            args.iter()
+                .map(|a| apply_rules_bottom_up(a, rules, context, depth + 1))
+                .collect(),
+        ),
+        _ => expr.clone(),
+    };
+    let simplified = simplify(&mapped);
+    if let Some((out, _)) = rewrite::apply_step(&simplified, rules, context) {
+        simplify(&out)
+    } else if let Some((out, _)) = rewrite::apply_step(&mapped, rules, context) {
+        simplify(&out)
+    } else {
+        simplified
+    }
+}
+
+/// Cancels common polynomial GCD factors between numerator and denominator of a
+/// rational expression over $\mathbb{Q}[x]$.
+pub fn try_cancel(expr: &Expr) -> Result<Expr, SimplifyError> {
+    cancel_at(expr, 0)
+}
+
+/// Cancels common polynomial GCD factors between numerator and denominator,
+/// falling back to the simplified input when non-polynomial or out of bounds.
+pub fn cancel(expr: &Expr) -> Expr {
+    unwrap_legacy(try_cancel(expr), expr)
+}
+
+fn cancel_at(expr: &Expr, depth: usize) -> Result<Expr, SimplifyError> {
+    if depth > MAX_RECURSION_DEPTH {
+        return Err(SimplifyError::DepthLimitExceeded(depth));
+    }
+    match expr {
+        Expr::Add(terms) => {
+            check_fanout(terms.len())?;
+            let mut cancelled = Vec::with_capacity(terms.len());
+            for t in terms {
+                cancelled.push(cancel_at(t, depth + 1)?);
+            }
+            Ok(try_simplify(&Expr::Add(cancelled))?)
+        }
+        Expr::Mul(factors) => {
+            check_fanout(factors.len())?;
+            let mut num_factors: Vec<Expr> = Vec::new();
+            let mut den_factors: Vec<Expr> = Vec::new();
+            for f in factors {
+                let cf = cancel_at(f, depth + 1)?;
+                if let Expr::Pow(base, exp) = &cf
+                    && let Expr::Integer(n) = exp.as_ref()
+                    && n.is_negative()
+                {
+                    let pos_exp = -n.clone();
+                    if pos_exp == fsym_core::BigInt::from(1) {
+                        den_factors.push((**base).clone());
+                    } else {
+                        den_factors.push(Expr::Pow(
+                            base.clone(),
+                            Arc::new(Expr::Integer(pos_exp)),
+                        ));
+                    }
+                } else {
+                    num_factors.push(cf);
+                }
+            }
+            if den_factors.is_empty() {
+                return try_simplify(&Expr::Mul(num_factors));
+            }
+            let num_expr = if num_factors.is_empty() {
+                Expr::from_i64(1)
+            } else if num_factors.len() == 1 {
+                num_factors[0].clone()
+            } else {
+                Expr::Mul(num_factors)
+            };
+            let den_expr = if den_factors.len() == 1 {
+                den_factors[0].clone()
+            } else {
+                Expr::Mul(den_factors)
+            };
+            let mut syms = num_expr.free_symbols();
+            syms.extend(den_expr.free_symbols());
+            syms.sort();
+            syms.dedup();
+            if syms.len() == 1 {
+                let var = syms.into_iter().next().expect("single symbol");
+                let num_expanded = try_expand(&num_expr)?;
+                let den_expanded = try_expand(&den_expr)?;
+                if let (Ok(num_poly), Ok(den_poly)) = (
+                    fsym_polys::UnivariatePoly::from_expr(&num_expanded, &var),
+                    fsym_polys::UnivariatePoly::from_expr(&den_expanded, &var),
+                ) && !den_poly.is_zero()
+                    && let Ok(g) = num_poly.gcd(&den_poly)
+                    && g.degree().unwrap_or(0) >= 1
+                    && let (Ok((q_num, r_num)), Ok((q_den, r_den))) =
+                        (num_poly.div_rem(&g), den_poly.div_rem(&g))
+                    && r_num.is_zero()
+                    && r_den.is_zero()
+                {
+                    // Normalize leading coefficient of denominator so constant
+                    // scaling sits cleanly on the numerator when denominator is linear/monic.
+                    let lead = q_den
+                        .coeffs
+                        .last()
+                        .cloned()
+                        .unwrap_or_else(BigRational::one);
+                    let (final_num, final_den) = if !lead.is_zero() && !lead.is_one() {
+                        let inv = BigRational::one() / lead;
+                        let scale = fsym_polys::UnivariatePoly::new(var.clone(), vec![inv]);
+                        (
+                            q_num.mul(&scale).unwrap_or(q_num),
+                            q_den.mul(&scale).unwrap_or(q_den),
+                        )
+                    } else {
+                        (q_num, q_den)
+                    };
+                    let num_out = try_simplify(&final_num.to_expr())?;
+                    let den_out = try_simplify(&final_den.to_expr())?;
+                    if den_out.is_one() {
+                        return Ok(num_out);
+                    }
+                    return try_simplify(&Expr::Mul(vec![
+                        num_out,
+                        Expr::Pow(Arc::new(den_out), Arc::new(Expr::from_i64(-1))),
+                    ]));
+                }
+            }
+            try_simplify(&Expr::Mul(vec![
+                num_expr,
+                Expr::Pow(Arc::new(den_expr), Arc::new(Expr::from_i64(-1))),
+            ]))
+        }
+        Expr::Pow(base, exp) => {
+            let cb = cancel_at(base, depth + 1)?;
+            let ce = cancel_at(exp, depth + 1)?;
+            try_simplify(&Expr::Pow(Arc::new(cb), Arc::new(ce)))
+        }
+        Expr::Function(name, args) => {
+            check_fanout(args.len())?;
+            let mut cargs = Vec::with_capacity(args.len());
+            for a in args {
+                cargs.push(cancel_at(a, depth + 1)?);
+            }
+            try_simplify(&Expr::Function(name.clone(), cargs))
+        }
+        _ => Ok(expr.clone()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1650,5 +1838,109 @@ mod tests {
                     .is_ok()
             );
         }
+    }
+
+    #[test]
+    fn test_cancel_rational_polynomial_gcd() {
+        let x = Expr::symbol("x");
+        // (x^2 - 1) / (x - 1) => x + 1
+        let num = Expr::Add(vec![
+            Expr::pow(x.clone(), Expr::from_i64(2)),
+            Expr::from_i64(-1),
+        ]);
+        let den = Expr::Add(vec![x.clone(), Expr::from_i64(-1)]);
+        let frac = Expr::Mul(vec![
+            num,
+            Expr::Pow(Arc::new(den), Arc::new(Expr::from_i64(-1))),
+        ]);
+        let cancelled = cancel(&frac);
+        assert_eq!(cancelled, simplify(&Expr::Add(vec![Expr::from_i64(1), x.clone()])));
+
+        // (x^2 + 2x + 1) / (x^2 - 1) => (x + 1) / (x - 1)
+        let num2 = Expr::Add(vec![
+            Expr::pow(x.clone(), Expr::from_i64(2)),
+            Expr::Mul(vec![Expr::from_i64(2), x.clone()]),
+            Expr::from_i64(1),
+        ]);
+        let den2 = Expr::Add(vec![
+            Expr::pow(x.clone(), Expr::from_i64(2)),
+            Expr::from_i64(-1),
+        ]);
+        let frac2 = Expr::Mul(vec![
+            num2,
+            Expr::Pow(Arc::new(den2), Arc::new(Expr::from_i64(-1))),
+        ]);
+        let cancelled2 = cancel(&frac2);
+        let expected2 = simplify(&Expr::Mul(vec![
+            Expr::Add(vec![Expr::from_i64(1), x.clone()]),
+            Expr::Pow(
+                Arc::new(Expr::Add(vec![Expr::from_i64(-1), x])),
+                Arc::new(Expr::from_i64(-1)),
+            ),
+        ]));
+        assert_eq!(cancelled2, expected2);
+    }
+
+    #[test]
+    fn test_simplify_with_compositional_assumptions_and_guarded_rules() {
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+        let mut real_ctx = AssumptionsContext::new();
+        real_ctx.assume(x.clone(), Predicate::Real).unwrap();
+        let real_snap = Arc::new(real_ctx.snapshot());
+
+        // x^2 + 1 is compositionally Positive under x: Real, so exp(log(x^2 + 1)) -> x^2 + 1
+        let x_sq_plus_1 = Expr::Add(vec![
+            Expr::from_i64(1),
+            Expr::pow(Expr::Sym(x.clone()), Expr::from_i64(2)),
+        ]);
+        let exp_log = Expr::Function(
+            "exp".to_string(),
+            vec![Expr::Function("log".to_string(), vec![x_sq_plus_1.clone()])],
+        );
+        assert_eq!(
+            simplify_with_assumptions(&exp_log, &real_snap),
+            simplify(&x_sq_plus_1)
+        );
+
+        // Guarded log_power_pullout: log(x^y) -> y * log(x) only when x: Positive and y: Real
+        let log_pow = Expr::Function(
+            "log".to_string(),
+            vec![Expr::pow(Expr::Sym(x.clone()), Expr::Sym(y.clone()))],
+        );
+        assert_eq!(
+            simplify_with_assumptions(&log_pow, &real_snap),
+            log_pow,
+            "must stay guarded when x is only Real and y has no assumptions"
+        );
+        let mut pos_ctx = AssumptionsContext::new();
+        pos_ctx.assume(x.clone(), Predicate::Positive).unwrap();
+        pos_ctx.assume(y.clone(), Predicate::Real).unwrap();
+        let pos_snap = Arc::new(pos_ctx.snapshot());
+        assert_eq!(
+            simplify_with_assumptions(&log_pow, &pos_snap),
+            simplify(&Expr::Mul(vec![
+                Expr::Sym(y),
+                Expr::Function("log".to_string(), vec![Expr::Sym(x.clone())]),
+            ]))
+        );
+
+        // Guarded pow_even_root: sqrt(x^2) -> x when x: Positive, -x when x: Negative, guarded when x: Real
+        let sqrt_x_sq = Expr::Function(
+            "sqrt".to_string(),
+            vec![Expr::pow(Expr::Sym(x.clone()), Expr::from_i64(2))],
+        );
+        assert_eq!(simplify_with_assumptions(&sqrt_x_sq, &real_snap), sqrt_x_sq);
+        assert_eq!(
+            simplify_with_assumptions(&sqrt_x_sq, &pos_snap),
+            Expr::Sym(x.clone())
+        );
+        let mut neg_ctx = AssumptionsContext::new();
+        neg_ctx.assume(x.clone(), Predicate::Negative).unwrap();
+        let neg_snap = Arc::new(neg_ctx.snapshot());
+        assert_eq!(
+            simplify_with_assumptions(&sqrt_x_sq, &neg_snap),
+            Expr::Mul(vec![Expr::from_i64(-1), Expr::Sym(x)])
+        );
     }
 }

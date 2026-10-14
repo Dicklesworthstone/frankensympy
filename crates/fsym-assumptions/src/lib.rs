@@ -94,11 +94,17 @@ impl ImmutableAssumptionsSnapshot {
         hasher.update(b"fsym.context.v2:");
         hasher.update(&self.digest);
         let mut sorted_facts: Vec<(&Symbol, &Vec<Predicate>)> = additional_facts.iter().collect();
-        sorted_facts.sort_by_key(|(s, _)| &s.name);
+        sorted_facts.sort_by_key(|(s, _)| *s);
         for (sym, preds) in sorted_facts {
             hasher.update(b"fact:");
             hasher.update(&(sym.name.len() as u64).to_le_bytes());
             hasher.update(sym.name.as_bytes());
+            if let Some(id) = sym.identity {
+                hasher.update(&[1u8]);
+                hasher.update(&id.assumptions);
+            } else {
+                hasher.update(&[0u8]);
+            }
             let mut sorted_preds = preds.clone();
             sorted_preds.sort();
             sorted_preds.dedup();
@@ -108,11 +114,17 @@ impl ImmutableAssumptionsSnapshot {
             }
         }
         let mut sorted_domains: Vec<(&Symbol, &Domain)> = additional_domains.iter().collect();
-        sorted_domains.sort_by_key(|(s, _)| &s.name);
+        sorted_domains.sort_by_key(|(s, _)| *s);
         for (sym, dom) in sorted_domains {
             hasher.update(b"dom:");
             hasher.update(&(sym.name.len() as u64).to_le_bytes());
             hasher.update(sym.name.as_bytes());
+            if let Some(id) = sym.identity {
+                hasher.update(&[1u8]);
+                hasher.update(&id.assumptions);
+            } else {
+                hasher.update(&[0u8]);
+            }
             dom.hash_canonical(&mut hasher);
         }
 
@@ -145,20 +157,16 @@ impl ImmutableAssumptionsSnapshot {
 
     /// Evaluates a predicate query against the immutable snapshot in 4-valued logic.
     pub fn query(&self, expr: &Expr, pred: Predicate) -> TruthValue {
-        let known = inherent_facts(expr)
-            .or_else(|| match expr {
-                Expr::Sym(s) => Some(self.deductions(s)),
-                _ => None,
-            })
-            .unwrap_or_default();
+        for sym in expr.free_symbols() {
+            let sym_facts = self.deductions(&sym);
+            if has_contradiction_in_set(&sym_facts) {
+                return TruthValue::Contradictory;
+            }
+        }
 
-        let has_internal_contradiction = known.iter().enumerate().any(|(i, a)| {
-            known
-                .iter()
-                .skip(i + 1)
-                .any(|b| Predicate::contradicts(*a, *b))
-        });
-        if has_internal_contradiction {
+        let known = deduce_expr_facts(expr, &|s| self.deductions(s));
+
+        if has_contradiction_in_set(&known) {
             return TruthValue::Contradictory;
         }
 
@@ -214,6 +222,358 @@ impl ImmutableAssumptionsSnapshot {
             }
         }
         out
+    }
+}
+
+fn has_contradiction_in_set(known: &BTreeSet<Predicate>) -> bool {
+    known.iter().enumerate().any(|(i, a)| {
+        known
+            .iter()
+            .skip(i + 1)
+            .any(|b| Predicate::contradicts(*a, *b))
+    })
+}
+
+/// Compositionally deduces mathematical predicates for compound expressions
+/// from symbol assumptions and literal inherent facts.
+pub fn deduce_expr_facts<F>(expr: &Expr, sym_deductions: &F) -> BTreeSet<Predicate>
+where
+    F: Fn(&Symbol) -> BTreeSet<Predicate>,
+{
+    if let Some(facts) = inherent_facts(expr) {
+        return facts;
+    }
+    match expr {
+        Expr::Sym(s) => sym_deductions(s),
+        Expr::Add(terms) if !terms.is_empty() => {
+            let child_sets: Vec<BTreeSet<Predicate>> = terms
+                .iter()
+                .map(|t| deduce_expr_facts(t, sym_deductions))
+                .collect();
+            let mut out = BTreeSet::new();
+            if child_sets.iter().any(has_contradiction_in_set) {
+                out.insert(Predicate::Zero);
+                out.insert(Predicate::NonZero);
+                return out;
+            }
+            if child_sets.iter().all(|s| s.contains(&Predicate::Zero)) {
+                out.extend(Predicate::Zero.closure());
+                return out;
+            }
+            if child_sets.iter().all(|s| s.contains(&Predicate::Integer)) {
+                out.extend(Predicate::Integer.closure());
+                if child_sets
+                    .iter()
+                    .all(|s| s.contains(&Predicate::Even) || s.contains(&Predicate::Odd))
+                {
+                    let odd_count = child_sets
+                        .iter()
+                        .filter(|s| s.contains(&Predicate::Odd))
+                        .count();
+                    if odd_count.is_multiple_of(2) {
+                        out.extend(Predicate::Even.closure());
+                    } else {
+                        out.extend(Predicate::Odd.closure());
+                    }
+                }
+            } else if child_sets.iter().all(|s| s.contains(&Predicate::Rational)) {
+                out.extend(Predicate::Rational.closure());
+            } else if child_sets.iter().all(|s| s.contains(&Predicate::Algebraic)) {
+                out.extend(Predicate::Algebraic.closure());
+            }
+            if child_sets.iter().all(|s| s.contains(&Predicate::Real)) {
+                out.extend(Predicate::Real.closure());
+            }
+            if child_sets.iter().all(|s| s.contains(&Predicate::Complex)) {
+                out.extend(Predicate::Complex.closure());
+            }
+            if child_sets.iter().all(|s| s.contains(&Predicate::Finite)) {
+                out.extend(Predicate::Finite.closure());
+            }
+            if child_sets
+                .iter()
+                .all(|s| s.contains(&Predicate::NonNegative))
+            {
+                if child_sets.iter().any(|s| s.contains(&Predicate::Positive)) {
+                    out.extend(Predicate::Positive.closure());
+                } else {
+                    out.extend(Predicate::NonNegative.closure());
+                }
+            } else if child_sets
+                .iter()
+                .all(|s| s.contains(&Predicate::NonPositive))
+            {
+                if child_sets.iter().any(|s| s.contains(&Predicate::Negative)) {
+                    out.extend(Predicate::Negative.closure());
+                } else {
+                    out.extend(Predicate::NonPositive.closure());
+                }
+            }
+            out
+        }
+        Expr::Mul(factors) if !factors.is_empty() => {
+            let child_sets: Vec<BTreeSet<Predicate>> = factors
+                .iter()
+                .map(|f| deduce_expr_facts(f, sym_deductions))
+                .collect();
+            let mut out = BTreeSet::new();
+            if child_sets.iter().any(has_contradiction_in_set) {
+                out.insert(Predicate::Zero);
+                out.insert(Predicate::NonZero);
+                return out;
+            }
+            if child_sets.iter().any(|s| s.contains(&Predicate::Zero))
+                && child_sets.iter().all(|s| s.contains(&Predicate::Finite))
+            {
+                out.extend(Predicate::Zero.closure());
+                return out;
+            }
+            if child_sets.iter().all(|s| s.contains(&Predicate::Integer)) {
+                out.extend(Predicate::Integer.closure());
+                if child_sets.iter().all(|s| s.contains(&Predicate::Odd)) {
+                    out.extend(Predicate::Odd.closure());
+                } else if child_sets.iter().any(|s| s.contains(&Predicate::Even)) {
+                    out.extend(Predicate::Even.closure());
+                }
+            } else if child_sets.iter().all(|s| s.contains(&Predicate::Rational)) {
+                out.extend(Predicate::Rational.closure());
+            } else if child_sets.iter().all(|s| s.contains(&Predicate::Algebraic)) {
+                out.extend(Predicate::Algebraic.closure());
+            }
+            if child_sets.iter().all(|s| s.contains(&Predicate::Real)) {
+                out.extend(Predicate::Real.closure());
+            }
+            if child_sets.iter().all(|s| s.contains(&Predicate::Complex)) {
+                out.extend(Predicate::Complex.closure());
+            }
+            if child_sets.iter().all(|s| s.contains(&Predicate::Finite)) {
+                out.extend(Predicate::Finite.closure());
+            }
+            if child_sets.iter().all(|s| s.contains(&Predicate::NonZero)) {
+                out.extend(Predicate::NonZero.closure());
+            }
+            if child_sets
+                .iter()
+                .all(|s| s.contains(&Predicate::Positive) || s.contains(&Predicate::Negative))
+            {
+                let neg_count = child_sets
+                    .iter()
+                    .filter(|s| s.contains(&Predicate::Negative))
+                    .count();
+                if neg_count.is_multiple_of(2) {
+                    out.extend(Predicate::Positive.closure());
+                } else {
+                    out.extend(Predicate::Negative.closure());
+                }
+            } else if child_sets
+                .iter()
+                .all(|s| s.contains(&Predicate::NonNegative) || s.contains(&Predicate::NonPositive))
+            {
+                let nonpos_only = child_sets
+                    .iter()
+                    .filter(|s| {
+                        s.contains(&Predicate::NonPositive) && !s.contains(&Predicate::NonNegative)
+                    })
+                    .count();
+                let all_definite_sign = child_sets.iter().all(|s| {
+                    s.contains(&Predicate::NonNegative) ^ s.contains(&Predicate::NonPositive)
+                        || s.contains(&Predicate::Zero)
+                });
+                if all_definite_sign {
+                    if nonpos_only.is_multiple_of(2) {
+                        out.extend(Predicate::NonNegative.closure());
+                    } else {
+                        out.extend(Predicate::NonPositive.closure());
+                    }
+                }
+            }
+            out
+        }
+        Expr::Pow(base, exp) => {
+            let b_facts = deduce_expr_facts(base, sym_deductions);
+            let mut out = BTreeSet::new();
+            if has_contradiction_in_set(&b_facts) {
+                out.insert(Predicate::Zero);
+                out.insert(Predicate::NonZero);
+                return out;
+            }
+            if let Expr::Integer(n) = exp.as_ref() {
+                if n.is_zero() {
+                    if b_facts.contains(&Predicate::NonZero) {
+                        out.extend(Predicate::Positive.closure());
+                        out.extend(Predicate::Integer.closure());
+                        out.extend(Predicate::Odd.closure());
+                    }
+                    return out;
+                }
+                let is_even_exp = (n % &fsym_core::BigInt::from(2i64)).is_zero();
+                let positive_exp = n.is_positive();
+                let can_invert = positive_exp || b_facts.contains(&Predicate::NonZero);
+                if !can_invert {
+                    return out;
+                }
+                if positive_exp && b_facts.contains(&Predicate::Integer) {
+                    out.extend(Predicate::Integer.closure());
+                    if b_facts.contains(&Predicate::Even) {
+                        out.extend(Predicate::Even.closure());
+                    } else if b_facts.contains(&Predicate::Odd) {
+                        out.extend(Predicate::Odd.closure());
+                    }
+                } else if b_facts.contains(&Predicate::Rational) {
+                    out.extend(Predicate::Rational.closure());
+                } else if b_facts.contains(&Predicate::Algebraic) {
+                    out.extend(Predicate::Algebraic.closure());
+                }
+                if b_facts.contains(&Predicate::Real) {
+                    out.extend(Predicate::Real.closure());
+                }
+                if b_facts.contains(&Predicate::Complex) {
+                    out.extend(Predicate::Complex.closure());
+                }
+                if b_facts.contains(&Predicate::Finite) {
+                    out.extend(Predicate::Finite.closure());
+                }
+                if b_facts.contains(&Predicate::NonZero) {
+                    out.extend(Predicate::NonZero.closure());
+                }
+                if b_facts.contains(&Predicate::Positive) {
+                    out.extend(Predicate::Positive.closure());
+                } else if is_even_exp {
+                    if b_facts.contains(&Predicate::Real) && b_facts.contains(&Predicate::NonZero) {
+                        out.extend(Predicate::Positive.closure());
+                    } else if b_facts.contains(&Predicate::Real) {
+                        out.extend(Predicate::NonNegative.closure());
+                    }
+                } else if b_facts.contains(&Predicate::Negative) {
+                    out.extend(Predicate::Negative.closure());
+                } else if b_facts.contains(&Predicate::NonNegative) {
+                    out.extend(Predicate::NonNegative.closure());
+                } else if b_facts.contains(&Predicate::NonPositive) {
+                    out.extend(Predicate::NonPositive.closure());
+                }
+            } else if let Expr::Rational(r) = exp.as_ref() {
+                if r.numer().is_positive() || b_facts.contains(&Predicate::Positive) {
+                    if b_facts.contains(&Predicate::Positive) {
+                        out.extend(Predicate::Positive.closure());
+                        if b_facts.contains(&Predicate::Finite) {
+                            out.extend(Predicate::Finite.closure());
+                        }
+                        if b_facts.contains(&Predicate::Algebraic) {
+                            out.extend(Predicate::Algebraic.closure());
+                        }
+                    } else if r.numer().is_positive() && b_facts.contains(&Predicate::NonNegative) {
+                        out.extend(Predicate::NonNegative.closure());
+                        if b_facts.contains(&Predicate::Finite) {
+                            out.extend(Predicate::Finite.closure());
+                        }
+                    }
+                }
+            } else {
+                let e_facts = deduce_expr_facts(exp, sym_deductions);
+                if b_facts.contains(&Predicate::Positive) && e_facts.contains(&Predicate::Real) {
+                    out.extend(Predicate::Positive.closure());
+                    if b_facts.contains(&Predicate::Finite) && e_facts.contains(&Predicate::Finite)
+                    {
+                        out.extend(Predicate::Finite.closure());
+                    }
+                }
+            }
+            out
+        }
+        Expr::Function(name, args) if args.len() == 1 => {
+            let u_facts = deduce_expr_facts(&args[0], sym_deductions);
+            let mut out = BTreeSet::new();
+            if has_contradiction_in_set(&u_facts) {
+                out.insert(Predicate::Zero);
+                out.insert(Predicate::NonZero);
+                return out;
+            }
+            match name.as_str() {
+                "exp" => {
+                    if u_facts.contains(&Predicate::Real) {
+                        out.extend(Predicate::Positive.closure());
+                    } else if u_facts.contains(&Predicate::Complex) {
+                        out.extend(Predicate::Complex.closure());
+                        out.extend(Predicate::NonZero.closure());
+                    }
+                    if u_facts.contains(&Predicate::Finite) {
+                        out.extend(Predicate::Finite.closure());
+                    }
+                }
+                "abs" | "Abs" => {
+                    if u_facts.contains(&Predicate::Complex) {
+                        if u_facts.contains(&Predicate::NonZero) {
+                            out.extend(Predicate::Positive.closure());
+                        } else {
+                            out.extend(Predicate::NonNegative.closure());
+                        }
+                        if u_facts.contains(&Predicate::Integer) {
+                            out.extend(Predicate::Integer.closure());
+                        } else if u_facts.contains(&Predicate::Rational) {
+                            out.extend(Predicate::Rational.closure());
+                        } else if u_facts.contains(&Predicate::Algebraic) {
+                            out.extend(Predicate::Algebraic.closure());
+                        }
+                        if u_facts.contains(&Predicate::Finite) {
+                            out.extend(Predicate::Finite.closure());
+                        }
+                    }
+                }
+                "cosh" => {
+                    if u_facts.contains(&Predicate::Real) {
+                        out.extend(Predicate::Positive.closure());
+                        if u_facts.contains(&Predicate::Finite) {
+                            out.extend(Predicate::Finite.closure());
+                        }
+                    }
+                }
+                "sinh" | "tanh" | "atan" | "asinh" | "erf" => {
+                    if u_facts.contains(&Predicate::Positive) {
+                        out.extend(Predicate::Positive.closure());
+                    } else if u_facts.contains(&Predicate::Negative) {
+                        out.extend(Predicate::Negative.closure());
+                    } else if u_facts.contains(&Predicate::NonNegative) {
+                        out.extend(Predicate::NonNegative.closure());
+                    } else if u_facts.contains(&Predicate::NonPositive) {
+                        out.extend(Predicate::NonPositive.closure());
+                    } else if u_facts.contains(&Predicate::Real) {
+                        out.extend(Predicate::Real.closure());
+                    }
+                    if u_facts.contains(&Predicate::Finite) {
+                        out.extend(Predicate::Finite.closure());
+                    }
+                }
+                "sin" | "cos" | "sinc" | "erfc" => {
+                    if u_facts.contains(&Predicate::Real) {
+                        out.extend(Predicate::Real.closure());
+                        if u_facts.contains(&Predicate::Finite) {
+                            out.extend(Predicate::Finite.closure());
+                        }
+                    }
+                }
+                "log" | "ln" => {
+                    if u_facts.contains(&Predicate::Positive) {
+                        out.extend(Predicate::Real.closure());
+                        if u_facts.contains(&Predicate::Finite) {
+                            out.extend(Predicate::Finite.closure());
+                        }
+                    }
+                }
+                "sqrt" => {
+                    if u_facts.contains(&Predicate::Positive) {
+                        out.extend(Predicate::Positive.closure());
+                    } else if u_facts.contains(&Predicate::NonNegative) {
+                        out.extend(Predicate::NonNegative.closure());
+                    }
+                    if u_facts.contains(&Predicate::Finite) {
+                        out.extend(Predicate::Finite.closure());
+                    }
+                }
+                _ => {}
+            }
+            out
+        }
+        _ => BTreeSet::new(),
     }
 }
 
@@ -312,32 +672,25 @@ impl AssumptionsContext {
 
     /// Evaluates a predicate query against an expression in 4-valued logic.
     pub fn query(&self, expr: &Expr, pred: Predicate) -> TruthValue {
-        if let Expr::Sym(s) = expr
-            && let Some(preds) = self.facts.get(s)
-        {
-            for (i, a) in preds.iter().enumerate() {
-                for b in &preds[i + 1..] {
-                    if Predicate::contradicts(*a, *b) {
-                        return TruthValue::Contradictory;
+        for sym in expr.free_symbols() {
+            if let Some(preds) = self.facts.get(&sym) {
+                for (i, a) in preds.iter().enumerate() {
+                    for b in &preds[i + 1..] {
+                        if Predicate::contradicts(*a, *b) {
+                            return TruthValue::Contradictory;
+                        }
                     }
                 }
             }
+            let sym_facts = self.deductions(&sym);
+            if has_contradiction_in_set(&sym_facts) {
+                return TruthValue::Contradictory;
+            }
         }
 
-        let known = inherent_facts(expr)
-            .or_else(|| match expr {
-                Expr::Sym(s) => Some(self.deductions(s)),
-                _ => None,
-            })
-            .unwrap_or_default();
+        let known = deduce_expr_facts(expr, &|s| self.deductions(s));
 
-        let has_internal_contradiction = known.iter().enumerate().any(|(i, a)| {
-            known
-                .iter()
-                .skip(i + 1)
-                .any(|b| Predicate::contradicts(*a, *b))
-        });
-        if has_internal_contradiction {
+        if has_contradiction_in_set(&known) {
             return TruthValue::Contradictory;
         }
 
@@ -581,5 +934,105 @@ mod tests {
 
         assert_eq!(child1.digest(), child2.digest());
         assert_eq!(child1.id(), child2.id());
+    }
+
+    #[test]
+    fn test_compositional_deduction_over_add_mul_pow_and_functions() {
+        let mut ctx = AssumptionsContext::new();
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+        let n = Symbol::new("n");
+        let m = Symbol::new("m");
+        ctx.assume(x.clone(), Predicate::Positive).unwrap();
+        ctx.assume(y.clone(), Predicate::Negative).unwrap();
+        ctx.assume(n.clone(), Predicate::Even).unwrap();
+        ctx.assume(m.clone(), Predicate::Odd).unwrap();
+        let snap = ctx.snapshot();
+
+        // x + 3 is Positive (Positive + Positive)
+        let x_plus_3 = Expr::Add(vec![Expr::Sym(x.clone()), Expr::from_i64(3)]);
+        assert_eq!(
+            snap.query(&x_plus_3, Predicate::Positive),
+            TruthValue::EntailedTrue
+        );
+
+        // x * y is Negative (Positive * Negative)
+        let x_mul_y = Expr::Mul(vec![Expr::Sym(x.clone()), Expr::Sym(y.clone())]);
+        assert_eq!(
+            snap.query(&x_mul_y, Predicate::Negative),
+            TruthValue::EntailedTrue
+        );
+        assert_eq!(
+            snap.query(&x_mul_y, Predicate::Positive),
+            TruthValue::EntailedFalse
+        );
+
+        // y^2 is Positive (Negative^even)
+        let y_sq = Expr::pow(Expr::Sym(y.clone()), Expr::from_i64(2));
+        assert_eq!(
+            snap.query(&y_sq, Predicate::Positive),
+            TruthValue::EntailedTrue
+        );
+
+        // y^2 + 1 is Positive even if y is only Real
+        let mut real_ctx = AssumptionsContext::new();
+        let r = Symbol::new("r");
+        real_ctx.assume(r.clone(), Predicate::Real).unwrap();
+        let r_sq_plus_1 = Expr::Add(vec![
+            Expr::pow(Expr::Sym(r.clone()), Expr::from_i64(2)),
+            Expr::from_i64(1),
+        ]);
+        assert_eq!(
+            real_ctx.query(&r_sq_plus_1, Predicate::Positive),
+            TruthValue::EntailedTrue
+        );
+
+        // exp(r) and cosh(r) are Positive for r: Real
+        let exp_r = Expr::Function("exp".to_string(), vec![Expr::Sym(r.clone())]);
+        let cosh_r = Expr::Function("cosh".to_string(), vec![Expr::Sym(r)]);
+        assert_eq!(
+            real_ctx.query(&exp_r, Predicate::Positive),
+            TruthValue::EntailedTrue
+        );
+        assert_eq!(
+            real_ctx.query(&cosh_r, Predicate::Positive),
+            TruthValue::EntailedTrue
+        );
+
+        // Parity: n (Even) + m (Odd) is Odd; n * m is Even; m * m is Odd
+        let n_plus_m = Expr::Add(vec![Expr::Sym(n.clone()), Expr::Sym(m.clone())]);
+        let n_mul_m = Expr::Mul(vec![Expr::Sym(n), Expr::Sym(m.clone())]);
+        let m_sq = Expr::pow(Expr::Sym(m), Expr::from_i64(2));
+        assert_eq!(
+            snap.query(&n_plus_m, Predicate::Odd),
+            TruthValue::EntailedTrue
+        );
+        assert_eq!(
+            snap.query(&n_mul_m, Predicate::Even),
+            TruthValue::EntailedTrue
+        );
+        assert_eq!(snap.query(&m_sq, Predicate::Odd), TruthValue::EntailedTrue);
+    }
+
+    #[test]
+    fn test_context_digest_distinguishes_distinct_symbol_identities_with_same_name() {
+        use fsym_core::SymbolIdentity;
+
+        let root = ImmutableAssumptionsSnapshot::empty();
+        let x1 = Symbol::with_identity("x", SymbolIdentity::from_assumptions_digest([1u8; 32]));
+        let x2 = Symbol::with_identity("x", SymbolIdentity::from_assumptions_digest([2u8; 32]));
+
+        let mut facts1 = HashMap::new();
+        facts1.insert(x1, vec![Predicate::Positive]);
+        let mut facts2 = HashMap::new();
+        facts2.insert(x2, vec![Predicate::Positive]);
+
+        let c1 = root.derive_child(facts1, HashMap::new(), "c1").unwrap();
+        let c2 = root.derive_child(facts2, HashMap::new(), "c2").unwrap();
+        assert_ne!(
+            c1.digest(),
+            c2.digest(),
+            "symbols with same display name but distinct SymbolIdentity must have distinct context digests"
+        );
     }
 }
