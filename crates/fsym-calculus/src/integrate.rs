@@ -104,6 +104,12 @@ fn provably_nonzero(e: &Expr) -> bool {
     if fsym_core::assume::is_nonzero(e) {
         return true;
     }
+    if e.free_symbols().is_empty()
+        && let Ok(ball) = e.eval_complex_ball(18)
+        && !ball.contains_zero()
+    {
+        return true;
+    }
     e.free_symbols().is_empty() && crate::gruntz::complex_value(e).is_some_and(|v| v.norm() > 1e-9)
 }
 
@@ -1431,10 +1437,87 @@ pub fn antiderivative(f: &Expr, x: &Symbol) -> Option<Expr> {
     Some(r)
 }
 
+/// Exact interior pole check for rational integrands `num / den` on `(a, b)`
+/// via Sturm's theorem on the square-free reduced denominator.
+fn rational_has_interior_pole(
+    num: &UnivariatePoly,
+    den: &UnivariatePoly,
+    a: &Expr,
+    b: &Expr,
+) -> Option<bool> {
+    let g = num.gcd(den).ok()?;
+    let (den_red, _) = den.div_rem(&g).ok()?;
+    let deg = den_red.degree().unwrap_or(0);
+    if deg == 0 {
+        return Some(false);
+    }
+    let deriv = den_red.derivative();
+    let sq_g = den_red.gcd(&deriv).ok()?;
+    let (sf_den, _) = den_red.div_rem(&sq_g).ok()?;
+    let sf_deg = sf_den.degree().unwrap_or(0);
+    if sf_deg == 0 {
+        return Some(false);
+    }
+
+    // Strict Cauchy bound M > |r| for all real roots r of sf_den:
+    // M = 2 + max_{0 <= i < sf_deg} |c_i / c_{sf_deg}|.
+    let lead = sf_den.coeffs[sf_deg].abs();
+    let mut max_ratio = BigRational::zero();
+    for c in &sf_den.coeffs[..sf_deg] {
+        let ratio = c.abs() / &lead;
+        if ratio > max_ratio {
+            max_ratio = ratio;
+        }
+    }
+    let cauchy = BigRational::from_integer(BigInt::from(2)) + max_ratio;
+
+    let endpoint_bound = |e: &Expr| -> Option<BigRational> {
+        match e {
+            Expr::Const(Constant::Infinity) => Some(cauchy.clone()),
+            Expr::Const(Constant::NegativeInfinity) => Some(-cauchy.clone()),
+            _ => {
+                if let Some(q) = number(e) {
+                    Some(q)
+                } else if let Ok(ball) = e.evalf_ball(24) {
+                    Some(ball.midpoint().clone())
+                } else {
+                    None
+                }
+            }
+        }
+    };
+
+    let bound_a = endpoint_bound(a)?;
+    let bound_b = endpoint_bound(b)?;
+    let (lo, hi) = if bound_a <= bound_b {
+        (bound_a, bound_b)
+    } else {
+        (bound_b, bound_a)
+    };
+    if lo >= hi {
+        return Some(false);
+    }
+
+    let seq = fsym_core::algebraic::sturm_sequence(&sf_den.coeffs);
+    let mut roots = fsym_core::algebraic::count_real_roots_in_interval(&seq, &lo, &hi);
+    if sf_den.eval(&lo).is_zero() {
+        roots = roots.saturating_sub(1);
+    }
+    if sf_den.eval(&hi).is_zero() {
+        roots = roots.saturating_sub(1);
+    }
+    Some(roots > 0)
+}
+
 /// Whether the integrand has a pole strictly inside `(a, b)`: exact for
-/// rational integrands (real roots of the denominator), conservative
-/// sampling of the integrand for the rest.
+/// rational integrands (real roots of the denominator via Sturm's theorem),
+/// conservative sampling of the integrand for the rest.
 fn has_interior_singularity(f: &Expr, x: &Symbol, a: &Expr, b: &Expr) -> bool {
+    if let Some((num, den)) = rational_parts(f, x)
+        && let Some(has_pole) = rational_has_interior_pole(&num, &den, a, b)
+    {
+        return has_pole;
+    }
     let (Some(av), Some(bv)) = (
         crate::gruntz::complex_value(a),
         crate::gruntz::complex_value(b),
@@ -1453,28 +1536,10 @@ fn sample_poles(f: &Expr, x: &Symbol, lo: f64, hi: f64, a: &Expr, b: &Expr) -> b
     } else {
         lo + 100.0
     });
-    if let Some((_, den)) = rational_parts(f, x) {
-        // Sign changes or exact zeros of the denominator on a fine grid.
-        let steps = 2000;
-        let mut prev: Option<f64> = None;
-        for i in 1..steps {
-            let t = lo + (hi - lo) * (i as f64) / (steps as f64);
-            let v = den
-                .coeffs
-                .iter()
-                .rev()
-                .fold(0.0, |acc, c| acc * t + c.to_f64().unwrap_or(f64::NAN));
-            if v == 0.0 {
-                return true;
-            }
-            if let Some(p) = prev
-                && p.signum() != v.signum()
-            {
-                return true;
-            }
-            prev = Some(v);
-        }
-        return false;
+    if let Some((num, den)) = rational_parts(f, x)
+        && let Some(has_pole) = rational_has_interior_pole(&num, &den, a, b)
+    {
+        return has_pole;
     }
     let steps = 400;
     for i in 1..steps {
@@ -1659,5 +1724,34 @@ mod tests {
         check(pow(xe(), Expr::from_i64(2)) * func("cos", xe()));
         check(func("atan", xe()));
         check(func("log", xe()) * recip(xe()));
+    }
+
+    #[test]
+    fn definite_rejects_even_multiplicity_and_distant_interior_poles() {
+        // 1 / (x - 1/3)^2 on [0, 1] has an even-multiplicity pole at x = 1/3
+        // with no sign change and off the 1/2000 dyadic grid.
+        let pole_third = recip(pow(xe() - q(1, 3), Expr::from_i64(2)));
+        assert!(
+            definite(&pole_third, &x(), &Expr::from_i64(0), &Expr::from_i64(1)).is_none(),
+            "must refuse definite integral across even-multiplicity pole at x = 1/3"
+        );
+        // On [1, 2], 1 / (x - 1/3)^2 is smooth and integrates to 3/2 - 3/5 = 9/10.
+        assert_eq!(
+            definite(&pole_third, &x(), &Expr::from_i64(1), &Expr::from_i64(2)),
+            Some(q(9, 10))
+        );
+
+        // 1 / (x - 100)^2 on [0, oo) has an interior pole at x = 100 outside [-50, 50].
+        let pole_distant = recip(pow(xe() - Expr::from_i64(100), Expr::from_i64(2)));
+        assert!(
+            definite(
+                &pole_distant,
+                &x(),
+                &Expr::from_i64(0),
+                &Expr::Const(Constant::Infinity),
+            )
+            .is_none(),
+            "must refuse definite integral across distant pole at x = 100 on (0, oo)"
+        );
     }
 }

@@ -69,19 +69,39 @@ fn approx(e: &Expr) -> Option<(f64, f64)> {
     fsym_calculus::gruntz::complex_value(e).map(|v| (v.re, v.im))
 }
 
+fn certified_ball(e: &Expr) -> Option<fsym_core::ball::ComplexBall> {
+    if !e.free_symbols().is_empty() {
+        return None;
+    }
+    e.eval_complex_ball(24).ok()
+}
+
 /// Upstream root order: reals ascending, then complex by (re, im).
 pub fn sort_roots(mut roots: Vec<Expr>) -> Vec<Expr> {
-    if roots.iter().any(|r| approx(r).is_none()) {
+    if roots
+        .iter()
+        .any(|r| certified_ball(r).is_none() && approx(r).is_none())
+    {
         // Symbolic roots keep their construction order (upstream lists the
         // minus branch of a symbolic radical first).
         return roots;
     }
-    let key = |e: &Expr| {
-        let (re, im) = approx(e).unwrap_or((f64::NAN, 0.0));
-        let is_real = im.abs() < 1e-12;
-        (if is_real { 0 } else { 1 }, re, im)
-    };
     roots.sort_by(|a, b| {
+        if let (Some(ba), Some(bb)) = (certified_ball(a), certified_ball(b)) {
+            let a_real = ba.imag().contains_zero();
+            let b_real = bb.imag().contains_zero();
+            let real_tag_a = if a_real { 0u8 } else { 1u8 };
+            let real_tag_b = if b_real { 0u8 } else { 1u8 };
+            return real_tag_a
+                .cmp(&real_tag_b)
+                .then_with(|| ba.real().midpoint().cmp(bb.real().midpoint()))
+                .then_with(|| ba.imag().midpoint().cmp(bb.imag().midpoint()));
+        }
+        let key = |e: &Expr| {
+            let (re, im) = approx(e).unwrap_or((f64::NAN, 0.0));
+            let is_real = im.abs() < 1e-12;
+            (if is_real { 0 } else { 1 }, re, im)
+        };
         let (ka, kb) = (key(a), key(b));
         ka.0.cmp(&kb.0)
             .then(ka.1.partial_cmp(&kb.1).unwrap_or(std::cmp::Ordering::Equal))
@@ -94,15 +114,23 @@ fn dedup(roots: Vec<Expr>) -> Vec<Expr> {
     let mut out: Vec<Expr> = Vec::new();
     for r in roots {
         let dup = out.iter().any(|o| {
-            *o == r
-                || match (approx(o), approx(&r)) {
-                    (Some(a), Some(b)) => {
-                        (a.0 - b.0).abs() < 1e-12
-                            && (a.1 - b.1).abs() < 1e-12
-                            && simplify(&expand(&(o.clone() - r.clone()))).is_zero()
-                    }
-                    _ => false,
+            if *o == r {
+                return true;
+            }
+            let diff_expr = o.clone() - r.clone();
+            if let (Some(ba), Some(bb)) = (certified_ball(o), certified_ball(&r)) {
+                return ba.sub(&bb).contains_zero()
+                    && (simplify(&expand(&diff_expr)).is_zero()
+                        || fsym_simplify::cancel(&expand(&diff_expr)).is_zero());
+            }
+            match (approx(o), approx(&r)) {
+                (Some(a), Some(b)) => {
+                    (a.0 - b.0).abs() < 1e-12
+                        && (a.1 - b.1).abs() < 1e-12
+                        && simplify(&expand(&diff_expr)).is_zero()
                 }
+                _ => false,
+            }
         });
         if !dup {
             out.push(r);
@@ -548,16 +576,19 @@ fn solve_generic(e: &Expr, x: &Symbol) -> Result<Vec<Expr>, SolverError> {
     solve_in_generator(e, x)
 }
 
-/// Drops candidates that do not satisfy `e = 0` (exactly, or numerically
-/// with a wide margin when exact simplification is inconclusive).
+/// Drops candidates that do not satisfy `e = 0` (exactly, or via certified
+/// `ComplexBall` enclosure when exact simplification is inconclusive).
 fn check_roots(e: &Expr, x: &Symbol, roots: Vec<Expr>) -> Vec<Expr> {
     roots
         .into_iter()
         .filter(|r| {
             let v = e.subs(&HashMap::from([(x.clone(), r.clone())]));
             let s = simplify(&v);
-            if s.is_zero() {
+            if s.is_zero() || fsym_simplify::cancel(&expand(&s)).is_zero() {
                 return true;
+            }
+            if let Some(ball) = certified_ball(&s) {
+                return ball.contains_zero();
             }
             match approx(&s) {
                 Some((re, im)) => re.abs() < 1e-9 && im.abs() < 1e-9,

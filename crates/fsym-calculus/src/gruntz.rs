@@ -169,6 +169,35 @@ pub fn constant_sign(c: &Expr) -> Option<i32> {
         // Parameters: only signs decided by declared facts.
         return fsym_core::assume::sign(c).map(i32::from);
     }
+    if let Ok(ball) = c.eval_complex_ball(18) {
+        if !ball.imag().contains_zero() {
+            return None;
+        }
+        if ball.real().is_positive() {
+            return Some(1);
+        }
+        if ball.real().is_negative() {
+            return Some(-1);
+        }
+        if ball.real().radius().is_zero() && ball.real().midpoint().is_zero() {
+            return Some(0);
+        }
+    }
+    let simplified = fsym_simplify::simplify(&fsym_simplify::expand(c));
+    if simplified.is_zero() {
+        return Some(0);
+    }
+    if let Ok(ball36) = simplified.eval_complex_ball(36) {
+        if !ball36.imag().contains_zero() {
+            return None;
+        }
+        if ball36.real().is_positive() {
+            return Some(1);
+        }
+        if ball36.real().is_negative() {
+            return Some(-1);
+        }
+    }
     let v = complex_value(c)?;
     if !v.re.is_finite() || v.im.abs() > 1e-12 * (1.0 + v.re.abs()) {
         return None;
@@ -176,14 +205,11 @@ pub fn constant_sign(c: &Expr) -> Option<i32> {
     if v.re.abs() > 1e-9 {
         return Some(if v.re > 0.0 { 1 } else { -1 });
     }
-    if fsym_simplify::simplify(c).is_zero() {
-        return Some(0);
-    }
     None
 }
 
 /// Zero test for a series coefficient: `Some(true)` exact zero,
-/// `Some(false)` provably (numerically well-separated) nonzero or symbolic,
+/// `Some(false)` provably (certified-ball or numerically well-separated) nonzero or symbolic,
 /// `None` when a constant cannot be decided.
 pub fn is_zero_coefficient(c: &Expr) -> Option<bool> {
     if c.is_zero() {
@@ -193,17 +219,24 @@ pub fn is_zero_coefficient(c: &Expr) -> Option<bool> {
         let s = fsym_simplify::simplify(c);
         return Some(s.is_zero());
     }
+    if let Ok(ball) = c.eval_complex_ball(18)
+        && !ball.contains_zero()
+    {
+        return Some(false);
+    }
+    let simplified = fsym_simplify::simplify(&fsym_simplify::expand(c));
+    if simplified.is_zero() {
+        return Some(true);
+    }
+    if let Ok(ball36) = simplified.eval_complex_ball(36)
+        && !ball36.contains_zero()
+    {
+        return Some(false);
+    }
     match complex_value(c) {
         Some(v) if v.norm() > 1e-9 => Some(false),
-        Some(_) | None => {
-            if fsym_simplify::simplify(c).is_zero() {
-                Some(true)
-            } else if complex_value(c).is_none() {
-                Some(false)
-            } else {
-                None
-            }
-        }
+        Some(_) => None,
+        None => Some(false),
     }
 }
 

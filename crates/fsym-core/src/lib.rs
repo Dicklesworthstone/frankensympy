@@ -702,70 +702,8 @@ impl Expr {
 
     /// Evaluates a ground real expression into a certified `RealBall` enclosure at `precision_digits`.
     pub fn eval_real_ball(&self, precision_digits: u32) -> Result<RealBall, BallError> {
-        let extra = precision_digits.saturating_add(4);
-        match self {
-            Expr::Integer(n) => Ok(RealBall::exact(BigRational::from_integer(n.clone()))),
-            Expr::Rational(q) => Ok(RealBall::exact(q.clone())),
-            Expr::Const(Constant::Pi) => RealBall::pi(extra),
-            Expr::Const(Constant::E) => RealBall::from_i64(1).exp(extra),
-            Expr::Add(terms) => {
-                let mut acc = RealBall::from_i64(0);
-                for t in terms {
-                    acc = acc.add(&t.eval_real_ball(extra)?);
-                }
-                Ok(acc)
-            }
-            Expr::Mul(factors) => {
-                let mut acc = RealBall::from_i64(1);
-                for f in factors {
-                    acc = acc.mul(&f.eval_real_ball(extra)?);
-                }
-                Ok(acc)
-            }
-            Expr::Pow(b, e) => {
-                let base_ball = b.eval_real_ball(extra)?;
-                match e.as_ref() {
-                    Expr::Integer(n) => {
-                        let k = n.to_i32().ok_or_else(|| {
-                            BallError::ArgumentOutsideDeclaredEnvelope(format!(
-                                "integer exponent {n} out of i32 range"
-                            ))
-                        })?;
-                        base_ball.pow(k)
-                    }
-                    Expr::Rational(q)
-                        if q.numer() == &BigInt::from(1) && q.denom() == &BigInt::from(2) =>
-                    {
-                        let bits = extra.saturating_mul(4).max(32);
-                        base_ball.sqrt(bits)
-                    }
-                    _ => {
-                        // x^y = exp(y * ln(x)) when x > 0
-                        let exp_ball = e.eval_real_ball(extra)?;
-                        let ln_b = base_ball.ln(extra)?;
-                        exp_ball.mul(&ln_b).exp(precision_digits)
-                    }
-                }
-            }
-            Expr::Function(name, args) if args.len() == 1 => {
-                let arg = args[0].eval_real_ball(extra)?;
-                match name.as_str() {
-                    "exp" => arg.exp(precision_digits),
-                    "sin" => arg.sin(precision_digits),
-                    "cos" => arg.cos(precision_digits),
-                    "log" | "ln" => arg.ln(precision_digits),
-                    "atan" => arg.atan(precision_digits),
-                    "sqrt" => arg.sqrt(extra.saturating_mul(4).max(32)),
-                    "abs" | "Abs" => Ok(arg.abs()),
-                    _ => Err(BallError::ArgumentOutsideDeclaredEnvelope(format!(
-                        "unsupported function '{name}' in RealBall evaluation"
-                    ))),
-                }
-            }
-            _ => Err(BallError::ArgumentOutsideDeclaredEnvelope(format!(
-                "expression '{self}' cannot be evaluated as a ground RealBall"
-            ))),
-        }
+        self.evalf_ball(precision_digits)
+            .map_err(|e| BallError::ArgumentOutsideDeclaredEnvelope(e.to_string()))
     }
 
     /// Evaluates a ground real or complex expression (including `Constant::I`) into a certified
@@ -797,16 +735,31 @@ impl Expr {
                 Ok(acc)
             }
             Expr::Pow(b, e) => {
-                if let Expr::Integer(n) = e.as_ref() {
-                    let k = n.to_i32().ok_or_else(|| {
-                        BallError::ArgumentOutsideDeclaredEnvelope(format!(
-                            "integer exponent {n} out of i32 range"
-                        ))
-                    })?;
+                if let Some(exp) = e.const_integer_value()
+                    && let Some(k) = exp.to_i32()
+                {
                     return b.eval_complex_ball(extra)?.pow(k);
                 }
                 if matches!(b.as_ref(), Expr::Const(Constant::E)) {
                     return e.eval_complex_ball(extra)?.exp(precision_digits);
+                }
+                // Principal square root of negative real: sqrt(-a) = i * sqrt(a)
+                if let Expr::Rational(r) = e.as_ref()
+                    && r.denom() == &BigInt::from(2)
+                    && let Some(p) = r.numer().to_i32()
+                    && let Ok(bb) = b.eval_complex_ball(extra)
+                    && bb.imag().lower().is_zero()
+                    && bb.imag().upper().is_zero()
+                {
+                    let bits = extra.saturating_mul(4).saturating_add(64);
+                    if bb.real().is_negative() {
+                        let mag_root = bb.real().neg().sqrt(bits)?;
+                        let i_root = ComplexBall::new(RealBall::from_i64(0), mag_root);
+                        return i_root.pow(p);
+                    } else if !bb.real().contains_zero() || bb.real().lower() >= BigRational::zero() {
+                        let root = bb.real().sqrt(bits)?;
+                        return ComplexBall::from_real(root).pow(p);
+                    }
                 }
                 Ok(ComplexBall::from_real(self.eval_real_ball(precision_digits)?))
             }
@@ -816,6 +769,21 @@ impl Expr {
                     "exp" => arg.exp(precision_digits),
                     "sin" => arg.sin(precision_digits),
                     "cos" => arg.cos(precision_digits),
+                    "tan" => {
+                        let s = arg.sin(extra)?;
+                        let c = arg.cos(extra)?;
+                        s.checked_div(&c)
+                    }
+                    "sinh" | "cosh" | "tanh" => {
+                        let ep = arg.exp(extra)?;
+                        let em = arg.neg().exp(extra)?;
+                        let two = ComplexBall::from_i64(2);
+                        match name.as_str() {
+                            "sinh" => ep.sub(&em).checked_div(&two),
+                            "cosh" => ep.add(&em).checked_div(&two),
+                            _ => ep.sub(&em).checked_div(&ep.add(&em)),
+                        }
+                    }
                     "abs" | "Abs" => Ok(ComplexBall::from_real(
                         arg.abs_ball(extra.saturating_mul(4).max(32))?,
                     )),

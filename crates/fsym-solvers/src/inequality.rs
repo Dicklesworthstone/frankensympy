@@ -154,6 +154,12 @@ fn real_zeros(g: &Expr, x: &Symbol) -> Result<Vec<Expr>, SolverError> {
 }
 
 fn is_nonreal(e: &Expr) -> bool {
+    if e.free_symbols().is_empty()
+        && let Ok(ball) = e.eval_complex_ball(24)
+        && !ball.imag().contains_zero()
+    {
+        return true;
+    }
     fsym_calculus::gruntz::complex_value(e).is_some_and(|v| v.im.abs() > 1e-12 * (1.0 + v.re.abs()))
 }
 
