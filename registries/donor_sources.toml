@@ -6,7 +6,7 @@ audit_policy = "pin_exact_commit_and_classify_each_inherited_mechanism"
 [[source]]
 id = "asupersync"
 repository = "Dicklesworthstone/asupersync"
-commit = "3cb2dc6d0540a961345e61bc9f89b4e930cbb8cf"
+commit = "b3e08ac0bd773a5bbdd4f3c2f4624d550352ec0f"
 audit = "docs/DONOR_DEEP_DIVE_ASUPERSYNC.md"
 roles = ["structured_concurrency", "capabilities", "lab_runtime", "artifact_transfer", "raptorq", "eprocess"]
 default_disposition = "adapt"
@@ -46,7 +46,7 @@ default_disposition = "adapt"
 [[source]]
 id = "franken_numpy"
 repository = "Dicklesworthstone/franken_numpy"
-commit = "d328412082de80d7eb08addd4eddcec002f001ed"
+commit = "d5d29c9da36141f611d1414b4c6ef434ab31ea24"
 audit = "docs/DONOR_DEEP_DIVE_NUMERIC_STACK.md"
 roles = ["compatibility_inventory", "semantic_calculus", "strict_hardened_modes", "differential_oracle"]
 default_disposition = "adapt"
@@ -54,7 +54,7 @@ default_disposition = "adapt"
 [[source]]
 id = "frankenscipy"
 repository = "Dicklesworthstone/frankenscipy"
-commit = "216906fda2dc442361cec63195136ba8dcca1499"
+commit = "213a417c739025ed865a3875c89a7d86726ecb5a"
 audit = "docs/DONOR_DEEP_DIVE_NUMERIC_STACK.md"
 roles = ["condition_aware_portfolio", "expected_loss", "fallback_graph", "stability_gates"]
 default_disposition = "adapt"

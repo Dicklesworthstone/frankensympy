@@ -32,6 +32,8 @@ pub enum AlgebraicError {
     NegativeTargetRadius(String),
     #[error("Refinement iteration limit exceeded ({0} steps)")]
     IterationLimitExceeded(usize),
+    #[error("Division by zero algebraic number")]
+    DivisionByZero,
     #[error("Ball arithmetic error: {0}")]
     Ball(#[from] BallError),
 }
@@ -45,6 +47,16 @@ fn poly_trim(mut coeffs: Vec<BigRational>) -> Vec<BigRational> {
         coeffs.push(BigRational::zero());
     }
     coeffs
+}
+
+/// Normalizes a non-zero polynomial to be monic.
+fn poly_monic(coeffs: &[BigRational]) -> Vec<BigRational> {
+    let trimmed = poly_trim(coeffs.to_vec());
+    if poly_is_zero(&trimmed) {
+        return trimmed;
+    }
+    let lc = trimmed.last().unwrap().clone();
+    trimmed.into_iter().map(|c| c / &lc).collect()
 }
 
 /// Checks if polynomial is identically zero.
@@ -79,29 +91,175 @@ fn poly_negate(coeffs: &[BigRational]) -> Vec<BigRational> {
     coeffs.iter().map(|c| -c).collect()
 }
 
-/// Polynomial remainder $A \pmod B$.
-fn poly_rem(a: &[BigRational], b: &[BigRational]) -> Vec<BigRational> {
+/// Polynomial division $(Q, R)$ with $A = Q \cdot B + R$.
+fn poly_div_rem(a: &[BigRational], b: &[BigRational]) -> (Vec<BigRational>, Vec<BigRational>) {
     let a_trimmed = poly_trim(a.to_vec());
     let b_trimmed = poly_trim(b.to_vec());
     if poly_is_zero(&b_trimmed) {
-        return a_trimmed;
+        return (vec![BigRational::zero()], a_trimmed);
     }
     let deg_b = poly_degree(&b_trimmed);
+    let deg_a = poly_degree(&a_trimmed);
+    if poly_is_zero(&a_trimmed) || deg_a < deg_b {
+        return (vec![BigRational::zero()], a_trimmed);
+    }
     let lead_b = &b_trimmed[deg_b];
-
+    let mut quot = vec![BigRational::zero(); deg_a - deg_b + 1];
     let mut rem = a_trimmed;
     while !poly_is_zero(&rem) && poly_degree(&rem) >= deg_b {
         let deg_r = poly_degree(&rem);
         let lead_r = rem[deg_r].clone();
         let factor = &lead_r / lead_b;
         let shift = deg_r - deg_b;
-
+        quot[shift] += &factor;
         for (j, b_coeff) in b_trimmed.iter().enumerate() {
             rem[j + shift] -= &factor * b_coeff;
         }
         rem = poly_trim(rem);
     }
-    rem
+    (poly_trim(quot), rem)
+}
+
+/// Polynomial remainder $A \pmod B$.
+fn poly_rem(a: &[BigRational], b: &[BigRational]) -> Vec<BigRational> {
+    poly_div_rem(a, b).1
+}
+
+/// Monic polynomial GCD over $\mathbb{Q}[x]$.
+fn poly_gcd(a: &[BigRational], b: &[BigRational]) -> Vec<BigRational> {
+    let mut u = poly_trim(a.to_vec());
+    let mut v = poly_trim(b.to_vec());
+    while !poly_is_zero(&v) {
+        let r = poly_rem(&u, &v);
+        u = v;
+        v = r;
+    }
+    poly_monic(&u)
+}
+
+/// Monic square-free part $P / \gcd(P, P')$.
+fn poly_square_free_part(a: &[BigRational]) -> Vec<BigRational> {
+    let trimmed = poly_trim(a.to_vec());
+    if poly_is_zero(&trimmed) || poly_degree(&trimmed) == 0 {
+        return poly_monic(&trimmed);
+    }
+    let deriv = poly_derivative(&trimmed);
+    let g = poly_gcd(&trimmed, &deriv);
+    let (sf, _) = poly_div_rem(&trimmed, &g);
+    poly_monic(&sf)
+}
+
+/// Evaluates $P(x_0 - y)$ as a polynomial in $y$ of formal degree `deg_p`.
+fn poly_eval_shifted_neg_y(coeffs: &[BigRational], x0: &BigRational) -> Vec<BigRational> {
+    // Horner in Q[y] with multiplier (x0 - y)
+    let mut acc = vec![BigRational::zero()];
+    for c in coeffs.iter().rev() {
+        let mut next = vec![BigRational::zero(); acc.len() + 1];
+        for (i, a) in acc.iter().enumerate() {
+            next[i] += a * x0;
+            next[i + 1] -= a;
+        }
+        next[0] += c;
+        acc = next;
+    }
+    acc
+}
+
+/// Evaluates $y^m P(x_0 / y) = \sum_{i=0}^m c_i x_0^i y^{m-i}$ as a polynomial in $y$.
+fn poly_eval_homogenized_quotient_y(coeffs: &[BigRational], x0: &BigRational) -> Vec<BigRational> {
+    let m = poly_degree(coeffs);
+    let mut out = vec![BigRational::zero(); m + 1];
+    let mut x_pow = BigRational::one();
+    for (i, c) in coeffs.iter().enumerate() {
+        out[m - i] = c * &x_pow;
+        x_pow *= x0;
+    }
+    out
+}
+
+/// Computes the exact $(m, n)$-Sylvester resultant over $\mathbb{Q}$.
+fn sylvester_resultant_fixed_degrees(
+    a_coeffs: &[BigRational],
+    deg_a: usize,
+    b_coeffs: &[BigRational],
+    deg_b: usize,
+) -> BigRational {
+    let dim = deg_a + deg_b;
+    if dim == 0 {
+        return BigRational::one();
+    }
+    let mut mat = vec![vec![BigRational::zero(); dim]; dim];
+    for row in 0..deg_b {
+        for k in 0..=deg_a {
+            let val = a_coeffs.get(k).cloned().unwrap_or_else(BigRational::zero);
+            mat[row][row + (deg_a - k)] = val;
+        }
+    }
+    for row in 0..deg_a {
+        for k in 0..=deg_b {
+            let val = b_coeffs.get(k).cloned().unwrap_or_else(BigRational::zero);
+            mat[deg_b + row][row + (deg_b - k)] = val;
+        }
+    }
+    // Exact Gaussian elimination over BigRational
+    let mut det = BigRational::one();
+    let mut sign = 1i64;
+    for i in 0..dim {
+        let mut pivot_row = i;
+        while pivot_row < dim && mat[pivot_row][i].is_zero() {
+            pivot_row += 1;
+        }
+        if pivot_row == dim {
+            return BigRational::zero();
+        }
+        if pivot_row != i {
+            mat.swap(i, pivot_row);
+            sign = -sign;
+        }
+        let pivot = mat[i][i].clone();
+        det *= &pivot;
+        let inv_pivot = BigRational::one() / &pivot;
+        let (upper, lower) = mat.split_at_mut(i + 1);
+        let pivot_slice = &upper[i];
+        for r in lower.iter_mut() {
+            if !r[i].is_zero() {
+                let factor = &r[i] * &inv_pivot;
+                r[i] = BigRational::zero();
+                for (target, p_val) in r.iter_mut().skip(i + 1).zip(pivot_slice.iter().skip(i + 1)) {
+                    *target -= &factor * p_val;
+                }
+            }
+        }
+    }
+    if sign == -1 { -det } else { det }
+}
+
+/// Exact Newton interpolation over distinct rational nodes $(x_k, y_k)$.
+fn interpolate_rational_poly(xs: &[BigRational], ys: &[BigRational]) -> Vec<BigRational> {
+    let n = xs.len();
+    if n == 0 {
+        return vec![BigRational::zero()];
+    }
+    let mut dd = ys.to_vec();
+    for j in 1..n {
+        for i in (j..n).rev() {
+            let num = &dd[i] - &dd[i - 1];
+            let den = &xs[i] - &xs[i - j];
+            dd[i] = num / den;
+        }
+    }
+    // Convert Newton form to standard monomial basis using Horner backwards
+    let mut poly = vec![dd[n - 1].clone()];
+    for k in (0..n - 1).rev() {
+        let mut next = vec![BigRational::zero(); poly.len() + 1];
+        for (i, c) in poly.iter().enumerate() {
+            next[i] -= c * &xs[k];
+            next[i + 1] += c;
+        }
+        next[0] += &dd[k];
+        poly = next;
+    }
+    poly_trim(poly)
 }
 
 /// Builds the Sturm sequence $(f_0, f_1, \dots, f_k)$ for a univariate polynomial $P$.
@@ -422,6 +580,176 @@ impl AlgebraicNumber {
             0
         }
     }
+
+    /// Exact negation $-\alpha$: defining polynomial $P(-x)$ with negated isolating ball.
+    pub fn neg(&self) -> Self {
+        let mut neg_coeffs = Vec::with_capacity(self.defining_poly_coeffs.len());
+        for (deg, c) in self.defining_poly_coeffs.iter().enumerate() {
+            if deg % 2 == 1 {
+                neg_coeffs.push(-c);
+            } else {
+                neg_coeffs.push(c.clone());
+            }
+        }
+        Self {
+            defining_poly_coeffs: poly_monic(&neg_coeffs),
+            isolating_ball: self.isolating_ball.neg(),
+        }
+    }
+
+    /// Refines two algebraic operands and builds a certified `AlgebraicNumber` from a square-free
+    /// resultant polynomial `sf_coeffs` and an interval combination closure.
+    fn isolate_binary_result(
+        &self,
+        other: &Self,
+        sf_coeffs: Vec<BigRational>,
+        combine_balls: impl Fn(&RealBall, &RealBall) -> Result<RealBall, AlgebraicError>,
+    ) -> Result<Self, AlgebraicError> {
+        let sturm_seq = sturm_sequence(&sf_coeffs);
+        if !sturm_sequence_is_square_free(&sturm_seq) {
+            return Err(AlgebraicError::NonSquareFreePolynomial);
+        }
+        let mut lhs = self.clone();
+        let mut rhs = other.clone();
+        const MAX_ISOLATE_STEPS: usize = 2_000;
+        for _ in 0..MAX_ISOLATE_STEPS {
+            let cand = combine_balls(&lhs.isolating_ball, &rhs.isolating_ball)?;
+            let low = cand.lower();
+            let high = cand.upper();
+            if count_real_roots_in_interval(&sturm_seq, &low, &high) == 1 {
+                let final_ball = if Self::eval_poly_at(&sf_coeffs, &low).is_zero() {
+                    RealBall::exact(low)
+                } else if Self::eval_poly_at(&sf_coeffs, &high).is_zero() {
+                    RealBall::exact(high)
+                } else {
+                    cand
+                };
+                return Self::new(sf_coeffs, final_ball);
+            }
+            lhs.refine_step();
+            rhs.refine_step();
+        }
+        Err(AlgebraicError::IterationLimitExceeded(MAX_ISOLATE_STEPS))
+    }
+
+    /// Exact algebraic addition $\alpha + \beta$ via resultant $\text{Res}_y(P(x - y), Q(y))$
+    /// and Sturm-certified interval isolation.
+    pub fn add(&self, other: &Self) -> Result<Self, AlgebraicError> {
+        let m = self.degree();
+        let n = other.degree();
+        let max_deg = m.saturating_mul(n);
+        if max_deg.saturating_add(1) > MAX_ALGEBRAIC_POLYNOMIAL_COEFFICIENTS {
+            return Err(AlgebraicError::PolynomialCoefficientLimitExceeded(
+                max_deg.saturating_add(1),
+            ));
+        }
+        let mut xs = Vec::with_capacity(max_deg + 1);
+        let mut ys = Vec::with_capacity(max_deg + 1);
+        for k in 0..=max_deg {
+            let x_k = BigRational::from_integer(BigInt::from(k as i64));
+            let shifted_p = poly_eval_shifted_neg_y(&self.defining_poly_coeffs, &x_k);
+            let res_k = sylvester_resultant_fixed_degrees(
+                &shifted_p,
+                m,
+                &other.defining_poly_coeffs,
+                n,
+            );
+            xs.push(x_k);
+            ys.push(res_k);
+        }
+        let resultant_poly = interpolate_rational_poly(&xs, &ys);
+        let sf = poly_square_free_part(&resultant_poly);
+        self.isolate_binary_result(other, sf, |a, b| Ok(a.add(b)))
+    }
+
+    /// Exact algebraic subtraction $\alpha - \beta$.
+    pub fn sub(&self, other: &Self) -> Result<Self, AlgebraicError> {
+        self.add(&other.neg())
+    }
+
+    /// Exact algebraic multiplication $\alpha \cdot \beta$ via resultant
+    /// $\text{Res}_y(y^m P(x / y), Q(y))$ and Sturm-certified interval isolation.
+    pub fn mul(&self, other: &Self) -> Result<Self, AlgebraicError> {
+        let mut a_check = self.clone();
+        let mut b_check = other.clone();
+        if a_check.sign() == 0 || b_check.sign() == 0 {
+            return Ok(Self::from_i64(0));
+        }
+        let m = self.degree();
+        let n = other.degree();
+        let max_deg = m.saturating_mul(n);
+        if max_deg.saturating_add(1) > MAX_ALGEBRAIC_POLYNOMIAL_COEFFICIENTS {
+            return Err(AlgebraicError::PolynomialCoefficientLimitExceeded(
+                max_deg.saturating_add(1),
+            ));
+        }
+        let mut xs = Vec::with_capacity(max_deg + 1);
+        let mut ys = Vec::with_capacity(max_deg + 1);
+        for k in 0..=max_deg {
+            let x_k = BigRational::from_integer(BigInt::from(k as i64));
+            let hom_p = poly_eval_homogenized_quotient_y(&self.defining_poly_coeffs, &x_k);
+            let res_k = sylvester_resultant_fixed_degrees(
+                &hom_p,
+                m,
+                &other.defining_poly_coeffs,
+                n,
+            );
+            xs.push(x_k);
+            ys.push(res_k);
+        }
+        let resultant_poly = interpolate_rational_poly(&xs, &ys);
+        let sf = poly_square_free_part(&resultant_poly);
+        self.isolate_binary_result(other, sf, |a, b| Ok(a.mul(b)))
+    }
+
+    /// Exact algebraic reciprocal $1 / \alpha$ for $\alpha \ne 0$.
+    pub fn inv(&self) -> Result<Self, AlgebraicError> {
+        let mut a = self.clone();
+        if a.sign() == 0 {
+            return Err(AlgebraicError::DivisionByZero);
+        }
+        let mut rev = a.defining_poly_coeffs.clone();
+        rev.reverse();
+        let sf = poly_square_free_part(&rev);
+        let sturm_seq = sturm_sequence(&sf);
+        const MAX_ISOLATE_STEPS: usize = 2_000;
+        for _ in 0..MAX_ISOLATE_STEPS {
+            if !a.isolating_ball.contains_zero() {
+                let cand = a.isolating_ball.inv()?;
+                let low = cand.lower();
+                let high = cand.upper();
+                if count_real_roots_in_interval(&sturm_seq, &low, &high) == 1 {
+                    let final_ball = if Self::eval_poly_at(&sf, &low).is_zero() {
+                        RealBall::exact(low)
+                    } else if Self::eval_poly_at(&sf, &high).is_zero() {
+                        RealBall::exact(high)
+                    } else {
+                        cand
+                    };
+                    return Self::new(sf, final_ball);
+                }
+            }
+            a.refine_step();
+        }
+        Err(AlgebraicError::IterationLimitExceeded(MAX_ISOLATE_STEPS))
+    }
+
+    /// Exact algebraic division $\alpha / \beta$.
+    pub fn checked_div(&self, other: &Self) -> Result<Self, AlgebraicError> {
+        let inv_other = other.inv()?;
+        self.mul(&inv_other)
+    }
+
+    /// Refines and returns a certified `RealBall` enclosure with radius $\le 10^{-(\text{precision\_digits} + 1)}$.
+    pub fn to_real_ball(&self, precision_digits: u32) -> Result<RealBall, AlgebraicError> {
+        let target = BigRational::new(
+            BigInt::one(),
+            BigInt::from(10).pow(precision_digits.saturating_add(1)),
+        );
+        let mut refined = self.clone();
+        refined.refine_to_radius(&target)?;
+        Ok(refined.isolating_ball)
+    }
 }
 
 impl fmt::Display for AlgebraicNumber {
@@ -497,5 +825,77 @@ mod tests {
         let last = seq.last().unwrap();
         assert_eq!(last.len(), 1);
         assert!(!last[0].is_zero());
+    }
+
+    #[test]
+    fn test_algebraic_number_field_arithmetic_and_real_ball_refinement() {
+        // sqrt(2): root of x^2 - 2 in [1, 2]
+        let sqrt2 = AlgebraicNumber::new(
+            vec![q(-2), q(0), q(1)],
+            RealBall::new(
+                BigRational::new(3.into(), 2.into()),
+                BigRational::new(1.into(), 2.into()),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        // sqrt(3): root of x^2 - 3 in [1, 2]
+        let sqrt3 = AlgebraicNumber::new(
+            vec![q(-3), q(0), q(1)],
+            RealBall::new(
+                BigRational::new(3.into(), 2.into()),
+                BigRational::new(1.into(), 2.into()),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+        // sqrt(2) * sqrt(2) == 2 (root of x^2 - 4 in positive interval, or exact 2)
+        let two_alg = sqrt2.mul(&sqrt2).unwrap();
+        assert_eq!(
+            AlgebraicNumber::eval_poly_at(two_alg.defining_poly_coeffs(), &q(2)),
+            q(0)
+        );
+        let two_ball = two_alg.to_real_ball(20).unwrap();
+        assert!(two_ball.contains(&q(2)));
+
+        // sqrt(2) + sqrt(3) has minimal polynomial x^4 - 10*x^2 + 1
+        let sum = sqrt2.add(&sqrt3).unwrap();
+        assert_eq!(sum.degree(), 4);
+        assert_eq!(
+            sum.defining_poly_coeffs(),
+            &[q(1), q(0), q(-10), q(0), q(1)]
+        );
+        // High-precision enclosure of sqrt(2) + sqrt(3) ≈ 3.1462643699419723
+        let sum_ball = sum.to_real_ball(15).unwrap();
+        let approx = BigRational::new(
+            BigInt::from(3_146_264_369_941_972i64),
+            BigInt::from(1_000_000_000_000_000i64),
+        );
+        let tol = BigRational::new(BigInt::one(), BigInt::from(10).pow(14));
+        assert!(
+            sum_ball.lower() <= &approx + &tol && &approx - &tol <= sum_ball.upper(),
+            "sqrt(2)+sqrt(3) ball {sum_ball} must overlap reference {approx}"
+        );
+
+        // (sqrt(3) - sqrt(2)) * (sqrt(3) + sqrt(2)) == 1
+        let diff = sqrt3.sub(&sqrt2).unwrap();
+        let prod = diff.mul(&sum).unwrap();
+        let prod_ball = prod.to_real_ball(20).unwrap();
+        assert!(
+            prod_ball.contains(&q(1)),
+            "(sqrt(3)-sqrt(2))*(sqrt(3)+sqrt(2)) ball {prod_ball} must contain 1"
+        );
+
+        // 1 / sqrt(2) == sqrt(2) / 2 (minimal polynomial x^2 - 1/2)
+        let inv_sqrt2 = sqrt2.inv().unwrap();
+        assert_eq!(
+            inv_sqrt2.defining_poly_coeffs(),
+            &[BigRational::new((-1).into(), 2.into()), q(0), q(1)]
+        );
+        assert!(matches!(
+            AlgebraicNumber::from_i64(0).inv(),
+            Err(AlgebraicError::DivisionByZero)
+        ));
     }
 }

@@ -1011,7 +1011,11 @@ fn ln_rational(q: &BigRational, digits: u32) -> Result<RealBall, BallError> {
         m *= two.clone();
         k -= 1;
     }
-    let extra = (k.unsigned_abs() as f64).log10().max(0.0) as u32 + 2;
+    let extra = if k == 0 {
+        2
+    } else {
+        ((k.unsigned_abs().ilog2().saturating_add(1)).saturating_mul(30_103) / 100_000) + 2
+    };
     let z = (m.clone() - one.clone()) / (m + one);
     let ln_m = atanh_rational(&z, digits + extra)?;
     let ln_m = RealBall {
@@ -1112,6 +1116,242 @@ impl RealBall {
             midpoint: (low.clone() + high.clone()) / two.clone(),
             radius: (high - low) / two,
         })
+    }
+}
+
+/// Certified rectangular complex ball $\mathcal{B}_{\mathbb{C}}(x, y) = \mathcal{B}_{\mathbb{R}}(m_x, r_x) + i \mathcal{B}_{\mathbb{R}}(m_y, r_y)$.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ComplexBall {
+    real: RealBall,
+    imag: RealBall,
+}
+
+impl ComplexBall {
+    /// Constructs a complex ball from certified real and imaginary enclosures.
+    pub fn new(real: RealBall, imag: RealBall) -> Self {
+        Self { real, imag }
+    }
+
+    /// Embeds a real ball on the real axis ($\text{Im}(z) = [0, 0]$).
+    pub fn from_real(real: RealBall) -> Self {
+        Self {
+            real,
+            imag: RealBall::from_i64(0),
+        }
+    }
+
+    /// Constructs an exact complex point ball $a + b i$ with zero radii.
+    pub fn exact_complex(re: BigRational, im: BigRational) -> Self {
+        Self {
+            real: RealBall::exact(re),
+            imag: RealBall::exact(im),
+        }
+    }
+
+    /// Constructs an exact integer complex ball $n + 0i$.
+    pub fn from_i64(n: i64) -> Self {
+        Self::from_real(RealBall::from_i64(n))
+    }
+
+    /// Returns the exact imaginary unit $0 + 1i$.
+    pub fn i() -> Self {
+        Self {
+            real: RealBall::from_i64(0),
+            imag: RealBall::from_i64(1),
+        }
+    }
+
+    /// Real component enclosure.
+    pub fn real(&self) -> &RealBall {
+        &self.real
+    }
+
+    /// Imaginary component enclosure.
+    pub fn imag(&self) -> &RealBall {
+        &self.imag
+    }
+
+    /// Checks whether the exact complex point `re + i * im` lies in this rectangular enclosure.
+    pub fn contains(&self, re: &BigRational, im: &BigRational) -> bool {
+        self.real.contains(re) && self.imag.contains(im)
+    }
+
+    /// Checks whether $0 + 0i$ lies inside this complex ball.
+    pub fn contains_zero(&self) -> bool {
+        self.real.contains_zero() && self.imag.contains_zero()
+    }
+
+    /// Certified complex addition.
+    pub fn add(&self, other: &Self) -> Self {
+        Self {
+            real: self.real.add(&other.real),
+            imag: self.imag.add(&other.imag),
+        }
+    }
+
+    /// Certified complex subtraction.
+    pub fn sub(&self, other: &Self) -> Self {
+        Self {
+            real: self.real.sub(&other.real),
+            imag: self.imag.sub(&other.imag),
+        }
+    }
+
+    /// Certified complex negation.
+    pub fn neg(&self) -> Self {
+        Self {
+            real: self.real.neg(),
+            imag: self.imag.neg(),
+        }
+    }
+
+    /// Certified complex conjugate $\overline{x + i y} = x - i y$.
+    pub fn conj(&self) -> Self {
+        Self {
+            real: self.real.clone(),
+            imag: self.imag.neg(),
+        }
+    }
+
+    /// Certified complex multiplication $(a + b i)(c + d i) = (a c - b d) + i(a d + b c)$.
+    pub fn mul(&self, other: &Self) -> Self {
+        let ac = self.real.mul(&other.real);
+        let bd = self.imag.mul(&other.imag);
+        let ad = self.real.mul(&other.imag);
+        let bc = self.imag.mul(&other.real);
+        Self {
+            real: ac.sub(&bd),
+            imag: ad.add(&bc),
+        }
+    }
+
+    /// Certified squared modulus $|z|^2 = x^2 + y^2$ using range-tight square enclosures.
+    pub fn norm_sq(&self) -> Result<RealBall, BallError> {
+        let re_sq = self.real.pow(2)?;
+        let im_sq = self.imag.pow(2)?;
+        Ok(re_sq.add(&im_sq))
+    }
+
+    /// Certified modulus $|z| = \sqrt{x^2 + y^2}$ with `precision_bits` binary square-root precision.
+    pub fn abs_ball(&self, precision_bits: u32) -> Result<RealBall, BallError> {
+        self.norm_sq()?.sqrt(precision_bits)
+    }
+
+    /// Certified complex multiplicative inverse $1/z = \bar{z} / |z|^2$.
+    /// Fails closed with `BallError::DivisionByZero` if $0 \in |z|^2$.
+    pub fn inv(&self) -> Result<Self, BallError> {
+        if self.contains_zero() {
+            return Err(BallError::DivisionByZero(self.to_string()));
+        }
+        let n2 = self.norm_sq()?;
+        if n2.contains_zero() {
+            return Err(BallError::DivisionByZero(self.to_string()));
+        }
+        let re = self.real.div(&n2)?;
+        let im = self.imag.neg().div(&n2)?;
+        Ok(Self { real: re, imag: im })
+    }
+
+    /// Certified complex division $z_1 / z_2$.
+    pub fn checked_div(&self, other: &Self) -> Result<Self, BallError> {
+        let inv_other = other.inv()?;
+        Ok(self.mul(&inv_other))
+    }
+
+    /// Certified integer power $z^k$.
+    pub fn pow(&self, exp: i32) -> Result<Self, BallError> {
+        if exp == 0 {
+            if self.contains_zero() {
+                return Err(BallError::IndeterminatePower(
+                    "zero exponent requires a complex ball that excludes zero".to_string(),
+                ));
+            }
+            return Ok(Self::from_i64(1));
+        }
+        if exp == 1 {
+            return Ok(self.clone());
+        }
+        let mut mag = exp.unsigned_abs();
+        let mut base = if exp < 0 { self.inv()? } else { self.clone() };
+        let mut acc = Self::from_i64(1);
+        while mag > 0 {
+            if mag % 2 == 1 {
+                acc = acc.mul(&base);
+            }
+            mag /= 2;
+            if mag > 0 {
+                base = base.mul(&base);
+            }
+        }
+        Ok(acc)
+    }
+
+    /// Certified complex exponential $\exp(x + i y) = e^x (\cos y + i \sin y)$.
+    pub fn exp(&self, precision_digits: u32) -> Result<Self, BallError> {
+        let extra = precision_digits.saturating_add(4);
+        let ex = self.real.exp(extra)?;
+        let cy = self.imag.cos(extra)?;
+        let sy = self.imag.sin(extra)?;
+        Ok(Self {
+            real: ex.mul(&cy),
+            imag: ex.mul(&sy),
+        })
+    }
+
+    /// Certified complex sine $\sin(x + i y) = \sin(x)\cosh(y) + i \cos(x)\sinh(y)$.
+    pub fn sin(&self, precision_digits: u32) -> Result<Self, BallError> {
+        let extra = precision_digits.saturating_add(4);
+        let sx = self.real.sin(extra)?;
+        let cx = self.real.cos(extra)?;
+        if self.imag.lower().is_zero() && self.imag.upper().is_zero() {
+            return Ok(Self::from_real(sx));
+        }
+        let ey = self.imag.exp(extra)?;
+        let emy = self.imag.neg().exp(extra)?;
+        let two = RealBall::from_i64(2);
+        let cosh_y = ey.add(&emy).div(&two)?;
+        let sinh_y = ey.sub(&emy).div(&two)?;
+        Ok(Self {
+            real: sx.mul(&cosh_y),
+            imag: cx.mul(&sinh_y),
+        })
+    }
+
+    /// Certified complex cosine $\cos(x + i y) = \cos(x)\cosh(y) - i \sin(x)\sinh(y)$.
+    pub fn cos(&self, precision_digits: u32) -> Result<Self, BallError> {
+        let extra = precision_digits.saturating_add(4);
+        let sx = self.real.sin(extra)?;
+        let cx = self.real.cos(extra)?;
+        if self.imag.lower().is_zero() && self.imag.upper().is_zero() {
+            return Ok(Self::from_real(cx));
+        }
+        let ey = self.imag.exp(extra)?;
+        let emy = self.imag.neg().exp(extra)?;
+        let two = RealBall::from_i64(2);
+        let cosh_y = ey.add(&emy).div(&two)?;
+        let sinh_y = ey.sub(&emy).div(&two)?;
+        Ok(Self {
+            real: cx.mul(&cosh_y),
+            imag: sx.mul(&sinh_y).neg(),
+        })
+    }
+
+    /// Canonical BLAKE3 digest of this complex ball.
+    pub fn digest(&self) -> Result<[u8; 32], BallError> {
+        let re_digest = self.real.digest()?;
+        let im_digest = self.imag.digest()?;
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"fsym.complex_ball.v1\0");
+        hasher.update(&re_digest);
+        hasher.update(&im_digest);
+        Ok(*hasher.finalize().as_bytes())
+    }
+}
+
+impl fmt::Display for ComplexBall {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} + {}*I", self.real, self.imag)
     }
 }
 
@@ -1590,6 +1830,74 @@ mod tests {
         assert!(matches!(
             sin_huge.sin(10),
             Err(BallError::ArgumentOutsideDeclaredEnvelope(_))
+        ));
+    }
+
+    #[test]
+    fn test_complex_ball_field_and_abs() {
+        // z1 = 3 + 4i, z2 = 1 - 2i
+        let z1 = ComplexBall::exact_complex(q(3), q(4));
+        let z2 = ComplexBall::exact_complex(q(1), q(-2));
+
+        // z1 + z2 = 4 + 2i
+        let sum = z1.add(&z2);
+        assert!(sum.contains(&q(4), &q(2)));
+
+        // z1 * z2 = (3 + 8) + (-6 + 4)i = 11 - 2i
+        let prod = z1.mul(&z2);
+        assert!(prod.contains(&q(11), &q(-2)));
+
+        // |z1| = sqrt(9 + 16) = 5
+        let abs_z1 = z1.abs_ball(32).unwrap();
+        assert!(abs_z1.contains(&q(5)));
+
+        // (z1 * z2) / z2 encloses z1
+        let quot = prod.checked_div(&z2).unwrap();
+        assert!(quot.contains(&q(3), &q(4)));
+
+        // i^2 = -1, i^4 = 1
+        let i_unit = ComplexBall::i();
+        assert!(i_unit.pow(2).unwrap().contains(&q(-1), &q(0)));
+        assert!(i_unit.pow(4).unwrap().contains(&q(1), &q(0)));
+    }
+
+    #[test]
+    fn test_complex_ball_euler_identity_and_transcendentals() {
+        // Euler's identity: exp(i * pi) + 1 encloses 0 + 0i
+        let pi = RealBall::pi(20).unwrap();
+        let i_pi = ComplexBall::new(RealBall::from_i64(0), pi);
+        let euler = i_pi.exp(20).unwrap().add(&ComplexBall::from_i64(1));
+        assert!(
+            euler.contains(&q(0), &q(0)),
+            "exp(i*pi) + 1 = {euler} must enclose 0 + 0i"
+        );
+        assert!(euler.real().radius() <= &ten_pow_rational(18));
+        assert!(euler.imag().radius() <= &ten_pow_rational(18));
+
+        // sin^2(z) + cos^2(z) encloses 1 + 0i for complex z = 1 + i/2
+        let z = ComplexBall::exact_complex(q(1), BigRational::new(1.into(), 2.into()));
+        let sz = z.sin(16).unwrap();
+        let cz = z.cos(16).unwrap();
+        let pyth = sz.pow(2).unwrap().add(&cz.pow(2).unwrap());
+        assert!(
+            pyth.contains(&q(1), &q(0)),
+            "sin^2(z) + cos^2(z) = {pyth} must enclose 1 + 0i"
+        );
+    }
+
+    #[test]
+    fn test_complex_ball_division_by_zero_refusal() {
+        let zero_cross = ComplexBall::new(
+            RealBall::new(q(0), q(1)).unwrap(),
+            RealBall::new(q(0), q(1)).unwrap(),
+        );
+        assert!(matches!(
+            zero_cross.inv(),
+            Err(BallError::DivisionByZero(_))
+        ));
+        assert!(matches!(
+            zero_cross.pow(0),
+            Err(BallError::IndeterminatePower(_))
         ));
     }
 }

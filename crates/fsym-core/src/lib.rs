@@ -699,6 +699,137 @@ impl Expr {
             _ => None,
         }
     }
+
+    /// Evaluates a ground real expression into a certified `RealBall` enclosure at `precision_digits`.
+    pub fn eval_real_ball(&self, precision_digits: u32) -> Result<RealBall, BallError> {
+        let extra = precision_digits.saturating_add(4);
+        match self {
+            Expr::Integer(n) => Ok(RealBall::exact(BigRational::from_integer(n.clone()))),
+            Expr::Rational(q) => Ok(RealBall::exact(q.clone())),
+            Expr::Const(Constant::Pi) => RealBall::pi(extra),
+            Expr::Const(Constant::E) => RealBall::from_i64(1).exp(extra),
+            Expr::Add(terms) => {
+                let mut acc = RealBall::from_i64(0);
+                for t in terms {
+                    acc = acc.add(&t.eval_real_ball(extra)?);
+                }
+                Ok(acc)
+            }
+            Expr::Mul(factors) => {
+                let mut acc = RealBall::from_i64(1);
+                for f in factors {
+                    acc = acc.mul(&f.eval_real_ball(extra)?);
+                }
+                Ok(acc)
+            }
+            Expr::Pow(b, e) => {
+                let base_ball = b.eval_real_ball(extra)?;
+                match e.as_ref() {
+                    Expr::Integer(n) => {
+                        let k = n.to_i32().ok_or_else(|| {
+                            BallError::ArgumentOutsideDeclaredEnvelope(format!(
+                                "integer exponent {n} out of i32 range"
+                            ))
+                        })?;
+                        base_ball.pow(k)
+                    }
+                    Expr::Rational(q)
+                        if q.numer() == &BigInt::from(1) && q.denom() == &BigInt::from(2) =>
+                    {
+                        let bits = extra.saturating_mul(4).max(32);
+                        base_ball.sqrt(bits)
+                    }
+                    _ => {
+                        // x^y = exp(y * ln(x)) when x > 0
+                        let exp_ball = e.eval_real_ball(extra)?;
+                        let ln_b = base_ball.ln(extra)?;
+                        exp_ball.mul(&ln_b).exp(precision_digits)
+                    }
+                }
+            }
+            Expr::Function(name, args) if args.len() == 1 => {
+                let arg = args[0].eval_real_ball(extra)?;
+                match name.as_str() {
+                    "exp" => arg.exp(precision_digits),
+                    "sin" => arg.sin(precision_digits),
+                    "cos" => arg.cos(precision_digits),
+                    "log" | "ln" => arg.ln(precision_digits),
+                    "atan" => arg.atan(precision_digits),
+                    "sqrt" => arg.sqrt(extra.saturating_mul(4).max(32)),
+                    "abs" | "Abs" => Ok(arg.abs()),
+                    _ => Err(BallError::ArgumentOutsideDeclaredEnvelope(format!(
+                        "unsupported function '{name}' in RealBall evaluation"
+                    ))),
+                }
+            }
+            _ => Err(BallError::ArgumentOutsideDeclaredEnvelope(format!(
+                "expression '{self}' cannot be evaluated as a ground RealBall"
+            ))),
+        }
+    }
+
+    /// Evaluates a ground real or complex expression (including `Constant::I`) into a certified
+    /// `ComplexBall` rectangular enclosure at `precision_digits`.
+    pub fn eval_complex_ball(&self, precision_digits: u32) -> Result<ComplexBall, BallError> {
+        let extra = precision_digits.saturating_add(4);
+        match self {
+            Expr::Integer(n) => Ok(ComplexBall::from_real(RealBall::exact(
+                BigRational::from_integer(n.clone()),
+            ))),
+            Expr::Rational(q) => Ok(ComplexBall::from_real(RealBall::exact(q.clone()))),
+            Expr::Const(Constant::Pi) => Ok(ComplexBall::from_real(RealBall::pi(extra)?)),
+            Expr::Const(Constant::E) => {
+                Ok(ComplexBall::from_real(RealBall::from_i64(1).exp(extra)?))
+            }
+            Expr::Const(Constant::I) => Ok(ComplexBall::i()),
+            Expr::Add(terms) => {
+                let mut acc = ComplexBall::from_i64(0);
+                for t in terms {
+                    acc = acc.add(&t.eval_complex_ball(extra)?);
+                }
+                Ok(acc)
+            }
+            Expr::Mul(factors) => {
+                let mut acc = ComplexBall::from_i64(1);
+                for f in factors {
+                    acc = acc.mul(&f.eval_complex_ball(extra)?);
+                }
+                Ok(acc)
+            }
+            Expr::Pow(b, e) => {
+                if let Expr::Integer(n) = e.as_ref() {
+                    let k = n.to_i32().ok_or_else(|| {
+                        BallError::ArgumentOutsideDeclaredEnvelope(format!(
+                            "integer exponent {n} out of i32 range"
+                        ))
+                    })?;
+                    return b.eval_complex_ball(extra)?.pow(k);
+                }
+                if matches!(b.as_ref(), Expr::Const(Constant::E)) {
+                    return e.eval_complex_ball(extra)?.exp(precision_digits);
+                }
+                Ok(ComplexBall::from_real(self.eval_real_ball(precision_digits)?))
+            }
+            Expr::Function(name, args) if args.len() == 1 => {
+                let arg = args[0].eval_complex_ball(extra)?;
+                match name.as_str() {
+                    "exp" => arg.exp(precision_digits),
+                    "sin" => arg.sin(precision_digits),
+                    "cos" => arg.cos(precision_digits),
+                    "abs" | "Abs" => Ok(ComplexBall::from_real(
+                        arg.abs_ball(extra.saturating_mul(4).max(32))?,
+                    )),
+                    "re" => Ok(ComplexBall::from_real(arg.real().clone())),
+                    "im" => Ok(ComplexBall::from_real(arg.imag().clone())),
+                    "conjugate" => Ok(arg.conj()),
+                    _ => Ok(ComplexBall::from_real(self.eval_real_ball(precision_digits)?)),
+                }
+            }
+            _ => Err(BallError::ArgumentOutsideDeclaredEnvelope(format!(
+                "expression '{self}' cannot be evaluated as a ground ComplexBall"
+            ))),
+        }
+    }
 }
 
 fn fold_pow_sub(b: Expr, e: Expr) -> Expr {
@@ -2326,6 +2457,41 @@ mod tests {
             Expr::Rational(BigRational::new(BigInt::from(1), BigInt::from(4))),
         );
         assert_eq!(root_expr, Expr::Integer(base));
+    }
+
+    #[test]
+    fn expr_eval_real_and_complex_ball_enclosures() {
+        // exp(i * pi) + 1 evaluated via Expr::eval_complex_ball encloses 0 + 0i
+        let expr = Expr::Add(vec![
+            Expr::Function(
+                "exp".to_string(),
+                vec![Expr::Mul(vec![
+                    Expr::Const(Constant::I),
+                    Expr::Const(Constant::Pi),
+                ])],
+            ),
+            Expr::from_i64(1),
+        ]);
+        let cball = expr.eval_complex_ball(16).unwrap();
+        let zero = BigRational::zero();
+        assert!(
+            cball.contains(&zero, &zero),
+            "Expr::eval_complex_ball(exp(i*pi)+1) = {cball} must contain 0 + 0i"
+        );
+
+        // sin(pi)^2 + cos(pi)^2 evaluated via Expr::eval_real_ball encloses 1
+        let real_expr = Expr::Add(vec![
+            Expr::pow(
+                Expr::Function("sin".to_string(), vec![Expr::Const(Constant::Pi)]),
+                Expr::from_i64(2),
+            ),
+            Expr::pow(
+                Expr::Function("cos".to_string(), vec![Expr::Const(Constant::Pi)]),
+                Expr::from_i64(2),
+            ),
+        ]);
+        let rball = real_expr.eval_real_ball(16).unwrap();
+        assert!(rball.contains(&BigRational::one()));
     }
 }
 
