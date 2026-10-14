@@ -41,7 +41,10 @@ from .core import (
     _native,
     _native_expr,
     _native_symbol_key,
+    _symbol_binding,
     _symbol_facts,
+    _typed_symbol_facts,
+    _lift_native_result,
     _parse_result,
     _require_symbol,
     _wrap,
@@ -134,15 +137,14 @@ def integrate(expression, *variables):
         variable, lower, upper = spec
         symbol = _require_symbol(variable)
         try:
-            result = _native.integrate_definite_expr(
-                str(_native_expr(expression)),
-                _native_symbol_key(symbol),
-                str(_native_expr(lower)),
-                str(_native_expr(upper)),
-                _symbol_facts(expression, lower, upper),
+            result = _native.integrate_definite_native(
+                _native_expr(expression),
+                _symbol_binding(symbol),
+                _native_expr(lower),
+                _native_expr(upper),
+                _typed_symbol_facts(expression, lower, upper),
             )
-            parsed = _parse_result(result)
-            return parsed.subs({Symbol(symbol.name): symbol})
+            return _lift_native_result(result, expression, symbol, lower, upper)
         except (ValueError, NotImplementedError, TypeError):
             return Integral(expression, (variable, lower, upper))
 
@@ -151,15 +153,12 @@ def integrate(expression, *variables):
     if special is not None:
         return special
     try:
-        result = _parse_result(
-            _native.integrate_expr(
-                str(_native_expr(expression)), _native_symbol_key(symbol),
-                _symbol_facts(expression),
-            )
+        result = _native.integrate_native(
+            _native_expr(expression),
+            _symbol_binding(symbol),
+            _typed_symbol_facts(expression, symbol),
         )
-        # Restore declared typed symbol (the native bridge lifts fresh atoms).
-        result = result.subs({Symbol(symbol.name): symbol})
-        return result
+        return _lift_native_result(result, expression, symbol)
     except (ValueError, NotImplementedError, TypeError):
         return Integral(expression, symbol)
 
@@ -227,8 +226,10 @@ def _solve_by_rootof(expr, symbol):
         if fac.degree() <= 0:
             continue
         try:
-            rs = [_parse_result(r) for r in _native.solve_expr(
-                str(_native_expr(fac.as_expr())), _native_symbol_key(symbol))]
+            rs = [
+                _lift_native_result(r, fac.as_expr(), symbol)
+                for r in _native.solve_native(_native_expr(fac.as_expr()), _symbol_binding(symbol))
+            ]
         except Exception:
             rs = [CRootOf(fac.as_expr(), symbol, i) for i in range(fac.degree())]
         for r in rs:
@@ -458,8 +459,8 @@ def solve(expression, *symbols, **flags):
         return []
 
     try:
-        results = _native.solve_expr(
-            str(_native_expr(expr)), _native_symbol_key(symbol)
+        results = _native.solve_native(
+            _native_expr(expr), _symbol_binding(symbol)
         )
     except Exception as exc:
         msg = str(exc)
@@ -471,7 +472,7 @@ def solve(expression, *symbols, **flags):
         if roots is None:
             raise
     else:
-        roots = [_parse_result(r) for r in results]
+        roots = [_lift_native_result(r, expr, symbol) for r in results]
     if dict_flag:
         return [{symbol: r} for r in roots]
     if set_flag:
@@ -559,7 +560,7 @@ def solveset(expression, variable=None, domain=None):
             return _IntersectionP(sol, domain)
         return sol
     try:
-        results = _native.solve_expr(str(_native_expr(expr)), _native_symbol_key(symbol))
+        results = _native.solve_native(_native_expr(expr), _symbol_binding(symbol))
     except ValueError as exc:
         if str(exc) != "No solution found for equation":
             raise
@@ -569,7 +570,7 @@ def solveset(expression, variable=None, domain=None):
     from .sets import EmptySet, FiniteSet
     if not results:
         return EmptySet()
-    roots = [_parse_result(r) for r in results]
+    roots = [_lift_native_result(r, expr, symbol) for r in results]
     if domain is not None and isinstance(domain, Set):
         from .sets import Intersection, Interval
         roots = [simplify(root) for root in roots]
@@ -1457,15 +1458,15 @@ class _ConcreteOperator(Function):
             current = current.doit(**hints)
         for index, (k, a, b) in enumerate(self.limits):
             native = getattr(_native, self._native_fn)(
-                str(_native_expr(current)),
-                _native_symbol_key(k),
-                str(_native_expr(a)),
-                str(_native_expr(b)),
+                _native_expr(current),
+                _symbol_binding(k),
+                _native_expr(a),
+                _native_expr(b),
             )
             if native is None:
                 remaining = self.limits[index:]
                 return type(self)(current, *remaining)
-            current = _parse_result(native).subs({Symbol(k.name): k})
+            current = _lift_native_result(native, current, k, a, b)
         return current
 
 
@@ -1473,14 +1474,14 @@ class Sum(_ConcreteOperator):
     """Unevaluated summation ``Sum(f, (k, a, b))``; ``doit`` finds closed forms."""
 
     __slots__ = ()
-    _native_fn = "summation_expr"
+    _native_fn = "summation_native"
 
 
 class Product(_ConcreteOperator):
     """Unevaluated product ``Product(f, (k, a, b))``; ``doit`` finds closed forms."""
 
     __slots__ = ()
-    _native_fn = "product_expr"
+    _native_fn = "product_native"
 
 
 def summation(f, *symbols, **kwargs):
@@ -1837,7 +1838,9 @@ def _solve_inequality_set(rel: Any, symbol: Any) -> Any:
 
     f = _wrap(_native_expr(rel.lhs - rel.rhs))
     try:
-        native = _native.solve_inequality_expr(str(_native_expr(f)), _native_symbol_key(symbol), rel.rel_op)
+        native = _native.solve_inequality_native(
+            _native_expr(f), _symbol_binding(symbol), rel.rel_op
+        )
     except ValueError as exc:
         raise NotImplementedError(
             f"The inequality, {rel}, cannot be solved by the exact real inequality solver: {exc}"

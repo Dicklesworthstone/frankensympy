@@ -311,6 +311,28 @@ except Exception as error:  # noqa: BLE001 - raw outcome is the evidence
         with self.subTest(lane="series free_symbols"):
             self.assertEqual(series.free_symbols, {keyed})
 
+        # Limit distinguishes same-name symbols with distinct identities.
+        lim = sympy.limit(keyed + plain, keyed, 3)
+        with self.subTest(lane="limit distinguishes stranger variable"):
+            self.assertEqual(lim, 3 + plain)
+            self.assertEqual(lim.free_symbols, {plain})
+
+        # Solve and Poly preserve declared symbol identity across FFI.
+        roots = sympy.solve(keyed**2 - 4, keyed)
+        with self.subTest(lane="solve distinguishes stranger variable"):
+            self.assertEqual(set(roots), {sympy.Integer(-2), sympy.Integer(2)})
+            self.assertEqual(sympy.solve(keyed**2 - 4, plain), [])
+
+        scale, factors = sympy.Poly(keyed**2 - 1, keyed).factor_list()
+        with self.subTest(lane="Poly.factor_list free_symbols"):
+            self.assertEqual(scale, 1)
+            for fac, _mult in factors:
+                self.assertEqual(fac.as_expr().free_symbols, {keyed})
+
+        basis = sympy.groebner([keyed + plain - 1, keyed - plain - 1], keyed, plain)
+        with self.subTest(lane="groebner free_symbols"):
+            self.assertEqual(set().union(*(e.free_symbols for e in basis)), {keyed, plain})
+
 
     def test_finding_equivalent_assumption_spellings_become_distinct_atoms(self):
         """Differently spelled but equivalent declarations split into atoms.

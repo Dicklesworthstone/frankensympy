@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from ..core import (
+    _symbol_binding,
     _symbol_facts,
+    _typed_symbol_facts,
+    _lift_native_result,
     Symbol,
     _native,
     _native_expr,
@@ -42,30 +45,27 @@ def series(expression, x=None, x0=0, n=6, dir="+", **kwargs):
     x0 = sympify(x0)
     if n is None:
         raise NotImplementedError("lazy series (n=None) is not supported")
-    terms, order = _native.series_expansion_expr(
-        str(_native_expr(expr)),
-        _native_symbol_key(symbol),
-        str(_native_expr(x0)),
+    terms, order = _native.series_expansion_native(
+        _native_expr(expr),
+        _symbol_binding(symbol),
+        _native_expr(x0),
         int(n),
     )
     from ..core import oo, Rational, Integer
 
-    plain = Symbol(symbol.name)
     if x0 == 0:
-        local = plain
+        local = symbol
     elif x0 == oo:
-        local = 1 / plain
+        local = 1 / symbol
     elif x0 == -oo:
-        local = -1 / plain
+        local = -1 / symbol
     else:
-        local = plain - x0
+        local = symbol - x0
     total = Integer(0)
     for coeff, exponent in terms:
-        total = total + _parse_result(coeff) * local ** _parse_result(exponent)
+        total = total + _lift_native_result(coeff, expr, symbol, x0) * local ** _lift_native_result(exponent, expr, symbol, x0)
     if order is not None:
-        total = total + Order(local ** _parse_result(order), plain, x0)
-    if symbol is not plain:
-        total = total.subs({plain: symbol})
+        total = total + Order(local ** _lift_native_result(order, expr, symbol, x0), symbol, x0)
     return total
 
 
@@ -88,12 +88,12 @@ def limit(expression, variable=None, point=None, dir="+", **kwargs):
     if str(dir) not in ("+", "-", "+-"):
         raise ValueError("direction must be one of '+', '-' or '+-'")
     try:
-        native = _native.limit_expr(
-            str(_native_expr(expression)),
-            _native_symbol_key(symbol),
-            str(_native_expr(point)),
+        native = _native.limit_native(
+            _native_expr(expression),
+            _symbol_binding(symbol),
+            _native_expr(point),
             str(dir),
-            _symbol_facts(expression),
+            _typed_symbol_facts(expression, symbol, point),
         )
     except ValueError as exc:
         # Upstream answers an undecidable limit (e.g. an unknown parameter
@@ -101,7 +101,7 @@ def limit(expression, variable=None, point=None, dir="+", **kwargs):
         if "undetermined" in str(exc):
             return Limit(expression, symbol, point, dir=str(dir))
         raise
-    return _parse_result(native)
+    return _lift_native_result(native, expression, symbol, point)
 
 
 class Limit(Expr):

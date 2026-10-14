@@ -6,11 +6,13 @@ from typing import Any, Iterable, List, Optional, Sequence, Tuple
 from ..core import (
     Eq,
     Symbol,
+    _lift_native_result,
     _native,
     _native_expr,
     _native_symbol_key,
     _parse_result,
     _require_symbol,
+    _symbol_binding,
     _wrap,
 )
 from ..sets import EmptySet, FiniteSet, Set
@@ -73,13 +75,13 @@ def solve_poly_system(
                 return None
             constrained = True
             try:
-                raw = _native.solve_expr(str(_native_expr(eq)), _native_symbol_key(x))
+                raw = _native.solve_native(_native_expr(eq), _symbol_binding(x))
             except Exception as e:
                 msg = str(e)
                 if "No solution" in msg or "Infinite solutions" in msg:
                     return None
                 raise
-            eq_roots = {_parse_result(r) for r in raw}
+            eq_roots = {_lift_native_result(r, eq, x) for r in raw}
             if candidate_roots is None:
                 candidate_roots = eq_roots
             else:
@@ -98,8 +100,8 @@ def solve_poly_system(
 
     syms = [_require_symbol(v) for v in var_list]
     try:
-        raw_sols = _native.solve_polynomial_system_expr(
-            [str(_native_expr(eq)) for eq in wrapped_eqs], [_native_symbol_key(v) for v in syms]
+        raw_sols = _native.solve_polynomial_system_native(
+            [_native_expr(eq) for eq in wrapped_eqs], [_symbol_binding(v) for v in syms]
         )
     except ValueError as e:
         msg = str(e)
@@ -112,8 +114,10 @@ def solve_poly_system(
         raise
     if not raw_sols:
         return None
-    restore = {Symbol(v.name): v for v in syms}
-    return [tuple(_parse_result(val).subs(restore) for val in sol) for sol in raw_sols]
+    return [
+        tuple(_lift_native_result(val, *wrapped_eqs, *syms) for val in sol)
+        for sol in raw_sols
+    ]
 
 
 def nonlinsolve(system: Iterable[Any], *symbols: Any) -> Set:

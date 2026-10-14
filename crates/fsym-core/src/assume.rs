@@ -62,7 +62,7 @@ impl Facts {
 }
 
 thread_local! {
-    static CONTEXT: RefCell<Vec<HashMap<String, Facts>>> = const { RefCell::new(Vec::new()) };
+    static CONTEXT: RefCell<Vec<HashMap<crate::Symbol, Facts>>> = const { RefCell::new(Vec::new()) };
 }
 
 struct ScopeGuard;
@@ -75,16 +75,37 @@ impl Drop for ScopeGuard {
     }
 }
 
-/// Runs `f` with `facts` in scope on this thread.
-pub fn with_facts<R>(facts: HashMap<String, Facts>, f: impl FnOnce() -> R) -> R {
+/// Runs `f` with `facts` keyed by full [`crate::Symbol`] (including [`crate::SymbolIdentity`]) in scope on this thread.
+pub fn with_symbol_facts<R>(facts: HashMap<crate::Symbol, Facts>, f: impl FnOnce() -> R) -> R {
     CONTEXT.with(|c| c.borrow_mut().push(facts));
     let _guard = ScopeGuard;
     f()
 }
 
+/// Runs `f` with `facts` in scope on this thread.
+pub fn with_facts<R>(facts: HashMap<String, Facts>, f: impl FnOnce() -> R) -> R {
+    let sym_facts = facts
+        .into_iter()
+        .map(|(name, fact)| (crate::Symbol::new(name), fact))
+        .collect();
+    with_symbol_facts(sym_facts, f)
+}
+
+/// Facts declared for `symbol` in the innermost scope that mentions it (or its plain name fallback).
+pub fn facts_of_symbol(symbol: &crate::Symbol) -> Option<Facts> {
+    let plain = crate::Symbol::new(&symbol.name);
+    CONTEXT.with(|c| {
+        c.borrow()
+            .iter()
+            .rev()
+            .find_map(|m| m.get(symbol).copied().or_else(|| m.get(&plain).copied()))
+    })
+}
+
 /// Facts declared for `name` in the innermost scope that mentions it.
 pub fn facts_of(name: &str) -> Option<Facts> {
-    CONTEXT.with(|c| c.borrow().iter().rev().find_map(|m| m.get(name).copied()))
+    let sym = crate::Symbol::new(name);
+    CONTEXT.with(|c| c.borrow().iter().rev().find_map(|m| m.get(&sym).copied()))
 }
 
 /// Exact sign under the active facts: `Some(1)`, `Some(-1)`, `Some(0)`, or
@@ -109,7 +130,7 @@ pub fn sign(e: &Expr) -> Option<i8> {
         Expr::Const(Constant::NegativeInfinity) => Some(-1),
         Expr::Const(_) => None,
         Expr::Sym(s) => {
-            let f = facts_of(&s.name)?;
+            let f = facts_of_symbol(s)?;
             if f.positive {
                 Some(1)
             } else if f.negative {
@@ -161,7 +182,7 @@ pub fn is_real(e: &Expr) -> bool {
     match e {
         Expr::Integer(_) | Expr::Rational(_) => true,
         Expr::Const(c) => matches!(c, Constant::Pi | Constant::E),
-        Expr::Sym(s) => facts_of(&s.name).is_some_and(|f| f.real),
+        Expr::Sym(s) => facts_of_symbol(s).is_some_and(|f| f.real),
         Expr::Add(xs) | Expr::Mul(xs) => xs.iter().all(is_real),
         Expr::Pow(b, x) => {
             is_real(b)
@@ -185,7 +206,7 @@ pub fn is_real(e: &Expr) -> bool {
 pub fn is_integer(e: &Expr) -> bool {
     match e {
         Expr::Integer(_) => true,
-        Expr::Sym(s) => facts_of(&s.name).is_some_and(|f| f.integer),
+        Expr::Sym(s) => facts_of_symbol(s).is_some_and(|f| f.integer),
         Expr::Add(xs) | Expr::Mul(xs) => xs.iter().all(is_integer),
         Expr::Pow(b, x) => {
             is_integer(b) && matches!(x.as_ref(), Expr::Integer(k) if !k.is_negative())
@@ -200,7 +221,7 @@ pub fn is_nonzero(e: &Expr) -> bool {
         return s != 0;
     }
     match e {
-        Expr::Sym(s) => facts_of(&s.name).is_some_and(|f| f.nonzero),
+        Expr::Sym(s) => facts_of_symbol(s).is_some_and(|f| f.nonzero),
         Expr::Mul(xs) => xs.iter().all(is_nonzero),
         Expr::Pow(b, x) => {
             is_nonzero(b) && matches!(x.as_ref(), Expr::Integer(_) | Expr::Rational(_))

@@ -753,10 +753,10 @@ fn validate_generators(generators: &[Symbol]) -> Result<(), String> {
             "multivariate generator count exceeds {MAX_MULTIVARIATE_GENERATORS}"
         ));
     }
-    let mut names = std::collections::BTreeSet::new();
+    let mut seen = std::collections::BTreeSet::new();
     let mut name_bytes = 0usize;
     for generator in generators {
-        if !names.insert(&generator.name) {
+        if !seen.insert(generator) {
             return Err("multivariate generator list contains a duplicate".to_string());
         }
         name_bytes = name_bytes

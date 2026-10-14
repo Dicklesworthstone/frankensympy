@@ -252,7 +252,7 @@ def _probe(r: Any) -> complex | None:
     from ..core import _native, _native_expr
 
     try:
-        v = _native.complex_value_expr(str(_native_expr(r)))
+        v = _native.complex_value_native(_native_expr(r))
     except Exception:
         return None
     return None if v is None else complex(v[0], v[1])

@@ -253,6 +253,22 @@ def _symbol_facts(*exprs: Any) -> list:
     return list(out.items())
 
 
+def _typed_symbol_facts(*exprs: Any) -> list:
+    """Declared assumption facts of the free symbols of ``exprs``, keyed by
+    their typed ``SymbolBinding`` so same-name symbols with distinct identities
+    never collide."""
+    out: dict = {}
+    for e in exprs:
+        for sym in getattr(e, "free_symbols", ()) or ():
+            if not isinstance(sym, Symbol):
+                continue
+            names = [n for n in _FACT_NAMES if getattr(sym, "is_" + n, None) is True]
+            if names:
+                binding = _symbol_binding(sym)
+                out[(binding.name, binding.identity_hex)] = (binding, names)
+    return list(out.values())
+
+
 def _register_surface_symbol(symbol: "Symbol") -> None:
     """Remember which Python object owns a typed symbol identity.
 
@@ -397,9 +413,35 @@ def _lift_builtin_result(value: Any) -> "Basic":
     arbitrary Function subclass constructor or hook during lifting.
     """
     constructor = {"Add": Add, "Mul": Mul, "Pow": Pow}.get(value.func_name)
-    if constructor is None:
-        return _wrap(value)
-    return constructor(*(_lift_builtin_result(arg) for arg in value.args))
+    if constructor is not None:
+        return constructor(*(_lift_builtin_result(arg) for arg in value.args))
+    if value.args and value.func_name not in (
+        "Symbol",
+        "Integer",
+        "Rational",
+        "Constant",
+        "Derivative",
+        "diff",
+        _FLOAT_INTERN,
+    ):
+        lifted_args = [_native_expr(_lift_builtin_result(arg)) for arg in value.args]
+        evaluated = _native.py_eval_function(value.func_name, lifted_args)
+        if evaluated is not None:
+            return _lift_builtin_result(evaluated)
+        rebuilt = _native.py_function(value.func_name, *lifted_args)
+        return _wrap(rebuilt)
+    return _wrap(value)
+
+
+def _lift_native_result(value: Any, *sources: Any) -> "Basic":
+    for src in sources:
+        if isinstance(src, Symbol):
+            _register_surface_symbol(src)
+        else:
+            for sym in getattr(src, "free_symbols", ()) or ():
+                if isinstance(sym, Symbol):
+                    _register_surface_symbol(sym)
+    return _fold_floats(_lift_builtin_result(value))
 
 
 def _restore_nary(cls, args):
@@ -1828,7 +1870,7 @@ def _keep_coeff(coeff: Any, expr: Any) -> Any:
 def _complex_value(e: Any) -> complex | None:
     """binary64 complex value of a constant expression, or None."""
     try:
-        v = _native.complex_value_expr(str(_native_expr(e)))
+        v = _native.complex_value_native(_native_expr(e))
     except Exception:
         return None
     return None if v is None else complex(v[0], v[1])
@@ -4894,7 +4936,7 @@ def _certified_float(expression: Any, n: int) -> Any:
     except Exception:
         return None
     try:
-        sci = _native.evalf_decimal_expr(str(_native_expr(expression)), int(n))
+        sci = _native.evalf_decimal_native(_native_expr(expression), int(n))
     except Exception:
         return None
     return _ExactDecimalFloat(_format_decimal(sci, n), n)
