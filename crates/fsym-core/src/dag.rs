@@ -711,7 +711,7 @@ fn unique_binder_parameter_names(parameters: &[Expr]) -> Result<(), DagError> {
         .map_err(|_| DagError::AllocationFailure)?;
     for parameter in parameters {
         if let Expr::Sym(symbol) = parameter
-            && !seen.insert(symbol.name.as_str())
+            && !seen.insert(symbol)
         {
             return Err(DagError::MalformedBinder {
                 name: "Lambda",
@@ -1565,7 +1565,7 @@ impl TermDag {
             .map_err(|_| DagError::AllocationFailure)?;
         for (index, parameter) in parameters.iter().enumerate() {
             let bound = u32::try_from(index).map_err(|_| DagError::PayloadLengthOverflow)?;
-            subst.insert(parameter.name.clone(), bound);
+            subst.insert(parameter.clone(), bound);
         }
         let mut memo = HashMap::new();
         self.rewrite_term(body, &subst, shift, limits, inserted, &mut memo)
@@ -1574,7 +1574,7 @@ impl TermDag {
     fn rewrite_term(
         &mut self,
         id: TermId,
-        subst: &HashMap<String, u32>,
+        subst: &HashMap<Symbol, u32>,
         shift: u32,
         limits: DagLimits,
         inserted: &mut Vec<TermId>,
@@ -1589,7 +1589,7 @@ impl TermDag {
             | TermNode::Rational(_)
             | TermNode::Const(_)
             | TermNode::Bound(_) => id,
-            TermNode::Sym(symbol) => match subst.get(&symbol.name) {
+            TermNode::Sym(symbol) => match subst.get(&symbol) {
                 Some(index) => {
                     let bound = index
                         .checked_add(shift)

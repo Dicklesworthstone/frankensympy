@@ -181,6 +181,98 @@ pub fn binder_variables(name: &str, args: &[Expr]) -> Option<Vec<Symbol>> {
     Some(out)
 }
 
+/// Bound parameters and body of a well-formed `Lambda` expression
+/// (`Lambda(x, body)`, `Lambda(x, y, body)`, or `Lambda(Tuple(x, y), body)`).
+pub fn lambda_variables<'a>(name: &str, args: &'a [Expr]) -> Option<(Vec<Symbol>, &'a Expr)> {
+    if name != "Lambda" || args.len() < 2 {
+        return None;
+    }
+    if args.len() == 2
+        && let Expr::Function(t, items) = &args[0]
+        && t == "Tuple"
+        && !items.is_empty()
+    {
+        let mut out = Vec::with_capacity(items.len());
+        for item in items {
+            match item {
+                Expr::Sym(s) => out.push(s.clone()),
+                _ => return None,
+            }
+        }
+        return Some((out, &args[1]));
+    }
+    let mut out = Vec::with_capacity(args.len() - 1);
+    for arg in &args[..args.len() - 1] {
+        match arg {
+            Expr::Sym(s) => out.push(s.clone()),
+            _ => return None,
+        }
+    }
+    Some((out, &args[args.len() - 1]))
+}
+
+/// Deterministic fresh symbol preserving `identity` that avoids `avoid`.
+fn fresh_symbol_avoiding(base: &Symbol, avoid: &[Symbol]) -> Symbol {
+    let mut index = 1usize;
+    loop {
+        let candidate = Symbol {
+            name: format!("{}_{index}", base.name),
+            identity: base.identity,
+        };
+        if !avoid.contains(&candidate) {
+            return candidate;
+        }
+        index += 1;
+    }
+}
+
+/// Alpha-renames any bound variable in `bound` that would be captured when
+/// substituting `inner` into `body`. Returns the (possibly renamed) bound
+/// variable list and body.
+fn alpha_avoid_capture(
+    bound: &[Symbol],
+    body: &Expr,
+    inner: &HashMap<Symbol, Expr>,
+) -> (Vec<Symbol>, Expr) {
+    let body_free = body.free_symbols();
+    let mut captured_targets: Vec<Symbol> = Vec::new();
+    for (k, repl) in inner {
+        if body_free.contains(k) {
+            for s in repl.free_symbols() {
+                if bound.contains(&s) && !captured_targets.contains(&s) {
+                    captured_targets.push(s);
+                }
+            }
+        }
+    }
+    if captured_targets.is_empty() {
+        return (bound.to_vec(), body.clone());
+    }
+    let mut avoid = body_free;
+    avoid.extend(bound.iter().cloned());
+    for repl in inner.values() {
+        for s in repl.free_symbols() {
+            if !avoid.contains(&s) {
+                avoid.push(s);
+            }
+        }
+    }
+    let mut rename_map: HashMap<Symbol, Expr> = HashMap::new();
+    let mut new_bound = Vec::with_capacity(bound.len());
+    for b in bound {
+        if captured_targets.contains(b) {
+            let fresh = fresh_symbol_avoiding(b, &avoid);
+            avoid.push(fresh.clone());
+            rename_map.insert(b.clone(), Expr::Sym(fresh.clone()));
+            new_bound.push(fresh);
+        } else {
+            new_bound.push(b.clone());
+        }
+    }
+    let renamed_body = body.subs(&rename_map);
+    (new_bound, renamed_body)
+}
+
 /// Differentiation variables of `Derivative(e, v1, v2, ...)` (all symbols).
 fn derivative_variables(name: &str, args: &[Expr]) -> Option<Vec<Symbol>> {
     if !matches!(name, "Derivative" | "diff") || args.len() < 2 {
@@ -222,11 +314,12 @@ fn subs_parts(args: &[Expr]) -> Option<(Vec<Symbol>, Vec<Expr>)> {
     Some((syms, points.clone()))
 }
 
-/// Apply `f` to the bounds of one binder limit, keeping its variable.
-fn subs_limit(lim: &Expr, f: impl Fn(&Expr) -> Expr) -> Expr {
+/// Apply `f` to the bounds of one binder limit, keeping (or renaming) its variable.
+fn subs_limit_with_var(lim: &Expr, new_var: &Symbol, f: impl Fn(&Expr) -> Expr) -> Expr {
     match lim {
+        Expr::Sym(_) => Expr::Sym(new_var.clone()),
         Expr::Function(t, items) if t == "Tuple" && !items.is_empty() => {
-            let mut new_items = vec![items[0].clone()];
+            let mut new_items = vec![Expr::Sym(new_var.clone())];
             new_items.extend(items[1..].iter().map(&f));
             Expr::Function(t.clone(), new_items)
         }
@@ -301,6 +394,23 @@ impl Expr {
             }
             Expr::Pow(b, e) => fold_pow_sub(b.subs(map), e.subs(map)),
             Expr::Function(name, args) => {
+                if let Some((vars, body)) = lambda_variables(name, args) {
+                    let mut inner = map.clone();
+                    for v in &vars {
+                        inner.remove(v);
+                    }
+                    let (new_vars, renamed_body) = alpha_avoid_capture(&vars, body, &inner);
+                    let new_body = renamed_body.subs(&inner);
+                    let tuple_form = args.len() == 2
+                        && matches!(&args[0], Expr::Function(t, _) if t == "Tuple");
+                    let mut new_args = if tuple_form {
+                        vec![tuple_expr(new_vars.into_iter().map(Expr::Sym).collect())]
+                    } else {
+                        new_vars.into_iter().map(Expr::Sym).collect()
+                    };
+                    new_args.push(new_body);
+                    return Expr::Function(name.clone(), new_args);
+                }
                 if let Some(bound) = binder_variables(name, args) {
                     // Bound (dummy) variables are never substituted in the
                     // body; limit bounds see the full substitution.
@@ -308,8 +418,14 @@ impl Expr {
                     for v in &bound {
                         inner.remove(v);
                     }
-                    let mut new_args = vec![args[0].subs(&inner)];
-                    new_args.extend(args[1..].iter().map(|lim| subs_limit(lim, |e| e.subs(map))));
+                    let (new_bound, renamed_body) = alpha_avoid_capture(&bound, &args[0], &inner);
+                    let mut new_args = vec![renamed_body.subs(&inner)];
+                    new_args.extend(
+                        args[1..]
+                            .iter()
+                            .zip(new_bound.iter())
+                            .map(|(lim, v)| subs_limit_with_var(lim, v, |e| e.subs(map))),
+                    );
                     return Expr::Function(name.clone(), new_args);
                 }
                 if name == "Subs"
@@ -319,11 +435,12 @@ impl Expr {
                     for v in &vars {
                         inner.remove(v);
                     }
+                    let (new_vars, renamed_body) = alpha_avoid_capture(&vars, &args[0], &inner);
                     return Expr::Function(
                         name.clone(),
                         vec![
-                            args[0].subs(&inner),
-                            args[1].clone(),
+                            renamed_body.subs(&inner),
+                            tuple_expr(new_vars.into_iter().map(Expr::Sym).collect()),
                             tuple_expr(points.iter().map(|p| p.subs(map)).collect()),
                         ],
                     );
@@ -364,6 +481,11 @@ impl Expr {
         if self == old {
             return new.clone();
         }
+        if let Expr::Sym(s) = old {
+            let mut map = HashMap::with_capacity(1);
+            map.insert(s.clone(), new.clone());
+            return self.subs(&map);
+        }
         match self {
             Expr::Sym(_) | Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_) => self.clone(),
             Expr::Add(terms) => terms
@@ -378,6 +500,17 @@ impl Expr {
             }
             Expr::Pow(b, e) => fold_pow_sub(b.subs_expr(old, new), e.subs_expr(old, new)),
             Expr::Function(name, args) => {
+                if let Some((vars, body)) = lambda_variables(name, args) {
+                    let touches_bound = old.free_symbols().iter().any(|s| vars.contains(s));
+                    let new_body = if touches_bound {
+                        body.clone()
+                    } else {
+                        body.subs_expr(old, new)
+                    };
+                    let mut new_args = args[..args.len() - 1].to_vec();
+                    new_args.push(new_body);
+                    return Expr::Function(name.clone(), new_args);
+                }
                 if let Some(bound) = binder_variables(name, args) {
                     let touches_bound = old.free_symbols().iter().any(|s| bound.contains(s));
                     let body = if touches_bound {
@@ -389,7 +522,8 @@ impl Expr {
                     new_args.extend(
                         args[1..]
                             .iter()
-                            .map(|lim| subs_limit(lim, |e| e.subs_expr(old, new))),
+                            .zip(bound.iter())
+                            .map(|(lim, v)| subs_limit_with_var(lim, v, |e| e.subs_expr(old, new))),
                     );
                     return Expr::Function(name.clone(), new_args);
                 }
@@ -408,20 +542,6 @@ impl Expr {
                             body,
                             args[1].clone(),
                             tuple_expr(points.iter().map(|p| p.subs_expr(old, new)).collect()),
-                        ],
-                    );
-                }
-                if let Some(vars) = derivative_variables(name, args)
-                    && let Expr::Sym(v) = old
-                    && vars.contains(v)
-                    && !matches!(new, Expr::Sym(_))
-                {
-                    return Expr::Function(
-                        "Subs".into(),
-                        vec![
-                            self.clone(),
-                            tuple_expr(vec![old.clone()]),
-                            tuple_expr(vec![new.clone()]),
                         ],
                     );
                 }
@@ -457,27 +577,100 @@ impl Expr {
         max_depth
     }
 
-    /// Collect all free symbols in this expression.
+    /// Collect all free symbols in this expression, excluding bound variables
+    /// of `Lambda`, `Subs`, `Sum`, `Product`, and definite `Integral` limits.
     pub fn free_symbols(&self) -> Vec<Symbol> {
+        let mut bound = Vec::new();
         let mut symbols = Vec::new();
-        self.collect_symbols(&mut symbols);
+        self.collect_symbols(&mut bound, &mut symbols);
         symbols.sort();
         symbols.dedup();
         symbols
     }
 
-    fn collect_symbols(&self, acc: &mut Vec<Symbol>) {
+    fn collect_symbols(&self, bound: &mut Vec<Symbol>, acc: &mut Vec<Symbol>) {
         match self {
-            Expr::Sym(s) => acc.push(s.clone()),
+            Expr::Sym(s) => {
+                if !bound.contains(s) {
+                    acc.push(s.clone());
+                }
+            }
             Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_) => {}
-            Expr::Add(terms) | Expr::Mul(terms) | Expr::Function(_, terms) => {
+            Expr::Add(terms) | Expr::Mul(terms) => {
                 for t in terms {
-                    t.collect_symbols(acc);
+                    t.collect_symbols(bound, acc);
                 }
             }
             Expr::Pow(b, e) => {
-                b.collect_symbols(acc);
-                e.collect_symbols(acc);
+                b.collect_symbols(bound, acc);
+                e.collect_symbols(bound, acc);
+            }
+            Expr::Function(name, args) => {
+                if let Some((vars, body)) = lambda_variables(name, args) {
+                    let saved = bound.len();
+                    bound.extend(vars);
+                    body.collect_symbols(bound, acc);
+                    bound.truncate(saved);
+                    return;
+                }
+                if name == "Subs"
+                    && let Some((vars, points)) = subs_parts(args)
+                {
+                    let saved = bound.len();
+                    bound.extend(vars);
+                    args[0].collect_symbols(bound, acc);
+                    bound.truncate(saved);
+                    for p in &points {
+                        p.collect_symbols(bound, acc);
+                    }
+                    return;
+                }
+                if binder_variables(name, args).is_some() {
+                    let saved = bound.len();
+                    for lim in args[1..].iter().rev() {
+                        match lim {
+                            Expr::Function(t, items)
+                                if t == "Tuple" && items.len() >= 2 =>
+                            {
+                                for b_expr in &items[1..] {
+                                    b_expr.collect_symbols(bound, acc);
+                                }
+                                if let Expr::Sym(v) = &items[0] {
+                                    bound.push(v.clone());
+                                }
+                            }
+                            Expr::Function(t, items)
+                                if t == "Tuple" && items.len() == 1 =>
+                            {
+                                if let Expr::Sym(v) = &items[0] {
+                                    if name == "Integral" {
+                                        if !bound.contains(v) {
+                                            acc.push(v.clone());
+                                        }
+                                    } else {
+                                        bound.push(v.clone());
+                                    }
+                                }
+                            }
+                            Expr::Sym(v) => {
+                                if name == "Integral" {
+                                    if !bound.contains(v) {
+                                        acc.push(v.clone());
+                                    }
+                                } else {
+                                    bound.push(v.clone());
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    args[0].collect_symbols(bound, acc);
+                    bound.truncate(saved);
+                    return;
+                }
+                for t in args {
+                    t.collect_symbols(bound, acc);
+                }
             }
         }
     }
@@ -1071,8 +1264,9 @@ pub fn cmp_add_args(a: &Expr, b: &Expr) -> std::cmp::Ordering {
 
 /// Structural total order over expressions: `Equal` holds only when both
 /// sides carry identical structure down to symbol identities and exact
-/// numeric values, so `cmp_add_args` never declares distinct terms equal.
-fn cmp_structural(a: &Expr, b: &Expr) -> std::cmp::Ordering {
+/// numeric values, so `cmp_add_args` and `cmp_mul_factors` never declare
+/// distinct terms equal.
+pub fn cmp_structural(a: &Expr, b: &Expr) -> std::cmp::Ordering {
     fn discriminant(e: &Expr) -> u8 {
         match e {
             Expr::Sym(_) => 0,
@@ -1127,7 +1321,8 @@ fn cmp_slice_structural(a: &[Expr], b: &[Expr]) -> std::cmp::Ordering {
 /// default_sort_key ordering probed on SymPy 1.14.0: class rank
 /// Symbol < Pow < Function, then name / base / argument ordering
 /// (cos(x) < tan(x); x < sin(x); y < x**2 - Pow factors sort after
-/// plain symbols).
+/// plain symbols), with `cmp_structural` as the final tie break so
+/// distinct factors that render identically never compare equal.
 pub fn cmp_mul_factors(a: &Expr, b: &Expr) -> std::cmp::Ordering {
     fn key(e: &Expr) -> (u8, String, String) {
         match e {
@@ -1152,7 +1347,7 @@ pub fn cmp_mul_factors(a: &Expr, b: &Expr) -> std::cmp::Ordering {
             other => (4, format!("{}", other), String::new()),
         }
     }
-    key(a).cmp(&key(b))
+    key(a).cmp(&key(b)).then_with(|| cmp_structural(a, b))
 }
 
 /// Sorts Add arguments into canonical order in place.
@@ -1989,4 +2184,148 @@ mod tests {
         assert!(matches!(&chain, Expr::Add(terms) if terms.len() == 2));
         assert!(chain.nesting_depth() < MAX_EXPR_DEPTH * 2);
     }
+
+    #[test]
+    fn mul_canonical_order_respects_symbol_identity_across_insertion_order() {
+        let x_plain = Expr::Sym(Symbol::new("x"));
+        let x_tagged = Expr::Sym(Symbol::with_identity(
+            "x",
+            SymbolIdentity::from_assumptions_digest([7u8; 32]),
+        ));
+        assert_eq!(
+            x_plain.clone() * x_tagged.clone(),
+            x_tagged.clone() * x_plain.clone()
+        );
+        let sin_plain = Expr::Function("sin".into(), vec![x_plain]);
+        let sin_tagged = Expr::Function("sin".into(), vec![x_tagged]);
+        assert_eq!(
+            sin_plain.clone() * sin_tagged.clone(),
+            sin_tagged * sin_plain
+        );
+    }
+
+    #[test]
+    fn dag_lambda_rebind_respects_symbol_identity() {
+        let x_plain = Symbol::new("x");
+        let x_tagged = Symbol::with_identity(
+            "x",
+            SymbolIdentity::from_assumptions_digest([9u8; 32]),
+        );
+        let lambda_expr = Expr::Function(
+            "Lambda".into(),
+            vec![
+                Expr::Sym(x_plain.clone()),
+                Expr::Add(vec![Expr::Sym(x_plain), Expr::Sym(x_tagged.clone())]),
+            ],
+        );
+        let mut dag = TermDag::new();
+        let root = dag.insert_expr(&lambda_expr).expect("valid lambda");
+        let lifted = dag.to_expr(root).expect("lift lambda");
+        // x_tagged was not bound by parameter x_plain, so it must remain free.
+        assert_eq!(lifted.free_symbols(), vec![x_tagged]);
+    }
+
+    #[test]
+    fn free_symbols_excludes_bound_variables_across_binders() {
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+        let z = Symbol::new("z");
+
+        let lam = Expr::Function(
+            "Lambda".into(),
+            vec![
+                Expr::Sym(x.clone()),
+                Expr::Sym(x.clone()) + Expr::Sym(y.clone()),
+            ],
+        );
+        assert_eq!(lam.free_symbols(), vec![y.clone()]);
+
+        let definite = Expr::Function(
+            "Integral".into(),
+            vec![
+                Expr::Sym(x.clone()) + Expr::Sym(y.clone()),
+                Expr::Function(
+                    "Tuple".into(),
+                    vec![Expr::Sym(x.clone()), Expr::from_i64(0), Expr::Sym(z.clone())],
+                ),
+            ],
+        );
+        assert_eq!(definite.free_symbols(), vec![y.clone(), z.clone()]);
+
+        let indefinite = Expr::Function(
+            "Integral".into(),
+            vec![
+                Expr::Sym(x.clone()) + Expr::Sym(y.clone()),
+                Expr::Sym(x.clone()),
+            ],
+        );
+        assert_eq!(indefinite.free_symbols(), vec![x.clone(), y.clone()]);
+
+        let sum_expr = Expr::Function(
+            "Sum".into(),
+            vec![
+                Expr::Sym(x.clone()) + Expr::Sym(y.clone()),
+                Expr::Function(
+                    "Tuple".into(),
+                    vec![Expr::Sym(x.clone()), Expr::from_i64(1), Expr::Sym(z.clone())],
+                ),
+            ],
+        );
+        assert_eq!(sum_expr.free_symbols(), vec![y.clone(), z.clone()]);
+    }
+
+    #[test]
+    fn subs_avoids_variable_capture_under_lambda_and_integral_binders() {
+        let x = Symbol::new("x");
+        let y = Symbol::new("y");
+        let x1 = Symbol::new("x_1");
+
+        let lam = Expr::Function(
+            "Lambda".into(),
+            vec![
+                Expr::Sym(x.clone()),
+                Expr::Sym(x.clone()) + Expr::Sym(y.clone()),
+            ],
+        );
+        let mut map = HashMap::new();
+        map.insert(y.clone(), Expr::Sym(x.clone()));
+        let substituted = lam.subs(&map);
+        assert_eq!(
+            substituted,
+            Expr::Function(
+                "Lambda".into(),
+                vec![
+                    Expr::Sym(x1.clone()),
+                    Expr::Sym(x.clone()) + Expr::Sym(x1.clone()),
+                ],
+            )
+        );
+        assert_eq!(substituted.free_symbols(), vec![x.clone()]);
+
+        let definite = Expr::Function(
+            "Integral".into(),
+            vec![
+                Expr::Sym(x.clone()) + Expr::Sym(y.clone()),
+                Expr::Function(
+                    "Tuple".into(),
+                    vec![Expr::Sym(x.clone()), Expr::from_i64(0), Expr::from_i64(1)],
+                ),
+            ],
+        );
+        let sub_int = definite.subs(&map);
+        assert_eq!(sub_int.free_symbols(), vec![x]);
+    }
+
+    #[test]
+    fn elementary_integer_nthroot_handles_arbitrary_precision_above_f64() {
+        // 3^400 > 2^630, well beyond f64 range; its exact 4th root is 3^100.
+        let base = BigInt::from(3).pow(100);
+        let fourth_power = base.pow(4);
+        let root_expr = elementary::eval_pow(
+            Expr::Integer(fourth_power),
+            Expr::Rational(BigRational::new(BigInt::from(1), BigInt::from(4))),
+        );
+        assert_eq!(root_expr, Expr::Integer(base));
+    }
 }
+

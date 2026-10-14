@@ -920,21 +920,8 @@ fn raw_pow(base: Expr, exp: Expr) -> Expr {
 
 /// Exact integer `n`-th root when `m` is a perfect `n`-th power.
 fn integer_nthroot(m: &BigInt, n: u32) -> Option<BigInt> {
-    if m.is_negative() {
-        return None;
-    }
-    if m.is_zero() || m.is_one() || n == 1 {
-        return Some(m.clone());
-    }
-    let f = m.to_f64()?;
-    let guess = f.powf(1.0 / f64::from(n)).round();
-    if !guess.is_finite() {
-        return None;
-    }
-    let g = BigInt::from(guess as i64);
-    [g.clone() - BigInt::from(1), g.clone(), g + BigInt::from(1)]
-        .into_iter()
-        .find(|cand| !cand.is_negative() && cand.pow(n) == *m)
+    let (root, exact) = fsym_bigint::nth_root_floor(m, n)?;
+    exact.then_some(root)
 }
 
 /// Trial-division factorization of `m > 0`; the unfactored cofactor (if any)
