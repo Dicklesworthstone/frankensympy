@@ -161,5 +161,96 @@ class PickleRoundtripCliTests(unittest.TestCase):
         self.assertEqual(golden_digest_map(profile), before)
 
 
+class PickleAdversarySweepTests(unittest.TestCase):
+    """Registered restore-path serialization adversary sweep (fra-toi)."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        import json
+        cls.corpus_path = LAB / "fixtures" / "pickle_adversary_corpus.json"
+        cls.corpus = json.loads(cls.corpus_path.read_text(encoding="utf-8"))
+
+    def _run_loader(self, fixture_id: str, pickle_b64: str) -> dict:
+        import json
+        import os
+        import subprocess
+
+        env = {
+            "PATH": os.environ.get("PATH", ""),
+            "PYTHONHASHSEED": "0",
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "FSYM_CANDIDATE_ROOT": str(LAB.parent.parent / "python"),
+        }
+        proc = subprocess.run(
+            [sys.executable, "-P", "-s", str(LAB / "pickle_loader.py")],
+            input=json.dumps(
+                {
+                    "fixture_id": fixture_id,
+                    "side": CANDIDATE_SIDE,
+                    "pickle_b64": pickle_b64,
+                }
+            ),
+            text=True,
+            capture_output=True,
+            env=env,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        record = json.loads(proc.stdout)
+        validate_restore_record(
+            record, expected_side=CANDIDATE_SIDE, expected_id=fixture_id
+        )
+        return record
+
+    def test_registered_adversary_corpus_all_refused_in_fresh_process(self) -> None:
+        import base64
+
+        adversaries = self.corpus.get("adversaries", [])
+        self.assertGreaterEqual(len(adversaries), 6)
+        for entry in adversaries:
+            with self.subTest(fixture_id=entry["fixture_id"]):
+                record = self._run_loader(entry["fixture_id"], entry["pickle_b64"])
+                self.assertEqual(
+                    record["status"],
+                    "raised",
+                    f"adversary {entry['fixture_id']} was NOT refused: {record}",
+                )
+                self.assertTrue(record.get("error_class"))
+
+        # Oversized payload (> 64 KiB) preflight refusal test
+        oversized_b64 = base64.b64encode(b"\x80\x04" + (b"K*" * 40000) + b".").decode("ascii")
+        oversized_rec = self._run_loader("adv/pickle/oversized_payload", oversized_b64)
+        self.assertEqual(oversized_rec["status"], "raised")
+        self.assertIn("ValueError", oversized_rec["error_class"])
+
+    def test_planted_negative_loader_acceptance_or_constructor_execution_fails_sweep(self) -> None:
+        # Planted negative: if a weakened loader returned status="returned" on any
+        # adversary entry, the sweep grader must flag it immediately.
+        def grade_adversary_sweep(records: list[dict]) -> list[str]:
+            failures = []
+            for rec in records:
+                if rec.get("status") != "raised":
+                    failures.append(f"{rec.get('fixture_id')}: expected raised, got {rec.get('status')}")
+            return failures
+
+        planted_weakened = [
+            {
+                "schema_version": 1,
+                "kind": "pickle_restore",
+                "fixture_id": "adv/pickle/hostile_reduce_os_system",
+                "side": CANDIDATE_SIDE,
+                "protocol": 4,
+                "status": "returned",
+                "type": "int",
+                "module": "builtins",
+            }
+        ]
+        self.assertTrue(
+            grade_adversary_sweep(planted_weakened),
+            "planted negative (accepted hostile pickle) must fail the sweep grader",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

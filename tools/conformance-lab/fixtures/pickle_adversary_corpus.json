@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "corpus_id": "pickle-restore-adversary-v1",
+  "description": "Registered restore-path serialization adversary corpus for tools/conformance-lab/pickle_loader.py (fra-toi).",
+  "adversaries": [
+    {
+      "fixture_id": "adv/pickle/truncated_stream",
+      "category": "truncated_stream",
+      "pickle_b64": "gASVEAAAAAAAAACMBXN5bXB5",
+      "expected_status": "raised",
+      "rationale": "Truncated protocol-4 stream missing STOP must be refused before unpickling."
+    },
+    {
+      "fixture_id": "adv/pickle/hostile_reduce_os_system",
+      "category": "hostile_reduce",
+      "pickle_b64": "Y29zCnN5c3RlbQooVmVjaG8gUFdORUQKdFIu",
+      "expected_status": "raised",
+      "rationale": "GLOBAL os.system REDUCE payload must be blocked by preflight and RestrictedUnpickler."
+    },
+    {
+      "fixture_id": "adv/pickle/hostile_stack_global_eval",
+      "category": "hostile_reduce",
+      "pickle_b64": "gASMCGJ1aWx0aW5zjARldmFsk4wDMSsxhVIu",
+      "expected_status": "raised",
+      "rationale": "STACK_GLOBAL builtins.eval REDUCE payload must be refused by RestrictedUnpickler."
+    },
+    {
+      "fixture_id": "adv/pickle/foreign_module_subprocess",
+      "category": "foreign_module",
+      "pickle_b64": "Y3N1YnByb2Nlc3MKUG9wZW4KKFZ0cnVlCnRSLg==",
+      "expected_status": "raised",
+      "rationale": "Foreign module reference subprocess.Popen must be refused."
+    },
+    {
+      "fixture_id": "adv/pickle/deep_nesting_depth_overflow",
+      "category": "depth_overflow",
+      "pickle_b64": "KChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChKChdHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dC4=",
+      "expected_status": "raised",
+      "rationale": "Nested MARK/TUPLE stream exceeding MAX_RESTORE_DEPTH (64) must be refused before recursion."
+    },
+    {
+      "fixture_id": "adv/pickle/trailing_bytes_after_stop",
+      "category": "trailing_garbage",
+      "pickle_b64": "gARLKi4AAA==",
+      "expected_status": "raised",
+      "rationale": "Trailing bytes after STOP opcode must be refused."
+    }
+  ]
+}
