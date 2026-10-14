@@ -2,7 +2,7 @@
   "audit": "donor_sources",
   "errors": [],
   "facts": {
-    "dependency_pins_compared": 5,
+    "dependency_pins_compared": 7,
     "source_count": 7,
     "source_ids": [
       "asupersync",

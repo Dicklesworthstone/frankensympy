@@ -310,7 +310,24 @@ lab_corpus() {
   # fixes (never comparator weakening).
   run "$PYTHON_BIN" "$ROOT/tools/conformance-lab/corpus_gate.py"
 }
-fuzz_smoke() { unimplemented_release_profile fuzz-smoke; }
+fuzz_smoke() {
+  run cargo test -p fsym-runtime --lib -- fmap::tamper_fuzz_tests
+  run cargo test --test cli_protocol_gate -- deeply_nested_and_garbage_input_cannot_crash_the_session
+  run cargo test -p fsym-formal --test projection_boundary -- malformed_truncated_noncanonical_and_unknown_bytes_refuse
+  ok "fuzz smoke corpus passed across runtime, protocol, and formal boundary decoders"
+}
+
+wasm_subset() {
+  run cargo check --target wasm32-unknown-unknown \
+    -p fsym-id -p fsym-budget -p fsym-outcome \
+    -p fsym-bigint -p fsym-rational -p fsym-modular \
+    -p fsym-core -p fsym-assumptions -p fsym-proof-kernel \
+    -p fsym-capsule-consumer -p fsym-evidence \
+    -p fsym-polys -p fsym-simplify -p fsym-calculus \
+    -p fsym-solvers -p fsym-matrices
+  ok "declared native subset compiles for wasm32-unknown-unknown"
+}
+
 matrix() { unimplemented_release_profile matrix; }
 reproducibility() { unimplemented_release_profile reproducibility; }
 package() { unimplemented_release_profile package; }
@@ -352,6 +369,7 @@ case "$PROFILE" in
   packaging-consistency) packaging_consistency ;;
   bench-smoke) bench_smoke ;;
   fuzz-smoke) fuzz_smoke ;;
+  wasm-subset) wasm_subset ;;
   matrix) matrix ;;
   reproducibility) reproducibility ;;
   package) package ;;
@@ -359,7 +377,7 @@ case "$PROFILE" in
   release-candidate) release_candidate ;;
   all) release_candidate ;;
   *)
-    printf 'usage: %s {source-clean|format|architecture|registries|metadata|audit|unit|conformance|portable-verifiers|bench-smoke|lab|lab-corpus|packaging-consistency|fuzz-smoke|matrix|reproducibility|package|sign|release-candidate|all}\n' "$0" >&2
+    printf 'usage: %s {source-clean|format|architecture|registries|metadata|audit|unit|conformance|portable-verifiers|bench-smoke|lab|lab-corpus|packaging-consistency|fuzz-smoke|wasm-subset|matrix|reproducibility|package|sign|release-candidate|all}\n' "$0" >&2
     exit 2
     ;;
 esac

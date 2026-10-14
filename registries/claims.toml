@@ -286,12 +286,18 @@ notes = "implemented_uncertified 2026-09-06: NDJSON protocol, fail-closed wire a
 id = "AGENT-002"
 kind = "agent_interface"
 statement = "Collaborative branch merges preserve universe identity and import accepted derivations only after verification."
-status = "planned"
+status = "implemented_uncertified"
 present_tense_allowed = false
 minimum_evidence = "validated"
 workstreams = ["WS06", "WS14", "WS16"]
 gate = "gate://semantic-merge"
-evidence_artifacts = ["UNSET"]
+evidence_artifacts = [
+    "crates/fsym-proof-kernel/src/merge.rs",
+    "crates/fsym-runtime/src/workspace.rs",
+    "crates/fsym-runtime/tests/workspace_replay_gate.rs",
+    "tests/cli_protocol_gate.rs",
+]
+notes = "implemented_uncertified 2026-10-14: certificate-bound semantic merge verifier checks base witnesses, imported derivations, predicate digests, and conservative read/write conflicts before mutating workspace state."
 
 [[claims]]
 id = "INTEGRATION-001"
@@ -330,13 +336,17 @@ evidence_artifacts = ["UNSET"]
 id = "MONITOR-001"
 kind = "monitoring"
 statement = "Anytime-valid e-process or conformal monitors can detect scoped compatibility, performance, selector, cache, and worker drift and trigger operational controls."
-status = "planned"
+status = "implemented_uncertified"
 present_tense_allowed = false
 minimum_evidence = "monitor_validation"
 workstreams = ["WS13", "WS21", "WS22"]
 gate = "gate://operational-monitoring"
-evidence_artifacts = ["UNSET"]
-notes = "Monitor output cannot certify or refute an individual mathematical claim."
+evidence_artifacts = [
+    "crates/fsym-runtime/src/monitor.rs",
+    "crates/fsym-runtime/tests/monitor_gate.rs",
+    "crates/fsym-runtime/tests/monitor_gate_review.rs",
+]
+notes = "Monitor output cannot certify or refute an individual mathematical claim. implemented_uncertified 2026-10-14: all 5 registered monitor profiles implemented in fsym-runtime::monitor with anytime-valid e-process and exact fault-trigger calibrations."
 
 [[claims]]
 id = "SECURITY-001"
@@ -366,12 +376,17 @@ notes = "implemented_uncertified 2026-08-29: bounded parser (size/depth prefligh
 id = "PLATFORM-001"
 kind = "platform"
 statement = "A declared native subset builds and verifies in WebAssembly without changing term, claim, or proof semantics."
-status = "planned"
+status = "implemented_uncertified"
 present_tense_allowed = false
 minimum_evidence = "validated"
 workstreams = ["WS02", "WS03", "WS04", "WS06", "WS23"]
 gate = "gate://wasm-subset"
-evidence_artifacts = ["UNSET"]
+evidence_artifacts = [
+    "scripts/check.sh",
+    "crates/fsym-proof-kernel/src/lib.rs",
+    "crates/fsym-capsule-consumer/src/lib.rs",
+]
+notes = "implemented_uncertified 2026-10-14: 16-crate native mathematical and verifier subset builds cleanly under wasm32-unknown-unknown via scripts/check.sh wasm-subset."
 
 [[claims]]
 id = "PERF-001"

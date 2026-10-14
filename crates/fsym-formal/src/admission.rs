@@ -1,6 +1,6 @@
 use crate::{
-    CONTEXT_ROOT, MAX_CAPSULE_BYTES, MAX_DEGREE, ProjectionError as E, RULE_ROOT, SafePoint,
-    VERIFIER_ROOT, checkpoint,
+    CONTEXT_ROOT, MAX_CAPSULE_BYTES, MAX_DEGREE, MAX_EXPONENT, MAX_FACTORS, ProjectionError as E,
+    RULE_ROOT, SafePoint, VERIFIER_ROOT, checkpoint,
 };
 use fsym_proof_kernel::capsule::{Capsule, CapsuleVerdict, PolyDomain, verify_capsule};
 
@@ -148,6 +148,85 @@ fn preflight(bytes: &[u8], cancel: &impl Fn(SafePoint) -> bool) -> Result<(), E>
     c.end()
 }
 
+fn preflight_nfactor(bytes: &[u8], cancel: &impl Fn(SafePoint) -> bool) -> Result<u64, E> {
+    if bytes.len() > MAX_CAPSULE_BYTES {
+        return Err(E::ResourceExhausted("capsule bytes"));
+    }
+    let mut c = Cursor(bytes);
+    if c.take(7)? != b"FSYMCAP" || c.take(2)? != [1, 0] {
+        return Err(E::UnrepresentableSemanticField);
+    }
+    let mut claim = Cursor(c.blob()?);
+    if claim.byte()? != 1 {
+        return Err(E::UnsupportedFamily);
+    }
+    if claim.u64()? != CONTEXT_ROOT || claim.u64()? != RULE_ROOT || claim.u64()? != VERIFIER_ROOT {
+        return Err(E::UnrepresentableSemanticField);
+    }
+    claim.take(8)?;
+    if coefficient(claim.blob()?)? == 0 {
+        return Err(E::UnsupportedShape);
+    }
+    let count = claim.u32()? as usize;
+    if count > MAX_FACTORS {
+        return Err(E::ResourceExhausted("factor count"));
+    }
+    if count == 0 {
+        return Err(E::UnsupportedShape);
+    }
+    let mut total_expanded = 0usize;
+    for _ in 0..count {
+        claim.take(8)?;
+        let exp = claim.u32()?;
+        if exp == 0 {
+            return Err(E::UnsupportedShape);
+        }
+        if exp > MAX_EXPONENT {
+            return Err(E::ResourceExhausted("factor exponent"));
+        }
+        total_expanded = total_expanded.saturating_add(exp as usize);
+    }
+    if total_expanded > MAX_FACTORS * (MAX_EXPONENT as usize) {
+        return Err(E::ResourceExhausted("factor count"));
+    }
+    claim.end()?;
+    let objects = c.u32()? as usize;
+    if objects > MAX_FACTORS + 1 {
+        return Err(E::ResourceExhausted("object count"));
+    }
+    if objects < 2 {
+        return Err(E::UnsupportedShape);
+    }
+    for _ in 0..objects {
+        checkpoint(cancel, SafePoint::PreflightObject)?;
+        c.take(40)?;
+        let mut p = Cursor(c.blob()?);
+        if p.byte()? != 1 {
+            return Err(E::UnrepresentableSemanticField);
+        }
+        let symbol = p.blob()?;
+        if symbol.is_empty() || symbol.len() > 256 {
+            return Err(E::ResourceExhausted("symbol bytes"));
+        }
+        let terms = p.u32()?;
+        if terms > 65 {
+            return Err(E::ResourceExhausted("term count"));
+        }
+        if terms == 0 {
+            return Err(E::UnsupportedShape);
+        }
+        for _ in 0..terms {
+            if p.u32()? > MAX_DEGREE {
+                return Err(E::ResourceExhausted("degree"));
+            }
+            coefficient(p.blob()?)?;
+        }
+        p.end()?;
+    }
+    c.end()?;
+    Ok(total_expanded.max(2) as u64)
+}
+
 pub(crate) fn admit(
     bytes: &[u8],
     root: [u8; 32],
@@ -167,6 +246,39 @@ pub(crate) fn admit(
     let capsule = Capsule::decode(bytes).map_err(|_| E::MalformedInput)?;
     // Kernel decoding permits duplicate identical entries and input ordering;
     // this profile admits only the unique canonical complete encoding.
+    if capsule.encode().map_err(|_| E::MalformedInput)? != bytes {
+        return Err(E::MalformedInput);
+    }
+    if capsule.claim.domain != PolyDomain::Zz {
+        return Err(E::UnsupportedFamily);
+    }
+    for id in capsule.objects.keys() {
+        if *id != capsule.claim.subject
+            && !capsule.claim.factors.iter().any(|(factor, _)| factor == id)
+        {
+            return Err(E::UnrepresentableSemanticField);
+        }
+    }
+    Ok(capsule)
+}
+
+pub(crate) fn admit_nfactor(
+    bytes: &[u8],
+    root: [u8; 32],
+    cancel: &impl Fn(SafePoint) -> bool,
+) -> Result<Capsule, E> {
+    checkpoint(cancel, SafePoint::Admission)?;
+    let fuel = preflight_nfactor(bytes, cancel)?;
+    checkpoint(cancel, SafePoint::BeforeNativeVerification)?;
+    match verify_capsule(bytes, Some(root), fuel) {
+        CapsuleVerdict::Verified { claim_digest, .. } if claim_digest == root => {}
+        CapsuleVerdict::Inconclusive { .. } => {
+            return Err(E::ResourceExhausted("native verification fuel"));
+        }
+        _ => return Err(E::NativeVerificationFailed),
+    }
+    checkpoint(cancel, SafePoint::AfterNativeVerification)?;
+    let capsule = Capsule::decode(bytes).map_err(|_| E::MalformedInput)?;
     if capsule.encode().map_err(|_| E::MalformedInput)? != bytes {
         return Err(E::MalformedInput);
     }

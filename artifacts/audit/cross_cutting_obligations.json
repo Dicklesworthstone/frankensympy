@@ -1,10 +1,8 @@
 {
   "errors": [],
   "incomplete_release_blockers": [
-    "O-MONITORS",
     "O-PACKAGING",
     "O-PERFORMANCE",
-    "O-PORTFOLIO",
     "O-RELEASE"
   ],
   "obligation_count": 13,

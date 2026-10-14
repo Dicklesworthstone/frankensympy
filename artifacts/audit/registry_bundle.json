@@ -54,6 +54,7 @@
       "registries/dependencies.toml",
       "registries/donor_sources.toml",
       "registries/evidence_classes.toml",
+      "registries/formal_proof_profiles.toml",
       "registries/graph_reasoning.toml",
       "registries/monitor_profiles.toml",
       "registries/packaging_profiles.toml",
@@ -97,7 +98,7 @@
     ],
     "parsed_registry_count": 19,
     "portable_graph_certificate_count": 5,
-    "portfolio_count": 4,
+    "portfolio_count": 5,
     "release_gate_count": 10
   },
   "ok": true,

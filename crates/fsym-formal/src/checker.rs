@@ -3,9 +3,10 @@
 //! receipt digest as evidence. Shared code is limited to native admission, the
 //! frozen operator specification, and cryptographic/transport encodings.
 use crate::{
-    CHECKER_PIN, CheckedProjection, LEAN_PREFIX, MAX_CAPSULE_BYTES, MAX_DEGREE, PROFILE_ID,
-    ProjectionEnvelope, ProjectionError as E, STATEMENT_ENVIRONMENT_ROOT, SafePoint, admission,
-    checkpoint, decode_hex, encode_hex, make_receipt, statement_root,
+    CHECKER_PIN, CheckedProjection, LEAN_NFACTOR_PREFIX, LEAN_PREFIX, MAX_CAPSULE_BYTES,
+    MAX_DEGREE, PROFILE_ID, PROFILE_NFACTOR_ID, ProjectionEnvelope, ProjectionError as E,
+    STATEMENT_ENVIRONMENT_ROOT, SafePoint, admission, checkpoint, decode_hex, encode_hex,
+    make_nfactor_receipt, make_receipt, statement_root,
 };
 use fsym_proof_kernel::capsule::PolyObject;
 
@@ -38,6 +39,24 @@ fn vector(text: &mut &str) -> Result<Vec<i64>, E> {
     }
     *text = tail;
     Ok(coefficients)
+}
+
+fn vector_list(text: &mut &str, max_vectors: usize) -> Result<Vec<Vec<i64>>, E> {
+    let mut rest = text.strip_prefix('[').ok_or(E::ProjectionReceiptMismatch)?;
+    let mut vectors = Vec::new();
+    loop {
+        if vectors.len() >= max_vectors {
+            return Err(E::ResourceExhausted("factor count"));
+        }
+        vectors.push(vector(&mut rest)?);
+        if let Some(after_close) = rest.strip_prefix(']') {
+            *text = after_close;
+            return Ok(vectors);
+        }
+        rest = rest
+            .strip_prefix(", ")
+            .ok_or(E::ProjectionReceiptMismatch)?;
+    }
 }
 
 fn compare_sparse(coefficients: &[i64], poly: &PolyObject) -> Result<(), E> {
@@ -76,12 +95,17 @@ pub fn check_projection(
 ) -> Result<CheckedProjection, E> {
     checkpoint(cancel, SafePoint::Admission)?;
     envelope.check_sizes()?;
-    if envelope.profile_id != PROFILE_ID
-        || envelope.checker_pin != CHECKER_PIN
+    if envelope.checker_pin != CHECKER_PIN
         || envelope.environment != STATEMENT_ENVIRONMENT_ROOT
         || envelope.native_verdict != "verified"
         || envelope.native_claim_root != encode_hex(&expected_claim_root)
     {
+        return mismatch();
+    }
+    if envelope.profile_id == PROFILE_NFACTOR_ID {
+        return check_nfactor_projection(envelope, expected_claim_root, cancel);
+    }
+    if envelope.profile_id != PROFILE_ID {
         return mismatch();
     }
     let bytes = decode_hex(&envelope.capsule_hex, MAX_CAPSULE_BYTES)?;
@@ -125,6 +149,94 @@ pub fn check_projection(
     );
     if envelope.statement_root != encode_hex(&root)
         || envelope.receipt != make_receipt(&bytes, &capsule, &expected_claim_root, &root)
+    {
+        return mismatch();
+    }
+    let checked = CheckedProjection::new(envelope.clone());
+    checkpoint(cancel, SafePoint::BeforeOutput)?;
+    Ok(checked)
+}
+
+fn check_nfactor_projection(
+    envelope: &ProjectionEnvelope,
+    expected_claim_root: [u8; 32],
+    cancel: &impl Fn(SafePoint) -> bool,
+) -> Result<CheckedProjection, E> {
+    let bytes = decode_hex(&envelope.capsule_hex, MAX_CAPSULE_BYTES)?;
+    let capsule = admission::admit_nfactor(&bytes, expected_claim_root, cancel)?;
+    if !capsule.claim.coefficient.is_integer() {
+        return mismatch();
+    }
+    let expected_scalar = capsule
+        .claim
+        .coefficient
+        .numer()
+        .to_i64()
+        .ok_or(E::ProjectionReceiptMismatch)?;
+    if expected_scalar == 0 {
+        return mismatch();
+    }
+    let rest = envelope
+        .lean_source
+        .strip_prefix(LEAN_NFACTOR_PREFIX)
+        .and_then(|s| s.strip_prefix("theorem projected_product :\n    polyScale ("))
+        .ok_or(E::ProjectionReceiptMismatch)?;
+    let (scalar_token, mut text) = rest
+        .split_once(") (polyProd ")
+        .ok_or(E::ProjectionReceiptMismatch)?;
+    let parsed_scalar = scalar_token
+        .parse::<i64>()
+        .map_err(|_| E::ProjectionReceiptMismatch)?;
+    if scalar_token != parsed_scalar.to_string() || parsed_scalar != expected_scalar {
+        return mismatch();
+    }
+    let max_expanded = crate::MAX_FACTORS * (crate::MAX_EXPONENT as usize);
+    let factors = vector_list(&mut text, max_expanded)?;
+    text = text
+        .strip_prefix(") = ")
+        .ok_or(E::ProjectionReceiptMismatch)?;
+    let subject = vector(&mut text)?;
+    if text != " := by decide\n#print axioms projected_product\n" {
+        return mismatch();
+    }
+    let native_subject = capsule
+        .polynomial(capsule.claim.subject)
+        .map_err(|_| E::MalformedInput)?;
+    compare_sparse(&subject, &native_subject)?;
+    let expected_total: usize = capsule
+        .claim
+        .factors
+        .iter()
+        .map(|(_, exp)| *exp as usize)
+        .sum();
+    if factors.len() != expected_total {
+        return mismatch();
+    }
+    let mut cursor = 0usize;
+    for &(factor_id, exp) in &capsule.claim.factors {
+        let native_factor = capsule.polynomial(factor_id).map_err(|_| E::MalformedInput)?;
+        if native_factor.symbol != native_subject.symbol {
+            return mismatch();
+        }
+        for _ in 0..(exp as usize) {
+            compare_sparse(&factors[cursor], &native_factor)?;
+            cursor += 1;
+        }
+    }
+    let root = statement_root(
+        STATEMENT_ENVIRONMENT_ROOT,
+        PROFILE_NFACTOR_ID,
+        &envelope.lean_source,
+    );
+    if envelope.statement_root != encode_hex(&root)
+        || envelope.receipt
+            != make_nfactor_receipt(
+                &bytes,
+                &capsule,
+                expected_scalar,
+                &expected_claim_root,
+                &root,
+            )
     {
         return mismatch();
     }

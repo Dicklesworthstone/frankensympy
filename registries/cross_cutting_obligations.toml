@@ -75,7 +75,7 @@ depends_on = ["O-VERIFIER", "O-ARTIFACT", "O-EVIDENCE"]
 gates = ["projection_field_coverage", "foreign_checker_rejection", "formal_e2e"]
 artifacts = ["projection_coverage.json", "foreign_checker_report.json", "formal_e2e.json"]
 release_blocking = false
-status = "planning"
+status = "evidenced"
 
 [[obligation]]
 id = "O-PYTHON"
@@ -95,7 +95,7 @@ depends_on = ["O-EVIDENCE"]
 gates = ["monitor_formula_review", "optional_stopping_adversarial", "monitor_replay"]
 artifacts = ["monitor_formula_audit.json", "monitor_simulation.json", "monitor_replay.json"]
 release_blocking = true
-status = "planning"
+status = "evidenced"
 
 [[obligation]]
 id = "O-PORTFOLIO"
@@ -105,7 +105,7 @@ depends_on = ["O-VERIFIER", "O-PYTHON", "O-MONITORS"]
 gates = ["eligibility_matrix", "fallback_dag", "selection_acceptance_separation"]
 artifacts = ["portfolio_eligibility.json", "fallback_graph.json", "portfolio_boundary_report.json"]
 release_blocking = true
-status = "planning"
+status = "evidenced"
 
 [[obligation]]
 id = "O-PACKAGING"

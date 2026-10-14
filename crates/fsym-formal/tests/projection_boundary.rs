@@ -248,3 +248,83 @@ fn malformed_truncated_noncanonical_and_unknown_bytes_refuse() {
     assert!(project_capsule(&corrupt, root, &|_| false).is_err());
     assert!(ProjectionEnvelope::from_json(b"{}").is_err());
 }
+
+#[test]
+fn nfactor_three_factors_multiplicities_and_scalars_roundtrip_and_reject_tamper() {
+    use fsym_formal::{PROFILE_NFACTOR_ID, project_capsule_nfactor};
+    use fsym_proof_kernel::capsule::{CAPSULE_SCHEMA_VERSION, PolyIdentityClaim};
+
+    // 2 * (x - 1)^2 * (x + 1) = 2*x^3 - 2*x^2 - 2*x + 2
+    let subject = support::object(&[(3, 2), (2, -2), (1, -2), (0, 2)]);
+    let xm1 = support::object(&[(1, 1), (0, -1)]);
+    let xp1 = support::object(&[(1, 1), (0, 1)]);
+    let claim = PolyIdentityClaim {
+        domain: PolyDomain::Zz,
+        context: ContextId::new(fsym_formal::CONTEXT_ROOT).unwrap(),
+        rule: RuleId::new(fsym_formal::RULE_ROOT).unwrap(),
+        verifier: VerifierId::new(fsym_formal::VERIFIER_ROOT).unwrap(),
+        subject: subject.id,
+        coefficient: BigRational::from_integer(BigInt::from(2)),
+        factors: vec![(xm1.id, 2), (xp1.id, 1)],
+    };
+    let c = Capsule {
+        schema_version: CAPSULE_SCHEMA_VERSION,
+        claim,
+        objects: [subject, xm1, xp1]
+            .into_iter()
+            .map(|o| (o.id, o))
+            .collect(),
+    };
+    let bytes = c.encode().unwrap();
+    let root = c.claim.digest().unwrap();
+    let checked = project_capsule_nfactor(&bytes, root, &|_| false).unwrap();
+    let env = checked.into_envelope();
+    assert_eq!(env.profile_id, PROFILE_NFACTOR_ID);
+    assert!(env.lean_source.contains("polyScale (2) (polyProd [[-1, 1], [-1, 1], [1, 1]]) = [2, -2, -2, 2]"));
+    let roundtripped = ProjectionEnvelope::from_json(&serde_json::to_vec(&env).unwrap()).unwrap();
+    assert_eq!(
+        check_projection(&roundtripped, root, &|_| false)
+            .unwrap()
+            .envelope(),
+        &env
+    );
+
+    // Tampered scalar or factor list in lean_source must be rejected by independent checker
+    let mut tampered = env.clone();
+    tampered.lean_source = tampered
+        .lean_source
+        .replace("polyScale (2)", "polyScale (3)");
+    assert!(check_projection(&tampered, root, &|_| false).is_err());
+
+    // 3 distinct factors: (x - 1)(x + 1)(x + 2) = x^3 + 2x^2 - x - 2
+    let subj3 = support::object(&[(3, 1), (2, 2), (1, -1), (0, -2)]);
+    let f1 = support::object(&[(1, 1), (0, -1)]);
+    let f2 = support::object(&[(1, 1), (0, 1)]);
+    let f3 = support::object(&[(1, 1), (0, 2)]);
+    let claim3 = PolyIdentityClaim {
+        domain: PolyDomain::Zz,
+        context: ContextId::new(fsym_formal::CONTEXT_ROOT).unwrap(),
+        rule: RuleId::new(fsym_formal::RULE_ROOT).unwrap(),
+        verifier: VerifierId::new(fsym_formal::VERIFIER_ROOT).unwrap(),
+        subject: subj3.id,
+        coefficient: BigRational::from_integer(BigInt::from(1)),
+        factors: vec![(f1.id, 1), (f2.id, 1), (f3.id, 1)],
+    };
+    let c3 = Capsule {
+        schema_version: CAPSULE_SCHEMA_VERSION,
+        claim: claim3,
+        objects: [subj3, f1, f2, f3]
+            .into_iter()
+            .map(|o| (o.id, o))
+            .collect(),
+    };
+    let bytes3 = c3.encode().unwrap();
+    let root3 = c3.claim.digest().unwrap();
+    let checked3 = project_capsule_nfactor(&bytes3, root3, &|_| false).unwrap();
+    assert!(
+        checked3
+            .envelope()
+            .lean_source
+            .contains("polyScale (1) (polyProd [[-1, 1], [1, 1], [2, 1]]) = [-2, -1, 2, 1]")
+    );
+}

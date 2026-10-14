@@ -48,6 +48,11 @@ pub(crate) fn checkpoint(
 /// Projection profile implemented by this adapter. Frozen: any mapping change
 /// mints a new profile ID, never an edit of this one.
 pub const PROFILE_ID: &str = "lean_core_zz_product_v1";
+/// Multi-factor ZZ polynomial identity projection profile supporting 1..=8
+/// factors, integer scalar coefficients, and factor multiplicities 1..=8.
+pub const PROFILE_NFACTOR_ID: &str = "lean_core_zz_nfactor_v1";
+pub const MAX_FACTORS: usize = 8;
+pub const MAX_EXPONENT: u32 = 8;
 /// Pinned foreign checker toolchain (exact `lean --version` output).
 pub const CHECKER_PIN: &str = "Lean (version 4.32.2, x86_64-unknown-linux-gnu, commit f3b06c705e6c85f5314019d5d3baab0fec5b580c, Release)";
 /// SHA256 of the pinned checker executable and installed library closure.
@@ -150,6 +155,57 @@ fn make_receipt(
     receipt
 }
 
+pub(crate) fn make_nfactor_receipt(
+    bytes: &[u8],
+    capsule: &Capsule,
+    scalar: i64,
+    native_claim_root: &[u8; 32],
+    formal_statement_root: &[u8; 32],
+) -> ProjectionReceipt {
+    let exponents: Vec<String> = capsule
+        .claim
+        .factors
+        .iter()
+        .map(|(_, exp)| exp.to_string())
+        .collect();
+    let mut receipt = ProjectionReceipt {
+        profile_id: PROFILE_NFACTOR_ID.into(),
+        checker_pin: CHECKER_PIN.into(),
+        environment: STATEMENT_ENVIRONMENT_ROOT.into(),
+        native_claim_root: encode_hex(native_claim_root),
+        capsule_root: encode_hex(blake3::hash(bytes).as_bytes()),
+        formal_statement_root: encode_hex(formal_statement_root),
+        schema_version: capsule.schema_version,
+        domain_root: capsule.claim.domain.root().raw(),
+        context_root: capsule.claim.context.raw(),
+        rule_root: capsule.claim.rule.raw(),
+        verifier_root: capsule.claim.verifier.raw(),
+        semantic_fields: vec![
+            "domain=ZZ".to_owned(),
+            "context=no-hypotheses".to_owned(),
+            format!("scalar={scalar}"),
+            format!(
+                "factors={};exponents={}",
+                capsule.claim.factors.len(),
+                exponents.join(",")
+            ),
+            "equality=exact-coefficient-convolution".to_owned(),
+            "binding=one-common-native-symbol".to_owned(),
+            "branches=none;partiality=none;extensions=none".to_owned(),
+            "schema=fsym.capsule.poly-identity.v1".to_owned(),
+            "evidence=projection-mapping-only;foreign=not-checked".to_owned(),
+        ],
+        receipt_root: String::new(),
+    };
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"fsym.formal.zz-nfactor.receipt.v1\0");
+    hasher.update(
+        &serde_json::to_vec(&receipt).expect("receipt contains only serializable primitives"),
+    );
+    receipt.receipt_root = encode_hex(hasher.finalize().as_bytes());
+    receipt
+}
+
 /// Dense ascending coefficient vector of a capsule polynomial.
 ///
 /// The capsule stores descending sparse `(degree, coefficient)` terms; the
@@ -211,11 +267,45 @@ def polyMul : List Int → List Int → List Int\n\
 \x20 | _, [] => []\n\
 \x20 | a :: atail, b => addPad (b.map (· * a)) (0 :: polyMul atail b)\n\n";
 
+/// Frozen core-only definitions for `lean_core_zz_nfactor_v1`.
+pub(crate) const LEAN_NFACTOR_PREFIX: &str = "-- Projected statement for profile lean_core_zz_nfactor_v1 (fixed environment: Lean 4 core only).\n\
+-- Projection: dense ascending coefficient vectors; equality = coefficient-wise after\n\
+-- scalar-multiplied folded convolution product, which reduces by `decide`.\n\n\
+/-- Pad-and-add: add `scaled` into `acc` indexwise; surplus coefficients appended. -/\n\
+def addPad : List Int → List Int → List Int\n\
+\x20 | [], r => r\n\
+\x20 | s :: stail, [] => s :: stail\n\
+\x20 | s :: stail, r0 :: rtail => (s + r0) :: addPad stail rtail\n\n\
+/-- Convolution product of dense ascending ZZ coefficient vectors. -/\n\
+def polyMul : List Int → List Int → List Int\n\
+\x20 | [], _ => []\n\
+\x20 | _, [] => []\n\
+\x20 | a :: atail, b => addPad (b.map (· * a)) (0 :: polyMul atail b)\n\n\
+/-- Folded product of a list of dense ascending ZZ coefficient vectors. -/\n\
+def polyProd : List (List Int) → List Int\n\
+\x20 | [] => [1]\n\
+\x20 | p :: ps => polyMul p (polyProd ps)\n\n\
+/-- Scalar multiplication of a dense ascending ZZ coefficient vector. -/\n\
+def polyScale (c : Int) (p : List Int) : List Int :=\n\
+\x20 p.map (· * c)\n\n";
+
 fn render_statement(subject: &[i64], factor_a: &[i64], factor_b: &[i64]) -> String {
     format!(
         "{LEAN_PREFIX}theorem projected_product :\n    polyMul {} {} = {} := by decide\n#print axioms projected_product\n",
         render_vector(factor_a),
         render_vector(factor_b),
+        render_vector(subject)
+    )
+}
+
+fn render_nfactor_statement(scalar: i64, expanded_factors: &[Vec<i64>], subject: &[i64]) -> String {
+    let rendered_factors: Vec<String> = expanded_factors
+        .iter()
+        .map(|f| render_vector(f))
+        .collect();
+    format!(
+        "{LEAN_NFACTOR_PREFIX}theorem projected_product :\n    polyScale ({scalar}) (polyProd [{}]) = {} := by decide\n#print axioms projected_product\n",
+        rendered_factors.join(", "),
         render_vector(subject)
     )
 }
@@ -252,6 +342,57 @@ pub fn project_capsule(
         statement_root: encode_hex(&root),
         lean_source,
         receipt: make_receipt(bytes, &capsule, &native_claim_root, &root),
+        native_verdict: "verified".into(),
+    };
+    checker::check_projection(&envelope, native_claim_root, cancel)
+}
+
+/// Project a multi-factor ZZ polynomial identity capsule under profile
+/// `lean_core_zz_nfactor_v1` (1..=8 factors, multiplicities 1..=8, integer
+/// scalar coefficient).
+pub fn project_capsule_nfactor(
+    bytes: &[u8],
+    native_claim_root: [u8; 32],
+    cancel: &impl Fn(SafePoint) -> bool,
+) -> Result<CheckedProjection, ProjectionError> {
+    let capsule = admission::admit_nfactor(bytes, native_claim_root, cancel)?;
+    if !capsule.claim.coefficient.is_integer() {
+        return Err(ProjectionError::UnrepresentableSemanticField);
+    }
+    let scalar = capsule
+        .claim
+        .coefficient
+        .numer()
+        .to_i64()
+        .ok_or(ProjectionError::ResourceExhausted("coefficient height"))?;
+    if scalar == 0 {
+        return Err(ProjectionError::UnsupportedShape);
+    }
+    let subject = capsule
+        .polynomial(capsule.claim.subject)
+        .map_err(|_| ProjectionError::MalformedInput)?;
+    let subject_dense = dense_ascending(&subject)?;
+    let mut expanded_factors = Vec::new();
+    for &(factor_id, exp) in &capsule.claim.factors {
+        let poly = capsule
+            .polynomial(factor_id)
+            .map_err(|_| ProjectionError::MalformedInput)?;
+        let dense = dense_ascending(&poly)?;
+        for _ in 0..exp {
+            expanded_factors.push(dense.clone());
+        }
+    }
+    let lean_source = render_nfactor_statement(scalar, &expanded_factors, &subject_dense);
+    let root = statement_root(STATEMENT_ENVIRONMENT_ROOT, PROFILE_NFACTOR_ID, &lean_source);
+    let envelope = ProjectionEnvelope {
+        profile_id: PROFILE_NFACTOR_ID.into(),
+        checker_pin: CHECKER_PIN.into(),
+        environment: STATEMENT_ENVIRONMENT_ROOT.into(),
+        capsule_hex: encode_hex(bytes),
+        native_claim_root: encode_hex(&native_claim_root),
+        statement_root: encode_hex(&root),
+        lean_source,
+        receipt: make_nfactor_receipt(bytes, &capsule, scalar, &native_claim_root, &root),
         native_verdict: "verified".into(),
     };
     checker::check_projection(&envelope, native_claim_root, cancel)
