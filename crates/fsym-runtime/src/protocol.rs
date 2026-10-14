@@ -11,9 +11,7 @@ use crate::workspace::{SemanticWorkspace, WorkspaceError, WorkspacePatch};
 use fsym_budget::Unbounded;
 use fsym_calculus::{diff, integrate, limit};
 use fsym_core::{Expr, Symbol};
-use fsym_polys::{
-    MultivariatePoly, factor_multivariate, verify_multivariate_factorization,
-};
+use fsym_polys::{MultivariatePoly, factor_multivariate, verify_multivariate_factorization};
 use fsym_proof_kernel::{CertificatePayload, Claim, ProofKernel, verify_derivation_independent};
 use fsym_solvers::solve;
 use num_traits::One;
@@ -469,7 +467,10 @@ fn eval_with_workspace_limits(
     }
 }
 
-fn dispatch_workspace_request(req: AgentRequest, workspace: &mut SemanticWorkspace) -> AgentResponse {
+fn dispatch_workspace_request(
+    req: AgentRequest,
+    workspace: &mut SemanticWorkspace,
+) -> AgentResponse {
     match req {
         AgentRequest::Bind { symbol, expr } => {
             if !valid_symbol_name(&symbol) {

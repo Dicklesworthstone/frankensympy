@@ -238,9 +238,7 @@ fn reference_eliminate_zero_products(expr: &Expr) -> Expr {
         ),
         Expr::Function(name, args) => Expr::Function(
             name.clone(),
-            args.iter()
-                .map(reference_eliminate_zero_products)
-                .collect(),
+            args.iter().map(reference_eliminate_zero_products).collect(),
         ),
         _ => expr.clone(),
     }

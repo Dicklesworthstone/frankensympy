@@ -747,12 +747,8 @@ fn poly_factor_multivariate_expr(
     Ok((scale.to_string(), factors))
 }
 
-fn factor_list_univariate_core(
-    e: &Expr,
-    sym: &Symbol,
-) -> PyResult<(Expr, Vec<(Expr, usize)>)> {
-    let poly =
-        fsym_polys::univariate::UnivariatePoly::from_expr(e, sym).map_err(to_value_error)?;
+fn factor_list_univariate_core(e: &Expr, sym: &Symbol) -> PyResult<(Expr, Vec<(Expr, usize)>)> {
+    let poly = fsym_polys::univariate::UnivariatePoly::from_expr(e, sym).map_err(to_value_error)?;
     // Complete factorization over Q (Zassenhaus with irreducibility
     // witnesses), reported as upstream factor_list over ZZ: primitive
     // integer factors with positive leading coefficient, content in scale.
@@ -814,8 +810,7 @@ fn poly_factor_list_expr(p_src: &str, var: &str) -> PyResult<(String, Vec<(Strin
 }
 
 fn poly_roots_univariate_core(e: &Expr, sym: &Symbol) -> PyResult<Vec<(Expr, usize)>> {
-    let poly =
-        fsym_polys::univariate::UnivariatePoly::from_expr(e, sym).map_err(to_value_error)?;
+    let poly = fsym_polys::univariate::UnivariatePoly::from_expr(e, sym).map_err(to_value_error)?;
     if poly.is_zero() {
         return Err(PyValueError::new_err(
             "roots of the zero polynomial are undefined",
@@ -832,12 +827,7 @@ fn poly_roots_univariate_core(e: &Expr, sym: &Symbol) -> PyResult<Vec<(Expr, usi
         fsym_solvers::univariate::sort_roots(found.iter().map(|(r, _)| r.clone()).collect());
     Ok(order
         .into_iter()
-        .filter_map(|r| {
-            found
-                .iter()
-                .find(|(f, _)| *f == r)
-                .map(|(_, m)| (r, *m))
-        })
+        .filter_map(|r| found.iter().find(|(f, _)| *f == r).map(|(_, m)| (r, *m)))
         .collect())
 }
 
@@ -1271,7 +1261,10 @@ fn poly_div_rem_native(
     let poly2 = fsym_polys::univariate::UnivariatePoly::from_expr(&p2.inner, &sym)
         .map_err(to_value_error)?;
     let (q, r) = poly1.div_rem(&poly2).map_err(to_value_error)?;
-    Ok((PyExpr::from_expr(q.to_expr()), PyExpr::from_expr(r.to_expr())))
+    Ok((
+        PyExpr::from_expr(q.to_expr()),
+        PyExpr::from_expr(r.to_expr()),
+    ))
 }
 
 /// Structured univariate polynomial resultant.
@@ -1652,6 +1645,7 @@ fn crt_fn(moduli: Vec<String>, remainders: Vec<String>) -> PyResult<Option<(Stri
 
 pub mod assumptions;
 pub mod binding;
+pub mod callbacks;
 pub mod expr;
 pub mod geometry;
 pub mod logic;
@@ -1659,6 +1653,7 @@ pub mod matrix;
 pub mod sets;
 pub mod tensor;
 pub use assumptions::*;
+pub use callbacks::*;
 pub use expr::*;
 pub use geometry::*;
 pub use logic::*;
@@ -1675,9 +1670,12 @@ fn evalf_expr(src: &str) -> PyResult<f64> {
 /// Native FrankenSymPy module.
 #[pymodule]
 fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    let _ = callbacks::init_primary_interpreter(m.py())?;
     m.add_class::<PyExpr>()?;
     m.add_class::<PySymbol>()?;
     m.add_class::<binding::PySymbolBinding>()?;
+    m.add_class::<callbacks::PySupervisedCallbackSession>()?;
+    m.add_function(wrap_pyfunction!(callbacks::check_interpreter_support, m)?)?;
     m.add_class::<PyInteger>()?;
     m.add_class::<PyRational>()?;
     m.add_class::<PyAdd>()?;
@@ -2570,6 +2568,49 @@ mod tests {
                 assert_eq!(*mult, 1);
                 assert_eq!(fac.inner.free_symbols(), vec![x_pos_binding.to_symbol()]);
             }
+        });
+    }
+
+    #[test]
+    fn test_supervised_callback_session_contract() {
+        Python::initialize();
+        Python::attach(|py| {
+            let session =
+                crate::callbacks::PySupervisedCallbackSession::new(py, 4, 8, 100, 32, 32, 2000)
+                    .unwrap();
+            session.verify_ownership(py).unwrap();
+
+            // Monotonic nested step budget charging
+            assert_eq!(session.charge_nested_steps(py, 40).unwrap(), 40);
+            assert_eq!(session.charge_nested_steps(py, 50).unwrap(), 90);
+            assert!(session.charge_nested_steps(py, 20).is_err());
+
+            // Input bound refusal before callback invocation
+            let builtins = py.import("builtins").unwrap();
+            let abs_fn = builtins.getattr("abs").unwrap();
+            let args = pyo3::types::PyTuple::new(py, [-7i64]).unwrap();
+            let bounded =
+                crate::callbacks::PySupervisedCallbackSession::new(py, 4, 8, 100, 5, 5, 2000)
+                    .unwrap();
+            assert!(
+                bounded
+                    .invoke_once(py, "eval", "Custom", "(-7,)", 10, &abs_fn, &args, None)
+                    .is_err()
+            );
+            assert_eq!(bounded.invocations(), 0);
+
+            // Exactly-once execution and cached hit
+            let res1 = bounded
+                .invoke_once(py, "eval", "Custom", "(-7,)", 2, &abs_fn, &args, None)
+                .unwrap();
+            assert_eq!(res1.bind(py).extract::<i64>().unwrap(), 7);
+            assert_eq!(bounded.invocations(), 1);
+            let res2 = bounded
+                .invoke_once(py, "eval", "Custom", "(-7,)", 2, &abs_fn, &args, None)
+                .unwrap();
+            assert_eq!(res2.bind(py).extract::<i64>().unwrap(), 7);
+            assert_eq!(bounded.invocations(), 1);
+            assert_eq!(bounded.cached_effect_count(), 1);
         });
     }
 }

@@ -270,17 +270,17 @@ fn nfactor_three_factors_multiplicities_and_scalars_roundtrip_and_reject_tamper(
     let c = Capsule {
         schema_version: CAPSULE_SCHEMA_VERSION,
         claim,
-        objects: [subject, xm1, xp1]
-            .into_iter()
-            .map(|o| (o.id, o))
-            .collect(),
+        objects: [subject, xm1, xp1].into_iter().map(|o| (o.id, o)).collect(),
     };
     let bytes = c.encode().unwrap();
     let root = c.claim.digest().unwrap();
     let checked = project_capsule_nfactor(&bytes, root, &|_| false).unwrap();
     let env = checked.into_envelope();
     assert_eq!(env.profile_id, PROFILE_NFACTOR_ID);
-    assert!(env.lean_source.contains("polyScale (2) (polyProd [[-1, 1], [-1, 1], [1, 1]]) = [2, -2, -2, 2]"));
+    assert!(
+        env.lean_source
+            .contains("polyScale (2) (polyProd [[-1, 1], [-1, 1], [1, 1]]) = [2, -2, -2, 2]")
+    );
     let roundtripped = ProjectionEnvelope::from_json(&serde_json::to_vec(&env).unwrap()).unwrap();
     assert_eq!(
         check_projection(&roundtripped, root, &|_| false)
@@ -313,10 +313,7 @@ fn nfactor_three_factors_multiplicities_and_scalars_roundtrip_and_reject_tamper(
     let c3 = Capsule {
         schema_version: CAPSULE_SCHEMA_VERSION,
         claim: claim3,
-        objects: [subj3, f1, f2, f3]
-            .into_iter()
-            .map(|o| (o.id, o))
-            .collect(),
+        objects: [subj3, f1, f2, f3].into_iter().map(|o| (o.id, o)).collect(),
     };
     let bytes3 = c3.encode().unwrap();
     let root3 = c3.claim.digest().unwrap();

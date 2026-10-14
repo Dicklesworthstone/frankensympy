@@ -266,19 +266,16 @@ fn independently_verify_envelope(
     if !envelope.verify_integrity() {
         return Err(NamespaceError::UnverifiedCandidate);
     }
-    let derivation = envelope
-        .derivation
-        .as_ref()
-        .ok_or_else(|| {
-            if envelope.evidence_class == EvidenceClass::CertificateVerified {
-                NamespaceError::IndependentVerificationFailed(
-                    "CertificateVerified envelope requires a derivation tree for independent replay"
-                        .to_string(),
-                )
-            } else {
-                NamespaceError::UnverifiedCandidate
-            }
-        })?;
+    let derivation = envelope.derivation.as_ref().ok_or_else(|| {
+        if envelope.evidence_class == EvidenceClass::CertificateVerified {
+            NamespaceError::IndependentVerificationFailed(
+                "CertificateVerified envelope requires a derivation tree for independent replay"
+                    .to_string(),
+            )
+        } else {
+            NamespaceError::UnverifiedCandidate
+        }
+    })?;
     let verified_claim = verify_derivation_independent(derivation, context)
         .map_err(|error| NamespaceError::IndependentVerificationFailed(error.to_string()))?;
     if verified_claim != envelope.claim {

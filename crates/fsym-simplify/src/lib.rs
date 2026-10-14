@@ -842,10 +842,7 @@ fn expand_at<M: BudgetMeter>(expr: &Expr, depth: usize, m: &mut M) -> Result<Exp
 /// Simplifies an expression under an explicit assumption snapshot, applying both
 /// algebraic canonicalization and discharged conditional rewrite rules (log/exp
 /// inverses, log power pullout, even-root sign resolution, nonzero zero-powers).
-pub fn simplify_with_assumptions(
-    expr: &Expr,
-    context: &Arc<ImmutableAssumptionsSnapshot>,
-) -> Expr {
+pub fn simplify_with_assumptions(expr: &Expr, context: &Arc<ImmutableAssumptionsSnapshot>) -> Expr {
     let rules = rewrite::standard_rules();
     let rewritten = apply_rules_bottom_up(expr, &rules, context, 0);
     simplify(&rewritten)
@@ -934,10 +931,7 @@ fn cancel_at(expr: &Expr, depth: usize) -> Result<Expr, SimplifyError> {
                     if pos_exp == fsym_core::BigInt::from(1) {
                         den_factors.push((**base).clone());
                     } else {
-                        den_factors.push(Expr::Pow(
-                            base.clone(),
-                            Arc::new(Expr::Integer(pos_exp)),
-                        ));
+                        den_factors.push(Expr::Pow(base.clone(), Arc::new(Expr::Integer(pos_exp))));
                     }
                 } else {
                     num_factors.push(cf);
@@ -1854,7 +1848,10 @@ mod tests {
             Expr::Pow(Arc::new(den), Arc::new(Expr::from_i64(-1))),
         ]);
         let cancelled = cancel(&frac);
-        assert_eq!(cancelled, simplify(&Expr::Add(vec![Expr::from_i64(1), x.clone()])));
+        assert_eq!(
+            cancelled,
+            simplify(&Expr::Add(vec![Expr::from_i64(1), x.clone()]))
+        );
 
         // (x^2 + 2x + 1) / (x^2 - 1) => (x + 1) / (x - 1)
         let num2 = Expr::Add(vec![

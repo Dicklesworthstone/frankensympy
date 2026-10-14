@@ -225,7 +225,8 @@ fn sylvester_resultant_fixed_degrees(
             if !r[i].is_zero() {
                 let factor = &r[i] * &inv_pivot;
                 r[i] = BigRational::zero();
-                for (target, p_val) in r.iter_mut().skip(i + 1).zip(pivot_slice.iter().skip(i + 1)) {
+                for (target, p_val) in r.iter_mut().skip(i + 1).zip(pivot_slice.iter().skip(i + 1))
+                {
                     *target -= &factor * p_val;
                 }
             }
@@ -648,12 +649,8 @@ impl AlgebraicNumber {
         for k in 0..=max_deg {
             let x_k = BigRational::from_integer(BigInt::from(k as i64));
             let shifted_p = poly_eval_shifted_neg_y(&self.defining_poly_coeffs, &x_k);
-            let res_k = sylvester_resultant_fixed_degrees(
-                &shifted_p,
-                m,
-                &other.defining_poly_coeffs,
-                n,
-            );
+            let res_k =
+                sylvester_resultant_fixed_degrees(&shifted_p, m, &other.defining_poly_coeffs, n);
             xs.push(x_k);
             ys.push(res_k);
         }
@@ -688,12 +685,8 @@ impl AlgebraicNumber {
         for k in 0..=max_deg {
             let x_k = BigRational::from_integer(BigInt::from(k as i64));
             let hom_p = poly_eval_homogenized_quotient_y(&self.defining_poly_coeffs, &x_k);
-            let res_k = sylvester_resultant_fixed_degrees(
-                &hom_p,
-                m,
-                &other.defining_poly_coeffs,
-                n,
-            );
+            let res_k =
+                sylvester_resultant_fixed_degrees(&hom_p, m, &other.defining_poly_coeffs, n);
             xs.push(x_k);
             ys.push(res_k);
         }

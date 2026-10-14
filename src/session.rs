@@ -52,13 +52,8 @@ pub enum SessionError {
     #[error(
         "import refused: export originated in a different assumption universe (context digest {found:02x?}, expected {expected:02x?})"
     )]
-    UniverseMismatch {
-        found: [u8; 32],
-        expected: [u8; 32],
-    },
-    #[error(
-        "replay refused: the re-verified derivation digest does not match the exported digest"
-    )]
+    UniverseMismatch { found: [u8; 32], expected: [u8; 32] },
+    #[error("replay refused: the re-verified derivation digest does not match the exported digest")]
     ReplayDigestMismatch,
     #[error("session serialization failed: {0}")]
     Serialization(String),
@@ -137,8 +132,7 @@ fn factor_expr_for_session(expr: &Expr) -> Result<Expr, String> {
     }
     let poly = MultivariatePoly::from_expr(expr, &generators)
         .map_err(|e| format!("non-polynomial expression: {e}"))?;
-    let factored =
-        factor_multivariate(&poly).map_err(|e| format!("factorization refused: {e}"))?;
+    let factored = factor_multivariate(&poly).map_err(|e| format!("factorization refused: {e}"))?;
     verify_multivariate_factorization(&poly, &factored)
         .map_err(|e| format!("factorization verification failed: {e}"))?;
     if factored.factors.is_empty() {
@@ -288,7 +282,8 @@ impl Session {
             )));
         }
         let forked = self.workspace.fork(branch_name);
-        self.branches.insert(branch_name.to_string(), forked.clone());
+        self.branches
+            .insert(branch_name.to_string(), forked.clone());
         self.workspace = forked;
         Ok(branch_name.to_string())
     }

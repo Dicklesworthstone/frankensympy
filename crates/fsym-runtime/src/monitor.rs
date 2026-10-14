@@ -591,7 +591,12 @@ impl ObligationLeakMonitor {
     /// Construct the monitor for a declared null and alternative leak rate.
     pub fn new(null_rate: f64, alternative_rate: f64, alpha: f64) -> Result<Self, MonitorError> {
         Ok(Self {
-            core: EProcessCore::new(OBLIGATION_LEAK_MONITOR_ID, null_rate, alternative_rate, alpha)?,
+            core: EProcessCore::new(
+                OBLIGATION_LEAK_MONITOR_ID,
+                null_rate,
+                alternative_rate,
+                alpha,
+            )?,
         })
     }
 
@@ -936,7 +941,10 @@ mod tests {
             verifier_mon.safe_fallback(),
             "reference_checker_only_after_investigation"
         );
-        assert_eq!(verifier_mon.observe_dual_check(true), MonitorDecision::Continue);
+        assert_eq!(
+            verifier_mon.observe_dual_check(true),
+            MonitorDecision::Continue
+        );
         assert!(matches!(
             verifier_mon.observe_dual_check(false),
             MonitorDecision::Alarm { .. }

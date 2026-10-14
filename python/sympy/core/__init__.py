@@ -7,11 +7,14 @@ missing: importing an unusable symbolic shell would make capability checks lie.
 
 from __future__ import annotations
 
+import contextlib
 import decimal
 import math
 import re
 import struct
 import sys
+import threading
+import weakref
 from collections import OrderedDict
 from fractions import Fraction
 from typing import Any, Iterable
@@ -74,6 +77,133 @@ except ImportError as exc:
             "FrankenSymPy requires its fsym_python native extension; "
             "build or install the package with maturin before importing sympy"
         ) from exc
+
+SupervisedCallbackSession = _native.SupervisedCallbackSession
+check_interpreter_support = _native.check_interpreter_support
+
+_callback_tls = threading.local()
+_BUILTIN_HOOK_OWNERS = frozenset({
+    "Basic",
+    "Atom",
+    "AtomicExpr",
+    "Expr",
+    "Application",
+    "Function",
+    "_NativeFunction",
+    "AppliedUndef",
+})
+_HOOK_ATTRS = ("eval", "_eval_derivative", "fdiff", "_eval_subs", "_eval_evalf", "_imp_")
+
+
+def _has_user_override(cls: type, attr: str) -> bool:
+    for base in cls.__mro__:
+        if base is object or base.__name__ in _BUILTIN_HOOK_OWNERS:
+            continue
+        if attr in base.__dict__:
+            return base.__dict__[attr] is not None
+    return False
+
+
+def _class_capability_signature(cls: type) -> tuple[Any, ...]:
+    return (
+        cls,
+        type(cls),
+        getattr(cls, "nargs", None),
+        tuple((attr, base.__dict__.get(attr)) for base in cls.__mro__ if base is not object and base.__name__ not in _BUILTIN_HOOK_OWNERS for attr in _HOOK_ATTRS if attr in base.__dict__),
+    )
+
+
+def _expr_node_count(value: Any, max_scan: int = 8192) -> int:
+    count = 0
+    stack = [value]
+    while stack:
+        node = stack.pop()
+        count += 1
+        if count > max_scan:
+            return count
+        if isinstance(node, Basic):
+            args = object.__getattribute__(node, "_args") if hasattr(node, "_args") else getattr(node, "args", ())
+            stack.extend(args)
+        elif isinstance(node, (tuple, list)):
+            stack.extend(node)
+    return count
+
+
+def _active_callback_session() -> Any:
+    return getattr(_callback_tls, "session", None)
+
+
+@contextlib.contextmanager
+def supervised_callback_session(
+    session: Any = None,
+    *,
+    max_reentrancy_depth: int = 8,
+    max_invocations: int = 128,
+    max_nested_steps: int = 10_000,
+    max_input_nodes: int = 2048,
+    max_output_nodes: int = 2048,
+    max_wall_time_ms: int = 5000,
+):
+    """Bind a supervised callback session to the current thread/request."""
+    check_interpreter_support()
+    prev = getattr(_callback_tls, "session", None)
+    if session is None:
+        session = SupervisedCallbackSession(
+            max_reentrancy_depth=max_reentrancy_depth,
+            max_invocations=max_invocations,
+            max_nested_steps=max_nested_steps,
+            max_input_nodes=max_input_nodes,
+            max_output_nodes=max_output_nodes,
+            max_wall_time_ms=max_wall_time_ms,
+        )
+    else:
+        session.verify_ownership()
+    _callback_tls.session = session
+    try:
+        yield session
+    finally:
+        _callback_tls.session = prev
+
+
+def _charge_nested_if_active(steps: int = 1) -> None:
+    session = _active_callback_session()
+    if session is not None:
+        session.charge_nested_steps(max(1, int(steps)))
+
+
+def _invoke_supervised_callback(
+    hook_kind: str,
+    target_key: str,
+    args_key: str,
+    callback: Any,
+    cb_args: tuple[Any, ...],
+    *,
+    input_exprs: tuple[Any, ...] = (),
+    session: Any = None,
+) -> Any:
+    check_interpreter_support()
+    active = session if session is not None else _active_callback_session()
+    input_nodes = sum(_expr_node_count(e) for e in (input_exprs or cb_args)) or 1
+    if active is not None:
+        return active.invoke_once(
+            hook_kind,
+            target_key,
+            args_key,
+            input_nodes,
+            callback,
+            cb_args,
+            _expr_node_count,
+        )
+    with supervised_callback_session() as temp_session:
+        return temp_session.invoke_once(
+            hook_kind,
+            target_key,
+            args_key,
+            input_nodes,
+            callback,
+            cb_args,
+            _expr_node_count,
+        )
 
 
 def _exact_surface_types():
@@ -328,6 +458,14 @@ def _surface_symbol(native_value: Any) -> "Symbol":
 
 
 _known_functions: dict[str, type] = {}
+_user_functions: weakref.WeakValueDictionary[str, type] = weakref.WeakValueDictionary()
+
+
+def _lookup_known_function(name: str) -> type | None:
+    cls = _user_functions.get(name)
+    if cls is not None:
+        return cls
+    return _known_functions.get(name)
 
 
 def _wrap(value: Any) -> "Basic":
@@ -372,7 +510,7 @@ def _wrap(value: Any) -> "Basic":
         "Constant": Expr,
     }.get(value.func_name)
     if cls is None:
-        func_cls = _known_functions.get(value.func_name)
+        func_cls = _lookup_known_function(value.func_name)
         if func_cls is None:
             func_cls = Function(value.func_name)
         if value.func_name == "Piecewise" and hasattr(func_cls, "_from_native"):
@@ -381,6 +519,8 @@ def _wrap(value: Any) -> "Basic":
             return func_cls._from_native(value)
         obj = object.__new__(func_cls)
         obj._value = value
+        if not issubclass(func_cls, (_NativeFunction, AppliedUndef)):
+            obj._args = tuple(_wrap(a) for a in value.args)
         return obj
     obj = object.__new__(cls)
     obj._value = value
@@ -918,31 +1058,59 @@ class Basic:
             return any(arg.has(pattern) if hasattr(arg, "has") else arg == pattern for arg in self.args)
 
     def subs(self, *args: Any, **kwargs: Any) -> "Basic":
+        simultaneous = bool(kwargs.pop("simultaneous", False))
         if len(args) == 1:
             sequence = args[0]
+            unordered = False
             if isinstance(sequence, dict):
                 items = list(sequence.items())
+                unordered = True
             elif isinstance(sequence, (list, tuple)):
                 items = list(sequence)
             else:
                 raise ValueError("subs requires a dict, sequence of pairs, or (old, new)")
-            cur = self
+            normalized_items = []
             for old, new in items:
-                cur = cur.subs(old, new)
+                old_s = Symbol(old) if isinstance(old, str) else (old if isinstance(old, Basic) else sympify(old))
+                new_s = new if isinstance(new, Basic) else sympify(new)
+                if not _aresame_surface(old_s, new_s):
+                    normalized_items.append((old_s, new_s))
+            if unordered:
+                seq_dict = dict(normalized_items)
+                ordered_keys = sorted(
+                    seq_dict.keys(),
+                    key=lambda k: (-_expr_node_count(k), k.sort_key() if hasattr(k, "sort_key") else str(k)),
+                )
+                normalized_items = [(k, seq_dict[k]) for k in ordered_keys]
+            if simultaneous:
+                dummies = []
+                cur = self
+                for idx, (old_s, new_s) in enumerate(normalized_items):
+                    d = Dummy(f"subs_d_{idx}")
+                    dummies.append((d, new_s))
+                    cur = cur.subs(old_s, d)
+                for d, new_s in dummies:
+                    cur = cur.subs(d, new_s)
+            else:
+                cur = self
+                for old_s, new_s in normalized_items:
+                    cur = cur.subs(old_s, new_s)
             if kwargs:
                 for k, v in kwargs.items():
                     cur = cur.subs(Symbol(k), v)
             return cur
         elif len(args) == 2:
             old, new = args
-            try:
-                res = _wrap(_native_expr(self).subs(_native_expr(old), _native_expr(new)))
-            except (NotImplementedError, TypeError):
-                if hasattr(self, "_eval_subs"):
-                    res = self._eval_subs(old, new)
-                else:
-                    new_args = [a.subs(old, new) if hasattr(a, "subs") else a for a in self.args]
-                    res = self.func(*new_args)
+            old_s = Symbol(old) if isinstance(old, str) else (old if isinstance(old, Basic) else sympify(old))
+            new_s = new if isinstance(new, Basic) else sympify(new)
+            _charge_nested_if_active(_expr_node_count(self))
+            if _tree_requires_supervised_subs(self):
+                res = _subs_supervised(self, old_s, new_s)
+            else:
+                try:
+                    res = _wrap(_native_expr(self).subs(_native_expr(old_s), _native_expr(new_s)))
+                except (NotImplementedError, TypeError):
+                    res = _subs_supervised(self, old_s, new_s)
             if kwargs:
                 for k, v in kwargs.items():
                     res = res.subs(Symbol(k), v)
@@ -2277,6 +2445,12 @@ class Expr(Basic):
     def evalf(self, n: int = 15) -> "Float":
         if type(n) is not int or n < 1:
             raise TypeError("evalf dps must be a positive int")
+        _charge_nested_if_active(_expr_node_count(self))
+        if _tree_has_custom_evalf_hook(self):
+            prec = max(1, int(round((int(n) + 1) * 3.3219280948873626))) + (14 if type(self) is Add else 4)
+            lowered_tree = _eval_custom_evalf_tree(self, n, prec)
+            if not _tree_has_custom_evalf_hook(lowered_tree):
+                return lowered_tree.evalf(n) if isinstance(lowered_tree, Expr) else Float(_admitted_python_float(lowered_tree), n)
         certified = _certified_float(self, n)
         if certified is not None:
             return certified
@@ -2299,6 +2473,10 @@ class Expr(Basic):
             return re_part + digits(value.imag) * I
         except (NotImplementedError, TypeError):
             return super().evalf(n)
+
+    def _evalf(self, prec: int = 53) -> Any:
+        dps = max(1, int(round(int(prec) * 0.3010299956639812 - 1)))
+        return self.evalf(dps)
 
     def n(self, n: int = 15) -> Any:
         return self.evalf(n=n)
@@ -4246,7 +4424,11 @@ class Function(Application, metaclass=FunctionClass):
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         if cls.__name__ != "AppliedUndef" and not cls.__name__.startswith("_"):
-            _known_functions[cls.__name__] = cls
+            mod = getattr(cls, "__module__", "") or ""
+            if mod.startswith("sympy."):
+                _known_functions[cls.__name__] = cls
+            else:
+                _user_functions[cls.__name__] = cls
 
     def __new__(cls, *args: Any, **options: Any):
         if cls is Function:
@@ -4255,11 +4437,18 @@ class Function(Application, metaclass=FunctionClass):
             if not args[0]:
                 raise ValueError("Function name must be non-empty")
             name = args[0]
-            if name in _known_functions:
-                return _known_functions[name]
+            existing = _lookup_known_function(name)
+            if existing is not None:
+                return existing
             if name == _FLOAT_INTERN or name.startswith(_DUMMY_PREFIX):
                 raise ValueError("Function name collides with native intern encoding")
             return UndefinedFunction(name)
+
+        nargs_spec = getattr(cls, "nargs", None)
+        if nargs_spec is not None:
+            allowed_arities = {nargs_spec} if isinstance(nargs_spec, int) else set(nargs_spec)
+            if len(args) not in allowed_arities:
+                raise TypeError(f"{cls.__name__} takes {nargs_spec} arguments (got {len(args)})")
 
         # Sympify raw Python values first (fresh-eyes finding 3): upstream
         # sympifies every argument before dispatch, so user eval hooks and
@@ -4275,11 +4464,24 @@ class Function(Application, metaclass=FunctionClass):
         evaluate = options.get("evaluate", True)
 
         # Classmethod eval hook — skipped for evaluate=False (finding 8).
-        eval_method = getattr(cls, "eval", None)
-        if eval_method is not None and evaluate:
-            evaluated = eval_method(*sympified)
-            if evaluated is not None:
-                return _wrap(_native_expr(evaluated))
+        if evaluate:
+            if issubclass(cls, _NativeFunction) and not _has_user_override(cls, "eval"):
+                evaluated = cls.eval(*sympified)
+                if evaluated is not None:
+                    return _wrap(_native_expr(evaluated))
+            elif _has_user_override(cls, "eval"):
+                target_key = f"{cls.__module__}.{cls.__qualname__}#{id(cls)}"
+                args_key = f"({', '.join(f'{type(a).__qualname__}:{a}' for a in sympified)})"
+                evaluated = _invoke_supervised_callback(
+                    "eval",
+                    target_key,
+                    args_key,
+                    cls.eval,
+                    sympified,
+                    input_exprs=sympified,
+                )
+                if evaluated is not None:
+                    return evaluated if isinstance(evaluated, Basic) else sympify(evaluated)
 
         obj = object.__new__(cls)
         obj._args = sympified
@@ -4445,6 +4647,313 @@ def _require_symbol(value: Any) -> Symbol:
     raise TypeError("differentiation variable must be a Symbol")
 
 
+def _aresame_surface(a: Any, b: Any) -> bool:
+    if type(a) is not type(b):
+        return False
+    if isinstance(a, Basic) and isinstance(b, Basic):
+        if hasattr(a, "_args") or hasattr(b, "_args"):
+            a_args = a.args
+            b_args = b.args
+            return len(a_args) == len(b_args) and all(_aresame_surface(x, y) for x, y in zip(a_args, b_args))
+    return bool(a == b)
+
+
+def _node_has_custom_subs_or_eval(node: Any) -> bool:
+    if not isinstance(node, Basic):
+        return False
+    cls = type(node)
+    if _has_user_override(cls, "_eval_subs") or _has_user_override(cls, "eval"):
+        return True
+    if (
+        isinstance(node, Function)
+        and not isinstance(node, (_NativeFunction, AppliedUndef))
+        and not cls.__module__.startswith("sympy.")
+    ):
+        return True
+    if cls in (Add, Mul) and hasattr(node, "_args"):
+        return True
+    return False
+
+
+def _tree_requires_supervised_subs(node: Any) -> bool:
+    stack = [node]
+    while stack:
+        cur = stack.pop()
+        if not isinstance(cur, Basic):
+            continue
+        if _node_has_custom_subs_or_eval(cur):
+            return True
+        if type(cur) in (Add, Mul, Pow, Derivative) or isinstance(cur, Function):
+            stack.extend(cur.args)
+    return False
+
+
+def _subs_supervised(node: Any, old_s: Basic, new_s: Basic) -> Basic:
+    if not isinstance(node, Basic):
+        return node
+    if _aresame_surface(node, old_s):
+        return new_s
+    cls = type(node)
+    if _has_user_override(cls, "_eval_subs"):
+        target_key = f"{cls.__module__}.{cls.__qualname__}#{id(cls)}({node})"
+        args_key = f"({old_s},{new_s})"
+        rv = _invoke_supervised_callback(
+            "_eval_subs",
+            target_key,
+            args_key,
+            node._eval_subs,
+            (old_s, new_s),
+            input_exprs=(node, old_s, new_s),
+        )
+        if rv is not None:
+            return rv if isinstance(rv, Basic) else sympify(rv)
+    if cls.subs is not Basic.subs and cls.__module__.startswith("sympy."):
+        return node.subs(old_s, new_s)
+    if not _tree_requires_supervised_subs(node):
+        try:
+            return _wrap(_native_expr(node).subs(_native_expr(old_s), _native_expr(new_s)))
+        except (NotImplementedError, TypeError):
+            pass
+    args = node.args
+    if not args:
+        return node
+    new_args = []
+    hit = False
+    for a in args:
+        na = _subs_supervised(a, old_s, new_s) if isinstance(a, Basic) else a
+        if not _aresame_surface(na, a):
+            hit = True
+        new_args.append(na)
+    if not hit:
+        return node
+    return node.func(*new_args)
+
+
+
+def _node_has_custom_evalf_hook(node: Any) -> bool:
+    if not isinstance(node, Basic):
+        return False
+    cls = type(node)
+    return _has_user_override(cls, "_eval_evalf") or _has_user_override(cls, "_imp_")
+
+
+def _tree_has_custom_evalf_hook(node: Any) -> bool:
+    stack = [node]
+    while stack:
+        cur = stack.pop()
+        if not isinstance(cur, Basic):
+            continue
+        if _node_has_custom_evalf_hook(cur):
+            return True
+        if type(cur) in (Add, Mul, Pow, Derivative) or isinstance(cur, Function):
+            stack.extend(cur.args)
+    return False
+
+
+def _eval_custom_evalf_tree(node: Any, n: int, prec: int) -> Any:
+    if not isinstance(node, Basic):
+        return node
+    cls = type(node)
+    if _has_user_override(cls, "_eval_evalf"):
+        target_key = f"{cls.__module__}.{cls.__qualname__}#{id(cls)}({', '.join(str(a) for a in node.args)})"
+        res = _invoke_supervised_callback(
+            "_eval_evalf",
+            target_key,
+            str(prec),
+            node._eval_evalf,
+            (prec,),
+            input_exprs=(node,),
+        )
+        if res is not None:
+            return res if isinstance(res, Basic) else sympify(res)
+    if _has_user_override(cls, "_imp_"):
+        eval_args = tuple(_eval_custom_evalf_tree(a, n, prec).evalf(n) if isinstance(a, Expr) else a for a in node.args)
+        target_key = f"{cls.__module__}.{cls.__qualname__}#{id(cls)}"
+        args_key = f"({', '.join(str(a) for a in eval_args)})"
+        res = _invoke_supervised_callback(
+            "_imp_",
+            target_key,
+            args_key,
+            cls._imp_,
+            eval_args,
+            input_exprs=eval_args,
+        )
+        if res is not None:
+            return res if isinstance(res, Basic) else Float(_admitted_python_float(res), n)
+    if not _tree_has_custom_evalf_hook(node):
+        return node
+    new_args = [_eval_custom_evalf_tree(a, n, prec) for a in node.args]
+    return node.func(*new_args)
+
+
+def _node_has_custom_diff_hook(node: Any) -> bool:
+    if not isinstance(node, Basic):
+        return False
+    cls = type(node)
+    return _has_user_override(cls, "_eval_derivative") or _has_user_override(cls, "fdiff")
+
+
+def _tree_has_custom_diff_hook(node: Any) -> bool:
+    stack = [node]
+    while stack:
+        cur = stack.pop()
+        if not isinstance(cur, Basic):
+            continue
+        if _node_has_custom_diff_hook(cur):
+            return True
+        if type(cur) in (Add, Mul, Pow, Derivative) or isinstance(cur, Function):
+            stack.extend(cur.args)
+    return False
+
+
+def _check_admitted_surface_tree(node: Any) -> None:
+    stack = [node]
+    while stack:
+        cur = stack.pop()
+        if not isinstance(cur, Basic):
+            continue
+        cls = type(cur)
+        if (
+            cls not in _exact_surface_types()
+            and not isinstance(cur, Function)
+            and not cls.__module__.startswith("sympy.")
+        ):
+            if not getattr(cls, "_fsym_supervised_override", False):
+                raise NotImplementedError(
+                    "custom symbolic subclasses require a supervised Python override lane; "
+                    "the native fast path accepts exact built-in classes only"
+                )
+        if cls in (Add, Mul, Pow, Derivative) or isinstance(cur, Function):
+            stack.extend(cur.args)
+
+
+
+def _replace_exact_node(tree: Any, target: Basic, replacement: Basic) -> Any:
+    if not isinstance(tree, Basic):
+        return tree
+    if _aresame_surface(tree, target):
+        return replacement
+    args = tree.args
+    if not args:
+        return tree
+    new_args = []
+    changed = False
+    for a in args:
+        na = _replace_exact_node(a, target, replacement)
+        if na is not a:
+            changed = True
+        new_args.append(na)
+    if not changed:
+        return tree
+    if type(tree) in (Add, Mul, Pow):
+        return tree.func(*new_args, evaluate=False)
+    return tree.func(*new_args)
+
+
+def _collect_top_custom_diff_nodes(node: Any, out: list[Basic]) -> None:
+    if not isinstance(node, Basic):
+        return
+    if _node_has_custom_diff_hook(node):
+        if not any(_aresame_surface(node, existing) for existing in out):
+            out.append(node)
+        return
+    if type(node) in (Add, Mul, Pow, Derivative) or isinstance(node, Function):
+        for a in node.args:
+            _collect_top_custom_diff_nodes(a, out)
+
+
+def _diff_custom_node(node: Basic, symbol: Symbol) -> Expr:
+    if hasattr(node, "free_symbols") and symbol not in node.free_symbols:
+        return _ZERO
+    cls = type(node)
+    target_key = f"{cls.__module__}.{cls.__qualname__}#{id(cls)}({', '.join(str(a) for a in node.args)})"
+    if _has_user_override(cls, "_eval_derivative"):
+        raw = _invoke_supervised_callback(
+            "_eval_derivative",
+            target_key,
+            f"{symbol.name}:{_symbol_binding(symbol).identity_hex}",
+            node._eval_derivative,
+            (symbol,),
+            input_exprs=(node, symbol),
+        )
+        if raw is None:
+            return Derivative(node, symbol, evaluate=False)
+        return raw if isinstance(raw, Basic) else sympify(raw)
+    if _has_user_override(cls, "fdiff"):
+        terms = []
+        for idx, arg in enumerate(node.args, start=1):
+            d_arg = _diff_single_supervised(arg, symbol)
+            if d_arg != _ZERO and not getattr(d_arg, "is_zero", False):
+                df_i = _invoke_supervised_callback(
+                    "fdiff",
+                    target_key,
+                    str(idx),
+                    node.fdiff,
+                    (idx,),
+                    input_exprs=(node,),
+                )
+                if df_i is None:
+                    df_i = Derivative(node, arg, evaluate=False)
+                elif not isinstance(df_i, Basic):
+                    df_i = sympify(df_i)
+                terms.append(d_arg * df_i)
+        return Add(*terms) if terms else _ZERO
+    return Derivative(node, symbol, evaluate=False)
+
+
+def _diff_single_supervised(expr: Any, symbol: Symbol) -> Expr:
+    _check_admitted_surface_tree(expr)
+    if not _tree_has_custom_diff_hook(expr):
+        _charge_nested_if_active(_expr_node_count(expr))
+        return _lift_native_result(_native_expr(expr).diff(_symbol_binding(symbol)), expr, symbol)
+    if _node_has_custom_diff_hook(expr):
+        return _diff_custom_node(expr, symbol)
+    if type(expr) is Add:
+        native_terms = []
+        custom_terms = []
+        for term in expr.args:
+            if _tree_has_custom_diff_hook(term):
+                custom_terms.append(term)
+            else:
+                native_terms.append(term)
+        parts = []
+        if native_terms:
+            native_sum = Add(*native_terms, evaluate=False) if len(native_terms) > 1 else native_terms[0]
+            _charge_nested_if_active(_expr_node_count(native_sum))
+            parts.append(
+                _lift_native_result(_native_expr(native_sum).diff(_symbol_binding(symbol)), native_sum, symbol)
+            )
+        for term in custom_terms:
+            parts.append(_diff_single_supervised(term, symbol))
+        return Add(*parts) if parts else _ZERO
+
+    custom_nodes: list[Basic] = []
+    _collect_top_custom_diff_nodes(expr, custom_nodes)
+    dummies: list[tuple[Basic, Dummy]] = []
+    outer = expr
+    for idx, cnode in enumerate(custom_nodes):
+        d = Dummy(f"custom_hook_{idx}")
+        dummies.append((cnode, d))
+        outer = _replace_exact_node(outer, cnode, d)
+
+    _charge_nested_if_active(_expr_node_count(outer))
+    d_outer_dx = _lift_native_result(_native_expr(outer).diff(_symbol_binding(symbol)), outer, symbol)
+    for cnode, d in dummies:
+        d_outer_dx = _subs_supervised(d_outer_dx, d, cnode)
+
+    total_terms = [d_outer_dx] if d_outer_dx != _ZERO else []
+    for cnode, d in dummies:
+        _charge_nested_if_active(_expr_node_count(outer))
+        d_outer_du = _lift_native_result(_native_expr(outer).diff(_symbol_binding(d)), outer, d)
+        if d_outer_du != _ZERO and not getattr(d_outer_du, "is_zero", False):
+            for c_other, d_other in dummies:
+                d_outer_du = _subs_supervised(d_outer_du, d_other, c_other)
+            d_cnode = _diff_custom_node(cnode, symbol)
+            if d_cnode != _ZERO and not getattr(d_cnode, "is_zero", False):
+                total_terms.append(d_outer_du * d_cnode)
+    return Add(*total_terms) if total_terms else _ZERO
+
+
 def _exact_integer_value(value: Any) -> int | None:
     if type(value) is int:
         return value
@@ -4499,11 +5008,19 @@ def _normalize_diff_args(*variables: Any) -> list[Any]:
 
 
 def diff(expression: Any, *variables: Any) -> Expr:
-    """Differentiate through the implemented exact native rule set."""
+    """Differentiate through the implemented exact native rule set and supervised custom hooks."""
     normalized_vars = _normalize_diff_args(*variables)
     result = expression
-    for symbol in normalized_vars:
-        if not isinstance(symbol, Symbol):
+    owns_session = _active_callback_session() is None
+    cm = supervised_callback_session() if owns_session else contextlib.nullcontext()
+    with cm:
+        for symbol in normalized_vars:
+            if isinstance(symbol, str):
+                symbol = Symbol(symbol)
+            if isinstance(symbol, Symbol):
+                _require_symbol(symbol)
+                result = _diff_single_supervised(result, symbol)
+                continue
             derivs = {d: Dummy(f"_deriv_{i}") for i, d in enumerate(result.atoms(Derivative)) if d != symbol}
             if derivs:
                 result = result.subs(derivs)
@@ -4513,17 +5030,6 @@ def diff(expression: Any, *variables: Any) -> Expr:
             result = d_sub.subs(w, symbol)
             if derivs:
                 result = result.subs({v: k for k, v in derivs.items()})
-            continue
-        if hasattr(result, "_eval_derivative"):
-            result = result._eval_derivative(symbol)
-        else:
-            try:
-                result = _lift_builtin_result(_native_expr(result).diff(_symbol_binding(symbol)))
-            except (NotImplementedError, TypeError):
-                if hasattr(result, "_eval_derivative"):
-                    result = result._eval_derivative(symbol)
-                else:
-                    raise
     return result
 
 
@@ -4900,6 +5406,18 @@ class _ExactDecimalFloat(Float):
     def _srepr(self) -> str:
         return f"Float('{self._decimal}', precision={self._dps})"
 
+    def evalf(self, n: int = 15) -> "Float":
+        if type(n) is not int or n < 1:
+            raise TypeError("evalf dps must be a positive int")
+        if n == self._dps:
+            return self
+        try:
+            fr = Fraction(self._decimal)
+            sci = _native.evalf_decimal_native(_native_expr(Rational(fr.numerator, fr.denominator)), int(n))
+            return _ExactDecimalFloat(_format_decimal(sci, n), n)
+        except Exception:
+            return Float(self._as_python_float(), n)
+
 
 _ExactDecimalFloat.__name__ = "Float"
 _ExactDecimalFloat.__qualname__ = "Float"
@@ -4925,10 +5443,36 @@ def _format_decimal(sci: str, n: int) -> str:
     return f"{sign}{body}e{'+' if exponent > 0 else '-'}{abs(exponent)}"
 
 
+def _float_leaves_to_rational(node: Any) -> Any:
+    if isinstance(node, _ExactDecimalFloat):
+        try:
+            fr = Fraction(node._decimal)
+            return Rational(fr.numerator, fr.denominator)
+        except Exception:
+            pass
+    if isinstance(node, Float):
+        f = node._as_python_float()
+        if math.isfinite(f):
+            fr = Fraction(f)
+            return Rational(fr.numerator, fr.denominator)
+        return node
+    if isinstance(node, Basic) and node.args:
+        new_args = [_float_leaves_to_rational(a) for a in node.args]
+        if any(na is not a for na, a in zip(new_args, node.args)):
+            if type(node) in (Add, Mul):
+                return type(node)(*new_args)
+            if type(node) is Pow:
+                return Pow(new_args[0], new_args[1])
+            return node.func(*new_args)
+    return node
+
+
 def _certified_float(expression: Any, n: int) -> Any:
     """Correctly rounded Float of a real constant from a certified native
     ball enclosure, or None when the expression is outside that lane."""
-    if not isinstance(expression, Basic) or type(expression) is Float:
+    if not isinstance(expression, Basic) or isinstance(expression, Float):
+        return None
+    if _tree_has_custom_evalf_hook(expression):
         return None
     try:
         if expression.free_symbols:
@@ -4936,7 +5480,8 @@ def _certified_float(expression: Any, n: int) -> Any:
     except Exception:
         return None
     try:
-        sci = _native.evalf_decimal_native(_native_expr(expression), int(n))
+        target = _float_leaves_to_rational(expression)
+        sci = _native.evalf_decimal_native(_native_expr(target), int(n))
     except Exception:
         return None
     return _ExactDecimalFloat(_format_decimal(sci, n), n)
@@ -4956,7 +5501,7 @@ def N(expression: Any, n: Any = None) -> Basic:
         raise TypeError(f"N precision must be an integer, got {type(n).__name__}")
     if n < 1:
         raise ValueError(f"N precision must be >= 1, got {n}")
-    is_pi = isinstance(expression, Expr) and str(expression) == "pi"
+    is_pi = type(expression) is Expr and str(expression) == "pi"
     if is_pi:
         if n > _MAX_HONEST_DIGITS:
             raise NotImplementedError(

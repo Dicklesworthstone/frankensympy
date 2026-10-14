@@ -214,7 +214,9 @@ fn check_nfactor_projection(
     }
     let mut cursor = 0usize;
     for &(factor_id, exp) in &capsule.claim.factors {
-        let native_factor = capsule.polynomial(factor_id).map_err(|_| E::MalformedInput)?;
+        let native_factor = capsule
+            .polynomial(factor_id)
+            .map_err(|_| E::MalformedInput)?;
         if native_factor.symbol != native_subject.symbol {
             return mismatch();
         }

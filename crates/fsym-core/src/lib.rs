@@ -401,8 +401,8 @@ impl Expr {
                     }
                     let (new_vars, renamed_body) = alpha_avoid_capture(&vars, body, &inner);
                     let new_body = renamed_body.subs(&inner);
-                    let tuple_form = args.len() == 2
-                        && matches!(&args[0], Expr::Function(t, _) if t == "Tuple");
+                    let tuple_form =
+                        args.len() == 2 && matches!(&args[0], Expr::Function(t, _) if t == "Tuple");
                     let mut new_args = if tuple_form {
                         vec![tuple_expr(new_vars.into_iter().map(Expr::Sym).collect())]
                     } else {
@@ -629,9 +629,7 @@ impl Expr {
                     let saved = bound.len();
                     for lim in args[1..].iter().rev() {
                         match lim {
-                            Expr::Function(t, items)
-                                if t == "Tuple" && items.len() >= 2 =>
-                            {
+                            Expr::Function(t, items) if t == "Tuple" && items.len() >= 2 => {
                                 for b_expr in &items[1..] {
                                     b_expr.collect_symbols(bound, acc);
                                 }
@@ -639,9 +637,7 @@ impl Expr {
                                     bound.push(v.clone());
                                 }
                             }
-                            Expr::Function(t, items)
-                                if t == "Tuple" && items.len() == 1 =>
-                            {
+                            Expr::Function(t, items) if t == "Tuple" && items.len() == 1 => {
                                 if let Expr::Sym(v) = &items[0] {
                                     if name == "Integral" {
                                         if !bound.contains(v) {
@@ -756,12 +752,15 @@ impl Expr {
                         let mag_root = bb.real().neg().sqrt(bits)?;
                         let i_root = ComplexBall::new(RealBall::from_i64(0), mag_root);
                         return i_root.pow(p);
-                    } else if !bb.real().contains_zero() || bb.real().lower() >= BigRational::zero() {
+                    } else if !bb.real().contains_zero() || bb.real().lower() >= BigRational::zero()
+                    {
                         let root = bb.real().sqrt(bits)?;
                         return ComplexBall::from_real(root).pow(p);
                     }
                 }
-                Ok(ComplexBall::from_real(self.eval_real_ball(precision_digits)?))
+                Ok(ComplexBall::from_real(
+                    self.eval_real_ball(precision_digits)?,
+                ))
             }
             Expr::Function(name, args) if args.len() == 1 => {
                 let arg = args[0].eval_complex_ball(extra)?;
@@ -790,7 +789,9 @@ impl Expr {
                     "re" => Ok(ComplexBall::from_real(arg.real().clone())),
                     "im" => Ok(ComplexBall::from_real(arg.imag().clone())),
                     "conjugate" => Ok(arg.conj()),
-                    _ => Ok(ComplexBall::from_real(self.eval_real_ball(precision_digits)?)),
+                    _ => Ok(ComplexBall::from_real(
+                        self.eval_real_ball(precision_digits)?,
+                    )),
                 }
             }
             _ => Err(BallError::ArgumentOutsideDeclaredEnvelope(format!(
@@ -2306,10 +2307,8 @@ mod tests {
     #[test]
     fn dag_lambda_rebind_respects_symbol_identity() {
         let x_plain = Symbol::new("x");
-        let x_tagged = Symbol::with_identity(
-            "x",
-            SymbolIdentity::from_assumptions_digest([9u8; 32]),
-        );
+        let x_tagged =
+            Symbol::with_identity("x", SymbolIdentity::from_assumptions_digest([9u8; 32]));
         let lambda_expr = Expr::Function(
             "Lambda".into(),
             vec![
@@ -2345,7 +2344,11 @@ mod tests {
                 Expr::Sym(x.clone()) + Expr::Sym(y.clone()),
                 Expr::Function(
                     "Tuple".into(),
-                    vec![Expr::Sym(x.clone()), Expr::from_i64(0), Expr::Sym(z.clone())],
+                    vec![
+                        Expr::Sym(x.clone()),
+                        Expr::from_i64(0),
+                        Expr::Sym(z.clone()),
+                    ],
                 ),
             ],
         );
@@ -2366,7 +2369,11 @@ mod tests {
                 Expr::Sym(x.clone()) + Expr::Sym(y.clone()),
                 Expr::Function(
                     "Tuple".into(),
-                    vec![Expr::Sym(x.clone()), Expr::from_i64(1), Expr::Sym(z.clone())],
+                    vec![
+                        Expr::Sym(x.clone()),
+                        Expr::from_i64(1),
+                        Expr::Sym(z.clone()),
+                    ],
                 ),
             ],
         );
@@ -2462,4 +2469,3 @@ mod tests {
         assert!(rball.contains(&BigRational::one()));
     }
 }
-

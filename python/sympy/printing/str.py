@@ -279,7 +279,7 @@ def _complex_value(e: Any) -> complex | None:
     if getattr(e, "free_symbols", None):
         return None
     c = _core()
-    if any(isinstance(a, c.AppliedUndef) for a in _preorder(e)):
+    if any(isinstance(a, c.Function) and not isinstance(a, c._NativeFunction) for a in _preorder(e)):
         return None
     try:
         re_part = float(e)

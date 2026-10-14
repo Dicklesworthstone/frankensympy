@@ -299,10 +299,7 @@ fn render_statement(subject: &[i64], factor_a: &[i64], factor_b: &[i64]) -> Stri
 }
 
 fn render_nfactor_statement(scalar: i64, expanded_factors: &[Vec<i64>], subject: &[i64]) -> String {
-    let rendered_factors: Vec<String> = expanded_factors
-        .iter()
-        .map(|f| render_vector(f))
-        .collect();
+    let rendered_factors: Vec<String> = expanded_factors.iter().map(|f| render_vector(f)).collect();
     format!(
         "{LEAN_NFACTOR_PREFIX}theorem projected_product :\n    polyScale ({scalar}) (polyProd [{}]) = {} := by decide\n#print axioms projected_product\n",
         rendered_factors.join(", "),
