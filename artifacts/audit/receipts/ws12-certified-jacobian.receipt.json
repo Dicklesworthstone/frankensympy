@@ -1,9 +1,17 @@
 {
-  "schema_version": 1,
+  "schema_version": 3,
   "gate": "ws12-certified-jacobian",
   "profile_id": "sympy-1.14.0-cpython",
   "status": "passed",
-  "commit": "d3fa70aa6deb063fdbed966d754828c5ecefa91b",
+  "commit": "22eb5897f624fc77bef4c5ef5f7844e540879242",
+  "source": {
+    "commit": "22eb5897f624fc77bef4c5ef5f7844e540879242",
+    "tree": "e19bef64af7fdd033d3094a6a98fa743af55c760",
+    "inputs_digest": "2da583ccdd3df1bc68242688ee5870847ccbb8ad8afe0a896b200aff34c73948",
+    "files": 421
+  },
+  "profile_digest": "1d73baa075515e7908bc78e2ec999397b1714974cfd4e8e4debc184c475dc88d",
+  "artifact_digests": {},
   "checks": [
     {
       "name": "workspace-forbids-unsafe",
@@ -13,18 +21,29 @@
     {
       "name": "test-sparse-jacobian-c7",
       "status": "passed",
-      "detail": "exit=0"
+      "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-calculus\",\"--test\",\"sparse_jacobian_c7\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 2 tests\\n..\\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
     },
     {
       "name": "test-sparse-jacobian-gate",
       "status": "passed",
-      "detail": "exit=0"
+      "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-calculus\",\"--test\",\"sparse_jacobian_gate\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 3 tests\\n...\\ntest result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
     },
     {
       "name": "tests-fsym-calculus",
       "status": "passed",
-      "detail": "exit=0"
+      "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-calculus\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 66 tests\\n..................................................................\\ntest result: ok. 66 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.65s\\n\\n\\nrunning 2 tests\\n..\\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 3 tests\\n...\\ntest result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 0 tests\\n\\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
+    },
+    {
+      "name": "source-stable-during-run",
+      "status": "passed",
+      "detail": "repository input snapshot compared before and after checks"
+    },
+    {
+      "name": "profile-input-bound",
+      "status": "passed",
+      "detail": "1d73baa075515e7908bc78e2ec999397b1714974cfd4e8e4debc184c475dc88d"
     }
   ],
-  "checks_digest": "c1a1f6d026f2d134e55f1c6e327687105079c4ad15dfe226e615d70b1b66fc64"
+  "checks_digest": "6f6116f5178a8097485222d9ab69754e0d39fd39fe75164ecd2600c5b9ca3ac3",
+  "receipt_digest": "81af3c83d9a4508c6e3ab825a8604b663c91557612f4ee5925658a43112345d7"
 }

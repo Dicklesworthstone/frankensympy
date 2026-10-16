@@ -1,9 +1,17 @@
 {
-  "schema_version": 1,
+  "schema_version": 3,
   "gate": "ws13-portfolio-runtime",
   "profile_id": "sympy-1.14.0-cpython",
   "status": "passed",
-  "commit": "d3fa70aa6deb063fdbed966d754828c5ecefa91b",
+  "commit": "22eb5897f624fc77bef4c5ef5f7844e540879242",
+  "source": {
+    "commit": "22eb5897f624fc77bef4c5ef5f7844e540879242",
+    "tree": "e19bef64af7fdd033d3094a6a98fa743af55c760",
+    "inputs_digest": "2da583ccdd3df1bc68242688ee5870847ccbb8ad8afe0a896b200aff34c73948",
+    "files": 421
+  },
+  "profile_digest": "1d73baa075515e7908bc78e2ec999397b1714974cfd4e8e4debc184c475dc88d",
+  "artifact_digests": {},
   "checks": [
     {
       "name": "workspace-forbids-unsafe",
@@ -13,13 +21,24 @@
     {
       "name": "test-cancellation-injection",
       "status": "passed",
-      "detail": "exit=0"
+      "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-runtime\",\"--test\",\"cancellation_injection\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
     },
     {
       "name": "tests-fsym-runtime",
       "status": "passed",
-      "detail": "exit=0"
+      "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-runtime\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 111 tests\\n....................................................................................... 87/111\\n........................\\ntest result: ok. 111 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.41s\\n\\n\\nrunning 0 tests\\n\\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 6 tests\\n......\\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s\\n\\n\\nrunning 12 tests\\n............\\ntest result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 10 tests\\n..........\\ntest result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 6 tests\\n......\\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 0 tests\\n\\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
+    },
+    {
+      "name": "source-stable-during-run",
+      "status": "passed",
+      "detail": "repository input snapshot compared before and after checks"
+    },
+    {
+      "name": "profile-input-bound",
+      "status": "passed",
+      "detail": "1d73baa075515e7908bc78e2ec999397b1714974cfd4e8e4debc184c475dc88d"
     }
   ],
-  "checks_digest": "add391e0d271ffecb4a4b322a829cfababc0efcbc777528ec8fea0c1204a0a62"
+  "checks_digest": "055c5163c787935989755ae6ac88d27c2c0aa3aa3b731deea359c74e8c849c1c",
+  "receipt_digest": "75a4361b02f2388d1f79317cdf14f7a93482631ca4370c949cbf0968fff3f22d"
 }

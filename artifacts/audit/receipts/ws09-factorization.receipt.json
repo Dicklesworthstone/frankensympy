@@ -1,9 +1,17 @@
 {
-  "schema_version": 1,
+  "schema_version": 3,
   "gate": "ws09-factorization",
   "profile_id": "sympy-1.14.0-cpython",
   "status": "passed",
-  "commit": "d3fa70aa6deb063fdbed966d754828c5ecefa91b",
+  "commit": "22eb5897f624fc77bef4c5ef5f7844e540879242",
+  "source": {
+    "commit": "22eb5897f624fc77bef4c5ef5f7844e540879242",
+    "tree": "e19bef64af7fdd033d3094a6a98fa743af55c760",
+    "inputs_digest": "2da583ccdd3df1bc68242688ee5870847ccbb8ad8afe0a896b200aff34c73948",
+    "files": 421
+  },
+  "profile_digest": "1d73baa075515e7908bc78e2ec999397b1714974cfd4e8e4debc184c475dc88d",
+  "artifact_digests": {},
   "checks": [
     {
       "name": "workspace-forbids-unsafe",
@@ -13,8 +21,19 @@
     {
       "name": "tests-fsym-polys",
       "status": "passed",
-      "detail": "exit=0"
+      "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-polys\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 68 tests\\n....................................................................\\ntest result: ok. 68 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.09s\\n\\n\\nrunning 0 tests\\n\\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
+    },
+    {
+      "name": "source-stable-during-run",
+      "status": "passed",
+      "detail": "repository input snapshot compared before and after checks"
+    },
+    {
+      "name": "profile-input-bound",
+      "status": "passed",
+      "detail": "1d73baa075515e7908bc78e2ec999397b1714974cfd4e8e4debc184c475dc88d"
     }
   ],
-  "checks_digest": "ed105abe5b6c4854900c9196f30acce1a3440300eb04d0b2447381cdc77596cd"
+  "checks_digest": "1ccd9a50b926b3a2c50da5d8ba4c0281e4888befd6473b7eece4acb8d9aaa7c9",
+  "receipt_digest": "298db9193f772f244577c6c25e5ab3da933f39018e90cdacfca3f6f5231aa503"
 }

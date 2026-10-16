@@ -1,9 +1,17 @@
 {
-  "schema_version": 1,
+  "schema_version": 3,
   "gate": "python-object-model",
   "profile_id": "sympy-1.14.0-cpython-r2",
   "status": "passed",
-  "commit": "d3fa70aa6deb063fdbed966d754828c5ecefa91b",
+  "commit": "22eb5897f624fc77bef4c5ef5f7844e540879242",
+  "source": {
+    "commit": "22eb5897f624fc77bef4c5ef5f7844e540879242",
+    "tree": "e19bef64af7fdd033d3094a6a98fa743af55c760",
+    "inputs_digest": "2da583ccdd3df1bc68242688ee5870847ccbb8ad8afe0a896b200aff34c73948",
+    "files": 421
+  },
+  "profile_digest": "306cb3c5cc2d442f7eb87f5051cc37266a6649c08a8a02affcb256cae8814a97",
+  "artifact_digests": {},
   "checks": [
     {
       "name": "oracle-version-pinned",
@@ -18,13 +26,24 @@
     {
       "name": "oracle-isolation-probe",
       "status": "passed",
-      "detail": "exit=0"
+      "detail": "{\"command\":[\"/data/projects/frankensympy/.venv-conformance/bin/python\",\"tools/conformance-lab/capture.py\",\"isolation\",\"tools/conformance-lab/profiles/sympy-1.14.0-cpython-r2.toml\",\"--candidate-python\",\"/data/projects/frankensympy/.venv-conformance/bin/python3\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"{\\n  \\\"candidate_sympy_file\\\": \\\"/data/projects/frankensympy/python/sympy/__init__.py\\\",\\n  \\\"candidate_sympy_import\\\": null,\\n  \\\"harness_imported_sympy\\\": false,\\n  \\\"oracle_did_not_import_fsym_python\\\": true,\\n  \\\"oracle_sympy_file\\\": \\\"/usr/lib/python3/dist-packages/sympy/__init__.py\\\",\\n  \\\"status\\\": \\\"passed\\\",\\n  \\\"wrong_candidate_root_rejected\\\": true\\n}\\n\"}"
     },
     {
       "name": "object-model-differential",
       "status": "passed",
-      "detail": "exit=0"
+      "detail": "{\"command\":[\"/data/projects/frankensympy/.venv-conformance/bin/python\",\"tools/conformance-lab/capture.py\",\"diff\",\"tools/conformance-lab/profiles/sympy-1.14.0-cpython-r2.toml\",\"--candidate-python\",\"/data/projects/frankensympy/.venv-conformance/bin/python3\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"{\\n  \\\"admitted\\\": 14,\\n  \\\"admitted_fixture_ids\\\": [\\n    \\\"adversarial/integer/from_float_string\\\",\\n    \\\"adversarial/pow/zero_neg_zero_base\\\",\\n    \\\"core/add/collapse_duplicates\\\",\\n    \\\"core/add/x_plus_y\\\",\\n    \\\"core/integer/42\\\",\\n    \\\"core/mul/three_x_sq\\\",\\n    \\\"core/pow/x_three\\\",\\n    \\\"core/rational/22_7\\\",\\n    \\\"core/symbol/x_positive\\\",\\n    \\\"held/add_ax2_minus_ax2_bxy\\\",\\n    \\\"held/add_noncanonical_order\\\",\\n    \\\"held/mul_two_k\\\",\\n    \\\"subclass/ConstitutiveLawZero_zero_collapse\\\",\\n    \\\"subclass/ConstitutiveLaw_applied\\\"\\n  ],\\n  \\\"affected_claim\\\": null,\\n  \\\"broken_candidate\\\": false,\\n  \\\"by_kind\\\": {},\\n  \\\"claims_promoted\\\": false,\\n  \\\"comparator\\\": \\\"construction_only\\\",\\n  \\\"details\\\": [],\\n  \\\"discrepancies\\\": 0,\\n  \\\"fixture_ids\\\": [],\\n  \\\"input_binding\\\": {\\n    \\\"fixture_ids\\\": [\\n      \\\"adversarial/integer/from_float_string\\\",\\n      \\\"adversarial/pow/zero_neg_zero_base\\\",\\n      \\\"core/add/collapse_duplicates\\\",\\n      \\\"core/add/x_plus_y\\\",\\n      \\\"core/integer/42\\\",\\n      \\\"core/mul/three_x_sq\\\",\\n      \\\"core/pow/x_three\\\",\\n      \\\"core/rational/22_7\\\",\\n      \\\"core/symbol/x_positive\\\",\\n      \\\"held/add_ax2_minus_ax2_bxy\\\",\\n      \\\"held/add_noncanonical_order\\\",\\n      \\\"held/mul_two_k\\\",\\n      \\\"subclass/ConstitutiveLawZero_zero_collapse\\\",\\n      \\\"subclass/ConstitutiveLaw_applied\\\"\\n    ],\\n    \\\"fixtures_sha256\\\": \\\"de241c47d1ce03cda19f1573a1d5228e81e9bc0b833b2dc32f9c302f8ce659c7\\\",\\n    \\\"goldens_sha256\\\": \\\"982f5b91348f54b06d996a7c0424fbeeadb82610489561b13d44a4034ed1efb1\\\",\\n    \\\"profile_id\\\": \\\"sympy-1.14.0-cpython-r2\\\",\\n    \\\"profile_sha256\\\": \\\"94d898b8e6db6c50abd570322936c942d59484b111ba17130e56fe4e0a11f1a9\\\"\\n  },\\n  \\\"ledger_dir\\\": null,\\n  \\\"ledger_records\\\": 0,\\n  \\\"named_claims\\\": [],\\n  \\\"paired\\\": 14,\\n  \\\"schema_version\\\": 1,\\n  \\\"type_matched\\\": 14,\\n  \\\"type_matched_fixture_ids\\\": [\\n    \\\"adversarial/integer/from_float_string\\\",\\n    \\\"adversarial/pow/zero_neg_zero_base\\\",\\n    \\\"core/add/collapse_duplicates\\\",\\n    \\\"core/add/x_plus_y\\\",\\n    \\\"core/integer/42\\\",\\n    \\\"core/mul/three_x_sq\\\",\\n    \\\"core/pow/x_three\\\",\\n    \\\"core/rational/22_7\\\",\\n    \\\"core/symbol/x_positive\\\",\\n    \\\"held/add_ax2_minus_ax2_bxy\\\",\\n    \\\"held/add_noncanonical_order\\\",\\n    \\\"held/mul_two_k\\\",\\n    \\\"subclass/ConstitutiveLawZero_zero_collapse\\\",\\n    \\\"subclass/ConstitutiveLaw_applied\\\"\\n  ]\\n}\\n\"}"
+    },
+    {
+      "name": "source-stable-during-run",
+      "status": "passed",
+      "detail": "repository input snapshot compared before and after checks"
+    },
+    {
+      "name": "profile-input-bound",
+      "status": "passed",
+      "detail": "306cb3c5cc2d442f7eb87f5051cc37266a6649c08a8a02affcb256cae8814a97"
     }
   ],
-  "checks_digest": "806ad05ed8cea4c16e951d091284cd7081289ff9b7b0dd56d8b386ce141f3fe9"
+  "checks_digest": "fa23c89dadbcdcdb06c2e1ba07aa5875f1d44fcda361a78f933d1f748d9d91b6",
+  "receipt_digest": "0467096aa100de75f5482b8365557bc18edb2670f56f73a5cfa7e13bdfb5f2ff"
 }
