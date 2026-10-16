@@ -3,8 +3,8 @@
   "name": "factorization_portfolio_verification",
   "status": "passed",
   "strategies": [
-    "square_free_decomposition",
-    "bounded_rational_roots"
+    "berlekamp_hensel_zassenhaus",
+    "kronecker_divisor_search"
   ],
   "checks": [
     {
@@ -15,9 +15,19 @@
     {
       "name": "tests-fsym-polys",
       "status": "passed",
-      "detail": "exit=0"
+      "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-polys\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 68 tests\\n....................................................................\\ntest result: ok. 68 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.09s\\n\\n\\nrunning 0 tests\\n\\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
+    },
+    {
+      "name": "source-stable-during-run",
+      "status": "passed",
+      "detail": "repository input snapshot compared before and after checks"
+    },
+    {
+      "name": "profile-input-bound",
+      "status": "passed",
+      "detail": "1d73baa075515e7908bc78e2ec999397b1714974cfd4e8e4debc184c475dc88d"
     }
   ],
-  "checks_digest": "ed105abe5b6c4854900c9196f30acce1a3440300eb04d0b2447381cdc77596cd",
+  "checks_digest": "1ccd9a50b926b3a2c50da5d8ba4c0281e4888befd6473b7eece4acb8d9aaa7c9",
   "evidence_receipt": "artifacts/audit/receipts/ws09-factorization.receipt.json"
 }

@@ -1,0 +1,87 @@
+{
+  "total_mutants": 16,
+  "killed_mutants": 16,
+  "survived_mutants": 0,
+  "mutants": [
+    {
+      "mutant_id": "delete_stage_01",
+      "killed": true,
+      "rejection_reason": "expected 12 properties, got 11"
+    },
+    {
+      "mutant_id": "delete_stage_02",
+      "killed": true,
+      "rejection_reason": "expected 12 properties, got 11"
+    },
+    {
+      "mutant_id": "delete_stage_03",
+      "killed": true,
+      "rejection_reason": "expected 12 properties, got 11"
+    },
+    {
+      "mutant_id": "delete_stage_04",
+      "killed": true,
+      "rejection_reason": "expected 12 properties, got 11"
+    },
+    {
+      "mutant_id": "delete_stage_05",
+      "killed": true,
+      "rejection_reason": "expected 12 properties, got 11"
+    },
+    {
+      "mutant_id": "delete_stage_06",
+      "killed": true,
+      "rejection_reason": "expected 12 properties, got 11"
+    },
+    {
+      "mutant_id": "delete_stage_07",
+      "killed": true,
+      "rejection_reason": "expected 12 properties, got 11"
+    },
+    {
+      "mutant_id": "delete_stage_08",
+      "killed": true,
+      "rejection_reason": "expected 12 properties, got 11"
+    },
+    {
+      "mutant_id": "delete_stage_09",
+      "killed": true,
+      "rejection_reason": "expected 12 properties, got 11"
+    },
+    {
+      "mutant_id": "delete_stage_10",
+      "killed": true,
+      "rejection_reason": "expected 12 properties, got 11"
+    },
+    {
+      "mutant_id": "delete_stage_11",
+      "killed": true,
+      "rejection_reason": "expected 12 properties, got 11"
+    },
+    {
+      "mutant_id": "delete_stage_12",
+      "killed": true,
+      "rejection_reason": "expected 12 properties, got 11"
+    },
+    {
+      "mutant_id": "substitute_stage_05_with_03",
+      "killed": true,
+      "rejection_reason": "duplicate property names detected (stage substitution)"
+    },
+    {
+      "mutant_id": "empty_or_historical_paired_records",
+      "killed": true,
+      "rejection_reason": "property 12 paired_records empty or incomplete (0)"
+    },
+    {
+      "mutant_id": "tamper_terminal_semantic_digest",
+      "killed": true,
+      "rejection_reason": "terminal semantic_digest does not match recomputed corpus digest"
+    },
+    {
+      "mutant_id": "drop_refused_case_from_corpus",
+      "killed": true,
+      "rejection_reason": "hero_corpus missing refused_as_expected case"
+    }
+  ]
+}

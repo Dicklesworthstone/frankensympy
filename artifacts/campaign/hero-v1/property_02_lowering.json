@@ -11,7 +11,7 @@
     {
       "name": "test-fresh-process-id-stability",
       "status": "passed",
-      "detail": "exit=0"
+      "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-core\",\"--test\",\"fresh_process_id_stability\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\"}"
     },
     {
       "name": "cross-architecture-fixture-closure",
@@ -21,19 +21,29 @@
     {
       "name": "tests-fsym-core",
       "status": "passed",
-      "detail": "exit=0"
+      "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-core\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 124 tests\\n....................................................................................... 87/124\\n.....................................\\ntest result: ok. 124 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 54.40s\\n\\n\\nrunning 0 tests\\n\\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 4 tests\\n....\\ntest result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 16 tests\\n................\\ntest result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 0 tests\\n\\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
     },
     {
       "name": "tests-fsym-assumptions",
       "status": "passed",
-      "detail": "exit=0"
+      "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-assumptions\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 46 tests\\ni.............................................\\ntest result: ok. 45 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 0 tests\\n\\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
     },
     {
       "name": "tests-fsym-id",
       "status": "passed",
-      "detail": "exit=0"
+      "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-id\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"    Checking fsym-id-tests v0.0.0 (/data/tmp/cargo-target/tests/trybuild/fsym-id)\\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s\\n\\n\\ntest tests/ui/cross_kind_assignment.rs ... ok\\ntest tests/ui/raw_payload_smuggling.rs ... ok\\n\\n\\n\",\"stdout\":\"\\nrunning 14 tests\\n..............\\ntest result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 1 test\\n.\\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s\\n\\n\\nrunning 0 tests\\n\\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
+    },
+    {
+      "name": "source-stable-during-run",
+      "status": "passed",
+      "detail": "repository input snapshot compared before and after checks"
+    },
+    {
+      "name": "profile-input-bound",
+      "status": "passed",
+      "detail": "1d73baa075515e7908bc78e2ec999397b1714974cfd4e8e4debc184c475dc88d"
     }
   ],
-  "checks_digest": "d7bffa67c881af0bf1b6052cb791a6f4beca8821fe2406e4015a34f03996ff10",
+  "checks_digest": "2db88230143a04ca6c71a3b56b3b5abbecb87a5238c8542195a147ab81aa0180",
   "evidence_receipt": "artifacts/audit/receipts/deterministic-term-identity.receipt.json"
 }

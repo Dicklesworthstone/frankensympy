@@ -3,6 +3,7 @@
   "name": "untrusted_remote_candidate_rejection",
   "status": "passed",
   "verified_cache_pollution": 0,
+  "projection_adapter": "frankengraphdb_v1",
   "checks": [
     {
       "name": "workspace-forbids-unsafe",
@@ -12,14 +13,24 @@
     {
       "name": "test-ws16-distribution-index-gate",
       "status": "passed",
-      "detail": "exit=0"
+      "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-runtime\",\"--test\",\"ws16_distribution_index_gate\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 6 tests\\n......\\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
     },
     {
       "name": "tests-fsym-runtime",
       "status": "passed",
-      "detail": "exit=0"
+      "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-runtime\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 111 tests\\n....................................................................................... 87/111\\n........................\\ntest result: ok. 111 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.39s\\n\\n\\nrunning 0 tests\\n\\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 6 tests\\n......\\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s\\n\\n\\nrunning 12 tests\\n............\\ntest result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 10 tests\\n..........\\ntest result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 6 tests\\n......\\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 0 tests\\n\\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
+    },
+    {
+      "name": "source-stable-during-run",
+      "status": "passed",
+      "detail": "repository input snapshot compared before and after checks"
+    },
+    {
+      "name": "profile-input-bound",
+      "status": "passed",
+      "detail": "1d73baa075515e7908bc78e2ec999397b1714974cfd4e8e4debc184c475dc88d"
     }
   ],
-  "checks_digest": "decfd599cb2a6e6f3983c86e24278ab3fa73e4d2dd56dd1c7b08b9de7750cd71",
+  "checks_digest": "02728a60c81a8021b67617110b85f983d65d2a3a043de1f9ac095222d5630e7a",
   "evidence_receipt": "artifacts/audit/receipts/ws16-distribution-index.receipt.json"
 }

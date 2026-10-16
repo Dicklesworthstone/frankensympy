@@ -2,7 +2,7 @@
   "property_id": 10,
   "name": "agent_workspace_and_semantic_merge",
   "status": "passed",
-  "protocol": "NDJSON structured requests/events",
+  "protocol": "NDJSON structured requests/events (all 14 AgentRequest variants)",
   "checks": [
     {
       "name": "workspace-forbids-unsafe",
@@ -12,14 +12,24 @@
     {
       "name": "test-c10-protocol-gate",
       "status": "passed",
-      "detail": "exit=0"
+      "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-runtime\",\"--test\",\"c10_protocol_gate\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
     },
     {
       "name": "tests-fsym-runtime",
       "status": "passed",
-      "detail": "exit=0"
+      "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-runtime\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 111 tests\\n....................................................................................... 87/111\\n........................\\ntest result: ok. 111 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.40s\\n\\n\\nrunning 0 tests\\n\\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 6 tests\\n......\\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s\\n\\n\\nrunning 12 tests\\n............\\ntest result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 10 tests\\n..........\\ntest result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 6 tests\\n......\\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 0 tests\\n\\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
+    },
+    {
+      "name": "source-stable-during-run",
+      "status": "passed",
+      "detail": "repository input snapshot compared before and after checks"
+    },
+    {
+      "name": "profile-input-bound",
+      "status": "passed",
+      "detail": "1d73baa075515e7908bc78e2ec999397b1714974cfd4e8e4debc184c475dc88d"
     }
   ],
-  "checks_digest": "532c0edf758dc899bb1e24751d3949abb8f5b10ee37f16b9cac7b2b1ec3e168e",
+  "checks_digest": "a829489dc67c4155f64e05359fdb15f2b53967295f6b9c62fd8863a8dcd4d226",
   "evidence_receipt": "artifacts/audit/receipts/ws14-agent-protocol.receipt.json"
 }

@@ -2,8 +2,9 @@
   "property_id": 8,
   "name": "persistence_raptorq_repair_and_resume",
   "status": "passed",
-  "repair_algorithm": "RaptorQ RFC 6330 multi-loss recovery",
+  "repair_algorithm": "RaptorQ RFC 6330 multi-loss recovery + FrankenSQLite durable store",
   "trust_chain": "decode -> digest -> schema_validation -> independent_proof_verification",
+  "cross_process_sqlite_resume_verified": true,
   "checks": [
     {
       "name": "workspace-forbids-unsafe",
@@ -13,14 +14,24 @@
     {
       "name": "test-c9-persistence-repair-gate",
       "status": "passed",
-      "detail": "exit=0"
+      "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-runtime\",\"--test\",\"c9_persistence_repair_gate\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 6 tests\\n......\\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\"}"
     },
     {
       "name": "tests-fsym-runtime",
       "status": "passed",
-      "detail": "exit=0"
+      "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-runtime\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 111 tests\\n....................................................................................... 87/111\\n........................\\ntest result: ok. 111 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.42s\\n\\n\\nrunning 0 tests\\n\\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 6 tests\\n......\\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s\\n\\n\\nrunning 12 tests\\n............\\ntest result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 10 tests\\n..........\\ntest result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 6 tests\\n......\\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 0 tests\\n\\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
+    },
+    {
+      "name": "source-stable-during-run",
+      "status": "passed",
+      "detail": "repository input snapshot compared before and after checks"
+    },
+    {
+      "name": "profile-input-bound",
+      "status": "passed",
+      "detail": "1d73baa075515e7908bc78e2ec999397b1714974cfd4e8e4debc184c475dc88d"
     }
   ],
-  "checks_digest": "7dc1f34963f93aaefae10d041daa245a09070b8c22ca9f73b3622509a33a24e8",
+  "checks_digest": "35f0ad09972ccc053708f98c75f2de4d7f7b7230875d4a7d2fa64f95e4566db7",
   "evidence_receipt": "artifacts/audit/receipts/ws15-persistence-repair.receipt.json"
 }

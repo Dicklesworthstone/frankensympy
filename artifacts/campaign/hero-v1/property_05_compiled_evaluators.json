@@ -5,7 +5,14 @@
   "diagnostic_tolerance": 1e-06,
   "finite_difference_agreement": true,
   "target_interfaces": [
-    "FrankenNumPy",
-    "FrankenSciPy"
-  ]
+    "fnp-linalg::solve_2x2",
+    "fsci-opt::fsolve"
+  ],
+  "consumer_provenance": {
+    "fnp_linalg_commit": "d5d29c9da36141f611d1414b4c6ef434ab31ea24",
+    "certified_ball_residual_bound_decimal_places": 12,
+    "fsolve_ball_residual_bound_decimal_places": 8,
+    "singular_jacobian_typed_refusal_verified": true
+  },
+  "test_output_digest": "8053b8581be304f267792a874b09c28a6b7cc4e0bdeae2d1f795db8a0601e63b"
 }

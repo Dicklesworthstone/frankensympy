@@ -1,20 +1,100 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "campaign_name": "Certified Jacobian Pipeline",
   "status": "passed",
-  "start_time": "2026-09-06T17:54:34Z",
-  "end_time": "2026-09-06T17:59:54Z",
-  "commit": "d3fa70aa6deb063fdbed966d754828c5ecefa91b",
+  "start_time": "2026-10-14T17:09:34Z",
+  "end_time": "2026-10-14T17:21:02Z",
+  "commit": "22eb5897f624fc77bef4c5ef5f7844e540879242",
   "platform": {
     "system": "Linux",
     "machine": "x86_64",
     "python_version": "3.14.4"
   },
+  "hero_corpus": {
+    "cases": [
+      {
+        "assumptions_ simplification_witness": "x0",
+        "case_id": "hero_constitutive_jacobian_4x4",
+        "density": 0.5625,
+        "held_preserved": true,
+        "immutable_snapshot_isolated": true,
+        "jacobian_rows": [
+          [
+            "2*x0",
+            "cos(x1)",
+            "0",
+            "0"
+          ],
+          [
+            "3*x0**2",
+            "x2",
+            "x1 + sin(x2)",
+            "0"
+          ],
+          [
+            "0",
+            "0",
+            "exp(x2)",
+            "3*x3**2"
+          ],
+          [
+            "x3 + 2",
+            "0",
+            "0",
+            "x0"
+          ]
+        ],
+        "mutation_generation": 1,
+        "nnz": 9,
+        "num_residuals": 4,
+        "num_vars": 4,
+        "residuals": [
+          "x0**2 + sin(x1) - 1",
+          "x1*x2 - cos(x2) + CustomKappa(x0)",
+          "x3**3 + exp(x2) - 4",
+          "x0*x3 + 2*x0 - 2"
+        ],
+        "status": "completed"
+      },
+      {
+        "case_id": "hero_transcendental_2x2_enclosure",
+        "f1_evalf_30": "-0.351278729299871853151349212186",
+        "f2_evalf_30": "0.641470984807896506652502321630",
+        "j00_evalf_30": "0.824360635350064073424325393907",
+        "j11_evalf_30": "0.540302305868139717400936607443",
+        "num_residuals": 2,
+        "num_vars": 2,
+        "status": "completed"
+      },
+      {
+        "case_id": "hero_factor_univariate_zz_cyclotomic",
+        "expanded": "x0**6 + 3*x0**4 + 3*x0**2 + 2",
+        "factored": "(x0**2 + 2)*(x0**2 - x0 + 1)*(x0**2 + x0 + 1)",
+        "roundtrip_zero": true,
+        "status": "completed"
+      },
+      {
+        "case_id": "hero_adversarial_cross_thread_ownership_refusal",
+        "has_reason": true,
+        "refusal_kind": "CrossThreadCallbackOwnershipRefused",
+        "refusal_observed": true,
+        "status": "refused_as_expected"
+      }
+    ],
+    "completed_cases": 3,
+    "refused_cases": 1,
+    "semantic_digest": "c093642630a6542d25e7283426d358f3b8370c4552a4b4a582afe11548772082",
+    "hashseed_0_digest": "c093642630a6542d25e7283426d358f3b8370c4552a4b4a582afe11548772082",
+    "hashseed_1_digest": "c093642630a6542d25e7283426d358f3b8370c4552a4b4a582afe11548772082",
+    "fresh_process_reproducible": true
+  },
   "terminal_digests": {
     "campaign_id": "certified_jacobian_v1",
-    "semantic_digest": "c609ea2f271398239111dc1240f24b4ced3bd99a4a220fa02b20cca12f6bd5c2",
-    "evidence_digest": "6e05b86ee117753903b246731b1534f5e2c42fc2b2629898687116992560c7e7",
-    "commit": "d3fa70aa6deb063fdbed966d754828c5ecefa91b",
+    "semantic_digest": "c093642630a6542d25e7283426d358f3b8370c4552a4b4a582afe11548772082",
+    "evidence_digest": "54f636ba06225e5f3c06752c6aae26b7cf464e3cf74ce495a6e0cacad0e09093",
+    "hashseed_0_semantic_digest": "c093642630a6542d25e7283426d358f3b8370c4552a4b4a582afe11548772082",
+    "hashseed_1_semantic_digest": "c093642630a6542d25e7283426d358f3b8370c4552a4b4a582afe11548772082",
+    "commit": "22eb5897f624fc77bef4c5ef5f7844e540879242",
     "reproducible_across_processes": true
   },
   "properties_verified": 12,
@@ -24,7 +104,8 @@
       "property_id": 1,
       "name": "python_object_surface",
       "status": "passed",
-      "profile": "sympy-1.14.0-cpython",
+      "profile": "sympy-1.14.0-cpython-r2",
+      "callback_effects_and_matrix_isolation_verified": true,
       "checks": [
         {
           "name": "oracle-version-pinned",
@@ -39,15 +120,25 @@
         {
           "name": "oracle-isolation-probe",
           "status": "passed",
-          "detail": "exit=0"
+          "detail": "{\"command\":[\"/data/projects/frankensympy/.venv-conformance/bin/python\",\"tools/conformance-lab/capture.py\",\"isolation\",\"tools/conformance-lab/profiles/sympy-1.14.0-cpython-r2.toml\",\"--candidate-python\",\"/data/projects/frankensympy/.venv-conformance/bin/python3\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"{\\n  \\\"candidate_sympy_file\\\": \\\"/data/projects/frankensympy/python/sympy/__init__.py\\\",\\n  \\\"candidate_sympy_import\\\": null,\\n  \\\"harness_imported_sympy\\\": false,\\n  \\\"oracle_did_not_import_fsym_python\\\": true,\\n  \\\"oracle_sympy_file\\\": \\\"/usr/lib/python3/dist-packages/sympy/__init__.py\\\",\\n  \\\"status\\\": \\\"passed\\\",\\n  \\\"wrong_candidate_root_rejected\\\": true\\n}\\n\"}"
         },
         {
           "name": "object-model-differential",
           "status": "passed",
-          "detail": "exit=0"
+          "detail": "{\"command\":[\"/data/projects/frankensympy/.venv-conformance/bin/python\",\"tools/conformance-lab/capture.py\",\"diff\",\"tools/conformance-lab/profiles/sympy-1.14.0-cpython-r2.toml\",\"--candidate-python\",\"/data/projects/frankensympy/.venv-conformance/bin/python3\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"{\\n  \\\"admitted\\\": 14,\\n  \\\"admitted_fixture_ids\\\": [\\n    \\\"adversarial/integer/from_float_string\\\",\\n    \\\"adversarial/pow/zero_neg_zero_base\\\",\\n    \\\"core/add/collapse_duplicates\\\",\\n    \\\"core/add/x_plus_y\\\",\\n    \\\"core/integer/42\\\",\\n    \\\"core/mul/three_x_sq\\\",\\n    \\\"core/pow/x_three\\\",\\n    \\\"core/rational/22_7\\\",\\n    \\\"core/symbol/x_positive\\\",\\n    \\\"held/add_ax2_minus_ax2_bxy\\\",\\n    \\\"held/add_noncanonical_order\\\",\\n    \\\"held/mul_two_k\\\",\\n    \\\"subclass/ConstitutiveLawZero_zero_collapse\\\",\\n    \\\"subclass/ConstitutiveLaw_applied\\\"\\n  ],\\n  \\\"affected_claim\\\": null,\\n  \\\"broken_candidate\\\": false,\\n  \\\"by_kind\\\": {},\\n  \\\"claims_promoted\\\": false,\\n  \\\"comparator\\\": \\\"construction_only\\\",\\n  \\\"details\\\": [],\\n  \\\"discrepancies\\\": 0,\\n  \\\"fixture_ids\\\": [],\\n  \\\"input_binding\\\": {\\n    \\\"fixture_ids\\\": [\\n      \\\"adversarial/integer/from_float_string\\\",\\n      \\\"adversarial/pow/zero_neg_zero_base\\\",\\n      \\\"core/add/collapse_duplicates\\\",\\n      \\\"core/add/x_plus_y\\\",\\n      \\\"core/integer/42\\\",\\n      \\\"core/mul/three_x_sq\\\",\\n      \\\"core/pow/x_three\\\",\\n      \\\"core/rational/22_7\\\",\\n      \\\"core/symbol/x_positive\\\",\\n      \\\"held/add_ax2_minus_ax2_bxy\\\",\\n      \\\"held/add_noncanonical_order\\\",\\n      \\\"held/mul_two_k\\\",\\n      \\\"subclass/ConstitutiveLawZero_zero_collapse\\\",\\n      \\\"subclass/ConstitutiveLaw_applied\\\"\\n    ],\\n    \\\"fixtures_sha256\\\": \\\"de241c47d1ce03cda19f1573a1d5228e81e9bc0b833b2dc32f9c302f8ce659c7\\\",\\n    \\\"goldens_sha256\\\": \\\"982f5b91348f54b06d996a7c0424fbeeadb82610489561b13d44a4034ed1efb1\\\",\\n    \\\"profile_id\\\": \\\"sympy-1.14.0-cpython-r2\\\",\\n    \\\"profile_sha256\\\": \\\"94d898b8e6db6c50abd570322936c942d59484b111ba17130e56fe4e0a11f1a9\\\"\\n  },\\n  \\\"ledger_dir\\\": null,\\n  \\\"ledger_records\\\": 0,\\n  \\\"named_claims\\\": [],\\n  \\\"paired\\\": 14,\\n  \\\"schema_version\\\": 1,\\n  \\\"type_matched\\\": 14,\\n  \\\"type_matched_fixture_ids\\\": [\\n    \\\"adversarial/integer/from_float_string\\\",\\n    \\\"adversarial/pow/zero_neg_zero_base\\\",\\n    \\\"core/add/collapse_duplicates\\\",\\n    \\\"core/add/x_plus_y\\\",\\n    \\\"core/integer/42\\\",\\n    \\\"core/mul/three_x_sq\\\",\\n    \\\"core/pow/x_three\\\",\\n    \\\"core/rational/22_7\\\",\\n    \\\"core/symbol/x_positive\\\",\\n    \\\"held/add_ax2_minus_ax2_bxy\\\",\\n    \\\"held/add_noncanonical_order\\\",\\n    \\\"held/mul_two_k\\\",\\n    \\\"subclass/ConstitutiveLawZero_zero_collapse\\\",\\n    \\\"subclass/ConstitutiveLaw_applied\\\"\\n  ]\\n}\\n\"}"
+        },
+        {
+          "name": "source-stable-during-run",
+          "status": "passed",
+          "detail": "repository input snapshot compared before and after checks"
+        },
+        {
+          "name": "profile-input-bound",
+          "status": "passed",
+          "detail": "306cb3c5cc2d442f7eb87f5051cc37266a6649c08a8a02affcb256cae8814a97"
         }
       ],
-      "checks_digest": "806ad05ed8cea4c16e951d091284cd7081289ff9b7b0dd56d8b386ce141f3fe9",
+      "checks_digest": "fa23c89dadbcdcdb06c2e1ba07aa5875f1d44fcda361a78f933d1f748d9d91b6",
       "evidence_receipt": "artifacts/audit/receipts/python-object-model.receipt.json"
     },
     {
@@ -63,7 +154,7 @@
         {
           "name": "test-fresh-process-id-stability",
           "status": "passed",
-          "detail": "exit=0"
+          "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-core\",\"--test\",\"fresh_process_id_stability\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\"}"
         },
         {
           "name": "cross-architecture-fixture-closure",
@@ -73,20 +164,30 @@
         {
           "name": "tests-fsym-core",
           "status": "passed",
-          "detail": "exit=0"
+          "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-core\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 124 tests\\n....................................................................................... 87/124\\n.....................................\\ntest result: ok. 124 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 54.40s\\n\\n\\nrunning 0 tests\\n\\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 4 tests\\n....\\ntest result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 16 tests\\n................\\ntest result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 0 tests\\n\\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
         },
         {
           "name": "tests-fsym-assumptions",
           "status": "passed",
-          "detail": "exit=0"
+          "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-assumptions\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 46 tests\\ni.............................................\\ntest result: ok. 45 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 0 tests\\n\\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
         },
         {
           "name": "tests-fsym-id",
           "status": "passed",
-          "detail": "exit=0"
+          "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-id\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"    Checking fsym-id-tests v0.0.0 (/data/tmp/cargo-target/tests/trybuild/fsym-id)\\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s\\n\\n\\ntest tests/ui/cross_kind_assignment.rs ... ok\\ntest tests/ui/raw_payload_smuggling.rs ... ok\\n\\n\\n\",\"stdout\":\"\\nrunning 14 tests\\n..............\\ntest result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 1 test\\n.\\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s\\n\\n\\nrunning 0 tests\\n\\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
+        },
+        {
+          "name": "source-stable-during-run",
+          "status": "passed",
+          "detail": "repository input snapshot compared before and after checks"
+        },
+        {
+          "name": "profile-input-bound",
+          "status": "passed",
+          "detail": "1d73baa075515e7908bc78e2ec999397b1714974cfd4e8e4debc184c475dc88d"
         }
       ],
-      "checks_digest": "d7bffa67c881af0bf1b6052cb791a6f4beca8821fe2406e4015a34f03996ff10",
+      "checks_digest": "2db88230143a04ca6c71a3b56b3b5abbecb87a5238c8542195a147ab81aa0180",
       "evidence_receipt": "artifacts/audit/receipts/deterministic-term-identity.receipt.json"
     },
     {
@@ -95,8 +196,9 @@
       "status": "passed",
       "num_residuals": 4,
       "num_vars": 4,
-      "nnz": 8,
-      "density": 0.5,
+      "nnz": 9,
+      "density": 0.5625,
+      "measured_from_case": "hero_constitutive_jacobian_4x4",
       "checks": [
         {
           "name": "workspace-forbids-unsafe",
@@ -106,20 +208,30 @@
         {
           "name": "test-sparse-jacobian-c7",
           "status": "passed",
-          "detail": "exit=0"
+          "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-calculus\",\"--test\",\"sparse_jacobian_c7\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 2 tests\\n..\\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
         },
         {
           "name": "test-sparse-jacobian-gate",
           "status": "passed",
-          "detail": "exit=0"
+          "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-calculus\",\"--test\",\"sparse_jacobian_gate\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 3 tests\\n...\\ntest result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
         },
         {
           "name": "tests-fsym-calculus",
           "status": "passed",
-          "detail": "exit=0"
+          "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-calculus\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 66 tests\\n..................................................................\\ntest result: ok. 66 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.65s\\n\\n\\nrunning 2 tests\\n..\\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 3 tests\\n...\\ntest result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 0 tests\\n\\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
+        },
+        {
+          "name": "source-stable-during-run",
+          "status": "passed",
+          "detail": "repository input snapshot compared before and after checks"
+        },
+        {
+          "name": "profile-input-bound",
+          "status": "passed",
+          "detail": "1d73baa075515e7908bc78e2ec999397b1714974cfd4e8e4debc184c475dc88d"
         }
       ],
-      "checks_digest": "c1a1f6d026f2d134e55f1c6e327687105079c4ad15dfe226e615d70b1b66fc64",
+      "checks_digest": "6f6116f5178a8097485222d9ab69754e0d39fd39fe75164ecd2600c5b9ca3ac3",
       "evidence_receipt": "artifacts/audit/receipts/ws12-certified-jacobian.receipt.json"
     },
     {
@@ -127,8 +239,8 @@
       "name": "factorization_portfolio_verification",
       "status": "passed",
       "strategies": [
-        "square_free_decomposition",
-        "bounded_rational_roots"
+        "berlekamp_hensel_zassenhaus",
+        "kronecker_divisor_search"
       ],
       "checks": [
         {
@@ -139,10 +251,20 @@
         {
           "name": "tests-fsym-polys",
           "status": "passed",
-          "detail": "exit=0"
+          "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-polys\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 68 tests\\n....................................................................\\ntest result: ok. 68 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.09s\\n\\n\\nrunning 0 tests\\n\\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
+        },
+        {
+          "name": "source-stable-during-run",
+          "status": "passed",
+          "detail": "repository input snapshot compared before and after checks"
+        },
+        {
+          "name": "profile-input-bound",
+          "status": "passed",
+          "detail": "1d73baa075515e7908bc78e2ec999397b1714974cfd4e8e4debc184c475dc88d"
         }
       ],
-      "checks_digest": "ed105abe5b6c4854900c9196f30acce1a3440300eb04d0b2447381cdc77596cd",
+      "checks_digest": "1ccd9a50b926b3a2c50da5d8ba4c0281e4888befd6473b7eece4acb8d9aaa7c9",
       "evidence_receipt": "artifacts/audit/receipts/ws09-factorization.receipt.json"
     },
     {
@@ -152,15 +274,22 @@
       "diagnostic_tolerance": 1e-06,
       "finite_difference_agreement": true,
       "target_interfaces": [
-        "FrankenNumPy",
-        "FrankenSciPy"
-      ]
+        "fnp-linalg::solve_2x2",
+        "fsci-opt::fsolve"
+      ],
+      "consumer_provenance": {
+        "fnp_linalg_commit": "d5d29c9da36141f611d1414b4c6ef434ab31ea24",
+        "certified_ball_residual_bound_decimal_places": 12,
+        "fsolve_ball_residual_bound_decimal_places": 8,
+        "singular_jacobian_typed_refusal_verified": true
+      },
+      "test_output_digest": "8053b8581be304f267792a874b09c28a6b7cc4e0bdeae2d1f795db8a0601e63b"
     },
     {
       "property_id": 6,
       "name": "certified_numeric_enclosures",
       "status": "passed",
-      "substrate": "RealBall interval arithmetic with directed rounding",
+      "substrate": "RealBall and ComplexBall interval arithmetic with directed rounding",
       "checks": [
         {
           "name": "workspace-forbids-unsafe",
@@ -170,20 +299,30 @@
         {
           "name": "test-directed-rounding-mutation",
           "status": "passed",
-          "detail": "exit=0"
+          "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-core\",\"--test\",\"directed_rounding_mutation\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 16 tests\\n................\\ntest result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
         },
         {
           "name": "tests-fsym-core",
           "status": "passed",
-          "detail": "exit=0"
+          "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-core\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 124 tests\\n....................................................................................... 87/124\\n.....................................\\ntest result: ok. 124 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 54.12s\\n\\n\\nrunning 0 tests\\n\\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 4 tests\\n....\\ntest result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 16 tests\\n................\\ntest result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 0 tests\\n\\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
         },
         {
           "name": "tests-fsym-proof-kernel",
           "status": "passed",
-          "detail": "exit=0"
+          "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-proof-kernel\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 41 tests\\n.........................................\\ntest result: ok. 41 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 13 tests\\n.............\\ntest result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 0 tests\\n\\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
+        },
+        {
+          "name": "source-stable-during-run",
+          "status": "passed",
+          "detail": "repository input snapshot compared before and after checks"
+        },
+        {
+          "name": "profile-input-bound",
+          "status": "passed",
+          "detail": "1d73baa075515e7908bc78e2ec999397b1714974cfd4e8e4debc184c475dc88d"
         }
       ],
-      "checks_digest": "7e5297109be0eaa2f0e60058d1e0795c608f41821195b1a573d53f7de2993d12",
+      "checks_digest": "bf190e9cfa0b920e03e963f998194cf0b46008ca1820bd02a4609e4dd02e343e",
       "evidence_receipt": "artifacts/audit/receipts/ws11-certified-numeric.receipt.json"
     },
     {
@@ -191,6 +330,7 @@
       "name": "typed_cancellation_and_drain",
       "status": "passed",
       "runtime": "asupersync structured concurrency",
+      "cancellation_injection_tests_passed": 5,
       "controlled_orphan_work": 0,
       "checks": [
         {
@@ -201,23 +341,34 @@
         {
           "name": "test-cancellation-injection",
           "status": "passed",
-          "detail": "exit=0"
+          "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-runtime\",\"--test\",\"cancellation_injection\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
         },
         {
           "name": "tests-fsym-runtime",
           "status": "passed",
-          "detail": "exit=0"
+          "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-runtime\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 111 tests\\n....................................................................................... 87/111\\n........................\\ntest result: ok. 111 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.41s\\n\\n\\nrunning 0 tests\\n\\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 6 tests\\n......\\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s\\n\\n\\nrunning 12 tests\\n............\\ntest result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 10 tests\\n..........\\ntest result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 6 tests\\n......\\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 0 tests\\n\\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
+        },
+        {
+          "name": "source-stable-during-run",
+          "status": "passed",
+          "detail": "repository input snapshot compared before and after checks"
+        },
+        {
+          "name": "profile-input-bound",
+          "status": "passed",
+          "detail": "1d73baa075515e7908bc78e2ec999397b1714974cfd4e8e4debc184c475dc88d"
         }
       ],
-      "checks_digest": "add391e0d271ffecb4a4b322a829cfababc0efcbc777528ec8fea0c1204a0a62",
+      "checks_digest": "055c5163c787935989755ae6ac88d27c2c0aa3aa3b731deea359c74e8c849c1c",
       "evidence_receipt": "artifacts/audit/receipts/ws13-portfolio-runtime.receipt.json"
     },
     {
       "property_id": 8,
       "name": "persistence_raptorq_repair_and_resume",
       "status": "passed",
-      "repair_algorithm": "RaptorQ RFC 6330 multi-loss recovery",
+      "repair_algorithm": "RaptorQ RFC 6330 multi-loss recovery + FrankenSQLite durable store",
       "trust_chain": "decode -> digest -> schema_validation -> independent_proof_verification",
+      "cross_process_sqlite_resume_verified": true,
       "checks": [
         {
           "name": "workspace-forbids-unsafe",
@@ -227,29 +378,43 @@
         {
           "name": "test-c9-persistence-repair-gate",
           "status": "passed",
-          "detail": "exit=0"
+          "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-runtime\",\"--test\",\"c9_persistence_repair_gate\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 6 tests\\n......\\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\"}"
         },
         {
           "name": "tests-fsym-runtime",
           "status": "passed",
-          "detail": "exit=0"
+          "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-runtime\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 111 tests\\n....................................................................................... 87/111\\n........................\\ntest result: ok. 111 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.42s\\n\\n\\nrunning 0 tests\\n\\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 6 tests\\n......\\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s\\n\\n\\nrunning 12 tests\\n............\\ntest result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 10 tests\\n..........\\ntest result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 6 tests\\n......\\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 0 tests\\n\\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
+        },
+        {
+          "name": "source-stable-during-run",
+          "status": "passed",
+          "detail": "repository input snapshot compared before and after checks"
+        },
+        {
+          "name": "profile-input-bound",
+          "status": "passed",
+          "detail": "1d73baa075515e7908bc78e2ec999397b1714974cfd4e8e4debc184c475dc88d"
         }
       ],
-      "checks_digest": "7dc1f34963f93aaefae10d041daa245a09070b8c22ca9f73b3622509a33a24e8",
+      "checks_digest": "35f0ad09972ccc053708f98c75f2de4d7f7b7230875d4a7d2fa64f95e4566db7",
       "evidence_receipt": "artifacts/audit/receipts/ws15-persistence-repair.receipt.json"
     },
     {
       "property_id": 9,
       "name": "deterministic_replay",
       "status": "passed",
-      "replay_type": "transcript_free_event_log",
-      "bit_for_bit_reproducible": true
+      "replay_type": "transcript_free_event_log_and_fmap_cli_fresh_process",
+      "bit_for_bit_reproducible": true,
+      "hashseed_0_semantic_digest": "c093642630a6542d25e7283426d358f3b8370c4552a4b4a582afe11548772082",
+      "hashseed_1_semantic_digest": "c093642630a6542d25e7283426d358f3b8370c4552a4b4a582afe11548772082",
+      "workspace_replay_cli_verified": true,
+      "c10_replay_verified": true
     },
     {
       "property_id": 10,
       "name": "agent_workspace_and_semantic_merge",
       "status": "passed",
-      "protocol": "NDJSON structured requests/events",
+      "protocol": "NDJSON structured requests/events (all 14 AgentRequest variants)",
       "checks": [
         {
           "name": "workspace-forbids-unsafe",
@@ -259,15 +424,25 @@
         {
           "name": "test-c10-protocol-gate",
           "status": "passed",
-          "detail": "exit=0"
+          "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-runtime\",\"--test\",\"c10_protocol_gate\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
         },
         {
           "name": "tests-fsym-runtime",
           "status": "passed",
-          "detail": "exit=0"
+          "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-runtime\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 111 tests\\n....................................................................................... 87/111\\n........................\\ntest result: ok. 111 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.40s\\n\\n\\nrunning 0 tests\\n\\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 6 tests\\n......\\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s\\n\\n\\nrunning 12 tests\\n............\\ntest result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 10 tests\\n..........\\ntest result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 6 tests\\n......\\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 0 tests\\n\\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
+        },
+        {
+          "name": "source-stable-during-run",
+          "status": "passed",
+          "detail": "repository input snapshot compared before and after checks"
+        },
+        {
+          "name": "profile-input-bound",
+          "status": "passed",
+          "detail": "1d73baa075515e7908bc78e2ec999397b1714974cfd4e8e4debc184c475dc88d"
         }
       ],
-      "checks_digest": "532c0edf758dc899bb1e24751d3949abb8f5b10ee37f16b9cac7b2b1ec3e168e",
+      "checks_digest": "a829489dc67c4155f64e05359fdb15f2b53967295f6b9c62fd8863a8dcd4d226",
       "evidence_receipt": "artifacts/audit/receipts/ws14-agent-protocol.receipt.json"
     },
     {
@@ -275,6 +450,7 @@
       "name": "untrusted_remote_candidate_rejection",
       "status": "passed",
       "verified_cache_pollution": 0,
+      "projection_adapter": "frankengraphdb_v1",
       "checks": [
         {
           "name": "workspace-forbids-unsafe",
@@ -284,15 +460,25 @@
         {
           "name": "test-ws16-distribution-index-gate",
           "status": "passed",
-          "detail": "exit=0"
+          "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-runtime\",\"--test\",\"ws16_distribution_index_gate\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 6 tests\\n......\\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
         },
         {
           "name": "tests-fsym-runtime",
           "status": "passed",
-          "detail": "exit=0"
+          "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-runtime\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 111 tests\\n....................................................................................... 87/111\\n........................\\ntest result: ok. 111 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.39s\\n\\n\\nrunning 0 tests\\n\\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 6 tests\\n......\\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s\\n\\n\\nrunning 12 tests\\n............\\ntest result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 10 tests\\n..........\\ntest result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 6 tests\\n......\\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 5 tests\\n.....\\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n\\n\\nrunning 0 tests\\n\\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
+        },
+        {
+          "name": "source-stable-during-run",
+          "status": "passed",
+          "detail": "repository input snapshot compared before and after checks"
+        },
+        {
+          "name": "profile-input-bound",
+          "status": "passed",
+          "detail": "1d73baa075515e7908bc78e2ec999397b1714974cfd4e8e4debc184c475dc88d"
         }
       ],
-      "checks_digest": "decfd599cb2a6e6f3983c86e24278ab3fa73e4d2dd56dd1c7b08b9de7750cd71",
+      "checks_digest": "02728a60c81a8021b67617110b85f983d65d2a3a043de1f9ac095222d5630e7a",
       "evidence_receipt": "artifacts/audit/receipts/ws16-distribution-index.receipt.json"
     },
     {
@@ -301,22 +487,716 @@
       "status": "passed",
       "semantic_admission_before_timing": true,
       "incumbent_same_invocation": true,
-      "paired_records": [],
+      "report_path": "artifacts/perf/paired_incumbent_hero.json",
+      "report_git_commit": null,
+      "settings": {
+        "structural_admission": true,
+        "subject_settings": {
+          "durability_mode": "in_memory_none",
+          "evidence_policy": "parity_gated_t1_structural_and_mathematical",
+          "cache_policy": "fresh_per_case_isolated_process",
+          "thread_count": 1,
+          "budget_policy": "120s_per_case_wall_clock"
+        },
+        "oracle_settings": {
+          "durability_mode": "in_memory_none",
+          "evidence_policy": "parity_gated_t1_structural_and_mathematical",
+          "cache_policy": "fresh_per_case_isolated_process",
+          "thread_count": 1,
+          "budget_policy": "120s_per_case_wall_clock"
+        },
+        "engine_attestation": {
+          "subject": {
+            "engine": "subject",
+            "sympy_file": "/data/projects/frankensympy/python/sympy/__init__.py",
+            "sympy_version": "0.1.0",
+            "fsym_python_loaded": true,
+            "fsym_python_file": "/data/projects/frankensympy/python/fsym_python.cpython-314-x86_64-linux-gnu.so",
+            "python_executable": "/usr/bin/python3"
+          },
+          "oracle": {
+            "engine": "oracle",
+            "sympy_file": "/usr/lib/python3/dist-packages/sympy/__init__.py",
+            "sympy_version": "1.14.0",
+            "fsym_python_loaded": false,
+            "fsym_python_file": null,
+            "python_executable": "/home/ubuntu/.venvs/fsym-oracle-sympy-1.14.0/bin/python"
+          }
+        },
+        "competitive_claim": "not_evaluated"
+      },
+      "paired_records": [
+        {
+          "case_id": "diff_poly",
+          "case": "diff_poly",
+          "status": "admitted",
+          "subject_ms_median": 349.5683,
+          "oracle_ms_median": 271.5472,
+          "subject_cv_pct": 4.82,
+          "oracle_cv_pct": 1.76,
+          "subject_dist": {
+            "median_ms": 349.5683,
+            "mean_ms": 359.8269,
+            "std_dev_ms": 16.8654,
+            "cv_pct": 4.82,
+            "p90_ms": 383.6038,
+            "p95_ms": 383.6038,
+            "p99_ms": 383.6038
+          },
+          "oracle_dist": {
+            "median_ms": 271.5472,
+            "mean_ms": 274.4083,
+            "std_dev_ms": 4.767,
+            "cv_pct": 1.76,
+            "p90_ms": 281.1254,
+            "p95_ms": 281.1254,
+            "p99_ms": 281.1254
+          },
+          "subject_samples": [
+            383.6038,
+            346.3086,
+            349.5683
+          ],
+          "oracle_samples": [
+            271.5472,
+            270.5524,
+            281.1254
+          ],
+          "ratio_oracle_over_subject": 0.777
+        },
+        {
+          "case_id": "evalf_pi",
+          "case": "evalf_pi",
+          "status": "admitted",
+          "subject_ms_median": 38.6807,
+          "oracle_ms_median": 220.8088,
+          "subject_cv_pct": 2.49,
+          "oracle_cv_pct": 3.0,
+          "subject_dist": {
+            "median_ms": 38.6807,
+            "mean_ms": 38.9128,
+            "std_dev_ms": 0.9648,
+            "cv_pct": 2.49,
+            "p90_ms": 40.1933,
+            "p95_ms": 40.1933,
+            "p99_ms": 40.1933
+          },
+          "oracle_dist": {
+            "median_ms": 220.8088,
+            "mean_ms": 224.0742,
+            "std_dev_ms": 6.6254,
+            "cv_pct": 3.0,
+            "p90_ms": 233.3126,
+            "p95_ms": 233.3126,
+            "p99_ms": 233.3126
+          },
+          "subject_samples": [
+            37.8644,
+            40.1933,
+            38.6807
+          ],
+          "oracle_samples": [
+            218.1011,
+            220.8088,
+            233.3126
+          ],
+          "ratio_oracle_over_subject": 5.709
+        },
+        {
+          "case_id": "expand_sq20",
+          "case": "expand_sq20",
+          "status": "admitted",
+          "subject_ms_median": 784.2752,
+          "oracle_ms_median": 247.3052,
+          "subject_cv_pct": 1.88,
+          "oracle_cv_pct": 1.95,
+          "subject_dist": {
+            "median_ms": 784.2752,
+            "mean_ms": 786.0884,
+            "std_dev_ms": 14.7611,
+            "cv_pct": 1.88,
+            "p90_ms": 805.0053,
+            "p95_ms": 805.0053,
+            "p99_ms": 805.0053
+          },
+          "oracle_dist": {
+            "median_ms": 247.3052,
+            "mean_ms": 248.8731,
+            "std_dev_ms": 4.8233,
+            "cv_pct": 1.95,
+            "p90_ms": 255.4061,
+            "p95_ms": 255.4061,
+            "p99_ms": 255.4061
+          },
+          "subject_samples": [
+            805.0053,
+            784.2752,
+            768.9847
+          ],
+          "oracle_samples": [
+            247.3052,
+            243.9079,
+            255.4061
+          ],
+          "ratio_oracle_over_subject": 0.315
+        },
+        {
+          "case_id": "factorint_mersenne",
+          "case": "factorint_mersenne",
+          "status": "admitted",
+          "subject_ms_median": 46.3213,
+          "oracle_ms_median": 225.3954,
+          "subject_cv_pct": 1.63,
+          "oracle_cv_pct": 0.45,
+          "subject_dist": {
+            "median_ms": 46.3213,
+            "mean_ms": 46.6867,
+            "std_dev_ms": 0.7544,
+            "cv_pct": 1.63,
+            "p90_ms": 47.7375,
+            "p95_ms": 47.7375,
+            "p99_ms": 47.7375
+          },
+          "oracle_dist": {
+            "median_ms": 225.3954,
+            "mean_ms": 225.6163,
+            "std_dev_ms": 1.0131,
+            "cv_pct": 0.45,
+            "p90_ms": 226.9526,
+            "p95_ms": 226.9526,
+            "p99_ms": 226.9526
+          },
+          "subject_samples": [
+            47.7375,
+            46.3213,
+            46.0014
+          ],
+          "oracle_samples": [
+            226.9526,
+            224.5008,
+            225.3954
+          ],
+          "ratio_oracle_over_subject": 4.866
+        },
+        {
+          "case_id": "hash_roundtrip",
+          "case": "hash_roundtrip",
+          "status": "divergence",
+          "subject_result": "int:816134689",
+          "oracle_result": "int:222682623"
+        },
+        {
+          "case_id": "hero_certified_evalf_transcendental",
+          "case": "hero_certified_evalf_transcendental",
+          "status": "admitted",
+          "subject_ms_median": 143.9232,
+          "oracle_ms_median": 243.126,
+          "subject_cv_pct": 0.42,
+          "oracle_cv_pct": 2.17,
+          "subject_dist": {
+            "median_ms": 143.9232,
+            "mean_ms": 144.2358,
+            "std_dev_ms": 0.5993,
+            "cv_pct": 0.42,
+            "p90_ms": 145.0743,
+            "p95_ms": 145.0743,
+            "p99_ms": 145.0743
+          },
+          "oracle_dist": {
+            "median_ms": 243.126,
+            "mean_ms": 242.7244,
+            "std_dev_ms": 5.2646,
+            "cv_pct": 2.17,
+            "p90_ms": 248.9621,
+            "p95_ms": 248.9621,
+            "p99_ms": 248.9621
+          },
+          "subject_samples": [
+            143.9232,
+            143.7098,
+            145.0743
+          ],
+          "oracle_samples": [
+            248.9621,
+            236.0852,
+            243.126
+          ],
+          "ratio_oracle_over_subject": 1.689
+        },
+        {
+          "case_id": "hero_constitutive_jacobian",
+          "case": "hero_constitutive_jacobian",
+          "status": "admitted",
+          "subject_ms_median": 194.3613,
+          "oracle_ms_median": 265.7966,
+          "subject_cv_pct": 0.58,
+          "oracle_cv_pct": 1.99,
+          "subject_dist": {
+            "median_ms": 194.3613,
+            "mean_ms": 194.0668,
+            "std_dev_ms": 1.1216,
+            "cv_pct": 0.58,
+            "p90_ms": 195.2694,
+            "p95_ms": 195.2694,
+            "p99_ms": 195.2694
+          },
+          "oracle_dist": {
+            "median_ms": 265.7966,
+            "mean_ms": 269.2629,
+            "std_dev_ms": 5.296,
+            "cv_pct": 1.99,
+            "p90_ms": 276.7458,
+            "p95_ms": 276.7458,
+            "p99_ms": 276.7458
+          },
+          "subject_samples": [
+            192.5697,
+            195.2694,
+            194.3613
+          ],
+          "oracle_samples": [
+            265.7966,
+            265.2463,
+            276.7458
+          ],
+          "ratio_oracle_over_subject": 1.368
+        },
+        {
+          "case_id": "hero_factor_univariate_zz",
+          "case": "hero_factor_univariate_zz",
+          "status": "admitted",
+          "subject_ms_median": 155.5898,
+          "oracle_ms_median": 309.7844,
+          "subject_cv_pct": 1.14,
+          "oracle_cv_pct": 3.71,
+          "subject_dist": {
+            "median_ms": 155.5898,
+            "mean_ms": 156.5168,
+            "std_dev_ms": 1.7789,
+            "cv_pct": 1.14,
+            "p90_ms": 159.0057,
+            "p95_ms": 159.0057,
+            "p99_ms": 159.0057
+          },
+          "oracle_dist": {
+            "median_ms": 309.7844,
+            "mean_ms": 317.1935,
+            "std_dev_ms": 11.5066,
+            "cv_pct": 3.71,
+            "p90_ms": 333.4452,
+            "p95_ms": 333.4452,
+            "p99_ms": 333.4452
+          },
+          "subject_samples": [
+            155.5898,
+            154.9548,
+            159.0057
+          ],
+          "oracle_samples": [
+            309.7844,
+            308.3509,
+            333.4452
+          ],
+          "ratio_oracle_over_subject": 1.991
+        },
+        {
+          "case_id": "integer_arith_rational",
+          "case": "integer_arith_rational",
+          "status": "admitted",
+          "subject_ms_median": 98.989,
+          "oracle_ms_median": 222.4937,
+          "subject_cv_pct": 5.03,
+          "oracle_cv_pct": 0.88,
+          "subject_dist": {
+            "median_ms": 98.989,
+            "mean_ms": 101.3742,
+            "std_dev_ms": 4.9793,
+            "cv_pct": 5.03,
+            "p90_ms": 108.3047,
+            "p95_ms": 108.3047,
+            "p99_ms": 108.3047
+          },
+          "oracle_dist": {
+            "median_ms": 222.4937,
+            "mean_ms": 223.7218,
+            "std_dev_ms": 1.9633,
+            "cv_pct": 0.88,
+            "p90_ms": 226.4924,
+            "p95_ms": 226.4924,
+            "p99_ms": 226.4924
+          },
+          "subject_samples": [
+            108.3047,
+            96.8289,
+            98.989
+          ],
+          "oracle_samples": [
+            226.4924,
+            222.1792,
+            222.4937
+          ],
+          "ratio_oracle_over_subject": 2.248
+        },
+        {
+          "case_id": "isprime_mersenne31",
+          "case": "isprime_mersenne31",
+          "status": "admitted",
+          "subject_ms_median": 61.8968,
+          "oracle_ms_median": 226.2871,
+          "subject_cv_pct": 1.27,
+          "oracle_cv_pct": 0.78,
+          "subject_dist": {
+            "median_ms": 61.8968,
+            "mean_ms": 62.3483,
+            "std_dev_ms": 0.7831,
+            "cv_pct": 1.27,
+            "p90_ms": 63.4499,
+            "p95_ms": 63.4499,
+            "p99_ms": 63.4499
+          },
+          "oracle_dist": {
+            "median_ms": 226.2871,
+            "mean_ms": 225.4656,
+            "std_dev_ms": 1.759,
+            "cv_pct": 0.78,
+            "p90_ms": 227.0884,
+            "p95_ms": 227.0884,
+            "p99_ms": 227.0884
+          },
+          "subject_samples": [
+            61.8968,
+            63.4499,
+            61.6983
+          ],
+          "oracle_samples": [
+            226.2871,
+            223.0214,
+            227.0884
+          ],
+          "ratio_oracle_over_subject": 3.656
+        },
+        {
+          "case_id": "matrix_det4",
+          "case": "matrix_det4",
+          "status": "admitted",
+          "subject_ms_median": 37.2529,
+          "oracle_ms_median": 269.8477,
+          "subject_cv_pct": 1.32,
+          "oracle_cv_pct": 1.42,
+          "subject_dist": {
+            "median_ms": 37.2529,
+            "mean_ms": 37.1363,
+            "std_dev_ms": 0.4932,
+            "cv_pct": 1.32,
+            "p90_ms": 37.6736,
+            "p95_ms": 37.6736,
+            "p99_ms": 37.6736
+          },
+          "oracle_dist": {
+            "median_ms": 269.8477,
+            "mean_ms": 267.6203,
+            "std_dev_ms": 3.8387,
+            "cv_pct": 1.42,
+            "p90_ms": 270.7941,
+            "p95_ms": 270.7941,
+            "p99_ms": 270.7941
+          },
+          "subject_samples": [
+            36.4825,
+            37.2529,
+            37.6736
+          ],
+          "oracle_samples": [
+            269.8477,
+            262.2192,
+            270.7941
+          ],
+          "ratio_oracle_over_subject": 7.244
+        },
+        {
+          "case_id": "poly_build_deg12",
+          "case": "poly_build_deg12",
+          "status": "admitted",
+          "subject_ms_median": 107.6655,
+          "oracle_ms_median": 245.8853,
+          "subject_cv_pct": 4.16,
+          "oracle_cv_pct": 0.73,
+          "subject_dist": {
+            "median_ms": 107.6655,
+            "mean_ms": 110.0596,
+            "std_dev_ms": 4.4782,
+            "cv_pct": 4.16,
+            "p90_ms": 116.3343,
+            "p95_ms": 116.3343,
+            "p99_ms": 116.3343
+          },
+          "oracle_dist": {
+            "median_ms": 245.8853,
+            "mean_ms": 245.9155,
+            "std_dev_ms": 1.7869,
+            "cv_pct": 0.73,
+            "p90_ms": 248.1189,
+            "p95_ms": 248.1189,
+            "p99_ms": 248.1189
+          },
+          "subject_samples": [
+            116.3343,
+            106.179,
+            107.6655
+          ],
+          "oracle_samples": [
+            248.1189,
+            245.8853,
+            243.7423
+          ],
+          "ratio_oracle_over_subject": 2.284
+        },
+        {
+          "case_id": "simplify_rational_cancel",
+          "case": "simplify_rational_cancel",
+          "status": "admitted",
+          "subject_ms_median": 584.2634,
+          "oracle_ms_median": 1089.7355,
+          "subject_cv_pct": 1.22,
+          "oracle_cv_pct": 2.47,
+          "subject_dist": {
+            "median_ms": 584.2634,
+            "mean_ms": 588.0887,
+            "std_dev_ms": 7.1021,
+            "cv_pct": 1.22,
+            "p90_ms": 598.044,
+            "p95_ms": 598.044,
+            "p99_ms": 598.044
+          },
+          "oracle_dist": {
+            "median_ms": 1089.7355,
+            "mean_ms": 1091.219,
+            "std_dev_ms": 26.9011,
+            "cv_pct": 2.47,
+            "p90_ms": 1124.8827,
+            "p95_ms": 1124.8827,
+            "p99_ms": 1124.8827
+          },
+          "subject_samples": [
+            581.9586,
+            598.044,
+            584.2634
+          ],
+          "oracle_samples": [
+            1059.0389,
+            1124.8827,
+            1089.7355
+          ],
+          "ratio_oracle_over_subject": 1.865
+        },
+        {
+          "case_id": "solve_linear",
+          "case": "solve_linear",
+          "status": "admitted",
+          "subject_ms_median": 104.6253,
+          "oracle_ms_median": 346.0054,
+          "subject_cv_pct": 2.15,
+          "oracle_cv_pct": 0.95,
+          "subject_dist": {
+            "median_ms": 104.6253,
+            "mean_ms": 106.1385,
+            "std_dev_ms": 2.2535,
+            "cv_pct": 2.15,
+            "p90_ms": 109.3241,
+            "p95_ms": 109.3241,
+            "p99_ms": 109.3241
+          },
+          "oracle_dist": {
+            "median_ms": 346.0054,
+            "mean_ms": 346.4062,
+            "std_dev_ms": 3.3025,
+            "cv_pct": 0.95,
+            "p90_ms": 350.6364,
+            "p95_ms": 350.6364,
+            "p99_ms": 350.6364
+          },
+          "subject_samples": [
+            109.3241,
+            104.6253,
+            104.4661
+          ],
+          "oracle_samples": [
+            350.6364,
+            346.0054,
+            342.5768
+          ],
+          "ratio_oracle_over_subject": 3.307
+        },
+        {
+          "case_id": "srepr_print",
+          "case": "srepr_print",
+          "status": "admitted",
+          "subject_ms_median": 299.5832,
+          "oracle_ms_median": 263.047,
+          "subject_cv_pct": 1.26,
+          "oracle_cv_pct": 0.89,
+          "subject_dist": {
+            "median_ms": 299.5832,
+            "mean_ms": 302.0811,
+            "std_dev_ms": 3.7871,
+            "cv_pct": 1.26,
+            "p90_ms": 307.4329,
+            "p95_ms": 307.4329,
+            "p99_ms": 307.4329
+          },
+          "oracle_dist": {
+            "median_ms": 263.047,
+            "mean_ms": 262.9157,
+            "std_dev_ms": 2.3515,
+            "cv_pct": 0.89,
+            "p90_ms": 265.7279,
+            "p95_ms": 265.7279,
+            "p99_ms": 265.7279
+          },
+          "subject_samples": [
+            299.5832,
+            299.2271,
+            307.4329
+          ],
+          "oracle_samples": [
+            259.9723,
+            265.7279,
+            263.047
+          ],
+          "ratio_oracle_over_subject": 0.878
+        },
+        {
+          "case_id": "str_print",
+          "case": "str_print",
+          "status": "admitted",
+          "subject_ms_median": 161.4464,
+          "oracle_ms_median": 274.1979,
+          "subject_cv_pct": 1.57,
+          "oracle_cv_pct": 0.9,
+          "subject_dist": {
+            "median_ms": 161.4464,
+            "mean_ms": 160.4965,
+            "std_dev_ms": 2.5277,
+            "cv_pct": 1.57,
+            "p90_ms": 163.006,
+            "p95_ms": 163.006,
+            "p99_ms": 163.006
+          },
+          "oracle_dist": {
+            "median_ms": 274.1979,
+            "mean_ms": 274.9491,
+            "std_dev_ms": 2.4765,
+            "cv_pct": 0.9,
+            "p90_ms": 278.2872,
+            "p95_ms": 278.2872,
+            "p99_ms": 278.2872
+          },
+          "subject_samples": [
+            157.0371,
+            161.4464,
+            163.006
+          ],
+          "oracle_samples": [
+            274.1979,
+            272.3623,
+            278.2872
+          ],
+          "ratio_oracle_over_subject": 1.698
+        },
+        {
+          "case_id": "symbol_construct",
+          "case": "symbol_construct",
+          "status": "admitted",
+          "subject_ms_median": 40.2774,
+          "oracle_ms_median": 223.3924,
+          "subject_cv_pct": 1.83,
+          "oracle_cv_pct": 2.64,
+          "subject_dist": {
+            "median_ms": 40.2774,
+            "mean_ms": 40.395,
+            "std_dev_ms": 0.738,
+            "cv_pct": 1.83,
+            "p90_ms": 41.3518,
+            "p95_ms": 41.3518,
+            "p99_ms": 41.3518
+          },
+          "oracle_dist": {
+            "median_ms": 223.3924,
+            "mean_ms": 225.802,
+            "std_dev_ms": 5.8966,
+            "cv_pct": 2.64,
+            "p90_ms": 233.9206,
+            "p95_ms": 233.9206,
+            "p99_ms": 233.9206
+          },
+          "subject_samples": [
+            40.2774,
+            39.5557,
+            41.3518
+          ],
+          "oracle_samples": [
+            223.3924,
+            220.093,
+            233.9206
+          ],
+          "ratio_oracle_over_subject": 5.546
+        },
+        {
+          "case_id": "trig_build",
+          "case": "trig_build",
+          "status": "admitted",
+          "subject_ms_median": 47.0886,
+          "oracle_ms_median": 240.7855,
+          "subject_cv_pct": 2.22,
+          "oracle_cv_pct": 2.08,
+          "subject_dist": {
+            "median_ms": 47.0886,
+            "mean_ms": 47.5989,
+            "std_dev_ms": 1.0446,
+            "cv_pct": 2.22,
+            "p90_ms": 49.0547,
+            "p95_ms": 49.0547,
+            "p99_ms": 49.0547
+          },
+          "oracle_dist": {
+            "median_ms": 240.7855,
+            "mean_ms": 241.9632,
+            "std_dev_ms": 5.018,
+            "cv_pct": 2.08,
+            "p90_ms": 248.6126,
+            "p95_ms": 248.6126,
+            "p99_ms": 248.6126
+          },
+          "subject_samples": [
+            49.0547,
+            46.6534,
+            47.0886
+          ],
+          "oracle_samples": [
+            240.7855,
+            236.4914,
+            248.6126
+          ],
+          "ratio_oracle_over_subject": 5.113
+        }
+      ],
       "paired_summary": {
-        "cases_total": 15,
-        "admitted": 11,
+        "cases_total": 18,
+        "admitted": 17,
         "divergences": [
-          "simplify_rational_cancel",
-          "trig_build",
           "hash_roundtrip"
         ],
-        "errors": [
-          "integer_arith_rational"
-        ],
-        "low_noise_admitted": 1,
-        "geomean_ratio_oracle_over_subject": 1.199,
-        "noise_note": "ratio>1 means subject faster; ratio<1 means oracle faster; cv>5 cases excluded from geomean but retained above"
+        "errors": [],
+        "low_noise_admitted": 16,
+        "aa_control_verified": true,
+        "geomean_ratio_oracle_over_subject": 2.269,
+        "noise_note": "ratio>1 means subject faster; ratio<1 means oracle faster; cv>5 cases excluded from geomean but retained above; competitive_claim=not_evaluated"
       }
     }
-  ]
+  ],
+  "harness_mutation_gate": {
+    "total_mutants": 16,
+    "killed_mutants": 16,
+    "survived_mutants": 0
+  }
 }

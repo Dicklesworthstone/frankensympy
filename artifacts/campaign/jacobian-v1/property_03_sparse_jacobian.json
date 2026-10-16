@@ -4,8 +4,9 @@
   "status": "passed",
   "num_residuals": 4,
   "num_vars": 4,
-  "nnz": 8,
-  "density": 0.5,
+  "nnz": 9,
+  "density": 0.5625,
+  "measured_from_case": "hero_constitutive_jacobian_4x4",
   "checks": [
     {
       "name": "workspace-forbids-unsafe",
@@ -15,19 +16,29 @@
     {
       "name": "test-sparse-jacobian-c7",
       "status": "passed",
-      "detail": "exit=0"
+      "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-calculus\",\"--test\",\"sparse_jacobian_c7\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 2 tests\\n..\\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
     },
     {
       "name": "test-sparse-jacobian-gate",
       "status": "passed",
-      "detail": "exit=0"
+      "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-calculus\",\"--test\",\"sparse_jacobian_gate\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 3 tests\\n...\\ntest result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
     },
     {
       "name": "tests-fsym-calculus",
       "status": "passed",
-      "detail": "exit=0"
+      "detail": "{\"command\":[\"cargo\",\"test\",\"-p\",\"fsym-calculus\",\"--quiet\"],\"exit_code\":0,\"stderr\":\"\",\"stdout\":\"\\nrunning 66 tests\\n..................................................................\\ntest result: ok. 66 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.65s\\n\\n\\nrunning 2 tests\\n..\\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 3 tests\\n...\\ntest result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\\nrunning 0 tests\\n\\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\\n\\n\"}"
+    },
+    {
+      "name": "source-stable-during-run",
+      "status": "passed",
+      "detail": "repository input snapshot compared before and after checks"
+    },
+    {
+      "name": "profile-input-bound",
+      "status": "passed",
+      "detail": "1d73baa075515e7908bc78e2ec999397b1714974cfd4e8e4debc184c475dc88d"
     }
   ],
-  "checks_digest": "c1a1f6d026f2d134e55f1c6e327687105079c4ad15dfe226e615d70b1b66fc64",
+  "checks_digest": "6f6116f5178a8097485222d9ab69754e0d39fd39fe75164ecd2600c5b9ca3ac3",
   "evidence_receipt": "artifacts/audit/receipts/ws12-certified-jacobian.receipt.json"
 }

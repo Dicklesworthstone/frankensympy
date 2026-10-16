@@ -1,0 +1,78 @@
+{
+  "cases": [
+    {
+      "assumptions_ simplification_witness": "x0",
+      "case_id": "hero_constitutive_jacobian_4x4",
+      "density": 0.5625,
+      "held_preserved": true,
+      "immutable_snapshot_isolated": true,
+      "jacobian_rows": [
+        [
+          "2*x0",
+          "cos(x1)",
+          "0",
+          "0"
+        ],
+        [
+          "3*x0**2",
+          "x2",
+          "x1 + sin(x2)",
+          "0"
+        ],
+        [
+          "0",
+          "0",
+          "exp(x2)",
+          "3*x3**2"
+        ],
+        [
+          "x3 + 2",
+          "0",
+          "0",
+          "x0"
+        ]
+      ],
+      "mutation_generation": 1,
+      "nnz": 9,
+      "num_residuals": 4,
+      "num_vars": 4,
+      "residuals": [
+        "x0**2 + sin(x1) - 1",
+        "x1*x2 - cos(x2) + CustomKappa(x0)",
+        "x3**3 + exp(x2) - 4",
+        "x0*x3 + 2*x0 - 2"
+      ],
+      "status": "completed"
+    },
+    {
+      "case_id": "hero_transcendental_2x2_enclosure",
+      "f1_evalf_30": "-0.351278729299871853151349212186",
+      "f2_evalf_30": "0.641470984807896506652502321630",
+      "j00_evalf_30": "0.824360635350064073424325393907",
+      "j11_evalf_30": "0.540302305868139717400936607443",
+      "num_residuals": 2,
+      "num_vars": 2,
+      "status": "completed"
+    },
+    {
+      "case_id": "hero_factor_univariate_zz_cyclotomic",
+      "expanded": "x0**6 + 3*x0**4 + 3*x0**2 + 2",
+      "factored": "(x0**2 + 2)*(x0**2 - x0 + 1)*(x0**2 + x0 + 1)",
+      "roundtrip_zero": true,
+      "status": "completed"
+    },
+    {
+      "case_id": "hero_adversarial_cross_thread_ownership_refusal",
+      "has_reason": true,
+      "refusal_kind": "CrossThreadCallbackOwnershipRefused",
+      "refusal_observed": true,
+      "status": "refused_as_expected"
+    }
+  ],
+  "completed_cases": 3,
+  "refused_cases": 1,
+  "semantic_digest": "c093642630a6542d25e7283426d358f3b8370c4552a4b4a582afe11548772082",
+  "hashseed_0_digest": "c093642630a6542d25e7283426d358f3b8370c4552a4b4a582afe11548772082",
+  "hashseed_1_digest": "c093642630a6542d25e7283426d358f3b8370c4552a4b4a582afe11548772082",
+  "fresh_process_reproducible": true
+}

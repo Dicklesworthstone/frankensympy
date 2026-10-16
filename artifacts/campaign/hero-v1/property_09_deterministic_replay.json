@@ -2,6 +2,10 @@
   "property_id": 9,
   "name": "deterministic_replay",
   "status": "passed",
-  "replay_type": "transcript_free_event_log",
-  "bit_for_bit_reproducible": true
+  "replay_type": "transcript_free_event_log_and_fmap_cli_fresh_process",
+  "bit_for_bit_reproducible": true,
+  "hashseed_0_semantic_digest": "c093642630a6542d25e7283426d358f3b8370c4552a4b4a582afe11548772082",
+  "hashseed_1_semantic_digest": "c093642630a6542d25e7283426d358f3b8370c4552a4b4a582afe11548772082",
+  "workspace_replay_cli_verified": true,
+  "c10_replay_verified": true
 }
