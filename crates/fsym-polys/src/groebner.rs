@@ -4,7 +4,13 @@
 
 use crate::PolyError;
 use crate::multivariate::{MultivariatePoly, TermOrder};
-use fsym_core::{BigRational, Symbol};
+use fsym_assumptions::ImmutableAssumptionsSnapshot;
+use fsym_budget::{BudgetMeter, Dimension};
+use fsym_core::{BigRational, Expr, Symbol};
+use fsym_proof_kernel::{
+    Claim, DerivationTree, ProofKernel, derivation_verification_units,
+    verify_derivation_independent,
+};
 use num_traits::{One, Zero};
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
@@ -12,6 +18,8 @@ use std::collections::BTreeMap;
 
 const MAX_GROEBNER_BASIS_POLYNOMIALS: usize = 1_024;
 const MAX_GROEBNER_PENDING_PAIRS: usize = 1_000_000;
+const MAX_ELIMINATION_WITNESS_EXPR_NODES: usize = 16_384;
+const MAX_ELIMINATION_WITNESS_COEFFICIENT_LIMBS: u64 = 4_096;
 
 impl TermOrder {
     /// Compares two exponent vectors according to the term ordering.
@@ -542,9 +550,17 @@ pub fn ideal_membership(
     Ok(rem.is_zero())
 }
 
-/// Variable elimination via Lexicographic Groebner basis.
+/// Variable elimination via a lexicographic Groebner basis.
 ///
-/// Returns polynomials in the Groebner basis that do not contain any of `eliminated_vars`.
+/// The requested variables are placed before all retained variables for the computation,
+/// preserving their relative order from the input ring. The output is mapped back to the
+/// original generator order. This is essential when eliminating variables that are not an
+/// initial block of the input ring: filtering a basis in the original order is not elimination.
+///
+/// An empty elimination list returns the lexicographic basis. Eliminating every variable
+/// returns the constant part (empty for a proper ideal, `[1]` for the unit ideal). An empty
+/// input list denotes the zero ideal and returns no polynomials; it supplies no ambient ring
+/// against which to validate variable names.
 pub fn eliminate(
     initial_basis: &[MultivariatePoly],
     eliminated_vars: &[Symbol],
@@ -552,29 +568,278 @@ pub fn eliminate(
     if initial_basis.is_empty() {
         return Ok(Vec::new());
     }
-    let gb = groebner_basis(initial_basis, TermOrder::Lex)?;
-    let gens = &initial_basis[0].generators;
+    let (reordered, inverse) = prepare_elimination(initial_basis, eliminated_vars)?;
+    let gb = groebner_basis(&reordered, TermOrder::Lex)?;
+    gb.into_iter()
+        .filter(|poly| (0..eliminated_vars.len()).all(|index| poly.degree_in(index) == 0))
+        .map(|poly| permute_generators(&poly, &inverse))
+        .collect()
+}
 
-    let elim_indices: Vec<usize> = eliminated_vars
+fn elimination_permutation(
+    generators: &[Symbol],
+    eliminated_vars: &[Symbol],
+) -> Result<Vec<usize>, PolyError> {
+    if eliminated_vars.len() > generators.len() {
+        return Err(PolyError::General(
+            "elimination variable count exceeds the ring generator count".to_string(),
+        ));
+    }
+    let mut eliminated = vec![false; generators.len()];
+    for symbol in eliminated_vars {
+        let index = generators
+            .iter()
+            .position(|generator| generator == symbol)
+            .ok_or_else(|| {
+                PolyError::IncompatibleGenerators(
+                    format!("elimination variable {}", symbol.name),
+                    "missing from polynomial generators".to_string(),
+                )
+            })?;
+        if eliminated[index] {
+            return Err(PolyError::General(
+                "elimination variable list contains a duplicate".to_string(),
+            ));
+        }
+        eliminated[index] = true;
+    }
+    Ok((0..generators.len())
+        .filter(|&index| eliminated[index])
+        .chain((0..generators.len()).filter(|&index| !eliminated[index]))
+        .collect())
+}
+
+/// Reindexes a polynomial using an internally constructed permutation, without routing through
+/// expression parsing or changing any symbol identity/coefficient.
+fn permute_generators(
+    poly: &MultivariatePoly,
+    permutation: &[usize],
+) -> Result<MultivariatePoly, PolyError> {
+    let generators = permutation
         .iter()
-        .map(|symbol| {
-            gens.iter()
-                .position(|generator| generator == symbol)
-                .ok_or_else(|| {
-                    PolyError::IncompatibleGenerators(
-                        format!("elimination variable {}", symbol.name),
-                        "missing from polynomial generators".to_string(),
-                    )
-                })
-        })
-        .collect::<Result<_, _>>()?;
-
-    let eliminated_basis = gb
-        .into_iter()
-        .filter(|p| elim_indices.iter().all(|&idx| p.degree_in(idx) == 0))
+        .map(|&index| poly.generators[index].clone())
         .collect();
+    let terms = poly
+        .terms
+        .iter()
+        .map(|(exponents, coefficient)| {
+            (
+                permutation.iter().map(|&index| exponents[index]).collect(),
+                coefficient.clone(),
+            )
+        })
+        .collect();
+    MultivariatePoly::new(generators, terms)
+}
 
-    Ok(eliminated_basis)
+fn prepare_elimination(
+    initial_basis: &[MultivariatePoly],
+    eliminated_vars: &[Symbol],
+) -> Result<(Vec<MultivariatePoly>, Vec<usize>), PolyError> {
+    if initial_basis.len() > MAX_GROEBNER_BASIS_POLYNOMIALS {
+        return Err(PolyError::General(format!(
+            "elimination input exceeds the polynomial limit of {MAX_GROEBNER_BASIS_POLYNOMIALS}"
+        )));
+    }
+    validate_common_ring(initial_basis)?;
+    let permutation = elimination_permutation(&initial_basis[0].generators, eliminated_vars)?;
+    let mut inverse = vec![0; permutation.len()];
+    for (new_index, &old_index) in permutation.iter().enumerate() {
+        inverse[old_index] = new_index;
+    }
+    let reordered = initial_basis
+        .iter()
+        .map(|poly| permute_generators(poly, &permutation))
+        .collect::<Result<_, _>>()?;
+    Ok((reordered, inverse))
+}
+
+/// An elimination consequence with explicit coefficients against the original input generators:
+/// `polynomial = sum(input_coefficients[i] * initial_basis[i])`.
+///
+/// The witness establishes membership and independence of the eliminated variables. It does
+/// **not** certify that a list of consequences is a complete or reduced elimination basis.
+/// Its public fields are untrusted until [`verify_elimination_witness`] accepts them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EliminationWitness {
+    pub polynomial: MultivariatePoly,
+    pub input_coefficients: Vec<MultivariatePoly>,
+}
+
+/// Computes elimination consequences while retaining input-ideal witnesses through every
+/// S-pair, reduction, normalization, and generator permutation.
+///
+/// Like [`groebner_basis_with_certificate`], this synchronous generator uses the bounded
+/// polynomial/basis/pair limits and returns an error if the search cannot finish within them.
+/// It never returns a partial basis on refusal. Verification is a separate, budgeted operation.
+pub fn eliminate_with_witnesses(
+    initial_basis: &[MultivariatePoly],
+    eliminated_vars: &[Symbol],
+) -> Result<Vec<EliminationWitness>, PolyError> {
+    if initial_basis.is_empty() {
+        return Ok(Vec::new());
+    }
+    let (reordered, inverse) = prepare_elimination(initial_basis, eliminated_vars)?;
+    tracked_groebner_basis(&reordered, TermOrder::Lex)?
+        .into_iter()
+        .filter(|tracked| {
+            (0..eliminated_vars.len()).all(|index| tracked.poly.degree_in(index) == 0)
+        })
+        .map(|tracked| {
+            Ok(EliminationWitness {
+                polynomial: permute_generators(&tracked.poly, &inverse)?,
+                input_coefficients: tracked
+                    .input_coefficients
+                    .iter()
+                    .map(|coefficient| permute_generators(coefficient, &inverse))
+                    .collect::<Result<_, _>>()?,
+            })
+        })
+        .collect()
+}
+
+fn witness_error(error: impl std::fmt::Display) -> PolyError {
+    PolyError::General(format!("elimination witness refused: {error}"))
+}
+
+/// Bound the expression representation before `to_expr` copies coefficients and symbol names.
+/// The estimates include expression/vector storage and coefficient/name payloads; the separate
+/// proof-kernel preflight and normalization bounds still apply to arithmetic scratch work.
+fn preflight_witness_polynomial(
+    poly: &MultivariatePoly,
+    expression_nodes: &mut usize,
+    meter: &mut impl BudgetMeter,
+) -> Result<(), PolyError> {
+    meter.checkpoint().map_err(witness_error)?;
+    poly.validate_shape()?;
+    let mut nodes = 1usize; // outer sum, or canonical zero
+    let mut payload_bytes = 0u64;
+    for (exponents, coefficient) in &poly.terms {
+        meter.checkpoint().map_err(witness_error)?;
+        meter
+            .charge(Dimension::ComputeSteps, (exponents.len() as u64) + 1)
+            .map_err(witness_error)?;
+        if coefficient.numer().limb_count() > MAX_ELIMINATION_WITNESS_COEFFICIENT_LIMBS
+            || coefficient.denom().limb_count() > MAX_ELIMINATION_WITNESS_COEFFICIENT_LIMBS
+        {
+            return Err(witness_error("coefficient limb bound exceeded"));
+        }
+        nodes += 2; // coefficient and monomial product
+        payload_bytes +=
+            coefficient.numer().bits().div_ceil(8) + coefficient.denom().bits().div_ceil(8);
+        for (index, &exponent) in exponents.iter().enumerate() {
+            if exponent != 0 {
+                nodes += if exponent == 1 { 1 } else { 3 };
+                payload_bytes += poly.generators[index].name.len() as u64;
+            }
+        }
+        if nodes > MAX_ELIMINATION_WITNESS_EXPR_NODES {
+            return Err(witness_error("expression node bound exceeded"));
+        }
+    }
+    *expression_nodes = expression_nodes
+        .checked_add(nodes)
+        .ok_or_else(|| witness_error("expression node count overflowed"))?;
+    if *expression_nodes > MAX_ELIMINATION_WITNESS_EXPR_NODES {
+        return Err(witness_error("expression node bound exceeded"));
+    }
+    meter
+        .charge_batch(&[
+            (
+                Dimension::MemoryBytes,
+                payload_bytes + (nodes as u64) * (std::mem::size_of::<Expr>() as u64),
+            ),
+            (Dimension::AllocationCount, nodes as u64),
+        ])
+        .map_err(witness_error)
+}
+
+/// Independently checks one elimination consequence and returns a portable kernel derivation.
+///
+/// The request supplies the original input ideal and the variables to eliminate. The verifier
+/// validates ring/width/shape, checks the forbidden variables are absent, and passes the raw
+/// coefficient products to `fsym-proof-kernel`'s independent polynomial normalizer. It does not
+/// trust a generator product, a stored verdict, or a Groebner search trace. An empty elimination
+/// list makes this a standalone input-ideal membership verifier.
+///
+/// Preflight and derivation work consume the caller's meter. Cancellation is checked before
+/// expression construction, before each bounded kernel call, and before returning the proof;
+/// no accepted state is published on cancellation, resource refusal, or verification failure.
+pub fn verify_elimination_witness(
+    initial_basis: &[MultivariatePoly],
+    eliminated_vars: &[Symbol],
+    witness: &EliminationWitness,
+    meter: &mut impl BudgetMeter,
+) -> Result<DerivationTree, PolyError> {
+    meter.checkpoint().map_err(witness_error)?;
+    meter
+        .charge(Dimension::ComputeSteps, 1)
+        .map_err(witness_error)?;
+    if initial_basis.len() > MAX_GROEBNER_BASIS_POLYNOMIALS
+        || witness.input_coefficients.len() != initial_basis.len()
+    {
+        return Err(witness_error("input-ideal witness width is invalid"));
+    }
+    witness.polynomial.validate_shape()?;
+    let permutation = elimination_permutation(&witness.polynomial.generators, eliminated_vars)?;
+    if permutation[..eliminated_vars.len()]
+        .iter()
+        .any(|&index| witness.polynomial.degree_in(index) != 0)
+    {
+        return Err(witness_error(
+            "result still contains an eliminated variable",
+        ));
+    }
+
+    let mut expression_nodes = initial_basis.len() + 1; // product wrappers and sum
+    preflight_witness_polynomial(&witness.polynomial, &mut expression_nodes, meter)?;
+    for poly in initial_basis.iter().chain(&witness.input_coefficients) {
+        if poly.generators != witness.polynomial.generators {
+            return Err(incompatible_rings(
+                &witness.polynomial.generators,
+                &poly.generators,
+            ));
+        }
+        preflight_witness_polynomial(poly, &mut expression_nodes, meter)?;
+    }
+
+    meter.checkpoint().map_err(witness_error)?;
+    let lhs = witness.polynomial.to_expr()?;
+    let mut products = Vec::with_capacity(initial_basis.len());
+    for (coefficient, input) in witness.input_coefficients.iter().zip(initial_basis) {
+        meter.checkpoint().map_err(witness_error)?;
+        products.push(Expr::Mul(vec![coefficient.to_expr()?, input.to_expr()?]));
+    }
+    let rhs = if products.is_empty() {
+        Expr::from_i64(0)
+    } else {
+        Expr::Add(products)
+    };
+    let expected = Claim::AlgebraicIdentity {
+        lhs: lhs.clone(),
+        rhs: rhs.clone(),
+    };
+    let context = ImmutableAssumptionsSnapshot::empty();
+    let mut kernel = ProofKernel::new((*context).clone());
+    let root = kernel
+        .prove_definitional_reduction(lhs, rhs, "polynomial_ring_equivalence", meter)
+        .map_err(witness_error)?;
+    let derivation = kernel.export_derivation(root).map_err(witness_error)?;
+    let verification_units = derivation_verification_units(&derivation).map_err(witness_error)?;
+    meter.checkpoint().map_err(witness_error)?;
+    meter
+        .charge(Dimension::ComputeSteps, verification_units)
+        .map_err(witness_error)?;
+    let established =
+        verify_derivation_independent(&derivation, &context).map_err(witness_error)?;
+    if established != expected {
+        return Err(witness_error(
+            "independent verifier established a different claim",
+        ));
+    }
+    meter.checkpoint().map_err(witness_error)?;
+
+    Ok(derivation)
 }
 
 /// Certificate for a minimal reduced Groebner basis under a specified term ordering.
@@ -735,4 +1000,349 @@ pub fn verify_groebner_certificate(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod elimination_tests {
+    use super::*;
+    use fsym_budget::{Budget, BudgetLimits, MeterError, Unbounded};
+    use fsym_core::BigInt;
+
+    fn poly(generators: &[Symbol], terms: &[(Vec<u32>, i64, i64)]) -> MultivariatePoly {
+        MultivariatePoly::new(
+            generators.to_vec(),
+            terms
+                .iter()
+                .map(|(exponents, numerator, denominator)| {
+                    (
+                        exponents.clone(),
+                        BigRational::new((*numerator).into(), (*denominator).into()),
+                    )
+                })
+                .collect(),
+        )
+        .unwrap()
+    }
+
+    fn quadratic_system() -> (Vec<Symbol>, Vec<MultivariatePoly>) {
+        let generators = vec![Symbol::new("x"), Symbol::new("y")];
+        let input = vec![
+            poly(&generators, &[(vec![1, 0], 1, 1), (vec![0, 1], -1, 1)]),
+            poly(&generators, &[(vec![0, 2], 1, 1), (vec![0, 0], -1, 1)]),
+        ];
+        (generators, input)
+    }
+
+    #[test]
+    fn eliminates_nonleading_variable_without_losing_the_elimination_ideal() {
+        // <x-y, y^2-1> intersect Q[x] = <x^2-1>. Filtering the basis in x>y
+        // incorrectly returns the empty list; elimination needs y>x.
+        let (generators, input) = quadratic_system();
+        let expected = poly(&generators, &[(vec![2, 0], 1, 1), (vec![0, 0], -1, 1)]);
+        assert_eq!(
+            eliminate(&input, &generators[1..]).unwrap(),
+            vec![expected.clone()]
+        );
+        let witnesses = eliminate_with_witnesses(&input, &generators[1..]).unwrap();
+        assert_eq!(witnesses.len(), 1);
+        assert_eq!(witnesses[0].polynomial, expected);
+        let proof =
+            verify_elimination_witness(&input, &generators[1..], &witnesses[0], &mut Unbounded)
+                .unwrap();
+        let claim =
+            verify_derivation_independent(&proof, &ImmutableAssumptionsSnapshot::empty()).unwrap();
+        assert!(
+            matches!(claim, Claim::AlgebraicIdentity { lhs, .. } if lhs == expected.to_expr().unwrap())
+        );
+
+        // Independent, hand-derived cofactor identity, rather than a generated oracle:
+        // x^2-1 = (x+y)(x-y) + (y^2-1).
+        let direct = EliminationWitness {
+            polynomial: expected,
+            input_coefficients: vec![
+                poly(&generators, &[(vec![1, 0], 1, 1), (vec![0, 1], 1, 1)]),
+                MultivariatePoly::one(generators.clone()),
+            ],
+        };
+        verify_elimination_witness(&input, &generators[1..], &direct, &mut Unbounded).unwrap();
+    }
+
+    #[test]
+    fn noncontiguous_elimination_is_independent_of_request_order() {
+        // y=x^2, w=yz, w=1, eliminate y,w -> x^2*z-1.
+        let generators = ["x", "y", "z", "w"].map(Symbol::new).to_vec();
+        let input = vec![
+            poly(
+                &generators,
+                &[(vec![0, 1, 0, 0], 1, 1), (vec![2, 0, 0, 0], -1, 1)],
+            ),
+            poly(
+                &generators,
+                &[(vec![0, 0, 0, 1], 1, 1), (vec![0, 1, 1, 0], -1, 1)],
+            ),
+            poly(
+                &generators,
+                &[(vec![0, 0, 0, 1], 1, 1), (vec![0, 0, 0, 0], -1, 1)],
+            ),
+        ];
+        let expected = poly(
+            &generators,
+            &[(vec![2, 0, 1, 0], 1, 1), (vec![0, 0, 0, 0], -1, 1)],
+        );
+        let eliminated = vec![generators[3].clone(), generators[1].clone()];
+        assert_eq!(
+            eliminate(&input, &eliminated).unwrap(),
+            vec![expected.clone()]
+        );
+        let witnesses = eliminate_with_witnesses(&input, &eliminated).unwrap();
+        assert_eq!(witnesses.len(), 1);
+        assert_eq!(witnesses[0].polynomial, expected);
+        verify_elimination_witness(&input, &eliminated, &witnesses[0], &mut Unbounded).unwrap();
+        let reverse = vec![generators[1].clone(), generators[3].clone()];
+        assert_eq!(
+            eliminate_with_witnesses(&input, &reverse).unwrap(),
+            witnesses
+        );
+        let reordered = input
+            .iter()
+            .map(|p| permute_generators(p, &[2, 0, 3, 1]).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            eliminate(&reordered, &eliminated).unwrap(),
+            vec![permute_generators(&expected, &[2, 0, 3, 1]).unwrap()]
+        );
+    }
+
+    #[test]
+    fn rational_nonmonic_inputs_keep_witnesses_in_the_original_ring() {
+        let generators = vec![Symbol::new("x"), Symbol::new("y")];
+        let input = vec![
+            poly(&generators, &[(vec![1, 0], 3, 2), (vec![0, 1], -1, 1)]),
+            poly(&generators, &[(vec![0, 2], 1, 2), (vec![0, 0], -2, 1)]),
+        ];
+        let expected = poly(&generators, &[(vec![2, 0], 1, 1), (vec![0, 0], -16, 9)]);
+        let witnesses = eliminate_with_witnesses(&input, &generators[1..]).unwrap();
+        assert_eq!(witnesses.len(), 1);
+        assert_eq!(witnesses[0].polynomial, expected);
+        assert!(
+            witnesses[0]
+                .input_coefficients
+                .iter()
+                .all(|p| p.generators == generators)
+        );
+        verify_elimination_witness(&input, &generators[1..], &witnesses[0], &mut Unbounded)
+            .unwrap();
+    }
+
+    #[test]
+    fn empty_all_and_zero_ideal_elimination_have_explicit_semantics() {
+        let (generators, input) = quadratic_system();
+        assert_eq!(
+            eliminate(&input, &[]).unwrap(),
+            groebner_basis(&input, TermOrder::Lex).unwrap()
+        );
+        assert!(eliminate(&input, &generators).unwrap().is_empty());
+        assert!(eliminate(&[], &generators).unwrap().is_empty());
+        assert!(
+            eliminate_with_witnesses(&[], &generators)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            eliminate(&[MultivariatePoly::zero(generators.clone())], &generators)
+                .unwrap()
+                .is_empty()
+        );
+        let unit_input = vec![
+            poly(&generators, &[(vec![1, 0], 1, 1)]),
+            poly(&generators, &[(vec![1, 0], 1, 1), (vec![0, 0], -1, 1)]),
+        ];
+        let witnesses = eliminate_with_witnesses(&unit_input, &generators).unwrap();
+        assert_eq!(witnesses.len(), 1);
+        assert_eq!(
+            witnesses[0].polynomial,
+            MultivariatePoly::one(generators.clone())
+        );
+        verify_elimination_witness(&unit_input, &generators, &witnesses[0], &mut Unbounded)
+            .unwrap();
+        let zero = EliminationWitness {
+            polynomial: MultivariatePoly::zero(generators.clone()),
+            input_coefficients: vec![],
+        };
+        verify_elimination_witness(&[], &generators, &zero, &mut Unbounded).unwrap();
+        let false_unit = EliminationWitness {
+            polynomial: MultivariatePoly::one(generators.clone()),
+            input_coefficients: vec![],
+        };
+        assert!(verify_elimination_witness(&[], &generators, &false_unit, &mut Unbounded).is_err());
+        assert_eq!(
+            eliminate(&[MultivariatePoly::one(vec![])], &[]).unwrap(),
+            vec![MultivariatePoly::one(vec![])]
+        );
+    }
+
+    #[test]
+    fn invalid_variables_and_ring_shapes_are_refused_before_reindexing() {
+        let (generators, input) = quadratic_system();
+        for eliminated in [
+            vec![Symbol::new("missing")],
+            vec![generators[0].clone(), generators[0].clone()],
+            vec![
+                generators[0].clone(),
+                generators[1].clone(),
+                Symbol::new("missing"),
+            ],
+        ] {
+            assert!(eliminate(&input, &eliminated).is_err());
+            assert!(eliminate_with_witnesses(&input, &eliminated).is_err());
+        }
+        let malformed = MultivariatePoly {
+            generators: generators.clone(),
+            terms: BTreeMap::from([(vec![1], BigRational::one())]),
+        };
+        assert!(eliminate(std::slice::from_ref(&malformed), &generators[1..]).is_err());
+        assert!(eliminate_with_witnesses(&[malformed], &generators[1..]).is_err());
+        let mut mixed = input;
+        mixed.push(MultivariatePoly::one(vec![Symbol::new("z")]));
+        assert!(eliminate(&mixed, &[]).is_err());
+    }
+
+    #[test]
+    fn independent_verifier_rejects_forged_consequences_and_cofactors() {
+        let (generators, input) = quadratic_system();
+        let witness = eliminate_with_witnesses(&input, &generators[1..])
+            .unwrap()
+            .remove(0);
+        let mut wrong_result = witness.clone();
+        wrong_result.polynomial = MultivariatePoly::one(generators.clone());
+        assert!(
+            verify_elimination_witness(&input, &generators[1..], &wrong_result, &mut Unbounded)
+                .is_err()
+        );
+        let mut wrong_cofactor = witness.clone();
+        wrong_cofactor.input_coefficients[0] = wrong_cofactor.input_coefficients[0]
+            .add(&MultivariatePoly::one(generators.clone()))
+            .unwrap();
+        assert!(
+            verify_elimination_witness(&input, &generators[1..], &wrong_cofactor, &mut Unbounded)
+                .is_err()
+        );
+        let mut missing_cofactor = witness.clone();
+        missing_cofactor.input_coefficients.pop();
+        assert!(
+            verify_elimination_witness(&input, &generators[1..], &missing_cofactor, &mut Unbounded)
+                .is_err()
+        );
+        // Valid input-ideal membership does not imply an elimination consequence.
+        let contains_eliminated = EliminationWitness {
+            polynomial: input[0].clone(),
+            input_coefficients: vec![
+                MultivariatePoly::one(generators.clone()),
+                MultivariatePoly::zero(generators.clone()),
+            ],
+        };
+        verify_elimination_witness(&input, &[], &contains_eliminated, &mut Unbounded).unwrap();
+        assert!(
+            verify_elimination_witness(
+                &input,
+                &generators[1..],
+                &contains_eliminated,
+                &mut Unbounded
+            )
+            .is_err()
+        );
+        let mut wrong_ring = witness.clone();
+        wrong_ring.input_coefficients[0] = MultivariatePoly::one(vec![Symbol::new("z")]);
+        assert!(
+            verify_elimination_witness(&input, &generators[1..], &wrong_ring, &mut Unbounded)
+                .is_err()
+        );
+        let mut malformed = witness.clone();
+        malformed.input_coefficients[0].terms = BTreeMap::from([(vec![1], BigRational::one())]);
+        assert!(
+            verify_elimination_witness(&input, &generators[1..], &malformed, &mut Unbounded)
+                .is_err()
+        );
+        let mut wrong_input = input.clone();
+        wrong_input[1] = poly(&generators, &[(vec![0, 2], 1, 1), (vec![0, 0], -2, 1)]);
+        assert!(
+            verify_elimination_witness(&wrong_input, &generators[1..], &witness, &mut Unbounded)
+                .is_err()
+        );
+    }
+
+    #[derive(Default)]
+    struct WitnessMeter {
+        checkpoints: usize,
+        cancel_at: Option<usize>,
+    }
+
+    impl BudgetMeter for WitnessMeter {
+        fn charge(&mut self, _: Dimension, _: u64) -> Result<(), MeterError> {
+            Ok(())
+        }
+        fn charge_batch(&mut self, _: &[(Dimension, u64)]) -> Result<(), MeterError> {
+            Ok(())
+        }
+        fn checkpoint(&mut self) -> Result<(), MeterError> {
+            self.checkpoints += 1;
+            if self.cancel_at == Some(self.checkpoints) {
+                Err(MeterError::Cancelled)
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    #[test]
+    fn witness_verification_cancellation_and_resource_refusal_never_return_a_proof() {
+        let (generators, input) = quadratic_system();
+        let witness = eliminate_with_witnesses(&input, &generators[1..])
+            .unwrap()
+            .remove(0);
+        let mut counting = WitnessMeter::default();
+        verify_elimination_witness(&input, &generators[1..], &witness, &mut counting).unwrap();
+        assert!(counting.checkpoints > 3);
+        for checkpoint in 1..=counting.checkpoints {
+            let mut meter = WitnessMeter {
+                cancel_at: Some(checkpoint),
+                ..WitnessMeter::default()
+            };
+            assert!(matches!(
+                verify_elimination_witness(&input, &generators[1..], &witness, &mut meter),
+                Err(PolyError::General(message)) if message.contains("cancelled")
+            ));
+        }
+        for dimension in [
+            Dimension::ComputeSteps,
+            Dimension::MemoryBytes,
+            Dimension::AllocationCount,
+        ] {
+            let mut limits = BudgetLimits::uniform(1_000_000, 0);
+            limits.dimensions[dimension.index()] = 0;
+            let mut budget = Budget::new(limits);
+            assert!(
+                verify_elimination_witness(&input, &generators[1..], &witness, &mut budget)
+                    .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn oversized_witness_is_refused_before_expression_construction() {
+        let (generators, input) = quadratic_system();
+        let mut witness = eliminate_with_witnesses(&input, &generators[1..])
+            .unwrap()
+            .remove(0);
+        witness.input_coefficients[0].terms = BTreeMap::from([(
+            vec![0, 0],
+            BigRational::from_integer(
+                BigInt::one() << (MAX_ELIMINATION_WITNESS_COEFFICIENT_LIMBS * 64) as usize,
+            ),
+        )]);
+        assert!(matches!(
+            verify_elimination_witness(&input, &generators[1..], &witness, &mut Unbounded),
+            Err(PolyError::General(message)) if message.contains("coefficient limb bound")
+        ));
+    }
 }
