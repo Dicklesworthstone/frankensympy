@@ -1595,6 +1595,22 @@ fn real_on_real_axis(e: &Expr, x: &Symbol, depth: usize) -> bool {
     }
 }
 
+/// Preserve a wide interval's full image under monotone exp. The scalar
+/// evaluator's absolute-error contract applies only to exact endpoints here.
+fn range_exp(
+    argument: &fsym_core::ball::RealBall,
+    digits: u32,
+) -> Option<fsym_core::ball::RealBall> {
+    use fsym_core::ball::RealBall;
+    if argument.radius().is_zero() {
+        return argument.exp(digits).ok();
+    }
+    let lo = RealBall::exact(argument.lower()).exp(digits).ok()?.lower();
+    let hi = RealBall::exact(argument.upper()).exp(digits).ok()?.upper();
+    let two = BigRational::from_integer(2.into());
+    RealBall::new((&lo + &hi) / &two, (hi - lo) / two).ok()
+}
+
 /// Certified interval arithmetic on a finite real path. Failure or an
 /// enclosure containing zero is inconclusive, never evidence of regularity.
 fn range_ball(
@@ -1642,16 +1658,12 @@ fn range_ball(
                         .ok();
                 }
             }
-            base.ln(digits + 4)
-                .ok()?
-                .mul(&child(power)?)
-                .exp(digits)
-                .ok()
+            range_exp(&base.ln(digits + 4).ok()?.mul(&child(power)?), digits)
         }
         Expr::Function(name, args) if args.len() == 1 => {
             let arg = child(&args[0])?;
             match name.as_str() {
-                "exp" => arg.exp(digits).ok(),
+                "exp" => range_exp(&arg, digits),
                 "sin" => arg.sin(digits).ok(),
                 "cos" => arg.cos(digits).ok(),
                 "log" | "ln" => arg.ln(digits).ok(),
@@ -2217,5 +2229,23 @@ mod tests {
             ),
             None,
         );
+    }
+
+    #[test]
+    fn definite_domain_depth_boundary_is_checked_before_recursive_work() {
+        let zero = Expr::from_i64(0);
+        let one = Expr::from_i64(1);
+        let mut nested = xe();
+        for _ in 0..MAX_DOMAIN_DEPTH {
+            nested = Expr::Add(vec![nested]);
+        }
+        assert!(definite_inputs_within_bounds(&nested, &zero, &one));
+        assert_eq!(
+            has_interior_singularity(&nested, &x(), &zero, &one, 0),
+            Some(false),
+        );
+        nested = Expr::Add(vec![nested]);
+        assert!(!definite_inputs_within_bounds(&nested, &zero, &one));
+        assert!(definite(&nested, &x(), &zero, &one).is_none());
     }
 }

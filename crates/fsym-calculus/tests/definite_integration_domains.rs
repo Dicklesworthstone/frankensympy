@@ -84,6 +84,15 @@ fn entire_functions_and_symbolic_polynomial_endpoints_still_work() {
         integrate_definite(&function("exp", xe.clone()), &x, &zero, &one).unwrap(),
         Expr::Const(Constant::E) - one,
     );
+    // A positive transcendental denominator needs a full interval image;
+    // a scalar exp enclosure's absolute-radius promise is insufficient.
+    let exp_x = function("exp", xe.clone());
+    let quotient = exp_x.clone() * eval_pow(Expr::from_i64(1) + exp_x, Expr::from_i64(-1));
+    assert_exact(
+        integrate_definite(&quotient, &x, &zero, &Expr::from_i64(1)).unwrap(),
+        function("log", Expr::from_i64(1) + Expr::Const(Constant::E))
+            - function("log", Expr::from_i64(2)),
+    );
     assert_exact(
         integrate_definite(&xe, &x, &zero, &Expr::Sym(y.clone())).unwrap(),
         q(1, 2) * eval_pow(Expr::Sym(y), Expr::from_i64(2)),

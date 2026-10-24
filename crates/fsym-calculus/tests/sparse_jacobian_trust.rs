@@ -258,7 +258,8 @@ fn valid_empty_and_constant_systems_remain_usable() {
             .unwrap(),
     ] {
         let point = vec![1.0; system.vars.len()];
-        let receipt = verify_sparse_jacobian_certificate(&system, &[point.clone()]).unwrap();
+        let receipt =
+            verify_sparse_jacobian_certificate(&system, std::slice::from_ref(&point)).unwrap();
         assert_eq!(receipt.nnz, 0);
         let mut dense = vec![91.0; system.pattern.num_rows * system.pattern.num_cols];
         system.try_eval_dense(&point, &mut dense).unwrap();
