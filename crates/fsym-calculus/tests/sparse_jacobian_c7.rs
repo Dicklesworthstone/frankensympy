@@ -186,6 +186,6 @@ fn test_sparse_jacobian_c7_adversarial_tampering() {
     bad_bytecode.entries[0].compiled_deriv = forged_expr;
     assert!(matches!(
         verify_sparse_jacobian_certificate(&bad_bytecode, &test_points),
-        Err(JacobianVerificationError::EvaluatorDisagreement { row: 0, col: 0, .. })
+        Err(JacobianVerificationError::CompiledProvenanceMismatch { row: 0, col: 0 })
     ));
 }

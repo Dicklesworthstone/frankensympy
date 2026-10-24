@@ -245,7 +245,13 @@ fn reference_eliminate_zero_products(expr: &Expr) -> Expr {
 }
 
 /// Verifier-local reference sub-derivative (never invokes `crate::diff` or `crate::diff_unsimplified`).
-fn reference_sub_derivative(expr: &Expr, var: &Symbol) -> Expr {
+pub(crate) fn reference_sub_derivative(expr: &Expr, var: &Symbol) -> Expr {
+    // Native Expr has no binders: absence from its structural free-symbol
+    // set proves constancy with respect to this variable, including powers
+    // and functions outside the reference rule table.
+    if !expr.free_symbols().contains(var) {
+        return Expr::from_i64(0);
+    }
     let raw = reference_unsimplified_diff(expr, var);
     let cleaned = reference_eliminate_zero_products(&raw);
     fsym_simplify::simplify(&cleaned)

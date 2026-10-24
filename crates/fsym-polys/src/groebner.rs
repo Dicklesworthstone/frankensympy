@@ -1337,7 +1337,7 @@ mod elimination_tests {
         witness.input_coefficients[0].terms = BTreeMap::from([(
             vec![0, 0],
             BigRational::from_integer(
-                BigInt::one() << (MAX_ELIMINATION_WITNESS_COEFFICIENT_LIMBS * 64) as usize,
+                BigInt::one() << (MAX_ELIMINATION_WITNESS_COEFFICIENT_LIMBS * 64) as u32,
             ),
         )]);
         assert!(matches!(

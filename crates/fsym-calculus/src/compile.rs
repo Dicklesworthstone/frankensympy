@@ -83,6 +83,8 @@ pub enum EvalError {
     AllocationFailure,
     #[error("Compiled `{operation}` operation has invalid zero arity")]
     InvalidReductionArity { operation: &'static str },
+    #[error("Invalid sparse Jacobian: {0}")]
+    InvalidSparseJacobian(String),
     #[error("Compiled power exponent is not finite")]
     NonFinitePowerExponent,
     #[error("Compiled constant is NaN or negative zero, which is not a canonical compiler output")]
