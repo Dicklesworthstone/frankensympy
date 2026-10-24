@@ -556,7 +556,7 @@ checksum = "d45db016d36b838f563236e9193d0ee6ce38f3f68b6c94e914b4929c96bbb890"
 
 [[package]]
 name = "fnp-linalg"
-version = "0.4.0"
+version = "0.3.0"
 dependencies = [
  "fnp-ndarray",
  "rayon",
@@ -564,7 +564,7 @@ dependencies = [
 
 [[package]]
 name = "fnp-ndarray"
-version = "0.4.0"
+version = "0.3.0"
 
 [[package]]
 name = "fnv"
@@ -623,7 +623,7 @@ dependencies = [
 
 [[package]]
 name = "fsci-opt"
-version = "0.3.0"
+version = "0.2.0"
 dependencies = [
  "fsci-runtime",
  "rand 0.10.3",
@@ -633,7 +633,7 @@ dependencies = [
 
 [[package]]
 name = "fsci-runtime"
-version = "0.3.0"
+version = "0.2.0"
 dependencies = [
  "blake3",
  "serde",

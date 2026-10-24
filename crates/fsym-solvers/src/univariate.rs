@@ -975,17 +975,19 @@ mod original_equation_tests {
     #[test]
     fn enclosure_containing_zero_does_not_accept_a_nonzero_residual() {
         let x = Symbol::new("x");
-        // A strict decimal truncation of e differs by less than 10^-40.
-        // The old 24-digit enclosure contained zero and accepted x = 0.
-        let truncation = BigRational::new(
-            "27182818284590452353602874713526624977572"
-                .parse::<BigInt>()
-                .unwrap(),
-            BigInt::from(10).pow(40),
-        );
-        let equation = Expr::Sym(x.clone()) + Expr::Const(Constant::E) - rq(truncation);
+        // Addition evaluates its children with four guard digits. Use that
+        // enclosure's rational midpoint, which cannot equal irrational e,
+        // to force a genuinely undecided coarse residual enclosure.
+        let approximation = Expr::Const(Constant::E)
+            .eval_complex_ball(28)
+            .unwrap()
+            .real()
+            .midpoint()
+            .clone();
+        let equation = Expr::Sym(x.clone()) + Expr::Const(Constant::E) - rq(approximation);
         let residual = equation.subs(&HashMap::from([(x.clone(), Expr::from_i64(0))]));
         assert!(residual.eval_complex_ball(24).unwrap().contains_zero());
+        assert!(!residual.eval_complex_ball(96).unwrap().contains_zero());
         assert_eq!(
             check_roots(&equation, &x, vec![Expr::from_i64(0)]),
             Ok(Vec::new())

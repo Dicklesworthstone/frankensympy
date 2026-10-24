@@ -12,11 +12,13 @@ pub mod summation;
 pub(crate) use integrate::rational_parts as integrate_rational_parts;
 pub mod sparse_jacobian;
 pub mod transforms;
+pub mod verified;
 
 pub use compile::*;
 pub use proof::*;
 pub use sparse_jacobian::*;
 pub use transforms::*;
+pub use verified::*;
 
 use fsym_core::{BigInt, BigRational, Constant, CoreError, Expr, RealBall, Symbol};
 use fsym_simplify::simplify;

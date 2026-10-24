@@ -23,8 +23,8 @@
 
 #![forbid(unsafe_code)]
 
-use fsym_calculus::CompiledResidualSystem;
-use fsym_core::{BigInt, BigRational, Expr, Symbol};
+use fsym_calculus::{CompiledResidualSystem, VerifiedResidualSystem};
+use fsym_core::{BigInt, BigRational, Expr, RealBall, Symbol};
 use std::collections::HashMap;
 
 /// Identity of the pinned consumer this boundary was compiled against.
@@ -64,17 +64,21 @@ pub enum ConsumerError {
     Evaluation(String),
     #[error("system is not 2x2; this boundary executes the declared 2x2 consumer ABI only")]
     UnsupportedShape,
+    #[error("invalid Newton guard: {0}")]
+    InvalidGuards(&'static str),
+    #[error("certified residual check failed: {0}")]
+    Certification(String),
 }
 
 /// Result of a converged Newton refinement driven by the consumer solver.
 #[derive(Debug, Clone)]
 pub struct NewtonOutcome {
-    /// Final iterate (the accepted approximate root).
+    /// Final approximate iterate. A residual certificate is a separate check.
     pub root: [f64; 2],
     /// Residual infinity-norm at the final iterate (native compiled lane).
     pub residual_norm: f64,
     /// Determinant of the Jacobian at the final iterate, as computed by
-    /// the boundary for the nonsingularity certificate.
+    /// boundary as a floating-point diagnostic, not a nonsingularity proof.
     pub final_jacobian_determinant: f64,
     pub iterations: usize,
 }
@@ -112,21 +116,37 @@ pub fn newton_refine_2x2(
     initial: [f64; 2],
     guards: &NewtonGuards,
 ) -> Result<NewtonOutcome, ConsumerError> {
-    if system.num_vars != 2 || system.num_residuals != 2 {
-        return Err(ConsumerError::UnsupportedShape);
+    check_system_shape(system)?;
+    require_finite(&initial, "initial iterate")?;
+    if !guards.residual_tolerance.is_finite() || guards.residual_tolerance < 0.0 {
+        return Err(ConsumerError::InvalidGuards(
+            "residual tolerance must be finite and nonnegative",
+        ));
+    }
+    if !guards.max_step_norm.is_finite() || guards.max_step_norm <= 0.0 {
+        return Err(ConsumerError::InvalidGuards(
+            "maximum step norm must be finite and positive",
+        ));
     }
     let mut x = initial;
     let mut residuals = [0.0_f64; 2];
     let mut jacobian_flat = [0.0_f64; 4];
     let mut last_norm = f64::INFINITY;
-    let mut determinant = 0.0_f64;
     for iteration in 0..=guards.max_iterations {
         system
-            .try_eval_residuals(&x, &mut residuals)
+            .try_eval_system(&x, &mut residuals, &mut jacobian_flat)
             .map_err(|error| ConsumerError::Evaluation(error.to_string()))?;
+        require_finite(&residuals, "residual")?;
+        require_finite(&jacobian_flat, "Jacobian")?;
         last_norm = residuals
             .iter()
             .fold(0.0_f64, |acc, value| acc.max(value.abs()));
+        let jacobian = [
+            [jacobian_flat[0], jacobian_flat[1]],
+            [jacobian_flat[2], jacobian_flat[3]],
+        ];
+        let determinant = jacobian_det(&jacobian);
+        require_finite(&[determinant], "Jacobian determinant")?;
         if last_norm <= guards.residual_tolerance {
             return Ok(NewtonOutcome {
                 root: x,
@@ -138,33 +158,70 @@ pub fn newton_refine_2x2(
         if iteration == guards.max_iterations {
             break;
         }
-        system
-            .try_eval_jacobian(&x, &mut jacobian_flat)
-            .map_err(|error| ConsumerError::Evaluation(error.to_string()))?;
-        let jacobian = [
-            [jacobian_flat[0], jacobian_flat[1]],
-            [jacobian_flat[2], jacobian_flat[3]],
-        ];
-        determinant = jacobian_det(&jacobian);
         let negated = [-residuals[0], -residuals[1]];
-        // The pinned consumer solves the linear step; its typed refusal is
-        // the singular-Jacobian condition.
-        let [dx, dy] = fnp_linalg::solve_2x2(jacobian, negated)
+        // Only the admitted consumer solves the linear step. An exact root
+        // with a singular Jacobian may satisfy the residual criterion above;
+        // that does not establish root uniqueness or nonsingularity.
+        let step = fnp_linalg::solve_2x2(jacobian, negated)
             .map_err(|error| ConsumerError::SingularJacobian(error.to_string()))?;
-        let step_norm = dx.abs().max(dy.abs());
-        if !step_norm.is_finite() || step_norm > guards.max_step_norm {
+        require_finite(&step, "Newton step")?;
+        let step_norm = step[0].abs().max(step[1].abs());
+        if step_norm > guards.max_step_norm {
             return Err(ConsumerError::NoConvergence {
                 max_iterations: guards.max_iterations,
                 last_residual_norm: last_norm,
             });
         }
-        x[0] += dx;
-        x[1] += dy;
+        x[0] += step[0];
+        x[1] += step[1];
+        require_finite(&x, "updated iterate")?;
     }
     Err(ConsumerError::NoConvergence {
         max_iterations: guards.max_iterations,
         last_residual_norm: last_norm,
     })
+}
+
+/// Executes the checked derivative artifact and certifies the residual of the
+/// returned binary64 point against that artifact's own symbolic residuals.
+/// This proves the declared residual bound, not existence or uniqueness of an
+/// exact root near the point. Failed certification never returns an outcome.
+pub fn newton_refine_verified_2x2(
+    system: &VerifiedResidualSystem,
+    initial: [f64; 2],
+    guards: &NewtonGuards,
+    bound_decimal_places: u32,
+) -> Result<NewtonOutcome, ConsumerError> {
+    validate_bound_precision(bound_decimal_places).map_err(ConsumerError::Certification)?;
+    let outcome = newton_refine_2x2(system.compiled(), initial, guards)?;
+    certified_residual_bound(
+        system.residuals(),
+        system.vars(),
+        &outcome.root,
+        bound_decimal_places,
+    )
+    .map_err(ConsumerError::Certification)?;
+    Ok(outcome)
+}
+
+fn check_system_shape(system: &CompiledResidualSystem) -> Result<(), ConsumerError> {
+    if system.num_vars != 2
+        || system.num_residuals != 2
+        || system.vars.len() != 2
+        || system.vars[0] == system.vars[1]
+    {
+        return Err(ConsumerError::UnsupportedShape);
+    }
+    Ok(())
+}
+
+fn require_finite(values: &[f64], lane: &str) -> Result<(), ConsumerError> {
+    if values.iter().any(|value| !value.is_finite()) {
+        return Err(ConsumerError::Evaluation(format!(
+            "{lane} contains non-finite values"
+        )));
+    }
+    Ok(())
 }
 
 /// FrankenSciPy consumer execution: `fsci-opt::fsolve` drives the SAME
@@ -176,18 +233,23 @@ pub fn frankenscipy_fsolve(
     system: &CompiledResidualSystem,
     initial: &[f64; 2],
 ) -> Result<[f64; 2], ConsumerError> {
-    if system.num_vars != 2 || system.num_residuals != 2 {
-        return Err(ConsumerError::UnsupportedShape);
-    }
-    if initial.iter().any(|value| !value.is_finite()) {
-        return Err(ConsumerError::Evaluation(
-            "initial iterate contains non-finite values".into(),
-        ));
-    }
+    check_system_shape(system)?;
+    require_finite(initial, "initial iterate")?;
     let evaluation_error: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
     let residuals = |point: &[f64]| -> Vec<f64> {
-        let mut out = vec![0.0_f64; system.num_residuals];
-        if let Err(error) = system.try_eval_residuals(point, &mut out) {
+        let mut out = vec![0.0_f64; 2];
+        let evaluated = if point.len() != 2 {
+            Err(ConsumerError::UnsupportedShape)
+        } else {
+            require_finite(point, "consumer iterate")
+                .and_then(|()| {
+                    system
+                        .try_eval_residuals(point, &mut out)
+                        .map_err(|error| ConsumerError::Evaluation(error.to_string()))
+                })
+                .and_then(|()| require_finite(&out, "consumer residual"))
+        };
+        if let Err(error) = evaluated {
             let mut slot = evaluation_error
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -198,8 +260,7 @@ pub fn frankenscipy_fsolve(
         }
         out
     };
-    let result = fsci_opt::fsolve(residuals, initial)
-        .map_err(|error| ConsumerError::Evaluation(error.to_string()))?;
+    let result = fsci_opt::fsolve(residuals, initial);
     if let Some(message) = evaluation_error
         .into_inner()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -208,21 +269,47 @@ pub fn frankenscipy_fsolve(
             "compiled residual evaluation failed during the consumer solve: {message}"
         )));
     }
+    let result = result.map_err(|error| ConsumerError::Evaluation(error.to_string()))?;
+    if result.x.len() != 2 || result.fun.len() != 2 {
+        return Err(ConsumerError::UnsupportedShape);
+    }
+    require_finite(&result.x, "consumer root")?;
+    require_finite(&result.fun, "consumer reported residual")?;
+    // Re-evaluate at the returned point rather than trusting the consumer's
+    // cached residual vector. This is still an approximate diagnostic.
+    let mut final_residual = [0.0_f64; 2];
+    system
+        .try_eval_residuals(&result.x, &mut final_residual)
+        .map_err(|error| ConsumerError::Evaluation(error.to_string()))?;
+    require_finite(&final_residual, "final residual")?;
     if !result.converged {
         return Err(ConsumerError::NoConvergence {
             max_iterations: 200,
-            last_residual_norm: result
-                .fun
+            last_residual_norm: final_residual
                 .iter()
                 .fold(0.0_f64, |acc, value| acc.max(value.abs())),
         });
     }
-    if result.x.iter().any(|value| !value.is_finite()) {
-        return Err(ConsumerError::Evaluation(
-            "consumer returned a non-finite root".into(),
-        ));
-    }
     Ok([result.x[0], result.x[1]])
+}
+
+/// Runs FrankenSciPy on the same verified artifact and checks the returned
+/// point using its retained symbolic sources and a declared enclosure bound.
+pub fn frankenscipy_fsolve_verified(
+    system: &VerifiedResidualSystem,
+    initial: &[f64; 2],
+    bound_decimal_places: u32,
+) -> Result<[f64; 2], ConsumerError> {
+    validate_bound_precision(bound_decimal_places).map_err(ConsumerError::Certification)?;
+    let root = frankenscipy_fsolve(system.compiled(), initial)?;
+    certified_residual_bound(
+        system.residuals(),
+        system.vars(),
+        &root,
+        bound_decimal_places,
+    )
+    .map_err(ConsumerError::Certification)?;
+    Ok(root)
 }
 
 fn jacobian_det(jacobian: &[[f64; 2]; 2]) -> f64 {
@@ -260,51 +347,130 @@ pub fn exact_binary64_rational(value: f64) -> Option<BigRational> {
     Some(if negative { -magnitude } else { magnitude })
 }
 
-/// Certified consistency statement for an accepted consumer outcome:
-/// substitutes the accepted iterate (as exact binary64 rationals) into
-/// the residual expressions, evaluates each under certified ball
-/// arithmetic (`evalf_ball`, 30-digit request), and asserts — with exact
-/// rational comparison — that the residual infinity-norm midpoint is
-/// bounded by `10^(-bound_decimal_places)` with ball radii far below it.
-/// The accepted iterate is thus a certified approximate root, not an
-/// unchecked consumer claim. Declare the bound per consumer: exact-solve
-/// lanes tolerate tighter bounds than finite-difference consumers whose
-/// own convergence tolerance dominates the achievable residual.
+/// Certified residual bound at the supplied binary64 point, evaluated as exact
+/// rational coordinates. Every full enclosure must lie in `[-bound, bound]`:
+/// `abs(midpoint) + radius <= 10^(-bound_decimal_places)`.
+///
+/// This boundary has exactly two distinct variables. Residuals cannot be empty.
+/// The statement is about residual size at this point, not exact-root existence,
+/// uniqueness, or a neighborhood around the point.
 pub fn certified_residual_bound(
     residual_exprs: &[Expr],
     vars: &[Symbol],
     root: &[f64; 2],
     bound_decimal_places: u32,
 ) -> Result<(), String> {
+    let precision = validate_bound_precision(bound_decimal_places)?;
+    if vars.len() != root.len() || vars[0] == vars[1] {
+        return Err("the residual certificate requires exactly two distinct variables".into());
+    }
+    if residual_exprs.is_empty() {
+        return Err("the residual certificate requires at least one residual".into());
+    }
     let bound = BigRational::new(BigInt::from(1), BigInt::from(10).pow(bound_decimal_places));
     let mut substitution = HashMap::new();
-    for (index, variable) in vars.iter().enumerate() {
-        let exact = exact_binary64_rational(root[index])
-            .ok_or_else(|| format!("root component {index} is not finite"))?;
+    for (variable, &value) in vars.iter().zip(root) {
+        let exact = exact_binary64_rational(value)
+            .ok_or_else(|| "root contains a non-finite component".to_string())?;
         substitution.insert(variable.clone(), Expr::Rational(exact));
     }
     for (index, residual) in residual_exprs.iter().enumerate() {
-        let specialized = residual.subs(&substitution);
+        let specialized = specialize_residual(residual, &substitution, 0, &mut 0)?;
         let ball = specialized
-            .evalf_ball(30)
+            .evalf_ball(precision)
             .map_err(|error| format!("residual {index} ball evaluation failed: {error}"))?;
-        if ball.radius() > &bound {
+        if !enclosure_within_bound(&ball, &bound) {
             return Err(format!(
-                "residual {index} certified radius {ball} exceeds the declared bound"
-            ));
-        }
-        let midpoint = ball.midpoint().clone();
-        let zero = BigRational::new(BigInt::from(0), BigInt::from(1));
-        let magnitude = if midpoint >= zero {
-            midpoint
-        } else {
-            -midpoint.clone()
-        };
-        if magnitude > bound {
-            return Err(format!(
-                "residual {index} certified magnitude {magnitude} exceeds the declared bound"
+                "residual {index} full certified enclosure {ball} exceeds the declared bound"
             ));
         }
     }
     Ok(())
+}
+
+/// Substitute coordinates without simplifying away a source domain check.
+/// Smart constructors could turn e.g. log(x)^0 into 1 at x=0 before the ball
+/// evaluator gets the chance to reject the original undefined logarithm.
+fn specialize_residual(
+    expr: &Expr,
+    substitution: &HashMap<Symbol, Expr>,
+    depth: usize,
+    visited: &mut usize,
+) -> Result<Expr, String> {
+    if depth > fsym_calculus::MAX_COMPILE_DEPTH || *visited >= fsym_calculus::MAX_COMPILE_OPS {
+        return Err("residual exceeds the bounded certified-evaluation envelope".into());
+    }
+    *visited += 1;
+    match expr {
+        Expr::Sym(variable) => Ok(substitution.get(variable).unwrap_or(expr).clone()),
+        Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_) => Ok(expr.clone()),
+        Expr::Pow(base, exponent) => Ok(Expr::Pow(
+            std::sync::Arc::new(specialize_residual(base, substitution, depth + 1, visited)?),
+            std::sync::Arc::new(specialize_residual(
+                exponent,
+                substitution,
+                depth + 1,
+                visited,
+            )?),
+        )),
+        Expr::Add(args) | Expr::Mul(args) | Expr::Function(_, args) => {
+            if args.len() > fsym_calculus::MAX_COMPILE_OPS.saturating_sub(*visited) {
+                return Err("residual exceeds the bounded certified-evaluation envelope".into());
+            }
+            let mut specialized = Vec::new();
+            specialized
+                .try_reserve_exact(args.len())
+                .map_err(|_| "residual specialization allocation refused".to_string())?;
+            for arg in args {
+                specialized.push(specialize_residual(arg, substitution, depth + 1, visited)?);
+            }
+            Ok(match expr {
+                Expr::Add(_) => Expr::Add(specialized),
+                Expr::Mul(_) => Expr::Mul(specialized),
+                Expr::Function(name, _) => Expr::Function(name.clone(), specialized),
+                _ => unreachable!("the enclosing match admits only variadic nodes"),
+            })
+        }
+    }
+}
+
+fn validate_bound_precision(bound_decimal_places: u32) -> Result<u32, String> {
+    // Reserve guard digits while refusing hostile exponents before constructing
+    // 10^digits or starting any numerical solve.
+    let precision = bound_decimal_places
+        .checked_add(8)
+        .ok_or_else(|| "requested residual precision exceeds the certified envelope".to_string())?
+        .max(30);
+    if precision > RealBall::MAX_TRANSCENDENTAL_PRECISION_DIGITS {
+        return Err("requested residual precision exceeds the certified envelope".into());
+    }
+    Ok(precision)
+}
+
+fn enclosure_within_bound(ball: &RealBall, bound: &BigRational) -> bool {
+    let midpoint = ball.midpoint();
+    let magnitude = if midpoint < &BigRational::from_integer(BigInt::from(0)) {
+        -midpoint.clone()
+    } else {
+        midpoint.clone()
+    };
+    magnitude + ball.radius().clone() <= *bound
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn residual_bound_contains_the_entire_enclosure() {
+        let q = |n, d| BigRational::new(BigInt::from(n), BigInt::from(d));
+        let bound = q(1_i64, 1_i64);
+        for sign in [-1_i64, 1] {
+            // Each component is below one, but the enclosure reaches ±1.5.
+            let too_wide = RealBall::new(q(sign * 3, 4), q(3, 4)).unwrap();
+            assert!(!enclosure_within_bound(&too_wide, &bound));
+            let exact_boundary = RealBall::new(q(sign * 3, 4), q(1, 4)).unwrap();
+            assert!(enclosure_within_bound(&exact_boundary, &bound));
+        }
+    }
 }
