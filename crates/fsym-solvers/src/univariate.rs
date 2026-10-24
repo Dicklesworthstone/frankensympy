@@ -320,12 +320,52 @@ fn rational_parts(e: &Expr, x: &Symbol) -> Option<(UnivariatePoly, UnivariatePol
 }
 
 fn solve_rational(e: &Expr, x: &Symbol) -> Option<Result<Vec<Expr>, SolverError>> {
-    let (num, den) = rational_parts(e, x)?;
-    let g = num.gcd(&den).ok()?;
-    let (num, _) = num.div_rem(&g).ok()?;
-    let (den, _) = den.div_rem(&g).ok()?;
+    let (mut num, den) = rational_parts(e, x)?;
+    if den.is_zero() {
+        return Some(Err(SolverError::InvalidSystem(
+            "the original rational expression has an identically zero denominator".into(),
+        )));
+    }
+    // A reciprocal of a reciprocal still excludes the inner pole. Keep
+    // every original inverse's numerator as a domain constraint; the final
+    // numerator/denominator pair alone cannot describe those holes.
+    let mut excluded = vec![den];
+    let mut stack = vec![e];
+    while let Some(term) = stack.pop() {
+        match term {
+            Expr::Pow(base, exponent) => {
+                if number(exponent).is_some_and(|n| n.is_negative()) {
+                    let (base_num, _) = rational_parts(base, x)?;
+                    if base_num.is_zero() {
+                        return Some(Err(SolverError::InvalidSystem(
+                            "an original reciprocal has an identically zero base".into(),
+                        )));
+                    }
+                    excluded.push(base_num);
+                }
+                stack.push(base);
+                stack.push(exponent);
+            }
+            Expr::Add(args) | Expr::Mul(args) => stack.extend(args),
+            _ => {}
+        }
+    }
     if num.is_zero() {
         return Some(Err(SolverError::InfiniteSolutions));
+    }
+    // Remove every numerator root forbidden by the ORIGINAL denominator,
+    // including algebraic poles and repeated numerator factors. Cancelling
+    // a fraction once loses the hole at x = 1 in (x - 1)^2/(x - 1).
+    // Repeated gcd division is exact saturation over Q; each iteration
+    // strictly lowers the numerator degree.
+    for denominator in excluded {
+        loop {
+            let g = num.gcd(&denominator).ok()?;
+            if g.degree().unwrap_or(0) == 0 {
+                break;
+            }
+            num = num.div_rem(&g).ok()?.0;
+        }
     }
     let roots = match poly_roots(&num) {
         Ok(r) => r,
@@ -333,11 +373,6 @@ fn solve_rational(e: &Expr, x: &Symbol) -> Option<Result<Vec<Expr>, SolverError>
     };
     let mut out = Vec::new();
     for (r, _) in roots {
-        if let Some(v) = number(&r)
-            && den.eval(&v).is_zero()
-        {
-            continue;
-        }
         out.push(r);
     }
     Some(Ok(sort_roots(dedup(out))))
@@ -576,26 +611,211 @@ fn solve_generic(e: &Expr, x: &Symbol) -> Result<Vec<Expr>, SolverError> {
     solve_in_generator(e, x)
 }
 
-/// Drops candidates that do not satisfy `e = 0` (exactly, or via certified
-/// `ComplexBall` enclosure when exact simplification is inconclusive).
-fn check_roots(e: &Expr, x: &Symbol, roots: Vec<Expr>) -> Vec<Expr> {
-    roots
-        .into_iter()
-        .filter(|r| {
-            let v = e.subs(&HashMap::from([(x.clone(), r.clone())]));
-            let s = simplify(&v);
-            if s.is_zero() || fsym_simplify::cancel(&expand(&s)).is_zero() {
-                return true;
+/// A checked algebraic identity, with resource/unsupported failures left
+/// undecided. Callers check the original expression's domain separately.
+fn exact_zero(e: &Expr) -> bool {
+    let Ok(s) = fsym_simplify::try_simplify(e) else {
+        return false;
+    };
+    if s.is_zero() {
+        return true;
+    }
+    let Ok(expanded) = fsym_simplify::try_expand(&s) else {
+        return false;
+    };
+    fsym_simplify::try_simplify(&expanded).is_ok_and(|v| v.is_zero())
+        || fsym_simplify::try_cancel(&expanded).is_ok_and(|v| v.is_zero())
+}
+
+/// `Some(true)` proves zero; `Some(false)` proves nonzero. A ball merely
+/// containing zero proves neither. Refinement is bounded and never falls
+/// back to a floating-point tolerance or to acceptance of unknown values.
+fn zero_status(e: &Expr) -> Option<bool> {
+    if exact_zero(e) {
+        return Some(true);
+    }
+    if !e.free_symbols().is_empty() {
+        return None;
+    }
+    for digits in [24, 48, 96] {
+        if let Ok(ball) = e.eval_complex_ball(digits) {
+            if !ball.contains_zero() {
+                return Some(false);
             }
-            if let Some(ball) = certified_ball(&s) {
-                return ball.contains_zero();
+            if ball.real().midpoint().is_zero()
+                && ball.real().radius().is_zero()
+                && ball.imag().midpoint().is_zero()
+                && ball.imag().radius().is_zero()
+            {
+                return Some(true);
             }
-            match approx(&s) {
-                Some((re, im)) => re.abs() < 1e-9 && im.abs() < 1e-9,
-                None => true,
+        }
+    }
+    None
+}
+
+fn real_sign(e: &Expr) -> Option<std::cmp::Ordering> {
+    if let Some(q) = number(e) {
+        return Some(q.cmp(&BigRational::zero()));
+    }
+    if !e.free_symbols().is_empty() {
+        return None;
+    }
+    for digits in [24, 48, 96] {
+        if let Ok(ball) = e.evalf_ball(digits) {
+            if ball.is_positive() {
+                return Some(std::cmp::Ordering::Greater);
             }
-        })
-        .collect()
+            if ball.is_negative() {
+                return Some(std::cmp::Ordering::Less);
+            }
+            if ball.midpoint().is_zero() && ball.radius().is_zero() {
+                return Some(std::cmp::Ordering::Equal);
+            }
+        }
+    }
+    None
+}
+
+/// Verify a ground residual P + Q*sqrt(g) without mistaking a vanishing
+/// numerical enclosure for equality. The polynomial identity P² = Q²*g
+/// and the certified sign of -P/Q fix the principal square-root branch.
+/// This retains irrational solutions such as sqrt(x) = 1 - x while
+/// rejecting the other root introduced by squaring that equation.
+fn square_root_residual(e: &Expr) -> Option<bool> {
+    if !e.free_symbols().is_empty() {
+        return None;
+    }
+    let mut stack = vec![e];
+    let mut radicals = Vec::new();
+    while let Some(term) = stack.pop() {
+        match term {
+            Expr::Pow(base, exponent) => {
+                if number(exponent) == Some(BigRational::new(1.into(), 2.into())) {
+                    radicals.push((term, base.as_ref()));
+                }
+                stack.push(base);
+                stack.push(exponent);
+            }
+            Expr::Add(args) | Expr::Mul(args) | Expr::Function(_, args) => stack.extend(args),
+            _ => {}
+        }
+    }
+    // The residual is ground, so this temporary symbol cannot capture any
+    // free input symbol. No printer text participates in the identity check.
+    let u = Symbol::new("_fsym_root_check");
+    let ue = Expr::Sym(u.clone());
+    for (radical, radicand) in radicals {
+        let with_u = e.subs_expr(radical, &ue);
+        let p = simplify(&with_u.subs(&HashMap::from([(u.clone(), Expr::from_i64(0))])));
+        let q =
+            simplify(&(with_u.subs(&HashMap::from([(u.clone(), Expr::from_i64(1))])) - p.clone()));
+        if !exact_zero(&(with_u - p.clone() - q.clone() * ue.clone()))
+            || zero_status(&q) != Some(false)
+            || !exact_zero(&(p.clone() * p.clone() - q.clone() * q.clone() * radicand.clone()))
+        {
+            continue;
+        }
+        let target = simplify(&(-p * eval_pow(q, Expr::from_i64(-1))));
+        if let Some(sign) = real_sign(&target) {
+            return Some(sign != std::cmp::Ordering::Less);
+        }
+    }
+    None
+}
+
+fn contains_nonfinite(e: &Expr) -> bool {
+    let mut stack = vec![e];
+    while let Some(term) = stack.pop() {
+        match term {
+            Expr::Const(
+                Constant::Infinity
+                | Constant::NegativeInfinity
+                | Constant::ComplexInfinity
+                | Constant::NaN,
+            ) => return true,
+            Expr::Add(args) | Expr::Mul(args) | Expr::Function(_, args) => stack.extend(args),
+            Expr::Pow(base, exponent) => {
+                stack.push(base);
+                stack.push(exponent);
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+/// Check denominator/log constraints before substitution can cancel them.
+fn candidate_in_domain(e: &Expr, x: &Symbol, root: &Expr) -> Result<bool, SolverError> {
+    let replacements = HashMap::from([(x.clone(), root.clone())]);
+    let mut stack = vec![e];
+    while let Some(term) = stack.pop() {
+        let nonzero_requirement = match term {
+            Expr::Pow(base, exponent) if number(exponent).is_some_and(|n| n.is_negative()) => {
+                Some(base.as_ref())
+            }
+            Expr::Function(name, args)
+                if matches!(name.as_str(), "log" | "ln") && args.len() == 1 =>
+            {
+                Some(&args[0])
+            }
+            _ => None,
+        };
+        if let Some(base) = nonzero_requirement {
+            let at_root = base.subs(&replacements);
+            match zero_status(&at_root) {
+                Some(true) => return Ok(false),
+                Some(false) => {}
+                None => {
+                    return Err(SolverError::IncompleteSolutionSet(
+                        "a candidate's original denominator or logarithm argument is undecidable"
+                            .into(),
+                    ));
+                }
+            }
+        }
+        match term {
+            Expr::Add(args) | Expr::Mul(args) | Expr::Function(_, args) => stack.extend(args),
+            Expr::Pow(base, exponent) => {
+                stack.push(base);
+                stack.push(exponent);
+            }
+            _ => {}
+        }
+    }
+    Ok(true)
+}
+
+/// Return only independently checked original-equation roots. A residual
+/// that cannot be proved zero or nonzero makes the complete result
+/// inconclusive; it is never accepted or silently discarded.
+fn check_roots(e: &Expr, x: &Symbol, roots: Vec<Expr>) -> Result<Vec<Expr>, SolverError> {
+    if !crate::verifier_inputs_within_bounds(std::iter::once(e).chain(roots.iter())) {
+        return Err(SolverError::IncompleteSolutionSet(
+            "original-equation verification exceeds its bounded input envelope".into(),
+        ));
+    }
+    let mut checked = Vec::new();
+    for root in roots {
+        if contains_nonfinite(&root) || !candidate_in_domain(e, x, &root)? {
+            continue;
+        }
+        let residual = e.subs(&HashMap::from([(x.clone(), root.clone())]));
+        if contains_nonfinite(&residual) {
+            continue;
+        }
+        match zero_status(&residual).or_else(|| square_root_residual(&residual)) {
+            Some(true) => checked.push(root),
+            Some(false) => {}
+            None => {
+                return Err(SolverError::IncompleteSolutionSet(
+                    "a candidate's residual in the original equation cannot be verified exactly"
+                        .into(),
+                ));
+            }
+        }
+    }
+    Ok(checked)
 }
 
 /// `Some([c0, c1, c2])` when `e` is a polynomial of degree <= 2 in `x`
@@ -743,6 +963,141 @@ pub fn solve_univariate(e: &Expr, x: &Symbol) -> Result<Vec<Expr>, SolverError> 
             Err(err) => eliminate_radical(e, x, 0).ok_or(err)?,
         },
     };
-    let checked = check_roots(e, x, candidates.into_iter().map(|c| simplify(&c)).collect());
+    let checked = check_roots(e, x, candidates.into_iter().map(|c| simplify(&c)).collect())?;
     Ok(sort_roots(dedup(checked)))
+}
+
+#[cfg(test)]
+mod original_equation_tests {
+    use super::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn enclosure_containing_zero_does_not_accept_a_nonzero_residual() {
+        let x = Symbol::new("x");
+        // A strict decimal truncation of e differs by less than 10^-40.
+        // The old 24-digit enclosure contained zero and accepted x = 0.
+        let truncation = BigRational::new(
+            "27182818284590452353602874713526624977572"
+                .parse::<BigInt>()
+                .unwrap(),
+            BigInt::from(10).pow(40),
+        );
+        let equation = Expr::Sym(x.clone()) + Expr::Const(Constant::E) - rq(truncation);
+        let residual = equation.subs(&HashMap::from([(x.clone(), Expr::from_i64(0))]));
+        assert!(residual.eval_complex_ball(24).unwrap().contains_zero());
+        assert_eq!(
+            check_roots(&equation, &x, vec![Expr::from_i64(0)]),
+            Ok(Vec::new())
+        );
+    }
+
+    #[test]
+    fn unevaluable_residual_is_incomplete_not_a_root_or_an_empty_set() {
+        let x = Symbol::new("x");
+        let equation = Expr::Function("uninterpreted".into(), vec![Expr::Sym(x.clone())]);
+        assert!(matches!(
+            check_roots(&equation, &x, vec![Expr::from_i64(0)]),
+            Err(SolverError::IncompleteSolutionSet(_))
+        ));
+        // Finding one valid candidate does not license silently omitting
+        // another candidate whose original-equation check is unresolved.
+        let product = Expr::Sym(x.clone()) * equation;
+        assert!(matches!(
+            check_roots(&product, &x, vec![Expr::from_i64(0), Expr::from_i64(1)]),
+            Err(SolverError::IncompleteSolutionSet(_))
+        ));
+    }
+
+    #[test]
+    fn symbolic_principal_branch_obligation_survives_public_dispatch() {
+        let x = Symbol::new("x");
+        let y = Expr::symbol("y");
+        let equation = eval_pow(Expr::Sym(x.clone()), q(1, 2)) + y;
+        // Squaring proposes x = y^2, but sqrt(y^2) = -y is conditional.
+        let direct = solve_univariate(&equation, &x);
+        assert!(matches!(direct, Err(SolverError::IncompleteSolutionSet(_))));
+        assert_eq!(crate::solve(&equation, &x), direct);
+    }
+
+    #[test]
+    fn radical_elimination_preserves_exact_rational_and_irrational_roots() {
+        let x = Symbol::new("x");
+        let xe = Expr::Sym(x.clone());
+        let rational =
+            eval_pow(xe.clone() + Expr::from_i64(3), q(1, 2)) - xe.clone() + Expr::from_i64(3);
+        assert_eq!(crate::solve(&rational, &x), Ok(vec![Expr::from_i64(6)]));
+
+        let irrational = eval_pow(xe.clone(), q(1, 2)) + xe - Expr::from_i64(1);
+        let expected = expand(&(q(3, 2) - q(1, 2) * eval_pow(Expr::from_i64(5), q(1, 2))));
+        assert_eq!(crate::solve(&irrational, &x), Ok(vec![expected]));
+        // The squared identity also holds at this other algebraic root;
+        // the independent principal-branch sign obligation must reject it.
+        let extraneous = expand(&(q(3, 2) + q(1, 2) * eval_pow(Expr::from_i64(5), q(1, 2))));
+        let wrong_branch = irrational.subs(&HashMap::from([(x, extraneous)]));
+        assert_eq!(square_root_residual(&wrong_branch), Some(false));
+    }
+
+    #[test]
+    fn original_rational_poles_survive_cancellation_and_multiplicity() {
+        let x = Symbol::new("x");
+        let xe = Expr::Sym(x.clone());
+        for pole_factor in [
+            xe.clone() - Expr::from_i64(1),
+            eval_pow(xe.clone(), Expr::from_i64(2)) - Expr::from_i64(2),
+        ] {
+            // Preserve the original fraction's domain instead of letting
+            // eager multiplication simplify away its excluded points.
+            let equation = Expr::Mul(vec![
+                Expr::Pow(Arc::new(pole_factor.clone()), Arc::new(Expr::from_i64(3))),
+                xe.clone() - Expr::from_i64(3),
+                Expr::Pow(Arc::new(pole_factor), Arc::new(Expr::from_i64(-1))),
+            ]);
+            assert_eq!(crate::solve(&equation, &x), Ok(vec![Expr::from_i64(3)]));
+        }
+    }
+
+    #[test]
+    fn original_domain_and_finite_solution_checks_precede_simplification() {
+        let x = Symbol::new("x");
+        let factor = Expr::Sym(x.clone()) - Expr::from_i64(1);
+        let equation = Expr::Mul(vec![
+            factor.clone(),
+            Expr::Pow(Arc::new(factor), Arc::new(Expr::from_i64(-1))),
+        ]);
+        assert_eq!(
+            check_roots(&equation, &x, vec![Expr::from_i64(1)]),
+            Ok(vec![])
+        );
+        // Infinity is a limiting point, not a finite solution of exp(x)=0.
+        let exponential = Expr::Function("exp".into(), vec![Expr::Sym(x.clone())]);
+        assert_eq!(crate::solve(&exponential, &x), Ok(vec![]));
+    }
+
+    #[test]
+    fn nested_reciprocal_holes_are_not_forgotten_by_rational_rewriting() {
+        let x = Symbol::new("x");
+        let pole = Expr::Sym(x.clone()) - Expr::from_i64(1);
+        let inner = Expr::Pow(Arc::new(pole), Arc::new(Expr::from_i64(-1)));
+        let reciprocal = Expr::Pow(Arc::new(inner), Arc::new(Expr::from_i64(-1)));
+        assert_eq!(crate::solve(&reciprocal, &x), Ok(vec![]));
+        let undefined_inner = Expr::Pow(Arc::new(Expr::from_i64(0)), Arc::new(Expr::from_i64(-1)));
+        let undefined = Expr::Pow(Arc::new(undefined_inner), Arc::new(Expr::from_i64(-1)));
+        assert!(matches!(
+            crate::solve(&undefined, &x),
+            Err(SolverError::InvalidSystem(_))
+        ));
+    }
+
+    #[test]
+    fn an_identically_zero_denominator_is_not_retried_as_a_polynomial() {
+        let x = Symbol::new("x");
+        let equation = Expr::Mul(vec![
+            Expr::Sym(x.clone()),
+            Expr::Pow(Arc::new(Expr::from_i64(0)), Arc::new(Expr::from_i64(-1))),
+        ]);
+        let direct = solve_univariate(&equation, &x);
+        assert!(matches!(direct, Err(SolverError::InvalidSystem(_))));
+        assert_eq!(crate::solve(&equation, &x), direct);
+    }
 }

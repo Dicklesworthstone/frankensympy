@@ -582,6 +582,9 @@ pub fn solve(expr: &Expr, var: &Symbol) -> Result<Vec<Expr>, SolverError> {
     match univariate::solve_univariate(expr, var) {
         Ok(roots) => return Ok(roots),
         Err(SolverError::InfiniteSolutions) => return Err(SolverError::InfiniteSolutions),
+        Err(error @ (SolverError::IncompleteSolutionSet(_) | SolverError::InvalidSystem(_))) => {
+            return Err(error);
+        }
         Err(_) => {}
     }
     match solve_linear(expr, var) {
