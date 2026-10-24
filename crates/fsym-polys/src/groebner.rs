@@ -873,7 +873,10 @@ pub fn groebner_basis_with_certificate(
     Ok(cert)
 }
 
-/// Independent verifier for a minimal reduced Groebner basis certificate.
+/// Recomputes a reduced Groebner basis certificate using polynomial arithmetic.
+///
+/// For a bounded verifier independent of generator arithmetic and reduction, use
+/// [`verify_complete_groebner_certificate`] with explicit S-pair witnesses.
 ///
 /// Verifies without search:
 /// 1. Ring and generator compatibility between input generators and basis polynomials.
@@ -1000,6 +1003,462 @@ pub fn verify_groebner_certificate(
     }
 
     Ok(())
+}
+
+// Complete certificates use polynomial identities checked in the independent kernel and
+// leading-monomial comparisons only. No search, polynomial multiplication, division, or
+// S-polynomial generator is called by their verifier.
+const MAX_COMPLETE_CERTIFICATE_POLYNOMIALS: usize = 16_384;
+const MAX_COMPLETE_CERTIFICATE_EXPR_NODES: usize = 262_144;
+
+/// A standard representation of one S-polynomial in the candidate basis.
+/// The verifier checks the identity AND that each nonzero product `q_k*g_k`
+/// has leading monomial strictly below `lcm(LM(g_left), LM(g_right))`.
+/// Mere ideal membership of an S-polynomial would be tautological and insufficient.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GroebnerSPairCertificate {
+    pub left: usize,
+    pub right: usize,
+    pub basis_coefficients: Vec<MultivariatePoly>,
+}
+
+/// Portable, untrusted evidence for a complete reduced Groebner basis of the
+/// supplied input ideal. Both ideal inclusions and every S-pair are explicit.
+/// S-pairs occur exactly once in lexicographic `(left, right)` index order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CompleteGroebnerBasisCertificate {
+    pub candidate: GroebnerBasisCertificate,
+    /// `initial_basis[i] = sum(input_basis_witnesses[i][k] * candidate.basis[k])`.
+    pub input_basis_witnesses: Vec<Vec<MultivariatePoly>>,
+    pub s_pairs: Vec<GroebnerSPairCertificate>,
+}
+
+/// An immutable basis bound to a successfully checked input ideal and term order.
+/// There is no unchecked constructor or decoder. Editing a cloned polynomial does
+/// not edit this artifact or preserve its verification status.
+#[derive(Debug, Clone)]
+pub struct VerifiedGroebnerBasis {
+    initial_basis: Vec<MultivariatePoly>,
+    basis: Vec<MultivariatePoly>,
+    order: TermOrder,
+    receipt: fsym_proof_kernel::GroebnerVerificationReceipt,
+}
+
+impl VerifiedGroebnerBasis {
+    pub fn input_basis(&self) -> &[MultivariatePoly] {
+        &self.initial_basis
+    }
+
+    pub fn basis(&self) -> &[MultivariatePoly] {
+        &self.basis
+    }
+
+    pub fn order(&self) -> TermOrder {
+        self.order
+    }
+
+    pub fn receipt(&self) -> &fsym_proof_kernel::GroebnerVerificationReceipt {
+        &self.receipt
+    }
+
+    /// Complete elimination basis for a leading variable block in a verified
+    /// lexicographic basis, by the elimination theorem. Output retains the ambient
+    /// generator order. Other term orders and nonleading variable blocks refuse;
+    /// those require a new basis computed in the appropriate elimination order.
+    pub fn elimination_basis(
+        &self,
+        eliminated_vars: &[Symbol],
+    ) -> Result<Vec<MultivariatePoly>, PolyError> {
+        if self.order != TermOrder::Lex {
+            return Err(complete_certificate_error(
+                "elimination requires lexicographic order",
+            ));
+        }
+        let generators = self
+            .initial_basis
+            .first()
+            .or_else(|| self.basis.first())
+            .map(|poly| poly.generators.as_slice())
+            .unwrap_or(&[]);
+        let permutation = elimination_permutation(generators, eliminated_vars)?;
+        if permutation
+            .iter()
+            .enumerate()
+            .any(|(index, &value)| index != value)
+        {
+            return Err(complete_certificate_error(
+                "elimination variables must form a leading block",
+            ));
+        }
+        Ok(self
+            .basis
+            .iter()
+            .filter(|poly| {
+                poly.terms.keys().all(|exponents| {
+                    exponents[..eliminated_vars.len()]
+                        .iter()
+                        .all(|&exponent| exponent == 0)
+                })
+            })
+            .cloned()
+            .collect())
+    }
+}
+
+fn complete_certificate_error(error: impl std::fmt::Display) -> PolyError {
+    PolyError::General(format!("complete Groebner certificate refused: {error}"))
+}
+
+fn complete_certificate_dimensions(inputs: usize, basis: usize) -> Result<usize, PolyError> {
+    if inputs > MAX_GROEBNER_BASIS_POLYNOMIALS || basis > MAX_GROEBNER_BASIS_POLYNOMIALS {
+        return Err(complete_certificate_error(
+            "basis dimension exceeds the bounded envelope",
+        ));
+    }
+    let pairs = basis
+        .checked_mul(basis.saturating_sub(1))
+        .and_then(|value| value.checked_div(2))
+        .ok_or_else(|| complete_certificate_error("S-pair count overflow"))?;
+    let objects = inputs
+        .checked_mul(basis)
+        .and_then(|value| value.checked_mul(2))
+        .and_then(|value| {
+            pairs
+                .checked_mul(basis)
+                .and_then(|pair_objects| value.checked_add(pair_objects))
+        })
+        .and_then(|value| value.checked_add(inputs))
+        .and_then(|value| value.checked_add(basis))
+        .ok_or_else(|| complete_certificate_error("witness dimension overflow"))?;
+    if objects > MAX_COMPLETE_CERTIFICATE_POLYNOMIALS {
+        return Err(complete_certificate_error(
+            "witness polynomial count exceeds the bounded envelope",
+        ));
+    }
+    Ok(pairs)
+}
+
+/// Produces explicit cofactor certificates using the existing search lane.
+/// The result is untrusted until [`verify_complete_groebner_certificate`] accepts
+/// it. Search and division are generator operations, never verifier operations.
+pub fn groebner_basis_with_complete_certificate(
+    initial_basis: &[MultivariatePoly],
+    order: TermOrder,
+) -> Result<CompleteGroebnerBasisCertificate, PolyError> {
+    let tracked = tracked_groebner_basis(initial_basis, order)?;
+    let pairs = complete_certificate_dimensions(initial_basis.len(), tracked.len())?;
+    let candidate = GroebnerBasisCertificate {
+        order,
+        basis: tracked.iter().map(|item| item.poly.clone()).collect(),
+        input_ideal_witnesses: tracked
+            .into_iter()
+            .map(|item| item.input_coefficients)
+            .collect(),
+    };
+    let mut input_basis_witnesses = Vec::new();
+    input_basis_witnesses
+        .try_reserve_exact(initial_basis.len())
+        .map_err(complete_certificate_error)?;
+    for input in initial_basis {
+        let (coefficients, remainder) = input.div_rem(&candidate.basis, order)?;
+        if !remainder.is_zero() {
+            return Err(complete_certificate_error(
+                "generator failed input containment",
+            ));
+        }
+        input_basis_witnesses.push(coefficients);
+    }
+    let mut s_pairs = Vec::new();
+    s_pairs
+        .try_reserve_exact(pairs)
+        .map_err(complete_certificate_error)?;
+    for left in 0..candidate.basis.len() {
+        for right in (left + 1)..candidate.basis.len() {
+            let s = s_polynomial(&candidate.basis[left], &candidate.basis[right], order)?;
+            let (basis_coefficients, remainder) = s.div_rem(&candidate.basis, order)?;
+            if !remainder.is_zero() {
+                return Err(complete_certificate_error(
+                    "generator failed S-pair reduction",
+                ));
+            }
+            s_pairs.push(GroebnerSPairCertificate {
+                left,
+                right,
+                basis_coefficients,
+            });
+        }
+    }
+    Ok(CompleteGroebnerBasisCertificate {
+        candidate,
+        input_basis_witnesses,
+        s_pairs,
+    })
+}
+
+fn certificate_work(meter: &mut impl BudgetMeter, amount: usize) -> Result<(), PolyError> {
+    meter.checkpoint().map_err(complete_certificate_error)?;
+    meter
+        .charge(Dimension::ComputeSteps, amount.max(1) as u64)
+        .map_err(complete_certificate_error)
+}
+
+fn preflight_complete_certificate(
+    initial_basis: &[MultivariatePoly],
+    cert: &CompleteGroebnerBasisCertificate,
+    meter: &mut impl BudgetMeter,
+) -> Result<(), PolyError> {
+    certificate_work(meter, 1)?;
+    let basis = &cert.candidate.basis;
+    let pairs = complete_certificate_dimensions(initial_basis.len(), basis.len())?;
+    if cert.candidate.input_ideal_witnesses.len() != basis.len()
+        || cert
+            .candidate
+            .input_ideal_witnesses
+            .iter()
+            .any(|row| row.len() != initial_basis.len())
+        || cert.input_basis_witnesses.len() != initial_basis.len()
+        || cert
+            .input_basis_witnesses
+            .iter()
+            .any(|row| row.len() != basis.len())
+        || cert.s_pairs.len() != pairs
+        || cert
+            .s_pairs
+            .iter()
+            .any(|pair| pair.basis_coefficients.len() != basis.len())
+    {
+        return Err(complete_certificate_error(
+            "cofactor matrix or S-pair dimensions are invalid",
+        ));
+    }
+    let generators = initial_basis
+        .first()
+        .or_else(|| basis.first())
+        .map(|poly| poly.generators.as_slice())
+        .unwrap_or(&[]);
+    let polynomials = initial_basis
+        .iter()
+        .chain(basis)
+        .chain(cert.candidate.input_ideal_witnesses.iter().flatten())
+        .chain(cert.input_basis_witnesses.iter().flatten())
+        .chain(
+            cert.s_pairs
+                .iter()
+                .flat_map(|pair| &pair.basis_coefficients),
+        );
+    let mut total_nodes = 0usize;
+    for poly in polynomials {
+        certificate_work(meter, poly.generators.len().saturating_add(1))?;
+        if poly.generators != generators {
+            return Err(incompatible_rings(generators, &poly.generators));
+        }
+        let mut nodes = 0usize;
+        preflight_witness_polynomial(poly, &mut nodes, meter)?;
+        total_nodes = total_nodes
+            .checked_add(nodes)
+            .ok_or_else(|| complete_certificate_error("expression node count overflow"))?;
+        if total_nodes > MAX_COMPLETE_CERTIFICATE_EXPR_NODES {
+            return Err(complete_certificate_error(
+                "total expression node bound exceeded",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn copy_verified_polynomials(
+    polynomials: &[MultivariatePoly],
+    meter: &mut impl BudgetMeter,
+) -> Result<Vec<MultivariatePoly>, PolyError> {
+    let mut result = Vec::new();
+    for polynomial in polynomials {
+        certificate_work(
+            meter,
+            polynomial.generators.len() + polynomial.terms.len() + 1,
+        )?;
+        let names: usize = polynomial
+            .generators
+            .iter()
+            .map(|symbol| symbol.name.len())
+            .sum();
+        let mut bytes = (std::mem::size_of::<MultivariatePoly>()
+            + names
+            + polynomial.generators.len() * std::mem::size_of::<Symbol>())
+            as u64;
+        for (exponents, coefficient) in &polynomial.terms {
+            bytes += (std::mem::size_of::<(Vec<u32>, BigRational)>()
+                + 4 * std::mem::size_of::<usize>()
+                + exponents.len() * std::mem::size_of::<u32>()) as u64
+                + coefficient.numer().bits().div_ceil(8)
+                + coefficient.denom().bits().div_ceil(8);
+        }
+        meter
+            .charge_batch(&[
+                (Dimension::MemoryBytes, bytes.max(1)),
+                (
+                    Dimension::AllocationCount,
+                    (2 + polynomial.generators.len() + 4 * polynomial.terms.len()) as u64,
+                ),
+            ])
+            .map_err(complete_certificate_error)?;
+    }
+    result
+        .try_reserve_exact(polynomials.len())
+        .map_err(complete_certificate_error)?;
+    for polynomial in polynomials {
+        meter.checkpoint().map_err(complete_certificate_error)?;
+        result.push(polynomial.clone());
+    }
+    Ok(result)
+}
+
+fn kernel_polynomials(
+    polynomials: &[MultivariatePoly],
+    meter: &mut impl BudgetMeter,
+) -> Result<Vec<fsym_proof_kernel::SparseRationalPolynomial>, PolyError> {
+    use fsym_proof_kernel::{SparseRationalPolynomial, SparseRationalTerm};
+    meter
+        .charge_batch(&[
+            (
+                Dimension::MemoryBytes,
+                (polynomials.len().max(1) * std::mem::size_of::<SparseRationalPolynomial>()) as u64,
+            ),
+            (Dimension::AllocationCount, 1),
+        ])
+        .map_err(complete_certificate_error)?;
+    let mut result = Vec::new();
+    result
+        .try_reserve_exact(polynomials.len())
+        .map_err(complete_certificate_error)?;
+    for polynomial in polynomials {
+        certificate_work(meter, polynomial.terms.len() + 1)?;
+        let mut bytes = (polynomial.terms.len() * std::mem::size_of::<SparseRationalTerm>()) as u64;
+        for (exponents, coefficient) in &polynomial.terms {
+            bytes += (exponents.len() * std::mem::size_of::<u32>()) as u64
+                + coefficient.numer().bits().div_ceil(8)
+                + coefficient.denom().bits().div_ceil(8);
+        }
+        meter
+            .charge_batch(&[
+                (Dimension::MemoryBytes, bytes.max(1)),
+                (
+                    Dimension::AllocationCount,
+                    (1 + 3 * polynomial.terms.len()) as u64,
+                ),
+            ])
+            .map_err(complete_certificate_error)?;
+        let mut terms = Vec::new();
+        terms
+            .try_reserve_exact(polynomial.terms.len())
+            .map_err(complete_certificate_error)?;
+        for (exponents, coefficient) in &polynomial.terms {
+            meter.checkpoint().map_err(complete_certificate_error)?;
+            terms.push(SparseRationalTerm {
+                exponents: exponents.clone(),
+                coefficient: coefficient.clone(),
+            });
+        }
+        result.push(SparseRationalPolynomial { terms });
+    }
+    Ok(result)
+}
+
+fn kernel_cofactor_matrix(
+    matrix: &[Vec<MultivariatePoly>],
+    meter: &mut impl BudgetMeter,
+) -> Result<Vec<Vec<fsym_proof_kernel::SparseRationalPolynomial>>, PolyError> {
+    meter
+        .charge_batch(&[
+            (
+                Dimension::MemoryBytes,
+                (matrix.len().max(1)
+                    * std::mem::size_of::<Vec<fsym_proof_kernel::SparseRationalPolynomial>>())
+                    as u64,
+            ),
+            (Dimension::AllocationCount, 1),
+        ])
+        .map_err(complete_certificate_error)?;
+    let mut rows = Vec::new();
+    rows.try_reserve_exact(matrix.len())
+        .map_err(complete_certificate_error)?;
+    for row in matrix {
+        rows.push(kernel_polynomials(row, meter)?);
+    }
+    Ok(rows)
+}
+
+/// Independently establishes a complete reduced Groebner basis of the exact input
+/// ideal. Bounded conversion binds each polynomial to the declared ring, then the
+/// separate `fsym-proof-kernel` crate checks both ideal inclusions, monicity,
+/// reducedness, and every strict S-pair standard representation. The kernel owns
+/// its sparse payload validation, monomial ordering, and reference normalization;
+/// it has no dependency on this crate or its optimizing generator operations.
+///
+/// Work, allocations, and retained output consume the caller's meter, with static
+/// certificate/normalizer limits as a second boundary. No accepted artifact is returned
+/// on cancellation, incomplete evidence, malformed input, or exhausted resources.
+pub fn verify_complete_groebner_certificate(
+    initial_basis: &[MultivariatePoly],
+    cert: &CompleteGroebnerBasisCertificate,
+    meter: &mut impl BudgetMeter,
+) -> Result<VerifiedGroebnerBasis, PolyError> {
+    use fsym_proof_kernel::{GroebnerBasisWitness, GroebnerSPairWitness, GroebnerTermOrder};
+    preflight_complete_certificate(initial_basis, cert, meter)?;
+    let generators = initial_basis
+        .first()
+        .or_else(|| cert.candidate.basis.first())
+        .map(|poly| poly.generators.as_slice())
+        .unwrap_or(&[]);
+    let order = match cert.candidate.order {
+        TermOrder::Lex => GroebnerTermOrder::Lex,
+        TermOrder::DegLex => GroebnerTermOrder::DegLex,
+        TermOrder::DegRevLex => GroebnerTermOrder::DegRevLex,
+    };
+    let inputs = kernel_polynomials(initial_basis, meter)?;
+    let basis = kernel_polynomials(&cert.candidate.basis, meter)?;
+    let basis_in_input = kernel_cofactor_matrix(&cert.candidate.input_ideal_witnesses, meter)?;
+    let input_in_basis = kernel_cofactor_matrix(&cert.input_basis_witnesses, meter)?;
+    meter
+        .charge_batch(&[
+            (
+                Dimension::MemoryBytes,
+                (cert.s_pairs.len().max(1) * std::mem::size_of::<GroebnerSPairWitness>()) as u64,
+            ),
+            (Dimension::AllocationCount, 1),
+        ])
+        .map_err(complete_certificate_error)?;
+    let mut s_pairs = Vec::new();
+    s_pairs
+        .try_reserve_exact(cert.s_pairs.len())
+        .map_err(complete_certificate_error)?;
+    for pair in &cert.s_pairs {
+        s_pairs.push(GroebnerSPairWitness {
+            left: pair.left,
+            right: pair.right,
+            coefficients: kernel_polynomials(&pair.basis_coefficients, meter)?,
+        });
+    }
+    let witness = GroebnerBasisWitness {
+        order,
+        basis,
+        basis_in_input,
+        input_in_basis,
+        s_pairs,
+    };
+    let receipt =
+        fsym_proof_kernel::verify_groebner_basis_witness(generators, &inputs, &witness, meter)
+            .map_err(complete_certificate_error)?;
+    let initial_basis = copy_verified_polynomials(initial_basis, meter)?;
+    let basis = copy_verified_polynomials(&cert.candidate.basis, meter)?;
+    meter.checkpoint().map_err(complete_certificate_error)?;
+    Ok(VerifiedGroebnerBasis {
+        initial_basis,
+        basis,
+        order: cert.candidate.order,
+        receipt,
+    })
 }
 
 #[cfg(test)]

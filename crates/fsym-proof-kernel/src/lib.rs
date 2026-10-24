@@ -16,6 +16,7 @@
 
 pub mod capsule;
 pub mod claim;
+pub mod groebner;
 pub mod kernel;
 pub mod merge;
 pub mod mutation;
@@ -37,3 +38,9 @@ pub use merge::{
     verify_merge_certificate, workspace_state_root,
 };
 pub use rule::{CertificatePayload, ProofRule, StepId};
+
+pub use groebner::{
+    GroebnerBasisWitness, GroebnerSPairWitness, GroebnerTermOrder, GroebnerVerificationError,
+    GroebnerVerificationReceipt, SparseRationalPolynomial, SparseRationalTerm,
+    verify_groebner_basis_witness,
+};
