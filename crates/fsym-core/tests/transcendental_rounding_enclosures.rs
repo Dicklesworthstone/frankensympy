@@ -31,7 +31,7 @@ fn atan_reference(x: &BigRational, terms: u32) -> RealBall {
         power *= &square;
     }
     let term = power / q(i64::from(2 * terms + 1), 1);
-    let next = if terms % 2 == 0 {
+    let next = if terms.is_multiple_of(2) {
         &sum + term
     } else {
         &sum - term
@@ -258,7 +258,7 @@ fn trig_reference(x: &BigRational, sine: bool, terms: u32) -> RealBall {
         (2 * j - 1) * (2 * j)
     };
     let omitted = term * square / q(denominator, 1);
-    let next = if terms % 2 == 0 {
+    let next = if terms.is_multiple_of(2) {
         &sum - omitted
     } else {
         &sum + omitted

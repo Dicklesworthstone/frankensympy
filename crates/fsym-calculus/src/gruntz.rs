@@ -227,16 +227,21 @@ fn symbolic_coefficient_is_defined(c: &Expr) -> bool {
     }
 }
 
-fn normalized_coefficient(c: &Expr) -> Option<Expr> {
-    let has_symbols = coefficient_shape(c)?;
-    let source_defined = if has_symbols {
+fn coefficient_source_is_defined(c: &Expr) -> bool {
+    let Some(has_symbols) = coefficient_shape(c) else {
+        return false;
+    };
+    if has_symbols {
         symbolic_coefficient_is_defined(c)
     } else {
         COEFFICIENT_PRECISIONS
             .iter()
             .any(|&digits| c.eval_complex_ball(digits).is_ok())
-    };
-    if !source_defined {
+    }
+}
+
+fn normalized_coefficient(c: &Expr) -> Option<Expr> {
+    if !coefficient_source_is_defined(c) {
         return None;
     }
     // Expansion has a fixed term/power limit, and the shared meter also
@@ -397,7 +402,17 @@ impl Gruntz {
                 {
                     return self.normalize(&rewritten);
                 }
-                func(name, a)
+                let evaluated = func(name, a.clone());
+                if (name == "sin" || name == "cos")
+                    && evaluated != Expr::Function(name.clone(), vec![a])
+                {
+                    // A source-preserving substitution leaves sin(I*x)
+                    // and cos(I*x) held until here. Their exact elementary
+                    // folds produce sinh/cosh, which must enter the existing
+                    // exponential normalization before MRV classification.
+                    return self.normalize(&evaluated);
+                }
+                evaluated
             }
             Expr::Function(name, args) => Expr::Function(
                 name.clone(),
@@ -443,6 +458,11 @@ impl Gruntz {
     }
 
     fn limitinf_inner(&mut self, e: &Expr) -> LResult<Expr> {
+        if !oscillator_sources_defined(e) {
+            return Err(LimitError::Undetermined(
+                "a sine/cosine product has an unproved argument domain".into(),
+            ));
+        }
         let e = self.normalize(e);
         if std::env::var("FSYM_TRACE").is_ok() {
             eprintln!("{:indent$}limitinf {e}", "", indent = self.depth);
@@ -456,14 +476,20 @@ impl Gruntz {
         if let Some(v) = self.limit_of_special(&e)? {
             return Ok(v);
         }
-        // bounded * (-> 0) -> 0 for oscillating sin/cos factors whose
-        // argument diverges (no series exists at such a point).
+        // A defined sine/cosine of a proved-real argument is bounded,
+        // whether or not that argument has a limit. A vanishing remainder
+        // therefore proves zero without guessing the argument's growth.
         if let Expr::Mul(factors) = &e {
             let (osc, rest): (Vec<Expr>, Vec<Expr>) = factors
                 .iter()
                 .cloned()
                 .partition(|f| is_bounded_oscillator(f) && !is_free_of(f, &self.x));
             if !osc.is_empty() {
+                let rest = rest.into_iter().fold(Expr::from_i64(1), |a, b| a * b);
+                let rest_limit = self.limitinf(&rest);
+                if matches!(&rest_limit, Ok(value) if value.is_zero()) {
+                    return Ok(Expr::from_i64(0));
+                }
                 let mut diverging = false;
                 for f in &osc {
                     if let Expr::Function(_, args) = f
@@ -473,11 +499,7 @@ impl Gruntz {
                     }
                 }
                 if diverging {
-                    let rest = rest.into_iter().fold(Expr::from_i64(1), |a, b| a * b);
-                    let l = self.limitinf(&rest)?;
-                    if l.is_zero() {
-                        return Ok(Expr::from_i64(0));
-                    }
+                    let l = rest_limit?;
                     return Err(LimitError::Undetermined(format!(
                         "oscillating factor times {l}"
                     )));
@@ -803,7 +825,7 @@ impl Gruntz {
         match x0 {
             Expr::Const(Constant::Infinity) => self.limitinf(e),
             Expr::Const(Constant::NegativeInfinity) => {
-                let flipped = e.subs(&HashMap::from([(self.x.clone(), -x)]));
+                let flipped = substitute_limit_source(e, &self.x, &-x);
                 self.limitinf(&flipped)
             }
             _ => {
@@ -812,7 +834,7 @@ impl Gruntz {
                     Direction::Minus => x0.clone() - recip,
                     _ => x0.clone() + recip,
                 };
-                let sub = e.subs(&HashMap::from([(self.x.clone(), shifted)]));
+                let sub = substitute_limit_source(e, &self.x, &shifted);
                 self.limitinf(&sub)
             }
         }
@@ -836,9 +858,49 @@ fn hyperbolic_as_exp(name: &str, a: &Expr) -> Option<Expr> {
     })
 }
 
-/// Bounded oscillating factor: `sin`/`cos` of a real argument.
+/// Check original oscillator arguments through every expression wrapper
+/// before normalization can erase a held undefined child.
+fn oscillator_sources_defined(e: &Expr) -> bool {
+    let mut pending = vec![(e, 0usize)];
+    let mut visited = 0usize;
+    while let Some((term, depth)) = pending.pop() {
+        visited += 1;
+        if depth > MAX_COEFFICIENT_DEPTH || visited > MAX_COEFFICIENT_NODES {
+            return false;
+        }
+        if let Expr::Function(name, args) = term
+            && (name == "sin" || name == "cos")
+            && args.len() == 1
+            && !coefficient_source_is_defined(&args[0])
+        {
+            return false;
+        }
+        match term {
+            Expr::Add(args) | Expr::Mul(args) | Expr::Function(_, args) => {
+                if args.len() > MAX_COEFFICIENT_NODES.saturating_sub(visited + pending.len()) {
+                    return false;
+                }
+                pending.extend(args.iter().map(|arg| (arg, depth + 1)));
+            }
+            Expr::Pow(base, exponent) => {
+                if visited + pending.len() + 2 > MAX_COEFFICIENT_NODES {
+                    return false;
+                }
+                pending.push((base, depth + 1));
+                pending.push((exponent, depth + 1));
+            }
+            _ => {}
+        }
+    }
+    true
+}
+
+/// Bounded oscillating factor: `sin`/`cos` of a defined real argument.
 fn is_bounded_oscillator(e: &Expr) -> bool {
-    matches!(e, Expr::Function(n, args) if (n == "sin" || n == "cos") && args.len() == 1)
+    matches!(e, Expr::Function(name, args)
+        if (name == "sin" || name == "cos") && args.len() == 1
+            && coefficient_source_is_defined(&args[0])
+            && fsym_core::assume::is_real(&args[0]))
 }
 
 fn contains_function(e: &Expr, names: &[&str]) -> bool {
@@ -884,6 +946,45 @@ fn exp_argument(f: &Expr) -> LResult<Expr> {
     }
 }
 
+/// Scalar limit substitutions must retain held source nodes until domain
+/// checks run. Ordinary `Expr::subs` deliberately evaluates powers/functions.
+fn substitute_limit_source(e: &Expr, x: &Symbol, value: &Expr) -> Expr {
+    match e {
+        Expr::Sym(symbol) if symbol == x => value.clone(),
+        Expr::Add(args) => Expr::Add(
+            args.iter()
+                .map(|arg| substitute_limit_source(arg, x, value))
+                .collect(),
+        ),
+        Expr::Mul(args) => Expr::Mul(
+            args.iter()
+                .map(|arg| substitute_limit_source(arg, x, value))
+                .collect(),
+        ),
+        Expr::Pow(base, exponent) => Expr::Pow(
+            std::sync::Arc::new(substitute_limit_source(base, x, value)),
+            std::sync::Arc::new(substitute_limit_source(exponent, x, value)),
+        ),
+        // Preserve the existing capture-aware treatment of binding
+        // operators, which are outside the scalar oscillator fragment.
+        Expr::Function(name, _)
+            if matches!(
+                name.as_str(),
+                "Lambda" | "Sum" | "Product" | "Integral" | "Subs" | "Derivative" | "diff"
+            ) =>
+        {
+            e.subs(&HashMap::from([(x.clone(), value.clone())]))
+        }
+        Expr::Function(name, args) => Expr::Function(
+            name.clone(),
+            args.iter()
+                .map(|arg| substitute_limit_source(arg, x, value))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
 fn substitute_positive_dummy(e: &Expr, x: &Symbol, x0: &Expr) -> (Expr, Symbol) {
     // Assumption lookup admits a plain-name fallback, so reserve the names
     // of every source symbol, including symbols with a different identity.
@@ -901,10 +1002,7 @@ fn substitute_positive_dummy(e: &Expr, x: &Symbol, x0: &Expr) -> (Expr, Symbol) 
         name = format!("{stem}_{suffix}");
     }
     let d = Symbol::new(name);
-    (
-        e.subs(&HashMap::from([(x.clone(), Expr::Sym(d.clone()))])),
-        d,
-    )
+    (substitute_limit_source(e, x, &Expr::Sym(d.clone())), d)
 }
 
 /// Limit of `e` as `x -> x0` in direction `dir` (ignored at infinity).

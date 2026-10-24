@@ -212,3 +212,130 @@ fn positive_limit_dummy_does_not_capture_an_existing_parameter() {
     assert_eq!(constant_sign(&coefficient), None);
     assert_eq!(is_zero_coefficient(&coefficient), None);
 }
+
+#[test]
+fn complex_oscillator_growth_is_not_a_decaying_product() {
+    let x = Symbol::new("x");
+    let variable = Expr::Sym(x.clone());
+    let imaginary_argument = Expr::Const(Constant::I) * variable.clone();
+    let decay = function("exp", -variable.clone());
+    let half = Expr::Rational(fsym_core::BigRational::new(1.into(), 2.into()));
+    let infinity = Expr::Const(Constant::Infinity);
+    for (name, expected) in [
+        ("cos", half.clone()),
+        ("sin", half * Expr::Const(Constant::I)),
+    ] {
+        let expression = decay.clone() * function(name, imaginary_argument.clone());
+        let value = limit(&expression, &x, &infinity, Direction::Plus).unwrap();
+        assert_eq!(fsym_simplify::simplify(&value), expected);
+    }
+    let quotient = function("sin", imaginary_argument) * eval_pow(variable, Expr::from_i64(-1));
+    let result = limit(&quotient, &x, &infinity, Direction::Plus);
+    assert!(matches!(
+        result,
+        Err(fsym_calculus::gruntz::LimitError::Undetermined(_))
+    ));
+}
+
+#[test]
+fn mixed_complex_oscillator_growth_is_not_bounded() {
+    let x = Symbol::new("x");
+    let variable = Expr::Sym(x.clone());
+    // Dividing by x cancels the exponential growth caused by Im(z)=log(x),
+    // leaving a nonvanishing oscillatory term exp(-I*x)/2 (or I times it).
+    let argument = variable.clone() + Expr::Const(Constant::I) * function("log", variable.clone());
+    let reciprocal = eval_pow(variable, Expr::from_i64(-1));
+    for name in ["cos", "sin"] {
+        let expression = function(name, argument.clone()) * reciprocal.clone();
+        let result = limit(
+            &expression,
+            &x,
+            &Expr::Const(Constant::Infinity),
+            Direction::Plus,
+        );
+        assert!(
+            result.is_err(),
+            "a nonzero-amplitude oscillation has no limit"
+        );
+    }
+}
+
+#[test]
+fn real_oscillator_bounds_use_real_parameter_facts() {
+    use fsym_core::assume::{Facts, with_symbol_facts};
+    use std::collections::HashMap;
+
+    let x = Symbol::new("x");
+    let variable = Expr::Sym(x.clone());
+    let reciprocal = eval_pow(variable.clone(), Expr::from_i64(-1));
+    let infinity = Expr::Const(Constant::Infinity);
+    let real_sine = function("sin", variable.clone()) * reciprocal.clone();
+    assert_eq!(
+        limit(&real_sine, &x, &infinity, Direction::Plus).unwrap(),
+        Expr::from_i64(0)
+    );
+    let nested_sine = function("sin", function("sin", variable.clone())) * reciprocal.clone();
+    assert_eq!(
+        limit(&nested_sine, &x, &infinity, Direction::Plus).unwrap(),
+        Expr::from_i64(0)
+    );
+    let parameter = Symbol::new("a");
+    let argument = Expr::Sym(parameter.clone()) * variable.clone();
+    for (name, decay) in [
+        ("sin", reciprocal.clone()),
+        ("cos", function("exp", -variable.clone())),
+    ] {
+        let expression = function(name, argument.clone()) * decay;
+        assert!(limit(&expression, &x, &infinity, Direction::Plus).is_err());
+        let result = with_symbol_facts(
+            HashMap::from([(parameter.clone(), Facts::from_names(&["real"]))]),
+            || limit(&expression, &x, &infinity, Direction::Plus),
+        );
+        assert_eq!(result.unwrap(), Expr::from_i64(0));
+    }
+
+    // Use held nodes so source-domain obligations reach the limit API.
+    let reciprocal_zero = Expr::Pow(
+        std::sync::Arc::new(Expr::from_i64(0)),
+        std::sync::Arc::new(Expr::from_i64(-1)),
+    );
+    let zero_power = Expr::Pow(
+        std::sync::Arc::new(Expr::from_i64(0)),
+        std::sync::Arc::new(Expr::from_i64(0)),
+    );
+    for argument in [
+        reciprocal_zero.clone(),
+        Expr::Mul(vec![variable.clone(), zero_power]),
+        Expr::Add(vec![
+            variable,
+            Expr::Mul(vec![Expr::from_i64(0), reciprocal_zero]),
+        ]),
+    ] {
+        let sine = function("sin", argument);
+        let expression = Expr::Mul(vec![sine.clone(), reciprocal.clone()]);
+        let held_factor = Expr::Mul(vec![
+            Expr::Pow(
+                std::sync::Arc::new(sine),
+                std::sync::Arc::new(Expr::from_i64(1)),
+            ),
+            reciprocal.clone(),
+        ]);
+        let held_expression = Expr::Pow(
+            std::sync::Arc::new(expression.clone()),
+            std::sync::Arc::new(Expr::from_i64(1)),
+        );
+        for source in [expression, held_factor, held_expression] {
+            for (point, direction) in [
+                (infinity.clone(), Direction::Plus),
+                (Expr::Const(Constant::NegativeInfinity), Direction::Plus),
+                (Expr::from_i64(0), Direction::Plus),
+                (Expr::from_i64(0), Direction::Minus),
+            ] {
+                assert!(
+                    limit(&source, &x, &point, direction).is_err(),
+                    "undefined source {source} at {point}"
+                );
+            }
+        }
+    }
+}
