@@ -29,10 +29,13 @@ use crate::gruntz::Direction;
 use fsym_core::elementary::{eval_function, eval_pow, rational_expr};
 use fsym_core::{BigInt, BigRational, Constant, Expr, Symbol};
 use fsym_polys::UnivariatePoly;
-use num_traits::{One, Signed, Zero};
+use num_traits::{One, Signed, ToPrimitive, Zero};
 use std::collections::HashMap;
 
 const MAX_DEPTH: usize = 12;
+const MAX_DOMAIN_DEPTH: usize = 64;
+const MAX_DOMAIN_NODES: usize = 16_384;
+const MAX_DEFINITE_POWER: u64 = 4_096;
 
 fn func(name: &str, arg: Expr) -> Expr {
     eval_function(name, std::slice::from_ref(&arg))
@@ -104,13 +107,16 @@ fn provably_nonzero(e: &Expr) -> bool {
     if fsym_core::assume::is_nonzero(e) {
         return true;
     }
-    if e.free_symbols().is_empty()
-        && let Ok(ball) = e.eval_complex_ball(18)
-        && !ball.contains_zero()
-    {
-        return true;
+    if e.free_symbols().is_empty() {
+        for digits in [24, 48, 96] {
+            if let Ok(ball) = e.eval_complex_ball(digits)
+                && !ball.contains_zero()
+            {
+                return true;
+            }
+        }
     }
-    e.free_symbols().is_empty() && crate::gruntz::complex_value(e).is_some_and(|v| v.norm() > 1e-9)
+    false
 }
 
 /// Splits a product into (x-free factor, x-dependent factors).
@@ -1437,140 +1443,504 @@ pub fn antiderivative(f: &Expr, x: &Symbol) -> Option<Expr> {
     Some(r)
 }
 
-/// Exact interior pole check for rational integrands `num / den` on `(a, b)`
-/// via Sturm's theorem on the square-free reduced denominator.
+/// A certified real endpoint enclosure; infinite endpoints can be replaced
+/// by a strict root bound when counting polynomial roots.
+fn endpoint_ball(e: &Expr, digits: u32) -> Option<fsym_core::ball::RealBall> {
+    e.evalf_ball(digits).ok()
+}
+
+fn open_root_count(
+    poly: &UnivariatePoly,
+    seq: &[Vec<BigRational>],
+    lo: &BigRational,
+    hi: &BigRational,
+) -> usize {
+    if lo >= hi {
+        return 0;
+    }
+    let mut count = fsym_core::algebraic::count_real_roots_in_interval(seq, lo, hi);
+    if poly.eval(lo).is_zero() {
+        count = count.saturating_sub(1);
+    }
+    if poly.eval(hi).is_zero() {
+        count = count.saturating_sub(1);
+    }
+    count
+}
+
+/// Exact interior poles of a rational function. A rounded endpoint midpoint
+/// is never used as its value: no roots in the outer enclosure proves absence,
+/// while a root strictly inside the inner enclosure proves a pole.
 fn rational_has_interior_pole(
     num: &UnivariatePoly,
     den: &UnivariatePoly,
     a: &Expr,
     b: &Expr,
 ) -> Option<bool> {
+    if den.is_zero() {
+        return None;
+    }
     let g = num.gcd(den).ok()?;
     let (den_red, _) = den.div_rem(&g).ok()?;
-    let deg = den_red.degree().unwrap_or(0);
-    if deg == 0 {
+    if den_red.degree().unwrap_or(0) == 0 {
         return Some(false);
     }
-    let deriv = den_red.derivative();
-    let sq_g = den_red.gcd(&deriv).ok()?;
+    let sq_g = den_red.gcd(&den_red.derivative()).ok()?;
     let (sf_den, _) = den_red.div_rem(&sq_g).ok()?;
-    let sf_deg = sf_den.degree().unwrap_or(0);
-    if sf_deg == 0 {
-        return Some(false);
-    }
-
-    // Strict Cauchy bound M > |r| for all real roots r of sf_den:
-    // M = 2 + max_{0 <= i < sf_deg} |c_i / c_{sf_deg}|.
-    let lead = sf_den.coeffs[sf_deg].abs();
-    let mut max_ratio = BigRational::zero();
-    for c in &sf_den.coeffs[..sf_deg] {
-        let ratio = c.abs() / &lead;
-        if ratio > max_ratio {
-            max_ratio = ratio;
+    let degree = sf_den.degree()?;
+    let lead = sf_den.coeffs[degree].abs();
+    let max_ratio = sf_den.coeffs[..degree]
+        .iter()
+        .map(|c| c.abs() / &lead)
+        .max()
+        .unwrap_or_else(BigRational::zero);
+    let bound = BigRational::from_integer(2.into()) + max_ratio;
+    let seq = fsym_core::algebraic::sturm_sequence(&sf_den.coeffs);
+    for digits in [24, 48, 96] {
+        let enclose = |e: &Expr| match e {
+            Expr::Const(Constant::Infinity) => {
+                Some(fsym_core::ball::RealBall::exact(bound.clone()))
+            }
+            Expr::Const(Constant::NegativeInfinity) => {
+                Some(fsym_core::ball::RealBall::exact(-bound.clone()))
+            }
+            _ => endpoint_ball(e, digits),
+        };
+        let (Some(ea), Some(eb)) = (enclose(a), enclose(b)) else {
+            continue;
+        };
+        let outer_lo = ea.lower().min(eb.lower());
+        let outer_hi = ea.upper().max(eb.upper());
+        if open_root_count(&sf_den, &seq, &outer_lo, &outer_hi) == 0 {
+            return Some(false);
+        }
+        let (inner_lo, inner_hi) = if ea.upper() < eb.lower() {
+            (ea.upper(), eb.lower())
+        } else if eb.upper() < ea.lower() {
+            (eb.upper(), ea.lower())
+        } else {
+            continue;
+        };
+        if open_root_count(&sf_den, &seq, &inner_lo, &inner_hi) > 0 {
+            return Some(true);
         }
     }
-    let cauchy = BigRational::from_integer(BigInt::from(2)) + max_ratio;
+    None
+}
 
-    let endpoint_bound = |e: &Expr| -> Option<BigRational> {
-        match e {
-            Expr::Const(Constant::Infinity) => Some(cauchy.clone()),
-            Expr::Const(Constant::NegativeInfinity) => Some(-cauchy.clone()),
-            _ => {
-                if let Some(q) = number(e) {
-                    Some(q)
-                } else if let Ok(ball) = e.evalf_ball(24) {
-                    Some(ball.midpoint().clone())
-                } else {
-                    None
+/// A rational point strictly between real endpoints, including infinite
+/// endpoints. Unlike the root-counting bound, this point is inside the actual
+/// integration interval and can determine the sign of a zero-free function.
+fn interior_rational(a: &Expr, b: &Expr) -> Option<BigRational> {
+    let pos_inf = |e: &Expr| matches!(e, Expr::Const(Constant::Infinity));
+    let neg_inf = |e: &Expr| matches!(e, Expr::Const(Constant::NegativeInfinity));
+    if (pos_inf(a) && neg_inf(b)) || (neg_inf(a) && pos_inf(b)) {
+        return Some(BigRational::zero());
+    }
+    for digits in [24, 48, 96] {
+        if pos_inf(a) || pos_inf(b) {
+            let finite = if pos_inf(a) { b } else { a };
+            return Some(endpoint_ball(finite, digits)?.upper() + BigRational::one());
+        }
+        if neg_inf(a) || neg_inf(b) {
+            let finite = if neg_inf(a) { b } else { a };
+            return Some(endpoint_ball(finite, digits)?.lower() - BigRational::one());
+        }
+        let (Some(ea), Some(eb)) = (endpoint_ball(a, digits), endpoint_ball(b, digits)) else {
+            continue;
+        };
+        let two = BigRational::from_integer(2.into());
+        if ea.upper() < eb.lower() {
+            return Some((ea.upper() + eb.lower()) / two);
+        }
+        if eb.upper() < ea.lower() {
+            return Some((eb.upper() + ea.lower()) / two);
+        }
+    }
+    None
+}
+
+fn real_on_real_axis(e: &Expr, x: &Symbol, depth: usize) -> bool {
+    if depth > MAX_DOMAIN_DEPTH {
+        return false;
+    }
+    match e {
+        Expr::Integer(_) | Expr::Rational(_) | Expr::Const(Constant::Pi | Constant::E) => true,
+        Expr::Sym(s) => s == x || fsym_core::assume::is_real(e),
+        Expr::Add(args) | Expr::Mul(args) => {
+            args.iter().all(|a| real_on_real_axis(a, x, depth + 1))
+        }
+        Expr::Pow(base, power) if number(power).is_some_and(|q| q.is_integer()) => {
+            real_on_real_axis(base, x, depth + 1)
+        }
+        Expr::Function(name, args)
+            if args.len() == 1
+                && matches!(
+                    name.as_str(),
+                    "exp"
+                        | "sin"
+                        | "cos"
+                        | "sinh"
+                        | "cosh"
+                        | "tanh"
+                        | "atan"
+                        | "asinh"
+                        | "erf"
+                        | "Abs"
+                ) =>
+        {
+            real_on_real_axis(&args[0], x, depth + 1)
+        }
+        _ => false,
+    }
+}
+
+/// Certified interval arithmetic on a finite real path. Failure or an
+/// enclosure containing zero is inconclusive, never evidence of regularity.
+fn range_ball(
+    e: &Expr,
+    x: &Symbol,
+    path: &fsym_core::ball::RealBall,
+    digits: u32,
+    depth: usize,
+) -> Option<fsym_core::ball::RealBall> {
+    use fsym_core::ball::RealBall;
+    if depth > MAX_DOMAIN_DEPTH {
+        return None;
+    }
+    if is_free_of(e, x) {
+        return e.evalf_ball(digits).ok();
+    }
+    let child = |e: &Expr| range_ball(e, x, path, digits, depth + 1);
+    match e {
+        Expr::Sym(s) if s == x => Some(path.clone()),
+        Expr::Add(args) => {
+            let mut out = RealBall::from_i64(0);
+            for arg in args {
+                out = out.add(&child(arg)?);
+            }
+            Some(out)
+        }
+        Expr::Mul(args) => {
+            let mut out = RealBall::from_i64(1);
+            for arg in args {
+                out = out.mul(&child(arg)?);
+            }
+            Some(out)
+        }
+        Expr::Pow(base, power) => {
+            let base = child(base)?;
+            if let Some(q) = number(power) {
+                if q.is_integer() {
+                    return base.pow(q.to_integer().to_i32()?).ok();
+                }
+                if q.denom() == &BigInt::from(2) {
+                    return base
+                        .sqrt(digits * 4 + 64)
+                        .ok()?
+                        .pow(q.numer().to_i32()?)
+                        .ok();
                 }
             }
+            base.ln(digits + 4)
+                .ok()?
+                .mul(&child(power)?)
+                .exp(digits)
+                .ok()
         }
-    };
+        Expr::Function(name, args) if args.len() == 1 => {
+            let arg = child(&args[0])?;
+            match name.as_str() {
+                "exp" => arg.exp(digits).ok(),
+                "sin" => arg.sin(digits).ok(),
+                "cos" => arg.cos(digits).ok(),
+                "log" | "ln" => arg.ln(digits).ok(),
+                "atan" => arg.atan(digits).ok(),
+                "sqrt" => arg.sqrt(digits * 4 + 64).ok(),
+                "Abs" => Some(arg.abs()),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
 
-    let bound_a = endpoint_bound(a)?;
-    let bound_b = endpoint_bound(b)?;
-    let (lo, hi) = if bound_a <= bound_b {
-        (bound_a, bound_b)
-    } else {
-        (bound_b, bound_a)
-    };
-    if lo >= hi {
+fn finite_range_ball(
+    e: &Expr,
+    x: &Symbol,
+    a: &Expr,
+    b: &Expr,
+    digits: u32,
+) -> Option<fsym_core::ball::RealBall> {
+    let (ea, eb) = (endpoint_ball(a, digits)?, endpoint_ball(b, digits)?);
+    let lo = ea.lower().min(eb.lower());
+    let hi = ea.upper().max(eb.upper());
+    let two = BigRational::from_integer(2.into());
+    let path = fsym_core::ball::RealBall::new((&lo + &hi) / &two, (hi - lo) / two).ok()?;
+    range_ball(e, x, &path, digits, 0)
+}
+
+/// Prove a real, strictly positive value throughout the open interval.
+/// Rational functions use exact zero/pole counts and one exact sign witness.
+fn positive_on_interval(e: &Expr, x: &Symbol, a: &Expr, b: &Expr) -> Option<bool> {
+    if is_free_of(e, x) && fsym_core::assume::sign(e) == Some(1) {
+        return Some(true);
+    }
+    if let Some((num, den)) = rational_parts(e, x) {
+        if num.is_zero() {
+            return Some(false);
+        }
+        if rational_has_interior_pole(&num, &den, a, b)?
+            || rational_has_interior_pole(&den, &num, a, b)?
+        {
+            return None;
+        }
+        let g = num.gcd(&den).ok()?;
+        let (num, _) = num.div_rem(&g).ok()?;
+        let (den, _) = den.div_rem(&g).ok()?;
+        let point = interior_rational(a, b)?;
+        return Some((num.eval(&point) * den.eval(&point)).is_positive());
+    }
+    if let Expr::Function(name, args) = e
+        && name == "exp"
+        && args.len() == 1
+        && real_on_real_axis(&args[0], x, 0)
+        && interior_rational(a, b).is_some()
+    {
+        return Some(true);
+    }
+    for digits in [24, 48, 96] {
+        if let Some(ball) = finite_range_ball(e, x, a, b, digits) {
+            if ball.is_positive() {
+                return Some(true);
+            }
+            if ball.is_negative() || (ball.midpoint().is_zero() && ball.radius().is_zero()) {
+                return Some(false);
+            }
+        }
+    }
+    None
+}
+
+fn has_interior_zero(e: &Expr, x: &Symbol, a: &Expr, b: &Expr) -> Option<bool> {
+    if let Some((num, den)) = rational_parts(e, x) {
+        if num.is_zero() {
+            return Some(true);
+        }
+        return rational_has_interior_pole(&den, &num, a, b);
+    }
+    if is_free_of(e, x) && provably_nonzero(e) {
         return Some(false);
     }
-
-    let seq = fsym_core::algebraic::sturm_sequence(&sf_den.coeffs);
-    let mut roots = fsym_core::algebraic::count_real_roots_in_interval(&seq, &lo, &hi);
-    if sf_den.eval(&lo).is_zero() {
-        roots = roots.saturating_sub(1);
+    if matches!(e, Expr::Function(name, args) if name == "exp" && args.len() == 1) {
+        return Some(false);
     }
-    if sf_den.eval(&hi).is_zero() {
-        roots = roots.saturating_sub(1);
-    }
-    Some(roots > 0)
-}
-
-/// Whether the integrand has a pole strictly inside `(a, b)`: exact for
-/// rational integrands (real roots of the denominator via Sturm's theorem),
-/// conservative sampling of the integrand for the rest.
-fn has_interior_singularity(f: &Expr, x: &Symbol, a: &Expr, b: &Expr) -> bool {
-    if let Some((num, den)) = rational_parts(f, x)
-        && let Some(has_pole) = rational_has_interior_pole(&num, &den, a, b)
+    if let Expr::Pow(base, power) = e
+        && let Some(power) = number(power)
+        && !power.is_zero()
     {
-        return has_pole;
+        if power.is_negative() {
+            return Some(false);
+        }
+        return has_interior_zero(base, x, a, b);
     }
-    let (Some(av), Some(bv)) = (
-        crate::gruntz::complex_value(a),
-        crate::gruntz::complex_value(b),
-    ) else {
-        // Infinite endpoints: sample a symmetric finite window instead.
-        return sample_poles(f, x, -50.0, 50.0, a, b);
-    };
-    sample_poles(f, x, av.re, bv.re, a, b)
-}
-
-fn sample_poles(f: &Expr, x: &Symbol, lo: f64, hi: f64, a: &Expr, b: &Expr) -> bool {
-    let finite = |e: &Expr| crate::gruntz::complex_value(e).map(|v| v.re);
-    let lo = finite(a).unwrap_or(if lo < hi { lo } else { hi - 100.0 });
-    let hi = finite(b).unwrap_or(if hi > lo {
-        hi.max(lo + 100.0)
-    } else {
-        lo + 100.0
-    });
-    if let Some((num, den)) = rational_parts(f, x)
-        && let Some(has_pole) = rational_has_interior_pole(&num, &den, a, b)
-    {
-        return has_pole;
-    }
-    let steps = 400;
-    for i in 1..steps {
-        let t = lo + (hi - lo) * (i as f64) / (steps as f64);
-        let at = f.subs(&HashMap::from([(
-            x.clone(),
-            Expr::Rational(BigRational::new(
-                BigInt::from((t * 1_000_000.0).round() as i64),
-                BigInt::from(1_000_000),
-            )),
-        )]));
-        match crate::gruntz::complex_value(&at) {
-            Some(v) if v.re.is_finite() && v.im.is_finite() => {}
-            Some(_) => return true,
-            None => {}
+    for digits in [24, 48, 96] {
+        if let Some(ball) = finite_range_ball(e, x, a, b, digits)
+            && !ball.contains_zero()
+        {
+            return Some(false);
         }
     }
+    None
+}
+
+/// Some(false) certifies regularity on the open interval. A pole, an
+/// unsupported branch obligation, or exhausted enclosure refinement refuses
+/// endpoint subtraction; sampling never establishes the absence of poles.
+fn has_interior_singularity(
+    f: &Expr,
+    x: &Symbol,
+    a: &Expr,
+    b: &Expr,
+    depth: usize,
+) -> Option<bool> {
+    if depth > MAX_DOMAIN_DEPTH {
+        return None;
+    }
+    if let Some((num, den)) = rational_parts(f, x) {
+        return rational_has_interior_pole(&num, &den, a, b);
+    }
+    let child = |e: &Expr| has_interior_singularity(e, x, a, b, depth + 1);
+    match f {
+        Expr::Integer(_)
+        | Expr::Rational(_)
+        | Expr::Sym(_)
+        | Expr::Const(Constant::Pi | Constant::E | Constant::I) => Some(false),
+        Expr::Const(_) => Some(true),
+        Expr::Add(args) | Expr::Mul(args) => {
+            for arg in args {
+                if child(arg)? {
+                    return Some(true);
+                }
+            }
+            Some(false)
+        }
+        Expr::Pow(base, power) => {
+            if child(base)? || child(power)? {
+                return Some(true);
+            }
+            if is_free_of(f, x) && f.eval_complex_ball(24).is_ok() {
+                return Some(false);
+            }
+            if let Some(q) = number(power)
+                && q.is_integer()
+            {
+                return if q.is_negative() {
+                    has_interior_zero(base, x, a, b)
+                } else {
+                    Some(false)
+                };
+            }
+            positive_on_interval(base, x, a, b)
+                .filter(|positive| *positive)
+                .map(|_| false)
+        }
+        Expr::Function(name, args) if args.len() == 1 => {
+            let arg = &args[0];
+            if child(arg)? {
+                return Some(true);
+            }
+            if is_free_of(f, x) && f.eval_complex_ball(24).is_ok() {
+                return Some(false);
+            }
+            match name.as_str() {
+                "exp" | "sin" | "cos" | "sinh" | "cosh" | "erf" | "Abs" => Some(false),
+                "log" | "ln" | "sqrt" => positive_on_interval(arg, x, a, b)
+                    .filter(|positive| *positive)
+                    .map(|_| false),
+                "atan" | "asinh" | "tanh"
+                    if real_on_real_axis(arg, x, 0) && interior_rational(a, b).is_some() =>
+                {
+                    Some(false)
+                }
+                "asin" | "acos" if real_on_real_axis(arg, x, 0) => {
+                    positive_on_interval(&(Expr::from_i64(1) - arg.clone() * arg.clone()), x, a, b)
+                        .filter(|positive| *positive)
+                        .map(|_| false)
+                }
+                "tan" | "sec" => has_interior_zero(&func("cos", arg.clone()), x, a, b),
+                "cot" | "csc" => has_interior_zero(&func("sin", arg.clone()), x, a, b),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+fn reversed_real_interval(a: &Expr, b: &Expr) -> bool {
+    if matches!(a, Expr::Const(Constant::Infinity))
+        || matches!(b, Expr::Const(Constant::NegativeInfinity))
+    {
+        return true;
+    }
+    for digits in [24, 48, 96] {
+        if let (Some(ea), Some(eb)) = (endpoint_ball(a, digits), endpoint_ball(b, digits)) {
+            if ea.lower() > eb.upper() {
+                return true;
+            }
+            if ea.upper() < eb.lower() {
+                return false;
+            }
+        }
+    }
+    // Globally regular expressions also admit symbolic endpoints; their
+    // finite endpoint values do not depend on the one-sided direction.
     false
 }
 
-/// Definite integral of `f` over `(a, b)` by the fundamental theorem.
+/// Check all source trees iteratively before any recursive polynomial,
+/// interval, antiderivative, or endpoint evaluator sees them.
+fn definite_inputs_within_bounds(f: &Expr, a: &Expr, b: &Expr) -> bool {
+    let mut pending = vec![(f, 0usize), (a, 0usize), (b, 0usize)];
+    let mut visited = 0usize;
+    while let Some((term, depth)) = pending.pop() {
+        visited += 1;
+        if visited > MAX_DOMAIN_NODES || depth > MAX_DOMAIN_DEPTH {
+            return false;
+        }
+        match term {
+            Expr::Add(args) | Expr::Mul(args) | Expr::Function(_, args) => {
+                if args.len() > MAX_DOMAIN_NODES.saturating_sub(visited + pending.len()) {
+                    return false;
+                }
+                pending.extend(args.iter().map(|arg| (arg, depth + 1)));
+            }
+            Expr::Pow(base, power) => {
+                if number(power).is_some_and(|q| {
+                    q.is_integer()
+                        && q.numer()
+                            .abs()
+                            .to_u64()
+                            .is_none_or(|n| n > MAX_DEFINITE_POWER)
+                }) || pending.len() + visited + 2 > MAX_DOMAIN_NODES
+                {
+                    return false;
+                }
+                pending.push((base, depth + 1));
+                pending.push((power, depth + 1));
+            }
+            _ => {}
+        }
+    }
+    true
+}
+
+/// Definite integral by endpoint limits after certified open-interval
+/// domain checks. An unsupported or undecidable obligation returns None.
 pub fn definite(f: &Expr, x: &Symbol, a: &Expr, b: &Expr) -> Option<Expr> {
+    if !definite_inputs_within_bounds(f, a, b) {
+        return None;
+    }
+    // Validate the original endpoint trees before limit normalization. A
+    // fresh variable absent from both endpoints makes these constant-domain
+    // obligations, while preserving finite symbolic polynomial endpoints.
+    let mut endpoint_symbols = a.free_symbols();
+    endpoint_symbols.extend(b.free_symbols());
+    let endpoint_var = (0..=endpoint_symbols.len())
+        .map(|index| Symbol::new(format!("_fsym_endpoint_{index}")))
+        .find(|symbol| !endpoint_symbols.contains(symbol))?;
+    for endpoint in [a, b] {
+        if matches!(
+            endpoint,
+            Expr::Const(Constant::Infinity | Constant::NegativeInfinity)
+        ) {
+            continue;
+        }
+        if has_interior_singularity(
+            endpoint,
+            &endpoint_var,
+            &Expr::from_i64(0),
+            &Expr::from_i64(1),
+            0,
+        ) != Some(false)
+        {
+            return None;
+        }
+    }
     if a == b {
         return Some(Expr::from_i64(0));
     }
-    let anti = antiderivative(f, x)?;
-    if has_interior_singularity(f, x, a, b) {
+    if has_interior_singularity(f, x, a, b, 0)? {
         return None;
     }
-    let upper = crate::limit_dir(&anti, x, b, Direction::Minus).ok()?;
-    let lower = crate::limit_dir(&anti, x, a, Direction::Plus).ok()?;
+    let anti = antiderivative(f, x)?;
+    let (upper_side, lower_side) = if reversed_real_interval(a, b) {
+        (Direction::Plus, Direction::Minus)
+    } else {
+        (Direction::Minus, Direction::Plus)
+    };
+    let upper = crate::limit_dir(&anti, x, b, upper_side).ok()?;
+    let lower = crate::limit_dir(&anti, x, a, lower_side).ok()?;
     if matches!(
         upper,
         Expr::Const(Constant::ComplexInfinity | Constant::NaN)
@@ -1580,8 +1950,28 @@ pub fn definite(f: &Expr, x: &Symbol, a: &Expr, b: &Expr) -> Option<Expr> {
     ) {
         return None;
     }
-    let value = upper - lower;
-    Some(fsym_simplify::simplify(&value))
+    // Equal infinity nodes must be refused before canonical subtraction
+    // can cancel them as if they were equal finite symbolic values.
+    if matches!(
+        (&upper, &lower),
+        (
+            Expr::Const(Constant::Infinity),
+            Expr::Const(Constant::Infinity)
+        ) | (
+            Expr::Const(Constant::NegativeInfinity),
+            Expr::Const(Constant::NegativeInfinity)
+        )
+    ) {
+        return None;
+    }
+    let value = fsym_simplify::simplify(&(upper - lower));
+    if matches!(
+        value,
+        Expr::Const(Constant::ComplexInfinity | Constant::NaN)
+    ) {
+        return None;
+    }
+    Some(value)
 }
 
 fn gcd_usize(a: usize, b: usize) -> usize {
@@ -1752,6 +2142,80 @@ mod tests {
             )
             .is_none(),
             "must refuse definite integral across distant pole at x = 100 on (0, oo)"
+        );
+    }
+
+    #[test]
+    fn certified_domain_check_finds_poles_under_transcendental_factors() {
+        let denominator = pow(
+            Expr::from_i64(3) * xe() - Expr::from_i64(1),
+            Expr::from_i64(-2),
+        );
+        for coefficient in [Expr::Const(Constant::Pi), func("exp", xe())] {
+            let integrand = coefficient * denominator.clone();
+            assert_eq!(
+                has_interior_singularity(
+                    &integrand,
+                    &x(),
+                    &Expr::from_i64(0),
+                    &Expr::from_i64(1),
+                    0
+                ),
+                Some(true),
+            );
+            assert_eq!(
+                has_interior_singularity(
+                    &integrand,
+                    &x(),
+                    &Expr::from_i64(1),
+                    &Expr::from_i64(2),
+                    0
+                ),
+                Some(false),
+            );
+        }
+    }
+
+    #[test]
+    fn rational_positivity_uses_a_witness_inside_the_actual_unbounded_interval() {
+        assert_eq!(
+            positive_on_interval(
+                &(xe() - Expr::from_i64(100)),
+                &x(),
+                &Expr::from_i64(1000),
+                &Expr::Const(Constant::Infinity),
+            ),
+            Some(true),
+        );
+        assert_eq!(
+            positive_on_interval(
+                &(xe() - Expr::from_i64(100)),
+                &x(),
+                &Expr::Const(Constant::NegativeInfinity),
+                &Expr::from_i64(-1000),
+            ),
+            Some(false),
+        );
+    }
+
+    #[test]
+    fn unknown_domain_obligations_remain_undecided() {
+        let unknown = Expr::Function("uninterpreted".into(), vec![xe()]);
+        assert_eq!(
+            has_interior_singularity(&unknown, &x(), &Expr::from_i64(0), &Expr::from_i64(1), 0),
+            None,
+        );
+        // A principal square root crossing the negative real axis is not
+        // made regular by the absence of a sampled nonfinite value.
+        assert_eq!(
+            has_interior_singularity(
+                &pow(xe(), q(1, 2)),
+                &x(),
+                &Expr::from_i64(-1),
+                &Expr::from_i64(1),
+                0
+            ),
+            None,
         );
     }
 }
