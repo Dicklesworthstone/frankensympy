@@ -23,6 +23,7 @@ pub mod dag;
 pub mod domain;
 pub mod elementary;
 mod parser;
+pub mod root_certificate;
 pub mod sort;
 
 pub use algebraic::*;
@@ -30,6 +31,7 @@ pub use ball::*;
 pub use dag::*;
 pub use domain::*;
 pub use parser::parse;
+pub use root_certificate::*;
 pub use sort::*;
 
 #[derive(Debug, Error, PartialEq, Eq)]

@@ -474,3 +474,140 @@ mod tests {
         }
     }
 }
+
+/// A numerical proposal together with a checked box containing exactly one
+/// nonsingular real root of the retained original equations. The proposal
+/// itself remains approximate; the immutable receipt states the exact scope.
+#[derive(Debug, Clone)]
+pub struct CertifiedRootOutcome2 {
+    approximation: [f64; 2],
+    certificate: fsym_core::RootBoxReceipt2,
+}
+
+impl CertifiedRootOutcome2 {
+    pub fn approximation(&self) -> &[f64; 2] {
+        &self.approximation
+    }
+
+    pub fn certificate(&self) -> &fsym_core::RootBoxReceipt2 {
+        &self.certificate
+    }
+}
+
+/// Certify a unique nonsingular real root in a caller-declared box around the
+/// binary64 proposal. Both center and positive radii are interpreted as exact
+/// binary64 rationals. A compiled Jacobian only proposes a preconditioner;
+/// fsym-core independently recomputes interval values and derivatives from
+/// the original expressions on the whole box, checking all C1 obligations.
+pub fn certify_root_2x2(
+    system: &VerifiedResidualSystem,
+    approximation: [f64; 2],
+    radii: [f64; 2],
+    precision_digits: u32,
+) -> Result<CertifiedRootOutcome2, ConsumerError> {
+    validate_root_box_request(&radii, precision_digits)?;
+    check_system_shape(system.compiled())?;
+    require_finite(&approximation, "root proposal")?;
+    let mut values = [0.0; 2];
+    let mut jacobian = [0.0; 4];
+    system
+        .compiled()
+        .try_eval_system(&approximation, &mut values, &mut jacobian)
+        .map_err(|error| ConsumerError::Evaluation(error.to_string()))?;
+    require_finite(&values, "root proposal residual")?;
+    require_finite(&jacobian, "root proposal Jacobian")?;
+    let exact = |value| {
+        exact_binary64_rational(value)
+            .ok_or_else(|| ConsumerError::Evaluation("nonfinite root-box input".into()))
+    };
+    let center = [exact(approximation[0])?, exact(approximation[1])?];
+    let domain = [
+        RealBall::new(center[0].clone(), exact(radii[0])?)
+            .map_err(|error| ConsumerError::Certification(error.to_string()))?,
+        RealBall::new(center[1].clone(), exact(radii[1])?)
+            .map_err(|error| ConsumerError::Certification(error.to_string()))?,
+    ];
+    // Invert the rounded Jacobian exactly as a rational matrix. This avoids
+    // floating determinant overflow/underflow and rounding the inverse again.
+    // No accuracy claim about this proposal is needed by the verifier.
+    let j = [
+        [exact(jacobian[0])?, exact(jacobian[1])?],
+        [exact(jacobian[2])?, exact(jacobian[3])?],
+    ];
+    let determinant = &j[0][0] * &j[1][1] - &j[0][1] * &j[1][0];
+    if determinant == BigRational::from_integer(BigInt::from(0)) {
+        return Err(ConsumerError::SingularJacobian(
+            "root-box preconditioner proposal is singular".into(),
+        ));
+    }
+    let inverse = BigRational::from_integer(BigInt::from(1)) / determinant;
+    let preconditioner = [
+        [&j[1][1] * &inverse, -j[0][1].clone() * &inverse],
+        [-j[1][0].clone() * &inverse, &j[0][0] * &inverse],
+    ];
+    let witness = fsym_core::RootBoxWitness2 {
+        domain,
+        center,
+        preconditioner,
+        precision_digits,
+    };
+    let residuals: &[Expr; 2] = system
+        .residuals()
+        .try_into()
+        .map_err(|_| ConsumerError::UnsupportedShape)?;
+    let variables: &[Symbol; 2] = system
+        .vars()
+        .try_into()
+        .map_err(|_| ConsumerError::UnsupportedShape)?;
+    let certificate = fsym_core::certify_root_box_2x2(residuals, variables, &witness)
+        .map_err(|error| ConsumerError::Certification(error.to_string()))?;
+    Ok(CertifiedRootOutcome2 {
+        approximation,
+        certificate,
+    })
+}
+
+/// Execute the pinned Newton consumer, then check existence and uniqueness of
+/// a root in the requested box. Floating convergence alone cannot publish an
+/// accepted outcome; the independent core checker must succeed.
+pub fn newton_refine_root_box_2x2(
+    system: &VerifiedResidualSystem,
+    initial: [f64; 2],
+    guards: &NewtonGuards,
+    radii: [f64; 2],
+    precision_digits: u32,
+) -> Result<CertifiedRootOutcome2, ConsumerError> {
+    validate_root_box_request(&radii, precision_digits)?;
+    let outcome = newton_refine_2x2(system.compiled(), initial, guards)?;
+    certify_root_2x2(system, outcome.root, radii, precision_digits)
+}
+
+/// Execute the pinned FrankenSciPy consumer and independently verify a unique
+/// nonsingular real root in the requested box using the same retained source.
+pub fn frankenscipy_fsolve_root_box(
+    system: &VerifiedResidualSystem,
+    initial: &[f64; 2],
+    radii: [f64; 2],
+    precision_digits: u32,
+) -> Result<CertifiedRootOutcome2, ConsumerError> {
+    validate_root_box_request(&radii, precision_digits)?;
+    let proposal = frankenscipy_fsolve(system.compiled(), initial)?;
+    certify_root_2x2(system, proposal, radii, precision_digits)
+}
+
+fn validate_root_box_request(radii: &[f64; 2], precision: u32) -> Result<(), ConsumerError> {
+    if radii
+        .iter()
+        .any(|radius| !radius.is_finite() || *radius <= 0.0)
+    {
+        return Err(ConsumerError::Certification(
+            "root-box radii must be finite and strictly positive".into(),
+        ));
+    }
+    if !(8..=fsym_core::MAX_ROOT_BOX_PRECISION).contains(&precision) {
+        return Err(ConsumerError::Certification(
+            "root-box precision is outside the bounded checker envelope".into(),
+        ));
+    }
+    Ok(())
+}

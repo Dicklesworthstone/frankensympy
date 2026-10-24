@@ -439,8 +439,9 @@ impl RealBall {
 
     /// Certified enclosure of sin(x) over the declared envelope: exact
     /// range reduction by k*pi, Taylor polynomial of degree 2m+1 evaluated
-    /// with exact rational interval arithmetic, and the Lagrange tail bound
-    /// |R| <= u^(2m+2)/(2m+2)!.
+    /// with outward-rounded rational intervals, and the Lagrange tail bound
+    /// |R| <= u^(2m+2)/(2m+2)!. Wide reduced intervals use the global [-1,1]
+    /// range instead of requesting an unbounded Taylor degree.
     pub fn sin(&self, precision_digits: u32) -> Result<Self, BallError> {
         let target = Self::precision_target(precision_digits)?;
         let magnitude = self.decimal_magnitude_bound();
@@ -455,15 +456,24 @@ impl RealBall {
             return Ok(Self::from_i64(0));
         }
         let (reduced, parity) = self.reduce_mod_pi(precision_digits)?;
-        // Degree schedule: u <= 2 after reduction, so degree 2m+1 with
-        // u^(2m+2)/(2m+2)! <= target needs m ~ digits; double until met.
+        let grid = precision_digits + 12;
+        let reduced = round_outward_onto_grid(reduced, grid)?;
         let u = upper_abs_rational(&reduced);
+        if u > BigRational::from_integer(BigInt::from(2)) {
+            return Self::new(BigRational::zero(), BigRational::one());
+        }
+        let bound = if u.is_zero() {
+            0
+        } else if u <= BigRational::one() {
+            1
+        } else {
+            2
+        };
+        // Degree schedule: u <= 2 in this admitted Taylor lane, so degree 2m+1 with
+        // u^(2m+2)/(2m+2)! <= target needs m ~ digits; double until met.
         let mut m = (precision_digits + 8) as usize;
         let tail = loop {
-            let tail = u
-                .pow((2 * m + 2) as i32)
-                .map_err(|_| transcendental_arithmetic_overflow())?
-                / BigRational::from_integer(factorial(2 * m + 2));
+            let tail = taylor_tail_with_integer_bound(bound, 2 * m + 2)?;
             if tail <= target {
                 break tail;
             }
@@ -476,8 +486,11 @@ impl RealBall {
                 });
             }
         };
-        let series = sin_series_interval(&reduced, m)?;
-        let ball = Self::new(series.midpoint().clone(), series.radius() + tail)?;
+        let series = sin_series_interval(&reduced, m, grid)?;
+        let ball = round_outward_onto_grid(
+            Self::new(series.midpoint().clone(), series.radius() + tail)?,
+            grid,
+        )?;
         checked_work_bits(
             "RealBall sin enclosure",
             [
@@ -506,13 +519,22 @@ impl RealBall {
             )));
         }
         let (reduced, parity) = self.reduce_mod_pi(precision_digits)?;
+        let grid = precision_digits + 12;
+        let reduced = round_outward_onto_grid(reduced, grid)?;
         let u = upper_abs_rational(&reduced);
+        if u > BigRational::from_integer(BigInt::from(2)) {
+            return Self::new(BigRational::zero(), BigRational::one());
+        }
+        let bound = if u.is_zero() {
+            0
+        } else if u <= BigRational::one() {
+            1
+        } else {
+            2
+        };
         let mut m = (precision_digits + 8) as usize;
         let tail = loop {
-            let tail = u
-                .pow((2 * m + 1) as i32)
-                .map_err(|_| transcendental_arithmetic_overflow())?
-                / BigRational::from_integer(factorial(2 * m + 1));
+            let tail = taylor_tail_with_integer_bound(bound, 2 * m + 1)?;
             if tail <= target {
                 break tail;
             }
@@ -525,8 +547,11 @@ impl RealBall {
                 });
             }
         };
-        let series = cos_series_interval(&reduced, m)?;
-        let ball = Self::new(series.midpoint().clone(), series.radius() + tail)?;
+        let series = cos_series_interval(&reduced, m, grid)?;
+        let ball = round_outward_onto_grid(
+            Self::new(series.midpoint().clone(), series.radius() + tail)?,
+            grid,
+        )?;
         checked_work_bits(
             "RealBall cos enclosure",
             [
@@ -543,8 +568,9 @@ impl RealBall {
 
     /// Certified enclosure of exp(x): the argument is halved until the
     /// remainder has magnitude <= 1/2 (tail <= 2*u^(n+1)/(n+1)! since
-    /// e^(1/2) < 2), evaluated exactly, then squared back with interval
-    /// arithmetic. Arguments beyond 10^MAX_EXP_DECIMAL_MAGNITUDE refuse:
+    /// e^(1/2) < 2), evaluated with outward-rounded intervals, then squared
+    /// back with outward rounding at every step. Arguments beyond
+    /// 10^MAX_EXP_DECIMAL_MAGNITUDE refuse:
     /// the enclosure midpoint itself would not be representable.
     pub fn exp(&self, precision_digits: u32) -> Result<Self, BallError> {
         Self::precision_target(precision_digits)?;
@@ -572,13 +598,25 @@ impl RealBall {
         // Extra guard digits: each squaring roughly quadruples the absolute
         // radius relative to the midpoint scale.
         let series_digits = precision_digits + 3 + 2 * s;
+        // If the upper argument is positive, exp(x) < 10^ceil(x). Preserve
+        // enough decimal places to absorb that possible absolute-error
+        // amplification. This is only a working-precision choice: the final
+        // enclosure-radius check below remains the acceptance condition.
+        let positive_upper = self.upper().max(BigRational::zero());
+        let positive_ceiling = -bigdiv_floor(&(-positive_upper.numer()), positive_upper.denom());
+        let magnitude_guard = positive_ceiling
+            .to_u64()
+            .and_then(|value| u32::try_from(value).ok())
+            .ok_or_else(transcendental_arithmetic_overflow)?;
+        let grid = series_digits + magnitude_guard + 12;
         let two_pow_s = two
             .pow(s as i32)
             .map_err(|_| transcendental_arithmetic_overflow())?;
-        let scaled = self.div(&Self::new(two_pow_s, BigRational::zero())?)?;
-        let mut value = exp_series_interval(&scaled, series_digits)?;
+        let scaled =
+            round_outward_onto_grid(self.div(&Self::new(two_pow_s, BigRational::zero())?)?, grid)?;
+        let mut value = exp_series_interval(&scaled, series_digits, grid)?;
         for _ in 0..s {
-            value = value.mul(&value);
+            value = round_outward_onto_grid(value.mul(&value), grid)?;
         }
         if value.radius() > &ten_pow_rational(precision_digits) {
             return Err(BallError::ResourceLimitExceeded {
@@ -840,65 +878,84 @@ fn arctan_inverse_enclosure(t: u64, digits: u32) -> Result<RealBall, BallError> 
     Ok(ball)
 }
 
-/// Exact interval evaluation of the odd Taylor polynomial of degree 2m+1
-/// for sin, with all arithmetic on certified balls (no rounding anywhere:
-/// the coefficients are exact rationals).
-fn sin_series_interval(r: &RealBall, m: usize) -> Result<RealBall, BallError> {
-    let mut acc = RealBall::from_i64(0);
-    let mut even_pow = RealBall::from_i64(1); // r^(2j)
-    let r2 = r.mul(r);
-    let mut fact = BigInt::one(); // (2j+1)!
-    for j in 0..=m {
-        if j > 0 {
-            even_pow = even_pow.mul(&r2);
-            fact *= BigInt::from(2 * j as u64) * BigInt::from((2 * j + 1) as u64);
-        }
-        let odd_pow = even_pow.mul(r);
-        let coeff = BigRational::new(BigInt::one(), fact.clone());
-        let term = RealBall::new(odd_pow.midpoint() * &coeff, odd_pow.radius() * &coeff)?;
-        acc = if j % 2 == 0 {
-            acc.add(&term)
-        } else {
-            acc.sub(&term)
-        };
-    }
-    Ok(acc)
+/// A rational Lagrange-tail bound with an integer magnitude bound. The caller
+/// admits only bounds <= 2. Preflight both numerator and factorial before any
+/// potentially large allocation.
+fn taylor_tail_with_integer_bound(bound: u32, power: usize) -> Result<BigRational, BallError> {
+    let exponent = u32::try_from(power).map_err(|_| transcendental_arithmetic_overflow())?;
+    let factorial_bits =
+        (power as u64).saturating_mul(u64::from(usize::BITS - power.leading_zeros()));
+    checked_work_bits(
+        "RealBall Taylor tail",
+        [u64::from(exponent).saturating_mul(2), factorial_bits],
+    )?;
+    Ok(BigRational::new(
+        BigInt::from(bound).pow(exponent),
+        factorial(power),
+    ))
 }
 
-/// Exact interval evaluation of the even Taylor polynomial of degree 2m
-/// for cos.
-fn cos_series_interval(r: &RealBall, m: usize) -> Result<RealBall, BallError> {
-    let mut acc = RealBall::from_i64(1);
-    let mut even_pow = RealBall::from_i64(1); // r^(2j)
-    let r2 = r.mul(r);
-    let mut fact = BigInt::one(); // (2j)!
+/// Enclose the odd Taylor polynomial of degree 2m+1 with exact coefficients.
+/// Outward rounding after each recurrence and sum retains all error while
+/// preventing coefficient denominators from growing with the series degree.
+fn sin_series_interval(r: &RealBall, m: usize, grid: u32) -> Result<RealBall, BallError> {
+    let mut term = r.clone();
+    let mut acc = term.clone();
+    let r2 = round_outward_onto_grid(r.mul(r), grid)?;
     for j in 1..=m {
-        even_pow = even_pow.mul(&r2);
-        fact *= BigInt::from(2 * j as u64 - 1) * BigInt::from(2 * j as u64);
-        let coeff = BigRational::new(BigInt::one(), fact.clone());
-        let term = RealBall::new(even_pow.midpoint() * &coeff, even_pow.radius() * &coeff)?;
-        acc = if j % 2 == 1 {
-            acc.sub(&term)
-        } else {
-            acc.add(&term)
-        };
+        let denominator = BigInt::from(2 * j as u64) * BigInt::from(2 * j as u64 + 1);
+        let coefficient = RealBall::exact(BigRational::new(BigInt::one(), denominator));
+        term = round_outward_onto_grid(term.mul(&r2).mul(&coefficient), grid)?;
+        acc = round_outward_onto_grid(
+            if j % 2 == 0 {
+                acc.add(&term)
+            } else {
+                acc.sub(&term)
+            },
+            grid,
+        )?;
     }
     Ok(acc)
 }
 
-/// Exact interval evaluation of exp's Taylor polynomial to the smallest
+/// The even Taylor polynomial uses the same enclosing recurrence as sine.
+fn cos_series_interval(r: &RealBall, m: usize, grid: u32) -> Result<RealBall, BallError> {
+    let mut acc = RealBall::from_i64(1);
+    let mut term = RealBall::from_i64(1);
+    let r2 = round_outward_onto_grid(r.mul(r), grid)?;
+    for j in 1..=m {
+        let denominator = BigInt::from(2 * j as u64 - 1) * BigInt::from(2 * j as u64);
+        let coefficient = RealBall::exact(BigRational::new(BigInt::one(), denominator));
+        term = round_outward_onto_grid(term.mul(&r2).mul(&coefficient), grid)?;
+        acc = round_outward_onto_grid(
+            if j % 2 == 1 {
+                acc.sub(&term)
+            } else {
+                acc.add(&term)
+            },
+            grid,
+        )?;
+    }
+    Ok(acc)
+}
+
+/// Interval evaluation of exp's Taylor polynomial to the smallest
 /// degree whose Lagrange tail (factor e^u <= 2 for u <= 1/2) is within the
 /// target radius; returns the enclosure already carrying the tail bound.
-fn exp_series_interval(x: &RealBall, digits: u32) -> Result<RealBall, BallError> {
+fn exp_series_interval(x: &RealBall, digits: u32, grid: u32) -> Result<RealBall, BallError> {
     let target = ten_pow_rational(digits + 2);
-    let u = upper_abs_rational(x);
-    let two = BigRational::from_integer(BigInt::from(2));
+    if upper_abs_rational(x) > BigRational::new(BigInt::one(), BigInt::from(2)) {
+        return Err(BallError::ArgumentOutsideDeclaredEnvelope(
+            "exp series argument must have absolute value at most one half".into(),
+        ));
+    }
     let mut n = (digits + 8) as usize;
     let tail = loop {
-        let tail = &two
-            * u.pow(n as i32)
-                .map_err(|_| transcendental_arithmetic_overflow())?
-            / BigRational::from_integer(factorial(n + 1));
+        // For |x|<=1/2, exp(|x|)<2, so the Lagrange remainder
+        // 2*|x|^(n+1)/(n+1)! is at most 1/(2^n*(n+1)!).
+        let factorial_bound = taylor_tail_with_integer_bound(1, n + 1)?;
+        let shift = u32::try_from(n).map_err(|_| transcendental_arithmetic_overflow())?;
+        let tail = factorial_bound / BigRational::from_integer(BigInt::one() << shift);
         if tail <= target {
             break tail;
         }
@@ -911,19 +968,42 @@ fn exp_series_interval(x: &RealBall, digits: u32) -> Result<RealBall, BallError>
             });
         }
     };
-    let mut acc = RealBall::from_i64(0);
-    let mut pow = RealBall::from_i64(1); // x^j
-    let mut fact = BigInt::one(); // j!
-    for j in 0..=n {
-        if j > 0 {
-            pow = pow.mul(x);
-            fact *= BigInt::from(j as u64);
-        }
-        let coeff = BigRational::new(BigInt::one(), fact.clone());
-        let term = RealBall::new(pow.midpoint() * &coeff, pow.radius() * &coeff)?;
-        acc = acc.add(&term);
+    let mut acc = RealBall::from_i64(1);
+    let mut term = RealBall::from_i64(1);
+    for j in 1..=n {
+        let coefficient = RealBall::exact(BigRational::new(BigInt::one(), BigInt::from(j as u64)));
+        term = round_outward_onto_grid(term.mul(x).mul(&coefficient), grid)?;
+        acc = round_outward_onto_grid(acc.add(&term), grid)?;
     }
-    RealBall::new(acc.midpoint().clone(), acc.radius() + tail)
+    round_outward_onto_grid(
+        RealBall::new(acc.midpoint().clone(), acc.radius() + tail)?,
+        grid,
+    )
+}
+
+/// Round the complete enclosure outward to a decimal endpoint grid. Both
+/// midpoint and radius denominators become divisors of 2*10^digits. Unlike
+/// rounding only the midpoint, this bounds the radius's denominator as well.
+/// Exact floor(lower*scale) and ceil(upper*scale) ensure no value is lost.
+fn round_outward_onto_grid(ball: RealBall, digits: u32) -> Result<RealBall, BallError> {
+    checked_work_bits(
+        "RealBall outward grid rounding",
+        [
+            ball.midpoint.height().max_bits(),
+            ball.radius.height().max_bits(),
+            u64::from(digits).saturating_mul(4).saturating_add(2),
+        ],
+    )?;
+    let scale = BigInt::from(10).pow(digits);
+    let lower = ball.lower();
+    let upper = ball.upper();
+    let lower_units = bigdiv_floor(&(lower.numer() * &scale), lower.denom());
+    let upper_units = -bigdiv_floor(&(-upper.numer() * &scale), upper.denom());
+    let denominator = scale * 2;
+    RealBall::new(
+        BigRational::new(&lower_units + &upper_units, denominator.clone()),
+        BigRational::new(upper_units - lower_units, denominator),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -948,25 +1028,40 @@ fn round_onto_grid(ball: RealBall, digits: u32) -> RealBall {
 
 /// Enclosure of atanh(z) for exact rational |z| <= 1/2.
 fn atanh_rational(z: &BigRational, digits: u32) -> Result<RealBall, BallError> {
+    if z.abs() > BigRational::new(BigInt::one(), BigInt::from(2)) {
+        return Err(BallError::ArgumentOutsideDeclaredEnvelope(
+            "atanh series argument must have absolute value at most one half".into(),
+        ));
+    }
     let target = ten_pow_rational(digits + 4);
     let z2 = z.clone() * z.clone();
     let mut pow = z.clone();
     let mut sum = BigRational::zero();
     let grid = digits + 12;
+    let rounded_power_error = series_power_rounding_bound(grid + 4);
+    let mut power_error = BigRational::zero();
+    let mut sum_error = BigRational::zero();
     let mut n: i64 = 0;
     loop {
-        let term = pow.clone() / BigRational::from_integer(BigInt::from(2 * n + 1));
-        if term.abs() <= target {
-            // tail <= |term| / (1 - z^2) <= 2|term| for |z| <= 1/2
-            let tail = term.abs() * BigRational::from_integer(BigInt::from(2));
+        let denominator = BigRational::from_integer(BigInt::from(2 * n + 1));
+        let term = &pow / &denominator;
+        let term_error = &power_error / &denominator;
+        let term_bound = term.abs() + &term_error;
+        if term_bound <= target {
+            // The exact omitted term, including power-rounding error, is at
+            // most term_bound. Later denominators only increase, so the full
+            // tail is <= term_bound/(1-z^2) <= 2*term_bound.
+            let tail = term_bound * BigRational::from_integer(BigInt::from(2));
             let ball = RealBall {
                 midpoint: sum,
-                radius: tail,
+                radius: sum_error + tail,
             };
             return Ok(round_onto_grid(ball, grid));
         }
         sum += term;
+        sum_error += term_error;
         pow = round_rational(&(pow * z2.clone()), grid + 4);
+        power_error = rounded_power_error.clone();
         n += 1;
         if n > 1_000_000 {
             return Err(transcendental_arithmetic_overflow());
@@ -974,8 +1069,18 @@ fn atanh_rational(z: &BigRational, digits: u32) -> Result<RealBall, BallError> {
     }
 }
 
-/// Rational rounded to the 10^-digits grid (used for series powers whose
-/// rounding error is far below the requested target).
+/// Uniform absolute error bound for powers advanced by
+/// `p <- round(p * z^2)` on a decimal grid of spacing h, where |z| <= 1/2.
+/// The initial power is exact. Each step contributes at most h/2, so the
+/// accumulated error is bounded by (h/2)/(1-1/4) = 2h/3. This bound must be
+/// carried into every included term and the first omitted term; guard digits
+/// alone are not enclosure evidence, even when a rounded power becomes zero.
+fn series_power_rounding_bound(digits: u32) -> BigRational {
+    ten_pow_rational(digits) * BigRational::new(BigInt::from(2), BigInt::from(3))
+}
+
+/// Rational rounded to the 10^-digits grid. Callers must account for the
+/// absolute rounding error, which is at most half a grid step.
 fn round_rational(q: &BigRational, digits: u32) -> BigRational {
     let scale = BigInt::from(10).pow(digits);
     let m = q.clone() * BigRational::from_integer(scale.clone());
@@ -1057,15 +1162,23 @@ fn atan_rational(q: &BigRational, digits: u32) -> Result<RealBall, BallError> {
     let target = ten_pow_rational(digits + 4);
     let q2 = q.clone() * q.clone();
     let grid = digits + 12;
+    let rounded_power_error = series_power_rounding_bound(grid + 4);
     let mut pow = q.clone();
+    let mut power_error = BigRational::zero();
     let mut sum = BigRational::zero();
+    let mut sum_error = BigRational::zero();
     let mut n: i64 = 0;
     loop {
-        let term = pow.clone() / BigRational::from_integer(BigInt::from(2 * n + 1));
-        if term.abs() <= target {
+        let denominator = BigRational::from_integer(BigInt::from(2 * n + 1));
+        let term = &pow / &denominator;
+        let term_error = &power_error / &denominator;
+        let term_bound = term.abs() + &term_error;
+        if term_bound <= target {
+            // The alternating-series remainder is at most the exact first
+            // omitted term, whose magnitude is enclosed by term_bound.
             let ball = RealBall {
                 midpoint: sum,
-                radius: term.abs(),
+                radius: sum_error + term_bound,
             };
             return Ok(round_onto_grid(ball, grid));
         }
@@ -1074,7 +1187,9 @@ fn atan_rational(q: &BigRational, digits: u32) -> Result<RealBall, BallError> {
         } else {
             sum -= term;
         }
+        sum_error += term_error;
         pow = round_rational(&(pow * q2.clone()), grid + 4);
+        power_error = rounded_power_error.clone();
         n += 1;
         if n > 1_000_000 {
             return Err(transcendental_arithmetic_overflow());
