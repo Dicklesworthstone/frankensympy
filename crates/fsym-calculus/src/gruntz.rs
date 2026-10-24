@@ -139,39 +139,149 @@ pub fn complex_value(e: &Expr) -> Option<Complex64> {
     })
 }
 
+// These helpers sit on the endpoint-limit acceptance path. Bound the original
+// tree before recursive assumptions, evaluation, or exact rewriting sees it.
+const MAX_COEFFICIENT_DEPTH: usize = 32;
+const MAX_COEFFICIENT_NODES: usize = 8_192;
+const MAX_COEFFICIENT_LIMBS: u64 = 1_024;
+const COEFFICIENT_PRECISIONS: [u32; 3] = [24, 48, 96];
+
+fn coefficient_shape(c: &Expr) -> Option<bool> {
+    let mut pending = vec![(c, 0usize)];
+    let mut visited = 0usize;
+    let mut has_symbols = false;
+    while let Some((term, depth)) = pending.pop() {
+        visited += 1;
+        if depth > MAX_COEFFICIENT_DEPTH || visited > MAX_COEFFICIENT_NODES {
+            return None;
+        }
+        match term {
+            Expr::Sym(_) => has_symbols = true,
+            Expr::Integer(n) if n.limb_count() > MAX_COEFFICIENT_LIMBS => return None,
+            Expr::Rational(q)
+                if q.numer().limb_count() > MAX_COEFFICIENT_LIMBS
+                    || q.denom().limb_count() > MAX_COEFFICIENT_LIMBS =>
+            {
+                return None;
+            }
+            Expr::Const(
+                Constant::Infinity
+                | Constant::NegativeInfinity
+                | Constant::ComplexInfinity
+                | Constant::NaN,
+            ) => return None,
+            Expr::Add(args) | Expr::Mul(args) | Expr::Function(_, args) => {
+                if args.len() > MAX_COEFFICIENT_NODES.saturating_sub(visited + pending.len()) {
+                    return None;
+                }
+                pending.extend(args.iter().map(|arg| (arg, depth + 1)));
+            }
+            Expr::Pow(base, exponent) => {
+                if visited + pending.len() + 2 > MAX_COEFFICIENT_NODES
+                    || matches!(exponent.as_ref(), Expr::Integer(n)
+                        if n.to_i64().is_none_or(|value| value.unsigned_abs() > 4_096))
+                {
+                    return None;
+                }
+                pending.push((base, depth + 1));
+                pending.push((exponent, depth + 1));
+            }
+            _ => {}
+        }
+    }
+    Some(has_symbols)
+}
+
+// A symbol denotes a finite scalar, but a partial operation still needs its
+// own domain premise. This is deliberately a small structural subset: a
+// declared sign/nonzero fact cannot erase an undefined original child.
+fn symbolic_coefficient_is_defined(c: &Expr) -> bool {
+    match c {
+        Expr::Sym(_) | Expr::Integer(_) | Expr::Rational(_) => true,
+        Expr::Const(Constant::Pi | Constant::E | Constant::I) => true,
+        Expr::Const(_) => false,
+        Expr::Add(args) | Expr::Mul(args) => args.iter().all(symbolic_coefficient_is_defined),
+        Expr::Pow(base, exponent) => {
+            symbolic_coefficient_is_defined(base)
+                && symbolic_coefficient_is_defined(exponent)
+                && match exponent.as_ref() {
+                    Expr::Integer(n) if n.is_positive() => true,
+                    Expr::Integer(_) | Expr::Rational(_) => fsym_core::assume::is_nonzero(base),
+                    _ => {
+                        fsym_core::assume::sign(base) == Some(1)
+                            && fsym_core::assume::is_real(exponent)
+                    }
+                }
+        }
+        Expr::Function(name, args) if args.len() == 1 => {
+            symbolic_coefficient_is_defined(&args[0])
+                && match name.as_str() {
+                    "exp" | "sin" | "cos" | "sinh" | "cosh" | "erf" | "erfc" | "sinc" | "Abs"
+                    | "abs" | "re" | "im" | "conjugate" | "sqrt" => true,
+                    "log" | "ln" => fsym_core::assume::is_nonzero(&args[0]),
+                    "atan" | "tanh" => fsym_core::assume::is_real(&args[0]),
+                    _ => false,
+                }
+        }
+        Expr::Function(_, _) => false,
+    }
+}
+
+fn normalized_coefficient(c: &Expr) -> Option<Expr> {
+    let has_symbols = coefficient_shape(c)?;
+    let source_defined = if has_symbols {
+        symbolic_coefficient_is_defined(c)
+    } else {
+        COEFFICIENT_PRECISIONS
+            .iter()
+            .any(|&digits| c.eval_complex_ball(digits).is_ok())
+    };
+    if !source_defined {
+        return None;
+    }
+    // Expansion has a fixed term/power limit, and the shared meter also
+    // bounds repeated rewrites. A refusal is not an equality proof.
+    let mut meter = fsym_budget::Budget::new(fsym_budget::BudgetLimits::uniform(65_536, 0));
+    let simplified = fsym_simplify::simplify_with(c, &mut meter).ok()?;
+    coefficient_shape(&simplified)?;
+    if simplified.is_zero() || fsym_core::assume::sign(&simplified).is_some() {
+        return Some(simplified);
+    }
+    let expanded = fsym_simplify::expand_with(&simplified, &mut meter).ok()?;
+    coefficient_shape(&expanded)?;
+    let result = fsym_simplify::simplify_with(&expanded, &mut meter).ok()?;
+    coefficient_shape(&result)?;
+    Some(result)
+}
+
 /// Sign of a real constant: `Some(1|-1|0)`, `None` when undecidable or not
-/// a real constant.
+/// a real constant. A numerical enclosure must prove an exactly zero
+/// imaginary part before its real component can establish a sign.
 pub fn constant_sign(c: &Expr) -> Option<i32> {
     match c {
-        Expr::Integer(n) => {
-            return Some(if n.is_zero() {
-                0
-            } else if n.is_negative() {
-                -1
-            } else {
-                1
-            });
-        }
-        Expr::Rational(r) => {
-            return Some(if r.is_zero() {
-                0
-            } else if r.is_negative() {
-                -1
-            } else {
-                1
-            });
+        Expr::Integer(_) | Expr::Rational(_) => {
+            return fsym_core::assume::sign(c).map(i32::from);
         }
         Expr::Const(Constant::Infinity) => return Some(1),
         Expr::Const(Constant::NegativeInfinity) => return Some(-1),
         _ => {}
     }
-    if !c.free_symbols().is_empty() {
-        // Parameters: only signs decided by declared facts.
-        return fsym_core::assume::sign(c).map(i32::from);
+    let simplified = normalized_coefficient(c)?;
+    if let Some(sign) = fsym_core::assume::sign(&simplified) {
+        return Some(i32::from(sign));
     }
-    if let Ok(ball) = c.eval_complex_ball(18) {
+    if !simplified.free_symbols().is_empty() {
+        return None;
+    }
+    for digits in COEFFICIENT_PRECISIONS {
+        let Ok(ball) = simplified.eval_complex_ball(digits) else {
+            continue;
+        };
         if !ball.imag().contains_zero() {
             return None;
+        }
+        if !ball.imag().midpoint().is_zero() || !ball.imag().radius().is_zero() {
+            continue;
         }
         if ball.real().is_positive() {
             return Some(1);
@@ -179,65 +289,48 @@ pub fn constant_sign(c: &Expr) -> Option<i32> {
         if ball.real().is_negative() {
             return Some(-1);
         }
-        if ball.real().radius().is_zero() && ball.real().midpoint().is_zero() {
+        if ball.real().midpoint().is_zero() && ball.real().radius().is_zero() {
             return Some(0);
         }
-    }
-    let simplified = fsym_simplify::simplify(&fsym_simplify::expand(c));
-    if simplified.is_zero() {
-        return Some(0);
-    }
-    if let Ok(ball36) = simplified.eval_complex_ball(36) {
-        if !ball36.imag().contains_zero() {
-            return None;
-        }
-        if ball36.real().is_positive() {
-            return Some(1);
-        }
-        if ball36.real().is_negative() {
-            return Some(-1);
-        }
-    }
-    let v = complex_value(c)?;
-    if !v.re.is_finite() || v.im.abs() > 1e-12 * (1.0 + v.re.abs()) {
-        return None;
-    }
-    if v.re.abs() > 1e-9 {
-        return Some(if v.re > 0.0 { 1 } else { -1 });
     }
     None
 }
 
-/// Zero test for a series coefficient: `Some(true)` exact zero,
-/// `Some(false)` provably (certified-ball or numerically well-separated) nonzero or symbolic,
-/// `None` when a constant cannot be decided.
+/// Zero test for a series coefficient: `Some(true)` proves zero,
+/// `Some(false)` proves nonzero by exact facts or certified exclusion of zero,
+/// and `None` preserves an unsupported or undecidable obligation.
 pub fn is_zero_coefficient(c: &Expr) -> Option<bool> {
-    if c.is_zero() {
-        return Some(true);
+    match c {
+        Expr::Integer(n) => return Some(n.is_zero()),
+        Expr::Rational(q) => return Some(q.is_zero()),
+        _ => {}
     }
-    if !c.free_symbols().is_empty() {
-        let s = fsym_simplify::simplify(c);
-        return Some(s.is_zero());
-    }
-    if let Ok(ball) = c.eval_complex_ball(18)
-        && !ball.contains_zero()
-    {
-        return Some(false);
-    }
-    let simplified = fsym_simplify::simplify(&fsym_simplify::expand(c));
+    let simplified = normalized_coefficient(c)?;
     if simplified.is_zero() {
         return Some(true);
     }
-    if let Ok(ball36) = simplified.eval_complex_ball(36)
-        && !ball36.contains_zero()
-    {
+    if fsym_core::assume::is_nonzero(&simplified) {
         return Some(false);
     }
-    match complex_value(c) {
-        Some(v) if v.norm() > 1e-9 => Some(false),
-        Some(_) => None,
-        None => Some(false),
+    if !simplified.free_symbols().is_empty() {
+        return None;
     }
+    for digits in COEFFICIENT_PRECISIONS {
+        let Ok(ball) = simplified.eval_complex_ball(digits) else {
+            continue;
+        };
+        if !ball.contains_zero() {
+            return Some(false);
+        }
+        if ball.real().midpoint().is_zero()
+            && ball.real().radius().is_zero()
+            && ball.imag().midpoint().is_zero()
+            && ball.imag().radius().is_zero()
+        {
+            return Some(true);
+        }
+    }
+    None
 }
 
 // ---------------------------------------------------------------------------
@@ -791,8 +884,23 @@ fn exp_argument(f: &Expr) -> LResult<Expr> {
     }
 }
 
-fn substitute_positive_dummy(e: &Expr, x: &Symbol) -> (Expr, Symbol) {
-    let d = Symbol::new(format!("_fsym_limit_{}", x.name));
+fn substitute_positive_dummy(e: &Expr, x: &Symbol, x0: &Expr) -> (Expr, Symbol) {
+    // Assumption lookup admits a plain-name fallback, so reserve the names
+    // of every source symbol, including symbols with a different identity.
+    let mut symbols = e.free_symbols();
+    symbols.extend(x0.free_symbols());
+    let names = symbols
+        .into_iter()
+        .map(|symbol| symbol.name)
+        .collect::<std::collections::HashSet<_>>();
+    let stem = format!("_fsym_limit_{}", x.name);
+    let mut name = stem.clone();
+    let mut suffix = 0usize;
+    while names.contains(&name) {
+        suffix += 1;
+        name = format!("{stem}_{suffix}");
+    }
+    let d = Symbol::new(name);
     (
         e.subs(&HashMap::from([(x.clone(), Expr::Sym(d.clone()))])),
         d,
@@ -814,13 +922,19 @@ pub fn limit(e: &Expr, x: &Symbol, x0: &Expr, dir: Direction) -> LResult<Expr> {
             "left hand limit = {left} and right hand limit = {right}"
         )));
     }
-    let (e, d) = substitute_positive_dummy(e, x);
+    let (e, d) = substitute_positive_dummy(e, x, x0);
     let mut g = Gruntz {
         x: d.clone(),
         depth: 0,
         fresh: 0,
     };
-    let value = g.limit_point(&e, x0, dir)?;
+    // The transformed variable tends to +infinity in every approach
+    // direction. Make that existing premise available to the series
+    // coefficient checker without assuming anything about user parameters.
+    let facts = fsym_core::assume::Facts::from_names(&["positive"]);
+    let value = fsym_core::assume::with_symbol_facts(HashMap::from([(d.clone(), facts)]), || {
+        g.limit_point(&e, x0, dir)
+    })?;
     // A finite limit may still mention the dummy only through a failure.
     if !is_free_of(&value, &d) {
         return Err(LimitError::Undetermined(format!("{value}")));
