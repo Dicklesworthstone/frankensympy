@@ -4,12 +4,14 @@
 //!
 //! This crate does not yet provide the full SymPy `solveset` or `dsolve` surfaces.
 
+pub mod exact_ode;
 pub mod inequality;
 pub mod ode;
 pub mod polysys;
 pub mod system;
 pub mod univariate;
 
+pub use exact_ode::{exact_ode_potential, verify_exact_ode_potential};
 pub use ode::*;
 pub use system::*;
 

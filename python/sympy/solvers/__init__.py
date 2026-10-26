@@ -1,6 +1,7 @@
 """Algebraic and differential equation solvers for FrankenSymPy (WS19)."""
 
 from .. import checksol, dsolve, solve, solveset
+from .exact_ode import dsolve_exact_first_order
 from .ode import (
     checkodesol,
     dsolve_cauchy_euler,
@@ -22,6 +23,7 @@ __all__ = [
     "dsolve_cauchy_euler",
     "dsolve_const_coeff_second_order",
     "dsolve_const_coeff_second_order_nonhomogeneous",
+    "dsolve_exact_first_order",
     "dsolve_linear_first_order",
     "dsolve_separable_linear",
     "linsolve",

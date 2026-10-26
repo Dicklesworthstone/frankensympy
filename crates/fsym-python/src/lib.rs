@@ -1155,6 +1155,42 @@ fn solve_native(expr: &PyExpr, var: &Bound<'_, PyAny>) -> PyResult<Vec<PyExpr>> 
         .map_err(to_value_error)
 }
 
+/// Structured exact polynomial one-form potential, preserving coordinate identity.
+#[pyfunction]
+fn exact_ode_potential_native(m: &PyExpr, n: &PyExpr, x: &PyExpr, y: &PyExpr) -> PyResult<PyExpr> {
+    let (Expr::Sym(x), Expr::Sym(y)) = (&x.inner, &y.inner) else {
+        return Err(PyValueError::new_err(
+            "exact ODE coordinates must be native Symbol expressions",
+        ));
+    };
+    fsym_solvers::exact_ode_potential(&m.inner, &n.inner, x, y)
+        .map(PyExpr::from_expr)
+        .map_err(to_value_error)
+}
+
+/// Independently verify both partial derivatives of a structured ODE potential.
+#[pyfunction]
+fn verify_exact_ode_potential_native(
+    potential: &PyExpr,
+    m: &PyExpr,
+    n: &PyExpr,
+    x: &PyExpr,
+    y: &PyExpr,
+) -> PyResult<bool> {
+    let (Expr::Sym(x), Expr::Sym(y)) = (&x.inner, &y.inner) else {
+        return Err(PyValueError::new_err(
+            "exact ODE coordinates must be native Symbol expressions",
+        ));
+    };
+    Ok(fsym_solvers::verify_exact_ode_potential(
+        &potential.inner,
+        &m.inner,
+        &n.inner,
+        x,
+        y,
+    ))
+}
+
 /// Structured zero-dimensional polynomial system solver returning `Vec<Vec<PyExpr>>`.
 #[pyfunction]
 fn solve_polynomial_system_native(
@@ -1836,6 +1872,8 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(evalf_decimal_native, m)?)?;
     m.add_function(wrap_pyfunction!(solve_inequality_native, m)?)?;
     m.add_function(wrap_pyfunction!(solve_native, m)?)?;
+    m.add_function(wrap_pyfunction!(exact_ode_potential_native, m)?)?;
+    m.add_function(wrap_pyfunction!(verify_exact_ode_potential_native, m)?)?;
     m.add_function(wrap_pyfunction!(solve_polynomial_system_native, m)?)?;
     m.add_function(wrap_pyfunction!(poly_coeffs_native, m)?)?;
     m.add_function(wrap_pyfunction!(poly_degree_native, m)?)?;
