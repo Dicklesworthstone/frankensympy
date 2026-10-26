@@ -7,8 +7,9 @@
 //! * a table of elementary antiderivatives with linear inner arguments
 //!   (`exp`, `sin`, `cos`, `tan`, `sinh`, `cosh`, `a**x`, `log`, `atan`,
 //!   `asin`, `erf` for Gaussians, arcsine/arcsinh radicals, power rule);
-//! * rational functions: polynomial part, exact partial fractions over the
-//!   complete factorization of the denominator over Q, `log` terms for
+//! * rational functions: independently checked, factor-free Hermite reduction
+//!   for repeated poles, followed by exact partial fractions over the
+//!   square-free denominator over Q, `log` terms for
 //!   linear factors, `log` + `atan` terms (with the Hermite-style reduction
 //!   for powers) for irreducible quadratics;
 //! * `sin**m * cos**n` by odd-power substitution and the reduction formula;
@@ -708,6 +709,22 @@ impl Integrator {
         if rem.is_zero() {
             return Some(out);
         }
+        let reduction = crate::hermite::hermite_reduce(&rem, &den).ok()?;
+        let rational_num = UnivariatePoly::new(x.clone(), reduction.rational_numerator);
+        let rational_den = UnivariatePoly::new(x.clone(), reduction.rational_denominator);
+        out = out + cancel_form(&rational_num, &rational_den)?;
+        let rem = UnivariatePoly::new(x.clone(), reduction.remainder_numerator);
+        let den = UnivariatePoly::new(x.clone(), reduction.remainder_denominator);
+        if rem.is_zero() {
+            return Some(merge_rational_part(out, &x));
+        }
+        // A logarithmic derivative needs no irreducible factorization, even
+        // when its square-free denominator has high degree.
+        if let Some(coefficient) = proportional_polynomials(&rem, &den.derivative()) {
+            return Some(
+                merge_rational_part(out, &x) + rq(coefficient) * func("log", primitive_expr(&den)),
+            );
+        }
         let fact = fsym_polys::factorization::complete_factorization(&den).ok()?;
         // den = scale * prod(p_i ** k_i), p_i monic irreducible.
         let scale = fact.scale.clone();
@@ -716,9 +733,6 @@ impl Integrator {
             .iter()
             .map(|t| (t.poly.clone(), t.multiplicity))
             .collect();
-        if pieces.iter().any(|(p, _)| p.degree().unwrap_or(0) > 2) {
-            return None;
-        }
         let mut logs: Vec<(BigRational, UnivariatePoly)> = Vec::new();
         let rem = rem
             .mul(&UnivariatePoly::new(x.clone(), vec![scale.recip()]))
@@ -768,7 +782,8 @@ impl Integrator {
         Some(out)
     }
 
-    /// Antiderivative of c(x)/p(x)**m for monic irreducible p of degree 1/2.
+    /// Antiderivative of c(x)/p(x)**m for monic irreducible p of degree 1/2,
+    /// or an exact logarithmic derivative of a higher-degree factor.
     fn partial_term(
         &self,
         c: &UnivariatePoly,
@@ -823,6 +838,11 @@ impl Integrator {
                     out = out + rq(rest) * quadratic_reciprocal_power(&pe, &two_x_s, &delta, m);
                 }
                 Some(out)
+            }
+            _ if m == 1 => {
+                let coefficient = proportional_polynomials(c, &p.derivative())?;
+                logs.push((coefficient, p.clone()));
+                Some(Expr::from_i64(0))
             }
             _ => None,
         }
@@ -1203,6 +1223,15 @@ fn distribute(parts: Vec<Expr>) -> Expr {
 fn scale_poly(p: &UnivariatePoly, c: &BigRational) -> Option<UnivariatePoly> {
     p.mul(&UnivariatePoly::new(p.gen_sym.clone(), vec![c.clone()]))
         .ok()
+}
+
+/// Exact proportionality; no evaluation samples participate in this decision.
+fn proportional_polynomials(a: &UnivariatePoly, b: &UnivariatePoly) -> Option<BigRational> {
+    if b.is_zero() || a.degree() != b.degree() {
+        return None;
+    }
+    let coefficient = a.leading_coeff() / b.leading_coeff();
+    (scale_poly(b, &coefficient)? == *a).then_some(coefficient)
 }
 
 /// `p` with integer coefficients, content removed and positive leading term.

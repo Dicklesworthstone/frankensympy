@@ -20,6 +20,7 @@ pub mod groebner;
 pub mod kernel;
 pub mod merge;
 pub mod mutation;
+pub mod rational_integral;
 pub mod rule;
 
 pub use capsule::{

@@ -4,6 +4,7 @@
 
 pub mod compile;
 pub mod gruntz;
+pub mod hermite;
 pub mod integrate;
 pub mod proof;
 pub mod series;
