@@ -188,6 +188,12 @@ impl PyMatrix {
         self.inv()
     }
 
+    /// Moore-Penrose pseudoinverse, including singular exact-rational matrices.
+    pub fn pinv(&self) -> PyResult<Self> {
+        let inverse = self.inner.pseudoinverse().map_err(matrix_err)?;
+        Ok(Self { inner: inverse })
+    }
+
     /// Adjugate (classical adjoint) matrix.
     pub fn adjugate(&self) -> PyResult<Self> {
         let adj = self.inner.adjugate().map_err(matrix_err)?;

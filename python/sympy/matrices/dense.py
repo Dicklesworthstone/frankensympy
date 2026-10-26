@@ -1506,13 +1506,8 @@ class Matrix(MatrixBase):
         return Matrix(self)
 
     def pinv(self):
-        """Compute the Moore-Penrose pseudoinverse."""
-        if self.rows >= self.cols:
-            try:
-                return self.solve_least_squares(eye(self.rows))
-            except Exception:
-                pass
-        return self.T.solve_least_squares(eye(self.cols)).T
+        """Compute the Moore-Penrose pseudoinverse of an exact-rational matrix."""
+        return self._new(self._native.pinv())
 
     def dot(self, other):
         """Compute the inner (dot) product with another matrix/vector."""

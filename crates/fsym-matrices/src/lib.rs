@@ -6,6 +6,8 @@
 
 pub mod sparse;
 pub use sparse::*;
+mod pseudoinverse;
+pub use pseudoinverse::{PseudoinverseCertificate, verify_pseudoinverse_certificate};
 
 use fsym_core::algebraic::{AlgebraicNumber, count_real_roots_in_interval, sturm_sequence};
 use fsym_core::ball::RealBall;
