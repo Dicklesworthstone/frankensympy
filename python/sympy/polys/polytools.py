@@ -1353,6 +1353,64 @@ class GroebnerBasis:
     def __hash__(self) -> int:
         return hash((tuple(self.exprs), self.gens, self.order))
 
+    def _native_basis(self) -> tuple:
+        if str(self.domain) not in ("ZZ", "QQ"):
+            raise NotImplementedError("checked Groebner operations currently support ZZ and QQ")
+        return ([_native_expr(e) for e in self.exprs],
+                [_symbol_binding(g) for g in self.gens], self.order)
+
+    @property
+    def is_zero_dimensional(self) -> bool:
+        """Whether pure leading powers bound every generator in the quotient.
+
+        The current basis is independently checked before this criterion is
+        applied, including when its public expression list has been modified.
+        """
+        return _native.groebner_is_zero_dimensional_native(*self._native_basis())
+
+    def reduce(self, expr: Any, auto: bool = True) -> tuple:
+        """Return exact quotients and the reduced remainder in the basis order.
+
+        The default lifts ZZ coefficients to QQ, as in upstream. The native
+        checker verifies both the coefficient identity and complete reduction.
+        Integer-ring division with ``auto=False`` is not implemented.
+        """
+        if not auto and str(self.domain) == "ZZ":
+            raise NotImplementedError("Groebner reduction over ZZ with auto=False is not implemented")
+        if isinstance(expr, Poly):
+            if expr.gens != self.gens:
+                raise ValueError("polynomial generators do not match the Groebner basis")
+            expr = expr.as_expr()
+        raw_quotients, raw_remainder = _native.groebner_reduce_native(
+            *self._native_basis(), _native_expr(expr), str(self.domain) == "ZZ"
+        )
+        context = (expr, *self.exprs, *self.gens)
+        return ([_lift_native_result(q, *context) for q in raw_quotients],
+                _lift_native_result(raw_remainder, *context))
+
+    def contains(self, expr: Any) -> bool:
+        """Test ideal membership using a checked complete basis and normal form."""
+        return self.reduce(expr)[1] == 0
+
+    def fglm(self, order: str) -> GroebnerBasis:
+        """Convert a finite rational quotient to another monomial order.
+
+        Supports lex, grlex and grevlex with at most 64 standard monomials.
+        Conversion uses exact quotient-space dependencies and independently
+        checks both ideal inclusions and the target basis S-pairs.
+        """
+        if order not in ("lex", "grlex", "grevlex"):
+            raise ValueError("unknown monomial order %r" % order)
+        if order == self.order:
+            return self
+        if not self.is_zero_dimensional:
+            raise NotImplementedError("FGLM conversion requires a zero-dimensional ideal")
+        raw = _native.groebner_fglm_native(*self._native_basis(), order)
+        exprs = [_lift_native_result(value, *self.exprs, *self.gens) for value in raw]
+        if str(self.domain) == "ZZ":
+            exprs = [_primitive_integer(value, self.gens, order) for value in exprs]
+        return GroebnerBasis(exprs, self.gens, self.domain, order)
+
     def _ordered_str(self, e: Any) -> str:
         """``e`` printed with its terms in the basis' monomial order."""
         from ..core import Add as _Add, Integer as _Integer
@@ -1390,7 +1448,7 @@ class GroebnerBasis:
     __str__ = __repr__
 
 
-def _primitive_integer(e: Any, gens: tuple) -> Any:
+def _primitive_integer(e: Any, gens: tuple, order: str = "lex") -> Any:
     """Scale to integer coefficients with positive leading coefficient
     and unit content (upstream ZZ-domain basis normalization)."""
     from math import gcd as _igcd, lcm as _ilcm
@@ -1407,13 +1465,22 @@ def _primitive_integer(e: Any, gens: tuple) -> Any:
     for _, c in terms:
         num = _igcd(num, abs(int(c.p * (den // c.q))))
     scale = _Rational(den, num or 1)
-    if terms[0][1] < 0:
+    def leading_key(term: tuple) -> tuple:
+        powers = term[0]
+        if order == "grlex":
+            return (sum(powers), powers)
+        if order == "grevlex":
+            return (sum(powers), tuple(-power for power in reversed(powers)))
+        return powers
+
+    if max(terms, key=leading_key)[1] < 0:
         scale = -scale
     return expand(e * scale)
 
 
 def groebner(F: Sequence[Any], *gens: Any, order: str = "lex", **args: Any) -> Any:
     """Reduced Groebner basis of ``F`` (orders lex, grlex, grevlex)."""
+    F = list(F)
     if len(gens) == 1 and isinstance(gens[0], (list, tuple)):
         var_list = list(gens[0])
     else:
@@ -1431,19 +1498,22 @@ def groebner(F: Sequence[Any], *gens: Any, order: str = "lex", **args: Any) -> A
     var_bindings = [_symbol_binding(g) for g in gens_t]
     if order not in ("lex", "grlex", "grevlex"):
         raise ValueError("unknown monomial order %r" % order)
+    inferred = "ZZ" if all(Poly(e, *gens_t)._infer_domain() == "ZZ" for e in F) else "QQ"
+    domain = str(args.get("domain", inferred))
+    if domain not in ("ZZ", "QQ"):
+        raise NotImplementedError("native Groebner bases currently support ZZ and QQ")
+    if domain == "ZZ" and inferred != "ZZ":
+        raise ValueError("noninteger coefficients cannot be represented in ZZ")
     raw = _native.groebner_basis_native(eq_natives, var_bindings, order)
-    exprs = [
-        _primitive_integer(_lift_native_result(r, *F, *gens_t), gens_t)
-        for r in raw
-    ]
-    from ..printing.str import sort_key as _sk
+    exprs = [_lift_native_result(r, *F, *gens_t) for r in raw]
+    if domain == "ZZ":
+        exprs = [_primitive_integer(e, gens_t, order) for e in exprs]
 
     def lead_key(e: Any) -> tuple:
         return tuple(Poly(e, *gens_t).terms()[0][0])
 
     if order == "lex":
         exprs.sort(key=lead_key, reverse=True)
-    domain = "ZZ" if all(Poly(e, *gens_t)._infer_domain() == "ZZ" for e in exprs) else "QQ"
     return GroebnerBasis(exprs, gens_t, domain, order)
 
 

@@ -5,7 +5,9 @@
 
 #![forbid(unsafe_code)]
 
+pub mod division;
 pub mod factorization;
+pub mod fglm;
 pub mod gcd;
 pub mod groebner;
 pub mod identity;
@@ -13,7 +15,9 @@ pub mod multifactor;
 pub mod multivariate;
 pub mod univariate;
 
+pub use division::*;
 pub use factorization::*;
+pub use fglm::*;
 pub use gcd::*;
 pub use groebner::*;
 pub use identity::*;

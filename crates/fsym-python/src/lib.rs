@@ -1469,7 +1469,164 @@ fn poly_roots_native(p: &PyExpr, var: &Bound<'_, PyAny>) -> PyResult<Vec<(PyExpr
         .collect())
 }
 
-/// Structured reduced multivariate Groebner basis.
+/// Decode the three supported exact monomial orders.
+fn groebner_term_order(order: &str) -> PyResult<fsym_polys::TermOrder> {
+    match order {
+        "lex" => Ok(fsym_polys::TermOrder::Lex),
+        "grlex" => Ok(fsym_polys::TermOrder::DegLex),
+        "grevlex" => Ok(fsym_polys::TermOrder::DegRevLex),
+        other => Err(PyValueError::new_err(format!(
+            "unknown monomial order {other:?}"
+        ))),
+    }
+}
+
+fn groebner_polynomials(
+    eqs: &[PyExpr],
+    gens: &[Symbol],
+) -> PyResult<Vec<fsym_polys::MultivariatePoly>> {
+    if eqs.len() > 64 || gens.len() > 8 {
+        return Err(PyValueError::new_err(
+            "checked Groebner operations support at most 64 basis elements and eight generators",
+        ));
+    }
+    let mut conversion_meter = groebner_operation_budget();
+    eqs.iter()
+        .map(|eq| {
+            fsym_polys::bounded_polynomial_from_expr(&eq.inner, gens, &mut conversion_meter)
+                .map_err(to_value_error)
+        })
+        .collect()
+}
+
+fn groebner_operation_budget() -> Budget {
+    // Distinct bounded synchronous meters for generation and verification.
+    // This is not a runtime-owned protected verifier-pool reservation.
+    Budget::new(BudgetLimits::uniform(128 * 1024 * 1024, 0))
+}
+
+fn checked_groebner_source(
+    polys: &[fsym_polys::MultivariatePoly],
+    gens: &[Symbol],
+    order: fsym_polys::TermOrder,
+) -> PyResult<fsym_polys::groebner::VerifiedGroebnerBasis> {
+    // Retain the polynomial ring for the empty basis/zero ideal.
+    let zero = [fsym_polys::MultivariatePoly::zero(gens.to_vec())];
+    let source = if polys.is_empty() { &zero[..] } else { polys };
+    fsym_polys::certify_groebner_basis(
+        source,
+        order,
+        &mut groebner_operation_budget(),
+        &mut groebner_operation_budget(),
+    )
+    .map_err(to_value_error)
+}
+
+#[pyfunction]
+fn groebner_is_zero_dimensional_native(
+    eqs: Vec<PyExpr>,
+    vars: Vec<Bound<'_, PyAny>>,
+    order: &str,
+) -> PyResult<bool> {
+    let gens = vars
+        .iter()
+        .map(extract_symbol_arg)
+        .collect::<PyResult<Vec<_>>>()?;
+    let polys = groebner_polynomials(&eqs, &gens)?;
+    Ok(checked_groebner_source(&polys, &gens, groebner_term_order(order)?)?.is_zero_dimensional())
+}
+
+#[pyfunction]
+fn groebner_fglm_native(
+    eqs: Vec<PyExpr>,
+    vars: Vec<Bound<'_, PyAny>>,
+    order: &str,
+    target_order: &str,
+) -> PyResult<Vec<PyExpr>> {
+    let gens = vars
+        .iter()
+        .map(extract_symbol_arg)
+        .collect::<PyResult<Vec<_>>>()?;
+    let polys = groebner_polynomials(&eqs, &gens)?;
+    let source = checked_groebner_source(&polys, &gens, groebner_term_order(order)?)?;
+    let converted = source
+        .fglm(
+            groebner_term_order(target_order)?,
+            &mut groebner_operation_budget(),
+            &mut groebner_operation_budget(),
+        )
+        .map_err(to_value_error)?;
+    converted
+        .basis()
+        .iter()
+        .map(|poly| {
+            poly.to_expr()
+                .map(PyExpr::from_expr)
+                .map_err(to_value_error)
+        })
+        .collect()
+}
+
+#[pyfunction]
+#[pyo3(signature = (eqs, vars, order, polynomial, integer_domain=false))]
+fn groebner_reduce_native(
+    eqs: Vec<PyExpr>,
+    vars: Vec<Bound<'_, PyAny>>,
+    order: &str,
+    polynomial: &PyExpr,
+    integer_domain: bool,
+) -> PyResult<(Vec<PyExpr>, PyExpr)> {
+    let gens = vars
+        .iter()
+        .map(extract_symbol_arg)
+        .collect::<PyResult<Vec<_>>>()?;
+    let divisors = groebner_polynomials(&eqs, &gens)?;
+    if divisors.iter().any(fsym_polys::MultivariatePoly::is_zero) {
+        return Err(PyValueError::new_err(
+            "a Groebner basis cannot contain a zero divisor",
+        ));
+    }
+    let order = groebner_term_order(order)?;
+    // A checked complete basis is essential when a nonzero normal form is
+    // subsequently used by contains() to assert non-membership.
+    checked_groebner_source(&divisors, &gens, order)?;
+    let f = fsym_polys::bounded_polynomial_from_expr(
+        &polynomial.inner,
+        &gens,
+        &mut groebner_operation_budget(),
+    )
+    .map_err(to_value_error)?;
+    if integer_domain
+        && f.terms
+            .values()
+            .any(|coefficient| !coefficient.is_integer())
+    {
+        return Err(PyValueError::new_err(
+            "noninteger input coefficients cannot be represented in ZZ",
+        ));
+    }
+    let (quotients, remainder) = fsym_polys::checked_polynomial_division(
+        &f,
+        &divisors,
+        order,
+        &mut groebner_operation_budget(),
+        &mut groebner_operation_budget(),
+    )
+    .map_err(to_value_error)?;
+    let quotients = quotients
+        .iter()
+        .map(|poly| {
+            poly.to_expr()
+                .map(PyExpr::from_expr)
+                .map_err(to_value_error)
+        })
+        .collect::<PyResult<Vec<_>>>()?;
+    Ok((
+        quotients,
+        PyExpr::from_expr(remainder.to_expr().map_err(to_value_error)?),
+    ))
+}
+
 #[pyfunction]
 #[pyo3(signature = (eqs, vars, order="lex"))]
 fn groebner_basis_native(
@@ -1893,6 +2050,9 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(poly_factor_multivariate_native, m)?)?;
     m.add_function(wrap_pyfunction!(poly_roots_native, m)?)?;
     m.add_function(wrap_pyfunction!(groebner_basis_native, m)?)?;
+    m.add_function(wrap_pyfunction!(groebner_is_zero_dimensional_native, m)?)?;
+    m.add_function(wrap_pyfunction!(groebner_fglm_native, m)?)?;
+    m.add_function(wrap_pyfunction!(groebner_reduce_native, m)?)?;
     m.add_function(wrap_pyfunction!(poly_multivariate_gcd_native, m)?)?;
     m.add_function(wrap_pyfunction!(poly_multivariate_lcm_native, m)?)?;
     m.add_function(wrap_pyfunction!(poly_multivariate_div_rem_native, m)?)?;
