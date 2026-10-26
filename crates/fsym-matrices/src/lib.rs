@@ -1059,20 +1059,21 @@ impl Matrix {
         let result = if scale_product.is_one() {
             Expr::Integer(determinant)
         } else {
-            let value = BigRational::metered_new(&determinant, &scale_product, meter).map_err(
-                |error| match error {
-                    fsym_core::arith::RationalArithmeticError::Meter(error) => {
-                        determinant_meter_error(error)
+            let value =
+                BigRational::metered_new(&determinant, &scale_product, meter).map_err(|error| {
+                    match error {
+                        fsym_core::arith::RationalArithmeticError::Meter(error) => {
+                            determinant_meter_error(error)
+                        }
+                        fsym_core::arith::RationalArithmeticError::InvariantViolation(message) => {
+                            MatrixError::ArithmeticInvariantViolation(message)
+                        }
+                        fsym_core::arith::RationalArithmeticError::DivisionByZero => {
+                            MatrixError::ArithmeticInvariantViolation("zero determinant row scale")
+                        }
+                        error => MatrixError::ResourceLimit(error.to_string()),
                     }
-                    fsym_core::arith::RationalArithmeticError::InvariantViolation(message) => {
-                        MatrixError::ArithmeticInvariantViolation(message)
-                    }
-                    fsym_core::arith::RationalArithmeticError::DivisionByZero => {
-                        MatrixError::ArithmeticInvariantViolation("zero determinant row scale")
-                    }
-                    error => MatrixError::ResourceLimit(error.to_string()),
-                },
-            )?;
+                })?;
             if value.is_integer() {
                 Expr::Integer(determinant_clone(value.numer(), meter)?)
             } else {

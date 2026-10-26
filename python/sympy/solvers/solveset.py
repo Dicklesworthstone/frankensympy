@@ -13,8 +13,9 @@ Two upstream strategies, both exact:
 
 Representatives are reduced into ``[0, period)`` when they are rational
 multiples of pi, equal ones merge, and each becomes
-``ImageSet(Lambda(_n, period*_n + rep), Integers)``. Anything outside
-these shapes raises ``NotImplementedError`` (no truncated answers).
+``ImageSet(Lambda(_n, period*_n + rep), Integers)``. Unit-circle membership
+and denominator exclusions are exact decisions. Unresolved obligations
+remain a ``ConditionSet``; unsupported shapes raise ``NotImplementedError``.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ from __future__ import annotations
 from fractions import Fraction
 from typing import Any
 
-from ..core import Add, Dummy, I, Integer, Mul, Rational, Symbol, expand, pi, sympify
+from ..core import Add, Dummy, I, Integer, Mul, Pow, Rational, Symbol, expand, pi, sympify
 
 _TRIG = ("sin", "cos", "tan", "cot", "sec", "csc")
 
@@ -61,6 +62,134 @@ def _normalize(rep: Any, period_over_pi: Fraction) -> Any:
     return Rational(r.numerator, r.denominator) * pi
 
 
+def _conditional(f: Any, x: Any, real: bool) -> Any:
+    """Retain the original equation when a completeness guard is unknown."""
+    from ..core import Eq
+    from ..sets import Complexes, ConditionSet, Reals
+
+    return ConditionSet(x, Eq(f, 0, evaluate=False), Reals() if real else Complexes())
+
+
+def _has_approximate_atoms(e: Any) -> bool:
+    # CRootOf's current shell assumptions use binary64 root ordering. They
+    # cannot decide exact zero or unit-circle membership for this solver.
+    return any(_name(node) in ("Float", "CRootOf") for node in _nodes(e))
+
+
+def _rectangular_radicals(e: Any) -> Any:
+    """Expose principal square roots of Gaussian rationals exactly.
+
+    Quadratic solving can return sqrt(-I), whose real and imaginary parts
+    are not handled by the shell's structural decomposition. Choose the
+    numerically stable algebraic identity on each sign of the real part;
+    every square-root argument used here is provably positive.
+    """
+    from ..functions.elementary.complexes import _split_real_imag
+
+    if type(e) not in (Add, Mul, Pow):
+        return e
+    args = [_rectangular_radicals(arg) for arg in e.args]
+    e = e.func(*args)
+    if type(e) is not Pow or e.args[1] != Rational(1, 2):
+        return e
+    parts = _split_real_imag(e.args[0])
+    if parts is None or not all(isinstance(part, Rational) for part in parts):
+        return e
+    a, b = parts
+    if b == 0:
+        return e
+    norm = Pow(a * a + b * b, Rational(1, 2))
+    if a.p >= 0:
+        real = Pow((norm + a) / 2, Rational(1, 2))
+        imaginary = b / (2 * real)
+    else:
+        imaginary = (1 if b.p > 0 else -1) * Pow((norm - a) / 2, Rational(1, 2))
+        real = b / (2 * imaginary)
+    return real + I * imaginary
+
+
+def _zero_status(e: Any) -> bool | None:
+    """Prove zero/nonzero using exact simplification and structural facts."""
+    from ..functions.elementary.complexes import _split_real_imag
+    from ..simplify import simplify
+
+    if _has_approximate_atoms(e):
+        return None
+    e = simplify(expand(_rectangular_radicals(e)))
+    if e == 0:
+        return True
+    status = e.is_zero
+    if status is not None:
+        return status
+    if e.is_irrational is True:
+        return False
+    parts = _split_real_imag(e)
+    if parts is not None:
+        parts = [simplify(expand(part)) for part in parts]
+        statuses = [False if part.is_irrational is True else part.is_zero for part in parts]
+        if any(status is False for status in statuses):
+            return False
+        if all(status is True for status in statuses):
+            return True
+    return None
+
+
+def _unit_circle_parts(r: Any) -> tuple[bool | None, tuple | None]:
+    """Exact membership and real/imaginary parts; uncertainty is preserved."""
+    from ..functions.elementary.complexes import _split_real_imag
+    from ..simplify import simplify
+
+    if _has_approximate_atoms(r):
+        return None, None
+    parts = _split_real_imag(_rectangular_radicals(r))
+    if parts is None:
+        return None, None
+    a, b = (simplify(expand(part)) for part in parts)
+    return _zero_status(a * a + b * b - 1), (a, b)
+
+
+def _roots_cover_polynomial(polynomial: Any, variable: Any, roots: list) -> bool:
+    """Check a complete linear factorization, including multiplicities.
+
+    A solver's list is only a candidate enumeration. Exact synthetic
+    division must consume every degree before the list can define a complete
+    periodic solution set. Unknown coefficients, unsupported radicals and
+    verification growth remain conditional instead of certifying a partial
+    list. The bounded check covers degree <= 128 and 16,384 coefficient steps.
+    """
+    from ..polys.polytools import Poly
+    from ..simplify import simplify
+
+    coefficients = Poly(polynomial, variable).all_coeffs()
+    if len(coefficients) > 129 or _zero_status(coefficients[0]) is not False:
+        return False
+    distinct = []
+    for root in roots:
+        if root not in distinct:
+            distinct.append(root)
+    steps = 0
+    for root in distinct:
+        multiplicity = 0
+        while len(coefficients) > 1:
+            quotient = [coefficients[0]]
+            for coefficient in coefficients[1:]:
+                steps += 1
+                if steps > 16_384:
+                    return False
+                value = coefficient + root * quotient[-1]
+                if any(index >= 2048 for index, _ in enumerate(_nodes(value))):
+                    return False
+                quotient.append(simplify(expand(value)))
+            remainder = quotient.pop()
+            if _zero_status(remainder) is not True:
+                break
+            coefficients = quotient
+            multiplicity += 1
+        if multiplicity == 0:
+            return False
+    return len(coefficients) == 1
+
+
 def _image_sets(reps: list, period: Any) -> Any:
     from ..core.lambdify_subs import Lambda
     from ..sets.fancysets import ImageSet, Integers
@@ -77,11 +206,8 @@ def _image_sets(reps: list, period: Any) -> Any:
     def order(r: Any) -> tuple:
         f = _pi_fraction(r)
         if f is not None:
-            return (0, float(f))
-        try:
-            return (1, float(r))
-        except Exception:
-            return (2, str(r))
+            return (0, f)
+        return (1, r.sort_key())
 
     unique.sort(key=order)
     sets = [ImageSet(Lambda(n, period * n + r), Integers()) for r in unique]
@@ -125,19 +251,36 @@ def _invert(f: Any, x: Any, real: bool) -> Any:
     if lin is None:
         return None
     a, b = lin
+    # Dividing by an unknown parameter loses the parameter-zero branch.
+    # Real-domain inversion also requires a real affine argument; otherwise
+    # the resulting complex ImageSet is not a set of real solutions.
+    if _zero_status(coeff) is not False or _zero_status(a) is not False:
+        return _conditional(f, x, real)
+    if real and (a.is_real is not True or b.is_real is not True):
+        return _conditional(f, x, real)
     c = expand(-rest / coeff)
-    if real and c.is_real is not True:
-        return None
     from ..sets.sets import _EMPTY_SET
 
+    if real and c.is_real is not True:
+        return _EMPTY_SET if c.is_real is False else _conditional(f, x, real)
     if name == "exp":
         if real:
             return None
-        if c == 0:
+        zero = _zero_status(c)
+        if zero is True:
             return _EMPTY_SET
+        if zero is None:
+            return _conditional(f, x, real)
         reps = [log(c)]
         period = 2 * pi * I
     elif name == "tan":
+        # tan(z) omits +I and -I. Its exponential inversion degenerates
+        # at these values; atan(+-I) is not a finite representative.
+        exceptional = _zero_status(1 + c * c)
+        if exceptional is True:
+            return _EMPTY_SET
+        if exceptional is None:
+            return _conditional(f, x, real)
         reps = [atan(c)]
         period = pi
     else:
@@ -149,6 +292,11 @@ def _invert(f: Any, x: Any, real: bool) -> Any:
         else:
             s0 = acos(c)
             reps = [s0, -s0]
+        if real and not (
+            ((c + 1).is_nonnegative is True and (1 - c).is_nonnegative is True)
+            or s0.is_real is True
+        ):
+            return _conditional(f, x, real)
         period = 2 * pi
     # x = (rep - b)/a with period/a.
     xp = expand(period / a)
@@ -166,8 +314,7 @@ def _solve_trig1(f: Any, x: Any, real: bool) -> Any:
     """Rewrite in y = exp(I*t), x = mu*t, and solve the rational equation."""
     from math import gcd, lcm
     from .. import solve
-    from ..core import diff
-    from ..functions import im, log, re
+    from ..functions import log
     from ..functions.elementary.trigonometric import atan2
     from ..polys import cancel, together
 
@@ -188,6 +335,7 @@ def _solve_trig1(f: Any, x: Any, real: bool) -> Any:
     t = Dummy("t")
     y = Dummy("y")
     g = f.subs(x, mu * t)
+    exclusions = []
 
     def rewrite(e: Any) -> Any:
         n = _name(e)
@@ -198,10 +346,20 @@ def _solve_trig1(f: Any, x: Any, real: bool) -> Any:
             p = y ** int(k.p)
             s = (p - 1 / p) / (2 * I)
             c = (p + 1 / p) / 2
+            # Cancellation in the rational representation must not erase
+            # poles of the original trigonometric expression.
+            if n in ("tan", "sec"):
+                exclusions.append(c)
+            elif n in ("cot", "csc"):
+                exclusions.append(s)
             return {"sin": s, "cos": c, "tan": s / c, "cot": c / s, "sec": 1 / c, "csc": 1 / s}[n]
         args_ = getattr(e, "args", ()) or ()
-        if args_ and isinstance(e, (Add, Mul)) or type(e).__name__ == "Pow":
-            return e.func(*[rewrite(a) for a in args_])
+        if args_ and isinstance(e, (Add, Mul, Pow)):
+            rewritten = [rewrite(a) for a in args_]
+            if isinstance(e, Pow) and isinstance(args_[1], Rational) and args_[1].p < 0:
+                # Child reciprocals are recorded before their parents.
+                exclusions.append(rewritten[0])
+            return e.func(*rewritten)
         return e
 
     try:
@@ -214,6 +372,8 @@ def _solve_trig1(f: Any, x: Any, real: bool) -> Any:
 
     num, den = fraction(h)
     num, den = expand(num), expand(den)
+    if num == 0:
+        return _conditional(f, x, real)
     # Strip the y**k content (y = exp(I*t) never vanishes).
     from ..polys.polytools import Poly
 
@@ -227,19 +387,41 @@ def _solve_trig1(f: Any, x: Any, real: bool) -> Any:
         roots = solve(num, y)
     except Exception:
         return None
+    roots = [_rectangular_radicals(root) for root in roots]
+    if not _roots_cover_polynomial(num, y, roots):
+        return _conditional(f, x, real)
     reps = []
     for r in roots:
-        if den != 0 and expand(den.subs(y, r)) == 0:
+        # y = exp(I*t) is never zero. Unknown zero/pole status cannot be
+        # interpreted as an excluded root or as an unconditional solution.
+        root_zero = _zero_status(r)
+        if root_zero is True:
             continue
+        poles = []
+        for denominator in [*exclusions, den]:
+            poles.append(_zero_status(denominator.subs(y, r)))
+            if poles[-1] is True:
+                break
+        if any(pole is True for pole in poles):
+            continue
+        if root_zero is None or any(pole is None for pole in poles):
+            return _conditional(f, x, real)
+        parts = None
+        if real:
+            membership, parts = _unit_circle_parts(r)
+            if membership is False:
+                continue
+            if membership is None:
+                return _conditional(f, x, real)
         ang = _unit_root_angle(num, y, r)
         if ang is None:
             if real:
-                # Not provably on the unit circle at a rational multiple
-                # of pi: refuse rather than guess membership.
-                if _probe_modulus(r) is None or abs(_probe_modulus(r) - 1) > 1e-9:
-                    continue
-                return None
-            ang = -I * log(r)
+                # The exact norm proof admits non-root-of-unity solutions
+                # too. atan2 is an exact angle, not a numerical estimate.
+                a, b = parts
+                ang = atan2(b, a)
+            else:
+                ang = -I * log(r)
         val = expand(mu * ang)
         reps.append(val)
     period = expand(2 * pi * mu)
@@ -258,22 +440,21 @@ def _probe(r: Any) -> complex | None:
     return None if v is None else complex(v[0], v[1])
 
 
-def _probe_modulus(r: Any) -> float | None:
-    v = _probe(r)
-    return None if v is None else abs(v)
-
-
 def _unit_root_angle(num: Any, y: Any, r: Any) -> Any:
     """``theta`` with ``exp(I*theta) = r`` as a rational multiple of pi in
     [0, 2*pi), located numerically and verified exactly: ``exp(I*theta)``
-    (radical form) must be a root of ``num``."""
+    (radical form) must equal this root, not merely another root of num.
+
+    The probe only proposes an optional nicer representative. Failure to
+    recognize one never decides membership or discards a solution.
+    """
     import cmath
+    import math
     from fractions import Fraction as _F
     from ..functions import cos, sin
-    from ..simplify import simplify
 
     v = _probe(r)
-    if v is None or abs(abs(v) - 1) > 1e-9:
+    if v is None or not (math.isfinite(v.real) and math.isfinite(v.imag)):
         return None
     t = cmath.phase(v) / cmath.pi % 2
     frac = _F(t).limit_denominator(48)
@@ -281,7 +462,7 @@ def _unit_root_angle(num: Any, y: Any, r: Any) -> Any:
         return None
     theta = Rational(frac.numerator, frac.denominator) * pi
     zeta = cos(theta) + I * sin(theta)
-    if expand(num.subs(y, zeta)) == 0 or simplify(expand(num.subs(y, zeta))) == 0:
+    if _zero_status(r - zeta) is True:
         return theta
     return None
 
