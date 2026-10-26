@@ -4,6 +4,9 @@
 
 #![forbid(unsafe_code)]
 
+mod metric;
+pub use metric::verify_metric_index_change;
+
 use fsym_core::{BigInt, BigRational, Expr, Symbol};
 use fsym_simplify::{SimplifyError, try_simplify};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -56,6 +59,14 @@ pub enum TensorError {
     AllocationFailure { requested: usize },
     #[error("Diagonal metric entry at index {index} is zero and cannot be inverted")]
     ZeroDiagonalMetricEntry { index: usize },
+    #[error("Invalid exact metric: {0}")]
+    InvalidMetric(String),
+    #[error("Exact metric operations require literal rational metric and tensor components")]
+    UnsupportedMetricDomain,
+    #[error("Metric index transformation requires concrete tensor components")]
+    ConcreteComponentsRequired,
+    #[error("Exact metric operation exceeds a supported resource bound: {0}")]
+    MetricResourceLimit(String),
     #[error(transparent)]
     Simplification(#[from] SimplifyError),
 }
@@ -528,38 +539,52 @@ pub struct MetricTensor {
 }
 
 impl MetricTensor {
-    /// Creates a new metric tensor with validated dimension and component lengths.
+    fn validate_storage(&self) -> Result<(), TensorError> {
+        let expected = TensorExpr::expected_component_count(self.dimension, 2)?;
+        for entries in [&self.matrix, &self.inverse] {
+            if entries.len() != expected {
+                return Err(TensorError::ComponentCountMismatch {
+                    expected,
+                    actual: entries.len(),
+                    dimension: self.dimension,
+                    rank: 2,
+                });
+            }
+        }
+        let mut nodes = 0;
+        for entry in self.matrix.iter().chain(&self.inverse) {
+            TensorExpr::validate_component_expression(entry, &mut nodes)?;
+        }
+        Ok(())
+    }
+
+    fn has_rational_entries(&self) -> bool {
+        self.matrix
+            .iter()
+            .chain(&self.inverse)
+            .all(|entry| matches!(entry, Expr::Integer(_) | Expr::Rational(_)))
+    }
+
+    /// Creates a metric with validated storage. Literal rational matrices must
+    /// be symmetric and the supplied inverse must multiply to the identity.
+    /// Symbolic entries retain the existing formal, unproved metric semantics.
     pub fn new(
         name: impl Into<String>,
         dimension: usize,
         matrix: Vec<Expr>,
         inverse: Vec<Expr>,
     ) -> Result<Self, TensorError> {
-        let expected = dimension
-            .checked_mul(dimension)
-            .ok_or(TensorError::ComponentCountOverflow { dimension, rank: 2 })?;
-        if matrix.len() != expected {
-            return Err(TensorError::ComponentCountMismatch {
-                expected,
-                actual: matrix.len(),
-                dimension,
-                rank: 2,
-            });
-        }
-        if inverse.len() != expected {
-            return Err(TensorError::ComponentCountMismatch {
-                expected,
-                actual: inverse.len(),
-                dimension,
-                rank: 2,
-            });
-        }
-        Ok(Self {
+        let metric = Self {
             name: name.into(),
             dimension,
             matrix,
             inverse,
-        })
+        };
+        metric.validate_storage()?;
+        if metric.has_rational_entries() {
+            metric.verify_exact()?;
+        }
+        Ok(metric)
     }
 
     /// Standard 4D Minkowski spacetime metric with signature (-, +, +, +): $\eta = \text{diag}(-1, 1, 1, 1)$.
@@ -575,6 +600,7 @@ impl MetricTensor {
 
     /// Euclidean metric of dimension $N$: $g = \text{diag}(1, \dots, 1)$.
     pub fn euclidean(name: impl Into<String>, dimension: usize) -> Result<Self, TensorError> {
+        TensorExpr::expected_component_count(dimension, 2)?;
         let diag = vec![Expr::from_i64(1); dimension];
         Self::diagonal(name, diag)
     }
@@ -586,6 +612,12 @@ impl MetricTensor {
     /// invertibility is not known at this layer.
     pub fn diagonal(name: impl Into<String>, diag_entries: Vec<Expr>) -> Result<Self, TensorError> {
         let dim = diag_entries.len();
+        if diag_entries
+            .iter()
+            .all(|entry| matches!(entry, Expr::Integer(_) | Expr::Rational(_)))
+        {
+            metric::validate_rational_entries(&diag_entries)?;
+        }
         if let Some((index, _)) = diag_entries
             .iter()
             .enumerate()
@@ -593,12 +625,7 @@ impl MetricTensor {
         {
             return Err(TensorError::ZeroDiagonalMetricEntry { index });
         }
-        let expected = dim
-            .checked_mul(dim)
-            .ok_or(TensorError::ComponentCountOverflow {
-                dimension: dim,
-                rank: 2,
-            })?;
+        let expected = TensorExpr::expected_component_count(dim, 2)?;
         let mut mat = Vec::new();
         let mut inv = Vec::new();
         try_reserve(&mut mat, expected)?;
@@ -658,12 +685,26 @@ impl MetricTensor {
                 vec_tensor.dimension,
             ));
         }
+        self.validate_storage()?;
+        vec_tensor.validate_components()?;
         let Some(comp) = &vec_tensor.components else {
+            if self.has_rational_entries() {
+                self.verify_exact()?;
+            }
             return vec_tensor.contract_index(
                 &vec_tensor.indices[0].symbol,
                 format!("{}_low", vec_tensor.name),
             );
         };
+        if self.has_rational_entries() {
+            if comp
+                .iter()
+                .all(|entry| matches!(entry, Expr::Integer(_) | Expr::Rational(_)))
+            {
+                return self.lower_index(vec_tensor, 0, format!("{}_low", vec_tensor.name));
+            }
+            self.verify_exact()?;
+        }
 
         let dim = self.dimension;
         let mut out_comp = Vec::new();
@@ -714,12 +755,26 @@ impl MetricTensor {
                 covec_tensor.dimension,
             ));
         }
+        self.validate_storage()?;
+        covec_tensor.validate_components()?;
         let Some(comp) = &covec_tensor.components else {
+            if self.has_rational_entries() {
+                self.verify_exact()?;
+            }
             return covec_tensor.contract_index(
                 &covec_tensor.indices[0].symbol,
                 format!("{}_up", covec_tensor.name),
             );
         };
+        if self.has_rational_entries() {
+            if comp
+                .iter()
+                .all(|entry| matches!(entry, Expr::Integer(_) | Expr::Rational(_)))
+            {
+                return self.raise_index(covec_tensor, 0, format!("{}_up", covec_tensor.name));
+            }
+            self.verify_exact()?;
+        }
 
         let dim = self.dimension;
         let mut out_comp = Vec::new();
@@ -756,6 +811,18 @@ impl MetricTensor {
 
     /// Computes the metric inner product of two contravariant vectors: $\langle u, v \rangle = g_{\mu\nu} u^\mu v^\nu$.
     pub fn inner_product(&self, u: &TensorExpr, v: &TensorExpr) -> Result<Expr, TensorError> {
+        if v.rank() != 1 {
+            return Err(TensorError::RankMismatch(1, v.rank()));
+        }
+        if v.dimension != self.dimension {
+            return Err(TensorError::DimensionMismatch(self.dimension, v.dimension));
+        }
+        if v.indices[0].variance != IndexVariance::Upper {
+            return Err(TensorError::IndexMismatch(
+                "inner_product requires contravariant vectors".into(),
+            ));
+        }
+        v.validate_components()?;
         let u_low = self.lower_vector(u)?;
         let Some(u_comp) = &u_low.components else {
             return Err(TensorError::IndexMismatch(

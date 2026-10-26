@@ -250,6 +250,26 @@ impl PyMetric {
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
+    #[staticmethod]
+    pub fn from_components(
+        name: &str,
+        dimension: usize,
+        matrix: Vec<PyExpr>,
+        inverse: Vec<PyExpr>,
+    ) -> PyResult<Self> {
+        let metric = MetricTensor::new(
+            name,
+            dimension,
+            matrix.into_iter().map(|entry| entry.inner).collect(),
+            inverse.into_iter().map(|entry| entry.inner).collect(),
+        )
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        metric
+            .verify_exact()
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(Self { inner: metric })
+    }
+
     #[getter]
     pub fn name(&self) -> String {
         self.inner.name.clone()
@@ -294,6 +314,38 @@ impl PyMetric {
             .raise_covector(&covec_tensor.inner)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(PyTensor { inner: raised })
+    }
+
+    #[pyo3(signature = (tensor, position, new_name=None))]
+    pub fn lower_index(
+        &self,
+        tensor: &PyTensor,
+        position: usize,
+        new_name: Option<&str>,
+    ) -> PyResult<PyTensor> {
+        let name = new_name
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("{}_low", tensor.inner.name));
+        self.inner
+            .lower_index(&tensor.inner, position, name)
+            .map(|inner| PyTensor { inner })
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    #[pyo3(signature = (tensor, position, new_name=None))]
+    pub fn raise_index(
+        &self,
+        tensor: &PyTensor,
+        position: usize,
+        new_name: Option<&str>,
+    ) -> PyResult<PyTensor> {
+        let name = new_name
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("{}_up", tensor.inner.name));
+        self.inner
+            .raise_index(&tensor.inner, position, name)
+            .map(|inner| PyTensor { inner })
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     pub fn inner_product(&self, u: &PyTensor, v: &PyTensor) -> PyResult<PyExpr> {

@@ -199,6 +199,32 @@ class Metric(Basic):
         obj._native_metric = _native.Metric.diagonal(name, raw)
         return obj
 
+    @classmethod
+    def from_components(
+        cls, matrix: Sequence[Sequence[Any]], inverse: Sequence[Sequence[Any]], name: str = "g"
+    ) -> Metric:
+        """Create an exact rational metric from two square nested sequences.
+
+        Both matrices must be symmetric and their product must be the identity.
+        Indefinite metrics are supported; positive definiteness is not assumed.
+        """
+        dimension = len(matrix)
+        if dimension > 64:
+            raise ValueError("exact metric dimension exceeds 64")
+        if len(inverse) != dimension or any(len(row) != dimension for row in matrix) or any(
+            len(row) != dimension for row in inverse
+        ):
+            raise ValueError("metric and inverse must be square matrices of the same dimension")
+        rows = [list(row) for row in matrix]
+        inv_rows = [list(row) for row in inverse]
+        obj = object.__new__(cls)
+        obj._native_metric = _native.Metric.from_components(
+            name, dimension,
+            [_native_expr(entry) for row in rows for entry in row],
+            [_native_expr(entry) for row in inv_rows for entry in row],
+        )
+        return obj
+
     @property
     def name(self) -> str:
         return self._native_metric.name
@@ -224,6 +250,18 @@ class Metric(Basic):
         """Raise the covariant covector index: W^mu = g^{mu nu} W_nu."""
         res = self._native_metric.raise_covector(covec_tensor._native_tensor)
         return Tensor._from_native(res)
+
+    def lower_index(self, tensor: Tensor, position: int, new_name: str | None = None) -> Tensor:
+        """Lower one upper index by its zero-based slot, using exact components."""
+        return Tensor._from_native(
+            self._native_metric.lower_index(tensor._native_tensor, position, new_name)
+        )
+
+    def raise_index(self, tensor: Tensor, position: int, new_name: str | None = None) -> Tensor:
+        """Raise one lower index by its zero-based slot, using exact components."""
+        return Tensor._from_native(
+            self._native_metric.raise_index(tensor._native_tensor, position, new_name)
+        )
 
     def inner_product(self, u: Tensor, v: Tensor) -> Expr:
         """Compute inner product <u, v> = g_{mu nu} u^mu v^nu."""
