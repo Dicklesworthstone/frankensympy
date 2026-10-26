@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Any
 from ..core import _native
 from .. import (
+    _exact_integer_value,
+    _not_integer_message,
     divisor_count,
     divisor_sigma,
     factorint,
@@ -147,17 +149,24 @@ def prevprime(n: Any) -> int:
 
 
 def is_quad_residue(a: Any, p: Any) -> bool:
-    """Return True if a is a quadratic residue modulo p, False otherwise."""
-    a = int(a)
-    p = int(p)
+    """Test square-root existence modulo a positive integer, including composites.
+
+    Exact prime-power conditions avoid enumerating a potentially large root set.
+    The native lane supports moduli through 2**64 - 1 and refuses exhausted work.
+    """
+    a = _modular_integer(a)
+    p = _modular_integer(p)
     if p <= 0:
-        raise ValueError("p must be a positive integer")
-    if p in (1, 2):
-        return True
-    a = a % p
-    if a == 0:
-        return True
-    return legendre_symbol(a, p) == 1
+        raise ValueError("p must be > 0")
+    return _native.is_quadratic_residue_fn(a % p, p)
+
+
+def _modular_integer(value: Any) -> int:
+    """Admit exact built-in integers without lossy or custom conversion hooks."""
+    integer = _exact_integer_value(value)
+    if integer is None:
+        raise ValueError(_not_integer_message(value))
+    return integer
 
 
 def prime(nth: Any) -> int:
@@ -238,56 +247,20 @@ def perfect_power(n: Any):
 
 
 def sqrt_mod(a: Any, p: Any, all_roots: bool = False):
-    """Compute the square root of a modulo p: x**2 == a (mod p) via Tonelli-Shanks."""
-    a = int(a)
-    p = int(p)
-    if p <= 0:
-        raise ValueError("p must be positive")
-    a = a % p
-    if a == 0:
-        return [0] if all_roots else 0
-    if p == 2:
-        return [a] if all_roots else a
-    if pow(a, (p - 1) // 2, p) != 1:
-        return [] if all_roots else None
-    if p % 4 == 3:
-        r = pow(a, (p + 1) // 4, p)
-    else:
-        q = p - 1
-        s = 0
-        while q % 2 == 0:
-            q //= 2
-            s += 1
-        z = 2
-        while pow(z, (p - 1) // 2, p) != p - 1:
-            z += 1
-        m = s
-        c = pow(z, q, p)
-        t = pow(a, q, p)
-        r = pow(a, (q + 1) // 2, p)
-        while True:
-            if t == 0:
-                r = 0
-                break
-            if t == 1:
-                break
-            i = 0
-            temp = t
-            while temp != 1 and i < m:
-                temp = pow(temp, 2, p)
-                i += 1
-            if i == m:
-                return [] if all_roots else None
-            b = pow(c, 1 << (m - i - 1), p)
-            m = i
-            c = (b * b) % p
-            t = (t * c) % p
-            r = (r * b) % p
+    """Solve x**2 == a modulo an integer, including composite prime powers.
 
-    roots = sorted(list({r, (p - r) % p}))
+    With ``all_roots=True``, return every distinct root in increasing order.
+    Otherwise return one root at most abs(p)//2, or None when no root exists.
+    Enumeration has an explicit native output bound; the one-root operation
+    does not enumerate all roots. Moduli are bounded by 2**64 - 1.
+    """
+    a = _modular_integer(a)
+    p = abs(_modular_integer(p))
+    # Preserve the profile's zero-modulus exception and negative-modulus rule.
+    a = a % p
     if all_roots:
-        return roots
-    return min(roots)
+        return _native.modular_square_roots_fn(a, p)
+    return _native.modular_square_root_fn(a, p)
 
 
 def quadratic_residues(p: Any) -> list[int]:

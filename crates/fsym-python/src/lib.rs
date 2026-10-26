@@ -1843,6 +1843,7 @@ pub mod expr;
 pub mod geometry;
 pub mod logic;
 pub mod matrix;
+pub mod ntheory;
 pub mod sets;
 pub mod tensor;
 pub use assumptions::*;
@@ -2061,6 +2062,9 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(divisor_sum_fn, m)?)?;
     m.add_function(wrap_pyfunction!(jacobi_symbol_fn, m)?)?;
     m.add_function(wrap_pyfunction!(legendre_symbol_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(ntheory::modular_square_roots_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(ntheory::modular_square_root_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(ntheory::is_quadratic_residue_fn, m)?)?;
     m.add_function(wrap_pyfunction!(is_square_free_fn, m)?)?;
     m.add_function(wrap_pyfunction!(prime_omega_fn, m)?)?;
     m.add_function(wrap_pyfunction!(prime_big_omega_fn, m)?)?;

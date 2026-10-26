@@ -7,8 +7,13 @@
 #![forbid(unsafe_code)]
 
 mod factorization;
+mod modular_roots;
 pub use factorization::{
     MAX_FACTORIZATION_WORK, factorint, factorint_with_work_limit, verify_prime_factorization,
+};
+pub use modular_roots::{
+    MAX_MODULAR_ROOTS, is_quadratic_residue, modular_square_root, modular_square_roots,
+    verify_modular_square_roots,
 };
 
 #[cfg(test)]
@@ -32,6 +37,14 @@ pub enum NTheoryError {
     FactorizationLimitExceeded(u64),
     #[error("Prime factorization verification failed: {0}")]
     FactorizationVerificationFailed(&'static str),
+    #[error("Modulus must be a positive integer")]
+    InvalidModulus,
+    #[error("Modular square-root output contains {0} roots, exceeding the limit of 65536")]
+    ModularRootCountExceeded(u64),
+    #[error("Modular square-root work limit reached")]
+    ModularRootWorkLimitExceeded,
+    #[error("Modular square-root verification failed: {0}")]
+    ModularRootVerificationFailed(&'static str),
     #[error("Exact result does not fit u64 while computing {0}")]
     ArithmeticOverflow(&'static str),
     #[error("n should be an odd positive integer")]

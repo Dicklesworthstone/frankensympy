@@ -782,7 +782,9 @@ def _exact_integer_value(value):
     """Return an admitted exact integer without invoking lossy converters."""
     if type(value) is int:
         return value
-    if type(value) is Integer:
+    from .core import NegativeOne, One, Zero
+
+    if type(value) in (Integer, Zero, One, NegativeOne):
         return value.p
     return None
 
