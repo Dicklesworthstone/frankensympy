@@ -1,10 +1,15 @@
 //! # fsym-ntheory
 //!
 //! Number-theoretic functions: exact-owner deterministic `u64` primality,
-//! bounded trial-division factorization, Euler's totient and divisor functions,
+//! bounded Pollard–Brent factorization, Euler's totient and divisor functions,
 //! the exact-arithmetic owner's Jacobi symbol, and arbitrary-precision extended GCD.
 
 #![forbid(unsafe_code)]
+
+mod factorization;
+pub use factorization::{
+    MAX_FACTORIZATION_WORK, factorint, factorint_with_work_limit, verify_prime_factorization,
+};
 
 #[cfg(test)]
 use fsym_core::arith::crt as exact_crt;
@@ -15,6 +20,7 @@ use fsym_core::{
         jacobi_symbol as exact_jacobi_symbol, mod_inverse as exact_mod_inverse,
     },
 };
+#[cfg(test)]
 use std::collections::BTreeMap;
 use thiserror::Error;
 
@@ -22,8 +28,10 @@ use thiserror::Error;
 pub enum NTheoryError {
     #[error("Cannot factor zero")]
     ZeroFactorization,
-    #[error("Trial-division factorization limit reached with unresolved cofactor {0}")]
+    #[error("Factorization work limit reached with unresolved cofactor {0}")]
     FactorizationLimitExceeded(u64),
+    #[error("Prime factorization verification failed: {0}")]
+    FactorizationVerificationFailed(&'static str),
     #[error("Exact result does not fit u64 while computing {0}")]
     ArithmeticOverflow(&'static str),
     #[error("n should be an odd positive integer")]
@@ -84,51 +92,6 @@ fn mod_pow(mut base: u128, mut exp: u128, modulus: u128) -> u128 {
         exp /= 2;
     }
     result
-}
-
-/// Compute prime factorization of an integer: n -> {p_1: e_1, p_2: e_2, ...}.
-///
-/// Prime cofactors are recognized with deterministic Miller-Rabin. Composite
-/// cofactors that survive trial divisors through one million receive a typed
-/// refusal rather than running without a work bound.
-pub fn factorint(mut n: u64) -> Result<BTreeMap<u64, u32>, NTheoryError> {
-    const MAX_TRIAL_DIVISOR: u64 = 1_000_000;
-
-    if n == 0 {
-        return Err(NTheoryError::ZeroFactorization);
-    }
-    let mut factors = BTreeMap::new();
-    // Factor out 2s
-    while n.is_multiple_of(2) {
-        *factors.entry(2).or_insert(0) += 1;
-        n /= 2;
-    }
-    if n > 1 && is_prime(n) {
-        *factors.entry(n).or_insert(0) += 1;
-        return Ok(factors);
-    }
-    // Trial division by odds
-    let mut p = 3;
-    while p <= n / p {
-        if p > MAX_TRIAL_DIVISOR {
-            return Err(NTheoryError::FactorizationLimitExceeded(n));
-        }
-        let mut divided = false;
-        while n.is_multiple_of(p) {
-            *factors.entry(p).or_insert(0) += 1;
-            n /= p;
-            divided = true;
-        }
-        if divided && n > 1 && is_prime(n) {
-            *factors.entry(n).or_insert(0) += 1;
-            return Ok(factors);
-        }
-        p += 2;
-    }
-    if n > 1 {
-        *factors.entry(n).or_insert(0) += 1;
-    }
-    Ok(factors)
 }
 
 /// Euler's totient function: φ(n) = count of integers 1 <= k <= n coprime to n.
