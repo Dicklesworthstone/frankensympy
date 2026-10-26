@@ -1,4 +1,4 @@
-//! Exact rational Laurent leading terms and directional limits.
+//! Exact rational Laurent expansions, leading terms, and directional limits.
 //!
 //! The generator computes local numerator/denominator coefficients by
 //! synthetic division. An independent proof-kernel checker reconstructs both
@@ -6,15 +6,18 @@
 //! rational centers and both ends of the real line are supported. The claim
 //! is local on the original rational expression's punctured real domain;
 //! neither a value at a pole nor convergence of a general series is asserted.
+//! A bounded denominator recurrence generates formal coefficients; the
+//! proof-kernel checks their truncated convolution and any exactness claim.
 
 use fsym_budget::{BudgetMeter, Dimension, MeterError, Unbounded};
 use fsym_core::arith::RationalArithmeticError;
 use fsym_core::{BigRational, Constant, Expr, Symbol};
 use fsym_polys::UnivariatePoly;
 use fsym_proof_kernel::rational_limit::{
-    LocalDirection, MAX_LOCAL_COEFFICIENT_BITS, MAX_LOCAL_COEFFICIENTS, RationalDirectionalLimit,
-    RationalLimitPoint, RationalLocalCertificate, RationalLocalVerification,
-    RationalLocalVerificationError, verify_rational_local_order,
+    LocalDirection, MAX_LOCAL_COEFFICIENT_BITS, MAX_LOCAL_COEFFICIENTS, MAX_SERIES_COEFFICIENTS,
+    RationalDirectionalLimit, RationalLimitPoint, RationalLocalCertificate,
+    RationalLocalVerification, RationalLocalVerificationError, RationalSeriesCertificate,
+    RationalSeriesVerification, verify_rational_local_order, verify_rational_series,
 };
 use num_traits::{One, Zero};
 use thiserror::Error;
@@ -63,6 +66,24 @@ impl RationalLocalAnalysis {
     }
 
     pub fn verification(&self) -> &RationalLocalVerification {
+        &self.verification
+    }
+}
+
+/// A bounded formal Laurent expansion and independently checked truncation.
+/// The witness itself remains untrusted when serialized or reused.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RationalSeriesAnalysis {
+    certificate: RationalSeriesCertificate,
+    verification: RationalSeriesVerification,
+}
+
+impl RationalSeriesAnalysis {
+    pub fn certificate(&self) -> &RationalSeriesCertificate {
+        &self.certificate
+    }
+
+    pub fn verification(&self) -> &RationalSeriesVerification {
         &self.verification
     }
 }
@@ -133,6 +154,21 @@ impl<M: BudgetMeter> Work<'_, M> {
         Ok(coefficients.to_vec())
     }
 
+    fn reserve_series(&mut self, count: usize) -> Result<()> {
+        if count > MAX_SERIES_COEFFICIENTS {
+            return Err(refused("Laurent output coefficient count limit"));
+        }
+        self.step(count.max(1) as u64)?;
+        self.meter.charge_batch(&[
+            (Dimension::AllocationCount, (2 * count + 1) as u64),
+            (
+                Dimension::MemoryBytes,
+                count.max(1) as u64 * (64 + 2 * MAX_LOCAL_COEFFICIENT_BITS.div_ceil(8)),
+            ),
+        ])?;
+        Ok(())
+    }
+
     fn add(&mut self, a: &BigRational, b: &BigRational) -> Result<BigRational> {
         self.step(1)?;
         let result = a.metered_add(b, self.meter)?;
@@ -149,6 +185,55 @@ impl<M: BudgetMeter> Work<'_, M> {
             return Err(refused("intermediate coefficient height limit"));
         }
         Ok(result)
+    }
+
+    fn sub(&mut self, a: &BigRational, b: &BigRational) -> Result<BigRational> {
+        self.step(1)?;
+        let result = a.metered_sub(b, self.meter)?;
+        if bits(&result) > MAX_LOCAL_COEFFICIENT_BITS {
+            return Err(refused("intermediate coefficient height limit"));
+        }
+        Ok(result)
+    }
+
+    fn div(&mut self, a: &BigRational, b: &BigRational) -> Result<BigRational> {
+        self.step(1)?;
+        let result = a.metered_div(b, self.meter)?;
+        if bits(&result) > MAX_LOCAL_COEFFICIENT_BITS {
+            return Err(refused("intermediate coefficient height limit"));
+        }
+        Ok(result)
+    }
+
+    fn series_is_exact(
+        &mut self,
+        numerator: &[BigRational],
+        denominator: &[BigRational],
+        coefficients: &[BigRational],
+    ) -> Result<bool> {
+        let product_len = if coefficients.is_empty() {
+            0
+        } else {
+            denominator.len() + coefficients.len() - 1
+        };
+        for degree in 0..numerator.len().max(product_len) {
+            let mut value = BigRational::zero();
+            for (j, vj) in denominator.iter().enumerate().take(degree + 1) {
+                if let Some(coefficient) = coefficients.get(degree - j) {
+                    let product = self.mul(vj, coefficient)?;
+                    value = self.add(&value, &product)?;
+                }
+            }
+            if value
+                != numerator
+                    .get(degree)
+                    .cloned()
+                    .unwrap_or_else(BigRational::zero)
+            {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     fn polynomial_sum(&mut self, a: &[BigRational], b: &[BigRational]) -> Result<Vec<BigRational>> {
@@ -288,6 +373,101 @@ pub fn metered_rational_local_order(
     )?;
     work.meter.checkpoint()?;
     Ok(RationalLocalAnalysis {
+        certificate,
+        verification,
+    })
+}
+
+/// Exact formal coefficients strictly below `absolute_order`, in `t=x-a`
+/// at a rational center or `t=1/x` at infinity. At most 256 coefficients
+/// beyond the local valuation are requested. No general convergence or
+/// pointwise value at an excluded center is claimed.
+pub fn rational_series(
+    numerator: &UnivariatePoly,
+    denominator: &UnivariatePoly,
+    point: &RationalLimitPoint,
+    absolute_order: i64,
+) -> Result<RationalSeriesAnalysis> {
+    metered_rational_series(
+        numerator,
+        denominator,
+        point,
+        absolute_order,
+        &mut Unbounded,
+        &mut Unbounded,
+    )
+}
+
+/// Metered coefficient recurrence with a separate verifier meter. Local
+/// factorization and truncation checks charge the same supplied verifier
+/// meter, without replenishing either phase's accounting.
+pub fn metered_rational_series(
+    numerator: &UnivariatePoly,
+    denominator: &UnivariatePoly,
+    point: &RationalLimitPoint,
+    absolute_order: i64,
+    generator_meter: &mut impl BudgetMeter,
+    verifier_meter: &mut impl BudgetMeter,
+) -> Result<RationalSeriesAnalysis> {
+    let local = metered_rational_local_order(
+        numerator,
+        denominator,
+        point,
+        generator_meter,
+        verifier_meter,
+    )?;
+    let mut work = Work {
+        meter: generator_meter,
+        remaining: MAX_WORK,
+    };
+    let mut coefficients = Vec::new();
+    let mut exact = true;
+    if let Some(start_order) = local.verification().order() {
+        let required = if absolute_order <= start_order {
+            0
+        } else {
+            absolute_order
+                .checked_sub(start_order)
+                .and_then(|count| usize::try_from(count).ok())
+                .filter(|&count| count <= MAX_SERIES_COEFFICIENTS)
+                .ok_or_else(|| {
+                    refused("requested Laurent precision exceeds the coefficient bound")
+                })?
+        };
+        work.reserve_series(required)?;
+        coefficients.reserve_exact(required);
+        let u = &local.certificate.numerator_unit;
+        let v = &local.certificate.denominator_unit;
+        for degree in 0..required {
+            let mut residual = u.get(degree).cloned().unwrap_or_else(BigRational::zero);
+            for (j, vj) in v.iter().enumerate().skip(1).take(degree) {
+                let product = work.mul(vj, &coefficients[degree - j])?;
+                residual = work.sub(&residual, &product)?;
+            }
+            coefficients.push(work.div(&residual, &v[0])?);
+        }
+        exact = work.series_is_exact(u, v, &coefficients)?;
+        if exact {
+            while coefficients.last().is_some_and(Zero::is_zero) {
+                coefficients.pop();
+            }
+        }
+    }
+    let certificate = RationalSeriesCertificate {
+        local: local.certificate,
+        coefficients,
+        exact,
+    };
+    let verification = verify_rational_series(
+        &numerator.coeffs,
+        &denominator.coeffs,
+        point,
+        absolute_order,
+        &certificate,
+        verifier_meter,
+    )?;
+    work.meter.checkpoint()?;
+    Ok(RationalSeriesAnalysis {
         certificate,
         verification,
     })
@@ -471,12 +651,10 @@ fn parse_fraction(expr: &Expr, work: &mut Work<'_, impl BudgetMeter>) -> Result<
 /// `None` means the expression is outside Q(x), so another algorithm may be
 /// applicable. A recognized but invalid or exhausted rational input returns
 /// an error; callers must not turn that error into heuristic acceptance.
-pub fn rational_expression_limit(
+fn rational_expression_parts(
     expression: &Expr,
     variable: &Symbol,
-    point: &RationalLimitPoint,
-    direction: LocalDirection,
-) -> Result<Option<RationalDirectionalLimit>> {
+) -> Result<Option<(UnivariatePoly, UnivariatePoly)>> {
     if !rational_shape(expression, variable)? {
         return Ok(None);
     }
@@ -488,8 +666,196 @@ pub fn rational_expression_limit(
     let fraction = parse_fraction(expression, &mut work)?;
     let numerator = UnivariatePoly::new(variable.clone(), fraction.numerator);
     let denominator = UnivariatePoly::new(variable.clone(), fraction.denominator);
+    Ok(Some((numerator, denominator)))
+}
+
+pub fn rational_expression_limit(
+    expression: &Expr,
+    variable: &Symbol,
+    point: &RationalLimitPoint,
+    direction: LocalDirection,
+) -> Result<Option<RationalDirectionalLimit>> {
+    let Some((numerator, denominator)) = rational_expression_parts(expression, variable)? else {
+        return Ok(None);
+    };
     let analysis = rational_local_order(&numerator, &denominator, point)?;
     Ok(Some(analysis.verification().limit(direction)))
+}
+
+/// Expand an original rational expression without evaluating away excluded
+/// subexpressions. `None` means another, nonrational algorithm may apply;
+/// invalid/exhausted rational cases remain errors and cannot fall through.
+pub fn rational_expression_series(
+    expression: &Expr,
+    variable: &Symbol,
+    point: &RationalLimitPoint,
+    absolute_order: i64,
+) -> Result<Option<RationalSeriesAnalysis>> {
+    let Some((numerator, denominator)) = rational_expression_parts(expression, variable)? else {
+        return Ok(None);
+    };
+    rational_series(&numerator, &denominator, point, absolute_order).map(Some)
+}
+
+fn point_value(
+    expression: &Expr,
+    center: &BigRational,
+    work: &mut Work<'_, impl BudgetMeter>,
+) -> Result<BigRational> {
+    work.step(1)?;
+    match expression {
+        Expr::Integer(value) => Ok(BigRational::from_integer(value.clone())),
+        Expr::Rational(value) => Ok(value.clone()),
+        Expr::Sym(_) => Ok(center.clone()),
+        Expr::Add(children) => {
+            let mut value = BigRational::zero();
+            for child in children {
+                let other = point_value(child, center, work)?;
+                value = work.add(&value, &other)?;
+            }
+            Ok(value)
+        }
+        Expr::Mul(children) => {
+            let mut value = BigRational::one();
+            for child in children {
+                let other = point_value(child, center, work)?;
+                value = work.mul(&value, &other)?;
+            }
+            Ok(value)
+        }
+        Expr::Pow(base, exponent) => {
+            let mut base = point_value(base, center, work)?;
+            let exponent = integer_power(exponent).ok_or_else(|| refused("noninteger power"))?;
+            if base.is_zero() && exponent <= 0 {
+                return Err(refused(
+                    "the original expression is undefined at the Taylor center",
+                ));
+            }
+            if exponent < 0 {
+                base = work.div(&BigRational::one(), &base)?;
+            }
+            let mut count = exponent.unsigned_abs();
+            let mut value = BigRational::one();
+            while count != 0 {
+                if count & 1 == 1 {
+                    value = work.mul(&value, &base)?;
+                }
+                count >>= 1;
+                if count != 0 {
+                    base = work.mul(&base, &base)?;
+                }
+            }
+            Ok(value)
+        }
+        _ => Err(refused("expression outside rational grammar")),
+    }
+}
+
+pub(crate) fn try_series(
+    expression: &Expr,
+    variable: &Symbol,
+    at: &Expr,
+    absolute_order: i64,
+) -> Option<Result<crate::SeriesTerms>> {
+    let point = match at {
+        Expr::Integer(value) => {
+            RationalLimitPoint::Finite(BigRational::from_integer(value.clone()))
+        }
+        Expr::Rational(value) => RationalLimitPoint::Finite(value.clone()),
+        Expr::Const(Constant::Infinity | Constant::NegativeInfinity) => {
+            RationalLimitPoint::Infinity
+        }
+        _ => return None,
+    };
+    let analysis = match rational_expression_series(expression, variable, &point, absolute_order) {
+        Ok(Some(analysis)) => analysis,
+        Ok(None) => return None,
+        Err(error) => return Some(Err(error)),
+    };
+    let receipt = analysis.verification();
+    let negative_infinity = matches!(at, Expr::Const(Constant::NegativeInfinity));
+    let terms = receipt
+        .coefficients()
+        .iter()
+        .enumerate()
+        .filter(|(_, coefficient)| !coefficient.is_zero())
+        .map(|(index, coefficient)| {
+            let exponent = receipt.start_order() + index as i64;
+            // Public series at -infinity uses -1/x, whereas the certificate
+            // uniformly uses 1/x. Substitute t=-u with exact integer parity.
+            let coefficient = if negative_infinity && exponent % 2 != 0 {
+                -coefficient.clone()
+            } else {
+                coefficient.clone()
+            };
+            (
+                fsym_core::elementary::rational_expr(coefficient),
+                BigRational::from_integer(exponent.into()),
+            )
+        })
+        .collect();
+    let remainder = receipt
+        .remainder_order()
+        .map(|order| BigRational::from_integer(order.into()));
+    Some(Ok((terms, remainder)))
+}
+
+pub(crate) fn try_taylor(
+    expression: &Expr,
+    variable: &Symbol,
+    at: &Expr,
+    degree: usize,
+) -> Option<Result<Expr>> {
+    let center = match at {
+        Expr::Integer(value) => BigRational::from_integer(value.clone()),
+        Expr::Rational(value) => value.clone(),
+        _ => return None,
+    };
+    let (numerator, denominator) = match rational_expression_parts(expression, variable) {
+        Ok(Some(parts)) => parts,
+        Ok(None) => return None,
+        Err(error) => return Some(Err(error)),
+    };
+    Some((|| {
+        validate(std::slice::from_ref(&center), MAX_INPUT_BITS)?;
+        let absolute_order = degree
+            .checked_add(1)
+            .and_then(|order| i64::try_from(order).ok())
+            .ok_or_else(|| refused("Taylor order overflow"))?;
+        let mut meter = Unbounded;
+        let mut work = Work {
+            meter: &mut meter,
+            remaining: MAX_WORK,
+        };
+        // Formal Laurent expansions permit removable holes. A Taylor
+        // polynomial at the point additionally requires every original
+        // rational child to be defined there, before any cancellation.
+        point_value(expression, &center, &mut work)?;
+        let analysis = rational_series(
+            &numerator,
+            &denominator,
+            &RationalLimitPoint::Finite(center.clone()),
+            absolute_order,
+        )?;
+        let receipt = analysis.verification();
+        if receipt.start_order() < 0 {
+            return Err(refused("a Laurent pole is not a Taylor polynomial"));
+        }
+        let local = Expr::Sym(variable.clone()) + fsym_core::elementary::rational_expr(-center);
+        let mut terms = Vec::new();
+        for (index, coefficient) in receipt.coefficients().iter().enumerate() {
+            if coefficient.is_zero() {
+                continue;
+            }
+            let exponent = receipt.start_order() + index as i64;
+            let power = fsym_core::elementary::eval_pow(local.clone(), Expr::from_i64(exponent));
+            terms.push(fsym_core::elementary::rational_expr(coefficient.clone()) * power);
+        }
+        if terms.is_empty() {
+            return Ok(Expr::from_i64(0));
+        }
+        Ok(fsym_simplify::simplify(&Expr::Add(terms)))
+    })())
 }
 
 pub(crate) fn try_limit(

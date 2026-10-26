@@ -1316,7 +1316,9 @@ pub type SeriesTerms = (Vec<(Expr, BigRational)>, Option<BigRational>);
 /// expansion is exact). `log` terms of the local variable stay in the
 /// coefficients (`series(x*log(x))` keeps `x*log(x)`).
 ///
-/// Returns `(coefficient, exponent)` pairs and the remainder order.
+/// Bounded rational functions use independently checked coefficient
+/// convolutions and can supply up to 256 terms beyond their valuation.
+/// Formal truncation/exactness is separate from a general convergence claim.
 pub fn series_expansion(
     expr: &Expr,
     var: &Symbol,
@@ -1327,6 +1329,9 @@ pub fn series_expansion(
         return Err(CalculusError::NonDifferentiable(
             UNSAFE_DIRECT_SUBSTITUTION.to_string(),
         ));
+    }
+    if let Some(result) = rational_limits::try_series(expr, var, x0, n) {
+        return result.map_err(|error| CalculusError::NonDifferentiable(error.to_string()));
     }
     let t = Symbol::new("_fsym_series_t");
     let te = Expr::Sym(t.clone());
@@ -1430,7 +1435,13 @@ fn unsafe_direct_substitution(expr: &Expr) -> bool {
 /// Coefficients are exact where the derivatives evaluate exactly; a
 /// derivative that hits [`diff`]'s non-differentiable sentinel aborts with
 /// [`CalculusError::NonDifferentiable`].
+/// Rational functions at regular rational centers use a checked coefficient
+/// recurrence for up to 256 coefficients; other expressions retain the
+/// bounded derivative route.
 pub fn taylor(expr: &Expr, var: &Symbol, at: &Expr, order: usize) -> Result<Expr, CalculusError> {
+    if let Some(result) = rational_limits::try_taylor(expr, var, at, order) {
+        return result.map_err(|error| CalculusError::NonDifferentiable(error.to_string()));
+    }
     const MAX_ORDER: usize = 12;
     if order > MAX_ORDER {
         return Err(CalculusError::NonDifferentiable(format!(

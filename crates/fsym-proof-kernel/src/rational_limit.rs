@@ -1,4 +1,4 @@
-//! Independent local-order certificates for rational functions over `Q(x)`.
+//! Independent local-order and formal Laurent certificates over `Q(x)`.
 //!
 //! The local coordinate is `t = x - a` at a finite rational point and `t = 1/x`
 //! at infinity. A witness factors the transformed numerator and denominator
@@ -7,6 +7,8 @@
 //! This proves a punctured real-neighborhood asymptotic and its directional
 //! extended-real limit, not a value at an excluded point or a general analytic
 //! series/convergence claim.
+//! Formal coefficient certificates additionally check a truncated polynomial
+//! convolution, and any exact finite expansion must pass the full identity.
 
 use fsym_budget::{BudgetMeter, Dimension, MeterError};
 use fsym_core::BigRational;
@@ -17,6 +19,9 @@ use thiserror::Error;
 
 pub const MAX_LOCAL_COEFFICIENTS: usize = 129;
 pub const MAX_LOCAL_COEFFICIENT_BITS: u64 = 16_384;
+/// Output truncation bound; this does not enlarge the polynomial/local-unit
+/// input envelope governed by `MAX_LOCAL_COEFFICIENTS`.
+pub const MAX_SERIES_COEFFICIENTS: usize = 256;
 const MAX_REFERENCE_STEPS: u64 = 1_000_000;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -54,6 +59,90 @@ pub struct RationalLocalCertificate {
     pub numerator_unit: Vec<BigRational>,
     #[serde(deserialize_with = "bounded_coefficients")]
     pub denominator_unit: Vec<BigRational>,
+}
+
+/// Untrusted formal Laurent truncation in the coordinate of `local`.
+/// Coefficients start at the independently checked local order. A nonexact
+/// truncation includes every coefficient below the caller's requested order,
+/// including zeros. An exact expansion may omit trailing zero coefficients,
+/// but must satisfy the full rational identity, not just a truncated one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RationalSeriesCertificate {
+    pub local: RationalLocalCertificate,
+    #[serde(deserialize_with = "bounded_series_coefficients")]
+    pub coefficients: Vec<BigRational>,
+    pub exact: bool,
+}
+
+fn bounded_series_coefficients<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Vec<BigRational>, D::Error> {
+    struct Coefficients;
+    impl<'de> serde::de::Visitor<'de> for Coefficients {
+        type Value = Vec<BigRational>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(
+                formatter,
+                "at most {MAX_SERIES_COEFFICIENTS} Laurent coefficients"
+            )
+        }
+
+        fn visit_seq<A: serde::de::SeqAccess<'de>>(
+            self,
+            mut seq: A,
+        ) -> std::result::Result<Self::Value, A::Error> {
+            if seq.size_hint().unwrap_or(0) > MAX_SERIES_COEFFICIENTS {
+                return Err(serde::de::Error::custom("Laurent coefficient count limit"));
+            }
+            let mut coefficients = Vec::new();
+            while coefficients.len() < MAX_SERIES_COEFFICIENTS {
+                match seq.next_element::<BigRational>()? {
+                    Some(value) => {
+                        if coefficient_bits(&value) > MAX_LOCAL_COEFFICIENT_BITS {
+                            return Err(serde::de::Error::custom(
+                                "Laurent coefficient height limit",
+                            ));
+                        }
+                        coefficients.push(value);
+                    }
+                    None => return Ok(coefficients),
+                }
+            }
+            if seq.next_element::<serde::de::IgnoredAny>()?.is_some() {
+                return Err(serde::de::Error::custom("Laurent coefficient count limit"));
+            }
+            Ok(coefficients)
+        }
+    }
+    deserializer.deserialize_seq(Coefficients)
+}
+
+/// Checked formal coefficients, not a claim about convergence of a general
+/// analytic series. Private fields prevent manufacturing an accepted tail or
+/// marking a truncated result exact without the independent identity check.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RationalSeriesVerification {
+    start_order: i64,
+    coefficients: Vec<BigRational>,
+    remainder_order: Option<i64>,
+}
+
+impl RationalSeriesVerification {
+    pub fn start_order(&self) -> i64 {
+        self.start_order
+    }
+
+    pub fn coefficients(&self) -> &[BigRational] {
+        &self.coefficients
+    }
+
+    /// `None` proves an exact finite Laurent expression; otherwise all
+    /// coefficients strictly below this absolute order have been checked.
+    pub fn remainder_order(&self) -> Option<i64> {
+        self.remainder_order
+    }
 }
 
 fn bounded_coefficients<'de, D: serde::Deserializer<'de>>(
@@ -224,6 +313,21 @@ impl<M: BudgetMeter> Reference<'_, M> {
         Ok(())
     }
 
+    fn reserve_series(&mut self, count: usize) -> Result<()> {
+        if count > MAX_SERIES_COEFFICIENTS {
+            return Err(invalid("Laurent output coefficient count limit"));
+        }
+        self.work(count.max(1) as u64)?;
+        self.meter.charge_batch(&[
+            (Dimension::AllocationCount, (2 * count + 1) as u64),
+            (
+                Dimension::MemoryBytes,
+                count.max(1) as u64 * (64 + 2 * MAX_LOCAL_COEFFICIENT_BITS.div_ceil(8)),
+            ),
+        ])?;
+        Ok(())
+    }
+
     fn sum(&mut self, a: &BigRational, b: &BigRational) -> Result<BigRational> {
         self.work(1)?;
         let result = a.metered_add(b, self.meter)?;
@@ -384,6 +488,98 @@ pub fn verify_rational_local_order(
             order: None,
             leading_coefficient: BigRational::zero(),
         }
+    };
+    reference.meter.checkpoint()?;
+    Ok(receipt)
+}
+
+/// Check a formal Laurent truncation against the original `N/D`, expansion
+/// point, and requested absolute order. After independently checking the
+/// local units `U,V`, verify `V*C = U mod t^m` coefficient by coefficient.
+/// An exactness claim additionally checks the complete polynomial identity.
+/// No coefficient-generation recurrence is called by this verifier.
+pub fn verify_rational_series(
+    numerator: &[BigRational],
+    denominator: &[BigRational],
+    point: &RationalLimitPoint,
+    absolute_order: i64,
+    witness: &RationalSeriesCertificate,
+    meter: &mut impl BudgetMeter,
+) -> Result<RationalSeriesVerification> {
+    meter.checkpoint()?;
+    if witness.coefficients.len() > MAX_SERIES_COEFFICIENTS {
+        return Err(invalid("Laurent coefficient count limit"));
+    }
+    for coefficient in &witness.coefficients {
+        validate(std::slice::from_ref(coefficient))?;
+    }
+    let local = verify_rational_local_order(numerator, denominator, point, &witness.local, meter)?;
+    let mut reference = Reference {
+        meter,
+        remaining: MAX_REFERENCE_STEPS,
+    };
+    reference.reserve_series(witness.coefficients.len())?;
+    let Some(start_order) = local.order() else {
+        if !witness.exact || !witness.coefficients.is_empty() {
+            return Err(invalid(
+                "zero rational function requires an exact empty expansion",
+            ));
+        }
+        reference.meter.checkpoint()?;
+        return Ok(RationalSeriesVerification {
+            start_order: 0,
+            coefficients: Vec::new(),
+            remainder_order: None,
+        });
+    };
+    let required = if absolute_order <= start_order {
+        0
+    } else {
+        absolute_order
+            .checked_sub(start_order)
+            .and_then(|count| usize::try_from(count).ok())
+            .filter(|&count| count <= MAX_SERIES_COEFFICIENTS)
+            .ok_or_else(|| invalid("requested Laurent precision exceeds the coefficient bound"))?
+    };
+    if witness.exact {
+        if witness.coefficients.len() > required
+            || witness.coefficients.is_empty()
+            || witness.coefficients.last().is_some_and(Zero::is_zero)
+        {
+            return Err(invalid("noncanonical exact Laurent coefficient vector"));
+        }
+    } else if witness.coefficients.len() != required {
+        return Err(invalid("missing or extra requested Laurent coefficients"));
+    }
+    let u = &witness.local.numerator_unit;
+    let v = &witness.local.denominator_unit;
+    let checked_count = if witness.exact {
+        u.len().max(v.len() + witness.coefficients.len() - 1)
+    } else {
+        required
+    };
+    for degree in 0..checked_count {
+        let mut coefficient = BigRational::zero();
+        for (j, vj) in v.iter().enumerate().take(degree + 1) {
+            if let Some(c) = witness.coefficients.get(degree - j) {
+                let product = reference.product(vj, c)?;
+                coefficient = reference.sum(&coefficient, &product)?;
+            }
+        }
+        if coefficient != u.get(degree).cloned().unwrap_or_else(BigRational::zero) {
+            return Err(invalid(
+                "Laurent coefficients fail the original rational identity",
+            ));
+        }
+    }
+    let receipt = RationalSeriesVerification {
+        start_order,
+        coefficients: witness.coefficients.clone(),
+        remainder_order: if witness.exact {
+            None
+        } else {
+            Some(absolute_order)
+        },
     };
     reference.meter.checkpoint()?;
     Ok(receipt)
@@ -626,5 +822,225 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    fn fibonacci_series_witness() -> RationalSeriesCertificate {
+        RationalSeriesCertificate {
+            local: RationalLocalCertificate {
+                numerator_order: Some(0),
+                denominator_order: 0,
+                numerator_unit: coefficients(&[1]),
+                denominator_unit: coefficients(&[1, -1, -1]),
+            },
+            coefficients: coefficients(&[1, 1, 2, 3, 5, 8]),
+            exact: false,
+        }
+    }
+
+    #[test]
+    fn rational_series_manual_truncations_exact_tail_and_zero() {
+        let point = RationalLimitPoint::Finite(BigRational::zero());
+        let witness = fibonacci_series_witness();
+        let receipt = verify_rational_series(
+            &coefficients(&[1]),
+            &coefficients(&[1, -1, -1]),
+            &point,
+            6,
+            &witness,
+            &mut Unbounded,
+        )
+        .unwrap();
+        assert_eq!(receipt.start_order(), 0);
+        assert_eq!(receipt.coefficients(), coefficients(&[1, 1, 2, 3, 5, 8]));
+        assert_eq!(receipt.remainder_order(), Some(6));
+
+        // (2+3t)/(t^2*(1-t)) = 2/t^2 + 5/t + 5 + 5t + 5t^2 + O(t^3).
+        let pole = RationalSeriesCertificate {
+            local: RationalLocalCertificate {
+                numerator_order: Some(0),
+                denominator_order: 2,
+                numerator_unit: coefficients(&[2, 3]),
+                denominator_unit: coefficients(&[1, -1]),
+            },
+            coefficients: coefficients(&[2, 5, 5, 5, 5]),
+            exact: false,
+        };
+        let receipt = verify_rational_series(
+            &coefficients(&[2, 3]),
+            &coefficients(&[0, 0, 1, -1]),
+            &point,
+            3,
+            &pole,
+            &mut Unbounded,
+        )
+        .unwrap();
+        assert_eq!(receipt.start_order(), -2);
+        assert_eq!(receipt.remainder_order(), Some(3));
+
+        // (1-t^2)/(1-t) = 1+t exactly; requested order is higher than the
+        // finite expansion, and exactness requires the whole identity.
+        let exact = RationalSeriesCertificate {
+            local: RationalLocalCertificate {
+                numerator_order: Some(0),
+                denominator_order: 0,
+                numerator_unit: coefficients(&[1, 0, -1]),
+                denominator_unit: coefficients(&[1, -1]),
+            },
+            coefficients: coefficients(&[1, 1]),
+            exact: true,
+        };
+        assert_eq!(
+            verify_rational_series(
+                &coefficients(&[1, 0, -1]),
+                &coefficients(&[1, -1]),
+                &point,
+                5,
+                &exact,
+                &mut Unbounded
+            )
+            .unwrap()
+            .remainder_order(),
+            None
+        );
+        let zero = RationalSeriesCertificate {
+            local: RationalLocalCertificate {
+                numerator_order: None,
+                numerator_unit: coefficients(&[0]),
+                ..exact.local
+            },
+            coefficients: vec![],
+            exact: true,
+        };
+        let receipt = verify_rational_series(
+            &coefficients(&[0]),
+            &coefficients(&[1, -1]),
+            &point,
+            -3,
+            &zero,
+            &mut Unbounded,
+        )
+        .unwrap();
+        assert!(receipt.coefficients().is_empty());
+        assert_eq!(receipt.remainder_order(), None);
+    }
+
+    #[test]
+    fn rational_series_rejects_coefficient_precision_and_exactness_mutants() {
+        let point = RationalLimitPoint::Finite(BigRational::zero());
+        let n = coefficients(&[1]);
+        let d = coefficients(&[1, -1, -1]);
+        let witness = fibonacci_series_witness();
+        let epsilon = BigRational::new(BigInt::one(), BigInt::from(10).pow(100));
+        let mut mutants = Vec::new();
+        let mut bad = witness.clone();
+        bad.coefficients[0] = bad.coefficients[0].clone() + epsilon.clone();
+        mutants.push(bad);
+        let mut bad = witness.clone();
+        bad.coefficients[5] = bad.coefficients[5].clone() + epsilon;
+        mutants.push(bad);
+        let mut bad = witness.clone();
+        bad.coefficients.pop();
+        mutants.push(bad);
+        let mut bad = witness.clone();
+        bad.coefficients.push(BigRational::one());
+        mutants.push(bad);
+        let mut bad = witness.clone();
+        bad.exact = true;
+        mutants.push(bad);
+        let mut bad = witness.clone();
+        bad.local.numerator_order = Some(1);
+        mutants.push(bad);
+        let mut bad = witness.clone();
+        bad.local.denominator_unit[1] = BigRational::one();
+        mutants.push(bad);
+        for bad in mutants {
+            assert!(verify_rational_series(&n, &d, &point, 6, &bad, &mut Unbounded).is_err());
+        }
+        assert!(verify_rational_series(&n, &d, &point, 7, &witness, &mut Unbounded).is_err());
+        assert!(verify_rational_series(&n, &d, &point, 5, &witness, &mut Unbounded).is_err());
+        assert!(
+            verify_rational_series(
+                &n,
+                &d,
+                &RationalLimitPoint::Infinity,
+                6,
+                &witness,
+                &mut Unbounded
+            )
+            .is_err()
+        );
+        assert!(
+            verify_rational_series(&coefficients(&[2]), &d, &point, 6, &witness, &mut Unbounded)
+                .is_err()
+        );
+
+        let zeros = RationalSeriesCertificate {
+            local: RationalLocalCertificate {
+                numerator_order: Some(0),
+                denominator_order: 0,
+                numerator_unit: coefficients(&[1]),
+                denominator_unit: coefficients(&[1, 0, 1]),
+            },
+            coefficients: coefficients(&[1, 0, -1, 0]),
+            exact: false,
+        };
+        verify_rational_series(
+            &n,
+            &coefficients(&[1, 0, 1]),
+            &point,
+            4,
+            &zeros,
+            &mut Unbounded,
+        )
+        .unwrap();
+        let mut missing_zero = zeros;
+        missing_zero.coefficients.pop();
+        assert!(
+            verify_rational_series(
+                &n,
+                &coefficients(&[1, 0, 1]),
+                &point,
+                4,
+                &missing_zero,
+                &mut Unbounded
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn rational_series_bounded_transport_and_verifier_budget() {
+        let point = RationalLimitPoint::Finite(BigRational::zero());
+        let witness = fibonacci_series_witness();
+        let n = coefficients(&[1]);
+        let d = coefficients(&[1, -1, -1]);
+        let encoded = serde_json::to_vec(&witness).unwrap();
+        let decoded: RationalSeriesCertificate = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(decoded, witness);
+        verify_rational_series(&n, &d, &point, 6, &decoded, &mut Unbounded).unwrap();
+        let mut unknown = serde_json::to_value(&witness).unwrap();
+        unknown
+            .as_object_mut()
+            .unwrap()
+            .insert("accepted".into(), serde_json::Value::Bool(true));
+        assert!(serde_json::from_value::<RationalSeriesCertificate>(unknown).is_err());
+        let mut oversized = witness.clone();
+        oversized.coefficients = vec![BigRational::one(); MAX_SERIES_COEFFICIENTS + 1];
+        assert!(verify_rational_series(&n, &d, &point, 257, &oversized, &mut Unbounded).is_err());
+        assert!(
+            serde_json::from_slice::<RationalSeriesCertificate>(
+                &serde_json::to_vec(&oversized).unwrap()
+            )
+            .is_err()
+        );
+        let mut huge = witness.clone();
+        huge.coefficients[0] =
+            BigRational::from_integer(BigInt::one() << MAX_LOCAL_COEFFICIENT_BITS as u32);
+        assert!(verify_rational_series(&n, &d, &point, 6, &huge, &mut Unbounded).is_err());
+        let mut budget = Budget::new(BudgetLimits::uniform(1, 0));
+        assert!(matches!(
+            verify_rational_series(&n, &d, &point, 6, &witness, &mut budget),
+            Err(RationalLocalVerificationError::Meter(_))
+        ));
     }
 }
