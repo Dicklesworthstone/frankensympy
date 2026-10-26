@@ -1169,8 +1169,64 @@ class Matrix(MatrixBase):
         return self._new(p), self._new(l), self._new(u)
 
     def QRdecomposition(self):
-        q, r = self._native.qr()
-        return self._new(q), self._new(r)
+        """Return an exact thin QR decomposition for rational matrices.
+
+        The columns of Q are orthonormal. Dependent columns are omitted from
+        Q and retained through R, so rectangular and rank-deficient inputs
+        return shapes (rows, rank) and (rank, cols).
+        """
+        from ..core import Integer, _exact_ratio, sqrt
+
+        native = self._native
+        rows, cols = native.shape
+        entries = native.flat()
+        if any(not (entry.is_integer or entry.is_rational) for entry in entries):
+            raise ValueError("QRdecomposition requires exact rational entries only")
+        if all(_wrap(entry) == 0 for entry in entries):
+            return self._new(rows, 0, []), self._new(0, cols, [])
+
+        reduced, pivots = native.rref()
+        rank = len(pivots)
+        columns = _NativeMatrix(
+            rows, rank, [entries[row * cols + col] for row in range(rows) for col in pivots]
+        )
+        factor = _NativeMatrix(
+            rank, cols, [reduced[row, col] for row in range(rank) for col in range(cols)]
+        )
+        if columns @ factor != native:
+            raise ValueError("QR rank factorization failed to reconstruct the input")
+
+        # Native QR deliberately keeps rational, unnormalized orthogonal
+        # columns and a unit upper-triangular R. Preserve that native contract.
+        orthogonal, upper = columns.qr()
+        upper = upper @ factor
+        q_entries = [_wrap(entry) for entry in orthogonal.flat()]
+        r_entries = [_wrap(entry) for entry in upper.flat()]
+        scales = []
+        inverse_scales = []
+        for col in range(rank):
+            norm_squared = sum(q_entries[row * rank + col] ** 2 for row in range(rows))
+            ratio = _exact_ratio(norm_squared)
+            if ratio is None or ratio[0] <= 0 or ratio[1] <= 0:
+                raise ValueError("QR column norm must be an exact positive rational")
+            numerator, denominator = ratio
+            # sqrt(p/q) = sqrt(p*q)/q, with a positive principal square root.
+            # Its reciprocal sqrt(p*q)/p keeps exact radicals rationalized.
+            radical = sqrt(Integer(numerator * denominator))
+            scales.append(radical / Integer(denominator))
+            inverse_scales.append(radical / Integer(numerator))
+
+        q = self._new(
+            rows, rank,
+            [q_entries[row * rank + col] * inverse_scales[col]
+             for row in range(rows) for col in range(rank)],
+        )
+        r = self._new(
+            rank, cols,
+            [scales[row] * r_entries[row * cols + col]
+             for row in range(rank) for col in range(cols)],
+        )
+        return q, r
 
     def qr(self):
         return self.QRdecomposition()
