@@ -1,6 +1,6 @@
 # FrankenSymPy
 
-**A planned memory-safe, proof-carrying, agent-native symbolic mathematics system—and an independently implemented drop-in replacement for named SymPy profiles.**
+**An in-progress memory-safe, proof-carrying, agent-native symbolic mathematics system—and an independently implemented drop-in replacement for named SymPy profiles.**
 
 > [!IMPORTANT]
 > **Current status: implementation in progress, pre-certification.** The repository now contains a substantial Rust implementation workspace (exact arithmetic, semantic term DAG, proof kernel, evidence system, polynomial/linear-algebra/calculus engines, portfolio runtime, conformance laboratory) with green workspace tests, a Python compatibility shell slice, and a live SymPy 1.14.0 differential oracle. It is **not** a certified SymPy replacement: no compatibility profile is certified, no performance win is demonstrated, and all `validated`/`certified` gates remain open. Capability status is tracked in [`registries/claims.toml`](registries/claims.toml).
