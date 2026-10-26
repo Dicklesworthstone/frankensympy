@@ -25,6 +25,9 @@ const MATRIX_SCHEMA_VERSION: u32 = 1;
 const MAX_MATRIX_ENTRIES: usize = 262_144;
 const MAX_MATRIX_DIMENSION: usize = MAX_MATRIX_ENTRIES;
 const MAX_DETERMINANT_DIMENSION: usize = 8;
+const MAX_EXACT_DETERMINANT_OPS: u128 = 10_000_000;
+const MAX_EXACT_DETERMINANT_COEFFICIENT_BITS: u64 = 65_536;
+const MAX_EXACT_DETERMINANT_WORK_BITS: u64 = 16_777_216;
 const MAX_CHARACTERISTIC_POLYNOMIAL_DIMENSION: usize = 32;
 const MAX_MATRIX_MULTIPLICATION_OPS: u128 = 10_000_000;
 const MAX_MATRIX_POLYNOMIAL_EVALUATION_OPS: u128 = 10_000_000;
@@ -66,12 +69,18 @@ pub enum MatrixError {
     DimensionLimitExceeded(usize, usize),
     #[error("Matrix operation exceeds a supported resource bound: {0}")]
     ResourceLimit(String),
+    #[error("Matrix operation cancelled")]
+    Cancelled,
     #[error("A symbolic pivot or determinant may be zero; an unconditional result is unsafe")]
     SymbolicZeroUndetermined,
     #[error("Exact matrix division by zero")]
     DivisionByZero,
     #[error("Matrix certificate verification currently supports exact rational entries only")]
     UnsupportedCertificateDomain,
+    #[error("Metered determinant computation supports exact rational entries only")]
+    UnsupportedDeterminantDomain,
+    #[error("Exact matrix arithmetic invariant failed: {0}")]
+    ArithmeticInvariantViolation(&'static str),
     #[error("Matrix certificate rejected: {0}")]
     InvalidCertificate(String),
     #[error("Invalid polynomial for matrix evaluation: {0}")]
@@ -95,6 +104,90 @@ fn from_rational(r: BigRational) -> Expr {
         Expr::Integer(r.to_integer())
     } else {
         Expr::Rational(r)
+    }
+}
+
+fn determinant_meter_error(error: fsym_budget::MeterError) -> MatrixError {
+    match error {
+        fsym_budget::MeterError::Cancelled => MatrixError::Cancelled,
+        fsym_budget::MeterError::Budget(error) => MatrixError::ResourceLimit(error.to_string()),
+    }
+}
+
+fn determinant_check_bits(bits: u64) -> Result<(), MatrixError> {
+    if bits > MAX_EXACT_DETERMINANT_COEFFICIENT_BITS {
+        return Err(MatrixError::ResourceLimit(format!(
+            "exact determinant coefficient exceeds {MAX_EXACT_DETERMINANT_COEFFICIENT_BITS} bits"
+        )));
+    }
+    Ok(())
+}
+
+fn determinant_clone<M: fsym_budget::BudgetMeter>(
+    value: &BigInt,
+    meter: &mut M,
+) -> Result<BigInt, MatrixError> {
+    meter.checkpoint().map_err(determinant_meter_error)?;
+    meter
+        .charge_batch(&[
+            (
+                fsym_budget::Dimension::MemoryBytes,
+                value.limb_count().max(1).saturating_mul(8),
+            ),
+            (fsym_budget::Dimension::AllocationCount, 1),
+        ])
+        .map_err(determinant_meter_error)?;
+    Ok(value.clone())
+}
+
+fn determinant_product<M: fsym_budget::BudgetMeter>(
+    left: &BigInt,
+    right: &BigInt,
+    meter: &mut M,
+) -> Result<BigInt, MatrixError> {
+    // Bound the temporary product before allocation, including products
+    // subsequently cancelled by an exact Bareiss division.
+    if !left.is_zero() && !right.is_zero() {
+        determinant_check_bits(left.bits().saturating_add(right.bits()))?;
+    }
+    fsym_core::arith::metered_mul(left, right, meter).map_err(determinant_meter_error)
+}
+
+fn determinant_quotient<M: fsym_budget::BudgetMeter>(
+    numerator: &BigInt,
+    denominator: &BigInt,
+    meter: &mut M,
+) -> Result<BigInt, MatrixError> {
+    fsym_core::arith::metered_exact_div(numerator, denominator, meter)
+        .map_err(determinant_meter_error)?
+        .ok_or(MatrixError::ArithmeticInvariantViolation(
+            "a required integer determinant quotient was not exact",
+        ))
+}
+
+fn determinant_work_bits(current: u64, removed: u64, added: u64) -> Result<u64, MatrixError> {
+    let total = current
+        .checked_sub(removed)
+        .and_then(|value| value.checked_add(added))
+        .ok_or(MatrixError::ArithmeticInvariantViolation(
+            "determinant coefficient accounting overflowed",
+        ))?;
+    if total > MAX_EXACT_DETERMINANT_WORK_BITS {
+        return Err(MatrixError::ResourceLimit(format!(
+            "exact determinant work matrix exceeds {MAX_EXACT_DETERMINANT_WORK_BITS} coefficient bits"
+        )));
+    }
+    Ok(total)
+}
+
+fn determinant_entry_parts<'a>(
+    entry: &'a Expr,
+    one: &'a BigInt,
+) -> Result<(&'a BigInt, &'a BigInt), MatrixError> {
+    match entry {
+        Expr::Integer(value) => Ok((value, one)),
+        Expr::Rational(value) => Ok((value.numer(), value.denom())),
+        _ => Err(MatrixError::UnsupportedDeterminantDomain),
     }
 }
 
@@ -748,11 +841,22 @@ impl Matrix {
         Matrix::new(out_rows, out_cols, data)
     }
 
-    /// Determinant computation for square matrix.
+    /// Determinant computation for a square matrix.
+    ///
+    /// Exact integer/rational matrices use row-denominator clearing followed
+    /// by fraction-free Bareiss elimination. Symbolic matrices retain bounded
+    /// Laplace expansion, which makes no unproved symbolic pivot decision.
     pub fn det(&self) -> Result<Expr, MatrixError> {
         self.validate_shape()?;
         if self.rows != self.cols {
             return Err(MatrixError::NotSquare(self.rows, self.cols));
+        }
+        if self
+            .data
+            .iter()
+            .all(|entry| matches!(entry, Expr::Integer(_) | Expr::Rational(_)))
+        {
+            return self.metered_det(&mut fsym_budget::Unbounded);
         }
         if self.rows > MAX_DETERMINANT_DIMENSION {
             return Err(MatrixError::ResourceLimit(format!(
@@ -788,6 +892,196 @@ impl Matrix {
                 ))
             }
         }
+    }
+
+    /// Exact-rational determinant with caller-owned budgets and cancellation.
+    ///
+    /// Row least-common denominators produce an integer matrix; every Bareiss
+    /// quotient must divide exactly, and the final determinant is divided by
+    /// the product of the row scales. Arithmetic uses the metered integer
+    /// reference lanes, with safe points inside multiplication/division/GCD
+    /// as well as at matrix boundaries. Operation, coefficient, and aggregate
+    /// work-matrix bounds apply even to an unbounded caller. Symbolic entries
+    /// are refused here; [`Self::det`] retains their bounded expansion lane.
+    ///
+    /// This returns an exact computation, not a mathematical certificate.
+    pub fn metered_det<M: fsym_budget::BudgetMeter>(
+        &self,
+        meter: &mut M,
+    ) -> Result<Expr, MatrixError> {
+        use fsym_budget::Dimension;
+        use fsym_core::arith::{metered_gcd, metered_subtract};
+
+        meter.checkpoint().map_err(determinant_meter_error)?;
+        self.validate_shape()?;
+        if self.rows != self.cols {
+            return Err(MatrixError::NotSquare(self.rows, self.cols));
+        }
+        let n = self.rows;
+        let operations = (n as u128)
+            .checked_pow(3)
+            .and_then(|value| value.checked_mul(4))
+            .ok_or_else(|| {
+                MatrixError::ResourceLimit("determinant operation bound overflowed".to_string())
+            })?;
+        if operations > MAX_EXACT_DETERMINANT_OPS {
+            return Err(MatrixError::ResourceLimit(format!(
+                "exact determinant exceeds the operation limit of {MAX_EXACT_DETERMINANT_OPS}"
+            )));
+        }
+        if n == 0 {
+            let result = Expr::from_i64(1);
+            meter.checkpoint().map_err(determinant_meter_error)?;
+            return Ok(result);
+        }
+
+        let one = BigInt::one();
+        let mut input_bits = 0u64;
+        for entry in &self.data {
+            meter.checkpoint().map_err(determinant_meter_error)?;
+            meter
+                .charge(Dimension::ComputeSteps, 1)
+                .map_err(determinant_meter_error)?;
+            let (numerator, denominator) = determinant_entry_parts(entry, &one)?;
+            determinant_check_bits(numerator.bits())?;
+            determinant_check_bits(denominator.bits())?;
+            input_bits = determinant_work_bits(
+                input_bits,
+                0,
+                numerator.bits().saturating_add(denominator.bits()),
+            )?;
+        }
+
+        let entries = self.data.len();
+        let storage_bytes = entries
+            .checked_mul(std::mem::size_of::<BigInt>())
+            .and_then(|value| u64::try_from(value).ok())
+            .ok_or_else(|| {
+                MatrixError::ResourceLimit("determinant storage bound overflowed".to_string())
+            })?;
+        meter
+            .charge_batch(&[
+                (Dimension::MemoryBytes, storage_bytes),
+                (Dimension::AllocationCount, 1),
+            ])
+            .map_err(determinant_meter_error)?;
+        let mut work = Vec::new();
+        work.try_reserve_exact(entries).map_err(|_| {
+            MatrixError::ResourceLimit("determinant work-matrix allocation refused".to_string())
+        })?;
+        let mut work_bits = 0u64;
+        let mut scale_product = BigInt::one();
+        for row in self.data.chunks(n) {
+            let mut scale = BigInt::one();
+            for entry in row {
+                meter.checkpoint().map_err(determinant_meter_error)?;
+                let (_, denominator) = determinant_entry_parts(entry, &one)?;
+                if denominator.is_one() {
+                    continue;
+                }
+                let gcd =
+                    metered_gcd(&scale, denominator, meter).map_err(determinant_meter_error)?;
+                let factor = determinant_quotient(denominator, &gcd, meter)?;
+                scale = determinant_product(&scale, &factor, meter)?;
+            }
+            scale_product = determinant_product(&scale_product, &scale, meter)?;
+            for entry in row {
+                let (numerator, denominator) = determinant_entry_parts(entry, &one)?;
+                let value = if scale.is_one() {
+                    determinant_clone(numerator, meter)?
+                } else {
+                    let factor = determinant_quotient(&scale, denominator, meter)?;
+                    determinant_product(numerator, &factor, meter)?
+                };
+                work_bits = determinant_work_bits(work_bits, 0, value.bits())?;
+                work.push(value);
+            }
+        }
+
+        let mut previous_pivot = BigInt::one();
+        let mut negate = false;
+        for col in 0..n.saturating_sub(1) {
+            let mut pivot_row = None;
+            for row in col..n {
+                meter.checkpoint().map_err(determinant_meter_error)?;
+                meter
+                    .charge(Dimension::ComputeSteps, 1)
+                    .map_err(determinant_meter_error)?;
+                if !work[row * n + col].is_zero() {
+                    pivot_row = Some(row);
+                    break;
+                }
+            }
+            let Some(pivot_row) = pivot_row else {
+                let result = Expr::from_i64(0);
+                meter.checkpoint().map_err(determinant_meter_error)?;
+                return Ok(result);
+            };
+            if pivot_row != col {
+                for j in 0..n {
+                    meter.checkpoint().map_err(determinant_meter_error)?;
+                    meter
+                        .charge(Dimension::ComputeSteps, 1)
+                        .map_err(determinant_meter_error)?;
+                    work.swap(pivot_row * n + j, col * n + j);
+                }
+                negate = !negate;
+            }
+            let pivot = determinant_clone(&work[col * n + col], meter)?;
+            for row in (col + 1)..n {
+                for j in (col + 1)..n {
+                    let index = row * n + j;
+                    let left = determinant_product(&pivot, &work[index], meter)?;
+                    let right =
+                        determinant_product(&work[row * n + col], &work[col * n + j], meter)?;
+                    determinant_check_bits(left.bits().max(right.bits()).saturating_add(1))?;
+                    let numerator =
+                        metered_subtract(&left, &right, meter).map_err(determinant_meter_error)?;
+                    let value = if previous_pivot.is_one() {
+                        numerator
+                    } else {
+                        determinant_quotient(&numerator, &previous_pivot, meter)?
+                    };
+                    work_bits = determinant_work_bits(work_bits, work[index].bits(), value.bits())?;
+                    work[index] = value;
+                }
+                let index = row * n + col;
+                work_bits = determinant_work_bits(work_bits, work[index].bits(), 0)?;
+                work[index] = BigInt::zero();
+            }
+            previous_pivot = pivot;
+        }
+
+        let determinant = work.pop().ok_or(MatrixError::ArithmeticInvariantViolation(
+            "a nonempty determinant work matrix became empty",
+        ))?;
+        let determinant = if negate { -determinant } else { determinant };
+        let result = if scale_product.is_one() {
+            Expr::Integer(determinant)
+        } else {
+            let value = BigRational::metered_new(&determinant, &scale_product, meter).map_err(
+                |error| match error {
+                    fsym_core::arith::RationalArithmeticError::Meter(error) => {
+                        determinant_meter_error(error)
+                    }
+                    fsym_core::arith::RationalArithmeticError::InvariantViolation(message) => {
+                        MatrixError::ArithmeticInvariantViolation(message)
+                    }
+                    fsym_core::arith::RationalArithmeticError::DivisionByZero => {
+                        MatrixError::ArithmeticInvariantViolation("zero determinant row scale")
+                    }
+                    error => MatrixError::ResourceLimit(error.to_string()),
+                },
+            )?;
+            if value.is_integer() {
+                Expr::Integer(determinant_clone(value.numer(), meter)?)
+            } else {
+                Expr::Rational(value)
+            }
+        };
+        // No partially reduced determinant can escape a cancelled request.
+        meter.checkpoint().map_err(determinant_meter_error)?;
+        Ok(result)
     }
 
     /// Extract submatrix by removing given row and col.
@@ -935,14 +1229,30 @@ impl Matrix {
         Ok(simplify(&Expr::Add(sq_terms)))
     }
 
-    /// Multiplicative inverse via the adjugate: `A^-1 = adj(A) / det(A)`.
+    /// Multiplicative inverse by exact row reduction for rational matrices.
+    /// Symbolic matrices retain the bounded adjugate path.
     ///
     /// Singularity must be decided exactly. Symbolic determinants are
     /// refused because an unconditional inverse would be invalid when the
     /// determinant specializes to zero.
     pub fn inverse(&self) -> Result<Self, MatrixError> {
+        self.validate_shape()?;
         if self.rows != self.cols {
             return Err(MatrixError::NotSquare(self.rows, self.cols));
+        }
+        if self
+            .data
+            .iter()
+            .all(|entry| matches!(entry, Expr::Integer(_) | Expr::Rational(_)))
+        {
+            let inverse = self.solve(&Self::eye(self.rows)?)?;
+            verify_inverse_certificate(
+                self,
+                &InverseCertificate {
+                    inverse: inverse.clone(),
+                },
+            )?;
+            return Ok(inverse);
         }
         let det = self.det()?;
         match Self::numeric(&det) {
@@ -2980,6 +3290,7 @@ mod tests {
     fn empty_and_scalar_matrix_algebra_is_exact() {
         let empty = Matrix::new(0, 0, Vec::new()).unwrap();
         assert_eq!(empty.det().unwrap(), num(1));
+        assert_eq!(empty.inverse().unwrap(), empty);
         assert!(empty.eigenvalues().unwrap().is_empty());
 
         let scalar = Matrix::new(1, 1, vec![num(4)]).unwrap();
@@ -2987,6 +3298,219 @@ mod tests {
             scalar.inverse().unwrap().get(0, 0).unwrap(),
             &Expr::Rational(BigRational::new(1.into(), 4.into()))
         );
+    }
+
+    #[test]
+    fn bareiss_matches_independent_rational_elimination() {
+        // The reference computes det(t I - A) using ordinary rational
+        // elimination, independently of row clearing and Bareiss updates.
+        for n in 0..=7usize {
+            for seed in 0..6usize {
+                let data = (0..n * n)
+                    .map(|index| {
+                        let numerator =
+                            ((index * 17 + seed * 11 + index / n * seed) % 19) as i64 - 9;
+                        let denominator = (index + seed) % 5 + 1;
+                        from_rational(BigRational::new(
+                            numerator.into(),
+                            BigInt::from(denominator as u64),
+                        ))
+                    })
+                    .collect();
+                let matrix = Matrix::new(n, n, data).unwrap();
+                let mut reference =
+                    reference_shifted_determinant(&matrix, &BigRational::zero()).unwrap();
+                if !n.is_multiple_of(2) {
+                    reference = -reference;
+                }
+                assert_eq!(
+                    matrix.det().unwrap(),
+                    from_rational(reference),
+                    "dimension {n}, seed {seed}"
+                );
+            }
+        }
+    }
+
+    fn scaled_identity_plus_ones(n: usize) -> Matrix {
+        // A = D (I + 11^T), D_ii = 1/(i+1). This is dense, with the
+        // exact determinant (n+1)/n! by the matrix determinant lemma.
+        Matrix::new(
+            n,
+            n,
+            (0..n * n)
+                .map(|index| {
+                    from_rational(BigRational::new(
+                        BigInt::from(if index / n == index % n { 2 } else { 1 }),
+                        BigInt::from((index / n + 1) as u64),
+                    ))
+                })
+                .collect(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn exact_determinants_cross_old_laplace_cap_with_pivots_and_singularities() {
+        for n in [9, 12, 16] {
+            let matrix = scaled_identity_plus_ones(n);
+            let factorial = (1..=n).fold(BigInt::one(), |acc, i| acc * BigInt::from(i as u64));
+            let expected = BigRational::new(BigInt::from((n + 1) as u64), factorial);
+            assert_eq!(matrix.det().unwrap(), from_rational(expected.clone()));
+
+            let mut swapped = matrix.clone();
+            for col in 0..n {
+                swapped.data.swap(col, (n - 1) * n + col);
+            }
+            assert_eq!(swapped.det().unwrap(), from_rational(-expected));
+
+            let mut singular = matrix;
+            for col in 0..n {
+                singular.data[(n - 1) * n + col] = singular.data[col].clone();
+            }
+            assert_eq!(singular.det().unwrap(), num(0));
+        }
+
+        // Every stage of this cyclic permutation requires a nontrivial
+        // pivot search, not merely a first-row swap.
+        let n = 10;
+        let permutation = Matrix::new(
+            n,
+            n,
+            (0..n * n)
+                .map(|index| num(i64::from(index % n == (index / n + 1) % n)))
+                .collect(),
+        )
+        .unwrap();
+        assert_eq!(permutation.det().unwrap(), num(-1));
+        assert_eq!(Matrix::zeros(10, 10).unwrap().det().unwrap(), num(0));
+    }
+
+    #[test]
+    fn rational_inverse_uses_row_reduction_above_eight_dimensions() {
+        let n = 12;
+        let matrix = scaled_identity_plus_ones(n);
+        let inverse = matrix.inverse().unwrap();
+        // A^-1 = (I - 11^T/(n+1)) D^-1, independently specified.
+        for row in 0..n {
+            for col in 0..n {
+                let numerator = if row == col { n as i64 } else { -1 } * (col + 1) as i64;
+                let expected = from_rational(BigRational::new(
+                    numerator.into(),
+                    BigInt::from((n + 1) as u64),
+                ));
+                assert_eq!(inverse.get(row, col).unwrap(), &expected);
+            }
+        }
+        let mut certificate = InverseCertificate { inverse };
+        assert!(verify_inverse_certificate(&matrix, &certificate).is_ok());
+        certificate.inverse.data[n + 3] = num(0);
+        assert!(verify_inverse_certificate(&matrix, &certificate).is_err());
+        assert_eq!(
+            Matrix::zeros(n, n).unwrap().inverse(),
+            Err(MatrixError::SingularMatrix)
+        );
+    }
+
+    #[derive(Default)]
+    struct DeterminantMeter {
+        charges: [u64; fsym_budget::DIMENSION_COUNT],
+        checkpoints: usize,
+        cancel_at: Option<usize>,
+    }
+
+    impl fsym_budget::BudgetMeter for DeterminantMeter {
+        fn charge(
+            &mut self,
+            dimension: fsym_budget::Dimension,
+            amount: u64,
+        ) -> Result<(), fsym_budget::MeterError> {
+            assert_ne!(amount, 0);
+            self.charges[dimension.index()] += amount;
+            Ok(())
+        }
+
+        fn charge_batch(
+            &mut self,
+            charges: &[(fsym_budget::Dimension, u64)],
+        ) -> Result<(), fsym_budget::MeterError> {
+            for &(dimension, amount) in charges {
+                self.charge(dimension, amount)?;
+            }
+            Ok(())
+        }
+
+        fn checkpoint(&mut self) -> Result<(), fsym_budget::MeterError> {
+            self.checkpoints += 1;
+            if self.cancel_at == Some(self.checkpoints) {
+                Err(fsym_budget::MeterError::Cancelled)
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    #[test]
+    fn determinant_budget_and_cancellation_never_publish_a_partial_value() {
+        let matrix = Matrix::new(2, 2, vec![num(0), num(2), num(3), num(4)]).unwrap();
+        let original = matrix.clone();
+        let mut counted = DeterminantMeter::default();
+        assert_eq!(matrix.metered_det(&mut counted).unwrap(), num(-6));
+        let limits = fsym_budget::BudgetLimits {
+            dimensions: counted.charges,
+            verifier_pool: 7,
+        };
+        let mut exact = fsym_budget::Budget::new(limits);
+        assert_eq!(matrix.metered_det(&mut exact).unwrap(), num(-6));
+        for dimension in fsym_budget::Dimension::ALL {
+            if counted.charges[dimension.index()] == 0 {
+                continue;
+            }
+            let mut short = limits;
+            short.dimensions[dimension.index()] -= 1;
+            assert!(matches!(
+                matrix.metered_det(&mut fsym_budget::Budget::new(short)),
+                Err(MatrixError::ResourceLimit(_))
+            ));
+        }
+        // Exercise every safe point, including the final publication check.
+        for cancel_at in 1..=counted.checkpoints {
+            let mut cancelled = DeterminantMeter {
+                cancel_at: Some(cancel_at),
+                ..Default::default()
+            };
+            assert_eq!(
+                matrix.metered_det(&mut cancelled),
+                Err(MatrixError::Cancelled),
+                "checkpoint {cancel_at}"
+            );
+        }
+        assert_eq!(matrix, original);
+    }
+
+    #[test]
+    fn determinant_preflights_resource_bounds_and_preserves_symbolic_lane() {
+        let too_large = Matrix::eye(136).unwrap();
+        assert!(matches!(
+            too_large.det(),
+            Err(MatrixError::ResourceLimit(_))
+        ));
+        let huge = BigInt::one() << (MAX_EXACT_DETERMINANT_COEFFICIENT_BITS as u32);
+        let scalar = Matrix::new(1, 1, vec![Expr::Integer(huge)]).unwrap();
+        assert!(matches!(scalar.det(), Err(MatrixError::ResourceLimit(_))));
+
+        let symbolic = Matrix::new(2, 2, vec![Expr::symbol("x"), num(1), num(1), num(0)]).unwrap();
+        assert_eq!(symbolic.det().unwrap(), num(-1));
+        assert_eq!(
+            symbolic.metered_det(&mut fsym_budget::Unbounded),
+            Err(MatrixError::UnsupportedDeterminantDomain)
+        );
+        let mut symbolic_large = Matrix::eye(9).unwrap();
+        symbolic_large.data[0] = Expr::symbol("x");
+        assert!(matches!(
+            symbolic_large.det(),
+            Err(MatrixError::ResourceLimit(_))
+        ));
     }
 
     #[test]

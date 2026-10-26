@@ -10,7 +10,7 @@
 pub use fsym_bigint::{
     BigInt, LIMB_BITS, NonZeroBigInt, Strategy as MulStrategy, exact_div, extended_gcd, gcd,
     limb_count_u64, metered_div_rem, metered_div_rem_nonzero, metered_exact_div,
-    metered_extended_gcd, metered_gcd, metered_multiply as metered_mul, multiply,
+    metered_extended_gcd, metered_gcd, metered_multiply as metered_mul, metered_subtract, multiply,
     multiply_with_strategy as mul_with_strategy, select_strategy,
 };
 pub use fsym_modular::{
@@ -19,3 +19,4 @@ pub use fsym_modular::{
     metered_jacobi_symbol, metered_legendre_symbol, metered_mod_inverse,
     metered_rational_reconstruct, mod_inverse, rational_reconstruct,
 };
+pub use fsym_rational::RationalArithmeticError;
