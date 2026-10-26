@@ -6,12 +6,28 @@ use crate::SolverError;
 use fsym_calculus::{diff, integrate};
 use fsym_core::{BigInt, BigRational, Constant, Expr, Symbol};
 use fsym_simplify::{simplify, try_expand, try_simplify};
-use num_traits::Zero;
+use num_traits::{Signed, Zero};
 use std::sync::Arc;
 
-fn square_root_if_exact(value: &BigInt) -> Option<BigInt> {
-    let root = value.sqrt()?;
-    (&root * &root == value.clone()).then_some(root)
+fn positive_rational_literal(expr: &Expr) -> bool {
+    match expr {
+        Expr::Integer(value) => value.is_positive(),
+        Expr::Rational(value) => value.is_positive(),
+        _ => false,
+    }
+}
+
+/// A real algebraic constant, never a floating approximation. The caller
+/// supplies a strictly positive discriminant (or its absolute value).
+fn radical_quotient(radicand: BigInt, denominator: BigInt) -> Expr {
+    let root = fsym_core::elementary::eval_pow(
+        Expr::Integer(radicand),
+        Expr::Rational(BigRational::new(1.into(), 2.into())),
+    );
+    simplify(&Expr::Mul(vec![
+        rational_to_expr(BigRational::new(1.into(), denominator)),
+        root,
+    ]))
 }
 
 fn require_fresh_integration_constants(
@@ -71,7 +87,10 @@ fn expression_contains_symbol(expr: &Expr, symbol: &Symbol) -> bool {
     false
 }
 
-fn ode_expression_is_total(expr: &Expr) -> bool {
+/// Check the domain before simplification can erase an undefined subterm.
+/// A Cauchy-Euler candidate is checked on the explicitly declared axis x>0;
+/// ordinary constant-coefficient candidates must be defined everywhere.
+fn ode_expression_is_defined(expr: &Expr, positive_axis: Option<&Symbol>) -> bool {
     let mut stack = vec![expr];
     while let Some(current) = stack.pop() {
         match current {
@@ -91,6 +110,14 @@ fn ode_expression_is_total(expr: &Expr) -> bool {
             }
             Expr::Pow(base, exponent) => match exponent.as_ref() {
                 Expr::Integer(value) if value > &BigInt::zero() => stack.push(base),
+                _ if positive_rational_literal(base)
+                    || positive_axis
+                        .is_some_and(|x| matches!(base.as_ref(), Expr::Sym(s) if s == x)) =>
+                {
+                    // A positive base has an unambiguous real logarithm;
+                    // its power is defined for every admitted finite exponent.
+                    stack.push(exponent);
+                }
                 _ => return false,
             },
             Expr::Function(name, args)
@@ -99,6 +126,12 @@ fn ode_expression_is_total(expr: &Expr) -> bool {
             {
                 stack.extend(args);
             }
+            Expr::Function(name, args)
+                if matches!(name.as_str(), "log" | "ln")
+                    && args.len() == 1
+                    && (positive_rational_literal(&args[0])
+                        || positive_axis
+                            .is_some_and(|x| matches!(&args[0], Expr::Sym(s) if s == x))) => {}
             Expr::Function(_, _) => return false,
         }
     }
@@ -107,19 +140,29 @@ fn ode_expression_is_total(expr: &Expr) -> bool {
 
 fn ode_inputs_are_total(inputs: &[&Expr]) -> bool {
     crate::verifier_inputs_within_bounds(inputs.iter().copied())
-        && inputs.iter().all(|input| ode_expression_is_total(input))
+        && inputs
+            .iter()
+            .all(|input| ode_expression_is_defined(input, None))
 }
 
 fn residual_is_exact_zero(residual: &Expr) -> bool {
-    if !ode_inputs_are_total(&[residual]) {
+    residual_is_exact_zero_on_domain(residual, None)
+}
+
+fn residual_is_exact_zero_on_domain(residual: &Expr, positive_axis: Option<&Symbol>) -> bool {
+    let admitted = |expression: &Expr| {
+        crate::verifier_inputs_within_bounds([expression])
+            && ode_expression_is_defined(expression, positive_axis)
+    };
+    if !admitted(residual) {
         return false;
     }
     let expanded = match try_expand(residual) {
-        Ok(expanded) if ode_inputs_are_total(&[&expanded]) => expanded,
+        Ok(expanded) if admitted(&expanded) => expanded,
         _ => return false,
     };
     let simplified = match try_simplify(&expanded) {
-        Ok(simplified) if ode_inputs_are_total(&[&simplified]) => simplified,
+        Ok(simplified) if admitted(&simplified) => simplified,
         _ => return false,
     };
     simplified.is_zero()
@@ -204,14 +247,10 @@ pub fn dsolve_const_coeff_second_order(
         simplify(&Expr::Mul(vec![term, exp_rx]))
     } else if disc.is_positive() {
         // Two distinct real roots
-        let sqrt_disc = square_root_if_exact(&disc).ok_or_else(|| {
-            SolverError::IncompleteSolutionSet(
-                "non-square characteristic radicals are not supported by the exact ODE verifier"
-                    .to_string(),
-            )
-        })?;
-        let r1 = Expr::Rational(BigRational::new(&neg_b + &sqrt_disc, two_a.clone()));
-        let r2 = Expr::Rational(BigRational::new(&neg_b - &sqrt_disc, two_a.clone()));
+        let center = rational_to_expr(BigRational::new(neg_b, two_a.clone()));
+        let offset = radical_quotient(disc, two_a);
+        let r1 = simplify(&(center.clone() + offset.clone()));
+        let r2 = simplify(&(center - offset));
         let exp1 = Expr::Function("exp".into(), vec![Expr::Mul(vec![r1, x_sym.clone()])]);
         let exp2 = Expr::Function("exp".into(), vec![Expr::Mul(vec![r2, x_sym])]);
         let sol = Expr::Add(vec![
@@ -223,14 +262,7 @@ pub fn dsolve_const_coeff_second_order(
         // Complex conjugate roots: alpha ± i*beta
         // alpha = -b / (2*a), beta = sqrt(-disc) / (2*a)
         let alpha = Expr::Rational(BigRational::new(neg_b, two_a.clone()));
-        let pos_disc = -disc;
-        let sqrt_disc = square_root_if_exact(&pos_disc).ok_or_else(|| {
-            SolverError::IncompleteSolutionSet(
-                "non-square characteristic radicals are not supported by the exact ODE verifier"
-                    .to_string(),
-            )
-        })?;
-        let beta = Expr::Rational(BigRational::new(sqrt_disc, two_a.clone()));
+        let beta = radical_quotient(-disc, two_a);
 
         let exp_ax = Expr::Function("exp".into(), vec![Expr::Mul(vec![alpha, x_sym.clone()])]);
         let cos_bx = Expr::Function(
@@ -271,6 +303,8 @@ fn rational_to_expr(r: BigRational) -> Expr {
 }
 
 /// Solves homogeneous Cauchy-Euler ODE: $a x^2 y''(x) + b x y'(x) + c y(x) = 0$.
+/// The returned powers and logarithms use the real logarithm on `x > 0`;
+/// no claim is made at the singular point zero or across other branch cuts.
 pub fn dsolve_cauchy_euler(
     a: i64,
     b: i64,
@@ -305,28 +339,17 @@ pub fn dsolve_cauchy_euler(
         simplify(&Expr::Mul(vec![x_pow_m, term]))
     } else if disc.is_positive() {
         // Two distinct real roots
-        let sqrt_disc = square_root_if_exact(&disc).ok_or_else(|| {
-            SolverError::IncompleteSolutionSet(
-                "non-square characteristic radicals are not supported by the exact ODE verifier"
-                    .to_string(),
-            )
-        })?;
-        let m1 = rational_to_expr(BigRational::new(&neg_b_minus_a + &sqrt_disc, two_a.clone()));
-        let m2 = rational_to_expr(BigRational::new(&neg_b_minus_a - &sqrt_disc, two_a));
+        let center = rational_to_expr(BigRational::new(neg_b_minus_a, two_a.clone()));
+        let offset = radical_quotient(disc, two_a);
+        let m1 = simplify(&(center.clone() + offset.clone()));
+        let m2 = simplify(&(center - offset));
         let term1 = Expr::Mul(vec![c1_sym, Expr::pow(x_sym.clone(), m1)]);
         let term2 = Expr::Mul(vec![c2_sym, Expr::pow(x_sym, m2)]);
         simplify(&Expr::Add(vec![term1, term2]))
     } else {
         // Complex conjugate roots: alpha ± i*beta
         let alpha = rational_to_expr(BigRational::new(neg_b_minus_a, two_a.clone()));
-        let pos_disc = -disc;
-        let sqrt_disc = square_root_if_exact(&pos_disc).ok_or_else(|| {
-            SolverError::IncompleteSolutionSet(
-                "non-square characteristic radicals are not supported by the exact ODE verifier"
-                    .to_string(),
-            )
-        })?;
-        let beta = rational_to_expr(BigRational::new(sqrt_disc, two_a));
+        let beta = radical_quotient(-disc, two_a);
 
         let x_pow_alpha = Expr::pow(x_sym.clone(), alpha);
         let ln_x = Expr::Function("ln".into(), vec![x_sym.clone()]);
@@ -352,8 +375,13 @@ pub fn dsolve_cauchy_euler(
 
 /// Independent verifier for homogeneous Cauchy-Euler differential equation:
 /// $a x^2 y''(x) + b x y'(x) + c y(x) = 0$.
+/// Checks the candidate on the positive real axis, where the real logarithm
+/// and real/complex powers of x have a fixed branch. It does not certify
+/// initial conditions or completeness of an arbitrary candidate family.
 pub fn verify_cauchy_euler_solution(solution: &Expr, a: i64, b: i64, c: i64, x: &Symbol) -> bool {
-    if !crate::verifier_inputs_within_bounds([solution]) {
+    if !crate::verifier_inputs_within_bounds([solution])
+        || !ode_expression_is_defined(solution, Some(x))
+    {
         return false;
     }
     let mut terms = Vec::with_capacity(3);
@@ -377,16 +405,7 @@ pub fn verify_cauchy_euler_solution(solution: &Expr, a: i64, b: i64, c: i64, x: 
     if terms.is_empty() {
         return true;
     }
-    let residual = Expr::Add(terms);
-    let expanded = match try_expand(&residual) {
-        Ok(e) => e,
-        Err(_) => return false,
-    };
-    let simplified = match try_simplify(&expanded) {
-        Ok(s) => s,
-        Err(_) => simplify(&expanded),
-    };
-    simplified.is_zero()
+    residual_is_exact_zero_on_domain(&Expr::Add(terms), Some(x))
 }
 
 /// Exact residual checker for a candidate solution of $y'(x) + P(x) y(x) = Q(x)$.

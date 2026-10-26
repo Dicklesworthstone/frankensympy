@@ -43,7 +43,12 @@ def dsolve_const_coeff_second_order_nonhomogeneous(
 
 
 def dsolve_cauchy_euler(a: int, b: int, c: int, x: Any) -> Any:
-    """Solve Cauchy-Euler 2nd-order ODE: a*x^2*y''(x) + b*x*y'(x) + c*y(x) = 0."""
+    """Solve a*x**2*y'' + b*x*y' + c*y = 0 on the positive real axis x > 0.
+
+    Powers and logarithms use that explicit domain. This helper does not
+    impose initial conditions or extend the family across the singularity
+    at x = 0.
+    """
     x_sym = _require_symbol(x)
     res = _native.dsolve_cauchy_euler_expr(int(a), int(b), int(c), _native_symbol_key(x_sym))
     return _parse_result(res)

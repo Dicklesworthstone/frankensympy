@@ -800,10 +800,14 @@ mod tests {
         ));
         assert!(dsolve_const_coeff_second_order(i64::MIN, 0, 0, &x, &c1, &c2).is_ok());
         assert!(dsolve_const_coeff_second_order(1, i64::MIN, 0, &x, &c1, &c2).is_ok());
-        assert!(matches!(
-            dsolve_const_coeff_second_order(1, 0, i64::MAX, &x, &c1, &c2),
-            Err(SolverError::IncompleteSolutionSet(message))
-                if message.contains("non-square characteristic radicals")
+        let large_frequency =
+            dsolve_const_coeff_second_order(1, 0, i64::MAX, &x, &c1, &c2).unwrap();
+        assert!(verify_const_coeff_second_order_solution(
+            &large_frequency,
+            1,
+            0,
+            i64::MAX,
+            &x
         ));
 
         // The old sampled fallback substituted x=1 and accepted this nonzero
@@ -850,6 +854,10 @@ mod tests {
             (-1, 0, -4),
             (i64::MIN, 0, 0),
             (1, i64::MIN, 0),
+            (1, 0, -2),
+            (1, 0, 2),
+            (2, -3, -1),
+            (1, 2, 3),
         ] {
             let solution = dsolve_const_coeff_second_order(a, b, c, &x, &c1, &c2)
                 .expect("the exact characteristic family must be supported");
@@ -859,26 +867,23 @@ mod tests {
             );
         }
 
-        for (a, b, c) in [(1, 0, -2), (1, 0, 2)] {
-            assert!(matches!(
-                dsolve_const_coeff_second_order(a, b, c, &x, &c1, &c2),
-                Err(SolverError::IncompleteSolutionSet(message))
-                    if message.contains("non-square characteristic radicals")
-            ));
-        }
-
-        assert!(matches!(
-            dsolve_const_coeff_second_order_nonhomogeneous(
-                1,
-                0,
-                2,
-                &Expr::from_i64(1),
-                &x,
-                &c1,
-                &c2,
-            ),
-            Err(SolverError::IncompleteSolutionSet(message))
-                if message.contains("non-square characteristic radicals")
+        let forced = dsolve_const_coeff_second_order_nonhomogeneous(
+            1,
+            0,
+            2,
+            &Expr::from_i64(1),
+            &x,
+            &c1,
+            &c2,
+        )
+        .unwrap();
+        assert!(verify_const_coeff_second_order_nonhomogeneous_solution(
+            &forced,
+            1,
+            0,
+            2,
+            &Expr::from_i64(1),
+            &x
         ));
     }
 
