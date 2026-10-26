@@ -1480,10 +1480,14 @@ impl Matrix {
 
     /// Eigenvalues as exact expressions when decidable.
     ///
-    /// Computes the characteristic polynomial and solves it exactly for
-    /// degrees up to 2. Larger degrees and symbolic characteristic
-    /// coefficients are refused rather than answered incompletely.
+    /// The degree-one/two lane preserves its established expression forms.
+    /// Larger rational matrices use a reference-checked characteristic
+    /// polynomial and complete factorization over Q, retaining algebraic
+    /// multiplicities. If any factor's roots cannot all be expressed by the
+    /// exact solver, the entire spectrum is refused. Characteristic-polynomial
+    /// dimension and coefficient-growth limits apply.
     pub fn eigenvalues(&self) -> Result<Vec<Expr>, MatrixError> {
+        self.validate_shape()?;
         if self.rows != self.cols {
             return Err(MatrixError::NotSquare(self.rows, self.cols));
         }
@@ -1491,7 +1495,55 @@ impl Matrix {
             return Ok(Vec::new());
         }
         if self.rows > 2 {
-            return Err(MatrixError::EigenvaluesUnsupportedDegree(self.rows));
+            if self.rows > MAX_CHARACTERISTIC_POLYNOMIAL_DIMENSION {
+                return Err(MatrixError::ResourceLimit(format!(
+                    "characteristic polynomial supports dimensions up to {MAX_CHARACTERISTIC_POLYNOMIAL_DIMENSION}"
+                )));
+            }
+            // Preflight the original entries before characteristic-polynomial
+            // arithmetic. In particular, symbolic or undefined expressions
+            // cannot disappear through cancellation and enter this exact lane.
+            let mut input_bits = 0u64;
+            for entry in &self.data {
+                let bits = match entry {
+                    Expr::Integer(value) => value.bits().max(1),
+                    Expr::Rational(value) => value
+                        .numer()
+                        .bits()
+                        .max(1)
+                        .saturating_add(value.denom().bits()),
+                    _ => return Err(MatrixError::SymbolicCharacteristicPolynomial),
+                };
+                input_bits = input_bits.saturating_add(bits);
+                if input_bits > MAX_EXACT_DETERMINANT_COEFFICIENT_BITS {
+                    return Err(MatrixError::ResourceLimit(
+                        "exact eigenvalue input exceeds 65536 coefficient bits".into(),
+                    ));
+                }
+            }
+            let polynomial = self.char_poly_with_certificate("lambda")?.poly;
+            let roots =
+                fsym_solvers::univariate::poly_roots(&polynomial).map_err(|error| match error {
+                    SolverError::UnsupportedDegree(degree) => {
+                        MatrixError::EigenvaluesUnsupportedDegree(degree)
+                    }
+                    other => MatrixError::Solver(other.to_string()),
+                })?;
+            let mut spectrum = Vec::with_capacity(self.rows);
+            for (root, multiplicity) in roots {
+                if multiplicity == 0 || multiplicity > self.rows - spectrum.len() {
+                    return Err(MatrixError::ArithmeticInvariantViolation(
+                        "eigenvalue multiplicities exceed the characteristic degree",
+                    ));
+                }
+                spectrum.extend(std::iter::repeat_n(root, multiplicity));
+            }
+            if spectrum.len() != self.rows {
+                return Err(MatrixError::ArithmeticInvariantViolation(
+                    "exact root solver returned an incomplete spectrum",
+                ));
+            }
+            return Ok(fsym_solvers::univariate::sort_roots(spectrum));
         }
         let poly = self.char_poly_as_poly("lambda")?;
         match poly.degree() {
@@ -3044,12 +3096,9 @@ mod tests {
     }
 
     #[test]
-    fn eigenvalues_beyond_quadratic_degree_refused() {
+    fn eigenvalues_beyond_quadratic_degree_keep_multiplicity() {
         let m = Matrix::eye(3).unwrap();
-        assert_eq!(
-            m.eigenvalues().unwrap_err(),
-            MatrixError::EigenvaluesUnsupportedDegree(3)
-        );
+        assert_eq!(m.eigenvalues().unwrap(), vec![num(1); 3]);
     }
 
     #[test]
