@@ -6,6 +6,8 @@
 
 pub mod sparse;
 pub use sparse::*;
+pub mod structured;
+pub use structured::*;
 mod pseudoinverse;
 pub use pseudoinverse::{PseudoinverseCertificate, verify_pseudoinverse_certificate};
 

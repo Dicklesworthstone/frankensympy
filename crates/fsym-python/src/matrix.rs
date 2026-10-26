@@ -556,6 +556,24 @@ impl PySparseMatrix {
         self.inner.nnz()
     }
 
+    /// Whether every stored entry belongs to the exact rational lane.
+    #[getter]
+    pub fn is_exact_rational(&self) -> bool {
+        self.inner
+            .entries()
+            .values()
+            .all(|entry| matches!(entry, Expr::Integer(_) | Expr::Rational(_)))
+    }
+
+    /// Stored entries only; implicit zeros never require a dense traversal.
+    pub fn todok(&self) -> std::collections::BTreeMap<(usize, usize), PyExpr> {
+        self.inner
+            .entries()
+            .iter()
+            .map(|(&coordinate, value)| (coordinate, PyExpr::from_expr(value.clone())))
+            .collect()
+    }
+
     /// Number of elements in full shape.
     pub fn __len__(&self) -> usize {
         self.inner.rows() * self.inner.cols()
@@ -602,6 +620,18 @@ impl PySparseMatrix {
     pub fn trace(&self) -> PyResult<PyExpr> {
         let tr = self.inner.trace().map_err(matrix_err)?;
         Ok(PyExpr::from_expr(tr))
+    }
+
+    /// Exact rational determinant without allocating the dense matrix.
+    pub fn det(&self) -> PyResult<PyExpr> {
+        self.inner.det().map(PyExpr::from_expr).map_err(matrix_err)
+    }
+
+    /// Unique exact rational solution, retaining sparse inputs and outputs.
+    pub fn solve(&self, rhs: &Self) -> PyResult<Self> {
+        Ok(Self {
+            inner: self.inner.solve(&rhs.inner).map_err(matrix_err)?,
+        })
     }
 
     /// Sparse matrix addition.

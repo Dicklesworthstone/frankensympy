@@ -159,14 +159,31 @@ class SparseMatrix(MatrixBase):
         return self
 
     def det(self, method: Any = None) -> Any:
+        if self._native.is_exact_rational:
+            return _wrap(self._native.det())
         return self.to_dense().det(method=method)
 
     def inv(self, method: Any = None, **kwargs: Any) -> "SparseMatrix":
+        if self._native.is_exact_rational:
+            return self.solve(SparseMatrix.eye(self.rows))
         return self.to_dense().inv(method=method, **kwargs).to_sparse()
 
     def solve(self, b: Any) -> "SparseMatrix":
-        rhs = b.to_dense() if hasattr(b, "to_dense") else (b if isinstance(b, Matrix) else Matrix(b))
-        return self.to_dense().solve(rhs).to_sparse()
+        """Solve an exact rational sparse system without dense conversion."""
+        if isinstance(b, SparseMatrix):
+            sparse_rhs = b
+        elif isinstance(b, Matrix):
+            sparse_rhs = b.to_sparse()
+        elif not hasattr(b, "to_dense"):
+            sparse_rhs = SparseMatrix(Matrix(b))
+        else:
+            sparse_rhs = SparseMatrix(b.to_dense())
+        if self._native.is_exact_rational and sparse_rhs._native.is_exact_rational:
+            return SparseMatrix(self._native.solve(sparse_rhs._native))
+        return self.to_dense().solve(sparse_rhs.to_dense()).to_sparse()
+
+    def LUsolve(self, b: Any) -> "SparseMatrix":
+        return self.solve(b)
 
     def rref(self, **kwargs: Any) -> Any:
         res = self.to_dense().rref(**kwargs)
@@ -220,13 +237,7 @@ class SparseMatrix(MatrixBase):
 
     def todok(self) -> Dict[Tuple[int, int], Any]:
         """Return a dictionary of non-zero entries keyed by (row, col)."""
-        res = {}
-        for r in range(self.rows):
-            for c in range(self.cols):
-                val = self[r, c]
-                if val != 0:
-                    res[(r, c)] = val
-        return res
+        return {coordinate: _wrap(value) for coordinate, value in self._native.todok().items()}
 
     def __len__(self) -> int:
         return len(self._native)
