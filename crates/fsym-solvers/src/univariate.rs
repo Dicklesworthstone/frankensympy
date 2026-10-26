@@ -197,7 +197,9 @@ fn factor_roots(p: &UnivariatePoly) -> Result<Vec<Expr>, SolverError> {
                 return Ok(out);
             }
             if d == 3 {
-                return Ok(cardano(&c[3], &c[2], &c[1], &c[0]));
+                let roots = cardano(&c[3], &c[2], &c[1], &c[0]);
+                check_cubic_root_set(p, &roots)?;
+                return Ok(roots);
             }
             Err(SolverError::UnsupportedDegree(d))
         }
@@ -220,9 +222,22 @@ fn cardano(a: &BigRational, b: &BigRational, c: &BigRational, d: &BigRational) -
         + d;
     let shift = rq(-b / three.clone());
     let half_q = rq(-qq.clone() / BigRational::from_integer(BigInt::from(2)));
-    let inner = qq.clone() * qq / BigRational::from_integer(BigInt::from(4))
+    let inner = qq.clone() * qq.clone() / BigRational::from_integer(BigInt::from(4))
         + p.clone() * p.clone() * p.clone() / BigRational::from_integer(BigInt::from(27));
-    let u = eval_pow(half_q + eval_pow(rq(inner), q(1, 2)), q(1, 3));
+    // A pure depressed cubic needs the real cube root of -q. For q > 0,
+    // Cardano's plus radicand is exactly zero, so choosing it would
+    // incorrectly return the shift three times. The real cube root and
+    // the three roots of unity give the complete root multiset.
+    let u = if p.is_zero() {
+        let magnitude = eval_pow(rq(qq.abs()), q(1, 3));
+        if qq.is_positive() {
+            -magnitude
+        } else {
+            magnitude
+        }
+    } else {
+        eval_pow(half_q + eval_pow(rq(inner), q(1, 2)), q(1, 3))
+    };
     let omega = [
         unit_root(0, 3, BigRational::zero()),
         unit_root(1, 3, BigRational::zero()),
@@ -240,6 +255,260 @@ fn cardano(a: &BigRational, b: &BigRational, c: &BigRational, d: &BigRational) -
             expand(&(t + shift.clone()))
         })
         .collect()
+}
+
+/// The cubic publication guard uses the original polynomial coefficients,
+/// independently of Cardano's depressed coefficients and branch selection.
+/// Reconstructing all coefficients checks the complete root multiset, not
+/// just membership of whichever roots the generator happened to return.
+/// This is a bounded exact check, not a proof-kernel certificate API.
+fn check_cubic_root_set(p: &UnivariatePoly, roots: &[Expr]) -> Result<(), SolverError> {
+    let refusal = || {
+        SolverError::IncompleteSolutionSet(
+            "the cubic root multiset could not be reconstructed as the original polynomial exactly"
+                .into(),
+        )
+    };
+    p.validate_shape()
+        .map_err(|error| SolverError::InvalidSystem(error.to_string()))?;
+    if p.degree() != Some(3)
+        || roots.len() != 3
+        || p.coeffs.iter().any(|c| {
+            c.numer().bits() > MAX_CUBIC_CHECK_COEFFICIENT_BITS
+                || c.denom().bits() > MAX_CUBIC_CHECK_COEFFICIENT_BITS
+        })
+        || roots.iter().any(|root| !cubic_check_input(root))
+    {
+        return Err(refusal());
+    }
+    // Clearing denominators preserves a zero claim only after every
+    // original negative power has been proved defined. An interval merely
+    // containing zero does not discharge this obligation.
+    for root in roots {
+        if !cubic_denominators_defined(root) {
+            return Err(refusal());
+        }
+    }
+    let [a, b, c] = roots else {
+        return Err(refusal());
+    };
+    let leading = &p.coeffs[3];
+    let identities = [
+        a.clone() + b.clone() + c.clone() + rq(&p.coeffs[2] / leading),
+        a.clone() * b.clone() + a.clone() * c.clone() + b.clone() * c.clone()
+            - rq(&p.coeffs[1] / leading),
+        a.clone() * b.clone() * c.clone() + rq(&p.coeffs[0] / leading),
+    ];
+    if identities.iter().all(cubic_exact_zero) {
+        Ok(())
+    } else {
+        Err(refusal())
+    }
+}
+
+const MAX_CUBIC_CHECK_NODES: usize = 4_096;
+const MAX_CUBIC_CHECK_DEPTH: usize = 48;
+const MAX_CUBIC_CHECK_COEFFICIENT_BITS: u64 = 4_096;
+
+/// Fixed work envelope before recursive expansion or denominator clearing.
+/// Only exact algebraic constants used by the cubic lane are admitted;
+/// opaque functions, symbols and nonfinite constants remain undecidable.
+fn cubic_check_input(e: &Expr) -> bool {
+    let mut stack = vec![(e, 0usize)];
+    let mut nodes = 0usize;
+    while let Some((term, depth)) = stack.pop() {
+        nodes += 1;
+        if nodes > MAX_CUBIC_CHECK_NODES || depth > MAX_CUBIC_CHECK_DEPTH {
+            return false;
+        }
+        match term {
+            Expr::Integer(n) if n.bits() <= MAX_CUBIC_CHECK_COEFFICIENT_BITS => {}
+            Expr::Rational(r)
+                if r.numer().bits() <= MAX_CUBIC_CHECK_COEFFICIENT_BITS
+                    && r.denom().bits() <= MAX_CUBIC_CHECK_COEFFICIENT_BITS => {}
+            Expr::Const(Constant::I) => {}
+            Expr::Add(args) | Expr::Mul(args) if args.len() <= 64 => {
+                if stack.len().saturating_add(args.len()) > MAX_CUBIC_CHECK_NODES {
+                    return false;
+                }
+                stack.extend(args.iter().map(|arg| (arg, depth + 1)));
+            }
+            Expr::Pow(base, exponent) => {
+                let Some(power) = number(exponent) else {
+                    return false;
+                };
+                if power.numer().abs() > BigInt::from(12) || power.denom() > &BigInt::from(6) {
+                    return false;
+                }
+                stack.push((base, depth + 1));
+            }
+            _ => return false,
+        }
+    }
+    true
+}
+
+/// Rational-expression denominator clearing; fractional powers stay
+/// intact, so no principal-branch identity such as (a/b)^r = a^r/b^r is
+/// assumed. Negative powers move whole positive powers to the denominator.
+fn cubic_fraction(e: &Expr) -> Option<(Expr, Expr)> {
+    let one = || Expr::from_i64(1);
+    match e {
+        Expr::Add(terms) => {
+            let (mut numerator, mut denominator) = (Expr::from_i64(0), one());
+            for term in terms {
+                let (n, d) = cubic_fraction(term)?;
+                numerator = numerator * d.clone() + n * denominator.clone();
+                denominator = denominator * d;
+                if !cubic_check_input(&numerator) || !cubic_check_input(&denominator) {
+                    return None;
+                }
+            }
+            Some((numerator, denominator))
+        }
+        Expr::Mul(terms) => {
+            let (mut numerator, mut denominator) = (one(), one());
+            for term in terms {
+                let (n, d) = cubic_fraction(term)?;
+                numerator = numerator * n;
+                denominator = denominator * d;
+                if !cubic_check_input(&numerator) || !cubic_check_input(&denominator) {
+                    return None;
+                }
+            }
+            Some((numerator, denominator))
+        }
+        Expr::Pow(base, exponent) => {
+            let power = number(exponent)?;
+            if power.is_integer() {
+                let (n, d) = cubic_fraction(base)?;
+                let magnitude = rq(power.abs());
+                let (n, d) = (eval_pow(n, magnitude.clone()), eval_pow(d, magnitude));
+                Some(if power.is_negative() { (d, n) } else { (n, d) })
+            } else if power.is_negative() {
+                Some((one(), eval_pow((**base).clone(), rq(-power))))
+            } else {
+                Some((e.clone(), one()))
+            }
+        }
+        _ => Some((e.clone(), one())),
+    }
+}
+
+fn cubic_nonzero(e: &Expr) -> bool {
+    match e {
+        Expr::Mul(factors) => factors.iter().all(cubic_nonzero),
+        Expr::Pow(base, exponent) => {
+            // Every nonzero finite complex number has a nonzero principal
+            // rational power. This exact implication also handles Cardano's
+            // complex cube roots when the ball evaluator only supports real
+            // noninteger powers. No approximate root value is needed.
+            number(exponent).is_some() && cubic_nonzero(base)
+        }
+        _ => zero_status(e) == Some(false),
+    }
+}
+
+fn cubic_denominators_defined(e: &Expr) -> bool {
+    let mut stack = vec![e];
+    while let Some(term) = stack.pop() {
+        match term {
+            Expr::Pow(base, exponent) => {
+                if number(exponent).is_some_and(|power| power.is_negative()) && !cubic_nonzero(base)
+                {
+                    return false;
+                }
+                stack.push(base);
+            }
+            Expr::Add(terms) | Expr::Mul(terms) => stack.extend(terms),
+            _ => {}
+        }
+    }
+    true
+}
+
+/// Expose the integer part of a positive rational power for expansion.
+/// This uses the same fixed principal logarithm on both sides. Keeping a
+/// raw Mul here is intentional: eager multiplication would immediately
+/// merge the powers again before the integer factor can be expanded.
+fn cubic_split_powers(e: &Expr) -> Option<Expr> {
+    match e {
+        Expr::Add(terms) => Some(Expr::Add(
+            terms
+                .iter()
+                .map(cubic_split_powers)
+                .collect::<Option<_>>()?,
+        )),
+        Expr::Mul(terms) => Some(Expr::Mul(
+            terms
+                .iter()
+                .map(cubic_split_powers)
+                .collect::<Option<_>>()?,
+        )),
+        Expr::Pow(base, exponent) => {
+            let base = cubic_split_powers(base)?;
+            let power = number(exponent)?;
+            if !power.is_integer() && power > BigRational::one() {
+                let integer = power.to_integer();
+                let fractional = power - BigRational::from_integer(integer.clone());
+                Some(Expr::Mul(vec![
+                    Expr::Pow(
+                        std::sync::Arc::new(base.clone()),
+                        std::sync::Arc::new(Expr::Integer(integer)),
+                    ),
+                    Expr::Pow(
+                        std::sync::Arc::new(base),
+                        std::sync::Arc::new(rq(fractional)),
+                    ),
+                ]))
+            } else {
+                Some(Expr::Pow(std::sync::Arc::new(base), exponent.clone()))
+            }
+        }
+        _ => Some(e.clone()),
+    }
+}
+
+fn cubic_exact_zero(e: &Expr) -> bool {
+    let checked = || -> Option<bool> {
+        if !cubic_check_input(e) {
+            return None;
+        }
+        let simplified = fsym_simplify::try_simplify(e).ok()?;
+        if simplified.is_zero() {
+            return Some(true);
+        }
+        let (mut numerator, _) = cubic_fraction(&simplified)?;
+        if !cubic_check_input(&numerator) {
+            return None;
+        }
+        // Combining cubic-root powers can expose a new square of an
+        // additive radicand. Give that exact identity a bounded second
+        // expansion instead of treating an unexpanded square as a failure.
+        for _ in 0..3 {
+            let split = cubic_split_powers(&numerator)?;
+            if !cubic_check_input(&split) {
+                return None;
+            }
+            let expanded = fsym_simplify::try_expand(&split).ok()?;
+            if !cubic_check_input(&expanded) {
+                return None;
+            }
+            let next = fsym_simplify::try_simplify(&expanded).ok()?;
+            if !cubic_check_input(&next) {
+                return None;
+            }
+            if next.is_zero() {
+                return Some(true);
+            }
+            if next == numerator {
+                break;
+            }
+            numerator = next;
+        }
+        Some(false)
+    };
+    checked() == Some(true)
 }
 
 /// Exact roots (with multiplicity) of a polynomial over Q.
@@ -965,6 +1234,118 @@ pub fn solve_univariate(e: &Expr, x: &Symbol) -> Result<Vec<Expr>, SolverError> 
     };
     let checked = check_roots(e, x, candidates.into_iter().map(|c| simplify(&c)).collect())?;
     Ok(sort_roots(dedup(checked)))
+}
+
+#[cfg(test)]
+mod cubic_publication_tests {
+    use super::*;
+    use std::sync::Arc;
+
+    fn polynomial(coefficients: &[i64]) -> UnivariatePoly {
+        UnivariatePoly::new(
+            Symbol::new("x"),
+            coefficients
+                .iter()
+                .map(|coefficient| BigRational::from_integer((*coefficient).into()))
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn cubic_root_multiset_rejects_the_old_shift_only_answer() {
+        // (x + 1)^3 + 2: the old zero Cardano branch returned -1 three
+        // times. Its original residual is exactly 2, not numerical noise.
+        let p = polynomial(&[3, 3, 3, 1]);
+        assert_eq!(
+            p.eval(&BigRational::from_integer((-1).into())),
+            BigRational::from_integer(2.into())
+        );
+        assert!(check_cubic_root_set(&p, &vec![Expr::from_i64(-1); 3]).is_err());
+    }
+
+    #[test]
+    fn cubic_root_multiset_checks_membership_and_complete_multiplicity() {
+        let p = polynomial(&[-6, 11, -6, 1]);
+        let roots = vec![Expr::from_i64(1), Expr::from_i64(2), Expr::from_i64(3)];
+        assert!(check_cubic_root_set(&p, &roots).is_ok());
+        assert!(check_cubic_root_set(&p, &roots[..2]).is_err());
+        assert!(
+            check_cubic_root_set(&p, &[roots[0].clone(), roots[0].clone(), roots[2].clone()])
+                .is_err()
+        );
+        assert!(
+            check_cubic_root_set(&p, &[roots[0].clone(), roots[1].clone(), Expr::from_i64(4)])
+                .is_err()
+        );
+        let mut permuted = roots.clone();
+        permuted.reverse();
+        assert!(check_cubic_root_set(&p, &permuted).is_ok());
+    }
+
+    #[test]
+    fn cubic_root_multiset_does_not_accept_a_tiny_nonzero_residual() {
+        let p = polynomial(&[-6, 11, -6, 1]);
+        let epsilon = rq(BigRational::new(BigInt::one(), BigInt::one() << 200));
+        let roots = vec![
+            Expr::from_i64(1) + epsilon,
+            Expr::from_i64(2),
+            Expr::from_i64(3),
+        ];
+        assert!(check_cubic_root_set(&p, &roots).is_err());
+    }
+
+    #[test]
+    fn cubic_root_multiset_refuses_opaque_nonfinite_and_undefined_candidates() {
+        let p = polynomial(&[-6, 11, -6, 1]);
+        let undefined = Expr::Pow(Arc::new(Expr::from_i64(0)), Arc::new(Expr::from_i64(-1)));
+        for candidate in [
+            Expr::Function("opaque".into(), vec![Expr::from_i64(1)]),
+            Expr::Sym(Symbol::new("a")),
+            Expr::Const(Constant::NaN),
+            undefined,
+        ] {
+            assert!(
+                check_cubic_root_set(&p, &[candidate, Expr::from_i64(2), Expr::from_i64(3)])
+                    .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn cubic_root_multiset_preflights_numeric_depth_and_power_bounds() {
+        let p = polynomial(&[-6, 11, -6, 1]);
+        let mut deep = Expr::from_i64(1);
+        for _ in 0..=MAX_CUBIC_CHECK_DEPTH {
+            deep = Expr::Pow(Arc::new(deep), Arc::new(Expr::from_i64(1)));
+        }
+        for candidate in [
+            deep,
+            Expr::Integer(BigInt::one() << (MAX_CUBIC_CHECK_COEFFICIENT_BITS as u32 + 1)),
+            Expr::Pow(
+                Arc::new(Expr::from_i64(2)),
+                Arc::new(Expr::Integer(BigInt::from(u32::MAX))),
+            ),
+        ] {
+            assert!(
+                check_cubic_root_set(&p, &[candidate, Expr::from_i64(2), Expr::from_i64(3)])
+                    .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn cardano_general_cubics_reconstruct_the_original_polynomial() {
+        // One real root, three real roots, and a non-monic/shifted cubic.
+        // These cover nonzero p, both signs of q and both discriminants.
+        for coefficients in [&[-1, -1, 0, 1][..], &[1, -3, 0, 1], &[14, 10, 6, 2]] {
+            let p = polynomial(coefficients);
+            let c = &p.coeffs;
+            let roots = cardano(&c[3], &c[2], &c[1], &c[0]);
+            check_cubic_root_set(&p, &roots).unwrap_or_else(|error| {
+                panic!("coefficients={coefficients:?}, roots={roots:?}: {error}")
+            });
+        }
+    }
 }
 
 #[cfg(test)]
