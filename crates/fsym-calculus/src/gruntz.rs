@@ -1007,6 +1007,9 @@ fn substitute_positive_dummy(e: &Expr, x: &Symbol, x0: &Expr) -> (Expr, Symbol) 
 
 /// Limit of `e` as `x -> x0` in direction `dir` (ignored at infinity).
 pub fn limit(e: &Expr, x: &Symbol, x0: &Expr, dir: Direction) -> LResult<Expr> {
+    if let Some(result) = crate::rational_limits::try_limit(e, x, x0, dir) {
+        return result;
+    }
     if is_free_of(e, x) {
         return Ok(e.clone());
     }

@@ -7,6 +7,7 @@ pub mod gruntz;
 pub mod hermite;
 pub mod integrate;
 pub mod proof;
+pub mod rational_limits;
 pub mod series;
 pub mod summation;
 
@@ -1221,10 +1222,10 @@ pub fn limit(expr: &Expr, var: &Symbol, to: &Expr) -> Result<Expr, CalculusError
 
 /// Limit of `expr` as `var -> to` in direction `dir`.
 ///
-/// Finite points first try direct substitution when the expression is
-/// free of poles and discontinuous functions at the point; everything else
-/// (indeterminate forms, poles, essential singularities, limits at
-/// infinity) goes through the Gruntz algorithm in [`gruntz`]. Undecidable
+/// Rational functions at rational points or infinity first use independently
+/// checked local-order factorizations. Other finite points try direct
+/// substitution when the expression is free of poles and discontinuous
+/// functions; remaining cases use the Gruntz algorithm in [`gruntz`]. Undecidable
 /// constants and unsupported functions refuse with
 /// [`CalculusError::Undetermined`]; a two-sided limit whose one-sided limits
 /// differ refuses as well.
@@ -1241,6 +1242,9 @@ pub fn limit_dir(
     }
     if carries_diff_sentinel(expr) {
         return Err(CalculusError::Undetermined(expr.to_string()));
+    }
+    if let Some(result) = rational_limits::try_limit(expr, var, to, dir) {
+        return result.map_err(|error| CalculusError::Undetermined(error.to_string()));
     }
     if is_free_of(expr, var) {
         return Ok(expr.clone());
