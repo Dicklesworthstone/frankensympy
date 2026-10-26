@@ -23,6 +23,7 @@ pub mod dag;
 pub mod domain;
 pub mod elementary;
 mod parser;
+pub mod real_roots;
 pub mod root_certificate;
 pub mod sort;
 

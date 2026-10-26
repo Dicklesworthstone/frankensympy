@@ -59,6 +59,25 @@ fn prime_power_nonunits_and_crt_multiplicities_are_complete() {
 }
 
 #[test]
+fn scalar_selection_defers_the_half_modulus_without_enumerating() {
+    // SymPy 1.14's scalar choice skips an initial candidate equal to floor(m/2).
+    // The ordinary product advances its last factor; nonunit fair products
+    // advance their first nontrivial factor. These values pin both orders.
+    for (a, modulus, expected) in [(4, 15, 2), (9, 18, 3), (79, 105, 38), (225, 450, 75)] {
+        assert_eq!(modular_square_root(a, modulus).unwrap(), Some(expected));
+    }
+    // There are 3^19 roots. Finding the successor must not allocate that set.
+    let modulus = 2 * 3u64.pow(38);
+    let a = modulus / 2;
+    let expected = 3u64.pow(19);
+    assert_eq!(modular_square_root(a, modulus).unwrap(), Some(expected));
+    assert!(matches!(
+        modular_square_roots(a, modulus),
+        Err(NTheoryError::ModularRootCountExceeded(_))
+    ));
+}
+
+#[test]
 fn large_odd_prime_powers_lift_and_large_semiprimes_recombine_exactly() {
     for modulus in [
         1_000_003u64.pow(3),

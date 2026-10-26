@@ -40,10 +40,10 @@ fn leading_powers(source: &VerifiedGroebnerBasis) -> Vec<bool> {
     for polynomial in source.basis() {
         if let Some((powers, _)) = polynomial.leading_term(source.order()) {
             let mut variables = powers.iter().enumerate().filter(|(_, power)| **power != 0);
-            if let Some((variable, _)) = variables.next() {
-                if variables.next().is_none() {
-                    bounded[variable] = true;
-                }
+            if let Some((variable, _)) = variables.next()
+                && variables.next().is_none()
+            {
+                bounded[variable] = true;
             }
         }
     }

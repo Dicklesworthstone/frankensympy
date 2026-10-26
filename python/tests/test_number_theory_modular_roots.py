@@ -114,3 +114,13 @@ def test_custom_integer_hooks_are_not_executed_by_exact_native_admission():
     for operation in (sqrt_mod, is_quad_residue):
         with pytest.raises(ValueError):
             operation(CustomInteger(4), 8)
+
+
+@pytest.mark.parametrize("a,modulus,expected", [
+    (4, 15, 2),
+    (9, 18, 3),
+    (79, 105, 38),
+    (225, 450, 75),
+])
+def test_scalar_selection_matches_the_pinned_oracle(a, modulus, expected):
+    assert sqrt_mod(a, modulus) == expected

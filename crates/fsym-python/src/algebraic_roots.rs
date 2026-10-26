@@ -1,0 +1,147 @@
+//! Typed exact real-root isolation and decimal refinement bridge.
+
+use crate::expr::PyExpr;
+use fsym_core::real_roots::{
+    MAX_REAL_ROOT_DEGREE, MAX_REAL_ROOT_INPUT_BITS, identify_real_root_factors, isolate_real_roots,
+    real_root_decimal,
+};
+use fsym_core::{BigRational, Expr};
+use fsym_runtime::{Budget, BudgetLimits};
+use pyo3::exceptions::PyValueError;
+use pyo3::prelude::*;
+use pyo3::types::PyList;
+
+fn coefficients(values: &Bound<'_, PyList>) -> PyResult<Vec<BigRational>> {
+    if values.is_empty() || values.len() > MAX_REAL_ROOT_DEGREE + 1 {
+        return Err(PyValueError::new_err(
+            "real-root coefficient count must be between 1 and 65",
+        ));
+    }
+    let mut result = Vec::with_capacity(values.len());
+    for value in values.iter() {
+        let expression = value.extract::<PyRef<'_, PyExpr>>()?;
+        let q = match &expression.inner {
+            Expr::Integer(n) if n.bits() <= MAX_REAL_ROOT_INPUT_BITS => {
+                BigRational::from_integer(n.clone())
+            }
+            Expr::Rational(q)
+                if q.numer().bits().max(q.denom().bits()) <= MAX_REAL_ROOT_INPUT_BITS =>
+            {
+                q.clone()
+            }
+            _ => {
+                return Err(PyValueError::new_err(
+                    "real-root coefficients must be literal exact rationals of at most 4096 bits",
+                ));
+            }
+        };
+        result.push(q);
+    }
+    Ok(result)
+}
+
+fn budget() -> Budget {
+    // Separate bounded synchronous meters; no protected runtime reservation
+    // or forced cancellation through arbitrary Python callbacks is claimed.
+    Budget::new(BudgetLimits::uniform(512 * 1024 * 1024, 0))
+}
+
+/// Extract coefficients only after the existing bounded converter has
+/// validated the complete original tree, including all held children.
+#[pyfunction]
+pub fn real_root_coefficients_native(
+    expression: &PyExpr,
+    variable: &Bound<'_, PyAny>,
+) -> PyResult<Vec<PyExpr>> {
+    let symbol = crate::extract_symbol_arg(variable)?;
+    let polynomial =
+        fsym_polys::bounded_polynomial_from_expr(&expression.inner, &[symbol], &mut budget())
+            .map_err(crate::to_value_error)?;
+    if polynomial.is_zero() {
+        return Err(PyValueError::new_err(
+            "the zero polynomial does not have a finite root set",
+        ));
+    }
+    let degree = polynomial.degree_in(0) as usize;
+    if degree > MAX_REAL_ROOT_DEGREE {
+        return Err(PyValueError::new_err(
+            "exact real-root isolation supports degree at most 64",
+        ));
+    }
+    let mut result = vec![PyExpr::from_expr(Expr::from_i64(0)); degree + 1];
+    for (powers, coefficient) in polynomial.terms() {
+        result[powers[0] as usize] = PyExpr::from_expr(Expr::Rational(coefficient.clone()));
+    }
+    Ok(result)
+}
+
+#[pyfunction]
+pub fn real_roots_isolate_native(
+    values: &Bound<'_, PyList>,
+) -> PyResult<Vec<(PyExpr, PyExpr, usize)>> {
+    let p = coefficients(values)?;
+    let roots =
+        isolate_real_roots(&p, &mut budget(), &mut budget()).map_err(crate::to_value_error)?;
+    Ok(roots
+        .intervals()
+        .iter()
+        .map(|root| {
+            (
+                PyExpr::from_expr(Expr::Rational(root.lower.clone())),
+                PyExpr::from_expr(Expr::Rational(root.upper.clone())),
+                root.multiplicity,
+            )
+        })
+        .collect())
+}
+
+#[pyfunction]
+pub fn indexed_real_roots_native(
+    values: &Bound<'_, PyList>,
+    factors: &Bound<'_, PyList>,
+    multiplicities: &Bound<'_, PyList>,
+) -> PyResult<Vec<(usize, usize, usize)>> {
+    if factors.len() > MAX_REAL_ROOT_DEGREE || factors.len() != multiplicities.len() {
+        return Err(PyValueError::new_err(
+            "invalid bounded real-root factor list",
+        ));
+    }
+    let p = coefficients(values)?;
+    let mut factor_values = Vec::with_capacity(factors.len());
+    let mut factor_multiplicities = Vec::with_capacity(factors.len());
+    for (factor, multiplicity) in factors.iter().zip(multiplicities.iter()) {
+        let multiplicity = multiplicity.extract::<usize>()?;
+        if multiplicity == 0 || multiplicity > MAX_REAL_ROOT_DEGREE {
+            return Err(PyValueError::new_err(
+                "invalid real-root factor multiplicity",
+            ));
+        }
+        factor_values.push(coefficients(factor.cast::<PyList>()?)?);
+        factor_multiplicities.push(multiplicity);
+    }
+    let roots =
+        isolate_real_roots(&p, &mut budget(), &mut budget()).map_err(crate::to_value_error)?;
+    let indices = identify_real_root_factors(
+        &roots,
+        &factor_values,
+        &factor_multiplicities,
+        &mut budget(),
+    )
+    .map_err(crate::to_value_error)?;
+    Ok(indices
+        .into_iter()
+        .zip(roots.intervals())
+        .map(|((factor, local), root)| (factor, local, root.multiplicity))
+        .collect())
+}
+
+#[pyfunction]
+pub fn real_root_decimal_native(
+    values: &Bound<'_, PyList>,
+    index: usize,
+    digits: u32,
+) -> PyResult<String> {
+    let p = coefficients(values)?;
+    real_root_decimal(&p, index, digits, &mut budget(), &mut budget())
+        .map_err(crate::to_value_error)
+}

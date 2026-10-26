@@ -1836,6 +1836,7 @@ fn crt_fn(moduli: Vec<String>, remainders: Vec<String>) -> PyResult<Option<(Stri
     }
 }
 
+mod algebraic_roots;
 pub mod assumptions;
 pub mod binding;
 pub mod callbacks;
@@ -2050,6 +2051,22 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(poly_factor_list_native, m)?)?;
     m.add_function(wrap_pyfunction!(poly_factor_multivariate_native, m)?)?;
     m.add_function(wrap_pyfunction!(poly_roots_native, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        algebraic_roots::real_root_coefficients_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        algebraic_roots::real_roots_isolate_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        algebraic_roots::indexed_real_roots_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        algebraic_roots::real_root_decimal_native,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(groebner_basis_native, m)?)?;
     m.add_function(wrap_pyfunction!(groebner_is_zero_dimensional_native, m)?)?;
     m.add_function(wrap_pyfunction!(groebner_fglm_native, m)?)?;

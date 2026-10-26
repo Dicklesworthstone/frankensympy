@@ -230,6 +230,65 @@ fn local_roots(
     Ok(expanded)
 }
 
+struct ScalarComponent {
+    prime: u64,
+    exponent: u32,
+    modulus: u64,
+    root: u64,
+    prefix_inverse: u64,
+}
+
+// Return just the successor of the first local root in the scalar iterator's
+// order. Nonunit roots advance within the first lifted arithmetic progression
+// before visiting another unit root; no large progression is materialized.
+fn local_successor(
+    a: u64,
+    component: &ScalarComponent,
+    work: &mut Work,
+) -> Result<Option<u64>, NTheoryError> {
+    let residue = a % component.modulus;
+    if residue == 0 {
+        return if component.exponent < 2 {
+            Ok(None)
+        } else {
+            Ok(Some(prime_power(
+                component.prime,
+                component.exponent.div_ceil(2),
+            )?))
+        };
+    }
+    let mut unit = residue;
+    let mut valuation = 0u32;
+    while unit.is_multiple_of(component.prime) {
+        work.charge(1)?;
+        unit /= component.prime;
+        valuation += 1;
+    }
+    if !valuation.is_multiple_of(2) {
+        return Err(invalid("a local root cannot have an odd valuation"));
+    }
+    let scale = prime_power(component.prime, valuation / 2)?;
+    if scale > 1 {
+        let next = component
+            .root
+            .checked_add(component.modulus / scale)
+            .ok_or_else(|| invalid("local successor overflow"))?;
+        if next >= component.modulus {
+            return Err(invalid("local successor is outside its modulus"));
+        }
+        return Ok(Some(next));
+    }
+    let roots = if component.prime == 2 {
+        two_adic_unit_roots(unit, component.exponent, work)?
+    } else {
+        odd_unit_roots(unit, component.prime, component.exponent, work)?
+    };
+    if roots.first() != Some(&component.root) {
+        return Err(invalid("local successor changed the first root"));
+    }
+    Ok(roots.get(1).copied())
+}
+
 fn crt_inverse(
     left_modulus: u64,
     right_modulus: u64,
@@ -424,12 +483,15 @@ pub fn modular_square_root(a: u64, modulus: u64) -> Result<Option<u64>, NTheoryE
         return Ok(Some(0));
     }
     let factors = factorint(modulus)?;
-    if verified_root_count(a, modulus, &factors)? == 0 {
+    let count = verified_root_count(a, modulus, &factors)?;
+    if count == 0 {
         return Ok(None);
     }
     let mut work = Work::new();
     let mut root = 0;
     let mut combined_modulus = 1u64;
+    work.charge(factors.len() as u64)?;
+    let mut components = Vec::with_capacity(factors.len());
     for (&prime, &exponent) in &factors {
         let local_modulus = prime_power(prime, exponent)?;
         let local = local_roots(a, prime, exponent, false, &mut work)?;
@@ -445,9 +507,57 @@ pub fn modular_square_root(a: u64, modulus: u64) -> Result<Option<u64>, NTheoryE
             inverse,
             &mut work,
         )?;
+        components.push(ScalarComponent {
+            prime,
+            exponent,
+            modulus: local_modulus,
+            root: local[0],
+            prefix_inverse: inverse,
+        });
         combined_modulus = combined_modulus
             .checked_mul(local_modulus)
             .ok_or_else(|| invalid("CRT modulus overflow"))?;
+    }
+    if root == modulus / 2 && count > 1 {
+        // The scalar profile defers a candidate equal to floor(modulus/2).
+        // Only the next distinct tuple is needed. Ordinary Cartesian order
+        // advances the last component; the fair product used for nonunits
+        // advances the first nontrivial component. Prime order is canonical.
+        let fair_product = factors.keys().any(|prime| a.is_multiple_of(*prime));
+        let mut advanced = false;
+        for offset in 0..components.len() {
+            let index = if fair_product {
+                offset
+            } else {
+                components.len() - 1 - offset
+            };
+            if let Some(next) = local_successor(a, &components[index], &mut work)? {
+                if next == components[index].root {
+                    return Err(invalid("local successor is not distinct"));
+                }
+                components[index].root = next;
+                advanced = true;
+                break;
+            }
+        }
+        if !advanced {
+            return Err(invalid("multiple roots have no successor tuple"));
+        }
+        root = 0;
+        combined_modulus = 1;
+        for component in &components {
+            root = crt_join(
+                root,
+                combined_modulus,
+                component.root,
+                component.modulus,
+                component.prefix_inverse,
+                &mut work,
+            )?;
+            combined_modulus = combined_modulus
+                .checked_mul(component.modulus)
+                .ok_or_else(|| invalid("successor CRT modulus overflow"))?;
+        }
     }
     root = root.min(modulus - root);
     if u128::from(root) * u128::from(root) % u128::from(modulus) != u128::from(a % modulus) {
