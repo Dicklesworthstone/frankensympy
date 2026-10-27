@@ -248,6 +248,12 @@ def _native_expr(value: Any):
                 "custom symbolic subclasses require a supervised Python override lane; "
                 "the native fast path accepts exact built-in classes only"
             )
+        if type(value) not in _exact_surface_types() and isinstance(value, Function):
+            known = _known_functions.get(type(value).__name__)
+            if known is not None and issubclass(known, _NativeFunction) and type(value) is not known:
+                raise NotImplementedError(
+                    "a custom function cannot lower as a same-name native intrinsic"
+                )
         return value._value
     if isinstance(value, _native.Expr):
         return value
@@ -421,7 +427,7 @@ def _register_surface_symbol(symbol: "Symbol") -> None:
     budgets, like the oracle's cache.
     """
     binding = _symbol_binding(symbol)
-    key = (symbol.name, binding.identity_hex)
+    key = (binding.name, binding.identity_hex)
     _surface_symbols[key] = symbol
 
 
@@ -462,6 +468,12 @@ _user_functions: weakref.WeakValueDictionary[str, type] = weakref.WeakValueDicti
 
 
 def _lookup_known_function(name: str) -> type | None:
+    known = _known_functions.get(name)
+    native_class = globals().get("_NativeFunction")
+    if known is not None and native_class is not None and issubclass(known, native_class):
+        # Native intrinsic tags denote the registered built-in class. A user
+        # class with the same spelling must not capture lifted native nodes.
+        return known
     cls = _user_functions.get(name)
     if cls is not None:
         return cls

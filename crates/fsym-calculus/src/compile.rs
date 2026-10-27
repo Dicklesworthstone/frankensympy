@@ -89,6 +89,8 @@ pub enum EvalError {
     NonFinitePowerExponent,
     #[error("Compiled constant is NaN or negative zero, which is not a canonical compiler output")]
     NonCanonicalConstant,
+    #[error("Compiled numerical evaluation encountered a non-finite input or intermediate value")]
+    NonFiniteValue,
 }
 
 /// Fast compiled expression evaluator targeting numerical arrays.
@@ -508,6 +510,20 @@ impl CompiledExpr {
 
     /// Evaluates the compiled expression using a verified operand stack with bounds checks.
     pub fn try_eval(&self, vars: &[f64]) -> Result<f64, EvalError> {
+        self.try_eval_with_policy(vars, false)
+    }
+
+    /// Evaluate in the finite real binary64 lane, rejecting every non-finite
+    /// intermediate before a later operation could conceal a domain failure.
+    /// This does not certify rounding error or prevent finite underflow.
+    pub fn try_eval_finite(&self, vars: &[f64]) -> Result<f64, EvalError> {
+        if vars.iter().any(|value| !value.is_finite()) {
+            return Err(EvalError::NonFiniteValue);
+        }
+        self.try_eval_with_policy(vars, true)
+    }
+
+    fn try_eval_with_policy(&self, vars: &[f64], finite_only: bool) -> Result<f64, EvalError> {
         if self.ops.len() > MAX_COMPILE_OPS {
             return Err(EvalError::OpLimitExceeded {
                 ops: self.ops.len(),
@@ -593,6 +609,9 @@ impl CompiledExpr {
                     let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
                     stack.push(v.abs());
                 }
+            }
+            if finite_only && stack.last().is_some_and(|value| !value.is_finite()) {
+                return Err(EvalError::NonFiniteValue);
             }
         }
         if stack.len() != 1 {

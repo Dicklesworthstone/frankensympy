@@ -14,7 +14,7 @@ from .ode import (
     verify_linear_first_order_solution,
 )
 from .polysys import nonlinsolve, solve_poly_system
-from .solvers import linsolve, solve_linear, solve_linear_system, solve_linear_system_LU
+from .solvers import linsolve, nsolve, solve_linear, solve_linear_system, solve_linear_system_LU
 
 __all__ = [
     "checkodesol",
@@ -28,6 +28,7 @@ __all__ = [
     "dsolve_separable_linear",
     "linsolve",
     "nonlinsolve",
+    "nsolve",
     "solve",
     "solve_linear",
     "solve_linear_system",

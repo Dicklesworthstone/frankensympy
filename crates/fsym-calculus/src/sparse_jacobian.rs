@@ -614,7 +614,7 @@ fn validate_expression_limits(expr: &Expr) -> Result<(), CompileError> {
 /// This consumes an expression and postfix operations together; it does not
 /// invoke the compiler or infer provenance from sampled numerical agreement.
 /// It checks the declared binary64 lowering, not exact-real evaluation accuracy.
-pub(crate) fn compiled_expression_matches(
+pub fn compiled_expression_matches(
     expr: &Expr,
     var_map: &HashMap<Symbol, usize>,
     compiled: &CompiledExpr,

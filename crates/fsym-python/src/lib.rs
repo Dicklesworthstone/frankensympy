@@ -1,7 +1,8 @@
 //! # fsym-python
 //!
-//! PyO3 bindings exposing FrankenSymPy to CPython as a native extension
-//! module. Strings cross the boundary; everything inside is exact.
+//! PyO3 bindings exposing FrankenSymPy to CPython as a native extension.
+//! Symbolic operations use exact native values. The numerical preview API
+//! explicitly evaluates approximate finite-real binary64 programs.
 
 use fsym_calculus::{diff, integrate, taylor};
 use fsym_core::{BigInt, BigRational, Expr, Symbol, parse};
@@ -1845,6 +1846,7 @@ pub mod geometry;
 pub mod logic;
 pub mod matrix;
 pub mod ntheory;
+pub mod numeric;
 pub mod sets;
 pub mod tensor;
 pub use assumptions::*;
@@ -1869,6 +1871,8 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyExpr>()?;
     m.add_class::<PySymbol>()?;
     m.add_class::<binding::PySymbolBinding>()?;
+    m.add_class::<numeric::PyCompiledFunction>()?;
+    m.add_class::<numeric::PyVerifiedResidualSystem>()?;
     m.add_class::<callbacks::PySupervisedCallbackSession>()?;
     m.add_function(wrap_pyfunction!(callbacks::check_interpreter_support, m)?)?;
     m.add_class::<PyInteger>()?;

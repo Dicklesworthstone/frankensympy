@@ -21,6 +21,7 @@ from ..matrices import Matrix, MatrixBase
 from ..polys.polyerrors import GeneratorsError
 from ..sets import EmptySet, FiniteSet, Set
 from ..core import expand, simplify
+from .numerical import nsolve
 
 
 def _extract_linear_coeffs(expr, symbols):
@@ -345,6 +346,7 @@ def solve_linear(lhs: Any, rhs: Any = 0, symbols: Any = (), exclude: Any = ()) -
 
 __all__ = [
     "linsolve",
+    "nsolve",
     "solve_linear",
     "solve_linear_system",
     "solve_linear_system_LU",
