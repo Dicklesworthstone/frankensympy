@@ -823,6 +823,7 @@ dependencies = [
  "fsym-calculus",
  "fsym-core",
  "fsym-polys",
+ "fsym-proof-kernel",
  "fsym-simplify",
  "fsym-solvers",
  "num-traits",

@@ -211,6 +211,12 @@ The small trusted proof-term checker:
 
 It depends only on trusted lower-layer arithmetic, term, context, claim, and registry interfaces.
 
+The implemented bounded rational affine-system lane follows this direction:
+`fsym-matrices` (L3) generates elementary row-operation witnesses and depends
+directly on `fsym-proof-kernel::linear_system` (L2) for independent acceptance.
+The verifier replays invertible operations and checks rank, consistency and all
+free directions without depending on matrix elimination or symbolic solvers.
+
 ### 6.9 Certificate verifier crates
 
 Each crown-jewel family receives a verifier crate separate from its generator:

@@ -89,6 +89,48 @@ def _solve_augmented_matrix_to_set(M: Matrix, sym_list: Optional[List[Symbol]]) 
     if sym_list is not None and len(set(sym_list)) != len(sym_list):
         raise GeneratorsError(f"duplicated generators: {tuple(sym_list)}")
 
+    native = M._native
+    if native.is_exact_rational:
+        if sym_list is not None:
+            for variable in sym_list:
+                _require_symbol(variable)
+        # The native affine solver verifies an invertible row-operation trace,
+        # RREF, rank, and every free direction before publishing this family.
+        # Preflight the dense slice before copying entries into A and b.
+        rows, columns = native.shape
+        if rows > 128 or n > 128:
+            raise ValueError("exact affine solve supports at most 128 rows and variables")
+        if columns != n + 1:
+            raise ValueError("linear-system matrix changed shape while taking its snapshot")
+        # Native matrix handles are immutable. Keep one generation throughout
+        # the solve even if the mutable Python matrix is subsequently changed.
+        coefficients = type(native)(rows, n, [native[r, c] for r in range(rows) for c in range(n)])
+        rhs = type(native)(rows, 1, [native[r, n] for r in range(rows)])
+        checked = coefficients.solve_affine(rhs)
+        if checked is None:
+            return EmptySet()
+        particular, basis, free_cols = checked
+        parameters = (
+            [sym_list[column] for column in free_cols]
+            if sym_list is not None
+            else [Symbol(f"tau{i}") for i in range(len(free_cols))]
+        )
+        free_values = dict(zip(free_cols, parameters))
+        solution = []
+        for column, entry in enumerate(particular):
+            if column in free_values:
+                # The checker establishes the identity free-coordinate block.
+                # Preserve the supplied Python parameter itself, including Dummy.
+                solution.append(free_values[column])
+                continue
+            value = _wrap(entry)
+            for direction, parameter in zip(basis, parameters):
+                coefficient = _wrap(direction[column])
+                if coefficient != 0:
+                    value = value + coefficient * parameter
+            solution.append(value)
+        return FiniteSet(SymTuple(*solution))
+
     generic = False
     try:
         rref_mat, pivots = M.rref()

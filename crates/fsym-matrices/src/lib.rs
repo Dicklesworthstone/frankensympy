@@ -4,6 +4,11 @@
 
 #![forbid(unsafe_code)]
 
+mod affine;
+pub use affine::{
+    AffineSolutionCandidate, RationalLinearSolution, VerifiedAffineSolution,
+    verify_affine_solution_candidate,
+};
 pub mod sparse;
 pub use sparse::*;
 pub mod structured;

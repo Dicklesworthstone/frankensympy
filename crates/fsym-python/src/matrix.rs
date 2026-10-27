@@ -3,13 +3,25 @@
 #![forbid(unsafe_code)]
 
 use fsym_core::{BigInt, BigRational, Expr};
-use fsym_matrices::{Matrix, MatrixError, SparseMatrix};
+use fsym_matrices::{Matrix, MatrixError, RationalLinearSolution, SparseMatrix};
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::{PyIndexError, PyTypeError, PyValueError, PyZeroDivisionError};
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
 
 use crate::expr::{PyExpr, exact_python_integer};
+
+/// Particular solution, one nullspace vector per free column, and free columns.
+/// These values are exposed only after the independent exact checker succeeds.
+type AffineSolutionParts = (Vec<PyExpr>, Vec<Vec<PyExpr>>, Vec<usize>);
+
+fn rational_expr(value: &BigRational) -> PyExpr {
+    PyExpr::from_expr(if value.is_integer() {
+        Expr::Integer(value.to_integer())
+    } else {
+        Expr::Rational(value.clone())
+    })
+}
 
 fn matrix_err(err: MatrixError) -> PyErr {
     match err {
@@ -95,6 +107,15 @@ impl PyMatrix {
     #[getter]
     pub fn is_square(&self) -> bool {
         self.inner.rows() == self.inner.cols()
+    }
+
+    /// Whether every stored entry belongs to the exact rational domain.
+    #[getter]
+    pub fn is_exact_rational(&self) -> bool {
+        self.inner
+            .data()
+            .iter()
+            .all(|entry| matches!(entry, Expr::Integer(_) | Expr::Rational(_)))
     }
 
     /// Whether the matrix is symmetric.
@@ -279,6 +300,33 @@ impl PyMatrix {
     pub fn solve(&self, b: &Self) -> PyResult<Self> {
         let res = self.inner.solve(&b.inner).map_err(matrix_err)?;
         Ok(Self { inner: res })
+    }
+
+    /// Complete exact-rational solution family for rectangular or singular A.
+    /// `None` means inconsistency was independently checked. Otherwise the
+    /// result is `(particular, nullspace_basis, free_columns)`, with one basis
+    /// vector for each free column. Unsupported domains and exhausted budgets
+    /// are explicit errors; neither becomes an empty solution set.
+    pub fn solve_affine(&self, b: &Self) -> PyResult<Option<AffineSolutionParts>> {
+        let checked = self.inner.solve_affine(&b.inner).map_err(matrix_err)?;
+        Ok(match checked.solution() {
+            RationalLinearSolution::Unique { values } => {
+                Some((values.iter().map(rational_expr).collect(), vec![], vec![]))
+            }
+            RationalLinearSolution::Affine {
+                particular,
+                basis,
+                free_columns,
+            } => Some((
+                particular.iter().map(rational_expr).collect(),
+                basis
+                    .iter()
+                    .map(|vector| vector.iter().map(rational_expr).collect())
+                    .collect(),
+                free_columns.clone(),
+            )),
+            RationalLinearSolution::Inconsistent { .. } => None,
+        })
     }
 
     /// Solves the exact least-squares system `A^T A X = A^T B` for `X`.

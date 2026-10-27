@@ -18,6 +18,7 @@ pub mod capsule;
 pub mod claim;
 pub mod groebner;
 pub mod kernel;
+pub mod linear_system;
 pub mod merge;
 pub mod mutation;
 pub mod rational_integral;

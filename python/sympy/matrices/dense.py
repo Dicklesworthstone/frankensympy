@@ -1251,6 +1251,78 @@ class Matrix(MatrixBase):
     def LUsolve(self, b):
         return self.solve(b)
 
+    def gauss_jordan_solve(self, B, freevar=False):
+        """Solve an exact rational system, including rectangular/singular A.
+
+        Return ``(solution, parameters)`` or, with ``freevar=True``, also
+        the free-column indices. Each right-hand side is accepted only after
+        independent native verification of the complete affine solution set.
+        This bounded lane admits at most 128 rows, unknowns, and right-hand
+        sides; symbolic coefficients remain explicitly unsupported.
+        """
+        from ..core import Symbol
+        from .sparse import SparseMatrix
+
+        if type(self) not in (Matrix, ImmutableMatrix):
+            raise NotImplementedError("custom matrix subclasses require a supervised override lane")
+        if type(B) is SparseMatrix:
+            if B.rows > 128 or B.cols > 128:
+                raise ValueError("exact affine solve supports at most 128 rows and right-hand sides")
+            B = B.to_dense()
+        if type(B) not in (Matrix, ImmutableMatrix):
+            raise TypeError("gauss_jordan_solve requires a built-in Matrix right-hand side")
+        coefficient_native, rhs_native = self._native, B._native
+        rows, unknowns = coefficient_native.shape
+        rhs_rows, rhs_columns = rhs_native.shape
+        if rows != rhs_rows:
+            raise ValueError("The matrices have incompatible number of rows")
+        if rows > 128 or unknowns > 128 or rhs_columns > 128:
+            raise ValueError("exact affine solve supports at most 128 rows, variables, and right-hand sides")
+        work = rows * unknowns * max(1, min(rows, unknowns)) * rhs_columns
+        if work > 4_194_304:
+            raise ValueError("exact affine solve exceeds its aggregate right-hand-side work limit")
+        if not coefficient_native.is_exact_rational or not rhs_native.is_exact_rational:
+            raise ValueError("exact affine solve supports exact rational entries only")
+        if rhs_columns == 0:
+            if unknowns:
+                raise ValueError("exact affine solve requires a nonempty right-hand side")
+            solution, parameters = self._new(0, 0, []), self._new(0, 0, [])
+            return (solution, parameters, []) if freevar else (solution, parameters)
+
+        columns = []
+        free_columns = None
+        directions = None
+        for column in range(rhs_columns):
+            rhs = _NativeMatrix(rows, 1, [rhs_native[row, column] for row in range(rows)])
+            checked = coefficient_native.solve_affine(rhs)
+            if checked is None:
+                raise ValueError("Linear system has no solution")
+            particular, basis, free = checked
+            if free_columns is None:
+                free_columns = free
+                directions = basis
+            elif free_columns != free or directions != basis:
+                raise ArithmeticError("checked affine systems disagree on the coefficient nullspace")
+            # The canonical nullspace depends on A, not on the right-hand
+            # side. Retain it once instead of multiplying its storage by B.cols.
+            columns.append(particular)
+
+        count = len(free_columns)
+        parameters = self._new(count, rhs_columns,
+                               [Symbol(f"tau{i}") for i in range(count * rhs_columns)])
+        entries = []
+        for row in range(unknowns):
+            for column, particular in enumerate(columns):
+                value = _wrap(particular[row])
+                for index, direction in enumerate(directions):
+                    coefficient = _wrap(direction[row])
+                    if coefficient != 0:
+                        value = value + coefficient * parameters[index, column]
+                entries.append(value)
+        solution = self._new(unknowns, rhs_columns, entries)
+        return ((solution, parameters, free_columns) if freevar
+                else (solution, parameters))
+
     def solve_least_squares(self, b):
         if hasattr(b, "to_dense"):
             b = b.to_dense()

@@ -406,7 +406,7 @@ def _native_set_str(ns: Any) -> str:
 class FiniteSet(Set):
     """A discrete finite set of explicit elements."""
 
-    __slots__ = ()
+    __slots__ = ("_surface_elements",)
 
     def __new__(cls, *args: Any) -> Set:
         if len(args) == 1 and isinstance(args[0], (list, set, frozenset)):
@@ -419,9 +419,22 @@ class FiniteSet(Set):
             return _EMPTY_SET
         obj = object.__new__(cls)
         obj._native_set = native
+        # Native set normalization establishes order and deduplication. The
+        # Python objects still own observable identity (in particular Dummy
+        # instances and the typed solution tuples containing them).
+        originals = {entry: value for entry, value in zip(native_elems, args)
+                     if isinstance(value, Basic)}
+        obj._surface_elements = tuple(
+            originals[entry] if entry in originals else _wrap(entry)
+            for entry in (native.elements or [])
+        )
         return obj
 
     def __iter__(self) -> Iterator[Expr]:
+        surface = getattr(self, "_surface_elements", None)
+        if surface is not None:
+            yield from surface
+            return
         elems = self._native_set.elements or []
         for e in elems:
             yield _wrap(e)
@@ -432,12 +445,15 @@ class FiniteSet(Set):
 
     @property
     def args(self) -> tuple[Expr, ...]:
+        surface = getattr(self, "_surface_elements", None)
+        if surface is not None:
+            return surface
         elems = self._native_set.elements or []
         return tuple(_wrap(e) for e in elems)
 
     def __repr__(self) -> str:
         # Oracle-pinned: FiniteSet str/repr renders braces ({1, 2, 3}).
-        items = [_wrap(e) for e in (self._native_set.elements or [])]
+        items = list(self)
         try:
             from ..printing.str import sort_key
 
