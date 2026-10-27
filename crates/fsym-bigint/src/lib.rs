@@ -29,8 +29,12 @@
 //! [`metered_div_rem`] use deliberately simple base-$2^{32}$ reference algorithms with safe points
 //! inside their limb loops. [`metered_karatsuba_candidate`] and [`metered_toom3_candidate`] add
 //! controlled recursive digit kernels, while [`metered_ntt_crt_candidate`] adds an exact
-//! transform/CRT lane with reconstruction bounds and independent modular self-checks. Their output
-//! has no production lift into the provisional substrate.
+//! transform/CRT lane with reconstruction bounds and independent modular self-checks.
+//! [`metered_multiply_with_strategy`] makes these kernels available to production callers that
+//! explicitly select a strategy. Their digit candidates can also be consumed through
+//! [`MeteredProductCandidate::into_bigint`], which charges the provisional substrate's final
+//! native-limb repack. This last allocation is infallible and cannot be interrupted internally;
+//! candidate-only APIs retain the stronger fallible-buffer contract.
 
 #![forbid(unsafe_code)]
 
@@ -180,10 +184,29 @@ pub enum Strategy {
     NativeSubstrate,
 }
 
+/// Explicit algorithm selection for [`metered_multiply_with_strategy`].
+///
+/// Unlike [`Strategy`], every variant performs multiplication in project-owned digit kernels
+/// with cooperative cancellation. Final conversion to [`BigInt`] uses the same provisional
+/// substrate boundary as [`metered_multiply`]. No variant bypasses the caller's budget, and
+/// failures are returned without an automatic fallback or accounting reset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MeteredMultiplyStrategy {
+    /// Scalar base-$2^{32}$ reference product, identical to [`metered_multiply`].
+    Schoolbook,
+    /// Recursive Karatsuba with metered schoolbook leaves and skew fallback.
+    Karatsuba,
+    /// Toom-3 with metered Karatsuba/schoolbook structural fallbacks.
+    Toom3,
+    /// Exact NTT/CRT within the fixed transform and reconstruction domain.
+    NttCrt,
+}
+
 /// Canonical signed base-$2^{32}$ output from the recursively metered multiplication kernel.
 ///
-/// Candidate publication deliberately exposes no `BigInt` lift because the provisional
-/// `num-bigint` substrate has no safe public fallible constructor that adopts this digit buffer.
+/// The candidate kernels use fallible buffer reservations throughout. [`Self::into_bigint`]
+/// is an explicit boundary to the provisional substrate, whose final repack allocation is
+/// infallible. Keeping the candidate therefore retains a stronger allocation contract.
 #[derive(Debug, PartialEq, Eq)]
 pub struct MeteredProductCandidate {
     negative: bool,
@@ -204,6 +227,39 @@ impl MeteredProductCandidate {
     /// Whether this candidate is canonical zero.
     pub fn is_zero(&self) -> bool {
         self.digits.is_empty()
+    }
+
+    /// Consumes the canonical product digits and materializes an ordinary [`BigInt`].
+    ///
+    /// Use the same meter as the candidate generator to retain cumulative work and storage
+    /// accounting. The output repack is charged before it occurs, and cancellation is checked
+    /// immediately before materialization and after the complete result exists. The digits are
+    /// consumed, so no redundant clone of the candidate buffer is needed.
+    ///
+    /// On 64-bit targets, `num-bigint` repacks the base-$2^{32}$ digits into native limbs using
+    /// an infallible allocation. That substrate operation has no internal safe points; this
+    /// method cannot promise typed allocator failure or a size-independent cancellation bound
+    /// through it. Callers requiring those guarantees should retain the digit candidate.
+    /// Materialization is an arithmetic representation conversion, not a verification receipt.
+    pub fn into_bigint<M: BudgetMeter>(self, meter: &mut M) -> Result<BigInt, MeterError> {
+        meter.checkpoint()?;
+        charge_substrate_lift(&self.digits, meter)?;
+        if !self.digits.is_empty() {
+            meter.charge(
+                Dimension::ComputeSteps,
+                u64::try_from(self.digits.len()).unwrap_or(u64::MAX),
+            )?;
+        }
+        meter.checkpoint()?;
+        let sign = if self.digits.is_empty() {
+            Sign::NoSign
+        } else if self.negative {
+            Sign::Minus
+        } else {
+            Sign::Plus
+        };
+        let magnitude = BigUint::new(self.digits);
+        metered_finish(BigInt(Substrate::from_biguint(sign, magnitude)), meter)
     }
 
     #[cfg(test)]
@@ -1268,9 +1324,9 @@ impl PartialOrd<i64> for BigInt {
 ///
 /// This API is unmetered. Recursive strategies use documented structural leaf and skew fallbacks,
 /// so the requested enum alone is not benchmark execution evidence. [`metered_karatsuba_candidate`]
-/// and [`metered_toom3_candidate`] control recursive digit kernels but expose no production
-/// provisional-substrate materialization; no recursive strategy-to-`BigInt` path is presently
-/// fully controlled. The explicit `BigInt`-returning Toom-3 lane remains unmetered.
+/// and [`metered_toom3_candidate`] control recursive digit kernels. Production callers can use
+/// [`metered_multiply_with_strategy`] for those kernels with a charged final substrate lift;
+/// that final repack remains an infallible operation without internal safe points.
 pub fn multiply_with_strategy(a: &BigInt, b: &BigInt, strategy: Strategy) -> BigInt {
     match strategy {
         Strategy::SchoolbookReference => schoolbook_reference(&a.0, &b.0),
@@ -1781,6 +1837,9 @@ fn charge_substrate_lift<M: BudgetMeter>(digits: &[u32], meter: &mut M) -> Resul
 /// The contained substrate allocation itself is infallible; callers that require typed allocator
 /// refusal must use a controlled candidate lane. A final checkpoint occurs after the complete
 /// result exists and before it is published.
+///
+/// For explicitly selected recursive or transform kernels, use [`metered_multiply_with_strategy`].
+/// The default remains this scalar reference until measured crossover policies are admitted.
 pub fn metered_multiply<M: BudgetMeter>(
     a: &BigInt,
     b: &BigInt,
@@ -1860,6 +1919,34 @@ pub fn metered_multiply<M: BudgetMeter>(
     metered_finish(result, meter)
 }
 
+/// Multiplies into a production [`BigInt`] using an explicitly selected metered kernel.
+///
+/// Candidate generation and materialization use one caller-owned meter. The selected kernel's
+/// overflow, allocation, invariant, transform-domain, budget, and cancellation errors propagate
+/// directly; the function never retries with an unmetered implementation or resets accounting.
+/// The schoolbook variant is the existing [`metered_multiply`] reference lane. Recursive and
+/// transform variants consume their canonical digit candidates through
+/// [`MeteredProductCandidate::into_bigint`].
+///
+/// This enables callers to select the available algorithms without inventing a universal
+/// performance crossover. [`select_strategy`] and the default [`metered_multiply`] are unchanged.
+/// All variants cross the provisional substrate's infallible final-allocation boundary and
+/// cannot promise bounded cancellation latency inside that repack.
+pub fn metered_multiply_with_strategy<M: BudgetMeter>(
+    a: &BigInt,
+    b: &BigInt,
+    strategy: MeteredMultiplyStrategy,
+    meter: &mut M,
+) -> Result<BigInt, MeteredMultiplyError> {
+    let candidate = match strategy {
+        MeteredMultiplyStrategy::Schoolbook => return Ok(metered_multiply(a, b, meter)?),
+        MeteredMultiplyStrategy::Karatsuba => metered_karatsuba_candidate(a, b, meter)?,
+        MeteredMultiplyStrategy::Toom3 => metered_toom3_candidate(a, b, meter)?,
+        MeteredMultiplyStrategy::NttCrt => metered_ntt_crt_candidate(a, b, meter)?,
+    };
+    Ok(candidate.into_bigint(meter)?)
+}
+
 /// Recursively computes a canonical Karatsuba product candidate under caller-owned metering.
 ///
 /// The kernel uses normalized base-$2^{32}$ digits throughout: it does not construct provisional
@@ -1872,8 +1959,9 @@ pub fn metered_multiply<M: BudgetMeter>(
 /// charges. A final checkpoint occurs after the complete digit result exists and before candidate
 /// publication.
 ///
-/// The returned candidate is not a controlled `BigInt`; pinned `num-bigint` cannot adopt the
-/// buffer through a safe fallible public API.
+/// The returned candidate may be consumed through [`MeteredProductCandidate::into_bigint`].
+/// That opt-in conversion is separately charged but cannot preserve typed allocator refusal:
+/// pinned `num-bigint` cannot adopt the buffer through a safe fallible public API.
 pub fn metered_karatsuba_candidate<M: BudgetMeter>(
     a: &BigInt,
     b: &BigInt,
@@ -1917,8 +2005,9 @@ pub fn metered_karatsuba_candidate<M: BudgetMeter>(
 /// `DepthLimit` is the maximum logical depth of the combined Toom/Karatsuba multiplication tree;
 /// buffer accounting remains cumulative requested capacity rather than peak live memory.
 ///
-/// This API does not select Toom-3 by default, establish a crossover threshold, claim a performance
-/// win, or provide a controlled `BigInt` lift.
+/// This API does not select Toom-3 by default, establish a crossover threshold, or claim a
+/// performance win. [`MeteredProductCandidate::into_bigint`] provides a charged production lift
+/// with an explicit infallible-substrate allocation boundary.
 pub fn metered_toom3_candidate<M: BudgetMeter>(
     a: &BigInt,
     b: &BigInt,
@@ -1939,8 +2028,9 @@ pub fn metered_toom3_candidate<M: BudgetMeter>(
 /// after canonical output exists and before publication.
 ///
 /// This API does not alter [`Strategy`] or [`select_strategy`], select a default transform
-/// threshold, establish crossover/performance evidence, support transform lengths beyond the
-/// fixed exact domain, or provide a controlled [`BigInt`] lift.
+/// threshold, establish crossover/performance evidence, or support transform lengths beyond the
+/// fixed exact domain. [`MeteredProductCandidate::into_bigint`] provides a charged production lift
+/// with an explicit infallible-substrate allocation boundary.
 pub fn metered_ntt_crt_candidate<M: BudgetMeter>(
     a: &BigInt,
     b: &BigInt,
@@ -5120,6 +5210,256 @@ mod tests {
         let metered = metered_multiply(&a, &b, &mut meter).unwrap();
         let native = multiply_with_strategy(&a, &b, Strategy::NativeSubstrate);
         assert_eq!(metered, native);
+    }
+
+    const PRODUCTION_METERED_STRATEGIES: [MeteredMultiplyStrategy; 4] = [
+        MeteredMultiplyStrategy::Schoolbook,
+        MeteredMultiplyStrategy::Karatsuba,
+        MeteredMultiplyStrategy::Toom3,
+        MeteredMultiplyStrategy::NttCrt,
+    ];
+
+    #[test]
+    fn production_metered_strategies_match_independent_scalar_products() {
+        let (toom_a, toom_b) = actual_metered_toom_operands();
+        let (ntt_a, ntt_b) = actual_metered_ntt_operands();
+        let cases = [
+            (BigInt::zero(), BigInt::from(-17)),
+            (BigInt::from(-29), BigInt::zero()),
+            (BigInt::one(), BigInt::from(-65_537)),
+            ((BigInt::one() << 32) - 1i64, BigInt::from(-65_537)),
+            ((BigInt::one() << 64) - 1i64, (BigInt::one() << 64) - 1i64),
+            ((BigInt::one() << 128) - 1i64, (BigInt::one() << 127) + 1i64),
+            (
+                (BigInt::one() << 160) - 1i64,
+                (BigInt::one() << 159) + 17i64,
+            ),
+            ((BigInt::one() << 640) + 17i64, BigInt::from(-65_537)),
+            (
+                -((BigInt::one() << 769) - 1i64),
+                -((BigInt::one() << 767) + 1i64),
+            ),
+            (toom_a.clone(), toom_b.clone()),
+            (-toom_a, toom_b),
+            (ntt_a.clone(), -ntt_b.clone()),
+            (-ntt_a, -ntt_b),
+        ];
+        for (a, b) in cases {
+            let expected = multiply_with_strategy(&a, &b, Strategy::SchoolbookReference);
+            for strategy in PRODUCTION_METERED_STRATEGIES {
+                let actual =
+                    metered_multiply_with_strategy(&a, &b, strategy, &mut Unbounded).unwrap();
+                assert_eq!(actual, expected, "{strategy:?}: {a} * {b}");
+                if let Some(divisor) = NonZeroBigInt::new(&b) {
+                    let (quotient, remainder) =
+                        metered_div_rem_nonzero(&actual, divisor, &mut Unbounded).unwrap();
+                    assert_eq!(quotient, a);
+                    assert!(remainder.is_zero());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn product_candidate_lift_preserves_cumulative_accounting_and_sign() {
+        for (a, b) in [
+            (BigInt::zero(), BigInt::from(-7)),
+            (BigInt::from(-3), BigInt::from(7)),
+            (BigInt::one() << 32, BigInt::one()),
+            (BigInt::one() << 32, -(BigInt::one() << 32)),
+        ] {
+            let mut measured = CountingMeter::default();
+            let candidate = metered_karatsuba_candidate(&a, &b, &mut measured).unwrap();
+            let digits = candidate.digits_le().len();
+            let before = measured.dimensions;
+            let product = candidate.into_bigint(&mut measured).unwrap();
+            assert_eq!(
+                product,
+                multiply_with_strategy(&a, &b, Strategy::SchoolbookReference)
+            );
+            assert_eq!(
+                measured.dimensions[Dimension::ComputeSteps.index()],
+                before[Dimension::ComputeSteps.index()] + digits as u64,
+            );
+            let (lift_bytes, lift_allocations) = if cfg!(target_pointer_width = "64") && digits > 2
+            {
+                (digits.div_ceil(2) as u64 * 8, 1)
+            } else {
+                (0, 0)
+            };
+            assert_eq!(
+                measured.dimensions[Dimension::MemoryBytes.index()],
+                before[Dimension::MemoryBytes.index()] + lift_bytes,
+            );
+            assert_eq!(
+                measured.dimensions[Dimension::AllocationCount.index()],
+                before[Dimension::AllocationCount.index()] + lift_allocations,
+            );
+            for dimension in [
+                Dimension::DepthLimit,
+                Dimension::RandomDraws,
+                Dimension::TimeBudget,
+            ] {
+                assert_eq!(
+                    measured.dimensions[dimension.index()],
+                    before[dimension.index()]
+                );
+            }
+        }
+    }
+
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    fn product_candidate_lift_refuses_an_unfunded_native_repack() {
+        let factor = BigInt::one() << 32;
+        for (memory, allocations, expected_dimension) in [
+            (15, 1, Dimension::MemoryBytes),
+            (16, 0, Dimension::AllocationCount),
+        ] {
+            let candidate = metered_karatsuba_candidate(&factor, &factor, &mut Unbounded).unwrap();
+            let mut limits = BudgetLimits::uniform(1_000, 0);
+            limits.dimensions[Dimension::MemoryBytes.index()] = memory;
+            limits.dimensions[Dimension::AllocationCount.index()] = allocations;
+            let mut budget = Budget::new(limits);
+            let before = budget.snapshot();
+            assert!(matches!(
+                candidate.into_bigint(&mut budget),
+                Err(MeterError::Budget(BudgetError::Exhausted { dimension, .. }))
+                    if dimension == expected_dimension
+            ));
+            assert_eq!(
+                budget.snapshot(),
+                before,
+                "repack reservation must be atomic"
+            );
+        }
+    }
+
+    #[test]
+    fn production_metered_strategies_use_one_budget_through_publication() {
+        let (a, b) = actual_metered_toom_operands();
+        let expected = multiply_with_strategy(&a, &b, Strategy::SchoolbookReference);
+        for strategy in PRODUCTION_METERED_STRATEGIES {
+            let mut measured = CountingMeter::default();
+            assert_eq!(
+                metered_multiply_with_strategy(&a, &b, strategy, &mut measured).unwrap(),
+                expected,
+            );
+            let exact_limits = BudgetLimits {
+                dimensions: measured.dimensions,
+                verifier_pool: 7,
+            };
+            let mut exact = Budget::new(exact_limits);
+            assert_eq!(
+                metered_multiply_with_strategy(&a, &b, strategy, &mut exact).unwrap(),
+                expected,
+            );
+            for dimension in Dimension::ALL {
+                assert_eq!(exact.remaining(dimension), 0);
+                let used = measured.dimensions[dimension.index()];
+                if used == 0 {
+                    continue;
+                }
+                let mut short_limits = exact_limits;
+                short_limits.dimensions[dimension.index()] = used - 1;
+                let mut short = Budget::new(short_limits);
+                assert!(
+                    matches!(
+                        metered_multiply_with_strategy(&a, &b, strategy, &mut short),
+                        Err(MeteredMultiplyError::Meter(MeterError::Budget(
+                            BudgetError::Exhausted { dimension: observed, .. }
+                        ))) if observed == dimension
+                    ),
+                    "{strategy:?} must refuse a one-unit-short {dimension} budget"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn production_metered_dispatch_reaches_the_selected_kernel() {
+        let (a, b) = actual_metered_toom_operands();
+        for strategy in PRODUCTION_METERED_STRATEGIES {
+            let mut direct = CountingMeter::default();
+            let expected = match strategy {
+                MeteredMultiplyStrategy::Schoolbook => {
+                    metered_multiply(&a, &b, &mut direct).unwrap()
+                }
+                MeteredMultiplyStrategy::Karatsuba => {
+                    metered_karatsuba_candidate(&a, &b, &mut direct)
+                        .unwrap()
+                        .into_bigint(&mut direct)
+                        .unwrap()
+                }
+                MeteredMultiplyStrategy::Toom3 => metered_toom3_candidate(&a, &b, &mut direct)
+                    .unwrap()
+                    .into_bigint(&mut direct)
+                    .unwrap(),
+                MeteredMultiplyStrategy::NttCrt => metered_ntt_crt_candidate(&a, &b, &mut direct)
+                    .unwrap()
+                    .into_bigint(&mut direct)
+                    .unwrap(),
+            };
+            let mut dispatched = CountingMeter::default();
+            assert_eq!(
+                metered_multiply_with_strategy(&a, &b, strategy, &mut dispatched).unwrap(),
+                expected,
+            );
+            assert_eq!(dispatched.dimensions, direct.dimensions, "{strategy:?}");
+            assert_eq!(dispatched.checkpoints, direct.checkpoints, "{strategy:?}");
+        }
+    }
+
+    #[test]
+    fn product_candidate_lift_cancels_before_and_after_materialization() {
+        for (a, b) in [
+            (BigInt::zero(), BigInt::from(-17)),
+            (BigInt::from(-17), BigInt::from(29)),
+            (BigInt::one() << 32, -(BigInt::one() << 32)),
+        ] {
+            assert_cancels_at_every_checkpoint(|meter| {
+                metered_karatsuba_candidate(&a, &b, &mut Unbounded)
+                    .unwrap()
+                    .into_bigint(meter)
+            });
+        }
+    }
+
+    #[test]
+    fn production_metered_strategies_cancel_at_every_small_product_safe_point() {
+        for strategy in PRODUCTION_METERED_STRATEGIES {
+            for (a, b) in [
+                (BigInt::zero(), BigInt::from(-17)),
+                (
+                    (BigInt::one() << 64) + 17i64,
+                    -((BigInt::one() << 65) + 29i64),
+                ),
+            ] {
+                let mut baseline = CancelAfter {
+                    cancel_at_checkpoint: usize::MAX,
+                    checkpoints: 0,
+                    compute_steps: 0,
+                };
+                let expected = multiply_with_strategy(&a, &b, Strategy::SchoolbookReference);
+                assert_eq!(
+                    metered_multiply_with_strategy(&a, &b, strategy, &mut baseline).unwrap(),
+                    expected,
+                );
+                for cancel_at_checkpoint in 1..=baseline.checkpoints {
+                    let mut cancelled = CancelAfter {
+                        cancel_at_checkpoint,
+                        checkpoints: 0,
+                        compute_steps: 0,
+                    };
+                    assert_eq!(
+                        metered_multiply_with_strategy(&a, &b, strategy, &mut cancelled),
+                        Err(MeteredMultiplyError::Meter(MeterError::Cancelled)),
+                        "{strategy:?} must not publish at checkpoint {cancel_at_checkpoint}",
+                    );
+                    assert_eq!(cancelled.checkpoints, cancel_at_checkpoint);
+                }
+            }
+        }
     }
 
     #[test]
