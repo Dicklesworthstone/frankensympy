@@ -102,10 +102,12 @@ pub fn diff_unsimplified(expr: &Expr, var: &Symbol) -> Expr {
                 Expr::from_i64(0)
             } else if dv.is_zero() {
                 // u(x)^c where c does not depend on var: c * u^(c - 1) * u'
-                let exp_minus_1 = if let Expr::Integer(n) = exp.as_ref() {
-                    Expr::Integer(n - BigInt::from(1))
-                } else {
-                    Expr::Add(vec![exp.as_ref().clone(), Expr::from_i64(-1)])
+                let exp_minus_1 = match exp.as_ref() {
+                    Expr::Integer(n) => Expr::Integer(n - BigInt::from(1)),
+                    Expr::Rational(r) => {
+                        fsym_core::elementary::rational_expr(r - BigRational::one())
+                    }
+                    _ => Expr::Add(vec![exp.as_ref().clone(), Expr::from_i64(-1)]),
                 };
                 Expr::Mul(vec![
                     exp.as_ref().clone(),

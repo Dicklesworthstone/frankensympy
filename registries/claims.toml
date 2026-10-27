@@ -142,8 +142,17 @@ evidence_artifacts = [
     "crates/fsym-calculus/src/rational_sum.rs",
     "crates/fsym-proof-kernel/src/rational_sum.rs",
     "artifacts/audit/2026-10-27-core-feature-progress.json",
+    "crates/fsym-matrices/src/affine.rs",
+    "crates/fsym-proof-kernel/src/linear_system.rs",
+    "crates/fsym-matrices/tests/affine_system.rs",
+    "crates/fsym-proof-kernel/tests/linear_system.rs",
+    "crates/fsym-calculus/src/rational_definite.rs",
+    "crates/fsym-proof-kernel/src/rational_definite.rs",
+    "crates/fsym-calculus/tests/rational_definite.rs",
+    "crates/fsym-proof-kernel/tests/rational_definite.rs",
+    "artifacts/audit/2026-10-27-solver-integration-progress.json",
 ]
-notes = "This claim never implies that every API result has the same evidence class. implemented_uncertified 2026-09-06: kernel-checked proofs, evidence promotion lattice, exact matrix certificates, Groebner basis certificates with ideal witnesses, analytic calculus, and algebraic/ODE residual verifiers and SAT/logic verification landed; per-family certificate gates remain open. 2026-10-27 bounded rational-summation implementation adds independently checked antidifference identities, original pole exclusions and finite/reversed/infinite endpoint checks. Five kernel plus eight actual native calculus regressions pass on the supplementary compiler. This is component evidence; the full transformation-family gate remains open."
+notes = "This claim never implies that every API result has the same evidence class. implemented_uncertified 2026-09-06: kernel-checked proofs, evidence promotion lattice, exact matrix certificates, Groebner basis certificates with ideal witnesses, analytic calculus, and algebraic/ODE residual verifiers and SAT/logic verification landed; per-family certificate gates remain open. 2026-10-27 bounded rational-summation implementation adds independently checked antidifference identities, original pole exclusions and finite/reversed/infinite endpoint checks. Five kernel plus eight actual native calculus regressions pass on the supplementary compiler. This is component evidence; the full transformation-family gate remains open. 2026-10-27 continuation adds independent row-operation/RREF checks proving complete exact rational affine solution spaces and rational-primitive definite-integral certificates checking derivative identity, original interior pole exclusions and finite endpoint limits. The solver-integration progress artifact records focused execution and build scope. These bounded certificate families do not close symbolic linear-system, nonrational branch, runtime/profile or full transformation-family gates."
 
 [[claims]]
 id = "MATH-002"
@@ -198,8 +207,11 @@ evidence_artifacts = [
     "python/sympy/utilities/lambdify.py",
     "crates/fsym-calculus/tests/finite_numeric_programs.rs",
     "artifacts/audit/2026-10-27-core-feature-progress.json",
+    "python/sympy/solvers/numerical.py",
+    "python/tests/test_nsolve_systems.py",
+    "artifacts/audit/2026-10-27-solver-integration-progress.json",
 ]
-notes = "implemented_uncertified 2026-09-06: sparse Jacobian with proof replay, distance-1 coloring, compiled evaluator agreement, and mutant resistance passed gate://ws12-certified-jacobian (C7 gate). 2026-10-27 typed Python compiled functions and residual/Jacobian programs are connected to checked native lowering. Five native numeric tests and 46 actual Python numerical/solver tests pass; the latter use the actual shell and bridge with six enumerated runtime-dependent functions omitted. All binary64 results remain approximate, and the complete campaign, certified-enclosure and profile gates remain open."
+notes = "implemented_uncertified 2026-09-06: sparse Jacobian with proof replay, distance-1 coloring, compiled evaluator agreement, and mutant resistance passed gate://ws12-certified-jacobian (C7 gate). 2026-10-27 typed Python compiled functions and residual/Jacobian programs are connected to checked native lowering. Five native numeric tests and 46 actual Python numerical/solver tests pass; the latter use the actual shell and bridge with six enumerated runtime-dependent functions omitted. All binary64 results remain approximate, and the complete campaign, certified-enclosure and profile gates remain open. 2026-10-27 continuation connects these programs to bounded square and overdetermined finite-real nsolve systems using pivoted QR and backtracking. Rational-power derivatives now retain exact exponent arithmetic and independently checked chain factors, with a formal statement restricted to the common smooth domain. The solver-integration progress artifact records actual focused execution and scoped-extension limitations. Numerical roots remain approximate candidates, and endpoint/branch extensions, certified enclosures and the complete campaign/profile gates remain open."
 
 [[claims]]
 id = "RUNTIME-001"

@@ -1,0 +1,282 @@
+{
+  "schema": "frankensympy_supplementary_component_execution_v1",
+  "validation_class": "governed_toolchain_component_checks_not_full_workspace_certification",
+  "date": "2026-10-27",
+  "baseline_commit": "d882aa3866f3074824c31be0bbd8629cfc40739b",
+  "prior_feature_commits_verified_on_main": [
+    {
+      "sha": "0fe772570b6a26cdcee87fedee59721b0643dc01",
+      "feature": "complete independently checked rational affine systems"
+    },
+    {
+      "sha": "45637344448686fc54279202d8a9927c60af7d5c",
+      "feature": "independently checked rational definite integrals"
+    }
+  ],
+  "containing_commit_feature": "bounded multivariate nsolve with checked rational-power Jacobians",
+  "planning_sources": [
+    "COMPREHENSIVE_PLAN_FOR_FRANKENSYMPY.md",
+    ".beads/issues.jsonl"
+  ],
+  "beads_updated_without_closure": [
+    "fra-kfo",
+    "fra-7kf",
+    "fra-a5x",
+    "fra-campaign-jacobian-bundle-ukp"
+  ],
+  "claims_updated_without_promotion": [
+    "MATH-001",
+    "MATH-004"
+  ],
+  "compiler": {
+    "governed": "nightly-2026-08-20",
+    "governed_available": true,
+    "used": "nightly-2026-08-20",
+    "version": "rustc 1.100.0-nightly (f7d782a3b 2026-08-19)",
+    "external_dependency_pins_changed": false,
+    "repository_registry_packages_unchanged": 228,
+    "scoped_registry_packages_match_pinned_versions_and_checksums": 42,
+    "internal_dependency_added": "fsym-matrices -> fsym-proof-kernel"
+  },
+  "features": {
+    "exact_linear_systems": {
+      "native": "bounded exact affine elimination with independent elementary-operation replay, strict RREF/rank validation, complete canonical free-coordinate basis, and distinct unique/affine/inconsistent results",
+      "python": [
+        "linsolve",
+        "solve_linear_system",
+        "Matrix.gauss_jordan_solve"
+      ],
+      "coverage": [
+        "rectangular",
+        "singular",
+        "overdetermined",
+        "inconsistent",
+        "empty dimensions",
+        "multiple RHS",
+        "large exact rationals",
+        "Dummy parameter identity"
+      ],
+      "bounds": {
+        "max_equations": 128,
+        "max_unknowns": 128,
+        "max_rational_component_bits": 8192
+      }
+    },
+    "multivariate_nsolve": {
+      "scope": "finite-real square and overdetermined systems; binary64 approximate candidates",
+      "method": "native checked symbolic Jacobian programs, row/column equilibration, column-pivoted Householder QR, bounded backtracking, residual and undamped-step convergence checks",
+      "derivative_repair": "exact rational q-1 in generator and independently derived (p-q)/q with checked chain factors; formal common smooth-domain scope",
+      "bounds": {
+        "max_variables": 64,
+        "max_residuals": 256,
+        "max_jacobian_entries": 4096
+      }
+    },
+    "rational_definite_integrals": {
+      "scope": "rational primitives with zero Hermite remainder, rational finite endpoints or infinities, including reversed intervals",
+      "independent_checks": [
+        "antiderivative identity",
+        "bounded exact Sturm counts for original interior denominator roots",
+        "finite endpoint primitive limits",
+        "exact endpoint difference"
+      ],
+      "original_domain": "preserves cancelled, nested reciprocal, and held-zero-power holes; interior holes conservatively refuse, removable endpoint holes may use finite improper limits",
+      "extended_real_fallback_repair": "canonical signed infinite differences only after proving the other endpoint value real; identical infinities still refuse"
+    }
+  },
+  "native_component_execution": [
+    {
+      "log_name": "calculus-all-tests.log",
+      "log_sha256": "48b9ca58561f40b5e2a8aa327e248ce0869dc73b91bf8658fef25208b50f8300",
+      "passed": 170,
+      "failed_summaries": [],
+      "command": "cargo test --locked -p fsym-calculus",
+      "exit_code": 0
+    },
+    {
+      "log_name": "kernel-matrices-all-tests.log",
+      "log_sha256": "3a7194021de9c14662383f530dc1b63e5916198e65284aad5ab3a067603647ee",
+      "passed": 196,
+      "failed_summaries": [],
+      "command": "cargo test --locked -p fsym-matrices -p fsym-proof-kernel",
+      "exit_code": 0
+    }
+  ],
+  "native_followup_execution": {
+    "log_name": "native-rational-definite-final.log",
+    "log_sha256": "6e1611127fea23dc7700bf4aff2cc258ef36f9f7a51f1f367b6005f1a21642a7",
+    "passed": 14,
+    "failed_summaries": [],
+    "command": "cargo test --locked -p fsym-calculus -p fsym-proof-kernel --test rational_definite",
+    "exit_code": 0,
+    "reason": "Both affected suites rerun after equivalent parity/no-clone lint corrections; these 14 tests are included in, not added to, the 366 aggregate test count."
+  },
+  "python_component_execution": {
+    "scope": "actual PyO3 implementation, with six explicitly omitted runtime-only members",
+    "build": {
+      "exit_code": 0,
+      "compiler": "rustc 1.100.0-nightly (f7d782a3b 2026-08-19)",
+      "binary": "/workspace/scratch/4e57ea5be713/final-scoped-target/debug/libfsym_python.so",
+      "loaded_binary": "/workspace/scratch/4e57ea5be713/final-scoped-target/debug/libfsym_python.so",
+      "binary_bytes": 20030064,
+      "binary_sha256": "e84c5710c9e542759807c6763c28d33161d305e88054ae50f5e5554dee7c278b",
+      "build_log": "/workspace/scratch/4e57ea5be713/scoped-python-build-final-fresh.log",
+      "build_log_sha256": "ee24959ed6419edd692a3b33ec70088a0b83ee1be62997d827a0afe747655bc6"
+    },
+    "source_manifest": "/workspace/scratch/4e57ea5be713/scoped-python-validation/source_manifest.json",
+    "source_manifest_sha256": "0e4b424a2a540a64eb0ec078eb5cba11a7b64278320125409760791484c6b5fa",
+    "source_drift": [],
+    "bridge_sources_checked": 13,
+    "native_path_dependency_sources_checked": 116,
+    "python_sources_checked": 126,
+    "python": "Python 3.12.14",
+    "test_command": "PYTHONPATH=/workspace/scratch/4e57ea5be713/frankensympy/python CARGO_TARGET_DIR=/workspace/scratch/4e57ea5be713/final-scoped-target /workspace/scratch/4e57ea5be713/test-env/bin/python -m pytest -q python/tests/test_numeric_compilation.py python/tests/test_nsolve_convergence.py python/tests/test_nsolve_systems.py python/tests/test_rational_definite.py python/tests/test_affine_linear_systems.py -k 'not test_existing_symbolic_coefficient_lane_remains_available'",
+    "test_exit_code": 0,
+    "passed": 91,
+    "deselected": 1,
+    "deselected_test": "CheckedLinearSystemTests::test_existing_symbolic_coefficient_lane_remains_available",
+    "deselected_reason": "Requires generic native simplify omitted in this explicitly scoped build. No claim made for this test.",
+    "test_log": "/workspace/scratch/4e57ea5be713/python-feature-tests-final-fresh.log",
+    "test_log_sha256": "171ed0d2505c914bed9d745af37f74ef20c7a4dd9feebaaf17d3565b2e6113d9",
+    "omitted_members": [
+      "eval_error",
+      "eval_region",
+      "simplify_expr",
+      "expand_expr",
+      "PyExpr.simplify",
+      "PyExpr.expand"
+    ],
+    "replacement_implementations": [],
+    "production_file_hashes": {
+      "crates/fsym-calculus/src/lib.rs": "280e7418ed17478934d5f0aaa25a112f0aaf2e5657afeb8bdbf41ad3bda37cdd",
+      "crates/fsym-calculus/src/proof.rs": "0a348e6164dc8b0b06eb59d8b520bb499da952f291b30c5dc604cea2de99753a",
+      "crates/fsym-calculus/tests/finite_numeric_programs.rs": "73116c87ac01dc95e4e1a676b2296fc5f0d6ff80b3928374811cbcae5a4c98aa",
+      "python/sympy/solvers/numerical.py": "e5206613b1eb3c54a9d556cd06a72848f42bf6b1c377c46d030019693c859da2",
+      "python/tests/test_nsolve_systems.py": "8c46dede56e1de439fcb25a6f59f738267a821b0e28962a949b82217c78bc352"
+    }
+  },
+  "python_scope": {
+    "implementation_process_uses_upstream_sympy": false,
+    "upstream_oracle": "SymPy 1.14.0 in a separate isolated environment",
+    "actual_bridge_sources": 13,
+    "actual_native_dependency_source_and_manifest_files": 116,
+    "actual_python_source_and_test_files": 126,
+    "six_runtime_members_omitted_without_replacements": [
+      "eval_error",
+      "eval_region",
+      "simplify_expr",
+      "expand_expr",
+      "PyExpr.simplify",
+      "PyExpr.expand"
+    ],
+    "runtime_dependency_alias": "Only actual fsym-budget Budget/BudgetLimits exports are used for the omitted-runtime bridge dependency alias.",
+    "scoped_build_history": "An incremental split rmeta/rlib cohort failed to link after source changes. A fresh additive final-scoped-target rebuilt the frozen graph with unchanged compiler flags and no production source replacements.",
+    "additional_set_regression_checks": "Two existing set test cases and direct duplicate/Dummy/Tuple identity checks passed. A third broad existing surface case reached solveset and was blocked by the explicitly omitted simplify member."
+  },
+  "quality_checks": [
+    {
+      "command": "cargo fmt --check",
+      "exit_code": 0
+    },
+    {
+      "command": "cargo clippy --locked -p fsym-calculus -p fsym-matrices -p fsym-proof-kernel --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log_name": "native-feature-clippy-final.log",
+      "log_sha256": "480d624e6b162966c0bb53574f2583f4fdb27a92844228d6e971e2a4ebab6979"
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0
+    }
+  ],
+  "required_workspace_commands": [
+    {
+      "command": [
+        "cargo",
+        "check",
+        "--workspace",
+        "--all-targets",
+        "--locked",
+        "--offline"
+      ],
+      "exit_code": 101,
+      "elapsed_seconds": 90.795,
+      "status": "blocked",
+      "diagnostic": "asupersync rustc process terminated by signal 9, SIGKILL under the 8 GiB shared memory ceiling",
+      "log_name": "workspace-check-final.log",
+      "log_sha256": "cd6b649a1b30abe5928b9dbf5962198ca64b13a336e6d7d34df4c2b0ccadaa17"
+    },
+    {
+      "command": [
+        "cargo",
+        "clippy",
+        "--workspace",
+        "--all-targets",
+        "--locked",
+        "--offline",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 101,
+      "elapsed_seconds": 78.296,
+      "status": "blocked",
+      "diagnostic": "asupersync rustc process terminated by signal 9, SIGKILL under the 8 GiB shared memory ceiling",
+      "log_name": "workspace-clippy-final.log",
+      "log_sha256": "b2bd5758612a29c5c947daa49ca0f43f9deeec385352b7233f76a41e028ef287"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--workspace",
+        "--locked",
+        "--offline"
+      ],
+      "exit_code": 101,
+      "elapsed_seconds": 140.781,
+      "status": "blocked",
+      "diagnostic": "asupersync rustc process terminated by signal 9, SIGKILL under the 8 GiB shared memory ceiling",
+      "log_name": "workspace-test-final.log",
+      "log_sha256": "b21a903c496af8a320877bb4f3a8229dd1c9e6afc97b23dfa38ca1323b6e3829"
+    }
+  ],
+  "validation_limitations": [
+    "Full workspace check, Clippy and tests, and the full runtime-dependent Python extension did not pass because asupersync compilation was killed under the shared memory ceiling. Scoped success does not substitute for these gates.",
+    "Exactly one new affine Python test remains unvalidated in the scoped bridge because the unchanged symbolic-coefficient lane requires the omitted native simplify member.",
+    "The complete calculus and kernel/matrix suites ran before the final equivalent parity and clone-removal lint corrections; affected integral suites and the scoped Python suite were then rerun from frozen corrected sources.",
+    "The rational-power rule is a formal partial-domain statement, not endpoint differentiability, branch extension, a global algebraic-identity certificate, or a numerical enclosure.",
+    "Numerical roots remain approximate candidates. Rank failures, unsupported domains and exhausted work limits refuse explicitly.",
+    "Logarithmic/arctangent primitives, principal-value integrals and general branch-aware definite integration are outside the new rational-primitive certificate family.",
+    "No workstream, compatibility profile, complete campaign, certification status or performance claim is promoted by this receipt."
+  ],
+  "source_sha256": {
+    "Cargo.lock": "0c0f53adb06c2a11c1c8db08713daba128117ef64e37485a114109223799bc29",
+    "Cargo.toml": "987f16a80f17f156ae00b03a95b90f6fee358eabeacdd451f711c8fa2be922b9",
+    "crates/fsym-calculus/src/integrate.rs": "453a200f834ca4b5a80fb1ac5c318ab2cf7a2360c52bcdffe599274dda6048d2",
+    "crates/fsym-calculus/src/lib.rs": "280e7418ed17478934d5f0aaa25a112f0aaf2e5657afeb8bdbf41ad3bda37cdd",
+    "crates/fsym-calculus/src/proof.rs": "0a348e6164dc8b0b06eb59d8b520bb499da952f291b30c5dc604cea2de99753a",
+    "crates/fsym-calculus/src/rational_definite.rs": "b4f7bfb4178171095910c514756477d5997a826cc0574af802905671aba12155",
+    "crates/fsym-calculus/tests/finite_numeric_programs.rs": "73116c87ac01dc95e4e1a676b2296fc5f0d6ff80b3928374811cbcae5a4c98aa",
+    "crates/fsym-calculus/tests/rational_definite.rs": "4702023eefdc713eb28cf5d0971773e927f36a36fd5fe798567c220fa0d2945f",
+    "crates/fsym-matrices/Cargo.toml": "a260962513eaefe08af0a73a3da5a932ac62d017fdc2c6b63320c103f138f293",
+    "crates/fsym-matrices/src/affine.rs": "2f1948bb092e8c9aa12988a2c3baa44793545e76a0da889c3258fcceb9d2dde2",
+    "crates/fsym-matrices/src/lib.rs": "6feca98172932668ccfb5ba6403fd43f8e63092a14a013723eeaa6250e4ac7aa",
+    "crates/fsym-matrices/tests/affine_system.rs": "26f60924012ee5ef8accfad01e9574d774a1ca9411468a48ad2c710bd57622cb",
+    "crates/fsym-proof-kernel/src/lib.rs": "f786c68380433ccb975fa5ac9d0c34cb967e31f4d10c3345b83f87b958f4841c",
+    "crates/fsym-proof-kernel/src/linear_system.rs": "74815988346dd71d45d4b375e7c209956fa254753cd99fed91974c4ef1936ec7",
+    "crates/fsym-proof-kernel/src/rational_definite.rs": "da9fc9dc5611c26dc77d795ee7db58e06b026a3c4aac51794358a2609ec617eb",
+    "crates/fsym-proof-kernel/tests/linear_system.rs": "b58aabff67293ac634257f1a93132274aa79c174f087dec61339174b3dc22005",
+    "crates/fsym-proof-kernel/tests/rational_definite.rs": "aa551b0911583dcfa488efdf91436b9d32c2845680cc9f59bbafb65d6f648142",
+    "crates/fsym-python/src/matrix.rs": "301145970b4e82fb593a7d24575bfe2f5b9e4517fd35332e385fb23bf6d45c98",
+    "docs/CRATE_ARCHITECTURE_AND_DEPENDENCIES.md": "9810bcb3f50f295ba7319e904e25d466da7f911c425a44a1ce1e95e67a6b88c4",
+    "python/sympy/matrices/dense.py": "6b76b2d450f04845e9aadd8f9d1d7fc067c7729129fe93517c725cc5564697f4",
+    "python/sympy/sets/sets.py": "430fc54bf698cc458b84b0ed7197d86fe996979589a8e9acd5a0e803e3265450",
+    "python/sympy/solvers/numerical.py": "e5206613b1eb3c54a9d556cd06a72848f42bf6b1c377c46d030019693c859da2",
+    "python/sympy/solvers/solvers.py": "916d436cea36a59678353f4d514efabe2a281805b118c803082ce616716ba697",
+    "python/tests/test_affine_linear_systems.py": "1fb6a17d61748cf412d36c4a03a2ce319697e8ac8f47220561eac5bb960a7c63",
+    "python/tests/test_nsolve_systems.py": "8c46dede56e1de439fcb25a6f59f738267a821b0e28962a949b82217c78bc352",
+    "python/tests/test_rational_definite.py": "eb6d37e4821225c8133e980dee5cae50817fa5182db4e150363013f2bc597588",
+    "rust-toolchain.toml": "cdaedf5d65db22fa32d18beadab465c1b7653285dfb2e14d23f7dfd9677f9848"
+  }
+}

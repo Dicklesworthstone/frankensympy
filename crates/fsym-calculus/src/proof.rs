@@ -14,6 +14,11 @@ pub const RULE_DIFF_VAR_OTHER: &str = "diff_var_other";
 pub const RULE_DIFF_SUM: &str = "diff_sum";
 pub const RULE_DIFF_PROD: &str = "diff_product";
 pub const RULE_DIFF_POW_INT: &str = "diff_power_integer";
+/// Formal power/chain rule on the common smooth domain of its two sides.
+/// This does not prove differentiability at zero, choose a new real branch,
+/// or certify a numerical enclosure. Finite numerical consumers must still
+/// reject points where the original function or its derivative is undefined.
+pub const RULE_DIFF_POW_RATIONAL: &str = "diff_power_rational";
 pub const RULE_DIFF_SIN: &str = "diff_sin";
 pub const RULE_DIFF_COS: &str = "diff_cos";
 pub const RULE_DIFF_TAN: &str = "diff_tan";
@@ -49,6 +54,8 @@ pub fn classify_diff_rule(expr: &Expr, var: &Symbol) -> &'static str {
         Expr::Pow(_, exp) => {
             if let Expr::Integer(_) = exp.as_ref() {
                 RULE_DIFF_POW_INT
+            } else if let Expr::Rational(_) = exp.as_ref() {
+                RULE_DIFF_POW_RATIONAL
             } else {
                 RULE_DIFF_GENERAL
             }
@@ -297,6 +304,27 @@ fn reference_unsimplified_diff(expr: &Expr, var: &Symbol) -> Expr {
                         du,
                     ])
                 }
+            } else if let Expr::Rational(rational) = exp.as_ref() {
+                let du = reference_sub_derivative(base, var);
+                if du.is_zero() {
+                    Expr::from_i64(0)
+                } else {
+                    // Derive (p-q)/q directly from the exact source payload;
+                    // never reuse the generator's exponent transformation or
+                    // round an exponent through floating point.
+                    let shifted = BigRational::new(
+                        rational.numer() - rational.denom(),
+                        rational.denom().clone(),
+                    );
+                    Expr::Mul(vec![
+                        Expr::Rational(rational.clone()),
+                        Expr::Pow(
+                            base.clone(),
+                            Arc::new(fsym_core::elementary::rational_expr(shifted)),
+                        ),
+                        du,
+                    ])
+                }
             } else {
                 make_diff_term(expr, var)
             }
@@ -530,6 +558,26 @@ fn verify_rule_reduction_semantics(
                     rule_name: rule_name.to_string(),
                     reason: "Expected Pow expression with integer exponent for diff_power_integer"
                         .to_string(),
+                });
+            }
+        }
+        RULE_DIFF_POW_RATIONAL => {
+            if let Expr::Pow(_, exponent) = expr
+                && matches!(exponent.as_ref(), Expr::Rational(_))
+            {
+                let expected_rhs = reference_unsimplified_diff(expr, var);
+                if deriv != &expected_rhs {
+                    return Err(KernelError::InvalidDefinitionalReduction {
+                        rule_name: rule_name.to_string(),
+                        reason: format!(
+                            "Rational power derivative mismatch: expected {expected_rhs}, got {deriv}"
+                        ),
+                    });
+                }
+            } else {
+                return Err(KernelError::InvalidDefinitionalReduction {
+                    rule_name: rule_name.to_string(),
+                    reason: "Expected Pow expression with exact rational exponent".to_string(),
                 });
             }
         }
