@@ -1942,6 +1942,9 @@ pub fn definite(f: &Expr, x: &Symbol, a: &Expr, b: &Expr) -> Option<Expr> {
     if !definite_inputs_within_bounds(f, a, b) {
         return None;
     }
+    if let Some(result) = crate::rational_definite::try_definite(f, x, a, b) {
+        return result.ok();
+    }
     // Validate the original endpoint trees before limit normalization. A
     // fresh variable absent from both endpoints makes these constant-domain
     // obligations, while preserving finite symbolic polynomial endpoints.
@@ -1991,19 +1994,30 @@ pub fn definite(f: &Expr, x: &Symbol, a: &Expr, b: &Expr) -> Option<Expr> {
     ) {
         return None;
     }
-    // Equal infinity nodes must be refused before canonical subtraction
-    // can cancel them as if they were equal finite symbolic values.
-    if matches!(
-        (&upper, &lower),
-        (
-            Expr::Const(Constant::Infinity),
-            Expr::Const(Constant::Infinity)
-        ) | (
-            Expr::Const(Constant::NegativeInfinity),
-            Expr::Const(Constant::NegativeInfinity)
-        )
-    ) {
-        return None;
+    // Endpoint subtraction is extended-real arithmetic. Handle its defined
+    // infinite cases before ordinary symbolic addition, which can retain
+    // `finite + oo` unevaluated or cancel equal infinity nodes incorrectly.
+    // A finite operand must have a certified real enclosure; an unknown or
+    // complex expression cannot silently become an extended-real value.
+    let infinity_sign = |value: &Expr| match value {
+        Expr::Const(Constant::Infinity) => Some(1i8),
+        Expr::Const(Constant::NegativeInfinity) => Some(-1i8),
+        _ => None,
+    };
+    let infinite_result = match (infinity_sign(&upper), infinity_sign(&lower)) {
+        (Some(a), Some(b)) if a != b => Some(a),
+        (Some(_), Some(_)) => return None,
+        (Some(sign), None) if endpoint_ball(&lower, 24).is_some() => Some(sign),
+        (None, Some(sign)) if endpoint_ball(&upper, 24).is_some() => Some(-sign),
+        (Some(_), None) | (None, Some(_)) => return None,
+        (None, None) => None,
+    };
+    if let Some(sign) = infinite_result {
+        return Some(Expr::Const(if sign > 0 {
+            Constant::Infinity
+        } else {
+            Constant::NegativeInfinity
+        }));
     }
     let value = fsym_simplify::simplify(&(upper - lower));
     if matches!(

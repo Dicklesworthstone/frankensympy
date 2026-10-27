@@ -7,6 +7,7 @@ pub mod gruntz;
 pub mod hermite;
 pub mod integrate;
 pub mod proof;
+pub mod rational_definite;
 pub mod rational_limits;
 pub mod rational_sum;
 pub mod series;
