@@ -2,6 +2,7 @@
 
 from .. import checksol, dsolve, solve, solveset
 from .exact_ode import dsolve_exact_first_order
+from .numerical import RootSearchError, nsolve_certified
 from .ode import (
     checkodesol,
     dsolve_cauchy_euler,
@@ -29,6 +30,8 @@ __all__ = [
     "linsolve",
     "nonlinsolve",
     "nsolve",
+    "nsolve_certified",
+    "RootSearchError",
     "solve",
     "solve_linear",
     "solve_linear_system",

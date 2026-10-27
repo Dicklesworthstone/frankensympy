@@ -1287,6 +1287,7 @@ from .combinatorics import (
     SymmetricGroup,
 )
 from .solvers import (
+    RootSearchError,
     checkodesol,
     dsolve_cauchy_euler,
     dsolve_const_coeff_second_order,
@@ -1297,6 +1298,7 @@ from .solvers import (
     linsolve,
     nonlinsolve,
     nsolve,
+    nsolve_certified,
     solve_linear,
     solve_linear_system,
     solve_linear_system_LU,
@@ -2378,6 +2380,8 @@ __all__ = [
     "yn",
     "zeros",
     "nsolve",
+    "nsolve_certified",
+    "RootSearchError",
     "lambdify",
     "compile_numeric",
     "compile_residual_system",

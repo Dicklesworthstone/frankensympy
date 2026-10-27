@@ -1,4 +1,4 @@
-"""Bounded finite-real Newton candidates over typed numerical programs."""
+"""Bounded real Newton candidates and independently certified local roots."""
 
 import math
 
@@ -8,7 +8,7 @@ from ..core import (
 )
 from ..utilities.lambdify import compile_residual_system, lambdify
 
-__all__ = ["nsolve"]
+__all__ = ["nsolve", "nsolve_certified", "RootSearchError"]
 
 _MAX_NEWTON_ITERATIONS = 10_000
 _MAX_SYSTEM_VARIABLES = 64
@@ -17,6 +17,21 @@ _MAX_JACOBIAN_ENTRIES = 4096
 _MAX_LINE_SEARCH_STEPS = 64
 _MAX_SYSTEM_EVALUATIONS = 4096
 _MAX_LINEAR_WORK = 20_000_000
+
+
+class RootSearchError(ValueError):
+    """A bounded search did not produce an accepted local root certificate.
+
+    ``stage`` distinguishes candidate generation from certification. The
+    immutable ``failures`` tuple records rejected certificate trials; neither
+    this exception nor a floating candidate carries a root-existence claim.
+    """
+
+    def __init__(self, stage, message, *, failures=()):
+        self.stage = stage
+        self.failures = tuple(failures)
+        self.attempts = len(self.failures)
+        super().__init__(message)
 
 
 def _finite_real(value, name):
@@ -155,6 +170,17 @@ def _solve_system(expr, var, initial, tolerance, maxiter):
     values = [_finite_real(value, "initial value") for value in values]
     residuals = [_equation_residual(value) for value in residuals]
     program = compile_residual_system(residuals, variables)
+    return variables, _iterate_system(program, values, tolerance, maxiter)
+
+
+def _iterate_system(program, values, tolerance, maxiter):
+    """Generate candidates using one captured native residual/Jacobian program.
+
+    Inputs are already admitted finite floats in flat native-variable order.
+    Neither convergence nor this function's return value grants evidence.
+    """
+    rows = program.native_system.residual_count
+    columns = program.native_system.variable_count
 
     evaluations = 0
 
@@ -163,26 +189,26 @@ def _solve_system(expr, var, initial, tolerance, maxiter):
         if evaluations >= _MAX_SYSTEM_EVALUATIONS:
             raise ValueError("nsolve system exhausted its numerical evaluation budget")
         evaluations += 1
-        return function(*at)
+        return function(at)
 
-    result = evaluate(program.residuals, values)
+    result = evaluate(program.native_system.residuals, values)
     norm = max(abs(value) for value in result)
     if norm == 0.0:
-        return variables, values
+        return values
     linear_work = 0
     for _ in range(maxiter):
         # Charge the dense factorization before allocating its working copy.
         linear_work += rows * columns * (columns + 1)
         if linear_work > _MAX_LINEAR_WORK:
             raise ValueError("nsolve system exhausted its dense linear-algebra work budget")
-        jacobian = evaluate(program.jacobian, values)
+        jacobian = evaluate(program.native_system.jacobian, values)
         try:
             step, weights = _least_squares_step(jacobian, result)
         except (OverflowError, ZeroDivisionError) as error:
             raise ValueError("nsolve linear solve left the finite real domain") from error
         step_norm = max(abs(value) for value in step)
         if norm <= tolerance and step_norm <= tolerance:
-            return variables, values
+            return values
         merit = math.hypot(*(value / weight for value, weight in zip(result, weights)))
         fraction = 1.0
         for _ in range(_MAX_LINE_SEARCH_STEPS):
@@ -197,7 +223,7 @@ def _solve_system(expr, var, initial, tolerance, maxiter):
                 if evaluations >= _MAX_SYSTEM_EVALUATIONS:
                     raise ValueError("nsolve system exhausted its numerical evaluation budget")
                 try:
-                    candidate_result = evaluate(program.residuals, candidate)
+                    candidate_result = evaluate(program.native_system.residuals, candidate)
                 except ValueError:
                     pass
             if candidate_result is not None:
@@ -205,7 +231,7 @@ def _solve_system(expr, var, initial, tolerance, maxiter):
                 if candidate_norm == 0.0 or (
                     candidate_norm <= tolerance and step_norm <= tolerance
                 ):
-                    return variables, candidate
+                    return candidate
                 candidate_merit = math.hypot(*(
                     value / weight for value, weight in zip(candidate_result, weights)
                 ))
@@ -224,6 +250,83 @@ def _solve_system(expr, var, initial, tolerance, maxiter):
 
     raise ValueError(
         f"nsolve failed to converge in {maxiter} iterations (last residual norm = {norm})"
+    )
+
+
+def _newton_options(tol, maxiter):
+    tolerance = _finite_real(tol, "tolerance")
+    if tolerance <= 0:
+        raise ValueError("nsolve tolerance must be positive")
+    if type(maxiter) is not int:
+        raise TypeError("nsolve maxiter must be a built-in integer")
+    if not 1 <= maxiter <= _MAX_NEWTON_ITERATIONS:
+        raise ValueError("nsolve maxiter must be between 1 and 10,000")
+    return tolerance
+
+
+def _solve_compiled_certified(program, initial, *, tol, maxiter, precision, max_attempts):
+    from ..utilities._certified_numeric import prepare_root_search, search_root_box
+
+    tolerance = _newton_options(tol, maxiter)
+    # Check the original immutable program, shape, assumptions and policy
+    # before running any floating candidate work or user conversion hooks.
+    prepare_root_search(program, precision, max_attempts)
+    columns = program.native_system.variable_count
+    values = (_vector(initial, "initial values", columns)
+              if _is_vector(initial) else [initial])
+    if len(values) != columns:
+        raise TypeError("nsolve_certified initial vector must match the number of variables")
+    values = [_finite_real(value, "initial value") for value in values]
+    try:
+        candidate = _iterate_system(program, values, tolerance, maxiter)
+    except (ValueError, OverflowError, ZeroDivisionError) as error:
+        raise RootSearchError("candidate", f"certified root search could not generate a candidate: {error}") from error
+    return search_root_box(program, candidate, precision, max_attempts)
+
+
+def nsolve_certified(expr, var, initial, *, tol=1e-12, maxiter=200,
+                     precision=32, max_attempts=12):
+    """Locate and independently certify one nonsingular real root locally.
+
+    Accept a scalar equation and Symbol or equal-length equation/variable
+    vectors. One immutable exact-source residual program supplies both the
+    approximate Newton search and the independent original-source checker.
+    Systems must be square with 1..16 variables. Floating initial guesses are
+    untrusted proposals; source literals must be exact and custom callbacks
+    are not admitted. Only supported Boolean real/sign assumptions are allowed.
+
+    After bounded Newton iteration, exact rational boxes are proposed around
+    its binary64 candidate. At most ``max_attempts`` trials (1..24) adjust the
+    widths and increase interval precision from ``precision`` (8..128 digits)
+    up to 128. Every accepted box satisfies the independent native C1-domain,
+    strict Krawczyk inclusion and contraction checks. Return a ``RootBoxReceipt``
+    proving one unique nonsingular root in its declared box, with exact root
+    enclosures. This proves nothing about other boxes or global completeness.
+
+    ``tol`` controls only candidate generation, never mathematical acceptance.
+    ``RootSearchError`` distinguishes exhausted candidate and certificate
+    searches; numerical convergence alone is never returned as certification.
+    The bounded search may refuse even when a root exists. For a known exact
+    box or roots outside binary64 range, use ``certify_root_box`` directly.
+    """
+    from ..utilities._certified_numeric import root_search_options
+
+    _newton_options(tol, maxiter)
+    root_search_options(precision, max_attempts)
+    if _is_vector(expr) or _is_vector(var):
+        variables = _vector(var, "variables", 16)
+        residuals = _vector(expr, "residuals", 16)
+        if len(variables) != len(residuals):
+            raise ValueError("nsolve_certified requires a square system")
+        variables = [_require_symbol(value) for value in variables]
+    else:
+        variables = [_require_symbol(var)]
+        residuals = [expr]
+    if len(set(variables)) != len(variables):
+        raise ValueError("nsolve_certified has duplicate typed variables")
+    program = compile_residual_system([_equation_residual(value) for value in residuals], variables)
+    return _solve_compiled_certified(
+        program, initial, tol=tol, maxiter=maxiter, precision=precision, max_attempts=max_attempts,
     )
 
 
@@ -251,13 +354,7 @@ def nsolve(expr, var, initial, tol=1e-12, maxiter=200, *, dict=False):
     """
     if type(dict) is not bool:
         raise TypeError("nsolve dict must be a built-in boolean")
-    tolerance = _finite_real(tol, "tolerance")
-    if tolerance <= 0:
-        raise ValueError("nsolve tolerance must be positive")
-    if type(maxiter) is not int:
-        raise TypeError("nsolve maxiter must be a built-in integer")
-    if not 1 <= maxiter <= _MAX_NEWTON_ITERATIONS:
-        raise ValueError("nsolve maxiter must be between 1 and 10,000")
+    tolerance = _newton_options(tol, maxiter)
 
     if _is_vector(expr) or _is_vector(var):
         from ..matrices import Matrix

@@ -301,6 +301,30 @@ class _ResidualCallable:
         from ._certified_numeric import certify_root_box
         return certify_root_box(self, box, center, preconditioner, precision)
 
+    def solve_certified(self, initial, *, tol=1e-12, maxiter=200,
+                        precision=32, max_attempts=12):
+        """Search for and independently certify one nonsingular real root.
+
+        ``initial`` is a finite-real scalar for one variable or a flat vector
+        in ``variables`` order, even when ordinary arguments are nested. The
+        captured exact source, typed symbols and assumptions stay fixed across
+        candidate generation and certification. The system must be square
+        with 1..16 variables. A bounded Newton candidate only proposes exact
+        rational boxes; native domain, inclusion and contraction checks alone
+        authorize the returned ``RootBoxReceipt``. Failed searches raise
+        ``RootSearchError`` and never return an uncertified candidate.
+
+        ``tol`` and ``maxiter`` govern floating candidate search. Certification
+        tries at most 1..24 boxes (default 12), increasing precision from the
+        requested 8..128 digits up to 128. This is a local root claim, without
+        global completeness. See ``nsolve_certified`` for the search contract.
+        """
+        from ..solvers.numerical import _solve_compiled_certified
+        return _solve_compiled_certified(
+            self, initial, tol=tol, maxiter=maxiter, precision=precision,
+            max_attempts=max_attempts,
+        )
+
 
 def compile_residual_system(residuals, args):
     """Compile a residual system with independently checked symbolic derivatives.

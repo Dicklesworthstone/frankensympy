@@ -5,6 +5,7 @@ bounded witness proposal and carries no mathematical acceptance authority.
 """
 
 from fractions import Fraction
+import math
 
 from ..core import Integer, Rational, _exact_surface_types, _native, _wrap
 
@@ -13,6 +14,7 @@ __all__ = ["ResidualJacobianEnclosure", "RootBoxReceipt"]
 _MAX_BITS = 4096
 _MAX_VARIABLES = 16
 _MAX_RESIDUALS = 64
+_MAX_ROOT_SEARCH_ATTEMPTS = 24
 
 
 def _sequence(value, length, label):
@@ -215,6 +217,79 @@ def _prepare_box(program, box, precision, *, square):
     result = tuple(result)
     _check_assumptions(result, program._assumptions)
     return result
+
+
+def root_search_options(precision, max_attempts):
+    if type(precision) is not int or not 8 <= precision <= 128:
+        raise ValueError("certified precision must be an integer from 8 through 128")
+    if type(max_attempts) is not int or not 1 <= max_attempts <= _MAX_ROOT_SEARCH_ATTEMPTS:
+        raise ValueError("certified root search max_attempts must be an integer from 1 through 24")
+
+
+def prepare_root_search(program, precision, max_attempts):
+    """Reject static certificate ineligibility before candidate iteration."""
+    root_search_options(precision, max_attempts)
+    columns, rows = program.native_system.variable_count, program.native_system.residual_count
+    if not 1 <= columns <= _MAX_VARIABLES or rows != columns:
+        raise ValueError("certified root search requires a square system with 1..16 variables")
+    if program._has_inexact_source:
+        raise ValueError("certified methods require exact source literals; replace Float with explicit Rational")
+    if program._assumptions is None or len(program._assumptions) != columns:
+        raise ValueError("certified boxes require bounded Boolean assumptions matching captured symbol bindings")
+    supported = {
+        "positive", "negative", "nonnegative", "nonpositive", "nonzero", "zero",
+        "extended_positive", "extended_negative", "extended_nonnegative",
+        "extended_nonpositive", "extended_nonzero", "real", "extended_real",
+        "complex", "finite", "commutative", "hermitian", "imaginary", "infinite",
+    }
+    for facts in program._assumptions:
+        if any(key not in supported for key, _ in facts):
+            raise NotImplementedError("certified real boxes do not support one or more declared symbol assumptions")
+
+
+def search_root_box(program, candidate, precision, max_attempts):
+    """Propose bounded exact witnesses; only the native checker can accept.
+
+    Floating convergence is deliberately irrelevant here. Every proposal is
+    checked against the same immutable original source. The one cumulative
+    trial counter includes failed box, assumption, inverse and native checks;
+    changing widths or precision never resets it. Each native call also has
+    its existing fixed arithmetic/allocation bounds. These are synchronous
+    finite work envelopes, not a supervised runtime cancellation claim.
+    """
+    from ..solvers.numerical import RootSearchError
+
+    prepare_root_search(program, precision, max_attempts)
+    dimension = program.native_system.variable_count
+    if (type(candidate) not in (tuple, list) or len(candidate) != dimension
+            or any(type(value) is not float or not math.isfinite(value) for value in candidate)):
+        raise RootSearchError("candidate", "certified root search received an invalid finite-real candidate")
+    # Exact conversion does not upgrade a float's evidence: these rationals
+    # are merely witness centers, checked independently against the source.
+    center = tuple(Fraction(*value.as_integer_ratio()) for value in candidate)
+    radii = tuple((abs(value) or Fraction(1)) / (1 << 20) for value in center)
+    failures = []
+    for attempt in range(max_attempts):
+        # Start near the candidate, then alternate shrinking and widening.
+        # Narrow boxes resolve local domain/dependency excess; wider boxes can
+        # include a root just outside an inaccurate binary64 proposal. Neither
+        # direction grants acceptance, and no global search is implied.
+        exponent = 0 if attempt == 0 else 4 * ((attempt + 1) // 2) * (-1 if attempt % 2 else 1)
+        scale = Fraction(1 << exponent) if exponent >= 0 else Fraction(1, 1 << -exponent)
+        box = tuple((value - radius * scale, value + radius * scale)
+                    for value, radius in zip(center, radii))
+        digits = min(128, precision << (attempt // 2))
+        try:
+            return certify_root_box(program, box, center, None, digits)
+        except ValueError as error:
+            # Keep the bounded diagnostic for each rejected trial. Unsupported
+            # source/type errors remain explicit and never become a fallback.
+            failures.append(str(error))
+    raise RootSearchError(
+        "certification",
+        f"no root certificate accepted after {max_attempts} bounded trials; last rejection: {failures[-1]}",
+        failures=failures,
+    )
 
 
 def enclose(program, box, precision):
