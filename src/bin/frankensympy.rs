@@ -75,6 +75,11 @@ fn main() -> ExitCode {
                     out.flush().ok();
                     return ExitCode::SUCCESS;
                 }
+                // Stateful clients need this response before they can construct
+                // the next verification/export request; do not wait for EOF.
+                if out.flush().is_err() {
+                    return ExitCode::SUCCESS;
+                }
             }
             Err(error) => {
                 eprintln!("frankensympy: stdin read failed: {error}");

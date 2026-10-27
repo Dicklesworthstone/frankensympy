@@ -465,7 +465,13 @@ pub fn verify_derivation_independent(
 /// Portfolio coordinators use this value to reserve protected verifier budget before replay.
 /// The independent verifier repeats this bounded preflight so callers cannot bypass the limits.
 pub fn derivation_verification_units(derivation: &DerivationTree) -> Result<u64, KernelError> {
-    if derivation.steps.len() > MAX_DERIVATION_STEPS {
+    derivation_steps_verification_units(&derivation.steps)
+}
+
+/// Preflight borrowed transport pages before cloning their untrusted expressions.
+/// This bounds work and structure; only the complete derivation verifier grants evidence.
+pub fn derivation_steps_verification_units(steps: &[DerivationStep]) -> Result<u64, KernelError> {
+    if steps.len() > MAX_DERIVATION_STEPS {
         return Err(KernelError::DerivationLimitExceeded {
             resource: "steps",
             limit: MAX_DERIVATION_STEPS as u64,
@@ -473,7 +479,7 @@ pub fn derivation_verification_units(derivation: &DerivationTree) -> Result<u64,
     }
 
     let mut preflight = DerivationPreflight::default();
-    for step in &derivation.steps {
+    for step in steps {
         preflight.add_work(1)?;
         preflight.visit_rule(&step.rule)?;
         preflight.visit_claim(&step.claim)?;
@@ -499,6 +505,8 @@ pub fn expression_verification_units(expr: &Expr) -> Result<u64, KernelError> {
 struct DerivationPreflight {
     work_units: u64,
     expression_nodes: u64,
+    expression_depth: usize,
+    symbol_nodes: u64,
     references: u64,
     text_bytes: u64,
     numeric_limbs: u64,
@@ -571,6 +579,7 @@ impl DerivationPreflight {
                     limit: MAX_DERIVATION_EXPR_DEPTH as u64,
                 });
             }
+            self.expression_depth = self.expression_depth.max(depth);
             Self::add_bounded(
                 &mut self.expression_nodes,
                 1,
@@ -580,7 +589,10 @@ impl DerivationPreflight {
             self.add_work(1)?;
 
             match current {
-                Expr::Sym(symbol) => self.add_text(&symbol.name)?,
+                Expr::Sym(symbol) => {
+                    self.symbol_nodes += 1;
+                    self.add_text(&symbol.name)?;
+                }
                 Expr::Integer(value) => self.add_numeric_limbs(value.limb_count())?,
                 Expr::Rational(value) => {
                     self.add_numeric_limbs(value.numer().limb_count())?;
@@ -766,6 +778,262 @@ impl DerivationPreflight {
     }
 }
 
+/// Size of a term before constructing a rule's derived conclusion. Encoded
+/// claims cannot supply this bound: a forged claim can be tiny even when its
+/// rule would copy a large prior term thousands of times.
+#[derive(Clone, Copy, Default)]
+struct ConstructionSize {
+    nodes: u64,
+    text: u64,
+    limbs: u64,
+    symbols: u64,
+    depth: usize,
+}
+
+impl ConstructionSize {
+    fn expression(expr: &Expr) -> Result<Self, KernelError> {
+        let mut preflight = DerivationPreflight::default();
+        preflight.visit_expr(expr)?;
+        Ok(Self {
+            nodes: preflight.expression_nodes,
+            text: preflight.text_bytes,
+            limbs: preflight.numeric_limbs,
+            symbols: preflight.symbol_nodes,
+            depth: preflight.expression_depth,
+        })
+    }
+
+    fn add(&mut self, other: Self, depth_offset: usize) -> Result<(), KernelError> {
+        DerivationPreflight::add_bounded(
+            &mut self.nodes,
+            other.nodes,
+            MAX_DERIVATION_EXPR_NODES,
+            "constructed expression nodes",
+        )?;
+        DerivationPreflight::add_bounded(
+            &mut self.text,
+            other.text,
+            MAX_DERIVATION_TEXT_BYTES,
+            "constructed text bytes",
+        )?;
+        DerivationPreflight::add_bounded(
+            &mut self.limbs,
+            other.limbs,
+            MAX_DERIVATION_NUMERIC_LIMBS,
+            "constructed numeric limbs",
+        )?;
+        self.depth = self.depth.max(other.depth.saturating_add(depth_offset));
+        if self.depth > MAX_DERIVATION_EXPR_DEPTH {
+            return Err(KernelError::DerivationLimitExceeded {
+                resource: "constructed expression depth",
+                limit: MAX_DERIVATION_EXPR_DEPTH as u64,
+            });
+        }
+        self.symbols = self.symbols.saturating_add(other.symbols);
+        Ok(())
+    }
+}
+
+/// Conservative structural substitution bounds, including the binding layer's
+/// normalization of flat Lambdas and possible fresh-symbol suffixes. Counting
+/// shadowed occurrences as well is safe; absent targets add no replacement cost.
+struct SubstitutionConstruction {
+    template: ConstructionSize,
+    occurrences: u64,
+    occurrence_depth: usize,
+    has_binder: bool,
+}
+
+impl SubstitutionConstruction {
+    fn inspect(template: &Expr, target: &Symbol) -> Result<Self, KernelError> {
+        let mut result = Self {
+            template: ConstructionSize::expression(template)?,
+            occurrences: 0,
+            occurrence_depth: 0,
+            has_binder: false,
+        };
+        let mut pending = vec![(template, 0usize)];
+        while let Some((expr, depth)) = pending.pop() {
+            if depth > MAX_DERIVATION_EXPR_DEPTH {
+                return Err(KernelError::DerivationLimitExceeded {
+                    resource: "constructed expression depth",
+                    limit: MAX_DERIVATION_EXPR_DEPTH as u64,
+                });
+            }
+            result.template.depth = result.template.depth.max(depth);
+            match expr {
+                Expr::Sym(symbol) if symbol == target => {
+                    result.occurrences += 1;
+                    result.occurrence_depth = result.occurrence_depth.max(depth);
+                }
+                Expr::Add(args) | Expr::Mul(args) => {
+                    pending.extend(args.iter().map(|arg| (arg, depth + 1)));
+                }
+                Expr::Pow(base, exponent) => {
+                    pending.push((base, depth + 1));
+                    pending.push((exponent, depth + 1));
+                }
+                Expr::Function(name, args) => {
+                    let parameters = if name == "Lambda" && args.len() >= 2 {
+                        let declarations = match &args[0] {
+                            Expr::Function(tuple, parameters)
+                                if args.len() == 2 && tuple == "Tuple" =>
+                            {
+                                parameters.as_slice()
+                            }
+                            _ => &args[..args.len() - 1],
+                        };
+                        if declarations.iter().all(|arg| matches!(arg, Expr::Sym(_))) {
+                            declarations.len()
+                        } else {
+                            0
+                        }
+                    } else {
+                        0
+                    };
+                    // A flat k-parameter Lambda can become k nested Lambdas.
+                    // Keeping a removed Tuple in this estimate only overcounts.
+                    let extra = parameters.saturating_sub(1);
+                    if extra != 0 {
+                        result.template.add(
+                            ConstructionSize {
+                                nodes: extra as u64,
+                                text: (extra as u64).saturating_mul(6),
+                                ..ConstructionSize::default()
+                            },
+                            0,
+                        )?;
+                    }
+                    result.has_binder |= parameters != 0
+                        || (name == "Integral"
+                            && args.len() == 4
+                            && matches!(args[1], Expr::Sym(_)));
+                    pending.extend(args.iter().map(|arg| (arg, depth + 1 + extra)));
+                }
+                _ => {}
+            }
+        }
+        Ok(result)
+    }
+
+    fn apply(&self, replacement: ConstructionSize, target: &Symbol) -> ConstructionSize {
+        let mut result = self.template;
+        if self.occurrences == 0 {
+            return result;
+        }
+        result.nodes = result.nodes.saturating_add(
+            self.occurrences
+                .saturating_mul(replacement.nodes.saturating_sub(1)),
+        );
+        result.text = result.text.saturating_add(
+            self.occurrences
+                .saturating_mul(replacement.text.saturating_sub(target.name.len() as u64)),
+        );
+        result.limbs = result
+            .limbs
+            .saturating_add(self.occurrences.saturating_mul(replacement.limbs));
+        result.depth = result
+            .depth
+            .max(self.occurrence_depth.saturating_add(replacement.depth));
+        if self.has_binder && replacement.symbols != 0 {
+            // Freshening adds _N to an existing symbol. There are at most the
+            // input-node count many names to avoid, and at most one rename per
+            // enclosing binder. Reserve that text before the binding code runs.
+            let names = self.template.nodes.saturating_add(replacement.nodes).max(1);
+            let suffix = u64::from(names.ilog10()) + 2;
+            result.text = result.text.saturating_add(
+                self.template
+                    .symbols
+                    .saturating_mul(self.template.depth as u64)
+                    .saturating_mul(suffix),
+            );
+        }
+        result
+    }
+}
+
+fn preflight_rule_construction(
+    rule: &ProofRule,
+    current_id: StepId,
+    prior_claims: &HashMap<StepId, Claim>,
+) -> Result<(), KernelError> {
+    // Repeated references scan each operand once, then add its cached sizes.
+    let mut operands = HashMap::<StepId, Option<(ConstructionSize, ConstructionSize)>>::new();
+    let mut operand = |id: StepId| -> Result<_, KernelError> {
+        check_strictly_prior(id, current_id)?;
+        if let Some(size) = operands.get(&id) {
+            return Ok(*size);
+        }
+        let claim = prior_claims.get(&id).ok_or(KernelError::UnknownStep(id))?;
+        let size = match claim {
+            Claim::Equality { lhs, rhs } => Some((
+                ConstructionSize::expression(lhs)?,
+                ConstructionSize::expression(rhs)?,
+            )),
+            _ => None,
+        };
+        operands.insert(id, size);
+        Ok(size)
+    };
+    let mut output = ConstructionSize::default();
+    match rule {
+        ProofRule::CongruenceAdd(ids)
+        | ProofRule::CongruenceMul(ids)
+        | ProofRule::CongruenceFunction { args: ids, .. } => {
+            output.add(
+                ConstructionSize {
+                    nodes: 2,
+                    ..ConstructionSize::default()
+                },
+                0,
+            )?;
+            if let ProofRule::CongruenceFunction { name, .. } = rule {
+                output.add(
+                    ConstructionSize {
+                        text: (name.len() as u64).saturating_mul(2),
+                        ..ConstructionSize::default()
+                    },
+                    0,
+                )?;
+            }
+            for &id in ids {
+                if let Some((lhs, rhs)) = operand(id)? {
+                    output.add(lhs, 1)?;
+                    output.add(rhs, 1)?;
+                }
+            }
+        }
+        ProofRule::CongruencePow { base, exp } => {
+            output.add(
+                ConstructionSize {
+                    nodes: 2,
+                    ..ConstructionSize::default()
+                },
+                0,
+            )?;
+            for id in [*base, *exp] {
+                if let Some((lhs, rhs)) = operand(id)? {
+                    output.add(lhs, 1)?;
+                    output.add(rhs, 1)?;
+                }
+            }
+        }
+        ProofRule::Substitution {
+            template,
+            var,
+            step,
+        } => {
+            if let Some((lhs, rhs)) = operand(*step)? {
+                let projection = SubstitutionConstruction::inspect(template, var)?;
+                output.add(projection.apply(lhs, var), 0)?;
+                output.add(projection.apply(rhs, var), 0)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 /// Core single-rule verification logic shared by online kernel and independent checker.
 fn check_rule_application(
     rule: &ProofRule,
@@ -773,6 +1041,7 @@ fn check_rule_application(
     prior_claims: &HashMap<StepId, Claim>,
     context: &ImmutableAssumptionsSnapshot,
 ) -> Result<Claim, KernelError> {
+    preflight_rule_construction(rule, current_id, prior_claims)?;
     match rule {
         ProofRule::Reflexivity(expr) => Ok(Claim::equality(expr.clone(), expr.clone())),
 

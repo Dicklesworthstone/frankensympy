@@ -11,10 +11,10 @@
 #![forbid(unsafe_code)]
 
 use fsym_assumptions::ImmutableAssumptionsSnapshot;
-use fsym_budget::{Budget, BudgetLimits, Dimension};
+use fsym_budget::{Budget, BudgetLimits, Dimension, VerifierLease};
 use fsym_core::{Expr, Symbol};
 use fsym_polys::{MultivariatePoly, factor_multivariate, verify_multivariate_factorization};
-use fsym_proof_kernel::{CertificatePayload, Claim, DerivationTree, ProofKernel};
+use fsym_proof_kernel::{CertificatePayload, Claim, DerivationTree, ProofKernel, StepId};
 use num_traits::One;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
@@ -28,6 +28,10 @@ pub const MAX_ENVELOPE_BYTES: usize = 64 * 1024;
 pub const MAX_SOURCE_BYTES: usize = 4 * 1024;
 /// Maximum claim-export page size (steps per page).
 pub const MAX_EXPORT_PAGE_SIZE: usize = 256;
+/// Maximum encoded size of one complete portable claim export.
+pub const MAX_CLAIM_EXPORT_BYTES: usize = 1024 * 1024;
+const MAX_CLAIM_BINDINGS: usize = 128;
+const CLAIM_EXPORT_SCHEMA: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum SessionError {
@@ -55,6 +59,14 @@ pub enum SessionError {
     UniverseMismatch { found: [u8; 32], expected: [u8; 32] },
     #[error("replay refused: the re-verified derivation digest does not match the exported digest")]
     ReplayDigestMismatch,
+    #[error("claim metadata does not describe the independently verified statement")]
+    ClaimMismatch,
+    #[error("claim export pages are incomplete, inconsistent, or out of order")]
+    InvalidPages,
+    #[error("claim export exceeds its bounded transport or verification limit")]
+    ExportLimit,
+    #[error("session claim substitution under a binder is unsupported")]
+    UnsupportedSubstitution,
     #[error("session serialization failed: {0}")]
     Serialization(String),
     #[error("workspace operation refused: {0}")]
@@ -77,6 +89,11 @@ pub enum ClaimStatus {
 #[serde(deny_unknown_fields)]
 pub struct ClaimRecord {
     pub source: String,
+    /// The exact equality frozen when this candidate was constructed.
+    pub statement: Claim,
+    /// Only source-referenced bindings, in canonical symbol order. These are
+    /// substitution inputs, not assumptions or evidence for the equality.
+    pub bindings: Vec<(Symbol, Expr)>,
     pub status: ClaimStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub derivation_digest: Option<[u8; 32]>,
@@ -87,10 +104,33 @@ pub struct ClaimRecord {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ClaimExportPage {
+    pub schema_version: u32,
     pub claim: ClaimRecord,
+    pub root: StepId,
     pub page: u32,
     pub total_pages: u32,
     pub steps: Vec<fsym_proof_kernel::DerivationStep>,
+}
+
+/// Structured claim operations of the session facade. Mathematical operations
+/// continue to use the existing `AgentRequest` schema.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "payload", deny_unknown_fields)]
+pub enum ClaimRequest {
+    ConstructClaim {
+        source: String,
+    },
+    VerifyClaim {
+        claim: ClaimRecord,
+    },
+    ExportClaim {
+        claim: ClaimRecord,
+        page: u32,
+        page_size: usize,
+    },
+    ReplayClaim {
+        pages: Vec<ClaimExportPage>,
+    },
 }
 
 /// Explicit resource budgets for one session. Every kernel verification
@@ -122,6 +162,192 @@ fn parse_claim_sides(source: &str) -> Result<(Expr, Option<Expr>), SessionError>
         let lhs = fsym_core::parse(source).map_err(|_| SessionError::ParseFailed)?;
         Ok((lhs, None))
     }
+}
+
+fn preflight_claim_record(record: &ClaimRecord) -> Result<(), SessionError> {
+    if record.source.len() > MAX_SOURCE_BYTES {
+        return Err(SessionError::SourceTooLarge {
+            size: record.source.len(),
+            limit: MAX_SOURCE_BYTES,
+        });
+    }
+    if record.bindings.len() > MAX_CLAIM_BINDINGS {
+        return Err(SessionError::ExportLimit);
+    }
+    fsym_proof_kernel::claim_verification_units(&record.statement)
+        .map_err(|_| SessionError::ExportLimit)?;
+    for (_, value) in &record.bindings {
+        fsym_proof_kernel::expression_verification_units(value)
+            .map_err(|_| SessionError::ExportLimit)?;
+    }
+    bounded_serialized_size(record)?;
+    Ok(())
+}
+
+fn bounded_substitution(
+    lhs: &Expr,
+    rhs: &Expr,
+    bindings: &HashMap<Symbol, Expr>,
+) -> Result<(Expr, Expr), SessionError> {
+    let units = |expr: &Expr| {
+        fsym_proof_kernel::expression_verification_units(expr)
+            .map_err(|_| SessionError::ExportLimit)
+    };
+    // Each verifier unit upper-bounds 64 structural/payload work units. Refuse
+    // potential expansion *before* subs clones a large binding at every use.
+    let source_units = units(lhs)?.saturating_add(units(rhs)?).saturating_mul(64);
+    let mut replacement_units = 1;
+    for value in bindings.values() {
+        replacement_units = replacement_units.max(units(value)?.saturating_mul(64));
+    }
+    if source_units.saturating_mul(replacement_units) > 262_144 {
+        return Err(SessionError::ExportLimit);
+    }
+    // Claims are structural objects. In particular, evaluating a small nested
+    // power here could allocate billions of bits before a verifier sees it.
+    // Retain raw constructors and let the bounded kernel prove the equality.
+    fn substitute(expr: &Expr, bindings: &HashMap<Symbol, Expr>) -> Result<Expr, SessionError> {
+        Ok(match expr {
+            Expr::Sym(symbol) => bindings.get(symbol).unwrap_or(expr).clone(),
+            Expr::Integer(_) | Expr::Rational(_) | Expr::Const(_) => expr.clone(),
+            Expr::Add(terms) => Expr::Add(
+                terms
+                    .iter()
+                    .map(|t| substitute(t, bindings))
+                    .collect::<Result<_, _>>()?,
+            ),
+            Expr::Mul(terms) => Expr::Mul(
+                terms
+                    .iter()
+                    .map(|t| substitute(t, bindings))
+                    .collect::<Result<_, _>>()?,
+            ),
+            Expr::Pow(base, exponent) => Expr::Pow(
+                Arc::new(substitute(base, bindings)?),
+                Arc::new(substitute(exponent, bindings)?),
+            ),
+            Expr::Function(name, args) => {
+                if matches!(
+                    name.as_str(),
+                    "Lambda" | "Sum" | "Product" | "Integral" | "Subs" | "Derivative" | "diff"
+                ) {
+                    if expr.free_symbols().iter().any(|s| bindings.contains_key(s)) {
+                        // This bounded transport slice does not invent binder
+                        // semantics or call the eager capture-avoiding evaluator.
+                        return Err(SessionError::UnsupportedSubstitution);
+                    }
+                    expr.clone()
+                } else {
+                    Expr::Function(
+                        name.clone(),
+                        args.iter()
+                            .map(|a| substitute(a, bindings))
+                            .collect::<Result<_, _>>()?,
+                    )
+                }
+            }
+        })
+    }
+    Ok((substitute(lhs, bindings)?, substitute(rhs, bindings)?))
+}
+
+fn checked_statement(record: &ClaimRecord) -> Result<&Claim, SessionError> {
+    preflight_claim_record(record)?;
+    let (lhs, rhs) = parse_claim_sides(&record.source)?;
+    let rhs = rhs.unwrap_or_else(|| lhs.clone());
+    let symbols: std::collections::BTreeSet<_> = lhs
+        .free_symbols()
+        .into_iter()
+        .chain(rhs.free_symbols())
+        .collect();
+    let mut previous = None;
+    for (symbol, _) in &record.bindings {
+        if !symbols.contains(symbol) || previous.is_some_and(|p| p >= symbol) {
+            return Err(SessionError::ClaimMismatch);
+        }
+        previous = Some(symbol);
+    }
+    let bindings: HashMap<_, _> = record.bindings.iter().cloned().collect();
+    let (lhs, rhs) = bounded_substitution(&lhs, &rhs, &bindings)?;
+    let expected = Claim::equality(lhs, rhs);
+    fsym_proof_kernel::claim_verification_units(&expected)
+        .map_err(|_| SessionError::ExportLimit)?;
+    if expected != record.statement {
+        return Err(SessionError::ClaimMismatch);
+    }
+    Ok(&record.statement)
+}
+
+/// Count encoded bytes without first allocating an unbounded serialized copy.
+fn bounded_serialized_size(value: &impl Serialize) -> Result<usize, SessionError> {
+    struct Counter(usize);
+    impl std::io::Write for Counter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 = self
+                .0
+                .checked_add(bytes.len())
+                .ok_or_else(|| std::io::Error::other("claim export length overflow"))?;
+            if self.0 > MAX_CLAIM_EXPORT_BYTES {
+                return Err(std::io::Error::other("claim export size limit"));
+            }
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut counter = Counter(0);
+    serde_json::to_writer(&mut counter, value).map_err(|_| SessionError::ExportLimit)?;
+    Ok(counter.0)
+}
+
+fn preflight_export_json(value: &serde_json::Value) -> Result<(), SessionError> {
+    let mut pending = vec![(value, 0usize)];
+    let mut visited = 0usize;
+    while let Some((value, depth)) = pending.pop() {
+        visited += 1;
+        if depth > 64 || visited + pending.len() > 32_768 {
+            return Err(SessionError::ExportLimit);
+        }
+        match value {
+            serde_json::Value::Array(values) => {
+                if visited + pending.len() + values.len() > 32_768 {
+                    return Err(SessionError::ExportLimit);
+                }
+                pending.extend(values.iter().map(|v| (v, depth + 1)));
+            }
+            serde_json::Value::Object(values) => {
+                if visited + pending.len() + values.len() > 32_768 {
+                    return Err(SessionError::ExportLimit);
+                }
+                pending.extend(values.values().map(|v| (v, depth + 1)));
+            }
+            _ => {}
+        }
+    }
+    bounded_serialized_size(value)?;
+    Ok(())
+}
+
+/// Require the complete schema, including nested proof and expression fields.
+/// Some shared native types accept unknown serde fields for other consumers;
+/// the portable claim boundary must not silently discard supplied metadata.
+fn decode_claim_json<T>(value: &serde_json::Value) -> Result<T, SessionError>
+where
+    T: serde::de::DeserializeOwned + Serialize,
+{
+    preflight_export_json(value)?;
+    let decoded: T = serde_json::from_value(value.clone())
+        .map_err(|error| SessionError::Serialization(error.to_string()))?;
+    bounded_serialized_size(&decoded)?;
+    let canonical = serde_json::to_value(&decoded)
+        .map_err(|error| SessionError::Serialization(error.to_string()))?;
+    if canonical != *value {
+        return Err(SessionError::Serialization(
+            "claim transport contains unknown fields or noncanonical payloads".to_string(),
+        ));
+    }
+    Ok(decoded)
 }
 
 fn factor_expr_for_session(expr: &Expr) -> Result<Expr, String> {
@@ -182,6 +408,7 @@ pub struct Session {
     kernel: ProofKernel,
     context: Arc<ImmutableAssumptionsSnapshot>,
     budget: Budget,
+    verifier_lease: Option<VerifierLease>,
     budgets: SessionBudgets,
     claims: Vec<ClaimRecord>,
     derivations: Vec<DerivationTree>,
@@ -206,15 +433,18 @@ impl Session {
         workspace.assumptions = Arc::clone(&context);
         let mut branches = BTreeMap::new();
         branches.insert("session".to_string(), workspace.clone());
+        let mut budget = Budget::new(BudgetLimits::uniform(
+            budgets.uniform_dimension_budget,
+            budgets.uniform_dimension_budget,
+        ));
+        let verifier_lease = budget.verifier_lease();
         Self {
             workspace,
             branches,
             kernel,
             context,
-            budget: Budget::new(BudgetLimits::uniform(
-                budgets.uniform_dimension_budget,
-                budgets.uniform_dimension_budget,
-            )),
+            budget,
+            verifier_lease,
             budgets,
             claims: Vec::new(),
             derivations: Vec::new(),
@@ -372,7 +602,27 @@ impl Session {
                 limit: MAX_SOURCE_BYTES,
             });
         }
-        let _ = parse_claim_sides(source)?;
+        let (lhs, rhs) = parse_claim_sides(source)?;
+        let rhs = rhs.unwrap_or_else(|| lhs.clone());
+        let symbols: std::collections::BTreeSet<_> = lhs
+            .free_symbols()
+            .into_iter()
+            .chain(rhs.free_symbols())
+            .collect();
+        let bindings: Vec<_> = symbols
+            .iter()
+            .filter_map(|symbol| {
+                self.workspace
+                    .bindings
+                    .get(symbol)
+                    .map(|value| (symbol.clone(), value.clone()))
+            })
+            .collect();
+        if bindings.len() > MAX_CLAIM_BINDINGS {
+            return Err(SessionError::ExportLimit);
+        }
+        let substitution: HashMap<_, _> = bindings.iter().cloned().collect();
+        let (lhs, rhs) = bounded_substitution(&lhs, &rhs, &substitution)?;
         if self.claims.len() >= self.budgets.verify_step_budget {
             return Err(SessionError::BudgetExhausted { charged: 0 });
         }
@@ -380,71 +630,73 @@ impl Session {
             .map_err(|_| SessionError::BudgetExhausted { charged: 0 })?;
         let record = ClaimRecord {
             source: source.to_string(),
+            statement: Claim::equality(lhs, rhs),
+            bindings,
             status: ClaimStatus::Candidate,
             derivation_digest: None,
             context_digest: self.context_digest(),
         };
+        checked_statement(&record)?;
         self.claims.push(record.clone());
         Ok(record)
     }
 
     /// Independently verifies a candidate claim:
     /// - For single-expression claims (`expr`), proves reflexivity + symmetry.
-    /// - For equational claims (`lhs = rhs`), substitutes workspace bindings,
+    /// - For equational claims (`lhs = rhs`), uses the frozen candidate bindings,
     ///   proves the equational identity via `ProofKernel` (`Reflexivity` or
     ///   `CertificatePayload::PolynomialNormalForm` + symmetry round-trip),
     ///   rejects false claims (`lhs != rhs`) with `SessionError::CandidateNotAccepted`,
     ///   and runs `verify_derivation_independent` before promoting to `Accepted`.
     pub fn verify_claim(&mut self, claim: &ClaimRecord) -> Result<ClaimRecord, SessionError> {
-        let (lhs_raw, rhs_raw_opt) = parse_claim_sides(&claim.source)?;
-        let lhs = lhs_raw.subs(&self.workspace.bindings);
+        if claim.context_digest != self.context_digest() {
+            return Err(SessionError::UniverseMismatch {
+                found: claim.context_digest,
+                expected: self.context_digest(),
+            });
+        }
+        if claim.status != ClaimStatus::Candidate || claim.derivation_digest.is_some() {
+            return Err(SessionError::CandidateNotAccepted);
+        }
+        let Claim::Equality { lhs, rhs } = checked_statement(claim)?.clone() else {
+            return Err(SessionError::ClaimMismatch);
+        };
+        if self.derivations.len() >= self.budgets.verify_step_budget {
+            return Err(SessionError::BudgetExhausted { charged: 0 });
+        }
         let meter = &mut self.budget;
-        let root_step = match rhs_raw_opt {
-            None => {
-                let step = self
-                    .kernel
-                    .prove_reflexivity(lhs, meter)
-                    .map_err(|_| SessionError::BudgetExhausted { charged: 0 })?;
-                // Second step: symmetry of reflexivity gives exports a real
-                // multi-step derivation so pagination is exercised honestly.
-                self.kernel
-                    .prove_symmetry(step, meter)
-                    .map_err(|_| SessionError::BudgetExhausted { charged: 0 })?
-            }
-            Some(rhs_raw) => {
-                let rhs = rhs_raw.subs(&self.workspace.bindings);
-                if lhs == rhs {
-                    let step = self
-                        .kernel
-                        .prove_reflexivity(lhs, meter)
-                        .map_err(|_| SessionError::BudgetExhausted { charged: 0 })?;
-                    self.kernel
-                        .prove_symmetry(step, meter)
-                        .map_err(|_| SessionError::BudgetExhausted { charged: 0 })?
-                } else {
-                    let lemma_step = self
-                        .kernel
-                        .prove_certificate_lemma(
-                            "PolynomialNormalForm",
-                            Claim::equality(lhs.clone(), rhs.clone()),
-                            CertificatePayload::PolynomialNormalForm,
-                            meter,
-                        )
-                        .map_err(|err| match err {
-                            fsym_proof_kernel::KernelError::Budget(_) => {
-                                SessionError::BudgetExhausted { charged: 0 }
-                            }
-                            _ => SessionError::CandidateNotAccepted,
-                        })?;
-                    let sym_step = self
-                        .kernel
-                        .prove_symmetry(lemma_step, meter)
-                        .map_err(|_| SessionError::BudgetExhausted { charged: 0 })?;
-                    self.kernel
-                        .prove_symmetry(sym_step, meter)
-                        .map_err(|_| SessionError::BudgetExhausted { charged: 0 })?
-                }
-            }
+        let root_step = if lhs == rhs {
+            let step = self
+                .kernel
+                .prove_reflexivity(lhs, meter)
+                .map_err(|_| SessionError::BudgetExhausted { charged: 0 })?;
+            // Second step: symmetry of reflexivity gives exports a real
+            // multi-step derivation so pagination is exercised honestly.
+            self.kernel
+                .prove_symmetry(step, meter)
+                .map_err(|_| SessionError::BudgetExhausted { charged: 0 })?
+        } else {
+            let lemma_step = self
+                .kernel
+                .prove_certificate_lemma(
+                    "PolynomialNormalForm",
+                    Claim::equality(lhs.clone(), rhs.clone()),
+                    CertificatePayload::PolynomialNormalForm,
+                    meter,
+                )
+                .map_err(|err| match err {
+                    fsym_proof_kernel::KernelError::Budget(_) => {
+                        SessionError::BudgetExhausted { charged: 0 }
+                    }
+                    _ => SessionError::CandidateNotAccepted,
+                })?;
+            let sym_step = self
+                .kernel
+                .prove_symmetry(lemma_step, meter)
+                .map_err(|_| SessionError::BudgetExhausted { charged: 0 })?;
+            self.kernel
+                .prove_symmetry(sym_step, meter)
+                .map_err(|_| SessionError::BudgetExhausted { charged: 0 })?
         };
         let derivation = self
             .kernel
@@ -453,10 +705,16 @@ impl Session {
         // Independent re-verification: the generator (kernel) output is
         // checked by the separate verifier lane before acceptance.
         let context = ImmutableAssumptionsSnapshot::clone(&self.context);
-        fsym_proof_kernel::verify_derivation_independent(&derivation, &context)
+        self.charge_verification(&derivation)?;
+        let conclusion = fsym_proof_kernel::verify_derivation_independent(&derivation, &context)
             .map_err(|_| SessionError::CandidateNotAccepted)?;
+        if conclusion != claim.statement {
+            return Err(SessionError::ClaimMismatch);
+        }
         let accepted = ClaimRecord {
             source: claim.source.clone(),
+            statement: claim.statement.clone(),
+            bindings: claim.bindings.clone(),
             status: ClaimStatus::Accepted,
             derivation_digest: Some(derivation.digest()),
             context_digest: claim.context_digest,
@@ -466,14 +724,28 @@ impl Session {
             self.sync_active_branch();
         }
         self.derivations.push(derivation);
-        if let Some(existing) = self
-            .claims
-            .iter_mut()
-            .find(|c| c.source == accepted.source && c.status == ClaimStatus::Candidate)
-        {
+        if let Some(existing) = self.claims.iter_mut().find(|c| &**c == claim) {
             *existing = accepted.clone();
+        } else {
+            self.claims.push(accepted.clone());
         }
         Ok(accepted)
+    }
+
+    fn charge_verification(&mut self, derivation: &DerivationTree) -> Result<(), SessionError> {
+        if derivation.steps.is_empty() || derivation.steps.len() > self.budgets.verify_step_budget {
+            return Err(SessionError::BudgetExhausted { charged: 0 });
+        }
+        let units = fsym_proof_kernel::derivation_verification_units(derivation)
+            .map_err(|_| SessionError::ExportLimit)?;
+        let lease = self
+            .verifier_lease
+            .as_ref()
+            .ok_or(SessionError::BudgetExhausted { charged: 0 })?;
+        self.budget
+            .try_charge_verifier(lease, units)
+            .map_err(|_| SessionError::BudgetExhausted { charged: units })?;
+        Ok(())
     }
 
     /// Exports one claim's derivation as canonical paginated JSON.
@@ -491,6 +763,9 @@ impl Session {
         }
         if claim.status != ClaimStatus::Accepted {
             return Err(SessionError::CandidateNotAccepted);
+        }
+        if !self.claims.contains(claim) {
+            return Err(SessionError::ClaimMismatch);
         }
         let digest = claim
             .derivation_digest
@@ -510,49 +785,138 @@ impl Session {
         }
         let start = page as usize * page_size;
         let end = ((page as usize + 1) * page_size).min(total_steps);
-        serde_json::to_value(ClaimExportPage {
+        let export = ClaimExportPage {
+            schema_version: CLAIM_EXPORT_SCHEMA,
             claim: claim.clone(),
+            root: derivation.root,
             page,
             total_pages,
             steps: derivation.steps[start..end].to_vec(),
-        })
-        .map_err(|error| SessionError::Serialization(error.to_string()))
+        };
+        bounded_serialized_size(&export)?;
+        serde_json::to_value(export).map_err(|error| SessionError::Serialization(error.to_string()))
     }
 
-    /// Replays an exported claim page-set: re-runs independent verification
-    /// of the derivation and requires the digest to match the export.
+    /// Replays a complete export (one page object or an ordered array of pages).
+    /// No resident proof is consulted. The caller's expected context must also
+    /// equal this receiving session's actual immutable context.
     pub fn replay_claim(
-        &self,
+        &mut self,
         export: &serde_json::Value,
         context_digest: [u8; 32],
     ) -> Result<[u8; 32], SessionError> {
-        let page: ClaimExportPage = serde_json::from_value(export.clone())
-            .map_err(|error| SessionError::Serialization(error.to_string()))?;
-        if page.claim.context_digest != context_digest {
+        if context_digest != self.context_digest() {
             return Err(SessionError::UniverseMismatch {
-                found: page.claim.context_digest,
-                expected: context_digest,
+                found: context_digest,
+                expected: self.context_digest(),
             });
         }
-        if page.claim.status != ClaimStatus::Accepted {
+        let pages: Vec<ClaimExportPage> = if export.is_array() {
+            decode_claim_json(export)?
+        } else {
+            vec![decode_claim_json(export)?]
+        };
+        self.replay_claim_pages(&pages)
+    }
+
+    /// Reconstructs the supplied canonical page set and checks its exact root
+    /// statement using protected verifier budget. Successful replay does not
+    /// import untrusted bindings into the workspace or trust an accepted flag.
+    pub fn replay_claim_pages(
+        &mut self,
+        pages: &[ClaimExportPage],
+    ) -> Result<[u8; 32], SessionError> {
+        let first = pages.first().ok_or(SessionError::InvalidPages)?;
+        if pages.len() > self.budgets.verify_step_budget
+            || first.total_pages as usize != pages.len()
+            || first.schema_version != CLAIM_EXPORT_SCHEMA
+        {
+            return Err(SessionError::InvalidPages);
+        }
+        if first.claim.context_digest != self.context_digest() {
+            return Err(SessionError::UniverseMismatch {
+                found: first.claim.context_digest,
+                expected: self.context_digest(),
+            });
+        }
+        if first.claim.status != ClaimStatus::Accepted {
             return Err(SessionError::CandidateNotAccepted);
         }
-        let digest = page
+        checked_statement(&first.claim)?;
+        let digest = first
             .claim
             .derivation_digest
             .ok_or(SessionError::UnknownDerivation)?;
-        let derivation = self
-            .derivations
-            .iter()
-            .find(|d| d.digest() == digest)
-            .ok_or(SessionError::UnknownDerivation)?;
+        let mut count = 0usize;
+        for (index, page) in pages.iter().enumerate() {
+            preflight_claim_record(&page.claim)?;
+            if page.schema_version != CLAIM_EXPORT_SCHEMA
+                || page.page as usize != index
+                || page.total_pages != first.total_pages
+                || page.root != first.root
+                || page.claim != first.claim
+                || page.steps.is_empty()
+                || page.steps.len() > MAX_EXPORT_PAGE_SIZE
+                || (index + 1 < pages.len() && page.steps.len() != first.steps.len())
+                || page.steps.len() > first.steps.len()
+            {
+                return Err(SessionError::InvalidPages);
+            }
+            count = count
+                .checked_add(page.steps.len())
+                .ok_or(SessionError::ExportLimit)?;
+            if count > self.budgets.verify_step_budget {
+                return Err(SessionError::BudgetExhausted { charged: 0 });
+            }
+            // Validate expressions before cloning or serializing their payloads.
+            fsym_proof_kernel::derivation_steps_verification_units(&page.steps)
+                .map_err(|_| SessionError::ExportLimit)?;
+        }
+        bounded_serialized_size(&pages)?;
+        let derivation = DerivationTree {
+            steps: pages
+                .iter()
+                .flat_map(|page| page.steps.iter().cloned())
+                .collect(),
+            root: first.root,
+        };
+        self.charge_verification(&derivation)?;
         let context = ImmutableAssumptionsSnapshot::clone(&self.context);
-        fsym_proof_kernel::verify_derivation_independent(derivation, &context)
+        let conclusion = fsym_proof_kernel::verify_derivation_independent(&derivation, &context)
             .map_err(|_| SessionError::ReplayDigestMismatch)?;
+        if conclusion != first.claim.statement {
+            return Err(SessionError::ClaimMismatch);
+        }
         if derivation.digest() != digest {
             return Err(SessionError::ReplayDigestMismatch);
         }
         Ok(digest)
+    }
+
+    fn handle_claim_request(
+        &mut self,
+        request: ClaimRequest,
+    ) -> Result<serde_json::Value, SessionError> {
+        match request {
+            ClaimRequest::ConstructClaim { source } => {
+                serde_json::to_value(self.construct_claim(&source)?)
+                    .map_err(|e| SessionError::Serialization(e.to_string()))
+            }
+            ClaimRequest::VerifyClaim { claim } => serde_json::to_value(self.verify_claim(&claim)?)
+                .map_err(|e| SessionError::Serialization(e.to_string())),
+            ClaimRequest::ExportClaim {
+                claim,
+                page,
+                page_size,
+            } => self.export_claim(&claim, page, page_size),
+            ClaimRequest::ReplayClaim { pages } => {
+                let digest = self.replay_claim_pages(&pages)?;
+                Ok(serde_json::json!({
+                    "claim": pages[0].claim,
+                    "derivation_digest": digest,
+                }))
+            }
+        }
     }
 
     /// Handles one NDJSON envelope line: optional `"id"` echo plus the typed
@@ -581,6 +945,34 @@ impl Session {
         };
         let id = value.get("id").cloned();
         let _ = value.as_object_mut().map(|map| map.remove("id"));
+        if matches!(
+            value.get("type").and_then(serde_json::Value::as_str),
+            Some("ConstructClaim" | "VerifyClaim" | "ExportClaim" | "ReplayClaim")
+        ) {
+            let result = decode_claim_json::<ClaimRequest>(&value)
+                .and_then(|request| self.handle_claim_request(request));
+            let mut response = match result {
+                Ok(result) => serde_json::json!({ "status": "success", "result": result }),
+                Err(error) => {
+                    let code = match &error {
+                        SessionError::Serialization(_) => "malformed_request",
+                        SessionError::UniverseMismatch { .. } => "universe_mismatch",
+                        SessionError::BudgetExhausted { .. } => "budget_exhausted",
+                        SessionError::ExportLimit => "resource_limit_exceeded",
+                        SessionError::InvalidPages => "invalid_pages",
+                        SessionError::ReplayDigestMismatch | SessionError::ClaimMismatch => {
+                            "invalid_proof"
+                        }
+                        _ => "refused",
+                    };
+                    serde_json::json!({ "status": "error", "code": code, "error": error.to_string() })
+                }
+            };
+            if let Some(id) = id {
+                response["id"] = id;
+            }
+            return response.to_string();
+        }
         let inner = match serde_json::from_value::<fsym_runtime::protocol::AgentRequest>(value) {
             Ok(request) => request,
             Err(_) => {

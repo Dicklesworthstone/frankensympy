@@ -139,8 +139,11 @@ evidence_artifacts = [
     "artifacts/audit/receipts/ws17-groebner.receipt.json",
     "artifacts/audit/receipts/ws18-analytic-calculus.receipt.json",
     "artifacts/audit/receipts/ws19-solvers.receipt.json",
+    "crates/fsym-calculus/src/rational_sum.rs",
+    "crates/fsym-proof-kernel/src/rational_sum.rs",
+    "artifacts/audit/2026-10-27-core-feature-progress.json",
 ]
-notes = "This claim never implies that every API result has the same evidence class. implemented_uncertified 2026-09-06: kernel-checked proofs, evidence promotion lattice, exact matrix certificates, Groebner basis certificates with ideal witnesses, analytic calculus, and algebraic/ODE residual verifiers and SAT/logic verification landed; per-family certificate gates remain open."
+notes = "This claim never implies that every API result has the same evidence class. implemented_uncertified 2026-09-06: kernel-checked proofs, evidence promotion lattice, exact matrix certificates, Groebner basis certificates with ideal witnesses, analytic calculus, and algebraic/ODE residual verifiers and SAT/logic verification landed; per-family certificate gates remain open. 2026-10-27 bounded rational-summation implementation adds independently checked antidifference identities, original pole exclusions and finite/reversed/infinite endpoint checks. Five kernel plus eight actual native calculus regressions pass on the supplementary compiler. This is component evidence; the full transformation-family gate remains open."
 
 [[claims]]
 id = "MATH-002"
@@ -186,13 +189,17 @@ minimum_evidence = "kernel_proved_or_certificate_verified"
 workstreams = ["WS06", "WS07", "WS10", "WS11", "WS12"]
 gate = "gate://ws12-certified-jacobian"
 evidence_artifacts = [
-  "crates/fsym-matrices/src/lib.rs",
-  "crates/fsym-calculus/src/compile.rs",
-  "crates/fsym-calculus/src/proof.rs",
-  "crates/fsym-calculus/src/sparse_jacobian.rs",
-  "artifacts/audit/receipts/ws12-certified-jacobian.receipt.json",
+    "crates/fsym-matrices/src/lib.rs",
+    "crates/fsym-calculus/src/compile.rs",
+    "crates/fsym-calculus/src/proof.rs",
+    "crates/fsym-calculus/src/sparse_jacobian.rs",
+    "artifacts/audit/receipts/ws12-certified-jacobian.receipt.json",
+    "crates/fsym-python/src/numeric.rs",
+    "python/sympy/utilities/lambdify.py",
+    "crates/fsym-calculus/tests/finite_numeric_programs.rs",
+    "artifacts/audit/2026-10-27-core-feature-progress.json",
 ]
-notes = "implemented_uncertified 2026-09-06: sparse Jacobian with proof replay, distance-1 coloring, compiled evaluator agreement, and mutant resistance passed gate://ws12-certified-jacobian (C7 gate)."
+notes = "implemented_uncertified 2026-09-06: sparse Jacobian with proof replay, distance-1 coloring, compiled evaluator agreement, and mutant resistance passed gate://ws12-certified-jacobian (C7 gate). 2026-10-27 typed Python compiled functions and residual/Jacobian programs are connected to checked native lowering. Five native numeric tests and 46 actual Python numerical/solver tests pass; the latter use the actual shell and bridge with six enumerated runtime-dependent functions omitted. All binary64 results remain approximate, and the complete campaign, certified-enclosure and profile gates remain open."
 
 [[claims]]
 id = "RUNTIME-001"
@@ -279,8 +286,12 @@ evidence_artifacts = [
     "crates/fsym-runtime/src/workspace.rs",
     "crates/fsym-runtime/tests/c10_protocol_gate.rs",
     "artifacts/audit/receipts/ws14-agent-protocol.receipt.json",
+    "src/session.rs",
+    "src/bin/frankensympy.rs",
+    "tests/claim_replay.rs",
+    "artifacts/audit/2026-10-27-core-feature-progress.json",
 ]
-notes = "implemented_uncertified 2026-09-06: NDJSON protocol, fail-closed wire admission, semantic workspaces with fork/patch/merge, candidate vs accepted separation, and transcript-free deterministic replay verified by ws14-agent-protocol gate; full certification remains open."
+notes = "implemented_uncertified 2026-09-06: NDJSON protocol, fail-closed wire admission, semantic workspaces with fork/patch/merge, candidate vs accepted separation, and transcript-free deterministic replay verified by ws14-agent-protocol gate; full certification remains open. 2026-10-27 portable claim replay reconstructs supplied derivations in fresh sessions, validates the frozen statement/bindings and receiving context, and exposes structured claim operations through the CLI. Eleven replay regressions and twelve existing CLI tests pass against actual relevant modules; a separate stdin-open exchange verifies response flushing. Full asupersync runtime and governed workspace gates remain open."
 
 [[claims]]
 id = "AGENT-002"
@@ -369,8 +380,15 @@ present_tense_allowed = false
 minimum_evidence = "fuzz_and_adversarial_validation"
 workstreams = ["WS02", "WS04", "WS06", "WS14", "WS15"]
 gate = "gate://bounded-decoders"
-evidence_artifacts = ["crates/fsym-core/src/parser.rs", "crates/fsym-printing/src/bounded.rs"]
-notes = "implemented_uncertified 2026-08-29: bounded parser (size/depth preflight) and bounded printers landed; systematic fuzz and adversarial decoder gates remain open."
+evidence_artifacts = [
+    "crates/fsym-core/src/parser.rs",
+    "crates/fsym-printing/src/bounded.rs",
+    "src/session.rs",
+    "crates/fsym-proof-kernel/src/kernel.rs",
+    "crates/fsym-proof-kernel/tests/construction_limits.rs",
+    "artifacts/audit/2026-10-27-core-feature-progress.json",
+]
+notes = "implemented_uncertified 2026-08-29: bounded parser (size/depth preflight) and bounded printers landed; systematic fuzz and adversarial decoder gates remain open. 2026-10-27 portable claim transport checks complete canonical nested schemas and bounded pages before verification. Shared online/independent rule checking now bounds congruence and substitution construction before cloning, including nodes, numeric limbs, text and depth. Seven actual construction-limit regressions pass. Systematic fuzzing and the full decoder gate remain open."
 
 [[claims]]
 id = "PLATFORM-001"

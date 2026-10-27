@@ -1,0 +1,255 @@
+{
+  "schema": "frankensympy_supplementary_component_execution_v1",
+  "validation_class": "supplementary_component_checks",
+  "baseline_commit": "503ab87a3fce963d5d44be77771a24f22614568e",
+  "published_feature_commits": [
+    {
+      "sha": "8aa6e14d27af51d30ceb35d0d1331faf50a97a76",
+      "feature": "Explicit production metered multiplication strategies"
+    },
+    {
+      "sha": "547bec343dca4f5bb9af67c1c2ef5818bbde95ec",
+      "feature": "Independently checked rational telescoping sums"
+    },
+    {
+      "sha": "34c88651b74f5ddd0aa85bc277dec14acf045ad5",
+      "feature": "Typed Python numeric programs and scalar Newton convergence"
+    }
+  ],
+  "compiler": {
+    "governed": "nightly-2026-08-20",
+    "governed_available": false,
+    "used": "nightly-2026-08-31",
+    "version": "rustc 1.100.0-nightly (908501772 2026-08-30)",
+    "native_hash_backend": "BLAKE3 supported pure-Rust configuration",
+    "pins_or_manifests_changed": false
+  },
+  "required_workspace_commands": [
+    {
+      "command": [
+        "/tmp/rch-cargo/bin/rustup",
+        "run",
+        "nightly-2026-08-20",
+        "cargo",
+        "fmt",
+        "--check"
+      ],
+      "exit_code": 1,
+      "diagnostic": "toolchain 'nightly-2026-08-20-x86_64-unknown-linux-gnu' is not installed"
+    },
+    {
+      "command": [
+        "/tmp/rch-cargo/bin/rustup",
+        "run",
+        "nightly-2026-08-20",
+        "cargo",
+        "check",
+        "--workspace",
+        "--all-targets"
+      ],
+      "exit_code": 1,
+      "diagnostic": "toolchain 'nightly-2026-08-20-x86_64-unknown-linux-gnu' is not installed"
+    },
+    {
+      "command": [
+        "/tmp/rch-cargo/bin/rustup",
+        "run",
+        "nightly-2026-08-20",
+        "cargo",
+        "clippy",
+        "--workspace",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 1,
+      "diagnostic": "toolchain 'nightly-2026-08-20-x86_64-unknown-linux-gnu' is not installed"
+    },
+    {
+      "command": [
+        "/tmp/rch-cargo/bin/rustup",
+        "run",
+        "nightly-2026-08-20",
+        "cargo",
+        "test",
+        "--workspace"
+      ],
+      "exit_code": 1,
+      "diagnostic": "toolchain 'nightly-2026-08-20-x86_64-unknown-linux-gnu' is not installed"
+    }
+  ],
+  "component_execution": [
+    {
+      "component": "fsym-budget",
+      "tests": 20,
+      "run_exit": 0,
+      "scope": "Actual complete budget crate unit-test source and implementation"
+    },
+    {
+      "component": "fsym-bigint production strategy API",
+      "tests": 7,
+      "run_exit": 0,
+      "scope": "Seven unchanged new regression functions extracted from the unit-test module, executed against the actual production fsym-bigint/fsym-budget crates; not the full bigint test suite"
+    },
+    {
+      "component": "rational antidifference checker",
+      "source": "crates/fsym-proof-kernel/tests/rational_sum.rs",
+      "tests": 5,
+      "run_exit": 0,
+      "scope": "Actual complete mathematical dependency graph; rerun after construction guard"
+    },
+    {
+      "component": "rational summation",
+      "source": "crates/fsym-calculus/tests/rational_summation.rs",
+      "tests": 8,
+      "run_exit": 0,
+      "scope": "Actual complete mathematical dependency graph; rerun after construction guard"
+    },
+    {
+      "component": "finite compiled numeric programs",
+      "source": "crates/fsym-calculus/tests/finite_numeric_programs.rs",
+      "tests": 5,
+      "run_exit": 0,
+      "scope": "Actual complete mathematical dependency graph; rerun after construction guard"
+    },
+    {
+      "component": "online and independent proof construction bounds",
+      "source": "crates/fsym-proof-kernel/tests/construction_limits.rs",
+      "tests": 7,
+      "run_exit": 0,
+      "scope": "Actual proof-kernel crate with node, limb, text, depth, repeated-reference, substitution and capture-avoidance cases"
+    },
+    {
+      "component": "Python numeric compilation and scalar nsolve",
+      "sources": [
+        "python/tests/test_numeric_compilation.py",
+        "python/tests/test_nsolve_convergence.py"
+      ],
+      "tests": 46,
+      "skipped": 0,
+      "run_exit": 0,
+      "pytest": "8.4.2",
+      "pyo3": "0.27.2",
+      "python": "CPython 3.12.14",
+      "scope": "Both complete files together in full order against the actual repository Python shell and an actual-source native bridge subset. No upstream fallback, substituted implementation or test-framework substitute. The bridge uses the native graph from the numeric commit before the subsequent proof-construction guard."
+    },
+    {
+      "component": "portable claim transport",
+      "source": "tests/claim_replay.rs",
+      "tests": 11,
+      "run_exit": 0,
+      "scope": "Final actual Session implementation and current guarded kernel; tested together with the existing CLI protocol tests"
+    },
+    {
+      "component": "existing Session and CLI protocol regressions",
+      "source": "tests/cli_protocol_gate.rs",
+      "tests": 12,
+      "run_exit": 0,
+      "scope": "Final actual Session/CLI implementations and current guarded kernel; same combined 23-test executable"
+    }
+  ],
+  "python_bridge_omissions": [
+    "private eval_error",
+    "private eval_region",
+    "simplify_expr",
+    "expand_expr",
+    "PyExpr.simplify",
+    "PyExpr.expand"
+  ],
+  "python_bridge_omission_policy": "Those pre-existing asupersync-dependent functions and their imports/registrations were omitted, not replaced. The runtime dependency exposed its actual fsym_budget reexports. All new numeric implementation code and remaining binding code executed unchanged.",
+  "validation_limitations": [
+    "This receipt does not establish pinned-toolchain Cargo workspace, Clippy, complete fsym-runtime/asupersync, profile, workstream or certification gates.",
+    "No performance comparison or speedup is claimed; multiplication strategy thresholds were not changed.",
+    "Symbolic Jacobian proofs and bytecode provenance do not certify binary64 rounding error. Numerical results and nsolve roots remain approximate candidates.",
+    "Shared filesystem exhaustion required supplementary rustc invocations and memory-backed outputs; those build wrappers are not production implementation changes."
+  ],
+  "build_context_sha256": {
+    "Cargo.lock": "17af3c2819c008c1b605ea34449512ecc101a9c8fa661ec19ef0646f622f3877",
+    "Cargo.toml": "987f16a80f17f156ae00b03a95b90f6fee358eabeacdd451f711c8fa2be922b9",
+    "rust-toolchain.toml": "cdaedf5d65db22fa32d18beadab465c1b7653285dfb2e14d23f7dfd9677f9848",
+    "crates/fsym-calculus/src/lib.rs": "4725ff8d822bc7c9d59877aacd98c01e8342d5bec2b0db28339304e3b8a79086",
+    "crates/fsym-runtime/src/workspace.rs": "e6c81172935e23c0dadf28488e55f130f85acdd2be9ce8e847bc39ed8377fe09",
+    "crates/fsym-runtime/src/protocol.rs": "6608ab6b84ecbbf926886c8580d34f28bcb78fe96cb7826681cbad1ca6514579",
+    "tests/cli_protocol_gate.rs": "5456ba3f07d248795332ece9ca86b4db926c5f52d6c90a41267f80baf8ad546b"
+  },
+  "changed_code_sha256": {
+    "crates/fsym-bigint/src/lib.rs": "36855d715137c0b254577096b7a372569e4e3011e6ccee294d535ae718219bf4",
+    "crates/fsym-calculus/src/compile.rs": "a8b6bfcdb2dc31eb5d90d281595afe3986f6340abc4c6b20f9f8d3ad0fb2b09a",
+    "crates/fsym-calculus/src/lib.rs": "4725ff8d822bc7c9d59877aacd98c01e8342d5bec2b0db28339304e3b8a79086",
+    "crates/fsym-calculus/src/rational_sum.rs": "4f4bd297355d8ffb4b55532ac0d822953f2e712be30d65f32cb453377b88e9ce",
+    "crates/fsym-calculus/src/sparse_jacobian.rs": "a970480c8431c900ba10e107a495f4cef47b052857959163a7f5bcacb6076684",
+    "crates/fsym-calculus/src/summation.rs": "042204871f19b429b437dccd4d5f3ba0b993319a791fbc3a9ecd39501be22513",
+    "crates/fsym-calculus/tests/finite_numeric_programs.rs": "3ea860e23373845b604c3de3b63ea77ca15ff8527e85346e65c0bb4b1cebdf6c",
+    "crates/fsym-calculus/tests/rational_summation.rs": "8e964def8db48158cd17b2669d1648af4a660ba2a39e759b8367d4b011bbc8b1",
+    "crates/fsym-proof-kernel/src/kernel.rs": "87106cea83e6ed9d87c064011961b6da114af71bf5a064903b82c29a501567b0",
+    "crates/fsym-proof-kernel/src/lib.rs": "0dae0723d2323b8c0b6984566a88664dd9da883761e2aad1da5cf53ff3169bb6",
+    "crates/fsym-proof-kernel/src/rational_sum.rs": "88cafd72072030db3fc3098bec15d0ed69ba9b74f33077fc12dee45be3c6551a",
+    "crates/fsym-proof-kernel/tests/construction_limits.rs": "4e8d6613fb059c13659dbe0ba7bc2e0ad475c13fce3bae1a2ee311be75f7a781",
+    "crates/fsym-proof-kernel/tests/rational_sum.rs": "71c21fabf96c29eb40434626a4bc0aabcb31ed46da76e39e0e3e633a1305c205",
+    "crates/fsym-python/src/lib.rs": "c7a91fac99c91685f4678531ffac2b740f7f27c4b3566c4652daddc50780a3fd",
+    "crates/fsym-python/src/numeric.rs": "b1eadd72665b2f85a5526fb411f1eb4f41e80bc3fbdcfd6b3cf9f4e9721f1c44",
+    "examples/external_consumer.rs": "db67d75d92dee7f70be140d28a96c1a8b1849a3054becd55b36442a191bb86ad",
+    "python/sympy/__init__.py": "2fede83794b44a874027f0fe631d5bc34641c8d5a50c98bdf8f4c58c214dbde3",
+    "python/sympy/core/__init__.py": "0150ae9f4eb5d6a4bcb6a1e6ea382e0457a074f64c4e1e922481af242ebf9bdc",
+    "python/sympy/solvers/__init__.py": "ef220eecdd2bf833030f8d16f266a408244ffeff6e1b5394484f12d476e95ac4",
+    "python/sympy/solvers/numerical.py": "be27f89da9125409ea6e7cb3ac53377601989fe0e9c19b9b80a6118ad94ae826",
+    "python/sympy/solvers/solvers.py": "ab34d3c1905699149d404cb0cbf7aaac8df12db4bd388bb0f367c67bf9ab1eee",
+    "python/sympy/utilities/__init__.py": "2de3a05cfd51ae37b3ede8648069be45bbb8fdabc045ea1508f8082acbf3a890",
+    "python/sympy/utilities/lambdify.py": "35931f10a706df0123b9dc5574e2bb622f0f36c044a5c8014fcd13867d2d7fa0",
+    "python/tests/test_nsolve_convergence.py": "d314b298cef2a7aaefcce56dedf9b87b14470474d895dee58003031739782c34",
+    "python/tests/test_numeric_compilation.py": "1d373539b6694182cea685ba75fd47fc8a82dd9e249ab4d54fd4afe49a815f8e",
+    "src/bin/frankensympy.rs": "299bec0bc279f88c4872076c9595ff924351af12a129d9b921328023213af949",
+    "src/lib.rs": "624fd7eaf0c7401328cb2123922b4989c362f030cca641aaeb8e69acde2f1c32",
+    "src/session.rs": "78e23ae18e8d4129b06a2263d1a508c2dcda7f4880647ed461d6886fcc174aca",
+    "tests/claim_replay.rs": "e9d9310bd2ce5e0b2410890c8ff24178f4e5c567be757a4ffcf0a50960b0d119"
+  },
+  "created_at": "2026-10-27T01:28:07Z",
+  "final_session_configuration": {
+    "scope": "unchanged actual Session/CLI/test implementations; crate-selfalias and entry delegate only; current actual workspace/protocol runtime module subset; no facade rlib",
+    "compiler_profile": "nightly-2026-08-31; opt-level=0, embed-bitcode=no, compiler threads=1",
+    "cli_wrapper_sha256": "1f0986017fe584387424da0c1292901b061d87c651699677553708b220350f9b",
+    "test_wrapper_sha256": "9319c9499ed18ceb11b5e33e87dd8769dce0875a7b52eebadc41866425fc23fe",
+    "source_drift": false,
+    "compile_exit": 0,
+    "compile_warnings": 0,
+    "test_exit": 0,
+    "test_summary": "23 passed; 0 failed; 0 ignored"
+  },
+  "live_cli_workflow": {
+    "operations": [
+      {
+        "operation": "ConstructClaim",
+        "response_before_eof": true,
+        "status": "success"
+      },
+      {
+        "operation": "VerifyClaim",
+        "response_before_eof": true,
+        "status": "success"
+      },
+      {
+        "operation": "ExportClaim",
+        "response_before_eof": true,
+        "status": "success"
+      },
+      {
+        "operation": "ReplayClaim",
+        "response_before_eof": true,
+        "status": "success"
+      }
+    ],
+    "processes": 2,
+    "proof_digests_match": true,
+    "clean_eof_exits": true,
+    "stderr_empty": true,
+    "scope": "Actual Session/CLI code with unchanged runtime workspace/protocol source subset; no facade archive, supplementary August 31 compiler, opt-level0; not full runtime/pinned Cargo gate."
+  },
+  "supplementary_static_checks": {
+    "changed_rust_files_rustfmt_check_exit": 0,
+    "git_diff_check_exit": 0,
+    "claims_toml_parse": "passed",
+    "bead_status_changes": 0,
+    "claim_status_changes": 0
+  }
+}

@@ -31,6 +31,7 @@ pub use fsym_runtime::workspace::{
 };
 
 pub use session::{
-    ClaimExportPage, ClaimRecord, ClaimStatus, MAX_ENVELOPE_BYTES, MAX_EXPORT_PAGE_SIZE,
-    MAX_SOURCE_BYTES, Session, SessionBudgets, SessionError,
+    ClaimExportPage, ClaimRecord, ClaimRequest, ClaimStatus, MAX_CLAIM_EXPORT_BYTES,
+    MAX_ENVELOPE_BYTES, MAX_EXPORT_PAGE_SIZE, MAX_SOURCE_BYTES, Session, SessionBudgets,
+    SessionError,
 };

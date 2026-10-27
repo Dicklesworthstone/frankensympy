@@ -31,7 +31,8 @@ fn main() {
     assert_eq!(export["total_pages"], 1);
 
     // Replay: independent re-verification of the exported derivation.
-    let digest = session
+    let mut receiving_session = Session::new(SessionBudgets::default());
+    let digest = receiving_session
         .replay_claim(&export, accepted.context_digest)
         .expect("replays");
     assert_eq!(digest, accepted.derivation_digest.expect("accepted"));

@@ -32,8 +32,8 @@ pub use capsule::{
 pub use claim::{Claim, ClaimKind};
 pub use kernel::{
     DerivationStep, DerivationTree, KernelError, MAX_DERIVATION_STEPS, ProofKernel,
-    claim_verification_units, derivation_verification_units, expression_verification_units,
-    verify_derivation_independent,
+    claim_verification_units, derivation_steps_verification_units, derivation_verification_units,
+    expression_verification_units, verify_derivation_independent,
 };
 pub use merge::{
     MERGE_COMMITMENT_DOMAIN, MergeCertError, MergePolicy, MergeWitness, SemanticMergeCertificate,
