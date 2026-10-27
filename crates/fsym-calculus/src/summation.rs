@@ -7,11 +7,11 @@
 //! * linearity and index-free factors;
 //! * polynomials in `k` through Bernoulli-polynomial antidifferences
 //!   (Faulhaber), so `sum k**2` is `n**3/3 + n**2/2 + n/6`;
-//! * geometric terms `c*q**(u*k+v)` with a numeric ratio (`|q| < 1` for
+//! * geometric terms `c*q**(u*k+v)` with an exact rational ratio (`|q| < 1` for
 //!   infinite sums);
-//! * rational functions whose partial fractions telescope (linear factors at
-//!   integer offsets, coefficients summing to zero), e.g.
-//!   `sum 1/(k*(k+1)) = 1 - 1/(n+1)`;
+//! * independently checked rational telescoping, including repeated poles
+//!   and fractional offsets, at exact integer bounds, e.g.
+//!   `sum_{k=1}^{10000} 1/(k*(k+1)) = 10000/10001`;
 //! * `sum_{k=1}^{oo} 1/k**s = zeta(s)` and `sum_{k=0}^{oo} x**k/k! = exp(x)`.
 //!
 //! `product(f, k, a, b)` covers numeric ranges, index-free factors,
@@ -22,6 +22,7 @@
 use fsym_core::elementary::{eval_function, eval_pow, rational_expr};
 use fsym_core::{BigInt, BigRational, Constant, Expr, Symbol};
 use fsym_polys::UnivariatePoly;
+use fsym_proof_kernel::rational_sum::RationalSumUpper;
 use num_traits::{One, Signed, Zero};
 use std::collections::HashMap;
 
@@ -177,13 +178,35 @@ fn sum_polynomial(e: &Expr, k: &Symbol, a: &Expr, b: &Expr) -> Option<Expr> {
 
 fn sum_geometric(e: &Expr, k: &Symbol, a: &Expr, b: &Expr) -> Option<Expr> {
     let (q, c) = geometric(e, k)?;
-    let qv = crate::gruntz::complex_value(&q)?;
-    if (qv.re - 1.0).abs() < 1e-12 && qv.im.abs() < 1e-12 {
-        return None;
-    }
+    // Exact rational convergence decisions: a ratio arbitrarily close to
+    // one must neither be rounded to one nor cross the convergence boundary.
+    let qv = number(&q)?;
     let one = Expr::from_i64(1);
+    if qv.is_one() {
+        return (!is_oo(b)).then(|| c * (b.clone() - a.clone() + one));
+    }
+    if qv.is_zero() {
+        // Splitting 0^(u*k+v) into 0^v * (0^u)^k can create undefined
+        // factors even when the original term is defined. Admit only the
+        // literal 0^k family here; other zero-base forms stay unevaluated.
+        if !matches!(e, Expr::Pow(base, exponent)
+            if number(base).is_some_and(|value| value.is_zero())
+                && exponent.as_ref() == &Expr::Sym(k.clone()))
+        {
+            return None;
+        }
+        let lo = int_value(a)?;
+        if lo < 0 {
+            return None;
+        }
+        if is_oo(b) {
+            return Some(if lo == 0 { c } else { Expr::from_i64(0) });
+        }
+        let hi = int_value(b)?;
+        return (hi >= lo).then(|| if lo == 0 { c } else { Expr::from_i64(0) });
+    }
     if is_oo(b) {
-        if qv.norm() >= 1.0 {
+        if qv.abs() >= BigRational::one() || !matches!(a, Expr::Integer(_)) {
             return None;
         }
         return Some(c * eval_pow(q.clone(), a.clone()) * eval_pow(one - q, Expr::from_i64(-1)));
@@ -194,76 +217,65 @@ fn sum_geometric(e: &Expr, k: &Symbol, a: &Expr, b: &Expr) -> Option<Expr> {
     ))
 }
 
-/// Telescoping rational sums: partial fractions with linear factors
-/// `k + r_i` at integer offsets whose coefficients cancel.
+/// Integer-range rational sums preserve the original denominator before
+/// cancellation. Unsupported symbolic bounds retain an unevaluated sum.
 fn sum_rational(e: &Expr, k: &Symbol, a: &Expr, b: &Expr) -> Option<Expr> {
-    let (num, den) = crate::integrate_rational_parts(e, k)?;
-    if den.degree()? == 0 {
+    let (num, den) = crate::rational_sum::original_rational_parts(e, k)?;
+    sum_rational_parts(&num, &den, a, b)
+}
+
+fn sum_rational_parts(
+    num: &UnivariatePoly,
+    den: &UnivariatePoly,
+    a: &Expr,
+    b: &Expr,
+) -> Option<Expr> {
+    let Expr::Integer(lower) = a else {
         return None;
-    }
-    let (q, rem) = num.div_rem(&den).ok()?;
-    if !q.is_zero() {
-        return None;
-    }
-    let fact = fsym_polys::factorization::complete_factorization(&den).ok()?;
-    let scale = fact.scale.clone();
-    // Only simple linear factors k + r with integer r.
-    let mut roots: Vec<BigRational> = Vec::new();
-    for t in &fact.factors {
-        if t.multiplicity != 1 || t.poly.degree()? != 1 {
-            return None;
-        }
-        let r = t.poly.coeffs[0].clone() / t.poly.coeffs[1].clone();
-        if !r.is_integer() {
-            return None;
-        }
-        roots.push(r);
-    }
-    // Residues: c_i = rem(-r_i) / (scale * prod_{j != i} (r_j - r_i)).
-    let mut coeffs = Vec::new();
-    for (i, ri) in roots.iter().enumerate() {
-        let mut d = scale.clone();
-        for (j, rj) in roots.iter().enumerate() {
-            if i != j {
-                d *= rj.clone() - ri.clone();
+    };
+    let upper = match b {
+        Expr::Integer(upper) => RationalSumUpper::Finite(upper.clone()),
+        Expr::Const(Constant::Infinity) => RationalSumUpper::PositiveInfinity,
+        _ => return None,
+    };
+    // A rational function need not have a rational antidifference. Short
+    // finite sums keep their direct exact lane, without first paying for
+    // factorization. Original poles and coefficient growth are checked.
+    if let RationalSumUpper::Finite(upper) = &upper
+        && let (Some(mut lo), Some(mut hi)) = (lower.to_i64(), upper.to_i64())
+    {
+        let mut negate = false;
+        if hi < lo {
+            let next = hi.checked_add(1)?;
+            if next == lo {
+                return Some(Expr::from_i64(0));
             }
+            hi = lo.checked_sub(1)?;
+            lo = next;
+            negate = true;
         }
-        coeffs.push(rem.eval(&(-ri.clone())) / d);
-    }
-    let total: BigRational = coeffs
-        .iter()
-        .fold(BigRational::zero(), |s, c| s + c.clone());
-    if !total.is_zero() {
-        return None;
-    }
-    // sum_{k=a}^{b} c_i/(k + r_i) = c_i*(H(b + r_i) - H(a - 1 + r_i)); with
-    // m = min r_i, H(b + r) = H(b + m) + sum_{j=m+1}^{r} 1/(b + j) and the
-    // H(b + m) parts cancel because the c_i sum to zero.
-    let m = roots.iter().cloned().min()?;
-    let mut out = Expr::from_i64(0);
-    for (c, r) in coeffs.iter().zip(&roots) {
-        let shift = (r.clone() - m.clone()).to_integer().to_i64()?;
-        let ce = rational_expr(c.clone());
-        // upper tail
-        if !is_oo(b) {
-            for j in 1..=shift {
-                let jj = m.clone() + BigRational::from_integer(BigInt::from(j));
-                out =
-                    out + ce.clone() * eval_pow(b.clone() + rational_expr(jj), Expr::from_i64(-1));
+        if hi
+            .checked_sub(lo)
+            .is_some_and(|span| span <= MAX_DIRECT_TERMS)
+        {
+            let mut total = BigRational::zero();
+            for index in lo..=hi {
+                let point = BigRational::from_integer(BigInt::from(index));
+                let denominator = den.eval(&point);
+                if denominator.is_zero() {
+                    return None;
+                }
+                total += num.eval(&point) / denominator;
+                if total.numer().bits().max(total.denom().bits()) > 16_384 {
+                    return None;
+                }
             }
-        }
-        // lower: -c * H(a - 1 + r) relative to H(a - 1 + m)
-        for j in 1..=shift {
-            let jj = m.clone() + BigRational::from_integer(BigInt::from(j));
-            out = out
-                - ce.clone()
-                    * eval_pow(
-                        a.clone() - Expr::from_i64(1) + rational_expr(jj),
-                        Expr::from_i64(-1),
-                    );
+            return Some(rational_expr(if negate { -total } else { total }));
         }
     }
-    Some(fsym_simplify::simplify(&out))
+    crate::rational_sum::rational_sum(num, den, lower, &upper)
+        .ok()
+        .map(|result| rational_expr(result.value))
 }
 
 fn sum_special_infinite(e: &Expr, k: &Symbol, a: &Expr) -> Option<Expr> {
@@ -279,7 +291,7 @@ fn sum_special_infinite(e: &Expr, k: &Symbol, a: &Expr) -> Option<Expr> {
             return Some(Expr::Const(Constant::Infinity));
         }
         let a0 = int_value(a)?;
-        if a0 < 1 {
+        if a0 < 1 || a0.checked_sub(1)? > MAX_DIRECT_TERMS {
             return None;
         }
         let mut head = Expr::from_i64(0);
@@ -323,15 +335,40 @@ fn sum_exp_series(e: &Expr, k: &Symbol, a: &Expr) -> Option<Expr> {
 
 /// Closed form of `sum_{k=a}^{b} f`, or `None`.
 pub fn summation(f: &Expr, k: &Symbol, a: &Expr, b: &Expr) -> Option<Expr> {
+    // Try the whole rational expression before linearity: separate terms
+    // can diverge while their rational combination telescopes. Retaining
+    // the unsimplified denominator also prevents canceled input poles from
+    // disappearing through direct evaluation or constant extraction.
+    if crate::rational_sum::is_rational_quotient(f, k)? {
+        let (numerator, denominator) = crate::rational_sum::original_rational_parts(f, k)?;
+        return sum_rational_parts(&numerator, &denominator, a, b).or_else(|| {
+            // The existing zeta family is not rationally telescoping. Its
+            // separate convergence rule is safe only above the pole at zero.
+            if is_oo(b) && int_value(a).is_some_and(|lower| lower >= 1) {
+                sum_special_infinite(f, k, a)
+            } else {
+                None
+            }
+        });
+    }
     if let (Some(lo), Some(hi)) = (int_value(a), int_value(b)) {
         if hi < lo {
-            if hi == lo - 1 {
+            if hi.checked_add(1) == Some(lo) {
                 return Some(Expr::from_i64(0));
             }
             // upstream convention: sum_{a}^{b} = -sum_{b+1}^{a-1}
-            return summation(f, k, &Expr::from_i64(hi + 1), &Expr::from_i64(lo - 1)).map(|s| -s);
+            return summation(
+                f,
+                k,
+                &Expr::from_i64(hi.checked_add(1)?),
+                &Expr::from_i64(lo.checked_sub(1)?),
+            )
+            .map(|s| -s);
         }
-        if hi - lo <= MAX_DIRECT_TERMS {
+        if hi
+            .checked_sub(lo)
+            .is_some_and(|length| length <= MAX_DIRECT_TERMS)
+        {
             let mut total = Expr::from_i64(0);
             for i in lo..=hi {
                 total = total + at(f, k, Expr::from_i64(i));

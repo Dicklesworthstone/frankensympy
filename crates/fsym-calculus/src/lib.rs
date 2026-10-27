@@ -8,10 +8,10 @@ pub mod hermite;
 pub mod integrate;
 pub mod proof;
 pub mod rational_limits;
+pub mod rational_sum;
 pub mod series;
 pub mod summation;
 
-pub(crate) use integrate::rational_parts as integrate_rational_parts;
 pub mod sparse_jacobian;
 pub mod transforms;
 pub mod verified;
