@@ -20,6 +20,9 @@ use serde::{Deserialize, Deserializer, Serialize};
 use std::{fmt, marker::PhantomData};
 use thiserror::Error;
 
+mod quadrature;
+pub use quadrature::*;
+
 pub const MAX_ROOT_BOX_NODES: usize = 16_384;
 pub const MAX_ROOT_BOX_DEPTH: usize = 32;
 pub const MAX_ROOT_BOX_LIMBS: u64 = 1_024;
