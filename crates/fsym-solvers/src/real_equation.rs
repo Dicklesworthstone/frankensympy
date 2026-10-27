@@ -21,6 +21,11 @@ use fsym_polys::gcd::BezoutCertificate;
 use num_traits::{One, Zero};
 use thiserror::Error;
 
+mod real_inequality;
+pub use real_inequality::{
+    VerifiedRealInequality, metered_solve_real_inequality, solve_real_inequality,
+};
+
 const MAX_NODES: usize = 2_048;
 const MAX_DEPTH: usize = 64;
 const MAX_FANOUT: usize = 256;

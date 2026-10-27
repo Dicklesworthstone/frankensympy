@@ -15,7 +15,8 @@ pub mod univariate;
 pub use exact_ode::{exact_ode_potential, verify_exact_ode_potential};
 pub use ode::*;
 pub use real_equation::{
-    RealEquationError, VerifiedRealEquation, metered_solve_real_equation, solve_real_equation,
+    RealEquationError, VerifiedRealEquation, VerifiedRealInequality, metered_solve_real_equation,
+    metered_solve_real_inequality, solve_real_equation, solve_real_inequality,
 };
 pub use system::*;
 
