@@ -12,7 +12,11 @@ use crate::expr::{PyExpr, PySymbol};
 use fsym_calculus::VerifiedResidualSystem;
 use fsym_calculus::compile::{CompiledExpr, MAX_COMPILE_DEPTH};
 use fsym_calculus::sparse_jacobian::compiled_expression_matches;
-use fsym_core::{Expr, Symbol};
+use fsym_core::{
+    BigRational, Expr, RealBall, ResidualJacobianEnclosure, RootBoxReceipt, RootBoxWitness, Symbol,
+    metered_enclose_residual_jacobian, verify_root_box,
+};
+use fsym_runtime::{Budget, BudgetLimits};
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyFloat, PyInt, PyList, PyTuple};
@@ -23,6 +27,203 @@ const MAX_OUTPUTS: usize = 4096;
 const MAX_TOTAL_OPS: usize = 65_536;
 const MAX_SOURCE_NODES: usize = 65_536;
 const MAX_LITERAL_BITS: u64 = 4096;
+const MAX_CERTIFIED_VARIABLES: usize = 16;
+
+fn exact_rational(value: &Bound<'_, PyAny>) -> PyResult<BigRational> {
+    if !value.is_exact_instance(&value.py().get_type::<PyExpr>()) {
+        return Err(PyTypeError::new_err(
+            "exact bounds require native rational Expr objects",
+        ));
+    }
+    let value = value.extract::<PyRef<'_, PyExpr>>()?;
+    match &value.inner {
+        Expr::Integer(n) if n.bits() <= MAX_LITERAL_BITS => {
+            Ok(BigRational::from_integer(n.clone()))
+        }
+        Expr::Rational(q) if q.numer().bits().max(q.denom().bits()) <= MAX_LITERAL_BITS => {
+            Ok(q.clone())
+        }
+        _ => Err(PyValueError::new_err(
+            "exact bounds must be rational literals of at most 4096 bits",
+        )),
+    }
+}
+
+fn exact_vector(values: &Bound<'_, PyAny>, expected: usize) -> PyResult<Vec<BigRational>> {
+    let values = items(values, MAX_CERTIFIED_VARIABLES, "exact vector")?;
+    if values.len() != expected {
+        return Err(PyValueError::new_err(
+            "exact vector has the wrong dimension",
+        ));
+    }
+    values.iter().map(exact_rational).collect()
+}
+
+fn exact_box(values: &Bound<'_, PyAny>, expected: usize) -> PyResult<Vec<RealBall>> {
+    let coordinates = items(values, MAX_CERTIFIED_VARIABLES, "box")?;
+    if coordinates.len() != expected {
+        return Err(PyValueError::new_err("box has the wrong dimension"));
+    }
+    coordinates
+        .iter()
+        .map(|coordinate| {
+            let endpoints = items(coordinate, 2, "coordinate bounds")?;
+            if endpoints.len() != 2 {
+                return Err(PyValueError::new_err(
+                    "coordinate bounds require two endpoints",
+                ));
+            }
+            let lo = exact_rational(&endpoints[0])?;
+            let hi = exact_rational(&endpoints[1])?;
+            if lo > hi {
+                return Err(PyValueError::new_err("box lower bound exceeds upper bound"));
+            }
+            let two = BigRational::from_integer(2.into());
+            RealBall::new((&lo + &hi) / &two, (hi - lo) / two).map_err(crate::to_value_error)
+        })
+        .collect()
+}
+
+fn certificate_budget() -> Budget {
+    // Bounded synchronous work. Core also enforces its own cumulative limits;
+    // this is not a claim of supervised runtime cancellation through Python.
+    Budget::new(BudgetLimits::uniform(512 * 1024 * 1024, 0))
+}
+
+fn rational_expr(value: &BigRational) -> PyExpr {
+    PyExpr::from_expr(if value.is_integer() {
+        Expr::Integer(value.to_integer())
+    } else {
+        Expr::Rational(value.clone())
+    })
+}
+
+fn ball_bounds(values: &[RealBall]) -> Vec<(PyExpr, PyExpr)> {
+    values
+        .iter()
+        .map(|value| (rational_expr(&value.lower()), rational_expr(&value.upper())))
+        .collect()
+}
+
+/// Accepted enclosures can only be constructed by the independent core checker.
+#[pyclass(name = "ResidualJacobianEnclosure", module = "fsym_python", frozen)]
+pub struct PyResidualJacobianEnclosure {
+    receipt: ResidualJacobianEnclosure,
+}
+
+#[pymethods]
+impl PyResidualJacobianEnclosure {
+    #[getter]
+    fn residuals(&self) -> Vec<PyExpr> {
+        self.receipt
+            .residuals()
+            .iter()
+            .cloned()
+            .map(PyExpr::from_expr)
+            .collect()
+    }
+
+    #[getter]
+    fn variables(&self) -> Vec<PySymbolBinding> {
+        self.receipt
+            .variables()
+            .iter()
+            .map(PySymbolBinding::from_symbol)
+            .collect()
+    }
+
+    #[getter]
+    fn domain(&self) -> Vec<(PyExpr, PyExpr)> {
+        ball_bounds(self.receipt.domain())
+    }
+
+    #[getter]
+    fn precision_digits(&self) -> u32 {
+        self.receipt.precision_digits()
+    }
+
+    #[getter]
+    fn residual_values(&self) -> Vec<(PyExpr, PyExpr)> {
+        ball_bounds(self.receipt.residual_values())
+    }
+
+    #[getter]
+    fn jacobian(&self) -> Vec<Vec<(PyExpr, PyExpr)>> {
+        self.receipt
+            .jacobian()
+            .iter()
+            .map(|row| ball_bounds(row))
+            .collect()
+    }
+}
+
+/// An immutable, source-bound accepted local root claim, with no public constructor.
+#[pyclass(name = "RootBoxReceipt", module = "fsym_python", frozen)]
+pub struct PyRootBoxReceipt {
+    receipt: RootBoxReceipt,
+}
+
+#[pymethods]
+impl PyRootBoxReceipt {
+    #[getter]
+    fn residuals(&self) -> Vec<PyExpr> {
+        self.receipt
+            .residuals()
+            .iter()
+            .cloned()
+            .map(PyExpr::from_expr)
+            .collect()
+    }
+
+    #[getter]
+    fn variables(&self) -> Vec<PySymbolBinding> {
+        self.receipt
+            .variables()
+            .iter()
+            .map(PySymbolBinding::from_symbol)
+            .collect()
+    }
+
+    #[getter]
+    fn domain(&self) -> Vec<(PyExpr, PyExpr)> {
+        ball_bounds(&self.receipt.witness().domain)
+    }
+
+    #[getter]
+    fn center(&self) -> Vec<PyExpr> {
+        self.receipt
+            .witness()
+            .center
+            .iter()
+            .map(rational_expr)
+            .collect()
+    }
+
+    #[getter]
+    fn preconditioner(&self) -> Vec<Vec<PyExpr>> {
+        self.receipt
+            .witness()
+            .preconditioner
+            .iter()
+            .map(|row| row.iter().map(rational_expr).collect())
+            .collect()
+    }
+
+    #[getter]
+    fn precision_digits(&self) -> u32 {
+        self.receipt.witness().precision_digits
+    }
+
+    #[getter]
+    fn root_enclosure(&self) -> Vec<(PyExpr, PyExpr)> {
+        ball_bounds(self.receipt.root_enclosure())
+    }
+
+    #[getter]
+    fn contraction_bound(&self) -> PyExpr {
+        rational_expr(self.receipt.contraction_bound())
+    }
+}
 
 fn items<'py>(
     values: &Bound<'py, PyAny>,
@@ -298,6 +499,65 @@ impl PyVerifiedResidualSystem {
             ));
         }
         Ok(Self { system })
+    }
+
+    /// Independently enclose the original residuals and their derivatives.
+    #[pyo3(signature = (domain, precision_digits=32))]
+    fn enclose(
+        &self,
+        domain: &Bound<'_, PyAny>,
+        precision_digits: u32,
+    ) -> PyResult<PyResidualJacobianEnclosure> {
+        let source = self.system.sparse_jacobian();
+        let domain = exact_box(domain, source.vars.len())?;
+        let receipt = metered_enclose_residual_jacobian(
+            &source.residuals,
+            &source.vars,
+            &domain,
+            precision_digits,
+            &mut certificate_budget(),
+        )
+        .map_err(crate::to_value_error)?;
+        Ok(PyResidualJacobianEnclosure { receipt })
+    }
+
+    /// Check an untrusted rational Krawczyk witness against the original source.
+    #[pyo3(signature = (domain, center, preconditioner, precision_digits=32))]
+    fn certify_root_box(
+        &self,
+        domain: &Bound<'_, PyAny>,
+        center: &Bound<'_, PyAny>,
+        preconditioner: &Bound<'_, PyAny>,
+        precision_digits: u32,
+    ) -> PyResult<PyRootBoxReceipt> {
+        let source = self.system.sparse_jacobian();
+        let dimension = source.vars.len();
+        let domain = exact_box(domain, dimension)?;
+        let center = exact_vector(center, dimension)?;
+        let rows = items(preconditioner, MAX_CERTIFIED_VARIABLES, "preconditioner")?;
+        if rows.len() != dimension {
+            return Err(PyValueError::new_err(
+                "preconditioner has the wrong dimension",
+            ));
+        }
+        let preconditioner = rows
+            .iter()
+            .map(|row| exact_vector(row, dimension))
+            .collect::<PyResult<Vec<_>>>()?;
+        let witness = RootBoxWitness {
+            domain,
+            center,
+            preconditioner,
+            precision_digits,
+        };
+        let receipt = verify_root_box(
+            &source.residuals,
+            &source.vars,
+            &witness,
+            &mut certificate_budget(),
+        )
+        .map_err(crate::to_value_error)?;
+        Ok(PyRootBoxReceipt { receipt })
     }
 
     /// Return residuals and a row-major nested Jacobian after all values pass.

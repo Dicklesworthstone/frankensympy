@@ -1873,6 +1873,8 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<binding::PySymbolBinding>()?;
     m.add_class::<numeric::PyCompiledFunction>()?;
     m.add_class::<numeric::PyVerifiedResidualSystem>()?;
+    m.add_class::<numeric::PyResidualJacobianEnclosure>()?;
+    m.add_class::<numeric::PyRootBoxReceipt>()?;
     m.add_class::<callbacks::PySupervisedCallbackSession>()?;
     m.add_function(wrap_pyfunction!(callbacks::check_interpreter_support, m)?)?;
     m.add_class::<PyInteger>()?;

@@ -174,9 +174,11 @@ def _constant(value):
     raise NotImplementedError("unsupported typed numerical constant")
 
 
-def _numeric_source(value, functions, count, depth=0):
+def _numeric_source(value, functions, count, depth=0, *, inexact=None):
     _charge(count, depth)
     cls = type(value)
+    if inexact is not None and cls in (float, Float, _ExactDecimalFloat):
+        inexact[0] = True
     if cls in (int, float, bool, Float, _ExactDecimalFloat):
         if cls is _ExactDecimalFloat:
             ratio = value._as_python_float().as_integer_ratio()
@@ -196,7 +198,8 @@ def _numeric_source(value, functions, count, depth=0):
     if cls in (Symbol, Dummy):
         return _native_expr(value)
     if cls in (Add, Mul, Pow) or cls in functions:
-        children = [_numeric_source(arg, functions, count, depth + 1) for arg in value.args]
+        children = [_numeric_source(arg, functions, count, depth + 1, inexact=inexact)
+                    for arg in value.args]
         if cls is Add:
             return _native.Add(*children, evaluate=False).as_expr()
         if cls is Mul:
@@ -237,9 +240,28 @@ def compile_numeric(args, expression):
 class _ResidualCallable:
     """Python argument layout around an immutable checked native system."""
 
-    def __init__(self, layout, native):
-        self._layout = layout
-        self.native_system = native
+    __slots__ = ("_layout", "_native_system", "_variables", "_has_inexact_source", "_assumptions")
+
+    def __init__(self, layout, native, variables, inexact, assumptions):
+        if hasattr(self, "_native_system"):
+            raise AttributeError("compiled residual systems are immutable")
+        object.__setattr__(self, "_layout", layout)
+        object.__setattr__(self, "_native_system", native)
+        object.__setattr__(self, "_variables", tuple(variables))
+        object.__setattr__(self, "_has_inexact_source", inexact)
+        object.__setattr__(self, "_assumptions", assumptions)
+
+    def __setattr__(self, name, value):
+        raise AttributeError("compiled residual systems are immutable")
+
+    @property
+    def native_system(self):
+        return self._native_system
+
+    @property
+    def variables(self):
+        """Original argument objects, in the flat order used by box coordinates."""
+        return self._variables
 
     def evaluate(self, *values):
         """Return the approximate residual vector and nested Jacobian rows."""
@@ -251,6 +273,34 @@ class _ResidualCallable:
     def jacobian(self, *values):
         return self.native_system.jacobian(_call_arguments(self._layout, values, native=True))
 
+    def enclose(self, box, *, precision=32):
+        """Independently enclose residuals and their Jacobian on a closed real box.
+
+        Bounds are exact int, Rational or fractions.Fraction values; float
+        bounds and floating source literals refuse. ``box`` lists lower/upper
+        pairs in flat variable order, even for nested ordinary arguments.
+        Supported declared assumptions must hold throughout the box. The core
+        checks the original source's C1 domain independently of compiled and
+        symbolic derivative instructions. Up to 16 variables, 64 residuals and
+        precision 8..128 digits are supported. No root claim is made.
+        """
+        from ._certified_numeric import enclose
+        return enclose(self, box, precision)
+
+    def certify_root_box(self, box, *, center=None, preconditioner=None, precision=32):
+        """Prove one unique nonsingular real root in this closed coordinate box.
+
+        Exact input rules match ``enclose``. The system must be square with
+        1..16 variables and every coordinate must have positive width. Center
+        defaults to the exact midpoint. A manual exact preconditioner is an
+        untrusted proposal; otherwise bounded rational elimination proposes an
+        inverse of a midpoint Jacobian enclosure. Acceptance depends only on
+        independent whole-box C1 checks, strict Krawczyk inclusion and an exact
+        contraction bound below one. This makes no claim about other boxes.
+        """
+        from ._certified_numeric import certify_root_box
+        return certify_root_box(self, box, center, preconditioner, precision)
+
 
 def compile_residual_system(residuals, args):
     """Compile a residual system with independently checked symbolic derivatives.
@@ -258,14 +308,20 @@ def compile_residual_system(residuals, args):
     Residual containers flatten in row-major order. Derivative proofs and
     bytecode provenance are checked once; numerical values remain binary64
     approximations. Unsupported derivatives and functions refuse at compile time.
+    Separate ``enclose`` and ``certify_root_box`` methods use the original exact
+    source and independent interval arithmetic. Floating source literals remain
+    usable for approximate evaluation but cannot enter those certified methods.
     """
     layout, variables = _argument_layout(args)
-    functions, count = _functions(), [0]
+    from ._certified_numeric import bound_assumptions
+    bindings = [_symbol_binding(v) for v in variables]
+    assumptions = bound_assumptions(variables, bindings)
+    functions, count, inexact = _functions(), [0], [False]
     _, sources = _outputs(
-        residuals, lambda value: _numeric_source(value, functions, count), native=True,
+        residuals, lambda value: _numeric_source(value, functions, count, inexact=inexact), native=True,
     )
-    native = _native.VerifiedResidualSystem(sources, [_symbol_binding(v) for v in variables])
-    return _ResidualCallable(layout, native)
+    native = _native.VerifiedResidualSystem(sources, bindings)
+    return _ResidualCallable(layout, native, variables, inexact[0], assumptions)
 
 
 def _math_program(value, positions, functions, count, program, depth=0):

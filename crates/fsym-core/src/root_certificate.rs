@@ -672,11 +672,25 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
             .checked_add(bytes)
             .filter(|n| *n <= MAX_ROOT_BOX_ALLOCATION_BYTES)
             .ok_or(RootBoxError::ResourceLimit("cumulative allocation"))?;
-        self.meter.charge_batch(&[
+        let requested = [
             (Dimension::ComputeSteps, steps),
             (Dimension::MemoryBytes, bytes),
             (Dimension::AllocationCount, allocations),
-        ])?;
+        ];
+        // Budget rejects zero-amount ledger entries. Keep a single atomic
+        // batch for the dimensions actually consumed, without allocating a
+        // temporary vector or weakening cumulative accounting/checkpoints.
+        let mut charges = [(Dimension::ComputeSteps, 0); 3];
+        let mut count = 0;
+        for (dimension, amount) in requested {
+            if amount != 0 {
+                charges[count] = (dimension, amount);
+                count += 1;
+            }
+        }
+        if count != 0 {
+            self.meter.charge_batch(&charges[..count])?;
+        }
         self.steps = total_steps;
         self.allocation_bytes = total_bytes;
         Ok(())

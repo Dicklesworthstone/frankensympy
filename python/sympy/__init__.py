@@ -1340,6 +1340,7 @@ from .simplify import (
 
 
 from .utilities.lambdify import compile_numeric, compile_residual_system, lambdify
+from .utilities._certified_numeric import ResidualJacobianEnclosure, RootBoxReceipt
 
 
 def sstr(expr: Any) -> str:
@@ -2380,6 +2381,8 @@ __all__ = [
     "lambdify",
     "compile_numeric",
     "compile_residual_system",
+    "ResidualJacobianEnclosure",
+    "RootBoxReceipt",
     "count_ops",
     "real_roots",
     "factor_terms",

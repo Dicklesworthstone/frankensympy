@@ -426,6 +426,62 @@ fn cancellation_at_every_checkpoint_publishes_no_generic_receipt() {
 }
 
 #[test]
+fn real_budget_accepts_rectangular_enclosures_and_preserves_atomic_refusal() {
+    let vars = symbols(2);
+    let x = Expr::Sym(vars[0].clone());
+    let y = Expr::Sym(vars[1].clone());
+    let source = vec![x.clone() + y.clone(), x.clone() * y.clone(), x - y];
+    let domain = vec![
+        RealBall::new(q(2, 1), q(1, 4)).unwrap(),
+        RealBall::new(q(3, 1), q(1, 4)).unwrap(),
+    ];
+    let limit = 512 * 1024 * 1024;
+    let mut budget = Budget::new(BudgetLimits::uniform(limit, 0));
+    let accepted =
+        metered_enclose_residual_jacobian(&source, &vars, &domain, 24, &mut budget).unwrap();
+    assert_eq!(accepted.jacobian()[0], vec![RealBall::from_i64(1); 2]);
+    assert_eq!(
+        accepted.jacobian()[2],
+        vec![RealBall::from_i64(1), RealBall::from_i64(-1)]
+    );
+    assert_eq!(
+        accepted.jacobian()[1],
+        vec![domain[1].clone(), domain[0].clone()]
+    );
+    assert!(budget.remaining(Dimension::ComputeSteps) < limit);
+    assert!(budget.remaining(Dimension::MemoryBytes) < limit);
+    assert!(budget.remaining(Dimension::AllocationCount) < limit);
+
+    let mut insufficient = Budget::new(BudgetLimits::uniform(1, 0));
+    assert!(matches!(
+        metered_enclose_residual_jacobian(&source, &vars, &domain, 24, &mut insufficient),
+        Err(RootBoxError::Meter(MeterError::Budget(_)))
+    ));
+    // The initial multidimensional reservation must remain all-or-nothing.
+    assert_eq!(insufficient.remaining(Dimension::ComputeSteps), 1);
+    assert_eq!(insufficient.remaining(Dimension::MemoryBytes), 1);
+    assert_eq!(insufficient.remaining(Dimension::AllocationCount), 1);
+}
+
+#[test]
+fn real_budget_accepts_a_nonlinear_root_certificate() {
+    let vars = symbols(1);
+    let source = vec![power(Expr::Sym(vars[0].clone()), 2) - Expr::from_i64(2)];
+    let mut proposed = witness(vec![q(7, 5)], q(1, 10));
+    proposed.preconditioner[0][0] = q(5, 14);
+    let limit = 512 * 1024 * 1024;
+    let mut budget = Budget::new(BudgetLimits::uniform(limit, 0));
+    let accepted = verify_root_box(&source, &vars, &proposed, &mut budget).unwrap();
+    let root = &accepted.root_enclosure()[0];
+    assert!(&root.lower() * &root.lower() < q(2, 1));
+    assert!(&root.upper() * &root.upper() > q(2, 1));
+    assert!(accepted.contraction_bound() < &q(1, 1));
+    assert!(budget.remaining(Dimension::ComputeSteps) < limit);
+    assert!(budget.remaining(Dimension::MemoryBytes) < limit);
+    assert!(budget.remaining(Dimension::AllocationCount) < limit);
+}
+
+#[test]
 fn intrinsic_arithmetic_budget_applies_even_without_a_caller_meter() {
     let vars = symbols(16);
     // Source shape remains admitted and exact point arithmetic stays small,
