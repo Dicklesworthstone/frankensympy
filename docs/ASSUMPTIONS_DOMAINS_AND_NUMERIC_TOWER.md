@@ -361,6 +361,46 @@ No fixed “extra digits” heuristic is presented as a correctness guarantee.
 
 Integer-relation, rational reconstruction, or algebraic recognition may propose exact forms from high-precision values. Acceptance requires an independent exact or certified check. Recognition confidence alone is `HeuristicCandidate`.
 
+### 15.4 Implemented bounded numerical APIs
+
+`nsolve_certified` and a compiled residual system's `solve_certified` method
+connect finite-real Newton candidate generation to the independent original-source
+root checker. One captured program and typed assumption snapshot govern both
+phases. A binary64 candidate proposes exact rational centers and boxes; only
+whole-box C1 checks, strict Krawczyk inclusion and a contraction bound authorize
+the immutable `RootBoxReceipt`. The claim is one unique nonsingular root in the
+declared box. It does not establish global completeness. The search admits square
+systems with 1 through 16 variables, uses at most 24 certificate attempts, and
+escalates interval precision only within 8 through 128 decimal digits.
+
+`certified_integral` encloses a proper real integral over finite rational limits
+without requiring an antiderivative. The calculus generator proposes a partition;
+the independent core checker recomputes every cell's original-source function and
+derivative bounds, verifies complete coverage, and checks the final exact width.
+Its centered C1 bound includes point-evaluation rounding and is intersected with
+the whole-cell range bound. `tolerance` bounds the complete enclosure width, so
+the returned midpoint's error is at most half that tolerance. Precision is 8
+through 128 digits and the partition has at most 1024 intervals. Reversed limits
+negate the enclosure. Equal limits still require a defined, admitted original
+source. Original poles, nonsmooth endpoints, improper integrals and principal
+values remain explicit refusals.
+
+```python
+from sympy import Rational, Symbol, certified_integral, exp, nsolve_certified
+
+x, y = Symbol("x"), Symbol("y")
+root = nsolve_certified([x*x + y*y - 5, x - y - 1], [x, y], [2, 1])
+integral = certified_integral(
+    exp(-x*x), (x, 0, 1), tolerance=Rational(1, 10000),
+)
+```
+
+These APIs accept exact source literals for certification and expose native-derived
+immutable statements and bounds. Unsupported custom objects, inconsistent captured
+assumptions and exhausted work cannot yield accepted receipts. Ordinary `nsolve`
+remains an approximate API. These bounded synchronous implementations do not close
+the full runtime, compatibility-profile or end-to-end campaign gates.
+
 ## 16. Polynomial representation portfolio
 
 Polynomial storage is adaptive but semantically uniform:

@@ -1847,6 +1847,7 @@ pub mod logic;
 pub mod matrix;
 pub mod ntheory;
 pub mod numeric;
+mod quadrature;
 mod real_inequality;
 pub mod sets;
 pub mod tensor;
@@ -1876,6 +1877,7 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<numeric::PyVerifiedResidualSystem>()?;
     m.add_class::<numeric::PyResidualJacobianEnclosure>()?;
     m.add_class::<numeric::PyRootBoxReceipt>()?;
+    m.add_class::<quadrature::PyIntegralEnclosureReceipt>()?;
     m.add_class::<callbacks::PySupervisedCallbackSession>()?;
     m.add_function(wrap_pyfunction!(callbacks::check_interpreter_support, m)?)?;
     m.add_class::<PyInteger>()?;
@@ -2070,6 +2072,7 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
         real_inequality::solve_real_rational_inequality_native,
         m
     )?)?;
+    m.add_function(wrap_pyfunction!(quadrature::certified_integral_native, m)?)?;
     m.add_function(wrap_pyfunction!(
         algebraic_roots::real_roots_isolate_native,
         m

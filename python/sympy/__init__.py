@@ -1151,6 +1151,8 @@ from .geometry import (
     intersection,
 )
 from .integrals import (
+    IntegralEnclosureReceipt,
+    certified_integral,
     CosineTransform,
     FourierTransform,
     HankelTransform,
@@ -2034,6 +2036,8 @@ __all__ = [
     "Integer",
     "IntegerPartition",
     "Integral",
+    "IntegralEnclosureReceipt",
+    "certified_integral",
     "Intersection",
     "Interval",
     "InverseCosineTransform",

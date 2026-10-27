@@ -1,0 +1,1036 @@
+{
+  "schema": "frankensympy_supplementary_component_execution_v1",
+  "validation_class": "governed_toolchain_component_checks_not_full_workspace_certification",
+  "date": "2026-10-27",
+  "baseline_commit": "8215224d48b458300539b27e8ae36fd51e387cb5",
+  "feature_commits_verified_on_main": [
+    {
+      "sha": "a81c685dc25e180bbe63050a1519416305619bfd",
+      "feature": "automatic independently certified real root search"
+    },
+    {
+      "sha": "4bcf261d2b459774bd0dc7f74777b507848118e5",
+      "feature": "complete exact real rational inequality native sign charts"
+    },
+    {
+      "sha": "2ff1ec13db4dcd1c8efe503d115af72482e94c43",
+      "feature": "adaptive proper real quadrature and independent core checker"
+    },
+    {
+      "sha": "61241c2b35fb479747a2327977e912befe05aeeb",
+      "feature": "public exact real rational inequalities and algebraic-root hashing"
+    }
+  ],
+  "containing_commit_feature": "public certified quadrature integration, contract documentation and current execution evidence",
+  "planning_sources": [
+    "COMPREHENSIVE_PLAN_FOR_FRANKENSYMPY.md",
+    ".beads/issues.jsonl",
+    "docs/FIRST_IMPLEMENTATION_CAMPAIGN.md"
+  ],
+  "beads_updated_without_closure": [
+    "fra-7kf",
+    "fra-a5x",
+    "fra-campaign-jacobian-bundle-ukp"
+  ],
+  "claims_updated_without_promotion": [
+    "MATH-001",
+    "MATH-003",
+    "MATH-004"
+  ],
+  "planning_changes": "Only progress notes, timestamps and evidence references changed; statuses and dependency edges are unchanged.",
+  "compiler": {
+    "used": "nightly-2026-08-20",
+    "version": "rustc 1.100.0-nightly (f7d782a3b 2026-08-19)",
+    "external_dependency_pins_changed": false,
+    "registry_packages_in_repository_lock": 228,
+    "scoped_registry_packages_matching_exact_versions_sources_checksums": 42,
+    "new_dependencies": []
+  },
+  "features": {
+    "automatic_certified_root_search": {
+      "apis": [
+        "nsolve_certified",
+        "compile_residual_system(...).solve_certified"
+      ],
+      "statement": "One unique nonsingular real root in the returned closed rational box.",
+      "proposal": "Bounded binary64 Newton search and exact rationalization of its finite output only propose witnesses.",
+      "acceptance": "Independent native original-source whole-box C1/domain checking, strict Krawczyk inclusion and contraction below one.",
+      "source_binding": "One immutable compiled residual/Jacobian program and captured typed assumptions govern candidate and checker phases.",
+      "square_dimensions": [
+        1,
+        16
+      ],
+      "cumulative_certificate_attempts": [
+        1,
+        24
+      ],
+      "precision_digits": [
+        8,
+        128
+      ],
+      "result": "Immutable authentic RootBoxReceipt; RootSearchError distinguishes candidate and certificate failure.",
+      "scope": "Local existence and uniqueness only; ordinary nsolve remains approximate and no global root completeness is asserted."
+    },
+    "complete_real_rational_inequalities": {
+      "apis": [
+        "solveset(..., domain=S.Reals)",
+        "reduce_inequalities",
+        "solve_univariate_inequality"
+      ],
+      "source": "Exact bounded QQ(x) expressions in one typed variable, preserving all original reciprocal exclusions.",
+      "statement": "Complete admitted sign cells and critical points, including exact irreducible quartic/quintic endpoints.",
+      "checks": [
+        "complete exact critical-root isolation",
+        "separate zero and pole ownership",
+        "exact original-source gap signs",
+        "domain holes retained through held zeros, zero powers and nested inverses"
+      ],
+      "combined_critical_degree_limit": 64,
+      "public_lifting": "Ordered masks construct intervals/unions/points without floating endpoint comparison.",
+      "undecided_intersections": "Retain exact structural intersections or relational conjunctions.",
+      "root_hashing": "Bounded exact coefficient vector and root index preserve generator-name-independent identity without generic expansion.",
+      "source_conversion_scope": "Trusted bounded exact recurrence, not a portable independently checked source-reduction certificate."
+    },
+    "certified_proper_real_quadrature": {
+      "api": "certified_integral(f, (x, a, b), tolerance=..., precision=..., max_intervals=...)",
+      "statement": "The exact rational returned interval encloses the proper real integral and has width at most the requested tolerance.",
+      "generator": "Adaptive deterministic rational partition with bounded bisection and separate cumulative work accounting.",
+      "independent_checker": "Core recomputes original-source function/derivative enclosures, exact complete partition coverage and final requested width.",
+      "cell_bound": "Centered midpoint enclosure with derivative-ball radius r and width h has error at most r*h^2/4, including point rounding; intersect with whole-cell range enclosure.",
+      "receipt": "Immutable native source-bound IntegralEnclosureReceipt; exact bounds, midpoint, error bound, oriented limits, partition and captured symbol identity.",
+      "limits": "Finite rational endpoints; reversed intervals negate; equal intervals still require a defined admitted source at the point.",
+      "max_intervals": 1024,
+      "precision_digits": [
+        8,
+        128
+      ],
+      "max_refinement_depth": 64,
+      "scope": "Supported proper C1 real sources only; original poles, nonsmooth endpoints, improper integrals and principal values refuse.",
+      "public_boundary": "Exact Symbol/Dummy and native atom binding captured before validating immutable Boolean assumption snapshots; user conversion/truth hooks are not accepted."
+    }
+  },
+  "native_component_execution": [
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "fsym-solvers",
+        "--lib",
+        "--test",
+        "real_equation",
+        "--test",
+        "real_inequality"
+      ],
+      "cwd": "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout",
+      "target": "/workspace/scratch/4e57ea5be713/recovered-native-target",
+      "exit_code": 0,
+      "seconds": 28.916,
+      "log": "/workspace/scratch/4e57ea5be713/continuation-solvers-retry.log",
+      "log_sha256": "0b58a602c20b1a672141b1b87d13e4106f78dc75bc435935544157d3e1e10ad6",
+      "log_bytes": 8856,
+      "terminal_summaries": [
+        "test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.37s",
+        "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s",
+        "test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.32s"
+      ],
+      "passed": 72,
+      "suites": {
+        "solver_library": 50,
+        "real_equation": 10,
+        "real_inequality": 12
+      }
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "fsym-core",
+        "-p",
+        "fsym-calculus",
+        "--test",
+        "quadrature_certificate",
+        "--test",
+        "certified_quadrature",
+        "--test",
+        "root_box_general",
+        "--test",
+        "root_box_certificate",
+        "--test",
+        "transcendental_rounding_enclosures"
+      ],
+      "cwd": "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout",
+      "target": "/workspace/scratch/4e57ea5be713/recovered-native-target",
+      "exit_code": 0,
+      "seconds": 14.634,
+      "log": "/workspace/scratch/4e57ea5be713/continuation-quadrature-tests.log",
+      "log_sha256": "f86b9f7cdf5ebd9590f8d1c3e8429333e687e79d96a4c1c97f41ef37e71b34ad",
+      "log_bytes": 5550,
+      "terminal_summaries": [
+        "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.13s",
+        "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s",
+        "test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.20s",
+        "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s"
+      ],
+      "passed": 48,
+      "suites": {
+        "certified_quadrature": 7,
+        "quadrature_certificate": 9,
+        "root_box_certificate": 9,
+        "root_box_general": 15,
+        "transcendental_rounding_enclosures": 8
+      }
+    }
+  ],
+  "native_component_totals": {
+    "passed": 120,
+    "new_inequality_cases": 14,
+    "new_quadrature_cases": 16,
+    "excluded": 0,
+    "scope": "Actual governed native dependency graph for the listed component suites."
+  },
+  "python_component_execution": {
+    "command": [
+      "/workspace/scratch/4e57ea5be713/recovered-test-env/bin/python",
+      "-m",
+      "pytest",
+      "-q",
+      "python/tests/test_nsolve_certified.py",
+      "python/tests/test_real_rational_inequalities.py",
+      "python/tests/test_certified_quadrature.py",
+      "python/tests/test_certified_numeric.py",
+      "python/tests/test_solveset_real_rational.py",
+      "python/tests/test_numeric_compilation.py",
+      "python/tests/test_nsolve_convergence.py",
+      "python/tests/test_nsolve_systems.py",
+      "python/tests/test_rational_definite.py",
+      "python/tests/test_affine_linear_systems.py",
+      "-k",
+      "not test_existing_symbolic_coefficient_lane_remains_available"
+    ],
+    "cwd": "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout",
+    "target": "/workspace/scratch/4e57ea5be713/recovered-scoped-target",
+    "exit_code": 0,
+    "seconds": 19.154,
+    "log": "/workspace/scratch/4e57ea5be713/continuation-python-tests-final.log",
+    "log_sha256": "71e8066873a89f1f5719652fd5446e6cc1c63907edf53563cadaf1bc8dd95bbb",
+    "log_bytes": 275,
+    "terminal_summaries": [
+      "214 passed, 1 deselected in 18.89s"
+    ],
+    "passed": 214,
+    "deselected": 1,
+    "deselected_test": "test_existing_symbolic_coefficient_lane_remains_available",
+    "deselected_reason": "Requires generic runtime simplification explicitly omitted from the scoped bridge; no result claimed.",
+    "new_cases": {
+      "certified_root_search": 36,
+      "real_rational_inequalities_and_hashing": 24,
+      "certified_quadrature": 20
+    },
+    "existing_cases_passed": 134
+  },
+  "python_build": {
+    "scope": "actual-source scoped PyO3 cdylib; six existing runtime-only functions omitted without replacements",
+    "build": {
+      "command": [
+        "cargo",
+        "rustc",
+        "--manifest-path",
+        "/workspace/scratch/4e57ea5be713/recovered-scoped-validation/Cargo.toml",
+        "--locked",
+        "--offline",
+        "--features",
+        "extension-module",
+        "--lib",
+        "--crate-type",
+        "cdylib"
+      ],
+      "cwd": "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout",
+      "target": "/workspace/scratch/4e57ea5be713/recovered-scoped-target",
+      "exit_code": 0,
+      "seconds": 6.822,
+      "log": "/workspace/scratch/4e57ea5be713/continuation-scoped-cdylib-final.log",
+      "log_sha256": "6b8e992f1828a114ed6091d31744ddc9732cf81f6c3e10c0e9192dbdbe8765d2",
+      "log_bytes": 154,
+      "terminal_summaries": []
+    },
+    "strict_clippy": {
+      "command": [
+        "cargo",
+        "clippy",
+        "--manifest-path",
+        "/workspace/scratch/4e57ea5be713/recovered-scoped-validation/Cargo.toml",
+        "--locked",
+        "--offline",
+        "--features",
+        "extension-module",
+        "--lib",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "cwd": "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout",
+      "target": "/workspace/scratch/4e57ea5be713/recovered-scoped-target",
+      "exit_code": 0,
+      "seconds": 2.93,
+      "log": "/workspace/scratch/4e57ea5be713/continuation-scoped-clippy-fixed.log",
+      "log_sha256": "0402207d7d9e6e60a72eac8d48d463a486f3ec0af551b3d4394b7b2f24dd8a68",
+      "log_bytes": 154,
+      "terminal_summaries": []
+    },
+    "python": "3.12.14",
+    "pytest": "8.4.2",
+    "binary": "/workspace/scratch/4e57ea5be713/recovered-scoped-target/debug/libfsym_python.so",
+    "binary_sha256": "84ed833435de551f5ed4e9d58b8316ca4a33bbf710045e4971bfe2f90073ada9",
+    "binary_bytes": 20832584,
+    "omitted_members": [
+      {
+        "file": "expr.rs",
+        "member": "PyExpr.simplify",
+        "omitted_sha256": "e3e34711c5d91a94ab7b051dd1a1efb1d85bf8ffd52bc9bad64736fb584b258a"
+      },
+      {
+        "file": "expr.rs",
+        "member": "PyExpr.expand",
+        "omitted_sha256": "08f9c15624b686808938a4d275e9177777ff8e1a8a54a2bc3c644c0d20bfe408"
+      },
+      {
+        "file": "lib.rs",
+        "member": "eval_error",
+        "omitted_sha256": "4d4e39ca176d5b4c276a90126b82cac7a42c26c4304c24dd06cc84b1846a430f"
+      },
+      {
+        "file": "lib.rs",
+        "member": "eval_region",
+        "omitted_sha256": "c83601106a9ac5cb86de896f01eda57f5432070abd2792c8396f22d685108bd1"
+      },
+      {
+        "file": "lib.rs",
+        "member": "simplify_expr",
+        "omitted_sha256": "688d43e8d527ebdd28fc0be4b54e334a8a3caabf2a6a5a32f115f8337be4af4b"
+      },
+      {
+        "file": "lib.rs",
+        "member": "expand_expr",
+        "omitted_sha256": "0f0a07d2d5a7f620029b7d2ef5f623445a0cb0974e0085b252c4a3187d9f46cb"
+      }
+    ],
+    "replacement_implementations": [],
+    "runtime_alias": "Actual fsym-budget Budget/BudgetLimits only; no fsym-runtime implementation replacement.",
+    "build_output_choice": "Supported Cargo cdylib-only output avoids writing an unused rlib; production manifests and dependency locks are unchanged.",
+    "upstream_sympy_imported_as_engine_or_fallback": false,
+    "source_verification": {
+      "source_drift": [],
+      "production_bridge_files": 15,
+      "native_dependency_sources": 120,
+      "python_sources": 134,
+      "scoped_bridge_files": 15,
+      "scoped_registry_packages": 42,
+      "repository_registry_packages": 228,
+      "registry_matches": true,
+      "binary_sha256": "84ed833435de551f5ed4e9d58b8316ca4a33bbf710045e4971bfe2f90073ada9",
+      "binary_bytes": 20832584,
+      "source_manifest_sha256": "f332ae4cdd5e521da43c4affe766d3f7bba0ae998cd0ae66e628c02eaee8b022",
+      "production_lock_sha256": "37d4e8585ab763996047f3750edf0db8201e1448a55f1f3e4207f285ba591084",
+      "scoped_lock_sha256": "7a1adf4c5d1d2fd220ec6690e4095a16a8c66977ed919c57cc59e2848ebb59e6",
+      "omissions": [
+        {
+          "file": "expr.rs",
+          "member": "PyExpr.simplify",
+          "omitted_sha256": "e3e34711c5d91a94ab7b051dd1a1efb1d85bf8ffd52bc9bad64736fb584b258a"
+        },
+        {
+          "file": "expr.rs",
+          "member": "PyExpr.expand",
+          "omitted_sha256": "08f9c15624b686808938a4d275e9177777ff8e1a8a54a2bc3c644c0d20bfe408"
+        },
+        {
+          "file": "lib.rs",
+          "member": "eval_error",
+          "omitted_sha256": "4d4e39ca176d5b4c276a90126b82cac7a42c26c4304c24dd06cc84b1846a430f"
+        },
+        {
+          "file": "lib.rs",
+          "member": "eval_region",
+          "omitted_sha256": "c83601106a9ac5cb86de896f01eda57f5432070abd2792c8396f22d685108bd1"
+        },
+        {
+          "file": "lib.rs",
+          "member": "simplify_expr",
+          "omitted_sha256": "688d43e8d527ebdd28fc0be4b54e334a8a3caabf2a6a5a32f115f8337be4af4b"
+        },
+        {
+          "file": "lib.rs",
+          "member": "expand_expr",
+          "omitted_sha256": "0f0a07d2d5a7f620029b7d2ef5f623445a0cb0974e0085b252c4a3187d9f46cb"
+        }
+      ],
+      "validation_kind": "actual-source scoped PyO3 cdylib; six existing runtime-only functions omitted without replacements"
+    },
+    "source_verification_timing": "Native copied source captured before building and checked against final production source. Python manifest refreshed after the frozen final test run; no intervening source changes."
+  },
+  "quality_checks": {
+    "workspace_format": {
+      "command": [
+        "cargo",
+        "fmt",
+        "--check"
+      ],
+      "cwd": "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout",
+      "target": "/workspace/scratch/4e57ea5be713/recovered-native-target",
+      "exit_code": 0,
+      "seconds": 1.62,
+      "log": "/workspace/scratch/4e57ea5be713/continuation-format.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "log_bytes": 0,
+      "terminal_summaries": []
+    },
+    "strict_native_all_targets_clippy": {
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "--offline",
+        "-p",
+        "fsym-solvers",
+        "-p",
+        "fsym-calculus",
+        "-p",
+        "fsym-core",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "cwd": "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout",
+      "target": "/workspace/scratch/4e57ea5be713/recovered-native-target",
+      "exit_code": 0,
+      "seconds": 19.32,
+      "log": "/workspace/scratch/4e57ea5be713/continuation-native-clippy.log",
+      "log_sha256": "5daa49a36ec600f10d87c5c1440320f932773ff5e6e18350e0e7c5303a7e339f",
+      "log_bytes": 2238,
+      "terminal_summaries": []
+    },
+    "full_workspace_attempts": [
+      {
+        "command": [
+          "cargo",
+          "check",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline"
+        ],
+        "cwd": "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout",
+        "target": "/workspace/scratch/4e57ea5be713/recovered-native-target",
+        "exit_code": 101,
+        "seconds": 39.295,
+        "log": "/workspace/scratch/4e57ea5be713/continuation-workspace-check.log",
+        "log_sha256": "905829deec3777d7cb2bbca4bfdd23163e979144152a4696e65d7af8c6ed0570",
+        "log_bytes": 31174,
+        "terminal_summaries": [
+          "error: could not compile `asupersync` (lib)"
+        ],
+        "observed_blocker": "compiler process terminated by signal 9 (SIGKILL) while compiling asupersync"
+      },
+      {
+        "command": [
+          "cargo",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--locked",
+          "--offline",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "cwd": "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout",
+        "target": "/workspace/scratch/4e57ea5be713/recovered-native-target",
+        "exit_code": 101,
+        "seconds": 24.556,
+        "log": "/workspace/scratch/4e57ea5be713/continuation-workspace-clippy.log",
+        "log_sha256": "b39c638262c7903eda1ee6f90ba5997b5edbb0be3b269745b5aef63fc1ec4bc8",
+        "log_bytes": 28518,
+        "terminal_summaries": [
+          "error: could not compile `asupersync` (lib)"
+        ],
+        "observed_blocker": "compiler process terminated by signal 9 (SIGKILL) while compiling asupersync"
+      },
+      {
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--locked",
+          "--offline"
+        ],
+        "cwd": "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout",
+        "target": "/workspace/scratch/4e57ea5be713/recovered-native-target",
+        "exit_code": null,
+        "seconds": null,
+        "log": "/workspace/scratch/4e57ea5be713/continuation-workspace-tests.log",
+        "observed_blocker": "Execution environment became unavailable while compiling asupersync. After recovery the runner/compiler processes were absent and no terminal result file existed. No exit code or test success is inferred.",
+        "status": "interrupted_by_environment_loss",
+        "log_sha256": "69faac7c05766c9484e75093d01bae4a892ed9afbfe9f89a6ada40f5aa49e597",
+        "log_bytes": 4184,
+        "terminal_summaries": []
+      }
+    ],
+    "full_workspace_pass_claimed": false
+  },
+  "observed_failures_and_corrections": [
+    {
+      "execution": {
+        "command": [
+          "/workspace/scratch/4e57ea5be713/recovered-test-env/bin/python",
+          "-m",
+          "pytest",
+          "-q",
+          "python/tests/test_nsolve_certified.py",
+          "python/tests/test_real_rational_inequalities.py",
+          "python/tests/test_certified_quadrature.py",
+          "python/tests/test_certified_numeric.py",
+          "python/tests/test_solveset_real_rational.py",
+          "python/tests/test_numeric_compilation.py",
+          "python/tests/test_nsolve_convergence.py",
+          "python/tests/test_nsolve_systems.py",
+          "python/tests/test_rational_definite.py",
+          "python/tests/test_affine_linear_systems.py",
+          "-k",
+          "not test_existing_symbolic_coefficient_lane_remains_available"
+        ],
+        "cwd": "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout",
+        "target": "/workspace/scratch/4e57ea5be713/recovered-scoped-target",
+        "exit_code": 1,
+        "seconds": 19.421,
+        "log": "/workspace/scratch/4e57ea5be713/continuation-python-tests.log",
+        "log_sha256": "736b422007c82ca6960709d582821532ce56a98b8a68063426a5998d63449390",
+        "log_bytes": 33207,
+        "terminal_summaries": [
+          "9 failed, 203 passed, 1 deselected in 19.15s"
+        ]
+      },
+      "correction": "Nine algebraic-endpoint failures traced to CRootOf hashing entering generic expansion. Hash exact bounded coefficients and index; add two identity/hash regressions. Final combined 214 pass; no new test weakened or excluded."
+    },
+    {
+      "execution": {
+        "command": [
+          "cargo",
+          "clippy",
+          "--manifest-path",
+          "/workspace/scratch/4e57ea5be713/recovered-scoped-validation/Cargo.toml",
+          "--locked",
+          "--offline",
+          "--features",
+          "extension-module",
+          "--lib",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "cwd": "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout",
+        "target": "/workspace/scratch/4e57ea5be713/recovered-scoped-target",
+        "exit_code": 101,
+        "seconds": 17.117,
+        "log": "/workspace/scratch/4e57ea5be713/continuation-scoped-clippy.log",
+        "log_sha256": "d1245b9d16b12574a3a550c4697e6bfd7e138eee96b6a70086c127818309648b",
+        "log_bytes": 3425,
+        "terminal_summaries": [
+          "error: very complex type used. Consider factoring parts into `type` definitions",
+          "error: could not compile `fsym-python` (lib) due to 1 previous error"
+        ]
+      },
+      "correction": "Name the real-inequality bridge transport tuple SignChartTransport; strict scoped Clippy and final rebuilt binary pass."
+    },
+    {
+      "execution": {
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--offline",
+          "-p",
+          "fsym-solvers",
+          "--lib",
+          "--test",
+          "real_equation",
+          "--test",
+          "real_inequality"
+        ],
+        "cwd": "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout",
+        "exit_code": 101,
+        "seconds": 19.042,
+        "log": "/workspace/scratch/4e57ea5be713/continuation-native-solvers.log",
+        "log_sha256": "d2c6340443d3ddd0dde36eed5730d38d34db000125cd0ebf26f89fcd529bb848",
+        "log_bytes": 2158,
+        "terminal_summaries": [
+          "error: failed to build archive at `/workspace/scratch/4e57ea5be713/recovered-native-target/debug/build/fsym-calculus/8abb79e5a84a1114/out/libfsym_calculus-8abb79e5a84a1114.rlib`: No space left on device (os error 28)",
+          "error: could not compile `fsym-calculus` (lib) due to 1 previous error"
+        ],
+        "observed_blocker": "No space left on device (os error 28)"
+      },
+      "correction": "Byte-preserving sparse storage and immutable payload deduplication within this task freed space; subsequent native solver tests pass."
+    },
+    {
+      "execution": {
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--offline",
+          "-p",
+          "fsym-solvers",
+          "--lib",
+          "--test",
+          "real_equation",
+          "--test",
+          "real_inequality"
+        ],
+        "cwd": "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout",
+        "target": "/dev/shm/frankensympy-4e57ea5be713-continuation",
+        "exit_code": 101,
+        "seconds": 0.713,
+        "log": "/workspace/scratch/4e57ea5be713/continuation-native-solvers-memory.log",
+        "log_sha256": "aab0c41b27ed52b073719c8c50fec5387617a7880d5602138d045a6159af96e5",
+        "log_bytes": 349,
+        "terminal_summaries": [
+          "error: failed to write to `/dev/shm/frankensympy-4e57ea5be713-continuation/debug/build/proc-macro2/093e4b7bfa03d4e2/out/rmetaetHqT7/full.rmeta`: No space left on device (os error 28)",
+          "error: could not compile `proc-macro2` (lib) due to 1 previous error"
+        ],
+        "observed_blocker": "No space left on device (os error 28)"
+      },
+      "correction": "Memory-backed target was also full; retained the attempted files and returned to the original target."
+    },
+    {
+      "execution": {
+        "command": [
+          "cargo",
+          "build",
+          "--manifest-path",
+          "/workspace/scratch/4e57ea5be713/recovered-scoped-validation/Cargo.toml",
+          "--locked",
+          "--offline",
+          "--features",
+          "extension-module"
+        ],
+        "cwd": "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout",
+        "target": "/workspace/scratch/4e57ea5be713/recovered-scoped-target",
+        "exit_code": 101,
+        "seconds": 16.454,
+        "log": "/workspace/scratch/4e57ea5be713/continuation-scoped-build.log",
+        "log_sha256": "a9420d149820cc427d02cda53c71052e1955344c7394014ce0e74fd3d2e270d6",
+        "log_bytes": 2426,
+        "terminal_summaries": [
+          "error[E0464]: multiple candidates for `rlib` dependency `pyo3_build_config` found",
+          "error: could not compile `pyo3-macros-backend` (build script) due to 1 previous error"
+        ]
+      },
+      "correction": "Preserved the affected PyO3 build unit and rebuilt using the pinned interpreter; duplicate-candidate error resolved. Exact root cause of E0464 is not asserted."
+    },
+    {
+      "execution": {
+        "command": [
+          "cargo",
+          "build",
+          "--manifest-path",
+          "/workspace/scratch/4e57ea5be713/recovered-scoped-validation/Cargo.toml",
+          "--locked",
+          "--offline",
+          "--features",
+          "extension-module"
+        ],
+        "cwd": "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout",
+        "target": "/workspace/scratch/4e57ea5be713/recovered-scoped-target",
+        "exit_code": 101,
+        "seconds": 25.504,
+        "log": "/workspace/scratch/4e57ea5be713/continuation-scoped-build-pinned.log",
+        "log_sha256": "c3dfc6cb31e50abd7301c4ce8be601de362323acea325f0ce7d85e5c35e2800b",
+        "log_bytes": 1699,
+        "terminal_summaries": [
+          "error: failed to build archive at `/workspace/scratch/4e57ea5be713/recovered-scoped-target/debug/build/fsym-python/2d64d2f9c452f8e9/out/libfsym_python.rlib`: No space left on device (os error 28)",
+          "error: could not compile `fsym-python` (lib) due to 1 previous error"
+        ],
+        "observed_blocker": "No space left on device (os error 28)"
+      },
+      "correction": "Unused rlib output exhausted disk after compilation. Cargo cdylib-only build succeeds without changing production source or manifest."
+    }
+  ],
+  "current_changed_file_sha256_excluding_this_artifact": {
+    ".beads/issues.jsonl": "37e5d457e701ff7abc4a5ba65bd39a47cb63f950c386357077186f1ecd395216",
+    "crates/fsym-calculus/src/lib.rs": "2975443f77ecb1c1423352e20a4d3c006c1e1b90d90b01b10d9063b0a3ae0154",
+    "crates/fsym-calculus/src/quadrature.rs": "6dde0ef7541144f5f53dfcc45e8226692f762a1906071264266557b05311cb7c",
+    "crates/fsym-calculus/tests/certified_quadrature.rs": "72456464462914eef684d5234952bd2a1a784aca98b06e49026076f8699bedc3",
+    "crates/fsym-core/src/root_certificate.rs": "063694e7859a7f590218aecbe3b0deb11c016c0dc514f1a4ed9c50fb9a915fab",
+    "crates/fsym-core/src/root_certificate/quadrature.rs": "b90ae6facbd30b56ec87db166e233926824022ef029d1aaa0360fd194e5d809d",
+    "crates/fsym-core/tests/quadrature_certificate.rs": "86b7aa449f91c0cc2d5183c3c8b41214ee8c8d9b8a97f9228e0f652c499fa183",
+    "crates/fsym-python/src/lib.rs": "470bda7d12e1bf0a96badba6fefc0777d73c965e785518a2b3ad4b38efe8f1f9",
+    "crates/fsym-python/src/quadrature.rs": "6a7f0b9d1a2cd1c02a01b95f3770a285d32c93271c1339e92beb5cbcf571780e",
+    "crates/fsym-python/src/real_inequality.rs": "4bd4352e07109be6eecb870c2a2dd081cb049e507564e4dfc2896983d57adbdb",
+    "crates/fsym-solvers/src/lib.rs": "2b63c78077d7083a887ffddbdf87645f52c0cb395270c630f91c82dcac1c25b8",
+    "crates/fsym-solvers/src/real_equation.rs": "a0af138653ed89d5e7f5ba4a2c3e4e7e85b039425b01e36d4cd872c53d3ca310",
+    "crates/fsym-solvers/src/real_equation/real_inequality.rs": "71cf46203d44941960931973432a87eb6ccc1ef4eea200b3b6862008176838ad",
+    "crates/fsym-solvers/tests/real_inequality.rs": "bde2b7713698b8e1cc98a381f265cdb7b2279a142bc840f1b86465313a170f70",
+    "docs/ASSUMPTIONS_DOMAINS_AND_NUMERIC_TOWER.md": "4d0728ed7dc36442e59766a4be2b4c4c37752516000555aec7112d1792e10d1d",
+    "python/sympy/__init__.py": "4f2afdf391c3b7200b85be9bd5a7af67e0a807f357ecc66e383476a28c139279",
+    "python/sympy/integrals/__init__.py": "27253552396a326752f18b914c418280e5a960834ebe0f7d58a49cfd2a999733",
+    "python/sympy/integrals/certified.py": "aa2c53170c3e8945c9f5b7d255c21de5dcb500757f3fccd93c6fb5ca2ce777da",
+    "python/sympy/polys/rootoftools.py": "de91108515ec1b0520273997859145afa405487aaece9b04685bf9f51dc2f963",
+    "python/sympy/solvers/__init__.py": "31d7d756a2b19e1a496924d2f42a1bcb188d03c280930e3e7589cf6af3d7401d",
+    "python/sympy/solvers/inequalities.py": "e50ef2d12167727e8726fbec1d15b36a278539365a99fc355ba55264831a497a",
+    "python/sympy/solvers/numerical.py": "b47aab3afecacf2e799cc9ac74d1ab8feeea46353db91ab62328280a1d946309",
+    "python/sympy/utilities/_certified_numeric.py": "60d514077883efb0fb25d5b8a868143a7242a1d2851486a5aad589db39fcf332",
+    "python/sympy/utilities/lambdify.py": "7e8deacd0fc4da841f3837b689e986bbe1dc418797a40e7a85579bb497105706",
+    "python/tests/test_certified_quadrature.py": "b39e53f6c0715210c9b1b6d0dd9a52a2bb16d3e6d4a5e8b46304dc2c19f8d101",
+    "python/tests/test_nsolve_certified.py": "cef41a7dabf7f509fb71db87e1cbef6d8901fa76f27d8b24b66eb28070f272e5",
+    "python/tests/test_real_rational_inequalities.py": "c316c5a9bbf11014840481936236a15e15a66e86f70563eaeafe883c2ec7d127",
+    "registries/claims.toml": "c4b64c95004b9b7e299a60e760065da029ba7e4cde01a9f59e53322b137e3a73"
+  },
+  "full_scoped_source_manifest": {
+    "scope": "actual PyO3 source with six enumerated runtime-only members omitted without replacements",
+    "repository": "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout",
+    "original_lock_sha256": "37d4e8585ab763996047f3750edf0db8201e1448a55f1f3e4207f285ba591084",
+    "toolchain": "[toolchain]\nchannel = \"nightly-2026-08-20\"\nprofile = \"minimal\"\ncomponents = [\"cargo\", \"clippy\", \"rustfmt\", \"rust-src\"]\ntargets = [\"wasm32-unknown-unknown\"]\n",
+    "omitted_members": [
+      {
+        "file": "expr.rs",
+        "member": "PyExpr.simplify",
+        "omitted_sha256": "e3e34711c5d91a94ab7b051dd1a1efb1d85bf8ffd52bc9bad64736fb584b258a"
+      },
+      {
+        "file": "expr.rs",
+        "member": "PyExpr.expand",
+        "omitted_sha256": "08f9c15624b686808938a4d275e9177777ff8e1a8a54a2bc3c644c0d20bfe408"
+      },
+      {
+        "file": "lib.rs",
+        "member": "eval_error",
+        "omitted_sha256": "4d4e39ca176d5b4c276a90126b82cac7a42c26c4304c24dd06cc84b1846a430f"
+      },
+      {
+        "file": "lib.rs",
+        "member": "eval_region",
+        "omitted_sha256": "c83601106a9ac5cb86de896f01eda57f5432070abd2792c8396f22d685108bd1"
+      },
+      {
+        "file": "lib.rs",
+        "member": "simplify_expr",
+        "omitted_sha256": "688d43e8d527ebdd28fc0be4b54e334a8a3caabf2a6a5a32f115f8337be4af4b"
+      },
+      {
+        "file": "lib.rs",
+        "member": "expand_expr",
+        "omitted_sha256": "0f0a07d2d5a7f620029b7d2ef5f623445a0cb0974e0085b252c4a3187d9f46cb"
+      }
+    ],
+    "runtime_alias": "actual fsym-budget Budget/BudgetLimits only; no runtime implementation replacement",
+    "production_bridge_sources": {
+      "crates/fsym-python/src/algebraic_roots.rs": "10d17ad78ca12df1d5c2984b1e83f6085754442b9ccb38fae746a7c7a3b0c944",
+      "crates/fsym-python/src/assumptions.rs": "3bdf6452878319a738932dae302a0a049bf92dd9e5dccd4c8cf93d05d6b2cb57",
+      "crates/fsym-python/src/binding.rs": "633277cb4ec21126c944475dacdd5ac1db1d0ccd8fc5e50de6be20c8c7d4d706",
+      "crates/fsym-python/src/callbacks.rs": "830be47953e7c4c17395c2a0e444ae24c3783cae190acafd371610a35fcc9c5b",
+      "crates/fsym-python/src/expr.rs": "15d98f81d8bac319944ca8c20bf295f7ec98ee1fb406b143aac026347c946fee",
+      "crates/fsym-python/src/geometry.rs": "202591966ad6a7137dc82c907ed7ee03456cb635f588f5eb97eafad30f6dbaa5",
+      "crates/fsym-python/src/lib.rs": "470bda7d12e1bf0a96badba6fefc0777d73c965e785518a2b3ad4b38efe8f1f9",
+      "crates/fsym-python/src/logic.rs": "760cb2b5d1367cb46b1965ddccde5ff613be0d0ea7864618ed51aaceb0ce3a12",
+      "crates/fsym-python/src/matrix.rs": "301145970b4e82fb593a7d24575bfe2f5b9e4517fd35332e385fb23bf6d45c98",
+      "crates/fsym-python/src/ntheory.rs": "9d1bffecd61f056b985c287cb9f67b2f8fd60d2b06cd79212c976e8e43446883",
+      "crates/fsym-python/src/numeric.rs": "b1083848d14b15c21436fae0f40b60dca7c894746e0e66dae8b5633279b1757d",
+      "crates/fsym-python/src/quadrature.rs": "6a7f0b9d1a2cd1c02a01b95f3770a285d32c93271c1339e92beb5cbcf571780e",
+      "crates/fsym-python/src/real_inequality.rs": "4bd4352e07109be6eecb870c2a2dd081cb049e507564e4dfc2896983d57adbdb",
+      "crates/fsym-python/src/sets.rs": "7dd27541f2512e6dfea3ad3bdf87ac62d34c1f9ac2c21d7268b3f5852e48acda",
+      "crates/fsym-python/src/tensor.rs": "686da9c102f0d12b151a6e1f248a6af601f369c1bc3c9894992ddb103a3d47a8"
+    },
+    "native_dependency_sources": {
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-budget/Cargo.toml": "08804ba27d1e88f0ea01ac08c8e7c84603b6e434ca05e6f47796b24eecdc9b62",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-budget/src/lib.rs": "aa17dd27b3b849c8afe8a00aa55eb37d352028301529e6ace0dc0672a111e5b0",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-printing/Cargo.toml": "31ff6809b3ed3fb75013f228f51fbb1397461a55ad4db1f8daafbd4ed225b5aa",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-printing/src/bounded.rs": "8d2d42756f1ea6edc3a82b1ddaebf9cadf9e0649d584ba1ab7c5d9f85f544280",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-printing/src/lib.rs": "54ec33386976641a0659540d842b8f724e565a16a5c9eb13e37510ce304b8696",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-core/Cargo.toml": "89bd5d333d86aa66320a772040eb6b8d71b751b06c9331d50c9c9feb78a58f7f",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-core/src/algebraic.rs": "d85b079a11be6a1798389ae97e287f7558d5481484dba366237e9d1c8aca1a4f",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-core/src/arith.rs": "46183f54e55f49871618d4f086ca1bc3f0049cbaa9fa66844c1f4ab001b1fd34",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-core/src/assume.rs": "bf4350c9a524fbf1e6199849b64ebb799b8fb09015d3cc596b5612cd23d91288",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-core/src/ball.rs": "a32cd6d3eb767a251cba7f4bf880bacf18ec8a336d189e79e0d955c2a763c20f",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-core/src/bin/term_identity_probe.rs": "5e0d0732f329f2e41ec3b8f303f33416dbba336d0b2b2713dc306ecc02afa372",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-core/src/canonical.rs": "1d24f66aaa6b8e130fe81fed37c35e5c7abdab85279592ec0d8a5ab05d4d6019",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-core/src/dag.rs": "5534b009b9b6d72a247a8eb292a03e4c2f25f210bbbe7943652ff0a70de1aaf4",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-core/src/domain.rs": "7a32beddb4878bc4b8c4f78ebbd0e4f1ccbaf04a60519cdf9797b7a82699448c",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-core/src/elementary.rs": "d2b1cedeeca41dc57e8c44088bec102c08fc9def9bd7cec9369de9d5ca4d7f46",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-core/src/lib.rs": "05ed1599b8dcf841451a6a75ca5f86efd7c2b932fe40a016dd56c1443c3cbfc4",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-core/src/parser.rs": "3535f7c4fe34553f1c88a2a5721758030407a6fd72f197f53e1adce52bd659eb",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-core/src/real_roots.rs": "7548c6a77221d0380969abd5635b14e67bd05750f7a10b09ea0d8ee31c3a65f9",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-core/src/root_certificate/quadrature.rs": "b90ae6facbd30b56ec87db166e233926824022ef029d1aaa0360fd194e5d809d",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-core/src/root_certificate.rs": "063694e7859a7f590218aecbe3b0deb11c016c0dc514f1a4ed9c50fb9a915fab",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-core/src/sort.rs": "b90b64fdf17af3456fab39e30b141dd559e628824916234dc24ab6fd4e3a982a",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-modular/Cargo.toml": "8b4b3ba67f172a42e1e7775b3c7036515270b49cec5c5161a87c83fa40284d8a",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-modular/src/lib.rs": "49302b30ee7f73e7728a3d5f2c8162e8ac145d7094294c92942e58a7a75ed7ed",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-bigint/Cargo.toml": "e31e6bd212f2e0460a6f388b0d28468349979f9129f22b58d4a3e7919c98f5a6",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-bigint/src/lib.rs": "36855d715137c0b254577096b7a372569e4e3011e6ccee294d535ae718219bf4",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-bigint/src/ntt.rs": "15b5003ae0bdd8498569be56b45c52d6ae1723888419a2669f1b461c403d8d3c",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-rational/Cargo.toml": "31bf70b87c22596fcc5ad7139d04cbfcf2340535c345a196f288754c06f65f1a",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-rational/src/lib.rs": "905184710c6952e4afa1178943465ab836231b624134630b6b3e20eb0b8209fe",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-outcome/Cargo.toml": "58526dc163601b98d584d4a635412d6fceaaef5a98debe4bc5a729ab27f26d1b",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-outcome/src/lib.rs": "6636a2e060c55bc11a91bbef01c8df9fd9b911bea64d68651a41558be5e41dc5",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-id/Cargo.toml": "bb16b6b8017b96850e449301e9fac1b2382d406a166389ca1e8178973d41eeb3",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-id/src/lib.rs": "8e395d6f26c5ff74c8c4f17ee9029be677124b31a6ad552b4016b577bdf821c5",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-assumptions/Cargo.toml": "de15d671a66d99d9862e02ab9453ec5f5ae1549445c1f1a44aaa9e1da1b53740",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-assumptions/src/bindings.rs": "fdaa3ebd0e647c57607d1fb62d113f2d67735a9eceabfcf15bffd5ac96d065d9",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-assumptions/src/domain.rs": "2f5cf16b713d275ea4c0b47f602dcaf411b56c7b757af69b53a3ceb476a31942",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-assumptions/src/lib.rs": "66f260a6ff6e054bbab3f5da417276262d8fcc9cf98877fe105b2eae902cda2c",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-assumptions/src/predicate.rs": "c80ad9bfc773c2998d24d91d3d74826803f5f844ae93df1f7e2694965fa61aa3",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-assumptions/src/truth.rs": "eb406953ea6dadc85a228fa5a76416ecfae5041c1e3170f1fbde5dd16a579381",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-tensor/Cargo.toml": "93586449d7afaa7afd9fcdf2e8e6d1165c979a774d75921cedecf8681317aca1",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-tensor/src/lib.rs": "87ab6edc0325e8308fb4ee8e53c1b8853570a28c9b83b575cee6cbe948a26860",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-tensor/src/metric.rs": "14b657eef33e12239419929c12ccac0eebbc8c0eca08b142f04e69f194258738",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-simplify/Cargo.toml": "f6b3acbd8b31fac4391453ce4a775a162933e12888c01e3fb8433569a8fbbb4d",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-simplify/src/lib.rs": "7849797683833c05790aa6e7b27d34dd82e6bc04eae63ae141a971c790d35add",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-simplify/src/rewrite.rs": "898c3371d48b1dee0d21a7ed2001837ae4de19a790f34ee22f562257f53a439b",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-evidence/Cargo.toml": "ab54cf3da4543059d2bb776482327381b694300abb760e55c17ed138dcba232e",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-evidence/src/envelope.rs": "6ef206132abddcfd77941c28b9a716c2799275510e4f085ab0243640cdb2e779",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-evidence/src/lattice.rs": "07869757c9d4dd52222ea36302406cc023eaccb8164cb81ab518fa378062a20e",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-evidence/src/lib.rs": "f4d7bc1afbcb9c095b647ada035253b18fca61f94c15997210305ceeea273c6f",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-evidence/src/namespace.rs": "1a5924d2e02c9c5bcb257018545383103a5177a29f841d9350b1d8608229f11a",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-evidence/src/receipt.rs": "e3fb281791366de487f2c486d148f8eb1496c3207393e2c3a7502752acd5bfff",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-proof-kernel/Cargo.toml": "e8a30033e92cd3769d6a030d7c91f8e7fb0f96507caccb38b8102229f6774c6b",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-proof-kernel/src/capsule.rs": "3271919a729556308d2df5b84442f105080f5f84dcfb2ec5ef0e41d3a5869441",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-proof-kernel/src/claim.rs": "d3dc8bd957e6ad795a16bed3876c4b908e42741609ba605265a0275c745e7dd9",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-proof-kernel/src/groebner.rs": "5cf72e4e2b0cf1e75f89cee7425ebfd0d82dd4dc59f1c6f929dbab29dbd78b4d",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-proof-kernel/src/kernel.rs": "87106cea83e6ed9d87c064011961b6da114af71bf5a064903b82c29a501567b0",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-proof-kernel/src/lib.rs": "f786c68380433ccb975fa5ac9d0c34cb967e31f4d10c3345b83f87b958f4841c",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-proof-kernel/src/linear_system.rs": "74815988346dd71d45d4b375e7c209956fa254753cd99fed91974c4ef1936ec7",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-proof-kernel/src/merge.rs": "8bd7d12c52c031b2a629a7ad779c5ad777c3d2ea206b8c5461cd95833f9430af",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-proof-kernel/src/mutation.rs": "75ccde874df21c52f01b50f9244743a5a70000c4716aa1bb43aa336f6941194f",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-proof-kernel/src/rational_definite.rs": "da9fc9dc5611c26dc77d795ee7db58e06b026a3c4aac51794358a2609ec617eb",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-proof-kernel/src/rational_integral.rs": "dbe71dcd0930210309fcffdbdf75262b8977492aaffc9e8e2dad5e18d181e28e",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-proof-kernel/src/rational_limit.rs": "b5d84cf9919599c49fc4c20b13603f83c2d91b6a59e47ff939aa704eb83648a6",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-proof-kernel/src/rational_sum.rs": "88cafd72072030db3fc3098bec15d0ed69ba9b74f33077fc12dee45be3c6551a",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-proof-kernel/src/rule.rs": "699fc2124e24a32992a46697e89f07ed3ff5d80241e902d1193fb370cb37003b",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-polys/Cargo.toml": "e40b49122ebbcb72a7140572736d30002fcc9cf416c51f5dd529eb0c89139643",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-polys/src/division.rs": "3386f6406282bd91ab7bfa087942b97770f6725083c6d7eb74169c9a59504153",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-polys/src/factorization.rs": "a1c4d6fcdc4cff1f6d4b61b6233547b52bab21858c2f59bdb173337a2436cd08",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-polys/src/fglm.rs": "9cbd2f94d4b494455d31e3fcfe320c18ad66490e4a37d77a3130334145c906a0",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-polys/src/gcd.rs": "124be0cfe2ca7347079c4c36a991e52c48f275f9199da57392bc9eae2a021061",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-polys/src/groebner.rs": "7fe951952263c99799e29164de7251db31c8a3d9d2e659e0508a840af6b694b8",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-polys/src/identity.rs": "f4a003b769b8930c3b412c224c6dc7dfb906f37ae4ecde386e8e7ce0cb3f8fda",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-polys/src/lib.rs": "9f925a207eac7a7e0947ab1d96cd2fe17346d89f14932a30e08d6dfb26533de7",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-polys/src/multifactor.rs": "5144bc16beb4e7a6d22974b971317ae60c8dfc20d72273edc94fc15e6b40ba4d",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-polys/src/multivariate.rs": "62fb7de9e171f785f05dff6d31f4d2f7f4ca32e9a8e4ef74af88efca99662af4",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-polys/src/univariate.rs": "2abab5c9924c654938e0dbdee96f045911b4103e3c0296db25572bd7bfed6312",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-geometry/Cargo.toml": "8e259bb09333d4a86754a6b28fcf778bc89c8b59d93adeac95343e0cbffde602",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-geometry/src/lib.rs": "6a90fcb57d6f6335b96dbda6f49f846260c7e425f37543079b0f2a1351a8ebf5",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-sets/Cargo.toml": "b3e7f1451597cca1b6720b7a490bf3cd88122de1be010d9b3c6615cf0e61bcae",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-sets/src/lib.rs": "5f83153fd814281031107793f1604fa1737e146468e0e0a55b0939962c451143",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-sets/src/realline.rs": "c5aab1b36976cb93a5d41061ff25f19cfe026abe378f2048c1c9f2326851334e",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-ntheory/Cargo.toml": "9562a14d45583142e06b7bcc4496690fb85f9e096cab433f6c096166b5cefebd",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-ntheory/src/factorization.rs": "0d46faaf0ee5775378137581ae55ea039853016008123f1298316ae11d874ca5",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-ntheory/src/lib.rs": "0160228e68856a7b34155663464e2b3ec28d321c244565412d543f781ea2bc59",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-ntheory/src/modular_roots.rs": "43e177726cf06e2caf4036aba6342b830d39f8b5fe761fa3f5e70753ea61b302",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-logic/Cargo.toml": "1b4e537adc201b970db523381d2c2118a4297eb92c9470551606371469852735",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-logic/src/lib.rs": "8f5fbceac307cb57484140ddceee51b15bfb857fdf6c9831036fe7d3cc878943",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-functions/Cargo.toml": "4e2e11001423d60127ef0b3a1f2c70e5cfba3b8914de6b4ee4cbaf02857b021d",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-functions/src/lib.rs": "c7e37484bff2d456b5e56845d692d71accd0197967b3589fb32cfe7831e87cb5",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-matrices/Cargo.toml": "a260962513eaefe08af0a73a3da5a932ac62d017fdc2c6b63320c103f138f293",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-matrices/src/affine.rs": "2f1948bb092e8c9aa12988a2c3baa44793545e76a0da889c3258fcceb9d2dde2",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-matrices/src/lib.rs": "6feca98172932668ccfb5ba6403fd43f8e63092a14a013723eeaa6250e4ac7aa",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-matrices/src/pseudoinverse.rs": "dd53f62a324fdbc507f04f3cb0e9d4aec1efc1698acf658ebd7fe9b6f343d55e",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-matrices/src/sparse.rs": "dfb792029da37318573a7fbf1c9ad757901d076ca45751a295f2ac2c5d50f617",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-matrices/src/structured.rs": "0d79a2b95b7ac0d43c2f5456a65cea3d4473c64cd5102c82cc1210b73080bc5d",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-solvers/Cargo.toml": "711482324401407cb2b9aa5f100c13269191e6826e662b0bc2bb8ffddbf17cb4",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-solvers/src/exact_ode.rs": "359abb4f40d1b69362d54e76d5ab684344a65e330ff7eebf1137c80045f51fd8",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-solvers/src/inequality.rs": "de13ea100e75a9630e675b40c3ec80e1593711642f1767549a280ed8ef865161",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-solvers/src/lib.rs": "2b63c78077d7083a887ffddbdf87645f52c0cb395270c630f91c82dcac1c25b8",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-solvers/src/ode.rs": "435ab3289d4faca8d866289de5bd3fa8e94d73bcbe6f6f32e0aca2899ccb1f5c",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-solvers/src/polysys.rs": "187c3130dca88ccd26ebbfe10906a18b8be770854d6fd7385ce47212d73eb353",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-solvers/src/real_equation/real_inequality.rs": "71cf46203d44941960931973432a87eb6ccc1ef4eea200b3b6862008176838ad",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-solvers/src/real_equation.rs": "a0af138653ed89d5e7f5ba4a2c3e4e7e85b039425b01e36d4cd872c53d3ca310",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-solvers/src/system.rs": "4a4da6ee57a943494d15007a0dd8ec235be9cc17836e7301aedf167a538f9e15",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-solvers/src/univariate.rs": "db46e325e8ed8dc58d78df8f65dd2d6a9fec65c5fb04d3682843c9472f62cf0b",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-calculus/Cargo.toml": "35ec1a5d54b4c1700b51bd6ee53f433ec98c136e668d0b8a93f8821bf776d3eb",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-calculus/src/compile.rs": "a8b6bfcdb2dc31eb5d90d281595afe3986f6340abc4c6b20f9f8d3ad0fb2b09a",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-calculus/src/gruntz.rs": "1f4fb012a50dbf67156fe89a9be7ae155b88f39c72c1b64ea599eb9cd87847c0",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-calculus/src/hermite.rs": "d88c84180483753504b0792e8ee4f997b7b6c4592c877ae2e66bf57591e74641",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-calculus/src/integrate.rs": "453a200f834ca4b5a80fb1ac5c318ab2cf7a2360c52bcdffe599274dda6048d2",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-calculus/src/lib.rs": "2975443f77ecb1c1423352e20a4d3c006c1e1b90d90b01b10d9063b0a3ae0154",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-calculus/src/proof.rs": "0a348e6164dc8b0b06eb59d8b520bb499da952f291b30c5dc604cea2de99753a",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-calculus/src/quadrature.rs": "6dde0ef7541144f5f53dfcc45e8226692f762a1906071264266557b05311cb7c",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-calculus/src/rational_definite.rs": "b4f7bfb4178171095910c514756477d5997a826cc0574af802905671aba12155",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-calculus/src/rational_limits.rs": "09c32b11aa41b57f0b4a3eb2da985053c3f876c438730f321bb364de6fce0e26",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-calculus/src/rational_sum.rs": "4f4bd297355d8ffb4b55532ac0d822953f2e712be30d65f32cb453377b88e9ce",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-calculus/src/series.rs": "c6abbfe233891a6e1b48d174d812e7fcf067cd96d81c76a66742932b36b2ef16",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-calculus/src/sparse_jacobian.rs": "a970480c8431c900ba10e107a495f4cef47b052857959163a7f5bcacb6076684",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-calculus/src/summation.rs": "042204871f19b429b437dccd4d5f3ba0b993319a791fbc3a9ecd39501be22513",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-calculus/src/transforms.rs": "816c12df1b479e4a0088ab28d8b4c0395144d1009458720187cec9e204f0a408",
+      "/workspace/scratch/4e57ea5be713/solveset-recovery/checkout/crates/fsym-calculus/src/verified.rs": "549593416553731fefcd053ece40edca98841328b9d7e23b31b58b95708d6c93"
+    },
+    "python_sources": {
+      "python/frankensympy/__init__.py": "5a67716431b0c88af072ebd6fc318d66f3c6d5320e48286c9efc597cf3901acb",
+      "python/sympy/__init__.py": "4f2afdf391c3b7200b85be9bd5a7af67e0a807f357ecc66e383476a28c139279",
+      "python/sympy/abc.py": "075befa271c4b53a708ac2dbcce0cd04f51739f0b8c2f8d457fbd62fe32a097e",
+      "python/sympy/assumptions/__init__.py": "d967bf342867bbfff4e195ad7f071390f0c6c578061f71081f897a7948274a6d",
+      "python/sympy/assumptions/ask.py": "5638bcf5f59d5c80fa8365329eb6a147f2b487228c9040af557fd009771f4b52",
+      "python/sympy/assumptions/assume.py": "31184aa56303a482e5ef058df91cf092c91e47208b7cc904d2c8e51b86a1e0d6",
+      "python/sympy/assumptions/refine.py": "c80ab32c149046362634429edd2e7ef371106a52f17dad1c47033ff6c2aac194",
+      "python/sympy/calculus/__init__.py": "47040be81a71b6a18c56bb8209ccd64409e87265afd98b916b726d682b52f686",
+      "python/sympy/calculus/euler.py": "809ad7e79fc692fa75eea1f0921442d434542227a83428b862c9dd6f282a7eca",
+      "python/sympy/calculus/finite_diff.py": "600a7157734b0a9df67d98bc10436f4477e8b48ecb9280924776a49fdf4919ed",
+      "python/sympy/calculus/singularities.py": "b1ea6c96fdd214531f8108a72af7088ba0ded4469a38d38445c28fa09a453778",
+      "python/sympy/calculus/util.py": "1b64569914d474b6dfe8b15a292d8690aa3159c2471f27610ab22378e7130786",
+      "python/sympy/combinatorics/__init__.py": "45e74cbd508ec969476f04c6bff54206c3e6a2426e2d7e0d21f8bb684897c56a",
+      "python/sympy/combinatorics/graycode.py": "eed2a84a3ff4d0989509031487f802e9b89be1b30fc337b5fcb964c5843f9137",
+      "python/sympy/combinatorics/partitions.py": "6c302e28f5d97fa96eee53944ac6956f408279ea7329f77281af61afd8ef12d5",
+      "python/sympy/combinatorics/perm_groups.py": "6d20f7ffbbe943d70b0f62b6b1969432bcf10ad8e5fc5e9ad052f9d5901fd845",
+      "python/sympy/combinatorics/permutations.py": "8614281db8cf95f1bb9e9e3404baf76e8ebaf0d11f69efcc662ebb872d0392f2",
+      "python/sympy/combinatorics/subsets.py": "6c803ba390194495d07857065946da773c0230ea7444474b736988c318dc60f8",
+      "python/sympy/core/__init__.py": "0150ae9f4eb5d6a4bcb6a1e6ea382e0457a074f64c4e1e922481af242ebf9bdc",
+      "python/sympy/core/add.py": "8e433abc43de76c17c4be5390337134753b140c22c078e49107000458ece52ba",
+      "python/sympy/core/basic.py": "32a7794bf19a51878904f86cf6e27bcf35f7ffce18f50db3809d2ceecd7954c8",
+      "python/sympy/core/expr.py": "5f8a043ca25b67c065b4cf9ea4e655c67e1bf0108be1dcaefbfd012953c1e6dd",
+      "python/sympy/core/function.py": "9b59d504e065763647b09a9cf335b0667b98ea586e91e962f7571a6cddef2ea3",
+      "python/sympy/core/lambdify_subs.py": "39f76a7b4ddb4c2641dd0eadb4cddc813498cb99a1a786c809b0b47f91f095f6",
+      "python/sympy/core/match.py": "f0413bb64bde98b340b38cd73dca3729c1764c80fefc116c646dd53252e3e3e1",
+      "python/sympy/core/mod.py": "5a1fc3801b64368271777d6fc64cdb1f3a91e15356b182b03ce0d653ce8321ba",
+      "python/sympy/core/mul.py": "03199ed1676d8d71cd98521f6a51f79bd221405351e11ee24df6f577a7757d9c",
+      "python/sympy/core/numbers.py": "af5708a061e40aa8da039ab850ffabcf7e99aa859e9d3989cb78abbee41de439",
+      "python/sympy/core/power.py": "401365058f2dab8bed1b45a6e53e0afdb2e6508964aa12cc747483ac8a402726",
+      "python/sympy/core/symbol.py": "ab41ac38d38bec4e89254337a7dce31e5bff849394016d85d1a4371182657ef4",
+      "python/sympy/core/sympify.py": "2dcad379e13a76dac139eaadef7cf0529f402a803cf9069c52ebc1679a9bf019",
+      "python/sympy/functions/__init__.py": "587012d48f947cfb694d56f6b1bd7ab6789379e155fb80ce5e78f7302b5a1791",
+      "python/sympy/functions/combinatorial/__init__.py": "dd41a933ea32cfd187691f42518c76cb94691d3563eabfe9ed421f9f35b0f42b",
+      "python/sympy/functions/combinatorial/factorials.py": "dafc99f3ab98d3b141206c98a6666f4a11582c7fed1c46ba1b9cd898f90f1c75",
+      "python/sympy/functions/combinatorial/numbers.py": "3584b21aa97871d3878a624947d4a111a95188bd2b0d592534fe6f891d025cb4",
+      "python/sympy/functions/elementary/__init__.py": "f91592fb9a6c399fb805dfa934925f278db8bd7d2cc11b590c997f1f1f6566ca",
+      "python/sympy/functions/elementary/complexes.py": "95e424c7bcf643aa159d23e21200436d9d2d0f5e4c33cb291d29eb3d83b4e726",
+      "python/sympy/functions/elementary/exponential.py": "5939601d50cca6e2adf65af307c738f0831342374053ecd9be5ec30edfbb8fdb",
+      "python/sympy/functions/elementary/hyperbolic.py": "55be32eaf2b69302685768d5caa1de2d62d6b99dcfe95f5fb0a3400108e10540",
+      "python/sympy/functions/elementary/integers.py": "0c009238e306c9e102739d936e2d6df1fb65b664c45a6f1f4ae35c3f74b97949",
+      "python/sympy/functions/elementary/miscellaneous.py": "b78d209df65425712e89fb0a139ff1179cf44f7fb51427aa602131aea376271f",
+      "python/sympy/functions/elementary/piecewise.py": "dd46168d0ca01f28b634fc183d4015097c62f29441d2ef5771916f7038c9f632",
+      "python/sympy/functions/elementary/trigonometric.py": "9f74d11e75c3222230e44f7dfda6800defd21d8b90bace4f0cfca501cafdbe7d",
+      "python/sympy/functions/special/__init__.py": "98d1541c2d46e4ac276303381a8acde4541506b78c628b234b244a312034a2c0",
+      "python/sympy/functions/special/bessel.py": "472729f84434502363dc223c19d82d7bfadffa562018d4aa78c415b1d576b81e",
+      "python/sympy/functions/special/delta_functions.py": "6ac80ddd4de1865b5dda0160572c02de466f5bd085f6b99543c66a4010229802",
+      "python/sympy/functions/special/error_functions.py": "5eb236658eb8a9e70dbc479477202ff7b5bc47700a8cde5444e3ec5d2c5a42b1",
+      "python/sympy/functions/special/gamma_functions.py": "5272cf5d534252d1a125f05e9b0bb8bf8406be615244658ac46caea11f07e74a",
+      "python/sympy/functions/special/hyper.py": "b7e3303788442b4f754c9c5e840e09ebcf7417c5749baead1fb006321c815477",
+      "python/sympy/functions/special/polynomials.py": "6f1b58cd363644a93ec84eac28e40e5d0d8854cb4fe99b50b4114b6b2a856b98",
+      "python/sympy/functions/special/zeta_functions.py": "40706b0984a647afc160a0502a8438cb9f3aa5c733a47b979ce0ab40262e1540",
+      "python/sympy/geometry/__init__.py": "0535b2cb41c147623fc3586516146e425eecbe24aee360db48a425a840711889",
+      "python/sympy/geometry/ellipse.py": "7147364be2e51e65603bf1367f6abb49eb3dafd1bebb5417797026b1a404cafb",
+      "python/sympy/geometry/line.py": "4d9f1aa3f8f29ee8286576bf1eb62e14a85d72cec717efb67a8861f5f7cd80d9",
+      "python/sympy/geometry/plane.py": "645f2de57974674751558f71780d49ceea17922e02eaa4a313b616aef3df7d08",
+      "python/sympy/geometry/point.py": "9d3d0f8388eafabf34b068d3f46009702527c56ecf5b3298ec2197a9ca1f617d",
+      "python/sympy/geometry/polygon.py": "d3ab782b287225b5802fdf96950ffd56c3228acc0d2fed8c66ad33a5b76a075b",
+      "python/sympy/geometry/util.py": "f718f7554c4bfd31cb7a9ca2ae626afecb7d5a8f44d6b61447d2000a66a6f035",
+      "python/sympy/integrals/__init__.py": "27253552396a326752f18b914c418280e5a960834ebe0f7d58a49cfd2a999733",
+      "python/sympy/integrals/certified.py": "aa2c53170c3e8945c9f5b7d255c21de5dcb500757f3fccd93c6fb5ca2ce777da",
+      "python/sympy/integrals/integrals.py": "d24da0b05d418e6471c99d80337f5f34824aae7211412e170c05c7d80e8792d2",
+      "python/sympy/integrals/transforms.py": "4553f3317dc6ae3cce67e74c8ae69e679dabd3a31e9f2f8dc6eaa1fcb3e38baa",
+      "python/sympy/logic/__init__.py": "3950ec984ce0d2fc43fa93abb02454a1ed514f10e491174ad6a9ca1da2d4e425",
+      "python/sympy/logic/boolalg.py": "c92c13779b584b04ef6da476c9df7aae8167facf33dae530c0a020e9e1515f6e",
+      "python/sympy/logic/inference.py": "c0c4b36a9745e38268506352676034c4c66dea2542bb4345e4b04b8ef8edd159",
+      "python/sympy/matrices/__init__.py": "b4358d57119ff894e79335844ccb6fb5eb9fad4e625351ae69cad05447dc8e49",
+      "python/sympy/matrices/dense.py": "6b76b2d450f04845e9aadd8f9d1d7fc067c7729129fe93517c725cc5564697f4",
+      "python/sympy/matrices/sparse.py": "ba4e3094542c404b120107a1727a1c1abaa905ce149dd284e10d25e16dc3b622",
+      "python/sympy/ntheory/__init__.py": "887ad9e3c9158e787830c8cc0dcb9fc3d1039f8fcd334178a9871684b76d0016",
+      "python/sympy/ntheory/modular.py": "112b01aa417a31905f45b51a4121d87553f39d4c25369d16cbe1d007e0899fd8",
+      "python/sympy/parsing/__init__.py": "1c001f7a5435fdcbf6ef1cd6ae97199ac92d792723087b79c8099cecf03eb208",
+      "python/sympy/parsing/sympy_parser.py": "f2143f43121ca5ea48cf4a95d499206d621fffa49f177a4abbb40cda42b41622",
+      "python/sympy/polys/__init__.py": "fba5146bad8986c3ece57f4a812f25fc8ceafea86f47f7ddced7cd01563c7856",
+      "python/sympy/polys/polyerrors.py": "19048ecf362344c80a6e0a581bf45c00dfc3697f5538b2f0a7c55432169d0858",
+      "python/sympy/polys/polytools.py": "2043a2331ac51f938385b192f6102e496f2e598d02f79ad672ef33a6b5435ebf",
+      "python/sympy/polys/rootoftools.py": "de91108515ec1b0520273997859145afa405487aaece9b04685bf9f51dc2f963",
+      "python/sympy/printing/__init__.py": "0d25c9d29c0a5d8ba8d1e9e4399228a30f91aeaf19340ba2aff90948f41dca35",
+      "python/sympy/printing/codeprinter.py": "a4d70691f51c672b61e4ea38d9138c85ebe8b3e28578c4273fd6ff56a19c3bed",
+      "python/sympy/printing/latex.py": "4d1cb169801d5d26f7d02ff20e9a48fd194ae34de335fdc0e5e0836efa9348ec",
+      "python/sympy/printing/pretty.py": "8186ce34aa3a50797ed1c38069cb065279e19f820d2300f42f6f94eea8208858",
+      "python/sympy/printing/pretty_symbology.py": "da54be07b19a637f1822733912d6a2d0e16b3748374f298ae632be8d66ad9a53",
+      "python/sympy/printing/repr.py": "467b41f9a51cb255cfafe6d554bc26a8f7cf355e7d7542d73edabb197b437338",
+      "python/sympy/printing/str.py": "f1bf1a13b396107437e0d6efadda78489cc7dc86e37a1a1e1470f5fa7f3a3132",
+      "python/sympy/printing/stringpict.py": "22e3261f06898f8685510380a27efc52a1933b9f42d1459ce6f062474af946fd",
+      "python/sympy/series/__init__.py": "76401da2dc0c6f30434a618a3c996f8b65968857ea27a26436a52753f2ffabe9",
+      "python/sympy/sets/__init__.py": "94266add9405d0b1757fb0a66a9b8bf58609aa345e5a497ed68fda182ecede31",
+      "python/sympy/sets/fancysets.py": "53dd39c9ea3d7e0ed893b505674d124775e5111419292eabbe7429b09342eea1",
+      "python/sympy/sets/sets.py": "430fc54bf698cc458b84b0ed7197d86fe996979589a8e9acd5a0e803e3265450",
+      "python/sympy/simplify/__init__.py": "4c94201c35d59ca6431c923b47718b1abbd331e43aaf7719ba18b2e20a0da332",
+      "python/sympy/simplify/cse_main.py": "ce622a306b39d7bd3b1beceab1e30bb3f9981adf80cd453dc8f1cd84e60d1191",
+      "python/sympy/simplify/simplify.py": "aa029030fb2343a4f99f47c3938dd5ac62478a43b62bcaa7f53b8eee14b22fb6",
+      "python/sympy/simplify/trigsimp.py": "c49c2b374b0c624baf2d1d20094ac552bbf676af02302f32cda632550080b4da",
+      "python/sympy/solvers/__init__.py": "31d7d756a2b19e1a496924d2f42a1bcb188d03c280930e3e7589cf6af3d7401d",
+      "python/sympy/solvers/diophantine.py": "63447e82c1a180024f72bcc6209af3f1c9c5d1bbedad8f59a5a54ee0722155ca",
+      "python/sympy/solvers/exact_ode.py": "a77deed150151b2d20285f9db20f60b3571deb0f369f19eb242f110eebc7f0ab",
+      "python/sympy/solvers/inequalities.py": "e50ef2d12167727e8726fbec1d15b36a278539365a99fc355ba55264831a497a",
+      "python/sympy/solvers/numerical.py": "b47aab3afecacf2e799cc9ac74d1ab8feeea46353db91ab62328280a1d946309",
+      "python/sympy/solvers/ode.py": "56e53c4ff26a7e82c1c73bca4cc01e5832bcf092ef3fe0d0724f0abae54ae644",
+      "python/sympy/solvers/polysys.py": "4c0573c2ce148746a3714ff637142582b199e85e67cd7b290d64f2a5cced1dc1",
+      "python/sympy/solvers/recurr.py": "93c57861d8146100db9d8a2a02c2d231c2a5a34f9b2ceda634958787626a725c",
+      "python/sympy/solvers/solvers.py": "916d436cea36a59678353f4d514efabe2a281805b118c803082ce616716ba697",
+      "python/sympy/solvers/solveset.py": "d91b2c25ba5a1978ca85b3b80525ba34f2f4bfdcf991c69a7bcae67c036a456d",
+      "python/sympy/tensor/__init__.py": "455d7ee1928ef412ce65038a418e19eebea125a9619310838dbeea49fce7952c",
+      "python/sympy/tensor/tensor.py": "9993e0610c81b8e819a79e06c529088048eb237c15f931d325490ec428f1ef16",
+      "python/sympy/utilities/__init__.py": "b7e7a0121502d3c68f90598e33edaa7c81795d9a0f9a0ee665aee7bdd7fb4ad8",
+      "python/sympy/utilities/_certified_numeric.py": "60d514077883efb0fb25d5b8a868143a7242a1d2851486a5aad589db39fcf332",
+      "python/sympy/utilities/iterables.py": "468c6f8343d847b0573aa821bad204d4468722efb26c5bd4707d6e08b345fd3c",
+      "python/sympy/utilities/lambdify.py": "7e8deacd0fc4da841f3837b689e986bbe1dc418797a40e7a85579bb497105706",
+      "python/tests/test_affine_linear_systems.py": "1fb6a17d61748cf412d36c4a03a2ce319697e8ac8f47220561eac5bb960a7c63",
+      "python/tests/test_callback_effects_and_ownership.py": "1a7e2189dec730f81afc6527116ba5b630aa7eec9c301099e56ad2b821b967d3",
+      "python/tests/test_certified_numeric.py": "8734cd00ecceadd2220c3858956f7e067cbf993de1b206a04e707421c079a5f0",
+      "python/tests/test_certified_quadrature.py": "b39e53f6c0715210c9b1b6d0dd9a52a2bb16d3e6d4a5e8b46304dc2c19f8d101",
+      "python/tests/test_exact_ode.py": "51113d39ef2910faaa24316b9f48c622ee77ec1595edeccd75811b552aecac98",
+      "python/tests/test_groebner_operations.py": "2c6c74dcd076cf9b528c696295f52e5b79f89fe255da94167f034b520a792b6f",
+      "python/tests/test_latex_corpus.py": "c0bbffe3f9e67fd08ca2460b52ff8018f39a39e509e570300c97da580ad4f5dd",
+      "python/tests/test_lowering_contract_review.py": "5acb3623a1b5c30225005c77bcc891a244de936076f90ac800b7db4c6166717f",
+      "python/tests/test_matrix_pseudoinverse.py": "948a7f0facad46928e26c77a34ab9e9cc1821daac2e14f46664ee1fc4bf00cca",
+      "python/tests/test_matrix_qr.py": "bc85fc47f636dced5285cd20b6afb3e1e1574dd3b4c6a5ba137562130a23ac5b",
+      "python/tests/test_metric_indices.py": "7ee49e573986f4c86ecb0d6a7a58d14c74c596e1ac761abd910f86c9a292e950",
+      "python/tests/test_nsolve_certified.py": "cef41a7dabf7f509fb71db87e1cbef6d8901fa76f27d8b24b66eb28070f272e5",
+      "python/tests/test_nsolve_convergence.py": "d314b298cef2a7aaefcce56dedf9b87b14470474d895dee58003031739782c34",
+      "python/tests/test_nsolve_systems.py": "8c46dede56e1de439fcb25a6f59f738267a821b0e28962a949b82217c78bc352",
+      "python/tests/test_number_theory_modular_roots.py": "f17a39d12b53fcede0124c3d33c3ee72fe1a953c32255f78d97d9bf1016ec404",
+      "python/tests/test_numeric_compilation.py": "1d373539b6694182cea685ba75fd47fc8a82dd9e249ab4d54fd4afe49a815f8e",
+      "python/tests/test_ode_radicals.py": "e317301013e2098d7c11fec7291fa4c1664d03c99d84e63527367356f16db835",
+      "python/tests/test_oracle_differentials.py": "44a458d68e934ee2985d338bd2cc6b2499be9decc0a6b73fd7157de0423ccf17",
+      "python/tests/test_periodic_solver.py": "3707eaa2834064d90cc5995eac6c67bb32666cc8b808adc43b479b766b881241",
+      "python/tests/test_precision_honesty.py": "827793dbe9fbd1d52277d44f59f077657c95c00b5a91485cadef0bd38d959d8c",
+      "python/tests/test_rational_definite.py": "eb6d37e4821225c8133e980dee5cae50817fa5182db4e150363013f2bc597588",
+      "python/tests/test_real_rational_inequalities.py": "c316c5a9bbf11014840481936236a15e15a66e86f70563eaeafe883c2ec7d127",
+      "python/tests/test_real_root_isolation.py": "94f51f983ca02ea162b7def648cee723e8137a78428d6cbbc8ae25104b8ebee4",
+      "python/tests/test_solveset_real_rational.py": "5afffe255f5ceb054aedb3b16e5e3ad79b6cb10d8df39d62b0baf74d173ebd0a",
+      "python/tests/test_sparse_linear_algebra.py": "8e70525bc5ff35a583076b57face29344ad48d6c41dc73cc598989204045d447",
+      "python/tests/test_surface.py": "6521dd38c1ac03e66ef3af8166038b82455e2fc6db8a7ec90b68ac59266f4f8c"
+    },
+    "scoped_bridge_sources": {
+      "src/algebraic_roots.rs": "10d17ad78ca12df1d5c2984b1e83f6085754442b9ccb38fae746a7c7a3b0c944",
+      "src/assumptions.rs": "3bdf6452878319a738932dae302a0a049bf92dd9e5dccd4c8cf93d05d6b2cb57",
+      "src/binding.rs": "633277cb4ec21126c944475dacdd5ac1db1d0ccd8fc5e50de6be20c8c7d4d706",
+      "src/callbacks.rs": "830be47953e7c4c17395c2a0e444ae24c3783cae190acafd371610a35fcc9c5b",
+      "src/expr.rs": "1e27578a60b68694a75e1f0871b9d3819b88098b0d992584dbe375049bdc9d28",
+      "src/geometry.rs": "202591966ad6a7137dc82c907ed7ee03456cb635f588f5eb97eafad30f6dbaa5",
+      "src/lib.rs": "33e2111fe1e0510775b7345c35f1e32b7327bb8ac73ce8a7e81d8f752b691cec",
+      "src/logic.rs": "760cb2b5d1367cb46b1965ddccde5ff613be0d0ea7864618ed51aaceb0ce3a12",
+      "src/matrix.rs": "301145970b4e82fb593a7d24575bfe2f5b9e4517fd35332e385fb23bf6d45c98",
+      "src/ntheory.rs": "9d1bffecd61f056b985c287cb9f67b2f8fd60d2b06cd79212c976e8e43446883",
+      "src/numeric.rs": "b1083848d14b15c21436fae0f40b60dca7c894746e0e66dae8b5633279b1757d",
+      "src/quadrature.rs": "6a7f0b9d1a2cd1c02a01b95f3770a285d32c93271c1339e92beb5cbcf571780e",
+      "src/real_inequality.rs": "4bd4352e07109be6eecb870c2a2dd081cb049e507564e4dfc2896983d57adbdb",
+      "src/sets.rs": "7dd27541f2512e6dfea3ad3bdf87ac62d34c1f9ac2c21d7268b3f5852e48acda",
+      "src/tensor.rs": "686da9c102f0d12b151a6e1f248a6af601f369c1bc3c9894992ddb103a3d47a8"
+    },
+    "scoped_manifest_sha256": "b5510d619780365c27298f77a79ddacbf34e4a60b0ce87c10f45ef2f37d0c63b"
+  },
+  "remaining_limits": [
+    "Full workspace check, strict Clippy and tests were attempted; their actual exits and blockers are recorded above. No full fsym-runtime/asupersync validation claim.",
+    "One existing Python generic-simplification case is explicitly deselected in the source-scoped bridge.",
+    "Root search certifies only the returned local box, requires supported exact source and may refuse when bounded candidate search or certificate attempts fail.",
+    "Inequality solving is bounded univariate real QQ(x); general symbolic, multivariate and complex completeness remain open.",
+    "Quadrature is bounded proper C1 real integration over finite rational limits; it can refuse on domain overestimation, precision or partition exhaustion.",
+    "Synchronous component budget/cancellation evidence does not establish whole-runtime supervision, portable recovery or universal forced cancellation latency.",
+    "No compatibility profile, 12-property campaign, performance, full workstream or release gate is promoted or closed."
+  ]
+}

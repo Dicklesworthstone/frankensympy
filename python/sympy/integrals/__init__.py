@@ -1,6 +1,7 @@
 """Integration and integral transforms for FrankenSymPy."""
 
 from .. import integrate
+from .certified import IntegralEnclosureReceipt, certified_integral
 from .integrals import Integral
 from .transforms import (
     CosineTransform,
@@ -35,6 +36,8 @@ __all__ = [
     "FourierTransform",
     "HankelTransform",
     "Integral",
+    "IntegralEnclosureReceipt",
+    "certified_integral",
     "InverseCosineTransform",
     "InverseFourierTransform",
     "InverseHankelTransform",
