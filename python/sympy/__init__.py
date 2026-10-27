@@ -1303,6 +1303,7 @@ from .solvers import (
     solve_linear_system,
     solve_linear_system_LU,
     solve_poly_system,
+    solve_univariate_inequality,
 )
 from .tensor import (
     Metric,
@@ -1852,9 +1853,13 @@ def _is_inequality(e: Any) -> bool:
 
 
 def _solve_inequality_set(rel: Any, symbol: Any) -> Any:
-    """Real solution set of a univariate inequality (native, certified)."""
+    """Real solution set from the exact rational or supported elementary lane."""
+    from .solvers.inequalities import _solve_rational_inequality
     from .sets.sets import _wrap_set
 
+    rational = _solve_rational_inequality(rel, symbol)
+    if rational is not None:
+        return rational
     f = _wrap(_native_expr(rel.lhs - rel.rhs))
     try:
         native = _native.solve_inequality_native(
@@ -1870,18 +1875,25 @@ def _solve_inequality_set(rel: Any, symbol: Any) -> Any:
 def _set_as_relational(s: Any, x: Any) -> Any:
     """Upstream ``Set.as_relational`` for real-line sets."""
     from .logic.boolalg import And, Or, false
-    from .sets import EmptySet, FiniteSet, Interval, Union
+    from .sets import EmptySet, FiniteSet, Intersection, Interval, Reals, Union
 
     if s is EmptySet() or getattr(s, "is_empty", None) is True:
         return false
     if isinstance(s, FiniteSet):
         return Or(*[Eq(x, e) for e in s.args])
+    if isinstance(s, Reals):
+        return And(Lt(-oo, x, evaluate=False), Lt(x, oo, evaluate=False))
     if isinstance(s, Interval):
         lo = Lt(s.start, x, evaluate=False) if s.left_open else Le(s.start, x, evaluate=False)
         hi = Lt(x, s.end, evaluate=False) if s.right_open else Le(x, s.end, evaluate=False)
         return And(lo, hi)
     if isinstance(s, Union):
         return Or(*[_set_as_relational(a, x) for a in s.args])
+    if isinstance(s, Intersection):
+        # Comparisons of algebraic endpoints may remain undecided in the set
+        # normalizer. Preserve the exact conjunction instead of sampling or
+        # discarding one of its constraints.
+        return And(*[_set_as_relational(a, x) for a in s.args])
     raise NotImplementedError(f"as_relational for {type(s).__name__}")
 
 
@@ -1937,7 +1949,7 @@ def reduce_inequalities(inequalities: Any, symbols: Any = None) -> Any:
         if _is_inequality(r):
             part = _solve_inequality_set(r, x)
         else:
-            part = solveset(r.lhs - r.rhs, x, Reals())
+            part = solveset(r, x, Reals())
         sol = Intersection(sol, part)
     return _set_as_relational(sol, x)
 
@@ -2395,6 +2407,7 @@ __all__ = [
     "minpoly",
     "minimal_polynomial",
     "reduce_inequalities",
+    "solve_univariate_inequality",
     "nroots",
     "deg",
     "coeff",

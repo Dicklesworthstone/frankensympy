@@ -2,6 +2,7 @@
 
 from .. import checksol, dsolve, solve, solveset
 from .exact_ode import dsolve_exact_first_order
+from .inequalities import solve_univariate_inequality
 from .numerical import RootSearchError, nsolve_certified
 from .ode import (
     checkodesol,
@@ -37,6 +38,7 @@ __all__ = [
     "solve_linear_system",
     "solve_linear_system_LU",
     "solve_poly_system",
+    "solve_univariate_inequality",
     "solveset",
     "verify_cauchy_euler_solution",
     "verify_const_coeff_second_order_solution",

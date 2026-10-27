@@ -277,8 +277,18 @@ class CRootOf(Function):
         return not self == other
 
     def __hash__(self) -> int:
-        # PurePoly already ignores generator names in equality and hashing.
-        return hash((type(self), self.poly, self.index))
+        from ..core import _exact_ratio, _wrap
+
+        # The defining factor already belongs to the bounded exact univariate
+        # lane. Its full coefficient vector (including zero coefficients)
+        # agrees with PurePoly equality while ignoring the bound generator's
+        # name. Hash those literal rational pairs directly: generic terms()
+        # expansion is unnecessary and would re-enter the symbolic runtime.
+        coefficients = tuple(
+            _exact_ratio(_wrap(coefficient))
+            for coefficient in _native_coefficients(self.poly)
+        )
+        return hash((type(self), coefficients, self.index))
 
     @property
     def free_symbols(self) -> set:
