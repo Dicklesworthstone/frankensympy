@@ -290,6 +290,14 @@ Branch, domain, convergence, and side-condition data are mandatory inputs/output
 
 Solution completeness is typed; one verified solution cannot be emitted as a complete set without a completeness certificate.
 
+The bounded `fsym-solvers::real_equation` lane depends directly on L0
+`fsym-budget` for separate synchronous generator and reference-checker meters.
+It preserves the original rational expression's domain, checks exact Bezout
+and quotient identities, and consumes the independent complete real-root
+receipt from `fsym-core`. Its source-bound finite/cofinite result covers only
+exact rational expressions in one typed real variable; this is not a general
+solver-certificate registry or a protected runtime verifier reservation.
+
 ### 7.5 Structured mathematics program
 
 - `fsym-matrix-expr`;

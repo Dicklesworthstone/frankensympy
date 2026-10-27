@@ -10,6 +10,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+fsym-budget.workspace = true
 fsym-core.workspace = true
 fsym-polys.workspace = true
 fsym-simplify.workspace = true

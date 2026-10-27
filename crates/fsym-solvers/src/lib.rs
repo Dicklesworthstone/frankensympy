@@ -8,11 +8,15 @@ pub mod exact_ode;
 pub mod inequality;
 pub mod ode;
 pub mod polysys;
+pub mod real_equation;
 pub mod system;
 pub mod univariate;
 
 pub use exact_ode::{exact_ode_potential, verify_exact_ode_potential};
 pub use ode::*;
+pub use real_equation::{
+    RealEquationError, VerifiedRealEquation, metered_solve_real_equation, solve_real_equation,
+};
 pub use system::*;
 
 use fsym_core::{BigRational, Expr, Symbol};
