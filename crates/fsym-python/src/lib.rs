@@ -2060,6 +2060,10 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m
     )?)?;
     m.add_function(wrap_pyfunction!(
+        algebraic_roots::solve_real_rational_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
         algebraic_roots::real_roots_isolate_native,
         m
     )?)?;

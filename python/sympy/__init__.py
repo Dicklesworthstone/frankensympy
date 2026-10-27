@@ -481,6 +481,75 @@ def solve(expression, *symbols, **flags):
 
 
 
+def _solveset_real_rational(expression, symbol, domain):
+    """Complete exact QQ(x) sets; preserve the original tree on refusal.
+
+    Surface admission precedes native conversion so Float payloads, custom
+    classes, symbolic coefficients and noninteger powers cannot acquire an
+    exact rational claim through the compatibility shell.
+    """
+    from .core import Half, NegativeOne, One, Zero
+    exact_numbers = (Integer, Rational, Zero, One, NegativeOne, Half)
+    pending = [(expression, 0)]
+    nodes = 0
+    while pending:
+        node, depth = pending.pop()
+        nodes += 1
+        if nodes > 2048 or depth > 64:
+            from .sets import ConditionSet
+            return ConditionSet(symbol, Eq(expression, 0, evaluate=False), domain)
+        kind = type(node)
+        if kind in exact_numbers:
+            continue
+        if kind in (Symbol, Dummy):
+            if node != symbol:
+                return None
+            continue
+        if kind not in (Add, Mul, Pow):
+            return None
+        children = node.args
+        if kind is Pow and type(children[1]) not in (Integer, Zero, One, NegativeOne):
+            return None
+        if len(children) > 256 or len(pending) + len(children) > 2048:
+            from .sets import ConditionSet
+            return ConditionSet(symbol, Eq(expression, 0, evaluate=False), domain)
+        pending.extend((child, depth + 1) for child in children)
+
+    from .sets import Complement, ConditionSet, FiniteSet
+    try:
+        checked = _native.solve_real_rational_native(
+            _native_expr(expression), _symbol_binding(symbol)
+        )
+        if checked is None:
+            return None
+        complement, polynomial, root_count = checked
+        if root_count == 0:
+            return domain if complement else FiniteSet()
+        # This uses checked real isolation and checked factor association;
+        # the approximate nonreal CRootOf ordering lane is never entered.
+        from .polys.rootoftools import real_roots as _exact_real_roots
+        roots_with_multiplicity = _exact_real_roots(
+            Poly(_wrap(polynomial), symbol), multiple=False
+        )
+        if (len(roots_with_multiplicity) != root_count
+                or any(multiplicity != 1 for _, multiplicity in roots_with_multiplicity)):
+            raise ValueError("real equation root association is incomplete")
+        roots = [root for root, _ in roots_with_multiplicity]
+        finite = FiniteSet(*roots)
+        if len(finite) != root_count:
+            raise ValueError("distinct real roots lost during set construction")
+        if not complement:
+            return finite
+        result = Complement(domain, finite)
+        # Unknown comparisons remain unknown, but each excluded point itself
+        # must remain excluded in the constructed real set.
+        if result == domain or any(result.contains(root) is not False for root in roots):
+            raise ValueError("real domain exclusions cannot be represented")
+        return result
+    except (ValueError, NotImplementedError, OverflowError):
+        return ConditionSet(symbol, Eq(expression, 0, evaluate=False), domain)
+
+
 def solveset(expression, variable=None, domain=None):
     """Solve an algebraic equation for ``variable`` and return a Set of solutions."""
     if domain is not None:
@@ -506,14 +575,30 @@ def solveset(expression, variable=None, domain=None):
             return sol
         from .sets import Intersection as _Intersection
         return _Intersection(sol, domain)
+    from .sets import Reals as _RealsP
+    over_reals = domain is not None and (domain == _RealsP() or isinstance(domain, _RealsP))
+    original = expression
     if type(expression) is Eq:
+        if over_reals:
+            # Preserve holes on both sides before subtraction cancels them.
+            original = Add(expression.lhs, Mul(-1, expression.rhs, evaluate=False), evaluate=False)
         expression = expression.lhs - expression.rhs
     expr = _wrap(_native_expr(expression))
+    if over_reals and type(original) in (int, float, str):
+        # Keep decimal literals as Float. Only exact built-in types enter
+        # here; arbitrary custom conversion hooks are never evaluated.
+        original = sympify(original)
+    if over_reals and type(original) in (Expr, _native.Expr):
+        original = _wrap(_native_expr(original))
     if variable is None:
-        symbols = expr.free_symbols
+        symbols = original.free_symbols if over_reals and isinstance(original, Basic) else expr.free_symbols
         if len(symbols) == 1:
             symbol = next(iter(symbols))
         elif len(symbols) == 0:
+            if over_reals:
+                rational_result = _solveset_real_rational(original, Dummy("x"), domain)
+                if rational_result is not None:
+                    return rational_result
             if expr == 0:
                 if domain is not None and isinstance(domain, Set):
                     return domain
@@ -525,6 +610,11 @@ def solveset(expression, variable=None, domain=None):
             raise ValueError("at least one solve variable is required")
     else:
         symbol = _require_symbol(variable)
+
+    if over_reals:
+        rational_result = _solveset_real_rational(original, symbol, domain)
+        if rational_result is not None:
+            return rational_result
 
     if expr == 0:
         if domain is not None and isinstance(domain, Set):
@@ -540,9 +630,6 @@ def solveset(expression, variable=None, domain=None):
     # unions); the native solver lists principal solutions only, which is
     # solve()'s contract but not solveset's. Refuse rather than truncate.
     periodic = ("sin", "cos", "tan", "cot", "sec", "csc")
-    from .sets import Reals as _RealsP
-
-    over_reals = domain is not None and (domain == _RealsP() or isinstance(domain, _RealsP))
     complex_exp = not over_reals and any(
         type(a).__name__ == "exp" and symbol in a.free_symbols for a in _preorder_nodes(expr)
     )

@@ -168,7 +168,6 @@ def _real_radical(fac: Any, index: int) -> Any:
     """Real quadratic/binomial formulas ordered by exact coefficient signs."""
     from fractions import Fraction
     from ..core import _exact_ratio
-    from .polytools import _quadratic_roots
 
     cs = fac.all_coeffs()
     exact = [Fraction(*_exact_ratio(c)) for c in cs]
@@ -176,10 +175,23 @@ def _real_radical(fac: Any, index: int) -> Any:
         discriminant = exact[1]**2 - 4 * exact[0] * exact[2]
         if discriminant <= 0:
             return None
-        roots = _quadratic_roots(*cs)
+
+        def rational(value):
+            return Rational(value.numerator, value.denominator)
+
+        # These coefficients are already exact rationals. Keep their
+        # arithmetic in that domain instead of invoking generic cancellation
+        # and expansion merely to normalize a rational radicand.
         if exact[2] == 0:
-            roots.sort(key=lambda root: Fraction(*_exact_ratio(root)))
-        elif exact[1] != 0 and exact[0] < 0:
+            return rational(sorted((Fraction(0), -exact[1] / exact[0]))[index])
+        if exact[1] == 0:
+            magnitude = rational(-exact[2] / exact[0]) ** Rational(1, 2)
+            return -magnitude if index == 0 else magnitude
+        denominator = 2 * exact[0]
+        center = rational(-exact[1] / denominator)
+        radius = rational(discriminant) ** Rational(1, 2) / rational(denominator)
+        roots = [center - radius, center + radius]
+        if exact[0] < 0:
             roots.reverse()
         return roots[index]
     if len(cs) > 2 and all(c == 0 for c in exact[1:-1]):

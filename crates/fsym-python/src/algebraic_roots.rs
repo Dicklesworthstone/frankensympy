@@ -46,6 +46,30 @@ fn budget() -> Budget {
     Budget::new(BudgetLimits::uniform(512 * 1024 * 1024, 0))
 }
 
+/// Complete finite real solution roots, or their complement in the real line.
+/// The accepted native receipt retains the original typed source and variable.
+#[pyfunction]
+pub fn solve_real_rational_native(
+    expression: &PyExpr,
+    variable: &Bound<'_, PyAny>,
+) -> PyResult<Option<(bool, PyExpr, usize)>> {
+    let symbol = crate::extract_symbol_arg(variable)?;
+    let result = fsym_solvers::metered_solve_real_equation(
+        &expression.inner,
+        &symbol,
+        &mut budget(),
+        &mut budget(),
+    )
+    .map_err(crate::to_value_error)?;
+    Ok(result.map(|result| {
+        (
+            result.is_complement(),
+            PyExpr::from_expr(result.polynomial().to_expr()),
+            result.roots().intervals().len(),
+        )
+    }))
+}
+
 /// Extract coefficients only after the existing bounded converter has
 /// validated the complete original tree, including all held children.
 #[pyfunction]
