@@ -7,6 +7,7 @@
 pub mod exact_ode;
 pub mod inequality;
 pub mod ode;
+pub mod polynomial_graph;
 pub mod polysys;
 pub mod real_equation;
 pub mod real_polysys;
