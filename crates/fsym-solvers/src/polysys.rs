@@ -11,46 +11,150 @@
 //! (complete) and only solutions (each candidate satisfies all of `G`, hence
 //! the input ideal).
 //!
-//! Zero tests use exact simplification first and a numerical enclosure only
-//! to *reject* clearly nonzero values; anything undecided refuses with a
-//! typed error instead of guessing. Positive-dimensional systems (some
-//! specialized polynomial set vanishes identically) refuse as well.
+//! Original expressions are admitted before simplification and the basis is
+//! checked by the independent proof kernel. Zero tests use exact identities
+//! or directed-rounding complex enclosures, never a floating-point tolerance.
+//! Every retained root satisfies the pivot as well as the other constraints;
+//! every final tuple is checked against all original equations. An undecided
+//! obligation refuses the complete result rather than dropping that branch.
+//!
+//! This synchronous lane has bounded source/basis work and safe points around
+//! symbolic root generation and residual checks. It does not promise runtime
+//! supervision or cancellation inside every legacy radical-construction step.
 
 #![forbid(unsafe_code)]
 
 use std::collections::HashMap;
 
-use fsym_core::{Expr, Symbol};
-use fsym_polys::groebner::groebner_basis;
+use fsym_budget::{Budget, BudgetLimits, BudgetMeter, Dimension};
+use fsym_core::{Constant, Expr, Symbol};
 use fsym_polys::multivariate::{MultivariatePoly, TermOrder};
+use fsym_polys::{bounded_polynomial_from_expr, checked_groebner_basis};
 
 use crate::SolverError;
-use crate::univariate::{solve_univariate, sort_roots};
+use crate::univariate::{solve_univariate, sort_roots, zero_status};
 
 const MAX_SOLUTIONS: usize = 256;
+const MAX_EQUATIONS: usize = 64;
+const MAX_VARIABLES: usize = 8;
+const MAX_EXPRESSION_NODES: usize = 4096;
+const MAX_EXPRESSION_DEPTH: usize = 64;
 
 fn refuse(msg: impl Into<String>) -> SolverError {
     SolverError::IncompleteSolutionSet(msg.into())
 }
 
-/// `Some(true)` exactly zero, `Some(false)` provably (or clearly) nonzero,
-/// `None` undecided.
-fn zero_status(e: &Expr) -> Option<bool> {
-    if e.is_zero() {
-        return Some(true);
-    }
-    let s = fsym_simplify::simplify(e);
-    if s.is_zero() {
-        return Some(true);
-    }
-    if let Ok(ball) = s.evalf_ball(30) {
-        if !ball.contains_zero() {
-            return Some(false);
+fn charge(meter: &mut impl BudgetMeter, nodes: usize) -> Result<(), SolverError> {
+    meter.checkpoint().map_err(|e| refuse(e.to_string()))?;
+    meter
+        .charge_batch(&[
+            (Dimension::ComputeSteps, nodes.max(1) as u64),
+            (Dimension::MemoryBytes, nodes.max(1) as u64 * 256),
+            (Dimension::AllocationCount, 1),
+        ])
+        .map_err(|e| refuse(e.to_string()))
+}
+
+/// Preflight recursive operations and their substituted output before cloning.
+/// Source admission separately rejects every non-polynomial original node.
+fn expression_size(e: &Expr) -> Result<usize, SolverError> {
+    let mut stack = vec![(e, 0usize)];
+    let mut nodes = 0;
+    while let Some((term, depth)) = stack.pop() {
+        nodes += 1;
+        if nodes > MAX_EXPRESSION_NODES || depth > MAX_EXPRESSION_DEPTH {
+            return Err(refuse("symbolic polynomial-system expression limit"));
         }
-        return None;
+        match term {
+            Expr::Integer(n) if n.bits() > 4096 => {
+                return Err(refuse("symbolic polynomial-system coefficient limit"));
+            }
+            Expr::Rational(q) if q.numer().bits().max(q.denom().bits()) > 4096 => {
+                return Err(refuse("symbolic polynomial-system coefficient limit"));
+            }
+            Expr::Add(args) | Expr::Mul(args) | Expr::Function(_, args) => {
+                if args.len() > MAX_EXPRESSION_NODES.saturating_sub(nodes + stack.len()) {
+                    return Err(refuse("symbolic polynomial-system fanout limit"));
+                }
+                stack.extend(args.iter().map(|arg| (arg, depth + 1)));
+            }
+            Expr::Pow(base, exponent) => {
+                stack.push((base, depth + 1));
+                stack.push((exponent, depth + 1));
+            }
+            _ => {}
+        }
     }
-    let v = fsym_calculus::gruntz::complex_value(&s)?;
-    (v.norm().is_finite() && v.norm() > 1e-6).then_some(false)
+    Ok(nodes)
+}
+
+fn substitute(
+    source: &Expr,
+    assignment: &HashMap<Symbol, Expr>,
+    meter: &mut impl BudgetMeter,
+) -> Result<Expr, SolverError> {
+    let source_size = expression_size(source)?;
+    let largest = assignment
+        .values()
+        .map(expression_size)
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .max()
+        .unwrap_or(1);
+    let projected = source_size
+        .checked_mul(largest)
+        .filter(|&size| size <= MAX_EXPRESSION_NODES)
+        .ok_or_else(|| refuse("polynomial-system substitution growth limit"))?;
+    charge(meter, projected)?;
+    let value = source.subs(assignment);
+    expression_size(&value)?;
+    meter.checkpoint().map_err(|e| refuse(e.to_string()))?;
+    Ok(value)
+}
+
+fn checked_zero(e: &Expr, meter: &mut impl BudgetMeter) -> Result<Option<bool>, SolverError> {
+    charge(meter, expression_size(e)?)?;
+    let result = zero_status(e);
+    meter.checkpoint().map_err(|e| refuse(e.to_string()))?;
+    Ok(result)
+}
+
+/// A zero residual cannot justify using an undefined candidate whose poles
+/// were erased during substitution. Polynomial root formulas must be finite
+/// ground values in this deliberately small exact expression vocabulary.
+fn validate_root_value(root: &Expr, meter: &mut impl BudgetMeter) -> Result<(), SolverError> {
+    charge(meter, expression_size(root)?)?;
+    let mut stack = vec![root];
+    while let Some(term) = stack.pop() {
+        match term {
+            Expr::Integer(_) | Expr::Rational(_) | Expr::Const(Constant::I | Constant::Pi) => {}
+            Expr::Add(args) | Expr::Mul(args) => stack.extend(args),
+            Expr::Function(name, args)
+                if matches!(name.as_str(), "sin" | "cos") && args.len() == 1 =>
+            {
+                stack.extend(args);
+            }
+            Expr::Pow(base, exponent) => {
+                let needs_nonzero = match exponent.as_ref() {
+                    Expr::Integer(value) => value <= &0_i64,
+                    Expr::Rational(value) => value.numer() <= &0_i64,
+                    _ => return Err(refuse("a polynomial root has a nonrational exponent")),
+                };
+                if needs_nonzero && checked_zero(base, meter)? != Some(false) {
+                    return Err(refuse(
+                        "a polynomial root has an undefined or undecided power base",
+                    ));
+                }
+                stack.push(base);
+            }
+            _ => {
+                return Err(refuse(
+                    "a polynomial root is not an admitted finite ground value",
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Index of the leading (lowest-index) variable of `p`, if any.
@@ -63,11 +167,20 @@ fn leading_var(p: &MultivariatePoly) -> Option<usize> {
 fn specialize(
     p: &MultivariatePoly,
     assignment: &HashMap<Symbol, Expr>,
+    meter: &mut impl BudgetMeter,
 ) -> Result<Expr, SolverError> {
+    let projected = p.terms().len().saturating_mul(p.generators().len() * 4 + 2);
+    if projected > MAX_EXPRESSION_NODES {
+        return Err(refuse("polynomial-system lifting growth limit"));
+    }
+    charge(meter, projected)?;
     let e = p
         .to_expr()
         .map_err(|err| SolverError::InvalidSystem(err.to_string()))?;
-    Ok(fsym_simplify::expand(&e.subs(assignment)))
+    let value = substitute(&e, assignment, meter)?;
+    let value = fsym_simplify::expand_with(&value, meter).map_err(|e| refuse(e.to_string()))?;
+    expression_size(&value)?;
+    Ok(value)
 }
 
 /// All solutions of `eqs = 0` in `vars`, each a vector aligned with `vars`.
@@ -75,12 +188,37 @@ pub fn solve_polynomial_system(
     eqs: &[Expr],
     vars: &[Symbol],
 ) -> Result<Vec<Vec<Expr>>, SolverError> {
-    if vars.is_empty() {
-        return Err(SolverError::InvalidSystem("no solve variables".into()));
+    metered_solve_polynomial_system(
+        eqs,
+        vars,
+        &mut Budget::new(BudgetLimits::uniform(256 * 1024 * 1024, 0)),
+        &mut Budget::new(BudgetLimits::uniform(256 * 1024 * 1024, 0)),
+    )
+}
+
+/// Solve an admitted exact polynomial system with distinct cumulative meters
+/// for generation and independent verification. Meters are never reset during
+/// back-substitution. Unknown residuals cannot become an empty or partial set.
+pub fn metered_solve_polynomial_system(
+    eqs: &[Expr],
+    vars: &[Symbol],
+    generator_meter: &mut impl BudgetMeter,
+    verifier_meter: &mut impl BudgetMeter,
+) -> Result<Vec<Vec<Expr>>, SolverError> {
+    charge(generator_meter, 1)?;
+    if vars.is_empty() || vars.len() > MAX_VARIABLES || eqs.len() > MAX_EQUATIONS {
+        return Err(SolverError::InvalidSystem(
+            "polynomial systems require 1..8 variables and at most 64 equations".into(),
+        ));
+    }
+    if vars.iter().enumerate().any(|(i, v)| vars[..i].contains(v)) {
+        return Err(SolverError::InvalidSystem(
+            "duplicate solve variables".into(),
+        ));
     }
     let mut polys = Vec::new();
     for e in eqs {
-        let p = MultivariatePoly::from_expr(e, vars)
+        let p = bounded_polynomial_from_expr(e, vars, generator_meter)
             .map_err(|err| SolverError::InvalidSystem(err.to_string()))?;
         if !p.is_zero() {
             polys.push(p);
@@ -89,10 +227,20 @@ pub fn solve_polynomial_system(
     if polys.is_empty() {
         return Err(SolverError::InfiniteSolutions);
     }
-    let gb = groebner_basis(&polys, TermOrder::Lex)
+    let checked = checked_groebner_basis(&polys, TermOrder::Lex, generator_meter, verifier_meter)
         .map_err(|err| refuse(format!("Groebner basis computation failed: {err}")))?;
+    let gb = checked.basis();
     if gb.iter().any(|p| !p.is_zero() && leading_var(p).is_none()) {
+        generator_meter
+            .checkpoint()
+            .map_err(|e| refuse(e.to_string()))?;
+        verifier_meter
+            .checkpoint()
+            .map_err(|e| refuse(e.to_string()))?;
         return Ok(Vec::new());
+    }
+    if !checked.is_zero_dimensional() {
+        return Err(SolverError::InfiniteSolutions);
     }
     let n = vars.len();
     let mut partials: Vec<HashMap<Symbol, Expr>> = vec![HashMap::new()];
@@ -107,11 +255,11 @@ pub fn solve_polynomial_system(
         for partial in &partials {
             let specialized: Vec<Expr> = level
                 .iter()
-                .map(|p| specialize(p, partial))
+                .map(|p| specialize(p, partial, generator_meter))
                 .collect::<Result<_, _>>()?;
             let mut pivot = None;
             for (i, s) in specialized.iter().enumerate() {
-                match zero_status(s) {
+                match checked_zero(s, verifier_meter)? {
                     Some(true) => {}
                     Some(false) => {
                         pivot = Some(i);
@@ -135,19 +283,23 @@ pub fn solve_polynomial_system(
                 // A nonzero constant: this partial solution does not extend.
                 continue;
             }
+            charge(generator_meter, expression_size(main)?)?;
             let roots = match solve_univariate(main, xk) {
                 Ok(r) => r,
                 Err(SolverError::NoSolution) => Vec::new(),
                 Err(e) => return Err(e),
             };
+            charge(generator_meter, roots.len())?;
+            if roots.len() > MAX_SOLUTIONS {
+                return Err(refuse("too many candidate roots"));
+            }
             for r in roots {
+                validate_root_value(&r, verifier_meter)?;
                 let mut keep = true;
-                for (i, s) in specialized.iter().enumerate() {
-                    if i == pivot {
-                        continue;
-                    }
-                    let at = s.subs(&HashMap::from([(xk.clone(), r.clone())]));
-                    match zero_status(&at) {
+                for s in &specialized {
+                    let at =
+                        substitute(s, &HashMap::from([(xk.clone(), r.clone())]), verifier_meter)?;
+                    match checked_zero(&at, verifier_meter)? {
                         Some(true) => {}
                         Some(false) => {
                             keep = false;
@@ -157,6 +309,7 @@ pub fn solve_polynomial_system(
                     }
                 }
                 if keep {
+                    charge(generator_meter, partial.len() + expression_size(&r)?)?;
                     let mut extended = partial.clone();
                     extended.insert(xk.clone(), r);
                     next.push(extended);
@@ -168,36 +321,59 @@ pub fn solve_polynomial_system(
         }
         partials = next;
         if partials.is_empty() {
+            generator_meter
+                .checkpoint()
+                .map_err(|e| refuse(e.to_string()))?;
+            verifier_meter
+                .checkpoint()
+                .map_err(|e| refuse(e.to_string()))?;
             return Ok(Vec::new());
         }
     }
-    let mut out: Vec<Vec<Expr>> = partials
-        .into_iter()
-        .map(|sol| vars.iter().map(|v| sol[v].clone()).collect())
-        .collect();
-    out.dedup();
+    let mut out = Vec::new();
+    for solution in partials {
+        for original in eqs {
+            let residual = substitute(original, &solution, verifier_meter)?;
+            if checked_zero(&residual, verifier_meter)? != Some(true) {
+                return Err(refuse(
+                    "a final tuple does not verify against every original equation",
+                ));
+            }
+        }
+        let tuple: Vec<_> = vars.iter().map(|v| solution[v].clone()).collect();
+        if !out.contains(&tuple) {
+            charge(generator_meter, tuple.len())?;
+            out.push(tuple);
+        }
+    }
+    generator_meter
+        .checkpoint()
+        .map_err(|e| refuse(e.to_string()))?;
+    verifier_meter
+        .checkpoint()
+        .map_err(|e| refuse(e.to_string()))?;
     Ok(out)
 }
 
 /// Sorts solution tuples lexicographically by the upstream root order of
 /// each coordinate.
 pub fn sort_solutions(mut sols: Vec<Vec<Expr>>) -> Vec<Vec<Expr>> {
-    let rank = |col: usize, sols: &[Vec<Expr>]| -> HashMap<String, usize> {
+    let rank = |col: usize, sols: &[Vec<Expr>]| -> HashMap<Expr, usize> {
         let values: Vec<Expr> = sols.iter().map(|s| s[col].clone()).collect();
         sort_roots(values)
             .into_iter()
             .enumerate()
-            .map(|(i, v)| (v.to_string(), i))
+            .map(|(i, v)| (v, i))
             .collect()
     };
     if sols.is_empty() {
         return sols;
     }
-    let ranks: Vec<HashMap<String, usize>> = (0..sols[0].len()).map(|c| rank(c, &sols)).collect();
+    let ranks: Vec<HashMap<Expr, usize>> = (0..sols[0].len()).map(|c| rank(c, &sols)).collect();
     sols.sort_by_key(|s| {
         s.iter()
             .enumerate()
-            .map(|(c, v)| ranks[c].get(&v.to_string()).copied().unwrap_or(usize::MAX))
+            .map(|(c, v)| ranks[c].get(v).copied().unwrap_or(usize::MAX))
             .collect::<Vec<_>>()
     });
     sols

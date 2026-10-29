@@ -899,7 +899,7 @@ fn exact_zero(e: &Expr) -> bool {
 /// `Some(true)` proves zero; `Some(false)` proves nonzero. A ball merely
 /// containing zero proves neither. Refinement is bounded and never falls
 /// back to a floating-point tolerance or to acceptance of unknown values.
-fn zero_status(e: &Expr) -> Option<bool> {
+pub(crate) fn zero_status(e: &Expr) -> Option<bool> {
     if exact_zero(e) {
         return Some(true);
     }
