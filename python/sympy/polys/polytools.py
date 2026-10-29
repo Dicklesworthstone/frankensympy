@@ -1480,7 +1480,12 @@ def _primitive_integer(e: Any, gens: tuple, order: str = "lex") -> Any:
 
 def groebner(F: Sequence[Any], *gens: Any, order: str = "lex", **args: Any) -> Any:
     """Reduced Groebner basis of ``F`` (orders lex, grlex, grevlex)."""
-    F = list(F)
+    sources = []
+    for expression in F:
+        if len(sources) == 64:
+            raise ValueError("checked Groebner construction supports at most 64 polynomials")
+        sources.append(expression)
+    F = sources
     if len(gens) == 1 and isinstance(gens[0], (list, tuple)):
         var_list = list(gens[0])
     else:
@@ -1491,20 +1496,29 @@ def groebner(F: Sequence[Any], *gens: Any, order: str = "lex", **args: Any) -> A
         for e in F:
             wrapped = _wrap(_native_expr(e))
             symbols.update(wrapped.free_symbols)
-        var_list = sorted(list(symbols), key=lambda s: s.name)
+        def generator_key(symbol: Any) -> tuple:
+            binding = _symbol_binding(symbol)
+            return symbol.name, binding.name, binding.identity_hex
+
+        var_list = sorted(symbols, key=generator_key)
 
     eq_natives = [_native_expr(e) for e in F]
     gens_t = tuple(_require_symbol(g) for g in var_list)
+    if len(gens_t) > 8 or len(set(gens_t)) != len(gens_t):
+        raise ValueError("checked Groebner construction requires at most eight distinct generators")
     var_bindings = [_symbol_binding(g) for g in gens_t]
     if order not in ("lex", "grlex", "grevlex"):
         raise ValueError("unknown monomial order %r" % order)
+    # Admit the original typed expressions before Poly's domain inference can
+    # expand them or erase held zero/undefined children. The native result is
+    # published only after complete independent ideal/basis verification.
+    raw = _native.groebner_basis_native(eq_natives, var_bindings, order)
     inferred = "ZZ" if all(Poly(e, *gens_t)._infer_domain() == "ZZ" for e in F) else "QQ"
     domain = str(args.get("domain", inferred))
     if domain not in ("ZZ", "QQ"):
         raise NotImplementedError("native Groebner bases currently support ZZ and QQ")
     if domain == "ZZ" and inferred != "ZZ":
         raise ValueError("noninteger coefficients cannot be represented in ZZ")
-    raw = _native.groebner_basis_native(eq_natives, var_bindings, order)
     exprs = [_lift_native_result(r, *F, *gens_t) for r in raw]
     if domain == "ZZ":
         exprs = [_primitive_integer(e, gens_t, order) for e in exprs]

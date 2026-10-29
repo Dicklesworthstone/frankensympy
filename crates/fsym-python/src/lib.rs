@@ -1211,6 +1211,73 @@ fn solve_polynomial_system_native(
         .collect())
 }
 
+/// Admit every original polynomial before deciding whether this is an affine
+/// system. A nonlinear equation returns `None` only after all other source
+/// expressions have passed the same bounded exact polynomial boundary.
+/// Rows contain the rational coefficients followed by the negated constant.
+#[pyfunction]
+fn polynomial_affine_matrix_native(
+    eqs: Vec<PyExpr>,
+    vars: Vec<Bound<'_, PyAny>>,
+) -> PyResult<Option<Vec<Vec<PyExpr>>>> {
+    if vars.is_empty() || vars.len() > 8 || eqs.len() > 64 {
+        return Err(PyValueError::new_err(
+            "affine polynomial systems require 1..8 variables and at most 64 equations",
+        ));
+    }
+    let syms = vars
+        .iter()
+        .map(extract_symbol_arg)
+        .collect::<PyResult<Vec<Symbol>>>()?;
+    if syms
+        .iter()
+        .enumerate()
+        .any(|(i, var)| syms[..i].contains(var))
+    {
+        return Err(PyValueError::new_err("duplicate solve variables"));
+    }
+    let mut meter = Budget::new(BudgetLimits::uniform(128 * 1024 * 1024, 0));
+    let polys = eqs
+        .iter()
+        .map(|eq| {
+            fsym_polys::bounded_polynomial_from_expr(&eq.inner, &syms, &mut meter)
+                .map_err(to_value_error)
+        })
+        .collect::<PyResult<Vec<_>>>()?;
+    if polys
+        .iter()
+        .any(|poly| poly.total_degree().is_some_and(|degree| degree > 1))
+    {
+        return Ok(None);
+    }
+    let cells = (polys.len() * (syms.len() + 1)).max(1) as u64;
+    meter
+        .try_charge_batch(&[
+            (fsym_runtime::Dimension::ComputeSteps, cells),
+            (fsym_runtime::Dimension::MemoryBytes, cells * 2048),
+        ])
+        .map_err(to_value_error)?;
+    let rows = polys
+        .iter()
+        .map(|poly| {
+            let mut row = vec![BigRational::from_integer(0.into()); syms.len() + 1];
+            for (exponents, coefficient) in poly.terms() {
+                // Bounded admission and total degree <= 1 establish that a
+                // nonconstant monomial has exactly one exponent equal to one.
+                if let Some(column) = exponents.iter().position(|&exponent| exponent == 1) {
+                    row[column] = coefficient.clone();
+                } else {
+                    row[syms.len()] = -coefficient.clone();
+                }
+            }
+            row.into_iter()
+                .map(|value| PyExpr::from_expr(rational_to_expr(value)))
+                .collect()
+        })
+        .collect();
+    Ok(Some(rows))
+}
+
 /// Structured univariate polynomial coefficients in descending degree order.
 #[pyfunction]
 fn poly_coeffs_native(p: &PyExpr, var: &Bound<'_, PyAny>) -> PyResult<Vec<PyExpr>> {
@@ -1486,15 +1553,22 @@ fn groebner_polynomials(
     eqs: &[PyExpr],
     gens: &[Symbol],
 ) -> PyResult<Vec<fsym_polys::MultivariatePoly>> {
+    groebner_polynomials_with_meter(eqs, gens, &mut groebner_operation_budget())
+}
+
+fn groebner_polynomials_with_meter(
+    eqs: &[PyExpr],
+    gens: &[Symbol],
+    conversion_meter: &mut Budget,
+) -> PyResult<Vec<fsym_polys::MultivariatePoly>> {
     if eqs.len() > 64 || gens.len() > 8 {
         return Err(PyValueError::new_err(
             "checked Groebner operations support at most 64 basis elements and eight generators",
         ));
     }
-    let mut conversion_meter = groebner_operation_budget();
     eqs.iter()
         .map(|eq| {
-            fsym_polys::bounded_polynomial_from_expr(&eq.inner, gens, &mut conversion_meter)
+            fsym_polys::bounded_polynomial_from_expr(&eq.inner, gens, conversion_meter)
                 .map_err(to_value_error)
         })
         .collect()
@@ -1635,29 +1709,19 @@ fn groebner_basis_native(
     vars: Vec<Bound<'_, PyAny>>,
     order: &str,
 ) -> PyResult<Vec<PyExpr>> {
-    let term_order = match order {
-        "lex" => fsym_polys::TermOrder::Lex,
-        "grlex" => fsym_polys::TermOrder::DegLex,
-        "grevlex" => fsym_polys::TermOrder::DegRevLex,
-        other => {
-            return Err(PyValueError::new_err(format!(
-                "unknown monomial order {other:?}"
-            )));
-        }
-    };
+    let term_order = groebner_term_order(order)?;
     let gens = vars
         .iter()
         .map(extract_symbol_arg)
         .collect::<PyResult<Vec<Symbol>>>()?;
-    let mut polys = Vec::with_capacity(eqs.len());
-    for eq in &eqs {
-        let p = fsym_polys::multivariate::MultivariatePoly::from_expr(&eq.inner, &gens)
+    let mut generator = groebner_operation_budget();
+    let mut verifier = groebner_operation_budget();
+    let polys = groebner_polynomials_with_meter(&eqs, &gens, &mut generator)?;
+    let basis =
+        fsym_polys::checked_groebner_basis(&polys, term_order, &mut generator, &mut verifier)
             .map_err(to_value_error)?;
-        polys.push(p);
-    }
-    let basis = fsym_polys::groebner::groebner_basis(&polys, term_order).map_err(to_value_error)?;
-    let mut out = Vec::with_capacity(basis.len());
-    for p in basis {
+    let mut out = Vec::with_capacity(basis.basis().len());
+    for p in basis.basis() {
         let expr = p.to_expr().map_err(to_value_error)?;
         out.push(PyExpr::from_expr(expr));
     }
@@ -2043,6 +2107,7 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(exact_ode_potential_native, m)?)?;
     m.add_function(wrap_pyfunction!(verify_exact_ode_potential_native, m)?)?;
     m.add_function(wrap_pyfunction!(solve_polynomial_system_native, m)?)?;
+    m.add_function(wrap_pyfunction!(polynomial_affine_matrix_native, m)?)?;
     m.add_function(wrap_pyfunction!(poly_coeffs_native, m)?)?;
     m.add_function(wrap_pyfunction!(poly_degree_native, m)?)?;
     m.add_function(wrap_pyfunction!(poly_multivariate_degree_native, m)?)?;

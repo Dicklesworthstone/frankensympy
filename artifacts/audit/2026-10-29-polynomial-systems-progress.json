@@ -1,0 +1,120 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-29",
+  "purpose": "Substantial polynomial certificate, checked Groebner generation and exact system-solver implementation progress",
+  "repository": "Dicklesworthstone/frankensympy",
+  "governed_toolchain": "nightly-2026-08-20",
+  "initial_main": "9d785d0ef485e02ffce670bf77b4bb280b157c3f",
+  "verified_preceding_commits": [
+    {
+      "sha": "ba499070e1e23145d4153d655bae95080bb67377",
+      "change": "Reject malformed, multiplicity-forged and nonsquarefree complete factorization certificates"
+    },
+    {
+      "sha": "08a1ac40f85bcc0099adfc1a3aec90b4b95fef32",
+      "change": "Bounded tracked Buchberger generator plus independent complete Groebner verification"
+    },
+    {
+      "sha": "79288cc2591491b6d881d0c21617ad0ac28c8da8",
+      "change": "Bounded exact finite polynomial systems with every original constraint checked"
+    }
+  ],
+  "this_commit_changes": [
+    "Route typed public groebner construction through bounded original-expression admission and independently checked basis generation before domain inference.",
+    "Use one checked native polynomial-system path for all generator counts, including held constant sources, and preserve typed generator ordering.",
+    "Add exact affine nonlinsolve families through bounded rational matrix extraction and the existing independently checked linsolve path.",
+    "Preserve supplied free Symbol and Dummy objects; nonlinear positive-dimensional or undecidable systems remain explicit refusals."
+  ],
+  "work_graph": {
+    "relevant_beads": [
+      "fra-o4g",
+      "fra-546",
+      "fra-7kf"
+    ],
+    "closure": "All existing workstream and profile gates remain open; this artifact is implementation evidence, not gate closure."
+  },
+  "passed": [
+    {
+      "scope": "fsym-polys before checked-generator addition",
+      "tests": 113,
+      "breakdown": {
+        "library": 76,
+        "complete_groebner": 7,
+        "factorization_certificate": 13,
+        "fglm": 17
+      },
+      "result": "pass"
+    },
+    {
+      "command": "cargo test --locked --offline -p fsym-polys --test checked_groebner -j 1",
+      "tests": 8,
+      "result": "pass"
+    },
+    {
+      "command": "cargo check --locked --offline -p fsym-solvers --lib -j 1",
+      "result": "pass after fixing two ambiguous BigInt zero comparisons"
+    },
+    {
+      "scope": "Pinned rustfmt on changed Rust modules, Python AST parsing, git diff --check",
+      "result": "pass"
+    },
+    {
+      "scope": "Independent source review of checked Buchberger tracking, solver completeness/refusal paths, and affine Python/Matrix/bridge integration",
+      "result": "No remaining concrete blocker identified; not runtime execution evidence"
+    }
+  ],
+  "uncompleted_gates": [
+    {
+      "command": "cargo test --locked --offline -p fsym-solvers --test polynomial_system -j 1",
+      "authored_tests": 12,
+      "result": "Compiled library and integration-test source through code generation; final link failed with signal 7 (Bus error), exit 101. Earlier attempts exhausted storage while archiving fsym-calculus. No solver regression test executed."
+    },
+    {
+      "command": "cargo clippy --locked --offline -p fsym-polys --lib -j 1 -- -D warnings",
+      "result": "Exited 135 without diagnostics; lint gate did not complete."
+    },
+    {
+      "command": "cargo check --locked -p fsym-python --lib -j 1",
+      "result": "Exit 101 unpacking pinned pyo3 0.27.2: No space left on device. Earlier offline attempt lacked cached aes 0.9.2; online retry fetched the pinned dependency without changing versions."
+    },
+    {
+      "scope": "Actual Python extension execution",
+      "authored_cases": {
+        "test_polynomial_system_checked": 17,
+        "test_nonlinsolve_affine": 13
+      },
+      "result": "Not executed; no current extension could be built within available storage."
+    },
+    {
+      "scope": "Whole-workspace, runtime supervision, immutable public-profile conformance and workstream certification",
+      "result": "Not established by this session."
+    }
+  ],
+  "mathematical_and_resource_scope": [
+    "Factor certificates are preflighted before expansion: canonical shape and scale, typed generator agreement, positive checked multiplicities, bounded weighted degree, arithmetic envelope and independent square-freeness.",
+    "Checked Groebner generation tracks cofactors to original generators; the proof kernel rechecks both ideal inclusions, all strict S-pairs and reducedness with a distinct cumulative verifier meter.",
+    "Finite polynomial systems admit every original expression, use exact identities or directed-rounding enclosures for zero decisions, validate finite root expressions and all original residuals, and refuse undecided obligations.",
+    "The system lane bounds equations at 64 and generators at eight and keeps generator/verifier accounting separate. Legacy radical generation is synchronous; cancellation inside every such step and a portable complete system certificate are not claimed.",
+    "Affine extraction admits all originals before dispatch, emits exact augmented QQ rows, and reuses the checked native matrix solver. General positive-dimensional nonlinear families remain unsupported."
+  ],
+  "integrity_notes": [
+    "No dependency pins, manifests, acceptance gates, expected outputs or compatibility profiles were weakened.",
+    "No upstream SymPy production fallback or substitute runtime test harness was introduced.",
+    "No files were deleted. Storage recovery reclaimed only verified all-zero extents and relocated one session-owned compiler document while retaining its logical path and exact content.",
+    "All remote commits were made directly on main through GitHub and independently fetched and verified; no pull request was opened."
+  ],
+  "final_source_sha256": {
+    "python/sympy/solvers/polysys.py": "b4993f0af6e5401799c11601b95c8ee1da0af8ea751a671c561c08faaf53d468",
+    "python/sympy/polys/polytools.py": "d1c157f6bf132b09366c4310eeeba5f1b4bbd0793f555ea500e809c5e80c3818",
+    "python/tests/test_polynomial_system_checked.py": "5f2f585035b765136c7ad9c1343c13305cced9a801d245594c17021a41a9f1f1",
+    "python/tests/test_nonlinsolve_affine.py": "d77da2ecf961cca46f2b4f3365697169cf27d47067d194be4e09f605f5f0a319",
+    "crates/fsym-python/src/lib.rs": "e6bfc9a95e7837e7fc0b5988491aac0bce8c275567f49d6d5ca1393c995db887",
+    "crates/fsym-solvers/src/polysys.rs": "6b91b1823bea8fa334a7eabfa7ef91c0a3f68010ca3f533abafa46cf9efcc800",
+    "crates/fsym-solvers/src/univariate.rs": "b5bac3d0316088e48b1cb9b93c89fb782b46383742f36d4cf8785b4f9f6db8cf",
+    "crates/fsym-solvers/tests/polynomial_system.rs": "1ec4dfe7717babe62060a71ad352345d65246f8025850809a3c8dedc28fa73a6",
+    "crates/fsym-polys/src/checked_groebner.rs": "bbe34d4752d49d2b0a343c8d8616171df1d368380f5d04367e1ae0756a7e8551",
+    "crates/fsym-polys/tests/checked_groebner.rs": "8a197bc1a1d266bf66053862a2487ed61520a8a629c49b8be1c1ee9d430ce774",
+    "crates/fsym-polys/src/factorization.rs": "a8ec79e9d65e7bea45cee35646851599122657744f7194a537137e2d2c2372fa",
+    "crates/fsym-polys/tests/factorization_certificate.rs": "dd1bf53bfd85fc7fbee7444357e6ff4e87beb9bba2fc27921d0a527970db284f"
+  }
+}
