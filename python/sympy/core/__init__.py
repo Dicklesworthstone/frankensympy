@@ -27,6 +27,9 @@ sys.setrecursionlimit(max(sys.getrecursionlimit(), 20000))
 _DUMMY_PREFIX = "__fsymDummy_"
 _FLOAT_INTERN = "__fsymFloat"
 _dummy_next = 1
+# Registered by rootoftools only after its genuine built-in class exists.
+# Function names and module-name claims do not establish binder semantics.
+_bound_algebraic_root_type: type | None = None
 
 try:
     import fsym_python as _native
@@ -250,7 +253,14 @@ def _native_expr(value: Any):
             )
         if type(value) not in _exact_surface_types() and isinstance(value, Function):
             known = _known_functions.get(type(value).__name__)
-            if known is not None and issubclass(known, _NativeFunction) and type(value) is not known:
+            root_type = _bound_algebraic_root_type
+            if root_type is not None and type(value).__name__ == root_type.__name__:
+                known = root_type
+            if (
+                known is not None
+                and (issubclass(known, _NativeFunction) or known is root_type)
+                and type(value) is not known
+            ):
                 raise NotImplementedError(
                     "a custom function cannot lower as a same-name native intrinsic"
                 )
@@ -468,6 +478,9 @@ _user_functions: weakref.WeakValueDictionary[str, type] = weakref.WeakValueDicti
 
 
 def _lookup_known_function(name: str) -> type | None:
+    root_type = _bound_algebraic_root_type
+    if root_type is not None and name == root_type.__name__:
+        return root_type
     known = _known_functions.get(name)
     native_class = globals().get("_NativeFunction")
     if known is not None and native_class is not None and issubclass(known, native_class):
@@ -972,6 +985,14 @@ class Basic:
             syms: set[Symbol] = set()
             for a in struct_args:
                 syms |= a.free_symbols
+            return syms
+        if _bound_algebraic_root_type is not None and _tree_has_bound_algebraic_root(self):
+            # The same symbol can be bound inside one root and free outside
+            # it. Subtracting a root's generator from a native symbol set
+            # would therefore be incorrect; respect each child's binding.
+            syms: set[Symbol] = set()
+            for arg in self.args:
+                syms.update(arg.free_symbols)
             return syms
         try:
             return {
@@ -4662,12 +4683,44 @@ def _require_symbol(value: Any) -> Symbol:
 def _aresame_surface(a: Any, b: Any) -> bool:
     if type(a) is not type(b):
         return False
+    if _bound_algebraic_root_type is not None and type(a) is _bound_algebraic_root_type:
+        return bool(a == b)
     if isinstance(a, Basic) and isinstance(b, Basic):
         if hasattr(a, "_args") or hasattr(b, "_args"):
             a_args = a.args
             b_args = b.args
             return len(a_args) == len(b_args) and all(_aresame_surface(x, y) for x, y in zip(a_args, b_args))
     return bool(a == b)
+
+
+def _tree_has_bound_algebraic_root(node: Any) -> bool:
+    """Find a genuine bound root constant without trusting a function name.
+
+    Ordinary native trees keep their fast path. This supplies binding and
+    symbolic differentiation semantics only; composite numerical evaluation
+    still needs an evaluator that propagates certified root enclosures.
+    """
+    root_type = _bound_algebraic_root_type
+    if root_type is None or not isinstance(node, Basic):
+        return False
+    if type(node) is root_type:
+        return True
+    try:
+        if not _native_expr(node).has_function(root_type.__name__):
+            return False
+    except (NotImplementedError, TypeError):
+        pass
+    stack = [node]
+    while stack:
+        cur = stack.pop()
+        if not isinstance(cur, Basic):
+            continue
+        if type(cur) is root_type:
+            # The defining polynomial is bound, not another expression in
+            # the surrounding free-symbol or substitution environment.
+            return True
+        stack.extend(cur.args)
+    return False
 
 
 def _node_has_custom_subs_or_eval(node: Any) -> bool:
@@ -4688,6 +4741,8 @@ def _node_has_custom_subs_or_eval(node: Any) -> bool:
 
 
 def _tree_requires_supervised_subs(node: Any) -> bool:
+    if _bound_algebraic_root_type is not None and _tree_has_bound_algebraic_root(node):
+        return True
     stack = [node]
     while stack:
         cur = stack.pop()
@@ -4706,6 +4761,8 @@ def _subs_supervised(node: Any, old_s: Basic, new_s: Basic) -> Basic:
     if _aresame_surface(node, old_s):
         return new_s
     cls = type(node)
+    if _bound_algebraic_root_type is not None and cls is _bound_algebraic_root_type:
+        return node
     if _has_user_override(cls, "_eval_subs"):
         target_key = f"{cls.__module__}.{cls.__qualname__}#{id(cls)}({node})"
         args_key = f"({old_s},{new_s})"
@@ -4802,6 +4859,11 @@ def _node_has_custom_diff_hook(node: Any) -> bool:
     if not isinstance(node, Basic):
         return False
     cls = type(node)
+    if _bound_algebraic_root_type is not None and cls is _bound_algebraic_root_type:
+        # Use the existing outer-expression Dummy machinery, while the
+        # empty free-symbol set makes this built-in constant's derivative
+        # zero before any user callback is considered.
+        return True
     return _has_user_override(cls, "_eval_derivative") or _has_user_override(cls, "fdiff")
 
 
@@ -4858,6 +4920,10 @@ def _replace_exact_node(tree: Any, target: Basic, replacement: Basic) -> Any:
     if not changed:
         return tree
     if type(tree) in (Add, Mul, Pow):
+        return tree.func(*new_args, evaluate=False)
+    if isinstance(tree, Function):
+        # These are temporary derivative placeholders, not new public
+        # function arguments on which to run an evaluation callback.
         return tree.func(*new_args, evaluate=False)
     return tree.func(*new_args)
 

@@ -12,6 +12,11 @@ preserves those rendered digits; subsequent Float arithmetic still uses the
 shell's binary64 backend. Nonreal root ordering/evaluation retains the bounded
 binary64 lane, with an explicit refusal when its real-root classification
 conflicts with the exact count. This is not certified complex-root isolation.
+
+The defining generator stays bound inside symbolic arithmetic, substitutions
+and derivatives. General numerical evaluation of root-containing composites
+still requires a separate enclosure-propagating evaluator; these binding
+rules do not substitute rounded root values into the binary64 arithmetic lane.
 """
 
 from __future__ import annotations
@@ -19,7 +24,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from ..core import Function, Integer, NegativeOne, One, Rational, Symbol, Zero, sympify
+from ..core import Basic, Function, Integer, NegativeOne, One, Rational, Symbol, Zero, sympify
 
 
 def _poly_of(f: Any, x: Any = None) -> tuple:
@@ -295,7 +300,10 @@ class CRootOf(Function):
         return set()
 
     def subs(self, *args: Any, **kwargs: Any) -> Any:
-        return self
+        # Basic normalizes sequential/simultaneous and whole-object
+        # replacements; its exact built-in root leaf keeps the generator
+        # bound when the replacement does not match this root itself.
+        return Basic.subs(self, *args, **kwargs)
 
     def _root_value(self) -> complex:
         from ..core import _native
@@ -337,6 +345,11 @@ class CRootOf(Function):
 
     def __complex__(self) -> complex:
         return self._root_value()
+
+
+from .. import core as _core
+
+_core._bound_algebraic_root_type = CRootOf
 
 
 rootof = CRootOf
