@@ -790,6 +790,14 @@ fn kronecker_split(
 pub const MAX_FACTOR_DEGREE: usize = 64;
 /// Upper bound on the bit length of any primitive integer coefficient.
 pub const MAX_FACTOR_COEFF_BITS: usize = 2048;
+/// Logical bit envelope for complete-factorization inputs and certificates.
+///
+/// Unlike the generator's primitive-integer height limit, this bounds the sum
+/// of numerator/denominator bit lengths, including the scale. Repeated factors
+/// also count once per multiplicity before any product is materialized. The
+/// larger envelope admits rational scaling and repeated-factor growth without
+/// letting an untrusted witness request unbounded exact arithmetic.
+const MAX_FACTOR_CERTIFICATE_BITS: u64 = 1_048_576;
 /// Upper bound on the number of irreducible factors over the lifting prime.
 const MAX_MODP_FACTORS: usize = 10;
 /// Prime candidates tried per irreducibility witness before the claim is
@@ -1972,7 +1980,7 @@ pub fn metered_complete_factorization<M: BudgetMeter>(
     poly: &UnivariatePoly,
     meter: &mut M,
 ) -> Result<CompleteFactorization, PolyError> {
-    poly.validate_shape()?;
+    complete_polynomial_bits(poly)?;
     if poly.is_zero() {
         return Ok(CompleteFactorization {
             scale: BigRational::zero(),
@@ -2031,37 +2039,113 @@ pub fn complete_factorization(poly: &UnivariatePoly) -> Result<CompleteFactoriza
 }
 
 impl CompleteFactorization {
-    /// Reconstructs the expanded product polynomial.
+    /// Reconstructs the expanded product polynomial after bounded shape checks.
+    ///
+    /// Every factor must be monic, nonconstant and in `sym`, with positive
+    /// multiplicity and total weighted degree at most [`MAX_FACTOR_DEGREE`].
+    /// The zero decomposition is represented only by zero scale and no factors.
+    /// Product reconstruction does not itself establish square-freeness or
+    /// irreducibility.
     pub fn expand(&self, sym: Symbol) -> Result<UnivariatePoly, PolyError> {
+        preflight_complete_factorization(self, &sym, MAX_FACTOR_DEGREE)?;
         let mut prod = UnivariatePoly::new(sym.clone(), vec![self.scale.clone()]);
         for term in &self.factors {
-            let power = term.poly.pow(term.multiplicity as u32)?;
+            let exponent = u32::try_from(term.multiplicity).map_err(|_| {
+                PolyError::IdentityCheckFailed(
+                    "factor multiplicity exceeds the supported exponent range".to_string(),
+                )
+            })?;
+            let power = term.poly.pow(exponent)?;
             prod = prod.mul(&power)?;
         }
         Ok(prod)
     }
 }
 
-/// Independent verification lane for a complete factorization: product
-/// identity, canonical factor shape, pairwise coprimality via resultants,
-/// and — for every claimed witness — an independently coded Rabin check.
-/// The generator's decisions are never trusted as authority.
-pub fn verify_complete_factorization(
-    poly: &UnivariatePoly,
-    factorization: &CompleteFactorization,
-) -> Result<(), PolyError> {
+fn rational_component_bits(value: &BigRational) -> u64 {
+    value
+        .numer()
+        .bits()
+        .max(1)
+        .saturating_add(value.denom().bits().max(1))
+}
+
+/// Read-only admission: do not normalize coefficients, exponentiate, or clear
+/// denominators until every polynomial and certificate field has passed it.
+fn complete_polynomial_bits(poly: &UnivariatePoly) -> Result<u64, PolyError> {
     poly.validate_shape()?;
-    let expanded = factorization.expand(poly.gen_sym.clone())?;
-    if expanded != *poly {
+    if poly.coeffs.len() > MAX_FACTOR_DEGREE + 1 {
+        return Err(PolyError::General(format!(
+            "refused: complete-factorization degree exceeds {MAX_FACTOR_DEGREE}"
+        )));
+    }
+    let mut bits = 0u64;
+    for coefficient in &poly.coeffs {
+        bits = bits.saturating_add(rational_component_bits(coefficient));
+        if bits > MAX_FACTOR_CERTIFICATE_BITS {
+            return Err(PolyError::General(format!(
+                "refused: complete-factorization coefficients exceed the \
+                 {MAX_FACTOR_CERTIFICATE_BITS}-bit envelope"
+            )));
+        }
+    }
+    Ok(bits)
+}
+
+fn preflight_complete_factorization(
+    factorization: &CompleteFactorization,
+    sym: &Symbol,
+    maximum_degree: usize,
+) -> Result<usize, PolyError> {
+    if factorization.factors.len() > maximum_degree {
         return Err(PolyError::IdentityCheckFailed(
-            "complete factorization product does not reproduce the input polynomial".to_string(),
+            "factor count exceeds the polynomial degree".to_string(),
         ));
     }
+    if factorization.scale.is_zero() && !factorization.factors.is_empty() {
+        return Err(PolyError::IdentityCheckFailed(
+            "the zero decomposition requires no factors".to_string(),
+        ));
+    }
+    let mut product_bits = rational_component_bits(&factorization.scale);
+    if product_bits > MAX_FACTOR_CERTIFICATE_BITS {
+        return Err(PolyError::General(format!(
+            "refused: complete-factorization scale exceeds the \
+             {MAX_FACTOR_CERTIFICATE_BITS}-bit envelope"
+        )));
+    }
+    let mut weighted_degree = 0usize;
     for term in &factorization.factors {
-        term.poly.validate_shape()?;
+        let factor_bits = complete_polynomial_bits(&term.poly)?;
+        if &term.poly.gen_sym != sym {
+            return Err(PolyError::IncompatibleGenerators(
+                sym.name.clone(),
+                term.poly.gen_sym.name.clone(),
+            ));
+        }
+        let degree = term
+            .poly
+            .degree()
+            .filter(|degree| *degree > 0)
+            .ok_or_else(|| {
+                PolyError::IdentityCheckFailed(
+                    "complete-factorization factors must have positive degree".to_string(),
+                )
+            })?;
         if term.multiplicity == 0 {
             return Err(PolyError::IdentityCheckFailed(
                 "factor multiplicity must be positive".to_string(),
+            ));
+        }
+        let contribution = degree.checked_mul(term.multiplicity).ok_or_else(|| {
+            PolyError::IdentityCheckFailed("factorization weighted degree overflowed".to_string())
+        })?;
+        weighted_degree = weighted_degree.checked_add(contribution).ok_or_else(|| {
+            PolyError::IdentityCheckFailed("factorization weighted degree overflowed".to_string())
+        })?;
+        if weighted_degree > maximum_degree {
+            return Err(PolyError::IdentityCheckFailed(
+                "factorization weighted degree exceeds the polynomial degree".to_string(),
             ));
         }
         if !term.poly.is_monic() {
@@ -2069,6 +2153,63 @@ pub fn verify_complete_factorization(
                 "complete-factorization factors must be monic".to_string(),
             ));
         }
+        // The degree check above bounds each multiplicity by 64, so this
+        // conversion cannot truncate a platform-sized certificate integer.
+        let multiplicity = u64::try_from(term.multiplicity).map_err(|_| {
+            PolyError::IdentityCheckFailed("factor multiplicity does not fit u64".to_string())
+        })?;
+        product_bits = product_bits.saturating_add(factor_bits.saturating_mul(multiplicity));
+        if product_bits > MAX_FACTOR_CERTIFICATE_BITS {
+            return Err(PolyError::General(format!(
+                "refused: complete-factorization product exceeds the \
+                 {MAX_FACTOR_CERTIFICATE_BITS}-bit envelope"
+            )));
+        }
+        if term.irreducibility.as_ref().is_some_and(|witness| {
+            witness.prime.is_negative() || witness.prime.is_zero() || witness.prime.bits() > 32
+        }) {
+            return Err(PolyError::IdentityCheckFailed(
+                "irreducibility witness modulus is outside the bounded verifier regime".to_string(),
+            ));
+        }
+    }
+    Ok(weighted_degree)
+}
+
+/// Independent verification lane for a complete factorization: product
+/// identity, canonical factor shape, square-freeness and pairwise coprimality,
+/// and — for every claimed witness — an independently coded Rabin check.
+/// The generator's decisions are never trusted as authority.
+///
+/// Input and certificate arithmetic is admitted before expansion: degree at
+/// most [`MAX_FACTOR_DEGREE`] and at most 1,048,576 rational component bits per
+/// input/product envelope. Acceptance without every irreducibility witness is
+/// a normalized square-free decomposition, not an irreducibility proof.
+pub fn verify_complete_factorization(
+    poly: &UnivariatePoly,
+    factorization: &CompleteFactorization,
+) -> Result<(), PolyError> {
+    complete_polynomial_bits(poly)?;
+    let target_degree = poly.degree().unwrap_or(0);
+    let weighted_degree =
+        preflight_complete_factorization(factorization, &poly.gen_sym, target_degree)?;
+    if factorization.scale != *poly.leading_coeff() {
+        return Err(PolyError::IdentityCheckFailed(
+            "factorization scale does not match the input leading coefficient".to_string(),
+        ));
+    }
+    if weighted_degree != target_degree {
+        return Err(PolyError::IdentityCheckFailed(
+            "factorization weighted degree does not match the polynomial degree".to_string(),
+        ));
+    }
+    let expanded = factorization.expand(poly.gen_sym.clone())?;
+    if expanded != *poly {
+        return Err(PolyError::IdentityCheckFailed(
+            "complete factorization product does not reproduce the input polynomial".to_string(),
+        ));
+    }
+    for term in &factorization.factors {
         if let Some(witness) = &term.irreducibility {
             // Independent re-check: clear denominators and run the
             // verifier's own Rabin implementation.
@@ -2089,6 +2230,14 @@ pub fn verify_complete_factorization(
                     witness.prime
                 )));
             }
+        } else if term.poly.resultant(&term.poly.derivative())?.is_zero() {
+            // Product identity alone cannot establish the claimed
+            // multiplicities: a repeated root must not be hidden inside a
+            // witness-free factor. The derivative resultant independently
+            // checks square-freeness over Q without rerunning factor search.
+            return Err(PolyError::IdentityCheckFailed(
+                "complete-factorization factor is not square-free".to_string(),
+            ));
         }
     }
     // Pairwise coprimality: distinct monic irreducible factors have a
