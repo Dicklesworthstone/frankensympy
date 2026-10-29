@@ -490,7 +490,7 @@ fn preflight_expression<M: BudgetMeter>(
     Ok(())
 }
 
-fn multiply_polynomials<M: BudgetMeter>(
+pub(crate) fn multiply_polynomials<M: BudgetMeter>(
     a: &MultivariatePoly,
     b: &MultivariatePoly,
     work: &mut PolynomialWork<'_, M>,

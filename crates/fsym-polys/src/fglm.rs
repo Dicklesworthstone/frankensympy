@@ -220,7 +220,7 @@ fn certificate_with_work<M: BudgetMeter>(
     certificate_with_inclusion(initial, candidate, order, basis_in_input, work)
 }
 
-fn certificate_with_inclusion<M: BudgetMeter>(
+pub(crate) fn certificate_with_inclusion<M: BudgetMeter>(
     initial: &[MultivariatePoly],
     candidate: &[MultivariatePoly],
     order: TermOrder,

@@ -1111,7 +1111,7 @@ fn complete_certificate_error(error: impl std::fmt::Display) -> PolyError {
     PolyError::General(format!("complete Groebner certificate refused: {error}"))
 }
 
-fn complete_certificate_dimensions(inputs: usize, basis: usize) -> Result<usize, PolyError> {
+pub(crate) fn complete_certificate_dimensions(inputs: usize, basis: usize) -> Result<usize, PolyError> {
     if inputs > MAX_GROEBNER_BASIS_POLYNOMIALS || basis > MAX_GROEBNER_BASIS_POLYNOMIALS {
         return Err(complete_certificate_error(
             "basis dimension exceeds the bounded envelope",
