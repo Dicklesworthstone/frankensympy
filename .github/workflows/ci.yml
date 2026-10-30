@@ -134,6 +134,8 @@ jobs:
           cargo test --locked -p fsym-bigint --lib floor_square_root_pins_exact_square_boundaries_and_governed_lane -j1
           cargo test --locked -p fsym-polys --test rational_localization -j1
           cargo test --locked -p fsym-calculus --test rational_laplace -j1
+          cargo test --locked -p fsym-proof-kernel --test elementary_rational_definite -j1
+          cargo test --locked -p fsym-calculus --test elementary_rational_definite -j1
           cargo test --locked -p fsym-solvers --test rational_systems -j1
       - name: Build the full Python extension
         run: cargo build --locked -p fsym-python --features extension-module -j1
@@ -187,6 +189,7 @@ jobs:
               "python/tests/test_rational_system_sources.py",
               "python/tests/test_rational_laplace.py",
               "python/tests/test_polynomial_laplace.py",
+              "python/tests/test_rational_definite.py",
               "python/tests/test_surface.py::SurfaceTests::test_extended_solvers_transforms_functions_and_submodules",
               "python/tests/test_surface.py::SurfaceTests::test_piecewise_power_integrals_and_laplace",
               "python/tests/test_surface.py::SurfaceTests::test_integral_transforms_suite",

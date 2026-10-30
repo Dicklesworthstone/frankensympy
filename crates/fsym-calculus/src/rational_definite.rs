@@ -5,6 +5,9 @@
 //! denominators need not be split into roots. A nonzero logarithmic/arctangent
 //! remainder is explicitly unsupported by this certificate family.
 
+use crate::elementary_rational_definite::{
+    ElementaryRationalDefiniteIntegralError, elementary_rational_definite_integral,
+};
 use crate::hermite::{HermiteError, metered_hermite_reduce};
 use crate::rational_limits::{RationalLimitError, metered_rational_local_order};
 use fsym_budget::{BudgetMeter, Dimension, MeterError, Unbounded};
@@ -32,6 +35,8 @@ pub enum RationalDefiniteIntegralError {
     DivergentEndpoint,
     #[error(transparent)]
     Hermite(#[from] HermiteError),
+    #[error(transparent)]
+    Elementary(#[from] ElementaryRationalDefiniteIntegralError),
     #[error(transparent)]
     Local(#[from] RationalLimitError),
     #[error(transparent)]
@@ -256,6 +261,22 @@ pub(crate) fn try_definite(
             "original rational source or coefficient limit",
         )));
     };
+    // Complete the logarithmic/atan remainder before the legacy endpoint
+    // simplifier sees it. In particular, coupled logarithms may have finite
+    // limits at infinity even though each separate logarithm diverges.
+    // The older factor-free rational-only lane retains its larger degree
+    // envelope; no algorithm is retried after a meter or domain failure.
+    if numerator.degree().unwrap_or(0) <= 32 && denominator.degree().unwrap_or(0) <= 32 {
+        return match elementary_rational_definite_integral(&numerator, &denominator, &lower, &upper)
+        {
+            Ok(result) => Some(Ok(result.value().clone())),
+            Err(
+                ElementaryRationalDefiniteIntegralError::UnsupportedPrimitive
+                | ElementaryRationalDefiniteIntegralError::DivergentEndpoint,
+            ) => None,
+            Err(error) => Some(Err(error.into())),
+        };
+    }
     match rational_definite_integral(&numerator, &denominator, &lower, &upper) {
         Ok(result) => Some(Ok(fsym_core::elementary::rational_expr(
             result.value().clone(),
