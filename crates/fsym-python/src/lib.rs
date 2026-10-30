@@ -1905,6 +1905,7 @@ mod algebraic_roots;
 pub mod assumptions;
 pub mod binding;
 pub mod callbacks;
+mod exact_integral;
 pub mod expr;
 pub mod geometry;
 mod ideal_operations;
@@ -1946,6 +1947,7 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<numeric::PyResidualJacobianEnclosure>()?;
     m.add_class::<numeric::PyRootBoxReceipt>()?;
     m.add_class::<quadrature::PyIntegralEnclosureReceipt>()?;
+    m.add_class::<exact_integral::PyExactRationalIntegralReceipt>()?;
     m.add_class::<callbacks::PySupervisedCallbackSession>()?;
     m.add_function(wrap_pyfunction!(callbacks::check_interpreter_support, m)?)?;
     m.add_class::<PyInteger>()?;
@@ -2155,6 +2157,10 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m
     )?)?;
     m.add_function(wrap_pyfunction!(quadrature::certified_integral_native, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        exact_integral::exact_rational_integral_native,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(
         algebraic_roots::real_roots_isolate_native,
         m

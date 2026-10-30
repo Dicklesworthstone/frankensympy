@@ -170,6 +170,7 @@ jobs:
           assert hasattr(native, "polynomial_system_solutions_native")
           assert hasattr(native, "inverse_rational_laplace_native")
           assert hasattr(native, "polynomial_laplace_native")
+          assert hasattr(native, "exact_rational_integral_native")
           import pytest
           with binary.open("rb") as stream:
               digest = hashlib.file_digest(stream, "sha256").hexdigest()
@@ -191,6 +192,7 @@ jobs:
               "python/tests/test_rational_laplace.py",
               "python/tests/test_polynomial_laplace.py",
               "python/tests/test_rational_definite.py",
+              "python/tests/test_exact_rational_integral.py",
               "python/tests/test_surface.py::SurfaceTests::test_extended_solvers_transforms_functions_and_submodules",
               "python/tests/test_surface.py::SurfaceTests::test_piecewise_power_integrals_and_laplace",
               "python/tests/test_surface.py::SurfaceTests::test_integral_transforms_suite",

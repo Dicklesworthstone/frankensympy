@@ -102,7 +102,10 @@ impl<M: BudgetMeter> BudgetMeter for CappedMeter<'_, M> {
         self.charge_batch(&[(dimension, amount)])
     }
 
-    fn charge_batch(&mut self, charges: &[(Dimension, u64)]) -> std::result::Result<(), MeterError> {
+    fn charge_batch(
+        &mut self,
+        charges: &[(Dimension, u64)],
+    ) -> std::result::Result<(), MeterError> {
         if let Some(error) = self.stopped {
             return Err(error);
         }

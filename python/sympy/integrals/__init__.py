@@ -2,6 +2,7 @@
 
 from .. import integrate
 from .certified import IntegralEnclosureReceipt, certified_integral
+from .exact import ExactRationalIntegralReceipt, exact_rational_integral
 from .integrals import Integral
 from .transforms import (
     CosineTransform,
@@ -38,6 +39,8 @@ __all__ = [
     "Integral",
     "IntegralEnclosureReceipt",
     "certified_integral",
+    "ExactRationalIntegralReceipt",
+    "exact_rational_integral",
     "InverseCosineTransform",
     "InverseFourierTransform",
     "InverseHankelTransform",

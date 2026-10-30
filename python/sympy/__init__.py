@@ -1153,6 +1153,8 @@ from .geometry import (
 from .integrals import (
     IntegralEnclosureReceipt,
     certified_integral,
+    ExactRationalIntegralReceipt,
+    exact_rational_integral,
     CosineTransform,
     FourierTransform,
     HankelTransform,
@@ -2038,6 +2040,8 @@ __all__ = [
     "Integral",
     "IntegralEnclosureReceipt",
     "certified_integral",
+    "ExactRationalIntegralReceipt",
+    "exact_rational_integral",
     "Intersection",
     "Interval",
     "InverseCosineTransform",
