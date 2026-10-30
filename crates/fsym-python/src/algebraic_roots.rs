@@ -87,6 +87,94 @@ impl PyAlgebraicValue {
     }
 }
 
+/// A checked value of an expression in several indexed real roots. The
+/// underlying receipt binds the source, every chosen embedding and the final
+/// rational enclosure; Python cannot construct a receipt from candidate data.
+#[pyclass(name = "AlgebraicExpressionValue", module = "fsym_python", frozen)]
+pub struct PyAlgebraicExpressionValue {
+    inner: fsym_solvers::algebraic_expression::VerifiedAlgebraicExpression,
+}
+
+#[pymethods]
+impl PyAlgebraicExpressionValue {
+    #[getter]
+    fn decimal(&self) -> &str {
+        self.inner.decimal()
+    }
+
+    #[getter]
+    fn lower(&self) -> PyExpr {
+        PyExpr::from_expr(crate::rational_to_expr(self.inner.lower().clone()))
+    }
+
+    #[getter]
+    fn upper(&self) -> PyExpr {
+        PyExpr::from_expr(crate::rational_to_expr(self.inner.upper().clone()))
+    }
+
+    #[getter]
+    fn precision(&self) -> u32 {
+        self.inner.precision()
+    }
+
+    #[getter]
+    fn expression(&self) -> PyExpr {
+        PyExpr::from_expr(self.inner.expression().clone())
+    }
+
+    #[getter]
+    fn binding_count(&self) -> usize {
+        self.inner.bindings().len()
+    }
+}
+
+/// Resolve a bounded tuple of exact real embeddings, then evaluate the held
+/// rational source with one cumulative pair of generator/verifier budgets.
+#[pyfunction]
+#[pyo3(signature = (expression, variables, values, indices, digits=15))]
+pub fn evaluate_real_algebraic_expression_native(
+    expression: &PyExpr,
+    variables: &Bound<'_, PyList>,
+    values: &Bound<'_, PyList>,
+    indices: &Bound<'_, PyList>,
+    digits: u32,
+) -> PyResult<Option<PyAlgebraicExpressionValue>> {
+    use fsym_solvers::algebraic_expression::{
+        RealAlgebraicBinding, metered_evaluate_real_algebraic_expression,
+    };
+
+    if variables.is_empty()
+        || variables.len() > 8
+        || variables.len() != values.len()
+        || variables.len() != indices.len()
+        || !(1..=512).contains(&digits)
+    {
+        return Err(PyValueError::new_err(
+            "algebraic evaluation requires 1..8 matched root bindings and 1..512 digits",
+        ));
+    }
+    // List lengths and coefficient payloads are bounded before copying. The
+    // native admission checks typed uniqueness, all root indices, product
+    // degree and the complete original source before publishing any value.
+    let mut bindings = Vec::with_capacity(variables.len());
+    for ((variable, values), index) in variables.iter().zip(values.iter()).zip(indices.iter()) {
+        bindings.push(RealAlgebraicBinding {
+            variable: crate::extract_symbol_arg(&variable)?,
+            coefficients: coefficients(values.cast::<PyList>()?)?,
+            index: index.extract::<usize>()?,
+        });
+    }
+    let value = metered_evaluate_real_algebraic_expression(
+        &expression.inner,
+        &bindings,
+        digits,
+        &mut budget(),
+        &mut budget(),
+    )
+    .map_err(crate::to_value_error)?;
+    Ok(value.map(|inner| PyAlgebraicExpressionValue { inner }))
+}
+
 /// Correctly rounded rational arithmetic on one exact real algebraic root.
 /// Unsupported source grammar is distinct from invalid domains, exhausted
 /// resources and failed verification; none of those triggers a float fallback.

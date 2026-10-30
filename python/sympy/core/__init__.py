@@ -1659,8 +1659,8 @@ def _sign_info(e: Any, depth: int = 0) -> tuple:
             sign = _algebraic_comparison(e, Integer(0))
             return (True, frozenset({sign}))
         except NotImplementedError:
-            # Distinct-root arithmetic may still have a structural sign,
-            # such as a sum of two independently positive real roots.
+            # Arithmetic outside the bounded exact lane may still have a
+            # structural sign, such as a sum of positive real expressions.
             pass
         except (ValueError, OverflowError, TypeError):
             # An original pole or exhausted exact check cannot become an
@@ -5618,7 +5618,7 @@ def N(expression: Any, n: Any = None) -> Basic:
     """Evaluate to a Float with justified significant decimal digits.
 
     Admitted real constants use native enclosures. Exact real roots and
-    rational expressions in one such root use checked algebraic refinement;
+    bounded rational expressions in them use checked algebraic refinement;
     ``pi`` retains its bounded Machin-series route. Unsupported expressions
     beyond the binary64-honest 15 digits raise rather than padding an f64.
     The returned rounded Float is not itself an enclosing interval.

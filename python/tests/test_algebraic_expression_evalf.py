@@ -133,16 +133,17 @@ def test_cancelled_inverse_keeps_its_original_algebraic_pole():
         s.N(expression, 50)
 
 
-def test_two_distinct_roots_are_not_silently_identified():
+def test_distinct_roots_keep_their_selected_embeddings():
     first = sqrt_two()
     t = s.Symbol("algebraic_other_t")
     second = s.CRootOf(t*t-3, t, 1)
-    for expression in [
-        s.Add(first, second, evaluate=False),
-        s.Add(sqrt_two(index=0), first, evaluate=False),
-    ]:
-        with pytest.raises(NotImplementedError, match="one distinct root"):
-            s.N(expression, 50)
+    with localcontext() as context:
+        context.prec = 90
+        expected = Decimal(2).sqrt() + Decimal(3).sqrt()
+    assert Decimal(str(s.N(s.Add(first, second, evaluate=False), 50))) == rounded(expected, 50)
+    opposite = s.Add(sqrt_two(index=0), first, evaluate=False)
+    receipt = _algebraic_expression_value(opposite, 50)
+    assert exact_ratio(receipt.lower) == exact_ratio(receipt.upper) == 0
 
 
 def test_transcendental_and_approximate_root_composites_refuse_this_exact_lane():

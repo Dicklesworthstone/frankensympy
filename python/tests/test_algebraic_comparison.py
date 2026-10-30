@@ -117,18 +117,18 @@ def test_original_undefined_children_do_not_become_assumption_facts(exponent):
     assert isinstance(s.Gt(expression, 0), Relational)
 
 
-def test_unsupported_distinct_root_arithmetic_stays_undecided(monkeypatch):
+def test_distinct_root_arithmetic_has_an_exact_sign_without_float(monkeypatch):
     first = root_of_two()
     t = s.Symbol("comparison_other_t")
     second = s.CRootOf(t*t-3, t, 1)
     expression = s.Add(first, s.Mul(-1, second, evaluate=False), evaluate=False)
 
     def forbidden_float(self):
-        raise AssertionError("unsupported exact comparison fell back to float")
+        raise AssertionError("exact comparison fell back to float")
 
     monkeypatch.setattr(s.CRootOf, "__float__", forbidden_float)
-    assert _real_sign_of_difference(expression, s.Integer(0)) is None
-    assert isinstance(s.Lt(expression, 0), Relational)
+    assert _real_sign_of_difference(expression, s.Integer(0)) == -1
+    assert s.Lt(expression, 0) is s.S.true
 
 
 def test_distinct_root_structural_fallback_retains_zero_power_obligation():

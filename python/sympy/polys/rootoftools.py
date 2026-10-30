@@ -359,18 +359,19 @@ RootOf = CRootOf
 
 
 def _algebraic_expression_value(expression: Any, digits: int):
-    """Evaluate a rational expression in one genuine algebraic root.
+    """Evaluate bounded rational arithmetic in genuine indexed real roots.
 
     Root identity comes from the registered built-in class, never its printed
     name. Held native constructors preserve every original inverse and power
-    until the native source/domain checker has admitted them.
+    until the native source/domain checker has admitted them. Several distinct
+    roots use a checked common representation with exact embedding selection.
     """
     from ..core import Add, Half, Mul, Pow, Dummy, _native, _native_expr, _symbol_binding
 
     if type(digits) is not int or not 1 <= digits <= 512:
         raise ValueError("algebraic expression precision must be between 1 and 512 decimal digits")
     root_type = _core._bound_algebraic_root_type
-    root = None
+    roots = []
     pending = [(expression, 0)]
     visited = 0
     atoms = (Integer, Rational, Zero, One, NegativeOne, Half)
@@ -381,33 +382,31 @@ def _algebraic_expression_value(expression: Any, digits: int):
             raise ValueError("algebraic expression exceeds its bounded source envelope")
         kind = type(node)
         if kind is root_type:
-            if root is None:
-                root = node
-            elif node != root:
-                raise NotImplementedError(
-                    "exact algebraic evaluation supports rational expressions in one distinct root"
-                )
+            if node not in roots:
+                if len(roots) == 8:
+                    raise ValueError("algebraic evaluation supports at most eight distinct roots")
+                roots.append(node)
             continue
         if kind in atoms:
             continue
         if kind not in (Add, Mul, Pow):
             raise NotImplementedError(
-                "exact algebraic evaluation requires rational arithmetic on one real root"
+                "exact algebraic evaluation requires rational arithmetic on real roots"
             )
         children = node.args
         if len(children) > 256 or len(children) > 2048 - visited - len(pending):
             raise ValueError("algebraic expression exceeds its bounded source envelope")
         pending.extend((child, depth + 1) for child in children)
-    if root is None:
+    if not roots:
         raise ValueError("algebraic expression contains no genuine indexed root")
 
-    parameter = Dummy("_fsym_algebraic_value")
-    native_parameter = _native_expr(parameter)
+    parameters = [Dummy("_fsym_algebraic_value") for _ in roots]
+    native_parameters = [_native_expr(parameter) for parameter in parameters]
 
     def lower(node):
         kind = type(node)
         if kind is root_type:
-            return native_parameter
+            return native_parameters[roots.index(node)]
         if kind in atoms:
             return _native_expr(node)
         args = [lower(child) for child in node.args]
@@ -417,16 +416,26 @@ def _algebraic_expression_value(expression: Any, digits: int):
             return _native.Mul(*args, evaluate=False).as_expr()
         return _native.Pow(*args, evaluate=False).as_expr()
 
-    result = _native.evaluate_real_algebraic_native(
-        lower(expression),
-        _symbol_binding(parameter),
-        _native_coefficients(root.poly),
-        root.index,
-        digits,
-    )
+    source = lower(expression)
+    if len(roots) == 1:
+        result = _native.evaluate_real_algebraic_native(
+            source,
+            _symbol_binding(parameters[0]),
+            _native_coefficients(roots[0].poly),
+            roots[0].index,
+            digits,
+        )
+    else:
+        result = _native.evaluate_real_algebraic_expression_native(
+            source,
+            [_symbol_binding(parameter) for parameter in parameters],
+            [_native_coefficients(root.poly) for root in roots],
+            [root.index for root in roots],
+            digits,
+        )
     if result is None:
         raise NotImplementedError(
-            "exact algebraic evaluation requires bounded rational arithmetic on one real root"
+            "exact algebraic evaluation requires supported bounded rational arithmetic on real roots"
         )
     return result
 
@@ -434,9 +443,9 @@ def _algebraic_expression_value(expression: Any, digits: int):
 def _algebraic_comparison(lhs: Any, rhs: Any) -> int:
     """Exact sign of a supported algebraic difference.
 
-    Two indexed roots may have different defining polynomials. Rational
-    expressions use one common root and retain both original trees, including
-    domain obligations, until the native evaluator has checked them. The
+    Indexed roots may have different defining polynomials. Rational
+    expressions retain both original trees, including domain obligations,
+    until the native evaluator has checked them in a common representation. The
     caller keeps unsupported or exhausted decisions unknown.
     """
     from ..core import Add, Half, Mul, _exact_ratio, _native, _native_expr, _wrap
