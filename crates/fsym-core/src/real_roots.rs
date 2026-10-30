@@ -542,6 +542,144 @@ fn refine_once<M: BudgetMeter>(
     Ok(())
 }
 
+/// Refine one indexed root of an already checked complete isolation.
+///
+/// The generator only bisects its existing interval. The independent checker
+/// subsequently recounts every original root and multiplicity before the new
+/// immutable isolation is returned. Both caller meters remain cumulative.
+pub fn refine_real_root_isolation(
+    roots: &VerifiedRealRoots,
+    index: usize,
+    bisections: usize,
+    generator_meter: &mut impl BudgetMeter,
+    verifier_meter: &mut impl BudgetMeter,
+) -> Result<VerifiedRealRoots, RealRootError> {
+    let mut work = Work::new(generator_meter)?;
+    if bisections > MAX_BISECTIONS {
+        return Err(RealRootError::ResourceLimit("refinement bisections"));
+    }
+    if index >= roots.intervals().len() {
+        return Err(RealRootError::InvalidIndex);
+    }
+    work.charge(1, roots.intervals().len() as u64 * 96)?;
+    for interval in roots.intervals() {
+        work.scalar(&interval.lower)?;
+        work.scalar(&interval.upper)?;
+    }
+    let mut certificate = roots.certificate().clone();
+    let square_free = work.square_free(roots.coefficients())?;
+    let sequence = work.sturm(&square_free)?;
+    let interval = &mut certificate.intervals[index];
+    if bisections != 0 && interval.lower != interval.upper {
+        // An independently admitted interval contains exactly one root.
+        // Its nonroot endpoints therefore differ by one Sturm variation.
+        // Retain the left variation count while bisecting; repeatedly
+        // recounting both old endpoints makes high precision needlessly
+        // expensive. The full independent checker still runs afterwards.
+        if work.eval(&square_free, &interval.lower)?.is_zero() {
+            work.scalar(&interval.lower)?;
+            interval.upper = interval.lower.clone();
+        } else if work.eval(&square_free, &interval.upper)?.is_zero() {
+            work.scalar(&interval.upper)?;
+            interval.lower = interval.upper.clone();
+        } else {
+            let mut left_variations = work.variations(&sequence, &interval.lower)?;
+            for _ in 0..bisections {
+                let midpoint = work.midpoint(&interval.lower, &interval.upper)?;
+                if work.eval(&square_free, &midpoint)?.is_zero() {
+                    work.scalar(&midpoint)?;
+                    interval.lower = midpoint.clone();
+                    interval.upper = midpoint;
+                    break;
+                }
+                let middle_variations = work.variations(&sequence, &midpoint)?;
+                match left_variations.checked_sub(middle_variations) {
+                    Some(1) => interval.upper = midpoint,
+                    Some(0) => {
+                        interval.lower = midpoint;
+                        left_variations = middle_variations;
+                    }
+                    _ => {
+                        return Err(RealRootError::Arithmetic(
+                            "refinement interval lost its unique root",
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    let result = verify_real_root_isolation(roots.coefficients(), &certificate, verifier_meter)?;
+    work.meter.checkpoint()?;
+    verifier_meter.checkpoint()?;
+    Ok(result)
+}
+
+/// Decide exactly whether `polynomial` vanishes at one checked indexed root.
+///
+/// A gcd restricts the roots to those shared with the defining polynomial;
+/// Sturm counting in the already isolating interval then selects the exact
+/// embedding. No approximate root proximity or factor irreducibility is used.
+/// This reference decision also handles repeated and reducible definitions.
+pub fn real_root_polynomial_zero(
+    roots: &VerifiedRealRoots,
+    index: usize,
+    polynomial: &[BigRational],
+    meter: &mut impl BudgetMeter,
+) -> Result<bool, RealRootError> {
+    let mut work = Work::new(meter)?;
+    let root = roots
+        .intervals()
+        .get(index)
+        .ok_or(RealRootError::InvalidIndex)?;
+    if polynomial.is_empty() || polynomial.len() > MAX_REAL_ROOT_DEGREE + 1 {
+        return Err(RealRootError::ResourceLimit("value polynomial degree"));
+    }
+    let mut polynomial = work.copy_poly(polynomial)?;
+    trim(&mut polynomial);
+    let result = if root.lower == root.upper {
+        work.eval(&polynomial, &root.lower)?.is_zero()
+    } else if is_zero(&polynomial) {
+        true
+    } else {
+        let common = work.gcd(roots.coefficients(), &polynomial)?;
+        if common.len() == 1 {
+            false
+        } else {
+            let square_free = work.square_free(&common)?;
+            let sequence = work.sturm(&square_free)?;
+            work.count(&sequence, &root.lower, &root.upper)? == 1
+        }
+    };
+    work.meter.checkpoint()?;
+    Ok(result)
+}
+
+/// Bounded round-half-to-even serialization shared by indexed-root values.
+/// The pair is a decimal mantissa and base-ten exponent; it is an exact
+/// rounding decision on the input rational, not an interval certificate.
+pub fn metered_round_rational(
+    value: &BigRational,
+    digits: u32,
+    meter: &mut impl BudgetMeter,
+) -> Result<(String, i64), RealRootError> {
+    let mut work = Work::new(meter)?;
+    if !(1..=MAX_REAL_ROOT_DIGITS).contains(&digits) {
+        return Err(RealRootError::InvalidPrecision);
+    }
+    work.scalar(value)?;
+    work.charge(
+        (bits(value) + u64::from(digits)).saturating_mul(8),
+        (bits(value) + u64::from(digits)).saturating_mul(4),
+    )?;
+    let result = if value.is_zero() {
+        ("0".into(), 0)
+    } else {
+        crate::round_significant(value, digits)
+    };
+    work.meter.checkpoint()?;
+    Ok(result)
+}
+
 // Decode the bounded decimal *number* produced by round_significant, not
 // an expression or printed symbolic IR. This exact candidate is used only
 // to resolve a rounding boundary by polynomial substitution.

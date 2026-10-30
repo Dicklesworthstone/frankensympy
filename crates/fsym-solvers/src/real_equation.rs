@@ -21,7 +21,12 @@ use fsym_polys::gcd::BezoutCertificate;
 use num_traits::{One, Zero};
 use thiserror::Error;
 
+mod algebraic_value;
 mod real_inequality;
+pub use algebraic_value::{
+    AlgebraicValueCertificate, VerifiedAlgebraicValue, evaluate_real_algebraic,
+    metered_evaluate_real_algebraic, verify_real_algebraic_value,
+};
 pub use real_inequality::{
     VerifiedRealInequality, metered_solve_real_inequality, solve_real_inequality,
 };

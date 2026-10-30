@@ -522,7 +522,7 @@ fn integer_square_root(value: &BigInt, meter: &mut impl BudgetMeter) -> Result<O
     if value.is_zero() {
         return Ok(Some(BigInt::zero()));
     }
-    charge(meter, 1, (value.bits() as usize + 7) / 8 + 64)?;
+    charge(meter, 1, (value.bits() as usize).div_ceil(8) + 64)?;
     let shift = u32::try_from(value.bits().div_ceil(2))
         .map_err(|_| refuse("square-root candidate bit width"))?;
     let mut current = BigInt::one() << shift;
@@ -728,10 +728,10 @@ impl<G: BudgetMeter, V: BudgetMeter> Generate<'_, G, V> {
                         break;
                     }
                 }
-                if found.is_none() {
-                    if let Some(candidate) = binomial_candidate(input, self.generator)? {
-                        found = try_factor(input, &candidate, equation, self.generator)?;
-                    }
+                if found.is_none()
+                    && let Some(candidate) = binomial_candidate(input, self.generator)?
+                {
+                    found = try_factor(input, &candidate, equation, self.generator)?;
                 }
                 if found.is_some() {
                     break;
