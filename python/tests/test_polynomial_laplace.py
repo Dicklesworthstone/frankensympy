@@ -277,7 +277,10 @@ def test_held_polynomial_zero_power_routes_before_nonvanishing_witness_admission
     assert _native.polynomial_laplace_native(
         _native_expr(source), _symbol_binding(t), _symbol_binding(z),
     ) is None
-    equal_rational(s.laplace_transform(source, t, z, noconds=True), 1/(z+1))
+    # The established table refuses this held power. Recognition must retain
+    # that ValueError instead of invoking the smaller checked source envelope.
+    with pytest.raises(ValueError, match="Laplace transform not implemented"):
+        s.laplace_transform(source, t, z, noconds=True)
 
 
 def test_single_exponential_zero_power_keeps_its_native_nonvanishing_witness():
