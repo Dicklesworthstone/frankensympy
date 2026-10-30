@@ -1,8 +1,8 @@
 //! Shared-budget dispatch for exact polynomial solution sets.
 //!
-//! Affine matrices, unions of polynomial graphs, finite tuples and real shape
-//! representations remain distinct results. Every algorithm attempt uses the
-//! same generator/verifier meters. Real shape data reaches a complex-domain
+//! Affine matrices, unions of polynomial graphs, finite tuples and real
+//! univariate representations remain distinct results. Every attempt uses the
+//! same generator/verifier meters. Algebraic data reaches a complex-domain
 //! caller only after the complete root count proves that every root is real.
 
 use crate::expr::PyExpr;
@@ -15,13 +15,15 @@ use fsym_solvers::SolverError;
 use fsym_solvers::polynomial_components::{
     PolynomialComponentsOutcome, metered_polynomial_components_system,
 };
-use fsym_solvers::real_polysys::metered_solve_real_shape_system;
+use fsym_solvers::real_rur::metered_solve_real_rur_system;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 /// Immutable bridge data constructed only by the checked dispatcher.
-/// `finite` and `family` use solutions; `real_shape` uses ascending rational
-/// coefficient vectors and the checked distinct-root multiplicities.
+/// `finite` and `family` use solutions; `real_shape` and `real_rur` use ascending
+/// rational coefficient vectors and the checked distinct-root multiplicities.
+/// In `real_rur` every coordinate is a polynomial in a bound separator, which
+/// need not equal any original solve variable.
 #[pyclass(name = "PolynomialSystemResult", module = "fsym_python", frozen)]
 pub struct PyPolynomialSystemResult {
     #[pyo3(get)]
@@ -224,34 +226,46 @@ pub fn polynomial_system_solutions_native(
                 fsym_solvers::polysys::sort_solutions(solutions),
             ));
         }
-        // Only an unsupported exact root formula triggers the shape route.
+        // Only an unsupported exact root formula triggers the algebraic route.
         // Resource, cancellation and undecided-verification errors propagate.
         Err(error @ SolverError::UnsupportedDegree(_)) => error,
         Err(error) => return Err(to_value_error(error)),
     };
-    let Some(shape) =
-        metered_solve_real_shape_system(&expressions, &variables, &mut generator, &mut verifier)
+    let Some(representation) =
+        metered_solve_real_rur_system(&expressions, &variables, &mut generator, &mut verifier)
             .map_err(to_value_error)?
     else {
         return Err(to_value_error(explicit_error));
     };
-    if !shape.all_complex_roots_real() {
+    if !representation.all_complex_roots_real() {
         return Err(to_value_error(explicit_error));
     }
-    let cells = shape.eliminant().len() + shape.coordinates().iter().map(Vec::len).sum::<usize>();
+    let cells = representation.eliminant().len()
+        + representation
+            .coordinates()
+            .iter()
+            .map(Vec::len)
+            .sum::<usize>();
     charge(&mut generator, cells, cells * 2048)?;
     charge(&mut verifier, 1, 1)?;
+    let zero = BigRational::from(0_i64);
+    let original_shape = representation.shear().iter().all(|value| value == &zero);
     Ok(PyPolynomialSystemResult {
-        kind: "real_shape".into(),
+        kind: if original_shape {
+            "real_shape"
+        } else {
+            "real_rur"
+        }
+        .into(),
         solutions: Vec::new(),
-        eliminant: shape
+        eliminant: representation
             .eliminant()
             .iter()
             .cloned()
             .map(rational_to_expr)
             .map(PyExpr::from_expr)
             .collect(),
-        coordinates: shape
+        coordinates: representation
             .coordinates()
             .iter()
             .map(|coordinate| {
@@ -263,7 +277,7 @@ pub fn polynomial_system_solutions_native(
                     .collect()
             })
             .collect(),
-        multiplicities: shape
+        multiplicities: representation
             .roots()
             .intervals()
             .iter()

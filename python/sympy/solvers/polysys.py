@@ -116,7 +116,7 @@ def _checked_polynomial_solutions(wrapped_eqs, syms, *, allow_families):
             tuple(_lift_native_result(val, *wrapped_eqs, *syms) for val in sol)
             for sol in result.solutions
         ]
-    if result.kind != "real_shape":
+    if result.kind not in ("real_shape", "real_rur"):
         raise ValueError("unrecognized native polynomial-system outcome")
 
     from ..polys.polytools import Poly
@@ -131,11 +131,12 @@ def _checked_polynomial_solutions(wrapped_eqs, syms, *, allow_families):
             value = value * parameter + coefficient
         return value
 
-    # The native shape checker proves both solution directions and proves
-    # that every complex eliminant root is real before returning this kind.
+    # The native representation proves both solution directions and proves
+    # that every complex eliminant root is real before returning either kind.
     # The existing root bridge independently checks factor/index association.
     # No binary64 proximity chooses a root or decides completeness.
-    eliminant = Poly(horner(coefficients(result.eliminant), syms[-1]), syms[-1])
+    parameter = syms[-1] if result.kind == "real_shape" else Dummy("_fsym_rur_parameter")
+    eliminant = Poly(horner(coefficients(result.eliminant), parameter), parameter)
     roots = real_roots(eliminant, multiple=False, radicals=False)
     if [int(multiplicity) for _, multiplicity in roots] != list(result.multiplicities):
         raise ValueError("algebraic root lifting disagrees with the checked complete root set")
@@ -151,8 +152,9 @@ def solve_poly_system(
     """Return complete finite solutions of exact rational polynomial systems.
 
     Tuples follow the supplied generator order; ``None`` denotes an established
-    empty set. Explicit root formulas are preferred. Higher-degree shape systems
-    whose eliminant roots are all real use exact indexed algebraic roots.
+    empty set. Explicit root formulas are preferred. Bounded higher-degree
+    systems use exact indexed algebraic roots when a checked original-coordinate
+    or separating-linear-form representation has only real eliminant roots.
     Unsupported, positive-dimensional and undecidable systems raise rather than
     returning an empty or partial answer.
     """
@@ -166,7 +168,7 @@ def nonlinsolve(system: Iterable[Any], *symbols: Any) -> Set:
     Affine and recognized polynomial graph systems include complete families
     parameterized by the supplied free symbols. Checked factor splits also
     return complete unions of such families. Finite systems use explicit roots
-    or checked real algebraic shape representations. Other unsupported
+    or checked real algebraic univariate representations. Other unsupported
     positive-dimensional systems remain explicit refusals.
     """
     wrapped_eqs, syms = _polynomial_system_inputs(system, symbols)

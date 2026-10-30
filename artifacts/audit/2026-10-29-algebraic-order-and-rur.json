@@ -1,0 +1,173 @@
+{
+  "schema_version": 1,
+  "session_date": "2026-10-29",
+  "timezone": "America/New_York",
+  "repository": "Dicklesworthstone/frankensympy",
+  "branch": "main",
+  "base_commit": "339aac76cc7a89df4d2ff0f7e795e289247c865c",
+  "prior_progress": "artifacts/audit/2026-10-30-components-and-algebraic-values.json",
+  "scope": "Exact algebraic order/sign decisions and complete bounded finite-system representations through separating linear forms",
+  "verified_remote_commits": {
+    "native_root_comparison": "89cb7c5720187eff1b1cd14544a9e24395e3caad",
+    "public_algebraic_comparisons": "a6a8ec38d10d95a88becc98c89f7ce24a2d93e1d",
+    "native_rational_univariate_systems": "415a0eb86f383403cc5877e6d0b8298677256f64"
+  },
+  "implementation": [
+    "Compare selected real roots of different, reducible, repeated or scaled exact rational polynomials. Check both complete original isolation certificates and multiplicities; prove equality by a gcd root in the selected interval intersection, or strict order by disjoint exact intervals.",
+    "Retain both original coefficient lists and indices in an immutable accepted comparison. Share intrinsic and caller budgets across all isolation, refinement and acceptance calls, with final publication checkpoints.",
+    "Expose exact root comparison and one-root rational-expression sign through assumptions, Eq/Ne/order relations, Min/Max and existing assumption consumers. Genuine-root refusals cannot enter the floating comparison fallback.",
+    "Preserve held source-domain obligations, including the independently discovered multi-root structural zero-power case; custom CRootOf subclasses do not acquire built-in admission.",
+    "Try original-coordinate shape and seven deterministic bounded separating shears. Generate sheared finite ideals in DegRevLex and convert through independently checked FGLM to Lex shape.",
+    "Retain and bind both accepted basis receipts, independently reconstruct every original equation by inverse substitution, check coordinate recovery and every original residual modulo the eliminant.",
+    "Lift arbitrary original-order coordinate polynomials through a fresh bound Dummy for real_rur, retain real_shape for zero shear, and require the complete real multiplicity count to exhaust eliminant degree before complex-domain public publication."
+  ],
+  "executed_successes": [
+    {
+      "command": "cargo test --locked --offline -p fsym-core --test real_root_comparison -j 1",
+      "exit_code": 0,
+      "passed": 15,
+      "failed": 0
+    },
+    {
+      "command": "cargo test --locked --offline -p fsym-core --test real_root_isolation -j 1",
+      "exit_code": 0,
+      "passed": 10,
+      "failed": 0
+    },
+    {
+      "command": "cargo clippy --locked --offline -p fsym-core --lib --test real_root_comparison -j 1 -- -D warnings",
+      "exit_code": 0,
+      "diagnostics": 0
+    },
+    {
+      "command": "cargo test --locked --offline -p fsym-solvers --test real_rur -j 1",
+      "exit_code": 0,
+      "passed": 15,
+      "failed": 0
+    },
+    {
+      "command": "cargo test --locked --offline -p fsym-solvers --lib -j 1",
+      "exit_code": 0,
+      "passed": 57,
+      "failed": 0,
+      "note": "Includes all three new RUR adversarial binding suites."
+    },
+    {
+      "command": "cargo test --locked --offline -p fsym-solvers --test real_polysys -j 1",
+      "exit_code": 0,
+      "passed": 14,
+      "failed": 0
+    },
+    {
+      "command": "cargo clippy --locked --offline -p fsym-solvers --lib --test real_rur -j 1 -- -D warnings",
+      "exit_code": 0,
+      "diagnostics": 0
+    },
+    {
+      "command": "cargo fmt --check",
+      "exit_code": 0
+    },
+    {
+      "command": "Python ast.parse for all changed public modules and both new public regression files",
+      "exit_code": 0,
+      "note": "Syntax only; not runtime validation."
+    }
+  ],
+  "resolved_failures": [
+    {
+      "command": "cargo test --locked --offline -p fsym-solvers --test real_rur -j 1",
+      "exit_code": 101,
+      "passed": 14,
+      "failed": 1,
+      "test": "quintic_times_quadratic_has_ten_exact_real_solutions",
+      "reason": "Direct Lex generation for shear 1 exhausted the existing 20,000,000-unit PolynomialWork cap. A focused diagnostic retry measured 20,050,208 cumulative generator units at that failure.",
+      "resolution": "Replace direct sheared Lex generation with checked DegRevLex generation and checked FGLM order conversion, retaining the complete intermediate receipt chain. All 15 unchanged integration cases then passed within unchanged caps."
+    },
+    {
+      "stage": "Independent static public comparison review",
+      "finding": "Unsupported multiple-root arithmetic could reach a structural zeroth-power sign rule without preserving its nonzero-base obligation.",
+      "resolution": "Preserve an algebraic-source flag and require known nonzero base before that structural rule; add the held multi-root zero-power regression."
+    },
+    {
+      "stage": "Independent RUR resource review",
+      "finding": "Reference inverse substitution duplicated an already charged canonical coefficient map.",
+      "resolution": "Move the canonical map into the checked polynomial instead of allocating a duplicate; mathematical checks unchanged."
+    }
+  ],
+  "evidence_cases": {
+    "comparison": [
+      "Irrational roots separated at roughly 2^-256",
+      "Rational roots separated by 2^-300",
+      "Equal roots of different/repeated polynomials",
+      "Overlapping intervals containing distinct roots of a common polynomial",
+      "Original coefficient/index rebinding and malformed order witnesses",
+      "Actual budget refusal and both cancellation lanes through publication"
+    ],
+    "finite_systems": [
+      "Hand-derived quadratic-product coordinates",
+      "Ten real points of an irreducible quintic times a quadratic, with an independently derived norm eliminant",
+      "Four- and nine-point grids requiring later noncolliding forms",
+      "Eight-variable ring capacity and typed same-name identities",
+      "Nonreal completeness, monogenic multiplicities and honest nonmonogenic refusal",
+      "Missing/unrelated/circular intermediate receipts and same-ideal receipts rebound to different source equations",
+      "A valid point rejected as an incomplete system representation"
+    ]
+  },
+  "validation_environment": {
+    "toolchain": "nightly-2026-08-20",
+    "rustc": "1.100.0-nightly (f7d782a3b 2026-08-19)",
+    "cargo_jobs": 1,
+    "cargo_incremental": 0,
+    "dev_debug": 0,
+    "test_debug": 0,
+    "dependency_manifests_changed": false,
+    "cargo_lock_changed": false,
+    "compiler_flags_changed": false,
+    "budgets_or_gates_weakened": false
+  },
+  "public_regressions": {
+    "algebraic_comparison_cases": 16,
+    "separating_system_cases": 10,
+    "runtime_executed": false,
+    "static_independent_review": "completed",
+    "reason": "The existing full extension build is blocked in Asupersync under the shared memory limit, before bridge type checking. It was not retried in this continuation; no scoped substitute extension was used."
+  },
+  "outstanding_validation": [
+    "Actual full Python-extension compilation/import and public regression execution remain open.",
+    "Full workspace check/test/Clippy and frozen-profile differential gates were not rerun or promoted; prior broader blockers remain in the preceding audit.",
+    "The previously rejected donor-source cache relocation was not retried. No source cache was moved or deleted."
+  ],
+  "scope_limits": [
+    "Root comparison admits degree at most 64 and 4096-bit input coefficients, with separate cumulative 100M-compute/256MiB lanes and at most 32768 additional bisections across both roots.",
+    "Rational-expression sign uses one distinct real root. Direct comparisons may use two distinct defining polynomials; general multiple-root arithmetic remains outside that evaluator.",
+    "RUR uses at most eight variables, 64 equations, a quotient dimension at most 64 and seven bounded shear choices; some finite nonmonogenic/nonradical ideals and unsuccessful separating searches remain unsupported.",
+    "RUR retains 200M-compute/512MiB cumulative outer lanes and unchanged nested polynomial/root caps. Resource failures and recognition misses never become empty or partial answers.",
+    "The native RUR receipt is complete over the reals; public complex-domain solving accepts it only when all complex eliminant roots are proved real.",
+    "No minimal-polynomial, general complex-algebraic isolation, broad compatibility, benchmark win or whole-workstream certification is claimed."
+  ],
+  "work_graph": {
+    "affected_workstreams": [
+      "WS11",
+      "WS17",
+      "WS19"
+    ],
+    "beads_closed": [],
+    "profile_or_claim_gates_promoted": false
+  },
+  "source_sha256": {
+    "crates/fsym-core/src/real_roots.rs": "a29dc294dff444fa39e0ddfabac9efed41546a116388975f2ef8ac04550a257f",
+    "crates/fsym-core/src/real_roots/comparison.rs": "d5ea6dcd05d8f1fd7dda1d9d06f49f8f80d76aeae1294945b1a55c18d8dc412e",
+    "crates/fsym-core/tests/real_root_comparison.rs": "b6431532fda15ae103f085a788619f716ff9c80fe168a57154e3e283048606f4",
+    "crates/fsym-solvers/src/lib.rs": "59cc7ec54316f82a0049ba0085e43f37970fc5e29c85feeafe3f5ffb5b214e89",
+    "crates/fsym-solvers/src/real_rur.rs": "7209317722f115910228be8c4201f9ec742e5a339e33da7d0d2ed4ba46ab70dc",
+    "crates/fsym-solvers/tests/real_rur.rs": "ae2cde5deaa14d269f3b12fbc5cf2edfaa8f8300fff08d202a67654aad85ecb8",
+    "crates/fsym-python/src/algebraic_roots.rs": "0c962ca407aa1287d41bb70c8e3222eabc76ee9e09bcdec2c98ff3d4ad11c3de",
+    "crates/fsym-python/src/lib.rs": "e839ba0f147da0f3c1eb6ea782993dd57755d7f3c2c503bba4d7f039471bac08",
+    "python/sympy/core/__init__.py": "1b0c1074fd0e60ddcb37097d80ccc51b7e4a9c21143252131583c4656ffcd030",
+    "python/sympy/polys/rootoftools.py": "a06c374c350250a29ec904566baba3bf993172df69cac1453b679726197ddc84",
+    "python/tests/test_algebraic_comparison.py": "8dcff6273bcc17363e465f4e27dc66685af8af2e2e979a1199c992e5e8f5e3d6",
+    "crates/fsym-python/src/polynomial_systems.rs": "f61bb1aa5e4401d272136e7b99cb8643d71c5adac8e86c9b259d8336ef1f5ebf",
+    "python/sympy/solvers/polysys.py": "93f60ff4158beaed4e303b17626d0d8c8920012e29be0afcec345b0d908d7c34",
+    "python/tests/test_polynomial_rur.py": "4118a7b682369206de7cc1525b2e5661806d0bb6e7db2534a9662c5bc3d3b6bc"
+  }
+}
