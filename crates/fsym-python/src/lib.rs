@@ -1911,6 +1911,7 @@ pub mod logic;
 pub mod matrix;
 pub mod ntheory;
 pub mod numeric;
+mod polynomial_systems;
 mod quadrature;
 mod real_inequality;
 pub mod sets;
@@ -2108,6 +2109,11 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(verify_exact_ode_potential_native, m)?)?;
     m.add_function(wrap_pyfunction!(solve_polynomial_system_native, m)?)?;
     m.add_function(wrap_pyfunction!(polynomial_affine_matrix_native, m)?)?;
+    m.add_class::<polynomial_systems::PyPolynomialSystemResult>()?;
+    m.add_function(wrap_pyfunction!(
+        polynomial_systems::polynomial_system_solutions_native,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(poly_coeffs_native, m)?)?;
     m.add_function(wrap_pyfunction!(poly_degree_native, m)?)?;
     m.add_function(wrap_pyfunction!(poly_multivariate_degree_native, m)?)?;

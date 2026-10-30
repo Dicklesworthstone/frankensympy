@@ -1,0 +1,152 @@
+{
+  "schema_version": 1,
+  "session_date": "2026-10-29",
+  "scope": "Exact polynomial graph families and complete all-real rational-univariate system representations",
+  "repository": "Dicklesworthstone/frankensympy",
+  "branch": "main",
+  "prior_progress": "artifacts/audit/2026-10-29-polynomial-systems-progress.json",
+  "base_commit": "eab22d2ed5394fb7f4310556e82f9644302052c8",
+  "verified_remote_feature_commits": {
+    "real_shape_systems": "0e4853bad6b87fc6fe325f1bef02fd62217ed4bd",
+    "polynomial_graph_families": "556c87899708a229ec397191de0dfa0ccad36342",
+    "algebraic_root_binding": "86da91de540b4c0da4483c8f6dd1aea3c6824c52"
+  },
+  "implementation": [
+    "Recognize x_i=q_i(t), p(t)=0 from independently checked reduced lexicographic Groebner bases; separately reconstruct and verify the representation before verified real-root isolation.",
+    "Require total real multiplicity to equal eliminant degree before a complex-domain public caller receives an all-real shape solution set.",
+    "Recognize complete polynomial graph families, try bounded deterministic variable orders, independently reconstruct every published coordinate, and preserve caller order and typed free-symbol identity.",
+    "Route native affine matrices, polynomial graphs, explicit finite solutions and higher-degree all-real shape fallback through the same cumulative generator and verifier budgets.",
+    "Keep genuine built-in CRootOf generators bound through composite free-symbol discovery, supervised substitution and symbolic differentiation; same-name user classes do not acquire binder semantics.",
+    "Lift public nonlinsolve tuples from the actual core Tuple export and preserve established empty-input conventions."
+  ],
+  "validation_environment": {
+    "toolchain": "nightly-2026-08-20",
+    "rustc": "1.100.0-nightly (f7d782a3b 2026-08-19)",
+    "cargo_lock_changed": false,
+    "dependency_manifests_changed": false,
+    "cargo_jobs": 1,
+    "cargo_incremental": 0,
+    "dev_debug": 0,
+    "test_debug": 0,
+    "resource_blocker": "Both shared build tmpfs and overlay storage exhausted. No manual file deletions; byte-preserving sparse-zero reclamation retained file contents."
+  },
+  "executed_successes": [
+    {
+      "command": "cargo test --locked --offline -p fsym-solvers --test polynomial_system -j 1",
+      "exit_code": 0,
+      "passed": 12,
+      "failed": 0,
+      "note": "Recovered prior blocked integration target before the new graph module was added."
+    },
+    {
+      "command": "cargo test --locked --offline -p fsym-solvers --lib -j 1",
+      "exit_code": 0,
+      "passed": 50,
+      "failed": 0,
+      "note": "Prior solver library before new module exports; the later updated-library retry was blocked."
+    },
+    {
+      "command": "cargo test --locked --offline -p fsym-solvers --test real_polysys -j 1",
+      "exit_code": 0,
+      "passed": 14,
+      "failed": 0,
+      "source_sha256": "1ecf11b61f5192b45bc98cd84e2b58024603aedf468fd5727180277c670790b0",
+      "tests_sha256": "39047c079d0c0cdd87d51067bb02bce5d08ef1bf2bf2d8c6b8d0998df1196256"
+    },
+    {
+      "command": "cargo fmt --check",
+      "exit_code": 0
+    },
+    {
+      "command": "cargo fmt -p fsym-solvers -p fsym-python --check",
+      "exit_code": 0
+    },
+    {
+      "command": "Python ast.parse for changed public modules and four polynomial/root regression files",
+      "exit_code": 0,
+      "note": "Syntax only; no runtime or compatibility claim."
+    }
+  ],
+  "blocked_validation": [
+    {
+      "command": "cargo test --locked --offline -p fsym-solvers --test polynomial_graph -j 1",
+      "exit_code": 101,
+      "executed_tests": 0,
+      "reason": "Initial target reached linking and linker SIGBUS; retry failed writing fsym-calculus archive with ENOSPC."
+    },
+    {
+      "command": "cargo test --locked --offline -p fsym-solvers --lib -j 1 (after new module exports)",
+      "exit_code": 101,
+      "executed_tests": 0,
+      "reason": "fsym-calculus archive write failed with ENOSPC."
+    },
+    {
+      "command": "cargo check --locked -p fsym-python --lib -j 1",
+      "exit_code": 101,
+      "reason": "Dependency fetch advanced past prior PyO3 unpacking failure; syn full.rmeta write failed with ENOSPC before the bridge was type-checked."
+    },
+    {
+      "command": "cargo check --workspace --all-targets --locked --offline -j 1",
+      "exit_code": 101,
+      "reason": "indexmap v2.14.0 absent from dependency cache; offline request refused before compilation."
+    },
+    {
+      "command": "cargo clippy --workspace --all-targets --locked --offline -j 1 -- -D warnings",
+      "exit_code": 101,
+      "reason": "Same missing indexmap v2.14.0; no Clippy diagnostics."
+    },
+    {
+      "command": "cargo test --workspace --locked --offline -j 1",
+      "exit_code": 101,
+      "executed_tests": 0,
+      "reason": "Same missing indexmap v2.14.0."
+    },
+    {
+      "command": "Python extension regression execution",
+      "status": "not_run",
+      "reason": "No rebuilt importable native extension; public changes received static review and syntax checks only."
+    }
+  ],
+  "additional_check": {
+    "command": "cargo fmt --all --check",
+    "exit_code": 1,
+    "note": "Broader check traversed external path-dependency sources and reported their formatting differences plus one local helper signature. Only the local signature was formatted; subsequent exact repository cargo fmt --check passed."
+  },
+  "new_test_inventory": {
+    "real_shape_native_integration": 14,
+    "polynomial_graph_native_integration": 14,
+    "polynomial_graph_internal_coordinate_mutation": 1,
+    "public_extensions_python_cases": 18,
+    "algebraic_root_binding_python_cases": 13
+  },
+  "remaining_limits": [
+    "Exact rational polynomial sources only, at most eight variables and 64 equations; shape eliminants at most degree 64 and checked coefficient/resource bounds apply.",
+    "General nonlinear positive-dimensional decomposition and non-shape finite systems remain unsupported; non-applicability is not an empty answer.",
+    "Higher-degree systems with nonreal eliminant roots are refused by this public shape route; no complete complex-algebraic isolation claim.",
+    "General enclosure-propagating numerical evaluation of algebraic-root composites remains unimplemented.",
+    "Full workspace, actual public Python execution, differential compatibility, registered mutation gates and profile certification remain open."
+  ],
+  "work_graph": {
+    "affected_workstreams": [
+      "WS08",
+      "WS17",
+      "WS19"
+    ],
+    "beads_closed": [],
+    "profile_or_claim_gates_promoted": false
+  },
+  "source_sha256": {
+    "crates/fsym-solvers/src/real_polysys.rs": "1ecf11b61f5192b45bc98cd84e2b58024603aedf468fd5727180277c670790b0",
+    "crates/fsym-solvers/tests/real_polysys.rs": "39047c079d0c0cdd87d51067bb02bce5d08ef1bf2bf2d8c6b8d0998df1196256",
+    "crates/fsym-solvers/src/polynomial_graph.rs": "bc9be719076ff301cf109f3ec69dae3e1fc73ba043e0179847b8b89c5f20f4a3",
+    "crates/fsym-solvers/tests/polynomial_graph.rs": "9e08018077f7e54ec91f16ca4e0be4f34a405dbd40a4e848e20ab1750fb23cd4",
+    "crates/fsym-solvers/src/lib.rs": "729f5b5332757e1abd6b5ecb37abc606f9007415970e02ae5ff47e1903810701",
+    "crates/fsym-python/src/polynomial_systems.rs": "f62fbf5b672be1feb9ec26d6b7e4f9d5e00a014ca90249651ede6b52f6dee460",
+    "crates/fsym-python/src/lib.rs": "945d46f714d5be3833e1cc6be9e980372cace8115db2d3b142f9fa852eb7c620",
+    "python/sympy/solvers/polysys.py": "a23debb7f8b73d7ec7974cac00b8e13aecc3d7e4ae41185f905f11baba1ea17d",
+    "python/sympy/core/__init__.py": "5f77137a13ea86b623c21bb1205eea7cadcbe22c45b486410b5b639404724e16",
+    "python/sympy/polys/rootoftools.py": "a94aa749f8bd4e6fb2b6278aa630a8b884b2819be4e96764b64204b3ac13876c",
+    "python/tests/test_polynomial_system_extensions.py": "9d0b4bc4a28b560e722e15f9cb2a82a377e77235e3af0fe39184bdaeaca26ee9",
+    "python/tests/test_algebraic_root_binding.py": "952edcff52b5618e2f553e47856c8f43444d661e543a025356ec2dd8935a3380"
+  }
+}

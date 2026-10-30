@@ -88,76 +88,93 @@ def _polynomial_system_inputs(seq, gens):
     return wrapped_eqs, syms
 
 
-def solve_poly_system(
-    seq: Iterable[Any], *gens: Any
-) -> Optional[List[Tuple[Any, ...]]]:
-    """Solve a system of polynomial equations using Lexicographical Groebner bases.
-
-    Parameters
-    ----------
-    seq : iterable of Expr or Eq
-        The polynomial equations or expressions to solve.
-    *gens : Symbol or Sequence of Symbol
-        The generator variables to solve for.
-
-    Returns
-    -------
-    list of tuple or None
-        Complete list of solution tuples corresponding to the ordered
-        generators, or ``None`` for an established empty solution set.
-        Unsupported, positive-dimensional and undecidable systems raise;
-        they are never represented as an empty or partial answer.
-    """
-    wrapped_eqs, syms = _polynomial_system_inputs(seq, gens)
+def _checked_polynomial_solutions(wrapped_eqs, syms, *, allow_families):
+    """Lift one native outcome without restarting a failed algorithm's budget."""
     if not syms:
         # Validate constant sources through the same bounded native path.
         # Structural inequality with zero cannot decide a held identity, and
         # an undefined held constant must not masquerade as inconsistency.
         syms = [Dummy("_fsym_constant_system")]
+        allow_families = False
     try:
-        raw_sols = _native.solve_polynomial_system_native(
-            [_native_expr(eq) for eq in wrapped_eqs], [_symbol_binding(v) for v in syms]
+        result = _native.polynomial_system_solutions_native(
+            [_native_expr(eq) for eq in wrapped_eqs],
+            [_symbol_binding(v) for v in syms],
+            allow_families,
         )
     except ValueError as e:
         msg = str(e)
         if "No solution" in msg:
-            return None
+            return []
         if "Infinite solutions" in msg:
             raise NotImplementedError(
-                "only zero-dimensional systems supported (finite number of solutions)"
+                "this positive-dimensional system has no supported complete parameterization"
             ) from None
         raise
-    if not raw_sols:
-        return None
-    return [
-        tuple(_lift_native_result(val, *wrapped_eqs, *syms) for val in sol)
-        for sol in raw_sols
-    ]
+    if result.kind in ("finite", "family"):
+        return [
+            tuple(_lift_native_result(val, *wrapped_eqs, *syms) for val in sol)
+            for sol in result.solutions
+        ]
+    if result.kind != "real_shape":
+        raise ValueError("unrecognized native polynomial-system outcome")
+
+    from ..polys.polytools import Poly
+    from ..polys.rootoftools import real_roots
+
+    def coefficients(values):
+        return [_lift_native_result(value) for value in values]
+
+    def horner(values, parameter):
+        value = Integer(0)
+        for coefficient in reversed(values):
+            value = value * parameter + coefficient
+        return value
+
+    # The native shape checker proves both solution directions and proves
+    # that every complex eliminant root is real before returning this kind.
+    # The existing root bridge independently checks factor/index association.
+    # No binary64 proximity chooses a root or decides completeness.
+    eliminant = Poly(horner(coefficients(result.eliminant), syms[-1]), syms[-1])
+    roots = real_roots(eliminant, multiple=False, radicals=False)
+    if [int(multiplicity) for _, multiplicity in roots] != list(result.multiplicities):
+        raise ValueError("algebraic root lifting disagrees with the checked complete root set")
+    coordinates = [coefficients(values) for values in result.coordinates]
+    if len(coordinates) != len(syms):
+        raise ValueError("algebraic coordinate count does not match the checked system")
+    return [tuple(horner(values, root) for values in coordinates) for root, _ in roots]
+
+
+def solve_poly_system(
+    seq: Iterable[Any], *gens: Any
+) -> Optional[List[Tuple[Any, ...]]]:
+    """Return complete finite solutions of exact rational polynomial systems.
+
+    Tuples follow the supplied generator order; ``None`` denotes an established
+    empty set. Explicit root formulas are preferred. Higher-degree shape systems
+    whose eliminant roots are all real use exact indexed algebraic roots.
+    Unsupported, positive-dimensional and undecidable systems raise rather than
+    returning an empty or partial answer.
+    """
+    wrapped_eqs, syms = _polynomial_system_inputs(seq, gens)
+    return _checked_polynomial_solutions(wrapped_eqs, syms, allow_families=False) or None
 
 
 def nonlinsolve(system: Iterable[Any], *symbols: Any) -> Set:
     """Solve exact rational polynomial systems as sets of solution tuples.
 
-    Affine systems include complete families parameterized by the supplied
-    free symbols. Other admitted systems use the complete finite solver;
-    unsupported positive-dimensional nonlinear systems remain explicit refusals.
+    Affine and recognized polynomial graph systems include complete families
+    parameterized by the supplied free symbols. Finite systems use explicit
+    roots or checked real algebraic shape representations. Other unsupported
+    positive-dimensional systems remain explicit refusals.
     """
     wrapped_eqs, syms = _polynomial_system_inputs(system, symbols)
-    if syms:
-        rows = _native.polynomial_affine_matrix_native(
-            [_native_expr(eq) for eq in wrapped_eqs], [_symbol_binding(v) for v in syms]
-        )
-        if rows is not None:
-            from ..matrices import Matrix
-            from .solvers import linsolve
-
-            # Rational rows go directly to the independent affine checker.
-            # No generic expansion, symbolic pivoting, or printer extraction.
-            return linsolve(Matrix(rows), *syms)
-    sols = solve_poly_system(wrapped_eqs, *syms)
+    sols = _checked_polynomial_solutions(wrapped_eqs, syms, allow_families=True)
     if not sols:
         return EmptySet()
-    return FiniteSet(*sols)
+    from ..core import Tuple as SymTuple
+
+    return FiniteSet(*(SymTuple(*solution) for solution in sols))
 
 
 __all__ = [
