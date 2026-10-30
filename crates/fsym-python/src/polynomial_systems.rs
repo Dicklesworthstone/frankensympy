@@ -1,6 +1,6 @@
 //! Shared-budget dispatch for exact polynomial solution sets.
 //!
-//! Affine matrices, unions of polynomial graphs, finite tuples and real
+//! Affine matrices, unions of polynomial/rational graphs, finite tuples and real
 //! univariate representations remain distinct results. Every attempt uses the
 //! same generator/verifier meters. Algebraic data reaches a complex-domain
 //! caller only after the complete root count proves that every root is real.
@@ -13,9 +13,8 @@ use fsym_polys::{MultivariatePoly, bounded_polynomial_from_expr};
 use fsym_runtime::{Budget, BudgetLimits, Dimension};
 use fsym_solvers::SolverError;
 use fsym_solvers::polynomial_components::{
-    PolynomialComponentsOutcome, metered_polynomial_components_system,
+    PolynomialComponentsOutcome, metered_rational_components_system,
 };
-use fsym_solvers::rational_graph::{RationalGraphOutcome, metered_rational_graph_system};
 use fsym_solvers::real_rur::metered_solve_real_rur_system;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -27,6 +26,7 @@ use pyo3::prelude::*;
 /// need not equal any original solve variable.
 /// `rational_family` retains separate polynomial numerators, denominators and
 /// all required nonzero conditions so surface lifting cannot erase a pole.
+/// `rational_families` carries these same parts separately for every component.
 #[pyclass(name = "PolynomialSystemResult", module = "fsym_python", frozen)]
 pub struct PyPolynomialSystemResult {
     #[pyo3(get)]
@@ -45,6 +45,12 @@ pub struct PyPolynomialSystemResult {
     denominators: Vec<PyExpr>,
     #[pyo3(get)]
     nonzero_conditions: Vec<PyExpr>,
+    #[pyo3(get)]
+    family_numerators: Vec<Vec<PyExpr>>,
+    #[pyo3(get)]
+    family_denominators: Vec<Vec<PyExpr>>,
+    #[pyo3(get)]
+    family_nonzero_conditions: Vec<Vec<PyExpr>>,
 }
 
 fn rows(kind: &str, values: Vec<Vec<Expr>>) -> PyPolynomialSystemResult {
@@ -60,6 +66,9 @@ fn rows(kind: &str, values: Vec<Vec<Expr>>) -> PyPolynomialSystemResult {
         numerators: Vec::new(),
         denominators: Vec::new(),
         nonzero_conditions: Vec::new(),
+        family_numerators: Vec::new(),
+        family_denominators: Vec::new(),
+        family_nonzero_conditions: Vec::new(),
     }
 }
 
@@ -209,7 +218,7 @@ pub fn polynomial_system_solutions_native(
         return checked_affine(&polys, &variables, &mut generator, &mut verifier);
     }
     if allow_families {
-        match metered_polynomial_components_system(
+        match metered_rational_components_system(
             &expressions,
             &variables,
             &mut generator,
@@ -219,6 +228,40 @@ pub fn polynomial_system_solutions_native(
         {
             PolynomialComponentsOutcome::Empty => return Ok(rows("finite", Vec::new())),
             PolynomialComponentsOutcome::Families(families) => {
+                if families
+                    .families()
+                    .iter()
+                    .any(|family| family.is_rational())
+                {
+                    let parts = families.into_parts();
+                    let mut result = rows("rational_families", Vec::new());
+                    if parts.len() == 1 {
+                        // Preserve the established single-family bridge shape.
+                        let (numerators, denominators, conditions) =
+                            parts.into_iter().next().expect("one checked component");
+                        result.kind = "rational_family".into();
+                        result.numerators = numerators.into_iter().map(PyExpr::from_expr).collect();
+                        result.denominators =
+                            denominators.into_iter().map(PyExpr::from_expr).collect();
+                        result.nonzero_conditions =
+                            conditions.into_iter().map(PyExpr::from_expr).collect();
+                    } else {
+                        // Each component retains its own domain. Combining
+                        // guards globally could wrongly remove another branch.
+                        for (numerators, denominators, conditions) in parts {
+                            result
+                                .family_numerators
+                                .push(numerators.into_iter().map(PyExpr::from_expr).collect());
+                            result
+                                .family_denominators
+                                .push(denominators.into_iter().map(PyExpr::from_expr).collect());
+                            result
+                                .family_nonzero_conditions
+                                .push(conditions.into_iter().map(PyExpr::from_expr).collect());
+                        }
+                    }
+                    return Ok(result);
+                }
                 // Transfer already checked and charged coordinates without
                 // duplicating exact coefficients or typed symbol names.
                 return Ok(rows("family", families.into_values()));
@@ -238,33 +281,9 @@ pub fn polynomial_system_solutions_native(
                 fsym_solvers::polysys::sort_solutions(solutions),
             ));
         }
-        Err(error @ SolverError::InfiniteSolutions) if allow_families => {
-            // A complete rational chart is an alternative to the finite
-            // solver's explicit positive-dimensional outcome. Finite systems
-            // do not pay for another family search, and failures never reset
-            // either meter or turn into a different algorithm's success.
-            match metered_rational_graph_system(
-                &expressions,
-                &variables,
-                &mut generator,
-                &mut verifier,
-            )
-            .map_err(to_value_error)?
-            {
-                RationalGraphOutcome::Empty => return Ok(rows("finite", Vec::new())),
-                RationalGraphOutcome::Family(family) => {
-                    let (numerators, denominators, conditions) = family.into_parts();
-                    let mut result = rows("rational_family", Vec::new());
-                    // Transfer already charged, checked expression parts.
-                    result.numerators = numerators.into_iter().map(PyExpr::from_expr).collect();
-                    result.denominators = denominators.into_iter().map(PyExpr::from_expr).collect();
-                    result.nonzero_conditions =
-                        conditions.into_iter().map(PyExpr::from_expr).collect();
-                    return Ok(result);
-                }
-                RationalGraphOutcome::NotApplicable => return Err(to_value_error(error)),
-            }
-        }
+        // The complete component search already tried a checked rational
+        // graph for the whole original node, even after an unsupported split.
+        // Do not repeat that failed search or consume its budget twice.
         // Only an unsupported exact root formula triggers the algebraic route.
         // Resource, cancellation and undecided-verification errors propagate.
         Err(error @ SolverError::UnsupportedDegree(_)) => error,
@@ -325,5 +344,8 @@ pub fn polynomial_system_solutions_native(
         numerators: Vec::new(),
         denominators: Vec::new(),
         nonzero_conditions: Vec::new(),
+        family_numerators: Vec::new(),
+        family_denominators: Vec::new(),
+        family_nonzero_conditions: Vec::new(),
     })
 }

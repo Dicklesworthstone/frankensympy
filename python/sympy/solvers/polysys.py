@@ -117,33 +117,16 @@ def _checked_polynomial_solutions(wrapped_eqs, syms, *, allow_families):
             for sol in result.solutions
         ]
     if result.kind == "rational_family":
-        numerators = [_lift_native_result(value, *wrapped_eqs, *syms) for value in result.numerators]
-        denominators = [_lift_native_result(value, *wrapped_eqs, *syms) for value in result.denominators]
-        conditions = [_lift_native_result(value, *wrapped_eqs, *syms) for value in result.nonzero_conditions]
-        if len(numerators) != len(syms) or len(denominators) != len(syms):
-            raise ValueError("rational coordinate count does not match the checked system")
-        used_conditions = set()
-        values = []
-        for numerator, denominator in zip(numerators, denominators):
-            if denominator == Integer(1):
-                values.append(numerator)
-                continue
-            if denominator.free_symbols:
-                if denominator not in conditions:
-                    raise ValueError("rational coordinate lost its checked nonzero condition")
-                used_conditions.add(denominator)
-            else:
-                # Exact nonzero constant denominators have no parameter
-                # exclusion and can use the ordinary canonical constructor.
-                values.append(numerator / denominator)
-                continue
-            # Normal evaluation may cancel a denominator. Keep it explicitly
-            # in the tuple, whose parameter domain excludes its zeros.
-            inverse = Pow(denominator, -1, evaluate=False)
-            values.append(inverse if numerator == Integer(1) else Mul(numerator, inverse, evaluate=False))
-        if used_conditions != set(conditions):
-            raise ValueError("rational family omitted a checked parameter exclusion")
-        return [tuple(values)]
+        parts = [(result.numerators, result.denominators, result.nonzero_conditions)]
+    elif result.kind == "rational_families":
+        count = len(result.family_numerators)
+        if not 1 <= count <= 32 or len(result.family_denominators) != count or len(result.family_nonzero_conditions) != count:
+            raise ValueError("rational component count does not match the checked union")
+        parts = zip(result.family_numerators, result.family_denominators, result.family_nonzero_conditions)
+    else:
+        parts = None
+    if parts is not None:
+        return [_lift_rational_component(part, wrapped_eqs, syms) for part in parts]
     if result.kind not in ("real_shape", "real_rur"):
         raise ValueError("unrecognized native polynomial-system outcome")
 
@@ -174,6 +157,38 @@ def _checked_polynomial_solutions(wrapped_eqs, syms, *, allow_families):
     return [tuple(horner(values, root) for values in coordinates) for root, _ in roots]
 
 
+def _lift_rational_component(parts, wrapped_eqs, syms):
+    """Preserve each checked component's parameter domain independently."""
+    raw_numerators, raw_denominators, raw_conditions = parts
+    numerators = [_lift_native_result(value, *wrapped_eqs, *syms) for value in raw_numerators]
+    denominators = [_lift_native_result(value, *wrapped_eqs, *syms) for value in raw_denominators]
+    conditions = [_lift_native_result(value, *wrapped_eqs, *syms) for value in raw_conditions]
+    if len(numerators) != len(syms) or len(denominators) != len(syms):
+        raise ValueError("rational coordinate count does not match the checked system")
+    used_conditions = set()
+    values = []
+    for numerator, denominator in zip(numerators, denominators):
+        if denominator == Integer(1):
+            values.append(numerator)
+            continue
+        if denominator.free_symbols:
+            if denominator not in conditions:
+                raise ValueError("rational coordinate lost its checked nonzero condition")
+            used_conditions.add(denominator)
+        else:
+            # Exact nonzero constant denominators have no parameter
+            # exclusion and can use the ordinary canonical constructor.
+            values.append(numerator / denominator)
+            continue
+        # Normal evaluation may cancel a denominator. Keep it explicitly
+        # in the tuple, whose parameter domain excludes its zeros.
+        inverse = Pow(denominator, -1, evaluate=False)
+        values.append(inverse if numerator == Integer(1) else Mul(numerator, inverse, evaluate=False))
+    if used_conditions != set(conditions):
+        raise ValueError("rational family omitted a checked parameter exclusion")
+    return tuple(values)
+
+
 def solve_poly_system(
     seq: Iterable[Any], *gens: Any
 ) -> Optional[List[Tuple[Any, ...]]]:
@@ -197,7 +212,8 @@ def nonlinsolve(system: Iterable[Any], *symbols: Any) -> Set:
     families parameterized by the supplied free symbols. Rational coordinates
     retain their denominator exclusions; their completeness check rules out
     omitted exceptional fibers. Checked factor splits also return complete
-    unions of polynomial families. Finite systems use explicit roots
+    unions of polynomial and rational families, preserving each component's
+    parameter exclusions independently. Finite systems use explicit roots
     or checked real algebraic univariate representations. Other unsupported
     positive-dimensional systems remain explicit refusals.
     """

@@ -350,7 +350,7 @@ def _assumption_facts(symbol: "Symbol") -> tuple[tuple[str, str], ...]:
 
 _binding_cache: dict[tuple[str, tuple[tuple[str, str], ...]], Any] = {}
 _SURFACE_SYMBOL_SCOPE = "session"
-_surface_symbols: "OrderedDict[tuple[str, str], Any]" = OrderedDict()
+_surface_symbols: "OrderedDict[tuple[str, str | None], Any]" = OrderedDict()
 
 
 def _symbol_binding(symbol: "Symbol"):
@@ -415,6 +415,13 @@ def _typed_symbol_facts(*exprs: Any) -> list:
     return list(out.values())
 
 
+def _surface_binding_key(binding: Any) -> tuple[str, str | None]:
+    # Plain bindings have no semantic assumptions identity. Their constructor
+    # and native projection can expose different placeholder digests, while
+    # declared identities must retain their exact digest (including all zeroes).
+    return binding.name, None if binding.plain else binding.identity_hex
+
+
 def _register_surface_symbol(symbol: "Symbol") -> None:
     """Remember which Python object owns a typed symbol identity.
 
@@ -423,7 +430,7 @@ def _register_surface_symbol(symbol: "Symbol") -> None:
     lower/diff/lift round trip.
 
     Memory contract (declared): the registry is durable for the session and
-    keyed by typed identity `(name, identity_hex)`, so it grows with the
+    keyed by typed identity `(name, identity_hex)` (None for plain bindings), so it grows with the
     number of *distinct declared identities*, exactly like the pinned
     oracle's own unbounded Symbol cache grows with distinct declarations.
     The previous 4096-entry LRU evicted the oldest declaration, after which
@@ -437,13 +444,13 @@ def _register_surface_symbol(symbol: "Symbol") -> None:
     budgets, like the oracle's cache.
     """
     binding = _symbol_binding(symbol)
-    key = (binding.name, binding.identity_hex)
+    key = _surface_binding_key(binding)
     _surface_symbols[key] = symbol
 
 
 def _symbol_from_binding(binding: Any) -> "Symbol":
     """Restore the declared surface object for a typed native binding."""
-    registered = _surface_symbols.get((binding.name, binding.identity_hex))
+    registered = _surface_symbols.get(_surface_binding_key(binding))
     if registered is not None:
         return registered
     if binding.name.startswith("__fsymWild_"):
@@ -501,6 +508,12 @@ def _wrap(value: Any) -> "Basic":
     if value.func_name == "Symbol":
         parsed = _parse_dummy_intern_name(str(value))
         if parsed is not None:
+            # A Dummy's intern index is its native identity, but constructing
+            # another equal Dummy would lose the original Python object.
+            # Consult the same typed registry used for ordinary symbols.
+            binding = getattr(value, "symbol_binding", None)
+            if binding is not None:
+                return _symbol_from_binding(binding)
             number, name = parsed
             return Dummy._from_intern(name, number, value)
         text = str(value)
@@ -3145,6 +3158,8 @@ class Dummy(Symbol):
         self._dummy_number = number
         self._assumptions = {}
         self._value = _native.py_symbol(_dummy_intern_name(name, number))
+        if type(self) is Dummy:
+            _register_surface_symbol(self)
 
     @classmethod
     def _from_intern(cls, name: str, number: int, value: Any = None) -> "Dummy":

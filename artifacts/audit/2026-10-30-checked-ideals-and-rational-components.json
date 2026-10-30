@@ -1,0 +1,596 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-30",
+  "timezone": "Etc/UTC",
+  "repository": "Dicklesworthstone/frankensympy",
+  "baseline_main": "474f38ec859ab48de0de9a9ab5e563a668fe1c45",
+  "scope": "Complete unions of polynomial/rational graph families, checked ideal elimination/intersection/saturation, public APIs, and original Dummy object preservation.",
+  "priority_basis": {
+    "plan_sections": [
+      "20.4 Gröbner and ideals",
+      "23 Solver program / Algebraic equations"
+    ],
+    "open_beads": [
+      "fra-546",
+      "fra-7kf"
+    ],
+    "status_changes": "None. Broader workstream and profile gates remain open."
+  },
+  "verified_prior_commits": [
+    {
+      "sha": "eb3ca375e79a12f001c2796740cf42897c62efe2",
+      "parent": "474f38ec859ab48de0de9a9ab5e563a668fe1c45",
+      "title": "Solve complete unions of polynomial and rational graph components",
+      "files": [
+        "crates/fsym-solvers/src/polynomial_components.rs",
+        "crates/fsym-solvers/tests/rational_components.rs"
+      ]
+    },
+    {
+      "sha": "7cfe4528be38c1bb8d7d1f5916acb80ff733a1e2",
+      "parent": "eb3ca375e79a12f001c2796740cf42897c62efe2",
+      "title": "Implement checked ideal elimination, intersection and saturation",
+      "files": [
+        "crates/fsym-polys/src/lib.rs",
+        "crates/fsym-polys/src/ideal.rs",
+        "crates/fsym-polys/tests/ideal_operations.rs"
+      ]
+    },
+    {
+      "sha": "1b2f3a31dad9c7c69cd8b99f836004f11633f3fb",
+      "parent": "7cfe4528be38c1bb8d7d1f5916acb80ff733a1e2",
+      "title": "Expose checked elimination, intersection and saturation on GroebnerBasis",
+      "files": [
+        "crates/fsym-python/src/lib.rs",
+        "crates/fsym-python/src/ideal_operations.rs",
+        "python/sympy/polys/polytools.py",
+        "python/tests/test_checked_ideal_operations.py"
+      ]
+    }
+  ],
+  "containing_commit": "The public mixed-family integration, shared Dummy identity fix and this audit are committed together; no tracked self-SHA is asserted.",
+  "features": {
+    "mixed_components": {
+      "native_apis": [
+        "metered_rational_components_system",
+        "rational_components_system"
+      ],
+      "receipts": [
+        "VerifiedPolynomialComponents",
+        "VerifiedComponentFamily"
+      ],
+      "verification": "Retain independent exact split-product/branch-coverage checks and exact original leaf binding. Each leaf is a checked polynomial graph or a complete checked rational graph. Ideal-based containment removes only established subcomponents; unknown leaves prevent publication. A whole-node checked rational graph can recover a hidden ideal after unsupported intermediate splits.",
+      "public": "nonlinsolve transfers separate numerator/denominator/nonzero-condition rows for each component. Python validates all row widths and guards, constructs held reciprocals, and keeps each component's domain independent. Existing polynomial-only and single-rational-family bridge shapes remain. The duplicate whole-node retry is removed.",
+      "examples": [
+        "x*(x*y-1)=0 -> (0,y) union (1/y,y), with y!=0 only on the rational row",
+        "(x*y-1)*(x*(y-1)-1)=0 keeps the y and y-1 exclusions on separate rows",
+        "Independent mixed choices form the complete Cartesian union"
+      ],
+      "bounds": {
+        "variables": 8,
+        "equations": 64,
+        "tree_nodes": 63,
+        "components": 32,
+        "tree_depth": 16,
+        "compute_per_lane": 200000000,
+        "bytes_per_lane": 536870912
+      },
+      "limits": "Bounded recognized graphs and checked factor splits, not arbitrary positive-dimensional decomposition. Original reciprocal equations and general algebraic-coefficient families remain unsupported. Legacy polynomial-only entry points do not perform rational search."
+    },
+    "ideal_operations": {
+      "native_apis": [
+        "checked_elimination_ideal",
+        "checked_ideal_intersection",
+        "checked_ideal_saturation"
+      ],
+      "receipt": "VerifiedIdealOperation",
+      "verification": "Independently bind every ambient construction coefficient and typed ring to the original request, then require the complete projected subset of an immutable accepted Lex Gröbner basis. Elimination moves selected variables to a leading block; intersection uses tI+(1-t)J; saturation uses I+<1-tf>.",
+      "public": [
+        "GroebnerBasis.eliminate(*generators)",
+        "GroebnerBasis.intersection(other)",
+        "GroebnerBasis.saturate(polynomial)"
+      ],
+      "semantics": "Explicit FrankenSymPy extensions over QQ. Retained variables keep their original order; constant-ring zero/unit ideals are supported. ZZ coefficients are extended to QQ. Saturation returns ideal closure I:f^infinity, not the pointwise removal of f=0.",
+      "source_admission": "Bound original lists and borrowed names before copying. Check raw Python integer bit length before conversion and borrow native coefficients before inspecting surface children. After full native subtree preflight, inspect only retained original Python _args/_struct_args, avoiding recursive native .args copies while preserving held/custom-source refusals.",
+      "bounds": {
+        "ambient_variables_including_auxiliary": 8,
+        "original_variables_for_intersection_and_saturation": 7,
+        "constructed_equations": 64,
+        "coefficient_bits": 4096,
+        "source_nodes": 4096,
+        "source_depth": 64,
+        "compute_per_lane": 20000000,
+        "bytes_per_lane": 134217728
+      }
+    },
+    "dummy_identity": {
+      "defect": "Reserved-name lifting reconstructed equal Dummy objects, and constructor/native plain bindings exposed different placeholder digests so registry keys disagreed.",
+      "fix": "Register exact Dummy owners and lift them through the typed surface registry. Normalize explicitly plain bindings to (name,None); preserve the exact digest for every declared typed identity, including zero.",
+      "regressions": "Original Dummy objects remain in free coordinates and held reciprocal bases in both caller orders. Same-intern-name unregistered typed identities refuse and cannot capture a plain owner."
+    }
+  },
+  "validation": {
+    "toolchain": "nightly-2026-08-20 (rustc 1.100.0-nightly f7d782a3b; cargo 514c56dd7)",
+    "environment": {
+      "CARGO_HOME": "/tmp/frankensympy-cargo-20261030",
+      "CARGO_TARGET_DIR": "/tmp/frankensympy-target-20261030",
+      "CARGO_INCREMENTAL": "0",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "cargo_jobs": 1,
+      "python": "3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]",
+      "pytest": "8.4.2"
+    },
+    "passing_native_suites": {
+      "ideal_operations": 16,
+      "rational_components": 16,
+      "polynomial_components": 16,
+      "rational_graph": 15,
+      "solver_library": 63
+    },
+    "distinct_passing_native_tests": 126,
+    "passing_public_suites": {
+      "new_mixed_components": 18,
+      "new_ideal_operations": 21,
+      "existing_polynomial_components": 15,
+      "existing_rational_graph_families": 11,
+      "finite_shape_rur_multiple_root_regressions": 32,
+      "existing_dummy_typed_binding_regressions": 6
+    },
+    "distinct_passing_public_tests": 103,
+    "public_provenance": {
+      "shell": "/tmp/frankensympy-20261030/python/sympy/__init__.py",
+      "native": "/tmp/frankensympy-target-20261030/debug/libfsym_python.so",
+      "native_sha256": "3540a0717755e2b388109893e8d1be56a69173fc5612d25884000ae318e4c840",
+      "python": "3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]",
+      "pytest": "8.4.2",
+      "source_manifest": "/tmp/frankensympy-validation-20261030/18-final-public-provenance.source.json",
+      "source_manifest_sha256": "0efd59efeddd8bbc361deed486db77f09b7acb785f1483fb2c7518d48a7aafd8",
+      "test_targets": [
+        "python/tests/test_rational_components.py",
+        "python/tests/test_polynomial_components.py",
+        "python/tests/test_rational_polynomial_families.py",
+        "python/tests/test_checked_ideal_operations.py",
+        "python/tests/test_polynomial_system_checked.py",
+        "python/tests/test_polynomial_system_extensions.py::test_shape_results_are_exact_for_single_variable_and_nonlinsolve_sets",
+        "python/tests/test_polynomial_rur.py::test_nonlinsolve_and_single_pass_equations_publish_the_complete_set",
+        "python/tests/test_algebraic_multiple_roots.py",
+        "python/tests/test_algebraic_root_binding.py::test_typed_assumptions_and_dummy_identities_survive_composite_binding",
+        "python/tests/test_algebraic_root_binding.py::test_dummy_defining_generator_remains_bound_when_it_is_free_elsewhere",
+        "python/tests/test_algebraic_root_binding.py::test_differentiation_preserves_distinct_typed_symbols",
+        "python/tests/test_nonlinsolve_affine.py::test_present_zero_equations_preserve_all_supplied_variables",
+        "python/tests/test_nonlinsolve_affine.py::test_same_spelling_dummy_and_assumed_parameters_keep_identity",
+        "python/tests/test_nonlinsolve_affine.py::test_inferred_order_distinguishes_same_name_assumptions_and_dummies"
+      ],
+      "rust_source_matches_full_build": true,
+      "build_source_manifest_sha256": "11792841444677e0141c800dc17935c99942a3beab49dadabaa40f1bd2384453"
+    },
+    "full_extension_check": "Passed, with all production modules and pinned dependencies.",
+    "metadata_final_source_manifest": {
+      "path": "/tmp/frankensympy-validation-20261030/11-active-python-metadata-final-source.json",
+      "sha256": "11792841444677e0141c800dc17935c99942a3beab49dadabaa40f1bd2384453",
+      "note": "Final bridge edits were completed during dependency checking, before fsym-python compilation. The subsequent full build snapshots these exact Rust sources."
+    },
+    "full_extension_build": "Passed with unchanged features/dependencies; max RSS 6197308 KiB.",
+    "focused_native_strict_clippy": "Passed with -D warnings for both affected libraries and all four affected integration test targets.",
+    "all_target_native_clippy": {
+      "exit_code": 101,
+      "reason": "Three existing cloned_ref_to_slice_refs warnings in unchanged crates/fsym-solvers/tests/real_polysys.rs at 238/247/250; file hash matches baseline. No lint suppressions or unrelated edits."
+    },
+    "final_formatting": "Pinned rustfmt --edition 2024 --config skip_children=true --check passed for all eight changed Rust files; git diff --check passed.",
+    "python_syntax": "AST parsing passed for all seven changed Python files.",
+    "initial_failures_and_fixes": [
+      {
+        "gate": "Baseline full extension build",
+        "result": "Pinned Asupersync rustc was SIGKILLed while other compilers shared an 8 GiB cgroup.",
+        "resolution": "After successful full metadata checking, a documented idle window had no live compilers and only 127 MB anonymous memory. One serial full build then passed without removing modules, changing dependencies or weakening features."
+      },
+      {
+        "gate": "Native strict Clippy",
+        "result": "Two new manual slice-size idioms and one cloned-ref test assertion were flagged.",
+        "resolution": "Equivalent size_of_val/from_ref corrections; final native tests and focused strict Clippy passed."
+      },
+      {
+        "gate": "Public cohorts before Dummy fix",
+        "result": "Original Dummy identity assertions failed in polynomial and rational family cohorts. The first registry lookup repair still failed due plain-binding placeholder-key mismatch.",
+        "resolution": "Fix both bypass and canonical plain-binding registry keys; retain original assertions and add typed-identity capture refusal. Final 103-case gate passes."
+      },
+      {
+        "gate": "Independent public ideal boundary review",
+        "result": "Per-name bounds alone allowed repeated long names to cause large native subtree .args copies in Python before the operation meter.",
+        "resolution": "Borrowed whole-subtree admission followed by retained-original surface traversal eliminates those copies. The real public regression poisons Add.args while still admitting a valid native-owned source and refusing original custom held children."
+      }
+    ],
+    "independent_reviews": [
+      "Ideal author reviewed mixed native completeness, containment, whole-node recovery and public lifting.",
+      "Mixed-component author reviewed exact ideal constructions and complete projections, then reviewed public source-copy boundaries.",
+      "Builder independently reviewed ideal projections and checked source/extension provenance.",
+      "Ideal author independently reviewed final plain/typed Dummy registry normalization."
+    ],
+    "source_sha256": {
+      "crates/fsym-solvers/src/polynomial_components.rs": "887eee3a848e932bc970f90569fb67b0865aee6d0c6c3b54a1991b413dc210a2",
+      "crates/fsym-solvers/tests/rational_components.rs": "1972a977fb47d2c10c6e308d9c1889b0c5d8d3363945fc2058c518e2dae49c95",
+      "crates/fsym-polys/src/lib.rs": "55b6a1c65796cac94e664671c6dc8322e5931034f7ffbb1054e2ab8f7f3212ae",
+      "crates/fsym-polys/src/ideal.rs": "dba0c3efa806913f635d4ec58585942fd353dc975c5813d6bc775458f6dd1c1e",
+      "crates/fsym-polys/tests/ideal_operations.rs": "8c55b3782bfdda7a7c2df53ab21ebe7f34be99f4dad059b7a33d29aa9647835d",
+      "crates/fsym-python/src/lib.rs": "350f3f6c3115d820125551962a5c5a5728dc73df4fc1f01014d03e4699042abd",
+      "crates/fsym-python/src/ideal_operations.rs": "e00d05e38427b0ba9b8dcabdac0bd1af4321e1bf1a3ea36a36b44cc79fccdc42",
+      "python/sympy/polys/polytools.py": "42e2dfa01f7b4979511be09bfaf6056a2a33bcd121663c37832e1c12efd5fa28",
+      "python/tests/test_checked_ideal_operations.py": "ec6304b9afb34181b6699534c32ed913d9af0ae0f0a310a13ace70efed547aa8",
+      "crates/fsym-python/src/polynomial_systems.rs": "17b40c83a8c324c520b84eeb2ac80d1142968ccfe0f4e94a68708929d525e091",
+      "python/sympy/solvers/polysys.py": "d9b65927a656bd4ada55cc156736b2b7e3d28aadd56d78758706c79231660bfa",
+      "python/tests/test_rational_components.py": "2d480704466d3037f105fd5d28aba2fc13b7a7cb5f2ea96ac79138117ba3a0bf",
+      "python/tests/test_polynomial_components.py": "3194749afe0d0c0d093862bd7a59bf1a47f2c013bb2a7e45eba722d68cb6a97e",
+      "python/tests/test_rational_polynomial_families.py": "a7b0307fdf16a7f8f17543c5d6e73b0df563a64c1d5d369c754d5e2dde31b19e",
+      "python/sympy/core/__init__.py": "7d86a6b947756d3f2e4bd8b0fca3b0e8c221469a820b38d11a586e947c850614"
+    },
+    "commands": [
+      {
+        "stage": "01-baseline-solvers",
+        "workspace": "/tmp/frankensympy-baseline-474f38e",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "fsym-solvers",
+          "--lib",
+          "-j1"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 42.378,
+        "log": "/tmp/frankensympy-validation-20261030/01-baseline-solvers.log",
+        "log_sha256": "e0ce7e9ca7989a1b07fcbfd1a34e1e594d310460af0b0bc43b1d02e4a3a1cfa4",
+        "source_manifest": "/tmp/frankensympy-validation-20261030/01-baseline-solvers.source.json",
+        "source_manifest_sha256": "65113f1c51f48b23d60f9cb04617bb991c601fc0fbb1352d93dc99c3103a37c2"
+      },
+      {
+        "stage": "02-baseline-full-extension",
+        "workspace": "/tmp/frankensympy-baseline-474f38e",
+        "command": [
+          "cargo",
+          "build",
+          "--locked",
+          "-p",
+          "fsym-python",
+          "--features",
+          "extension-module",
+          "-j1"
+        ],
+        "exit_code": 101,
+        "elapsed_seconds": 194.429,
+        "log": "/tmp/frankensympy-validation-20261030/02-baseline-full-extension.log",
+        "log_sha256": "e4079c8777ef642cbe4e72aed119bd956145e5fd1b34b6290095ae3a25d56c9c",
+        "source_manifest": "/tmp/frankensympy-validation-20261030/02-baseline-full-extension.source.json",
+        "source_manifest_sha256": "65113f1c51f48b23d60f9cb04617bb991c601fc0fbb1352d93dc99c3103a37c2"
+      },
+      {
+        "stage": "05-native-clippy",
+        "workspace": "/tmp/frankensympy-20261030",
+        "command": [
+          "cargo",
+          "clippy",
+          "--locked",
+          "-p",
+          "fsym-polys",
+          "-p",
+          "fsym-solvers",
+          "--all-targets",
+          "-j1",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 101,
+        "elapsed_seconds": 15.738,
+        "log": "/tmp/frankensympy-validation-20261030/05-native-clippy.log",
+        "log_sha256": "744ebbc2d21bb830d3fd71fb93fa2340d9ad9625aad400e2eff76764646f8483",
+        "source_manifest": "/tmp/frankensympy-validation-20261030/05-native-clippy.source.json",
+        "source_manifest_sha256": "ed8130986adbc836cab8a7545c1fb55b11fdc49c637083e5848a541a40ac669e"
+      },
+      {
+        "stage": "06-native-clippy",
+        "workspace": "/tmp/frankensympy-20261030",
+        "command": [
+          "cargo",
+          "clippy",
+          "--locked",
+          "-p",
+          "fsym-polys",
+          "-p",
+          "fsym-solvers",
+          "--all-targets",
+          "-j1",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 101,
+        "elapsed_seconds": 10.474,
+        "log": "/tmp/frankensympy-validation-20261030/06-native-clippy.log",
+        "log_sha256": "4329251a7ec249fd097540e091558508db17435959d5851241869555b76a3cf4",
+        "source_manifest": "/tmp/frankensympy-validation-20261030/06-native-clippy.source.json",
+        "source_manifest_sha256": "2b444f8bd7008f9052f38643e787f64a07c0db0cfdb53b84dc1d85c79cb11403"
+      },
+      {
+        "stage": "07-focused-native-clippy",
+        "workspace": "/tmp/frankensympy-20261030",
+        "command": [
+          "cargo",
+          "clippy",
+          "--locked",
+          "-p",
+          "fsym-polys",
+          "-p",
+          "fsym-solvers",
+          "--lib",
+          "--test",
+          "ideal_operations",
+          "--test",
+          "rational_components",
+          "--test",
+          "polynomial_components",
+          "--test",
+          "rational_graph",
+          "-j1",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 101,
+        "elapsed_seconds": 0.393,
+        "log": "/tmp/frankensympy-validation-20261030/07-focused-native-clippy.log",
+        "log_sha256": "c1583cc5864ec23c1ed6bdc94068d08cb372b61e1f5cc3f8ae184e81da5fc2c3",
+        "source_manifest": "/tmp/frankensympy-validation-20261030/07-focused-native-clippy.source.json",
+        "source_manifest_sha256": "2b444f8bd7008f9052f38643e787f64a07c0db0cfdb53b84dc1d85c79cb11403"
+      },
+      {
+        "stage": "08-focused-native-clippy",
+        "workspace": "/tmp/frankensympy-20261030",
+        "command": [
+          "cargo",
+          "clippy",
+          "--locked",
+          "-p",
+          "fsym-polys",
+          "-p",
+          "fsym-solvers",
+          "--lib",
+          "--test",
+          "ideal_operations",
+          "--test",
+          "rational_components",
+          "--test",
+          "polynomial_components",
+          "--test",
+          "rational_graph",
+          "-j1",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 0.493,
+        "log": "/tmp/frankensympy-validation-20261030/08-focused-native-clippy.log",
+        "log_sha256": "53d95aaa0632df3de585a3a00d5d0ed2110d10b01ac0107271249c86971181cc",
+        "source_manifest": "/tmp/frankensympy-validation-20261030/08-focused-native-clippy.source.json",
+        "source_manifest_sha256": "998922e3ffac95688bdaecaca616700e263ad17a168e20570d7335d9ec0e965e"
+      },
+      {
+        "stage": "09-final-native-ideals",
+        "workspace": "/tmp/frankensympy-20261030",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "fsym-polys",
+          "--test",
+          "ideal_operations",
+          "-j1"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 3.759,
+        "log": "/tmp/frankensympy-validation-20261030/09-final-native-ideals.log",
+        "log_sha256": "3d4b863c4c1cbd644ddf5d53c8f51e6823f964ce36e90ef50fa22946a00d74e2",
+        "source_manifest": "/tmp/frankensympy-validation-20261030/09-final-native-ideals.source.json",
+        "source_manifest_sha256": "14218731c13e0b7729db42155646f3add109a15059345184cffa18ec991acb5e"
+      },
+      {
+        "stage": "10-final-native-components",
+        "workspace": "/tmp/frankensympy-20261030",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "fsym-solvers",
+          "--test",
+          "rational_components",
+          "--test",
+          "polynomial_components",
+          "--test",
+          "rational_graph",
+          "--lib",
+          "-j1"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 27.246,
+        "log": "/tmp/frankensympy-validation-20261030/10-final-native-components.log",
+        "log_sha256": "3904731997d07d92f893a2dd4e55622a69fe68812f31d5f7ce7574f59e1fce9f",
+        "source_manifest": "/tmp/frankensympy-validation-20261030/10-final-native-components.source.json",
+        "source_manifest_sha256": "14218731c13e0b7729db42155646f3add109a15059345184cffa18ec991acb5e"
+      },
+      {
+        "stage": "11-active-python-metadata",
+        "workspace": "/tmp/frankensympy-20261030",
+        "command": [
+          "cargo",
+          "check",
+          "--locked",
+          "-p",
+          "fsym-python",
+          "--features",
+          "extension-module",
+          "-j1"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 119.831,
+        "log": "/tmp/frankensympy-validation-20261030/11-active-python-metadata.log",
+        "log_sha256": "8fa18840e88cc5d0a0ec547715071b20950796407453611a3ea4da2ca96b3f83",
+        "source_manifest": "/tmp/frankensympy-validation-20261030/11-active-python-metadata.source.json",
+        "source_manifest_sha256": "6205a17b21c416223d47515a0c97af7057a3dadda1c2b848a3b3a1400bff5809"
+      },
+      {
+        "stage": "12-active-full-extension",
+        "workspace": "/tmp/frankensympy-20261030",
+        "command": [
+          "cargo",
+          "build",
+          "--locked",
+          "-p",
+          "fsym-python",
+          "--features",
+          "extension-module",
+          "-j1"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 157.773,
+        "log": "/tmp/frankensympy-validation-20261030/12-active-full-extension.log",
+        "log_sha256": "5cd019b3d57563202704315b2fba9df73d6fe13d27358e5c68b31d6bb7081d66",
+        "source_manifest": "/tmp/frankensympy-validation-20261030/12-active-full-extension.source.json",
+        "source_manifest_sha256": "11792841444677e0141c800dc17935c99942a3beab49dadabaa40f1bd2384453"
+      },
+      {
+        "stage": "13-public-cohorts",
+        "workspace": "/tmp/frankensympy-20261030",
+        "command": [
+          "python3",
+          "/tmp/frankensympy-validation-20261030/run_python_gate.py",
+          "13-public-provenance",
+          "python/tests/test_rational_components.py",
+          "python/tests/test_polynomial_components.py",
+          "python/tests/test_rational_polynomial_families.py",
+          "python/tests/test_checked_ideal_operations.py"
+        ],
+        "exit_code": 1,
+        "elapsed_seconds": 2.452,
+        "log": "/tmp/frankensympy-validation-20261030/13-public-cohorts.log",
+        "log_sha256": "7dd493bd03f4c1532fcfb964fcf8af35a3796c8b8baafab2d5e3ca10d8f38785",
+        "source_manifest": "/tmp/frankensympy-validation-20261030/13-public-cohorts.source.json",
+        "source_manifest_sha256": "11792841444677e0141c800dc17935c99942a3beab49dadabaa40f1bd2384453"
+      },
+      {
+        "stage": "14-rational-public-diagnostic",
+        "workspace": "/tmp/frankensympy-20261030",
+        "command": [
+          "python3",
+          "/tmp/frankensympy-validation-20261030/run_python_gate.py",
+          "14-rational-provenance",
+          "python/tests/test_rational_polynomial_families.py"
+        ],
+        "exit_code": 1,
+        "elapsed_seconds": 0.863,
+        "log": "/tmp/frankensympy-validation-20261030/14-rational-public-diagnostic.log",
+        "log_sha256": "d846fd6e0525a1bd31c4156c08cf66cf0f2c07afa7172e35dc847bd5d512008e",
+        "source_manifest": "/tmp/frankensympy-validation-20261030/14-rational-public-diagnostic.source.json",
+        "source_manifest_sha256": "11792841444677e0141c800dc17935c99942a3beab49dadabaa40f1bd2384453"
+      },
+      {
+        "stage": "15-ideal-public",
+        "workspace": "/tmp/frankensympy-20261030",
+        "command": [
+          "python3",
+          "/tmp/frankensympy-validation-20261030/run_python_gate.py",
+          "15-ideal-provenance",
+          "python/tests/test_checked_ideal_operations.py"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 1.093,
+        "log": "/tmp/frankensympy-validation-20261030/15-ideal-public.log",
+        "log_sha256": "db8972cb6d568b232c94644d8dfb2a0028dd1779b4ca9cec6ee910d512a66328",
+        "source_manifest": "/tmp/frankensympy-validation-20261030/15-ideal-public.source.json",
+        "source_manifest_sha256": "b3a122bf4f43afeb9ddd83b927bdb211daa0dae3356748f79fc8b45084526878"
+      },
+      {
+        "stage": "16-final-public-cohorts",
+        "workspace": "/tmp/frankensympy-20261030",
+        "command": [
+          "python3",
+          "/tmp/frankensympy-validation-20261030/run_python_gate.py",
+          "16-final-public-provenance",
+          "python/tests/test_rational_components.py",
+          "python/tests/test_polynomial_components.py",
+          "python/tests/test_rational_polynomial_families.py",
+          "python/tests/test_checked_ideal_operations.py"
+        ],
+        "exit_code": 1,
+        "elapsed_seconds": 3.641,
+        "log": "/tmp/frankensympy-validation-20261030/16-final-public-cohorts.log",
+        "log_sha256": "1d2a395e91d249221e0717da21c86d7faaacf2bc00daab1f113209406e3d814b",
+        "source_manifest": "/tmp/frankensympy-validation-20261030/16-final-public-cohorts.source.json",
+        "source_manifest_sha256": "d398918880f883ca24d790eab1d64441ab059d3130a55fc53baf01d77037d169"
+      },
+      {
+        "stage": "17-finite-algebraic-regression",
+        "workspace": "/tmp/frankensympy-20261030",
+        "command": [
+          "python3",
+          "/tmp/frankensympy-validation-20261030/run_python_gate.py",
+          "17-finite-algebraic-provenance",
+          "python/tests/test_polynomial_system_checked.py",
+          "python/tests/test_polynomial_system_extensions.py::test_shape_results_are_exact_for_single_variable_and_nonlinsolve_sets",
+          "python/tests/test_polynomial_rur.py::test_nonlinsolve_and_single_pass_equations_publish_the_complete_set",
+          "python/tests/test_algebraic_multiple_roots.py"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 21.054,
+        "log": "/tmp/frankensympy-validation-20261030/17-finite-algebraic-regression.log",
+        "log_sha256": "75b4867fbcba91eff0e4178bd51c2c06fdfc3ae3ee2d2a8e8cf25f4d1b8e6ebc",
+        "source_manifest": "/tmp/frankensympy-validation-20261030/17-finite-algebraic-regression.source.json",
+        "source_manifest_sha256": "d398918880f883ca24d790eab1d64441ab059d3130a55fc53baf01d77037d169"
+      },
+      {
+        "stage": "18-final-public-integrated",
+        "workspace": "/tmp/frankensympy-20261030",
+        "command": [
+          "python3",
+          "/tmp/frankensympy-validation-20261030/run_python_gate.py",
+          "18-final-public-provenance",
+          "python/tests/test_rational_components.py",
+          "python/tests/test_polynomial_components.py",
+          "python/tests/test_rational_polynomial_families.py",
+          "python/tests/test_checked_ideal_operations.py",
+          "python/tests/test_polynomial_system_checked.py",
+          "python/tests/test_polynomial_system_extensions.py::test_shape_results_are_exact_for_single_variable_and_nonlinsolve_sets",
+          "python/tests/test_polynomial_rur.py::test_nonlinsolve_and_single_pass_equations_publish_the_complete_set",
+          "python/tests/test_algebraic_multiple_roots.py",
+          "python/tests/test_algebraic_root_binding.py::test_typed_assumptions_and_dummy_identities_survive_composite_binding",
+          "python/tests/test_algebraic_root_binding.py::test_dummy_defining_generator_remains_bound_when_it_is_free_elsewhere",
+          "python/tests/test_algebraic_root_binding.py::test_differentiation_preserves_distinct_typed_symbols",
+          "python/tests/test_nonlinsolve_affine.py::test_present_zero_equations_preserve_all_supplied_variables",
+          "python/tests/test_nonlinsolve_affine.py::test_same_spelling_dummy_and_assumed_parameters_keep_identity",
+          "python/tests/test_nonlinsolve_affine.py::test_inferred_order_distinguishes_same_name_assumptions_and_dummies"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 23.646,
+        "log": "/tmp/frankensympy-validation-20261030/18-final-public-integrated.log",
+        "log_sha256": "3f78e52bdbc7308aa65dc9ca0a9c735e7ec3ea4f36d1d5d578e34656c33ba327",
+        "source_manifest": "/tmp/frankensympy-validation-20261030/18-final-public-integrated.source.json",
+        "source_manifest_sha256": "0efd59efeddd8bbc361deed486db77f09b7acb785f1483fb2c7518d48a7aafd8"
+      }
+    ],
+    "public_final_summary": "103 passed in 23.02s; pytest exit 0; no skipped tests."
+  },
+  "scope_limits": [
+    "No full workspace test or all-target Clippy pass is claimed.",
+    "Accepted receipts compose independently checked in-process objects; no portable proof-kernel certificate or reserved verifier-budget profile is claimed.",
+    "No dependency manifest/lockfile, donor source, gate, registry or bead status was changed.",
+    "No upstream SymPy production fallback, benchmark claim or compatibility-profile promotion."
+  ],
+  "publication": {
+    "method": "GitHub connector, direct non-forced main updates with expected-parent leases; no PRs.",
+    "verification": "After each branch write, fetch the exact commit and main, then verify parent, tree, message, complete changed path set and every source blob SHA.",
+    "connector_recovery": "Some standalone create_blob calls returned MCP internal errors. Missing blobs were confirmed by readback; supported create_tree content entries created the intended blobs, whose hashes were independently verified before publication."
+  }
+}

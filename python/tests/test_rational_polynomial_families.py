@@ -93,12 +93,13 @@ def test_free_symbols_with_identical_printing_keep_their_typed_identity():
     assert values[0].free_symbols == {second}
 
 
-def test_exceptional_fibers_prevent_publication_of_a_partial_rational_chart():
+def test_exceptional_fibers_are_returned_as_separate_complete_components():
     x, y = s.symbols("rational_exceptional_x rational_exceptional_y")
     # x=1/y describes the hyperbola component but misses the whole x=0
-    # component. A single rational graph cannot represent the complete set.
-    with pytest.raises(NotImplementedError):
-        s.nonlinsolve([x*(x*y-1)], x, y)
+    # component. Both checked components must be returned together.
+    assert {tuple(row) for row in s.nonlinsolve([x*(x*y-1)], x, y)} == {
+        (0, y), (1/y, y),
+    }
     with pytest.raises(NotImplementedError):
         s.nonlinsolve([x*x+y*y-1], x, y)
 
