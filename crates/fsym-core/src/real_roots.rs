@@ -16,6 +16,12 @@ use fsym_budget::{BudgetMeter, Dimension, MeterError};
 use num_traits::{One, Signed, Zero};
 use thiserror::Error;
 
+mod comparison;
+pub use comparison::{
+    RealRootComparisonCertificate, VerifiedRealRootComparison, compare_real_roots,
+    verify_real_root_comparison,
+};
+
 pub const MAX_REAL_ROOT_DEGREE: usize = 64;
 pub const MAX_REAL_ROOT_INPUT_BITS: u64 = 4096;
 pub const MAX_REAL_ROOT_DIGITS: u32 = 512;
