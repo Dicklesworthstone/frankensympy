@@ -15,6 +15,7 @@ pub mod ideal;
 pub mod identity;
 pub mod multifactor;
 pub mod multivariate;
+pub mod rational;
 pub mod univariate;
 
 pub use checked_groebner::*;
@@ -27,6 +28,7 @@ pub use ideal::*;
 pub use identity::*;
 pub use multifactor::*;
 pub use multivariate::*;
+pub use rational::*;
 pub use univariate::*;
 
 use thiserror::Error;
