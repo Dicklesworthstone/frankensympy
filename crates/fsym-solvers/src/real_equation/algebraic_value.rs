@@ -637,10 +637,32 @@ pub fn metered_evaluate_real_algebraic(
             let lower = rounded(&enclosure.lower, digits, &mut generator)?;
             let upper = rounded(&enclosure.upper, digits, &mut generator)?;
             if lower == upper {
+                // A rational image may belong only to this component of a
+                // reducible defining polynomial. Its global remainder then
+                // need not be constant. Rounding proposes a finite-decimal
+                // rational; exact original-source membership alone permits
+                // collapsing its enclosure. Nearby irrational values cannot
+                // acquire an exact value merely by rounding to that rational.
+                let proposed = rounded_rational(&lower, &mut generator)?;
+                let exact = if proposed >= enclosure.lower && proposed <= enclosure.upper {
+                    let relation = exact_value_relation(&original, &proposed, &mut generator)?;
+                    if real_root_polynomial_zero(&roots, index, &relation, generator.meter)? {
+                        Some(proposed)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                let enclosure = if let Some(value) = &exact {
+                    point(value, &mut generator)?
+                } else {
+                    enclosure
+                };
                 candidate = Some(certificate(
                     &roots,
                     enclosure,
-                    None,
+                    exact,
                     decimal_text(&lower),
                     &mut generator,
                 )?);

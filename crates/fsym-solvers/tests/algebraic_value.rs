@@ -198,6 +198,58 @@ fn repeated_and_reducible_definitions_preserve_exact_indexed_membership() {
 }
 
 #[test]
+fn branch_local_rational_images_require_exact_membership_before_collapse() {
+    // (x^2-2)(x^2-3): x^2 is not globally constant in the quotient, but
+    // each selected real embedding has the exact rational image 2 or 3.
+    for (index, expected) in [(0, 3_i64), (1, 2), (2, 2), (3, 3)] {
+        let result = value("x**2", &[6, 0, -5, 0, 1], index, 25);
+        assert_eq!(result.lower(), &BigRational::from(expected));
+        assert_eq!(result.upper(), result.lower());
+        assert_eq!(
+            result.certificate().exact_value.as_ref(),
+            Some(result.lower())
+        );
+    }
+
+    // This irrational root rounds to 2 at twelve digits but is strictly
+    // greater. A rounded candidate is not an algebraic identity.
+    let epsilon = BigRational::new(1.into(), BigInt::from(1) << 200);
+    let radicand = BigRational::from(4_i64) + epsilon;
+    let defining = vec![
+        -radicand.clone(),
+        BigRational::from(0_i64),
+        BigRational::from(1_i64),
+    ];
+    let variable = Symbol::new("x");
+    let source = Expr::Sym(variable.clone());
+    let result = evaluate_real_algebraic(&source, &variable, &defining, 1, 12)
+        .unwrap()
+        .unwrap();
+    assert_eq!(result.decimal(), "2.00000000000e0");
+    assert!(result.certificate().exact_value.is_none());
+    assert!(result.lower() < result.upper());
+    assert!(result.upper() > &BigRational::from(2_i64));
+    assert!(result.lower() * result.lower() <= radicand);
+    assert!(result.upper() * result.upper() >= radicand);
+    let mut forged = result.certificate().clone();
+    forged.lower = BigRational::from(2_i64);
+    forged.upper = forged.lower.clone();
+    forged.exact_value = Some(forged.lower.clone());
+    assert!(
+        verify_real_algebraic_value(
+            &source,
+            &variable,
+            &defining,
+            1,
+            12,
+            &forged,
+            &mut Unbounded
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn a_nonconstant_quintic_coordinate_gets_a_source_bound_enclosure() {
     // p has five distinct real roots, independently bracketed by alternating
     // signs at -2,-3/2,-1,0,1,2. The largest lies between 1 and 2.

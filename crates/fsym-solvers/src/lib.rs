@@ -4,6 +4,7 @@
 //!
 //! This crate does not yet provide the full SymPy `solveset` or `dsolve` surfaces.
 
+pub mod algebraic_expression;
 pub mod exact_ode;
 pub mod inequality;
 pub mod ode;
