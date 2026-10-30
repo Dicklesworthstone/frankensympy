@@ -10,7 +10,7 @@ use fsym_core::{BigInt, BigRational, Constant, Expr, Symbol};
 use fsym_polys::UnivariatePoly;
 use fsym_proof_kernel::elementary_rational_definite::verify_elementary_rational_definite_integral;
 use fsym_proof_kernel::rational_definite::RationalIntegralEndpoint as Endpoint;
-use num_traits::{One, Zero};
+use num_traits::Zero;
 use std::sync::Arc;
 
 fn q(value: i64) -> BigRational {

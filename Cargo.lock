@@ -928,6 +928,7 @@ dependencies = [
  "fsym-ntheory",
  "fsym-polys",
  "fsym-printing",
+ "fsym-proof-kernel",
  "fsym-runtime",
  "fsym-sets",
  "fsym-simplify",

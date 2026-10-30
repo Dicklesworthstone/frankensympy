@@ -396,6 +396,11 @@ Responsibilities:
 
 A subprocess/NDJSON bridge remains available for oracle isolation, hardened callback execution, and environments where an extension module is unsuitable. It is not the primary fine-grained performance path.
 
+The implemented `fsym-python` boundary depends directly on `fsym-proof-kernel`
+for typed rational-integral endpoints and independent original-domain checks.
+This L6-to-L2 edge lets the bridge check source guards before publishing an
+integral receipt; it adds no external dependency or verifier-to-generator edge.
+
 ### 10.4 `fsym-wasm`
 
 A pure native subset for browsers and sandboxed runtimes. It excludes CPython, filesystem-dependent persistence, and unsupported threading features. Proof checking, term manipulation, selected algebra/calculus, and protocol/bundle handling are prioritized.

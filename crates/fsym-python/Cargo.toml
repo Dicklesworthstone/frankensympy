@@ -20,6 +20,7 @@ extension-module = ["pyo3/extension-module"]
 [dependencies]
 fsym-core.workspace = true
 fsym-polys.workspace = true
+fsym-proof-kernel.workspace = true
 fsym-simplify.workspace = true
 fsym-calculus.workspace = true
 fsym-solvers.workspace = true

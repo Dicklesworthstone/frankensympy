@@ -47,7 +47,7 @@ fn expression<'py>(value: &Bound<'py, PyAny>) -> PyResult<PyRef<'py, PyExpr>> {
             "exact rational integration requires an exact native expression",
         ));
     }
-    value.extract::<PyRef<'py, PyExpr>>()
+    Ok(value.extract::<PyRef<'py, PyExpr>>()?)
 }
 
 fn endpoint(value: &Expr, meter: &mut Budget) -> PyResult<RationalIntegralEndpoint> {
