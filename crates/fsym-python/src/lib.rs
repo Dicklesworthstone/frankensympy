@@ -1907,6 +1907,7 @@ pub mod binding;
 pub mod callbacks;
 pub mod expr;
 pub mod geometry;
+mod ideal_operations;
 pub mod logic;
 pub mod matrix;
 pub mod ntheory;
@@ -2174,6 +2175,22 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(groebner_is_zero_dimensional_native, m)?)?;
     m.add_function(wrap_pyfunction!(groebner_fglm_native, m)?)?;
     m.add_function(wrap_pyfunction!(groebner_reduce_native, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        ideal_operations::ideal_source_preflight_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        ideal_operations::ideal_eliminate_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        ideal_operations::ideal_intersection_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        ideal_operations::ideal_saturation_native,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(poly_multivariate_gcd_native, m)?)?;
     m.add_function(wrap_pyfunction!(poly_multivariate_lcm_native, m)?)?;
     m.add_function(wrap_pyfunction!(poly_multivariate_div_rem_native, m)?)?;

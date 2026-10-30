@@ -1411,6 +1411,79 @@ class GroebnerBasis:
             exprs = [_primitive_integer(value, self.gens, order) for value in exprs]
         return GroebnerBasis(exprs, self.gens, self.domain, order)
 
+    def _ideal_inputs(self) -> tuple:
+        """Admit current expressions as generators of an ideal over QQ."""
+        if str(self.domain) not in ("ZZ", "QQ"):
+            raise NotImplementedError("checked ideal operations support rational coefficients")
+        if len(self.gens) > 8:
+            raise ValueError("checked ideal operations support at most eight generators")
+        gens = tuple(_require_symbol(g) for g in self.gens)
+        for generator in gens:
+            _native.ideal_source_preflight_native(_native_expr(generator))
+        if len(set(gens)) != len(gens):
+            raise ValueError("checked ideal operations require distinct typed generators")
+        sources = []
+        for expression in self.exprs:
+            if len(sources) == 64:
+                raise ValueError("checked ideal operations support at most 64 polynomials")
+            sources.append(_ideal_polynomial_source(expression))
+        return sources, gens, [_native_expr(source) for source in sources], [_symbol_binding(g) for g in gens]
+
+    def eliminate(self, *generators: Any) -> GroebnerBasis:
+        """Return the complete elimination ideal over QQ in lexicographic order.
+
+        This FrankenSymPy extension eliminates the specified typed generators,
+        including generators outside the original leading block. Remaining
+        generators keep their original order. Eliminating all variables yields
+        the constant ring, represented by an empty basis or the unit basis.
+        ZZ input coefficients are explicitly extended to the rational field.
+        """
+        if len(generators) == 1 and isinstance(generators[0], (list, tuple)):
+            generators = tuple(generators[0])
+        if len(generators) > 8:
+            raise ValueError("too many elimination generators")
+        eliminated = tuple(_require_symbol(g) for g in generators)
+        sources, gens, equations, bindings = self._ideal_inputs()
+        if len(set(eliminated)) != len(eliminated) or any(g not in gens for g in eliminated):
+            raise ValueError("elimination requires distinct generators from the original typed ring")
+        raw = _native.ideal_eliminate_native(equations, bindings, [_symbol_binding(g) for g in eliminated])
+        remaining = tuple(g for g in gens if g not in eliminated)
+        values = [_lift_native_result(value, *sources, *gens) for value in raw]
+        return GroebnerBasis(values, remaining, "QQ", "lex")
+
+    def intersection(self, other: GroebnerBasis) -> GroebnerBasis:
+        """Return the complete intersection of two rational polynomial ideals.
+
+        This FrankenSymPy extension uses an independently checked auxiliary
+        ideal and complete elimination. Both ideals must use the same typed
+        variables, but their variable and monomial orders may differ. The
+        result uses this basis's variable order and QQ coefficients in lex order.
+        """
+        if type(other) is not GroebnerBasis:
+            raise TypeError("ideal intersection requires a GroebnerBasis")
+        sources, gens, equations, bindings = self._ideal_inputs()
+        other_sources, other_gens, other_equations, _ = other._ideal_inputs()
+        if set(gens) != set(other_gens):
+            raise ValueError("ideal intersection requires the same typed polynomial ring")
+        raw = _native.ideal_intersection_native(equations, other_equations, bindings)
+        values = [_lift_native_result(value, *sources, *other_sources, *gens) for value in raw]
+        return GroebnerBasis(values, gens, "QQ", "lex")
+
+    def saturate(self, polynomial: Any) -> GroebnerBasis:
+        """Return the ideal saturation I:polynomial**infinity over QQ.
+
+        This FrankenSymPy extension returns the algebraic closure of the part
+        away from the polynomial's zero set. It is not a domain-filtered set
+        of solutions: saturating <x*y> by x gives <y>, whose variety still
+        contains the origin. Denominator exclusions must be retained separately
+        by callers solving rational equations. Results use QQ and lex order.
+        """
+        sources, gens, equations, bindings = self._ideal_inputs()
+        factor = _ideal_polynomial_source(polynomial)
+        raw = _native.ideal_saturation_native(equations, bindings, _native_expr(factor))
+        values = [_lift_native_result(value, *sources, factor, *gens) for value in raw]
+        return GroebnerBasis(values, gens, "QQ", "lex")
+
     def _ordered_str(self, e: Any) -> str:
         """``e`` printed with its terms in the basis' monomial order."""
         from ..core import Add as _Add, Integer as _Integer
@@ -1446,6 +1519,50 @@ class GroebnerBasis:
         return "GroebnerBasis(%s)" % ", ".join(args)
 
     __str__ = __repr__
+
+
+def _ideal_polynomial_source(expression: Any) -> Any:
+    """Keep exact held polynomial sources intact until native admission."""
+    from ..core import Add, Dummy, Half, NegativeOne, One, Zero
+
+    if type(expression) is Poly:
+        expression = expression.as_expr()
+    elif type(expression) is int:
+        if expression.bit_length() > 4096:
+            raise ValueError("ideal coefficient exceeds 4096 bits")
+        expression = Integer(expression)
+    pending = [(expression, 0)]
+    visited = 0
+    atoms = (Integer, Rational, Zero, One, NegativeOne, Half, Symbol, Dummy)
+    while pending:
+        node, depth = pending.pop()
+        visited += 1
+        if visited > 4096 or depth > 64:
+            raise ValueError("ideal source exceeds its bounded expression envelope")
+        kind = type(node)
+        if kind not in atoms and kind not in (Add, Mul, Pow):
+            raise ValueError("ideal operations require exact rational polynomial expressions")
+        # Basic lowering borrows the existing native value. Inspect its whole
+        # tree without exporting coefficients or lifting native children.
+        _native.ideal_source_preflight_native(_native_expr(node))
+        if kind in atoms:
+            continue
+        # Native-owned subtrees contain no Python subclasses and were already
+        # checked above. Only held forms retain additional original surface
+        # children that need class admission. Calling `.args` here would deep
+        # clone native subtrees, including repeated large symbol names, before
+        # the native operation's cumulative allocation meter can bound them.
+        children = getattr(node, "_args", None)
+        if children is None:
+            children = getattr(node, "_struct_args", None)
+        if children is None:
+            continue
+        if type(children) is not tuple:
+            raise ValueError("ideal source requires exact original argument tuples")
+        if len(children) > 4096 - visited - len(pending):
+            raise ValueError("ideal source exceeds its bounded expression envelope")
+        pending.extend((child, depth + 1) for child in children)
+    return expression
 
 
 def _primitive_integer(e: Any, gens: tuple, order: str = "lex") -> Any:
