@@ -342,6 +342,14 @@ fn finite_solutions(
         // Only an unsupported exact root formula triggers the algebraic route.
         // Resource, cancellation and undecided-verification errors propagate.
         Err(error @ SolverError::UnsupportedDegree(_)) => error,
+        Err(SolverError::InfiniteSolutions) if output_width < variables.len() => {
+            // Rational sources previously used ValueError for unsupported
+            // inputs. Preserve that public exception contract while keeping
+            // their now-admitted parameter exclusions explicit.
+            return Err(PyValueError::new_err(
+                "positive-dimensional rational sources require explicit parameter exclusions",
+            ));
+        }
         Err(error) => return Err(to_value_error(error)),
     };
     let Some(representation) =

@@ -138,7 +138,7 @@ fn held_undefined_and_opaque_children_cannot_disappear_through_zero_products() {
             Expr::Sym(vars[0].clone()),
             Expr::Mul(vec![Expr::from_i64(0), hidden]),
         ]);
-        assert!(solve_polynomial_system(&[original.clone()], &vars[..1]).is_err());
+        assert!(solve_polynomial_system(std::slice::from_ref(&original), &vars[..1]).is_err());
         assert!(solve_polynomial_system(&[original, Expr::Sym(vars[1].clone())], &vars).is_err());
     }
     let cancelled_inverse = Expr::Mul(vec![
@@ -160,7 +160,7 @@ fn same_spelling_variables_are_distinguished_by_typed_identity() {
         solve_polynomial_system(&input, &[plain.clone(), other]).unwrap(),
         [vec![Expr::from_i64(1), Expr::from_i64(2)]]
     );
-    assert!(solve_polynomial_system(&input, &[plain.clone()]).is_err());
+    assert!(solve_polynomial_system(&input, std::slice::from_ref(&plain)).is_err());
     assert!(solve_polynomial_system(&input, &[plain.clone(), plain]).is_err());
 }
 
@@ -172,9 +172,11 @@ fn oversized_sources_and_dimensions_refuse_before_symbolic_expansion() {
         power(Expr::from_i64(2), i64::MAX),
         Expr::Integer(BigInt::from(1) << 4097),
     ] {
-        assert!(solve_polynomial_system(&[source], &[x.clone()]).is_err());
+        assert!(solve_polynomial_system(&[source], std::slice::from_ref(&x)).is_err());
     }
-    assert!(solve_polynomial_system(&vec![Expr::Sym(x.clone()); 65], &[x.clone()]).is_err());
+    assert!(
+        solve_polynomial_system(&vec![Expr::Sym(x.clone()); 65], std::slice::from_ref(&x)).is_err()
+    );
     let too_many_vars: Vec<_> = (0..9).map(|i| Symbol::new(format!("x{i}"))).collect();
     assert!(solve_polynomial_system(&[Expr::from_i64(1)], &too_many_vars).is_err());
     assert!(solve_polynomial_system(&[Expr::from_i64(1)], &[]).is_err());

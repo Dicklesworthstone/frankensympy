@@ -235,7 +235,7 @@ fn every_original_is_admitted_before_unit_or_nonshape_dispatch() {
         Expr::Pow(Arc::new(Expr::from_i64(0)), Arc::new(Expr::from_i64(-1))),
     ]);
     for first in [Expr::from_i64(1), Expr::from_i64(0), Expr::Sym(x.clone())] {
-        assert!(solve_real_shape_system(&[first, bad.clone()], &[x.clone()]).is_err());
+        assert!(solve_real_shape_system(&[first, bad.clone()], std::slice::from_ref(&x)).is_err());
     }
     let opaque = Expr::Function("opaque".into(), vec![Expr::Sym(x.clone())]);
     assert!(solve_real_shape_system(&[Expr::from_i64(1), opaque], &[x]).is_err());
@@ -244,10 +244,12 @@ fn every_original_is_admitted_before_unit_or_nonshape_dispatch() {
 #[test]
 fn source_dimensions_and_eliminant_degree_are_bounded() {
     let x = Symbol::new("x");
-    assert!(solve_real_shape_system(&equations(&["x**65-1"]), &[x.clone()]).is_err());
+    assert!(solve_real_shape_system(&equations(&["x**65-1"]), std::slice::from_ref(&x)).is_err());
     assert!(solve_real_shape_system(&equations(&["x"]), &[]).is_err());
     assert!(solve_real_shape_system(&equations(&["x"]), &[x.clone(), x.clone()]).is_err());
-    assert!(solve_real_shape_system(&vec![Expr::Sym(x.clone()); 65], &[x.clone()]).is_err());
+    assert!(
+        solve_real_shape_system(&vec![Expr::Sym(x.clone()); 65], std::slice::from_ref(&x)).is_err()
+    );
     let too_many: Vec<_> = (0..9)
         .map(|index| Symbol::new(format!("x{index}")))
         .collect();

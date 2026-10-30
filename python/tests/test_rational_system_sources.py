@@ -102,7 +102,7 @@ def test_undefined_originals_are_rejected_before_inconsistency_or_zero_shortcuts
 def test_punctured_positive_dimensional_domains_are_explicitly_unsupported():
     x, y = s.symbols("rational_punctured_x rational_punctured_y")
     for equation in [ratio(x, y), s.Mul(0, s.Pow(x, -1, evaluate=False), evaluate=False)]:
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(ValueError, match="positive-dimensional rational"):
             s.nonlinsolve([equation], x, y)
 
 

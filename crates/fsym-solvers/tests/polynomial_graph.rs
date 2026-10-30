@@ -217,9 +217,11 @@ fn source_dimensions_coefficient_height_and_power_limits_are_enforced() {
         ),
         Expr::Integer(BigInt::from(1) << 4097),
     ] {
-        assert!(polynomial_graph_system(&[source], &[x.clone()]).is_err());
+        assert!(polynomial_graph_system(&[source], std::slice::from_ref(&x)).is_err());
     }
-    assert!(polynomial_graph_system(&vec![Expr::from_i64(0); 65], &[x.clone()]).is_err());
+    assert!(
+        polynomial_graph_system(&vec![Expr::from_i64(0); 65], std::slice::from_ref(&x)).is_err()
+    );
     assert!(polynomial_graph_system(&[], &[]).is_err());
     let too_many: Vec<_> = (0..9)
         .map(|index| Symbol::new(format!("v{index}")))
