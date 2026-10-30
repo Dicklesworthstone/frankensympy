@@ -9,6 +9,7 @@ pub mod integrate;
 pub mod proof;
 pub mod quadrature;
 pub mod rational_definite;
+pub mod rational_laplace;
 pub mod rational_limits;
 pub mod rational_sum;
 pub mod series;
