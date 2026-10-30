@@ -2810,8 +2810,17 @@ mod tests {
 
         let mut measured = CountingMeter::default();
         assert!(!metered_is_probable_prime(&composite, &mut measured).unwrap());
-        assert_eq!(measured.dimensions, [1_257_341, 236_088, 16_258, 0, 0, 0]);
-        assert_eq!(measured.checkpoints, 1_272_866);
+        // On 64-bit targets, governed sums/division perform 3,102 additional
+        // two-limb native repacks: 49,632 bytes, 3,102 allocations, and two
+        // checkpoints per repack. These totals follow an independent exact
+        // integer replay of all thirteen Miller-Rabin bases.
+        let (expected_dimensions, expected_checkpoints) = if cfg!(target_pointer_width = "64") {
+            ([1_257_341, 285_720, 19_360, 0, 0, 0], 1_279_070)
+        } else {
+            ([1_257_341, 236_088, 16_258, 0, 0, 0], 1_272_866)
+        };
+        assert_eq!(measured.dimensions, expected_dimensions);
+        assert_eq!(measured.checkpoints, expected_checkpoints);
 
         let mut limits = BudgetLimits {
             dimensions: measured.dimensions,
