@@ -196,6 +196,8 @@ jobs:
               "python/tests/test_rational_definite.py",
               "python/tests/test_exact_rational_integral.py",
               "python/tests/test_algebraic_matrix_spectra.py",
+              "python/tests/test_exact_dsolve.py",
+              "python/tests/test_exact_ode.py",
               "python/tests/test_surface.py::SurfaceTests::test_extended_solvers_transforms_functions_and_submodules",
               "python/tests/test_surface.py::SurfaceTests::test_piecewise_power_integrals_and_laplace",
               "python/tests/test_surface.py::SurfaceTests::test_integral_transforms_suite",

@@ -82,7 +82,24 @@ def checkodesol(
             for s in sol
         ]
 
-    from ..core import Equality, Integer
+    from ..core import AppliedUndef, Equality, Integer
+
+    if isinstance(sol, Equality):
+        target = func
+        if target is None:
+            if isinstance(sol.lhs, AppliedUndef):
+                target = sol.lhs
+            elif isinstance(sol.rhs, AppliedUndef):
+                target = sol.rhs
+            else:
+                target = _find_function(ode)
+        if sol.lhs != target and sol.rhs != target:
+            # Admit both original sides before subtraction can evaluate a
+            # held power or erase an excluded point. Keep a refused input
+            # unevaluated as the diagnostic residual.
+            if _check_exact_ode_relation(ode, sol, target):
+                return (True, 0)
+            return (False, ode)
 
     if isinstance(ode, Equality):
         ode_expr = ode.lhs - ode.rhs
@@ -91,8 +108,8 @@ def checkodesol(
 
     if isinstance(sol, Equality):
         if func is None:
-            func = sol.lhs
-            rhs = sol.rhs
+            func = target
+            rhs = sol.rhs if sol.lhs == target else sol.lhs
         else:
             func = _wrap(_native_expr(func))
             if sol.lhs == func:
@@ -186,9 +203,18 @@ __all__ = [
 
 
 def _preorder(e):
-    yield e
-    for a in getattr(e, "args", ()):
-        yield from _preorder(a)
+    stack = [(e, 0)]
+    count = 0
+    while stack:
+        node, depth = stack.pop()
+        count += 1
+        if count > 8192 or depth > 4096:
+            raise ValueError("dsolve: expression exceeds the bounded traversal envelope")
+        yield node
+        children = getattr(node, "args", ())
+        if count + len(stack) + len(children) > 8192:
+            raise ValueError("dsolve: expression exceeds the bounded traversal envelope")
+        stack.extend((child, depth + 1) for child in reversed(children))
 
 
 def _find_function(eq):
@@ -219,7 +245,7 @@ def _derivative_order(d, f, x):
 
 def _ode_to_symbols(eq, f, x):
     """Replace f(x) and its x-derivatives by symbols y0, y1, ..."""
-    from ..core import Symbol as _S
+    from ..core import Dummy as _S
 
     orders = {}
     for n in _preorder(eq):
@@ -711,13 +737,347 @@ def _solve_separable(left, right, y):
     return _solve(left - right, y)
 
 
+def _exact_ode_source(equation, function, variable, *, values=None):
+    """Admit exact polynomial syntax, then bound work before normalization.
+
+    The checked lane permits degree at most 17, at most 128 possible expanded
+    monomials, and conservative 4096-bit coefficient growth. Degree 17 admits
+    the potential of a degree-16 one-form. Native checks still enforce the
+    original one-form bounds. Unsupported syntax returns False; exhausted
+    bounds are terminal errors. Optional exact coordinate values preflight
+    initial-condition substitution without first evaluating the polynomial.
+    """
+    from math import comb
+    from ..core import (
+        Add, AppliedUndef, Derivative, Dummy, Eq, Integer, Mul, Pow, Rational,
+        S, Symbol, UndefinedFunction,
+    )
+
+    cls = type(function)
+    if (type(cls) is not UndefinedFunction or cls.__bases__ != (AppliedUndef,)
+            or set(cls.__dict__) - {"__module__", "__dict__", "__weakref__", "__doc__"}):
+        return False
+    if type(variable) not in (Symbol, Dummy):
+        return False
+    exact_atoms = (Integer, Rational, type(S.Zero), type(S.One),
+                   type(S.NegativeOne), type(S.Half))
+    integer_atoms = (Integer, type(S.Zero), type(S.One), type(S.NegativeOne))
+    roots = equation.args if type(equation) is Eq else (equation,)
+    todo = [("finish", ("add", len(roots)), 0)]
+    todo.extend(("visit", node, 0) for node in reversed(roots))
+    postfix = []
+    seen = 0
+    # First establish exact syntax, so unrelated legacy function classes do
+    # not inherit polynomial-only degree or coefficient restrictions.
+    while todo:
+        action, node, depth = todo.pop()
+        if action == "finish":
+            postfix.append(node)
+            continue
+        seen += 1
+        if seen > 8192 or depth > 4096:
+            raise ValueError("bounded exact polynomial ODE: source exceeds the expression envelope")
+        if type(node) in exact_atoms:
+            postfix.append(("number", node))
+            continue
+        if type(node) in (Symbol, Dummy):
+            if node != variable:
+                return False
+            postfix.append(("x", None))
+            continue
+        if type(node) is cls:
+            if node != function:
+                return False
+            postfix.append(("y", None))
+            continue
+        if type(node) is Derivative:
+            if node.args != (function, variable):
+                return False
+            postfix.append(("dy", None))
+            continue
+        if type(node) in (Add, Mul):
+            children = node.args
+            if not children:
+                return False
+            if seen + len(todo) + len(children) > 8192:
+                raise ValueError("bounded exact polynomial ODE: source exceeds the expression envelope")
+            todo.append(("finish", ("add" if type(node) is Add else "mul", len(children)), depth))
+            todo.extend(("visit", child, depth + 1) for child in reversed(children))
+            continue
+        if type(node) is Pow:
+            base, exponent = node.args
+            if type(exponent) not in integer_atoms or exponent.p < 0:
+                return False
+            todo.append(("finish", ("pow", exponent.p), depth))
+            # Even a zero power must inspect its original base.
+            todo.append(("visit", base, depth + 1))
+            continue
+        return False
+
+    def number_bounds(number):
+        numerator = number if type(number) is int else number.p
+        denominator = 1 if type(number) is int else getattr(number, "q", 1)
+        return (0, 0, abs(numerator).bit_length(),
+                0 if denominator == 1 else denominator.bit_length(), 0, 1)
+
+    def bounded(bounds):
+        low, high, numerator, denominator, variables, terms = bounds
+        if high > 17:
+            raise ValueError("bounded exact polynomial ODE: source degree exceeds 17")
+        if numerator > 4096 or denominator > 4096:
+            raise ValueError("bounded exact polynomial ODE: coefficient growth exceeds 4096 bits")
+        # A degree band in the used variables also bounds distinct monomials.
+        # This admits (x+y)**16 without allocating its expansion.
+        count = variables.bit_count()
+        dense = (comb(high + count, count)
+                 - (comb(low - 1 + count, count) if low else 0)) if count else 1
+        terms = min(terms, dense)
+        if terms > 128:
+            raise ValueError("bounded exact polynomial ODE: source monomial bound exceeds 128")
+        return low, high, numerator, denominator, variables, terms
+
+    stack = []
+    for kind, payload in postfix:
+        if kind == "number":
+            result = number_bounds(payload)
+        elif kind in ("x", "y", "dy"):
+            if values is not None and kind != "dy":
+                result = number_bounds(values[0 if kind == "x" else 1])
+            else:
+                result = (1, 1, 1, 0, {"x": 1, "y": 2, "dy": 4}[kind], 1)
+        elif kind == "pow":
+            if payload > 64:
+                raise ValueError("bounded exact polynomial ODE: literal power exceeds 64")
+            low, high, numerator, denominator, variables, terms = stack.pop()
+            result = ((low*payload, high*payload, numerator*payload,
+                       denominator*payload, variables, terms**payload)
+                      if payload else (0, 0, 1, 0, 0, 1))
+        else:
+            children = stack[-payload:]
+            del stack[-payload:]
+            result = children[0]
+            for other in children[1:]:
+                lo, hi, nb, db, mask, nt = result
+                olo, ohi, onb, odb, omask, ont = other
+                if kind == "add":
+                    result = (min(lo, olo), max(hi, ohi),
+                              max(nb + odb, onb + db) + 1, db + odb,
+                              mask | omask, nt + ont)
+                else:
+                    result = (lo + olo, hi + ohi, nb + onb, db + odb,
+                              mask | omask, nt * ont)
+                result = bounded(result)
+        stack.append(bounded(result))
+    return True
+
+
+def _exact_ode_coefficients(expression, ys):
+    """Extract M + N*y' without dividing by the derivative coefficient."""
+    from ..core import diff
+
+    if len(ys) != 2:
+        return None
+    y, dy = ys
+    n = diff(expression, dy)
+    if dy in n.free_symbols or n == 0:
+        return None
+    m = expression.subs(dy, 0)
+    return m, n, y
+
+
+def _exact_ode_relation(expression, ys, variable, function):
+    from ..core import Eq
+    from .exact_ode import dsolve_exact_first_order
+
+    form = _exact_ode_coefficients(expression, ys)
+    if form is None:
+        return None
+    m, n, y = form
+    try:
+        relation = dsolve_exact_first_order(m, n, variable, y)
+    except ValueError as error:
+        # This is the native classifier's mathematical non-match. Resource,
+        # input, and verification failures must propagate, never fall through.
+        if "the polynomial differential form is not exact: M_y differs from N_x" not in str(error):
+            raise
+        return None
+    return Eq(relation.lhs.subs(y, function), relation.rhs, evaluate=False)
+
+
+def _check_exact_ode_relation(equation, relation, function):
+    """Check a first-order polynomial first integral, without division by F_y.
+
+    Acceptance covers the native potential normalization and nonzero rational
+    constant multiples. It asserts the differential identity only: no local
+    graph, uniqueness at a singular point, or completeness is certified.
+    """
+    from ..core import Dummy, Eq, Integer, Rational, S, diff
+    from ..simplify import simplify
+
+    if len(function.args) != 1:
+        return False
+    x = function.args[0]
+    if not _exact_ode_source(equation, function, x):
+        return False
+    original = equation.lhs - equation.rhs if type(equation) is Eq else equation
+    expression, ys, order = _ode_to_symbols(original, function, x)
+    if order != 1:
+        return False
+    form = _exact_ode_coefficients(expression, ys)
+    if form is None:
+        return False
+    m, n, y = form
+    lhs, rhs = relation.lhs, relation.rhs
+    if not lhs.has(function) and rhs.has(function):
+        lhs, rhs = rhs, lhs
+    if rhs.has(function) or x in rhs.free_symbols:
+        return False
+    if not _exact_ode_source(lhs, function, x):
+        return False
+    # The level is a symbol or an exact rational, as returned by dsolve.
+    exact_atoms = (Integer, Rational, type(S.Zero), type(S.One),
+                   type(S.NegativeOne), type(S.Half))
+    if type(rhs) not in exact_atoms + (Symbol, Dummy):
+        return False
+    potential = lhs.subs(function, y)
+    if _native.verify_exact_ode_potential_native(
+        _native_expr(potential), _native_expr(m), _native_expr(n),
+        _native_expr(x), _native_expr(y),
+    ):
+        return True
+    scale = simplify(diff(potential, y) / n)
+    if type(scale) not in exact_atoms or scale == 0:
+        return False
+    return bool(_native.verify_exact_ode_potential_native(
+        _native_expr(potential), _native_expr(scale * m), _native_expr(scale * n),
+        _native_expr(x), _native_expr(y),
+    ))
+
+
+def _apply_exact_ode_ics(relation, ics):
+    """Bind a polynomial level set using exact value initial conditions."""
+    from ..core import Eq, Integer, Rational, S, sympify
+
+    function = _find_function(relation)
+    x = function.args[0]
+    level = relation.rhs
+    if type(level) is not Symbol or level in relation.lhs.free_symbols:
+        raise NotImplementedError("dsolve: unsupported implicit integration constant")
+    exact_atoms = (Integer, Rational, type(S.Zero), type(S.One),
+                   type(S.NegativeOne), type(S.Half))
+    chosen = None
+    for key, raw_value in ics.items():
+        if type(key) is not type(function) or len(key.args) != 1:
+            raise NotImplementedError("dsolve: implicit solutions support value initial conditions only")
+        if type(raw_value) not in exact_atoms + (int,):
+            raise NotImplementedError("dsolve: implicit initial data must be exact rational values")
+        if type(raw_value) is int and raw_value.bit_length() > 4096:
+            raise ValueError("bounded exact polynomial ODE: initial value exceeds 4096 bits")
+        point, value = key.args[0], sympify(raw_value)
+        if type(point) not in exact_atoms or type(value) not in exact_atoms:
+            raise NotImplementedError("dsolve: implicit initial data must be exact rational values")
+        if not _exact_ode_source(relation.lhs, function, x, values=(point, value)):
+            raise ValueError("dsolve: implicit initial-condition expression is not polynomial")
+        candidate = relation.lhs.subs(function, value).subs(x, point)
+        if type(candidate) not in exact_atoms:
+            raise ValueError("dsolve: initial condition did not determine an exact level")
+        if chosen is not None and candidate != chosen:
+            raise ValueError("Couldn't solve for initial conditions")
+        chosen = candidate
+    return Eq(relation.lhs, chosen if chosen is not None else level, evaluate=False)
+
+
+def _explicit_exact_ode_solution(relation, ics):
+    """Lift checked level sets to rational/quadratic graphs when justified.
+
+    A nonconstant leading coefficient or undecidable branch/initial-value
+    check retains the implicit relation. Higher algebraic degrees remain
+    implicit; a partial list of algebraic roots is never published.
+    """
+    from ..core import Dummy, Eq, Integer, Rational, S, diff, expand, sqrt, sympify
+    from ..simplify import simplify
+
+    function = _find_function(relation)
+    x = function.args[0]
+    y = Dummy("exact_ode_y")
+    polynomial = relation.lhs.subs(function, y) - relation.rhs
+    if diff(polynomial, y, 3) != 0:
+        return relation
+    exact_atoms = (Integer, Rational, type(S.Zero), type(S.One),
+                   type(S.NegativeOne), type(S.Half))
+    a = simplify(diff(polynomial, y, 2) / 2)
+    b = diff(polynomial, y).subs(y, 0)
+    c = polynomial.subs(y, 0)
+    if a == 0:
+        if type(b) not in exact_atoms or b == 0:
+            return relation
+        candidates = [-c / b]
+    else:
+        if type(a) not in exact_atoms:
+            return relation
+        radical = sqrt(expand(b*b - 4*a*c))
+        candidates = [(-b - radical) / (2*a), (-b + radical) / (2*a)]
+    accepted = []
+    for candidate in candidates:
+        if simplify(expand(polynomial.subs(y, candidate))) != 0:
+            return relation
+        keep = True
+        for key, value in (ics or {}).items():
+            residual = simplify(candidate.subs(x, key.args[0]) - sympify(value))
+            if residual == 0:
+                continue
+            if residual.is_zero is False:
+                keep = False
+                break
+            return relation
+        if keep and candidate not in accepted:
+            accepted.append(candidate)
+    if not accepted:
+        raise ValueError("Couldn't solve for initial conditions")
+    answers = [Eq(function, candidate, evaluate=False) for candidate in accepted]
+    return answers[0] if len(answers) == 1 else answers
+
+
 def dsolve(eq, func=None, hint="default", ics=None, **kwargs):
     """Solve an ordinary differential equation for ``func`` (upstream
     ``dsolve``); ``ics`` fixes the integration constants from initial
-    conditions ``{f(x0): v, f(x).diff(x).subs(x, x0): v1, ...}``."""
-    sol = _dsolve_general(eq, func, hint, **kwargs)
+    conditions ``{f(x0): v, f(x).diff(x).subs(x, x0): v1, ...}``.
+
+    Bounded exact polynomial first-order forms also support ``1st_exact``.
+    Their checked level sets stay implicit with ``simplify=False`` or when
+    a complete rational/quadratic graph cannot be lifted safely. Exact rational
+    value initial conditions bind those level sets; derivative initial data
+    for an implicit solution are not currently supported.
+    """
+    from ..core import AppliedUndef, Eq
+
+    try:
+        sol = _dsolve_general(eq, func, hint, **kwargs)
+    except NotImplementedError as error:
+        # Preserve the established linear/separable default forms. Only these
+        # explicit structural non-matches may try the checked exact fallback.
+        if hint != "default" or str(error) not in {
+            "dsolve: equation is not separable",
+            "dsolve: implicit solution only",
+            "dsolve: equation class not supported",
+        }:
+            raise
+        function = func if func is not None else _find_function(eq)
+        if len(function.args) != 1:
+            raise
+        variable = function.args[0]
+        if not _exact_ode_source(eq, function, variable):
+            raise
+        original = eq.lhs - eq.rhs if type(eq) is Eq else eq
+        expression, ys, order = _ode_to_symbols(original, function, variable)
+        sol = _exact_ode_relation(expression, ys, variable, function) if order == 1 else None
+        if sol is None:
+            raise
+    implicit = type(sol) is Eq and not isinstance(sol.lhs, AppliedUndef)
     if ics:
-        sol = _apply_ics(sol, ics)
+        sol = _apply_exact_ode_ics(sol, ics) if implicit else _apply_ics(sol, ics)
+    if implicit and kwargs.get("simplify", True):
+        sol = _explicit_exact_ode_solution(sol, ics)
     return sol
 
 
@@ -771,13 +1131,25 @@ def _dsolve_general(eq, func=None, hint="default", **kwargs):
     from ..integrals import Integral
     from ..functions import exp
 
-    if type(eq) is _Eq:
+    source = eq
+    if hint != "1st_exact" and type(eq) is _Eq:
+        # Preserve the established default inference after normalization;
+        # the explicit exact hint must admit both original sides first.
         eq = eq.lhs - eq.rhs
     f = func if func is not None else _find_function(eq)
     if len(f.args) != 1:
         raise NotImplementedError("dsolve: only ordinary (single-variable) equations")
     x = f.args[0]
+    if hint == "1st_exact" and not _exact_ode_source(source, f, x):
+        raise ValueError("dsolve: 1st_exact requires an exact polynomial first-order equation")
+    if type(eq) is _Eq:
+        eq = eq.lhs - eq.rhs
     E, ys, n = _ode_to_symbols(eq, f, x)
+    if hint == "1st_exact":
+        relation = _exact_ode_relation(E, ys, x, f)
+        if relation is None:
+            raise ValueError("dsolve: equation does not match the 1st_exact hint")
+        return relation
     E = expand(E)
     if n == 0:
         raise ValueError("dsolve: the equation contains no derivative of the function")
