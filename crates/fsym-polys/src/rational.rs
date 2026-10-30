@@ -40,6 +40,47 @@ pub struct RationalSourceFraction {
     pub denominator: MultivariatePoly,
 }
 
+/// Untrusted exact source reduction. Every retained guard must be nonzero;
+/// these obligations survive cancellation, zero products and outer powers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RationalSourceCertificate {
+    pub fraction: RationalSourceFraction,
+    pub guards: Vec<MultivariatePoly>,
+}
+
+/// An exact rational function bound to its original held source and typed
+/// ring. This establishes equality only where every original guard is
+/// nonzero; callers must separately discharge their own domain obligations.
+/// It is an in-process construction receipt, not a portable proof artifact.
+#[derive(Debug, Clone)]
+pub struct VerifiedRationalSource {
+    source: Expr,
+    variables: Vec<Symbol>,
+    certificate: RationalSourceCertificate,
+}
+
+impl VerifiedRationalSource {
+    pub fn source(&self) -> &Expr {
+        &self.source
+    }
+
+    pub fn variables(&self) -> &[Symbol] {
+        &self.variables
+    }
+
+    pub fn fraction(&self) -> &RationalSourceFraction {
+        &self.certificate.fraction
+    }
+
+    pub fn guards(&self) -> &[MultivariatePoly] {
+        &self.certificate.guards
+    }
+
+    pub fn certificate(&self) -> &RationalSourceCertificate {
+        &self.certificate
+    }
+}
+
 /// Untrusted proposal for an exact localization construction. Fractions and
 /// guards use the original ring. Equations append the auxiliary variable last.
 #[derive(Debug, Clone)]
@@ -187,9 +228,10 @@ fn needs_localization(
 fn preflight_sources(
     sources: &[Expr],
     variables: &[Symbol],
+    maximum_variables: usize,
     work: &mut PolynomialWork<'_, impl BudgetMeter>,
 ) -> Result<usize, PolyError> {
-    check_ring(variables, MAX_ORIGINAL_VARIABLES, work)?;
+    check_ring(variables, maximum_variables, work)?;
     if sources.len() > MAX_ORIGINAL_EQUATIONS {
         return Err(refused(
             "localization supports at most 63 original equations",
@@ -751,7 +793,7 @@ pub fn verify_rational_localization(
 ) -> Result<VerifiedRationalLocalization, PolyError> {
     let mut work = PolynomialWork::new(verifier_meter);
     work.tick(1)?;
-    let source_bytes = preflight_sources(sources, variables, &mut work)?;
+    let source_bytes = preflight_sources(sources, variables, MAX_ORIGINAL_VARIABLES, &mut work)?;
     if certificate.fractions.len() != sources.len()
         || certificate.guards.len() > MAX_GUARDS
         || certificate.equations.len() != sources.len() + 1
@@ -825,7 +867,7 @@ pub fn metered_localize_rational_system(
         generator.tick(1)?;
         return Ok(RationalSystemAdmission::Polynomial);
     }
-    preflight_sources(sources, variables, &mut generator)?;
+    preflight_sources(sources, variables, MAX_ORIGINAL_VARIABLES, &mut generator)?;
     generator.allocate(sources.len() * size_of::<RationalSourceFraction>())?;
     let mut guards = Vec::new();
     let fractions = sources
@@ -855,4 +897,82 @@ pub fn metered_localize_rational_system(
     generator.tick(1)?;
     verifier_meter.checkpoint().map_err(refused)?;
     Ok(RationalSystemAdmission::Localized(Box::new(result)))
+}
+
+/// Independently reconstruct an original rational source without introducing
+/// a localization variable or equation. The reference uses common-denominator
+/// sums and repeated multiplication, independently of the generator's folds
+/// and exponentiation by squaring. No claimed fraction or guard is trusted.
+pub fn verify_rational_source(
+    source: &Expr,
+    variables: &[Symbol],
+    certificate: &RationalSourceCertificate,
+    verifier_meter: &mut impl BudgetMeter,
+) -> Result<VerifiedRationalSource, PolyError> {
+    let mut work = PolynomialWork::new(verifier_meter);
+    let source_bytes = preflight_sources(
+        std::slice::from_ref(source),
+        variables,
+        MAX_VARIABLES,
+        &mut work,
+    )?;
+    if certificate.guards.len() > MAX_GUARDS {
+        return Err(refused("rational source certificate has too many guards"));
+    }
+    for polynomial in [
+        &certificate.fraction.numerator,
+        &certificate.fraction.denominator,
+    ]
+    .into_iter()
+    .chain(&certificate.guards)
+    {
+        validate_poly(polynomial, &mut work)?;
+        same_ring(variables, polynomial.generators())?;
+    }
+    if certificate.fraction.denominator.is_zero() {
+        return Err(refused("zero denominator in rational-source certificate"));
+    }
+    let mut guards = Vec::new();
+    let fraction = reference_fraction(source, variables, &mut guards, &mut work)?;
+    if fraction != certificate.fraction || guards != certificate.guards {
+        return Err(refused(
+            "rational fraction or guards do not match the complete original source",
+        ));
+    }
+    // Retain the independently reconstructed parts, rather than another
+    // copy of the untrusted certificate. All source/name storage is prepaid.
+    work.allocate(source_bytes + ring_storage(variables) + size_of::<VerifiedRationalSource>())?;
+    let accepted = VerifiedRationalSource {
+        source: source.clone(),
+        variables: variables.to_vec(),
+        certificate: RationalSourceCertificate { fraction, guards },
+    };
+    work.tick(1)?;
+    Ok(accepted)
+}
+
+/// Construct and check an exact rational source over at most eight typed
+/// variables. Unlike localization this also admits polynomial and constant
+/// sources, and never adds an auxiliary variable. Both phases retain their
+/// cumulative 20M-compute/128MiB caps and the caller's cancellation ledger.
+pub fn metered_rational_source(
+    source: &Expr,
+    variables: &[Symbol],
+    generator_meter: &mut impl BudgetMeter,
+    verifier_meter: &mut impl BudgetMeter,
+) -> Result<VerifiedRationalSource, PolyError> {
+    let mut generator = PolynomialWork::new(generator_meter);
+    preflight_sources(
+        std::slice::from_ref(source),
+        variables,
+        MAX_VARIABLES,
+        &mut generator,
+    )?;
+    let mut guards = Vec::new();
+    let fraction = propose_fraction(source, variables, &mut guards, &mut generator)?;
+    let certificate = RationalSourceCertificate { fraction, guards };
+    let accepted = verify_rational_source(source, variables, &certificate, verifier_meter)?;
+    generator.tick(1)?;
+    verifier_meter.checkpoint().map_err(refused)?;
+    Ok(accepted)
 }

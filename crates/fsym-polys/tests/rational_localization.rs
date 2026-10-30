@@ -6,7 +6,7 @@ use fsym_core::{BigInt, BigRational, Expr, Symbol, SymbolIdentity, parse};
 use fsym_polys::{
     MultivariatePoly, RationalLocalizationCertificate, RationalSystemAdmission,
     VerifiedRationalLocalization, bounded_polynomial_from_expr, metered_localize_rational_system,
-    verify_rational_localization,
+    metered_rational_source, verify_rational_localization, verify_rational_source,
 };
 use std::sync::Arc;
 
@@ -542,4 +542,143 @@ fn public_checker_and_real_resource_budgets_cannot_publish_unpaid_receipts() {
     assert!(
         metered_localize_rational_system(&input, &variables, &mut Unbounded, &mut tiny).is_err()
     );
+}
+
+#[test]
+fn direct_source_admission_retains_exact_fractions_without_an_auxiliary_ring() {
+    let variables = vars(&["x"]);
+    let source = ratio(expression("x**2-1"), expression("x-1"));
+    let checked =
+        metered_rational_source(&source, &variables, &mut Unbounded, &mut Unbounded).unwrap();
+    assert_eq!(checked.source(), &source);
+    assert_eq!(checked.variables(), variables);
+    assert_eq!(
+        checked.fraction().numerator,
+        polynomial("x**2-1", &variables)
+    );
+    assert_eq!(
+        checked.fraction().denominator,
+        polynomial("x-1", &variables)
+    );
+    assert_eq!(checked.guards(), [polynomial("x-1", &variables)]);
+    verify_rational_source(&source, &variables, checked.certificate(), &mut Unbounded).unwrap();
+}
+
+#[test]
+fn direct_source_checks_polynomial_constants_and_all_eight_original_variables() {
+    let variables = vars(&["a", "b", "c", "d", "e", "f", "g", "h"]);
+    for source in [expression("a+b*c+h**3"), expression("7/3"), expression("0")] {
+        let checked =
+            metered_rational_source(&source, &variables, &mut Unbounded, &mut Unbounded).unwrap();
+        assert_eq!(
+            checked.fraction().numerator,
+            bounded_polynomial_from_expr(&source, &variables, &mut Unbounded).unwrap()
+        );
+        assert_eq!(checked.fraction().denominator, polynomial("1", &variables));
+        assert!(checked.guards().is_empty());
+        assert_eq!(checked.variables().len(), 8);
+    }
+}
+
+#[test]
+fn direct_source_preserves_nested_guards_even_when_the_value_has_no_denominator() {
+    let variables = vars(&["x"]);
+    let reciprocal = power(expression("x"), -1);
+    for (source, expected, guard_count) in [
+        (power(reciprocal.clone(), -1), "x", 2),
+        (power(reciprocal.clone(), 0), "1", 1),
+        (Expr::Mul(vec![Expr::from_i64(0), reciprocal]), "0", 1),
+    ] {
+        let checked =
+            metered_rational_source(&source, &variables, &mut Unbounded, &mut Unbounded).unwrap();
+        assert_eq!(
+            checked.fraction().numerator,
+            polynomial(expected, &variables)
+        );
+        assert_eq!(checked.guards()[0], polynomial("x", &variables));
+        assert_eq!(checked.guards().len(), guard_count);
+    }
+}
+
+#[test]
+fn direct_source_verifier_rejects_changed_values_dropped_guards_and_rebinding() {
+    let variables = vars(&["x"]);
+    let source = power(power(expression("x"), -1), -1);
+    let checked =
+        metered_rational_source(&source, &variables, &mut Unbounded, &mut Unbounded).unwrap();
+    let mut omitted = checked.certificate().clone();
+    omitted.guards.remove(0);
+    assert!(verify_rational_source(&source, &variables, &omitted, &mut Unbounded).is_err());
+    let mut changed = checked.certificate().clone();
+    changed.fraction.numerator = polynomial("x+1", &variables);
+    assert!(verify_rational_source(&source, &variables, &changed, &mut Unbounded).is_err());
+    let mut zero = checked.certificate().clone();
+    zero.fraction.denominator = polynomial("0", &variables);
+    assert!(verify_rational_source(&source, &variables, &zero, &mut Unbounded).is_err());
+    assert!(
+        verify_rational_source(
+            &expression("x"),
+            &variables,
+            checked.certificate(),
+            &mut Unbounded,
+        )
+        .is_err()
+    );
+    assert!(
+        verify_rational_source(
+            &source,
+            &vars(&["y"]),
+            checked.certificate(),
+            &mut Unbounded,
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn direct_source_admits_every_original_before_zero_and_power_shortcuts() {
+    let variables = vars(&["x"]);
+    let unsupported = Expr::Function("sin".into(), vec![expression("x")]);
+    for bad in [
+        Expr::Mul(vec![Expr::from_i64(0), unsupported.clone()]),
+        power(unsupported, 0),
+        power(Expr::from_i64(0), 0),
+        power(Expr::from_i64(0), -1),
+        Expr::Mul(vec![Expr::from_i64(0), expression("y")]),
+        power(expression("x"), 257),
+    ] {
+        assert!(metered_rational_source(&bad, &variables, &mut Unbounded, &mut Unbounded).is_err());
+    }
+}
+
+#[test]
+fn direct_source_keeps_both_resource_lanes_cumulative_until_publication() {
+    let variables = vars(&["x"]);
+    let source = ratio(expression("x**2-1"), expression("x-1"));
+    let mut generation = Meter::default();
+    let mut verification = Meter::default();
+    let checked =
+        metered_rational_source(&source, &variables, &mut generation, &mut verification).unwrap();
+    assert!(generation.compute > 0 && generation.memory > 0);
+    assert!(verification.compute > 0 && verification.memory > 0);
+    for point in [1, generation.checkpoints / 2, generation.checkpoints] {
+        let mut cancelled = Meter {
+            cancel_at: Some(point),
+            ..Meter::default()
+        };
+        assert!(
+            metered_rational_source(&source, &variables, &mut cancelled, &mut Unbounded).is_err()
+        );
+    }
+    for point in [1, verification.checkpoints / 2, verification.checkpoints] {
+        let mut cancelled = Meter {
+            cancel_at: Some(point),
+            ..Meter::default()
+        };
+        assert!(
+            metered_rational_source(&source, &variables, &mut Unbounded, &mut cancelled).is_err()
+        );
+    }
+    let mut tiny = Budget::new(BudgetLimits::uniform(1, 0));
+    assert!(verify_rational_source(&source, &variables, checked.certificate(), &mut tiny).is_err());
 }
