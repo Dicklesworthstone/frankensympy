@@ -146,9 +146,10 @@ def test_source_limits_and_custom_overrides_refuse_before_expensive_work():
         pass
 
     custom = CustomSymbol("laplace_custom")
-    held = s.Mul(0, custom, evaluate=False)
     with pytest.raises(NotImplementedError):
-        s.inverse_laplace_transform(s.Add(1/z, held, evaluate=False), z, t)
+        s.Mul(0, custom, evaluate=False)
+    with pytest.raises(NotImplementedError):
+        s.inverse_laplace_transform(custom, z, t)
 
 
 def test_operational_failure_is_not_swallowed_as_an_unevaluated_or_table_answer(monkeypatch):

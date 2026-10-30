@@ -1377,17 +1377,31 @@ pub struct VerifiedLaplace {
 }
 
 impl VerifiedLaplace {
-    pub fn source(&self) -> &Expr { &self.source }
-    pub fn time_variable(&self) -> &Symbol { &self.time_variable }
-    pub fn transform_variable(&self) -> &Symbol { &self.transform_variable }
-    pub fn transform(&self) -> &Expr { &self.transform }
+    pub fn source(&self) -> &Expr {
+        &self.source
+    }
+    pub fn time_variable(&self) -> &Symbol {
+        &self.time_variable
+    }
+    pub fn transform_variable(&self) -> &Symbol {
+        &self.transform_variable
+    }
+    pub fn transform(&self) -> &Expr {
+        &self.transform
+    }
     /// Exact abscissa of convergence; None denotes the zero source.
-    pub fn exact_abscissa(&self) -> Option<&BigRational> { self.sufficient_abscissa.as_ref() }
-    pub fn sufficient_abscissa(&self) -> Option<&BigRational> { self.exact_abscissa() }
-    pub fn into_transform(self) -> Expr { self.transform }
+    pub fn exact_abscissa(&self) -> Option<&BigRational> {
+        self.sufficient_abscissa.as_ref()
+    }
+    pub fn sufficient_abscissa(&self) -> Option<&BigRational> {
+        self.exact_abscissa()
+    }
+    pub fn into_transform(self) -> Expr {
+        self.transform
+    }
     /// Moves both public outputs without cloning the governed transform.
-    pub fn into_parts(self) -> (Expr,Option<BigRational>) {
-        (self.transform,self.sufficient_abscissa)
+    pub fn into_parts(self) -> (Expr, Option<BigRational>) {
+        (self.transform, self.sufficient_abscissa)
     }
 }
 
@@ -1402,9 +1416,11 @@ fn admit_time(
         return Err(RationalLaplaceError::ResourceLimit("typed symbol names"));
     }
     if time == variable {
-        return Err(RationalLaplaceError::InvalidSource("transform and time variables must be distinct"));
+        return Err(RationalLaplaceError::InvalidSource(
+            "transform and time variables must be distinct",
+        ));
     }
-    work.charge(1, MAX_NODES*24)?;
+    work.charge(1, MAX_NODES * 24)?;
     let mut pending = vec![(source, 0usize)];
     let mut visited = 0usize;
     let mut unsupported = false;
@@ -1412,7 +1428,9 @@ fn admit_time(
         work.meter.checkpoint()?;
         visited += 1;
         if visited > MAX_NODES || depth > MAX_DEPTH {
-            return Err(RationalLaplaceError::ResourceLimit("time source expression shape"));
+            return Err(RationalLaplaceError::ResourceLimit(
+                "time source expression shape",
+            ));
         }
         match node {
             Expr::Integer(value) => {
@@ -1424,7 +1442,9 @@ fn admit_time(
             Expr::Sym(symbol) => {
                 text = text.saturating_add(symbol.name.len());
                 if text > MAX_TEXT {
-                    return Err(RationalLaplaceError::ResourceLimit("time source symbol names"));
+                    return Err(RationalLaplaceError::ResourceLimit(
+                        "time source symbol names",
+                    ));
                 }
                 unsupported |= symbol != time;
             }
@@ -1434,22 +1454,28 @@ fn admit_time(
                     unsupported |= children.len() != 1
                         || !matches!(name.as_str(), "exp" | "sin" | "cos" | "sinh" | "cosh");
                 }
-                if children.is_empty() || children.len()+pending.len()+visited > MAX_NODES {
-                    return Err(RationalLaplaceError::ResourceLimit("time source expression fanout"));
+                if children.is_empty() || children.len() + pending.len() + visited > MAX_NODES {
+                    return Err(RationalLaplaceError::ResourceLimit(
+                        "time source expression fanout",
+                    ));
                 }
-                pending.extend(children.iter().map(|child| (child, depth+1)));
+                pending.extend(children.iter().map(|child| (child, depth + 1)));
             }
             Expr::Pow(base, exponent) => {
                 match integer_power(exponent) {
                     Some(power) if power.unsigned_abs() <= MAX_DEGREE as u64 => {}
-                    Some(_) => return Err(RationalLaplaceError::ResourceLimit("source integer power")),
+                    Some(_) => {
+                        return Err(RationalLaplaceError::ResourceLimit("source integer power"));
+                    }
                     None => unsupported = true,
                 }
-                if pending.len()+visited+2 > MAX_NODES {
-                    return Err(RationalLaplaceError::ResourceLimit("time source expression fanout"));
+                if pending.len() + visited + 2 > MAX_NODES {
+                    return Err(RationalLaplaceError::ResourceLimit(
+                        "time source expression fanout",
+                    ));
                 }
-                pending.push((base.as_ref(), depth+1));
-                pending.push((exponent.as_ref(), depth+1));
+                pending.push((base.as_ref(), depth + 1));
+                pending.push((exponent.as_ref(), depth + 1));
             }
             Expr::Const(_) => unsupported = true,
         }
@@ -1459,7 +1485,9 @@ fn admit_time(
     }
     work.charge(visited, 1)?;
     if unsupported {
-        return Err(RationalLaplaceError::Unsupported("rational time polynomials and real exponential/trigonometric factors are required"));
+        return Err(RationalLaplaceError::Unsupported(
+            "rational time polynomials and real exponential/trigonometric factors are required",
+        ));
     }
     Ok(visited)
 }
@@ -1477,12 +1505,21 @@ fn same_block(
     work: &mut Work<'_, impl BudgetMeter>,
 ) -> Result<bool> {
     match (left, right) {
-        (LaplaceBlock::Exponential { rate: a, .. }, LaplaceBlock::Exponential { rate: b, .. }) =>
-            Ok(a.metered_cmp(b,work.meter)?.is_eq()),
+        (LaplaceBlock::Exponential { rate: a, .. }, LaplaceBlock::Exponential { rate: b, .. }) => {
+            Ok(a.metered_cmp(b, work.meter)?.is_eq())
+        }
         (
-            LaplaceBlock::Quadratic { rate: a, squared_frequency: da, .. },
-            LaplaceBlock::Quadratic { rate: b, squared_frequency: db, .. },
-        ) => Ok(a.metered_cmp(b,work.meter)?.is_eq() && da.metered_cmp(db,work.meter)?.is_eq()),
+            LaplaceBlock::Quadratic {
+                rate: a,
+                squared_frequency: da,
+                ..
+            },
+            LaplaceBlock::Quadratic {
+                rate: b,
+                squared_frequency: db,
+                ..
+            },
+        ) => Ok(a.metered_cmp(b, work.meter)?.is_eq() && da.metered_cmp(db, work.meter)?.is_eq()),
         _ => Ok(false),
     }
 }
@@ -1492,11 +1529,13 @@ fn insert_block(
     block: LaplaceBlock,
     work: &mut Work<'_, impl BudgetMeter>,
 ) -> Result<()> {
-    if block_zero(&block) { return Ok(()); }
-    work.charge(output.len()+1, 128)?;
+    if block_zero(&block) {
+        return Ok(());
+    }
+    work.charge(output.len() + 1, 128)?;
     let mut matched = None;
-    for (index,previous) in output.iter().enumerate() {
-        if same_block(previous,&block,work)? {
+    for (index, previous) in output.iter().enumerate() {
+        if same_block(previous, &block, work)? {
             matched = Some(index);
             break;
         }
@@ -1504,22 +1543,39 @@ fn insert_block(
     if let Some(index) = matched {
         match (&mut output[index], block) {
             (
-                LaplaceBlock::Exponential { coefficients: left, .. },
-                LaplaceBlock::Exponential { coefficients: right, .. },
+                LaplaceBlock::Exponential {
+                    coefficients: left, ..
+                },
+                LaplaceBlock::Exponential {
+                    coefficients: right,
+                    ..
+                },
             ) => *left = work.add(left, &right)?,
             (
-                LaplaceBlock::Quadratic { cosine: ac, sine: as_, .. },
-                LaplaceBlock::Quadratic { cosine: bc, sine: bs, .. },
+                LaplaceBlock::Quadratic {
+                    cosine: ac,
+                    sine: as_,
+                    ..
+                },
+                LaplaceBlock::Quadratic {
+                    cosine: bc,
+                    sine: bs,
+                    ..
+                },
             ) => {
                 *ac = work.add(ac, &bc)?;
                 *as_ = work.add(as_, &bs)?;
             }
             _ => return Err(RationalLaplaceError::Verification("inconsistent block key")),
         }
-        if block_zero(&output[index]) { output.remove(index); }
+        if block_zero(&output[index]) {
+            output.remove(index);
+        }
     } else {
         if output.len() >= MAX_DEGREE {
-            return Err(RationalLaplaceError::ResourceLimit("time source block count"));
+            return Err(RationalLaplaceError::ResourceLimit(
+                "time source block count",
+            ));
         }
         output.push(block);
     }
@@ -1529,21 +1585,31 @@ fn insert_block(
     for block in output {
         match block {
             LaplaceBlock::Exponential { coefficients, .. } => cells += coefficients.len(),
-            LaplaceBlock::Quadratic { cosine, sine, .. } => cells += 2*cosine.len().max(sine.len()),
+            LaplaceBlock::Quadratic { cosine, sine, .. } => {
+                cells += 2 * cosine.len().max(sine.len())
+            }
         }
         if cells > MAX_DEGREE {
-            return Err(RationalLaplaceError::ResourceLimit("time source polynomial dimension"));
+            return Err(RationalLaplaceError::ResourceLimit(
+                "time source polynomial dimension",
+            ));
         }
     }
     Ok(())
 }
 
-fn constant_blocks(value: BigRational, work: &mut Work<'_, impl BudgetMeter>) -> Result<Vec<LaplaceBlock>> {
+fn constant_blocks(
+    value: BigRational,
+    work: &mut Work<'_, impl BudgetMeter>,
+) -> Result<Vec<LaplaceBlock>> {
     scalar_ok(&value, MAX_BITS)?;
     work.charge(1, 256)?;
-    if value.is_zero() { return Ok(Vec::new()); }
+    if value.is_zero() {
+        return Ok(Vec::new());
+    }
     Ok(vec![LaplaceBlock::Exponential {
-        rate: BigRational::zero(), coefficients: vec![value],
+        rate: BigRational::zero(),
+        coefficients: vec![value],
     }])
 }
 
@@ -1556,27 +1622,54 @@ fn product_blocks(
     for a in left {
         for b in right {
             work.meter.checkpoint()?;
-            let product = match (a,b) {
+            let product = match (a, b) {
                 (
-                    LaplaceBlock::Exponential { rate: ar, coefficients: ac },
-                    LaplaceBlock::Exponential { rate: br, coefficients: bc },
+                    LaplaceBlock::Exponential {
+                        rate: ar,
+                        coefficients: ac,
+                    },
+                    LaplaceBlock::Exponential {
+                        rate: br,
+                        coefficients: bc,
+                    },
                 ) => LaplaceBlock::Exponential {
-                    rate: work.add_number(ar,br)?,
-                    coefficients: work.mul(ac,bc)?,
+                    rate: work.add_number(ar, br)?,
+                    coefficients: work.mul(ac, bc)?,
                 },
                 (
-                    LaplaceBlock::Exponential { rate: ar, coefficients: ac },
-                    LaplaceBlock::Quadratic { rate: br, squared_frequency, cosine, sine },
-                ) | (
-                    LaplaceBlock::Quadratic { rate: br, squared_frequency, cosine, sine },
-                    LaplaceBlock::Exponential { rate: ar, coefficients: ac },
+                    LaplaceBlock::Exponential {
+                        rate: ar,
+                        coefficients: ac,
+                    },
+                    LaplaceBlock::Quadratic {
+                        rate: br,
+                        squared_frequency,
+                        cosine,
+                        sine,
+                    },
+                )
+                | (
+                    LaplaceBlock::Quadratic {
+                        rate: br,
+                        squared_frequency,
+                        cosine,
+                        sine,
+                    },
+                    LaplaceBlock::Exponential {
+                        rate: ar,
+                        coefficients: ac,
+                    },
                 ) => LaplaceBlock::Quadratic {
-                    rate: work.add_number(ar,br)?,
+                    rate: work.add_number(ar, br)?,
                     squared_frequency: work.number(squared_frequency)?,
-                    cosine: work.mul(ac,cosine)?,
-                    sine: work.mul(ac,sine)?,
+                    cosine: work.mul(ac, cosine)?,
+                    sine: work.mul(ac, sine)?,
                 },
-                _ => return Err(RationalLaplaceError::Unsupported("products of oscillatory factors")),
+                _ => {
+                    return Err(RationalLaplaceError::Unsupported(
+                        "products of oscillatory factors",
+                    ));
+                }
             };
             insert_block(&mut output, product, work)?;
         }
@@ -1587,12 +1680,17 @@ fn product_blocks(
 fn time_rate(argument: &Expr, work: &mut Work<'_, impl BudgetMeter>) -> Result<BigRational> {
     let argument = parse_source(argument, work)?;
     if argument.excluded_abscissa.is_some() {
-        return Err(RationalLaplaceError::InvalidSource("analytic time argument has an original denominator or zero-power exclusion"));
+        return Err(RationalLaplaceError::InvalidSource(
+            "analytic time argument has an original denominator or zero-power exclusion",
+        ));
     }
-    if argument.denominator.len() != 1 || argument.numerator.len() > 2
+    if argument.denominator.len() != 1
+        || argument.numerator.len() > 2
         || !argument.numerator[0].is_zero()
     {
-        return Err(RationalLaplaceError::Unsupported("analytic arguments must be a rational rate times time"));
+        return Err(RationalLaplaceError::Unsupported(
+            "analytic arguments must be a rational rate times time",
+        ));
     }
     match argument.numerator.get(1) {
         Some(rate) => work.div_number(rate, &argument.denominator[0]),
@@ -1604,7 +1702,7 @@ fn parse_time(source: &Expr, work: &mut Work<'_, impl BudgetMeter>) -> Result<Ve
     work.charge(1, 128)?;
     match source {
         Expr::Integer(value) => {
-            work.charge(1, 128+value.bits().div_ceil(8) as usize)?;
+            work.charge(1, 128 + value.bits().div_ceil(8) as usize)?;
             constant_blocks(BigRational::from_integer(value.clone()), work)
         }
         Expr::Rational(value) => {
@@ -1619,7 +1717,9 @@ fn parse_time(source: &Expr, work: &mut Work<'_, impl BudgetMeter>) -> Result<Ve
             let mut output = Vec::new();
             for child in children {
                 let blocks = parse_time(child, work)?;
-                for block in blocks { insert_block(&mut output, block, work)?; }
+                for block in blocks {
+                    insert_block(&mut output, block, work)?;
+                }
             }
             Ok(output)
         }
@@ -1637,29 +1737,42 @@ fn parse_time(source: &Expr, work: &mut Work<'_, impl BudgetMeter>) -> Result<Ve
             let exponent = integer_power(exponent)
                 .ok_or(RationalLaplaceError::Unsupported("noninteger time power"))?;
             if exponent <= 0 && base.is_empty() {
-                return Err(RationalLaplaceError::InvalidSource("zero base of a nonpositive time power"));
+                return Err(RationalLaplaceError::InvalidSource(
+                    "zero base of a nonpositive time power",
+                ));
             }
             if exponent <= 0 {
                 let [LaplaceBlock::Exponential { rate, coefficients }] = base.as_slice() else {
-                    return Err(RationalLaplaceError::InvalidSource("nonpositive time power has no nonvanishing-source witness"));
+                    return Err(RationalLaplaceError::InvalidSource(
+                        "nonpositive time power has no nonvanishing-source witness",
+                    ));
                 };
                 if coefficients.len() != 1 {
-                    return Err(RationalLaplaceError::InvalidSource("nonpositive time power has no nonvanishing-source witness"));
+                    return Err(RationalLaplaceError::InvalidSource(
+                        "nonpositive time power has no nonvanishing-source witness",
+                    ));
                 }
                 if exponent < 0 {
                     let reciprocal = work.div_number(&BigRational::one(), &coefficients[0])?;
-                    let opposite = work.sub_number(&BigRational::zero(),rate)?;
-                    work.charge(1,256)?;
-                    base = vec![LaplaceBlock::Exponential { rate:opposite,coefficients:vec![reciprocal] }];
+                    let opposite = work.sub_number(&BigRational::zero(), rate)?;
+                    work.charge(1, 256)?;
+                    base = vec![LaplaceBlock::Exponential {
+                        rate: opposite,
+                        coefficients: vec![reciprocal],
+                    }];
                 }
             }
             let mut exponent = exponent.unsigned_abs() as usize;
             let mut output = constant_blocks(BigRational::one(), work)?;
             while exponent != 0 {
                 work.meter.checkpoint()?;
-                if exponent & 1 != 0 { output = product_blocks(&output, &base, work)?; }
+                if exponent & 1 != 0 {
+                    output = product_blocks(&output, &base, work)?;
+                }
                 exponent >>= 1;
-                if exponent != 0 { base = product_blocks(&base, &base, work)?; }
+                if exponent != 0 {
+                    base = product_blocks(&base, &base, work)?;
+                }
             }
             Ok(output)
         }
@@ -1667,67 +1780,111 @@ fn parse_time(source: &Expr, work: &mut Work<'_, impl BudgetMeter>) -> Result<Ve
             let rate = time_rate(&arguments[0], work)?;
             match name.as_str() {
                 "exp" => {
-                    work.charge(1,256)?;
+                    work.charge(1, 256)?;
                     Ok(vec![LaplaceBlock::Exponential {
-                        rate, coefficients: vec![BigRational::one()],
+                        rate,
+                        coefficients: vec![BigRational::one()],
                     }])
                 }
                 "sin" | "cos" => {
                     if rate.is_zero() {
-                        return constant_blocks(if name == "cos" { BigRational::one() } else { BigRational::zero() }, work);
+                        return constant_blocks(
+                            if name == "cos" {
+                                BigRational::one()
+                            } else {
+                                BigRational::zero()
+                            },
+                            work,
+                        );
                     }
-                    let d = work.mul_number(&rate,&rate)?;
-                    work.charge(1,384)?;
-                    let (cosine,sine) = if name == "cos" {
+                    let d = work.mul_number(&rate, &rate)?;
+                    work.charge(1, 384)?;
+                    let (cosine, sine) = if name == "cos" {
                         (vec![BigRational::one()], vec![BigRational::zero()])
-                    } else { (vec![BigRational::zero()], vec![rate]) };
+                    } else {
+                        (vec![BigRational::zero()], vec![rate])
+                    };
                     Ok(vec![LaplaceBlock::Quadratic {
-                        rate: BigRational::zero(), squared_frequency: d, cosine, sine,
+                        rate: BigRational::zero(),
+                        squared_frequency: d,
+                        cosine,
+                        sine,
                     }])
                 }
                 "cosh" | "sinh" => {
-                    let negative = work.sub_number(&BigRational::zero(),&rate)?;
-                    let half = work.div_number(&BigRational::one(),&q(2))?;
+                    let negative = work.sub_number(&BigRational::zero(), &rate)?;
+                    let half = work.div_number(&BigRational::one(), &q(2))?;
                     let second = if name == "cosh" {
                         work.number(&half)?
-                    } else { work.sub_number(&BigRational::zero(),&half)? };
-                    work.charge(2,512)?;
+                    } else {
+                        work.sub_number(&BigRational::zero(), &half)?
+                    };
+                    work.charge(2, 512)?;
                     let mut output = Vec::new();
-                    insert_block(&mut output, LaplaceBlock::Exponential { rate, coefficients: vec![half] }, work)?;
-                    insert_block(&mut output, LaplaceBlock::Exponential { rate: negative, coefficients: vec![second] }, work)?;
+                    insert_block(
+                        &mut output,
+                        LaplaceBlock::Exponential {
+                            rate,
+                            coefficients: vec![half],
+                        },
+                        work,
+                    )?;
+                    insert_block(
+                        &mut output,
+                        LaplaceBlock::Exponential {
+                            rate: negative,
+                            coefficients: vec![second],
+                        },
+                        work,
+                    )?;
                     Ok(output)
                 }
                 _ => Err(RationalLaplaceError::Unsupported("unknown analytic factor")),
             }
         }
-        _ => Err(RationalLaplaceError::Unsupported("non-polynomial-exponential time source")),
+        _ => Err(RationalLaplaceError::Unsupported(
+            "non-polynomial-exponential time source",
+        )),
     }
 }
 
-fn block_base(block: &LaplaceBlock, work: &mut Work<'_, impl BudgetMeter>) -> Result<(Coefficients,usize)> {
-    let (rate,d,multiplicity) = match block {
-        LaplaceBlock::Exponential { rate, coefficients } => (rate,None,coefficients.len()),
-        LaplaceBlock::Quadratic { rate, squared_frequency, cosine, sine } => (
-            rate,Some(squared_frequency),cosine.len().max(sine.len()),
-        ),
+fn block_base(
+    block: &LaplaceBlock,
+    work: &mut Work<'_, impl BudgetMeter>,
+) -> Result<(Coefficients, usize)> {
+    let (rate, d, multiplicity) = match block {
+        LaplaceBlock::Exponential { rate, coefficients } => (rate, None, coefficients.len()),
+        LaplaceBlock::Quadratic {
+            rate,
+            squared_frequency,
+            cosine,
+            sine,
+        } => (rate, Some(squared_frequency), cosine.len().max(sine.len())),
     };
-    let minus = work.sub_number(&BigRational::zero(),rate)?;
-    let shifted = work.copy(&[minus,BigRational::one()])?;
+    let minus = work.sub_number(&BigRational::zero(), rate)?;
+    let shifted = work.copy(&[minus, BigRational::one()])?;
     let base = if let Some(d) = d {
-        let square = work.mul(&shifted,&shifted)?;
-        work.add(&square,std::slice::from_ref(d))?
-    } else { shifted };
-    Ok((base,multiplicity))
+        let square = work.mul(&shifted, &shifted)?;
+        work.add(&square, std::slice::from_ref(d))?
+    } else {
+        shifted
+    };
+    Ok((base, multiplicity))
 }
 
-fn common_denominator(blocks: &[LaplaceBlock], work: &mut Work<'_, impl BudgetMeter>) -> Result<Coefficients> {
+fn common_denominator(
+    blocks: &[LaplaceBlock],
+    work: &mut Work<'_, impl BudgetMeter>,
+) -> Result<Coefficients> {
     let mut denominator = work.copy(&[BigRational::one()])?;
     for block in blocks {
-        let (base,power) = block_base(block,work)?;
-        let factor = work.pow(&base,power)?;
-        denominator = work.mul(&denominator,&factor)?;
-        if denominator.len() > MAX_DEGREE+1 {
-            return Err(RationalLaplaceError::ResourceLimit("forward transform denominator degree"));
+        let (base, power) = block_base(block, work)?;
+        let factor = work.pow(&base, power)?;
+        denominator = work.mul(&denominator, &factor)?;
+        if denominator.len() > MAX_DEGREE + 1 {
+            return Err(RationalLaplaceError::ResourceLimit(
+                "forward transform denominator degree",
+            ));
         }
     }
     Ok(denominator)
@@ -1741,68 +1898,124 @@ fn generate_forward_component(
     coefficients: &[BigRational],
     work: &mut Work<'_, impl BudgetMeter>,
 ) -> Result<()> {
-    for (degree,coefficient) in coefficients.iter().enumerate() {
+    for (degree, coefficient) in coefficients.iter().enumerate() {
         work.meter.checkpoint()?;
         if !coefficient.is_zero() {
-            let denominator = work.pow(base,degree+1)?;
-            let complement = work.quotient(common,&denominator)?;
-            let expanded = work.mul(&numerator,&complement)?;
-            let scaled = work.scale(&expanded,coefficient)?;
-            *accumulator = work.add(accumulator,&scaled)?;
+            let denominator = work.pow(base, degree + 1)?;
+            let complement = work.quotient(common, &denominator)?;
+            let expanded = work.mul(&numerator, &complement)?;
+            let scaled = work.scale(&expanded, coefficient)?;
+            *accumulator = work.add(accumulator, &scaled)?;
         }
-        if degree+1 < coefficients.len() {
-            numerator = next_numerator(&numerator,base,degree+1,work)?;
+        if degree + 1 < coefficients.len() {
+            numerator = next_numerator(&numerator, base, degree + 1, work)?;
         }
     }
     Ok(())
 }
 
-fn generate_forward_fraction(blocks: &[LaplaceBlock], work: &mut Work<'_, impl BudgetMeter>) -> Result<Fraction> {
-    let denominator = common_denominator(blocks,work)?;
+fn generate_forward_fraction(
+    blocks: &[LaplaceBlock],
+    work: &mut Work<'_, impl BudgetMeter>,
+) -> Result<Fraction> {
+    let denominator = common_denominator(blocks, work)?;
     let mut numerator = work.copy(&[BigRational::zero()])?;
     for block in blocks {
-        let (base,_) = block_base(block,work)?;
+        let (base, _) = block_base(block, work)?;
         match block {
             LaplaceBlock::Exponential { coefficients, .. } => {
                 let start = work.copy(&[BigRational::one()])?;
-                generate_forward_component(&mut numerator,&denominator,&base,start,coefficients,work)?;
+                generate_forward_component(
+                    &mut numerator,
+                    &denominator,
+                    &base,
+                    start,
+                    coefficients,
+                    work,
+                )?;
             }
-            LaplaceBlock::Quadratic { rate,cosine,sine,.. } => {
-                let minus = work.sub_number(&BigRational::zero(),rate)?;
-                let start = work.copy(&[minus,BigRational::one()])?;
-                generate_forward_component(&mut numerator,&denominator,&base,start,cosine,work)?;
+            LaplaceBlock::Quadratic {
+                rate, cosine, sine, ..
+            } => {
+                let minus = work.sub_number(&BigRational::zero(), rate)?;
+                let start = work.copy(&[minus, BigRational::one()])?;
+                generate_forward_component(
+                    &mut numerator,
+                    &denominator,
+                    &base,
+                    start,
+                    cosine,
+                    work,
+                )?;
                 let start = work.copy(&[BigRational::one()])?;
-                generate_forward_component(&mut numerator,&denominator,&base,start,sine,work)?;
+                generate_forward_component(&mut numerator, &denominator, &base, start, sine, work)?;
             }
         }
     }
-    Ok(Fraction { numerator,denominator,excluded_abscissa:None })
+    Ok(Fraction {
+        numerator,
+        denominator,
+        excluded_abscissa: None,
+    })
 }
 
-fn fraction_expression(fraction: &Fraction, variable: &Symbol, work: &mut Work<'_, impl BudgetMeter>) -> Result<Expr> {
-    let cells = fraction.numerator.len()+fraction.denominator.len();
-    let bits = fraction.numerator.iter().chain(&fraction.denominator).map(bit_size).max().unwrap_or(1);
-    work.charge(64*cells, 16*cells*(256+4*bits.div_ceil(8) as usize+variable.name.len()))?;
-    let numerator = time_polynomial(&fraction.numerator,variable);
-    if numerator.is_zero() { return Ok(numerator); }
-    let denominator = time_polynomial(&fraction.denominator,variable);
-    if denominator.is_one() { return Ok(numerator); }
-    Ok(product_expression(vec![numerator,eval_pow(denominator,Expr::from_i64(-1))]))
+fn fraction_expression(
+    fraction: &Fraction,
+    variable: &Symbol,
+    work: &mut Work<'_, impl BudgetMeter>,
+) -> Result<Expr> {
+    let cells = fraction.numerator.len() + fraction.denominator.len();
+    let bits = fraction
+        .numerator
+        .iter()
+        .chain(&fraction.denominator)
+        .map(bit_size)
+        .max()
+        .unwrap_or(1);
+    work.charge(
+        64 * cells,
+        16 * cells * (256 + 4 * bits.div_ceil(8) as usize + variable.name.len()),
+    )?;
+    let numerator = time_polynomial(&fraction.numerator, variable);
+    if numerator.is_zero() {
+        return Ok(numerator);
+    }
+    let denominator = time_polynomial(&fraction.denominator, variable);
+    if denominator.is_one() {
+        return Ok(numerator);
+    }
+    Ok(product_expression(vec![
+        numerator,
+        eval_pow(denominator, Expr::from_i64(-1)),
+    ]))
 }
 
-fn forward_abscissa(blocks: &[LaplaceBlock], work: &mut Work<'_, impl BudgetMeter>) -> Result<Option<BigRational>> {
+fn forward_abscissa(
+    blocks: &[LaplaceBlock],
+    work: &mut Work<'_, impl BudgetMeter>,
+) -> Result<Option<BigRational>> {
     let mut maximum: Option<BigRational> = None;
     for block in blocks {
         let rate = match block {
             LaplaceBlock::Exponential { rate, .. } => rate,
-            LaplaceBlock::Quadratic { rate, squared_frequency, .. } if squared_frequency.is_positive() => rate,
-            _ => return Err(RationalLaplaceError::Verification("forward normalization retained a hyperbolic block")),
+            LaplaceBlock::Quadratic {
+                rate,
+                squared_frequency,
+                ..
+            } if squared_frequency.is_positive() => rate,
+            _ => {
+                return Err(RationalLaplaceError::Verification(
+                    "forward normalization retained a hyperbolic block",
+                ));
+            }
         };
         let greater = match &maximum {
             None => true,
-            Some(previous) => rate.metered_cmp(previous,work.meter)?.is_gt(),
+            Some(previous) => rate.metered_cmp(previous, work.meter)?.is_gt(),
         };
-        if greater { maximum = Some(work.number(rate)?); }
+        if greater {
+            maximum = Some(work.number(rate)?);
+        }
     }
     Ok(maximum)
 }
@@ -1814,16 +2027,16 @@ fn check_original_transform_poles(
     denominator: &[BigRational],
     work: &mut Work<'_, impl BudgetMeter>,
 ) -> Result<()> {
-    work.charge(1,MAX_NODES*16)?;
+    work.charge(1, MAX_NODES * 16)?;
     let mut pending = vec![transformed];
     while let Some(node) = pending.pop() {
         work.meter.checkpoint()?;
         match node {
             Expr::Add(children) | Expr::Mul(children) => pending.extend(children),
-            Expr::Pow(base,exponent) => {
+            Expr::Pow(base, exponent) => {
                 if integer_power(exponent).is_some_and(|power| power <= 0) {
-                    let admitted_base = parse_source(base,work)?;
-                    work.quotient(denominator,&admitted_base.numerator)?;
+                    let admitted_base = parse_source(base, work)?;
+                    work.quotient(denominator, &admitted_base.numerator)?;
                 }
                 pending.push(base.as_ref());
                 pending.push(exponent.as_ref());
@@ -1841,35 +2054,66 @@ fn verify_forward_inner(
     transformed: &Expr,
     work: &mut Work<'_, impl BudgetMeter>,
 ) -> Result<VerifiedLaplace> {
-    let source_nodes = admit_time(source,time,variable,work)?;
-    let blocks = parse_time(source,work)?;
-    let output_nodes = admit(transformed,variable,time,work)?;
-    let proposed = parse_source(transformed,work)?;
-    let denominator = common_denominator(&blocks,work)?;
-    check_original_transform_poles(transformed,&denominator,work)?;
+    let source_nodes = admit_time(source, time, variable, work)?;
+    let blocks = parse_time(source, work)?;
+    let output_nodes = admit(transformed, variable, time, work)?;
+    let proposed = parse_source(transformed, work)?;
+    let denominator = common_denominator(&blocks, work)?;
+    check_original_transform_poles(transformed, &denominator, work)?;
     let mut numerator = work.copy(&[BigRational::zero()])?;
     for block in &blocks {
         match block {
-            LaplaceBlock::Exponential { rate,coefficients } => check_component(
-                &mut numerator,&denominator,rate,None,coefficients,Component::Exponential,work,
+            LaplaceBlock::Exponential { rate, coefficients } => check_component(
+                &mut numerator,
+                &denominator,
+                rate,
+                None,
+                coefficients,
+                Component::Exponential,
+                work,
             )?,
-            LaplaceBlock::Quadratic { rate,squared_frequency,cosine,sine } => {
-                check_component(&mut numerator,&denominator,rate,Some(squared_frequency),cosine,Component::Cosine,work)?;
-                check_component(&mut numerator,&denominator,rate,Some(squared_frequency),sine,Component::Sine,work)?;
+            LaplaceBlock::Quadratic {
+                rate,
+                squared_frequency,
+                cosine,
+                sine,
+            } => {
+                check_component(
+                    &mut numerator,
+                    &denominator,
+                    rate,
+                    Some(squared_frequency),
+                    cosine,
+                    Component::Cosine,
+                    work,
+                )?;
+                check_component(
+                    &mut numerator,
+                    &denominator,
+                    rate,
+                    Some(squared_frequency),
+                    sine,
+                    Component::Sine,
+                    work,
+                )?;
             }
         }
     }
-    let left = work.mul(&numerator,&proposed.denominator)?;
-    let right = work.mul(&proposed.numerator,&denominator)?;
+    let left = work.mul(&numerator, &proposed.denominator)?;
+    let right = work.mul(&proposed.numerator, &denominator)?;
     if left != right {
-        return Err(RationalLaplaceError::Verification("forward transform identity against original time source"));
+        return Err(RationalLaplaceError::Verification(
+            "forward transform identity against original time source",
+        ));
     }
-    let sufficient_abscissa = forward_abscissa(&blocks,work)?;
-    let nodes = source_nodes+output_nodes;
-    work.charge(nodes,nodes*2048+4*MAX_TEXT)?;
+    let sufficient_abscissa = forward_abscissa(&blocks, work)?;
+    let nodes = source_nodes + output_nodes;
+    work.charge(nodes, nodes * 2048 + 4 * MAX_TEXT)?;
     let result = VerifiedLaplace {
-        source: source.clone(), time_variable: time.clone(),
-        transform_variable: variable.clone(), transform: transformed.clone(),
+        source: source.clone(),
+        time_variable: time.clone(),
+        transform_variable: variable.clone(),
+        transform: transformed.clone(),
         sufficient_abscissa,
     };
     work.meter.checkpoint()?;
@@ -1885,9 +2129,17 @@ pub fn verify_laplace_transform(
     transformed: &Expr,
     verifier: &mut impl BudgetMeter,
 ) -> Result<VerifiedLaplace> {
-    let mut capped = Capped { inner: verifier,used:[0;3],stopped:None };
+    let mut capped = Capped {
+        inner: verifier,
+        used: [0; 3],
+        stopped: None,
+    };
     verify_forward_inner(
-        source,time_variable,transform_variable,transformed,&mut Work { meter:&mut capped },
+        source,
+        time_variable,
+        transform_variable,
+        transformed,
+        &mut Work { meter: &mut capped },
     )
 }
 
@@ -1901,7 +2153,13 @@ pub fn polynomial_laplace(
     time_variable: &Symbol,
     transform_variable: &Symbol,
 ) -> Result<VerifiedLaplace> {
-    metered_laplace(source,time_variable,transform_variable,&mut Unbounded,&mut Unbounded)
+    metered_laplace(
+        source,
+        time_variable,
+        transform_variable,
+        &mut Unbounded,
+        &mut Unbounded,
+    )
 }
 
 pub fn metered_laplace(
@@ -1911,16 +2169,32 @@ pub fn metered_laplace(
     generator: &mut impl BudgetMeter,
     verifier: &mut impl BudgetMeter,
 ) -> Result<VerifiedLaplace> {
-    let mut generation = Capped { inner:generator,used:[0;3],stopped:None };
-    let mut verification = Capped { inner:verifier,used:[0;3],stopped:None };
-    let mut work = Work { meter:&mut generation };
-    admit_time(source,time_variable,transform_variable,&mut work)?;
-    let blocks = parse_time(source,&mut work)?;
-    let fraction = generate_forward_fraction(&blocks,&mut work)?;
-    let transformed = fraction_expression(&fraction,transform_variable,&mut work)?;
+    let mut generation = Capped {
+        inner: generator,
+        used: [0; 3],
+        stopped: None,
+    };
+    let mut verification = Capped {
+        inner: verifier,
+        used: [0; 3],
+        stopped: None,
+    };
+    let mut work = Work {
+        meter: &mut generation,
+    };
+    admit_time(source, time_variable, transform_variable, &mut work)?;
+    let blocks = parse_time(source, &mut work)?;
+    let fraction = generate_forward_fraction(&blocks, &mut work)?;
+    let transformed = fraction_expression(&fraction, transform_variable, &mut work)?;
     generation.checkpoint()?;
     let result = verify_forward_inner(
-        source,time_variable,transform_variable,&transformed,&mut Work { meter:&mut verification },
+        source,
+        time_variable,
+        transform_variable,
+        &transformed,
+        &mut Work {
+            meter: &mut verification,
+        },
     )?;
     generation.checkpoint()?;
     verification.checkpoint()?;

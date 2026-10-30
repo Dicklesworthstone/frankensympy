@@ -1912,6 +1912,7 @@ pub mod logic;
 pub mod matrix;
 pub mod ntheory;
 pub mod numeric;
+mod polynomial_laplace;
 mod polynomial_systems;
 mod quadrature;
 mod rational_laplace;
@@ -2046,6 +2047,10 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(integrate_expr, m)?)?;
     m.add_function(wrap_pyfunction!(integrate_definite_expr, m)?)?;
     m.add_function(wrap_pyfunction!(laplace_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        polynomial_laplace::polynomial_laplace_native,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(
         rational_laplace::inverse_rational_laplace_native,
         m

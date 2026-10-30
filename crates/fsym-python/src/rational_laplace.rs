@@ -4,7 +4,7 @@ use crate::binding::PySymbolBinding;
 use crate::expr::PyExpr;
 use crate::to_value_error;
 use fsym_calculus::rational_laplace::{RationalLaplaceError, metered_inverse_rational_laplace};
-use fsym_core::{Expr, Symbol};
+use fsym_core::{BigRational, Expr, Symbol};
 use fsym_polys::{PolyError, bounded_polynomial_from_expr};
 use fsym_runtime::{Budget, BudgetLimits, Dimension};
 use pyo3::exceptions::{PyNotImplementedError, PyValueError};
@@ -146,7 +146,26 @@ fn original_shape<'a>(
                             "transform integer power exceeds its bounded envelope",
                         ));
                     }
-                    _ => shape.unresolved_power = true,
+                    _ => {
+                        shape.unresolved_power = true;
+                        if let Expr::Rational(value) = exponent.as_ref() {
+                            // This child has not been visited yet. Bound it
+                            // before the governed comparison with zero.
+                            if value.numer().bits() > 4096 || value.denom().bits() > 4096 {
+                                return Err(PyValueError::new_err(
+                                    "transform coefficient exceeds 4096 bits",
+                                ));
+                            }
+                            charge(meter, 1, 128)?;
+                            if value
+                                .metered_cmp(&BigRational::from(0_i64), meter)
+                                .map_err(to_value_error)?
+                                .is_lt()
+                            {
+                                shape.nonpositive_bases.push(base.as_ref());
+                            }
+                        }
+                    }
                 }
                 if 2 > MAX_SOURCE_NODES.saturating_sub(visited + pending.len()) {
                     return Err(PyValueError::new_err(
@@ -208,7 +227,9 @@ fn power_base_ring(base: &Expr, meter: &mut Budget) -> PyResult<Option<Vec<Symbo
 }
 
 fn check_original_domains(shape: &OriginalShape<'_>, meter: &mut Budget) -> PyResult<()> {
-    let mut unresolved = shape.unresolved_power;
+    // Exponent grammar is a transform-routing question. Only an unadmitted
+    // inverse or zeroth-power base leaves this source-domain check undecided.
+    let mut unresolved = false;
     // Descendant bases precede their parents. An unsupported outer rational
     // base must not hide an inner, identically zero polynomial denominator.
     for base in shape.nonpositive_bases.iter().rev() {
@@ -238,8 +259,9 @@ fn check_original_domains(shape: &OriginalShape<'_>, meter: &mut Budget) -> PyRe
     Ok(())
 }
 
-/// Shared source-domain gate for forward and inverse legacy transform tables.
-/// This performs no expansion and never converts unknown domains to zero.
+/// Check original held literal inverse and zeroth-power bases before legacy
+/// processing. Other exponents remain the caller's routing decision.
+/// This performs no expansion and never converts unknown bases to zero.
 pub(crate) fn validate_held_transform_domains(source: &Expr, meter: &mut Budget) -> PyResult<()> {
     let shape = original_shape(source, None, meter)?;
     check_original_domains(&shape, meter)
@@ -313,6 +335,13 @@ fn rational_shape(source: &Expr, variable: &Symbol, meter: &mut Budget) -> PyRes
         return Ok(true);
     }
     validate_held_transform_domains(source, meter)?;
+    // Keep the inverse table's stricter exponent grammar independently of
+    // the shared domain check used by the forward compatibility route.
+    if shape.unresolved_power {
+        return Err(PyNotImplementedError::new_err(
+            "the original held transform domains cannot be established for table fallback",
+        ));
+    }
     Ok(false)
 }
 

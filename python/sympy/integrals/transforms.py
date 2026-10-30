@@ -278,14 +278,34 @@ def laplace_transform(expression: Any, t: Any, s: Any, noconds: bool = False, **
     """Laplace transform L{f(t)}(s) = int_0^oo f(t) exp(-s*t) dt.
 
     As upstream, returns ``(F, a, cond)`` with the convergence abscissa
-    ``a`` (Re(s) > a) unless ``noconds=True``.
+    ``a`` (Re(s) > a) unless ``noconds=True``. Polynomial-weighted
+    rational-rate exponential and trigonometric terms use a checked native
+    transform identity and an exact cancellation-aware convergence boundary.
     """
+    expression = _original_transform_source(expression)
     t_sym = _require_symbol(t)
     s_sym = _require_symbol(s)
-    res = _laplace_F(expression, t_sym, s_sym)
+    try:
+        raw = _native.polynomial_laplace_native(
+            _native_expr(expression), _symbol_binding(t_sym), _symbol_binding(s_sym),
+        )
+    except NotImplementedError:
+        result = LaplaceTransform(expression, t_sym, s_sym)
+        return result if noconds else (result, Integer(0), True)
+    if raw is None:
+        res = _laplace_F(expression, t_sym, s_sym)
+        if noconds:
+            return res
+        return (res, _laplace_abscissa(res, s_sym), True)
+    raw_transform, raw_abscissa = raw
+    res = _lift_native_result(raw_transform, expression, t_sym, s_sym)
     if noconds:
         return res
-    return (res, _laplace_abscissa(res, s_sym), True)
+    abscissa = (
+        -oo if raw_abscissa is None
+        else _lift_native_result(raw_abscissa, expression, t_sym, s_sym)
+    )
+    return (res, abscissa, True)
 
 
 def _inverse_rational_term(term: Any, s: Any, t: Any) -> Any:
