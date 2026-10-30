@@ -4396,8 +4396,16 @@ mod tests {
             metered_sqrt_floor(&long_prefix_radicand, &mut measured),
             Ok(sqrt_floor(&long_prefix_radicand))
         );
-        assert_eq!(measured.dimensions, [94_217, 15_088, 948, 0, 0, 0]);
-        assert_eq!(measured.checkpoints, 95_081);
+        // The 64-bit sum/division outputs perform 277 native repacks:
+        // 5,200 bytes, 277 allocations, and two safe points per repack.
+        // The 32-bit substrate adopts the u32 buffers without repacking.
+        let (expected_dimensions, expected_checkpoints) = if cfg!(target_pointer_width = "64") {
+            ([94_217, 20_288, 1_225, 0, 0, 0], 95_635)
+        } else {
+            ([94_217, 15_088, 948, 0, 0, 0], 95_081)
+        };
+        assert_eq!(measured.dimensions, expected_dimensions);
+        assert_eq!(measured.checkpoints, expected_checkpoints);
     }
 
     fn scalar_nth_root_floor(value: i128, degree: u32) -> Option<(i128, bool)> {

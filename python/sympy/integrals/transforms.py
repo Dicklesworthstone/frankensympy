@@ -17,6 +17,8 @@ from ..core import (
     Symbol,
     _native,
     _native_expr,
+    _lift_native_result,
+    _symbol_binding,
     _native_symbol_key,
     _parse_result,
     _require_symbol,
@@ -29,7 +31,6 @@ from ..core import (
     sympify,
 )
 from ..functions import cos, exp, sin, sqrt
-from ..series import residue
 
 
 class Transform(Expr):
@@ -367,7 +368,57 @@ def _split_exp_shift(F: Any, s: Any) -> tuple:
     return c, _mul(rest)
 
 
+def _original_transform_source(expression: Any) -> Any:
+    """Check retained surface owners without cloning native expression children."""
+    if type(expression) is int and expression.bit_length() > 4096:
+        raise ValueError("Laplace coefficient exceeds 4096 bits")
+    expression = sympify(expression)
+    pending = [(expression, 0)]
+    visited = 0
+    while pending:
+        node, depth = pending.pop()
+        visited += 1
+        if visited > 4096 or depth > 64:
+            raise ValueError("Laplace source exceeds its bounded envelope")
+        _native_expr(node)  # Exact-class/override admission; borrows Basic._value.
+        children = getattr(node, "_struct_args", None)
+        if children is None:
+            children = getattr(node, "_args", ())
+        if children:
+            if len(children) > 4096 - visited - len(pending):
+                raise ValueError("Laplace source exceeds its bounded envelope")
+            pending.extend((child, depth + 1) for child in children)
+    return expression
+
+
 def inverse_laplace_transform(F: Any, s: Any, t: Any, plane: Any = None, noconds: bool = True, **kwargs: Any) -> Any:
+    """Return the causal inverse of an exact rational transform.
+
+    Proper rational functions with supported linear and quadratic pole factors
+    use an independently checked native transform identity, including repeated
+    poles. Original held sources and typed variables are preserved. Unsupported
+    ordinary-function inverses remain unevaluated; operational failures propagate.
+    Existing symbolic-coefficient and simple time-shift tables remain available.
+    """
+    from ..functions.special.delta_functions import Heaviside
+
+    F = _original_transform_source(F)
+    s, t = _require_symbol(s), _require_symbol(t)
+    try:
+        raw = _native.inverse_rational_laplace_native(
+            _native_expr(F), _symbol_binding(s), _symbol_binding(t),
+        )
+    except NotImplementedError:
+        result = InverseLaplaceTransform(F, s, t, plane)
+        return result if noconds else (result, Integer(0), True)
+    if raw is not None:
+        function = _lift_native_result(raw, F, s, t)
+        result = expand(function * Heaviside(t))
+        return result if noconds else (result, Integer(0), True)
+    return _inverse_laplace_table(F, s, t, plane, noconds, **kwargs)
+
+
+def _inverse_laplace_table(F: Any, s: Any, t: Any, plane: Any = None, noconds: bool = True, **kwargs: Any) -> Any:
     """Inverse Laplace transform (causal): rational F through real partial
     fractions and the transform table, ``exp(-c*s)`` factors as time
     shifts, each term carrying ``Heaviside(t - c)`` as upstream returns."""
@@ -400,26 +451,8 @@ def inverse_laplace_transform(F: Any, s: Any, t: Any, plane: Any = None, noconds
             break
     if ok:
         return total if noconds else (total, Integer(0), True)
-    return _inverse_laplace_residue(F, s, t, noconds)
-
-
-def _inverse_laplace_residue(F: Any, s: Any, t: Any, noconds: bool) -> Any:
-    from ..solvers import solve
-    from ..simplify import simplify
-
-    num, den = F.as_numer_denom()
-    try:
-        roots = solve(den, s)
-        if roots:
-            integrand = F * exp(s * t)
-            res_sum = Integer(0)
-            for r in roots:
-                res_sum = res_sum + residue(integrand, s, r)
-            simplified = simplify(res_sum)
-            return simplified if noconds else (simplified, Integer(0), True)
-    except Exception:
-        pass
-    return InverseLaplaceTransform(F, s, t) if noconds else (InverseLaplaceTransform(F, s, t), Integer(0), True)
+    result = InverseLaplaceTransform(F, s, t, plane)
+    return result if noconds else (result, Integer(0), True)
 
 
 def fourier_transform(expression: Any, x: Any, k: Any, noconds: bool = True, **kwargs: Any) -> Any:

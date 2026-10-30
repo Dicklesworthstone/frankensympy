@@ -1914,6 +1914,7 @@ pub mod ntheory;
 pub mod numeric;
 mod polynomial_systems;
 mod quadrature;
+mod rational_laplace;
 mod real_inequality;
 pub mod sets;
 pub mod tensor;
@@ -2045,6 +2046,10 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(integrate_expr, m)?)?;
     m.add_function(wrap_pyfunction!(integrate_definite_expr, m)?)?;
     m.add_function(wrap_pyfunction!(laplace_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        rational_laplace::inverse_rational_laplace_native,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(fourier_expr, m)?)?;
     m.add_function(wrap_pyfunction!(limit_expr, m)?)?;
     m.add_function(wrap_pyfunction!(series_expansion_expr, m)?)?;
