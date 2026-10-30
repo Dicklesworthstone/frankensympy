@@ -136,7 +136,7 @@ jobs:
           cargo test --locked -p fsym-calculus --test rational_laplace -j1
           cargo test --locked -p fsym-proof-kernel --test elementary_rational_definite -j1
           cargo test --locked -p fsym-calculus --test elementary_rational_definite --test rational_definite --test definite_integration_domains -j1
-          cargo test --locked -p fsym-solvers --test rational_systems -j1
+          cargo test --locked -p fsym-solvers --lib --test algebraic_components --test polynomial_system --test polynomial_components --test rational_components --test rational_graph --test rational_systems -j1
       - name: Build the full Python extension
         run: cargo build --locked -p fsym-python --features extension-module -j1
       - name: Test the checked-out shell against the current native extension
@@ -186,6 +186,7 @@ jobs:
               "python/tests/test_polynomial_components.py",
               "python/tests/test_rational_polynomial_families.py",
               "python/tests/test_rational_components.py",
+              "python/tests/test_algebraic_components.py",
               "python/tests/test_rational_system_sources.py",
               "python/tests/test_rational_laplace.py",
               "python/tests/test_polynomial_laplace.py",

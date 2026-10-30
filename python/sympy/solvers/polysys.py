@@ -209,7 +209,9 @@ def nonlinsolve(system: Iterable[Any], *symbols: Any) -> Set:
     """Solve exact polynomial and supported finite rational systems as tuple sets.
 
     Affine, polynomial and recognized rational graph systems include complete
-    families parameterized by the supplied free symbols. Rational coordinates
+    families parameterized by the supplied free symbols. Complete finite
+    algebraic subsystems are crossed with the original coordinates absent from
+    their equations, retaining every real and complex conjugate. Rational coordinates
     retain their denominator exclusions; their completeness check rules out
     omitted exceptional fibers. Checked factor splits also return complete
     unions of polynomial and rational families, preserving each component's

@@ -40,6 +40,32 @@ const MAX_VARIABLES: usize = 8;
 const MAX_EXPRESSION_NODES: usize = 4096;
 const MAX_EXPRESSION_DEPTH: usize = 64;
 
+/// Source-bound receipt for the complete finite tuple set. Construction stays
+/// inside this module, after the checked basis, complete root generation and
+/// every original residual have passed. Component solvers may bind the receipt
+/// to an exact coordinate projection, but cannot create an accepted root list.
+#[derive(Debug, Clone)]
+pub(crate) struct VerifiedFinitePolynomialSystem {
+    variables: Vec<Symbol>,
+    equations: Vec<MultivariatePoly>,
+    solutions: Vec<Vec<Expr>>,
+}
+
+impl VerifiedFinitePolynomialSystem {
+    pub(crate) fn variables(&self) -> &[Symbol] {
+        &self.variables
+    }
+
+    /// Original admitted nonzero polynomial equations, in caller order.
+    pub(crate) fn equations(&self) -> &[MultivariatePoly] {
+        &self.equations
+    }
+
+    pub(crate) fn solutions(&self) -> &[Vec<Expr>] {
+        &self.solutions
+    }
+}
+
 fn refuse(msg: impl Into<String>) -> SolverError {
     SolverError::IncompleteSolutionSet(msg.into())
 }
@@ -57,7 +83,7 @@ fn charge(meter: &mut impl BudgetMeter, nodes: usize) -> Result<(), SolverError>
 
 /// Preflight recursive operations and their substituted output before cloning.
 /// Source admission separately rejects every non-polynomial original node.
-fn expression_size(e: &Expr) -> Result<usize, SolverError> {
+pub(crate) fn expression_size(e: &Expr) -> Result<usize, SolverError> {
     let mut stack = vec![(e, 0usize)];
     let mut nodes = 0;
     while let Some((term, depth)) = stack.pop() {
@@ -205,6 +231,47 @@ pub fn metered_solve_polynomial_system(
     generator_meter: &mut impl BudgetMeter,
     verifier_meter: &mut impl BudgetMeter,
 ) -> Result<Vec<Vec<Expr>>, SolverError> {
+    metered_checked_polynomial_system(eqs, vars, generator_meter, verifier_meter)
+        .map(|checked| checked.solutions)
+}
+
+fn finish_system(
+    equations: Vec<MultivariatePoly>,
+    variables: &[Symbol],
+    solutions: Vec<Vec<Expr>>,
+    generator: &mut impl BudgetMeter,
+    verifier: &mut impl BudgetMeter,
+) -> Result<VerifiedFinitePolynomialSystem, SolverError> {
+    if solutions.iter().any(|row| row.len() != variables.len()) {
+        return Err(refuse("finite system coordinate count changed"));
+    }
+    charge(generator, variables.len())?;
+    generator
+        .charge(
+            Dimension::MemoryBytes,
+            variables.iter().map(|v| v.name.len() as u64).sum(),
+        )
+        .map_err(|error| refuse(error.to_string()))?;
+    let result = VerifiedFinitePolynomialSystem {
+        variables: variables.to_vec(),
+        equations,
+        solutions,
+    };
+    generator
+        .checkpoint()
+        .map_err(|error| refuse(error.to_string()))?;
+    verifier
+        .checkpoint()
+        .map_err(|error| refuse(error.to_string()))?;
+    Ok(result)
+}
+
+pub(crate) fn metered_checked_polynomial_system(
+    eqs: &[Expr],
+    vars: &[Symbol],
+    generator_meter: &mut impl BudgetMeter,
+    verifier_meter: &mut impl BudgetMeter,
+) -> Result<VerifiedFinitePolynomialSystem, SolverError> {
     charge(generator_meter, 1)?;
     if vars.is_empty() || vars.len() > MAX_VARIABLES || eqs.len() > MAX_EQUATIONS {
         return Err(SolverError::InvalidSystem(
@@ -237,7 +304,7 @@ pub fn metered_solve_polynomial_system(
         verifier_meter
             .checkpoint()
             .map_err(|e| refuse(e.to_string()))?;
-        return Ok(Vec::new());
+        return finish_system(polys, vars, Vec::new(), generator_meter, verifier_meter);
     }
     if !checked.is_zero_dimensional() {
         return Err(SolverError::InfiniteSolutions);
@@ -327,7 +394,7 @@ pub fn metered_solve_polynomial_system(
             verifier_meter
                 .checkpoint()
                 .map_err(|e| refuse(e.to_string()))?;
-            return Ok(Vec::new());
+            return finish_system(polys, vars, Vec::new(), generator_meter, verifier_meter);
         }
     }
     let mut out = Vec::new();
@@ -352,7 +419,7 @@ pub fn metered_solve_polynomial_system(
     verifier_meter
         .checkpoint()
         .map_err(|e| refuse(e.to_string()))?;
-    Ok(out)
+    finish_system(polys, vars, out, generator_meter, verifier_meter)
 }
 
 /// Sorts solution tuples lexicographically by the upstream root order of

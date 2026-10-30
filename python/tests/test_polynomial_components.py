@@ -87,7 +87,7 @@ def test_one_unsupported_component_prevents_a_partial_answer():
     # y=0 is a polynomial graph, but the two irrational x=+/-sqrt(2)
     # families require algebraic coefficients beyond this component lane.
     with pytest.raises(NotImplementedError):
-        s.nonlinsolve([y*(x*x-2)], x, y)
+        s.nonlinsolve([y*(x**5-x+1)], x, y)
     with pytest.raises(NotImplementedError):
         s.nonlinsolve([x*(x*x+y*y-1)], x, y)
 

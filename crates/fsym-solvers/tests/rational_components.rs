@@ -243,7 +243,7 @@ fn equally_printed_typed_symbols_do_not_alias_in_branch_domains() {
 
 #[test]
 fn one_unsolved_component_still_blocks_every_partial_union() {
-    for expression in ["x*(x*y-1)*(x*x+y*y-1)", "x*(x*x-2)", "x*x+y*y-1"] {
+    for expression in ["x*(x*y-1)*(x*x+y*y-1)", "x*(x**5-x+1)", "x*x+y*y-1"] {
         assert!(matches!(
             rational_components_system(&sources(&[expression]), &variables(&["x", "y"])).unwrap(),
             PolynomialComponentsOutcome::NotApplicable

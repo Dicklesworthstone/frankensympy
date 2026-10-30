@@ -163,7 +163,7 @@ def test_dummy_lifting_cannot_drop_an_unregistered_assumptions_identity():
 
 def test_unsolved_branch_still_prevents_any_partial_public_answer():
     x, y = s.symbols("mixed_unsupported_x mixed_unsupported_y")
-    for equation in [x*(x*x+y*y-1), (x*y-1)*(x*x+y*y-1), y*(x*x-2)]:
+    for equation in [x*(x*x+y*y-1), (x*y-1)*(x*x+y*y-1), y*(x**5-x+1)]:
         with pytest.raises(NotImplementedError):
             s.nonlinsolve([equation], x, y)
 

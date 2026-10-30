@@ -1,11 +1,13 @@
-//! Complete bounded unions of polynomial and rational graph components.
+//! Complete bounded unions of polynomial, rational and algebraic components.
 //!
 //! A split replaces one equation `p = c product(f_i^m_i)` by one branch for
 //! each distinct factor. A reference coefficient convolution checks that
 //! identity, and the tree checker requires every branch. Each leaf is bound
-//! to an independently checked graph or unit ideal. Rational leaves retain
-//! their exact nonzero parameter domains. No partial union escapes
-//! when even one leaf cannot be recognized.
+//! to an independently checked graph, finite cylinder or unit ideal. A finite
+//! cylinder crosses a complete finite solution set with exactly the original
+//! coordinates absent from every equation. Rational leaves retain their exact
+//! nonzero parameter domains. No partial union escapes when even one leaf
+//! cannot be recognized.
 //!
 //! Factor discovery is deliberately incomplete: typed source factors,
 //! monomial factors and rational differences of two squared monomials. A
@@ -16,6 +18,7 @@
 #![forbid(unsafe_code)]
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use fsym_budget::{Budget, BudgetError, BudgetLimits, BudgetMeter, Dimension, MeterError};
 use fsym_core::{BigInt, BigRational, Expr, Symbol};
@@ -29,6 +32,7 @@ use crate::SolverError;
 use crate::polynomial_graph::{
     PolynomialGraphOutcome, VerifiedPolynomialGraph, metered_polynomial_graph_system,
 };
+use crate::polysys::{VerifiedFinitePolynomialSystem, metered_checked_polynomial_system};
 use crate::rational_graph::{
     RationalGraphOutcome, VerifiedRationalGraph, metered_rational_graph_system,
 };
@@ -69,11 +73,25 @@ pub struct VerifiedPolynomialComponents {
 enum ComponentGraph {
     Polynomial(VerifiedPolynomialGraph),
     Rational(Box<VerifiedRationalGraph>),
+    Algebraic(AlgebraicCylinderPoint),
 }
 
-/// One complete graph in an accepted union. Its private graph receipt proves
-/// equality with the full branch variety, not only a generic subset. Rational
-/// parameter exclusions remain attached to the component that needs them.
+/// One selected finite tuple times its original unconstrained coordinates.
+/// The complete finite receipt is shared by all rows of this cylinder; the
+/// tree verifier checks the whole list before any row may be published.
+#[derive(Debug, Clone)]
+struct AlgebraicCylinderPoint {
+    variables: Vec<Symbol>,
+    values: Vec<Expr>,
+    free_variables: Vec<Symbol>,
+    finite_system: Arc<VerifiedFinitePolynomialSystem>,
+    solution_index: usize,
+}
+
+/// One complete family in an accepted union. Graph receipts prove equality
+/// with their full branch varieties, not only generic subsets. Algebraic
+/// cylinders retain the selected tuple and its complete finite source receipt.
+/// Rational exclusions remain attached to the component that needs them.
 #[derive(Debug, Clone)]
 pub struct VerifiedComponentFamily {
     graph: ComponentGraph,
@@ -101,6 +119,7 @@ impl VerifiedComponentFamily {
         match &self.graph {
             ComponentGraph::Polynomial(graph) => graph.variables(),
             ComponentGraph::Rational(graph) => graph.variables(),
+            ComponentGraph::Algebraic(graph) => &graph.variables,
         }
     }
 
@@ -108,6 +127,7 @@ impl VerifiedComponentFamily {
         match &self.graph {
             ComponentGraph::Polynomial(graph) => graph.values(),
             ComponentGraph::Rational(graph) => graph.values(),
+            ComponentGraph::Algebraic(graph) => &graph.values,
         }
     }
 
@@ -115,13 +135,19 @@ impl VerifiedComponentFamily {
         match &self.graph {
             ComponentGraph::Polynomial(graph) => graph.free_variables(),
             ComponentGraph::Rational(graph) => graph.free_variables(),
+            ComponentGraph::Algebraic(graph) => &graph.free_variables,
         }
     }
 
-    pub fn basis(&self) -> &VerifiedGroebnerBasis {
+    /// A graph's exact defining ideal over QQ. An individual algebraic row
+    /// cannot use its whole finite system's QQ ideal: that ideal may also
+    /// contain conjugate points. Such rows instead retain a selected-root
+    /// receipt and deliberately return `None` here.
+    pub fn basis(&self) -> Option<&VerifiedGroebnerBasis> {
         match &self.graph {
-            ComponentGraph::Polynomial(graph) => graph.basis(),
-            ComponentGraph::Rational(graph) => graph.basis(),
+            ComponentGraph::Polynomial(graph) => Some(graph.basis()),
+            ComponentGraph::Rational(graph) => Some(graph.basis()),
+            ComponentGraph::Algebraic(_) => None,
         }
     }
 
@@ -129,9 +155,13 @@ impl VerifiedComponentFamily {
         matches!(&self.graph, ComponentGraph::Rational(_))
     }
 
+    pub fn is_algebraic(&self) -> bool {
+        matches!(&self.graph, ComponentGraph::Algebraic(_))
+    }
+
     pub fn nonzero_conditions(&self) -> &[Expr] {
         match &self.graph {
-            ComponentGraph::Polynomial(_) => &[],
+            ComponentGraph::Polynomial(_) | ComponentGraph::Algebraic(_) => &[],
             ComponentGraph::Rational(graph) => graph.nonzero_conditions(),
         }
     }
@@ -140,6 +170,7 @@ impl VerifiedComponentFamily {
         match self.graph {
             ComponentGraph::Polynomial(graph) => graph.into_values(),
             ComponentGraph::Rational(graph) => graph.into_values(),
+            ComponentGraph::Algebraic(graph) => graph.values,
         }
     }
 
@@ -151,6 +182,7 @@ impl VerifiedComponentFamily {
                 (graph.into_values(), self.unit_denominators, Vec::new())
             }
             ComponentGraph::Rational(graph) => graph.into_parts(),
+            ComponentGraph::Algebraic(graph) => (graph.values, self.unit_denominators, Vec::new()),
         }
     }
 }
@@ -386,8 +418,15 @@ struct Split {
 #[derive(Debug, Clone)]
 enum Tree {
     Family(VerifiedComponentFamily),
+    Cylinder {
+        finite_system: Arc<VerifiedFinitePolynomialSystem>,
+        families: Vec<VerifiedComponentFamily>,
+    },
     Empty(VerifiedGroebnerBasis),
-    Split { claim: Split, children: Vec<Tree> },
+    Split {
+        claim: Split,
+        children: Vec<Tree>,
+    },
 }
 
 /// Direct reference convolution. It does not invoke generator multiplication,
@@ -491,6 +530,128 @@ fn verify_split(
     meter.checkpoint().map_err(refuse)
 }
 
+/// Reference check for a cylinder projection. Inspect the original coefficient
+/// maps directly: every dropped coordinate must have exponent zero in every
+/// monomial, and every remaining coefficient must appear unchanged in the
+/// exact source bound to the finite solver's receipt. This does not use the
+/// generator's projection or expression-lifting implementation.
+fn verify_cylinder(
+    finite_system: &VerifiedFinitePolynomialSystem,
+    families: &[VerifiedComponentFamily],
+    inputs: &[MultivariatePoly],
+    variables: &[Symbol],
+    meter: &mut impl BudgetMeter,
+) -> Result<()> {
+    let active = finite_system.variables();
+    if active.is_empty()
+        || active.len() > variables.len()
+        || families.len() != finite_system.solutions().len()
+        || families.len() > MAX_COMPONENTS
+    {
+        return Err(refuse(
+            "finite cylinder lost its complete coordinate or root set",
+        ));
+    }
+    charge(meter, variables.len() * active.len(), variables.len() * 16)?;
+    let positions = active
+        .iter()
+        .map(|variable| {
+            variables
+                .iter()
+                .position(|original| original == variable)
+                .ok_or_else(|| refuse("finite cylinder changed a typed active variable"))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    if positions.windows(2).any(|pair| pair[0] >= pair[1]) {
+        return Err(refuse(
+            "finite cylinder reordered or duplicated active coordinates",
+        ));
+    }
+    for input in inputs {
+        validate_poly(input, variables, meter)?;
+    }
+    if inputs.iter().filter(|input| !input.is_zero()).count() != finite_system.equations().len() {
+        return Err(refuse("finite cylinder lost an original equation"));
+    }
+    for (original, projected) in inputs
+        .iter()
+        .filter(|input| !input.is_zero())
+        .zip(finite_system.equations())
+    {
+        validate_poly(projected, active, meter)?;
+        if original.terms().len() != projected.terms().len() {
+            return Err(refuse("finite cylinder lost an original monomial"));
+        }
+        for (powers, coefficient) in original.terms() {
+            charge(
+                meter,
+                variables.len() * (active.len() + 1),
+                active.len() * 4 + 32,
+            )?;
+            if powers
+                .iter()
+                .enumerate()
+                .any(|(column, &power)| power != 0 && !positions.contains(&column))
+            {
+                return Err(refuse("finite cylinder dropped a constrained coordinate"));
+            }
+            let powers: Vec<_> = positions.iter().map(|&column| powers[column]).collect();
+            if projected.terms().get(&powers) != Some(coefficient) {
+                return Err(refuse("finite cylinder changed an original coefficient"));
+            }
+        }
+    }
+    let mut receipt_work = finite_system
+        .equations()
+        .iter()
+        .map(|equation| equation.terms().len() * (active.len() + 1))
+        .sum::<usize>();
+    for value in finite_system.solutions().iter().flatten() {
+        let nodes = crate::polysys::expression_size(value)?;
+        charge(meter, nodes, 1)?;
+        receipt_work += nodes;
+    }
+    for (index, family) in families.iter().enumerate() {
+        let ComponentGraph::Algebraic(point) = &family.graph else {
+            return Err(refuse("finite cylinder substituted an unrelated component"));
+        };
+        charge(meter, receipt_work + variables.len() + active.len(), 1)?;
+        for value in &point.values {
+            charge(meter, crate::polysys::expression_size(value)?, 1)?;
+        }
+        if point.variables != variables
+            || point.solution_index != index
+            || point.finite_system.variables() != active
+            || point.finite_system.equations() != finite_system.equations()
+            || point.finite_system.solutions() != finite_system.solutions()
+            || point.values.len() != variables.len()
+            || family.unit_denominators.len() != variables.len()
+            || family.unit_denominators.iter().any(|value| !value.is_one())
+            || finite_system.solutions()[index].len() != active.len()
+            || point.free_variables.len() != variables.len() - active.len()
+        {
+            return Err(refuse(
+                "finite cylinder row lost its source-bound root receipt",
+            ));
+        }
+        let mut free = point.free_variables.iter();
+        for (column, variable) in variables.iter().enumerate() {
+            if let Some(active_column) = positions.iter().position(|&position| position == column) {
+                if point.values[column] != finite_system.solutions()[index][active_column] {
+                    return Err(refuse("finite cylinder replaced or omitted an exact root"));
+                }
+            } else if free.next() != Some(variable)
+                || !matches!(&point.values[column], Expr::Sym(symbol) if symbol == variable)
+            {
+                return Err(refuse(
+                    "finite cylinder captured an original free coordinate",
+                ));
+            }
+        }
+    }
+    meter.checkpoint().map_err(refuse)
+}
+
 fn verify_tree(
     tree: &Tree,
     inputs: &[MultivariatePoly],
@@ -524,9 +685,25 @@ fn verify_tree(
                     return Err(refuse("rational component has unrelated denominator parts"));
                 }
                 ComponentGraph::Rational(_) => {}
+                ComponentGraph::Algebraic(_) => {
+                    return Err(refuse(
+                        "an algebraic row escaped its complete cylinder leaf",
+                    ));
+                }
             }
-            bind_leaf(family.basis(), inputs, variables, meter)
+            bind_leaf(
+                family
+                    .basis()
+                    .ok_or_else(|| refuse("graph has no defining ideal"))?,
+                inputs,
+                variables,
+                meter,
+            )
         }
+        Tree::Cylinder {
+            finite_system,
+            families,
+        } => verify_cylinder(finite_system, families, inputs, variables, meter),
         Tree::Empty(basis) => {
             bind_leaf(basis, inputs, variables, meter)?;
             if !basis.basis().iter().any(MultivariatePoly::is_one) {
@@ -770,6 +947,143 @@ struct Generate<'a, G, V> {
 }
 
 impl<G: BudgetMeter, V: BudgetMeter> Generate<'_, G, V> {
+    fn finite_cylinder(&mut self, inputs: &[MultivariatePoly]) -> Result<Option<Tree>> {
+        charge(
+            self.generator,
+            self.variables.len(),
+            self.variables.len() * 16 + ring_bytes(self.variables),
+        )?;
+        let mut used = vec![false; self.variables.len()];
+        for input in inputs {
+            charge(
+                self.generator,
+                input.terms().len() * self.variables.len(),
+                1,
+            )?;
+            for powers in input.terms().keys() {
+                for (seen, &power) in used.iter_mut().zip(powers) {
+                    *seen |= power != 0;
+                }
+            }
+        }
+        let positions: Vec<_> = used
+            .iter()
+            .enumerate()
+            .filter_map(|(column, &present)| present.then_some(column))
+            .collect();
+        if positions.is_empty() {
+            // Constant and zero ideals are already handled by the graph lane.
+            return Ok(None);
+        }
+        let active: Vec<_> = positions
+            .iter()
+            .map(|&column| self.variables[column].clone())
+            .collect();
+        charge(self.generator, inputs.len(), inputs.len() * 128)?;
+        let mut projected = Vec::with_capacity(inputs.len());
+        for input in inputs {
+            charge(
+                self.generator,
+                input.terms().len() * positions.len(),
+                storage(input),
+            )?;
+            let terms = input
+                .terms()
+                .iter()
+                .map(|(powers, coefficient)| {
+                    (
+                        positions.iter().map(|&column| powers[column]).collect(),
+                        coefficient.clone(),
+                    )
+                })
+                .collect();
+            projected.push(MultivariatePoly::new(active.clone(), terms).map_err(refuse)?);
+        }
+        let expressions = lift(&projected, self.generator)?;
+        let finite = match metered_checked_polynomial_system(
+            &expressions,
+            &active,
+            self.generator,
+            self.verifier,
+        ) {
+            Ok(finite) => finite,
+            Err(SolverError::InfiniteSolutions | SolverError::UnsupportedDegree(_)) => {
+                return Ok(None);
+            }
+            Err(error) => return Err(error),
+        };
+        if finite.solutions().len() > MAX_COMPONENTS {
+            return Err(refuse("finite cylinder expands beyond 32 components"));
+        }
+        // Bound and reserve all exact root copies, typed names and owned
+        // coordinate vectors before constructing any published row.
+        let mut nodes = finite.solutions().len() * self.variables.len() * 2;
+        for row in finite.solutions() {
+            if row.len() != active.len() {
+                return Err(refuse("finite cylinder root width changed"));
+            }
+            for value in row {
+                nodes = nodes
+                    .checked_add(crate::polysys::expression_size(value)?)
+                    .filter(|&count| count <= MAX_OUTPUT_NODES)
+                    .ok_or_else(|| refuse("finite cylinder exceeds 4096 output nodes"))?;
+            }
+        }
+        charge(
+            self.generator,
+            nodes,
+            nodes * 2048 + finite.solutions().len() * (3 * ring_bytes(self.variables) + 512),
+        )?;
+        let finite_system = Arc::new(finite);
+        let mut families = Vec::with_capacity(finite_system.solutions().len());
+        for (solution_index, solution) in finite_system.solutions().iter().enumerate() {
+            self.generator.checkpoint().map_err(refuse)?;
+            let values = self
+                .variables
+                .iter()
+                .enumerate()
+                .map(|(column, variable)| {
+                    match positions.iter().position(|&position| position == column) {
+                        Some(index) => solution[index].clone(),
+                        None => Expr::Sym(variable.clone()),
+                    }
+                })
+                .collect();
+            let free_variables = self
+                .variables
+                .iter()
+                .enumerate()
+                .filter(|(column, _)| !positions.contains(column))
+                .map(|(_, variable)| variable.clone())
+                .collect();
+            families.push(VerifiedComponentFamily {
+                graph: ComponentGraph::Algebraic(AlgebraicCylinderPoint {
+                    variables: self.variables.to_vec(),
+                    values,
+                    free_variables,
+                    finite_system: Arc::clone(&finite_system),
+                    solution_index,
+                }),
+                unit_denominators: vec![Expr::from_i64(1); self.variables.len()],
+            });
+        }
+        Ok(Some(Tree::Cylinder {
+            finite_system,
+            families,
+        }))
+    }
+
+    fn remaining_leaf(
+        &mut self,
+        inputs: &[MultivariatePoly],
+        sources: Option<&[Expr]>,
+    ) -> Result<Option<Tree>> {
+        if let Some(cylinder) = self.finite_cylinder(inputs)? {
+            return Ok(Some(cylinder));
+        }
+        self.rational_leaf(inputs, sources)
+    }
+
     fn rational_leaf(
         &mut self,
         inputs: &[MultivariatePoly],
@@ -902,7 +1216,7 @@ impl<G: BudgetMeter, V: BudgetMeter> Generate<'_, G, V> {
         let Some(claim) = found else {
             // Every failed chart shares the same outer meters; operational
             // failures propagate and cannot restart work with a fresh cap.
-            return self.rational_leaf(inputs, sources);
+            return self.remaining_leaf(inputs, sources);
         };
         charge(
             self.generator,
@@ -918,7 +1232,7 @@ impl<G: BudgetMeter, V: BudgetMeter> Generate<'_, G, V> {
                 // even when the complete original node is one rational
                 // graph. Recheck that entire original ideal; never publish
                 // the successfully solved portion of the split.
-                return self.rational_leaf(inputs, sources);
+                return self.remaining_leaf(inputs, sources);
             };
             children.push(child);
         }
@@ -926,16 +1240,36 @@ impl<G: BudgetMeter, V: BudgetMeter> Generate<'_, G, V> {
     }
 }
 
-fn collect(tree: Tree, families: &mut Vec<VerifiedComponentFamily>) {
+fn collect(
+    tree: Tree,
+    families: &mut Vec<VerifiedComponentFamily>,
+    meter: &mut impl BudgetMeter,
+) -> Result<()> {
     match tree {
-        Tree::Family(family) => families.push(family),
+        Tree::Family(family) => {
+            if families.len() == MAX_COMPONENTS {
+                return Err(refuse("component count exceeds 32"));
+            }
+            charge(meter, 1, 1)?;
+            families.push(family);
+        }
+        Tree::Cylinder {
+            families: points, ..
+        } => {
+            if points.len() > MAX_COMPONENTS.saturating_sub(families.len()) {
+                return Err(refuse("finite cylinder union exceeds 32 components"));
+            }
+            charge(meter, points.len(), 1)?;
+            families.extend(points);
+        }
         Tree::Empty(_) => {}
         Tree::Split { children, .. } => {
             for child in children {
-                collect(child, families);
+                collect(child, families, meter)?;
             }
         }
     }
+    Ok(())
 }
 
 /// Every defining equation of the covering graph must be in the contained
@@ -950,12 +1284,29 @@ fn contained_in(
     generator: &mut impl BudgetMeter,
     verifier: &mut impl BudgetMeter,
 ) -> Result<bool> {
-    let ambient = contained.basis().input_basis()[0].generators();
-    for equation in covering.basis().basis() {
+    // A finite source ideal can describe several conjugate rows. It must
+    // never be treated as one row's defining ideal: doing so can delete all
+    // but one valid root. Exact identical rows may be deduplicated, while
+    // other algebraic containment remains a conservative recognition miss.
+    if contained.is_algebraic() || covering.is_algebraic() {
+        charge(generator, MAX_OUTPUT_NODES, 1)?;
+        return Ok(contained.variables() == covering.variables()
+            && contained.values() == covering.values()
+            && contained.free_variables() == covering.free_variables()
+            && contained.nonzero_conditions() == covering.nonzero_conditions());
+    }
+    let contained_basis = contained
+        .basis()
+        .ok_or_else(|| refuse("missing contained graph ideal"))?;
+    let covering_basis = covering
+        .basis()
+        .ok_or_else(|| refuse("missing covering graph ideal"))?;
+    let ambient = contained_basis.input_basis()[0].generators();
+    for equation in covering_basis.basis() {
         let rebound = rebind(equation, ambient, generator)?;
         let (_, remainder) = checked_polynomial_division(
             &rebound,
-            contained.basis().basis(),
+            contained_basis.basis(),
             TermOrder::Lex,
             generator,
             verifier,
@@ -968,7 +1319,7 @@ fn contained_in(
     Ok(true)
 }
 
-/// Recognize a complete union of at most 32 polynomial graph components.
+/// Recognize at most 32 polynomial graphs or explicit algebraic cylinders.
 /// Cancellation or resource exhaustion always propagates; a recognition miss
 /// never publishes the successfully solved portion of a split tree.
 pub fn metered_polynomial_components_system(
@@ -980,10 +1331,10 @@ pub fn metered_polynomial_components_system(
     metered_components_system(equations, variables, false, generator_meter, verifier_meter)
 }
 
-/// Recognize complete unions of polynomial and rational graphs. Rational
-/// denominators are explicit per component; an unsupported leaf prevents the
-/// entire union from being published. The polynomial-only entry point keeps
-/// its existing recognition policy and does not perform rational searches.
+/// Recognize complete polynomial, rational and finite-algebraic component
+/// unions. Rational denominators are explicit per component; an unsupported
+/// leaf prevents the entire union from being published. The polynomial entry
+/// point also admits finite cylinders but does not perform rational searches.
 pub fn metered_rational_components_system(
     equations: &[Expr],
     variables: &[Symbol],
@@ -1058,7 +1409,7 @@ fn metered_components_system(
     )?;
     charge(&mut generator, MAX_COMPONENTS, MAX_COMPONENTS * 256)?;
     let mut candidates = Vec::with_capacity(MAX_COMPONENTS);
-    collect(tree, &mut candidates);
+    collect(tree, &mut candidates, &mut generator)?;
     if candidates.len() > MAX_COMPONENTS {
         return Err(refuse("component count exceeds 32"));
     }
@@ -1355,5 +1706,106 @@ mod reference_checks {
             .unwrap();
         family.unit_denominators = vec![Expr::from_i64(1); variables.len()];
         assert!(verify_tree(&bad, &inputs, &variables, 0, &mut 0, &mut Unbounded).is_err());
+    }
+
+    fn cylinder_fixture() -> (Vec<Symbol>, Vec<MultivariatePoly>, Tree) {
+        let variables = vec![Symbol::new("x"), Symbol::new("y")];
+        let sources = vec![parse("x*x-2").unwrap()];
+        let inputs = sources
+            .iter()
+            .map(|source| bounded_polynomial_from_expr(source, &variables, &mut Unbounded).unwrap())
+            .collect::<Vec<_>>();
+        let tree = Generate {
+            sources: &sources,
+            variables: &variables,
+            candidates: None,
+            nodes: 0,
+            rational_leaves: true,
+            generator: &mut Unbounded,
+            verifier: &mut Unbounded,
+        }
+        .node(&inputs, Some(&sources), 0)
+        .unwrap()
+        .unwrap();
+        assert!(matches!(&tree, Tree::Cylinder { families, .. } if families.len() == 2));
+        verify_tree(&tree, &inputs, &variables, 0, &mut 0, &mut Unbounded).unwrap();
+        (variables, inputs, tree)
+    }
+
+    #[test]
+    fn cylinder_checker_rejects_missing_duplicate_or_detached_conjugates() {
+        let (variables, inputs, tree) = cylinder_fixture();
+        let mut missing = tree.clone();
+        let Tree::Cylinder { families, .. } = &mut missing else {
+            unreachable!()
+        };
+        families.pop();
+        assert!(verify_tree(&missing, &inputs, &variables, 0, &mut 0, &mut Unbounded).is_err());
+
+        let mut duplicated = tree.clone();
+        let Tree::Cylinder { families, .. } = &mut duplicated else {
+            unreachable!()
+        };
+        families[1] = families[0].clone();
+        let ComponentGraph::Algebraic(point) = &mut families[1].graph else {
+            unreachable!()
+        };
+        point.solution_index = 1;
+        assert!(verify_tree(&duplicated, &inputs, &variables, 0, &mut 0, &mut Unbounded).is_err());
+
+        let Tree::Cylinder { mut families, .. } = tree else {
+            unreachable!()
+        };
+        let detached = Tree::Family(families.remove(0));
+        assert!(verify_tree(&detached, &inputs, &variables, 0, &mut 0, &mut Unbounded).is_err());
+    }
+
+    #[test]
+    fn cylinder_checker_rejects_changed_roots_captured_parameters_and_domains() {
+        let (variables, inputs, tree) = cylinder_fixture();
+        for mutation in 0..5 {
+            let mut bad = tree.clone();
+            let Tree::Cylinder { families, .. } = &mut bad else {
+                unreachable!()
+            };
+            let family = &mut families[0];
+            let ComponentGraph::Algebraic(point) = &mut family.graph else {
+                unreachable!()
+            };
+            match mutation {
+                0 => point.values[0] = Expr::from_i64(2),
+                1 => point.values[1] = Expr::from_i64(0),
+                2 => {
+                    point.free_variables[0] = Symbol::with_identity(
+                        "y",
+                        SymbolIdentity::from_assumptions_digest([91; 32]),
+                    )
+                }
+                3 => family.unit_denominators[0] = Expr::from_i64(0),
+                4 => point.solution_index = 1,
+                _ => unreachable!(),
+            }
+            assert!(verify_tree(&bad, &inputs, &variables, 0, &mut 0, &mut Unbounded).is_err());
+        }
+    }
+
+    #[test]
+    fn cylinder_projection_is_bound_to_every_original_coefficient_and_typed_variable() {
+        let (variables, inputs, tree) = cylinder_fixture();
+        for source in ["x*x-3", "x*x-2+y"] {
+            let changed = vec![
+                bounded_polynomial_from_expr(&parse(source).unwrap(), &variables, &mut Unbounded)
+                    .unwrap(),
+            ];
+            assert!(verify_tree(&tree, &changed, &variables, 0, &mut 0, &mut Unbounded).is_err());
+        }
+        let mut typed = variables.clone();
+        typed[0] = Symbol::with_identity("x", SymbolIdentity::from_assumptions_digest([92; 32]));
+        assert!(verify_tree(&tree, &inputs, &typed, 0, &mut 0, &mut Unbounded).is_err());
+        let mut omitted = inputs.clone();
+        omitted.push(
+            bounded_polynomial_from_expr(&parse("y").unwrap(), &variables, &mut Unbounded).unwrap(),
+        );
+        assert!(verify_tree(&tree, &omitted, &variables, 0, &mut 0, &mut Unbounded).is_err());
     }
 }

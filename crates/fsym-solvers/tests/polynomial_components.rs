@@ -165,7 +165,7 @@ fn an_unsupported_component_prevents_publication_of_a_partial_union() {
     for sources in [
         vec!["x*(x*x+y*y-1)"],
         vec!["x*y-1"],
-        vec!["x*x-2"],
+        vec!["x**5-x+1"],
         vec!["x*x+y*y-1"],
     ] {
         assert!(matches!(

@@ -1,6 +1,7 @@
 //! Shared-budget dispatch for exact polynomial solution sets.
 //!
-//! Affine matrices, unions of polynomial/rational graphs, finite tuples and real
+//! Affine matrices, unions of polynomial/rational graphs and algebraic cylinders,
+//! finite tuples and real
 //! univariate representations remain distinct results. Every attempt uses the
 //! same generator/verifier meters. Algebraic data reaches a complex-domain
 //! caller only after the complete root count proves that every root is real.
