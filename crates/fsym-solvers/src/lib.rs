@@ -12,6 +12,7 @@ pub mod polynomial_graph;
 pub mod polysys;
 pub mod real_equation;
 pub mod real_polysys;
+pub mod real_rur;
 pub mod system;
 pub mod univariate;
 
