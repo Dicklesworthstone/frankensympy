@@ -164,8 +164,9 @@ def nonlinsolve(system: Iterable[Any], *symbols: Any) -> Set:
     """Solve exact rational polynomial systems as sets of solution tuples.
 
     Affine and recognized polynomial graph systems include complete families
-    parameterized by the supplied free symbols. Finite systems use explicit
-    roots or checked real algebraic shape representations. Other unsupported
+    parameterized by the supplied free symbols. Checked factor splits also
+    return complete unions of such families. Finite systems use explicit roots
+    or checked real algebraic shape representations. Other unsupported
     positive-dimensional systems remain explicit refusals.
     """
     wrapped_eqs, syms = _polynomial_system_inputs(system, symbols)

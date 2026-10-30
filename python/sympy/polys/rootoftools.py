@@ -14,9 +14,10 @@ binary64 lane, with an explicit refusal when its real-root classification
 conflicts with the exact count. This is not certified complex-root isolation.
 
 The defining generator stays bound inside symbolic arithmetic, substitutions
-and derivatives. General numerical evaluation of root-containing composites
-still requires a separate enclosure-propagating evaluator; these binding
-rules do not substitute rounded root values into the binary64 arithmetic lane.
+and derivatives. Rational expressions in one exact real root use native
+algebraic reduction and rational enclosures for numerical evaluation. Original
+denominator exclusions remain in force. Multiple distinct primitive roots and
+transcendental root-containing composites are outside that bounded evaluator.
 """
 
 from __future__ import annotations
@@ -355,6 +356,79 @@ _core._bound_algebraic_root_type = CRootOf
 rootof = CRootOf
 ComplexRootOf = CRootOf
 RootOf = CRootOf
+
+
+def _algebraic_expression_value(expression: Any, digits: int):
+    """Evaluate a rational expression in one genuine algebraic root.
+
+    Root identity comes from the registered built-in class, never its printed
+    name. Held native constructors preserve every original inverse and power
+    until the native source/domain checker has admitted them.
+    """
+    from ..core import Add, Half, Mul, Pow, Dummy, _native, _native_expr, _symbol_binding
+
+    if type(digits) is not int or not 1 <= digits <= 512:
+        raise ValueError("algebraic expression precision must be between 1 and 512 decimal digits")
+    root_type = _core._bound_algebraic_root_type
+    root = None
+    pending = [(expression, 0)]
+    visited = 0
+    atoms = (Integer, Rational, Zero, One, NegativeOne, Half)
+    while pending:
+        node, depth = pending.pop()
+        visited += 1
+        if visited > 2048 or depth > 64:
+            raise ValueError("algebraic expression exceeds its bounded source envelope")
+        kind = type(node)
+        if kind is root_type:
+            if root is None:
+                root = node
+            elif node != root:
+                raise NotImplementedError(
+                    "exact algebraic evaluation supports rational expressions in one distinct root"
+                )
+            continue
+        if kind in atoms:
+            continue
+        if kind not in (Add, Mul, Pow):
+            raise NotImplementedError(
+                "exact algebraic evaluation requires rational arithmetic on one real root"
+            )
+        children = node.args
+        if len(children) > 256 or len(children) > 2048 - visited - len(pending):
+            raise ValueError("algebraic expression exceeds its bounded source envelope")
+        pending.extend((child, depth + 1) for child in children)
+    if root is None:
+        raise ValueError("algebraic expression contains no genuine indexed root")
+
+    parameter = Dummy("_fsym_algebraic_value")
+    native_parameter = _native_expr(parameter)
+
+    def lower(node):
+        kind = type(node)
+        if kind is root_type:
+            return native_parameter
+        if kind in atoms:
+            return _native_expr(node)
+        args = [lower(child) for child in node.args]
+        if kind is Add:
+            return _native.Add(*args, evaluate=False).as_expr()
+        if kind is Mul:
+            return _native.Mul(*args, evaluate=False).as_expr()
+        return _native.Pow(*args, evaluate=False).as_expr()
+
+    result = _native.evaluate_real_algebraic_native(
+        lower(expression),
+        _symbol_binding(parameter),
+        _native_coefficients(root.poly),
+        root.index,
+        digits,
+    )
+    if result is None:
+        raise NotImplementedError(
+            "exact algebraic evaluation requires bounded rational arithmetic on one real root"
+        )
+    return result
 
 
 def all_roots(f: Any, multiple: bool = True, radicals: bool = True, extension: bool = False) -> list:

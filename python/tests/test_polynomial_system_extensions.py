@@ -77,9 +77,9 @@ def test_typed_same_name_and_dummy_free_coordinates_keep_identity():
     assert answer[0].free_symbols == {second}
 
 
-def test_reducible_components_and_nonpolynomial_graphs_stay_explicit_refusals():
+def test_nonpolynomial_graphs_stay_explicit_refusals():
     x, y = s.symbols("nongraph_x nongraph_y")
-    for equation in [x*y, x*y-1, x*x+y*y-1]:
+    for equation in [x*y-1, x*x+y*y-1]:
         with pytest.raises(NotImplementedError):
             s.nonlinsolve([equation], x, y)
 

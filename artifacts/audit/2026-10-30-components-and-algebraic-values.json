@@ -1,0 +1,171 @@
+{
+  "schema_version": 1,
+  "session_date": "2026-10-30",
+  "timezone": "Etc/UTC",
+  "scope": "Complete checked unions of polynomial graph components and verified rational evaluation in one exact real algebraic root",
+  "repository": "Dicklesworthstone/frankensympy",
+  "branch": "main",
+  "prior_progress": "artifacts/audit/2026-10-29-polynomial-system-extensions.json",
+  "base_commit": "14cb7df592576609a3773ec8299eb6a67cdddb5c",
+  "verified_remote_feature_commits": {
+    "polynomial_components": "495f5c4592160626b5a2d6c8832aa368e2f78511",
+    "algebraic_values": "8f74af783c2122fea36ad3234f293487aa691938"
+  },
+  "implementation": [
+    "Discover bounded source factors, monomial factors and rational differences of squared monomials; independently verify exact split products, multiplicities, every branch and leaf-input binding.",
+    "Publish all checked polynomial graph components or checked empty leaves. If any required leaf is unsupported, return non-applicability rather than a partial solution set.",
+    "Remove contained subfamilies only with checked ideal membership; preserve caller variable order and typed Symbol/Dummy identity.",
+    "Evaluate exact rational expressions in one selected real algebraic root using checked source admission, original domain guards, gcd/Sturm membership and independent interval or exact-relation acceptance.",
+    "Return immutable source-bound rational enclosures and half-even decimals at 1-512 significant digits. Prove zero, rational identities, selected embeddings, poles and exact rounding ties without substituting rounded roots.",
+    "Expose component unions through nonlinsolve and native dispatch, and algebraic expression evaluation through N and evalf. Preserve held source trees before native domain checks and refuse distinct-root or transcendental composites."
+  ],
+  "validation_environment": {
+    "toolchain": "nightly-2026-08-20",
+    "rustc": "1.100.0-nightly (f7d782a3b 2026-08-19)",
+    "cargo_lock_changed": false,
+    "dependency_manifests_changed": false,
+    "cargo_jobs": 1,
+    "cargo_incremental": 0,
+    "dev_debug": 0,
+    "test_debug": 0
+  },
+  "executed_successes": [
+    {
+      "command": "cargo test --locked --offline -p fsym-solvers --test polynomial_components -j 1",
+      "exit_code": 0,
+      "passed": 16,
+      "failed": 0
+    },
+    {
+      "command": "cargo test --locked --offline -p fsym-solvers --test algebraic_value -j 1",
+      "exit_code": 0,
+      "passed": 15,
+      "failed": 0,
+      "note": "Includes the 512-digit boundary with independent root-sign and enclosure-width checks."
+    },
+    {
+      "command": "cargo test --locked --offline -p fsym-solvers --lib -j 1",
+      "exit_code": 0,
+      "passed": 54,
+      "failed": 0,
+      "note": "Includes three new component verifier mutation cases."
+    },
+    {
+      "command": "cargo test --locked --offline -p fsym-core --test real_root_isolation -j 1",
+      "exit_code": 0,
+      "passed": 10,
+      "failed": 0
+    },
+    {
+      "command": "cargo fmt --check",
+      "exit_code": 0
+    },
+    {
+      "command": "cargo clippy --locked --offline -p fsym-solvers --lib --test algebraic_value --test polynomial_components -j 1 -- -D warnings",
+      "exit_code": 0,
+      "note": "Clean fresh-target run; no diagnostics, source/profile/flag changes, dependency substitutions or cap changes."
+    },
+    {
+      "command": "Python ast.parse for all changed public modules and Python regression files",
+      "exit_code": 0,
+      "note": "Syntax only; not Python runtime execution."
+    }
+  ],
+  "recovered_prior_validation": [
+    {
+      "commit": "14cb7df592576609a3773ec8299eb6a67cdddb5c",
+      "command": "cargo test --locked --offline -p fsym-solvers --test polynomial_graph -j 1",
+      "exit_code": 0,
+      "passed": 14,
+      "failed": 0
+    },
+    {
+      "commit": "14cb7df592576609a3773ec8299eb6a67cdddb5c",
+      "command": "cargo test --locked --offline -p fsym-solvers --lib -j 1",
+      "exit_code": 0,
+      "passed": 51,
+      "failed": 0
+    }
+  ],
+  "validation_notes": [
+    "Component/library tests preceded two behavior-preserving component Clippy corrections (.div_ceil and a let-chain); corrected sources passed the final fresh-target strict Clippy check.",
+    "The initial 512-digit algebraic test exceeded the existing compute cap. Batched refinement and cached endpoint Sturm variations fixed it; the cap and boundary test were retained unchanged.",
+    "Two new-code Clippy findings were corrected without allowances. A broader rerun then stopped on four unchanged cloned_ref_to_slice_refs test lints in polynomial_system.rs; the focused new-code gate subsequently passed.",
+    "The copied Cargo cache replayed stale diagnostics during one narrow check despite exit zero. The reported final Clippy success comes from an independent fresh target directory."
+  ],
+  "blocked_or_unexecuted_validation": [
+    {
+      "command": "cargo build --locked --offline -p fsym-python --lib -j 1",
+      "status": "blocked",
+      "reason": "The full extension build on the unchanged baseline progressed past the prior disk blocker but Asupersync rustc was SIGKILLed under the shared 8 GiB memory limit, before bridge type checking or linking. A metadata-only check also failed there."
+    },
+    {
+      "command": "cargo clippy --locked --offline -p fsym-core -p fsym-solvers --all-targets -j 1 -- -D warnings",
+      "exit_code": 101,
+      "reason": "Four baseline cloned_ref_to_slice_refs lints at polynomial_system.rs:141,163,175,177. That test file is byte-identical to the 14cb7df snapshot."
+    },
+    {
+      "command": "Python extension/public regression execution",
+      "status": "not_run",
+      "new_cases": 34,
+      "reason": "No rebuilt importable extension. Public integration received static independent review and syntax checks only."
+    },
+    {
+      "command": "Full workspace check, Clippy and test gates",
+      "status": "not_reexecuted_in_this_continuation",
+      "reason": "Broader failures from the prior audit remain open; focused native gates do not certify the workspace."
+    }
+  ],
+  "environment_approval_block": {
+    "action": "Byte-preserving relocation of three pinned donor-source caches from shared-memory storage to overlay storage, preserving the original logical paths with symlinks",
+    "status": "rejected_before_execution",
+    "source": "automatic approval review",
+    "reason": "The review identified possible interference with active compiler paths and required explicit written owner authorization under the repository no-deletion rule.",
+    "followup": "No equivalent relocation was retried and those source directories remain untouched. Owner permission is required before that proposed operation."
+  },
+  "public_test_inventory": {
+    "polynomial_components": {
+      "functions": 14,
+      "parameterized_cases": 15,
+      "executed": false
+    },
+    "algebraic_expression_evalf": {
+      "functions": 14,
+      "parameterized_cases": 19,
+      "executed": false
+    }
+  },
+  "remaining_limits": [
+    "Component discovery is bounded, not general algebraic decomposition. Every required component must fit the checked graph/unit-ideal leaf envelope.",
+    "Algebraic evaluation supports one distinct indexed real root and rational-expression grammar. Multiple primitive roots, nonreal algebraic composites and transcendental compositions are outside this slice.",
+    "The rounded Python Float is not an interval object; subsequent ordinary Float arithmetic does not inherit the exact evaluator's enclosure.",
+    "Full bridge/public execution, differential conformance, registered workstream gates and profile certification remain open."
+  ],
+  "work_graph": {
+    "affected_workstreams": [
+      "WS08",
+      "WS11",
+      "WS19"
+    ],
+    "beads_closed": [],
+    "profile_or_claim_gates_promoted": false
+  },
+  "source_sha256": {
+    "crates/fsym-core/src/real_roots.rs": "b67c0547b1cfdf6c92804e1034a255d9dd11df00156fda2c17cfaed77264bbb2",
+    "crates/fsym-solvers/src/lib.rs": "7dfdfa722c1edb99f4b702465b8afc8491cb98973b127e357106b131ff332271",
+    "crates/fsym-solvers/src/real_equation.rs": "47663ff51853fbf353efd1b81d563fbdd74ba62555a075158b21feddad2fb2d2",
+    "crates/fsym-solvers/src/real_equation/algebraic_value.rs": "0947e9ac602511a3936507e6991ad3f15edc18d0f7bacb5761d76a70993ade4d",
+    "crates/fsym-solvers/src/polynomial_components.rs": "a48b57632461433e4589db46bd49bf07b0dc37defb3be33febfbb07f884e112d",
+    "crates/fsym-solvers/tests/algebraic_value.rs": "bcf557355442afdf89243d31ee98b7572c6b517cbbae7bbeb7682f007537b0dd",
+    "crates/fsym-solvers/tests/polynomial_components.rs": "d894584eb7747b4a9dadd717fa0c743bf52a11a8676a0da78340bb969ed507db",
+    "crates/fsym-python/src/algebraic_roots.rs": "87ace58a5c5194fad34ede5e454c4071e00cbe2b77b68d22a29315aca1d6b9f7",
+    "crates/fsym-python/src/lib.rs": "2cc6071b27d1eb6a50481fea50c3e8736713d08fb0169566db71fffb15c269b1",
+    "crates/fsym-python/src/polynomial_systems.rs": "809dfb444b620ad9d88b522ab9130d4daf34b981ebd9d26551c220c5829da5f3",
+    "python/sympy/core/__init__.py": "d7174677faf0a0652ede846c23eb6b9ddb4a022e33f3ceaad52652b7bf93d7db",
+    "python/sympy/polys/rootoftools.py": "48cd1ac75c83055565fcbc5751b11f348c11d2b03653d6f7d01babb3d619f6d8",
+    "python/sympy/solvers/polysys.py": "42924aae0752d7d096a2ca7d5179d1019731bf72ffa7c210aa1bc336e8387b0d",
+    "python/tests/test_polynomial_system_extensions.py": "629dc963f8a51e777dcb26cce9a0a4a48073fc9a3ba9443610c3d7e94c577f7c",
+    "python/tests/test_polynomial_components.py": "9333793b4d075e7618df4c1f878ec600aad8afdb2ed133c118ec9f69276bbdf9",
+    "python/tests/test_algebraic_expression_evalf.py": "2334b9272136ce84e2b1f6cecd5c79cf1818d5888ab68841456764c3b6ec0ad5"
+  }
+}

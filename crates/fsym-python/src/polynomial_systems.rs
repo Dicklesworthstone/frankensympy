@@ -1,6 +1,6 @@
 //! Shared-budget dispatch for exact polynomial solution sets.
 //!
-//! Affine matrices, polynomial graphs, explicit finite tuples and real shape
+//! Affine matrices, unions of polynomial graphs, finite tuples and real shape
 //! representations remain distinct results. Every algorithm attempt uses the
 //! same generator/verifier meters. Real shape data reaches a complex-domain
 //! caller only after the complete root count proves that every root is real.
@@ -12,7 +12,9 @@ use fsym_matrices::{Matrix, RationalLinearSolution};
 use fsym_polys::{MultivariatePoly, bounded_polynomial_from_expr};
 use fsym_runtime::{Budget, BudgetLimits, Dimension};
 use fsym_solvers::SolverError;
-use fsym_solvers::polynomial_graph::{PolynomialGraphOutcome, metered_polynomial_graph_system};
+use fsym_solvers::polynomial_components::{
+    PolynomialComponentsOutcome, metered_polynomial_components_system,
+};
 use fsym_solvers::real_polysys::metered_solve_real_shape_system;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -193,7 +195,7 @@ pub fn polynomial_system_solutions_native(
         return checked_affine(&polys, &variables, &mut generator, &mut verifier);
     }
     if allow_families {
-        match metered_polynomial_graph_system(
+        match metered_polynomial_components_system(
             &expressions,
             &variables,
             &mut generator,
@@ -201,13 +203,13 @@ pub fn polynomial_system_solutions_native(
         )
         .map_err(to_value_error)?
         {
-            PolynomialGraphOutcome::Empty => return Ok(rows("finite", Vec::new())),
-            PolynomialGraphOutcome::Family(family) => {
+            PolynomialComponentsOutcome::Empty => return Ok(rows("finite", Vec::new())),
+            PolynomialComponentsOutcome::Families(families) => {
                 // Transfer already checked and charged coordinates without
                 // duplicating exact coefficients or typed symbol names.
-                return Ok(rows("family", vec![family.into_values()]));
+                return Ok(rows("family", families.into_values()));
             }
-            PolynomialGraphOutcome::NotApplicable => {}
+            PolynomialComponentsOutcome::NotApplicable => {}
         }
     }
     let explicit_error = match fsym_solvers::polysys::metered_solve_polynomial_system(

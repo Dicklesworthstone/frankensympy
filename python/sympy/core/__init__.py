@@ -4696,9 +4696,9 @@ def _aresame_surface(a: Any, b: Any) -> bool:
 def _tree_has_bound_algebraic_root(node: Any) -> bool:
     """Find a genuine bound root constant without trusting a function name.
 
-    Ordinary native trees keep their fast path. This supplies binding and
-    symbolic differentiation semantics only; composite numerical evaluation
-    still needs an evaluator that propagates certified root enclosures.
+    Ordinary native trees keep their fast path. Numerical evaluation uses a
+    separate admitted algebraic-value route; binder detection never replaces
+    exact roots with rounded Float values.
     """
     root_type = _bound_algebraic_root_type
     if root_type is None or not isinstance(node, Basic):
@@ -5552,11 +5552,23 @@ def _certified_float(expression: Any, n: int) -> Any:
         return None
     if _tree_has_custom_evalf_hook(expression):
         return None
+    if _bound_algebraic_root_type is not None and type(expression) is _bound_algebraic_root_type:
+        # N(root, d) must reach the root's exact refinement path before the
+        # generic binary64 precision refusal. Nonreal roots keep their own
+        # explicitly bounded evaluation policy.
+        return expression.evalf(n)
     try:
         if expression.free_symbols:
             return None
     except Exception:
         return None
+    if _bound_algebraic_root_type is not None and _tree_has_bound_algebraic_root(expression):
+        from ..polys.rootoftools import _algebraic_expression_value
+
+        # A genuine-root expression cannot fall through to rounded Float
+        # arithmetic when its exact domain or precision check fails.
+        result = _algebraic_expression_value(expression, n)
+        return _ExactDecimalFloat(_format_decimal(result.decimal, n), n)
     try:
         target = _float_leaves_to_rational(expression)
         sci = _native.evalf_decimal_native(_native_expr(target), int(n))
@@ -5566,12 +5578,14 @@ def _certified_float(expression: Any, n: int) -> Any:
 
 
 def N(expression: Any, n: Any = None) -> Basic:
-    """Evaluate to a compatibility Float. Precision-honest (bead
-    fra-fra-native-evalf-precision-honesty-ke8): ``N(pi, d)`` computes the
-    true decimal digits via a Machin series for 1 <= d <= 10_000; every other
-    expression beyond the binary64-honest 15 significant digits raises
-    NotImplementedError naming the limit — an f64 is never extended with
-    unjustified digits. Not a certified enclosure."""
+    """Evaluate to a Float with justified significant decimal digits.
+
+    Admitted real constants use native enclosures. Exact real roots and
+    rational expressions in one such root use checked algebraic refinement;
+    ``pi`` retains its bounded Machin-series route. Unsupported expressions
+    beyond the binary64-honest 15 digits raise rather than padding an f64.
+    The returned rounded Float is not itself an enclosing interval.
+    """
     explicit = n is not None
     if not explicit:
         n = _F64_HONEST_DIGITS

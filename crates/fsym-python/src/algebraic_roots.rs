@@ -46,6 +46,74 @@ fn budget() -> Budget {
     Budget::new(BudgetLimits::uniform(512 * 1024 * 1024, 0))
 }
 
+/// A checked algebraic value retains the original typed expression, defining
+/// polynomial, root index, domain obligations and accepted exact enclosure.
+/// Python cannot construct or modify the underlying native receipt.
+#[pyclass(name = "AlgebraicValue", module = "fsym_python", frozen)]
+pub struct PyAlgebraicValue {
+    inner: fsym_solvers::real_equation::VerifiedAlgebraicValue,
+}
+
+#[pymethods]
+impl PyAlgebraicValue {
+    #[getter]
+    fn decimal(&self) -> &str {
+        self.inner.decimal()
+    }
+
+    #[getter]
+    fn lower(&self) -> PyExpr {
+        PyExpr::from_expr(crate::rational_to_expr(self.inner.lower().clone()))
+    }
+
+    #[getter]
+    fn upper(&self) -> PyExpr {
+        PyExpr::from_expr(crate::rational_to_expr(self.inner.upper().clone()))
+    }
+
+    #[getter]
+    fn index(&self) -> usize {
+        self.inner.index()
+    }
+
+    #[getter]
+    fn precision(&self) -> u32 {
+        self.inner.precision()
+    }
+
+    #[getter]
+    fn expression(&self) -> PyExpr {
+        PyExpr::from_expr(self.inner.expression().clone())
+    }
+}
+
+/// Correctly rounded rational arithmetic on one exact real algebraic root.
+/// Unsupported source grammar is distinct from invalid domains, exhausted
+/// resources and failed verification; none of those triggers a float fallback.
+#[pyfunction]
+#[pyo3(signature = (expression, variable, values, index, digits=15))]
+pub fn evaluate_real_algebraic_native(
+    expression: &PyExpr,
+    variable: &Bound<'_, PyAny>,
+    values: &Bound<'_, PyList>,
+    index: usize,
+    digits: u32,
+) -> PyResult<Option<PyAlgebraicValue>> {
+    let variable = crate::extract_symbol_arg(variable)?;
+    let coefficients = coefficients(values)?;
+    let value = fsym_solvers::real_equation::metered_evaluate_real_algebraic(
+        &expression.inner,
+        &variable,
+        &coefficients,
+        index,
+        digits,
+        &mut budget(),
+        &mut budget(),
+    )
+    .map_err(crate::to_value_error)?;
+    Ok(value.map(|inner| PyAlgebraicValue { inner }))
+}
+
 /// Complete finite real solution roots, or their complement in the real line.
 /// The accepted native receipt retains the original typed source and variable.
 #[pyfunction]
