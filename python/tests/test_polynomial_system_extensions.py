@@ -77,11 +77,11 @@ def test_typed_same_name_and_dummy_free_coordinates_keep_identity():
     assert answer[0].free_symbols == {second}
 
 
-def test_nonpolynomial_graphs_stay_explicit_refusals():
+def test_rational_graphs_are_supported_and_curved_multivalued_families_refuse():
     x, y = s.symbols("nongraph_x nongraph_y")
-    for equation in [x*y-1, x*x+y*y-1]:
-        with pytest.raises(NotImplementedError):
-            s.nonlinsolve([equation], x, y)
+    assert family([x*y-1], x, y) == (1/y, y)
+    with pytest.raises(NotImplementedError):
+        s.nonlinsolve([x*x+y*y-1], x, y)
 
 
 def test_affine_dispatch_keeps_zero_system_and_empty_input_conventions():

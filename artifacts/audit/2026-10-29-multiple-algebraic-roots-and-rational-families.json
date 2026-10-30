@@ -1,0 +1,418 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-29",
+  "timezone": "America/New_York",
+  "repository": "Dicklesworthstone/frankensympy",
+  "baseline_main": "6c96b72b9dcdf5c49560c335951a3cd0693ad79f",
+  "scope": "Exact expressions in several selected real algebraic roots, complete rational graph families, and their public shell integration.",
+  "priority_basis": {
+    "plan_sections": [
+      "14 domain and coercion",
+      "15 exact and certified numeric tower",
+      "20.5 algebraic numbers",
+      "23 algebraic equations and solver completeness"
+    ],
+    "open_beads": [
+      "fra-7kf",
+      "fra-546",
+      "fra-62c"
+    ],
+    "status_changes": "None: the work implements bounded features; broader named gates and profiles remain open."
+  },
+  "verified_prior_commits": [
+    {
+      "sha": "8518cedc107ee2d2b519d368c0332c99ebcc8511",
+      "parent": "6c96b72b9dcdf5c49560c335951a3cd0693ad79f",
+      "title": "Evaluate rational expressions in multiple exact real algebraic roots",
+      "files": [
+        "crates/fsym-solvers/src/algebraic_expression.rs",
+        "crates/fsym-solvers/tests/algebraic_expression.rs",
+        "crates/fsym-solvers/src/real_equation/algebraic_value.rs",
+        "crates/fsym-solvers/tests/algebraic_value.rs",
+        "crates/fsym-solvers/src/lib.rs"
+      ]
+    },
+    {
+      "sha": "5c8c56b6d55b8f40ef32e059f77239584160512c",
+      "parent": "8518cedc107ee2d2b519d368c0332c99ebcc8511",
+      "title": "Solve complete rational graph families with checked denominator exclusions",
+      "files": [
+        "crates/fsym-solvers/src/rational_graph.rs",
+        "crates/fsym-solvers/tests/rational_graph.rs",
+        "crates/fsym-solvers/src/lib.rs"
+      ]
+    },
+    {
+      "sha": "513ddfca1dd3e79a36fc4a5856417df1eb1c4ed9",
+      "parent": "5c8c56b6d55b8f40ef32e059f77239584160512c",
+      "title": "Connect multiple exact algebraic roots to public evaluation and comparisons",
+      "files": [
+        "crates/fsym-python/src/algebraic_roots.rs",
+        "crates/fsym-python/src/lib.rs",
+        "python/sympy/core/__init__.py",
+        "python/sympy/polys/rootoftools.py",
+        "python/tests/test_algebraic_comparison.py",
+        "python/tests/test_algebraic_expression_evalf.py",
+        "python/tests/test_algebraic_multiple_roots.py"
+      ]
+    }
+  ],
+  "containing_commit": "The final public rational-family integration and this audit are committed together. No tracked self-SHA is asserted.",
+  "features": {
+    "multi_root_algebraic_expression": {
+      "native_api": "fsym_solvers::algebraic_expression::metered_evaluate_real_algebraic_expression",
+      "receipt": "VerifiedAlgebraicExpression",
+      "verification": "Bind an immutable checked Cartesian-system RUR to exact original coefficient equations and typed variables. Independently check every coordinate against the requested input root's uniquely isolating interval. Structurally substitute the held original source and independently recheck the final value and every source-domain guard.",
+      "bounds": {
+        "bindings": 8,
+        "cartesian_degree": 64,
+        "source_nodes": 2048,
+        "source_depth": 64,
+        "decimal_digits": [
+          1,
+          512
+        ],
+        "compute_per_lane": 200000000,
+        "bytes_per_lane": 536870912
+      },
+      "public": "Genuine built-in CRootOf objects lower to distinct typed Dummy bindings. Keep one-root fast path; compose several roots for N/evalf, algebraic sign facts and relations. Immutable Python AlgebraicExpressionValue exposes accepted bounds/decimal/precision/binding count.",
+      "limits": "Real embeddings only; bounded rational Add/Mul/integer-Pow grammar. No general minimal polynomials, transcendental functions, arbitrary composita or portable RUR proof certificate."
+    },
+    "rational_graph_families": {
+      "native_api": "fsym_solvers::rational_graph::metered_rational_graph_system",
+      "receipt": "VerifiedRationalGraph",
+      "verification": "Each normalized pivot relation is independently bound by a nonzero exact scale to an original equation or checked basis element. Bound unit-ideal witnesses prove every denominator nonzero on the entire original variety; exact cleared-denominator residuals verify every original equation for every allowed free tuple. Missing exceptional fibers cannot be silently discarded.",
+      "bounds": {
+        "variables": 8,
+        "equations": 64,
+        "degree": 256,
+        "terms": 4096,
+        "coefficient_bits": 4096,
+        "output_nodes": 4096,
+        "compute_per_lane": 200000000,
+        "bytes_per_lane": 536870912
+      },
+      "public": "nonlinsolve attempts this path only after the finite solver's explicit InfiniteSolutions outcome, under the same budgets. rational_family returns separately checked numerator, denominator and nonzero-condition expressions. Python verifies guard correspondence and constructs held inverse operations so lifting cannot cancel parameter exclusions.",
+      "limits": "One recognized complete graph; no unions of rational charts, general exceptional-fiber stratification, or original source equations containing reciprocals. Existing finite solver and polynomial-component behavior retained."
+    },
+    "selected_component_rational_recognition": {
+      "verification": "Only finite-decimal rational candidates from agreed endpoint rounding are proposed. Exact original numerator-minus-value-times-denominator membership and the independent checker must accept before singleton publication.",
+      "regression": "Opposite sqrt(2) embeddings give exact (x-y)^2=8. x^2 at selected roots of (x^2-2)(x^2-3) gives exact 2 or 3. sqrt(4+2^-200) remains a non-singleton interval even when its decimal rounds to 2; forged exact-2 certificate is rejected.",
+      "limits": "Does not implement general rational reconstruction or recognition of every nonterminating rational image."
+    }
+  },
+  "validation": {
+    "repository": "Dicklesworthstone/frankensympy",
+    "baseline_main": "6c96b72b9dcdf5c49560c335951a3cd0693ad79f",
+    "scope": "Native algebraic expressions in several selected real embeddings and complete rational graph families",
+    "toolchain": "nightly-2026-08-20",
+    "environment": {
+      "CARGO_HOME": "/tmp/gh369-cargo",
+      "CARGO_TARGET_DIR": "/workspace/scratch/e33e84c728e0/frankensympy-native-clippy-current",
+      "CARGO_INCREMENTAL": "0",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "cargo_jobs": 1
+    },
+    "passing_native_suites": {
+      "algebraic_expression": 16,
+      "algebraic_value": 16,
+      "rational_graph": 15,
+      "solver_library": 61,
+      "real_rur": 15
+    },
+    "distinct_passing_native_tests": 123,
+    "final_focused_clippy_exit": 0,
+    "repository_cargo_fmt_check_exit": 0,
+    "all_flag_format_check": {
+      "exit": 1,
+      "detail": "The additional --all command traversed unchanged external donor workspaces. All33 distinct files with formatting diffs belonged to /dev/shm/frankensympy-build/sources/asupersync. No donor source was modified."
+    },
+    "initial_failures_and_fixes": [
+      {
+        "gate": "algebraic_expression first run",
+        "result": "14 passed;1 failed",
+        "defect": "Selected opposite roots of one polynomial gave a correct enclosure but did not recognize exact rational value8 for (x-y)^2.",
+        "fix": "Before accepting agreed decimal rounding, propose the finite-decimal rational and independently check original numerator-c*denominator at the exact selected root. Preserve the original test; add branch-local2and3 and near2 irrational no-collapse/forged-certificate regression."
+      },
+      {
+        "gate": "rational_graph first run",
+        "result": "14 passed;1 failed",
+        "defect": "Polynomial chart z=x*y used numerator -x*y and denominator -1 instead of canonical x*y/1.",
+        "fix": "Monic denominator normalization with separately checked nonzero relation scale; also deduplicate scalar-equivalent guards. Preserve expected coordinate tests; add zero/wrong-scale mutants."
+      },
+      {
+        "gate": "focused Clippy first run",
+        "result": "exit101",
+        "defect": "RationalGraphOutcome carried a304-byte variant.",
+        "fix": "Box the immutable family receipt, charge allocation before constructing it and retain both publication checkpoints. No lint allowance."
+      }
+    ],
+    "public_review": {
+      "new_python_cases": 24,
+      "static_review": "No remaining blocker in exact-class/typed-Dummy lowering, bounded bridge lists, immutable receipts, common meters, conditional rational-family dispatch, held denominator lifting or explicit guard correspondence.",
+      "actual_extension_tests": "Not executed: existing full extension build-memory blocker in unchanged asupersync remains. No full bridge type-check or compatibility claim."
+    },
+    "scope_limits": [
+      "No full workspace check/test/Clippy gate was rerun or passed.",
+      "No source relocation, deletion, donor changes, dependency changes, budget changes or claim/profile promotions.",
+      "Accepted native receipts compose immutable independently checked components in process; not portable complete proof-kernel certificates.",
+      "General nonterminating rational reconstruction, minimal polynomials, complex arithmetic and multi-chart rational component decomposition remain outside this scope."
+    ],
+    "source_sha256": {
+      "crates/fsym-solvers/src/lib.rs": "5d88c0c712e9e1358a9559633b5a98e86037f8716e762e940a9bf1ea02609742",
+      "crates/fsym-solvers/src/algebraic_expression.rs": "7a3cb8823345ee040c151b397314cce8d37a6cd1207c8f5c5249ff6931f81a26",
+      "crates/fsym-solvers/tests/algebraic_expression.rs": "38b0c0d557d72856ced65905e27f2c47dbc0401fc2e97c19abc258b3fdf36971",
+      "crates/fsym-solvers/src/real_equation/algebraic_value.rs": "3ded7656b4ddcdbf22041a2e484f983c1e7acd295a616b52c50fcd59e91aea9f",
+      "crates/fsym-solvers/tests/algebraic_value.rs": "7ff3a8a009a422370008f576c8fb30942db9856d207dec48f02c5054381243d4",
+      "crates/fsym-solvers/src/rational_graph.rs": "1dfdb00e8d69b17876c569f39a6f38cf8efbde3c5728251586cc8a52cb50810d",
+      "crates/fsym-solvers/tests/rational_graph.rs": "0b3d5ff5144eb8efca575e9f483bb0d06896c3a76c4c0f8989b79176e930537b"
+    },
+    "commands": [
+      {
+        "log": "/workspace/scratch/e33e84c728e0/validation-2026-10-29-algebraic-expressions-rational-graphs/01-native-integration.log",
+        "sha256": "f32cf6d7b20bee0aac90d03abf879ab6e7444252820eb0b13bba965693c16837",
+        "command": "cargo test --locked -p fsym-solvers --test algebraic_expression --test rational_graph -j1",
+        "exit_code": 101,
+        "elapsed_seconds": 20.152,
+        "test_suites": [
+          {
+            "passed": 14,
+            "failed": 1,
+            "ignored": 0,
+            "measured": 0,
+            "filtered": 0
+          }
+        ]
+      },
+      {
+        "log": "/workspace/scratch/e33e84c728e0/validation-2026-10-29-algebraic-expressions-rational-graphs/02-rational-graph.log",
+        "sha256": "9bf22e1bf3f4318e74da3ff639dbc8e767058a2adf0ee3835506e75a6f05a13d",
+        "command": "cargo test --locked -p fsym-solvers --test rational_graph -j1",
+        "exit_code": 101,
+        "elapsed_seconds": 1.376,
+        "test_suites": [
+          {
+            "passed": 14,
+            "failed": 1,
+            "ignored": 0,
+            "measured": 0,
+            "filtered": 0
+          }
+        ]
+      },
+      {
+        "log": "/workspace/scratch/e33e84c728e0/validation-2026-10-29-algebraic-expressions-rational-graphs/03-corrected-native.log",
+        "sha256": "c1379c22ff2539e58ed5354ee795404b38e71031bb56a71cf6ced21e6b78978e",
+        "command": "cargo test --locked -p fsym-solvers --test algebraic_expression --test algebraic_value --test rational_graph -j1",
+        "exit_code": 0,
+        "elapsed_seconds": 28.653,
+        "test_suites": [
+          {
+            "passed": 16,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered": 0
+          },
+          {
+            "passed": 16,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered": 0
+          },
+          {
+            "passed": 15,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered": 0
+          }
+        ]
+      },
+      {
+        "log": "/workspace/scratch/e33e84c728e0/validation-2026-10-29-algebraic-expressions-rational-graphs/04-solver-library-and-rur.log",
+        "sha256": "42f04737abce856262e04245a4a42fce0498014e54c6bfe806d4472758930c20",
+        "command": "cargo test --locked -p fsym-solvers --lib --test real_rur -j1",
+        "exit_code": 0,
+        "elapsed_seconds": 11.614,
+        "test_suites": [
+          {
+            "passed": 61,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered": 0
+          },
+          {
+            "passed": 15,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered": 0
+          }
+        ]
+      },
+      {
+        "log": "/workspace/scratch/e33e84c728e0/validation-2026-10-29-algebraic-expressions-rational-graphs/05-focused-clippy.log",
+        "sha256": "d6f1e86a690d4315af6f394ff1ebb466890c27136b19613cbefbefd411852311",
+        "command": "cargo clippy --locked -p fsym-solvers --lib --test algebraic_expression --test algebraic_value --test rational_graph -j1 -- -D warnings",
+        "exit_code": 101,
+        "elapsed_seconds": 1.739,
+        "test_suites": []
+      },
+      {
+        "log": "/workspace/scratch/e33e84c728e0/validation-2026-10-29-algebraic-expressions-rational-graphs/06-corrected-focused-clippy.log",
+        "sha256": "9958cd0c94d2309ce71eb430f21e46f4bcb0bea023e017d6751504f1ae9797b5",
+        "command": "cargo clippy --locked -p fsym-solvers --lib --test algebraic_expression --test algebraic_value --test rational_graph -j1 -- -D warnings",
+        "exit_code": 0,
+        "elapsed_seconds": 2.077,
+        "test_suites": []
+      },
+      {
+        "log": "/workspace/scratch/e33e84c728e0/validation-2026-10-29-algebraic-expressions-rational-graphs/07-final-rational-library.log",
+        "sha256": "0f1998258b7eb5a30b0431d296de3ccaf914864f0f7f546f3b9068118494463d",
+        "command": "cargo test --locked -p fsym-solvers --lib --test rational_graph -j1",
+        "exit_code": 0,
+        "elapsed_seconds": 14.446,
+        "test_suites": [
+          {
+            "passed": 61,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered": 0
+          },
+          {
+            "passed": 15,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered": 0
+          }
+        ]
+      },
+      {
+        "log": "/workspace/scratch/e33e84c728e0/validation-2026-10-29-algebraic-expressions-rational-graphs/08-format-check.log",
+        "sha256": "34c2dbe19b1110fc2c536d6a3db39523a22868b5bcda8b157df8428124cdddbe",
+        "command": "cargo fmt --all --check",
+        "exit_code": 1,
+        "elapsed_seconds": 67.085,
+        "test_suites": []
+      },
+      {
+        "log": "/workspace/scratch/e33e84c728e0/validation-2026-10-29-algebraic-expressions-rational-graphs/09-repository-format-check.log",
+        "sha256": "53be7a97d0e068c09539bf78d70b46b5fb39f36474151e1a3016969bea0e374e",
+        "command": "cargo fmt --check",
+        "exit_code": 0,
+        "elapsed_seconds": 2.485,
+        "test_suites": []
+      }
+    ]
+  },
+  "public_validation": {
+    "syntax_checked_files": [
+      "python/sympy/core/__init__.py",
+      "python/sympy/polys/rootoftools.py",
+      "python/sympy/solvers/polysys.py",
+      "python/tests/test_algebraic_comparison.py",
+      "python/tests/test_algebraic_expression_evalf.py",
+      "python/tests/test_algebraic_multiple_roots.py",
+      "python/tests/test_polynomial_system_extensions.py",
+      "python/tests/test_rational_polynomial_families.py"
+    ],
+    "new_parameterized_cases": {
+      "test_algebraic_multiple_roots": 13,
+      "test_rational_polynomial_families": 11
+    },
+    "updated_existing_cases": 3,
+    "actual_public_runtime": "NOT EXECUTED. The unchanged full extension build is blocked by the previously observed Asupersync compiler SIGKILL under the shared memory cap. No successful full bridge type-check or public runtime pass is asserted.",
+    "static_reviews": "Independent native author cross-reviews and a separate validation agent found no remaining blocker in exact-class lowering, typed identities, domain preservation, completeness links, budget continuity, frozen bridge results or held parameter exclusions."
+  },
+  "source_manifest": {
+    "crates/fsym-solvers/src/lib.rs": {
+      "sha256": "5d88c0c712e9e1358a9559633b5a98e86037f8716e762e940a9bf1ea02609742",
+      "git_blob_sha": "d21e63e0bad2dc43937f15781f27571a1fb49f70"
+    },
+    "crates/fsym-solvers/src/algebraic_expression.rs": {
+      "sha256": "7a3cb8823345ee040c151b397314cce8d37a6cd1207c8f5c5249ff6931f81a26",
+      "git_blob_sha": "aa425079351a5bb168687c965af76af656b768f8"
+    },
+    "crates/fsym-solvers/tests/algebraic_expression.rs": {
+      "sha256": "38b0c0d557d72856ced65905e27f2c47dbc0401fc2e97c19abc258b3fdf36971",
+      "git_blob_sha": "5085fd91f0f433490d936d5c54fe51e8616b0b6d"
+    },
+    "crates/fsym-solvers/src/real_equation/algebraic_value.rs": {
+      "sha256": "3ded7656b4ddcdbf22041a2e484f983c1e7acd295a616b52c50fcd59e91aea9f",
+      "git_blob_sha": "a12a2b14ea9f1612bc4c2a1abbc8a392ff2e5aeb"
+    },
+    "crates/fsym-solvers/tests/algebraic_value.rs": {
+      "sha256": "7ff3a8a009a422370008f576c8fb30942db9856d207dec48f02c5054381243d4",
+      "git_blob_sha": "e956610a1a1166cf9e67a57833c5c71a8e67e1e6"
+    },
+    "crates/fsym-solvers/src/rational_graph.rs": {
+      "sha256": "1dfdb00e8d69b17876c569f39a6f38cf8efbde3c5728251586cc8a52cb50810d",
+      "git_blob_sha": "9465d726a582f66e6c60394fbc1e307f5a185737"
+    },
+    "crates/fsym-solvers/tests/rational_graph.rs": {
+      "sha256": "0b3d5ff5144eb8efca575e9f483bb0d06896c3a76c4c0f8989b79176e930537b",
+      "git_blob_sha": "9cf6a1affca1a7fccfd4a2d288a20ee824cffc26"
+    },
+    "crates/fsym-python/src/algebraic_roots.rs": {
+      "sha256": "6511bc6224261d631f5c23c0a6287c82e12b740bc0fd9935cb77da2cf0c6dfaf",
+      "git_blob_sha": "93b50f660d698aa4c355589f6c109ff04c210782"
+    },
+    "crates/fsym-python/src/lib.rs": {
+      "sha256": "746d2c6a214eba9e613ec33348536ea2919897798012b38b682920675c299ffe",
+      "git_blob_sha": "17f90fb0f01d7af3cb4c62ec6cf6b84876e29839"
+    },
+    "crates/fsym-python/src/polynomial_systems.rs": {
+      "sha256": "bac9e09569c4a09588eb1e57453ea96b0386c4bfa59c67022498f54d2b449769",
+      "git_blob_sha": "29550bbc9d77fb2d642f8bfda0a56d680bc82cb7"
+    },
+    "python/sympy/core/__init__.py": {
+      "sha256": "954619245e3cf2467743d14b27d3d85d1c357b245bdddf307715f72bafb1b5f4",
+      "git_blob_sha": "5563451fa8de6489741efb739604dffe4cfd59ea"
+    },
+    "python/sympy/polys/rootoftools.py": {
+      "sha256": "584634c0d68a9b33672cd33e8cec7a616c2e65fd9e211ab2098267471b8b3b69",
+      "git_blob_sha": "286a0a1d0c6d5398bae48f5de6c52c9ddae8aca1"
+    },
+    "python/sympy/solvers/polysys.py": {
+      "sha256": "8b0e6f7889165b851f2bde3097b538afdf9c8de824c6eb2b0bc473f471e6821f",
+      "git_blob_sha": "9853679cb033ed20be5c3b5edb8edca2bd2f69a9"
+    },
+    "python/tests/test_algebraic_comparison.py": {
+      "sha256": "fa07a3994d702743ad5d77aab16c1b12376dce934a34c60c91ae52320728b7ac",
+      "git_blob_sha": "e77ba07638d3df0486f1dccf4654ef9461c18870"
+    },
+    "python/tests/test_algebraic_expression_evalf.py": {
+      "sha256": "53f89c1bf9818e5ef2747e3b2e2eeccf0c9d7e05e413b1ad5b4e47d544817b79",
+      "git_blob_sha": "0299713dbc85d2f87fedb09d7a752488c3738656"
+    },
+    "python/tests/test_algebraic_multiple_roots.py": {
+      "sha256": "267f38b945dea281c9cf9fc92f5fdafb12ea302c406d320c80d149bfdae90101",
+      "git_blob_sha": "7f63b436e03e0fa2fd80f76b168cc0fc6a0f1aac"
+    },
+    "python/tests/test_polynomial_system_extensions.py": {
+      "sha256": "37b0d0ea43b544a5be081150d6d5ba8a7ce0408304546b95de190b8f9b1fc5e1",
+      "git_blob_sha": "0a8f9b481164c8d269da2fda7140497dcfac0f50"
+    },
+    "python/tests/test_rational_polynomial_families.py": {
+      "sha256": "97ea7bbafe3728aa74a9d2e7c02bb605a26300c0c57405a5c645442574476e7f",
+      "git_blob_sha": "1f80b306556c71db29bc32d83336ff23699f4d26"
+    }
+  },
+  "preserved_boundaries": [
+    "No PRs; direct main writes through GitHub with expected-head leases and independent exact-commit/file verification.",
+    "No force push, reset, cleanup, file deletion, donor source relocation, dependency addition or profile/claim promotion.",
+    "No fallback budget reset, reduced test expectations, weakened verifier, lint allowance or raised mathematical work limit.",
+    "No upstream SymPy production fallback, decimal root matching or conversion of approximate agreement into exact identity."
+  ],
+  "remaining_gates": [
+    "Actual full PyO3 extension type-check/import and Python test execution.",
+    "Full workspace check/test/Clippy and named workstream/profile gates.",
+    "General complex algebraic arithmetic, minimal polynomials and multi-chart rational decomposition."
+  ]
+}

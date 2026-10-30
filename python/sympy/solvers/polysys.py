@@ -116,6 +116,34 @@ def _checked_polynomial_solutions(wrapped_eqs, syms, *, allow_families):
             tuple(_lift_native_result(val, *wrapped_eqs, *syms) for val in sol)
             for sol in result.solutions
         ]
+    if result.kind == "rational_family":
+        numerators = [_lift_native_result(value, *wrapped_eqs, *syms) for value in result.numerators]
+        denominators = [_lift_native_result(value, *wrapped_eqs, *syms) for value in result.denominators]
+        conditions = [_lift_native_result(value, *wrapped_eqs, *syms) for value in result.nonzero_conditions]
+        if len(numerators) != len(syms) or len(denominators) != len(syms):
+            raise ValueError("rational coordinate count does not match the checked system")
+        used_conditions = set()
+        values = []
+        for numerator, denominator in zip(numerators, denominators):
+            if denominator == Integer(1):
+                values.append(numerator)
+                continue
+            if denominator.free_symbols:
+                if denominator not in conditions:
+                    raise ValueError("rational coordinate lost its checked nonzero condition")
+                used_conditions.add(denominator)
+            else:
+                # Exact nonzero constant denominators have no parameter
+                # exclusion and can use the ordinary canonical constructor.
+                values.append(numerator / denominator)
+                continue
+            # Normal evaluation may cancel a denominator. Keep it explicitly
+            # in the tuple, whose parameter domain excludes its zeros.
+            inverse = Pow(denominator, -1, evaluate=False)
+            values.append(inverse if numerator == Integer(1) else Mul(numerator, inverse, evaluate=False))
+        if used_conditions != set(conditions):
+            raise ValueError("rational family omitted a checked parameter exclusion")
+        return [tuple(values)]
     if result.kind not in ("real_shape", "real_rur"):
         raise ValueError("unrecognized native polynomial-system outcome")
 
@@ -165,9 +193,11 @@ def solve_poly_system(
 def nonlinsolve(system: Iterable[Any], *symbols: Any) -> Set:
     """Solve exact rational polynomial systems as sets of solution tuples.
 
-    Affine and recognized polynomial graph systems include complete families
-    parameterized by the supplied free symbols. Checked factor splits also
-    return complete unions of such families. Finite systems use explicit roots
+    Affine, polynomial and recognized rational graph systems include complete
+    families parameterized by the supplied free symbols. Rational coordinates
+    retain their denominator exclusions; their completeness check rules out
+    omitted exceptional fibers. Checked factor splits also return complete
+    unions of polynomial families. Finite systems use explicit roots
     or checked real algebraic univariate representations. Other unsupported
     positive-dimensional systems remain explicit refusals.
     """
