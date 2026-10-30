@@ -9,7 +9,10 @@ use crate::expr::PyExpr;
 use crate::{extract_symbol_arg, rational_to_expr, to_value_error};
 use fsym_core::{BigRational, Expr, Symbol};
 use fsym_matrices::{Matrix, RationalLinearSolution};
-use fsym_polys::{MultivariatePoly, bounded_polynomial_from_expr};
+use fsym_polys::{
+    MultivariatePoly, RationalSystemAdmission, bounded_polynomial_from_expr,
+    metered_localize_rational_system,
+};
 use fsym_runtime::{Budget, BudgetLimits, Dimension};
 use fsym_solvers::SolverError;
 use fsym_solvers::polynomial_components::{
@@ -202,6 +205,31 @@ pub fn polynomial_system_solutions_native(
     // Bind and bound the ring even when the equation list is empty.
     bounded_polynomial_from_expr(&Expr::from_i64(0), &variables, &mut generator)
         .map_err(to_value_error)?;
+    if allow_families {
+        match metered_localize_rational_system(
+            &expressions,
+            &variables,
+            &mut generator,
+            &mut verifier,
+        )
+        .map_err(to_value_error)?
+        {
+            RationalSystemAdmission::Polynomial => {}
+            RationalSystemAdmission::Localized(localized) => {
+                // The source-bound localization retains every original inverse
+                // guard. Each admissible tuple has one auxiliary extension.
+                // Its complete finite solution set can therefore be projected
+                // by dropping exactly the final auxiliary coordinate.
+                return finite_solutions(
+                    localized.equations(),
+                    localized.variables(),
+                    localized.original_width(),
+                    &mut generator,
+                    &mut verifier,
+                );
+            }
+        }
+    }
     // Complete original admission precedes every empty/affine/family decision.
     let polys = expressions
         .iter()
@@ -269,17 +297,44 @@ pub fn polynomial_system_solutions_native(
             PolynomialComponentsOutcome::NotApplicable => {}
         }
     }
-    let explicit_error = match fsym_solvers::polysys::metered_solve_polynomial_system(
+    finite_solutions(
         &expressions,
         &variables,
+        variables.len(),
         &mut generator,
         &mut verifier,
+    )
+}
+
+/// Complete finite solving with optional projection of a checked localization.
+/// The original meters span source admission, localization and both solvers.
+fn finite_solutions(
+    expressions: &[Expr],
+    variables: &[Symbol],
+    output_width: usize,
+    generator: &mut Budget,
+    verifier: &mut Budget,
+) -> PyResult<PyPolynomialSystemResult> {
+    if output_width == 0 || output_width > variables.len() {
+        return Err(PyValueError::new_err("invalid finite projection width"));
+    }
+    let explicit_error = match fsym_solvers::polysys::metered_solve_polynomial_system(
+        expressions,
+        variables,
+        generator,
+        verifier,
     ) {
         Ok(solutions) => {
-            return Ok(rows(
-                "finite",
-                fsym_solvers::polysys::sort_solutions(solutions),
-            ));
+            let mut solutions = fsym_solvers::polysys::sort_solutions(solutions);
+            if solutions.iter().any(|row| row.len() != variables.len()) {
+                return Err(PyValueError::new_err(
+                    "finite coordinate count disagrees with the checked system",
+                ));
+            }
+            for row in &mut solutions {
+                row.truncate(output_width);
+            }
+            return Ok(rows("finite", solutions));
         }
         // The complete component search already tried a checked rational
         // graph for the whole original node, even after an unsupported split.
@@ -290,7 +345,7 @@ pub fn polynomial_system_solutions_native(
         Err(error) => return Err(to_value_error(error)),
     };
     let Some(representation) =
-        metered_solve_real_rur_system(&expressions, &variables, &mut generator, &mut verifier)
+        metered_solve_real_rur_system(expressions, variables, generator, verifier)
             .map_err(to_value_error)?
     else {
         return Err(to_value_error(explicit_error));
@@ -304,10 +359,11 @@ pub fn polynomial_system_solutions_native(
             .iter()
             .map(Vec::len)
             .sum::<usize>();
-    charge(&mut generator, cells, cells * 2048)?;
-    charge(&mut verifier, 1, 1)?;
+    charge(generator, cells, cells * 2048)?;
+    charge(verifier, 1, 1)?;
     let zero = BigRational::from(0_i64);
-    let original_shape = representation.shear().iter().all(|value| value == &zero);
+    let original_shape = output_width == variables.len()
+        && representation.shear().iter().all(|value| value == &zero);
     Ok(PyPolynomialSystemResult {
         kind: if original_shape {
             "real_shape"
@@ -326,6 +382,7 @@ pub fn polynomial_system_solutions_native(
         coordinates: representation
             .coordinates()
             .iter()
+            .take(output_width)
             .map(|coordinate| {
                 coordinate
                     .iter()

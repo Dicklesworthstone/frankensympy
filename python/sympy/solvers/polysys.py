@@ -1,4 +1,4 @@
-"""Polynomial system solvers for FrankenSymPy (WS19)."""
+"""Checked polynomial and finite rational system solvers (WS19)."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ from ..sets import EmptySet, FiniteSet, Set
 
 
 def _polynomial_source(item):
-    """Preserve the original exact surface until native polynomial admission.
+    """Preserve the original exact surface until native system admission.
 
     In particular a held zero product or Eq must not erase an unsupported
     function, approximate atom, or undefined power before it is checked.
@@ -206,7 +206,7 @@ def solve_poly_system(
 
 
 def nonlinsolve(system: Iterable[Any], *symbols: Any) -> Set:
-    """Solve exact rational polynomial systems as sets of solution tuples.
+    """Solve exact polynomial and supported finite rational systems as tuple sets.
 
     Affine, polynomial and recognized rational graph systems include complete
     families parameterized by the supplied free symbols. Rational coordinates
@@ -215,7 +215,10 @@ def nonlinsolve(system: Iterable[Any], *symbols: Any) -> Set:
     unions of polynomial and rational families, preserving each component's
     parameter exclusions independently. Finite systems use explicit roots
     or checked real algebraic univariate representations. Other unsupported
-    positive-dimensional systems remain explicit refusals.
+    positive-dimensional systems remain explicit refusals. Rational source
+    equations retain every original denominator exclusion and use a checked
+    localization before finite solving. Positive-dimensional rational sources
+    remain unsupported when their parameter exclusions cannot be represented.
     """
     wrapped_eqs, syms = _polynomial_system_inputs(system, symbols)
     sols = _checked_polynomial_solutions(wrapped_eqs, syms, allow_families=True)

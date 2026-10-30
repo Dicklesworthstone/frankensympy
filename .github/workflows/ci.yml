@@ -74,3 +74,82 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace -- --nocapture
+
+  # ── G3: Actual native extension and public feature regressions ─────
+  g3-public-features:
+    name: "G3: native public feature regressions"
+    needs: g0-planning-integrity
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Fetch registry-pinned workspace dependencies
+        run: python scripts/fetch_workspace_donors.py
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - run: python -m pip install --disable-pip-version-check pytest==8.4.2
+      - name: Native feature regressions
+        run: |
+          cargo test --locked -p fsym-polys --test rational_localization -j1
+          cargo test --locked -p fsym-calculus --test rational_laplace -j1
+      - name: Build the full Python extension
+        run: cargo build --locked -p fsym-python --features extension-module -j1
+      - name: Test the checked-out shell against the current native extension
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib
+          import importlib.util
+          import json
+          import os
+          import subprocess
+          import sys
+
+          root = Path.cwd().resolve()
+          target = Path(os.environ.get("CARGO_TARGET_DIR", "target"))
+          if not target.is_absolute():
+              target = root / target
+          binary = (target / "debug/libfsym_python.so").resolve()
+          assert binary.is_file(), binary
+          spec = importlib.util.spec_from_file_location("fsym_python", binary)
+          assert spec is not None and spec.loader is not None
+          native = importlib.util.module_from_spec(spec)
+          sys.modules["fsym_python"] = native
+          spec.loader.exec_module(native)
+          assert Path(native.__file__).resolve() == binary
+          sys.path.insert(0, str(root / "python"))
+          import sympy
+          from sympy.core import _native
+          assert Path(sympy.__file__).resolve() == root / "python/sympy/__init__.py"
+          assert _native is native
+          assert hasattr(native, "polynomial_system_solutions_native")
+          import pytest
+          with binary.open("rb") as stream:
+              digest = hashlib.file_digest(stream, "sha256").hexdigest()
+          print(json.dumps({
+              "commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+              "native": str(binary), "native_sha256": digest,
+              "shell": sympy.__file__, "python": sys.version, "pytest": pytest.__version__,
+          }), flush=True)
+          raise SystemExit(pytest.main([
+              "-q", "-p", "no:cacheprovider",
+              "python/tests/test_polynomial_system_checked.py",
+              "python/tests/test_polynomial_system_extensions.py",
+              "python/tests/test_polynomial_rur.py",
+              "python/tests/test_polynomial_components.py",
+              "python/tests/test_rational_polynomial_families.py",
+              "python/tests/test_rational_components.py",
+              "python/tests/test_rational_system_sources.py",
+          ]))
+          PY
