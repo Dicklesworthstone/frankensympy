@@ -255,3 +255,35 @@ def test_source_size_and_integer_power_limits_stay_terminal():
 
     with pytest.raises(NotImplementedError):
         s.laplace_transform(CustomSymbol("forward_custom"), t, z)
+
+
+@pytest.mark.parametrize("exponent", [-100, 100])
+def test_large_held_constant_powers_route_before_the_smaller_native_envelope(exponent):
+    t, z = s.symbols("forward_constant_power_t forward_constant_power_s")
+    coefficient = s.Pow(2, exponent, evaluate=False)
+    source = s.Mul(coefficient, s.exp(t), evaluate=False)
+    assert _native.polynomial_laplace_native(
+        _native_expr(source), _symbol_binding(t), _symbol_binding(z),
+    ) is None
+    equal_rational(
+        s.laplace_transform(source, t, z, noconds=True),
+        s.Integer(2)**exponent/(z-1),
+    )
+
+
+def test_held_polynomial_zero_power_routes_before_nonvanishing_witness_admission():
+    t, z = s.symbols("forward_zero_power_t forward_zero_power_s")
+    source = s.Mul(s.Pow(t+1, 0, evaluate=False), s.exp(-t), evaluate=False)
+    assert _native.polynomial_laplace_native(
+        _native_expr(source), _symbol_binding(t), _symbol_binding(z),
+    ) is None
+    equal_rational(s.laplace_transform(source, t, z, noconds=True), 1/(z+1))
+
+
+def test_single_exponential_zero_power_keeps_its_native_nonvanishing_witness():
+    t, z = s.symbols("forward_exp_zero_t forward_exp_zero_s")
+    source = s.Mul(s.Pow(s.exp(t), 0, evaluate=False), s.exp(-t), evaluate=False)
+    assert _native.polynomial_laplace_native(
+        _native_expr(source), _symbol_binding(t), _symbol_binding(z),
+    ) is not None
+    equal_rational(s.laplace_transform(source, t, z, noconds=True), 1/(z+1))

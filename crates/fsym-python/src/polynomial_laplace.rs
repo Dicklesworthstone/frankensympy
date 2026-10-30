@@ -7,7 +7,6 @@ use crate::{rational_to_expr, to_value_error};
 use fsym_calculus::rational_laplace::{RationalLaplaceError, metered_laplace};
 use fsym_core::{Expr, Symbol};
 use fsym_runtime::{Budget, BudgetLimits, Dimension};
-use num_traits::Zero;
 use pyo3::exceptions::{PyNotImplementedError, PyValueError};
 use pyo3::prelude::*;
 
@@ -95,7 +94,7 @@ impl Scan<'_> {
                         "Laplace coefficient exceeds 4096 bits",
                     ));
                 }
-                Shape::constant(value.is_zero())
+                Shape::constant(value.numer().is_zero())
             }
             Expr::Sym(symbol) => {
                 self.name(&symbol.name)?;
@@ -151,9 +150,11 @@ impl Scan<'_> {
                     if power.unsigned_abs() > 4096 {
                         return Err(PyValueError::new_err("Laplace source power exceeds 4096"));
                     }
+                    let within_native_power = power.unsigned_abs() <= 32;
                     if power < 0 {
                         Shape {
-                            eligible: shape.eligible
+                            eligible: within_native_power
+                                && shape.eligible
                                 && exponent_shape.eligible
                                 && shape.degree == 0
                                 && !shape.analytic,
@@ -161,8 +162,15 @@ impl Scan<'_> {
                         }
                     } else {
                         let power = power as u32;
+                        // The native zeroth-power lane needs a nonvanishing
+                        // constant polynomial or single exponential witness.
+                        let zero_power_witness = shape.degree == 0
+                            && (!shape.analytic || (shape.oscillatory == 0 && shape.blocks == 1));
                         Shape {
-                            eligible: shape.eligible && exponent_shape.eligible,
+                            eligible: within_native_power
+                                && shape.eligible
+                                && exponent_shape.eligible
+                                && (power != 0 || zero_power_witness),
                             degree: shape.degree.saturating_mul(power as usize),
                             analytic: shape.analytic,
                             oscillatory: shape.oscillatory.saturating_mul(power as usize),
