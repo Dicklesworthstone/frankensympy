@@ -1,9 +1,10 @@
-//! Complete bounded unions of polynomial graph components over Q.
+//! Complete bounded unions of polynomial and rational graph components.
 //!
 //! A split replaces one equation `p = c product(f_i^m_i)` by one branch for
 //! each distinct factor. A reference coefficient convolution checks that
 //! identity, and the tree checker requires every branch. Each leaf is bound
-//! to an independently checked graph or unit ideal. No partial union escapes
+//! to an independently checked graph or unit ideal. Rational leaves retain
+//! their exact nonzero parameter domains. No partial union escapes
 //! when even one leaf cannot be recognized.
 //!
 //! Factor discovery is deliberately incomplete: typed source factors,
@@ -27,6 +28,9 @@ use num_traits::{One, Signed, Zero};
 use crate::SolverError;
 use crate::polynomial_graph::{
     PolynomialGraphOutcome, VerifiedPolynomialGraph, metered_polynomial_graph_system,
+};
+use crate::rational_graph::{
+    RationalGraphOutcome, VerifiedRationalGraph, metered_rational_graph_system,
 };
 
 const MAX_VARIABLES: usize = 8;
@@ -58,7 +62,97 @@ pub enum PolynomialComponentsOutcome {
 pub struct VerifiedPolynomialComponents {
     variables: Vec<Symbol>,
     equations: Vec<MultivariatePoly>,
-    families: Vec<VerifiedPolynomialGraph>,
+    families: Vec<VerifiedComponentFamily>,
+}
+
+#[derive(Debug, Clone)]
+enum ComponentGraph {
+    Polynomial(VerifiedPolynomialGraph),
+    Rational(Box<VerifiedRationalGraph>),
+}
+
+/// One complete graph in an accepted union. Its private graph receipt proves
+/// equality with the full branch variety, not only a generic subset. Rational
+/// parameter exclusions remain attached to the component that needs them.
+#[derive(Debug, Clone)]
+pub struct VerifiedComponentFamily {
+    graph: ComponentGraph,
+    unit_denominators: Vec<Expr>,
+}
+
+impl VerifiedComponentFamily {
+    fn polynomial(graph: VerifiedPolynomialGraph, meter: &mut impl BudgetMeter) -> Result<Self> {
+        let width = graph.variables().len();
+        charge(meter, width, width * (std::mem::size_of::<Expr>() + 64))?;
+        Ok(Self {
+            graph: ComponentGraph::Polynomial(graph),
+            unit_denominators: vec![Expr::from_i64(1); width],
+        })
+    }
+
+    fn rational(graph: Box<VerifiedRationalGraph>) -> Self {
+        Self {
+            graph: ComponentGraph::Rational(graph),
+            unit_denominators: Vec::new(),
+        }
+    }
+
+    pub fn variables(&self) -> &[Symbol] {
+        match &self.graph {
+            ComponentGraph::Polynomial(graph) => graph.variables(),
+            ComponentGraph::Rational(graph) => graph.variables(),
+        }
+    }
+
+    pub fn values(&self) -> &[Expr] {
+        match &self.graph {
+            ComponentGraph::Polynomial(graph) => graph.values(),
+            ComponentGraph::Rational(graph) => graph.values(),
+        }
+    }
+
+    pub fn free_variables(&self) -> &[Symbol] {
+        match &self.graph {
+            ComponentGraph::Polynomial(graph) => graph.free_variables(),
+            ComponentGraph::Rational(graph) => graph.free_variables(),
+        }
+    }
+
+    pub fn basis(&self) -> &VerifiedGroebnerBasis {
+        match &self.graph {
+            ComponentGraph::Polynomial(graph) => graph.basis(),
+            ComponentGraph::Rational(graph) => graph.basis(),
+        }
+    }
+
+    pub fn is_rational(&self) -> bool {
+        matches!(&self.graph, ComponentGraph::Rational(_))
+    }
+
+    pub fn nonzero_conditions(&self) -> &[Expr] {
+        match &self.graph {
+            ComponentGraph::Polynomial(_) => &[],
+            ComponentGraph::Rational(graph) => graph.nonzero_conditions(),
+        }
+    }
+
+    pub fn into_values(self) -> Vec<Expr> {
+        match self.graph {
+            ComponentGraph::Polynomial(graph) => graph.into_values(),
+            ComponentGraph::Rational(graph) => graph.into_values(),
+        }
+    }
+
+    /// Transfer checked, precharged numerator/denominator/condition parts.
+    /// A bridge must preserve nonconstant denominators as held reciprocals.
+    pub fn into_parts(self) -> (Vec<Expr>, Vec<Expr>, Vec<Expr>) {
+        match self.graph {
+            ComponentGraph::Polynomial(graph) => {
+                (graph.into_values(), self.unit_denominators, Vec::new())
+            }
+            ComponentGraph::Rational(graph) => graph.into_parts(),
+        }
+    }
 }
 
 impl VerifiedPolynomialComponents {
@@ -70,7 +164,7 @@ impl VerifiedPolynomialComponents {
         &self.equations
     }
 
-    pub fn families(&self) -> &[VerifiedPolynomialGraph] {
+    pub fn families(&self) -> &[VerifiedComponentFamily] {
         &self.families
     }
 
@@ -78,7 +172,17 @@ impl VerifiedPolynomialComponents {
     pub fn into_values(self) -> Vec<Vec<Expr>> {
         self.families
             .into_iter()
-            .map(VerifiedPolynomialGraph::into_values)
+            .map(VerifiedComponentFamily::into_values)
+            .collect()
+    }
+
+    /// Each row keeps its own exact parameter exclusions. The outer result
+    /// allocation and polynomial unit denominators were charged before the
+    /// accepted union crossed its publication checkpoint.
+    pub fn into_parts(self) -> Vec<(Vec<Expr>, Vec<Expr>, Vec<Expr>)> {
+        self.families
+            .into_iter()
+            .map(VerifiedComponentFamily::into_parts)
             .collect()
     }
 }
@@ -281,7 +385,7 @@ struct Split {
 
 #[derive(Debug, Clone)]
 enum Tree {
-    Family(VerifiedPolynomialGraph),
+    Family(VerifiedComponentFamily),
     Empty(VerifiedGroebnerBasis),
     Split { claim: Split, children: Vec<Tree> },
 }
@@ -404,6 +508,22 @@ fn verify_tree(
         Tree::Family(family) => {
             if family.variables() != variables {
                 return Err(refuse("component coordinate order or identity changed"));
+            }
+            match &family.graph {
+                ComponentGraph::Polynomial(_) => {
+                    if family.unit_denominators.len() != variables.len()
+                        || family
+                            .unit_denominators
+                            .iter()
+                            .any(|value| *value != Expr::from_i64(1))
+                    {
+                        return Err(refuse("polynomial component lost its unit denominators"));
+                    }
+                }
+                ComponentGraph::Rational(_) if !family.unit_denominators.is_empty() => {
+                    return Err(refuse("rational component has unrelated denominator parts"));
+                }
+                ComponentGraph::Rational(_) => {}
             }
             bind_leaf(family.basis(), inputs, variables, meter)
         }
@@ -644,11 +764,47 @@ struct Generate<'a, G, V> {
     variables: &'a [Symbol],
     candidates: Option<Vec<MultivariatePoly>>,
     nodes: usize,
+    rational_leaves: bool,
     generator: &'a mut G,
     verifier: &'a mut V,
 }
 
 impl<G: BudgetMeter, V: BudgetMeter> Generate<'_, G, V> {
+    fn rational_leaf(
+        &mut self,
+        inputs: &[MultivariatePoly],
+        sources: Option<&[Expr]>,
+    ) -> Result<Option<Tree>> {
+        if !self.rational_leaves {
+            return Ok(None);
+        }
+        let lifted;
+        let expressions = match sources {
+            Some(expressions) => expressions,
+            None => {
+                lifted = lift(inputs, self.generator)?;
+                &lifted
+            }
+        };
+        match metered_rational_graph_system(
+            expressions,
+            self.variables,
+            self.generator,
+            self.verifier,
+        )? {
+            RationalGraphOutcome::Family(family) => Ok(Some(Tree::Family(
+                VerifiedComponentFamily::rational(family),
+            ))),
+            RationalGraphOutcome::Empty => {
+                let basis =
+                    checked_groebner_basis(inputs, TermOrder::Lex, self.generator, self.verifier)
+                        .map_err(refuse)?;
+                Ok(Some(Tree::Empty(basis)))
+            }
+            RationalGraphOutcome::NotApplicable => Ok(None),
+        }
+    }
+
     fn node(
         &mut self,
         inputs: &[MultivariatePoly],
@@ -699,7 +855,12 @@ impl<G: BudgetMeter, V: BudgetMeter> Generate<'_, G, V> {
                 self.generator,
                 self.verifier,
             )? {
-                PolynomialGraphOutcome::Family(family) => return Ok(Some(Tree::Family(family))),
+                PolynomialGraphOutcome::Family(family) => {
+                    return Ok(Some(Tree::Family(VerifiedComponentFamily::polynomial(
+                        family,
+                        self.generator,
+                    )?)));
+                }
                 PolynomialGraphOutcome::Empty => {
                     // Retain a checked unit-ideal receipt so the tree checker can
                     // bind this empty leaf to its exact branch equations.
@@ -739,7 +900,9 @@ impl<G: BudgetMeter, V: BudgetMeter> Generate<'_, G, V> {
             }
         }
         let Some(claim) = found else {
-            return Ok(None);
+            // Every failed chart shares the same outer meters; operational
+            // failures propagate and cannot restart work with a fresh cap.
+            return self.rational_leaf(inputs, sources);
         };
         charge(
             self.generator,
@@ -751,7 +914,11 @@ impl<G: BudgetMeter, V: BudgetMeter> Generate<'_, G, V> {
             let mut branch = copy_inputs(inputs, self.generator)?;
             branch[claim.equation] = copy_poly(factor, self.generator)?;
             let Some(child) = self.node(&branch, None, depth + 1)? else {
-                return Ok(None);
+                // Factoring can introduce unsupported constrained subleaves
+                // even when the complete original node is one rational
+                // graph. Recheck that entire original ideal; never publish
+                // the successfully solved portion of the split.
+                return self.rational_leaf(inputs, sources);
             };
             children.push(child);
         }
@@ -759,7 +926,7 @@ impl<G: BudgetMeter, V: BudgetMeter> Generate<'_, G, V> {
     }
 }
 
-fn collect(tree: Tree, families: &mut Vec<VerifiedPolynomialGraph>) {
+fn collect(tree: Tree, families: &mut Vec<VerifiedComponentFamily>) {
     match tree {
         Tree::Family(family) => families.push(family),
         Tree::Empty(_) => {}
@@ -772,11 +939,14 @@ fn collect(tree: Tree, families: &mut Vec<VerifiedPolynomialGraph>) {
 }
 
 /// Every defining equation of the covering graph must be in the contained
-/// graph's ideal. Checked zero remainders prove containment; a nonzero one
-/// only declines this optional redundancy removal.
+/// graph's ideal. Each accepted rational graph equals its full branch variety,
+/// including the independently proved denominator exclusions; thus the same
+/// ideal inclusion is sufficient for polynomial and rational graphs. Checked
+/// zero remainders prove containment; a nonzero remainder only declines this
+/// optional redundancy removal.
 fn contained_in(
-    contained: &VerifiedPolynomialGraph,
-    covering: &VerifiedPolynomialGraph,
+    contained: &VerifiedComponentFamily,
+    covering: &VerifiedComponentFamily,
     generator: &mut impl BudgetMeter,
     verifier: &mut impl BudgetMeter,
 ) -> Result<bool> {
@@ -804,6 +974,29 @@ fn contained_in(
 pub fn metered_polynomial_components_system(
     equations: &[Expr],
     variables: &[Symbol],
+    generator_meter: &mut impl BudgetMeter,
+    verifier_meter: &mut impl BudgetMeter,
+) -> Result<PolynomialComponentsOutcome> {
+    metered_components_system(equations, variables, false, generator_meter, verifier_meter)
+}
+
+/// Recognize complete unions of polynomial and rational graphs. Rational
+/// denominators are explicit per component; an unsupported leaf prevents the
+/// entire union from being published. The polynomial-only entry point keeps
+/// its existing recognition policy and does not perform rational searches.
+pub fn metered_rational_components_system(
+    equations: &[Expr],
+    variables: &[Symbol],
+    generator_meter: &mut impl BudgetMeter,
+    verifier_meter: &mut impl BudgetMeter,
+) -> Result<PolynomialComponentsOutcome> {
+    metered_components_system(equations, variables, true, generator_meter, verifier_meter)
+}
+
+fn metered_components_system(
+    equations: &[Expr],
+    variables: &[Symbol],
+    rational_leaves: bool,
     generator_meter: &mut impl BudgetMeter,
     verifier_meter: &mut impl BudgetMeter,
 ) -> Result<PolynomialComponentsOutcome> {
@@ -844,6 +1037,7 @@ pub fn metered_polynomial_components_system(
         variables,
         candidates: None,
         nodes: 0,
+        rational_leaves,
         generator: &mut generator,
         verifier: &mut verifier,
     }
@@ -868,7 +1062,7 @@ pub fn metered_polynomial_components_system(
     if candidates.len() > MAX_COMPONENTS {
         return Err(refuse("component count exceeds 32"));
     }
-    let mut families: Vec<VerifiedPolynomialGraph> = Vec::new();
+    let mut families: Vec<VerifiedComponentFamily> = Vec::new();
     for candidate in candidates {
         let mut redundant = false;
         for existing in &families {
@@ -894,7 +1088,12 @@ pub fn metered_polynomial_components_system(
         retained.push(candidate);
         families = retained;
     }
-    charge(&mut generator, variables.len(), ring_bytes(variables))?;
+    charge(
+        &mut generator,
+        variables.len() + families.len(),
+        ring_bytes(variables)
+            + families.len() * std::mem::size_of::<(Vec<Expr>, Vec<Expr>, Vec<Expr>)>(),
+    )?;
     let result = if families.is_empty() {
         PolynomialComponentsOutcome::Empty
     } else {
@@ -921,6 +1120,18 @@ pub fn polynomial_components_system(
     )
 }
 
+pub fn rational_components_system(
+    equations: &[Expr],
+    variables: &[Symbol],
+) -> Result<PolynomialComponentsOutcome> {
+    metered_rational_components_system(
+        equations,
+        variables,
+        &mut Budget::new(BudgetLimits::uniform(MAX_MEMORY, 0)),
+        &mut Budget::new(BudgetLimits::uniform(MAX_MEMORY, 0)),
+    )
+}
+
 #[cfg(test)]
 mod reference_checks {
     use super::*;
@@ -939,6 +1150,7 @@ mod reference_checks {
             variables: &variables,
             candidates: None,
             nodes: 0,
+            rational_leaves: false,
             generator: &mut Unbounded,
             verifier: &mut Unbounded,
         }
@@ -1027,7 +1239,8 @@ mod reference_checks {
         let Tree::Split { children, .. } = &mut omitted else {
             unreachable!();
         };
-        children[0] = Tree::Family(unrelated);
+        children[0] =
+            Tree::Family(VerifiedComponentFamily::polynomial(unrelated, &mut Unbounded).unwrap());
         assert!(verify_tree(&omitted, &inputs, &variables, 0, &mut 0, &mut Unbounded).is_err());
         let unit =
             bounded_polynomial_from_expr(&Expr::from_i64(1), &variables, &mut Unbounded).unwrap();
@@ -1040,5 +1253,107 @@ mod reference_checks {
         };
         children[0] = Tree::Empty(receipt);
         assert!(verify_tree(&empty, &inputs, &variables, 0, &mut 0, &mut Unbounded).is_err());
+    }
+
+    fn mixed_fixture() -> (Vec<Symbol>, Vec<MultivariatePoly>, Tree) {
+        let variables = vec![Symbol::new("x"), Symbol::new("y")];
+        let sources = vec![parse("x*(x*y-1)").unwrap()];
+        let inputs = sources
+            .iter()
+            .map(|source| bounded_polynomial_from_expr(source, &variables, &mut Unbounded).unwrap())
+            .collect::<Vec<_>>();
+        let tree = Generate {
+            sources: &sources,
+            variables: &variables,
+            candidates: None,
+            nodes: 0,
+            rational_leaves: true,
+            generator: &mut Unbounded,
+            verifier: &mut Unbounded,
+        }
+        .node(&inputs, Some(&sources), 0)
+        .unwrap()
+        .unwrap();
+        verify_tree(&tree, &inputs, &variables, 0, &mut 0, &mut Unbounded).unwrap();
+        (variables, inputs, tree)
+    }
+
+    #[test]
+    fn mixed_split_requires_both_original_branches_and_their_exact_receipts() {
+        let (variables, inputs, tree) = mixed_fixture();
+        let mut missing = tree.clone();
+        let Tree::Split { children, .. } = &mut missing else {
+            panic!("the mixed fixture must preserve its factor split");
+        };
+        let index = children
+            .iter()
+            .position(|child| matches!(child, Tree::Family(family) if family.is_rational()))
+            .unwrap();
+        children.remove(index);
+        assert!(verify_tree(&missing, &inputs, &variables, 0, &mut 0, &mut Unbounded).is_err());
+
+        let mut swapped = tree.clone();
+        let Tree::Split { children, .. } = &mut swapped else {
+            unreachable!()
+        };
+        children.swap(0, 1);
+        assert!(verify_tree(&swapped, &inputs, &variables, 0, &mut 0, &mut Unbounded).is_err());
+
+        let RationalGraphOutcome::Family(unrelated) = metered_rational_graph_system(
+            &[parse("x*(y-1)-1").unwrap()],
+            &variables,
+            &mut Unbounded,
+            &mut Unbounded,
+        )
+        .unwrap() else {
+            panic!("the unrelated equation must have its own valid rational receipt");
+        };
+        let mut replaced = tree.clone();
+        let Tree::Split { children, .. } = &mut replaced else {
+            unreachable!()
+        };
+        children[index] = Tree::Family(VerifiedComponentFamily::rational(unrelated));
+        assert!(verify_tree(&replaced, &inputs, &variables, 0, &mut 0, &mut Unbounded).is_err());
+
+        let mut typed = variables.clone();
+        typed[1] = Symbol::with_identity("y", SymbolIdentity::from_assumptions_digest([71; 32]));
+        assert!(verify_tree(&tree, &inputs, &typed, 0, &mut 0, &mut Unbounded).is_err());
+    }
+
+    #[test]
+    fn mixed_component_serialization_cannot_attach_unchecked_denominator_parts() {
+        let (variables, inputs, tree) = mixed_fixture();
+        for missing in [false, true] {
+            let mut bad = tree.clone();
+            let Tree::Split { children, .. } = &mut bad else {
+                unreachable!()
+            };
+            let family = children
+                .iter_mut()
+                .find_map(|child| match child {
+                    Tree::Family(family) if !family.is_rational() => Some(family),
+                    _ => None,
+                })
+                .unwrap();
+            if missing {
+                family.unit_denominators.pop();
+            } else {
+                family.unit_denominators[0] = Expr::from_i64(0);
+            }
+            assert!(verify_tree(&bad, &inputs, &variables, 0, &mut 0, &mut Unbounded).is_err());
+        }
+        let mut bad = tree;
+        let Tree::Split { children, .. } = &mut bad else {
+            unreachable!()
+        };
+        let family = children
+            .iter_mut()
+            .find_map(|child| match child {
+                Tree::Family(family) if family.is_rational() => Some(family),
+                _ => None,
+            })
+            .unwrap();
+        family.unit_denominators = vec![Expr::from_i64(1); variables.len()];
+        assert!(verify_tree(&bad, &inputs, &variables, 0, &mut 0, &mut Unbounded).is_err());
     }
 }
