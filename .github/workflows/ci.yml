@@ -66,6 +66,34 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Prepare the pinned differential-test oracle
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import subprocess
+          import venv
+
+          directory = Path(os.environ["RUNNER_TEMP"]) / "fsym-oracle-sympy-1.14.0"
+          if directory.exists():
+              raise SystemExit(f"Refusing to replace an existing oracle environment: {directory}")
+          venv.EnvBuilder(with_pip=True).create(directory)
+          interpreter = directory / "bin" / "python"
+          subprocess.run([
+              str(interpreter), "-m", "pip", "install",
+              "--disable-pip-version-check", "sympy==1.14.0", "mpmath==1.3.0",
+          ], check=True)
+          subprocess.run([
+              str(interpreter), "-I", "-c",
+              "import sympy; assert sympy.__version__ == '1.14.0'; "
+              "print('Differential oracle:', sympy.__version__, sympy.__file__)",
+          ], check=True)
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as environment:
+              environment.write(f"FSYM_ORACLE_PYTHON={interpreter}\n")
+          PY
       - name: Fetch registry-pinned workspace dependencies
         run: python3 scripts/fetch_workspace_donors.py
       - uses: dtolnay/rust-toolchain@master
@@ -73,6 +101,8 @@ jobs:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - run: cargo test --workspace -- --nocapture
 
   # ── G3: Actual native extension and public feature regressions ─────
