@@ -17,6 +17,16 @@ class _CallableBool(int):
         return bool(self)
 
 
+class _AlgebraicEigenspaceUnsupported(NotImplementedError):
+    """Keep an accepted spectrum distinct from an unimplemented eigenspace."""
+
+    def __init__(self, spectrum):
+        super().__init__(
+            "indexed algebraic eigenvectors require exact algebraic nullspace support"
+        )
+        self.spectrum = tuple(spectrum.items())
+
+
 class MatrixBase:
     """Base class for all matrix objects."""
 
@@ -582,7 +592,65 @@ class Matrix(MatrixBase):
         return res
 
     def eigenvalues(self):
-        return [_wrap(e) for e in self._native.eigenvalues()]
+        """Return a complete exact spectrum, retaining algebraic multiplicities.
+
+        The native radical lane keeps its established forms. An unsupported
+        root degree may use exact indexed real roots, but only after the
+        characteristic polynomial is independently checked and every one of
+        its roots is proved real. Mixed unresolved complex spectra refuse.
+        """
+        native = self._native
+        try:
+            return [_wrap(e) for e in native.eigenvalues()]
+        except ValueError as error:
+            # Resource, domain and verification failures are terminal. In
+            # particular, this is not a retry after an exhausted work budget.
+            if not str(error).startswith(
+                "Exact eigenvalues unsupported for characteristic polynomial degree "
+            ):
+                raise
+            algebraic = self._complete_real_algebraic_spectrum(native)
+            if algebraic is None:
+                raise
+            return algebraic
+
+    def _complete_real_algebraic_spectrum(self, native):
+        """Compose checked rational characteristic coefficients and real roots."""
+        from ..core import Dummy, Half, Integer, NegativeOne, One, Zero
+        from ..polys.polytools import Poly
+        from ..polys.rootoftools import real_roots
+
+        if type(self) not in (Matrix, ImmutableMatrix) or not native.is_exact_rational:
+            return None
+        # A surface expression may conceal a pole, Float or user hook even if
+        # simplification would erase it. Admit literal rational entries only.
+        atoms = (Integer, Rational, Zero, One, NegativeOne, Half)
+        if self._surface is not None and any(type(entry) not in atoms for entry in self._surface):
+            return None
+
+        dimension = native.rows
+        coefficients = [_wrap(c) for c in native.checked_char_poly()]
+        if len(coefficients) != dimension + 1 or coefficients[0] != Integer(1):
+            raise ValueError("checked characteristic polynomial has the wrong degree or leading coefficient")
+        parameter = Dummy("_fsym_eigenvalue")
+        polynomial = Integer(0)
+        for coefficient in coefficients:
+            polynomial = polynomial * parameter + coefficient
+
+        spectrum = []
+        seen = set()
+        for root, multiplicity in real_roots(
+            Poly(polynomial, parameter), multiple=False, radicals=True
+        ):
+            if (type(multiplicity) is not int or not 1 <= multiplicity <= dimension - len(spectrum)
+                    or root in seen):
+                raise ValueError("checked real spectrum has invalid root multiplicities")
+            seen.add(root)
+            spectrum.extend([root] * multiplicity)
+        # Exact real-root isolation establishes the entire real set. Its
+        # total algebraic multiplicity must equal the characteristic degree
+        # before that set can represent the complete complex spectrum.
+        return spectrum if len(spectrum) == dimension else None
 
     def eigenvals(self):
         """Return a dict mapping eigenvalue -> multiplicity.
@@ -639,6 +707,13 @@ class Matrix(MatrixBase):
     def eigenvects(self):
         """Return eigenvalues, multiplicities, and eigenvectors: [(eval, mult, [evec, ...]), ...]."""
         eval_dict = self.eigenvals()
+        from ..polys.rootoftools import CRootOf
+
+        if any(type(value) is CRootOf for value in eval_dict):
+            # Generic structural simplification cannot decide a defining
+            # polynomial identity at CRootOf. It must not publish empty or
+            # incorrect eigenspaces by treating such a pivot as nonzero.
+            raise _AlgebraicEigenspaceUnsupported(eval_dict)
         n = self.rows
         I = eye(n)
         res = []
@@ -768,9 +843,14 @@ class Matrix(MatrixBase):
             M = Matrix.hstack(*vectors)
             return len(M._kernel()) == 0
 
+        from ..polys.rootoftools import CRootOf
+
+        spectrum = self.eigenvals()
+        if any(type(value) is CRootOf for value in spectrum):
+            raise _AlgebraicEigenspaceUnsupported(spectrum)
         blocks = []
         chains = []
-        for ev, mult in self.eigenvals().items():
+        for ev, mult in spectrum.items():
             N = clean(self - ev * I_n)
             powers = [I_n]
             kernels = [[]]
@@ -855,6 +935,19 @@ class Matrix(MatrixBase):
                         return False
                 all_evecs.extend(basis)
             return len(all_evecs) == self.rows
+        except _AlgebraicEigenspaceUnsupported as error:
+            # A complete spectrum with n distinct eigenvalues establishes
+            # diagonalizability without constructing an eigenvector. Repeated
+            # algebraic roots still require a checked eigenspace computation.
+            if (len(error.spectrum) == self.rows
+                    and all(multiplicity == 1 for _, multiplicity in error.spectrum)):
+                if reals_only and any(
+                    getattr(value, "is_real", None) is not True
+                    for value, _ in error.spectrum
+                ):
+                    raise
+                return True
+            raise
         except Exception:
             return False
 
@@ -1062,6 +1155,13 @@ class Matrix(MatrixBase):
             return s_vals
 
         evals = gram.eigenvalues()
+        from ..polys.rootoftools import CRootOf
+
+        if any(type(value) is CRootOf for value in evals):
+            # The complete algebraic fallback returns all real eigenvalues
+            # in exact increasing order. Reverse that checked order before
+            # applying sqrt: sqrt(CRootOf) need not support numerical evalf.
+            return [sqrt(value) for value in reversed(evals)]
         s_vals = []
         for ev in evals:
             s_vals.append(sqrt(ev))

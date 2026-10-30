@@ -262,6 +262,57 @@ impl PyMatrix {
         Ok(coeffs.into_iter().map(PyExpr::from_expr).collect())
     }
 
+    /// Reference-checked rational characteristic coefficients, descending.
+    ///
+    /// The existing independent checker compares against exact shifted
+    /// determinants at n + 1 distinct points. Original entries and their
+    /// aggregate coefficient height are admitted before generator arithmetic.
+    pub fn checked_char_poly(&self) -> PyResult<Vec<PyExpr>> {
+        let dimension = self.inner.rows();
+        if dimension != self.inner.cols() {
+            return Err(matrix_err(MatrixError::NotSquare(
+                dimension,
+                self.inner.cols(),
+            )));
+        }
+        // Keep the Python transport within the native characteristic-polynomial
+        // envelope before scanning coefficient payloads or constructing outputs.
+        if dimension > 32 {
+            return Err(matrix_err(MatrixError::ResourceLimit(
+                "checked characteristic polynomial supports dimensions up to 32".into(),
+            )));
+        }
+        let mut input_bits = 0u64;
+        for entry in self.inner.data() {
+            let bits = match entry {
+                Expr::Integer(value) => value.bits().max(1),
+                Expr::Rational(value) => value
+                    .numer()
+                    .bits()
+                    .max(1)
+                    .saturating_add(value.denom().bits()),
+                _ => return Err(matrix_err(MatrixError::UnsupportedCertificateDomain)),
+            };
+            input_bits = input_bits.saturating_add(bits);
+            if input_bits > 65_536 {
+                return Err(matrix_err(MatrixError::ResourceLimit(
+                    "exact characteristic-polynomial input exceeds 65536 coefficient bits".into(),
+                )));
+            }
+        }
+        let certificate = self
+            .inner
+            .char_poly_with_certificate("_fsym_eigenvalue")
+            .map_err(matrix_err)?;
+        Ok(certificate
+            .poly
+            .coeffs
+            .iter()
+            .rev()
+            .map(rational_expr)
+            .collect())
+    }
+
     /// Kronecker product.
     pub fn kron(&self, other: &Self) -> PyResult<Self> {
         let res = self.inner.kron(&other.inner).map_err(matrix_err)?;
