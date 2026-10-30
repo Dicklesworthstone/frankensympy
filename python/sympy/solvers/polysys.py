@@ -1,4 +1,4 @@
-"""Checked polynomial and finite rational system solvers (WS19)."""
+"""Checked polynomial and rational system solvers (WS19)."""
 
 from __future__ import annotations
 
@@ -185,7 +185,7 @@ def _lift_rational_component(parts, wrapped_eqs, syms):
         inverse = Pow(denominator, -1, evaluate=False)
         values.append(inverse if numerator == Integer(1) else Mul(numerator, inverse, evaluate=False))
     if used_conditions != set(conditions):
-        raise ValueError("rational family omitted a checked parameter exclusion")
+        raise ValueError("positive-dimensional rational family has parameter exclusions not represented in tuple coordinates")
     return tuple(values)
 
 
@@ -206,7 +206,7 @@ def solve_poly_system(
 
 
 def nonlinsolve(system: Iterable[Any], *symbols: Any) -> Set:
-    """Solve exact polynomial and supported finite rational systems as tuple sets.
+    """Solve exact polynomial and supported rational systems as tuple sets.
 
     Affine, polynomial and recognized rational graph systems include complete
     families parameterized by the supplied free symbols. Complete finite
@@ -216,11 +216,13 @@ def nonlinsolve(system: Iterable[Any], *symbols: Any) -> Set:
     omitted exceptional fibers. Checked factor splits also return complete
     unions of polynomial and rational families, preserving each component's
     parameter exclusions independently. Finite systems use explicit roots
-    or checked real algebraic univariate representations. Other unsupported
-    positive-dimensional systems remain explicit refusals. Rational source
-    equations retain every original denominator exclusion and use a checked
-    localization before finite solving. Positive-dimensional rational sources
-    remain unsupported when their parameter exclusions cannot be represented.
+    or checked real algebraic univariate representations. Rational source
+    equations retain every original denominator exclusion through checked
+    localization and complete projection back to the original coordinates.
+    Their families use only original free symbols, with every required
+    parameter exclusion represented by a held coordinate denominator.
+    A family whose remaining conditions cannot be represented by tuple
+    coordinates, or a union with any unsupported component, raises explicitly.
     """
     wrapped_eqs, syms = _polynomial_system_inputs(system, symbols)
     sols = _checked_polynomial_solutions(wrapped_eqs, syms, allow_families=True)

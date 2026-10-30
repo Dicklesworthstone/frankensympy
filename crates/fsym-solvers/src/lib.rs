@@ -7,6 +7,7 @@
 pub mod algebraic_expression;
 pub mod exact_ode;
 pub mod inequality;
+pub mod localized_components;
 pub mod ode;
 pub mod polynomial_components;
 pub mod polynomial_graph;

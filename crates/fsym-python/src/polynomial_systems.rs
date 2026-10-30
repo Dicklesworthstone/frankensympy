@@ -16,6 +16,9 @@ use fsym_polys::{
 };
 use fsym_runtime::{Budget, BudgetLimits, Dimension};
 use fsym_solvers::SolverError;
+use fsym_solvers::localized_components::{
+    LocalizedComponentsOutcome, metered_localized_rational_components,
+};
 use fsym_solvers::polynomial_components::{
     PolynomialComponentsOutcome, metered_rational_components_system,
 };
@@ -74,6 +77,31 @@ fn rows(kind: &str, values: Vec<Vec<Expr>>) -> PyPolynomialSystemResult {
         family_denominators: Vec::new(),
         family_nonzero_conditions: Vec::new(),
     }
+}
+
+fn component_parts(parts: Vec<(Vec<Expr>, Vec<Expr>, Vec<Expr>)>) -> PyPolynomialSystemResult {
+    let mut result = rows("rational_families", Vec::new());
+    if parts.len() == 1 {
+        let (numerators, denominators, conditions) =
+            parts.into_iter().next().expect("one checked component");
+        result.kind = "rational_family".into();
+        result.numerators = numerators.into_iter().map(PyExpr::from_expr).collect();
+        result.denominators = denominators.into_iter().map(PyExpr::from_expr).collect();
+        result.nonzero_conditions = conditions.into_iter().map(PyExpr::from_expr).collect();
+    } else {
+        for (numerators, denominators, conditions) in parts {
+            result
+                .family_numerators
+                .push(numerators.into_iter().map(PyExpr::from_expr).collect());
+            result
+                .family_denominators
+                .push(denominators.into_iter().map(PyExpr::from_expr).collect());
+            result
+                .family_nonzero_conditions
+                .push(conditions.into_iter().map(PyExpr::from_expr).collect());
+        }
+    }
+    result
 }
 
 fn budget() -> Budget {
@@ -217,10 +245,32 @@ pub fn polynomial_system_solutions_native(
         {
             RationalSystemAdmission::Polynomial => {}
             RationalSystemAdmission::Localized(localized) => {
-                // The source-bound localization retains every original inverse
-                // guard. Each admissible tuple has one auxiliary extension.
-                // Its complete finite solution set can therefore be projected
-                // by dropping exactly the final auxiliary coordinate.
+                // Complete source-bound component projection retains every
+                // original reciprocal guard and only original free parameters.
+                match metered_localized_rational_components(
+                    &localized,
+                    &mut generator,
+                    &mut verifier,
+                )
+                .map_err(to_value_error)?
+                {
+                    LocalizedComponentsOutcome::Empty => {
+                        return Ok(rows("finite", Vec::new()));
+                    }
+                    LocalizedComponentsOutcome::Families(families) => {
+                        if families.is_finite() {
+                            return Ok(rows(
+                                "finite",
+                                families.into_finite_values().map_err(to_value_error)?,
+                            ));
+                        }
+                        return Ok(component_parts(families.into_parts()));
+                    }
+                    LocalizedComponentsOutcome::NotApplicable => {}
+                }
+                // A recognition miss may still use the established complete
+                // finite/RUR route in its original auxiliary-last ring. Work
+                // is cumulative; operational failures never reach this route.
                 return finite_solutions(
                     localized.equations(),
                     localized.variables(),
@@ -262,34 +312,7 @@ pub fn polynomial_system_solutions_native(
                     .iter()
                     .any(|family| family.is_rational())
                 {
-                    let parts = families.into_parts();
-                    let mut result = rows("rational_families", Vec::new());
-                    if parts.len() == 1 {
-                        // Preserve the established single-family bridge shape.
-                        let (numerators, denominators, conditions) =
-                            parts.into_iter().next().expect("one checked component");
-                        result.kind = "rational_family".into();
-                        result.numerators = numerators.into_iter().map(PyExpr::from_expr).collect();
-                        result.denominators =
-                            denominators.into_iter().map(PyExpr::from_expr).collect();
-                        result.nonzero_conditions =
-                            conditions.into_iter().map(PyExpr::from_expr).collect();
-                    } else {
-                        // Each component retains its own domain. Combining
-                        // guards globally could wrongly remove another branch.
-                        for (numerators, denominators, conditions) in parts {
-                            result
-                                .family_numerators
-                                .push(numerators.into_iter().map(PyExpr::from_expr).collect());
-                            result
-                                .family_denominators
-                                .push(denominators.into_iter().map(PyExpr::from_expr).collect());
-                            result
-                                .family_nonzero_conditions
-                                .push(conditions.into_iter().map(PyExpr::from_expr).collect());
-                        }
-                    }
-                    return Ok(result);
+                    return Ok(component_parts(families.into_parts()));
                 }
                 // Transfer already checked and charged coordinates without
                 // duplicating exact coefficients or typed symbol names.
