@@ -135,7 +135,7 @@ jobs:
           cargo test --locked -p fsym-polys --test rational_localization -j1
           cargo test --locked -p fsym-calculus --test rational_laplace -j1
           cargo test --locked -p fsym-proof-kernel --test elementary_rational_definite -j1
-          cargo test --locked -p fsym-calculus --test elementary_rational_definite -j1
+          cargo test --locked -p fsym-calculus --test elementary_rational_definite --test rational_definite --test definite_integration_domains -j1
           cargo test --locked -p fsym-solvers --test rational_systems -j1
       - name: Build the full Python extension
         run: cargo build --locked -p fsym-python --features extension-module -j1
