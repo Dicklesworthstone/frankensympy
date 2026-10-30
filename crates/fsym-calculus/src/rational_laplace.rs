@@ -1315,6 +1315,55 @@ pub fn inverse_rational_laplace(
     )
 }
 
+/// Check every original rational child before any compositional factor search.
+pub(crate) fn admit_rational_laplace_source(
+    source: &Expr,
+    transform_variable: &Symbol,
+    time_variable: &Symbol,
+    generator: &mut impl BudgetMeter,
+) -> Result<()> {
+    let mut meter = Capped {
+        inner: generator,
+        used: [0; 3],
+        stopped: None,
+    };
+    let result = (|| {
+        let mut work = Work { meter: &mut meter };
+        admit(source, transform_variable, time_variable, &mut work)?;
+        parse_source(source, &mut work)?;
+        Ok(())
+    })();
+    if let Some(error) = meter.stopped {
+        return Err(RationalLaplaceError::Meter(error));
+    }
+    result
+}
+
+/// Internal untrusted candidate entry for compositional transform generators.
+/// Acceptance still requires the separate complete reference verifier.
+pub(crate) fn generate_rational_laplace_certificate(
+    source: &Expr,
+    transform_variable: &Symbol,
+    time_variable: &Symbol,
+    generator: &mut impl BudgetMeter,
+) -> Result<RationalLaplaceCertificate> {
+    let mut meter = Capped {
+        inner: generator,
+        used: [0; 3],
+        stopped: None,
+    };
+    let result = generate(
+        source,
+        transform_variable,
+        time_variable,
+        &mut Work { meter: &mut meter },
+    );
+    if let Some(error) = meter.stopped {
+        return Err(RationalLaplaceError::Meter(error));
+    }
+    result
+}
+
 pub fn metered_inverse_rational_laplace(
     source: &Expr,
     transform_variable: &Symbol,

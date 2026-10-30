@@ -412,13 +412,14 @@ def _original_transform_source(expression: Any) -> Any:
 
 
 def inverse_laplace_transform(F: Any, s: Any, t: Any, plane: Any = None, noconds: bool = True, **kwargs: Any) -> Any:
-    """Return the causal inverse of an exact rational transform.
+    """Return a causal inverse with exact rational poles and time delays.
 
-    Proper rational functions with supported linear and quadratic pole factors
-    use an independently checked native transform identity, including repeated
-    poles. Original held sources and typed variables are preserved. Unsupported
-    ordinary-function inverses remain unevaluated; operational failures propagate.
-    Existing symbolic-coefficient and simple time-shift tables remain available.
+    Proper rational functions and finite sums of their exact nonnegative
+    rational delays use independently checked native transform identities,
+    including repeated linear and quadratic poles. Equal delays are combined
+    before inversion. Original held sources and typed variables are preserved.
+    Unsupported ordinary-function inverses remain unevaluated; operational
+    failures propagate. Existing symbolic-coefficient tables remain available.
     """
     from ..functions.special.delta_functions import Heaviside
 
@@ -430,11 +431,17 @@ def inverse_laplace_transform(F: Any, s: Any, t: Any, plane: Any = None, noconds
         )
     except NotImplementedError:
         result = InverseLaplaceTransform(F, s, t, plane)
-        return result if noconds else (result, Integer(0), True)
+        return result if noconds else (result, True)
     if raw is not None:
-        function = _lift_native_result(raw, F, s, t)
-        result = expand(function * Heaviside(t))
-        return result if noconds else (result, Integer(0), True)
+        result = Integer(0)
+        for raw_delay, raw_function in raw:
+            delay = _lift_native_result(raw_delay, F, s, t)
+            function = _lift_native_result(raw_function, F, s, t)
+            causal = function * Heaviside(t - delay)
+            # Preserve the existing pure rational surface. Shifted polynomial
+            # powers stay compact after their checked native construction.
+            result = result + (expand(causal) if delay == 0 else causal)
+        return result if noconds else (result, True)
     return _inverse_laplace_table(F, s, t, plane, noconds, **kwargs)
 
 
@@ -470,9 +477,9 @@ def _inverse_laplace_table(F: Any, s: Any, t: Any, plane: Any = None, noconds: b
         if not ok:
             break
     if ok:
-        return total if noconds else (total, Integer(0), True)
+        return total if noconds else (total, True)
     result = InverseLaplaceTransform(F, s, t, plane)
-    return result if noconds else (result, Integer(0), True)
+    return result if noconds else (result, True)
 
 
 def fourier_transform(expression: Any, x: Any, k: Any, noconds: bool = True, **kwargs: Any) -> Any:

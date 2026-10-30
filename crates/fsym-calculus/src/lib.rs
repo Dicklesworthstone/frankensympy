@@ -3,6 +3,7 @@
 //! Symbolic differentiation, integration, limits, and series expansion.
 
 pub mod compile;
+pub mod delayed_laplace;
 pub mod elementary_rational_definite;
 pub mod gruntz;
 pub mod hermite;

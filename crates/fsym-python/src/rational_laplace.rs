@@ -1,9 +1,11 @@
-//! Typed bounded bridge for checked proper rational inverse Laplace transforms.
+//! Typed bounded bridge for checked proper rational and delayed inverse Laplace transforms.
 
 use crate::binding::PySymbolBinding;
 use crate::expr::PyExpr;
 use crate::to_value_error;
+use fsym_calculus::delayed_laplace::metered_inverse_delayed_laplace;
 use fsym_calculus::rational_laplace::{RationalLaplaceError, metered_inverse_rational_laplace};
+use fsym_core::elementary::rational_expr;
 use fsym_core::{BigRational, Expr, Symbol};
 use fsym_polys::{PolyError, bounded_polynomial_from_expr};
 use fsym_runtime::{Budget, BudgetLimits, Dimension};
@@ -323,26 +325,39 @@ fn native_degree_envelope(
     Ok(degree)
 }
 
-/// Declared unsupported or larger shapes are routed before the checked kernel.
-/// Every fallback still passes original held-domain admission first.
+/// Decide the pure rational native lane from the borrowed original shape.
+/// The delayed kernel may establish rational domains that the legacy table
+/// cannot; its recognition misses must pass fallback admission afterward.
 fn rational_shape(source: &Expr, variable: &Symbol, meter: &mut Budget) -> PyResult<bool> {
     let shape = original_shape(source, Some(variable), meter)?;
     let mut exceeds = shape.exceeds_native_power;
     if shape.rational && !shape.unresolved_power {
         native_degree_envelope(source, meter, &mut exceeds)?;
     }
-    if shape.rational && !exceeds {
-        return Ok(true);
-    }
-    validate_held_transform_domains(source, meter)?;
-    // Keep the inverse table's stricter exponent grammar independently of
-    // the shared domain check used by the forward compatibility route.
+    Ok(shape.rational && !shape.unresolved_power && !exceeds)
+}
+
+fn admit_inverse_table_fallback(source: &Expr, meter: &mut Budget) -> PyResult<()> {
+    let shape = original_shape(source, None, meter)?;
+    check_original_domains(&shape, meter)?;
     if shape.unresolved_power {
         return Err(PyNotImplementedError::new_err(
             "the original held transform domains cannot be established for table fallback",
         ));
     }
-    Ok(false)
+    charge(meter, 1, 1)?;
+    Ok(())
+}
+
+// Every ordinary part already has its typed time displacement. The public
+// surface attaches exactly one Heaviside(t-delay), including delay zero.
+type InverseParts = Vec<(PyExpr, PyExpr)>;
+
+fn inverse_error(error: RationalLaplaceError) -> PyErr {
+    match error {
+        RationalLaplaceError::Unsupported(message) => PyNotImplementedError::new_err(message),
+        error => to_value_error(error),
+    }
 }
 
 #[pyfunction]
@@ -350,7 +365,7 @@ pub fn inverse_rational_laplace_native(
     source: &PyExpr,
     transform_variable: &PySymbolBinding,
     time_variable: &PySymbolBinding,
-) -> PyResult<Option<PyExpr>> {
+) -> PyResult<Option<InverseParts>> {
     let names = transform_variable
         .name
         .len()
@@ -369,21 +384,59 @@ pub fn inverse_rational_laplace_native(
             "Laplace input and output variables must be distinct",
         ));
     }
-    if !rational_shape(&source.inner, &transform_variable, &mut generator)? {
-        return Ok(None);
-    }
-    let checked = metered_inverse_rational_laplace(
-        &source.inner,
-        &transform_variable,
-        &time_variable,
-        &mut generator,
-        &mut verifier,
-    )
-    .map_err(|error| match error {
-        RationalLaplaceError::Unsupported(message) => PyNotImplementedError::new_err(message),
-        error => to_value_error(error),
-    })?;
+    let parts = if rational_shape(&source.inner, &transform_variable, &mut generator)? {
+        let checked = metered_inverse_rational_laplace(
+            &source.inner,
+            &transform_variable,
+            &time_variable,
+            &mut generator,
+            &mut verifier,
+        )
+        .map_err(inverse_error)?;
+        charge(&mut verifier, 2, size_of::<(PyExpr, PyExpr)>() + 256)?;
+        vec![(
+            PyExpr::from_expr(Expr::from_i64(0)),
+            PyExpr::from_expr(checked.into_function()),
+        )]
+    } else {
+        // The complete original shape was inspected before this dispatch.
+        // Both lanes retain the same budgets, including fallback admission.
+        let Some(checked) = metered_inverse_delayed_laplace(
+            &source.inner,
+            &transform_variable,
+            &time_variable,
+            &mut generator,
+            &mut verifier,
+        )
+        .map_err(inverse_error)?
+        else {
+            admit_inverse_table_fallback(&source.inner, &mut generator)?;
+            return Ok(None);
+        };
+        let count = checked.parts().len();
+        let bytes = checked.parts().iter().fold(
+            count * (size_of::<(PyExpr, PyExpr)>() + 256),
+            |bytes, part| {
+                let delay = part.delay();
+                bytes.saturating_add(
+                    2 * delay.numer().bits().max(delay.denom().bits()).div_ceil(8) as usize,
+                )
+            },
+        );
+        charge(&mut verifier, count * 2, bytes)?;
+        checked
+            .into_parts()
+            .into_iter()
+            .map(|part| {
+                let (delay, function) = part.into_parts();
+                (
+                    PyExpr::from_expr(rational_expr(delay)),
+                    PyExpr::from_expr(function),
+                )
+            })
+            .collect()
+    };
     charge(&mut generator, 1, 1)?;
     charge(&mut verifier, 1, 1)?;
-    Ok(Some(PyExpr::from_expr(checked.into_function())))
+    Ok(Some(parts))
 }

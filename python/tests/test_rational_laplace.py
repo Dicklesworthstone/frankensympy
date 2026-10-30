@@ -69,7 +69,7 @@ def test_result_is_causal_and_preserves_existing_noconds_contract():
     z, t = s.symbols("laplace_conditions_s laplace_conditions_t")
     result = s.inverse_laplace_transform(1/(z*z+1)**2, z, t)
     assert result.subs(t, -1) == 0
-    assert s.inverse_laplace_transform(1/(z*z+1)**2, z, t, noconds=False) == (result, 0, True)
+    assert s.inverse_laplace_transform(1/(z*z+1)**2, z, t, noconds=False) == (result, True)
     assert s.InverseLaplaceTransform(1/(z*z+1)**2, z, t).doit() == result
 
 
