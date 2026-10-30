@@ -1630,8 +1630,11 @@ def _num_facts(e: Any, depth: int = 0) -> dict:
 
 
 def _sign_info(e: Any, depth: int = 0) -> tuple:
-    """(is_real, possible_signs) inferred structurally; signs is a subset of
-    {-1, 0, 1} for real values, None when unknown. Never numeric."""
+    """(is_real, possible_signs) from structural or checked algebraic facts.
+
+    Signs is a subset of {-1, 0, 1} for real values, None when unknown.
+    Floating approximations do not decide exact algebraic predicates.
+    """
     if depth > 60:
         return (None, None)
     t = type(e)
@@ -1643,6 +1646,26 @@ def _sign_info(e: Any, depth: int = 0) -> tuple:
         if v != v:
             return (None, None)
         return (True, frozenset({(v > 0) - (v < 0)}))
+    algebraic_source = _bound_algebraic_root_type is not None and (
+        t is _bound_algebraic_root_type
+        or t in (Add, Mul, Pow) and _tree_has_bound_algebraic_root(e)
+    )
+    if algebraic_source:
+        from ..polys.rootoftools import _algebraic_comparison
+
+        if t is _bound_algebraic_root_type and not e.is_real:
+            return (False, None)
+        try:
+            sign = _algebraic_comparison(e, Integer(0))
+            return (True, frozenset({sign}))
+        except NotImplementedError:
+            # Distinct-root arithmetic may still have a structural sign,
+            # such as a sum of two independently positive real roots.
+            pass
+        except (ValueError, OverflowError, TypeError):
+            # An original pole or exhausted exact check cannot become an
+            # accepted sign through a simpler structural fallback.
+            return (None, None)
     if t is Expr and not e.args:
         name = str(e._value)
         if name in ("pi", "E", "EulerGamma", "GoldenRatio", "Catalan"):
@@ -1707,6 +1730,10 @@ def _sign_info(e: Any, depth: int = 0) -> tuple:
             return (True, _SIGN_POS)
         if isinstance(x, Integer) and rb:
             k = x.p
+            if k == 0 and algebraic_source and (sb is None or 0 in sb):
+                # Unsupported multi-root arithmetic still retains the
+                # original nonzero-base obligation of a held zeroth power.
+                return (None, None)
             if sb is None:
                 return (True, None) if k >= 0 else (True, None)
             if k < 0 and 0 in sb:
@@ -3882,8 +3909,9 @@ zoo = ComplexInfinity("zoo")
 def _real_sign_of_difference(lhs: Any, rhs: Any) -> int | None:
     """Sign of lhs - rhs for comparable real constants; None when unknown.
 
-    Exact for rationals; other symbol-free constants are decided only when a
-    floating evaluation is far from zero (no claim is made near zero).
+    Rationals, indexed real roots and supported one-root rational differences
+    use exact native checks. An undecided algebraic comparison stays unknown.
+    Other symbol-free constants retain their existing approximate lane.
     Non-real constants raise TypeError, as upstream ordering does.
     """
     r1 = _exact_ratio(lhs)
@@ -3896,6 +3924,15 @@ def _real_sign_of_difference(lhs: Any, rhs: Any) -> int | None:
     for side in (lhs, rhs):
         if side == I or (type(side) is Mul and any(a == I for a in side.args)):
             raise TypeError(f"Invalid comparison of non-real {side}")
+    if _bound_algebraic_root_type is not None and (
+        _tree_has_bound_algebraic_root(lhs) or _tree_has_bound_algebraic_root(rhs)
+    ):
+        from ..polys.rootoftools import _algebraic_comparison
+
+        try:
+            return _algebraic_comparison(lhs, rhs)
+        except (NotImplementedError, ValueError, OverflowError):
+            return None
     try:
         d = float(lhs) - float(rhs)
     except (TypeError, ValueError, OverflowError):

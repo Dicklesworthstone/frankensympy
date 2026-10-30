@@ -431,6 +431,48 @@ def _algebraic_expression_value(expression: Any, digits: int):
     return result
 
 
+def _algebraic_comparison(lhs: Any, rhs: Any) -> int:
+    """Exact sign of a supported algebraic difference.
+
+    Two indexed roots may have different defining polynomials. Rational
+    expressions use one common root and retain both original trees, including
+    domain obligations, until the native evaluator has checked them. The
+    caller keeps unsupported or exhausted decisions unknown.
+    """
+    from ..core import Add, Half, Mul, _exact_ratio, _native, _native_expr, _wrap
+
+    root_type = _core._bound_algebraic_root_type
+    atoms = (Integer, Rational, Zero, One, NegativeOne, Half)
+
+    def descriptor(value):
+        if type(value) is root_type:
+            if not value.is_real:
+                raise TypeError("Invalid comparison of a non-real algebraic root")
+            return _native_coefficients(value.poly), value.index
+        if type(value) in atoms:
+            # A rational is the sole real root of t - value.
+            return [_native_expr(-value), _native_expr(Integer(1))], 0
+        return None
+
+    left, right = descriptor(lhs), descriptor(rhs)
+    if left is not None and right is not None:
+        return _native.compare_real_roots_native(left[0], left[1], right[0], right[1])
+
+    difference = Add(lhs, Mul(-1, rhs, evaluate=False), evaluate=False)
+    value = _algebraic_expression_value(difference, 1)
+    lower = _exact_ratio(_wrap(value.lower))
+    upper = _exact_ratio(_wrap(value.upper))
+    if lower is None or upper is None:
+        raise ValueError("algebraic comparison did not receive exact rational bounds")
+    if lower[0] > 0:
+        return 1
+    if upper[0] < 0:
+        return -1
+    if lower[0] == 0 and upper[0] == 0:
+        return 0
+    raise ValueError("the verified algebraic enclosure does not establish a sign")
+
+
 def all_roots(f: Any, multiple: bool = True, radicals: bool = True, extension: bool = False) -> list:
     # Rational coefficients are already in the admitted exact domain whether
     # extension is requested or not; algebraic coefficient extensions refuse.

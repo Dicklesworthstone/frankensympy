@@ -114,6 +114,33 @@ pub fn evaluate_real_algebraic_native(
     Ok(value.map(|inner| PyAlgebraicValue { inner }))
 }
 
+/// Compare two exact indexed real roots only after independent acceptance of
+/// both complete isolation certificates and their equality/order witness.
+#[pyfunction]
+pub fn compare_real_roots_native(
+    left_values: &Bound<'_, PyList>,
+    left_index: usize,
+    right_values: &Bound<'_, PyList>,
+    right_index: usize,
+) -> PyResult<i8> {
+    let left = coefficients(left_values)?;
+    let right = coefficients(right_values)?;
+    let comparison = fsym_core::real_roots::compare_real_roots(
+        &left,
+        left_index,
+        &right,
+        right_index,
+        &mut budget(),
+        &mut budget(),
+    )
+    .map_err(crate::to_value_error)?;
+    Ok(match comparison.ordering() {
+        std::cmp::Ordering::Less => -1,
+        std::cmp::Ordering::Equal => 0,
+        std::cmp::Ordering::Greater => 1,
+    })
+}
+
 /// Complete finite real solution roots, or their complement in the real line.
 /// The accepted native receipt retains the original typed source and variable.
 #[pyfunction]

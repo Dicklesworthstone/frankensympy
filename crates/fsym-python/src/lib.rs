@@ -2154,6 +2154,10 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m
     )?)?;
     m.add_function(wrap_pyfunction!(
+        algebraic_roots::compare_real_roots_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
         algebraic_roots::indexed_real_roots_native,
         m
     )?)?;
