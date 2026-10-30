@@ -198,7 +198,10 @@ fn power_base_ring(base: &Expr, meter: &mut Budget) -> PyResult<Option<Vec<Symbo
     if too_many {
         return Ok(None);
     }
-    let bytes = symbols.iter().map(|symbol| symbol.name.len()).sum::<usize>()
+    let bytes = symbols
+        .iter()
+        .map(|symbol| symbol.name.len())
+        .sum::<usize>()
         + symbols.len() * size_of::<Symbol>();
     charge(meter, symbols.len(), bytes)?;
     Ok(Some(symbols.into_iter().cloned().collect()))
@@ -279,9 +282,8 @@ fn native_degree_envelope(
         }
         Expr::Pow(base, exponent) => {
             let base = native_degree_envelope(base, meter, exceeds)?;
-            let power = integer_power(exponent).ok_or_else(|| {
-                PyNotImplementedError::new_err("unknown transform power degree")
-            })?;
+            let power = integer_power(exponent)
+                .ok_or_else(|| PyNotImplementedError::new_err("unknown transform power degree"))?;
             let magnitude = power.unsigned_abs() as usize;
             let positive = (
                 base.0.saturating_mul(magnitude).min(cap),

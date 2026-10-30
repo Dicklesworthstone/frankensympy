@@ -722,3 +722,256 @@ fn huge_integral_exponents_and_symbol_names_fail_borrowed_admission() {
         Err(RationalLaplaceError::ResourceLimit(_))
     ));
 }
+
+fn analytic(name: &str, argument: Expr) -> Expr {
+    Expr::Function(name.into(),vec![argument])
+}
+
+fn verify_forward_expected(source: &Expr, expected: Expr, abscissa: Option<BigRational>) {
+    use fsym_calculus::rational_laplace::{polynomial_laplace,verify_laplace_transform};
+    let t=Symbol::new("t");
+    let s=Symbol::new("s");
+    let actual=polynomial_laplace(source,&t,&s).unwrap();
+    assert_eq!(actual.source(),source);
+    assert_eq!(actual.time_variable(),&t);
+    assert_eq!(actual.transform_variable(),&s);
+    assert_eq!(actual.sufficient_abscissa(),abscissa.as_ref());
+    // An independent rational cancellation engine compares against these
+    // hand-derived transforms; no coefficient from the generator is reused.
+    let difference=Expr::Add(vec![
+        actual.transform().clone(),
+        Expr::Mul(vec![Expr::from_i64(-1),expected.clone()]),
+    ]);
+    let reduced=fsym_simplify::cancel(&difference);
+    assert!(fsym_simplify::simplify(&reduced).is_zero(),"{reduced:?}");
+    let checked=verify_laplace_transform(source,&t,&s,&expected,&mut Unbounded).unwrap();
+    assert_eq!(checked.sufficient_abscissa(),abscissa.as_ref());
+}
+
+#[test]
+fn polynomial_weighted_trigonometric_transforms_use_full_derivative_orders() {
+    let t=Symbol::new("t");
+    let s=Symbol::new("s");
+    let tv=Expr::Sym(t.clone());
+    let base=poly(&[1,0,1],&s);
+    verify_forward_expected(
+        &Expr::Mul(vec![power(tv.clone(),2),analytic("sin",tv.clone())]),
+        fraction(poly(&[-2,0,6],&s),power(base.clone(),3)),Some(q(0,1)),
+    );
+    verify_forward_expected(
+        &Expr::Mul(vec![power(tv.clone(),3),analytic("cos",tv.clone())]),
+        fraction(poly(&[6,0,-36,0,6],&s),power(base,4)),Some(q(0,1)),
+    );
+    let shifted=Expr::Mul(vec![
+        power(tv.clone(),2),
+        analytic("exp",Expr::Mul(vec![Expr::from_i64(-3),tv.clone()])),
+        analytic("sin",Expr::Mul(vec![Expr::from_i64(2),tv])),
+    ]);
+    verify_forward_expected(
+        &shifted,
+        fraction(poly(&[92,72,12],&s),power(poly(&[13,6,1],&s),3)),Some(q(-3,1)),
+    );
+}
+
+#[test]
+fn distributed_time_polynomials_and_combined_exponentials_transform_exactly() {
+    let t=Symbol::new("t");
+    let s=Symbol::new("s");
+    let tv=Expr::Sym(t.clone());
+    let source=Expr::Mul(vec![
+        Expr::Add(vec![tv.clone(),Expr::from_i64(1)]),
+        Expr::Add(vec![tv.clone(),Expr::from_i64(2)]),
+        analytic("sin",tv.clone()),
+    ]);
+    let base=poly(&[1,0,1],&s);
+    let expected=Expr::Add(vec![
+        fraction(poly(&[-2,0,6],&s),power(base.clone(),3)),
+        fraction(poly(&[0,6],&s),power(base.clone(),2)),
+        fraction(Expr::from_i64(2),base),
+    ]);
+    verify_forward_expected(&source,expected,Some(q(0,1)));
+    let source=Expr::Mul(vec![
+        power(tv.clone(),4),
+        analytic("exp",Expr::Mul(vec![Expr::from_i64(2),tv.clone()])),
+        analytic("exp",Expr::Mul(vec![Expr::from_i64(-5),tv])),
+    ]);
+    verify_forward_expected(
+        &source,
+        fraction(Expr::from_i64(24),power(poly(&[3,1],&s),5)),Some(q(-3,1)),
+    );
+}
+
+#[test]
+fn hyperbolic_expansion_preserves_cancellation_and_convergence_boundaries() {
+    let t=Symbol::new("t");
+    let s=Symbol::new("s");
+    let tv=Expr::Sym(t.clone());
+    let source=Expr::Mul(vec![
+        power(tv.clone(),2),
+        analytic("cosh",Expr::Mul(vec![Expr::from_i64(3),tv.clone()])),
+    ]);
+    verify_forward_expected(
+        &source,
+        fraction(poly(&[0,54,0,2],&s),power(poly(&[-9,0,1],&s),3)),Some(q(3,1)),
+    );
+    let argument=Expr::Mul(vec![Expr::from_i64(2),tv.clone()]);
+    let source=Expr::Mul(vec![
+        power(tv,3),
+        Expr::Add(vec![
+            analytic("cosh",argument.clone()),
+            Expr::Mul(vec![Expr::from_i64(-1),analytic("sinh",argument)]),
+        ]),
+    ]);
+    verify_forward_expected(
+        &source,
+        fraction(Expr::from_i64(6),power(poly(&[2,1],&s),4)),Some(q(-2,1)),
+    );
+}
+
+#[test]
+fn signed_and_fractional_frequencies_have_exact_normalizations() {
+    let t=Symbol::new("t");
+    let s=Symbol::new("s");
+    let tv=Expr::Sym(t.clone());
+    for frequency in [-3,-1,1,2] {
+        let source=Expr::Mul(vec![
+            power(tv.clone(),2),
+            analytic("sin",Expr::Mul(vec![Expr::from_i64(frequency),tv.clone()])),
+        ]);
+        verify_forward_expected(
+            &source,
+            fraction(
+                poly(&[-2*frequency*frequency*frequency,0,6*frequency],&s),
+                power(poly(&[frequency*frequency,0,1],&s),3),
+            ),
+            Some(q(0,1)),
+        );
+    }
+    let source=Expr::Mul(vec![
+        power(tv.clone(),2),
+        analytic("sin",Expr::Mul(vec![Expr::Rational(q(1,2)),tv])),
+    ]);
+    verify_forward_expected(
+        &source,
+        fraction(poly(&[-16,0,192],&s),power(poly(&[1,0,4],&s),3)),Some(q(0,1)),
+    );
+}
+
+#[test]
+fn forward_verifier_binds_original_time_source_and_rejects_extra_held_poles() {
+    use fsym_calculus::rational_laplace::{polynomial_laplace,verify_laplace_transform};
+    let t=Symbol::new("t");
+    let s=Symbol::new("s");
+    let tv=Expr::Sym(t.clone());
+    let source=Expr::Mul(vec![power(tv.clone(),2),analytic("sin",tv)]);
+    let good=polynomial_laplace(&source,&t,&s).unwrap();
+    for candidate in [
+        Expr::from_i64(0),
+        Expr::Mul(vec![Expr::from_i64(2),good.transform().clone()]),
+        Expr::Add(vec![good.transform().clone(),power(Expr::Sym(s.clone()),-1)]),
+        Expr::Mul(vec![
+            good.transform().clone(),
+            power(power(poly(&[-100,1],&s),-1),0),
+        ]),
+    ] {
+        assert!(verify_laplace_transform(&source,&t,&s,&candidate,&mut Unbounded).is_err());
+    }
+    let changed=Expr::Mul(vec![Expr::from_i64(2),source]);
+    assert!(verify_laplace_transform(
+        &changed,&t,&s,good.transform(),&mut Unbounded,
+    ).is_err());
+}
+
+#[test]
+fn forward_zero_and_held_original_domains_are_distinct() {
+    use fsym_calculus::rational_laplace::polynomial_laplace;
+    let t=Symbol::new("t");
+    let s=Symbol::new("s");
+    let tv=Expr::Sym(t.clone());
+    let sine=analytic("sin",tv.clone());
+    let zero=Expr::Mul(vec![
+        power(tv.clone(),2),
+        Expr::Add(vec![sine.clone(),Expr::Mul(vec![Expr::from_i64(-1),sine])]),
+    ]);
+    verify_forward_expected(&zero,Expr::from_i64(0),None);
+    for invalid in [
+        Expr::Mul(vec![Expr::from_i64(0),power(Expr::from_i64(0),-1)]),
+        power(power(Expr::from_i64(0),-1),0),
+        Expr::Mul(vec![Expr::from_i64(0),power(Expr::from_i64(0),0)]),
+        analytic("sin",power(power(tv.clone(),-1),-1)),
+        power(tv,0),
+    ] {
+        assert!(matches!(
+            polynomial_laplace(&invalid,&t,&s),
+            Err(RationalLaplaceError::InvalidSource(_))
+        ));
+    }
+}
+
+#[test]
+fn forward_refusals_preserve_typed_identity_and_the_declared_envelope() {
+    use fsym_calculus::rational_laplace::polynomial_laplace;
+    let t=Symbol::new("t");
+    let s=Symbol::new("s");
+    let other=Symbol::with_identity("t",SymbolIdentity::from_assumptions_digest([4;32]));
+    let tv=Expr::Sym(t.clone());
+    for unsupported in [
+        Expr::Mul(vec![analytic("sin",tv.clone()),analytic("cos",tv.clone())]),
+        analytic("exp",power(tv.clone(),2)),
+        Expr::Mul(vec![power(tv.clone(),2),analytic("sin",Expr::Sym(other))]),
+        analytic("log",tv.clone()),
+    ] {
+        assert!(polynomial_laplace(&unsupported,&t,&s).unwrap_err().is_unsupported());
+    }
+    let too_high=Expr::Mul(vec![power(tv.clone(),16),analytic("sin",tv)]);
+    assert!(matches!(
+        polynomial_laplace(&too_high,&t,&s),
+        Err(RationalLaplaceError::ResourceLimit(_))
+    ));
+    let typed=Symbol::with_identity("t",SymbolIdentity::from_assumptions_digest([9;32]));
+    let source=Expr::Mul(vec![
+        power(Expr::Sym(typed.clone()),2),
+        analytic("sin",Expr::Sym(typed.clone())),
+    ]);
+    let result=polynomial_laplace(&source,&typed,&s).unwrap();
+    assert_eq!(result.source(),&source);
+    assert_eq!(result.transform().free_symbols(),vec![s]);
+}
+
+#[test]
+fn weighted_forward_generation_and_reference_verification_share_no_budget_reset() {
+    use fsym_calculus::rational_laplace::metered_laplace;
+    let t=Symbol::new("t");
+    let s=Symbol::new("s");
+    let tv=Expr::Sym(t.clone());
+    let source=Expr::Mul(vec![power(tv.clone(),2),analytic("sin",tv)]);
+    let mut generator=Meter::default();
+    let mut verifier=Meter::default();
+    metered_laplace(&source,&t,&s,&mut generator,&mut verifier).unwrap();
+    for stop in [1,generator.checkpoints/2,generator.checkpoints] {
+        let mut cancelled=Meter { cancel_at:Some(stop),..Default::default() };
+        assert!(matches!(
+            metered_laplace(&source,&t,&s,&mut cancelled,&mut Unbounded),
+            Err(RationalLaplaceError::Meter(MeterError::Cancelled))
+        ));
+    }
+    for stop in [1,verifier.checkpoints/2,verifier.checkpoints] {
+        let mut cancelled=Meter { cancel_at:Some(stop),..Default::default() };
+        assert!(matches!(
+            metered_laplace(&source,&t,&s,&mut Unbounded,&mut cancelled),
+            Err(RationalLaplaceError::Meter(MeterError::Cancelled))
+        ));
+    }
+    let mut untouched=Meter::default();
+    let mut budget=Budget::new(BudgetLimits::uniform(1,0));
+    assert!(matches!(
+        metered_laplace(&source,&t,&s,&mut budget,&mut untouched),
+        Err(RationalLaplaceError::Meter(MeterError::Budget(_)))
+    ));
+    assert_eq!(untouched.charged,[0;3]);
+    let mut budget=Budget::new(BudgetLimits::uniform(1,0));
+    assert!(matches!(
+        metered_laplace(&source,&t,&s,&mut Unbounded,&mut budget),
+        Err(RationalLaplaceError::Meter(MeterError::Budget(_)))
+    ));
+}
