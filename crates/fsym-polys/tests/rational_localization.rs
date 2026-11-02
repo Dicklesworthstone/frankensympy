@@ -123,6 +123,64 @@ fn zero_products_and_zeroth_powers_keep_all_child_domain_obligations() {
 }
 
 #[test]
+fn held_reciprocal_minus_itself_retains_one_exact_nonzero_condition() {
+    let variables = vars(&["x"]);
+    let inverse = power(expression("x"), -1);
+    let source = Expr::Add(vec![
+        inverse.clone(),
+        Expr::Mul(vec![Expr::from_i64(-1), inverse]),
+    ]);
+    let direct =
+        metered_rational_source(&source, &variables, &mut Unbounded, &mut Unbounded).unwrap();
+    assert_eq!(direct.guards(), [polynomial("x", &variables)]);
+    assert_eq!(direct.fraction().numerator, polynomial("0", &variables));
+    // Preserve the unreduced source fraction independently of guard deduplication.
+    assert_eq!(
+        direct.fraction().denominator,
+        polynomial("x**2", &variables)
+    );
+
+    let input = [source];
+    let localized = localize(&input, &variables);
+    assert_eq!(localized.guards(), [polynomial("x", &variables)]);
+    let auxiliary = &localized.certificate().auxiliary.name;
+    assert_eq!(
+        localized.polynomials().last().unwrap(),
+        &polynomial(&format!("{auxiliary}*x-1"), localized.variables())
+    );
+    let mut omitted = localized.certificate().clone();
+    omitted.guards.clear();
+    assert!(verify_rational_localization(&input, &variables, &omitted, &mut Unbounded).is_err());
+    let mut repeated = localized.certificate().clone();
+    repeated.guards.push(polynomial("x", &variables));
+    assert!(verify_rational_localization(&input, &variables, &repeated, &mut Unbounded).is_err());
+}
+
+#[test]
+fn different_guard_polynomials_are_not_merged_by_their_zero_sets() {
+    let variables = vars(&["x", "y"]);
+    let source = Expr::Mul(vec![
+        power(expression("x"), -1),
+        power(expression("x**2"), -1),
+        power(expression("y"), -1),
+    ]);
+    let localized = localize(&[source], &variables);
+    assert_eq!(
+        localized.guards(),
+        [
+            polynomial("x", &variables),
+            polynomial("x**2", &variables),
+            polynomial("y", &variables),
+        ]
+    );
+    let auxiliary = &localized.certificate().auxiliary.name;
+    assert_eq!(
+        localized.polynomials().last().unwrap(),
+        &polynomial(&format!("{auxiliary}*x**3*y-1"), localized.variables())
+    );
+}
+
+#[test]
 fn sums_and_nested_negative_powers_match_independent_closed_form_fractions() {
     let variables = vars(&["x", "y"]);
     let sum = Expr::Add(vec![
@@ -154,13 +212,12 @@ fn sums_and_nested_negative_powers_match_independent_closed_form_fractions() {
             polynomial("x", &variables),
             polynomial("y", &variables),
             polynomial("y-1", &variables),
-            polynomial("x", &variables),
         ]
     );
     let auxiliary = &result.certificate().auxiliary.name;
     assert_eq!(
         result.polynomials().last().unwrap(),
-        &polynomial(&format!("{auxiliary}*x**2*y*(y-1)-1"), result.variables())
+        &polynomial(&format!("{auxiliary}*x*y*(y-1)-1"), result.variables())
     );
 }
 

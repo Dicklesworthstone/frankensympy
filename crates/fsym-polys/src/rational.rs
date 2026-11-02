@@ -2,7 +2,9 @@
 //!
 //! The generator lowers the held source into numerator/denominator pairs.
 //! A separate reference recurrence reconstructs every pair and every original
-//! inverse guard. It then checks every coefficient of the numerator equations
+//! inverse guard. Repeated identical guards are retained once; distinct
+//! polynomials are never merged merely because their zero sets may coincide.
+//! It then checks every coefficient of the numerator equations
 //! and u*product(guards)-1. Thus projection of the augmented polynomial variety
 //! is exactly the original rational zero set, with a unique auxiliary value.
 //!
@@ -238,6 +240,7 @@ fn preflight_sources(
         ));
     }
     let mut copy_bytes = 0usize;
+    let mut inverse_guard_occurrences = 0usize;
     for source in sources {
         work.allocate(128)?;
         let mut stack = vec![(source, 0usize)];
@@ -284,6 +287,16 @@ fn preflight_sources(
                         return Err(invalid(
                             "rational systems require literal integer powers between -256 and 256",
                         ));
+                    }
+                    if matches!(exponent.as_ref(), Expr::Integer(value)
+                        if value.to_i64().is_some_and(|n| n < 0))
+                    {
+                        inverse_guard_occurrences += 1;
+                        if inverse_guard_occurrences > MAX_GUARDS {
+                            return Err(refused(
+                                "rational-system source has more than 128 inverse guards",
+                            ));
+                        }
                     }
                     if visited + stack.len() + 2 > MAX_SOURCE_NODES {
                         return Err(refused("rational-system source exceeds its node envelope"));
@@ -377,6 +390,37 @@ fn guard(
     guards: &mut Vec<MultivariatePoly>,
     work: &mut PolynomialWork<'_, impl BudgetMeter>,
 ) -> Result<(), PolyError> {
+    // Each occurrence has already been admitted and counted by source
+    // preflight. Repeating the same nonzero condition adds no domain
+    // restriction, and must not introduce artificial powers in localization.
+    // Compare exact typed rings and canonical coefficients, paying for each
+    // comparison before performing it; no factorization or zero-set inference
+    // participates in this normalization.
+    for existing in guards.iter() {
+        work.tick(ring_storage(existing.generators()) + ring_storage(polynomial.generators()) + 1)?;
+        if existing.generators != polynomial.generators
+            || existing.terms.len() != polynomial.terms.len()
+        {
+            continue;
+        }
+        let mut equal = true;
+        for ((left_powers, left), (right_powers, right)) in
+            existing.terms.iter().zip(&polynomial.terms)
+        {
+            let limbs = left.numer().limb_count()
+                + left.denom().limb_count()
+                + right.numer().limb_count()
+                + right.denom().limb_count();
+            work.tick(left_powers.len() + right_powers.len() + limbs as usize + 1)?;
+            if left_powers != right_powers || left != right {
+                equal = false;
+                break;
+            }
+        }
+        if equal {
+            return Ok(());
+        }
+    }
     if guards.len() == MAX_GUARDS {
         return Err(refused(
             "rational-system source has more than 128 inverse guards",
