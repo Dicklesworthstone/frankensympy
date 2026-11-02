@@ -75,6 +75,11 @@ def checkodesol(
     or (False, residual) if the residual is nonzero.
 
     If sol is a list or tuple of solutions, returns a list of (bool, residual) tuples.
+
+    Bounded exact polynomial equations also admit one principal-square-root
+    graph through a checked first-integral identity. That check applies on the
+    graph's common smooth domain and does not certify extension through branch
+    singularities or uniqueness of the solution.
     """
     if isinstance(sol, (list, tuple)):
         return [
@@ -82,7 +87,7 @@ def checkodesol(
             for s in sol
         ]
 
-    from ..core import AppliedUndef, Equality, Integer
+    from ..core import AppliedUndef, Basic, Equality, Integer
 
     if isinstance(sol, Equality):
         target = func
@@ -101,10 +106,9 @@ def checkodesol(
                 return (True, 0)
             return (False, ode)
 
-    if isinstance(ode, Equality):
-        ode_expr = ode.lhs - ode.rhs
-    else:
-        ode_expr = _wrap(_native_expr(ode))
+    # Keep original Eq sides intact until the bounded graph checker has had
+    # the opportunity to admit them. Subtraction can evaluate held powers.
+    ode_expr = None
 
     if isinstance(sol, Equality):
         if func is None:
@@ -120,6 +124,8 @@ def checkodesol(
                 rhs = sol.rhs
     else:
         if func is None:
+            inference_sources = ((ode.lhs, ode.rhs) if isinstance(ode, Equality)
+                                 else (_wrap(_native_expr(ode)),))
             known_atom_names = {
                 "Add", "Mul", "Pow", "Symbol", "Integer", "Rational", "Float",
                 "exp", "sin", "cos", "tan", "sinh", "cosh", "tanh",
@@ -132,19 +138,31 @@ def checkodesol(
                 "log", "ln", "sqrt", "diff", "Derivative", "Abs",
             }
             candidates = []
-            for atom in ode_expr.atoms():
-                fname = getattr(atom, "func", None)
-                fname_str = getattr(fname, "__name__", None) or str(fname)
-                if fname_str not in known_atom_names and hasattr(atom, "args") and atom.args:
-                    candidates.append(atom)
+            for source in inference_sources:
+                for atom in source.atoms():
+                    fname = getattr(atom, "func", None)
+                    fname_str = getattr(fname, "__name__", None) or str(fname)
+                    if fname_str not in known_atom_names and hasattr(atom, "args") and atom.args:
+                        candidates.append(atom)
             if candidates:
                 func = candidates[0]
             else:
-                raise ValueError("func must be specified if sol is not an Equality")
+                # Ordinary atoms() contains leaf atoms, so an applied unknown
+                # function may only be visible to the bounded original-tree
+                # traversal. Infer it without subtracting held Eq sides.
+                func = _find_function(ode)
         else:
             func = _wrap(_native_expr(func))
-        rhs = _wrap(_native_expr(sol))
+        native_rhs = _native_expr(sol)
+        rhs = sol if isinstance(sol, Basic) else _wrap(native_rhs)
 
+    graph_verdict = _check_quadratic_exact_ode_graph(ode, rhs, func)
+    if graph_verdict is not None:
+        return (True, 0) if graph_verdict else (False, ode)
+
+    if ode_expr is None:
+        ode_expr = (ode.lhs - ode.rhs if isinstance(ode, Equality)
+                    else _wrap(_native_expr(ode)))
     subbed = ode_expr.subs(func, rhs)
     evaluated = subbed.doit()
     residual = evaluated.simplify()
@@ -952,6 +970,151 @@ def _check_exact_ode_relation(equation, relation, function):
         _native_expr(potential), _native_expr(scale * m), _native_expr(scale * n),
         _native_expr(x), _native_expr(y),
     ))
+
+
+def _check_quadratic_exact_ode_graph(equation, candidate, function):
+    """Check one principal-square-root graph through its exact first integral.
+
+    A fresh typed root coordinate r satisfies r**2 == radicand. Native checked
+    polynomial division proves that the original potential, composed with the
+    candidate, is independent of both x and r modulo this relation. The native
+    gradient checker independently binds the potential to the original ODE.
+    This proves the differential identity on the graph's common smooth domain;
+    it does not extend the graph through a zero radicand or a branch cut.
+
+    None leaves an unrelated legacy equation/candidate to its existing checker.
+    Resource refusals propagate, and a matching but false graph returns False.
+    """
+    from ..core import (
+        Add, Dummy, Eq, Integer, Mul, Pow, Rational, S, _lift_native_result,
+        _symbol_binding,
+    )
+
+    exact_atoms = (Integer, Rational, type(S.Zero), type(S.One),
+                   type(S.NegativeOne), type(S.Half))
+    integer_atoms = (Integer, type(S.Zero), type(S.One), type(S.NegativeOne))
+    if type(candidate) not in exact_atoms + (Symbol, Dummy, Add, Mul, Pow):
+        return None
+    # Borrowed native traversal bounds payloads before Python args can clone
+    # them. This preflight preserves powers; polynomial admission follows only
+    # after the admitted square root is replaced by its fresh coordinate.
+    try:
+        _native.ideal_source_preflight_native(_native_expr(candidate))
+    except ValueError as error:
+        if "ideal operations require exact rational polynomial expressions" in str(error):
+            return None
+        raise
+    radicals = []
+    symbols = []
+    supported = True
+    excessive_power = False
+    erased_domain = False
+    pending = [(candidate, 0, False)]
+    visited = 0
+    while pending:
+        node, depth, erased = pending.pop()
+        visited += 1
+        if visited > 256 or depth > 16:
+            raise ValueError("bounded exact ODE graph: source exceeds the expression envelope")
+        kind = type(node)
+        if kind in exact_atoms:
+            continue
+        if kind in (Symbol, Dummy):
+            if node not in symbols:
+                symbols.append(node)
+            continue
+        if kind not in (Add, Mul, Pow):
+            return None
+        if kind is Pow:
+            base, exponent = node.args
+            if type(exponent) in exact_atoms and abs(exponent.p) > 17*exponent.q:
+                excessive_power = True
+            if type(exponent) in exact_atoms and exponent == S.Half:
+                if node not in radicals:
+                    radicals.append(node)
+            elif type(exponent) in integer_atoms:
+                if exponent.p < 0:
+                    supported = False
+                    erased_domain |= erased
+                elif exponent.p == 0:
+                    erased = True
+            else:
+                supported = False
+            children = (base,)
+        else:
+            children = node.args
+            if kind is Mul and any(type(child) in exact_atoms and child.p == 0 for child in children):
+                erased = True
+        if visited + len(pending) + len(children) > 256:
+            raise ValueError("bounded exact ODE graph: source exceeds the expression envelope")
+        pending.extend((child, depth + 1, erased) for child in children)
+    if len(radicals) != 1 or function is None or len(function.args) != 1:
+        return None
+    x = function.args[0]
+    if not _exact_ode_source(equation, function, x):
+        return None
+    if excessive_power:
+        raise ValueError("bounded exact ODE graph: literal power magnitude exceeds 17")
+    if erased_domain:
+        return False
+    if not supported:
+        # A graph such as sqrt(C/x) belongs to the legacy checker; failure to
+        # enter this polynomial lane is not a mathematical counterexample.
+        return None
+    if x not in symbols:
+        symbols.append(x)
+    if len(symbols) > 7:
+        raise ValueError("bounded exact ODE graph: at most seven original symbols are supported")
+
+    original = equation.lhs - equation.rhs if type(equation) is Eq else equation
+    expression, ys, order = _ode_to_symbols(original, function, x)
+    if order != 1:
+        return None
+    form = _exact_ode_coefficients(expression, ys)
+    if form is None:
+        return None
+    m, n, y = form
+    try:
+        potential = _wrap(_native.exact_ode_potential_native(
+            _native_expr(m), _native_expr(n), _native_expr(x), _native_expr(y),
+        ))
+    except ValueError as error:
+        if "the polynomial differential form is not exact: M_y differs from N_x" in str(error):
+            return None
+        raise
+    if not _native.verify_exact_ode_potential_native(
+        _native_expr(potential), _native_expr(m), _native_expr(n),
+        _native_expr(x), _native_expr(y),
+    ):
+        return False
+
+    def held_replace(node, old, new):
+        if node == old:
+            return new
+        kind = type(node)
+        if kind in (Add, Mul):
+            return kind(*(held_replace(child, old, new) for child in node.args), evaluate=False)
+        if kind is Pow:
+            base, exponent = node.args
+            return Pow(held_replace(base, old, new), exponent, evaluate=False)
+        return node
+
+    radical = radicals[0]
+    root = Dummy("exact_ode_root")
+    graph = held_replace(candidate, radical, root)
+    composed = held_replace(potential, y, graph)
+    constraint = Add(Pow(root, 2, evaluate=False),
+                     Mul(-1, radical.args[0], evaluate=False), evaluate=False)
+    # The single monic polynomial is a Groebner basis in root-first lex order.
+    # The existing native API independently checks the basis, division identity
+    # and complete remainder, with separate bounded generator/verifier meters.
+    generators = (root, *symbols)
+    _, raw_remainder = _native.groebner_reduce_native(
+        [_native_expr(constraint)], [_symbol_binding(g) for g in generators],
+        "lex", _native_expr(composed), False,
+    )
+    remainder = _lift_native_result(raw_remainder, candidate, potential, *generators)
+    return x not in remainder.free_symbols and root not in remainder.free_symbols
 
 
 def _apply_exact_ode_ics(relation, ics):

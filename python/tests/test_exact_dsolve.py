@@ -81,6 +81,111 @@ class ExactDsolveTests(unittest.TestCase):
         self.assertEqual(expand(implicit.lhs - potential), 0)
         self.assertEqual(implicit.rhs, 1)
 
+    def test_quadratic_graph_check_uses_an_exact_identity_without_sampling(self):
+        equation, _ = self.quadratic()
+        solutions = dsolve(equation, self.y)
+        for solution in solutions:
+            with self.subTest(solution=solution), patch(
+                "sympy.core.Expr.evalf",
+                side_effect=AssertionError("numerical samples cannot verify an ODE graph"),
+            ), patch(
+                "sympy.core.Expr.simplify",
+                side_effect=AssertionError("checked polynomial reduction must verify this graph"),
+            ):
+                self.assertEqual(checkodesol(equation, solution, self.y), (True, 0))
+                self.assertEqual(checkodesol(equation, solution.rhs), (True, 0))
+                self.assertEqual(
+                    checkodesol(equation, Eq(solution.rhs, self.y, evaluate=False)),
+                    (True, 0),
+                )
+
+    def test_quadratic_graph_check_rejects_shifted_and_wrong_coefficient_branches(self):
+        equation, _ = self.quadratic()
+        solution = dsolve(equation, self.y)[0].rhs
+        for candidate in (solution + 1, 2*solution,
+                          solution + Rational(1, 10**60)*self.x):
+            with self.subTest(candidate=candidate):
+                self.assertFalse(checkodesol(equation, Eq(self.y, candidate), self.y)[0])
+
+    def test_quadratic_graph_check_rechecks_the_proposed_potential(self):
+        from sympy.core import _native_expr
+
+        equation, _ = self.quadratic()
+        solution = dsolve(equation, self.y)[0]
+        with patch(
+            "sympy.solvers.ode._native.exact_ode_potential_native",
+            return_value=_native_expr(Integer(0)),
+        ):
+            self.assertFalse(checkodesol(equation, solution, self.y)[0])
+
+    def test_quadratic_graph_checked_reduction_refusal_is_terminal(self):
+        equation, _ = self.quadratic()
+        solution = dsolve(equation, self.y)[0]
+        with patch(
+            "sympy.solvers.ode._native.groebner_reduce_native",
+            side_effect=ValueError("bounded checked graph reduction exhausted test budget"),
+        ):
+            with self.assertRaisesRegex(ValueError, "exhausted test budget"):
+                checkodesol(equation, solution, self.y)
+
+    def test_quadratic_graph_keeps_typed_coordinates_and_fresh_root_identity(self):
+        for x in (Symbol("exact_ode_root"), Dummy("exact_ode_root"),
+                  Symbol("x", positive=True)):
+            with self.subTest(variable=x):
+                y = self.f(x)
+                equation = 2*x + y + (x + 2*y)*Derivative(y, x)
+                for solution in dsolve(equation, y):
+                    self.assertEqual(checkodesol(equation, solution, y), (True, 0))
+        typed_x = Symbol("x", positive=True)
+        typed_y = self.f(typed_x)
+        typed_equation = 2*typed_x + typed_y + (typed_x + 2*typed_y)*Derivative(typed_y, typed_x)
+        plain_branch = dsolve(self.quadratic()[0], self.y)[0].rhs
+        self.assertFalse(checkodesol(typed_equation, Eq(typed_y, plain_branch), typed_y)[0])
+
+    def test_quadratic_graph_original_held_domains_cannot_be_erased(self):
+        equation, _ = self.quadratic()
+        solution = dsolve(equation, self.y)[0].rhs
+        hidden = Mul(0, Pow(self.x, -1, evaluate=False), evaluate=False)
+        candidate = Eq(self.y, Add(solution, hidden, evaluate=False), evaluate=False)
+        self.assertFalse(checkodesol(equation, candidate, self.y)[0])
+        original = Eq(Add(equation, hidden, evaluate=False), hidden, evaluate=False)
+        self.assertFalse(checkodesol(original, Eq(self.y, solution), self.y)[0])
+
+    def test_quadratic_graph_large_held_powers_refuse_before_potential_generation(self):
+        equation, _ = self.quadratic()
+        solution = dsolve(equation, self.y)[0].rhs
+        for exponent in (10**9, -10**9, Rational(10**9 + 1, 2), -Rational(10**9 + 1, 2)):
+            candidate = Eq(self.y, Add(solution, Pow(2, exponent, evaluate=False), evaluate=False),
+                           evaluate=False)
+            with self.subTest(exponent=exponent), patch(
+                "sympy.solvers.ode._native.exact_ode_potential_native",
+                side_effect=AssertionError("unsupported powers must be refused before generation"),
+            ):
+                with self.assertRaisesRegex(ValueError, "bounded exact ODE graph"):
+                    checkodesol(equation, candidate, self.y)
+
+    def test_quadratic_graph_original_large_power_refuses_before_eq_subtraction(self):
+        equation, _ = self.quadratic()
+        solution = dsolve(equation, self.y)[0]
+        original = Eq(Add(equation, Pow(2, 10**9, evaluate=False), evaluate=False), 0,
+                      evaluate=False)
+        with patch(
+            "sympy.solvers.ode._ode_to_symbols",
+            side_effect=AssertionError("original source must be admitted before normalization"),
+        ):
+            for candidate, args in ((solution, (self.y,)), (solution.rhs, ())):
+                with self.subTest(explicit_function=bool(args)):
+                    with self.assertRaisesRegex(ValueError, "bounded exact polynomial ODE"):
+                        checkodesol(original, candidate, *args)
+
+    def test_nonpolynomial_radical_graph_keeps_the_legacy_checker(self):
+        from sympy import sqrt
+        from sympy.solvers.ode import _check_quadratic_exact_ode_graph
+
+        candidate = sqrt(Symbol("C1") / self.x)
+        equation = 2*self.x*self.y*self.derivative + self.y**2
+        self.assertIsNone(_check_quadratic_exact_ode_graph(equation, candidate, self.y))
+
     def test_nonconstant_leading_coefficient_stays_implicit(self):
         x, y = self.x, self.y
         equation = y*y + 1 + 2*x*y*self.derivative
