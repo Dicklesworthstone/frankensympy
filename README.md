@@ -165,6 +165,49 @@ See [`docs/EVIDENCE_PROOFS_AND_REWRITES.md`](docs/EVIDENCE_PROOFS_AND_REWRITES.m
 
 ---
 
+## Compiled scalar objectives (development API)
+
+The checked-out Python shell and native extension expose `compile_objective`
+for scalar values, gradients, sparse Hessians, and Hessian-vector products:
+
+```python
+from sympy import compile_objective, symbols
+
+x, y = symbols("x y")
+objective = compile_objective((1 - x)**2 + 100*(y - x**2)**2, (x, y))
+
+value, gradient, hessian = objective.evaluate(-1.2, 1.0)
+# Approximately: 24.2, [-215.6, -88.0], [[1330.0, 480.0], [480.0, 200.0]]
+
+pattern = objective.hessian_pattern  # ((0, 0), (0, 1), (1, 0), (1, 1))
+value, gradient, entries = objective.evaluate_sparse(-1.2, 1.0)
+# entries follow pattern; this call does not allocate a dense Hessian.
+
+product = objective.hessian_vector_product([2.0, -3.0], -1.2, 1.0)
+# Approximately [1220.0, 360.0], computed directly from sparse entries.
+
+self_power = compile_objective(x**x, (x,))
+value, gradient, hessian = self_power.evaluate(2.0)
+```
+
+Both differentiation stages are independently checked, including omitted zeros,
+both mixed-partial orders, and the compiled instructions actually evaluated.
+Arguments retain typed `Symbol`/`Dummy` identity; directions follow the flat
+`objective.variables` order. Nonliteral powers such as `x**x` and `x**y` require
+a strictly positive base, even if an exponent happens to be integral at one
+point. Original-source and derivative-domain failures, nonfinite arithmetic,
+invalid dimensions, and unsupported functions raise errors before publishing
+results.
+
+These bounded synchronous programs admit at most 64 variables, 256 source
+expression nodes, and source depth 16, with additional derivative/proof-growth
+limits. Numerical results are approximate finite-real binary64 values. Formal
+derivative checks do not establish interval error bounds, convexity, global
+smoothness, or supervised cancellation; the complete campaign and compatibility
+gates remain open.
+
+---
+
 ## Planned algorithm program
 
 The native program includes proof- or certificate-aware portfolios for:

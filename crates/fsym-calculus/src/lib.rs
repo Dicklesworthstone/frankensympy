@@ -17,12 +17,14 @@ pub mod rational_sum;
 pub mod series;
 pub mod summation;
 
+pub mod sparse_hessian;
 pub mod sparse_jacobian;
 pub mod transforms;
 pub mod verified;
 
 pub use compile::*;
 pub use proof::*;
+pub use sparse_hessian::*;
 pub use sparse_jacobian::*;
 pub use transforms::*;
 pub use verified::*;

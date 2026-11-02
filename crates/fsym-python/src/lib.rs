@@ -1913,6 +1913,7 @@ pub mod logic;
 pub mod matrix;
 pub mod ntheory;
 pub mod numeric;
+pub mod objective;
 mod polynomial_laplace;
 mod polynomial_systems;
 mod quadrature;
@@ -1944,6 +1945,7 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<binding::PySymbolBinding>()?;
     m.add_class::<numeric::PyCompiledFunction>()?;
     m.add_class::<numeric::PyVerifiedResidualSystem>()?;
+    m.add_class::<objective::PyVerifiedObjective>()?;
     m.add_class::<numeric::PyResidualJacobianEnclosure>()?;
     m.add_class::<numeric::PyRootBoxReceipt>()?;
     m.add_class::<quadrature::PyIntegralEnclosureReceipt>()?;
