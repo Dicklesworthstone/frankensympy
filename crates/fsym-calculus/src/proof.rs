@@ -19,6 +19,10 @@ pub const RULE_DIFF_POW_INT: &str = "diff_power_integer";
 /// or certify a numerical enclosure. Finite numerical consumers must still
 /// reject points where the original function or its derivative is undefined.
 pub const RULE_DIFF_POW_RATIONAL: &str = "diff_power_rational";
+/// Formal variable-power chain rule on the common smooth domain. This receipt
+/// does not prove positivity, select complex branches, or enclose rounding.
+/// Finite-real compiled consumers separately require a positive source base.
+pub const RULE_DIFF_POW_GENERAL: &str = "diff_power_general";
 pub const RULE_DIFF_SIN: &str = "diff_sin";
 pub const RULE_DIFF_COS: &str = "diff_cos";
 pub const RULE_DIFF_TAN: &str = "diff_tan";
@@ -57,7 +61,7 @@ pub fn classify_diff_rule(expr: &Expr, var: &Symbol) -> &'static str {
             } else if let Expr::Rational(_) = exp.as_ref() {
                 RULE_DIFF_POW_RATIONAL
             } else {
-                RULE_DIFF_GENERAL
+                RULE_DIFF_POW_GENERAL
             }
         }
         Expr::Function(name, args) => match (name.as_str(), args.len()) {
@@ -326,7 +330,43 @@ fn reference_unsimplified_diff(expr: &Expr, var: &Symbol) -> Expr {
                     ])
                 }
             } else {
-                make_diff_term(expr, var)
+                // Reconstruct both chain factors with the verifier's own
+                // recurrence; never invoke the optimizing differentiator.
+                let du = reference_sub_derivative(base, var);
+                let dv = reference_sub_derivative(exp, var);
+                if du.is_zero() && dv.is_zero() {
+                    Expr::from_i64(0)
+                } else if dv.is_zero() {
+                    Expr::Mul(vec![
+                        exp.as_ref().clone(),
+                        Expr::pow(
+                            base.as_ref().clone(),
+                            Expr::Add(vec![exp.as_ref().clone(), Expr::from_i64(-1)]),
+                        ),
+                        du,
+                    ])
+                } else if du.is_zero() {
+                    Expr::Mul(vec![
+                        expr.clone(),
+                        Expr::Function("log".to_string(), vec![base.as_ref().clone()]),
+                        dv,
+                    ])
+                } else {
+                    Expr::Mul(vec![
+                        expr.clone(),
+                        Expr::Add(vec![
+                            Expr::Mul(vec![
+                                dv,
+                                Expr::Function("log".to_string(), vec![base.as_ref().clone()]),
+                            ]),
+                            Expr::Mul(vec![
+                                exp.as_ref().clone(),
+                                du,
+                                Expr::pow(base.as_ref().clone(), Expr::from_i64(-1)),
+                            ]),
+                        ]),
+                    ])
+                }
             }
         }
         Expr::Function(name, args) if args.len() == 1 => {
@@ -578,6 +618,26 @@ fn verify_rule_reduction_semantics(
                 return Err(KernelError::InvalidDefinitionalReduction {
                     rule_name: rule_name.to_string(),
                     reason: "Expected Pow expression with exact rational exponent".to_string(),
+                });
+            }
+        }
+        RULE_DIFF_POW_GENERAL => {
+            if let Expr::Pow(_, exponent) = expr
+                && !matches!(exponent.as_ref(), Expr::Integer(_) | Expr::Rational(_))
+            {
+                let expected_rhs = reference_unsimplified_diff(expr, var);
+                if deriv != &expected_rhs {
+                    return Err(KernelError::InvalidDefinitionalReduction {
+                        rule_name: rule_name.to_string(),
+                        reason:
+                            "Variable power derivative disagrees with the independent chain rule"
+                                .to_string(),
+                    });
+                }
+            } else {
+                return Err(KernelError::InvalidDefinitionalReduction {
+                    rule_name: rule_name.to_string(),
+                    reason: "Expected Pow expression with nonliteral exponent".to_string(),
                 });
             }
         }

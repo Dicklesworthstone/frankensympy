@@ -247,7 +247,7 @@ fn items<'py>(
     (0..length).map(|index| values.get_item(index)).collect()
 }
 
-fn extract_variables(values: &Bound<'_, PyAny>) -> PyResult<Vec<Symbol>> {
+pub(crate) fn extract_variables(values: &Bound<'_, PyAny>) -> PyResult<Vec<Symbol>> {
     let py = values.py();
     items(values, MAX_VARIABLES, "variables")?
         .iter()
@@ -266,7 +266,7 @@ fn extract_variables(values: &Bound<'_, PyAny>) -> PyResult<Vec<Symbol>> {
 }
 
 /// Check the original tree before cloning or formatting large literals.
-fn check_source(expr: &Expr, nodes: &mut usize) -> PyResult<()> {
+pub(crate) fn check_source(expr: &Expr, nodes: &mut usize) -> PyResult<()> {
     let mut pending = vec![(expr, 0usize)];
     while let Some((node, depth)) = pending.pop() {
         *nodes += 1;
@@ -329,7 +329,7 @@ fn extract_expressions(values: &Bound<'_, PyAny>) -> PyResult<Vec<Expr>> {
         .collect()
 }
 
-fn input_values(values: &Bound<'_, PyAny>, expected: usize) -> PyResult<Vec<f64>> {
+pub(crate) fn input_values(values: &Bound<'_, PyAny>, expected: usize) -> PyResult<Vec<f64>> {
     let py = values.py();
     let values = items(values, MAX_VARIABLES, "numeric inputs")?;
     if values.len() != expected {
@@ -609,6 +609,14 @@ impl PyVerifiedResidualSystem {
     fn jacobian(&self, values: &Bound<'_, PyAny>) -> PyResult<Vec<Vec<f64>>> {
         let compiled = self.system.compiled();
         let values = input_values(values, compiled.num_vars)?;
+        // Derivatives can erase source-domain restrictions (including a held
+        // zero times log(x)). Admit every original residual before publishing
+        // a derivative-only result.
+        for program in &compiled.compiled_residuals {
+            program
+                .try_eval_finite(&values)
+                .map_err(crate::to_value_error)?;
+        }
         let flat = compiled
             .compiled_jacobian
             .iter()

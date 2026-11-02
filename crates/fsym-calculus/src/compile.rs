@@ -87,6 +87,8 @@ pub enum EvalError {
     InvalidSparseJacobian(String),
     #[error("Compiled power exponent is not finite")]
     NonFinitePowerExponent,
+    #[error("A variable real power requires a strictly positive base")]
+    NonPositivePowerBase,
     #[error("Compiled constant is NaN or negative zero, which is not a canonical compiler output")]
     NonCanonicalConstant,
     #[error("Compiled numerical evaluation encountered a non-finite input or intermediate value")]
@@ -102,6 +104,10 @@ pub enum CompiledOp {
     Mul(usize),
     Neg,
     Pow(f64),
+    /// Binary postfix power: finite positive base, followed by finite exponent.
+    /// This real branch remains guarded even when the exponent is integral at
+    /// one particular evaluation point.
+    PowPositive,
     Sin,
     Cos,
     Tan,
@@ -289,6 +295,12 @@ impl CompiledExpr {
                         return Err(EvalError::StackUnderflow);
                     }
                 }
+                CompiledOp::PowPositive => {
+                    if stack_depth < 2 {
+                        return Err(EvalError::StackUnderflow);
+                    }
+                    stack_depth -= 1;
+                }
                 CompiledOp::Neg
                 | CompiledOp::Sin
                 | CompiledOp::Cos
@@ -455,8 +467,9 @@ impl CompiledExpr {
                         }
                         Self::push_op(ops, CompiledOp::Pow(exponent))?;
                     }
-                    other => {
-                        return Err(CompileError::UnsupportedExponent(format!("{other}")));
+                    _ => {
+                        Self::compile_recursive(exp, var_map, ops, depth + 1)?;
+                        Self::push_op(ops, CompiledOp::PowPositive)?;
                     }
                 }
             }
@@ -568,6 +581,17 @@ impl CompiledExpr {
                 CompiledOp::Pow(p) => {
                     let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
                     stack.push(v.powf(*p));
+                }
+                CompiledOp::PowPositive => {
+                    let exponent = stack.pop().ok_or(EvalError::StackUnderflow)?;
+                    let base = stack.pop().ok_or(EvalError::StackUnderflow)?;
+                    if !base.is_finite() || !exponent.is_finite() {
+                        return Err(EvalError::NonFiniteValue);
+                    }
+                    if base <= 0.0 {
+                        return Err(EvalError::NonPositivePowerBase);
+                    }
+                    stack.push(base.powf(exponent));
                 }
                 CompiledOp::Sin => {
                     let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
@@ -722,6 +746,9 @@ impl CompiledResidualSystem {
                 actual: out_jac.len(),
             });
         }
+        // Differentiation can erase a source-domain obligation. Check the
+        // original sources before publishing even a derivative-only result.
+        Self::evaluate_batch(&self.compiled_residuals, x, self.num_residuals, "residual")?;
         let evaluated = Self::evaluate_batch(&self.compiled_jacobian, x, expected, "Jacobian")?;
         out_jac.copy_from_slice(&evaluated);
         Ok(())
@@ -1041,19 +1068,21 @@ mod tests {
     }
 
     #[test]
-    fn test_compile_rejection_of_symbolic_powers() {
+    fn test_compile_positive_real_symbolic_powers() {
         let x = Symbol::new("x");
         let y = Symbol::new("y");
         let mut var_map = HashMap::new();
         var_map.insert(x.clone(), 0);
         var_map.insert(y.clone(), 1);
 
-        // x^y is not supported in compiled fast array evaluator (only numeric constant powers)
         let expr = Expr::Pow(Arc::new(Expr::Sym(x)), Arc::new(Expr::Sym(y)));
-        assert!(matches!(
-            CompiledExpr::try_compile(&expr, &var_map),
-            Err(CompileError::UnsupportedExponent(_))
-        ));
+        let compiled = CompiledExpr::try_compile(&expr, &var_map).unwrap();
+        assert_eq!(compiled.ops().last(), Some(&CompiledOp::PowPositive));
+        assert_eq!(compiled.try_eval_finite(&[2.0, 3.0]), Ok(8.0));
+        assert_eq!(
+            compiled.try_eval_finite(&[-2.0, 3.0]),
+            Err(EvalError::NonPositivePowerBase)
+        );
     }
 
     #[test]

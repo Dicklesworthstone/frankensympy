@@ -712,18 +712,27 @@ pub fn compiled_expression_matches(
                     if !self.visit(base, depth + 1)? {
                         return Ok(false);
                     }
-                    let value = match exponent.as_ref() {
-                        Expr::Integer(integer) => Self::exponent_component(integer)?,
-                        Expr::Rational(rational) => {
+                    let literal = match exponent.as_ref() {
+                        Expr::Integer(integer) => Some(Self::exponent_component(integer)?),
+                        Expr::Rational(rational) => Some(
                             Self::exponent_component(rational.numer())?
-                                / Self::exponent_component(rational.denom())?
+                                / Self::exponent_component(rational.denom())?,
+                        ),
+                        _ => {
+                            if !self.visit(exponent, depth + 1)? {
+                                return Ok(false);
+                            }
+                            None
                         }
-                        _ => return Err(CompileError::UnsupportedExponent(exponent.to_string())),
                     };
-                    if !value.is_finite() {
-                        return Err(CompileError::UnsupportedExponent(exponent.to_string()));
+                    if let Some(value) = literal {
+                        if !value.is_finite() {
+                            return Err(CompileError::UnsupportedExponent(exponent.to_string()));
+                        }
+                        CompiledOp::Pow(value)
+                    } else {
+                        CompiledOp::PowPositive
                     }
-                    CompiledOp::Pow(value)
                 }
                 Expr::Function(name, arguments) => {
                     if arguments.len() != 1 {

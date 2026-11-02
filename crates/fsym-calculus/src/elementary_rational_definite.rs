@@ -311,7 +311,7 @@ fn logarithmic_coefficient(
     }
     let coefficient = numerator
         .leading_coeff()
-        .metered_div(&derivative.leading_coeff(), meter)?;
+        .metered_div(derivative.leading_coeff(), meter)?;
     let multiple = derivative.mul(&UnivariatePoly::new(
         denominator.gen_sym.clone(),
         vec![coefficient.clone()],

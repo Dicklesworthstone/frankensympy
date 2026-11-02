@@ -134,6 +134,7 @@ jobs:
           cargo test --locked -p fsym-bigint --lib floor_square_root_pins_exact_square_boundaries_and_governed_lane -j1
           cargo test --locked -p fsym-polys --test rational_localization -j1
           cargo test --locked -p fsym-calculus --test rational_laplace --test delayed_laplace -j1
+          cargo test --locked -p fsym-calculus --test general_power_programs -j1
           cargo test --locked -p fsym-proof-kernel --test elementary_rational_definite -j1
           cargo test --locked -p fsym-calculus --test elementary_rational_definite --test rational_definite --test definite_integration_domains -j1
           cargo test --locked -p fsym-solvers --lib --test localized_components --test algebraic_components --test polynomial_system --test polynomial_components --test rational_components --test rational_graph --test rational_systems -j1
@@ -198,6 +199,7 @@ jobs:
               "python/tests/test_algebraic_matrix_spectra.py",
               "python/tests/test_exact_dsolve.py",
               "python/tests/test_exact_ode.py",
+              "python/tests/test_compiled_powers.py",
               "python/tests/test_surface.py::SurfaceTests::test_extended_solvers_transforms_functions_and_submodules",
               "python/tests/test_surface.py::SurfaceTests::test_piecewise_power_integrals_and_laplace",
               "python/tests/test_surface.py::SurfaceTests::test_integral_transforms_suite",
