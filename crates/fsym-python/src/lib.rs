@@ -1913,6 +1913,7 @@ pub mod logic;
 pub mod matrix;
 pub mod ntheory;
 pub mod numeric;
+mod numeric_budget;
 pub mod objective;
 mod polynomial_laplace;
 mod polynomial_systems;
@@ -1943,6 +1944,7 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyExpr>()?;
     m.add_class::<PySymbol>()?;
     m.add_class::<binding::PySymbolBinding>()?;
+    numeric_budget::register(m)?;
     m.add_class::<numeric::PyCompiledFunction>()?;
     m.add_class::<numeric::PyVerifiedResidualSystem>()?;
     m.add_class::<objective::PyVerifiedObjective>()?;

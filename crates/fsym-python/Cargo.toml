@@ -18,6 +18,7 @@ default = []
 extension-module = ["pyo3/extension-module"]
 
 [dependencies]
+fsym-budget.workspace = true
 fsym-core.workspace = true
 fsym-polys.workspace = true
 fsym-proof-kernel.workspace = true

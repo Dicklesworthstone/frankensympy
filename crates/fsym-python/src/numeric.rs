@@ -9,8 +9,12 @@
 
 use crate::binding::PySymbolBinding;
 use crate::expr::{PyExpr, PySymbol};
+use crate::numeric_budget::{
+    PyEvaluationBudget, evaluation_buffer, with_evaluation_meter, with_evaluation_meter_attached,
+};
+use fsym_budget::{BudgetMeter, Dimension};
 use fsym_calculus::VerifiedResidualSystem;
-use fsym_calculus::compile::{CompiledExpr, MAX_COMPILE_DEPTH};
+use fsym_calculus::compile::{CompiledExpr, EvalError, MAX_COMPILE_DEPTH};
 use fsym_calculus::sparse_jacobian::compiled_expression_matches;
 use fsym_core::{
     BigRational, Expr, RealBall, ResidualJacobianEnclosure, RootBoxReceipt, RootBoxWitness, Symbol,
@@ -28,6 +32,10 @@ const MAX_TOTAL_OPS: usize = 65_536;
 const MAX_SOURCE_NODES: usize = 65_536;
 const MAX_LITERAL_BITS: u64 = 4096;
 const MAX_CERTIFIED_VARIABLES: usize = 16;
+const MAX_BATCH_ROWS: usize = 4096;
+const MAX_BATCH_VALUES: usize = 262_144;
+
+type ResidualValues = (Vec<f64>, Vec<Vec<f64>>);
 
 fn exact_rational(value: &Bound<'_, PyAny>) -> PyResult<BigRational> {
     if !value.is_exact_instance(&value.py().get_type::<PyExpr>()) {
@@ -225,11 +233,7 @@ impl PyRootBoxReceipt {
     }
 }
 
-fn items<'py>(
-    values: &Bound<'py, PyAny>,
-    maximum: usize,
-    name: &str,
-) -> PyResult<Vec<Bound<'py, PyAny>>> {
+fn container_length(values: &Bound<'_, PyAny>, maximum: usize, name: &str) -> PyResult<usize> {
     let py = values.py();
     if !values.is_exact_instance(&py.get_type::<PyList>())
         && !values.is_exact_instance(&py.get_type::<PyTuple>())
@@ -244,6 +248,15 @@ fn items<'py>(
             "{name} has {length} items; the limit is {maximum}"
         )));
     }
+    Ok(length)
+}
+
+fn items<'py>(
+    values: &Bound<'py, PyAny>,
+    maximum: usize,
+    name: &str,
+) -> PyResult<Vec<Bound<'py, PyAny>>> {
+    let length = container_length(values, maximum, name)?;
     (0..length).map(|index| values.get_item(index)).collect()
 }
 
@@ -331,39 +344,134 @@ fn extract_expressions(values: &Bound<'_, PyAny>) -> PyResult<Vec<Expr>> {
 
 pub(crate) fn input_values(values: &Bound<'_, PyAny>, expected: usize) -> PyResult<Vec<f64>> {
     let py = values.py();
-    let values = items(values, MAX_VARIABLES, "numeric inputs")?;
-    if values.len() != expected {
+    let actual = container_length(values, MAX_VARIABLES, "numeric inputs")?;
+    if actual != expected {
         return Err(PyTypeError::new_err(format!(
-            "expected {expected} numeric inputs, got {}",
-            values.len()
+            "expected {expected} numeric inputs, got {actual}"
         )));
     }
-    values
-        .iter()
-        .map(|value| {
-            if !value.is_exact_instance(&py.get_type::<PyFloat>())
-                && !value.is_exact_instance(&py.get_type::<PyInt>())
-            {
-                return Err(PyTypeError::new_err(
-                    "numeric inputs must be exact built-in int or float values",
-                ));
-            }
-            let value = value.extract::<f64>()?;
-            if !value.is_finite() {
-                return Err(PyValueError::new_err("numeric inputs must be finite"));
-            }
-            Ok(value)
-        })
-        .collect()
+    // Reserve the charged size once. Fallible iterator collection can grow a
+    // vector through uncharged reallocations, and copying handles first would
+    // allocate an additional buffer for no numerical work.
+    let mut inputs = Vec::new();
+    inputs
+        .try_reserve_exact(expected)
+        .map_err(|_| crate::to_value_error(EvalError::AllocationFailure))?;
+    for index in 0..expected {
+        let value = values.get_item(index)?;
+        if !value.is_exact_instance(&py.get_type::<PyFloat>())
+            && !value.is_exact_instance(&py.get_type::<PyInt>())
+        {
+            return Err(PyTypeError::new_err(
+                "numeric inputs must be exact built-in int or float values",
+            ));
+        }
+        let value = value.extract::<f64>()?;
+        if !value.is_finite() {
+            return Err(PyValueError::new_err("numeric inputs must be finite"));
+        }
+        inputs.push(value);
+    }
+    Ok(inputs)
 }
 
-fn finite_results(values: Vec<f64>) -> PyResult<Vec<f64>> {
-    if values.iter().any(|value| !value.is_finite()) {
+fn charge_input_storage(
+    budget: Option<&PyEvaluationBudget>,
+    entries: usize,
+    rows: usize,
+    batched: bool,
+) -> PyResult<()> {
+    // Native f64 snapshots and the outer batch vector have exact reservation
+    // requests. Python handles stay on the stack; CPython objects and the
+    // caller's original containers do not belong to this native ledger.
+    let bytes = entries * std::mem::size_of::<f64>()
+        + if batched {
+            rows * std::mem::size_of::<Vec<f64>>()
+        } else {
+            0
+        };
+    let allocations = if entries != 0 { rows } else { 0 } + usize::from(batched && rows != 0);
+    with_evaluation_meter_attached(budget, |meter| {
+        if bytes != 0 {
+            meter.charge_batch(&[
+                (Dimension::MemoryBytes, bytes as u64),
+                (Dimension::AllocationCount, allocations as u64),
+                (Dimension::ComputeSteps, entries.max(rows) as u64),
+            ])?;
+        }
+        Ok::<_, fsym_budget::MeterError>(())
+    })
+}
+
+pub(crate) fn input_values_metered(
+    values: &Bound<'_, PyAny>,
+    expected: usize,
+    budget: Option<&PyEvaluationBudget>,
+) -> PyResult<Vec<f64>> {
+    let actual = container_length(values, MAX_VARIABLES, "numeric inputs")?;
+    if actual != expected {
+        return Err(PyTypeError::new_err(format!(
+            "expected {expected} numeric inputs, got {actual}"
+        )));
+    }
+    charge_input_storage(budget, expected, 1, false)?;
+    input_values(values, expected)
+}
+
+fn evaluate_programs(
+    programs: &[CompiledExpr],
+    inputs: &[f64],
+    meter: &mut impl BudgetMeter,
+) -> Result<Vec<f64>, EvalError> {
+    let mut values = evaluation_buffer(programs.len(), meter)?;
+    for program in programs {
+        meter.charge(Dimension::ComputeSteps, 1)?;
+        values.push(program.try_eval_finite_with_meter(inputs, meter)?);
+    }
+    meter.checkpoint()?;
+    Ok(values)
+}
+
+fn jacobian_rows(
+    flat: &[f64],
+    rows: usize,
+    columns: usize,
+    meter: &mut impl BudgetMeter,
+) -> Result<Vec<Vec<f64>>, EvalError> {
+    let mut result = evaluation_buffer(rows, meter)?;
+    for row in 0..rows {
+        let mut values = evaluation_buffer(columns, meter)?;
+        if columns != 0 {
+            meter.charge(Dimension::ComputeSteps, columns as u64)?;
+        }
+        values.extend_from_slice(&flat[row * columns..(row + 1) * columns]);
+        result.push(values);
+    }
+    meter.checkpoint()?;
+    Ok(result)
+}
+
+fn batch_inputs(
+    rows: &Bound<'_, PyAny>,
+    variables: usize,
+    outputs: usize,
+    budget: Option<&PyEvaluationBudget>,
+) -> PyResult<Vec<Vec<f64>>> {
+    let count = container_length(rows, MAX_BATCH_ROWS, "numeric batch")?;
+    if count.saturating_mul(variables.max(outputs).max(1)) > MAX_BATCH_VALUES {
         return Err(PyValueError::new_err(
-            "numerical evaluation left the finite real domain or overflowed",
+            "numeric batch exceeds the total input/output value limit",
         ));
     }
-    Ok(values)
+    charge_input_storage(budget, count * variables, count, true)?;
+    let mut inputs = Vec::new();
+    inputs
+        .try_reserve_exact(count)
+        .map_err(|_| crate::to_value_error(EvalError::AllocationFailure))?;
+    for index in 0..count {
+        inputs.push(input_values(&rows.get_item(index)?, variables)?);
+    }
+    Ok(inputs)
 }
 
 fn variable_map(vars: &[Symbol]) -> PyResult<HashMap<Symbol, usize>> {
@@ -413,22 +521,15 @@ impl PyCompiledFunction {
         })
     }
 
+    #[cfg(test)]
     fn evaluate_values(&self, values: &[f64]) -> PyResult<Vec<f64>> {
         if values.len() != self.variable_count || values.iter().any(|v| !v.is_finite()) {
             return Err(PyValueError::new_err(
                 "invalid numeric input dimension or nonfinite value",
             ));
         }
-        let result = self
-            .programs
-            .iter()
-            .map(|program| {
-                program
-                    .try_eval_finite(values)
-                    .map_err(crate::to_value_error)
-            })
-            .collect::<PyResult<Vec<_>>>()?;
-        finite_results(result)
+        evaluate_programs(&self.programs, values, &mut fsym_budget::Unbounded)
+            .map_err(crate::numeric_budget::evaluation_error)
     }
 }
 
@@ -442,8 +543,38 @@ impl PyCompiledFunction {
     }
 
     /// Evaluate all outputs atomically. Results are approximate binary64 values.
-    fn evaluate(&self, values: &Bound<'_, PyAny>) -> PyResult<Vec<f64>> {
-        self.evaluate_values(&input_values(values, self.variable_count)?)
+    #[pyo3(signature = (values, *, budget=None))]
+    fn evaluate(
+        &self,
+        values: &Bound<'_, PyAny>,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<Vec<f64>> {
+        let inputs = input_values_metered(values, self.variable_count, budget.as_deref())?;
+        with_evaluation_meter(values.py(), budget.as_deref(), |meter| {
+            evaluate_programs(&self.programs, &inputs, meter)
+        })
+    }
+
+    /// Evaluate a bounded batch using one ledger and publish no partial rows.
+    #[pyo3(signature = (rows, *, budget=None))]
+    fn evaluate_batch(
+        &self,
+        rows: &Bound<'_, PyAny>,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<Vec<Vec<f64>>> {
+        let inputs = batch_inputs(
+            rows,
+            self.variable_count,
+            self.programs.len(),
+            budget.as_deref(),
+        )?;
+        with_evaluation_meter(rows.py(), budget.as_deref(), |meter| {
+            let mut results = evaluation_buffer(inputs.len(), meter)?;
+            for values in &inputs {
+                results.push(evaluate_programs(&self.programs, values, meter)?);
+            }
+            Ok::<_, EvalError>(results)
+        })
     }
 
     #[getter]
@@ -466,6 +597,20 @@ impl PyCompiledFunction {
 #[pyclass(name = "VerifiedResidualSystem", module = "fsym_python", frozen)]
 pub struct PyVerifiedResidualSystem {
     system: VerifiedResidualSystem,
+}
+
+impl PyVerifiedResidualSystem {
+    fn evaluate_values(
+        &self,
+        inputs: &[f64],
+        meter: &mut impl BudgetMeter,
+    ) -> Result<ResidualValues, EvalError> {
+        let compiled = self.system.compiled();
+        let residuals = evaluate_programs(&compiled.compiled_residuals, inputs, meter)?;
+        let jacobian = evaluate_programs(&compiled.compiled_jacobian, inputs, meter)?;
+        let rows = jacobian_rows(&jacobian, compiled.num_residuals, compiled.num_vars, meter)?;
+        Ok((residuals, rows))
+    }
 }
 
 #[pymethods]
@@ -561,74 +706,69 @@ impl PyVerifiedResidualSystem {
     }
 
     /// Return residuals and a row-major nested Jacobian after all values pass.
-    fn evaluate(&self, values: &Bound<'_, PyAny>) -> PyResult<(Vec<f64>, Vec<Vec<f64>>)> {
+    #[pyo3(signature = (values, *, budget=None))]
+    fn evaluate(
+        &self,
+        values: &Bound<'_, PyAny>,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<ResidualValues> {
         let compiled = self.system.compiled();
-        let values = input_values(values, compiled.num_vars)?;
-        let residuals = compiled
-            .compiled_residuals
-            .iter()
-            .map(|program| {
-                program
-                    .try_eval_finite(&values)
-                    .map_err(crate::to_value_error)
-            })
-            .collect::<PyResult<Vec<_>>>()?;
-        let jacobian = compiled
-            .compiled_jacobian
-            .iter()
-            .map(|program| {
-                program
-                    .try_eval_finite(&values)
-                    .map_err(crate::to_value_error)
-            })
-            .collect::<PyResult<Vec<_>>>()?;
-        let residuals = finite_results(residuals)?;
-        let jacobian = finite_results(jacobian)?;
-        let rows = (0..compiled.num_residuals)
-            .map(|row| jacobian[row * compiled.num_vars..(row + 1) * compiled.num_vars].to_vec())
-            .collect();
-        Ok((residuals, rows))
+        let inputs = input_values_metered(values, compiled.num_vars, budget.as_deref())?;
+        with_evaluation_meter(values.py(), budget.as_deref(), |meter| {
+            self.evaluate_values(&inputs, meter)
+        })
+    }
+
+    /// Evaluate every residual/Jacobian pair before publishing a batch.
+    #[pyo3(signature = (rows, *, budget=None))]
+    fn evaluate_batch(
+        &self,
+        rows: &Bound<'_, PyAny>,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<Vec<ResidualValues>> {
+        let compiled = self.system.compiled();
+        let outputs = compiled.num_residuals.saturating_mul(compiled.num_vars + 1);
+        let inputs = batch_inputs(rows, compiled.num_vars, outputs, budget.as_deref())?;
+        with_evaluation_meter(rows.py(), budget.as_deref(), |meter| {
+            let mut results = evaluation_buffer(inputs.len(), meter)?;
+            for values in &inputs {
+                results.push(self.evaluate_values(values, meter)?);
+            }
+            Ok::<_, EvalError>(results)
+        })
     }
 
     /// Evaluate residuals without requiring the derivatives to be finite.
-    fn residuals(&self, values: &Bound<'_, PyAny>) -> PyResult<Vec<f64>> {
+    #[pyo3(signature = (values, *, budget=None))]
+    fn residuals(
+        &self,
+        values: &Bound<'_, PyAny>,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<Vec<f64>> {
         let compiled = self.system.compiled();
-        let values = input_values(values, compiled.num_vars)?;
-        compiled
-            .compiled_residuals
-            .iter()
-            .map(|program| {
-                program
-                    .try_eval_finite(&values)
-                    .map_err(crate::to_value_error)
-            })
-            .collect()
+        let inputs = input_values_metered(values, compiled.num_vars, budget.as_deref())?;
+        with_evaluation_meter(values.py(), budget.as_deref(), |meter| {
+            evaluate_programs(&compiled.compiled_residuals, &inputs, meter)
+        })
     }
 
     /// Evaluate the independently verified symbolic Jacobian in row-major order.
-    fn jacobian(&self, values: &Bound<'_, PyAny>) -> PyResult<Vec<Vec<f64>>> {
+    #[pyo3(signature = (values, *, budget=None))]
+    fn jacobian(
+        &self,
+        values: &Bound<'_, PyAny>,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<Vec<Vec<f64>>> {
         let compiled = self.system.compiled();
-        let values = input_values(values, compiled.num_vars)?;
+        let inputs = input_values_metered(values, compiled.num_vars, budget.as_deref())?;
         // Derivatives can erase source-domain restrictions (including a held
         // zero times log(x)). Admit every original residual before publishing
         // a derivative-only result.
-        for program in &compiled.compiled_residuals {
-            program
-                .try_eval_finite(&values)
-                .map_err(crate::to_value_error)?;
-        }
-        let flat = compiled
-            .compiled_jacobian
-            .iter()
-            .map(|program| {
-                program
-                    .try_eval_finite(&values)
-                    .map_err(crate::to_value_error)
-            })
-            .collect::<PyResult<Vec<_>>>()?;
-        Ok((0..compiled.num_residuals)
-            .map(|row| flat[row * compiled.num_vars..(row + 1) * compiled.num_vars].to_vec())
-            .collect())
+        with_evaluation_meter(values.py(), budget.as_deref(), |meter| {
+            evaluate_programs(&compiled.compiled_residuals, &inputs, meter)?;
+            let flat = evaluate_programs(&compiled.compiled_jacobian, &inputs, meter)?;
+            jacobian_rows(&flat, compiled.num_residuals, compiled.num_vars, meter)
+        })
     }
 
     #[getter]

@@ -202,6 +202,7 @@ jobs:
               "python/tests/test_exact_ode.py",
               "python/tests/test_compiled_powers.py",
               "python/tests/test_compiled_objective.py",
+              "python/tests/test_numeric_evaluation_budget.py",
               "python/tests/test_surface.py::SurfaceTests::test_extended_solvers_transforms_functions_and_submodules",
               "python/tests/test_surface.py::SurfaceTests::test_piecewise_power_integrals_and_laplace",
               "python/tests/test_surface.py::SurfaceTests::test_integral_transforms_suite",

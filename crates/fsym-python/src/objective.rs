@@ -3,7 +3,8 @@
 #![forbid(unsafe_code)]
 
 use crate::expr::PyExpr;
-use crate::numeric::{check_source, extract_variables, input_values};
+use crate::numeric::{check_source, extract_variables, input_values_metered};
+use crate::numeric_budget::{PyEvaluationBudget, with_evaluation_meter};
 use fsym_calculus::VerifiedObjective;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
@@ -33,27 +34,35 @@ impl PyVerifiedObjective {
     }
 
     /// Return value, gradient and ordered sparse Hessian values atomically.
-    fn evaluate(&self, values: &Bound<'_, PyAny>) -> PyResult<(f64, Vec<f64>, Vec<f64>)> {
-        let values = input_values(values, self.objective.variables().len())?;
-        let result = self
-            .objective
-            .evaluate(&values)
-            .map_err(crate::to_value_error)?;
+    #[pyo3(signature = (values, *, budget=None))]
+    fn evaluate(
+        &self,
+        values: &Bound<'_, PyAny>,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<(f64, Vec<f64>, Vec<f64>)> {
+        let inputs =
+            input_values_metered(values, self.objective.variables().len(), budget.as_deref())?;
+        let result = with_evaluation_meter(values.py(), budget.as_deref(), |meter| {
+            self.objective.evaluate_with_meter(&inputs, meter)
+        })?;
         Ok((result.value, result.gradient, result.hessian))
     }
 
     /// Multiply by the Hessian without allocating its dense representation.
+    #[pyo3(signature = (values, direction, *, budget=None))]
     fn hessian_vector_product(
         &self,
         values: &Bound<'_, PyAny>,
         direction: &Bound<'_, PyAny>,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
     ) -> PyResult<Vec<f64>> {
         let size = self.objective.variables().len();
-        let values = input_values(values, size)?;
-        let direction = input_values(direction, size)?;
-        self.objective
-            .hessian_vector_product(&values, &direction)
-            .map_err(crate::to_value_error)
+        let inputs = input_values_metered(values, size, budget.as_deref())?;
+        let direction = input_values_metered(direction, size, budget.as_deref())?;
+        with_evaluation_meter(values.py(), budget.as_deref(), |meter| {
+            self.objective
+                .hessian_vector_product_with_meter(&inputs, &direction, meter)
+        })
     }
 
     #[getter]

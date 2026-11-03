@@ -6,7 +6,9 @@ these are not interval certificates or proofs of convexity.
 """
 
 from ..core import _native, _symbol_binding
-from .lambdify import _argument_layout, _call_arguments, _functions, _numeric_source
+from .lambdify import (
+    _argument_layout, _call_arguments, _check_evaluation_budget, _functions, _numeric_source,
+)
 
 __all__ = ["compile_objective"]
 
@@ -43,29 +45,36 @@ class _ObjectiveCallable:
         """Immutable, ordered (row, column) coordinates of Hessian nonzeros."""
         return tuple(self.native_objective.hessian_pattern)
 
-    def evaluate_sparse(self, *values):
+    def evaluate_sparse(self, *values, budget=None):
         """Return (value, gradient, sparse Hessian values) after all checks pass.
 
         Sparse values follow ``hessian_pattern`` in row-major order, retaining
         both mixed-partial entries independently. No dense matrix is allocated.
+        A supplied ``EvaluationBudget`` covers all three native stages together
+        and retains consumed work if a derivative fails or is cancelled.
         """
+        _check_evaluation_budget(budget)
         inputs = _call_arguments(self._layout, values, native=True)
-        return self.native_objective.evaluate(inputs)
+        return self.native_objective.evaluate(inputs, budget=budget)
 
-    def evaluate(self, *values):
+    def evaluate(self, *values, budget=None):
         """Return (value, gradient, dense Hessian rows), all approximate.
 
         Source and first-derivative domain checks run before any results return.
         The dense output is limited by the native maximum of 64 variables.
         """
-        value, gradient, sparse = self.evaluate_sparse(*values)
+        value, gradient, sparse = self.evaluate_sparse(*values, budget=budget)
         size = self.native_objective.variable_count
+        if budget is not None:
+            budget._charge(size*size + len(sparse))
         hessian = [[0.0] * size for _ in range(size)]
         for (row, column), entry in zip(self.hessian_pattern, sparse):
             hessian[row][column] = entry
+        if budget is not None:
+            budget._checkpoint()
         return value, gradient, hessian
 
-    def hessian_vector_product(self, direction, *values):
+    def hessian_vector_product(self, direction, *values, budget=None):
         """Evaluate H(x) times a flat direction without forming a dense Hessian.
 
         ``direction`` is an exact list/tuple with one real value per variable
@@ -73,12 +82,13 @@ class _ObjectiveCallable:
         Invalid dimensions, nonfinite arithmetic and source-domain failures
         raise an exception without publishing partial values.
         """
+        _check_evaluation_budget(budget)
         size = self.native_objective.variable_count
         if type(direction) not in (list, tuple) or len(direction) != size:
             raise TypeError("Hessian direction must be a list/tuple with one entry per variable")
         vector = _call_arguments((None,) * size, direction, native=True)
         inputs = _call_arguments(self._layout, values, native=True)
-        return self.native_objective.hessian_vector_product(inputs, vector)
+        return self.native_objective.hessian_vector_product(inputs, vector, budget=budget)
 
 
 def compile_objective(objective, args):
@@ -91,8 +101,11 @@ def compile_objective(objective, args):
 
     ``evaluate`` returns the value, gradient and dense Hessian. Use
     ``evaluate_sparse`` or ``hessian_vector_product`` to avoid dense output.
-    These are bounded synchronous finite-real binary64 programs, not certified
-    numerical enclosures, positivity/convexity claims or supervised cancellation.
+    These are synchronous finite-real binary64 programs, not certified
+    numerical enclosures or positivity/convexity claims. Passing a reusable
+    ``EvaluationBudget`` to evaluation methods adds cumulative fuel and native
+    buffer accounting with cooperative native safe points. Compilation and
+    CPython allocation overhead are outside that ledger; no worker is spawned.
     Unsupported functions, opaque hooks, unmatched symbols and oversized work
     refuse explicitly. No upstream SymPy or Python callback executes the math.
     """

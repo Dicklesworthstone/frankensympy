@@ -18,7 +18,14 @@ from ..core import (
     _native, _native_expr, _require_symbol, _symbol_binding, _wrap,
 )
 
-__all__ = ["compile_numeric", "compile_residual_system", "lambdify"]
+__all__ = [
+    "EvaluationBudget", "EvaluationBudgetExceeded", "EvaluationCancelled",
+    "compile_numeric", "compile_residual_system", "lambdify",
+]
+
+EvaluationBudget = _native.EvaluationBudget
+EvaluationBudgetExceeded = _native.EvaluationBudgetExceeded
+EvaluationCancelled = _native.EvaluationCancelled
 
 _MAX_VARIABLES = 256
 _MAX_OUTPUTS = 4096
@@ -27,6 +34,31 @@ _MAX_DEPTH = 64
 _MAX_CONTAINER_DEPTH = 32
 _MAX_LITERAL_BITS = 4096
 _MAX_INTEGER_RESULT_BITS = 65_536
+_MAX_BATCH_ROWS = 4096
+_MAX_BATCH_VALUES = 262_144
+
+
+def _check_evaluation_budget(budget):
+    if budget is not None:
+        if type(budget) is not EvaluationBudget:
+            raise TypeError("budget must be an EvaluationBudget or None")
+        budget._checkpoint()
+    return budget
+
+
+def _batch_arguments(layout, rows, variable_count, output_count):
+    if type(rows) not in (list, tuple):
+        raise TypeError("numeric batch must be an exact built-in list or tuple")
+    count = len(rows)
+    if (count > _MAX_BATCH_ROWS
+            or count * max(variable_count, output_count, 1) > _MAX_BATCH_VALUES):
+        raise ValueError("numeric batch exceeds the row or total input/output value limit")
+    # Index a fixed admitted range: another caller growing a mutable input
+    # list cannot turn the shell's conversion into an unbounded iterator.
+    result = [_call_arguments(layout, rows[index], native=True) for index in range(count)]
+    if len(rows) != count:
+        raise ValueError("numeric batch length changed during input conversion")
+    return result
 
 
 def _functions():
@@ -220,6 +252,15 @@ def compile_numeric(args, expression):
     Every invocation returns ordinary Python floats; matrices return nested
     lists. Unknown symbols, opaque hooks, unsupported native functions,
     nonfinite intermediates and excessive resources refuse explicitly.
+
+    Pass ``budget=EvaluationBudget(...)`` when calling the result to share
+    cumulative native evaluation fuel and buffer limits across calls and
+    programs. Failures retain consumed work; cancellation is irreversible.
+    ``evaluate_batch(rows, budget=...)`` accepts a list/tuple of positional
+    argument lists/tuples and returns all rows together, or raises without
+    publishing partial rows. Batches have at most 4096 rows and 262144 flat
+    input/output values. Compilation, certification and CPython allocation
+    overhead are outside the numerical evaluation ledger.
     """
     layout, variables = _argument_layout(args)
     functions, count = _functions(), [0]
@@ -228,12 +269,24 @@ def compile_numeric(args, expression):
     )
     program = _native.CompiledFunction(sources, [_symbol_binding(v) for v in variables])
 
-    def compiled(*values):
+    def compiled(*values, budget=None):
+        _check_evaluation_budget(budget)
         inputs = _call_arguments(layout, values, native=True)
-        return _restore_outputs(shape, program.evaluate(inputs))
+        result = _restore_outputs(shape, program.evaluate(inputs, budget=budget))
+        _check_evaluation_budget(budget)
+        return result
+
+    def evaluate_batch(rows, *, budget=None):
+        _check_evaluation_budget(budget)
+        inputs = _batch_arguments(layout, rows, program.variable_count, program.output_count)
+        outputs = program.evaluate_batch(inputs, budget=budget)
+        result = [_restore_outputs(shape, values) for values in outputs]
+        _check_evaluation_budget(budget)
+        return result
 
     compiled.__doc__ = "Typed finite-real binary64 callable; outputs are approximate."
     compiled.native_program = program
+    compiled.evaluate_batch = evaluate_batch
     return compiled
 
 
@@ -263,15 +316,37 @@ class _ResidualCallable:
         """Original argument objects, in the flat order used by box coordinates."""
         return self._variables
 
-    def evaluate(self, *values):
-        """Return the approximate residual vector and nested Jacobian rows."""
-        return self.native_system.evaluate(_call_arguments(self._layout, values, native=True))
+    def evaluate(self, *values, budget=None):
+        """Return residuals and Jacobian rows, sharing any supplied evaluation budget."""
+        _check_evaluation_budget(budget)
+        return self.native_system.evaluate(
+            _call_arguments(self._layout, values, native=True), budget=budget,
+        )
 
-    def residuals(self, *values):
-        return self.native_system.residuals(_call_arguments(self._layout, values, native=True))
+    def residuals(self, *values, budget=None):
+        _check_evaluation_budget(budget)
+        return self.native_system.residuals(
+            _call_arguments(self._layout, values, native=True), budget=budget,
+        )
 
-    def jacobian(self, *values):
-        return self.native_system.jacobian(_call_arguments(self._layout, values, native=True))
+    def jacobian(self, *values, budget=None):
+        _check_evaluation_budget(budget)
+        return self.native_system.jacobian(
+            _call_arguments(self._layout, values, native=True), budget=budget,
+        )
+
+    def evaluate_batch(self, rows, *, budget=None):
+        """Return complete residual/Jacobian pairs for a bounded batch atomically.
+
+        Each row is a list/tuple of positional arguments with the declared
+        nesting. A supplied budget is cumulative across every row and both
+        derivative stages; a later failure publishes no earlier row.
+        """
+        _check_evaluation_budget(budget)
+        size = self.native_system.variable_count
+        outputs = self.native_system.residual_count * (size + 1)
+        inputs = _batch_arguments(self._layout, rows, size, outputs)
+        return self.native_system.evaluate_batch(inputs, budget=budget)
 
     def enclose(self, box, *, precision=32):
         """Independently enclose residuals and their Jacobian on a closed real box.
@@ -335,6 +410,9 @@ def compile_residual_system(residuals, args):
     Separate ``enclose`` and ``certify_root_box`` methods use the original exact
     source and independent interval arithmetic. Floating source literals remain
     usable for approximate evaluation but cannot enter those certified methods.
+    Approximate ``evaluate``, ``residuals``, ``jacobian`` and ``evaluate_batch``
+    accept the same reusable ``EvaluationBudget`` as ``compile_numeric``.
+    Compilation and separate certified methods are outside that ledger.
     """
     layout, variables = _argument_layout(args)
     from ._certified_numeric import bound_assumptions

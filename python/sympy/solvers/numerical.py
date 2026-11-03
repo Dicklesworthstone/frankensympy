@@ -6,7 +6,9 @@ from ..core import (
     Add, Eq, Float, Mul, _ExactDecimalFloat, _admitted_python_float,
     _require_symbol, diff,
 )
-from ..utilities.lambdify import compile_residual_system, lambdify
+from ..utilities.lambdify import (
+    _check_evaluation_budget, compile_numeric, compile_residual_system, lambdify,
+)
 
 __all__ = ["nsolve", "nsolve_certified", "RootSearchError"]
 
@@ -152,7 +154,7 @@ def _least_squares_step(jacobian, residuals):
     return step, weights
 
 
-def _solve_system(expr, var, initial, tolerance, maxiter):
+def _solve_system(expr, var, initial, tolerance, maxiter, budget=None):
     variables = _vector(var, "variables", _MAX_SYSTEM_VARIABLES)
     variables = [_require_symbol(value) for value in variables]
     if len(set(variables)) != len(variables):
@@ -170,15 +172,18 @@ def _solve_system(expr, var, initial, tolerance, maxiter):
     values = [_finite_real(value, "initial value") for value in values]
     residuals = [_equation_residual(value) for value in residuals]
     program = compile_residual_system(residuals, variables)
-    return variables, _iterate_system(program, values, tolerance, maxiter)
+    return variables, _iterate_system(program, values, tolerance, maxiter, budget=budget)
 
 
-def _iterate_system(program, values, tolerance, maxiter):
+def _iterate_system(program, values, tolerance, maxiter, budget=None):
     """Generate candidates using one captured native residual/Jacobian program.
 
     Inputs are already admitted finite floats in flat native-variable order.
     Neither convergence nor this function's return value grants evidence.
+    An optional caller ledger is shared by all evaluations and logical dense
+    solve work. Rejected backtracking trials retain their consumed resources.
     """
+    _check_evaluation_budget(budget)
     rows = program.native_system.residual_count
     columns = program.native_system.variable_count
 
@@ -189,7 +194,7 @@ def _iterate_system(program, values, tolerance, maxiter):
         if evaluations >= _MAX_SYSTEM_EVALUATIONS:
             raise ValueError("nsolve system exhausted its numerical evaluation budget")
         evaluations += 1
-        return function(at)
+        return function(at) if budget is None else function(at, budget=budget)
 
     result = evaluate(program.native_system.residuals, values)
     norm = max(abs(value) for value in result)
@@ -198,9 +203,12 @@ def _iterate_system(program, values, tolerance, maxiter):
     linear_work = 0
     for _ in range(maxiter):
         # Charge the dense factorization before allocating its working copy.
-        linear_work += rows * columns * (columns + 1)
+        linear_units = rows * columns * (columns + 1)
+        linear_work += linear_units
         if linear_work > _MAX_LINEAR_WORK:
             raise ValueError("nsolve system exhausted its dense linear-algebra work budget")
+        if budget is not None:
+            budget._charge(linear_units)
         jacobian = evaluate(program.native_system.jacobian, values)
         try:
             step, weights = _least_squares_step(jacobian, result)
@@ -212,6 +220,8 @@ def _iterate_system(program, values, tolerance, maxiter):
         merit = math.hypot(*(value / weight for value, weight in zip(result, weights)))
         fraction = 1.0
         for _ in range(_MAX_LINE_SEARCH_STEPS):
+            if budget is not None:
+                budget._charge(3 * columns)
             candidate = [value - fraction * change for value, change in zip(values, step)]
             if candidate == values:
                 raise ValueError("nsolve stagnated before meeting the residual and step tolerances")
@@ -330,7 +340,7 @@ def nsolve_certified(expr, var, initial, *, tol=1e-12, maxiter=200,
     )
 
 
-def nsolve(expr, var, initial, tol=1e-12, maxiter=200, *, dict=False):
+def nsolve(expr, var, initial, tol=1e-12, maxiter=200, *, dict=False, budget=None):
     """Find a finite real Newton candidate for an equation or residual system.
 
     Scalars use typed symbolic differentiation. Systems supply equations and
@@ -351,19 +361,30 @@ def nsolve(expr, var, initial, tol=1e-12, maxiter=200, *, dict=False):
     Complex arithmetic, arbitrary precision, custom numerical callbacks, and
     alternative solver/back-end keywords are outside this bounded preview.
     ``maxiter`` is a built-in integer from 1 through 10,000.
+
+    An optional reusable ``EvaluationBudget`` limits cumulative native
+    evaluations and logical dense-solve work across all iterations and rejected
+    line-search trials. Exhaustion and cooperative cancellation raise distinct
+    ``RuntimeError`` subclasses and are never retried as domain failures.
+    With a budget, the scalar path uses the finite-real native compiler;
+    unsupported native functions refuse explicitly. Compilation, certification
+    and CPython allocation overhead are outside this evaluation ledger.
     """
     if type(dict) is not bool:
         raise TypeError("nsolve dict must be a built-in boolean")
+    _check_evaluation_budget(budget)
     tolerance = _newton_options(tol, maxiter)
 
     if _is_vector(expr) or _is_vector(var):
         from ..matrices import Matrix
 
-        variables, values = _solve_system(expr, var, initial, tolerance, maxiter)
+        variables, values = _solve_system(expr, var, initial, tolerance, maxiter, budget=budget)
         roots = [Float(value) for value in values]
-        if dict:
-            return [{variable: root for variable, root in zip(variables, roots)}]
-        return Matrix(roots)
+        result = ([{variable: root for variable, root in zip(variables, roots)}]
+                  if dict else Matrix(roots))
+        if budget is not None:
+            budget._checkpoint()
+        return result
 
     var = _require_symbol(var)
     x_value = _finite_real(initial, "initial value")
@@ -371,14 +392,22 @@ def nsolve(expr, var, initial, tol=1e-12, maxiter=200, *, dict=False):
 
     def solution(value):
         root = Float(value)
-        return [{var: root}] if dict else root
+        result = [{var: root}] if dict else root
+        if budget is not None:
+            budget._checkpoint()
+        return result
 
-    residual = lambdify(var, expr, modules="math")
-    derivative = lambdify(var, diff(expr, var), modules="math")
+    if budget is None:
+        residual = lambdify(var, expr, modules="math")
+        derivative = lambdify(var, diff(expr, var), modules="math")
+    else:
+        residual = compile_numeric(var, expr)
+        derivative = compile_numeric(var, diff(expr, var))
 
     def evaluate(function, value, name):
         try:
-            return _finite_real(function(value), name)
+            result = function(value) if budget is None else function(value, budget=budget)
+            return _finite_real(result, name)
         except (OverflowError, ZeroDivisionError, TypeError) as error:
             raise ValueError(f"nsolve {name} left the finite real domain") from error
 
@@ -389,6 +418,8 @@ def nsolve(expr, var, initial, tol=1e-12, maxiter=200, *, dict=False):
         return solution(x_value)
 
     for _ in range(maxiter):
+        if budget is not None:
+            budget._charge(4)
         derivative_value = evaluate(derivative, x_value, "derivative")
         if derivative_value == 0.0:
             raise ValueError("nsolve derivative is zero away from a root")

@@ -1335,18 +1335,37 @@ mod tests {
     }
 
     #[test]
-    fn non_finite_rational_components_are_refused_before_underflow() {
-        let huge_denominator =
-            fsym_core::BigInt::parse_bytes("9".repeat(400).as_bytes(), 10).unwrap();
-        let nonzero = Expr::Rational(fsym_core::BigRational::new(
-            fsym_core::BigInt::from(1),
-            huge_denominator,
-        ));
+    fn rational_literal_range_checks_apply_to_the_exact_quotient() {
+        let huge = fsym_core::BigInt::parse_bytes("9".repeat(400).as_bytes(), 10).unwrap();
+        for (sign, expected_unit) in [(1_i64, 1.0_f64), (-1, -1.0)] {
+            // A component may exceed binary64's range while the exact quotient
+            // rounds to a finite value. Finite underflow has canonical +0 bits.
+            let near_unit = Expr::Rational(fsym_core::BigRational::new(
+                (&huge + 1_i64) * fsym_core::BigInt::from(sign),
+                huge.clone(),
+            ));
+            let tiny = Expr::Rational(fsym_core::BigRational::new(
+                fsym_core::BigInt::from(sign),
+                huge.clone(),
+            ));
+            for (source, expected) in [(near_unit, expected_unit), (tiny, 0.0)] {
+                let compiled = CompiledExpr::try_compile(&source, &HashMap::new()).unwrap();
+                assert_eq!(
+                    compiled.try_eval_finite(&[]).unwrap().to_bits(),
+                    expected.to_bits()
+                );
+            }
 
-        assert!(matches!(
-            CompiledExpr::try_compile(&nonzero, &HashMap::new()),
-            Err(CompileError::NumericConversion(_))
-        ));
+            // True quotient overflow remains a refusal for either sign.
+            let overflowing = Expr::Rational(fsym_core::BigRational::new(
+                huge.clone() * fsym_core::BigInt::from(sign),
+                fsym_core::BigInt::from(2),
+            ));
+            assert!(matches!(
+                CompiledExpr::try_compile(&overflowing, &HashMap::new()),
+                Err(CompileError::NumericConversion(_))
+            ));
+        }
     }
 
     #[test]

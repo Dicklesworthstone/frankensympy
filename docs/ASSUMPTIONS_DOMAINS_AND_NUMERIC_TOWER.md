@@ -401,6 +401,93 @@ assumptions and exhausted work cannot yield accepted receipts. Ordinary `nsolve`
 remains an approximate API. These bounded synchronous implementations do not close
 the full runtime, compatibility-profile or end-to-end campaign gates.
 
+### 15.5 Bounded approximate evaluation and cancellation
+
+Compiled binary64 evaluation accepts a caller-owned cumulative ledger. Native
+`CompiledExpr::try_eval_with_meter` retains ordinary IEEE evaluation;
+`try_eval_finite_with_meter` rejects nonfinite inputs and intermediate values.
+Dense residual/Jacobian methods, sparse Jacobian methods, and checked objective
+and Hessian-product methods also expose `*_with_meter` variants. The same
+`BudgetMeter` passes through every expression, derivative stage and output copy.
+A runtime caller can pass its existing `FsymCx` to observe owning-region
+cancellation without giving numerical work access to the protected verifier pool.
+
+```rust
+use fsym_budget::{Budget, BudgetLimits};
+use fsym_calculus::compile::CompiledExpr;
+use fsym_core::{Symbol, parse};
+use std::collections::HashMap;
+
+let variables = HashMap::from([(Symbol::new("x"), 0)]);
+let program = CompiledExpr::try_compile(&parse("x^2 + 1").unwrap(), &variables).unwrap();
+let mut ledger = Budget::new(BudgetLimits::uniform(1_000_000, 0));
+assert_eq!(program.try_eval_finite_with_meter(&[3.0], &mut ledger).unwrap(), 10.0);
+```
+
+The Python preview exposes `EvaluationBudget`, `EvaluationBudgetExceeded` and
+`EvaluationCancelled` from `sympy`. Pass `budget=` to a `compile_numeric` callable,
+compiled residual evaluation, checked objective evaluation or ordinary `nsolve`.
+The same object covers repeated calls, batch rows, derivative stages and supported
+solver iterations, including rejected line-search trials. Consumed work remains
+spent after an exception. Omitting `budget` retains the existing bounded API
+without a cumulative caller ledger.
+
+```python
+from sympy import (
+    EvaluationBudget, Symbol, compile_numeric, compile_objective,
+    compile_residual_system, nsolve,
+)
+
+x = Symbol("x")
+budget = EvaluationBudget(
+    max_steps=100_000, max_memory_bytes=1_048_576, max_allocations=1024,
+)
+f = compile_numeric(x, x*x + 1)
+assert f(3, budget=budget) == 10.0
+assert f.evaluate_batch([(1,), (2,), (3,)], budget=budget) == [2.0, 5.0, 10.0]
+system = compile_residual_system([x*x - 2], [x])
+residuals, jacobian = system.evaluate(1.5, budget=budget)
+objective = compile_objective((x - 2)**2, [x])
+value, gradient, hessian = objective.evaluate(3, budget=budget)
+root = nsolve(x*x - 2, x, 1.5, budget=budget)
+remaining = budget.remaining_steps
+budget.cancel()  # Irreversible; subsequent uses raise EvaluationCancelled.
+```
+
+`evaluate_batch` is available for compiled numerical callables and residual
+systems. It admits at most 4096 rows; row count times the larger flattened input
+or output width is at most 262144, counting an empty width as one. A later row
+failure publishes no earlier rows. Native caller-owned output buffers likewise
+remain unchanged on cancellation, exhaustion or evaluation failure. Budget
+exhaustion and cancellation remain distinct typed operational outcomes; solver
+backtracking does not reinterpret them as domain errors.
+
+Fuel counts deterministic logical instruction, reduction, validation and
+publication work. Memory and allocation counters accumulate requested native
+input snapshots and scratch/output buffers. The Python bridge charges native
+input snapshots while holding the GIL, before arithmetic runs without it. These
+counters do not measure RSS, allocator overhead or peak live memory, and releasing
+a temporary does not refund them. Python argument-layout handling and CPython
+object/result-container allocation are outside this evaluation ledger.
+Compilation, proof admission/replay and interval/root certification remain
+separate phases outside it, with their own existing admission or verification
+rules. A budgeted scalar `nsolve` uses the admitted native finite-real compiler
+and refuses functions outside that compiler's supported subset.
+
+Cancellation is cooperative at numerical safe points and before publication.
+The synchronous Python bridge releases the GIL during native arithmetic, permits
+another caller to request cancellation, and creates no native worker. A ledger
+cannot be borrowed by two concurrent evaluations; independent concurrent requests
+need independent ledgers. This does not promise a universal wall-time interruption
+bound or metering of arbitrary Python callbacks.
+
+Exact integer and rational literals use direct native conversion. Rational
+quotients are rounded once even when their coprime components individually exceed
+binary64's finite range. True final overflow refuses; finite underflow uses the
+bytecode's canonical positive zero. Evaluation remains approximate binary64
+arithmetic: budgeting and checked symbolic derivatives do not certify numerical
+enclosures, roots or convexity, or close the end-to-end campaign/profile gates.
+
 ## 16. Polynomial representation portfolio
 
 Polynomial storage is adaptive but semantically uniform:

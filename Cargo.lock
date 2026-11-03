@@ -919,6 +919,7 @@ dependencies = [
  "asupersync",
  "blake3",
  "fsym-assumptions",
+ "fsym-budget",
  "fsym-calculus",
  "fsym-core",
  "fsym-functions",

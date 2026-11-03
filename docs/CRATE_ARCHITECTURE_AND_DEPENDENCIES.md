@@ -401,6 +401,14 @@ for typed rational-integral endpoints and independent original-domain checks.
 This L6-to-L2 edge lets the bridge check source guards before publishing an
 integral receipt; it adds no external dependency or verifier-to-generator edge.
 
+The implemented `fsym-python` boundary also depends directly on the internal
+L0 `fsym-budget` crate for caller-owned numerical evaluation ledgers. This
+L6-to-L0 edge shares the existing `BudgetMeter`, typed resource failures and
+atomic charges across input snapshots, compiled arithmetic and derivative
+outputs. It adds no external dependency, runtime or worker; core mathematical
+crates remain independent of Python. Compilation and proof admission remain
+separate from the bridge's approximate evaluation ledger.
+
 ### 10.4 `fsym-wasm`
 
 A pure native subset for browsers and sandboxed runtimes. It excludes CPython, filesystem-dependent persistence, and unsupported threading features. Proof checking, term manipulation, selected algebra/calculus, and protocol/bundle handling are prioritized.
