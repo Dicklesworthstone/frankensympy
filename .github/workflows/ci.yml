@@ -208,6 +208,7 @@ jobs:
               "python/tests/test_callback_effects_and_ownership.py",
               "python/tests/test_numeric_hybrid_callbacks.py",
               "python/tests/test_held_power_surface_identity.py",
+              "python/tests/test_held_numeric_structure.py",
               "python/tests/test_surface.py::SurfaceTests::test_extended_solvers_transforms_functions_and_submodules",
               "python/tests/test_surface.py::SurfaceTests::test_piecewise_power_integrals_and_laplace",
               "python/tests/test_surface.py::SurfaceTests::test_integral_transforms_suite",

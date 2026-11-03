@@ -289,9 +289,11 @@ def test_saved_matrix_program_is_a_snapshot_not_a_live_surface_reference():
 
 def test_restored_assumptions_and_root_receipt_remain_bound_to_the_expected_source():
     x = s.Symbol("transport_positive_x", positive=True)
+    binding = _symbol_binding(x)
     source = x*x - 2
     data = s.compile_residual_system(source, x).to_bytes()
     restored = s.load_residual_system(data, residuals=source, args=x)
+    assert restored.variables[0] is x
     with pytest.raises(ValueError, match="assumption"):
         restored.enclose([(-2, -1)])
     budget = _budget()
@@ -299,7 +301,14 @@ def test_restored_assumptions_and_root_receipt_remain_bound_to_the_expected_sour
         [(Fraction(7, 5), Fraction(3, 2))], precision=16, budget=budget,
     )
     assert receipt.residuals == (source,)
-    assert receipt.variables[0] is x
+    # Programs retain caller-owned Python objects. Accepted receipts expose
+    # immutable native bindings, whose complete typed identity must match.
+    assert len(receipt.variables) == 1
+    variable = receipt.variables[0]
+    assert type(variable) is _native.SymbolBinding
+    assert (variable.name, variable.plain, variable.identity_hex) == (
+        binding.name, binding.plain, binding.identity_hex,
+    )
     lo, hi = receipt.root_enclosure[0]
     assert lo*lo <= 2 <= hi*hi
     assert 0 <= receipt.contraction_bound < 1
@@ -325,10 +334,11 @@ def test_checked_bytes_load_in_a_fresh_process_with_explicit_typed_declarations(
 
         sys.path[:0] = [sys.argv[1], sys.argv[2]]
         import sympy as s
-        from sympy.core import _symbol_binding
+        from sympy.core import _native, _symbol_binding
 
         assert Path(s.__file__).resolve() == Path(sys.argv[1]) / "sympy" / "__init__.py"
         x = s.Symbol("transport_process_x", positive=True)
+        binding = _symbol_binding(x)
         source = x*x - 2
         data = Path(sys.argv[3]).read_bytes()
         restored = s.load_residual_system(data, residuals=source, args=x)
@@ -342,7 +352,12 @@ def test_checked_bytes_load_in_a_fresh_process_with_explicit_typed_declarations(
             [(Fraction(7, 5), Fraction(3, 2))], precision=16, budget=budget,
         )
         assert receipt.residuals == (source,)
-        assert receipt.variables[0] is x
+        assert len(receipt.variables) == 1
+        variable = receipt.variables[0]
+        assert type(variable) is _native.SymbolBinding
+        assert (variable.name, variable.plain, variable.identity_hex) == (
+            binding.name, binding.plain, binding.identity_hex,
+        )
         lo, hi = receipt.root_enclosure[0]
         assert lo*lo <= 2 <= hi*hi
         assert 0 <= receipt.contraction_bound < 1

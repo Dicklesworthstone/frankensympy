@@ -1303,7 +1303,10 @@ class Basic:
             return hash((type(self).__name__, struct_args))
         if type(self) not in _exact_surface_types() and not isinstance(self, Function):
             return object.__hash__(self)
-        ratio = _exact_ratio(self)
+        # Held arithmetic remains a structural expression, even when its
+        # value is rational. Numeric helper evaluation must not collapse its
+        # equality/hash identity into the value of an evaluated atom.
+        ratio = None if type(self) in (Add, Mul, Pow) else _exact_ratio(self)
         if ratio is not None:
             from fractions import Fraction
 
@@ -1347,8 +1350,8 @@ class Basic:
             return False
         if isinstance(other, float):
             return False
-        left = _exact_ratio(self)
-        right = _exact_ratio(other)
+        left = None if type(self) in (Add, Mul, Pow) else _exact_ratio(self)
+        right = None if type(other) in (Add, Mul, Pow) else _exact_ratio(other)
         if left is not None and right is not None:
             return left == right
         try:
