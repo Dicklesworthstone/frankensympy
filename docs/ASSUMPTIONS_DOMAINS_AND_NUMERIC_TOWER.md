@@ -609,6 +609,84 @@ bytecode's canonical positive zero. Evaluation remains approximate binary64
 arithmetic: budgeting and checked symbolic derivatives do not certify numerical
 enclosures, roots or convexity, or close the end-to-end campaign/profile gates.
 
+### 15.7 Explicit numerical callbacks in native expressions
+
+`compile_numeric_hybrid(args, expression, *, callbacks)` connects bounded native
+binary64 fragments to explicitly registered Python numerical functions. The
+mapping uses actual custom `Function` classes as keys and captures the supplied
+callable objects when compiling. It never discovers `_imp_` hooks, resolves
+custom classes by a printed name, or silently replaces a built-in function.
+
+```python
+from sympy import (
+    Add, EvaluationBudget, Function, Pow, Symbol, compile_numeric_hybrid,
+)
+
+class Response(Function):
+    nargs = 1
+
+x = Symbol("x")
+calls = []
+
+def response(value):
+    calls.append(value)
+    return value + 1
+
+source = Add(Pow(Response(x), 2, evaluate=False), x, evaluate=False)
+program = compile_numeric_hybrid(x, source, callbacks={Response: response})
+budget = EvaluationBudget(max_steps=100_000)
+assert program(2, budget=budget) == 11.0
+assert program.evaluate_batch([(0,), (1,)], budget=budget) == [1.0, 5.0]
+assert calls == [2.0, 0.0, 1.0]
+assert program.evidence == "approximate_with_user_callbacks"
+```
+
+Use retained surface expressions, including held `Add`, `Mul` and `Pow`, when
+combining custom functions. Canonical native-only storage can lose the exact
+Python class of a custom function; such a source is refused instead of guessing
+from its name. Held powers retain their original operand objects. Compilation
+reads the base classes' stored argument slots without calling custom argument
+properties or printers. Native-only sources receive a borrowed preflight before
+their child expressions are cloned. Source and callback-mapping snapshots remain
+fixed after construction; mutating the caller's mapping or matrix does not alter
+the compiled occurrence graph. Captured callables may still have mutable state.
+
+Every explicit callback occurrence executes independently, including repeated
+references to the same object with equal arguments. Native subexpressions and
+callbacks execute in stored child/output order. A native domain failure prevents
+later occurrences from running; earlier completed effects remain observable.
+Literal power exponents stay part of the native syntax, preserving the supported
+negative-base integer-power behavior and the positive-base guard for dynamic
+real exponents. Callback outputs must be exact built-in `int`, `float` or `bool`
+values that convert to finite binary64; arbitrary `__float__` hooks are refused.
+
+Each call or complete batch uses one `SupervisedCallbackSession`, supplied with
+`session=`, inherited from an active request, or created for that evaluation.
+Invocation counts and nested native work accumulate in that session. Individual
+callbacks retain the input, reentrancy and post-return wall-time caps. Callbacks
+that fail, return invalid values, or observe cancellation taint their owning
+session; caught nested supervision failures cannot publish an outer result.
+There is no automatic retry or rollback of arbitrary Python effects.
+
+One optional `EvaluationBudget` covers native fragment evaluation and logical
+hybrid dispatch. Reentrant hybrid calls inherit the active ledger when omitted,
+and a different explicitly supplied ledger or owning session is refused. The
+ledger does not meter arbitrary callback internals, compilation or CPython object
+allocation. Cancellation is checked before callbacks, during native evaluation,
+after callback return and before publication; Python code remains in process
+without a forced interruption deadline. A later batch failure returns no partial
+row list while preserving effects that have already occurred.
+
+The graph admits at most 4096 actions, 65536 native instructions, 128 registered
+callback classes, and 256 children per mixed operator or callback, in addition to
+the ordinary numerical source, variable, literal and batch caps. Scalar and
+nested list/tuple output shapes are preserved; matrices produce nested lists.
+`variables`, `callback_slots`, `operation_count` and `native_fragment_count`
+expose the captured structure. These programs have no pickle or portable-program
+transport, derivative certificate, interval enclosure or root-receipt interface.
+The explicit callback mapping is a user assertion, and all hybrid results remain
+approximate. This API does not close the campaign or compatibility-profile gate.
+
 ## 16. Polynomial representation portfolio
 
 Polynomial storage is adaptive but semantically uniform:

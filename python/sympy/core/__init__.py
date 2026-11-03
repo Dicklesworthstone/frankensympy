@@ -4339,7 +4339,17 @@ class Mul(Expr, AssocOp):
 
 
 class Pow(Expr):
-    __slots__ = ()
+    __slots__ = ("_args",)
+
+    @property
+    def args(self) -> tuple["Basic", ...]:
+        # A held power retains its actual surface children. Recovering a
+        # custom function solely from its native name can select a different
+        # same-named Python class and lose the caller's hook identity.
+        try:
+            return Pow.__dict__["_args"].__get__(self, Pow)
+        except AttributeError:
+            return super().args
 
     @property
     def base(self) -> "Expr":
@@ -4427,6 +4437,10 @@ class Pow(Expr):
             return _wrap(val)
         obj = object.__new__(cls)
         obj._value = val
+        Pow.__dict__["_args"].__set__(obj, (
+            base if isinstance(base, Basic) else _wrap(_native_expr(base)),
+            exponent if isinstance(exponent, Basic) else _wrap(_native_expr(exponent)),
+        ))
         return obj
 
     def __init__(self, base: Any, exponent: Any, evaluate: bool = True):

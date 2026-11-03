@@ -9,13 +9,14 @@
 
 use crate::binding::PySymbolBinding;
 use crate::expr::{PyExpr, PySymbol};
+use crate::matrix::{PyMatrix, PySparseMatrix};
 use crate::numeric_budget::{
     PyEvaluationBudget, evaluation_buffer, with_certification_meter, with_evaluation_meter,
     with_evaluation_meter_attached,
 };
 use fsym_budget::{BudgetMeter, Dimension};
 use fsym_calculus::VerifiedResidualSystem;
-use fsym_calculus::compile::{CompiledExpr, EvalError, MAX_COMPILE_DEPTH};
+use fsym_calculus::compile::{CompiledExpr, EvalError, MAX_COMPILE_DEPTH, MAX_COMPILE_NAME_BYTES};
 use fsym_calculus::sparse_jacobian::compiled_expression_matches;
 use fsym_calculus::verified::{MAX_VERIFIED_ARTIFACT_BYTES, VerifiedArtifactError};
 use fsym_core::{
@@ -345,6 +346,16 @@ pub(crate) fn check_source(expr: &Expr, nodes: &mut usize) -> PyResult<()> {
             ));
         }
         match node {
+            Expr::Sym(symbol) if symbol.name.len() > MAX_COMPILE_NAME_BYTES => {
+                return Err(PyValueError::new_err(
+                    "numeric symbol name exceeds the 4096-byte limit",
+                ));
+            }
+            Expr::Function(name, _) if name.len() > MAX_COMPILE_NAME_BYTES => {
+                return Err(PyValueError::new_err(
+                    "numeric function name exceeds the 4096-byte limit",
+                ));
+            }
             Expr::Integer(value) if value.bits() > MAX_LITERAL_BITS => {
                 return Err(PyValueError::new_err(
                     "numeric integer exceeds the literal limit",
@@ -581,6 +592,60 @@ impl PyCompiledFunction {
 
 #[pymethods]
 impl PyCompiledFunction {
+    /// Preflight a borrowed native source before Python traverses cloned children.
+    /// This is admission only; it neither executes nor certifies the expression.
+    #[staticmethod]
+    fn _validate_source(source: &Bound<'_, PyAny>) -> PyResult<()> {
+        if !source.is_exact_instance(&source.py().get_type::<PyExpr>()) {
+            return Err(PyTypeError::new_err(
+                "numeric source must be an exact native Expr object",
+            ));
+        }
+        let source = source.extract::<PyRef<'_, PyExpr>>()?;
+        check_source(&source.inner, &mut 0)
+    }
+
+    /// Check all borrowed matrix entries before Python snapshots native cells.
+    #[staticmethod]
+    fn _validate_matrix_source(source: &Bound<'_, PyAny>) -> PyResult<()> {
+        fn dimensions(rows: usize, columns: usize) -> PyResult<()> {
+            if rows > MAX_OUTPUTS
+                || columns > MAX_OUTPUTS
+                || rows
+                    .checked_mul(columns)
+                    .is_none_or(|cells| cells > MAX_OUTPUTS)
+            {
+                return Err(PyValueError::new_err(
+                    "numeric matrix exceeds the output limit",
+                ));
+            }
+            Ok(())
+        }
+
+        let mut nodes = 0;
+        if source.is_exact_instance(&source.py().get_type::<PyMatrix>()) {
+            let source = source.extract::<PyRef<'_, PyMatrix>>()?;
+            dimensions(source.inner.rows(), source.inner.cols())?;
+            for cell in source.inner.data() {
+                check_source(cell, &mut nodes)?;
+            }
+        } else if source.is_exact_instance(&source.py().get_type::<PySparseMatrix>()) {
+            let source = source.extract::<PyRef<'_, PySparseMatrix>>()?;
+            dimensions(source.inner.rows(), source.inner.cols())?;
+            // Missing sparse cells are scalar zeros. Account for them before
+            // traversing the borrowed, explicitly stored expressions.
+            nodes = source.inner.rows() * source.inner.cols() - source.inner.entries().len();
+            for cell in source.inner.entries().values() {
+                check_source(cell, &mut nodes)?;
+            }
+        } else {
+            return Err(PyTypeError::new_err(
+                "numeric matrix source must be an exact native Matrix or SparseMatrix",
+            ));
+        }
+        Ok(())
+    }
+
     #[new]
     fn new(expressions: &Bound<'_, PyAny>, variables: &Bound<'_, PyAny>) -> PyResult<Self> {
         let exprs = extract_expressions(expressions)?;
@@ -744,8 +809,8 @@ impl PyVerifiedResidualSystem {
         py.detach(|| {
             // Replay the retained certificate; never replace it with fresh
             // derivative generation or accept a serialized verification flag.
-            let system = VerifiedResidualSystem::from_json_bytes(encoded)
-                .map_err(Self::transport_error)?;
+            let system =
+                VerifiedResidualSystem::from_json_bytes(encoded).map_err(Self::transport_error)?;
             if system.vars() != variables.as_slice() {
                 return Err(PyValueError::new_err(
                     "verified program variables do not match the expected typed order",
@@ -969,5 +1034,279 @@ mod tests {
                 .unwrap();
         // An infinite logarithm cannot be hidden by a subsequent reciprocal.
         assert!(reciprocal.evaluate_values(&[0.0]).is_err());
+    }
+
+    #[pyclass(extends = PyExpr)]
+    struct SourceSubclass;
+
+    #[test]
+    fn borrowed_source_preflight_checks_exact_types_and_original_tree_limits() {
+        Python::initialize();
+        Python::attach(|py| {
+            let source = Py::new(py, PyExpr::from_expr(Expr::from_i64(7))).unwrap();
+            PyCompiledFunction::_validate_source(source.bind(py).as_any()).unwrap();
+            let subclass = Py::new(
+                py,
+                PyClassInitializer::from(PyExpr::from_expr(Expr::from_i64(7)))
+                    .add_subclass(SourceSubclass),
+            )
+            .unwrap();
+            let error =
+                PyCompiledFunction::_validate_source(subclass.bind(py).as_any()).unwrap_err();
+            assert!(error.is_instance_of::<PyTypeError>(py));
+            assert!(PyCompiledFunction::_validate_source(PyList::empty(py).as_any()).is_err());
+
+            let mut deep = Expr::symbol("x");
+            for _ in 0..=MAX_COMPILE_DEPTH {
+                deep = Expr::Function("sin".into(), vec![deep]);
+            }
+            let big = fsym_core::BigInt::one() << MAX_LITERAL_BITS as u32;
+            let invalid = [
+                Expr::Integer(big.clone()),
+                Expr::Rational(BigRational::new(&big + 1i64, big)),
+                Expr::Add(vec![Expr::from_i64(0); MAX_SOURCE_NODES]),
+                deep,
+                Expr::symbol("x".repeat(MAX_COMPILE_NAME_BYTES + 1)),
+                Expr::Function("λ".repeat(MAX_COMPILE_NAME_BYTES / 2 + 1), vec![]),
+            ];
+            for source in invalid {
+                let source = Py::new(py, PyExpr::from_expr(source)).unwrap();
+                let error =
+                    PyCompiledFunction::_validate_source(source.bind(py).as_any()).unwrap_err();
+                assert!(error.is_instance_of::<PyValueError>(py));
+            }
+
+            // Preflight admits a bounded tree; it does not certify compiler support or
+            // floating range. Both of these values fail later numerical compilation.
+            for source in [
+                Expr::Integer(fsym_core::BigInt::one() << (MAX_LITERAL_BITS - 1) as u32),
+                Expr::Function("unregistered".into(), vec![Expr::from_i64(1)]),
+            ] {
+                let wrapped = Py::new(py, PyExpr::from_expr(source.clone())).unwrap();
+                PyCompiledFunction::_validate_source(wrapped.bind(py).as_any()).unwrap();
+                assert!(PyCompiledFunction::compile(&[source], &[]).is_err());
+            }
+        });
+    }
+
+    #[test]
+    fn borrowed_matrix_preflight_bounds_shape_and_all_cells_before_snapshotting() {
+        use fsym_matrices::{Matrix, SparseMatrix};
+        use std::collections::BTreeMap;
+
+        Python::initialize();
+        Python::attach(|py| {
+            let check_dense = |inner| {
+                let source = Py::new(py, PyMatrix { inner }).unwrap();
+                PyCompiledFunction::_validate_matrix_source(source.bind(py).as_any())
+            };
+            let check_sparse = |inner| {
+                let source = Py::new(py, PySparseMatrix { inner }).unwrap();
+                PyCompiledFunction::_validate_matrix_source(source.bind(py).as_any())
+            };
+            check_dense(Matrix::zeros(2, 2).unwrap()).unwrap();
+            check_sparse(SparseMatrix::zeros(2, 2)).unwrap();
+            for (rows, columns) in [(MAX_OUTPUTS + 1, 0), (0, MAX_OUTPUTS + 1), (65, 64)] {
+                assert!(check_dense(Matrix::zeros(rows, columns).unwrap()).is_err());
+                assert!(check_sparse(SparseMatrix::zeros(rows, columns)).is_err());
+            }
+            assert!(check_sparse(SparseMatrix::zeros(usize::MAX, 0)).is_err());
+            let invalid_cell = Expr::Integer(fsym_core::BigInt::one() << MAX_LITERAL_BITS as u32);
+            assert!(check_dense(Matrix::new(1, 1, vec![invalid_cell.clone()]).unwrap()).is_err());
+            assert!(
+                check_sparse(
+                    SparseMatrix::new(1, 1, BTreeMap::from([((0, 0), invalid_cell)])).unwrap()
+                )
+                .is_err()
+            );
+
+            // Each cell individually fits, but the matrix must share one node limit.
+            let cell = Expr::Add(vec![Expr::symbol("x"); MAX_SOURCE_NODES / 2]);
+            let wrapped = Py::new(py, PyExpr::from_expr(cell.clone())).unwrap();
+            PyCompiledFunction::_validate_source(wrapped.bind(py).as_any()).unwrap();
+            assert!(
+                check_dense(Matrix::new(1, 2, vec![cell.clone(), cell.clone()]).unwrap()).is_err()
+            );
+            assert!(
+                check_sparse(
+                    SparseMatrix::new(
+                        1,
+                        2,
+                        BTreeMap::from([((0, 0), cell.clone()), ((0, 1), cell)]),
+                    )
+                    .unwrap(),
+                )
+                .is_err()
+            );
+            // Omitted sparse zeros are still output cells and consume source nodes.
+            let boundary = Expr::Add(vec![Expr::symbol("x"); MAX_SOURCE_NODES - 1]);
+            let wrapped = Py::new(py, PyExpr::from_expr(boundary.clone())).unwrap();
+            PyCompiledFunction::_validate_source(wrapped.bind(py).as_any()).unwrap();
+            assert!(
+                check_sparse(
+                    SparseMatrix::new(1, 2, BTreeMap::from([((0, 0), boundary)])).unwrap(),
+                )
+                .is_err()
+            );
+        });
+    }
+
+    fn bridge_module(py: Python<'_>) -> Bound<'_, PyModule> {
+        let module = PyModule::new(py, "numeric_bridge_tests").unwrap();
+        crate::numeric_budget::register(&module).unwrap();
+        module.add_class::<PyCompiledFunction>().unwrap();
+        module.add_class::<PyVerifiedResidualSystem>().unwrap();
+        module
+    }
+
+    fn fixture(py: Python<'_>, source: Expr) -> Py<PyExpr> {
+        Py::new(py, PyExpr::from_expr(source)).unwrap()
+    }
+
+    fn run_bridge(module: &Bound<'_, PyModule>, source: &str) {
+        let namespace = module.dict();
+        module
+            .py()
+            .run(
+                std::ffi::CString::new(source).unwrap().as_c_str(),
+                Some(&namespace),
+                Some(&namespace),
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn actual_python_numeric_entrypoints_share_budgets_and_keep_domain_refusals() {
+        Python::initialize();
+        Python::attach(|py| {
+            let module = bridge_module(py);
+            let x = Symbol::new("x");
+            module
+                .add(
+                    "x_binding",
+                    Py::new(py, PySymbolBinding::from_symbol(&x)).unwrap(),
+                )
+                .unwrap();
+            module
+                .add("source", fixture(py, parse("x + 1").unwrap()))
+                .unwrap();
+            module
+                .add("guarded", fixture(py, parse("1 / log(x)").unwrap()))
+                .unwrap();
+            run_bridge(
+                &module,
+                r#"
+def raises(kind, action):
+    try:
+        action()
+    except kind:
+        return
+    raise AssertionError('expected ' + kind.__name__)
+
+program = CompiledFunction([source], [x_binding])
+budget = EvaluationBudget()
+assert program.evaluate([2], budget=budget) == [3.0]
+first_remaining = budget.remaining_steps
+assert program.evaluate_batch([[3], [4]], budget=budget) == [[4.0], [5.0]]
+assert budget.remaining_steps < first_remaining < 10_000_000
+blocked = EvaluationBudget(max_steps=100, max_memory_bytes=0, max_allocations=10)
+raises(EvaluationBudgetExceeded, lambda: program.evaluate([2], budget=blocked))
+assert (blocked.remaining_steps, blocked.remaining_memory_bytes, blocked.remaining_allocations) == (100, 0, 10)
+raises(EvaluationBudgetExceeded, lambda: program.evaluate([2], budget=EvaluationBudget(max_steps=0)))
+budget.cancel()
+raises(EvaluationCancelled, lambda: program.evaluate_batch([[1]], budget=budget))
+domain = CompiledFunction([guarded], [x_binding])
+assert domain.evaluate([2])[0] > 0
+for value in (0, -1):
+    raises(ValueError, lambda: domain.evaluate([value]))
+sentinel = object()
+result = sentinel
+try:
+    result = domain.evaluate_batch([[2], [3], [0]])
+except ValueError:
+    pass
+else:
+    raise AssertionError('nonfinite intermediate hidden by reciprocal')
+assert result is sentinel
+assert program.evaluate([2]) == [3.0]
+"#,
+            );
+        });
+    }
+
+    #[test]
+    fn actual_python_transport_replays_evidence_and_certifies_the_bound_source() {
+        Python::initialize();
+        Python::attach(|py| {
+            let module = bridge_module(py);
+            let source = parse("x^2 - 2").unwrap();
+            let x = Symbol::new("x");
+            module
+                .add(
+                    "x_binding",
+                    Py::new(py, PySymbolBinding::from_symbol(&x)).unwrap(),
+                )
+                .unwrap();
+            module.add("source", fixture(py, source.clone())).unwrap();
+            module
+                .add("different", fixture(py, parse("x^2 - 3").unwrap()))
+                .unwrap();
+            for (name, numerator, denominator) in [
+                ("lo", 7, 5),
+                ("hi", 3, 2),
+                ("center", 29, 20),
+                ("inverse", 10, 29),
+            ] {
+                module
+                    .add(
+                        name,
+                        fixture(
+                            py,
+                            Expr::Rational(BigRational::new(numerator.into(), denominator.into())),
+                        ),
+                    )
+                    .unwrap();
+            }
+            run_bridge(
+                &module,
+                r#"
+import json
+def raises(kind, action):
+    try:
+        action()
+    except kind:
+        return
+    raise AssertionError('expected ' + kind.__name__)
+
+program = VerifiedResidualSystem([source], [x_binding])
+data = program.to_bytes()
+restored = VerifiedResidualSystem.from_bytes(data, residuals=[source], variables=[x_binding])
+assert restored.to_bytes() == data
+assert restored.evaluate([1.5]) == ([0.25], [[3.0]])
+raises(ValueError, lambda: VerifiedResidualSystem.from_bytes(data, residuals=[different], variables=[x_binding]))
+document = json.loads(data)
+document['jacobian']['entries'][0]['compiled_deriv']['ops'] = [{'LoadConst': 0.0}]
+changed = json.dumps(document).encode()
+raises(ValueError, lambda: VerifiedResidualSystem.from_bytes(changed, residuals=[source], variables=[x_binding]))
+assert restored.evaluate([1.5]) == ([0.25], [[3.0]])
+budget = EvaluationBudget(max_steps=2**45, max_memory_bytes=2**40, max_allocations=2**30)
+receipt = restored.certify_root_box([(lo, hi)], [center], [[inverse]], 16, budget=budget)
+assert receipt.precision_digits == 16
+assert receipt.variables[0].name == 'x'
+assert budget.remaining_steps < 2**45
+budget.cancel()
+raises(EvaluationCancelled, lambda: restored.enclose([(lo, hi)], 16, budget=budget))
+assert restored.to_bytes() == data
+"#,
+            );
+            let receipt = module.getattr("receipt").unwrap();
+            let receipt = receipt.extract::<PyRef<'_, PyRootBoxReceipt>>().unwrap();
+            assert_eq!(receipt.receipt.residuals(), &[source]);
+            assert_eq!(receipt.receipt.variables(), &[x]);
+            assert!(receipt.receipt.contraction_bound() < &BigRational::from_integer(1.into()));
+            let enclosure = &receipt.receipt.root_enclosure()[0];
+            assert!(&enclosure.lower() * &enclosure.lower() <= BigRational::from_integer(2.into()));
+            assert!(&enclosure.upper() * &enclosure.upper() >= BigRational::from_integer(2.into()));
+        });
     }
 }
