@@ -23,6 +23,9 @@
 
 #![forbid(unsafe_code)]
 
+mod systems;
+pub use systems::*;
+
 use fsym_calculus::{CompiledResidualSystem, VerifiedResidualSystem};
 use fsym_core::{BigInt, BigRational, Expr, RealBall, Symbol};
 use std::collections::HashMap;

@@ -8,6 +8,7 @@ publish = false
 description = "Narrow admitted consumer boundary executing campaign-compiled residuals and Jacobians through pinned FrankenNumPy numeric kernels (fra-rc-adapters-iym, WS12)."
 
 [dependencies]
+fsym-budget.workspace = true
 fsym-calculus.workspace = true
 fsym-core.workspace = true
 fnp-linalg.workspace = true

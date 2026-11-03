@@ -370,6 +370,16 @@ Content-addressed work packets, deterministic leases, transport-neutral worker p
 
 Adapters to FrankenNumPy and FrankenSciPy for compiled kernels, sparse structures, certified/reference lanes, ODE/optimization/quadrature workflows, and exact residual checks.
 
+The implemented `fsym-numeric-consumer` preview admits checked square residual
+systems with 1 through 16 variables. Its general-system boundary uses the pinned
+`fnp_linalg::solve_nxn` and `fsci_opt::fsolve` APIs. The internal dependency on
+L0 `fsym-budget` carries the caller's existing ledger through native evaluation,
+bounded donor work and independent root-box verification. It adds no runtime or
+external dependency. Donor outputs remain approximate proposals; only
+`fsym_core::verify_root_box`, evaluating the retained original expressions over
+the entire proposed box, can produce an accepted root receipt. This bounded
+adapter does not close the suite-wide integration or compatibility gates.
+
 ## 10. Proposed L6 interface crates
 
 ### 10.1 `fsym-protocol`
