@@ -4,6 +4,7 @@
 #![forbid(unsafe_code)]
 
 use crate::diff;
+use fsym_budget::{BudgetMeter, Dimension, MeterError, Unbounded};
 use fsym_core::{BigInt, Constant, Expr, Symbol};
 use serde::de::{Error as _, IgnoredAny, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -59,6 +60,8 @@ pub enum CompileError {
 /// Errors emitted during compiled numerical evaluation.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum EvalError {
+    #[error("Compiled numerical evaluation stopped: {0}")]
+    Meter(#[from] MeterError),
     #[error("Operand stack underflow during bytecode evaluation")]
     StackUnderflow,
     #[error("Operand stack had {0} remaining elements after evaluation (expected 1)")]
@@ -93,6 +96,43 @@ pub enum EvalError {
     NonCanonicalConstant,
     #[error("Compiled numerical evaluation encountered a non-finite input or intermediate value")]
     NonFiniteValue,
+}
+
+/// Charge deterministic logical work before executing it, including a safe
+/// point for zero-sized operations. The caller owns the ledger across phases.
+pub(crate) fn charge_evaluation_steps<M: BudgetMeter + ?Sized>(
+    meter: &mut M,
+    steps: usize,
+) -> Result<(), EvalError> {
+    meter.checkpoint()?;
+    if steps != 0 {
+        let steps = u64::try_from(steps).map_err(|_| EvalError::DimensionOverflow)?;
+        meter.charge(Dimension::ComputeSteps, steps)?;
+    }
+    meter.checkpoint()?;
+    Ok(())
+}
+
+/// Charge cumulative requested f64 scratch/output storage atomically before
+/// allocation. This is logical payload accounting, not allocator RSS tracking;
+/// released temporaries do not replenish a computation's cumulative budget.
+pub(crate) fn charge_evaluation_allocation<M: BudgetMeter + ?Sized>(
+    meter: &mut M,
+    elements: usize,
+) -> Result<(), EvalError> {
+    meter.checkpoint()?;
+    if elements != 0 {
+        let bytes = elements
+            .checked_mul(std::mem::size_of::<f64>())
+            .and_then(|bytes| u64::try_from(bytes).ok())
+            .ok_or(EvalError::DimensionOverflow)?;
+        meter.charge_batch(&[
+            (Dimension::MemoryBytes, bytes),
+            (Dimension::AllocationCount, 1),
+        ])?;
+    }
+    meter.checkpoint()?;
+    Ok(())
 }
 
 /// Fast compiled expression evaluator targeting numerical arrays.
@@ -330,9 +370,8 @@ impl CompiledExpr {
             return Err(CompileError::UnsupportedExponent(exponent.to_string()));
         }
         let value = component
-            .to_string()
-            .parse::<f64>()
-            .map_err(|_| CompileError::UnsupportedExponent(exponent.to_string()))?;
+            .to_f64()
+            .ok_or_else(|| CompileError::UnsupportedExponent(exponent.to_string()))?;
         if !value.is_finite() {
             return Err(CompileError::UnsupportedExponent(exponent.to_string()));
         }
@@ -376,33 +415,22 @@ impl CompiledExpr {
 
         match expr {
             Expr::Integer(n) => {
-                let s = n.to_string();
-                let val = s
-                    .parse::<f64>()
-                    .map_err(|_| CompileError::NumericConversion(s.clone()))?;
-                if !val.is_finite() {
-                    return Err(CompileError::NumericConversion(s));
-                }
+                let val = n
+                    .to_f64()
+                    .filter(|value| value.is_finite())
+                    .ok_or_else(|| CompileError::NumericConversion(n.to_string()))?;
                 Self::push_op(ops, CompiledOp::LoadConst(val))?;
             }
             Expr::Rational(r) => {
-                let numer_s = r.numer().to_string();
-                let denom_s = r.denom().to_string();
-                let numer = numer_s
-                    .parse::<f64>()
-                    .map_err(|_| CompileError::NumericConversion(numer_s.clone()))?;
-                let denom = denom_s
-                    .parse::<f64>()
-                    .map_err(|_| CompileError::NumericConversion(denom_s.clone()))?;
-                if !numer.is_finite() || !denom.is_finite() || denom == 0.0 {
-                    return Err(CompileError::NumericConversion(format!(
-                        "{numer_s}/{denom_s}"
-                    )));
-                }
-                let val = numer / denom;
-                if !val.is_finite() {
-                    return Err(CompileError::NumericConversion(format!("{numer}/{denom}")));
-                }
+                // Round the exact quotient once. Rounding its components first
+                // can change the result or overflow a finite coprime ratio.
+                let val = r
+                    .to_f64()
+                    .filter(|value| value.is_finite())
+                    .ok_or_else(|| CompileError::NumericConversion(r.to_string()))?;
+                // The bytecode format has one canonical zero. This approximate
+                // lane permits finite underflow, including negative rationals.
+                let val = if val == 0.0 { 0.0 } else { val };
                 Self::push_op(ops, CompiledOp::LoadConst(val))?;
             }
             Expr::Const(Constant::Pi) => {
@@ -523,31 +551,66 @@ impl CompiledExpr {
 
     /// Evaluates the compiled expression using a verified operand stack with bounds checks.
     pub fn try_eval(&self, vars: &[f64]) -> Result<f64, EvalError> {
-        self.try_eval_with_policy(vars, false)
+        self.try_eval_with_meter(vars, &mut Unbounded)
+    }
+
+    /// Evaluate with caller-owned cumulative fuel, allocation accounting and
+    /// cancellation. Each instruction and reduction operand is charged before
+    /// execution, and cancellation is checked again before returning a value.
+    /// Compilation and certificate admission are separate, unmetered phases.
+    pub fn try_eval_with_meter<M: BudgetMeter + ?Sized>(
+        &self,
+        vars: &[f64],
+        meter: &mut M,
+    ) -> Result<f64, EvalError> {
+        self.try_eval_with_policy(vars, false, meter)
     }
 
     /// Evaluate in the finite real binary64 lane, rejecting every non-finite
     /// intermediate before a later operation could conceal a domain failure.
     /// This does not certify rounding error or prevent finite underflow.
     pub fn try_eval_finite(&self, vars: &[f64]) -> Result<f64, EvalError> {
-        if vars.iter().any(|value| !value.is_finite()) {
-            return Err(EvalError::NonFiniteValue);
-        }
-        self.try_eval_with_policy(vars, true)
+        self.try_eval_finite_with_meter(vars, &mut Unbounded)
     }
 
-    fn try_eval_with_policy(&self, vars: &[f64], finite_only: bool) -> Result<f64, EvalError> {
+    /// Metered finite-real evaluation; finite binary64 results remain
+    /// approximate and receive no mathematical evidence from the budget.
+    pub fn try_eval_finite_with_meter<M: BudgetMeter + ?Sized>(
+        &self,
+        vars: &[f64],
+        meter: &mut M,
+    ) -> Result<f64, EvalError> {
+        self.try_eval_with_policy(vars, true, meter)
+    }
+
+    fn try_eval_with_policy<M: BudgetMeter + ?Sized>(
+        &self,
+        vars: &[f64],
+        finite_only: bool,
+        meter: &mut M,
+    ) -> Result<f64, EvalError> {
+        meter.checkpoint()?;
         if self.ops.len() > MAX_COMPILE_OPS {
             return Err(EvalError::OpLimitExceeded {
                 ops: self.ops.len(),
                 max: MAX_COMPILE_OPS,
             });
         }
+        if finite_only {
+            for value in vars {
+                charge_evaluation_steps(meter, 1)?;
+                if !value.is_finite() {
+                    return Err(EvalError::NonFiniteValue);
+                }
+            }
+        }
+        charge_evaluation_allocation(meter, self.ops.len())?;
         let mut stack = Vec::new();
         stack
             .try_reserve_exact(self.ops.len())
             .map_err(|_| EvalError::AllocationFailure)?;
         for op in &self.ops {
+            charge_evaluation_steps(meter, 1)?;
             match op {
                 CompiledOp::LoadConst(c) => stack.push(*c),
                 CompiledOp::LoadVar(idx) => {
@@ -563,6 +626,7 @@ impl CompiledExpr {
                 CompiledOp::Add(count) => {
                     let mut sum = 0.0;
                     for _ in 0..*count {
+                        charge_evaluation_steps(meter, 1)?;
                         sum += stack.pop().ok_or(EvalError::StackUnderflow)?;
                     }
                     stack.push(sum);
@@ -570,6 +634,7 @@ impl CompiledExpr {
                 CompiledOp::Mul(count) => {
                     let mut prod = 1.0;
                     for _ in 0..*count {
+                        charge_evaluation_steps(meter, 1)?;
                         prod *= stack.pop().ok_or(EvalError::StackUnderflow)?;
                     }
                     stack.push(prod);
@@ -641,6 +706,7 @@ impl CompiledExpr {
         if stack.len() != 1 {
             return Err(EvalError::StackRemaining(stack.len()));
         }
+        meter.checkpoint()?;
         stack.pop().ok_or(EvalError::StackUnderflow)
     }
 
@@ -716,14 +782,33 @@ impl CompiledResidualSystem {
 
     /// Evaluates the residual vector $\mathbf{f}(\mathbf{x})$ in-place with buffer length validation.
     pub fn try_eval_residuals(&self, x: &[f64], out_res: &mut [f64]) -> Result<(), EvalError> {
+        self.try_eval_residuals_with_meter(x, out_res, &mut Unbounded)
+    }
+
+    /// Evaluate residuals using one caller meter. Every failure leaves the
+    /// output untouched and retains charges for work already attempted.
+    pub fn try_eval_residuals_with_meter<M: BudgetMeter + ?Sized>(
+        &self,
+        x: &[f64],
+        out_res: &mut [f64],
+        meter: &mut M,
+    ) -> Result<(), EvalError> {
+        meter.checkpoint()?;
         if out_res.len() != self.num_residuals {
             return Err(EvalError::ResidualBufferMismatch {
                 expected: self.num_residuals,
                 actual: out_res.len(),
             });
         }
-        let evaluated =
-            Self::evaluate_batch(&self.compiled_residuals, x, self.num_residuals, "residual")?;
+        let evaluated = Self::evaluate_batch_with_meter(
+            &self.compiled_residuals,
+            x,
+            self.num_residuals,
+            "residual",
+            meter,
+        )?;
+        charge_evaluation_steps(meter, out_res.len())?;
+        meter.checkpoint()?;
         out_res.copy_from_slice(&evaluated);
         Ok(())
     }
@@ -736,6 +821,18 @@ impl CompiledResidualSystem {
 
     /// Evaluates the flat Jacobian matrix $J_{i, j}$ in-place (row-major: $i \times n + j$).
     pub fn try_eval_jacobian(&self, x: &[f64], out_jac: &mut [f64]) -> Result<(), EvalError> {
+        self.try_eval_jacobian_with_meter(x, out_jac, &mut Unbounded)
+    }
+
+    /// Evaluate the Jacobian after its original sources, sharing one meter
+    /// across both phases and publishing only after a final safe point.
+    pub fn try_eval_jacobian_with_meter<M: BudgetMeter + ?Sized>(
+        &self,
+        x: &[f64],
+        out_jac: &mut [f64],
+        meter: &mut M,
+    ) -> Result<(), EvalError> {
+        meter.checkpoint()?;
         let expected = self
             .num_residuals
             .checked_mul(self.num_vars)
@@ -748,8 +845,22 @@ impl CompiledResidualSystem {
         }
         // Differentiation can erase a source-domain obligation. Check the
         // original sources before publishing even a derivative-only result.
-        Self::evaluate_batch(&self.compiled_residuals, x, self.num_residuals, "residual")?;
-        let evaluated = Self::evaluate_batch(&self.compiled_jacobian, x, expected, "Jacobian")?;
+        Self::evaluate_batch_with_meter(
+            &self.compiled_residuals,
+            x,
+            self.num_residuals,
+            "residual",
+            meter,
+        )?;
+        let evaluated = Self::evaluate_batch_with_meter(
+            &self.compiled_jacobian,
+            x,
+            expected,
+            "Jacobian",
+            meter,
+        )?;
+        charge_evaluation_steps(meter, out_jac.len())?;
+        meter.checkpoint()?;
         out_jac.copy_from_slice(&evaluated);
         Ok(())
     }
@@ -767,6 +878,20 @@ impl CompiledResidualSystem {
         out_res: &mut [f64],
         out_jac: &mut [f64],
     ) -> Result<(), EvalError> {
+        self.try_eval_system_with_meter(x, out_res, out_jac, &mut Unbounded)
+    }
+
+    /// Evaluate both lanes transactionally with a single cumulative ledger.
+    /// Exhaustion or cancellation in the derivative or publication phase
+    /// cannot expose an already-computed residual vector.
+    pub fn try_eval_system_with_meter<M: BudgetMeter + ?Sized>(
+        &self,
+        x: &[f64],
+        out_res: &mut [f64],
+        out_jac: &mut [f64],
+        meter: &mut M,
+    ) -> Result<(), EvalError> {
+        meter.checkpoint()?;
         if out_res.len() != self.num_residuals {
             return Err(EvalError::ResidualBufferMismatch {
                 expected: self.num_residuals,
@@ -783,9 +908,26 @@ impl CompiledResidualSystem {
                 actual: out_jac.len(),
             });
         }
-        let residuals =
-            Self::evaluate_batch(&self.compiled_residuals, x, self.num_residuals, "residual")?;
-        let jacobian = Self::evaluate_batch(&self.compiled_jacobian, x, jacobian_len, "Jacobian")?;
+        let residuals = Self::evaluate_batch_with_meter(
+            &self.compiled_residuals,
+            x,
+            self.num_residuals,
+            "residual",
+            meter,
+        )?;
+        let jacobian = Self::evaluate_batch_with_meter(
+            &self.compiled_jacobian,
+            x,
+            jacobian_len,
+            "Jacobian",
+            meter,
+        )?;
+        let published = out_res
+            .len()
+            .checked_add(out_jac.len())
+            .ok_or(EvalError::DimensionOverflow)?;
+        charge_evaluation_steps(meter, published)?;
+        meter.checkpoint()?;
         out_res.copy_from_slice(&residuals);
         out_jac.copy_from_slice(&jacobian);
         Ok(())
@@ -897,6 +1039,17 @@ impl CompiledResidualSystem {
         expected: usize,
         lane: &'static str,
     ) -> Result<Vec<f64>, EvalError> {
+        Self::evaluate_batch_with_meter(expressions, x, expected, lane, &mut Unbounded)
+    }
+
+    fn evaluate_batch_with_meter<M: BudgetMeter + ?Sized>(
+        expressions: &[CompiledExpr],
+        x: &[f64],
+        expected: usize,
+        lane: &'static str,
+        meter: &mut M,
+    ) -> Result<Vec<f64>, EvalError> {
+        meter.checkpoint()?;
         if expressions.len() != expected {
             return Err(EvalError::CompiledExpressionCountMismatch {
                 lane,
@@ -904,13 +1057,16 @@ impl CompiledResidualSystem {
                 actual: expressions.len(),
             });
         }
+        charge_evaluation_allocation(meter, expected)?;
         let mut evaluated = Vec::new();
         evaluated
             .try_reserve_exact(expected)
             .map_err(|_| EvalError::AllocationFailure)?;
         for expression in expressions {
-            evaluated.push(expression.try_eval(x)?);
+            charge_evaluation_steps(meter, 1)?;
+            evaluated.push(expression.try_eval_with_meter(x, meter)?);
         }
+        meter.checkpoint()?;
         Ok(evaluated)
     }
 }

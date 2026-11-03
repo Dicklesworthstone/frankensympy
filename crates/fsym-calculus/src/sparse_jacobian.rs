@@ -4,8 +4,10 @@
 
 use crate::compile::{
     CompileError, CompiledExpr, CompiledOp, EvalError, MAX_COMPILE_DEPTH, MAX_COMPILE_OPS,
+    charge_evaluation_allocation, charge_evaluation_steps,
 };
 use crate::proof::{reference_sub_derivative, verified_diff, verify_diff_derivation};
+use fsym_budget::{BudgetMeter, Dimension, Unbounded};
 use fsym_core::{BigInt, Constant, Expr, Symbol};
 use fsym_proof_kernel::DerivationTree;
 use serde::{Deserialize, Serialize};
@@ -161,6 +163,28 @@ pub enum JacobianVerificationError {
     Eval(#[from] EvalError),
 }
 
+/// Logical table storage is charged before requesting its allocation. This is
+/// payload accounting rather than instrumentation of the standard allocator.
+fn charge_structure_allocation<M: BudgetMeter + ?Sized, T>(
+    meter: &mut M,
+    count: usize,
+) -> Result<(), EvalError> {
+    charge_evaluation_steps(meter, 0)?;
+    if count != 0 {
+        let bytes = count
+            .checked_mul(std::mem::size_of::<T>())
+            .ok_or(EvalError::DimensionOverflow)?;
+        meter.charge_batch(&[
+            (
+                Dimension::MemoryBytes,
+                u64::try_from(bytes).map_err(|_| EvalError::DimensionOverflow)?,
+            ),
+            (Dimension::AllocationCount, 1),
+        ])?;
+    }
+    Ok(())
+}
+
 impl SparseJacobian {
     /// Builds a compiled sparse Jacobian system with verified differentiation proofs and graph coloring.
     pub fn try_build(residuals: &[Expr], vars: &[Symbol]) -> Result<Self, CompileError> {
@@ -269,6 +293,17 @@ impl SparseJacobian {
     /// [`verify_sparse_jacobian_certificate`] to check the derivatives and their
     /// compiled programs. Public fields and deserialized objects are untrusted.
     pub fn validate_structure(&self) -> Result<(), JacobianVerificationError> {
+        self.validate_structure_with_meter(&mut Unbounded)
+    }
+
+    /// Cancellable representation checks with cumulative work and logical
+    /// scratch-storage accounting. This does not perform or replace symbolic
+    /// certificate verification.
+    pub fn validate_structure_with_meter<M: BudgetMeter + ?Sized>(
+        &self,
+        meter: &mut M,
+    ) -> Result<(), JacobianVerificationError> {
+        charge_evaluation_steps(meter, 1)?;
         let m = self.pattern.num_rows;
         let n = self.pattern.num_cols;
         m.checked_mul(n).ok_or(EvalError::DimensionOverflow)?;
@@ -294,11 +329,16 @@ impl SparseJacobian {
         }
 
         let mut variables = HashSet::new();
+        charge_structure_allocation::<_, &Symbol>(meter, n)?;
         variables
             .try_reserve(n)
             .map_err(|_| EvalError::AllocationFailure)?;
         for variable in &self.vars {
+            // The full symbol name participates in hashing. Charge its bytes
+            // as well as the fixed-size typed identity before the lookup.
+            charge_evaluation_steps(meter, variable.name.len().saturating_add(1))?;
             if !variables.insert(variable) {
+                charge_structure_allocation::<_, u8>(meter, variable.name.len())?;
                 return Err(JacobianVerificationError::DuplicateVariable(
                     variable.clone(),
                 ));
@@ -308,6 +348,7 @@ impl SparseJacobian {
         for (index, (&(row, col), entry)) in
             self.pattern.nonzeros.iter().zip(&self.entries).enumerate()
         {
+            charge_evaluation_steps(meter, 1)?;
             for (r, c) in [(row, col), (entry.row, entry.col)] {
                 if r >= m || c >= n {
                     return Err(JacobianVerificationError::OutOfBounds {
@@ -338,10 +379,12 @@ impl SparseJacobian {
             });
         }
         let mut used_colors = HashSet::new();
+        charge_structure_allocation::<_, usize>(meter, self.num_colors)?;
         used_colors
             .try_reserve(self.num_colors)
             .map_err(|_| EvalError::AllocationFailure)?;
         for (column, &color) in self.column_colors.iter().enumerate() {
+            charge_evaluation_steps(meter, 1)?;
             if color >= self.num_colors {
                 return Err(JacobianVerificationError::ColorOutOfBounds {
                     column,
@@ -358,12 +401,15 @@ impl SparseJacobian {
         }
 
         let mut row_colors = HashMap::new();
+        charge_structure_allocation::<_, (usize, usize)>(meter, n.min(self.entries.len()))?;
         row_colors
             .try_reserve(n.min(self.entries.len()))
             .map_err(|_| EvalError::AllocationFailure)?;
         let mut previous_row = None;
         for entry in &self.entries {
+            charge_evaluation_steps(meter, 1)?;
             if previous_row != Some(entry.row) {
+                charge_evaluation_steps(meter, row_colors.len())?;
                 row_colors.clear();
                 previous_row = Some(entry.row);
             }
@@ -377,6 +423,7 @@ impl SparseJacobian {
                 });
             }
         }
+        charge_evaluation_steps(meter, 0)?;
         Ok(())
     }
 
@@ -400,14 +447,30 @@ impl SparseJacobian {
     /// Evaluates the sparse Jacobian non-zero entries into a contiguous values slice.
     /// A failure leaves the caller's buffer unchanged.
     pub fn try_eval_sparse(&self, x: &[f64], out_values: &mut [f64]) -> Result<(), EvalError> {
-        self.validate_for_evaluation()?;
+        self.try_eval_sparse_with_meter(x, out_values, &mut Unbounded)
+    }
+
+    /// Evaluates with one cumulative caller meter, including structural checks,
+    /// scratch allocation and output publication. Cancellation or exhaustion
+    /// leaves the output unchanged. This does not grant mathematical evidence
+    /// to an unverified sparse program.
+    pub fn try_eval_sparse_with_meter<M: BudgetMeter + ?Sized>(
+        &self,
+        x: &[f64],
+        out_values: &mut [f64],
+        meter: &mut M,
+    ) -> Result<(), EvalError> {
+        self.validate_for_evaluation_with_meter(meter)?;
         if out_values.len() != self.entries.len() {
             return Err(EvalError::JacobianBufferMismatch {
                 expected: self.entries.len(),
                 actual: out_values.len(),
             });
         }
-        let evaluated = self.evaluate_entries(x)?;
+        let evaluated = self.evaluate_entries_with_meter(x, meter)?;
+        charge_evaluation_steps(meter, out_values.len())?;
+        // Everything fallible precedes the single publication boundary.
+        meter.checkpoint()?;
         out_values.copy_from_slice(&evaluated);
         Ok(())
     }
@@ -415,7 +478,18 @@ impl SparseJacobian {
     /// Evaluates the sparse Jacobian into a dense row-major buffer.
     /// A failure leaves the caller's buffer unchanged.
     pub fn try_eval_dense(&self, x: &[f64], out_dense: &mut [f64]) -> Result<(), EvalError> {
-        self.validate_for_evaluation()?;
+        self.try_eval_dense_with_meter(x, out_dense, &mut Unbounded)
+    }
+
+    /// Dense expansion of the metered sparse values, publishing only after all
+    /// entries, output work and the final cancellation safe point succeed.
+    pub fn try_eval_dense_with_meter<M: BudgetMeter + ?Sized>(
+        &self,
+        x: &[f64],
+        out_dense: &mut [f64],
+        meter: &mut M,
+    ) -> Result<(), EvalError> {
+        self.validate_for_evaluation_with_meter(meter)?;
         let expected = self
             .pattern
             .num_rows
@@ -427,7 +501,14 @@ impl SparseJacobian {
                 actual: out_dense.len(),
             });
         }
-        let evaluated = self.evaluate_entries(x)?;
+        let evaluated = self.evaluate_entries_with_meter(x, meter)?;
+        charge_evaluation_steps(
+            meter,
+            expected
+                .checked_add(self.entries.len())
+                .ok_or(EvalError::DimensionOverflow)?,
+        )?;
+        meter.checkpoint()?;
         out_dense.fill(0.0);
         for (entry, val) in self.entries.iter().zip(evaluated) {
             out_dense[entry.row * self.pattern.num_cols + entry.col] = val;
@@ -442,7 +523,18 @@ impl SparseJacobian {
         x: &[f64],
         out_compressed: &mut [f64],
     ) -> Result<(), EvalError> {
-        self.validate_for_evaluation()?;
+        self.try_eval_compressed_with_meter(x, out_compressed, &mut Unbounded)
+    }
+
+    /// Color-compressed evaluation with transactional output and one meter
+    /// shared by every entry and the complete publication step.
+    pub fn try_eval_compressed_with_meter<M: BudgetMeter + ?Sized>(
+        &self,
+        x: &[f64],
+        out_compressed: &mut [f64],
+        meter: &mut M,
+    ) -> Result<(), EvalError> {
+        self.validate_for_evaluation_with_meter(meter)?;
         let expected = self
             .pattern
             .num_rows
@@ -454,7 +546,14 @@ impl SparseJacobian {
                 actual: out_compressed.len(),
             });
         }
-        let evaluated = self.evaluate_entries(x)?;
+        let evaluated = self.evaluate_entries_with_meter(x, meter)?;
+        charge_evaluation_steps(
+            meter,
+            expected
+                .checked_add(self.entries.len())
+                .ok_or(EvalError::DimensionOverflow)?,
+        )?;
+        meter.checkpoint()?;
         out_compressed.fill(0.0);
         for (entry, val) in self.entries.iter().zip(evaluated) {
             let col_color = self.column_colors[entry.col];
@@ -463,18 +562,32 @@ impl SparseJacobian {
         Ok(())
     }
 
-    fn validate_for_evaluation(&self) -> Result<(), EvalError> {
-        self.validate_structure()
-            .map_err(|error| EvalError::InvalidSparseJacobian(error.to_string()))
+    fn validate_for_evaluation_with_meter<M: BudgetMeter + ?Sized>(
+        &self,
+        meter: &mut M,
+    ) -> Result<(), EvalError> {
+        self.validate_structure_with_meter(meter)
+            .map_err(|error| match error {
+                // Meter refusals must remain typed outcomes, not malformed
+                // certificate messages that a caller might retry.
+                JacobianVerificationError::Eval(error @ EvalError::Meter(_)) => error,
+                error => EvalError::InvalidSparseJacobian(error.to_string()),
+            })
     }
 
-    fn evaluate_entries(&self, x: &[f64]) -> Result<Vec<f64>, EvalError> {
+    fn evaluate_entries_with_meter<M: BudgetMeter + ?Sized>(
+        &self,
+        x: &[f64],
+        meter: &mut M,
+    ) -> Result<Vec<f64>, EvalError> {
         let mut evaluated = Vec::new();
+        charge_evaluation_allocation(meter, self.entries.len())?;
         evaluated
             .try_reserve_exact(self.entries.len())
             .map_err(|_| EvalError::AllocationFailure)?;
         for entry in &self.entries {
-            evaluated.push(entry.compiled_deriv.try_eval(x)?);
+            charge_evaluation_steps(meter, 1)?;
+            evaluated.push(entry.compiled_deriv.try_eval_with_meter(x, meter)?);
         }
         Ok(evaluated)
     }
@@ -642,15 +755,10 @@ pub fn compiled_expression_matches(
         }
 
         fn number(value: &BigInt) -> Result<f64, CompileError> {
-            let encoded = value.to_string();
-            let converted = encoded
-                .parse::<f64>()
-                .map_err(|_| CompileError::NumericConversion(encoded.clone()))?;
-            if converted.is_finite() {
-                Ok(converted)
-            } else {
-                Err(CompileError::NumericConversion(encoded))
-            }
+            value
+                .to_f64()
+                .filter(|converted| converted.is_finite())
+                .ok_or_else(|| CompileError::NumericConversion(value.to_string()))
         }
 
         fn exponent_component(value: &BigInt) -> Result<f64, CompileError> {
@@ -670,13 +778,11 @@ pub fn compiled_expression_matches(
             let operation = match expr {
                 Expr::Integer(integer) => CompiledOp::LoadConst(Self::number(integer)?),
                 Expr::Rational(rational) => {
-                    let numerator = Self::number(rational.numer())?;
-                    let denominator = Self::number(rational.denom())?;
-                    let value = numerator / denominator;
-                    if !value.is_finite() || denominator == 0.0 {
-                        return Err(CompileError::NumericConversion(rational.to_string()));
-                    }
-                    CompiledOp::LoadConst(value)
+                    let value = rational
+                        .to_f64()
+                        .filter(|converted| converted.is_finite())
+                        .ok_or_else(|| CompileError::NumericConversion(rational.to_string()))?;
+                    CompiledOp::LoadConst(if value == 0.0 { 0.0 } else { value })
                 }
                 Expr::Const(constant) => CompiledOp::LoadConst(match constant {
                     Constant::Pi => std::f64::consts::PI,

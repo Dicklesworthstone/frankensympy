@@ -4,16 +4,22 @@
 //! including all omitted zeros and compiled instruction provenance. These are
 //! formal derivatives on their common smooth domain, with approximate binary64
 //! evaluation. They do not prove convexity, interval accuracy or global C2
-//! regularity. Admission caps bound this synchronous lane; they are not an
-//! asupersync cancellation protocol or an exact runtime-fuel accounting claim.
+//! regularity. Compilation and symbolic acceptance retain admission caps;
+//! numerical evaluation can consume a caller's cumulative budget and observe
+//! cancellation at operand, derivative, reduction and publication safe points.
+//! Evaluation metering does not claim metered compilation or proof replay.
 
 #![forbid(unsafe_code)]
 
-use crate::compile::{CompileError, CompiledExpr, CompiledOp, EvalError, MAX_COMPILE_OPS};
+use crate::compile::{
+    CompileError, CompiledExpr, CompiledOp, EvalError, MAX_COMPILE_OPS,
+    charge_evaluation_allocation, charge_evaluation_steps,
+};
 use crate::sparse_jacobian::{
     JacobianVerificationError, SparseJacobian, compiled_expression_matches,
     verify_sparse_jacobian_certificate,
 };
+use fsym_budget::{BudgetMeter, Unbounded};
 use fsym_core::{Expr, Symbol};
 use fsym_proof_kernel::{Claim, DerivationTree, ProofRule, StepId, derivation_verification_units};
 use std::collections::HashMap;
@@ -527,7 +533,13 @@ impl VerifiedObjective {
         &self.candidate
     }
 
-    fn input(&self, values: &[f64], lane: &'static str) -> Result<(), ObjectiveEvaluationError> {
+    fn input_with_meter<M: BudgetMeter + ?Sized>(
+        &self,
+        values: &[f64],
+        lane: &'static str,
+        meter: &mut M,
+    ) -> Result<(), ObjectiveEvaluationError> {
+        charge_evaluation_steps(meter, 1)?;
         if values.len() != self.variables().len() {
             return Err(ObjectiveEvaluationError::Dimension {
                 lane,
@@ -535,32 +547,66 @@ impl VerifiedObjective {
                 actual: values.len(),
             });
         }
-        if values.iter().any(|value| !value.is_finite()) {
-            return Err(ObjectiveEvaluationError::NonFinite);
+        for value in values {
+            charge_evaluation_steps(meter, 1)?;
+            if !value.is_finite() {
+                return Err(ObjectiveEvaluationError::NonFinite);
+            }
         }
         Ok(())
     }
 
-    fn first_order(&self, point: &[f64]) -> Result<(f64, Vec<f64>), ObjectiveEvaluationError> {
-        self.input(point, "point")?;
-        let value = self.candidate.compiled_objective.try_eval_finite(point)?;
-        let gradient = self
-            .compiled_gradient
-            .iter()
-            .map(|entry| entry.try_eval_finite(point))
-            .collect::<Result<Vec<_>, _>>()?;
+    fn first_order_with_meter<M: BudgetMeter + ?Sized>(
+        &self,
+        point: &[f64],
+        meter: &mut M,
+    ) -> Result<(f64, Vec<f64>), ObjectiveEvaluationError> {
+        self.input_with_meter(point, "point", meter)?;
+        let value = self
+            .candidate
+            .compiled_objective
+            .try_eval_finite_with_meter(point, meter)?;
+        charge_evaluation_allocation(meter, self.compiled_gradient.len())?;
+        let mut gradient = Vec::new();
+        gradient
+            .try_reserve_exact(self.compiled_gradient.len())
+            .map_err(|_| EvalError::AllocationFailure)?;
+        for entry in &self.compiled_gradient {
+            charge_evaluation_steps(meter, 1)?;
+            gradient.push(entry.try_eval_finite_with_meter(point, meter)?);
+        }
         Ok((value, gradient))
     }
 
     pub fn evaluate(&self, point: &[f64]) -> Result<ObjectiveEvaluation, ObjectiveEvaluationError> {
-        let (value, gradient) = self.first_order(point)?;
-        let hessian = self
-            .candidate
-            .hessian
-            .entries
-            .iter()
-            .map(|entry| entry.compiled_deriv.try_eval_finite(point))
-            .collect::<Result<Vec<_>, _>>()?;
+        self.evaluate_with_meter(point, &mut Unbounded)
+    }
+
+    /// Evaluates the already checked source and both derivative stages using
+    /// one cumulative meter. Every original domain check still executes, and a
+    /// cancelled or exhausted evaluation publishes no partial result. Scratch
+    /// and result vectors use logical allocation accounting; binary64 values
+    /// remain approximate.
+    pub fn evaluate_with_meter<M: BudgetMeter + ?Sized>(
+        &self,
+        point: &[f64],
+        meter: &mut M,
+    ) -> Result<ObjectiveEvaluation, ObjectiveEvaluationError> {
+        let (value, gradient) = self.first_order_with_meter(point, meter)?;
+        charge_evaluation_allocation(meter, self.candidate.hessian.entries.len())?;
+        let mut hessian = Vec::new();
+        hessian
+            .try_reserve_exact(self.candidate.hessian.entries.len())
+            .map_err(|_| EvalError::AllocationFailure)?;
+        for entry in &self.candidate.hessian.entries {
+            charge_evaluation_steps(meter, 1)?;
+            hessian.push(
+                entry
+                    .compiled_deriv
+                    .try_eval_finite_with_meter(point, meter)?,
+            );
+        }
+        charge_evaluation_steps(meter, 1)?;
         Ok(ObjectiveEvaluation {
             value,
             gradient,
@@ -575,6 +621,20 @@ impl VerifiedObjective {
         gradient: &mut [f64],
         hessian: &mut [f64],
     ) -> Result<f64, ObjectiveEvaluationError> {
+        self.try_eval_into_with_meter(point, gradient, hessian, &mut Unbounded)
+    }
+
+    /// Transactional caller-owned output with the same evaluation accounting.
+    /// Both copies are charged and cancellation is checked before either
+    /// caller buffer is changed.
+    pub fn try_eval_into_with_meter<M: BudgetMeter + ?Sized>(
+        &self,
+        point: &[f64],
+        gradient: &mut [f64],
+        hessian: &mut [f64],
+        meter: &mut M,
+    ) -> Result<f64, ObjectiveEvaluationError> {
+        charge_evaluation_steps(meter, 1)?;
         for (lane, expected, actual) in [
             ("gradient output", self.variables().len(), gradient.len()),
             (
@@ -591,7 +651,15 @@ impl VerifiedObjective {
                 });
             }
         }
-        let result = self.evaluate(point)?;
+        let result = self.evaluate_with_meter(point, meter)?;
+        charge_evaluation_steps(
+            meter,
+            gradient
+                .len()
+                .checked_add(hessian.len())
+                .ok_or(EvalError::DimensionOverflow)?,
+        )?;
+        charge_evaluation_steps(meter, 0)?;
         gradient.copy_from_slice(&result.gradient);
         hessian.copy_from_slice(&result.hessian);
         Ok(result.value)
@@ -604,11 +672,32 @@ impl VerifiedObjective {
         point: &[f64],
         direction: &[f64],
     ) -> Result<Vec<f64>, ObjectiveEvaluationError> {
-        self.input(direction, "direction")?;
-        self.first_order(point)?;
-        let mut result = vec![0.0; self.variables().len()];
+        self.hessian_vector_product_with_meter(point, direction, &mut Unbounded)
+    }
+
+    /// Sparse Hessian multiplication using the caller meter for the source,
+    /// gradient, each second derivative, each multiply/add, and result storage.
+    /// A zero direction cannot skip a source or derivative domain check.
+    pub fn hessian_vector_product_with_meter<M: BudgetMeter + ?Sized>(
+        &self,
+        point: &[f64],
+        direction: &[f64],
+        meter: &mut M,
+    ) -> Result<Vec<f64>, ObjectiveEvaluationError> {
+        self.input_with_meter(direction, "direction", meter)?;
+        self.first_order_with_meter(point, meter)?;
+        charge_evaluation_allocation(meter, self.variables().len())?;
+        let mut result = Vec::new();
+        result
+            .try_reserve_exact(self.variables().len())
+            .map_err(|_| EvalError::AllocationFailure)?;
+        charge_evaluation_steps(meter, self.variables().len())?;
+        result.resize(self.variables().len(), 0.0);
         for entry in &self.candidate.hessian.entries {
-            let value = entry.compiled_deriv.try_eval_finite(point)?;
+            let value = entry
+                .compiled_deriv
+                .try_eval_finite_with_meter(point, meter)?;
+            charge_evaluation_steps(meter, 2)?;
             let contribution = value * direction[entry.col];
             let sum = result[entry.row] + contribution;
             if !contribution.is_finite() || !sum.is_finite() {
@@ -616,6 +705,7 @@ impl VerifiedObjective {
             }
             result[entry.row] = sum;
         }
+        charge_evaluation_steps(meter, 1)?;
         Ok(result)
     }
 
@@ -625,6 +715,19 @@ impl VerifiedObjective {
         direction: &[f64],
         output: &mut [f64],
     ) -> Result<(), ObjectiveEvaluationError> {
+        self.try_hessian_vector_product_into_with_meter(point, direction, output, &mut Unbounded)
+    }
+
+    /// Publishes the complete sparse product only after all evaluation,
+    /// reduction, copy charges and the final cancellation check succeed.
+    pub fn try_hessian_vector_product_into_with_meter<M: BudgetMeter + ?Sized>(
+        &self,
+        point: &[f64],
+        direction: &[f64],
+        output: &mut [f64],
+        meter: &mut M,
+    ) -> Result<(), ObjectiveEvaluationError> {
+        charge_evaluation_steps(meter, 1)?;
         if output.len() != self.variables().len() {
             return Err(ObjectiveEvaluationError::Dimension {
                 lane: "Hessian product output",
@@ -632,7 +735,9 @@ impl VerifiedObjective {
                 actual: output.len(),
             });
         }
-        let result = self.hessian_vector_product(point, direction)?;
+        let result = self.hessian_vector_product_with_meter(point, direction, meter)?;
+        charge_evaluation_steps(meter, output.len())?;
+        charge_evaluation_steps(meter, 0)?;
         output.copy_from_slice(&result);
         Ok(())
     }
