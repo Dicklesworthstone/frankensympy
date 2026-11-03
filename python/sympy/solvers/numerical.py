@@ -3,7 +3,7 @@
 import math
 
 from ..core import (
-    Add, Eq, Float, Mul, _ExactDecimalFloat, _admitted_python_float,
+    Add, Basic, Eq, Float, Mul, Relational, _ExactDecimalFloat, _admitted_python_float,
     _require_symbol, diff,
 )
 from ..utilities.lambdify import (
@@ -19,6 +19,8 @@ _MAX_JACOBIAN_ENTRIES = 4096
 _MAX_LINE_SEARCH_STEPS = 64
 _MAX_SYSTEM_EVALUATIONS = 4096
 _MAX_LINEAR_WORK = 20_000_000
+_RELATIONAL_SIDES = Relational.__dict__["_relational_sides"]
+_TYPE_MRO = type.__dict__["__mro__"]
 
 
 class RootSearchError(ValueError):
@@ -48,9 +50,21 @@ def _finite_real(value, name):
 
 def _equation_residual(value):
     if type(value) is Eq:
+        try:
+            sides = _RELATIONAL_SIDES.__get__(value, Relational)
+        except AttributeError:
+            raise NotImplementedError(
+                "numerical equations require retained Python sides; "
+                "reconstruct Eq from explicit operands"
+            ) from None
+        if (type(sides) is not tuple or len(sides) != 2
+                or any(not any(base is Basic for base in _TYPE_MRO.__get__(type(side), type))
+                       for side in sides)):
+            raise ValueError("numerical equation source requires an exact captured pair of Basic sides")
         # Held built-in constructors do not run evaluation hooks on either
-        # side. Closed numerical lowering will reject any opaque children.
-        return Add(value.lhs, Mul(-1, value.rhs, evaluate=False), evaluate=False)
+        # side. Never use public operand getters or name-based native lifting;
+        # closed numerical lowering will reject any opaque retained children.
+        return Add(sides[0], Mul(-1, sides[1], evaluate=False), evaluate=False)
     return value
 
 

@@ -496,6 +496,25 @@ The Python `compile_numeric` constructor retains its existing separate
 admission contract; its callable's numerical `budget=` does not meter construction.
 Checked binary64 lowering does not certify rounding error or numerical roots.
 
+Python compilation for the native numerical engine reads retained built-in argument slots and
+bounded native syntax directly. Native-only scalar trees and matrix storage
+receive borrowed whole-source preflight before child/cell copies. They do not
+reconstruct Python classes from function names. Unsupported custom nodes and
+unknown native function tags refuse without running their constructors, argument
+properties or setters. Only the existing built-in source-tag mapping is
+normalized; unregistered alias tags remain unsupported.
+This admission path is shared by scalar, residual and objective compilation and
+the expected-source check when loading a residual program.
+The separate `lambdify(..., modules="math")` source interpreter is outside this
+native admission contract.
+
+Matrix sources use captured retained cells when present, or bounded native cell
+snapshots when no Python surface survives. Typed native symbol identities remain
+intact. Float-origin syntax remains marked inexact even when its binary64 value
+is represented by an exact rational during lowering, so it cannot enter exact
+source certification. These source-admission bounds remain separate from the
+evaluation ledger and do not promise full compatibility for opaque arithmetic.
+
 Compiled binary64 evaluation accepts a caller-owned cumulative ledger. Native
 `CompiledExpr::try_eval_with_meter` retains ordinary IEEE evaluation;
 `try_eval_finite_with_meter` rejects nonfinite inputs and intermediate values.
@@ -808,6 +827,10 @@ native-only storage, arithmetic and atomic sides remain supported after a
 bounded preflight; function-bearing sides refuse because their original Python
 class provenance is unavailable. Supply an equation built from the actual
 operand objects to retain that provenance.
+The general `nsolve` and `nsolve_certified` equation adapter requires that
+retained operand pair and refuses a native-only Eq before lifting any child.
+Pass an Eq constructed from actual Python operands, or supply residual
+expressions directly.
 
 `solve(initial, *, tol=1e-12, maxiter=200, budget=None, session=None)` returns
 an approximate column Matrix. It reuses ordinary system `nsolve`'s equilibrated,

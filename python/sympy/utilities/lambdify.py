@@ -13,13 +13,14 @@ import math
 import operator
 
 from ..core import (
-    Abs, Add, Basic, Dummy, Expr, Float, Integer, Mul, Pow, Rational, Symbol,
-    _ExactDecimalFloat, _admitted_python_float, _exact_ratio, _exact_surface_types,
+    Abs, Add, Basic, Dummy, Expr, Float, Function, Integer, Mul, Pow, Rational, Symbol,
+    _ExactDecimalFloat, _FLOAT_INTERN, _admitted_python_float, _bits_to_float,
+    _exact_ratio, _exact_surface_types,
     _native, _native_expr, _require_symbol, _symbol_binding, _wrap,
 )
 
 __all__ = [
-    "EvaluationBudget", "EvaluationBudgetExceeded", "EvaluationCancelled",
+    "EvaluationBudget", "EvaluationBudgetExceeded", "EvaluationCancelled", "NumericRootCandidate",
     "compile_numeric", "compile_residual_system", "load_residual_system", "lambdify",
 ]
 
@@ -37,6 +38,20 @@ _MAX_INTEGER_RESULT_BITS = 65_536
 _MAX_BATCH_ROWS = 4096
 _MAX_BATCH_VALUES = 262_144
 _MAX_VERIFIED_PROGRAM_BYTES = 16 * 1024 * 1024
+_BASIC_VALUE = Basic.__dict__["_value"]
+_FUNCTION_ARGS = Function.__dict__["_args"]
+# Native source tags already emitted by the admitted shell classes. These are
+# an IR vocabulary, never names used to recover a Python class. In particular,
+# ln/abs/sqrt are not additional source aliases: opaque classes can use them.
+_CLOSED_NATIVE_FUNCTIONS = {
+    "sin": "sin", "cos": "cos", "tan": "tan",
+    "asin": "asin", "acos": "acos", "atan": "atan",
+    "sinh": "sinh", "cosh": "cosh", "tanh": "tanh",
+    "asinh": "asinh", "acosh": "acosh", "atanh": "atanh",
+    "exp": "exp", "log": "log", "Abs": "abs",
+    "floor": "floor", "ceiling": "ceiling", "gamma": "gamma",
+    "erf": "erf", "erfc": "erfc", "factorial": "factorial",
+}
 
 
 def _check_evaluation_budget(budget):
@@ -143,6 +158,44 @@ def _call_arguments(layout, supplied, *, native):
     return flat
 
 
+def _numeric_matrix_snapshot(value):
+    """Capture exact matrix cells without entering Python class-name lifting."""
+    from ..matrices import SparseMatrix
+
+    matrix = object.__getattribute__(value, "_native")
+    # This borrows every native cell, bounding dimensions and source payloads
+    # before indexing can clone an expression or any Python getter can lift it.
+    _native.CompiledFunction._validate_matrix_source(matrix)
+    rows, columns = matrix.shape
+    if type(value) is SparseMatrix:
+        surface, generation = None, None
+    else:
+        surface = object.__getattribute__(value, "_surface")
+        generation = object.__getattribute__(value, "_mutation_generation")
+        if type(generation) is not int:
+            raise ValueError("numeric matrix has an invalid mutation generation")
+    size = rows * columns
+    if surface is not None:
+        if (type(surface) is not list and type(surface) is not tuple) or len(surface) != size:
+            raise ValueError("numeric matrix has an invalid retained source snapshot")
+        try:
+            entries = tuple(surface[index] for index in range(size))
+        except IndexError:
+            raise ValueError("numeric matrix changed during its source snapshot") from None
+        if len(surface) != size:
+            raise ValueError("numeric matrix changed during its source snapshot")
+    else:
+        entries = tuple(matrix[(row, column)] for row in range(rows) for column in range(columns))
+    if (object.__getattribute__(value, "_native") is not matrix or matrix.shape != (rows, columns)
+            or (generation is not None and (
+                type(object.__getattribute__(value, "_mutation_generation")) is not int
+                or object.__getattribute__(value, "_mutation_generation") != generation
+                or object.__getattribute__(value, "_surface") is not surface
+            ))):
+        raise ValueError("numeric matrix changed during its source snapshot")
+    return rows, columns, entries
+
+
 def _outputs(expression, convert, *, native):
     from ..matrices import Matrix, ImmutableDenseMatrix, SparseMatrix
 
@@ -150,20 +203,18 @@ def _outputs(expression, convert, *, native):
 
     def visit(value, depth):
         _charge(count, depth, container=True)
-        if type(value) in (list, tuple):
+        cls = type(value)
+        if cls is list or cls is tuple:
             if len(value) > _MAX_OUTPUTS:
                 raise ValueError("numeric output container exceeds the output limit")
             return (type(value), tuple(visit(child, depth + 1) for child in value))
-        if type(value) in (Matrix, ImmutableDenseMatrix, SparseMatrix):
+        if cls is Matrix or cls is ImmutableDenseMatrix or cls is SparseMatrix:
             if not native:
                 raise NotImplementedError("matrix numerical outputs require modules='frankensympy'")
-            rows, columns = value.rows, value.cols
-            if max(rows, columns) > _MAX_OUTPUTS or rows * columns > _MAX_OUTPUTS:
-                raise ValueError("numeric matrix exceeds the output limit")
-            # Compile an immutable snapshot; subsequent shell mutation cannot
-            # alter the already checked program.
+            rows, columns, entries = _numeric_matrix_snapshot(value)
             return (list, tuple(
-                (list, tuple(visit(value[row, column], depth + 2) for column in range(columns)))
+                (list, tuple(visit(entries[row * columns + column], depth + 2)
+                             for column in range(columns)))
                 for row in range(rows)
             ))
         if len(leaves) >= _MAX_OUTPUTS:
@@ -207,12 +258,69 @@ def _constant(value):
     raise NotImplementedError("unsupported typed numerical constant")
 
 
+def _native_numeric_source(source, count, depth, *, inexact=None):
+    """Normalize bounded native syntax without reconstructing Python objects.
+
+    The caller has counted the root. Borrowed admission precedes every .args,
+    function-name or integer-payload clone; descendants then share the original
+    shell count/depth ledger. No public args getter or function registry runs.
+    """
+    if type(source) is not _native.Expr:
+        raise TypeError("native numerical source must be an exact native expression")
+    _native.CompiledFunction._validate_source(source)
+
+    def visit(node, level, *, counted=False):
+        if not counted:
+            _charge(count, level)
+        if node.is_number or node.is_symbol:
+            return node
+        if node.is_add:
+            kind, name = "add", None
+        elif node.is_mul:
+            kind, name = "mul", None
+        elif node.is_pow:
+            kind, name = "pow", None
+        else:
+            tag = node.func_name
+            if tag == _FLOAT_INTERN:
+                children = node.args
+                if len(children) != 1 or not children[0].is_integer:
+                    raise ValueError("malformed floating literal in numerical source")
+                _charge(count, level + 1)
+                bits = children[0].exact_numerator()
+                if type(bits) is not int or bits < 0 or bits.bit_length() > 64:
+                    raise ValueError("malformed floating literal in numerical source")
+                value = _bits_to_float(bits)
+                if not math.isfinite(value):
+                    raise ValueError("native numerical literals must be finite")
+                if inexact is not None:
+                    inexact[0] = True
+                return _native.py_rational(*value.as_integer_ratio())
+            name = _CLOSED_NATIVE_FUNCTIONS.get(tag)
+            if name is None:
+                raise NotImplementedError("custom or opaque objects have no closed numerical lowering")
+            kind = "function"
+        children = node.args
+        if kind == "function" and len(children) != 1:
+            raise ValueError("native numerical functions require exactly one argument")
+        lowered = [visit(child, level + 1) for child in children]
+        if kind == "add":
+            return _native.Add(*lowered, evaluate=False).as_expr()
+        if kind == "mul":
+            return _native.Mul(*lowered, evaluate=False).as_expr()
+        if kind == "pow":
+            return _native.Pow(*lowered, evaluate=False).as_expr()
+        return _native.py_function(name, *lowered)
+
+    return visit(source, depth, counted=True)
+
+
 def _numeric_source(value, functions, count, depth=0, *, inexact=None):
     _charge(count, depth)
     cls = type(value)
-    if inexact is not None and cls in (float, Float, _ExactDecimalFloat):
+    if inexact is not None and any(cls is builtin for builtin in (float, Float, _ExactDecimalFloat)):
         inexact[0] = True
-    if cls in (int, float, bool, Float, _ExactDecimalFloat):
+    if any(cls is builtin for builtin in (int, float, bool, Float, _ExactDecimalFloat)):
         if cls is _ExactDecimalFloat:
             ratio = value._as_python_float().as_integer_ratio()
         else:
@@ -224,25 +332,32 @@ def _numeric_source(value, functions, count, depth=0, *, inexact=None):
             raise ValueError("numeric literal exceeds the bit limit")
         return _native.py_rational(p, q)
     if cls is _native.Expr:
-        value = _wrap(value)
-        cls = type(value)
-    if cls not in _exact_surface_types() and cls not in functions:
+        return _native_numeric_source(value, count, depth, inexact=inexact)
+    function = next((spec for builtin, spec in functions.items() if cls is builtin), None)
+    if not any(cls is builtin for builtin in _exact_surface_types()) and function is None:
         raise NotImplementedError("custom or opaque objects have no closed numerical lowering")
-    if cls in (Symbol, Dummy):
-        return _native_expr(value)
-    if cls in (Add, Mul, Pow) or cls in functions:
+    if cls is Add or cls is Mul or cls is Pow or function is not None:
+        descriptor = cls.__dict__.get("_args") if function is None else _FUNCTION_ARGS
+        try:
+            arguments = descriptor.__get__(value, cls) if descriptor is not None else None
+        except AttributeError:
+            arguments = None
+        if arguments is None:
+            return _native_numeric_source(_BASIC_VALUE.__get__(value, Basic), count, depth, inexact=inexact)
+        if type(arguments) is not tuple or len(arguments) > _MAX_NODES:
+            raise ValueError("numeric source requires bounded exact stored arguments")
         children = [_numeric_source(arg, functions, count, depth + 1, inexact=inexact)
-                    for arg in value.args]
+                    for arg in arguments]
         if cls is Add:
             return _native.Add(*children, evaluate=False).as_expr()
         if cls is Mul:
             return _native.Mul(*children, evaluate=False).as_expr()
         if cls is Pow:
             return _native.Pow(*children, evaluate=False).as_expr()
-        return _native.py_function(functions[cls][0], *children)
+        return _native.py_function(function[0], *children)
     # Exact numeric atoms and constants already carry typed native payloads.
     # Unsupported operators are refused by the native compiler.
-    return _native_expr(value)
+    return _native_numeric_source(_BASIC_VALUE.__get__(value, Basic), count, depth, inexact=inexact)
 
 
 def compile_numeric(args, expression):

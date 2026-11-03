@@ -12,7 +12,7 @@ import math
 import threading
 
 from ..core import (
-    Add, Basic, Function, FunctionClass, Mul, Pow, SupervisedCallbackSession,
+    Add, Basic, Float, Function, FunctionClass, Mul, Pow, SupervisedCallbackSession,
     _ExactDecimalFloat, _FLOAT_INTERN, _active_callback_session, _bits_to_float,
     _exact_surface_types, _known_functions, _native, _symbol_binding, supervised_callback_session,
 )
@@ -164,10 +164,16 @@ def _snapshot_source(value, bindings, functions, count, depth=0, *, native_admis
         return ("closed", None, (), source)
     if (any(cls is builtin for builtin in _exact_surface_types())
             or cls is int or cls is float or cls is bool or cls is _ExactDecimalFloat):
+        if (native_admission is not None
+                and not any(cls is literal for literal in (int, float, bool, Float, _ExactDecimalFloat))):
+            # Check provenance before normalization can turn an ambiguous
+            # native Float-intern function into an ordinary exact rational.
+            # Actual retained literal objects have their own exact-class lane.
+            original = _BASIC_VALUE.__get__(value, Basic)
+            _native.CompiledFunction._validate_source(original)
+            native_admission(original, count, depth)
         source = _numeric_source(value, functions, count, depth)
         _native.CompiledFunction._validate_source(source)
-        if native_admission is not None:
-            source = native_admission(source, count, depth)
         return ("closed", None, (), source)
     raise NotImplementedError("custom numerical nodes require an explicit exact-class callback binding")
 
