@@ -16,7 +16,9 @@ from ..core import (
     Abs, Add, Basic, Dummy, Expr, Float, Function, Integer, Mul, Pow, Rational, Symbol,
     _ExactDecimalFloat, _FLOAT_INTERN, _admitted_python_float, _bits_to_float,
     _exact_ratio, _exact_surface_types,
-    _native, _native_expr, _require_symbol, _symbol_binding, _wrap,
+    _native, _native_expr, _require_closed_function_class,
+    _require_closed_native_function_tag, _require_closed_native_functions,
+    _require_symbol, _symbol_binding, _wrap,
 )
 
 __all__ = [
@@ -78,6 +80,30 @@ def _batch_arguments(layout, rows, variable_count, output_count):
     return result
 
 
+class _FunctionTable:
+    """An exact-identity map that cannot invoke a changed metaclass hash."""
+
+    __slots__ = ("_entries",)
+
+    def __init__(self, entries):
+        self._entries = entries
+
+    def items(self):
+        return self._entries
+
+    def __iter__(self):
+        return (entry[0] for entry in self._entries)
+
+    def __contains__(self, cls):
+        return any(cls is key for key, _ in self._entries)
+
+    def __getitem__(self, cls):
+        for key, value in self._entries:
+            if cls is key:
+                return value
+        raise KeyError("unregistered numerical function class")
+
+
 def _functions():
     # Exact classes, never class names supplied by a user subclass.
     from ..functions.elementary.trigonometric import sin, cos, tan, asin, acos, atan
@@ -88,16 +114,16 @@ def _functions():
     from ..functions.special.error_functions import erf, erfc
     from ..functions.combinatorial.factorials import factorial
 
-    return {
-        sin: ("sin", math.sin), cos: ("cos", math.cos), tan: ("tan", math.tan),
-        asin: ("asin", math.asin), acos: ("acos", math.acos), atan: ("atan", math.atan),
-        sinh: ("sinh", math.sinh), cosh: ("cosh", math.cosh), tanh: ("tanh", math.tanh),
-        asinh: ("asinh", math.asinh), acosh: ("acosh", math.acosh),
-        atanh: ("atanh", math.atanh), exp: ("exp", math.exp), log: ("log", math.log),
-        Abs: ("abs", abs), floor: ("floor", math.floor), ceiling: ("ceiling", math.ceil),
-        gamma: ("gamma", math.gamma), erf: ("erf", math.erf), erfc: ("erfc", math.erfc),
-        factorial: ("factorial", math.factorial),
-    }
+    return _FunctionTable((
+        (sin, ("sin", math.sin)), (cos, ("cos", math.cos)), (tan, ("tan", math.tan)),
+        (asin, ("asin", math.asin)), (acos, ("acos", math.acos)), (atan, ("atan", math.atan)),
+        (sinh, ("sinh", math.sinh)), (cosh, ("cosh", math.cosh)), (tanh, ("tanh", math.tanh)),
+        (asinh, ("asinh", math.asinh)), (acosh, ("acosh", math.acosh)),
+        (atanh, ("atanh", math.atanh)), (exp, ("exp", math.exp)), (log, ("log", math.log)),
+        (Abs, ("abs", abs)), (floor, ("floor", math.floor)), (ceiling, ("ceiling", math.ceil)),
+        (gamma, ("gamma", math.gamma)), (erf, ("erf", math.erf)), (erfc, ("erfc", math.erfc)),
+        (factorial, ("factorial", math.factorial)),
+    ))
 
 
 def _charge(count, depth, *, container=False):
@@ -327,6 +353,7 @@ def _native_numeric_source(source, count, depth, *, inexact=None):
             name = _CLOSED_NATIVE_FUNCTIONS.get(tag)
             if name is None:
                 raise NotImplementedError("custom or opaque objects have no closed numerical lowering")
+            _require_closed_native_function_tag(tag)
             kind = "function"
         children = node.args
         if kind == "function" and len(children) != 1:
@@ -362,6 +389,8 @@ def _numeric_source(value, functions, count, depth=0, *, inexact=None):
     if cls is _native.Expr:
         return _native_numeric_source(value, count, depth, inexact=inexact)
     function = next((spec for builtin, spec in functions.items() if cls is builtin), None)
+    if function is not None:
+        _require_closed_function_class(cls)
     if not any(cls is builtin for builtin in _exact_surface_types()) and function is None:
         raise NotImplementedError("custom or opaque objects have no closed numerical lowering")
     if cls is Add or cls is Mul or cls is Pow or function is not None:
@@ -756,8 +785,18 @@ def _math_program(value, positions, functions, count, program, depth=0):
     _charge(count, depth)
     cls = type(value)
     if cls is _native.Expr:
+        _require_closed_native_functions(value)
         value = _wrap(value)
         cls = type(value)
+    if cls in functions:
+        _require_closed_function_class(cls)
+    if any(cls is builtin for builtin in _exact_surface_types()) or cls in functions:
+        try:
+            native = _BASIC_VALUE.__get__(value, Basic)
+        except AttributeError:
+            native = None
+        if native is not None:
+            _require_closed_native_functions(native)
     literal = _literal(value)
     if literal is not None:
         if type(literal) is int and literal.bit_length() > _MAX_LITERAL_BITS:

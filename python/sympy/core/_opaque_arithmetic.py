@@ -121,7 +121,33 @@ def _children(value):
     native = _slot(_VALUE, value)
     if type(native) is not _native.Expr:
         raise NotImplementedError("symbolic source has no retained children or closed native value")
+    _validate_native_region(native)
     return tuple(_wrap(child) for child in native.args)
+
+
+def _validate_native_region(native):
+    """Bound borrowed native input before cloning or Python class recovery."""
+    from . import _FLOAT_INTERN, _lookup_known_function
+
+    _native.CompiledFunction._validate_source(native)
+    pending = [native]
+    while pending:
+        current = pending.pop()
+        if current.is_symbol or current.is_integer or current.is_rational:
+            continue
+        if current.is_add or current.is_mul or current.is_pow:
+            pending.extend(current.args)
+            continue
+        name = current.func_name
+        if name == "Constant":
+            if not any(current == _native.Expr(literal) for literal in ("pi", "E", "I", "oo", "-oo", "zoo", "nan")):
+                raise NotImplementedError("native function cannot impersonate a mathematical constant")
+            continue
+        if name not in ("diff", "Derivative", "Eq", "Ne", "Lt", "Le", "Gt", "Ge", _FLOAT_INTERN):
+            cls = _lookup_known_function(name)
+            if cls is None or not _is_closed_function_class(cls):
+                raise NotImplementedError("native-only arithmetic cannot recover an opaque Python function class")
+        pending.extend(current.args)
 
 
 def _key(value, *, names=False):
@@ -369,6 +395,23 @@ def arithmetic(operator, values, *, evaluate=True, cls=None):
                 raise ValueError("opaque arithmetic exceeds the argument limit")
         values = tuple(flattened)
 
+    constructor = {"add": _native.Add, "mul": _native.Mul, "pow": _native.Pow}[operator]
+    return native_transform(values, lambda lowered: constructor(*lowered, evaluate=True).as_expr())
+
+
+def native_transform(values, operation, *, multiple=False, atomize_functions=False):
+    """Apply one closed native operation with owned, temporary application slots.
+
+    Every input participates in admission and collision avoidance. The private
+    caller supplies a native operation; no local application slot survives the
+    returned surface graph or becomes a portable semantic identity. Polynomial
+    callers may atomize every application and return an exact, bounded tuple
+    of results; all outputs use this one slot environment.
+    """
+    values = tuple(values)
+    for value in values:
+        contains_opaque(value)
+    _admit_source(values, check_identity=True)
     reserved = set()
     stack = list(values)
     seen = set()
@@ -381,6 +424,7 @@ def arithmetic(operator, values, *, evaluate=True, cls=None):
             raise ValueError("opaque arithmetic exceeds the source limit")
         native = _slot(_VALUE, value)
         if type(native) is _native.Expr:
+            _validate_native_region(native)
             reserved.update(binding.name for binding in native.free_symbol_bindings)
         children = stored_args(value)
         if children is not None:
@@ -392,6 +436,7 @@ def arithmetic(operator, values, *, evaluate=True, cls=None):
     by_key = {}
     by_native = {}
     closed = {}
+    composites = {}
     encoded = {}
     encode_work = [0]
 
@@ -402,6 +447,17 @@ def arithmetic(operator, values, *, evaluate=True, cls=None):
         if id(value) in encoded:
             return encoded[id(value)][1]
         kind = type(value)
+        if atomize_functions and not (kind in (Add, Mul, Pow) or _subclass(kind, Function)):
+            native = _slot(_VALUE, value)
+            if type(native) is _native.Expr and native.args:
+                # A generic Expr can own a closed native composite. Admission
+                # above has already excluded unknown or modified function
+                # tags, so lifting cannot recover a custom class by its name.
+                recovered = _wrap(native)
+                if type(recovered) is not kind:
+                    result = encode(recovered)
+                    encoded[id(value)] = (value, result)
+                    return result
         if kind is Add or kind is Mul or kind is Pow:
             children = [encode(child) for child in _children(value)]
             if kind is Add:
@@ -410,15 +466,21 @@ def arithmetic(operator, values, *, evaluate=True, cls=None):
                 # Retain each owner for the entire operation so its address
                 # cannot be recycled as the cache key of a different subtree.
                 encoded[id(value)] = (value, result)
+                if _slot(_SURFACE, value) is not None:
+                    composites.setdefault(result, value)
                 return result
             if kind is Mul:
                 result = _native.Mul(*children, evaluate=True).as_expr()
                 encoded[id(value)] = (value, result)
+                if _slot(_SURFACE, value) is not None:
+                    composites.setdefault(result, value)
                 return result
             result = _native.Pow(*children, evaluate=True).as_expr()
             encoded[id(value)] = (value, result)
+            if _slot(_SURFACE, value) is not None:
+                composites.setdefault(result, value)
             return result
-        if contains_opaque(value):
+        if contains_opaque(value) or atomize_functions and _subclass(kind, Function):
             if not _subclass(kind, Function) and kind is not Derivative:
                 raise NotImplementedError("opaque arithmetic supports retained Function applications and derivatives")
             if _subclass(kind, Function):
@@ -435,20 +497,28 @@ def arithmetic(operator, values, *, evaluate=True, cls=None):
                 by_key[key] = slot
                 by_native[slot] = value
                 applications.append(value)
-            return by_key[key]
+            result = by_key[key]
+            encoded[id(value)] = (value, result)
+            return result
         native = _slot(_VALUE, value)
         if type(native) is not _native.Expr:
             raise NotImplementedError("opaque arithmetic received an unsupported closed leaf")
         closed.setdefault(native, value)
+        encoded[id(value)] = (value, native)
         return native
 
     lowered = [encode(value) for value in values]
-    if operator == "add":
-        result = _native.Add(*lowered, evaluate=True).as_expr()
-    elif operator == "mul":
-        result = _native.Mul(*lowered, evaluate=True).as_expr()
+    result = operation(lowered)
+    if multiple:
+        if type(result) is not tuple or len(result) > _MAX_NODES:
+            raise TypeError("a multiple surface transformation must return a bounded exact tuple")
+        results = result
     else:
-        result = _native.Pow(*lowered, evaluate=True).as_expr()
+        results = (result,)
+    for value in results:
+        if type(value) is not _native.Expr:
+            raise TypeError("a closed surface transformation must return native expressions")
+        _validate_native_region(value)
 
     def lift(value):
         encode_work[0] += 1
@@ -458,6 +528,11 @@ def arithmetic(operator, values, *, evaluate=True, cls=None):
             return by_native[value]
         if value in closed:
             return closed[value]
+        if value in composites:
+            # Preserve already canonical surface subtrees. In particular,
+            # distinct same-named applications can have tied ordering keys;
+            # a native slot numbering must not reorder their callbacks.
+            return composites[value]
         kind = Add if value.is_add else Mul if value.is_mul else Pow if value.is_pow else None
         if kind is not None:
             children = tuple(lift(child) for child in value.args)
@@ -468,4 +543,5 @@ def arithmetic(operator, values, *, evaluate=True, cls=None):
             raise RuntimeError("opaque arithmetic failed to restore a local application slot")
         return _wrap(value)
 
-    return lift(result)
+    restored = tuple(lift(value) for value in results)
+    return restored if multiple else restored[0]

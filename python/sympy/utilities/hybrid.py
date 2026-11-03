@@ -14,7 +14,8 @@ import threading
 from ..core import (
     Add, Basic, Float, Function, FunctionClass, Mul, Pow, SupervisedCallbackSession,
     _ExactDecimalFloat, _FLOAT_INTERN, _active_callback_session, _bits_to_float,
-    _exact_surface_types, _known_functions, _native, _symbol_binding, supervised_callback_session,
+    _exact_surface_types, _known_functions, _native, _require_closed_function_class,
+    _require_closed_native_function_tag, _symbol_binding, supervised_callback_session,
 )
 from .lambdify import (
     _MAX_LITERAL_BITS, _MAX_NODES, _MAX_OUTPUTS, _MAX_VARIABLES,
@@ -98,6 +99,8 @@ def _snapshot_source(value, bindings, functions, count, depth=0, *, native_admis
     _charge(count, depth)
     cls = type(value)
     intrinsic = next((spec[0] for builtin, spec in functions.items() if cls is builtin), None)
+    if intrinsic is not None:
+        _require_closed_function_class(cls)
     custom = next(((key, callback) for key, callback in bindings if cls is key), None)
     if custom is not None:
         try:
@@ -202,6 +205,7 @@ def _native_source(source, bindings, functions, count, depth):
             raise NotImplementedError(
                 "native-only custom function source has no retained exact Python class; use held surface forms"
             )
+        _require_closed_native_function_tag(name)
         kind = "function"
     lowered = [_native_source(child, bindings, functions, count, depth + 1) for child in children]
     return _native_operator(kind, name, lowered)

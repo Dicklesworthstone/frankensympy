@@ -264,7 +264,10 @@ def _surface_arithmetic(operator, values, *, evaluate=True, cls=None):
 
 def _native_expr(value: Any):
     if isinstance(value, Basic):
-        if type(value) not in _exact_surface_types() and not isinstance(value, Function):
+        cls = type(value)
+        exact_surface = any(cls is builtin for builtin in _exact_surface_types())
+        function = any(base is Function for base in type.__dict__["__mro__"].__get__(cls))
+        if not exact_surface and not function:
             raise NotImplementedError(
                 "custom symbolic subclasses require a supervised Python override lane; "
                 "the native fast path accepts exact built-in classes only"
@@ -273,22 +276,13 @@ def _native_expr(value: Any):
             raise NotImplementedError(
                 "opaque Python applications require a retained surface or supervised callback lane"
             )
-        if type(value) not in _exact_surface_types() and isinstance(value, Function):
-            known = _known_functions.get(type(value).__name__)
-            root_type = _bound_algebraic_root_type
-            if root_type is not None and type(value).__name__ == root_type.__name__:
-                known = root_type
-            if (
-                known is not None
-                and (issubclass(known, _NativeFunction) or known is root_type)
-                and type(value) is not known
-            ):
-                raise NotImplementedError(
-                    "a custom function cannot lower as a same-name native intrinsic"
-                )
-        return value._value
+        if not exact_surface and function:
+            _require_closed_function_class(cls)
+        native = (_function_capabilities.native_value(value)
+                  if _function_capabilities is not None else value._value)
+        return _require_closed_native_functions(native)
     if isinstance(value, _native.Expr):
-        return value
+        return _require_closed_native_functions(value)
     if isinstance(value, int):
         return _native.py_integer(value)
     if isinstance(value, float):
@@ -296,9 +290,9 @@ def _native_expr(value: Any):
     if isinstance(value, (tuple, list)):
         inner_items = [_wrap(_native_expr(item)) for item in value]
         tuple_str = f"Tuple({', '.join(str(i) for i in inner_items)})"
-        return _native.Expr(tuple_str)
+        return _require_closed_native_functions(_native.Expr(tuple_str))
     if isinstance(value, str):
-        return _native.Expr(value)
+        return _require_closed_native_functions(_native.Expr(value))
     raise TypeError(f"cannot convert {type(value).__name__} to native Expr")
 
 
@@ -504,19 +498,47 @@ def _surface_symbol(native_value: Any) -> "Symbol":
 
 _known_functions: dict[str, type] = {}
 _closed_function_classes: tuple[type, ...] | None = None
+_function_capabilities = None
 
 
-def _is_closed_function_class(cls) -> bool:
+def _is_registered_function_class(cls) -> bool:
     classes = (_known_functions.values() if _closed_function_classes is None
                else _closed_function_classes)
     return any(cls is known for known in classes)
 
 
+def _is_closed_function_class(cls) -> bool:
+    if _function_capabilities is None:
+        return _is_registered_function_class(cls)
+    return _function_capabilities.is_current(cls)
+
+
+def _require_closed_function_class(cls) -> None:
+    if _function_capabilities is not None:
+        _function_capabilities.require_class(cls)
+
+
+def _require_closed_native_function_tag(name) -> None:
+    if _function_capabilities is not None:
+        _function_capabilities.require_native_tag(name)
+
+
+def _require_closed_native_functions(value):
+    if _function_capabilities is not None:
+        _function_capabilities.require_native(value)
+    return value
+
+
 def _freeze_builtin_function_classes() -> None:
     """Seal the classes imported by the package, before user extensions run."""
-    global _closed_function_classes
+    global _closed_function_classes, _function_capabilities
     if _closed_function_classes is None:
+        from ._function_capabilities import FunctionCapabilities
+
         _closed_function_classes = tuple(_known_functions.values())
+        _function_capabilities = FunctionCapabilities(
+            _closed_function_classes, _native.Expr, Basic.__dict__["_value"]
+        )
 _user_functions: weakref.WeakValueDictionary[str, type] = weakref.WeakValueDictionary()
 
 
@@ -1191,10 +1213,16 @@ class Basic:
             old, new = args
             old_s = Symbol(old) if isinstance(old, str) else (old if isinstance(old, Basic) else sympify(old))
             new_s = new if isinstance(new, Basic) else sympify(new)
-            _charge_nested_if_active(_expr_node_count(self))
-            if _tree_requires_supervised_subs(self):
+            retained = tuple(_contains_opaque(value) for value in (self, old_s, new_s))
+            if any(retained):
+                from ._surface_transforms import substitute
+
+                res = substitute(self, old_s, new_s)
+            elif _tree_requires_supervised_subs(self):
+                _charge_nested_if_active(_expr_node_count(self))
                 res = _subs_supervised(self, old_s, new_s)
             else:
+                _charge_nested_if_active(_expr_node_count(self))
                 try:
                     res = _wrap(_native_expr(self).subs(_native_expr(old_s), _native_expr(new_s)))
                 except (NotImplementedError, TypeError):
@@ -1281,35 +1309,9 @@ class Basic:
 
     def xreplace(self, rule: Any) -> "Basic":
         """Replace exact nodes. Unlike ``subs``, this does not rewrite algebraically."""
-        if isinstance(rule, dict):
-            mapping = rule
-        else:
-            try:
-                mapping = dict(rule)
-            except (TypeError, ValueError) as exc:
-                raise TypeError("xreplace mapping must be a dict or iterable of pairs") from exc
-        for old, new in mapping.items():
-            try:
-                if self == old:
-                    return _wrap(_native_expr(new))
-            except (TypeError, NotImplementedError):
-                continue
-        args = self.args
-        if not args:
-            return self
-        replaced = []
-        changed = False
-        for arg in args:
-            if isinstance(arg, Basic):
-                next_arg = arg.xreplace(mapping)
-                if next_arg != arg:
-                    changed = True
-                replaced.append(next_arg)
-            else:
-                replaced.append(arg)
-        if not changed:
-            return self
-        return self.func(*replaced)
+        from ._surface_transforms import xreplace
+
+        return xreplace(self, rule)
 
     def _repr_latex_(self) -> str:
         if _contains_opaque(self):
@@ -5021,6 +5023,10 @@ def _tree_requires_supervised_subs(node: Any) -> bool:
 
 
 def _subs_supervised(node: Any, old_s: Basic, new_s: Basic) -> Basic:
+    if any(_contains_opaque(value) for value in (node, old_s, new_s)):
+        from ._surface_transforms import substitute
+
+        return substitute(node, old_s, new_s)
     if not isinstance(node, Basic):
         return node
     if _aresame_surface(node, old_s):
@@ -5476,6 +5482,14 @@ def expand(expression: Any, deep: bool = True, modulus: Any = None, power_base: 
     ``power_exp`` (exp(x + y) -> exp(x)*exp(y)), ``log`` (with ``force``
     or positivity), ``trig=True``, ``func=True``; hints iterate to a fixed
     point. Held Adds keep their oracle-pinned behavior."""
+    if _contains_opaque(expression):
+        from ._surface_transforms import expand as surface_expand
+
+        return surface_expand(
+            expression, deep=deep, modulus=modulus, power_base=power_base,
+            power_exp=power_exp, mul=mul, log=log, multinomial=multinomial,
+            basic=basic, **hints,
+        )
     if isinstance(expression, Add) and hasattr(expression, "_args"):
         return _expand_held(expression)
     result = sympify(expression)
@@ -5518,6 +5532,10 @@ def _expand_held(expression: Any) -> Expr:
 
 
 def simplify(expression: Any) -> Expr:
+    if _contains_opaque(expression):
+        from ._surface_transforms import simplify as surface_simplify
+
+        return surface_simplify(expression)
     return _lift_builtin_result(_native_expr(expression).simplify())
 
 

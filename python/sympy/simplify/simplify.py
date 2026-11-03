@@ -27,6 +27,12 @@ from ..polys import cancel, together
 
 def simplify(expr: Any, **kwargs: Any) -> Any:
     """General expression simplification."""
+    from ..core._opaque_arithmetic import contains_opaque
+
+    if contains_opaque(expr):
+        from ..core._surface_transforms import simplify as surface_simplify
+
+        return surface_simplify(expr)
     from ..polys import cancel
 
     # Oracle-pinned: simplify cancels rational functions
