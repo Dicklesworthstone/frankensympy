@@ -215,3 +215,33 @@ No universal drain-latency claim covers arbitrary Python code.
 - hiding upstream delegation;
 - accepting pickle bytes as mathematical proof;
 - promising prompt cancellation of arbitrary Python.
+
+## 16. Implemented callback occurrence boundary
+
+`SupervisedCallbackSession.invoke_fresh` executes one explicitly selected callback
+occurrence without caching its return value. Repeated calls with equal arguments
+remain distinct effects and share the session's invocation, reentrancy, nested
+work and wall-time allowances. Numerical adapters use this entry point for
+callbacks whose purity is unknown. Existing `invoke_once` uses an exact tuple
+of hook, target and argument keys and rejects reentry into the same in-flight
+effect before it can execute again.
+
+Result conversion and validation belong inside the supervised callback or its
+result counter. The session remains in flight through counter execution,
+conversion and finalization. A callback or counter exception, timeout,
+cancellation, or caught nested supervision failure taints the session and
+prevents result publication and automatic retry. Error tracing never calls an
+arbitrary Python exception printer while holding the session mutex; the
+original exception propagates to the caller.
+
+Combined effect-key payloads are capped at 4096 UTF-8 bytes. Traces are capped
+at 4096 records, including reserved terminal records for active invocations;
+cache hits and refused attempts cannot grow them without bound. Trace sequence
+numbers identify local occurrences and are not portable mathematical IDs.
+These bounds do not impose a universal interruption deadline on arbitrary
+Python code or turn opaque callback output into mathematical evidence.
+
+Interpreter ownership is checked against CPython's actual current and main
+interpreter IDs using `_interpreters` or `_xxsubinterpreters`. An unavailable or
+malformed ownership API is refused. A first import in a subinterpreter cannot
+establish that interpreter as the primary owner.

@@ -649,9 +649,7 @@ impl CompiledExpr {
             Expr::Rational(r) => {
                 // Round the exact quotient once. Rounding its components first
                 // can change the result or overflow a finite coprime ratio.
-                let val = r
-                    .metered_to_f64(meter)?
-                    .filter(|value| value.is_finite());
+                let val = r.metered_to_f64(meter)?.filter(|value| value.is_finite());
                 let Some(val) = val else {
                     return Err(CompileError::NumericConversion(compilation_diagnostic(
                         "exact rational quotient does not round to finite binary64",
@@ -788,8 +786,8 @@ impl CompiledExpr {
             });
         }
         if ops.len() == ops.capacity() {
-            let capacity = next_compiled_op_capacity(ops.capacity())
-                .ok_or(CompileError::DimensionOverflow)?;
+            let capacity =
+                next_compiled_op_capacity(ops.capacity()).ok_or(CompileError::DimensionOverflow)?;
             let bytes = capacity
                 .checked_mul(std::mem::size_of::<CompiledOp>())
                 .ok_or(CompileError::DimensionOverflow)?;

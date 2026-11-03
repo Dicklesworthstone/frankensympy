@@ -21,34 +21,81 @@
 
 #![forbid(unsafe_code)]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
-use pyo3::exceptions::{PyRuntimeError, PyValueError};
+use pyo3::exceptions::{PyImportError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
 
 /// Primary interpreter ID recorded when `fsym_python` initializes.
 static PRIMARY_INTERPRETER_ID: OnceLock<i64> = OnceLock::new();
 
-/// Queries the raw CPython interpreter ID (0 for main interpreter).
-fn raw_interpreter_id(py: Python<'_>) -> i64 {
-    if let Ok(interp_mod) = py.import("_interpreters")
-        && let Ok(cur) = interp_mod.call_method0("get_current")
+/// Combined UTF-8 payload of the diagnostic key fields for one callback.
+const MAX_CALLBACK_KEY_BYTES: usize = 4096;
+/// Includes successful calls, cache hits and refused attempts. In-flight calls
+/// reserve their terminal record before executing any Python code.
+const MAX_CALLBACK_TRACE_RECORDS: usize = 4096;
+
+type EffectKey = (String, String, String);
+
+fn interpreter_id(value: &Bound<'_, PyAny>) -> PyResult<i64> {
+    if let Ok(id) = value.extract::<i64>()
+        && id >= 0
     {
-        if let Ok(id) = cur.extract::<i64>() {
-            return id;
-        }
-        if let Ok((id, _)) = cur.extract::<(i64, Py<PyAny>)>() {
-            return id;
+        return Ok(id);
+    }
+    // Newer CPython exposes an (ID, whence) tuple, while the older module
+    // returns an integer-like InterpreterID. Neither case needs repr parsing.
+    if let Ok(tuple) = value.cast::<PyTuple>()
+        && tuple.len() == 2
+        && let Ok(id) = tuple.get_item(0)?.extract::<i64>()
+        && id >= 0
+    {
+        return Ok(id);
+    }
+    Err(PyRuntimeError::new_err(
+        "unsupported CPython interpreter identifier format",
+    ))
+}
+
+fn interpreter_ids_from_module(module: &Bound<'_, PyModule>) -> PyResult<(i64, i64)> {
+    let current = module
+        .call_method0("get_current")
+        .map_err(|_| PyRuntimeError::new_err("cannot verify the current CPython interpreter"))?;
+    let main = module
+        .call_method0("get_main")
+        .map_err(|_| PyRuntimeError::new_err("cannot verify the main CPython interpreter"))?;
+    Ok((interpreter_id(&current)?, interpreter_id(&main)?))
+}
+
+/// Query real CPython ownership. Both supported module spellings expose the
+/// independently known main interpreter; an unavailable API never implies ID 0.
+fn raw_interpreter_ids(py: Python<'_>) -> PyResult<(i64, i64)> {
+    for name in ["_interpreters", "_xxsubinterpreters"] {
+        match py.import(name) {
+            Ok(module) => return interpreter_ids_from_module(&module),
+            Err(error) if error.is_instance_of::<PyImportError>(py) => continue,
+            Err(error) => return Err(error),
         }
     }
-    0
+    Err(PyRuntimeError::new_err(
+        "unsupported Python configuration: cannot verify interpreter ownership",
+    ))
+}
+
+fn require_main_interpreter(current: i64, main: i64) -> PyResult<i64> {
+    if current != main {
+        return Err(PyRuntimeError::new_err(format!(
+            "unsupported subinterpreter configuration: main interpreter is {main}, current is {current}"
+        )));
+    }
+    Ok(main)
 }
 
 /// Queries the current Python interpreter ID (honoring `FSYM_SIMULATE_SUBINTERPRETER_ID` for adversarial tests).
-fn current_interpreter_id(py: Python<'_>) -> PyResult<i64> {
+fn current_interpreter_id(actual: i64) -> PyResult<i64> {
     if let Ok(sim) = std::env::var("FSYM_SIMULATE_SUBINTERPRETER_ID")
         && !sim.is_empty()
     {
@@ -56,7 +103,7 @@ fn current_interpreter_id(py: Python<'_>) -> PyResult<i64> {
             PyValueError::new_err(format!("invalid FSYM_SIMULATE_SUBINTERPRETER_ID: {e}"))
         });
     }
-    Ok(raw_interpreter_id(py))
+    Ok(actual)
 }
 
 /// Queries the current Python thread identifier via `threading.get_ident()`.
@@ -67,7 +114,8 @@ fn current_thread_ident(py: Python<'_>) -> PyResult<u64> {
 
 /// Initializes the primary interpreter ID at module import time.
 pub fn init_primary_interpreter(py: Python<'_>) -> PyResult<i64> {
-    let id = raw_interpreter_id(py);
+    let (current, main) = raw_interpreter_ids(py)?;
+    let id = require_main_interpreter(current, main)?;
     let _ = PRIMARY_INTERPRETER_ID.set(id);
     Ok(*PRIMARY_INTERPRETER_ID.get().unwrap_or(&id))
 }
@@ -96,8 +144,10 @@ pub fn check_interpreter_support(py: Python<'_>) -> PyResult<i64> {
             ));
         }
     }
-    let current = current_interpreter_id(py)?;
-    let primary = *PRIMARY_INTERPRETER_ID.get_or_init(|| current);
+    let (actual, main) = raw_interpreter_ids(py)?;
+    require_main_interpreter(actual, main)?;
+    let current = current_interpreter_id(actual)?;
+    let primary = *PRIMARY_INTERPRETER_ID.get_or_init(|| main);
     if current != primary {
         return Err(PyRuntimeError::new_err(format!(
             "unsupported subinterpreter configuration: primary interpreter is {primary}, current is {current}"
@@ -113,7 +163,8 @@ struct CallbackSessionState {
     consumed_nested_steps: u64,
     cancelled: bool,
     unknown_effect_tainted: bool,
-    executed_effects: BTreeMap<String, Py<PyAny>>,
+    executed_effects: BTreeMap<EffectKey, Py<PyAny>>,
+    in_flight_effects: BTreeSet<EffectKey>,
     effect_trace: Vec<(String, String, String, String)>,
 }
 
@@ -266,8 +317,14 @@ impl PySupervisedCallbackSession {
     pub fn charge_nested_steps(&self, py: Python<'_>, steps: u64) -> PyResult<u64> {
         self.verify_ownership(py)?;
         let mut st = self.state.lock().expect("session state lock");
-        st.consumed_nested_steps = st.consumed_nested_steps.saturating_add(steps);
-        if st.consumed_nested_steps > self.max_nested_steps {
+        if st.unknown_effect_tainted || st.cancelled {
+            return Err(PyRuntimeError::new_err(
+                "cancelled or tainted callback session cannot perform nested native work",
+            ));
+        }
+        let consumed = st.consumed_nested_steps.checked_add(steps);
+        st.consumed_nested_steps = consumed.unwrap_or(u64::MAX);
+        if consumed.is_none() || st.consumed_nested_steps > self.max_nested_steps {
             if st.current_reentrancy_depth > 0 {
                 st.unknown_effect_tainted = true;
             }
@@ -317,53 +374,156 @@ impl PySupervisedCallbackSession {
         cb_args: &Bound<'_, PyTuple>,
         node_counter: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Py<PyAny>> {
+        self.invoke_supervised(
+            py,
+            hook_kind,
+            target_key,
+            Some(args_key),
+            input_nodes,
+            callback,
+            cb_args,
+            node_counter,
+        )
+    }
+
+    /// Execute one fresh unknown-effect callback occurrence without caching its result.
+    ///
+    /// Equal arguments or callable identities never suppress another explicit occurrence.
+    /// The same owning session still supplies all invocation, depth, nested-work and wall-time
+    /// bounds. Result admission is part of the supervised invocation: validate a numerical
+    /// result inside `callback`, or supply a bounded `node_counter`. No result is published
+    /// after cancellation, timeout, or a nested failure caught by the callback itself.
+    #[pyo3(signature = (hook_kind, target_key, input_nodes, callback, cb_args, node_counter=None))]
+    #[allow(clippy::too_many_arguments)]
+    pub fn invoke_fresh(
+        &self,
+        py: Python<'_>,
+        hook_kind: &str,
+        target_key: &str,
+        input_nodes: usize,
+        callback: &Bound<'_, PyAny>,
+        cb_args: &Bound<'_, PyTuple>,
+        node_counter: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Py<PyAny>> {
+        self.invoke_supervised(
+            py,
+            hook_kind,
+            target_key,
+            None,
+            input_nodes,
+            callback,
+            cb_args,
+            node_counter,
+        )
+    }
+}
+
+impl PySupervisedCallbackSession {
+    #[allow(clippy::too_many_arguments)]
+    fn invoke_supervised(
+        &self,
+        py: Python<'_>,
+        hook_kind: &str,
+        target_key: &str,
+        args_key: Option<&str>,
+        input_nodes: usize,
+        callback: &Bound<'_, PyAny>,
+        cb_args: &Bound<'_, PyTuple>,
+        node_counter: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Py<PyAny>> {
         self.verify_ownership(py)?;
-        let effect_id = format!("{hook_kind}::{target_key}::{args_key}");
+        // Fresh calls reserve space for a diagnostic sequence number, not a semantic ID.
+        // Neither path copies unbounded user keys or concatenates ambiguous cache keys.
+        let key_bytes = hook_kind
+            .len()
+            .checked_add(target_key.len())
+            .and_then(|bytes| bytes.checked_add(args_key.map_or(32, str::len)));
+        if key_bytes.is_none_or(|bytes| bytes > MAX_CALLBACK_KEY_BYTES) {
+            let mut st = self.state.lock().expect("session state lock");
+            st.unknown_effect_tainted |= st.current_reentrancy_depth != 0;
+            return Err(PyValueError::new_err(
+                "callback key payload exceeds the 4096-byte bound",
+            ));
+        }
+
+        let trace_args;
+        let effect_id;
 
         {
             let mut st = self.state.lock().expect("session state lock");
-            if st.unknown_effect_tainted {
-                st.effect_trace.push((
-                    hook_kind.to_string(),
-                    target_key.to_string(),
-                    args_key.to_string(),
-                    "refused:unknown_effect_tainted".to_string(),
+            if st
+                .effect_trace
+                .len()
+                .saturating_add(st.current_reentrancy_depth)
+                >= MAX_CALLBACK_TRACE_RECORDS
+            {
+                st.unknown_effect_tainted |= st.current_reentrancy_depth != 0;
+                return Err(PyValueError::new_err(
+                    "callback trace exhausted its 4096-record bound",
                 ));
+            }
+            trace_args = match args_key {
+                Some(key) => key.to_owned(),
+                None => format!("fresh:{}", st.invocations.saturating_add(1)),
+            };
+            if st.unknown_effect_tainted {
+                Self::record_trace(
+                    &mut st,
+                    hook_kind,
+                    target_key,
+                    &trace_args,
+                    "refused:unknown_effect_tainted",
+                );
                 return Err(PyRuntimeError::new_err(
                     "cancellation or failure with unknown callback effect outcome cannot auto-retry",
                 ));
             }
 
             if st.cancelled {
-                st.effect_trace.push((
-                    hook_kind.to_string(),
-                    target_key.to_string(),
-                    args_key.to_string(),
-                    "refused:cancelled".to_string(),
-                ));
+                Self::record_trace(
+                    &mut st,
+                    hook_kind,
+                    target_key,
+                    &trace_args,
+                    "refused:cancelled",
+                );
                 return Err(PyRuntimeError::new_err(
                     "callback session cancelled before hook invocation",
                 ));
             }
 
-            if let Some(cached) = st.executed_effects.get(&effect_id) {
-                let cloned = cached.clone_ref(py);
-                st.effect_trace.push((
-                    hook_kind.to_string(),
-                    target_key.to_string(),
-                    args_key.to_string(),
-                    "cached_hit".to_string(),
-                ));
-                return Ok(cloned);
+            effect_id =
+                args_key.map(|key| (hook_kind.to_owned(), target_key.to_owned(), key.to_owned()));
+            if let Some(key) = &effect_id {
+                if st.in_flight_effects.contains(key) {
+                    st.unknown_effect_tainted = true;
+                    Self::record_trace(
+                        &mut st,
+                        hook_kind,
+                        target_key,
+                        &trace_args,
+                        "refused:effect_in_flight",
+                    );
+                    return Err(PyRuntimeError::new_err(
+                        "callback effect is already in flight; unknown effect outcome cannot auto-retry",
+                    ));
+                }
+                if let Some(cached) = st.executed_effects.get(key) {
+                    let cloned = cached.clone_ref(py);
+                    Self::record_trace(&mut st, hook_kind, target_key, &trace_args, "cached_hit");
+                    return Ok(cloned);
+                }
             }
 
             if input_nodes > self.max_input_nodes {
-                st.effect_trace.push((
-                    hook_kind.to_string(),
-                    target_key.to_string(),
-                    args_key.to_string(),
-                    "refused:input_bound_exceeded".to_string(),
-                ));
+                st.unknown_effect_tainted |= st.current_reentrancy_depth != 0;
+                Self::record_trace(
+                    &mut st,
+                    hook_kind,
+                    target_key,
+                    &trace_args,
+                    "refused:input_bound_exceeded",
+                );
                 return Err(PyValueError::new_err(format!(
                     "callback input node count {input_nodes} exceeds bound {}",
                     self.max_input_nodes
@@ -372,12 +532,13 @@ impl PySupervisedCallbackSession {
 
             if st.current_reentrancy_depth >= self.max_reentrancy_depth {
                 st.unknown_effect_tainted = true;
-                st.effect_trace.push((
-                    hook_kind.to_string(),
-                    target_key.to_string(),
-                    args_key.to_string(),
-                    "refused:reentrancy_depth_exceeded".to_string(),
-                ));
+                Self::record_trace(
+                    &mut st,
+                    hook_kind,
+                    target_key,
+                    &trace_args,
+                    "refused:reentrancy_depth_exceeded",
+                );
                 return Err(PyRuntimeError::new_err(format!(
                     "callback reentrancy depth {} exceeds maximum {}",
                     st.current_reentrancy_depth, self.max_reentrancy_depth
@@ -386,12 +547,13 @@ impl PySupervisedCallbackSession {
 
             if st.invocations >= self.max_invocations {
                 st.unknown_effect_tainted = true;
-                st.effect_trace.push((
-                    hook_kind.to_string(),
-                    target_key.to_string(),
-                    args_key.to_string(),
-                    "refused:invocation_budget_exceeded".to_string(),
-                ));
+                Self::record_trace(
+                    &mut st,
+                    hook_kind,
+                    target_key,
+                    &trace_args,
+                    "refused:invocation_budget_exceeded",
+                );
                 return Err(PyValueError::new_err(format!(
                     "callback invocation count {} exceeds budget {}",
                     st.invocations, self.max_invocations
@@ -400,73 +562,126 @@ impl PySupervisedCallbackSession {
 
             st.current_reentrancy_depth += 1;
             st.invocations += 1;
+            if let Some(key) = &effect_id {
+                st.in_flight_effects.insert(key.clone());
+            }
         }
 
         let start = Instant::now();
-        let call_result = callback.call1(cb_args);
-        let elapsed_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
-
-        let value = match call_result {
-            Ok(v) => {
-                let mut st = self.state.lock().expect("session state lock");
-                st.current_reentrancy_depth = st.current_reentrancy_depth.saturating_sub(1);
-                if st.cancelled || elapsed_ms > self.max_wall_time_ms {
-                    st.unknown_effect_tainted = true;
-                    st.cancelled = true;
-                    st.effect_trace.push((
-                        hook_kind.to_string(),
-                        target_key.to_string(),
-                        args_key.to_string(),
-                        format!("refused:timeout_or_cancelled({elapsed_ms}ms)"),
-                    ));
-                    return Err(PyRuntimeError::new_err(format!(
-                        "callback exceeded wall-time bound ({elapsed_ms}ms > {}ms) or cancelled in flight; unknown effect outcome cannot auto-retry",
-                        self.max_wall_time_ms
-                    )));
-                }
-                v
-            }
+        let value = match callback.call1(cb_args) {
+            Ok(value) => value,
             Err(err) => {
-                let mut st = self.state.lock().expect("session state lock");
-                st.current_reentrancy_depth = st.current_reentrancy_depth.saturating_sub(1);
-                st.unknown_effect_tainted = true;
-                st.effect_trace.push((
-                    hook_kind.to_string(),
-                    target_key.to_string(),
-                    args_key.to_string(),
-                    format!("error:{err}"),
-                ));
+                self.finish_failed_call(hook_kind, target_key, &trace_args, effect_id.as_ref());
                 return Err(err);
             }
         };
 
-        if let Some(counter_fn) = node_counter {
-            let output_nodes: usize = counter_fn.call1((&value,))?.extract()?;
-            if output_nodes > self.max_output_nodes {
-                let mut st = self.state.lock().expect("session state lock");
-                st.unknown_effect_tainted = true;
-                st.effect_trace.push((
-                    hook_kind.to_string(),
-                    target_key.to_string(),
-                    args_key.to_string(),
-                    format!("refused:output_bound_exceeded({output_nodes})"),
-                ));
-                return Err(PyValueError::new_err(format!(
-                    "callback output node count {output_nodes} exceeds bound {}",
-                    self.max_output_nodes
-                )));
+        // Retain the returned object until failure has tainted the session and released its
+        // mutex. Its finalizer may execute Python, including reentrant callback attempts.
+        let mut counted_output = None;
+        let admission = (|| {
+            self.check_in_flight(start)?;
+            if let Some(counter_fn) = node_counter {
+                counted_output = Some(counter_fn.call1((&value,))?);
+                let output_nodes: usize = counted_output
+                    .as_ref()
+                    .expect("counter returned a value")
+                    .extract()?;
+                if output_nodes > self.max_output_nodes {
+                    return Err(PyValueError::new_err(format!(
+                        "callback output node count {output_nodes} exceeds bound {}",
+                        self.max_output_nodes
+                    )));
+                }
             }
+            Ok(())
+        })();
+        if let Err(err) = admission {
+            self.finish_failed_call(hook_kind, target_key, &trace_args, effect_id.as_ref());
+            return Err(err);
+        }
+        // A custom counter result may have an effectful finalizer. Dispose of it while
+        // the callback is still supervised, then check cancellation/taint before commit.
+        drop(counted_output);
+        if let Err(err) = self.check_in_flight(start) {
+            self.finish_failed_call(hook_kind, target_key, &trace_args, effect_id.as_ref());
+            return Err(err);
         }
 
-        let unbound = value.unbind();
+        {
+            let mut st = self.state.lock().expect("session state lock");
+            st.current_reentrancy_depth -= 1;
+            if let Some(key) = &effect_id {
+                st.in_flight_effects.remove(key);
+            }
+            if let Some(key) = effect_id {
+                st.executed_effects.insert(key, value.clone().unbind());
+            }
+            Self::record_trace(&mut st, hook_kind, target_key, &trace_args, "ok");
+        }
+        Ok(value.unbind())
+    }
+
+    fn check_in_flight(&self, start: Instant) -> PyResult<()> {
+        let elapsed_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
         let mut st = self.state.lock().expect("session state lock");
-        st.executed_effects.insert(effect_id, unbound.clone_ref(py));
-        st.effect_trace.push((
-            hook_kind.to_string(),
-            target_key.to_string(),
-            args_key.to_string(),
-            "ok".to_string(),
+        if st.cancelled || elapsed_ms > self.max_wall_time_ms {
+            st.unknown_effect_tainted = true;
+            st.cancelled = true;
+            return Err(PyRuntimeError::new_err(format!(
+                "callback exceeded wall-time bound ({elapsed_ms}ms > {}ms) or cancelled in flight; unknown effect outcome cannot auto-retry",
+                self.max_wall_time_ms
+            )));
+        }
+        if st.unknown_effect_tainted {
+            return Err(PyRuntimeError::new_err(
+                "nested callback supervision failed; unknown effect outcome cannot auto-retry",
+            ));
+        }
+        Ok(())
+    }
+
+    fn finish_failed_call(
+        &self,
+        hook_kind: &str,
+        target_key: &str,
+        args_key: &str,
+        effect_id: Option<&EffectKey>,
+    ) {
+        let mut st = self.state.lock().expect("session state lock");
+        st.current_reentrancy_depth -= 1;
+        st.unknown_effect_tainted = true;
+        if let Some(key) = effect_id {
+            st.in_flight_effects.remove(key);
+        }
+        // Formatting a PyErr may invoke an arbitrary exception.__str__. Never do that
+        // while holding the session mutex; retain the original exception for the caller.
+        Self::record_trace(
+            &mut st,
+            hook_kind,
+            target_key,
+            args_key,
+            "error:callback_or_result_admission",
+        );
+    }
+
+    fn record_trace(
+        state: &mut CallbackSessionState,
+        hook_kind: &str,
+        target_key: &str,
+        args_key: &str,
+        outcome: &str,
+    ) {
+        debug_assert!(state.effect_trace.len() < MAX_CALLBACK_TRACE_RECORDS);
+        state.effect_trace.push((
+            hook_kind.to_owned(),
+            target_key.to_owned(),
+            args_key.to_owned(),
+            outcome.to_owned(),
         ));
-        Ok(unbound)
     }
 }
+
+#[cfg(test)]
+#[path = "callbacks/tests.rs"]
+mod tests;

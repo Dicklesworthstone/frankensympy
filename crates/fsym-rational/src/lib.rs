@@ -1296,10 +1296,7 @@ impl<M: BudgetMeter + ?Sized> BudgetMeter for FloatConversionMeter<'_, M> {
     }
 }
 
-fn float_conversion_finish<T, M: BudgetMeter>(
-    value: T,
-    meter: &mut M,
-) -> Result<T, MeterError> {
+fn float_conversion_finish<T, M: BudgetMeter>(value: T, meter: &mut M) -> Result<T, MeterError> {
     meter.checkpoint()?;
     Ok(value)
 }
@@ -1366,8 +1363,8 @@ fn metered_rounded_binary_quotient<M: BudgetMeter>(
     let Some(quotient) = quotient.to_u64() else {
         return float_conversion_finish(None, meter);
     };
-    let round_up = half_order == Ordering::Greater
-        || (half_order == Ordering::Equal && quotient & 1 != 0);
+    let round_up =
+        half_order == Ordering::Greater || (half_order == Ordering::Equal && quotient & 1 != 0);
     let result = if round_up {
         quotient.checked_add(1)
     } else {
@@ -1392,7 +1389,11 @@ fn metered_rational_to_f64<M: BudgetMeter>(
 
     meter.checkpoint()?;
     meter.charge(Dimension::ComputeSteps, 1)?;
-    let sign = if value.numer().is_negative() { SIGN_BIT } else { 0 };
+    let sign = if value.numer().is_negative() {
+        SIGN_BIT
+    } else {
+        0
+    };
     if value.numer().is_zero() {
         return float_conversion_finish(Some(0.0), meter);
     }

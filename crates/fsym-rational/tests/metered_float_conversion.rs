@@ -201,7 +201,11 @@ impl BudgetMeter for ObservedMeter {
         let result = self.budget.charge_batch(charges);
         if result.is_err() {
             self.refused_batches += 1;
-            assert_eq!(self.budget.snapshot(), before, "a refused batch was partial");
+            assert_eq!(
+                self.budget.snapshot(),
+                before,
+                "a refused batch was partial"
+            );
         }
         result
     }
@@ -242,7 +246,11 @@ fn exact_fit_trait_object_uses_one_ledger_and_cannot_retry_with_fresh_allowances
     let value = BigRational::new(7i64.into(), 3i64.into());
     let mut baseline = ObservedMeter::unlimited(None);
     assert_eq!(
-        value.metered_to_f64(&mut baseline).unwrap().unwrap().to_bits(),
+        value
+            .metered_to_f64(&mut baseline)
+            .unwrap()
+            .unwrap()
+            .to_bits(),
         0x4002_aaaa_aaaa_aaab,
     );
     let mut spent = [0; DIMENSION_COUNT];
@@ -304,7 +312,10 @@ fn metadata_extremes_need_no_coefficient_clone_and_still_check_publication() {
     let huge = power_of_two(32_768);
     let values = [
         (zero(), 0),
-        (BigRational::from_integer(huge.clone()), f64::INFINITY.to_bits()),
+        (
+            BigRational::from_integer(huge.clone()),
+            f64::INFINITY.to_bits(),
+        ),
         (
             BigRational::from_integer(-huge.clone()),
             f64::NEG_INFINITY.to_bits(),
@@ -339,10 +350,16 @@ fn a_large_finite_quotient_refuses_inside_its_borrowed_coefficient_comparison() 
     // The values have identical leading limbs; cancellation must reach the comparison
     // itself before a giant coefficient clone or an unmetered conversion can happen.
     let mut cancelled = ObservedMeter::unlimited(Some(128));
-    assert_eq!(value.metered_to_f64(&mut cancelled), Err(MeterError::Cancelled));
+    assert_eq!(
+        value.metered_to_f64(&mut cancelled),
+        Err(MeterError::Cancelled)
+    );
     assert_eq!(cancelled.checkpoints, 128);
     assert_eq!(cancelled.budget.remaining(Dimension::MemoryBytes), u64::MAX);
-    assert_eq!(cancelled.budget.remaining(Dimension::AllocationCount), u64::MAX);
+    assert_eq!(
+        cancelled.budget.remaining(Dimension::AllocationCount),
+        u64::MAX
+    );
 
     let mut limits = BudgetLimits::uniform(0, 37);
     limits.dimensions[Dimension::ComputeSteps.index()] = 64;

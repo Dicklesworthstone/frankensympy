@@ -2,8 +2,8 @@
 
 use fsym_budget::{Budget, BudgetError, BudgetLimits, BudgetMeter, Dimension, MeterError};
 use fsym_calculus::compile::{
-    CompileError, CompiledExpr, CompiledOp, EvalError, MAX_COMPILE_DEPTH,
-    MAX_COMPILE_NAME_BYTES, MAX_COMPILE_OPS,
+    CompileError, CompiledExpr, CompiledOp, EvalError, MAX_COMPILE_DEPTH, MAX_COMPILE_NAME_BYTES,
+    MAX_COMPILE_OPS,
 };
 use fsym_calculus::sparse_jacobian::{
     compiled_expression_matches, compiled_expression_matches_with_meter,
@@ -133,13 +133,8 @@ fn repeated_checked_compilation_consumes_one_exact_cumulative_ledger() {
     // An existing caller ledger also composes later admission and execution.
     let before = probe.remaining(Dimension::ComputeSteps);
     assert!(
-        compiled_expression_matches_with_meter(
-            &expression,
-            &variables,
-            &expected,
-            &mut probe,
-        )
-        .unwrap()
+        compiled_expression_matches_with_meter(&expression, &variables, &expected, &mut probe,)
+            .unwrap()
     );
     let after_check = probe.remaining(Dimension::ComputeSteps);
     assert_eq!(
@@ -174,7 +169,8 @@ fn actual_instruction_growth_is_atomic_and_cumulatively_charged() {
     let expression = Expr::Add(vec![Expr::from_i64(1); 5]);
     let variables = HashMap::new();
     let mut probe = budget([AMPLE; 3]);
-    let program = CompiledExpr::try_compile_with_meter(&expression, &variables, &mut probe).unwrap();
+    let program =
+        CompiledExpr::try_compile_with_meter(&expression, &variables, &mut probe).unwrap();
     assert_eq!(program.ops().len(), 6);
     // Six instructions grow through requests for 1, 2, 4, 8 slots. Released old
     // buffers cannot refund their cost to a later compiler invocation.
@@ -187,8 +183,7 @@ fn actual_instruction_growth_is_atomic_and_cumulatively_charged() {
     ] {
         let mut ledger = budget(limits);
         assert!(is_exhausted(
-            CompiledExpr::try_compile_with_meter(&expression, &variables, &mut ledger)
-                .unwrap_err(),
+            CompiledExpr::try_compile_with_meter(&expression, &variables, &mut ledger).unwrap_err(),
             refused,
         ));
         assert_eq!(ledger.remaining(Dimension::MemoryBytes), limits[1]);
@@ -212,19 +207,12 @@ fn every_generation_check_and_combined_safe_point_can_cancel() {
         let run = |meter: &mut InterruptAt| -> Result<(), CompileError> {
             match lane {
                 0 => CompiledExpr::try_compile_with_meter(&expression, &variables, meter).map(drop),
-                1 => compiled_expression_matches_with_meter(
-                    &expression,
-                    &variables,
-                    &program,
-                    meter,
-                )
-                .map(|matches| assert!(matches)),
-                _ => CompiledExpr::try_compile_checked_with_meter(
-                    &expression,
-                    &variables,
-                    meter,
-                )
-                .map(drop),
+                1 => {
+                    compiled_expression_matches_with_meter(&expression, &variables, &program, meter)
+                        .map(|matches| assert!(matches))
+                }
+                _ => CompiledExpr::try_compile_checked_with_meter(&expression, &variables, meter)
+                    .map(drop),
             }
         };
         let mut observed = InterruptAt::new(None);
@@ -248,13 +236,8 @@ fn cancellation_also_wins_at_mismatch_and_refusal_publication() {
     let wrong = CompiledExpr::try_from_ops(vec![CompiledOp::LoadConst(0.0)]).unwrap();
     let mut observed = InterruptAt::new(None);
     assert!(
-        !compiled_expression_matches_with_meter(
-            &expression,
-            &variables,
-            &wrong,
-            &mut observed,
-        )
-        .unwrap()
+        !compiled_expression_matches_with_meter(&expression, &variables, &wrong, &mut observed,)
+            .unwrap()
     );
     let mut late = InterruptAt::new(Some(observed.checkpoints));
     assert_eq!(
@@ -286,7 +269,11 @@ fn independent_check_rejects_typed_slot_power_and_trailing_instruction_mutants()
         CompiledExpr::try_compile_checked_with_meter(&expression, &variables, &mut ledger).unwrap();
     assert_eq!(
         correct.ops(),
-        &[CompiledOp::LoadVar(0), CompiledOp::LoadVar(1), CompiledOp::PowPositive]
+        &[
+            CompiledOp::LoadVar(0),
+            CompiledOp::LoadVar(1),
+            CompiledOp::PowPositive
+        ]
     );
     for operations in [
         vec![
@@ -305,13 +292,8 @@ fn independent_check_rejects_typed_slot_power_and_trailing_instruction_mutants()
         let mutant = CompiledExpr::try_from_ops(operations).unwrap();
         let before = ledger.remaining(Dimension::ComputeSteps);
         assert!(
-            !compiled_expression_matches_with_meter(
-                &expression,
-                &variables,
-                &mutant,
-                &mut ledger,
-            )
-            .unwrap()
+            !compiled_expression_matches_with_meter(&expression, &variables, &mutant, &mut ledger,)
+                .unwrap()
         );
         assert!(ledger.remaining(Dimension::ComputeSteps) < before);
     }
@@ -329,21 +311,15 @@ fn original_held_domain_checks_survive_governed_compilation() {
     ] {
         let mut ledger = budget([AMPLE; 3]);
         let program =
-            CompiledExpr::try_compile_checked_with_meter(&source, &variables, &mut ledger)
-                .unwrap();
+            CompiledExpr::try_compile_checked_with_meter(&source, &variables, &mut ledger).unwrap();
         assert_eq!(
             program.try_eval_finite_with_meter(&[0.0], &mut ledger),
             Err(EvalError::NonFiniteValue)
         );
         let constant = CompiledExpr::try_from_ops(vec![CompiledOp::LoadConst(0.0)]).unwrap();
         assert!(
-            !compiled_expression_matches_with_meter(
-                &source,
-                &variables,
-                &constant,
-                &mut ledger,
-            )
-            .unwrap()
+            !compiled_expression_matches_with_meter(&source, &variables, &constant, &mut ledger,)
+                .unwrap()
         );
     }
 }
@@ -354,8 +330,7 @@ fn actual_rational_rounding_is_metered_and_can_be_interrupted_inside_conversion(
     let source = Expr::Rational(BigRational::new(&denominator + 1_i64, denominator));
     let variables = HashMap::new();
     let mut observed = InterruptAt::new(None);
-    let correct =
-        CompiledExpr::try_compile_with_meter(&source, &variables, &mut observed).unwrap();
+    let correct = CompiledExpr::try_compile_with_meter(&source, &variables, &mut observed).unwrap();
     assert_eq!(correct.ops(), &[CompiledOp::LoadConst(1.0)]);
     assert!(observed.checkpoints > 100);
     let conversion_point = observed.checkpoints / 2;
@@ -368,8 +343,7 @@ fn actual_rational_rounding_is_metered_and_can_be_interrupted_inside_conversion(
     assert!(cancelled.ledger.remaining(Dimension::MemoryBytes) < AMPLE);
     let mut zero_storage = budget([AMPLE, 0, AMPLE]);
     assert!(is_exhausted(
-        CompiledExpr::try_compile_with_meter(&source, &variables, &mut zero_storage)
-            .unwrap_err(),
+        CompiledExpr::try_compile_with_meter(&source, &variables, &mut zero_storage).unwrap_err(),
         Dimension::MemoryBytes,
     ));
 }
@@ -387,25 +361,18 @@ fn metered_exact_quotients_keep_rounding_cells_and_canonical_underflow() {
         let source = Expr::Rational(BigRational::new(numerator, denominator));
         let mut ledger = budget([AMPLE; 3]);
         let program =
-            CompiledExpr::try_compile_checked_with_meter(&source, &variables, &mut ledger)
-                .unwrap();
+            CompiledExpr::try_compile_checked_with_meter(&source, &variables, &mut ledger).unwrap();
         let [CompiledOp::LoadConst(value)] = program.ops() else {
             panic!("a rational literal must produce one constant load");
         };
         assert_eq!(value.to_bits(), expected);
         assert!(compiled_expression_matches(&source, &variables, &program).unwrap());
-        let mutant = CompiledExpr::try_from_ops(vec![CompiledOp::LoadConst(
-            f64::from_bits(expected + 1),
-        )])
-        .unwrap();
+        let mutant =
+            CompiledExpr::try_from_ops(vec![CompiledOp::LoadConst(f64::from_bits(expected + 1))])
+                .unwrap();
         assert!(
-            !compiled_expression_matches_with_meter(
-                &source,
-                &variables,
-                &mutant,
-                &mut ledger,
-            )
-            .unwrap()
+            !compiled_expression_matches_with_meter(&source, &variables, &mutant, &mut ledger,)
+                .unwrap()
         );
     }
 }
@@ -460,13 +427,8 @@ fn source_preflight_and_final_bytecode_validation_each_consume_actual_fuel() {
     let dummy = CompiledExpr::try_from_ops(vec![CompiledOp::LoadConst(0.0)]).unwrap();
     let mut ledger = budget([5, 0, 0]);
     assert!(is_exhausted(
-        compiled_expression_matches_with_meter(
-            &source,
-            &HashMap::new(),
-            &dummy,
-            &mut ledger,
-        )
-        .unwrap_err(),
+        compiled_expression_matches_with_meter(&source, &HashMap::new(), &dummy, &mut ledger,)
+            .unwrap_err(),
         Dimension::ComputeSteps,
     ));
     assert_eq!(remaining(&ledger), [0; 3]);
@@ -476,10 +438,12 @@ fn source_preflight_and_final_bytecode_validation_each_consume_actual_fuel() {
     let mut ledger = budget([64, 0, 0]);
     assert!(matches!(
         CompiledExpr::try_from_ops_with_meter(operations.clone(), &mut ledger),
-        Err(EvalError::Meter(MeterError::Budget(BudgetError::Exhausted {
-            dimension: Dimension::ComputeSteps,
-            ..
-        }))),
+        Err(EvalError::Meter(MeterError::Budget(
+            BudgetError::Exhausted {
+                dimension: Dimension::ComputeSteps,
+                ..
+            }
+        ))),
     ));
     let mut ledger = budget([65, 0, 0]);
     assert!(CompiledExpr::try_from_ops_with_meter(operations, &mut ledger).is_ok());

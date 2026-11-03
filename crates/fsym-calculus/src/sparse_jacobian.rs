@@ -793,12 +793,7 @@ pub fn compiled_expression_matches_with_meter<M: BudgetMeter + ?Sized>(
             charge_compilation_work(self.meter, 1, 0, 0)?;
             let bits = value.bits();
             if bits <= 1024 {
-                charge_compilation_work(
-                    self.meter,
-                    bits.div_ceil(32).max(1) as usize,
-                    0,
-                    0,
-                )?;
+                charge_compilation_work(self.meter, bits.div_ceil(32).max(1) as usize, 0, 0)?;
                 if let Some(converted) = value.to_f64().filter(|value| value.is_finite()) {
                     return compilation_finish(Ok(converted), self.meter);
                 }
