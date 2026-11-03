@@ -190,8 +190,37 @@ def _iterate_system(program, values, tolerance, maxiter, budget=None):
     solve work. Rejected backtracking trials retain their consumed resources.
     """
     _check_evaluation_budget(budget)
-    rows = program.native_system.residual_count
-    columns = program.native_system.variable_count
+    native = program.native_system
+
+    def trial_residuals(point, *, budget=None):
+        try:
+            return (native.residuals(point) if budget is None else
+                    native.residuals(point, budget=budget))
+        except ValueError:
+            # This closed native lane has no Python effects. Domain refusals
+            # can reject a line-search trial without replaying unknown work.
+            return None
+
+    return _iterate_system_functions(
+        values, tolerance, maxiter,
+        rows=native.residual_count, columns=native.variable_count,
+        residuals=native.residuals, jacobian=native.jacobian,
+        trial_residuals=trial_residuals, budget=budget,
+    )
+
+
+def _iterate_system_functions(values, tolerance, maxiter, *, rows, columns,
+                              residuals, jacobian, trial_residuals,
+                              budget=None, charge_work=None):
+    """Bounded QR iteration over already admitted numerical evaluators.
+
+    ``trial_residuals`` alone decides whether a known domain refusal may
+    become ``None``. Callback exceptions and operational failures are never
+    classified here or formatted into new exceptions. A supervising caller
+    can additionally charge the same dense work to its owning callback session.
+    This kernel produces approximate candidates without derivative evidence.
+    """
+    _check_evaluation_budget(budget)
 
     evaluations = 0
 
@@ -202,7 +231,13 @@ def _iterate_system(program, values, tolerance, maxiter, budget=None):
         evaluations += 1
         return function(at) if budget is None else function(at, budget=budget)
 
-    result = evaluate(program.native_system.residuals, values)
+    def charge(units):
+        if budget is not None:
+            budget._charge(units)
+        if charge_work is not None:
+            charge_work(units)
+
+    result = evaluate(residuals, values)
     norm = max(abs(value) for value in result)
     if norm == 0.0:
         return values
@@ -213,11 +248,10 @@ def _iterate_system(program, values, tolerance, maxiter, budget=None):
         linear_work += linear_units
         if linear_work > _MAX_LINEAR_WORK:
             raise ValueError("nsolve system exhausted its dense linear-algebra work budget")
-        if budget is not None:
-            budget._charge(linear_units)
-        jacobian = evaluate(program.native_system.jacobian, values)
+        charge(linear_units)
+        jacobian_values = evaluate(jacobian, values)
         try:
-            step, weights = _least_squares_step(jacobian, result)
+            step, weights = _least_squares_step(jacobian_values, result)
         except (OverflowError, ZeroDivisionError) as error:
             raise ValueError("nsolve linear solve left the finite real domain") from error
         step_norm = max(abs(value) for value in step)
@@ -226,8 +260,7 @@ def _iterate_system(program, values, tolerance, maxiter, budget=None):
         merit = math.hypot(*(value / weight for value, weight in zip(result, weights)))
         fraction = 1.0
         for _ in range(_MAX_LINE_SEARCH_STEPS):
-            if budget is not None:
-                budget._charge(3 * columns)
+            charge(3 * columns)
             candidate = [value - fraction * change for value, change in zip(values, step)]
             if candidate == values:
                 raise ValueError("nsolve stagnated before meeting the residual and step tolerances")
@@ -238,10 +271,7 @@ def _iterate_system(program, values, tolerance, maxiter, budget=None):
                 # remains consumed, and unsupported compilation never falls back.
                 if evaluations >= _MAX_SYSTEM_EVALUATIONS:
                     raise ValueError("nsolve system exhausted its numerical evaluation budget")
-                try:
-                    candidate_result = evaluate(program.native_system.residuals, candidate)
-                except ValueError:
-                    pass
+                candidate_result = evaluate(trial_residuals, candidate)
             if candidate_result is not None:
                 candidate_norm = max(abs(value) for value in candidate_result)
                 if candidate_norm == 0.0 or (

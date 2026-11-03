@@ -1351,6 +1351,7 @@ from .utilities.lambdify import (
     compile_numeric, compile_residual_system, load_residual_system, lambdify,
 )
 from .utilities.hybrid import compile_numeric_hybrid
+from .utilities.hybrid_system import compile_hybrid_residual_system
 from .utilities.objective import compile_objective
 from .utilities._certified_numeric import ResidualJacobianEnclosure, RootBoxReceipt
 
@@ -2410,6 +2411,7 @@ __all__ = [
     "lambdify",
     "compile_numeric",
     "compile_numeric_hybrid",
+    "compile_hybrid_residual_system",
     "compile_residual_system",
     "load_residual_system",
     "compile_objective",

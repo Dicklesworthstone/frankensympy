@@ -340,6 +340,9 @@ class _HybridCallable:
     def __setattr__(self, name, value):
         raise AttributeError("hybrid numerical programs are immutable")
 
+    def __delattr__(self, name):
+        raise AttributeError("hybrid numerical programs are immutable")
+
     @property
     def variables(self):
         return self._variables
@@ -365,9 +368,10 @@ class _HybridCallable:
     def __reduce_ex__(self, protocol):
         raise TypeError("hybrid callback programs have no portable or pickle transport")
 
-    def _evaluate(self, inputs, budget, session):
+    def _evaluate(self, inputs, budget, session, *, reject_native_domain=False):
         _session_ready(session)
         _check_evaluation_budget(budget)
+        invocations_before = session.invocations if reject_native_domain else None
         if any(not math.isfinite(value) for value in inputs):
             raise ValueError("hybrid numerical inputs must be finite")
         _steps(budget, len(self._actions) + len(inputs) + 1)
@@ -386,7 +390,19 @@ class _HybridCallable:
             else:
                 supplied = inputs if kind == "native_input" else [values[position] for position in arguments]
                 session.charge_nested_steps(payload.operation_count + len(supplied) + 1)
-                values[index] = payload.evaluate(supplied, budget=budget)[0]
+                try:
+                    evaluated = payload.evaluate(supplied, budget=budget)
+                except ValueError:
+                    # Only a closed native fragment can reject a solver trial
+                    # that has executed no callbacks. Admission and callback exceptions
+                    # stay outside this handler, including their ValueErrors.
+                    if (not reject_native_domain or session.invocations != invocations_before
+                            or session.unknown_effect_tainted or session.cancelled):
+                        raise
+                    _session_ready(session)
+                    _check_evaluation_budget(budget)
+                    return None
+                values[index] = evaluated[0]
         _session_ready(session)
         _check_evaluation_budget(budget)
         _steps(budget, len(self._outputs) + 1)

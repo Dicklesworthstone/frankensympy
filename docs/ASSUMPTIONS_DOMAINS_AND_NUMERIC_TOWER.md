@@ -737,6 +737,73 @@ kernels; it does not promise a forced wall-time interruption. Compilation and
 Python container allocation retain their separate accounting limits. This
 interface does not close the end-to-end consumer, campaign or profile gates.
 
+### 15.9 Solving residual systems with explicit callbacks
+
+`compile_hybrid_residual_system(residuals, args, *, jacobian, callbacks)`
+captures one ordered graph containing both the residual vector and an explicit
+Jacobian. Custom numerical functions use the same exact-class mapping and
+supervised occurrence semantics as `compile_numeric_hybrid`. The required
+Jacobian is a caller assertion: compilation does not call derivative hooks or
+prove that the supplied entries differentiate the residuals.
+
+```python
+from sympy import Add, EvaluationBudget, Function, Symbol, compile_hybrid_residual_system
+
+class Response(Function):
+    nargs = 1
+
+class ResponseSlope(Function):
+    nargs = 1
+
+x = Symbol("x")
+system = compile_hybrid_residual_system(
+    [Add(Response(x), -2, evaluate=False)], (x,),
+    jacobian=[[ResponseSlope(x)]],
+    callbacks={Response: lambda value: value*value,
+               ResponseSlope: lambda value: 2*value},
+)
+assert system.evaluate(2) == ([2.0], [[4.0]])
+root = system.solve(1.5, budget=EvaluationBudget(max_steps=100_000))
+assert abs(float(root[0]) - 2**0.5) < 1e-10
+assert system.evidence == "approximate_with_user_callbacks"
+assert system.jacobian_evidence == "user_supplied"
+```
+
+`evaluate` returns the residual vector and dense Jacobian together;
+`evaluate_batch` returns complete pairs under one session and ledger. The
+`residuals` view executes only the original residual prefix. The `jacobian`
+view first executes the original residuals, so an asserted derivative cannot
+erase a source domain check or an observable callback occurrence. Source
+containers, callback mappings, variable objects and occurrence order are
+captured once; later container mutation does not change the program.
+
+`solve(initial, *, tol=1e-12, maxiter=200, budget=None, session=None)` returns
+an approximate column Matrix. It reuses ordinary system `nsolve`'s equilibrated,
+column-pivoted QR iteration for square and overdetermined systems. Initial
+coordinates are flat, even when evaluation arguments have a nested layout.
+An exact-zero binary64 residual can terminate before derivative evaluation;
+this remains an approximate observation and supplies no mathematical evidence.
+
+One owning callback session and optional cumulative budget cover all iterations,
+native fragments, dense work, line-search trials and final publication. Nested
+hybrid requests inherit both scopes and cannot substitute a new ledger or
+session. Every callback occurrence executes afresh. Line search may reject a
+native domain failure only when no callback ran in that trial and the request
+remains healthy. Callback exceptions, invalid callback results, failures after
+an effect, cancellation and resource exhaustion propagate without automatic
+retry. Already completed effects cannot be undone; a failed solve or batch
+publishes no partial numerical result.
+
+The source admits at most 64 variables, 256 residuals and 4096 Jacobian entries,
+subject to the existing combined output, action and instruction limits. Solves
+require at least as many residuals as variables and retain the shared bounded
+iteration, evaluation and dense-work limits. Python callback internals,
+compilation and Python object allocation remain outside native accounting, and
+non-cooperative callbacks have no forced cancellation deadline. These programs
+expose no checked native residual system, portable/pickle transport, derivative
+proof, interval enclosure or root-certificate interface. Use held custom
+expressions to retain the Python class identity required by the callback lane.
+
 ## 16. Polynomial representation portfolio
 
 Polynomial storage is adaptive but semantically uniform:
