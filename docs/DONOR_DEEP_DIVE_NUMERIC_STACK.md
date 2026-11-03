@@ -370,3 +370,13 @@ budget, cancellation and allocation failures survive the donor boundary, and
 a donor contract violation remains an operational error. There is no hidden
 backend fallback. Unsupported solver options refuse before donor work, including
 every explicit tolerance, iteration or step override for the pinned SciPy API.
+
+`solve_certified` and `nsolve_certified` can select either donor solely for
+candidate generation. The shell first checks the captured exact-source and
+assumption contract, then passes the proposed coordinates to its existing
+independent root-box search. The same ledger covers both stages and every
+rejected box. This route deliberately retains shell admission around the native
+consumer: directly invoking a lower-level native root helper would omit the
+shell's inexact-literal and captured-assumption guards. The resulting local
+nonsingular-root receipt is authorized by the unchanged original-source interval
+checker, never by the donor's convergence flag or candidate class.

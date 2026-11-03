@@ -358,24 +358,30 @@ def _candidate_initial(program, initial):
     return [_finite_real(value, "initial value") for value in values]
 
 
-def _solve_compiled_certified(program, initial, *, tol, maxiter, precision, max_attempts, budget=None):
+def _solve_compiled_certified(program, initial, *, tol, maxiter, precision, max_attempts,
+                              backend="python", max_step_norm=None, budget=None):
     from ..utilities._certified_numeric import prepare_root_search, search_root_box
 
     _check_evaluation_budget(budget)
-    tolerance = _newton_options(tol, maxiter)
+    tolerance, iterations, step_limit = _candidate_options(
+        backend, tol, maxiter, max_step_norm, allow_python=True,
+    )
     # Check the original immutable program, shape, assumptions and policy
     # before running any floating candidate work or user conversion hooks.
     prepare_root_search(program, precision, max_attempts)
-    columns = program.native_system.variable_count
-    values = (_vector(initial, "initial values", columns)
-              if _is_vector(initial) else [initial])
-    if len(values) != columns:
-        raise TypeError("nsolve_certified initial vector must match the number of variables")
-    values = [_finite_real(value, "initial value") for value in values]
+    values = _candidate_initial(program, initial)
     try:
-        candidate = (_iterate_system(program, values, tolerance, maxiter)
-                     if budget is None else
-                     _iterate_system(program, values, tolerance, maxiter, budget=budget))
+        if backend == "python":
+            candidate = (_iterate_system(program, values, tolerance, iterations)
+                         if budget is None else
+                         _iterate_system(program, values, tolerance, iterations, budget=budget))
+        else:
+            # The real donor supplies only a floating proposal. It cannot
+            # bypass source/assumption admission or the independent checker.
+            candidate = program.solve_candidate(
+                values, backend=backend, tol=tolerance, maxiter=iterations,
+                max_step_norm=step_limit, budget=budget,
+            ).root
     except (ValueError, OverflowError, ZeroDivisionError) as error:
         raise RootSearchError("candidate", f"certified root search could not generate a candidate: {error}") from error
     _check_evaluation_budget(budget)
@@ -386,7 +392,8 @@ def _solve_compiled_certified(program, initial, *, tol, maxiter, precision, max_
     return result
 
 
-def nsolve_certified(expr, var, initial, *, tol=1e-12, maxiter=200,
+def nsolve_certified(expr, var, initial, *, tol=None, maxiter=None,
+                     backend="python", max_step_norm=None,
                      precision=32, max_attempts=12, budget=None):
     """Locate and independently certify one nonsingular real root locally.
 
@@ -397,13 +404,25 @@ def nsolve_certified(expr, var, initial, *, tol=1e-12, maxiter=200,
     untrusted proposals; source literals must be exact and custom callbacks
     are not admitted. Only supported Boolean real/sign assumptions are allowed.
 
-    After bounded Newton iteration, exact rational boxes are proposed around
+    After bounded numerical iteration, exact rational boxes are proposed around
     its binary64 candidate. At most ``max_attempts`` trials (1..24) adjust the
     widths and increase interval precision from ``precision`` (8..128 digits)
     up to 128. Every accepted box satisfies the independent native C1-domain,
     strict Krawczyk inclusion and contraction checks. Return a ``RootBoxReceipt``
     proving one unique nonsingular root in its declared box, with exact root
     enclosures. This proves nothing about other boxes or global completeness.
+
+    ``backend="python"`` preserves the scaled QR/Newton candidate generator
+    with default ``tol=1e-12`` and ``maxiter=200``. ``frankennumpy`` selects
+    the pinned dense linear solver and checked symbolic Jacobian, defaulting
+    to ``tol=1e-12``, ``maxiter=64`` (0..1024), and ``max_step_norm=1e6``.
+    ``frankenscipy`` selects the pinned fsolve with its finite-difference
+    Jacobian, at most 200 iterations and a residual tolerance of 1e-10. None
+    selects backend defaults. SciPy refuses every non-None solver-control
+    override, and Python refuses ``max_step_norm``. No backend silently falls
+    back to another. Static certification eligibility is checked before any
+    donor executes; all three proposals go through the same independent
+    original-source and captured-assumption box checks.
 
     ``tol`` controls only candidate generation, never mathematical acceptance.
     ``RootSearchError`` distinguishes exhausted candidate and certificate
@@ -419,11 +438,13 @@ def nsolve_certified(expr, var, initial, *, tol=1e-12, maxiter=200,
     automatic preconditioning uses a separate point-enclosure call, so callers
     planning several trials should supply sufficient cumulative memory fuel.
     Compilation and symbolic proof admission remain outside this ledger.
+    The pinned donor kernels are synchronous: cancellation is cooperative
+    between kernels and callbacks, with no forced wall-time guarantee.
     """
     from ..utilities._certified_numeric import root_search_options
 
     _check_evaluation_budget(budget)
-    _newton_options(tol, maxiter)
+    _candidate_options(backend, tol, maxiter, max_step_norm, allow_python=True)
     root_search_options(precision, max_attempts)
     if _is_vector(expr) or _is_vector(var):
         variables = _vector(var, "variables", 16)
@@ -439,7 +460,7 @@ def nsolve_certified(expr, var, initial, *, tol=1e-12, maxiter=200,
     program = compile_residual_system([_equation_residual(value) for value in residuals], variables)
     return _solve_compiled_certified(
         program, initial, tol=tol, maxiter=maxiter, precision=precision, max_attempts=max_attempts,
-        budget=budget,
+        backend=backend, max_step_norm=max_step_norm, budget=budget,
     )
 
 

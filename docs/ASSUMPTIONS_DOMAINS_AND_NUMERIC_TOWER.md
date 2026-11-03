@@ -382,6 +382,14 @@ declared box. It does not establish global completeness. The search admits squar
 systems with 1 through 16 variables, uses at most 24 certificate attempts, and
 escalates interval precision only within 8 through 128 decimal digits.
 
+Both entry points accept an explicit candidate `backend`: `"python"` retains
+the existing scaled QR/Newton generator; `"frankennumpy"` and `"frankenscipy"`
+select the real pinned consumers described in section 15.8. Backend choice does
+not change the root claim or its verifier. Exact-source, shape, captured
+assumptions and certificate-search policy are admitted before a donor executes.
+Only its approximate coordinates enter the existing box search; a donor's
+convergence flag, diagnostics or claimed evidence cannot authorize a receipt.
+
 `certified_integral` encloses a proper real integral over finite rational limits
 without requiring an antiderivative. The calculus generator proposes a partition;
 the independent core checker recomputes every cell's original-source function and
@@ -709,6 +717,7 @@ assert candidate.residual_norm <= 1e-12
 assert candidate.evidence == "approximate"
 other = system.solve_candidate([1.8, 0.8], backend="frankenscipy", budget=budget)
 assert other.residual_norm <= 1e-10
+receipt = system.solve_certified([1.8, 0.8], backend="frankenscipy")
 ```
 
 `frankennumpy` evaluates the checked symbolic Jacobian and calls the pinned
@@ -726,6 +735,18 @@ re-evaluated infinity norm of the original residuals, `iterations`, `backend`
 and `evidence`. Approximate candidates can include a singular root or violate a
 variable's declared assumptions. None of these fields grants a root certificate.
 Use the separate certified-search API for an independently checked local claim.
+
+`system.solve_certified` and `nsolve_certified` accept the same donor backend
+names, plus the default `"python"` backend. `tol=None` and `maxiter=None`
+select that backend's defaults; Python retains its effective tolerance `1e-12`
+and 200-iteration limit. Python refuses `max_step_norm`, and SciPy refuses all
+explicit non-`None` solver-control overrides. Every candidate passes through
+the same original-source interval checker and captured-assumption checks.
+One supplied ledger spans donor work, exact inverse proposals, rejected boxes,
+precision escalation and receipt publication. Operational failures propagate
+without becoming mathematical retries. Unsupported exact source or assumptions
+refuse before candidate work; singular/no-root cases cannot gain a receipt just
+because an approximate solve returned a small residual.
 
 One supplied `EvaluationBudget` covers input snapshots, native buffers, source
 evaluations and conservative donor work through final candidate publication.

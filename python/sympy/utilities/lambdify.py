@@ -489,7 +489,8 @@ class _ResidualCallable:
         from ._certified_numeric import certify_root_box
         return certify_root_box(self, box, center, preconditioner, precision, budget=budget)
 
-    def solve_certified(self, initial, *, tol=1e-12, maxiter=200,
+    def solve_certified(self, initial, *, tol=None, maxiter=None,
+                        backend="python", max_step_norm=None,
                         precision=32, max_attempts=12, budget=None):
         """Search for and independently certify one nonsingular real root.
 
@@ -497,22 +498,32 @@ class _ResidualCallable:
         in ``variables`` order, even when ordinary arguments are nested. The
         captured exact source, typed symbols and assumptions stay fixed across
         candidate generation and certification. The system must be square
-        with 1..16 variables. A bounded Newton candidate only proposes exact
+        with 1..16 variables. A bounded numerical candidate only proposes exact
         rational boxes; native domain, inclusion and contraction checks alone
         authorize the returned ``RootBoxReceipt``. Failed searches raise
         ``RootSearchError`` and never return an uncertified candidate.
 
-        ``tol`` and ``maxiter`` govern floating candidate search. Certification
-        tries at most 1..24 boxes (default 12), increasing precision from the
-        requested 8..128 digits up to 128. This is a local root claim, without
-        global completeness. See ``nsolve_certified`` for the search contract.
-        A supplied ``EvaluationBudget`` spans candidate iterations, rejected
-        boxes and precision escalation without resetting its counters.
+        ``backend="python"`` preserves the scaled QR/Newton search with
+        default ``tol=1e-12`` and ``maxiter=200``. ``frankennumpy`` and
+        ``frankenscipy`` select the real pinned consumers with the controls
+        documented by ``solve_candidate``. None selects each backend's
+        defaults; the Python backend rejects ``max_step_norm`` and SciPy
+        rejects all non-None solver-control overrides. No backend fallback
+        occurs. Source eligibility and captured assumptions are checked before
+        candidate work, and every backend uses the same root-box verifier.
+
+        Certification tries at most 1..24 boxes (default 12), increasing
+        precision from the requested 8..128 digits up to 128. This is a local
+        root claim, without global completeness. See ``nsolve_certified`` for
+        the search contract. A supplied ``EvaluationBudget`` spans candidate
+        iterations, rejected boxes and precision escalation without resetting
+        its counters. Donor cancellation remains cooperative between kernels.
         """
         from ..solvers.numerical import _solve_compiled_certified
         return _solve_compiled_certified(
             self, initial, tol=tol, maxiter=maxiter, precision=precision,
-            max_attempts=max_attempts, budget=budget,
+            max_attempts=max_attempts, backend=backend,
+            max_step_norm=max_step_norm, budget=budget,
         )
 
 
