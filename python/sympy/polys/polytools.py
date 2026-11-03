@@ -1717,6 +1717,9 @@ def _multivariate_gens(p: Any, gens: tuple) -> list | None:
 
 def factor_list(p: Any, *gens: Any) -> Tuple[Any, List[Tuple[Any, int]]]:
     """Compute polynomial factor list returning (scale, [(factor, multiplicity), ...])."""
+    from . import _opaque
+    if _opaque.applies(p):
+        return _opaque.factor(p, gens, listing=True)
     if not isinstance(p, Poly):
         mgens = _multivariate_gens(p, gens)
         if mgens is not None:
@@ -1772,6 +1775,9 @@ def _factor_rational(p: Any) -> Any:
 
 
 def factor(p: Any, *gens: Any) -> Any:
+    from . import _opaque
+    if _opaque.applies(p):
+        return _opaque.factor(p, gens)
     # Oracle-pinned: factor cancels rational functions
     # (factor((x**2 - 1)/(x + 1)) -> x - 1).
     from ..core import Mul as _Mul, Pow as _Pow, Add as _Add, Integer as _Integer
@@ -2082,6 +2088,9 @@ def primitive(f: Any, *gens: Any) -> Tuple[Any, Any]:
 
 def cancel(f: Any, *gens: Any) -> Any:
     """Cancel common factors in a rational function f = p / q."""
+    from . import _opaque
+    if _opaque.applies(f):
+        return _opaque.cancel(f, gens)
     from ..core import Integer, expand
     is_poly = isinstance(f, Poly)
     wrapped = f.as_expr() if is_poly else _wrap(_native_expr(f))
@@ -2217,7 +2226,8 @@ def _gt_merge(d1: dict, d2: dict, pick: Any) -> dict:
             if pick == "max":
                 out[base] = e1 if e2 is None else e2
             continue
-        diff = _expand(e1 - e2)
+        difference = e1 - e2
+        diff = difference if isinstance(difference, Rational) else _expand(difference)
         if isinstance(diff, Rational):
             out[base] = (e1 if diff >= 0 else e2) if pick == "max" else (e2 if diff >= 0 else e1)
         elif pick == "max":
@@ -2230,7 +2240,8 @@ def _gt_sub(d1: dict, d2: dict) -> dict:
 
     out = {}
     for base, e in d1.items():
-        r = _expand(e - d2.get(base, 0))
+        difference = e - d2.get(base, 0)
+        r = difference if isinstance(difference, Rational) else _expand(difference)
         if r != 0:
             out[base] = r
     return out
@@ -2298,6 +2309,9 @@ def together(expr: Any, deep: bool = False, fraction: bool = True) -> Any:
     >>> together(1/x + 1)
     (x + 1)/x
     """
+    from . import _opaque
+    if _opaque.applies(expr):
+        return _opaque.together(expr, deep=deep, fraction=fraction)
     from ..core import Add, Function as _Function
 
     is_poly = isinstance(expr, Poly)

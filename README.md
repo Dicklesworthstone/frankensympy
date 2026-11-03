@@ -246,6 +246,43 @@ around retained applications. An unknown custom derivative stays a formal
 `Derivative` of the original object; unresolved custom compositions do not yet
 expand into every upstream `Subs` representation.
 
+Retained applications also participate in exact replacement, bounded algebraic
+substitution, arithmetic expansion, and conservative simplification. Polynomial
+and rational transformations can use the existing native algorithms while
+keeping the actual application objects:
+
+```python
+from sympy import cancel, expand, factor, factor_list, together
+
+law = ConstitutiveLaw(x)
+expanded = expand((law + 1)**2)             # law**2 + 2*law + 1
+factored = factor(law**2 - 1)               # (law - 1)*(law + 1)
+scale, factors = factor_list(law**2 - 1)    # (1, [(law - 1, 1), (law + 1, 1)])
+reduced = cancel((law**2 - 1)/(law + 1))     # law - 1
+combined = together(1/law + 1/(law + 1))    # (2*law + 1)/(law*(law + 1))
+assert (x + 1).xreplace({x: law}) == law + 1
+```
+
+Function applications become formal generators only inside one transformation;
+the returned graph contains the original objects. Exact coefficient checks
+validate factor products and division reconstruction before publication. The
+bounded polynomial lane admits rational coefficients, up to eight generators,
+degree 32, 4096 terms and 4096-bit coefficients, with additional work and native
+algorithm limits. Explicit generators must be independent of any remaining
+function coefficients. Noninteger powers, custom factor hooks, and deep or
+`fraction=False` transformation by `together` refuse in this lane. These APIs do
+not issue a portable proof for arbitrary Python functions or preserve the
+number of later numerical callback occurrences across algebraic rewrites.
+
+Native admission also checks that built-in function classes and their relevant
+implementations still match their captured capabilities. Changing a built-in
+hook revokes new closed compilation of affected expressions; restoring it
+permits admission again. Existing immutable programs keep their captured native
+semantics. Changing inherited Function equality, hashing or commutativity
+prevents arithmetic from merging applications under an obsolete identity rule.
+These checks are process-local contracts, not a sandbox for arbitrary changes
+to Python module globals.
+
 Opaque expressions have no usable native mirror. Closed numerical compilers,
 verified native algorithms, and unsupported matrix algorithms refuse them.
 Explicit custom commutativity or equality/hash protocols require their own

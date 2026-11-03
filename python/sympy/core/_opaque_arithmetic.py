@@ -326,6 +326,9 @@ def _make(cls, children, *, held=False):
 
 
 def _admit_application(value):
+    from . import _require_default_function_identity
+
+    _require_default_function_identity()
     # The inherited Function contract is commutative. An explicit override
     # needs its own shell algebra; native commutative normalization cannot
     # silently reinterpret it. Inspect definitions without executing them.
@@ -538,6 +541,11 @@ def native_transform(values, operation, *, multiple=False, atomize_functions=Fal
             children = tuple(lift(child) for child in value.args)
             if any(contains_opaque(child) for child in children):
                 return _make(kind, children)
+            if any(binding.name in slot_names for binding in value.free_symbol_bindings):
+                # Polynomial transforms may temporarily atomize a closed
+                # builtin application too. Restore a wholly closed subtree
+                # from its real operands, not its operation-local symbols.
+                return kind(*children)
         # Never publish a closed region containing an operation-local slot.
         if any(binding.name in slot_names for binding in value.free_symbol_bindings):
             raise RuntimeError("opaque arithmetic failed to restore a local application slot")

@@ -256,6 +256,27 @@ def test_shared_codec_can_atomize_closed_intrinsics_without_invoking_them():
     assert any(child is a for child in result.args)
 
 
+@pytest.mark.parametrize("kind,constant", [(s.Add, 2), (s.Mul, 2), (s.Pow, -1)])
+def test_shared_codec_restores_fully_closed_regions_of_atomized_outputs(kind, constant):
+    import sympy.core as core
+
+    first, second, x, y, z, a, b = _laws()
+    builtin = s.sin(x)
+    expected = kind(builtin, constant)
+    constructor = {s.Add: _native.Add, s.Mul: _native.Mul, s.Pow: _native.Pow}[kind]
+    before = dict(core._surface_symbols)
+    results = native_transform(
+        (a, builtin),
+        lambda values: (values[1], constructor(values[1], _native.py_integer(constant)).as_expr()),
+        atomize_functions=True, multiple=True,
+    )
+    assert results[0] is builtin
+    assert results[1] == expected
+    assert _native_expr(results[1]) == _native_expr(expected)
+    assert results[1].free_symbols == {x}
+    assert core._surface_symbols == before
+
+
 def test_all_transform_operands_are_cycle_checked_before_replacement():
     first, second, x, y, z, a, b = _laws()
     corrupt = object.__new__(first)

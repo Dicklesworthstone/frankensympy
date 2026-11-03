@@ -518,6 +518,11 @@ def _require_closed_function_class(cls) -> None:
         _function_capabilities.require_class(cls)
 
 
+def _require_default_function_identity() -> None:
+    if _function_capabilities is not None:
+        _function_capabilities.require_default_identity()
+
+
 def _require_closed_native_function_tag(name) -> None:
     if _function_capabilities is not None:
         _function_capabilities.require_native_tag(name)
@@ -537,7 +542,7 @@ def _freeze_builtin_function_classes() -> None:
 
         _closed_function_classes = tuple(_known_functions.values())
         _function_capabilities = FunctionCapabilities(
-            _closed_function_classes, _native.Expr, Basic.__dict__["_value"]
+            _closed_function_classes, _native.Expr, Basic.__dict__["_value"], Function
         )
 _user_functions: weakref.WeakValueDictionary[str, type] = weakref.WeakValueDictionary()
 

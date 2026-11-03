@@ -29,6 +29,10 @@ _SEMANTIC_NAMES = frozenset({
     "__delattr__", "__eq__", "__hash__", "__call__", "__instancecheck__",
     "__subclasscheck__", "_prop_handler",
 })
+_IDENTITY_NAMES = (
+    "__eq__", "__ne__", "__hash__", "_hashable_content",
+    "is_commutative", "_eval_is_commutative",
+)
 
 
 def _semantic(name):
@@ -117,12 +121,31 @@ def _owner_matches(owner, recorded):
     return True
 
 
+def _identity_record(owner):
+    namespace = _DICT.__get__(owner)
+    if len(namespace) > _MAX_MEMBERS or any(type(key) is not str for key in namespace):
+        raise ValueError("function identity metadata exceeds admission limits")
+    return tuple(_implementation(namespace.get(name, _EMPTY)) for name in _IDENTITY_NAMES)
+
+
+def _identity_matches(owner, recorded):
+    try:
+        current = _identity_record(owner)
+    except ValueError:
+        return False
+    return all(
+        len(tokens) == len(expected)
+        and all(left is right for left, right in zip(tokens, expected))
+        for tokens, expected in zip(current, recorded)
+    )
+
+
 class FunctionCapabilities:
     """An immutable roster; current implementations are checked on admission."""
 
-    __slots__ = ("_rows", "_native_names", "_native_has_function", "_native_is_number", "_native_is_symbol", "_value_slot")
+    __slots__ = ("_rows", "_native_names", "_native_has_function", "_native_is_number", "_native_is_symbol", "_value_slot", "_identity_root", "_identity_owners")
 
-    def __init__(self, classes, native_type, value_slot):
+    def __init__(self, classes, native_type, value_slot, function_type):
         owners = {}
         rows = []
         native_names = []
@@ -150,6 +173,10 @@ class FunctionCapabilities:
         object.__setattr__(self, "_native_is_number", native_type.__dict__["is_number"])
         object.__setattr__(self, "_native_is_symbol", native_type.__dict__["is_symbol"])
         object.__setattr__(self, "_value_slot", value_slot)
+        object.__setattr__(self, "_identity_root", function_type)
+        object.__setattr__(self, "_identity_owners", tuple(
+            (owner, _identity_record(owner)) for owner in _MRO.__get__(function_type)
+        ))
 
     def __setattr__(self, name, value):
         raise AttributeError("function capability records are immutable")
@@ -162,6 +189,21 @@ class FunctionCapabilities:
 
     def native_value(self, source):
         return self._value_slot.__get__(source, type(source))
+
+    def require_default_identity(self):
+        """Admit normalization only under the original inherited contract.
+
+        Unknown Function classes keep their Python identity. The algebra may
+        group equal applications only while its shared equality, hashing and
+        commutativity implementations still have their captured semantics.
+        """
+        current = _MRO.__get__(self._identity_root)
+        if (len(current) != len(self._identity_owners)
+                or any(owner is not expected for owner, (expected, _) in zip(current, self._identity_owners))
+                or any(not _identity_matches(owner, record) for owner, record in self._identity_owners)):
+            raise NotImplementedError(
+                "opaque arithmetic with modified default Function identity needs a surface algebra"
+            )
 
     @staticmethod
     def _matches(row, checked):
