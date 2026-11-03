@@ -17,13 +17,14 @@ use fsym_budget::{BudgetMeter, Dimension};
 use fsym_calculus::VerifiedResidualSystem;
 use fsym_calculus::compile::{CompiledExpr, EvalError, MAX_COMPILE_DEPTH};
 use fsym_calculus::sparse_jacobian::compiled_expression_matches;
+use fsym_calculus::verified::{MAX_VERIFIED_ARTIFACT_BYTES, VerifiedArtifactError};
 use fsym_core::{
     BigRational, Expr, RealBall, ResidualJacobianEnclosure, RootBoxReceipt, RootBoxWitness, Symbol,
     metered_enclose_residual_jacobian, verify_root_box,
 };
-use pyo3::exceptions::{PyTypeError, PyValueError};
+use pyo3::exceptions::{PyMemoryError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyFloat, PyInt, PyList, PyTuple};
+use pyo3::types::{PyBytes, PyFloat, PyInt, PyList, PyTuple};
 use std::collections::HashMap;
 
 const MAX_VARIABLES: usize = 256;
@@ -645,6 +646,43 @@ pub struct PyVerifiedResidualSystem {
 }
 
 impl PyVerifiedResidualSystem {
+    fn check_requested_source(residuals: &[Expr], variables: &[Symbol]) -> PyResult<()> {
+        variable_map(variables)?;
+        let mut source_nodes = 0;
+        for residual in residuals {
+            check_source(residual, &mut source_nodes)?;
+        }
+        if source_nodes.saturating_mul(variables.len().max(1)) > MAX_TOTAL_OPS {
+            return Err(PyValueError::new_err(
+                "verified system exceeds the differentiation work limit",
+            ));
+        }
+        Ok(())
+    }
+
+    fn admit(system: VerifiedResidualSystem) -> PyResult<Self> {
+        let compiled = system.compiled();
+        let operations: usize = compiled
+            .compiled_residuals
+            .iter()
+            .chain(&compiled.compiled_jacobian)
+            .map(|program| program.ops().len())
+            .sum();
+        if operations > MAX_TOTAL_OPS {
+            return Err(PyValueError::new_err(
+                "verified numeric system exceeds the total operation limit",
+            ));
+        }
+        Ok(Self { system })
+    }
+
+    fn transport_error(error: VerifiedArtifactError) -> PyErr {
+        match error {
+            VerifiedArtifactError::AllocationFailure => PyMemoryError::new_err(error.to_string()),
+            _ => crate::to_value_error(error),
+        }
+    }
+
     fn evaluate_values(
         &self,
         inputs: &[f64],
@@ -664,31 +702,65 @@ impl PyVerifiedResidualSystem {
     fn new(residuals: &Bound<'_, PyAny>, variables: &Bound<'_, PyAny>) -> PyResult<Self> {
         let residuals = extract_expressions(residuals)?;
         let variables = extract_variables(variables)?;
-        variable_map(&variables)?;
-        let mut source_nodes = 0;
-        for residual in &residuals {
-            check_source(residual, &mut source_nodes)?;
-        }
-        if source_nodes.saturating_mul(variables.len().max(1)) > MAX_TOTAL_OPS {
-            return Err(PyValueError::new_err(
-                "verified system exceeds the differentiation work limit",
-            ));
-        }
+        Self::check_requested_source(&residuals, &variables)?;
         let system = VerifiedResidualSystem::try_compile(&residuals, &variables)
             .map_err(crate::to_value_error)?;
-        let compiled = system.compiled();
-        let operations: usize = compiled
-            .compiled_residuals
-            .iter()
-            .chain(&compiled.compiled_jacobian)
-            .map(|program| program.ops().len())
-            .sum();
-        if operations > MAX_TOTAL_OPS {
-            return Err(PyValueError::new_err(
-                "verified numeric system exceeds the total operation limit",
+        Self::admit(system)
+    }
+
+    /// Encode the checked source, derivatives, proofs and bytecode as bounded JSON bytes.
+    /// Receipts, Python objects and execution budgets are not serialized.
+    fn to_bytes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        let encoded = py
+            .detach(|| self.system.to_json_bytes())
+            .map_err(Self::transport_error)?;
+        Ok(PyBytes::new(py, &encoded))
+    }
+
+    /// Replay proof admission and bind to the caller's exact expected typed source.
+    /// Only immutable built-in bytes are accepted; admission is outside EvaluationBudget.
+    #[staticmethod]
+    #[pyo3(signature = (data, *, residuals, variables))]
+    fn from_bytes(
+        data: &Bound<'_, PyAny>,
+        residuals: &Bound<'_, PyAny>,
+        variables: &Bound<'_, PyAny>,
+    ) -> PyResult<Self> {
+        let py = data.py();
+        if !data.is_exact_instance(&py.get_type::<PyBytes>()) {
+            return Err(PyTypeError::new_err(
+                "verified program data must be exact built-in bytes",
             ));
         }
-        Ok(Self { system })
+        let encoded = data.cast::<PyBytes>()?.as_bytes();
+        if encoded.len() > MAX_VERIFIED_ARTIFACT_BYTES {
+            return Err(PyValueError::new_err(
+                "verified program data exceeds the 16 MiB byte limit",
+            ));
+        }
+        let residuals = extract_expressions(residuals)?;
+        let variables = extract_variables(variables)?;
+        Self::check_requested_source(&residuals, &variables)?;
+        py.detach(|| {
+            // Replay the retained certificate; never replace it with fresh
+            // derivative generation or accept a serialized verification flag.
+            let system = VerifiedResidualSystem::from_json_bytes(encoded)
+                .map_err(Self::transport_error)?;
+            if system.vars() != variables.as_slice() {
+                return Err(PyValueError::new_err(
+                    "verified program variables do not match the expected typed order",
+                ));
+            }
+            if system.residuals() != residuals.as_slice() {
+                return Err(PyValueError::new_err(
+                    "verified program residuals do not match the expected exact source",
+                ));
+            }
+            // Expected-source extraction already enforced Python bridge
+            // axis, literal, node and depth limits. Check the loaded bytecode
+            // limit as well, since native transport permits a wider envelope.
+            Self::admit(system)
+        })
     }
 
     /// Independently enclose the original residuals and their derivatives.

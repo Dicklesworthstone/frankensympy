@@ -410,7 +410,44 @@ assumptions and exhausted work cannot yield accepted receipts. Ordinary `nsolve`
 remains an approximate API. These bounded synchronous implementations do not close
 the full runtime, compatibility-profile or end-to-end campaign gates.
 
-### 15.5 Shared numerical budgets and cancellation
+### 15.5 Checked residual-program persistence
+
+A compiled residual system exposes `to_bytes()`. The public
+`load_residual_system(data, *, residuals, args)` loader accepts the existing
+versioned native JSON format, bounded to 16 MiB. Import independently replays
+the retained derivative proofs, omitted-zero checks, sparsity and bytecode
+provenance before comparing the caller's exact original residuals and ordered
+typed variables. It also reapplies the Python bridge's input and operation caps.
+
+```python
+from pathlib import Path
+from sympy import Symbol, compile_residual_system, load_residual_system
+
+x = Symbol("x", positive=True)
+source = [x*x - 2]
+program = compile_residual_system(source, [x])
+Path("checked-system.json").write_bytes(program.to_bytes())
+
+restored = load_residual_system(
+    Path("checked-system.json").read_bytes(), residuals=source, args=[x],
+)
+assert restored.residuals(2) == [2.0]
+```
+
+The caller supplies the expected source and argument declarations, including in
+a fresh process. The loader never invents assumptions from an identity digest or
+remaps Dummy identities. Caller objects provide the argument layout, assumption
+snapshot and floating-source guard. A floating residual remains approximate-only
+when reloaded against floating expected source; explicitly declaring the matching
+exact Rational source is a new source declaration.
+
+Python objects, argument nesting, evaluation budgets, root receipts and trusted
+verification flags are not serialized. Encoding and proof replay release the GIL
+but remain bounded admission work outside `EvaluationBudget`. After import,
+evaluation, batches, enclosures and certified root search use the same numerical
+interfaces and cumulative budgets as a freshly compiled system.
+
+### 15.6 Shared numerical budgets and cancellation
 
 Compiled binary64 evaluation accepts a caller-owned cumulative ledger. Native
 `CompiledExpr::try_eval_with_meter` retains ordinary IEEE evaluation;

@@ -1348,7 +1348,7 @@ from .simplify import (
 
 from .utilities.lambdify import (
     EvaluationBudget, EvaluationBudgetExceeded, EvaluationCancelled,
-    compile_numeric, compile_residual_system, lambdify,
+    compile_numeric, compile_residual_system, load_residual_system, lambdify,
 )
 from .utilities.objective import compile_objective
 from .utilities._certified_numeric import ResidualJacobianEnclosure, RootBoxReceipt
@@ -2409,6 +2409,7 @@ __all__ = [
     "lambdify",
     "compile_numeric",
     "compile_residual_system",
+    "load_residual_system",
     "compile_objective",
     "EvaluationBudget",
     "EvaluationBudgetExceeded",

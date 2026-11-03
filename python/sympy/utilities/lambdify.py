@@ -20,7 +20,7 @@ from ..core import (
 
 __all__ = [
     "EvaluationBudget", "EvaluationBudgetExceeded", "EvaluationCancelled",
-    "compile_numeric", "compile_residual_system", "lambdify",
+    "compile_numeric", "compile_residual_system", "load_residual_system", "lambdify",
 ]
 
 EvaluationBudget = _native.EvaluationBudget
@@ -36,6 +36,7 @@ _MAX_LITERAL_BITS = 4096
 _MAX_INTEGER_RESULT_BITS = 65_536
 _MAX_BATCH_ROWS = 4096
 _MAX_BATCH_VALUES = 262_144
+_MAX_VERIFIED_PROGRAM_BYTES = 16 * 1024 * 1024
 
 
 def _check_evaluation_budget(budget):
@@ -317,6 +318,18 @@ class _ResidualCallable:
         """Original argument objects, in the flat order used by box coordinates."""
         return self._variables
 
+    def to_bytes(self):
+        """Return a bounded, versioned bundle for :func:`load_residual_system`.
+
+        The immutable bytes retain exact native residuals, typed variables,
+        symbolic derivative proofs and checked derivative bytecode. Loading
+        replays proof admission and requires the caller's expected residuals
+        and argument declarations. Python objects, argument layout, root
+        receipts and evaluation budgets are not stored. Encoding and replay
+        are bounded admission work outside `EvaluationBudget`.
+        """
+        return self.native_system.to_bytes()
+
     def evaluate(self, *values, budget=None):
         """Return residuals and Jacobian rows, sharing any supplied evaluation budget."""
         _check_evaluation_budget(budget)
@@ -423,6 +436,14 @@ def compile_residual_system(residuals, args):
     certified enclosure and root-box methods accept the same budget. Python
     object/result-container allocation remains outside native-buffer accounting.
     """
+    prepared = _residual_source(residuals, args)
+    layout, variables, bindings, assumptions, sources, inexact = prepared
+    native = _native.VerifiedResidualSystem(sources, bindings)
+    return _ResidualCallable(layout, native, variables, inexact, assumptions)
+
+
+def _residual_source(residuals, args):
+    """Capture caller-owned layout, typed declarations and exact source once."""
     layout, variables = _argument_layout(args)
     from ._certified_numeric import bound_assumptions
     bindings = [_symbol_binding(v) for v in variables]
@@ -431,8 +452,47 @@ def compile_residual_system(residuals, args):
     _, sources = _outputs(
         residuals, lambda value: _numeric_source(value, functions, count, inexact=inexact), native=True,
     )
-    native = _native.VerifiedResidualSystem(sources, bindings)
-    return _ResidualCallable(layout, native, variables, inexact[0], assumptions)
+    return layout, variables, bindings, assumptions, sources, inexact[0]
+
+
+def load_residual_system(data, *, residuals, args):
+    """Replay a saved residual program and bind it to explicitly expected source.
+
+    ``data`` must be exact built-in ``bytes`` of at most 16 MiB, as returned
+    by a compiled residual program's ``to_bytes()``. The versioned native
+    decoder independently rechecks retained symbolic derivative proofs,
+    omitted zero derivatives, sparsity and bytecode before publication.
+    Corrupt data, incompatible schemas and mismatched source raise ValueError.
+
+    The caller must supply both ``residuals`` and ``args``. Their exact
+    lowered source and ordered typed symbols must match the bundle, including
+    held operations and assumption identities. No symbols are created from
+    serialized names. Recreate declared Symbols explicitly when loading in a
+    fresh process; Dummy identities must already match and are never remapped.
+    Argument nesting is taken from the supplied ``args``.
+
+    Assumptions and the floating-source guard are recaptured from the caller's
+    objects. Floating residual literals remain approximate-only even if their
+    native rational representation matches the file. An explicitly supplied
+    exact Rational source is treated as that exact source. No serialized
+    boolean can grant proof acceptance or enable root certification.
+
+    The result supports the same evaluation, batching, enclosure and certified
+    root search methods as ``compile_residual_system``. Encoding, decoding
+    and symbolic proof admission are outside ``EvaluationBudget``; later
+    numerical calls can share an ordinary caller budget. This restores a
+    checked program, with no stored root receipt or running execution state.
+    """
+    if type(data) is not bytes:
+        raise TypeError("verified program data must be exact built-in bytes")
+    if len(data) > _MAX_VERIFIED_PROGRAM_BYTES:
+        raise ValueError("verified program data exceeds the 16 MiB byte limit")
+    prepared = _residual_source(residuals, args)
+    layout, variables, bindings, assumptions, sources, inexact = prepared
+    native = _native.VerifiedResidualSystem.from_bytes(
+        data, residuals=sources, variables=bindings,
+    )
+    return _ResidualCallable(layout, native, variables, inexact, assumptions)
 
 
 def _math_program(value, positions, functions, count, program, depth=0):

@@ -204,6 +204,7 @@ jobs:
               "python/tests/test_compiled_objective.py",
               "python/tests/test_numeric_evaluation_budget.py",
               "python/tests/test_certified_numeric_budget.py",
+              "python/tests/test_verified_program_transport.py",
               "python/tests/test_surface.py::SurfaceTests::test_extended_solvers_transforms_functions_and_submodules",
               "python/tests/test_surface.py::SurfaceTests::test_piecewise_power_integrals_and_laplace",
               "python/tests/test_surface.py::SurfaceTests::test_integral_transforms_suite",
