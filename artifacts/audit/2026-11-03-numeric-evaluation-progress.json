@@ -1,0 +1,787 @@
+{
+  "schema": "frankensympy_supplementary_component_execution_v1",
+  "validation_class": "governed_toolchain_component_checks_not_full_workspace_certification",
+  "date": "2026-11-03",
+  "evidence_status": "native_component_validation_passed_full_validation_incomplete",
+  "baseline_commit": "0ab51760054b04d67faed04941038ebac04b07ef",
+  "feature_commits_verified_on_main": [
+    {
+      "sha": "0ab51760054b04d67faed04941038ebac04b07ef",
+      "feature": "Meter compiled scalar, dense/sparse Jacobian and objective/Hessian execution; round exact literals directly."
+    },
+    {
+      "sha": "2d0769b9b3f711d2dfe9172eff42bd8f7e63b2eb",
+      "feature": "Reusable Python evaluation budgets, bounded atomic batches, solver integration, contracts, CI coverage, and exact-quotient unit fixture alignment."
+    }
+  ],
+  "containing_commit_feature": "Owning-runtime numerical budget regression source and supplementary execution evidence; claim/campaign continuation without promotion or closure.",
+  "planning_sources": [
+    "COMPREHENSIVE_PLAN_FOR_FRANKENSYMPY.md",
+    ".beads/issues.jsonl",
+    "docs/FIRST_IMPLEMENTATION_CAMPAIGN.md"
+  ],
+  "beads_updated_without_closure": [
+    "fra-campaign-jacobian-bundle-ukp"
+  ],
+  "claims_updated_without_promotion": [
+    "MATH-004"
+  ],
+  "planning_changes": "Only the campaign continuation note and MATH-004 notes/evidence references change. Statuses, dependencies, gate definitions and other records remain unchanged.",
+  "compiler": {
+    "used": "nightly-2026-08-20",
+    "version": "rustc 1.100.0-nightly (f7d782a3b 2026-08-19)",
+    "cargo_version": "cargo 1.100.0-nightly (514c56dd7 2026-08-19)",
+    "external_dependency_pins_changed": false,
+    "registry_packages_in_repository_lock": 228,
+    "new_external_dependencies": [],
+    "new_internal_edge": "fsym-python (L6) -> fsym-budget (L0)",
+    "build_environment": {
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "CARGO_INCREMENTAL": "0",
+      "CARGO_BUILD_JOBS": "1",
+      "environment_file": "/workspace/scratch/fdf3b50928f6/session-env.sh",
+      "rustc_wrapper": "/workspace/scratch/fdf3b50928f6/bounded_rustc.py",
+      "rustc_wrapper_crate": "asupersync only",
+      "rustc_wrapper_extra_arguments": [
+        "-Zunstable-options",
+        "--jobs-backend=1",
+        "--jobs-frontend=1",
+        "-Zmir-opt-level=0"
+      ],
+      "rustc_wrapper_note": "The temporary wrapper appends only these memory-bounding compiler arguments for --crate-name asupersync; it does not alter crate features or dependency pins."
+    }
+  },
+  "donor_checkouts": {
+    "asupersync": "b3e08ac0bd773a5bbdd4f3c2f4624d550352ec0f",
+    "franken_numpy-pin": "d5d29c9da36141f611d1414b4c6ef434ab31ea24",
+    "frankenscipy-pin": "213a417c739025ed865a3875c89a7d86726ecb5a"
+  },
+  "source_snapshot": {
+    "scope": "Hashes identify the final implementation source. Feature files, including the corrected compile.rs unit fixture, match verified main commit 2d0769b9b3f711d2dfe9172eff42bd8f7e63b2eb; the runtime regression source belongs to the containing evidence commit. Native production arithmetic remains unchanged from 0ab51760054b04d67faed04941038ebac04b07ef. Execution records identify their own tested source commits; hashes alone do not imply execution.",
+    "sha256": {
+      "Cargo.lock": "20ae604173e33553983bb138526ef85568b36028e09dc0c459d89e6b10d69e31",
+      "crates/fsym-calculus/src/compile.rs": "eb23521cacc22c72b6d5df391eb6ad8737b178a115d361323e0e820e49cbbf09",
+      "crates/fsym-calculus/src/sparse_jacobian.rs": "a25af62f8911613337d5a10a3d82c3b2b228b741313e4166063186dee63180b8",
+      "crates/fsym-calculus/src/sparse_hessian.rs": "89dd958954498691380654176492ae24462e013ffb3ee3532b02359263b45c30",
+      "crates/fsym-calculus/tests/metered_compiled_evaluation.rs": "6ba71a762b1993b8c3aa84058234c70dd651dbb750dc185118849d72b8c5709f",
+      "crates/fsym-calculus/tests/metered_sparse_derivatives.rs": "e5a24410bfcf09ee7275af58b49a1b9f6a14e9058af36c81e932a3e7a50cfd1c",
+      "crates/fsym-calculus/tests/numeric_literal_rounding.rs": "60e450fe25c6eba878c664e79ab08785353ba6c0f590ae5053fe1559bfdd9917",
+      "crates/fsym-calculus/tests/finite_numeric_programs.rs": "73116c87ac01dc95e4e1a676b2296fc5f0d6ff80b3928374811cbcae5a4c98aa",
+      "crates/fsym-calculus/tests/sparse_hessian.rs": "c875e2a5d3b21560f48024ed962c3ebc09f3c2c580f18f3a79e4974eca2928b4",
+      "crates/fsym-calculus/tests/general_power_programs.rs": "d584ab8005df2498daf472583c225cd706285d3923c4dfd5510b7a1da2d1f8fd",
+      "crates/fsym-python/Cargo.toml": "9f8f5e7fed4d60e1f75f73304193da7da1009bd003b14d1e6bf2f9bd0e178b68",
+      "crates/fsym-python/src/lib.rs": "f4a50e299ada11043ab44f6474ff5e16e8c9c07d6b74564827a1e0fb75168d3a",
+      "crates/fsym-python/src/numeric_budget.rs": "17e01ec4ee31073fdad6e0c4f908c4f38d9baca50811e89b628f00ddf2728c50",
+      "crates/fsym-python/src/numeric.rs": "5b2ed127c54958008a0f72a8dd989b8dff1021fb293ea477641f73e90f7f8ee7",
+      "crates/fsym-python/src/objective.rs": "0a3d8656a2e3c2ac8081f971c56240c2e594ccde7ac41504d0b6466f72cf9757",
+      "crates/fsym-runtime/tests/metered_numeric_programs.rs": "c7a8fda5229c1630d14c457010381b6521c858c153e8869eaf86ca0ed4e3f845",
+      "python/sympy/__init__.py": "dd0c99e577ae6d411daf68c9449dc7be50f3063a19ec56c29cfcf1f6c4d3b5d4",
+      "python/sympy/utilities/__init__.py": "40d901b430db4b5b59f8e1f63fa971c2fa096ca5d9f5931345b2d50cab6a8bdf",
+      "python/sympy/utilities/lambdify.py": "212a6830bd9d2a20905cb78baddb5fdf07c0e5fef0efd3adc902695181071a94",
+      "python/sympy/utilities/objective.py": "2174d90a7601e00ae2488a335e345d76ec945336c3a6d1500f56d89f0e72020a",
+      "python/sympy/solvers/numerical.py": "9831c7a3f07eb88b60569f8293af15351307ceaadb6729cc71f75c245f81e7d4",
+      "python/tests/test_numeric_evaluation_budget.py": "686a28310fddf1d0654d3327cfacbf1570cf35e0d6d99388196b6b192e5cc425",
+      "docs/ASSUMPTIONS_DOMAINS_AND_NUMERIC_TOWER.md": "de4ccad9cceb1bac1c129bb287702572ee03ce0ccec45813ccbe6fcbabb27798",
+      "docs/CRATE_ARCHITECTURE_AND_DEPENDENCIES.md": "cbb2142a63c57fbb59a65ea92aa0f1f40c44003947471b7084c78d308126f6ad",
+      ".github/workflows/ci.yml": "7249d4a83523da44ca2fa341525f2d43fa88279dc4b4bf828586bdf2c9ae5615"
+    },
+    "native_feature_commit": "0ab51760054b04d67faed04941038ebac04b07ef",
+    "native_calculus_matches_commit": "2d0769b9b3f711d2dfe9172eff42bd8f7e63b2eb"
+  },
+  "features": {
+    "native_evaluation_metering": {
+      "apis": [
+        "CompiledExpr::try_eval_with_meter",
+        "CompiledExpr::try_eval_finite_with_meter",
+        "CompiledResidualSystem::try_eval_residuals_with_meter",
+        "CompiledResidualSystem::try_eval_jacobian_with_meter",
+        "CompiledResidualSystem::try_eval_system_with_meter",
+        "SparseJacobian::try_eval_sparse_with_meter",
+        "SparseJacobian::try_eval_dense_with_meter",
+        "SparseJacobian::try_eval_compressed_with_meter",
+        "VerifiedObjective::evaluate_with_meter",
+        "VerifiedObjective::hessian_vector_product_with_meter"
+      ],
+      "accounting": "Caller-owned cumulative instruction, reduction, validation, allocation and publication work. Evaluation does not spend the protected verifier pool.",
+      "failure_semantics": "Typed cancellation/exhaustion; spending survives failures; caller-owned output buffers stay unchanged on every refusal.",
+      "domain_semantics": "Existing IEEE and finite-real policies remain distinct; checked objective and derivative-only public paths retain original-source domain checks."
+    },
+    "exact_literal_conversion": {
+      "change": "Integer and rational compiler/checker conversion uses the existing arithmetic substrate directly; rationals round the exact quotient once.",
+      "covered_cases": "Finite coprime ratios with overflowing components, double-rounding counterexamples, ties to even, subnormals, canonical zero, maximum-finite boundary, true overflow and unchanged exponent admission.",
+      "independent_checks": "495 exact dyadic rounding cells plus forged legacy component-rounded bytecode rejection; residual/objective and portable artifact consumers are covered."
+    },
+    "python_boundary": {
+      "implementation_status": "budget_module_executed_full_boundary_blocked",
+      "apis": [
+        "EvaluationBudget",
+        "EvaluationBudgetExceeded",
+        "EvaluationCancelled",
+        "compile_numeric(...)(..., budget=...)",
+        "compile_numeric(...).evaluate_batch",
+        "compile_residual_system(...).evaluate_batch",
+        "compile_objective(...).evaluate(..., budget=...)",
+        "nsolve(..., budget=...)"
+      ],
+      "batch_row_limit": 4096,
+      "batch_width_product_limit": 262144,
+      "ownership": "One reusable ledger per active evaluation; native input snapshots are charged under the GIL before synchronous arithmetic releases it. No native worker is spawned.",
+      "failures": "Late batch failures publish no prefix; solver backtracking must propagate budget/cancellation exceptions rather than retry them as domain failures."
+    }
+  },
+  "native_component_execution": [
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "fsym-calculus",
+        "--test",
+        "metered_compiled_evaluation",
+        "--test",
+        "metered_sparse_derivatives",
+        "--test",
+        "numeric_literal_rounding",
+        "--test",
+        "finite_numeric_programs",
+        "--test",
+        "sparse_hessian",
+        "--test",
+        "general_power_programs",
+        "-j1"
+      ],
+      "environment_setup": "source ../session-env.sh",
+      "cwd": "/workspace/scratch/fdf3b50928f6/frankensympy",
+      "target": "/workspace/scratch/fdf3b50928f6/sympy-target",
+      "exit_code": 0,
+      "status": "passed",
+      "passed": 59,
+      "failed": 0,
+      "suites": {
+        "metered_compiled_evaluation": 7,
+        "metered_sparse_derivatives": 10,
+        "numeric_literal_rounding": 8,
+        "finite_numeric_programs": 10,
+        "sparse_hessian": 15,
+        "general_power_programs": 9
+      },
+      "terminal_output_source": "Observed successful Cargo terminal output in root tool session 72245.",
+      "retained_filesystem_log": null,
+      "log_note": "Output is retained in the session tool transcript only; no filesystem log path or log digest is claimed.",
+      "scope": "Six focused native suites after environment recovery, not the full workspace or Python extension.",
+      "source_commit": "0ab51760054b04d67faed04941038ebac04b07ef"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "fsym-calculus",
+        "--lib",
+        "-j1"
+      ],
+      "environment_setup": "source ../session-env.sh",
+      "source_commit": "2d0769b9b3f711d2dfe9172eff42bd8f7e63b2eb",
+      "target": "/dev/shm/fsym-budget-session",
+      "TMPDIR": "/dev/shm/fsym-budget-session/tmp",
+      "execution_namespace": "escalated",
+      "exit_code": 0,
+      "status": "passed",
+      "passed": 75,
+      "failed": 0,
+      "ignored": 0,
+      "terminal_output_source": "Observed successful Cargo terminal output in root tool session 32724.",
+      "retained_filesystem_log": null,
+      "scope": "Calculus library tests, including rational_literal_range_checks_apply_to_the_exact_quotient; not the workspace, Python extension or owning-runtime suite."
+    }
+  ],
+  "native_component_totals": {
+    "passed": 134,
+    "failed": 0,
+    "suites": 7,
+    "focused_integration_tests": 59,
+    "library_tests": 75,
+    "literal_rounding_tests": 8
+  },
+  "quality_checks": [
+    {
+      "command": [
+        "cargo",
+        "fmt",
+        "--check"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "terminal_output_source": "Observed final cargo fmt --check exit 0 in root tool session 61500, including the corrected unit fixture."
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "terminal_output_source": "Observed final git diff --check exit 0 in root tool session 61500."
+    },
+    {
+      "command": [
+        "cargo",
+        "check",
+        "--offline",
+        "--locked",
+        "--workspace",
+        "--all-targets",
+        "-j1"
+      ],
+      "status": "blocked_resource_exhaustion",
+      "terminal_output_source": "Observed by root in terminal tool session 43099.",
+      "exit_code": 101,
+      "failed_dependency": "asupersync",
+      "diagnostic": "rustc --emit=dep-info,metadata terminated with signal 9 (SIGKILL); no Rust source diagnostic; no valid asupersync.rmeta remained.",
+      "python_bridge_typecheck_reached": false
+    },
+    {
+      "command": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "--workspace",
+        "--all-targets",
+        "-j1",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "status": "blocked_resource_exhaustion",
+      "terminal_output_source": "Observed by root in terminal tool session 67595.",
+      "exit_code": 101,
+      "failed_dependency": "asupersync",
+      "diagnostic": "The asupersync rustc metadata process terminated with signal 9 (SIGKILL); no Rust source diagnostic was emitted. Workspace linting did not complete."
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--workspace",
+        "-j1"
+      ],
+      "status": "blocked_resource_exhaustion",
+      "terminal_output_source": "Observed by root in terminal tool session 30992.",
+      "exit_code": 101,
+      "failed_dependency": "asupersync",
+      "diagnostic": "The asupersync rustc process terminated with signal 9 (SIGKILL) during dependency compilation; no Rust source diagnostic was emitted. The full workspace test run did not reach test execution.",
+      "tests_executed": 0
+    }
+  ],
+  "python_extension_build": {
+    "status": "blocked_resource_exhaustion",
+    "scope": "Full fsym-python extension with the restored pinned toolchain and donor checkouts, locked/offline build.",
+    "command": [
+      "cargo",
+      "build",
+      "--offline",
+      "--locked",
+      "-p",
+      "fsym-python",
+      "--features",
+      "extension-module",
+      "-j1"
+    ],
+    "environment_setup": "source ../session-env.sh",
+    "exit_code": 101,
+    "failed_dependency": "asupersync",
+    "diagnostic": "The asupersync library rustc process terminated with signal 9 (SIGKILL); no Rust source diagnostic was emitted.",
+    "binary_sha256": null,
+    "extension_produced": false,
+    "terminal_output_source": "Observed terminal build result reported by the root agent.",
+    "retained_filesystem_log": null,
+    "note": "No successful full-extension build or public sympy shell integration run is claimed. A separate unchanged budget-module harness passed four component tests. The elevated target avoided exhausted overlay storage without changing production dependency pins or features."
+  },
+  "python_component_execution": {
+    "status": "not_run_extension_unavailable",
+    "python_version": "3.12.14",
+    "command": null,
+    "exit_code": null,
+    "passed": null,
+    "tests_executed": 0,
+    "new_regression_file": "python/tests/test_numeric_evaluation_budget.py",
+    "note": "The full-extension build was killed during asupersync dependency compilation, so no public sympy shell integration tests ran. The separate budget_bridge_component_execution record covers four actual production-module tests with embedded Python.",
+    "python_version_observation": "3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3], observed in the current executor.",
+    "scope": "Public sympy shell integration tests, including the new 18-case numerical budget suite."
+  },
+  "runtime_component_execution": {
+    "status": "blocked_resource_exhaustion",
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "-p",
+      "fsym-runtime",
+      "--test",
+      "metered_numeric_programs",
+      "-j1"
+    ],
+    "environment_setup": "source ../session-env.sh",
+    "exit_code": 101,
+    "passed": null,
+    "tests_executed": 0,
+    "tests_defined": 3,
+    "test_file": "crates/fsym-runtime/tests/metered_numeric_programs.rs",
+    "failed_dependency": "asupersync",
+    "diagnostic": "The asupersync library rustc process terminated with signal 9 (SIGKILL); no Rust source diagnostic was emitted.",
+    "terminal_output_source": "Observed terminal test-build result reported by the root agent.",
+    "retained_filesystem_log": null,
+    "note": "Owning FsymCx cancellation, shared/protected budgets and child reconciliation regressions are implemented but none executed because dependency code generation was killed."
+  },
+  "isolated_oracle": {
+    "status": "prepared_version_checked",
+    "python": "/workspace/scratch/fdf3b50928f6/oracle/bin/python",
+    "sympy": "1.14.0",
+    "mpmath": "1.3.0",
+    "scope": "Isolated test-only oracle. Environment preparation does not imply any differential gate passed; no production fallback is introduced."
+  },
+  "environment_recovery": "Earlier attempts encountered shared filesystem exhaustion and the executor restarted. Committed native source was recovered from GitHub and uncommitted bridge work reconstructed. Only the successful native runs explicitly listed here count as test execution.",
+  "limits_and_nonclaims": [
+    "Numerical evaluation remains approximate binary64 arithmetic; resource accounting grants no mathematical certificate.",
+    "Memory accounting covers cumulative requested native buffers, not RSS, allocator overhead or peak live memory.",
+    "Python argument-layout processing and CPython objects/result containers are outside the evaluation ledger.",
+    "Compilation, proof admission/replay, interval certification and root certification remain separate phases outside this evaluation ledger.",
+    "Cancellation is cooperative at declared safe points; no universal wall-time bound or arbitrary Python callback interruption is claimed.",
+    "The full workspace, 12-property connected campaign, profile certification, recovery/consumer integration and live-incumbent performance gates remain open."
+  ],
+  "resource_observation": {
+    "memory_cgroup_limit_bytes": 8589934592,
+    "memory_cgroup_current_bytes": 8589832192,
+    "oom_kill_counter": 32,
+    "counter_scope": "Observed cumulative cgroup counter, not a count attributed solely to these two commands.",
+    "note": "The two blocked rustc processes exited with SIGKILL while the shared environment was at its 8 GiB memory limit."
+  },
+  "ci_observation": {
+    "status": "queued_at_observation",
+    "runs": [
+      {
+        "id": 41558942153,
+        "head_sha": "2d0769b9b3f711d2dfe9172eff42bd8f7e63b2eb",
+        "status": "queued",
+        "conclusion": null
+      },
+      {
+        "id": 41556063239,
+        "head_sha": "0ab51760054b04d67faed04941038ebac04b07ef",
+        "status": "queued",
+        "conclusion": null
+      }
+    ],
+    "claim": "No CI pass is claimed."
+  },
+  "budget_bridge_component_execution": {
+    "kind": "direct production numeric_budget.rs module validation",
+    "created_utc": "2026-11-03T01:35:45.562217+00:00",
+    "repository_head": "0ab51760054b04d67faed04941038ebac04b07ef",
+    "module_unchanged": true,
+    "production_source_hashes": {
+      "Cargo.lock": {
+        "sha256": "20ae604173e33553983bb138526ef85568b36028e09dc0c459d89e6b10d69e31",
+        "git_blob": "ce17359b9b555588f362c2a3ec8a99bad72bb38e"
+      },
+      "crates/fsym-python/src/numeric_budget.rs": {
+        "sha256": "17e01ec4ee31073fdad6e0c4f908c4f38d9baca50811e89b628f00ddf2728c50",
+        "git_blob": "b4d282962dd6b69f8e7bbf0be311f41fa6e539f2"
+      },
+      "crates/fsym-calculus/src/compile.rs": {
+        "sha256": "eb23521cacc22c72b6d5df391eb6ad8737b178a115d361323e0e820e49cbbf09",
+        "git_blob": "96ee9c269c4413271f2c7fcaa7fb655dc1170732"
+      },
+      "crates/fsym-calculus/src/sparse_hessian.rs": {
+        "sha256": "89dd958954498691380654176492ae24462e013ffb3ee3532b02359263b45c30",
+        "git_blob": "c5acbb7c835abb7420d18c53f31fc18a6de59cd5"
+      },
+      "crates/fsym-budget/src/lib.rs": {
+        "sha256": "aa17dd27b3b849c8afe8a00aa55eb37d352028301529e6ace0dc0672a111e5b0",
+        "git_blob": "10feb39475cb7098df2ca00987b25d1e131108d0"
+      }
+    },
+    "harness_root": "/dev/shm/fsym-budget-bridge-hy9nguw5",
+    "test_exit_code": 0,
+    "tests_passed": 4,
+    "tests_failed": 0,
+    "doc_tests": 0,
+    "log": "   Compiling fsym-budget-bridge-direct-validation v0.0.0 (/dev/shm/fsym-budget-bridge-hy9nguw5)\nwarning: function `evaluation_buffer` is never used\n   --> /workspace/scratch/fdf3b50928f6/frankensympy/crates/fsym-python/src/numeric_budget.rs:240:15\n    |\n240 | pub(crate) fn evaluation_buffer<T>(\n    |               ^^^^^^^^^^^^^^^^^\n    |\n    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default\n\nwarning: function `register` is never used\n   --> /workspace/scratch/fdf3b50928f6/frankensympy/crates/fsym-python/src/numeric_budget.rs:262:15\n    |\n262 | pub(crate) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {\n    |               ^^^^^^^^\n\nwarning: `fsym-budget-bridge-direct-validation` (lib) generated 2 warnings\nwarning: `fsym-budget-bridge-direct-validation` (lib test) generated 1 warning (1 duplicate)\n    Finished `test` profile [unoptimized] target(s) in 1.10s\n     Running unittests src/lib.rs (/dev/shm/fsym-budget-session/debug/build/fsym-budget-bridge-direct-validation/e36b814664bb38bc/out/fsym_budget_bridge_direct_validation-e36b814664bb38bc)\n\nrunning 4 tests\ntest tests::actual_finite_domain_refusal_retains_consumption_and_allows_reuse ... ok\ntest tests::actual_python_constructor_strict_limits_atomic_charges_and_sticky_cancellation ... ok\ntest tests::real_compiled_programs_share_exact_fuel_across_native_calls ... ok\ntest tests::real_nested_eval_and_objective_errors_preserve_operational_exception_types ... ok\n\ntest result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s\n\n   Doc-tests fsym_budget_bridge_direct_validation\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n",
+    "command": "source /workspace/scratch/fdf3b50928f6/session-env.sh\nexport CARGO_TARGET_DIR=/dev/shm/fsym-budget-session\nexport LD_LIBRARY_PATH=/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}\nexport PYTHONHOME=/opt/codex/runtimes/codex-primary-runtime/dependencies/python\nset -o pipefail\ncargo test --manifest-path /dev/shm/fsym-budget-bridge-hy9nguw5/Cargo.toml --locked --offline -- --test-threads=1 2>&1 | tee /dev/shm/fsym-budget-bridge-hy9nguw5/test-output.txt",
+    "environment_file": "/workspace/scratch/fdf3b50928f6/session-env.sh",
+    "python_version": "3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]",
+    "rustc_version": "rustc 1.100.0-nightly (f7d782a3b 2026-08-19)",
+    "cargo_version": "cargo 1.100.0-nightly (514c56dd7 2026-08-19)",
+    "dependencies_verified": {
+      "count": 55,
+      "policy": "Copied production Cargo.lock, resolved offline; each retained dependency name/version/source/checksum matches the production lock exactly; executed with --locked --offline.",
+      "packages": [
+        {
+          "name": "arrayvec",
+          "version": "0.7.8",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
+        },
+        {
+          "name": "autocfg",
+          "version": "1.5.1",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
+        },
+        {
+          "name": "blake3",
+          "version": "1.8.7",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "6d9e454fc11f76977dc803893aff6304ed33d6a26efae8696573bea74baa27ae"
+        },
+        {
+          "name": "cc",
+          "version": "1.4.4",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "0ad534f4357a5264cce5019c989cf66a4f0dc4e0d1b1d15f8aacec0ff7360273"
+        },
+        {
+          "name": "cfg-if",
+          "version": "1.0.4",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
+        },
+        {
+          "name": "constant_time_eq",
+          "version": "0.4.2",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
+        },
+        {
+          "name": "cpufeatures",
+          "version": "0.3.0",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "8b2a41393f66f16b0823bb79094d54ac5fbd34ab292ddafb9a0456ac9f87d201"
+        },
+        {
+          "name": "find-msvc-tools",
+          "version": "0.1.11",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "d45db016d36b838f563236e9193d0ee6ce38f3f68b6c94e914b4929c96bbb890"
+        },
+        {
+          "name": "fsym-assumptions",
+          "version": "0.1.0"
+        },
+        {
+          "name": "fsym-bigint",
+          "version": "0.1.0"
+        },
+        {
+          "name": "fsym-budget",
+          "version": "0.1.0"
+        },
+        {
+          "name": "fsym-calculus",
+          "version": "0.1.0"
+        },
+        {
+          "name": "fsym-core",
+          "version": "0.1.0"
+        },
+        {
+          "name": "fsym-evidence",
+          "version": "0.1.0"
+        },
+        {
+          "name": "fsym-id",
+          "version": "0.1.0"
+        },
+        {
+          "name": "fsym-modular",
+          "version": "0.1.0"
+        },
+        {
+          "name": "fsym-outcome",
+          "version": "0.1.0"
+        },
+        {
+          "name": "fsym-polys",
+          "version": "0.1.0"
+        },
+        {
+          "name": "fsym-proof-kernel",
+          "version": "0.1.0"
+        },
+        {
+          "name": "fsym-rational",
+          "version": "0.1.0"
+        },
+        {
+          "name": "fsym-simplify",
+          "version": "0.1.0"
+        },
+        {
+          "name": "heck",
+          "version": "0.5.0",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
+        },
+        {
+          "name": "indoc",
+          "version": "2.0.7",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "79cf5c93f93228cf8efb3ba362535fb11199ac548a09ce117c9b1adc3030d706"
+        },
+        {
+          "name": "itoa",
+          "version": "1.0.18",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
+        },
+        {
+          "name": "libc",
+          "version": "0.2.189",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
+        },
+        {
+          "name": "memchr",
+          "version": "2.8.3",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
+        },
+        {
+          "name": "memoffset",
+          "version": "0.9.1",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
+        },
+        {
+          "name": "num-bigint",
+          "version": "0.4.8",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "c89e69e7e0f03bea5ef08013795c25018e101932225a656383bd384495ecc367"
+        },
+        {
+          "name": "num-complex",
+          "version": "0.4.6",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "73f88a1307638156682bada9d7604135552957b7818057dcef22705b4d509495"
+        },
+        {
+          "name": "num-integer",
+          "version": "0.1.47",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "7ce2d95d4b3734dc35aa2f45e1aa22cd416814592a4f9d9205e11affd5b8e10b"
+        },
+        {
+          "name": "num-rational",
+          "version": "0.4.2",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "f83d14da390562dca69fc84082e73e548e1ad308d24accdedd2720017cb37824"
+        },
+        {
+          "name": "num-traits",
+          "version": "0.2.19",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
+        },
+        {
+          "name": "once_cell",
+          "version": "1.21.4",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
+        },
+        {
+          "name": "portable-atomic",
+          "version": "1.15.0",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "05c8b63e8d9609db387f0324918f81d68fe27748f084ef092fb35954d0539a85"
+        },
+        {
+          "name": "proc-macro2",
+          "version": "1.0.107",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
+        },
+        {
+          "name": "pyo3",
+          "version": "0.27.2",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "ab53c047fcd1a1d2a8820fe84f05d6be69e9526be40cb03b73f86b6b03e6d87d"
+        },
+        {
+          "name": "pyo3-build-config",
+          "version": "0.27.2",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "b455933107de8642b4487ed26d912c2d899dec6114884214a0b3bb3be9261ea6"
+        },
+        {
+          "name": "pyo3-ffi",
+          "version": "0.27.2",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "1c85c9cbfaddf651b1221594209aed57e9e5cff63c4d11d1feead529b872a089"
+        },
+        {
+          "name": "pyo3-macros",
+          "version": "0.27.2",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "0a5b10c9bf9888125d917fb4d2ca2d25c8df94c7ab5a52e13313a07e050a3b02"
+        },
+        {
+          "name": "pyo3-macros-backend",
+          "version": "0.27.2",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "03b51720d314836e53327f5871d4c0cfb4fb37cc2c4a11cc71907a86342c40f9"
+        },
+        {
+          "name": "quote",
+          "version": "1.0.47",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "1fbf4db142a473a8d80c26bbf18454ed458bf8d26c8219c331daecfdbd079001"
+        },
+        {
+          "name": "rustversion",
+          "version": "1.0.23",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
+        },
+        {
+          "name": "serde",
+          "version": "1.0.229",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
+        },
+        {
+          "name": "serde_core",
+          "version": "1.0.229",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "67dca2c9c51e58a4791a4b1ed58308b39c64224d349a935ab5039aa360942a48"
+        },
+        {
+          "name": "serde_derive",
+          "version": "1.0.229",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "e7a5d71263a5a7d47b41f6b3f06ba276f10cc18b0931f1799f710578e2309348"
+        },
+        {
+          "name": "serde_json",
+          "version": "1.0.151",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "c841b55ecdae098c80dcae9cf767f6f8a0c2cdb3416bbef72181df4d0fe73f14"
+        },
+        {
+          "name": "shlex",
+          "version": "2.0.1",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
+        },
+        {
+          "name": "syn",
+          "version": "2.0.119",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "872831b642d1a07999a962a351ed35b955ea2cfc8f3862091e2a240a84f17297"
+        },
+        {
+          "name": "syn",
+          "version": "3.0.3",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "53e9bae58849f64dfa4f5d5ae372c8341f7305f82a3868709269343628b659a3"
+        },
+        {
+          "name": "target-lexicon",
+          "version": "0.13.5",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "adb6935a6f5c20170eeceb1a3835a49e12e19d792f6dd344ccc76a985ca5a6ca"
+        },
+        {
+          "name": "thiserror",
+          "version": "2.0.20",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "ec86235f5fcc2a73650310756d2ac5b138a5780bbbdfae3eeccec992c435ba4f"
+        },
+        {
+          "name": "thiserror-impl",
+          "version": "2.0.20",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "bc04cd3e1236dd4a98afca4569f2deb3f120e5422a4023be2cb683f8486292af"
+        },
+        {
+          "name": "unicode-ident",
+          "version": "1.0.24",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
+        },
+        {
+          "name": "unindent",
+          "version": "0.2.4",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "7264e107f553ccae879d21fbea1d6724ac785e8c3bfc762137959b5802826ef3"
+        },
+        {
+          "name": "zmij",
+          "version": "1.0.23",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "checksum": "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
+        }
+      ]
+    },
+    "harness_files": {
+      "Cargo.toml": {
+        "sha256": "d36780928d1c46d53195a4955a75dc17f5c6d04c45b4c76079a2ad8f586e611c",
+        "contents": "[package]\nname = \"fsym-budget-bridge-direct-validation\"\nversion = \"0.0.0\"\nedition = \"2024\"\n\n[workspace]\n\n[dependencies]\nfsym-budget = { path = \"/workspace/scratch/fdf3b50928f6/frankensympy/crates/fsym-budget\" }\nfsym-calculus = { path = \"/workspace/scratch/fdf3b50928f6/frankensympy/crates/fsym-calculus\" }\npyo3 = \"=0.27.2\"\n"
+      },
+      "Cargo.lock": {
+        "sha256": "b85fcc6e24b7481e9dce2fceb9798187de5b95f5de56254f3625ded783f3172d",
+        "contents": "# This file is automatically @generated by Cargo.\n# It is not intended for manual editing.\nversion = 4\n\n[[package]]\nname = \"arrayvec\"\nversion = \"0.7.8\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56\"\n\n[[package]]\nname = \"autocfg\"\nversion = \"1.5.1\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53\"\n\n[[package]]\nname = \"blake3\"\nversion = \"1.8.7\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"6d9e454fc11f76977dc803893aff6304ed33d6a26efae8696573bea74baa27ae\"\ndependencies = [\n \"arrayvec\",\n \"cc\",\n \"cfg-if\",\n \"constant_time_eq\",\n \"cpufeatures\",\n]\n\n[[package]]\nname = \"cc\"\nversion = \"1.4.4\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"0ad534f4357a5264cce5019c989cf66a4f0dc4e0d1b1d15f8aacec0ff7360273\"\ndependencies = [\n \"find-msvc-tools\",\n \"shlex\",\n]\n\n[[package]]\nname = \"cfg-if\"\nversion = \"1.0.4\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801\"\n\n[[package]]\nname = \"constant_time_eq\"\nversion = \"0.4.2\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b\"\n\n[[package]]\nname = \"cpufeatures\"\nversion = \"0.3.0\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"8b2a41393f66f16b0823bb79094d54ac5fbd34ab292ddafb9a0456ac9f87d201\"\ndependencies = [\n \"libc\",\n]\n\n[[package]]\nname = \"find-msvc-tools\"\nversion = \"0.1.11\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"d45db016d36b838f563236e9193d0ee6ce38f3f68b6c94e914b4929c96bbb890\"\n\n[[package]]\nname = \"fsym-assumptions\"\nversion = \"0.1.0\"\ndependencies = [\n \"blake3\",\n \"fsym-core\",\n \"fsym-id\",\n \"num-traits\",\n \"serde\",\n \"thiserror\",\n]\n\n[[package]]\nname = \"fsym-bigint\"\nversion = \"0.1.0\"\ndependencies = [\n \"fsym-budget\",\n \"num-bigint\",\n \"num-integer\",\n \"num-traits\",\n \"serde\",\n]\n\n[[package]]\nname = \"fsym-budget\"\nversion = \"0.1.0\"\ndependencies = [\n \"serde\",\n]\n\n[[package]]\nname = \"fsym-budget-bridge-direct-validation\"\nversion = \"0.0.0\"\ndependencies = [\n \"fsym-budget\",\n \"fsym-calculus\",\n \"pyo3\",\n]\n\n[[package]]\nname = \"fsym-calculus\"\nversion = \"0.1.0\"\ndependencies = [\n \"fsym-budget\",\n \"fsym-core\",\n \"fsym-evidence\",\n \"fsym-polys\",\n \"fsym-proof-kernel\",\n \"fsym-simplify\",\n \"num-complex\",\n \"num-traits\",\n \"serde\",\n \"serde_json\",\n \"thiserror\",\n]\n\n[[package]]\nname = \"fsym-core\"\nversion = \"0.1.0\"\ndependencies = [\n \"blake3\",\n \"fsym-bigint\",\n \"fsym-budget\",\n \"fsym-id\",\n \"fsym-modular\",\n \"fsym-outcome\",\n \"fsym-rational\",\n \"num-complex\",\n \"num-traits\",\n \"serde\",\n \"serde_json\",\n \"thiserror\",\n]\n\n[[package]]\nname = \"fsym-evidence\"\nversion = \"0.1.0\"\ndependencies = [\n \"blake3\",\n \"fsym-assumptions\",\n \"fsym-budget\",\n \"fsym-core\",\n \"fsym-id\",\n \"fsym-outcome\",\n \"fsym-proof-kernel\",\n \"serde\",\n \"serde_json\",\n \"thiserror\",\n]\n\n[[package]]\nname = \"fsym-id\"\nversion = \"0.1.0\"\ndependencies = [\n \"serde\",\n]\n\n[[package]]\nname = \"fsym-modular\"\nversion = \"0.1.0\"\ndependencies = [\n \"fsym-bigint\",\n \"fsym-budget\",\n]\n\n[[package]]\nname = \"fsym-outcome\"\nversion = \"0.1.0\"\n\n[[package]]\nname = \"fsym-polys\"\nversion = \"0.1.0\"\ndependencies = [\n \"fsym-assumptions\",\n \"fsym-bigint\",\n \"fsym-budget\",\n \"fsym-core\",\n \"fsym-evidence\",\n \"fsym-id\",\n \"fsym-modular\",\n \"fsym-outcome\",\n \"fsym-proof-kernel\",\n \"num-traits\",\n \"serde\",\n \"thiserror\",\n]\n\n[[package]]\nname = \"fsym-proof-kernel\"\nversion = \"0.1.0\"\ndependencies = [\n \"blake3\",\n \"fsym-assumptions\",\n \"fsym-budget\",\n \"fsym-core\",\n \"fsym-id\",\n \"fsym-outcome\",\n \"num-traits\",\n \"serde\",\n \"serde_json\",\n \"thiserror\",\n]\n\n[[package]]\nname = \"fsym-rational\"\nversion = \"0.1.0\"\ndependencies = [\n \"fsym-bigint\",\n \"fsym-budget\",\n \"fsym-modular\",\n \"num-rational\",\n \"num-traits\",\n \"serde\",\n]\n\n[[package]]\nname = \"fsym-simplify\"\nversion = \"0.1.0\"\ndependencies = [\n \"fsym-assumptions\",\n \"fsym-budget\",\n \"fsym-core\",\n \"fsym-evidence\",\n \"fsym-id\",\n \"fsym-outcome\",\n \"fsym-polys\",\n \"fsym-proof-kernel\",\n \"num-traits\",\n \"serde\",\n \"thiserror\",\n]\n\n[[package]]\nname = \"heck\"\nversion = \"0.5.0\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea\"\n\n[[package]]\nname = \"indoc\"\nversion = \"2.0.7\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"79cf5c93f93228cf8efb3ba362535fb11199ac548a09ce117c9b1adc3030d706\"\ndependencies = [\n \"rustversion\",\n]\n\n[[package]]\nname = \"itoa\"\nversion = \"1.0.18\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682\"\n\n[[package]]\nname = \"libc\"\nversion = \"0.2.189\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2\"\n\n[[package]]\nname = \"memchr\"\nversion = \"2.8.3\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98\"\n\n[[package]]\nname = \"memoffset\"\nversion = \"0.9.1\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a\"\ndependencies = [\n \"autocfg\",\n]\n\n[[package]]\nname = \"num-bigint\"\nversion = \"0.4.8\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"c89e69e7e0f03bea5ef08013795c25018e101932225a656383bd384495ecc367\"\ndependencies = [\n \"num-integer\",\n \"num-traits\",\n \"serde\",\n]\n\n[[package]]\nname = \"num-complex\"\nversion = \"0.4.6\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"73f88a1307638156682bada9d7604135552957b7818057dcef22705b4d509495\"\ndependencies = [\n \"num-traits\",\n]\n\n[[package]]\nname = \"num-integer\"\nversion = \"0.1.47\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"7ce2d95d4b3734dc35aa2f45e1aa22cd416814592a4f9d9205e11affd5b8e10b\"\ndependencies = [\n \"num-traits\",\n]\n\n[[package]]\nname = \"num-rational\"\nversion = \"0.4.2\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"f83d14da390562dca69fc84082e73e548e1ad308d24accdedd2720017cb37824\"\ndependencies = [\n \"num-bigint\",\n \"num-integer\",\n \"num-traits\",\n \"serde\",\n]\n\n[[package]]\nname = \"num-traits\"\nversion = \"0.2.19\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841\"\ndependencies = [\n \"autocfg\",\n]\n\n[[package]]\nname = \"once_cell\"\nversion = \"1.21.4\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50\"\n\n[[package]]\nname = \"portable-atomic\"\nversion = \"1.15.0\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"05c8b63e8d9609db387f0324918f81d68fe27748f084ef092fb35954d0539a85\"\n\n[[package]]\nname = \"proc-macro2\"\nversion = \"1.0.107\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9\"\ndependencies = [\n \"unicode-ident\",\n]\n\n[[package]]\nname = \"pyo3\"\nversion = \"0.27.2\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"ab53c047fcd1a1d2a8820fe84f05d6be69e9526be40cb03b73f86b6b03e6d87d\"\ndependencies = [\n \"indoc\",\n \"libc\",\n \"memoffset\",\n \"once_cell\",\n \"portable-atomic\",\n \"pyo3-build-config\",\n \"pyo3-ffi\",\n \"pyo3-macros\",\n \"unindent\",\n]\n\n[[package]]\nname = \"pyo3-build-config\"\nversion = \"0.27.2\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"b455933107de8642b4487ed26d912c2d899dec6114884214a0b3bb3be9261ea6\"\ndependencies = [\n \"target-lexicon\",\n]\n\n[[package]]\nname = \"pyo3-ffi\"\nversion = \"0.27.2\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"1c85c9cbfaddf651b1221594209aed57e9e5cff63c4d11d1feead529b872a089\"\ndependencies = [\n \"libc\",\n \"pyo3-build-config\",\n]\n\n[[package]]\nname = \"pyo3-macros\"\nversion = \"0.27.2\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"0a5b10c9bf9888125d917fb4d2ca2d25c8df94c7ab5a52e13313a07e050a3b02\"\ndependencies = [\n \"proc-macro2\",\n \"pyo3-macros-backend\",\n \"quote\",\n \"syn 2.0.119\",\n]\n\n[[package]]\nname = \"pyo3-macros-backend\"\nversion = \"0.27.2\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"03b51720d314836e53327f5871d4c0cfb4fb37cc2c4a11cc71907a86342c40f9\"\ndependencies = [\n \"heck\",\n \"proc-macro2\",\n \"pyo3-build-config\",\n \"quote\",\n \"syn 2.0.119\",\n]\n\n[[package]]\nname = \"quote\"\nversion = \"1.0.47\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"1fbf4db142a473a8d80c26bbf18454ed458bf8d26c8219c331daecfdbd079001\"\ndependencies = [\n \"proc-macro2\",\n]\n\n[[package]]\nname = \"rustversion\"\nversion = \"1.0.23\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f\"\n\n[[package]]\nname = \"serde\"\nversion = \"1.0.229\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba\"\ndependencies = [\n \"serde_core\",\n \"serde_derive\",\n]\n\n[[package]]\nname = \"serde_core\"\nversion = \"1.0.229\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"67dca2c9c51e58a4791a4b1ed58308b39c64224d349a935ab5039aa360942a48\"\ndependencies = [\n \"serde_derive\",\n]\n\n[[package]]\nname = \"serde_derive\"\nversion = \"1.0.229\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"e7a5d71263a5a7d47b41f6b3f06ba276f10cc18b0931f1799f710578e2309348\"\ndependencies = [\n \"proc-macro2\",\n \"quote\",\n \"syn 3.0.3\",\n]\n\n[[package]]\nname = \"serde_json\"\nversion = \"1.0.151\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"c841b55ecdae098c80dcae9cf767f6f8a0c2cdb3416bbef72181df4d0fe73f14\"\ndependencies = [\n \"itoa\",\n \"memchr\",\n \"serde\",\n \"serde_core\",\n \"zmij\",\n]\n\n[[package]]\nname = \"shlex\"\nversion = \"2.0.1\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba\"\n\n[[package]]\nname = \"syn\"\nversion = \"2.0.119\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"872831b642d1a07999a962a351ed35b955ea2cfc8f3862091e2a240a84f17297\"\ndependencies = [\n \"proc-macro2\",\n \"quote\",\n \"unicode-ident\",\n]\n\n[[package]]\nname = \"syn\"\nversion = \"3.0.3\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"53e9bae58849f64dfa4f5d5ae372c8341f7305f82a3868709269343628b659a3\"\ndependencies = [\n \"proc-macro2\",\n \"quote\",\n \"unicode-ident\",\n]\n\n[[package]]\nname = \"target-lexicon\"\nversion = \"0.13.5\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"adb6935a6f5c20170eeceb1a3835a49e12e19d792f6dd344ccc76a985ca5a6ca\"\n\n[[package]]\nname = \"thiserror\"\nversion = \"2.0.20\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"ec86235f5fcc2a73650310756d2ac5b138a5780bbbdfae3eeccec992c435ba4f\"\ndependencies = [\n \"thiserror-impl\",\n]\n\n[[package]]\nname = \"thiserror-impl\"\nversion = \"2.0.20\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"bc04cd3e1236dd4a98afca4569f2deb3f120e5422a4023be2cb683f8486292af\"\ndependencies = [\n \"proc-macro2\",\n \"quote\",\n \"syn 3.0.3\",\n]\n\n[[package]]\nname = \"unicode-ident\"\nversion = \"1.0.24\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75\"\n\n[[package]]\nname = \"unindent\"\nversion = \"0.2.4\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"7264e107f553ccae879d21fbea1d6724ac785e8c3bfc762137959b5802826ef3\"\n\n[[package]]\nname = \"zmij\"\nversion = \"1.0.23\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b\"\n"
+      },
+      "build.rs": {
+        "sha256": "35b200b92864aaaf1c48f39abb4e1d3d0f40cdac209372e4c385d368b119ee20",
+        "contents": "// The installed Python runtime was relocated and its unversioned symlink is\n// broken. The private link-search directory points to the actual unchanged\n// libpython3.12.so.1.0. No production or dependency source is modified.\nfn main() {\n    println!(\"cargo:rustc-link-search=native=/dev/shm/fsym-budget-bridge-hy9nguw5/native-libs\");\n}\n"
+      },
+      "src/lib.rs": {
+        "sha256": "28c352a3cfeb8f9a2284e0b7888bac83cff735c50090b4425f376a27251cc0bb",
+        "contents": "#![forbid(unsafe_code)]\n\n// Include the unchanged production module directly. This deliberately validates\n// only its own bridge seam, not the entire fsym-python extension or shell APIs.\n#[path = \"/workspace/scratch/fdf3b50928f6/frankensympy/crates/fsym-python/src/numeric_budget.rs\"]\nmod numeric_budget;\n\n#[cfg(test)]\nmod tests {\n    use super::numeric_budget::{\n        EvaluationBudgetExceeded, EvaluationCancelled, PyEvaluationBudget,\n        evaluation_error, register, with_evaluation_meter,\n    };\n    use fsym_budget::{Budget, BudgetLimits, Dimension, MeterError};\n    use fsym_calculus::{CompiledExpr, CompiledOp, EvalError, ObjectiveEvaluationError};\n    use pyo3::exceptions::{PyRuntimeError, PyValueError};\n    use pyo3::prelude::*;\n    use pyo3::types::PyDict;\n    use std::ffi::CString;\n\n    fn module(py: Python<'_>) -> Bound<'_, PyModule> {\n        let module = PyModule::new(py, \"fsym_python\").unwrap();\n        register(&module).unwrap();\n        module\n    }\n\n    fn budget<'py>(module: &Bound<'py, PyModule>, steps: u64) -> Bound<'py, PyAny> {\n        let kwargs = PyDict::new(module.py());\n        kwargs.set_item(\"max_steps\", steps).unwrap();\n        module.getattr(\"EvaluationBudget\").unwrap().call((), Some(&kwargs)).unwrap()\n    }\n\n    fn remaining(instance: &Bound<'_, PyAny>, name: &str) -> u64 {\n        instance.getattr(name).unwrap().extract().unwrap()\n    }\n\n    #[test]\n    fn actual_python_constructor_strict_limits_atomic_charges_and_sticky_cancellation() {\n        Python::initialize();\n        Python::attach(|py| {\n            let module = module(py);\n            let globals = module.dict();\n            let source = CString::new(r#\"\ndef raises(kind, action):\n    try:\n        action()\n    except kind:\n        return\n    raise AssertionError('expected ' + kind.__name__)\n\nb = EvaluationBudget()\nassert b.remaining_steps == 10_000_000\nassert b.remaining_memory_bytes == 256 * 1024 * 1024\nassert b.remaining_allocations == 100_000\nassert not b.cancelled\nassert EvaluationBudget(max_steps=None).remaining_steps == b.remaining_steps\ncalls = []\nclass CustomInt(int):\n    def __index__(self):\n        calls.append('index')\n        return 1\nfor option in ('max_steps', 'max_memory_bytes', 'max_allocations'):\n    for value in (True, 1.0, '1', CustomInt(1)):\n        raises(TypeError, lambda: EvaluationBudget(**{option: value}))\n    for value in (-1, 2**64):\n        raises(ValueError, lambda: EvaluationBudget(**{option: value}))\n    assert EvaluationBudget(**{option: 0}) is not None\nassert calls == []\nlimited = EvaluationBudget(max_steps=7, max_memory_bytes=0, max_allocations=2)\nraises(EvaluationBudgetExceeded, lambda: limited._charge(3, memory_bytes=1, allocations=1))\nassert (limited.remaining_steps, limited.remaining_memory_bytes, limited.remaining_allocations) == (7, 0, 2)\nlimited._charge(3, allocations=1)\nassert (limited.remaining_steps, limited.remaining_allocations) == (4, 1)\nlimited.cancel()\nlimited.cancel()\nassert limited.cancelled\nraises(EvaluationCancelled, limited._checkpoint)\nraises(EvaluationCancelled, lambda: limited._charge(0))\nraises(AttributeError, lambda: setattr(limited, 'cancelled', False))\nassert limited.remaining_steps == 4\nassert not issubclass(EvaluationBudgetExceeded, ValueError)\nassert not issubclass(EvaluationCancelled, ValueError)\n\"#).unwrap();\n            py.run(source.as_c_str(), Some(&globals), Some(&globals)).unwrap();\n        });\n    }\n\n    #[test]\n    fn real_compiled_programs_share_exact_fuel_across_native_calls() {\n        Python::initialize();\n        Python::attach(|py| {\n            let module = module(py);\n            let instance = budget(&module, 12);\n            let borrowed = instance.extract::<PyRef<'_, PyEvaluationBudget>>().unwrap();\n            let square = CompiledExpr::try_from_ops(vec![\n                CompiledOp::LoadVar(0), CompiledOp::LoadVar(0), CompiledOp::Mul(2),\n            ]).unwrap();\n            let shifted = CompiledExpr::try_from_ops(vec![\n                CompiledOp::LoadVar(0), CompiledOp::LoadConst(1.0), CompiledOp::Add(2),\n            ]).unwrap();\n            let first = with_evaluation_meter(py, Some(&borrowed), |meter| {\n                square.try_eval_finite_with_meter(&[3.0], meter)\n            }).unwrap();\n            assert_eq!(first, 9.0);\n            assert_eq!(remaining(&instance, \"remaining_steps\"), 6);\n            let second = with_evaluation_meter(py, Some(&borrowed), |meter| {\n                shifted.try_eval_finite_with_meter(&[3.0], meter)\n            }).unwrap();\n            assert_eq!(second, 4.0);\n            assert_eq!(remaining(&instance, \"remaining_steps\"), 0);\n            assert_eq!(remaining(&instance, \"remaining_allocations\"), 100_000 - 2);\n            assert_eq!(remaining(&instance, \"remaining_memory_bytes\"), 256 * 1024 * 1024 - 48);\n            let error = with_evaluation_meter(py, Some(&borrowed), |meter| {\n                square.try_eval_finite_with_meter(&[4.0], meter)\n            }).unwrap_err();\n            assert!(error.is_instance_of::<EvaluationBudgetExceeded>(py));\n            assert_eq!(remaining(&instance, \"remaining_steps\"), 0);\n            assert_eq!(with_evaluation_meter(py, None, |meter| {\n                square.try_eval_finite_with_meter(&[4.0], meter)\n            }).unwrap(), 16.0);\n        });\n    }\n\n    #[test]\n    fn real_nested_eval_and_objective_errors_preserve_operational_exception_types() {\n        Python::initialize();\n        Python::attach(|py| {\n            let mut ledger = Budget::new(BudgetLimits::uniform(1, 0));\n            let exhausted = ledger.try_charge(Dimension::ComputeSteps, 2).unwrap_err();\n            let error = evaluation_error(ObjectiveEvaluationError::Evaluation(\n                EvalError::Meter(MeterError::Budget(exhausted)),\n            ));\n            assert!(error.is_instance_of::<EvaluationBudgetExceeded>(py));\n            assert!(error.is_instance_of::<PyRuntimeError>(py));\n            assert!(!error.is_instance_of::<PyValueError>(py));\n            let cancelled = evaluation_error(ObjectiveEvaluationError::Evaluation(\n                EvalError::Meter(MeterError::Cancelled),\n            ));\n            assert!(cancelled.is_instance_of::<EvaluationCancelled>(py));\n            assert!(!cancelled.is_instance_of::<PyValueError>(py));\n            let domain = evaluation_error(ObjectiveEvaluationError::Evaluation(EvalError::NonFiniteValue));\n            assert!(domain.is_instance_of::<PyValueError>(py));\n            assert!(!domain.is_instance_of::<EvaluationBudgetExceeded>(py));\n        });\n    }\n\n    #[test]\n    fn actual_finite_domain_refusal_retains_consumption_and_allows_reuse() {\n        Python::initialize();\n        Python::attach(|py| {\n            let module = module(py);\n            let instance = budget(&module, 100);\n            let borrowed = instance.extract::<PyRef<'_, PyEvaluationBudget>>().unwrap();\n            let log = CompiledExpr::try_from_ops(vec![CompiledOp::LoadVar(0), CompiledOp::Ln]).unwrap();\n            let error = with_evaluation_meter(py, Some(&borrowed), |meter| {\n                log.try_eval_finite_with_meter(&[-1.0], meter)\n            }).unwrap_err();\n            assert!(error.is_instance_of::<PyValueError>(py));\n            assert_eq!(remaining(&instance, \"remaining_steps\"), 97);\n            assert_eq!(remaining(&instance, \"remaining_allocations\"), 99_999);\n            assert_eq!(with_evaluation_meter(py, Some(&borrowed), |meter| {\n                log.try_eval_finite_with_meter(&[1.0], meter)\n            }).unwrap(), 0.0);\n            assert_eq!(remaining(&instance, \"remaining_steps\"), 94);\n            instance.call_method0(\"cancel\").unwrap();\n            let cancelled = with_evaluation_meter(py, Some(&borrowed), |meter| {\n                log.try_eval_finite_with_meter(&[1.0], meter)\n            }).unwrap_err();\n            assert!(cancelled.is_instance_of::<EvaluationCancelled>(py));\n            assert_eq!(remaining(&instance, \"remaining_steps\"), 94);\n        });\n    }\n}\n"
+      },
+      "reproduce.sh": {
+        "sha256": "af16182ec284fe590b03f3396242d139a97313ce8fbd2c180bebe1ef0a26e19c",
+        "contents": "source /workspace/scratch/fdf3b50928f6/session-env.sh\nexport CARGO_TARGET_DIR=/dev/shm/fsym-budget-session\nexport LD_LIBRARY_PATH=/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}\nexport PYTHONHOME=/opt/codex/runtimes/codex-primary-runtime/dependencies/python\nset -o pipefail\ncargo test --manifest-path /dev/shm/fsym-budget-bridge-hy9nguw5/Cargo.toml --locked --offline -- --test-threads=1 2>&1 | tee /dev/shm/fsym-budget-bridge-hy9nguw5/test-output.txt\n"
+      }
+    },
+    "private_symlink": {
+      "path": "native-libs/libpython3.12.so",
+      "target": "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/libpython3.12.so.1.0"
+    },
+    "linker_note": "Installed unversioned CPython symlink points into a deleted /tmp extraction path and sysconfig reports obsolete /install/lib. Private harness build.rs points to a private symlink to the actual unchanged libpython3.12.so.1.0. No runtime installation, production source, dependency source, feature selection, or Cargo fingerprint was manually modified.",
+    "scope": [
+      "Real production numeric_budget.rs included unchanged by #[path]",
+      "Actual PyO3 class registration and embedded-Python construction, strict limits, atomic charges, irreversible cancellation",
+      "Cumulative fuel/allocation accounting with actual CompiledExpr through with_evaluation_meter",
+      "Typed nested EvalError/ObjectiveEvaluationError mapping",
+      "Finite domain failure retains consumed budget and allows reuse"
+    ],
+    "not_validated": [
+      "Full fsym-python extension",
+      "Python scalar/residual/objective wrapper integration",
+      "Batch snapshot implementation",
+      "Python nsolve integration",
+      "External-thread cancellation integration",
+      "FsymCx/runtime supervision",
+      "Full workspace check/clippy/tests"
+    ],
+    "working_tree_source_commit": "2d0769b9b3f711d2dfe9172eff42bd8f7e63b2eb",
+    "repository_head_note": "The local Git reference remained at 0ab5176 because changes were committed through GitHub; checked production file blobs match verified main commit 2d0769b.",
+    "warning_scope": "The isolated harness emits dead-code warnings for helpers unused in that component target. This is a test-execution result, not a strict-lint pass."
+  },
+  "executed_component_test_counts": {
+    "calculus_integration": 59,
+    "calculus_library": 75,
+    "isolated_production_budget_bridge": 4,
+    "public_python_shell": 0,
+    "owning_runtime": 0
+  }
+}
