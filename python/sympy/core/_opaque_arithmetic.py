@@ -400,20 +400,23 @@ def arithmetic(operator, values, *, evaluate=True, cls=None):
         if encode_work[0] > _MAX_NODES:
             raise ValueError("opaque arithmetic normalization exceeds its work limit")
         if id(value) in encoded:
-            return encoded[id(value)]
+            return encoded[id(value)][1]
         kind = type(value)
         if kind is Add or kind is Mul or kind is Pow:
             children = [encode(child) for child in _children(value)]
             if kind is Add:
                 result = _native.Add(*children, evaluate=True).as_expr()
-                encoded[id(value)] = result
+                # Native child traversal creates temporary shell wrappers.
+                # Retain each owner for the entire operation so its address
+                # cannot be recycled as the cache key of a different subtree.
+                encoded[id(value)] = (value, result)
                 return result
             if kind is Mul:
                 result = _native.Mul(*children, evaluate=True).as_expr()
-                encoded[id(value)] = result
+                encoded[id(value)] = (value, result)
                 return result
             result = _native.Pow(*children, evaluate=True).as_expr()
-            encoded[id(value)] = result
+            encoded[id(value)] = (value, result)
             return result
         if contains_opaque(value):
             if not _subclass(kind, Function) and kind is not Derivative:

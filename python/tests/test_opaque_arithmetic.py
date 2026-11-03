@@ -352,3 +352,34 @@ def test_unknown_native_function_tags_remain_part_of_retained_child_identity():
     held_child = cls(s.Add(1, s.Expr(first_native), evaluate=False))
     assert first == held_child
     assert hash(first) == hash(held_child)
+
+
+def test_temporary_closed_subtree_wrappers_never_alias_during_mixed_normalization():
+    import math
+
+    class Constitutive(s.Function):
+        nargs = 2
+
+    x, y, p, q, k, e, a, b, c = s.symbols("x y p q k e a b c")
+    left = p * (x**2 - y**2)
+    right = q * (x - y)**2
+    held = s.Add(a * x**2, -a * x**2, b * x * y, evaluate=False)
+    expressions = [
+        left + right + Constitutive(y, k) - e,
+        s.Add(left, right, Constitutive(y, k), -e),
+        s.Add(held, (x - y) * (x**2 + x*y + y**2), s.sin(y),
+              Constitutive(x, k), -c, evaluate=False),
+    ]
+    program = s.compile_numeric_hybrid(
+        (x, y, p, q, k, e, a, b, c), expressions,
+        callbacks={Constitutive: lambda value, parameter: value + parameter * value**3 / 3},
+    )
+    for point in [
+        (1, 2, 1, 2, 0.5, 1, 2, 3, 1),
+        (2, 3, -1, 4, 2, -5, 7, -2, 6),
+        (-2, 1, 3, -2, 0.25, 4, -3, 5, -1),
+    ]:
+        xv, yv, pv, qv, kv, ev, _, bv, cv = point
+        ordinary = pv*(xv*xv-yv*yv) + qv*(xv-yv)**2 + yv + kv*yv**3/3 - ev
+        held_value = bv*xv*yv + xv**3-yv**3 + math.sin(yv) + xv + kv*xv**3/3 - cv
+        assert program(*point) == pytest.approx([ordinary, ordinary, held_value], rel=1e-13, abs=1e-13)
