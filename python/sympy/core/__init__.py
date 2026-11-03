@@ -3966,7 +3966,7 @@ def _real_sign_of_difference(lhs: Any, rhs: Any) -> int | None:
 class Relational(Expr):
     """Held comparison. Not a Boolean proof and not a mathematical order."""
 
-    __slots__ = ()
+    __slots__ = ("_relational_sides",)
     rel_op = "=="
 
     def __new__(cls, lhs: Any, rhs: Any = 0, evaluate: bool = True, **kwargs: Any):
@@ -3979,11 +3979,24 @@ class Relational(Expr):
 
                 return true if decided else false
         obj = object.__new__(cls)
+        # The native function tag cannot retain an arbitrary Python class's
+        # identity. Capture the actual sympified sides before lowering them;
+        # later reads must not recover a custom function from its printed name.
+        Relational.__dict__["_relational_sides"].__set__(obj, (lhs, rhs))
         obj._value = _native.py_function(cls.__name__, _native_expr(lhs), _native_expr(rhs))
         return obj
 
     def __init__(self, lhs: Any, rhs: Any = 0, evaluate: bool = True, **kwargs: Any):
         pass
+
+    @property
+    def args(self) -> tuple["Basic", ...]:
+        try:
+            return Relational.__dict__["_relational_sides"].__get__(self, Relational)
+        except AttributeError:
+            # Native-only objects have no recoverable original Python sides.
+            # Numerical admission handles that case without invoking this lift.
+            return Basic.__dict__["args"].__get__(self, Relational)
 
     @classmethod
     def _decide(cls, lhs: Any, rhs: Any) -> bool | None:
@@ -4053,11 +4066,11 @@ class Relational(Expr):
 
     @property
     def lhs(self) -> Basic:
-        return self.args[0]
+        return Relational.__dict__["args"].__get__(self, Relational)[0]
 
     @property
     def rhs(self) -> Basic:
-        return self.args[1]
+        return Relational.__dict__["args"].__get__(self, Relational)[1]
 
     def __repr__(self) -> str:
         return self.__str__()

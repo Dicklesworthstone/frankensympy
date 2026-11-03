@@ -110,7 +110,7 @@ def _native_operator(kind, payload, children):
     return _native.py_function(payload, *children)
 
 
-def _snapshot_source(value, bindings, functions, count, depth=0):
+def _snapshot_source(value, bindings, functions, count, depth=0, *, native_admission=None):
     """Capture the actual surface tree before arranging any execution actions."""
     _charge(count, depth)
     cls = type(value)
@@ -124,7 +124,8 @@ def _snapshot_source(value, bindings, functions, count, depth=0):
         if type(children) is not tuple or len(children) > _MAX_VARIABLES:
             raise ValueError("custom numerical function arguments must be a bounded exact tuple")
         return ("callback", custom, tuple(
-            _snapshot_source(child, bindings, functions, count, depth + 1) for child in children
+            _snapshot_source(child, bindings, functions, count, depth + 1,
+                             native_admission=native_admission) for child in children
         ), None)
 
     operator = "add" if cls is Add else "mul" if cls is Mul else "pow" if cls is Pow else None
@@ -140,12 +141,14 @@ def _snapshot_source(value, bindings, functions, count, depth=0):
             # custom class from a name or call its properties while compiling.
             original = _BASIC_VALUE.__get__(value, Basic)
             _native.CompiledFunction._validate_source(original)
-            source = _native_source(original, bindings, functions, count, depth)
+            source = (native_admission(original, count, depth) if native_admission is not None
+                      else _native_source(original, bindings, functions, count, depth))
             return ("closed", None, (), source)
         if type(children) is not tuple or len(children) > _MAX_NODES:
             raise ValueError("hybrid source requires bounded exact stored argument tuples")
         children = tuple(
-            _snapshot_source(child, bindings, functions, count, depth + 1) for child in children
+            _snapshot_source(child, bindings, functions, count, depth + 1,
+                             native_admission=native_admission) for child in children
         )
         kind = operator or "function"
         if all(child[3] is not None for child in children):
@@ -156,11 +159,15 @@ def _snapshot_source(value, bindings, functions, count, depth=0):
 
     if cls is _native.Expr:
         _native.CompiledFunction._validate_source(value)
-        return ("closed", None, (), _native_source(value, bindings, functions, count, depth))
+        source = (native_admission(value, count, depth) if native_admission is not None
+                  else _native_source(value, bindings, functions, count, depth))
+        return ("closed", None, (), source)
     if (any(cls is builtin for builtin in _exact_surface_types())
             or cls is int or cls is float or cls is bool or cls is _ExactDecimalFloat):
         source = _numeric_source(value, functions, count, depth)
         _native.CompiledFunction._validate_source(source)
+        if native_admission is not None:
+            source = native_admission(source, count, depth)
         return ("closed", None, (), source)
     raise NotImplementedError("custom numerical nodes require an explicit exact-class callback binding")
 

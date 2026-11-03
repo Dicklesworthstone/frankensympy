@@ -768,7 +768,7 @@ Jacobian is a caller assertion: compilation does not call derivative hooks or
 prove that the supplied entries differentiate the residuals.
 
 ```python
-from sympy import Add, EvaluationBudget, Function, Symbol, compile_hybrid_residual_system
+from sympy import Eq, EvaluationBudget, Function, Symbol, compile_hybrid_residual_system
 
 class Response(Function):
     nargs = 1
@@ -778,7 +778,7 @@ class ResponseSlope(Function):
 
 x = Symbol("x")
 system = compile_hybrid_residual_system(
-    [Add(Response(x), -2, evaluate=False)], (x,),
+    [Eq(Response(x), 2, evaluate=False)], (x,),
     jacobian=[[ResponseSlope(x)]],
     callbacks={Response: lambda value: value*value,
                ResponseSlope: lambda value: 2*value},
@@ -797,6 +797,17 @@ view first executes the original residuals, so an asserted derivative cannot
 erase a source domain check or an observable callback occurrence. Source
 containers, callback mappings, variable objects and occurrence order are
 captured once; later container mutation does not change the program.
+
+Constructed equations retain their original left and right operand objects.
+The compiler reads that stored pair directly, preserving exact custom function
+classes and left-before-right occurrence order without invoking operand
+properties, constructors, printers or setters. Each equation becomes the held
+residual `lhs - rhs`. A missing custom callback binding refuses even when the
+custom class shares a built-in function's name. For equations recovered from
+native-only storage, arithmetic and atomic sides remain supported after a
+bounded preflight; function-bearing sides refuse because their original Python
+class provenance is unavailable. Supply an equation built from the actual
+operand objects to retain that provenance.
 
 `solve(initial, *, tol=1e-12, maxiter=200, budget=None, session=None)` returns
 an approximate column Matrix. It reuses ordinary system `nsolve`'s equilibrated,

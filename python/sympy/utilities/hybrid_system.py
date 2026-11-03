@@ -4,20 +4,76 @@ These programs retain caller-supplied derivatives as approximate numerical
 inputs. They do not create symbolic derivative proofs or root certificates.
 """
 
+from ..core import Basic, Eq, Relational, _native
 from .hybrid import (
-    _HybridCallable, _callback_bindings, _compile_graph, _evaluation_budget,
-    _evaluation_session, _output_snapshot, _session_ready, _snapshot_source,
+    _BASIC_VALUE, _HybridCallable, _callback_bindings, _compile_graph, _evaluation_budget,
+    _evaluation_session, _native_operator, _output_snapshot, _session_ready, _snapshot_source,
 )
 from .lambdify import (
-    _MAX_OUTPUTS, _argument_layout, _call_arguments, _check_evaluation_budget,
+    _MAX_OUTPUTS, _argument_layout, _call_arguments, _charge, _check_evaluation_budget,
     _functions, _outputs,
 )
 
 __all__ = ["compile_hybrid_residual_system"]
+_RELATIONAL_SIDES = Relational.__dict__["_relational_sides"]
 
 
 def _is_sequence(value):
     return type(value) is list or type(value) is tuple
+
+
+def _arithmetic_equation_side(source, count, depth):
+    """Admit native-only arithmetic without guessing any function's class."""
+    _charge(count, depth)
+    if source.is_number or source.is_symbol:
+        return source
+    if not (source.is_add or source.is_mul or source.is_pow):
+        raise NotImplementedError(
+            "native-only equations require retained Python sides for function expressions"
+        )
+    for child in source.args:
+        _arithmetic_equation_side(child, count, depth + 1)
+    return source
+
+
+def _snapshot_equation(value, bindings, functions, count):
+    """Lower an exact Eq from captured sides, without surface reconstruction."""
+    _charge(count, 0)
+    try:
+        sides = _RELATIONAL_SIDES.__get__(value, Relational)
+    except AttributeError:
+        original = _BASIC_VALUE.__get__(value, Basic)
+        if type(original) is not _native.Expr:
+            raise TypeError("a native-only equation requires an exact native expression")
+        # Check the full borrowed tree before .args clones either side. In
+        # this fallback even an intrinsic-looking function name is ambiguous:
+        # no original class survives to distinguish a custom alias from it.
+        _native.CompiledFunction._validate_source(original)
+        if original.func_name not in ("Equality", "Eq"):
+            raise ValueError("native-only equation payload must be an equality")
+        sides = original.args
+        if len(sides) != 2:
+            raise ValueError("native-only equality must have exactly two sides")
+        left = ("closed", None, (), _arithmetic_equation_side(sides[0], count, 1))
+        right = ("closed", None, (), _arithmetic_equation_side(sides[1], count, 2))
+    else:
+        if type(sides) is not tuple or len(sides) != 2:
+            raise ValueError("equation source requires an exact captured pair of sides")
+        left = _snapshot_source(sides[0], bindings, functions, count, 1,
+                                native_admission=_arithmetic_equation_side)
+        right = _snapshot_source(sides[1], bindings, functions, count, 2,
+                                 native_admission=_arithmetic_equation_side)
+
+    def combine(kind, children):
+        if all(child[3] is not None for child in children):
+            return ("closed", None, (), _native_operator(kind, None, [child[3] for child in children]))
+        return (kind, None, children, None)
+
+    _charge(count, 1)
+    negative_one = _snapshot_source(-1, bindings, functions, count, 2)
+    # Retain lhs-before-rhs occurrence order and both original domains. The
+    # checked snapshots precede every newly constructed native Add/Mul node.
+    return combine("add", (left, combine("mul", (negative_one, right))))
 
 
 def _source_vectors(residuals, jacobian, columns):
@@ -218,8 +274,13 @@ class _HybridResidualSystem:
 def compile_hybrid_residual_system(residuals, args, *, jacobian, callbacks):
     """Compile explicit residual and Jacobian expressions with callback slots.
 
-    ``residuals`` is a scalar, flat list/tuple, or row/column Matrix. ``args``
-    uses the ordinary numerical argument layout, including nested lists/tuples.
+    ``residuals`` is a scalar, flat list/tuple, or row/column Matrix. An ``Eq``
+    uses its originally captured Python sides, preserving custom class identity.
+    Native-only equations without those sides admit arithmetic/atoms only;
+    function-bearing sides refuse instead of recovering a class by name.
+    The same rule applies to native-only subtrees of retained sides: use held
+    Add/Mul/Pow forms to preserve function operand classes through arithmetic.
+    ``args`` uses the ordinary numerical argument layout, including nested lists/tuples.
     ``jacobian`` is a Matrix or exact list/tuple of rows, with one column per
     flattened argument. It is required: compilation neither invokes derivative
     hooks nor checks that these expressions are derivatives of the residuals.
@@ -244,7 +305,7 @@ def compile_hybrid_residual_system(residuals, args, *, jacobian, callbacks):
     provenance. This API exposes no checked native system, derivative proof,
     interval/root certificate, or portable/pickle artifact.
     """
-    from ..solvers.numerical import _MAX_SYSTEM_VARIABLES, _equation_residual
+    from ..solvers.numerical import _MAX_SYSTEM_VARIABLES
 
     functions = _functions()
     bindings = _callback_bindings(callbacks, functions)
@@ -253,12 +314,20 @@ def compile_hybrid_residual_system(residuals, args, *, jacobian, callbacks):
     if not 1 <= columns <= _MAX_SYSTEM_VARIABLES:
         raise ValueError("hybrid systems require 1 through 64 variables")
     residuals, jacobian = _source_vectors(residuals, jacobian, columns)
-    residuals = [_equation_residual(value) for value in residuals]
     rows = len(residuals)
     count = [0]
+    leaf_index = 0
+
+    def snapshot(value):
+        nonlocal leaf_index
+        is_residual = leaf_index < rows
+        leaf_index += 1
+        if is_residual and type(value) is Eq:
+            return _snapshot_equation(value, bindings, functions, count)
+        return _snapshot_source(value, bindings, functions, count)
+
     shape, roots = _outputs(
-        (residuals, jacobian),
-        lambda value: _snapshot_source(value, bindings, functions, count), native=True,
+        (residuals, jacobian), snapshot, native=True,
     )
     actions, outputs, slots, operations = _compile_graph(roots, variables)
     program = _HybridCallable(layout, shape, variables, actions, outputs, slots, operations)
