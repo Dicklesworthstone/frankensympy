@@ -18,6 +18,15 @@ pub const MAX_COMPILE_DEPTH: usize = 128;
 /// Maximum number of compiled bytecode operations allowed for a single expression.
 pub const MAX_COMPILE_OPS: usize = 8192;
 
+/// Maximum UTF-8 byte length of a symbol or function name in scalar compilation.
+///
+/// This also bounds an individual standard-library hash/equality operation.
+/// Legacy entry points share this admission limit; names are never truncated
+/// into a different symbolic identity.
+pub const MAX_COMPILE_NAME_BYTES: usize = 4096;
+
+const MAX_COMPILE_DIAGNOSTIC_BYTES: usize = 256;
+
 /// Initial operation-buffer reservation for untrusted compiled-expression input.
 ///
 /// Serde sequence length hints are advisory and attacker-controlled, so even an
@@ -33,6 +42,8 @@ const MAX_EXACT_F64_INTEGER_BITS: u64 = 53;
 /// Errors emitted during symbolic-to-numeric expression and system compilation.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum CompileError {
+    #[error("Symbolic-to-numeric compilation stopped: {0}")]
+    Meter(#[from] MeterError),
     #[error("Variable list contains the duplicate symbol {0}")]
     DuplicateVariable(Symbol),
     #[error("Unmapped variable in expression: {0}")]
@@ -49,12 +60,139 @@ pub enum CompileError {
     DepthLimitExceeded { depth: usize, max: usize },
     #[error("Compiled bytecode size {ops} exceeds maximum operation limit {max}")]
     OpLimitExceeded { ops: usize, max: usize },
+    #[error("Identifier length {bytes} exceeds maximum compile limit {max} bytes")]
+    NameLimitExceeded { bytes: usize, max: usize },
     #[error("Residual-system dimensions overflow the platform size type")]
     DimensionOverflow,
     #[error("Allocation failed during symbolic-to-numeric compilation")]
     AllocationFailure,
     #[error("Compiler produced invalid bytecode: {0}")]
-    InvalidBytecode(EvalError),
+    InvalidBytecode(#[source] EvalError),
+    #[error("Compiled bytecode does not match the original typed source")]
+    SourceProvenanceMismatch,
+}
+
+/// Charge an actual compiler/checker work unit before executing it. Buffer
+/// charges are cumulative requested storage, not allocator RSS or live bytes.
+pub(crate) fn charge_compilation_work<M: BudgetMeter + ?Sized>(
+    meter: &mut M,
+    steps: usize,
+    bytes: usize,
+    allocations: usize,
+) -> Result<(), CompileError> {
+    meter.checkpoint()?;
+    let requested = [
+        (Dimension::ComputeSteps, steps),
+        (Dimension::MemoryBytes, bytes),
+        (Dimension::AllocationCount, allocations),
+    ];
+    let mut charges = [(Dimension::ComputeSteps, 0); 3];
+    let mut count = 0;
+    for (dimension, amount) in requested {
+        if amount != 0 {
+            charges[count] = (
+                dimension,
+                u64::try_from(amount).map_err(|_| CompileError::DimensionOverflow)?,
+            );
+            count += 1;
+        }
+    }
+    if count != 0 {
+        meter.charge_batch(&charges[..count])?;
+    }
+    meter.checkpoint()?;
+    Ok(())
+}
+
+pub(crate) fn compilation_finish<T, M: BudgetMeter + ?Sized>(
+    result: Result<T, CompileError>,
+    meter: &mut M,
+) -> Result<T, CompileError> {
+    meter.checkpoint()?;
+    result
+}
+
+pub(crate) fn admit_compilation_name<M: BudgetMeter + ?Sized>(
+    name: &str,
+    meter: &mut M,
+) -> Result<(), CompileError> {
+    charge_compilation_work(meter, 1, 0, 0)?;
+    if name.len() > MAX_COMPILE_NAME_BYTES {
+        return Err(CompileError::NameLimitExceeded {
+            bytes: name.len(),
+            max: MAX_COMPILE_NAME_BYTES,
+        });
+    }
+    Ok(())
+}
+
+/// Error construction must not invoke a recursive printer or decimal bigint
+/// conversion. Even unsupported function names have a bounded, charged copy.
+pub(crate) fn compilation_diagnostic<M: BudgetMeter + ?Sized>(
+    message: &str,
+    meter: &mut M,
+) -> Result<String, CompileError> {
+    let truncated = message.len() > MAX_COMPILE_DIAGNOSTIC_BYTES;
+    let mut end = message.len().min(MAX_COMPILE_DIAGNOSTIC_BYTES - 3);
+    while !message.is_char_boundary(end) {
+        end -= 1;
+    }
+    if !truncated {
+        end = message.len();
+    }
+    let bytes = end + if truncated { 3 } else { 0 };
+    charge_compilation_work(meter, bytes, bytes, usize::from(bytes != 0))?;
+    let mut result = String::new();
+    result
+        .try_reserve_exact(bytes)
+        .map_err(|_| CompileError::AllocationFailure)?;
+    result.push_str(&message[..end]);
+    if truncated {
+        result.push_str("...");
+    }
+    compilation_finish(Ok(result), meter)
+}
+
+fn compilation_variable<M: BudgetMeter + ?Sized>(
+    symbol: &Symbol,
+    variables: &HashMap<Symbol, usize>,
+    meter: &mut M,
+) -> Result<usize, CompileError> {
+    admit_compilation_name(&symbol.name, meter)?;
+    // Precharge the standard-library hash lookup as one cooperative kernel.
+    // Capacity covers sparse/tombstoned tables, and two probe slots per
+    // capacity unit cover the table's load-factor envelope. Fixed overhead
+    // includes typed-identity/hash tags as well as bounded name bytes.
+    // These are logical allowances, not physical instruction or wall-time
+    // guarantees. The caller-owned map is never cloned on success.
+    let comparison_bytes = symbol
+        .name
+        .len()
+        .checked_add(128)
+        .ok_or(CompileError::DimensionOverflow)?;
+    let steps = variables
+        .capacity()
+        .checked_add(1)
+        .and_then(|count| count.checked_mul(2))
+        .and_then(|count| count.checked_mul(comparison_bytes))
+        .ok_or(CompileError::DimensionOverflow)?;
+    charge_compilation_work(meter, steps, 0, 0)?;
+    if let Some(index) = variables.get(symbol).copied() {
+        return compilation_finish(Ok(index), meter);
+    }
+    let bytes = symbol.name.len();
+    charge_compilation_work(meter, bytes, bytes, usize::from(bytes != 0))?;
+    let mut name = String::new();
+    name.try_reserve_exact(bytes)
+        .map_err(|_| CompileError::AllocationFailure)?;
+    name.push_str(&symbol.name);
+    compilation_finish(
+        Err(CompileError::UnmappedVariable(Symbol {
+            name,
+            identity: symbol.identity,
+        })),
+        meter,
+    )
 }
 
 /// Errors emitted during compiled numerical evaluation.
@@ -286,8 +424,18 @@ impl CompiledExpr {
     /// structurally valid stack programs and numeric parameters admitted by
     /// the compiled format.
     pub fn try_from_ops(ops: Vec<CompiledOp>) -> Result<Self, EvalError> {
-        Self::validate_ops(&ops)?;
-        Ok(Self { ops })
+        Self::try_from_ops_with_meter(ops, &mut Unbounded)
+    }
+
+    /// Admit caller-owned bytecode while charging every validation instruction.
+    /// The caller's existing operation vector is not allocated again.
+    pub fn try_from_ops_with_meter<M: BudgetMeter + ?Sized>(
+        ops: Vec<CompiledOp>,
+        meter: &mut M,
+    ) -> Result<Self, EvalError> {
+        let result = Self::validate_ops_with_meter(&ops, meter).map(|()| Self { ops });
+        meter.checkpoint()?;
+        result
     }
 
     /// Returns the validated bytecode operations in evaluation order.
@@ -295,7 +443,11 @@ impl CompiledExpr {
         &self.ops
     }
 
-    fn validate_ops(ops: &[CompiledOp]) -> Result<(), EvalError> {
+    fn validate_ops_with_meter<M: BudgetMeter + ?Sized>(
+        ops: &[CompiledOp],
+        meter: &mut M,
+    ) -> Result<(), EvalError> {
+        meter.checkpoint()?;
         if ops.len() > MAX_COMPILE_OPS {
             return Err(EvalError::OpLimitExceeded {
                 ops: ops.len(),
@@ -305,6 +457,7 @@ impl CompiledExpr {
 
         let mut stack_depth = 0usize;
         for op in ops {
+            charge_evaluation_steps(meter, 1)?;
             match op {
                 CompiledOp::LoadConst(value) => {
                     if value.is_nan() || (*value == 0.0 && value.is_sign_negative()) {
@@ -362,20 +515,49 @@ impl CompiledExpr {
         if stack_depth != 1 {
             return Err(EvalError::StackRemaining(stack_depth));
         }
+        meter.checkpoint()?;
         Ok(())
     }
 
-    fn exact_exponent_component(component: &BigInt, exponent: &str) -> Result<f64, CompileError> {
+    fn exact_exponent_component<M: BudgetMeter + ?Sized>(
+        component: &BigInt,
+        meter: &mut M,
+    ) -> Result<f64, CompileError> {
+        charge_compilation_work(meter, 1, 0, 0)?;
         if component.bits() > MAX_EXACT_F64_INTEGER_BITS {
-            return Err(CompileError::UnsupportedExponent(exponent.to_string()));
+            return Err(CompileError::UnsupportedExponent(compilation_diagnostic(
+                "literal components must be exactly representable within 53 bits",
+                meter,
+            )?));
         }
-        let value = component
-            .to_f64()
-            .ok_or_else(|| CompileError::UnsupportedExponent(exponent.to_string()))?;
-        if !value.is_finite() {
-            return Err(CompileError::UnsupportedExponent(exponent.to_string()));
+        charge_compilation_work(meter, 2, 0, 0)?;
+        match component.to_f64().filter(|value| value.is_finite()) {
+            Some(value) => compilation_finish(Ok(value), meter),
+            None => Err(CompileError::UnsupportedExponent(compilation_diagnostic(
+                "literal component cannot be converted to finite binary64",
+                meter,
+            )?)),
         }
-        Ok(value)
+    }
+
+    fn integer_literal<M: BudgetMeter + ?Sized>(
+        integer: &BigInt,
+        meter: &mut M,
+    ) -> Result<f64, CompileError> {
+        charge_compilation_work(meter, 1, 0, 0)?;
+        let bits = integer.bits();
+        // Wider integers cannot round to finite binary64. Refuse before the
+        // substrate scans their digits or a diagnostic formats their value.
+        if bits <= 1024 {
+            charge_compilation_work(meter, bits.div_ceil(32).max(1) as usize, 0, 0)?;
+            if let Some(value) = integer.to_f64().filter(|value| value.is_finite()) {
+                return compilation_finish(Ok(value), meter);
+            }
+        }
+        Err(CompileError::NumericConversion(compilation_diagnostic(
+            "integer literal does not round to finite binary64",
+            meter,
+        )?))
     }
 
     /// Compiles a symbolic expression into bytecode given a variable index lookup map.
@@ -384,9 +566,53 @@ impl CompiledExpr {
         expr: &Expr,
         var_map: &HashMap<Symbol, usize>,
     ) -> Result<Self, CompileError> {
+        Self::try_compile_with_meter(expr, var_map, &mut Unbounded)
+    }
+
+    /// Compile an immutable source under the caller's cumulative ledger.
+    ///
+    /// Recursion, instruction emission, actual operation-buffer growth and
+    /// validation all consume fuel. Exact rational rounding uses governed
+    /// arithmetic. Source/map construction and symbolic differentiation are
+    /// outside this operation. Standard-library allocation and a bounded
+    /// name lookup are cooperative boundaries, not wall-time guarantees.
+    /// The returned program is a candidate; use the checked entry point when
+    /// independent original-source admission is required before publication.
+    pub fn try_compile_with_meter<M: BudgetMeter + ?Sized>(
+        expr: &Expr,
+        var_map: &HashMap<Symbol, usize>,
+        meter: &mut M,
+    ) -> Result<Self, CompileError> {
+        meter.checkpoint()?;
         let mut ops = Vec::new();
-        Self::compile_recursive(expr, var_map, &mut ops, 0)?;
-        Self::try_from_ops(ops).map_err(CompileError::InvalidBytecode)
+        let result = Self::compile_recursive(expr, var_map, &mut ops, 0, meter).and_then(|()| {
+            Self::try_from_ops_with_meter(ops, meter).map_err(|error| match error {
+                EvalError::Meter(error) => CompileError::Meter(error),
+                error => CompileError::InvalidBytecode(error),
+            })
+        });
+        compilation_finish(result, meter)
+    }
+
+    /// Generate, independently check, and publish using one caller ledger.
+    /// No candidate escapes if checking runs out of fuel or is cancelled.
+    /// This checks binary64 lowering, not exact-real numerical accuracy or
+    /// differentiation proofs, and does not access a protected verifier pool.
+    pub fn try_compile_checked_with_meter<M: BudgetMeter + ?Sized>(
+        expr: &Expr,
+        var_map: &HashMap<Symbol, usize>,
+        meter: &mut M,
+    ) -> Result<Self, CompileError> {
+        let result = Self::try_compile_with_meter(expr, var_map, meter).and_then(|program| {
+            if crate::sparse_jacobian::compiled_expression_matches_with_meter(
+                expr, var_map, &program, meter,
+            )? {
+                Ok(program)
+            } else {
+                Err(CompileError::SourceProvenanceMismatch)
+            }
+        });
+        compilation_finish(result, meter)
     }
 
     /// Convenience infallible compiler that panics on malformed or unmapped expressions.
@@ -394,12 +620,14 @@ impl CompiledExpr {
         Self::try_compile(expr, var_map).expect("expression compilation failed")
     }
 
-    fn compile_recursive(
+    fn compile_recursive<M: BudgetMeter + ?Sized>(
         expr: &Expr,
         var_map: &HashMap<Symbol, usize>,
         ops: &mut Vec<CompiledOp>,
         depth: usize,
+        meter: &mut M,
     ) -> Result<(), CompileError> {
+        charge_compilation_work(meter, 1, 0, 0)?;
         if depth > MAX_COMPILE_DEPTH {
             return Err(CompileError::DepthLimitExceeded {
                 depth,
@@ -415,113 +643,124 @@ impl CompiledExpr {
 
         match expr {
             Expr::Integer(n) => {
-                let val = n
-                    .to_f64()
-                    .filter(|value| value.is_finite())
-                    .ok_or_else(|| CompileError::NumericConversion(n.to_string()))?;
-                Self::push_op(ops, CompiledOp::LoadConst(val))?;
+                let val = Self::integer_literal(n, meter)?;
+                Self::push_op(ops, CompiledOp::LoadConst(val), meter)?;
             }
             Expr::Rational(r) => {
                 // Round the exact quotient once. Rounding its components first
                 // can change the result or overflow a finite coprime ratio.
                 let val = r
-                    .to_f64()
-                    .filter(|value| value.is_finite())
-                    .ok_or_else(|| CompileError::NumericConversion(r.to_string()))?;
+                    .metered_to_f64(meter)?
+                    .filter(|value| value.is_finite());
+                let Some(val) = val else {
+                    return Err(CompileError::NumericConversion(compilation_diagnostic(
+                        "exact rational quotient does not round to finite binary64",
+                        meter,
+                    )?));
+                };
                 // The bytecode format has one canonical zero. This approximate
                 // lane permits finite underflow, including negative rationals.
                 let val = if val == 0.0 { 0.0 } else { val };
-                Self::push_op(ops, CompiledOp::LoadConst(val))?;
+                Self::push_op(ops, CompiledOp::LoadConst(val), meter)?;
             }
             Expr::Const(Constant::Pi) => {
-                Self::push_op(ops, CompiledOp::LoadConst(std::f64::consts::PI))?
+                Self::push_op(ops, CompiledOp::LoadConst(std::f64::consts::PI), meter)?
             }
             Expr::Const(Constant::E) => {
-                Self::push_op(ops, CompiledOp::LoadConst(std::f64::consts::E))?
+                Self::push_op(ops, CompiledOp::LoadConst(std::f64::consts::E), meter)?
             }
             Expr::Const(Constant::Infinity) => {
-                Self::push_op(ops, CompiledOp::LoadConst(f64::INFINITY))?
+                Self::push_op(ops, CompiledOp::LoadConst(f64::INFINITY), meter)?
             }
             Expr::Const(Constant::NegativeInfinity) => {
-                Self::push_op(ops, CompiledOp::LoadConst(f64::NEG_INFINITY))?
+                Self::push_op(ops, CompiledOp::LoadConst(f64::NEG_INFINITY), meter)?
             }
             Expr::Const(Constant::ComplexInfinity)
             | Expr::Const(Constant::I)
             | Expr::Const(Constant::NaN) => {
-                return Err(CompileError::UnsupportedExpression(format!("{expr:?}")));
+                return Err(CompileError::UnsupportedExpression(compilation_diagnostic(
+                    "complex infinity, imaginary unit or NaN",
+                    meter,
+                )?));
             }
             Expr::Sym(s) => {
-                if let Some(&idx) = var_map.get(s) {
-                    Self::push_op(ops, CompiledOp::LoadVar(idx))?;
-                } else {
-                    return Err(CompileError::UnmappedVariable(s.clone()));
-                }
+                let index = compilation_variable(s, var_map, meter)?;
+                Self::push_op(ops, CompiledOp::LoadVar(index), meter)?;
             }
             Expr::Add(terms) => {
                 if terms.is_empty() {
-                    Self::push_op(ops, CompiledOp::LoadConst(0.0))?;
+                    Self::push_op(ops, CompiledOp::LoadConst(0.0), meter)?;
                 } else {
                     for t in terms {
-                        Self::compile_recursive(t, var_map, ops, depth + 1)?;
+                        charge_compilation_work(meter, 1, 0, 0)?;
+                        Self::compile_recursive(t, var_map, ops, depth + 1, meter)?;
                     }
-                    Self::push_op(ops, CompiledOp::Add(terms.len()))?;
+                    Self::push_op(ops, CompiledOp::Add(terms.len()), meter)?;
                 }
             }
             Expr::Mul(factors) => {
                 if factors.is_empty() {
-                    Self::push_op(ops, CompiledOp::LoadConst(1.0))?;
+                    Self::push_op(ops, CompiledOp::LoadConst(1.0), meter)?;
                 } else {
                     for f in factors {
-                        Self::compile_recursive(f, var_map, ops, depth + 1)?;
+                        charge_compilation_work(meter, 1, 0, 0)?;
+                        Self::compile_recursive(f, var_map, ops, depth + 1, meter)?;
                     }
-                    Self::push_op(ops, CompiledOp::Mul(factors.len()))?;
+                    Self::push_op(ops, CompiledOp::Mul(factors.len()), meter)?;
                 }
             }
             Expr::Pow(base, exp) => {
-                Self::compile_recursive(base, var_map, ops, depth + 1)?;
+                charge_compilation_work(meter, 1, 0, 0)?;
+                Self::compile_recursive(base, var_map, ops, depth + 1, meter)?;
+                charge_compilation_work(meter, 1, 0, 0)?;
                 match exp.as_ref() {
                     Expr::Integer(n) => {
-                        let printed = n.to_string();
-                        let p = Self::exact_exponent_component(n, &printed)?;
-                        Self::push_op(ops, CompiledOp::Pow(p))?;
+                        let p = Self::exact_exponent_component(n, meter)?;
+                        Self::push_op(ops, CompiledOp::Pow(p), meter)?;
                     }
                     Expr::Rational(r) => {
-                        let printed = r.to_string();
-                        let numer = Self::exact_exponent_component(r.numer(), &printed)?;
-                        let denom = Self::exact_exponent_component(r.denom(), &printed)?;
+                        let numer = Self::exact_exponent_component(r.numer(), meter)?;
+                        let denom = Self::exact_exponent_component(r.denom(), meter)?;
+                        charge_compilation_work(meter, 1, 0, 0)?;
                         let exponent = numer / denom;
                         if !exponent.is_finite() {
-                            return Err(CompileError::UnsupportedExponent(printed));
+                            return Err(CompileError::UnsupportedExponent(compilation_diagnostic(
+                                "literal exponent quotient is not finite",
+                                meter,
+                            )?));
                         }
-                        Self::push_op(ops, CompiledOp::Pow(exponent))?;
+                        Self::push_op(ops, CompiledOp::Pow(exponent), meter)?;
                     }
                     _ => {
-                        Self::compile_recursive(exp, var_map, ops, depth + 1)?;
-                        Self::push_op(ops, CompiledOp::PowPositive)?;
+                        Self::compile_recursive(exp, var_map, ops, depth + 1, meter)?;
+                        Self::push_op(ops, CompiledOp::PowPositive, meter)?;
                     }
                 }
             }
             Expr::Function(name, args) => {
+                admit_compilation_name(name, meter)?;
                 if args.len() != 1 {
-                    return Err(CompileError::UnsupportedFunction(format!(
-                        "{name} with {} args",
-                        args.len()
-                    )));
+                    return Err(CompileError::UnsupportedFunction(compilation_diagnostic(
+                        name, meter,
+                    )?));
                 }
-                Self::compile_recursive(&args[0], var_map, ops, depth + 1)?;
+                charge_compilation_work(meter, name.len() + 1, 0, 0)?;
+                Self::compile_recursive(&args[0], var_map, ops, depth + 1, meter)?;
                 match name.as_str() {
-                    "sin" => Self::push_op(ops, CompiledOp::Sin)?,
-                    "cos" => Self::push_op(ops, CompiledOp::Cos)?,
-                    "tan" => Self::push_op(ops, CompiledOp::Tan)?,
-                    "sinh" => Self::push_op(ops, CompiledOp::Sinh)?,
-                    "cosh" => Self::push_op(ops, CompiledOp::Cosh)?,
-                    "tanh" => Self::push_op(ops, CompiledOp::Tanh)?,
-                    "exp" => Self::push_op(ops, CompiledOp::Exp)?,
-                    "ln" | "log" => Self::push_op(ops, CompiledOp::Ln)?,
-                    "sqrt" => Self::push_op(ops, CompiledOp::Sqrt)?,
-                    "abs" => Self::push_op(ops, CompiledOp::Abs)?,
+                    "sin" => Self::push_op(ops, CompiledOp::Sin, meter)?,
+                    "cos" => Self::push_op(ops, CompiledOp::Cos, meter)?,
+                    "tan" => Self::push_op(ops, CompiledOp::Tan, meter)?,
+                    "sinh" => Self::push_op(ops, CompiledOp::Sinh, meter)?,
+                    "cosh" => Self::push_op(ops, CompiledOp::Cosh, meter)?,
+                    "tanh" => Self::push_op(ops, CompiledOp::Tanh, meter)?,
+                    "exp" => Self::push_op(ops, CompiledOp::Exp, meter)?,
+                    "ln" | "log" => Self::push_op(ops, CompiledOp::Ln, meter)?,
+                    "sqrt" => Self::push_op(ops, CompiledOp::Sqrt, meter)?,
+                    "abs" => Self::push_op(ops, CompiledOp::Abs, meter)?,
                     other => {
-                        return Err(CompileError::UnsupportedFunction(other.to_string()));
+                        return Err(CompileError::UnsupportedFunction(compilation_diagnostic(
+                            other, meter,
+                        )?));
                     }
                 }
             }
@@ -529,7 +768,12 @@ impl CompiledExpr {
         Ok(())
     }
 
-    fn push_op(ops: &mut Vec<CompiledOp>, op: CompiledOp) -> Result<(), CompileError> {
+    fn push_op<M: BudgetMeter + ?Sized>(
+        ops: &mut Vec<CompiledOp>,
+        op: CompiledOp,
+        meter: &mut M,
+    ) -> Result<(), CompileError> {
+        charge_compilation_work(meter, 1, 0, 0)?;
         let attempted = ops
             .len()
             .checked_add(1)
@@ -543,9 +787,20 @@ impl CompiledExpr {
                 max: MAX_COMPILE_OPS,
             });
         }
-        ops.try_reserve(1)
-            .map_err(|_| CompileError::AllocationFailure)?;
+        if ops.len() == ops.capacity() {
+            let capacity = next_compiled_op_capacity(ops.capacity())
+                .ok_or(CompileError::DimensionOverflow)?;
+            let bytes = capacity
+                .checked_mul(std::mem::size_of::<CompiledOp>())
+                .ok_or(CompileError::DimensionOverflow)?;
+            // A growth request may copy all existing instructions. Charge
+            // its full requested payload, not merely the capacity difference.
+            charge_compilation_work(meter, ops.len(), bytes, 1)?;
+            ops.try_reserve_exact(capacity - ops.len())
+                .map_err(|_| CompileError::AllocationFailure)?;
+        }
         ops.push(op);
+        meter.checkpoint()?;
         Ok(())
     }
 
@@ -557,7 +812,7 @@ impl CompiledExpr {
     /// Evaluate with caller-owned cumulative fuel, allocation accounting and
     /// cancellation. Each instruction and reduction operand is charged before
     /// execution, and cancellation is checked again before returning a value.
-    /// Compilation and certificate admission are separate, unmetered phases.
+    /// Compilation and certificate admission use separate entry points.
     pub fn try_eval_with_meter<M: BudgetMeter + ?Sized>(
         &self,
         vars: &[f64],

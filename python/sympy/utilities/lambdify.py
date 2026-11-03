@@ -466,8 +466,8 @@ def load_residual_system(data, *, residuals, args):
 
     The caller must supply both ``residuals`` and ``args``. Their exact
     lowered source and ordered typed symbols must match the bundle, including
-    held operations and assumption identities. No symbols are created from
-    serialized names. Recreate declared Symbols explicitly when loading in a
+    held operations and assumption identities. No Python symbols are created
+    from serialized names. Recreate declared Symbols explicitly when loading in a
     fresh process; Dummy identities must already match and are never remapped.
     Argument nesting is taken from the supplied ``args``.
 

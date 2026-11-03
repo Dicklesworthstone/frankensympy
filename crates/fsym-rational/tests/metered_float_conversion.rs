@@ -5,7 +5,8 @@
 
 use fsym_bigint::BigInt;
 use fsym_budget::{
-    Budget, BudgetError, BudgetLimits, BudgetMeter, DIMENSION_COUNT, Dimension, MeterError, Unbounded,
+    Budget, BudgetError, BudgetLimits, BudgetMeter, DIMENSION_COUNT, Dimension, MeterError,
+    Unbounded,
 };
 use fsym_rational::BigRational;
 
@@ -78,11 +79,7 @@ fn subnormal_ties_and_underflow_preserve_the_arithmetic_sign_bit() {
         (7, 1075, 4),
         (1, 2000, 0),
     ] {
-        assert_both_signs(
-            numerator.into(),
-            power_of_two(denominator_power),
-            expected,
-        );
+        assert_both_signs(numerator.into(), power_of_two(denominator_power), expected);
     }
     // A tie between the greatest subnormal and the least normal chooses the latter.
     assert_both_signs(

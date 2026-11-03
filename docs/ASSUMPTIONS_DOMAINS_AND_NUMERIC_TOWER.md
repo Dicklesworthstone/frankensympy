@@ -449,6 +449,45 @@ interfaces and cumulative budgets as a freshly compiled system.
 
 ### 15.6 Shared numerical budgets and cancellation
 
+Native scalar compilation also accepts one cumulative caller ledger.
+`CompiledExpr::try_compile_with_meter` generates candidate bytecode;
+`compiled_expression_matches_with_meter` independently checks the original
+typed source against that program. `try_compile_checked_with_meter` performs
+both phases on the same ledger and returns the program only after its final
+cancellation checkpoint. Fuel spent generating a candidate is not reset when
+checking begins. An exhausted or cancelled checker publishes no program.
+
+These entry points charge recursive visits and edges, instruction emission,
+actual requested operation-buffer growth, final bytecode validation, bounded
+name handling and exact rational-to-binary64 conversion. The checker meters
+both its source preflight and independent source/opcode traversal. Identifier
+names are capped at 4096 UTF-8 bytes, and refusal diagnostics never render
+unbounded expression trees or bigint decimal strings. Memory counters count
+cumulative requested payloads; standard-library allocation and lookup remain
+cooperative boundaries. They do not establish a wall-time interruption bound.
+
+```rust
+use fsym_budget::{Budget, BudgetLimits};
+use fsym_calculus::compile::CompiledExpr;
+use fsym_core::{Symbol, parse};
+use std::collections::HashMap;
+
+let source = parse("x^2 + 1").unwrap();
+let variables = HashMap::from([(Symbol::new("x"), 0)]);
+let mut ledger = Budget::new(BudgetLimits::uniform(1_000_000, 0));
+let program =
+    CompiledExpr::try_compile_checked_with_meter(&source, &variables, &mut ledger)
+        .unwrap();
+assert_eq!(program.try_eval_finite_with_meter(&[3.0], &mut ledger).unwrap(), 10.0);
+```
+
+The governed scalar APIs begin with an already constructed immutable native
+expression and variable map. They do not govern Python source extraction,
+symbolic differentiation, Jacobian/Hessian construction or proof replay.
+The Python `compile_numeric` constructor retains its existing separate
+admission contract; its callable's numerical `budget=` does not meter construction.
+Checked binary64 lowering does not certify rounding error or numerical roots.
+
 Compiled binary64 evaluation accepts a caller-owned cumulative ledger. Native
 `CompiledExpr::try_eval_with_meter` retains ordinary IEEE evaluation;
 `try_eval_finite_with_meter` rejects nonfinite inputs and intermediate values.

@@ -4,7 +4,8 @@
 
 use crate::compile::{
     CompileError, CompiledExpr, CompiledOp, EvalError, MAX_COMPILE_DEPTH, MAX_COMPILE_OPS,
-    charge_evaluation_allocation, charge_evaluation_steps,
+    admit_compilation_name, charge_compilation_work, charge_evaluation_allocation,
+    charge_evaluation_steps, compilation_diagnostic, compilation_finish,
 };
 use crate::proof::{reference_sub_derivative, verified_diff, verify_diff_derivation};
 use fsym_budget::{BudgetMeter, Dimension, Unbounded};
@@ -691,7 +692,20 @@ pub fn verify_sparse_jacobian_certificate(
 
 /// Bound recursive reference work before traversing untrusted symbolic inputs.
 fn validate_expression_limits(expr: &Expr) -> Result<(), CompileError> {
-    fn visit(expr: &Expr, depth: usize, nodes: &mut usize) -> Result<(), CompileError> {
+    validate_expression_limits_with_meter(expr, &mut Unbounded)
+}
+
+fn validate_expression_limits_with_meter<M: BudgetMeter + ?Sized>(
+    expr: &Expr,
+    meter: &mut M,
+) -> Result<(), CompileError> {
+    fn visit<M: BudgetMeter + ?Sized>(
+        expr: &Expr,
+        depth: usize,
+        nodes: &mut usize,
+        meter: &mut M,
+    ) -> Result<(), CompileError> {
+        charge_compilation_work(meter, 1, 0, 0)?;
         if depth > MAX_COMPILE_DEPTH {
             return Err(CompileError::DepthLimitExceeded {
                 depth,
@@ -708,18 +722,22 @@ fn validate_expression_limits(expr: &Expr) -> Result<(), CompileError> {
         match expr {
             Expr::Add(args) | Expr::Mul(args) | Expr::Function(_, args) => {
                 for arg in args {
-                    visit(arg, depth + 1, nodes)?;
+                    charge_compilation_work(meter, 1, 0, 0)?;
+                    visit(arg, depth + 1, nodes, meter)?;
                 }
             }
             Expr::Pow(base, exponent) => {
-                visit(base, depth + 1, nodes)?;
-                visit(exponent, depth + 1, nodes)?;
+                charge_compilation_work(meter, 1, 0, 0)?;
+                visit(base, depth + 1, nodes, meter)?;
+                charge_compilation_work(meter, 1, 0, 0)?;
+                visit(exponent, depth + 1, nodes, meter)?;
             }
             _ => {}
         }
         Ok(())
     }
-    visit(expr, 0, &mut 0)
+    let result = visit(expr, 0, &mut 0, meter);
+    compilation_finish(result, meter)
 }
 
 /// Independent structural check of the canonical numerical lowering.
@@ -732,14 +750,31 @@ pub fn compiled_expression_matches(
     var_map: &HashMap<Symbol, usize>,
     compiled: &CompiledExpr,
 ) -> Result<bool, CompileError> {
-    struct Checker<'a> {
+    compiled_expression_matches_with_meter(expr, var_map, compiled, &mut Unbounded)
+}
+
+/// Independently check an existing program using the caller's cumulative fuel.
+///
+/// Both the bounded source preflight and the source/opcode traversal perform
+/// actual charged work. Literal rounding uses governed exact arithmetic, and
+/// a final cancellation checkpoint covers acceptance, mismatch and refusal.
+/// This never invokes the compiler or trusts numerical sample agreement.
+pub fn compiled_expression_matches_with_meter<M: BudgetMeter + ?Sized>(
+    expr: &Expr,
+    var_map: &HashMap<Symbol, usize>,
+    compiled: &CompiledExpr,
+    meter: &mut M,
+) -> Result<bool, CompileError> {
+    struct Checker<'a, 'm, M: ?Sized> {
         operations: &'a [CompiledOp],
         position: usize,
         variables: &'a HashMap<Symbol, usize>,
+        meter: &'m mut M,
     }
 
-    impl Checker<'_> {
-        fn take(&mut self, expected: CompiledOp) -> bool {
+    impl<M: BudgetMeter + ?Sized> Checker<'_, '_, M> {
+        fn take(&mut self, expected: CompiledOp) -> Result<bool, CompileError> {
+            charge_compilation_work(self.meter, 1, 0, 0)?;
             let matches = match (self.operations.get(self.position), &expected) {
                 (Some(CompiledOp::LoadConst(actual)), CompiledOp::LoadConst(expected))
                 | (Some(CompiledOp::Pow(actual)), CompiledOp::Pow(expected)) => {
@@ -751,24 +786,81 @@ pub fn compiled_expression_matches(
             if matches {
                 self.position += 1;
             }
-            matches
+            Ok(matches)
         }
 
-        fn number(value: &BigInt) -> Result<f64, CompileError> {
-            value
-                .to_f64()
-                .filter(|converted| converted.is_finite())
-                .ok_or_else(|| CompileError::NumericConversion(value.to_string()))
-        }
-
-        fn exponent_component(value: &BigInt) -> Result<f64, CompileError> {
-            if value.bits() > u64::from(f64::MANTISSA_DIGITS) {
-                return Err(CompileError::UnsupportedExponent(value.to_string()));
+        fn number(&mut self, value: &BigInt) -> Result<f64, CompileError> {
+            charge_compilation_work(self.meter, 1, 0, 0)?;
+            let bits = value.bits();
+            if bits <= 1024 {
+                charge_compilation_work(
+                    self.meter,
+                    bits.div_ceil(32).max(1) as usize,
+                    0,
+                    0,
+                )?;
+                if let Some(converted) = value.to_f64().filter(|value| value.is_finite()) {
+                    return compilation_finish(Ok(converted), self.meter);
+                }
             }
-            Self::number(value)
+            Err(CompileError::NumericConversion(compilation_diagnostic(
+                "integer literal does not round to finite binary64",
+                self.meter,
+            )?))
+        }
+
+        fn exponent_component(&mut self, value: &BigInt) -> Result<f64, CompileError> {
+            charge_compilation_work(self.meter, 1, 0, 0)?;
+            if value.bits() > u64::from(f64::MANTISSA_DIGITS) {
+                return Err(CompileError::UnsupportedExponent(compilation_diagnostic(
+                    "literal components must be exactly representable within 53 bits",
+                    self.meter,
+                )?));
+            }
+            self.number(value)
+        }
+
+        fn variable(&mut self, symbol: &Symbol) -> Result<usize, CompileError> {
+            admit_compilation_name(&symbol.name, self.meter)?;
+            // A capacity-based logical allowance covers sparse/tombstoned
+            // standard-library tables. The lookup is a precharged cooperative
+            // kernel, with no physical instruction or wall-time guarantee.
+            let per_candidate = symbol
+                .name
+                .len()
+                .checked_add(128)
+                .ok_or(CompileError::DimensionOverflow)?;
+            let steps = self
+                .variables
+                .capacity()
+                .checked_add(1)
+                .and_then(|count| count.checked_mul(2))
+                .and_then(|count| count.checked_mul(per_candidate))
+                .ok_or(CompileError::DimensionOverflow)?;
+            charge_compilation_work(self.meter, steps, 0, 0)?;
+            // Interpret the declared typed coordinate map here. In particular,
+            // never reuse a generator helper that could return a wrong slot
+            // and make generation and checking agree on that same mistake.
+            if let Some(&index) = self.variables.get(symbol) {
+                return compilation_finish(Ok(index), self.meter);
+            }
+            let bytes = symbol.name.len();
+            charge_compilation_work(self.meter, bytes, bytes, usize::from(bytes != 0))?;
+            let mut name = String::new();
+            name.try_reserve_exact(bytes)
+                .map_err(|_| CompileError::AllocationFailure)?;
+            name.push_str(&symbol.name);
+            compilation_finish(
+                Err(CompileError::UnmappedVariable(Symbol {
+                    name,
+                    identity: symbol.identity,
+                })),
+                self.meter,
+            )
         }
 
         fn visit(&mut self, expr: &Expr, depth: usize) -> Result<bool, CompileError> {
+            charge_compilation_work(self.meter, 1, 0, 0)?;
             if depth > MAX_COMPILE_DEPTH {
                 return Err(CompileError::DepthLimitExceeded {
                     depth,
@@ -776,12 +868,17 @@ pub fn compiled_expression_matches(
                 });
             }
             let operation = match expr {
-                Expr::Integer(integer) => CompiledOp::LoadConst(Self::number(integer)?),
+                Expr::Integer(integer) => CompiledOp::LoadConst(self.number(integer)?),
                 Expr::Rational(rational) => {
                     let value = rational
-                        .to_f64()
-                        .filter(|converted| converted.is_finite())
-                        .ok_or_else(|| CompileError::NumericConversion(rational.to_string()))?;
+                        .metered_to_f64(self.meter)?
+                        .filter(|converted| converted.is_finite());
+                    let Some(value) = value else {
+                        return Err(CompileError::NumericConversion(compilation_diagnostic(
+                            "exact rational quotient does not round to finite binary64",
+                            self.meter,
+                        )?));
+                    };
                     CompiledOp::LoadConst(if value == 0.0 { 0.0 } else { value })
                 }
                 Expr::Const(constant) => CompiledOp::LoadConst(match constant {
@@ -789,20 +886,21 @@ pub fn compiled_expression_matches(
                     Constant::E => std::f64::consts::E,
                     Constant::Infinity => f64::INFINITY,
                     Constant::NegativeInfinity => f64::NEG_INFINITY,
-                    _ => return Err(CompileError::UnsupportedExpression(format!("{expr:?}"))),
+                    _ => {
+                        return Err(CompileError::UnsupportedExpression(compilation_diagnostic(
+                            "complex infinity, imaginary unit or NaN",
+                            self.meter,
+                        )?));
+                    }
                 }),
-                Expr::Sym(symbol) => CompiledOp::LoadVar(
-                    *self
-                        .variables
-                        .get(symbol)
-                        .ok_or_else(|| CompileError::UnmappedVariable(symbol.clone()))?,
-                ),
+                Expr::Sym(symbol) => CompiledOp::LoadVar(self.variable(symbol)?),
                 Expr::Add(arguments) | Expr::Mul(arguments) => {
                     let is_sum = matches!(expr, Expr::Add(_));
                     if arguments.is_empty() {
                         CompiledOp::LoadConst(if is_sum { 0.0 } else { 1.0 })
                     } else {
                         for argument in arguments {
+                            charge_compilation_work(self.meter, 1, 0, 0)?;
                             if !self.visit(argument, depth + 1)? {
                                 return Ok(false);
                             }
@@ -815,15 +913,19 @@ pub fn compiled_expression_matches(
                     }
                 }
                 Expr::Pow(base, exponent) => {
+                    charge_compilation_work(self.meter, 1, 0, 0)?;
                     if !self.visit(base, depth + 1)? {
                         return Ok(false);
                     }
+                    charge_compilation_work(self.meter, 1, 0, 0)?;
                     let literal = match exponent.as_ref() {
-                        Expr::Integer(integer) => Some(Self::exponent_component(integer)?),
-                        Expr::Rational(rational) => Some(
-                            Self::exponent_component(rational.numer())?
-                                / Self::exponent_component(rational.denom())?,
-                        ),
+                        Expr::Integer(integer) => Some(self.exponent_component(integer)?),
+                        Expr::Rational(rational) => {
+                            let numerator = self.exponent_component(rational.numer())?;
+                            let denominator = self.exponent_component(rational.denom())?;
+                            charge_compilation_work(self.meter, 1, 0, 0)?;
+                            Some(numerator / denominator)
+                        }
                         _ => {
                             if !self.visit(exponent, depth + 1)? {
                                 return Ok(false);
@@ -833,7 +935,10 @@ pub fn compiled_expression_matches(
                     };
                     if let Some(value) = literal {
                         if !value.is_finite() {
-                            return Err(CompileError::UnsupportedExponent(exponent.to_string()));
+                            return Err(CompileError::UnsupportedExponent(compilation_diagnostic(
+                                "literal exponent quotient is not finite",
+                                self.meter,
+                            )?));
                         }
                         CompiledOp::Pow(value)
                     } else {
@@ -841,9 +946,13 @@ pub fn compiled_expression_matches(
                     }
                 }
                 Expr::Function(name, arguments) => {
+                    admit_compilation_name(name, self.meter)?;
                     if arguments.len() != 1 {
-                        return Err(CompileError::UnsupportedFunction(name.clone()));
+                        return Err(CompileError::UnsupportedFunction(compilation_diagnostic(
+                            name, self.meter,
+                        )?));
                     }
+                    charge_compilation_work(self.meter, name.len() + 1, 0, 0)?;
                     if !self.visit(&arguments[0], depth + 1)? {
                         return Ok(false);
                     }
@@ -858,19 +967,29 @@ pub fn compiled_expression_matches(
                         "log" | "ln" => CompiledOp::Ln,
                         "sqrt" => CompiledOp::Sqrt,
                         "abs" => CompiledOp::Abs,
-                        _ => return Err(CompileError::UnsupportedFunction(name.clone())),
+                        _ => {
+                            return Err(CompileError::UnsupportedFunction(compilation_diagnostic(
+                                name, self.meter,
+                            )?));
+                        }
                     }
                 }
             };
-            Ok(self.take(operation))
+            self.take(operation)
         }
     }
 
-    validate_expression_limits(expr)?;
-    let mut checker = Checker {
-        operations: compiled.ops(),
-        position: 0,
-        variables: var_map,
-    };
-    Ok(checker.visit(expr, 0)? && checker.position == checker.operations.len())
+    let result = (|| {
+        validate_expression_limits_with_meter(expr, meter)?;
+        let mut checker = Checker {
+            operations: compiled.ops(),
+            position: 0,
+            variables: var_map,
+            meter: &mut *meter,
+        };
+        let matches = checker.visit(expr, 0)?;
+        charge_compilation_work(checker.meter, 1, 0, 0)?;
+        Ok(matches && checker.position == checker.operations.len())
+    })();
+    compilation_finish(result, meter)
 }
