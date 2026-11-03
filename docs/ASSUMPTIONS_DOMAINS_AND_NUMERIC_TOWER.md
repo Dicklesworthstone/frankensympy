@@ -220,6 +220,15 @@ The project needs a pure-Rust, memory-safe arbitrary-precision substrate with no
 - height bounds and budget charging;
 - explicit construction of noncanonical transient forms only inside guarded kernels.
 
+`BigRational::metered_to_f64` rounds an exact quotient directly to binary64 using
+the caller's cumulative `BudgetMeter`. Scaling, division, remainder comparison
+and ties-to-even rounding use the governed integer kernels; large numerator and
+denominator values never become an intermediate `infinity / infinity`. The API
+preserves signed underflow and reports true overflow as an infinity for its
+caller to admit or refuse. Height-only terminal cases avoid coefficient copies,
+and all terminal cases check cancellation before returning. The ordinary
+`to_f64` conversion keeps its existing arithmetic path and rounding contract.
+
 ### 9.3 Floating requirements
 
 Compatibility floats reproduce the selected SymPy/mpmath-facing profile. Native certified floats use explicit precision and rounding mode. The types must be distinct so an uncertified approximation cannot inhabit a certified-ball payload.

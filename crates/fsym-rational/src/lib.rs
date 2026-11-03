@@ -300,6 +300,21 @@ impl BigRational {
         rational_to_f64(self)
     }
 
+    /// Converts to binary64 with round-to-nearest, ties-to-even under one caller meter.
+    ///
+    /// Exact coefficient scaling, comparison, division and rounding use the governed integer
+    /// kernels. Large finite quotients therefore never pass through independently rounded
+    /// numerator and denominator floats. Overflow and underflow are classified from coefficient
+    /// heights before allocating when possible; signed zero and infinity follow [`Self::to_f64`].
+    /// Every return, including an internal representation refusal, checks cancellation before
+    /// publication. An exhausted meter is propagated and never retried without accounting.
+    pub fn metered_to_f64<M: BudgetMeter + ?Sized>(
+        &self,
+        meter: &mut M,
+    ) -> Result<Option<f64>, MeterError> {
+        metered_rational_to_f64(self, &mut FloatConversionMeter(meter))
+    }
+
     /// Converts this rational to binary32 with round-to-nearest, ties-to-even.
     pub fn to_f32(&self) -> Option<f32> {
         rational_to_f32(self)
@@ -1261,6 +1276,201 @@ impl Signed for BigRational {
     fn is_negative(&self) -> bool {
         self.0.is_negative()
     }
+}
+
+// The integer kernels accept sized meters. This forwarding adapter also admits a caller's
+// trait object without creating a new ledger or changing any charge/checkpoint semantics.
+struct FloatConversionMeter<'a, M: BudgetMeter + ?Sized>(&'a mut M);
+
+impl<M: BudgetMeter + ?Sized> BudgetMeter for FloatConversionMeter<'_, M> {
+    fn charge(&mut self, dimension: Dimension, amount: u64) -> Result<(), MeterError> {
+        self.0.charge(dimension, amount)
+    }
+
+    fn charge_batch(&mut self, charges: &[(Dimension, u64)]) -> Result<(), MeterError> {
+        self.0.charge_batch(charges)
+    }
+
+    fn checkpoint(&mut self) -> Result<(), MeterError> {
+        self.0.checkpoint()
+    }
+}
+
+fn float_conversion_finish<T, M: BudgetMeter>(
+    value: T,
+    meter: &mut M,
+) -> Result<T, MeterError> {
+    meter.checkpoint()?;
+    Ok(value)
+}
+
+fn metered_binary_scale<M: BudgetMeter>(
+    value: &BigInt,
+    shift: u32,
+    meter: &mut M,
+) -> Result<BigInt, MeterError> {
+    // Shifts here are bounded by the binary64 exponent range (at most 1075). Using the owned
+    // integer kernels keeps both the scaling buffer and its limb work inside the caller meter.
+    meter.checkpoint()?;
+    meter.charge_batch(&[
+        (Dimension::ComputeSteps, 1),
+        (Dimension::MemoryBytes, 8),
+        (Dimension::AllocationCount, 1),
+    ])?;
+    let two = BigInt::from(2u64);
+    meter.checkpoint()?;
+    let factor = metered_bigint_pow(&two, shift, meter)?;
+    let scaled = metered_multiply(value, &factor, meter)?;
+    float_conversion_finish(scaled, meter)
+}
+
+fn metered_rounded_binary_quotient<M: BudgetMeter>(
+    numerator: &BigInt,
+    denominator: &BigInt,
+    binary_shift: i32,
+    meter: &mut M,
+) -> Result<Option<u64>, MeterError> {
+    meter.checkpoint()?;
+    meter.charge(Dimension::ComputeSteps, 1)?;
+    let scaled_storage;
+    let (scaled_numerator, scaled_denominator) = if binary_shift > 0 {
+        scaled_storage = metered_binary_scale(numerator, binary_shift.unsigned_abs(), meter)?;
+        (&scaled_storage, denominator)
+    } else if binary_shift < 0 {
+        scaled_storage = metered_binary_scale(denominator, binary_shift.unsigned_abs(), meter)?;
+        (numerator, &scaled_storage)
+    } else {
+        (numerator, denominator)
+    };
+    let Some(divisor) = NonZeroBigInt::new(scaled_denominator) else {
+        return float_conversion_finish(None, meter);
+    };
+    if scaled_numerator.bits() < scaled_denominator.bits() {
+        // The integer divider's height shortcut copies the remainder in one substrate call.
+        // It already charges storage and checkpoints that copy; admit its limb work here too.
+        meter.checkpoint()?;
+        meter.charge(
+            Dimension::ComputeSteps,
+            scaled_numerator.limb_count().max(1),
+        )?;
+    }
+    let (quotient, remainder) = metered_div_rem_nonzero(scaled_numerator, divisor, meter)?;
+    let twice_remainder = metered_bigint_add(&remainder, &remainder, meter)?;
+    let half_order = metered_bigint_cmp(&twice_remainder, scaled_denominator, meter)?;
+    // A valid scaled significand has at most 54 bits. Bound the primitive conversion even if a
+    // future caller violates that invariant; parity then needs no additional bigint allocation.
+    if quotient.bits() > 64 {
+        return float_conversion_finish(None, meter);
+    }
+    meter.charge(Dimension::ComputeSteps, 2)?;
+    let Some(quotient) = quotient.to_u64() else {
+        return float_conversion_finish(None, meter);
+    };
+    let round_up = half_order == Ordering::Greater
+        || (half_order == Ordering::Equal && quotient & 1 != 0);
+    let result = if round_up {
+        quotient.checked_add(1)
+    } else {
+        Some(quotient)
+    };
+    float_conversion_finish(result, meter)
+}
+
+fn metered_rational_to_f64<M: BudgetMeter>(
+    value: &BigRational,
+    meter: &mut M,
+) -> Result<Option<f64>, MeterError> {
+    const FRACTION_BITS: u64 = 52;
+    const SIGNIFICAND_FLOOR: u64 = 1u64 << FRACTION_BITS;
+    const SIGNIFICAND_CARRY: u64 = SIGNIFICAND_FLOOR << 1;
+    const MAX_NORMAL_EXPONENT: i128 = 1023;
+    const MIN_NORMAL_EXPONENT: i128 = -1022;
+    const HALF_MIN_SUBNORMAL_EXPONENT: i128 = -1075;
+    const EXPONENT_BIAS: i128 = 1023;
+    const SIGN_BIT: u64 = 1u64 << 63;
+    const INFINITY_BITS: u64 = 0x7ff0_0000_0000_0000;
+
+    meter.checkpoint()?;
+    meter.charge(Dimension::ComputeSteps, 1)?;
+    let sign = if value.numer().is_negative() { SIGN_BIT } else { 0 };
+    if value.numer().is_zero() {
+        return float_conversion_finish(Some(0.0), meter);
+    }
+    let denominator = value.denom();
+    let mut exponent = i128::from(value.numer().bits()) - i128::from(denominator.bits());
+    if exponent > MAX_NORMAL_EXPONENT + 1 {
+        return float_conversion_finish(Some(f64::from_bits(INFINITY_BITS | sign)), meter);
+    }
+    if exponent < HALF_MIN_SUBNORMAL_EXPONENT {
+        return float_conversion_finish(Some(f64::from_bits(sign)), meter);
+    }
+
+    let magnitude_storage;
+    let numerator = if sign != 0 {
+        magnitude_storage = metered_bigint_subtract(&BigInt::zero(), value.numer(), meter)?;
+        &magnitude_storage
+    } else {
+        value.numer()
+    };
+    let below_estimated_power = if exponent > 0 {
+        let Ok(shift) = u32::try_from(exponent) else {
+            return float_conversion_finish(None, meter);
+        };
+        let scaled = metered_binary_scale(denominator, shift, meter)?;
+        metered_bigint_cmp(numerator, &scaled, meter)? == Ordering::Less
+    } else if exponent < 0 {
+        let Ok(shift) = u32::try_from(-exponent) else {
+            return float_conversion_finish(None, meter);
+        };
+        let scaled = metered_binary_scale(numerator, shift, meter)?;
+        metered_bigint_cmp(&scaled, denominator, meter)? == Ordering::Less
+    } else {
+        metered_bigint_cmp(numerator, denominator, meter)? == Ordering::Less
+    };
+    if below_estimated_power {
+        exponent -= 1;
+    }
+
+    let magnitude_bits = if exponent > MAX_NORMAL_EXPONENT {
+        INFINITY_BITS
+    } else if exponent < HALF_MIN_SUBNORMAL_EXPONENT {
+        0
+    } else if exponent < MIN_NORMAL_EXPONENT {
+        let Some(significand) =
+            metered_rounded_binary_quotient(numerator, denominator, 1074, meter)?
+        else {
+            return float_conversion_finish(None, meter);
+        };
+        if significand > SIGNIFICAND_FLOOR {
+            return float_conversion_finish(None, meter);
+        }
+        significand
+    } else {
+        let Ok(binary_shift) = i32::try_from(i128::from(FRACTION_BITS) - exponent) else {
+            return float_conversion_finish(None, meter);
+        };
+        let Some(mut significand) =
+            metered_rounded_binary_quotient(numerator, denominator, binary_shift, meter)?
+        else {
+            return float_conversion_finish(None, meter);
+        };
+        if significand == SIGNIFICAND_CARRY {
+            significand = SIGNIFICAND_FLOOR;
+            exponent += 1;
+        }
+        if exponent > MAX_NORMAL_EXPONENT {
+            INFINITY_BITS
+        } else {
+            if !(SIGNIFICAND_FLOOR..SIGNIFICAND_CARRY).contains(&significand) {
+                return float_conversion_finish(None, meter);
+            }
+            let Ok(biased_exponent) = u64::try_from(exponent + EXPONENT_BIAS) else {
+                return float_conversion_finish(None, meter);
+            };
+            (biased_exponent << FRACTION_BITS) | (significand - SIGNIFICAND_FLOOR)
+        }
+    };
+    float_conversion_finish(Some(f64::from_bits(magnitude_bits | sign)), meter)
 }
 
 fn rounded_binary_quotient(
