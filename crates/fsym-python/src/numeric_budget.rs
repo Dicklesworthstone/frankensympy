@@ -209,6 +209,12 @@ pub(crate) fn evaluation_error<E: Error + 'static>(error: E) -> PyErr {
             return PyMemoryError::new_err(error.to_string());
         }
         if matches!(
+            current.downcast_ref::<fsym_numeric_consumer::SystemConsumerError>(),
+            Some(fsym_numeric_consumer::SystemConsumerError::ConsumerContract(_))
+        ) {
+            return PyRuntimeError::new_err(error.to_string());
+        }
+        if matches!(
             current.downcast_ref::<RootBoxError>(),
             Some(RootBoxError::ResourceLimit(_))
         ) || matches!(

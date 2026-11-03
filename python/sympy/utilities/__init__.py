@@ -6,7 +6,7 @@ from .iterables import (
 )
 from ..simplify.cse_main import numbered_symbols
 from .lambdify import (
-    EvaluationBudget, EvaluationBudgetExceeded, EvaluationCancelled,
+    EvaluationBudget, EvaluationBudgetExceeded, EvaluationCancelled, NumericRootCandidate,
     compile_numeric, compile_residual_system, load_residual_system, lambdify,
 )
 from .hybrid import compile_numeric_hybrid
@@ -18,5 +18,6 @@ __all__ = [
     "postfixes", "prefixes", "sift", "subsets", "topological_sort", "unflatten", "variations",
     "compile_numeric", "compile_numeric_hybrid", "compile_residual_system", "load_residual_system", "compile_objective", "lambdify",
     "EvaluationBudget", "EvaluationBudgetExceeded", "EvaluationCancelled",
+    "NumericRootCandidate",
     "ResidualJacobianEnclosure", "RootBoxReceipt",
 ]

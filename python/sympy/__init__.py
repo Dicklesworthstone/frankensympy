@@ -1347,7 +1347,7 @@ from .simplify import (
 
 
 from .utilities.lambdify import (
-    EvaluationBudget, EvaluationBudgetExceeded, EvaluationCancelled,
+    EvaluationBudget, EvaluationBudgetExceeded, EvaluationCancelled, NumericRootCandidate,
     compile_numeric, compile_residual_system, load_residual_system, lambdify,
 )
 from .utilities.hybrid import compile_numeric_hybrid
@@ -2416,6 +2416,7 @@ __all__ = [
     "EvaluationBudget",
     "EvaluationBudgetExceeded",
     "EvaluationCancelled",
+    "NumericRootCandidate",
     "ResidualJacobianEnclosure",
     "RootBoxReceipt",
     "count_ops",

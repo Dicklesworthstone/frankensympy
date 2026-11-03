@@ -66,6 +66,10 @@ portable_verifier_allowed = false
 # (pure-Rust solvers on plain f64 slices; no pyo3/CPython bridge, no RNG,
 # no I/O crates; rayon stays internal to the consumer crate). Pinned
 # worktree: /data/projects/franken_numpy-pin.
+# The L6 fsym-python bridge depends on the internal fsym-numeric-consumer
+# adapter to expose bounded candidate solves. Only that adapter calls the
+# pinned fnp-linalg/fsci-opt kernels; neither donor enters a verifier closure.
+# The square-system cap is 16, below fnp-linalg's parallel threshold of 512.
 
 [[allowed_source]]
 id = "frankenscipy"

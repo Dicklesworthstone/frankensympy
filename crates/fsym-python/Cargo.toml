@@ -24,6 +24,7 @@ fsym-polys.workspace = true
 fsym-proof-kernel.workspace = true
 fsym-simplify.workspace = true
 fsym-calculus.workspace = true
+fsym-numeric-consumer.workspace = true
 fsym-solvers.workspace = true
 fsym-matrices.workspace = true
 fsym-functions.workspace = true

@@ -75,6 +75,7 @@ fsym-core = { path = "crates/fsym-core" }
 fsym-polys = { path = "crates/fsym-polys" }
 fsym-simplify = { path = "crates/fsym-simplify" }
 fsym-calculus = { path = "crates/fsym-calculus" }
+fsym-numeric-consumer = { path = "crates/fsym-numeric-consumer" }
 fsym-solvers = { path = "crates/fsym-solvers" }
 fsym-matrices = { path = "crates/fsym-matrices" }
 fsym-functions = { path = "crates/fsym-functions" }

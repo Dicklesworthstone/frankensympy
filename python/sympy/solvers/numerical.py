@@ -280,6 +280,54 @@ def _newton_options(tol, maxiter):
     return tolerance
 
 
+def _candidate_options(backend, tol, maxiter, max_step_norm, *, allow_python):
+    """Admit backend-specific controls before any donor or conversion work."""
+    if type(backend) is not str:
+        raise TypeError("numerical backend must be an exact built-in string")
+    allowed = ("python", "frankennumpy", "frankenscipy") if allow_python else (
+        "frankennumpy", "frankenscipy",
+    )
+    if backend not in allowed:
+        raise ValueError("unsupported numerical backend")
+    if backend == "frankenscipy":
+        if tol is not None or maxiter is not None or max_step_norm is not None:
+            raise ValueError(
+                "FrankenSciPy has fixed solver controls; omit tol, maxiter and max_step_norm"
+            )
+        return None, None, None
+    if backend == "python":
+        if max_step_norm is not None:
+            raise ValueError("the python backend does not accept max_step_norm")
+        tol = 1e-12 if tol is None else tol
+        maxiter = 200 if maxiter is None else maxiter
+        return _newton_options(tol, maxiter), maxiter, None
+    tol = _finite_real(1e-12 if tol is None else tol, "tolerance")
+    if tol < 0:
+        raise ValueError("FrankenNumPy tolerance must be nonnegative")
+    maxiter = 64 if maxiter is None else maxiter
+    if type(maxiter) is not int:
+        raise TypeError("FrankenNumPy maxiter must be a built-in integer")
+    if not 0 <= maxiter <= 1024:
+        raise ValueError("FrankenNumPy maxiter must be between 0 and 1024")
+    max_step_norm = _finite_real(
+        1e6 if max_step_norm is None else max_step_norm, "maximum step norm",
+    )
+    if max_step_norm <= 0:
+        raise ValueError("FrankenNumPy max_step_norm must be positive")
+    return tol, maxiter, max_step_norm
+
+
+def _candidate_initial(program, initial):
+    columns = program.native_system.variable_count
+    if not 1 <= columns <= 16 or program.native_system.residual_count != columns:
+        raise ValueError("numerical consumers require a square system with 1..16 variables")
+    values = (_vector(initial, "initial values", columns)
+              if _is_vector(initial) else [initial])
+    if len(values) != columns:
+        raise TypeError("initial vector must match the number of variables")
+    return [_finite_real(value, "initial value") for value in values]
+
+
 def _solve_compiled_certified(program, initial, *, tol, maxiter, precision, max_attempts, budget=None):
     from ..utilities._certified_numeric import prepare_root_search, search_root_box
 

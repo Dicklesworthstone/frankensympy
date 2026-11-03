@@ -928,6 +928,7 @@ dependencies = [
  "fsym-logic",
  "fsym-matrices",
  "fsym-ntheory",
+ "fsym-numeric-consumer",
  "fsym-polys",
  "fsym-printing",
  "fsym-proof-kernel",

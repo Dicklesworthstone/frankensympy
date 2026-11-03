@@ -342,3 +342,31 @@ FrankenSymPy rejects:
 8. add calibrated monitoring only after assumptions are registered;
 9. certify full-operation performance across regimes;
 10. expand portfolios without widening the trusted verifier core.
+
+## 17. Python consumer boundary
+
+The L6 `fsym-python` bridge has an outward candidate-generation edge to the
+internal `fsym-numeric-consumer` adapter. That adapter calls the admitted,
+pinned `fnp-linalg` and `fsci-opt` crates recorded in
+`registries/dependencies.toml`. This adds no dependency to a proof kernel or
+portable verifier. The earlier audit pins above describe the original source
+audit; the registry and lockfile govern the implemented adapter's current pins.
+
+A checked residual program's `solve_candidate` method selects an explicit
+`frankennumpy` or `frankenscipy` backend for square systems of 1 through 16
+variables. FrankenNumPy consumes the retained checked symbolic Jacobian;
+FrankenSciPy uses its finite-difference Jacobian. Both routes retain original
+source domain checks and re-evaluate the final residual before publication.
+The dimension cap stays below the pinned dense solver's parallel threshold of
+512; this interface adds no worker or concurrency runtime. Native execution
+releases the Python interpreter and shares one caller-owned evaluation ledger
+across input buffers, evaluations and conservative donor-work charges.
+
+The public `NumericRootCandidate` holds the approximate coordinates, original
+caller variable objects, actual residual infinity norm, iteration count and
+backend. Its evidence remains `approximate`; convergence does not establish
+existence, uniqueness or satisfaction of declared symbolic assumptions. Typed
+budget, cancellation and allocation failures survive the donor boundary, and
+a donor contract violation remains an operational error. There is no hidden
+backend fallback. Unsupported solver options refuse before donor work, including
+every explicit tolerance, iteration or step override for the pinned SciPy API.

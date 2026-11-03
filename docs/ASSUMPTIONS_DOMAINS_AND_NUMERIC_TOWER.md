@@ -687,6 +687,56 @@ transport, derivative certificate, interval enclosure or root-receipt interface.
 The explicit callback mapping is a user assertion, and all hybrid results remain
 approximate. This API does not close the campaign or compatibility-profile gate.
 
+### 15.8 Real numerical consumers from Python
+
+A checked `compile_residual_system` program, including a source-checked loaded
+program, exposes `solve_candidate(initial, *, backend="frankennumpy", tol=None,
+maxiter=None, max_step_norm=None, budget=None)`. It calls the real pinned
+FrankenNumPy or FrankenSciPy consumer through the native bridge. The initial
+point is a flat finite-real vector in `program.variables` order, or a scalar for
+one variable. This interface admits square systems with 1 through 16 variables.
+
+```python
+from sympy import EvaluationBudget, NumericRootCandidate, symbols, compile_residual_system
+
+x, y = symbols("x y")
+system = compile_residual_system([x*x + y*y - 5, x - y - 1], (x, y))
+budget = EvaluationBudget(max_steps=1_000_000)
+candidate = system.solve_candidate([1.8, 0.8], backend="frankennumpy", budget=budget)
+assert isinstance(candidate, NumericRootCandidate)
+assert candidate.variables == (x, y)
+assert candidate.residual_norm <= 1e-12
+assert candidate.evidence == "approximate"
+other = system.solve_candidate([1.8, 0.8], backend="frankenscipy", budget=budget)
+assert other.residual_norm <= 1e-10
+```
+
+`frankennumpy` evaluates the checked symbolic Jacobian and calls the pinned
+dense linear solver. Its defaults are tolerance `1e-12`, 64 iterations and
+maximum step norm `1e6`; it accepts 0 through 1024 iterations. Zero iterations
+only tests the initial point. `frankenscipy` calls the pinned `fsolve` with a
+finite-difference Jacobian, a fixed 200-iteration cap and residual tolerance
+`1e-10`. Supplying any non-`None` tolerance, iteration or maximum-step override
+to that backend is refused. Backends are selected explicitly and never silently
+fall back to another solver.
+
+The immutable result holds `root` as a tuple of binary64 coordinates,
+`variables` as the captured original caller objects, `residual_norm` as the
+re-evaluated infinity norm of the original residuals, `iterations`, `backend`
+and `evidence`. Approximate candidates can include a singular root or violate a
+variable's declared assumptions. None of these fields grants a root certificate.
+Use the separate certified-search API for an independently checked local claim.
+
+One supplied `EvaluationBudget` covers input snapshots, native buffers, source
+evaluations and conservative donor work through final candidate publication.
+Failure retains consumed resources; cancellation, exhaustion and allocation
+errors keep their operational types. Donor contract violations are operational
+errors, not mathematical no-root results. Execution releases the Python
+interpreter, creates no worker and checks cancellation between synchronous
+kernels; it does not promise a forced wall-time interruption. Compilation and
+Python container allocation retain their separate accounting limits. This
+interface does not close the end-to-end consumer, campaign or profile gates.
+
 ## 16. Polynomial representation portfolio
 
 Polynomial storage is adaptive but semantically uniform:

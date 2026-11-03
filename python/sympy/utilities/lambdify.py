@@ -292,6 +292,62 @@ def compile_numeric(args, expression):
     return compiled
 
 
+class NumericRootCandidate:
+    """Immutable approximate result from a pinned numerical consumer.
+
+    ``root`` contains finite binary64 coordinates in ``variables`` order.
+    ``residual_norm`` is the re-evaluated infinity norm of the original
+    residual program. Neither convergence nor this diagnostic proves a root
+    exists, is unique, or satisfies the variables' declared assumptions.
+    """
+
+    __slots__ = ("_root", "_variables", "_residual_norm", "_iterations", "_backend")
+
+    def __init__(self, root, variables, residual_norm, iterations, backend):
+        if hasattr(self, "_root"):
+            raise AttributeError("numerical root candidates are immutable")
+        object.__setattr__(self, "_root", tuple(root))
+        object.__setattr__(self, "_variables", tuple(variables))
+        object.__setattr__(self, "_residual_norm", residual_norm)
+        object.__setattr__(self, "_iterations", iterations)
+        object.__setattr__(self, "_backend", backend)
+
+    def __setattr__(self, name, value):
+        raise AttributeError("numerical root candidates are immutable")
+
+    def __delattr__(self, name):
+        raise AttributeError("numerical root candidates are immutable")
+
+    @property
+    def root(self):
+        return self._root
+
+    @property
+    def variables(self):
+        """The caller's captured Symbol/Dummy objects, in coordinate order."""
+        return self._variables
+
+    @property
+    def residual_norm(self):
+        return self._residual_norm
+
+    @property
+    def iterations(self):
+        return self._iterations
+
+    @property
+    def backend(self):
+        return self._backend
+
+    @property
+    def evidence(self):
+        return "approximate"
+
+    def __repr__(self):
+        return (f"NumericRootCandidate(root={self.root!r}, residual_norm={self.residual_norm!r}, "
+                f"iterations={self.iterations!r}, backend={self.backend!r})")
+
+
 class _ResidualCallable:
     """Python argument layout around an immutable checked native system."""
 
@@ -361,6 +417,45 @@ class _ResidualCallable:
         outputs = self.native_system.residual_count * (size + 1)
         inputs = _batch_arguments(self._layout, rows, size, outputs)
         return self.native_system.evaluate_batch(inputs, budget=budget)
+
+    def solve_candidate(self, initial, *, backend="frankennumpy", tol=None,
+                        maxiter=None, max_step_norm=None, budget=None):
+        """Generate an approximate root with a real pinned numerical consumer.
+
+        Systems must be square with 1..16 variables. ``initial`` is a finite
+        real scalar for one variable or a flat vector in ``variables`` order,
+        including programs whose ordinary evaluation arguments are nested.
+
+        ``frankennumpy`` uses the checked symbolic Jacobian and the pinned
+        dense linear solver. Its defaults are ``tol=1e-12``, ``maxiter=64`` and
+        ``max_step_norm=1e6``; the iteration limit may be 0..1024. A zero limit
+        only checks the initial point. ``frankenscipy`` runs the pinned fsolve
+        with its finite-difference Jacobian, at most 200 iterations and a
+        residual tolerance of 1e-10. It refuses every explicit non-None tol,
+        maxiter or max_step_norm override, because that donor API has no such
+        controls. Neither backend silently falls back to another algorithm.
+
+        The immutable ``NumericRootCandidate`` remains approximate. Use
+        ``solve_certified`` for an independently checked local-root claim.
+        One supplied EvaluationBudget spans native input buffers, all source
+        evaluations and conservative donor work allowances. Cancellation is
+        cooperative between synchronous donor kernels, without a wall-time
+        promise. Python containers and compilation remain outside that ledger.
+        """
+        from ..solvers.numerical import _candidate_initial, _candidate_options
+
+        _check_evaluation_budget(budget)
+        tol, maxiter, max_step_norm = _candidate_options(
+            backend, tol, maxiter, max_step_norm, allow_python=False,
+        )
+        values = _candidate_initial(self, initial)
+        root, norm, iterations = self.native_system.solve_candidate(
+            values, backend=backend, tol=tol, maxiter=maxiter,
+            max_step_norm=max_step_norm, budget=budget,
+        )
+        result = NumericRootCandidate(root, self.variables, norm, iterations, backend)
+        _check_evaluation_budget(budget)
+        return result
 
     def enclose(self, box, *, precision=32, budget=None):
         """Independently enclose residuals and their Jacobian on a closed real box.

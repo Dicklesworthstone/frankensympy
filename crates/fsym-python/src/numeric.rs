@@ -23,6 +23,10 @@ use fsym_core::{
     BigRational, Expr, RealBall, ResidualJacobianEnclosure, RootBoxReceipt, RootBoxWitness, Symbol,
     metered_enclose_residual_jacobian, verify_root_box,
 };
+use fsym_numeric_consumer::{
+    MAX_CONSUMER_NEWTON_ITERATIONS, MAX_CONSUMER_VARIABLES, NewtonGuards, SystemConsumerError,
+    frankenscipy_fsolve_system_with_meter, newton_refine_with_meter,
+};
 use pyo3::exceptions::{PyMemoryError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyFloat, PyInt, PyList, PyTuple};
@@ -38,6 +42,73 @@ const MAX_BATCH_ROWS: usize = 4096;
 const MAX_BATCH_VALUES: usize = 262_144;
 
 type ResidualValues = (Vec<f64>, Vec<Vec<f64>>);
+
+fn donor_float_option(
+    value: Option<&Bound<'_, PyAny>>,
+    default: f64,
+    name: &'static str,
+    allow_zero: bool,
+) -> PyResult<f64> {
+    let value = if let Some(value) = value {
+        let py = value.py();
+        if !value.is_exact_instance(&py.get_type::<PyInt>())
+            && !value.is_exact_instance(&py.get_type::<PyFloat>())
+        {
+            return Err(PyTypeError::new_err(format!(
+                "{name} must be an exact built-in int or float"
+            )));
+        }
+        value.extract::<f64>()?
+    } else {
+        default
+    };
+    if !value.is_finite() || value < 0.0 || (!allow_zero && value == 0.0) {
+        return Err(PyValueError::new_err(format!(
+            "{name} must be finite and {}",
+            if allow_zero {
+                "nonnegative"
+            } else {
+                "positive"
+            }
+        )));
+    }
+    Ok(value)
+}
+
+fn donor_newton_guards(
+    tol: Option<&Bound<'_, PyAny>>,
+    maxiter: Option<&Bound<'_, PyAny>>,
+    max_step_norm: Option<&Bound<'_, PyAny>>,
+) -> PyResult<NewtonGuards> {
+    let defaults = NewtonGuards::default();
+    let max_iterations = if let Some(value) = maxiter {
+        if !value.is_exact_instance(&value.py().get_type::<PyInt>()) {
+            return Err(PyTypeError::new_err(
+                "maxiter must be an exact built-in integer",
+            ));
+        }
+        value
+            .extract::<usize>()
+            .map_err(|_| PyValueError::new_err("FrankenNumPy maxiter must be between 0 and 1024"))?
+    } else {
+        defaults.max_iterations
+    };
+    if max_iterations > MAX_CONSUMER_NEWTON_ITERATIONS {
+        return Err(PyValueError::new_err(
+            "FrankenNumPy maxiter must be between 0 and 1024",
+        ));
+    }
+    Ok(NewtonGuards {
+        max_iterations,
+        residual_tolerance: donor_float_option(tol, defaults.residual_tolerance, "tol", true)?,
+        max_step_norm: donor_float_option(
+            max_step_norm,
+            defaults.max_step_norm,
+            "max_step_norm",
+            false,
+        )?,
+    })
+}
 
 fn exact_rational(
     value: &Bound<'_, PyAny>,
@@ -413,7 +484,7 @@ pub(crate) fn input_values(values: &Bound<'_, PyAny>, expected: usize) -> PyResu
     let mut inputs = Vec::new();
     inputs
         .try_reserve_exact(expected)
-        .map_err(|_| crate::to_value_error(EvalError::AllocationFailure))?;
+        .map_err(|_| crate::numeric_budget::evaluation_error(EvalError::AllocationFailure))?;
     for index in 0..expected {
         let value = values.get_item(index)?;
         if !value.is_exact_instance(&py.get_type::<PyFloat>())
@@ -771,6 +842,59 @@ impl PyVerifiedResidualSystem {
         let system = VerifiedResidualSystem::try_compile(&residuals, &variables)
             .map_err(crate::to_value_error)?;
         Self::admit(system)
+    }
+
+    /// Generate an approximate root through a real pinned numerical consumer.
+    /// Native buffers, donor work and every source evaluation share one ledger.
+    /// No convergence flag or residual tolerance grants a root certificate.
+    #[pyo3(signature = (initial, *, backend="frankennumpy", tol=None, maxiter=None, max_step_norm=None, budget=None))]
+    fn solve_candidate<'py>(
+        &self,
+        initial: &Bound<'py, PyAny>,
+        backend: &str,
+        tol: Option<&Bound<'_, PyAny>>,
+        maxiter: Option<&Bound<'_, PyAny>>,
+        max_step_norm: Option<&Bound<'_, PyAny>>,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<Bound<'py, PyTuple>> {
+        let guards = match backend {
+            "frankennumpy" => Some(donor_newton_guards(tol, maxiter, max_step_norm)?),
+            "frankenscipy" => {
+                if tol.is_some() || maxiter.is_some() || max_step_norm.is_some() {
+                    return Err(PyValueError::new_err(
+                        "FrankenSciPy has fixed solver controls; omit tol, maxiter and max_step_norm",
+                    ));
+                }
+                None
+            }
+            _ => {
+                return Err(PyValueError::new_err(
+                    "candidate backend must be frankennumpy or frankenscipy",
+                ));
+            }
+        };
+        let variables = self.system.vars().len();
+        let residuals = self.system.residuals().len();
+        if !(1..=MAX_CONSUMER_VARIABLES).contains(&variables) || residuals != variables {
+            return Err(crate::to_value_error(
+                SystemConsumerError::UnsupportedShape {
+                    variables,
+                    residuals,
+                },
+            ));
+        }
+        let inputs = input_values_metered(initial, variables, budget.as_deref())?;
+        let py = initial.py();
+        let proposal = with_evaluation_meter(py, budget.as_deref(), |meter| match &guards {
+            Some(guards) => newton_refine_with_meter(&self.system, &inputs, guards, meter),
+            None => frankenscipy_fsolve_system_with_meter(&self.system, &inputs, meter),
+        })?;
+        // Convert the complete result privately. A cancellation while waiting
+        // to reattach the interpreter cannot publish a successful proposal.
+        let result =
+            (proposal.root, proposal.residual_norm, proposal.iterations).into_pyobject(py)?;
+        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
+        Ok(result)
     }
 
     /// Encode the checked source, derivatives, proofs and bytecode as bounded JSON bytes.
