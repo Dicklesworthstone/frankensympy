@@ -1,4 +1,4 @@
-//! Caller-owned ledgers for approximate numerical evaluation.
+//! Caller-owned ledgers for numerical evaluation and source-bound certification.
 //!
 //! No worker or executor is created here. A call borrows one ledger for its
 //! complete native evaluation and releases the GIL while performing arithmetic.
@@ -8,7 +8,8 @@
 
 use fsym_budget::{Budget, BudgetLimits, BudgetMeter, Dimension, MeterError};
 use fsym_calculus::compile::EvalError;
-use pyo3::exceptions::{PyRuntimeError, PyTypeError, PyValueError};
+use fsym_core::{BallError, RootBoxError};
+use pyo3::exceptions::{PyMemoryError, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyInt;
 use std::error::Error;
@@ -41,9 +42,11 @@ fn limit(value: Option<&Bound<'_, PyAny>>, default: u64, name: &str) -> PyResult
 /// Reuse this object to share limits across programs, outputs, derivative
 /// stages and solver iterations. Defaults are 10,000,000 logical steps,
 /// 256 MiB cumulative buffer bytes, and 100,000 allocations. Zero is a valid
-/// limit; None selects the default. Consumption survives failures. Compilation,
-/// interval certification and CPython's own allocation overhead are outside
-/// this evaluation ledger. Memory is cumulative charged buffer bytes, not RSS
+/// limit; None selects the default. Consumption survives failures, including
+/// rejected root boxes and precision retries. Compilation, symbolic proof
+/// admission and CPython's own allocation overhead are outside this ledger.
+/// Memory is cumulative charged buffer bytes and conservative interval-work
+/// reservations, not RSS
 /// or a peak-live-memory measurement. Omitting a budget preserves the existing
 /// structurally bounded evaluation API without a cumulative caller ledger.
 #[pyclass(name = "EvaluationBudget", module = "fsym_python", frozen)]
@@ -153,12 +156,15 @@ impl PyEvaluationBudget {
 pub(crate) struct EvaluationMeter<'a> {
     ledger: Option<MutexGuard<'a, Budget>>,
     cancellation: Option<&'a AtomicBool>,
+    fallback: Option<Budget>,
 }
 
 impl BudgetMeter for EvaluationMeter<'_> {
     fn charge(&mut self, dimension: Dimension, amount: u64) -> Result<(), MeterError> {
         self.checkpoint()?;
         if let Some(ledger) = &mut self.ledger {
+            ledger.charge(dimension, amount)?;
+        } else if let Some(ledger) = &mut self.fallback {
             ledger.charge(dimension, amount)?;
         }
         Ok(())
@@ -167,6 +173,8 @@ impl BudgetMeter for EvaluationMeter<'_> {
     fn charge_batch(&mut self, charges: &[(Dimension, u64)]) -> Result<(), MeterError> {
         self.checkpoint()?;
         if let Some(ledger) = &mut self.ledger {
+            ledger.charge_batch(charges)?;
+        } else if let Some(ledger) = &mut self.fallback {
             ledger.charge_batch(charges)?;
         }
         Ok(())
@@ -194,6 +202,21 @@ pub(crate) fn evaluation_error<E: Error + 'static>(error: E) -> PyErr {
                 MeterError::Budget(_) => EvaluationBudgetExceeded::new_err(error.to_string()),
             };
         }
+        if matches!(
+            current.downcast_ref::<EvalError>(),
+            Some(EvalError::AllocationFailure)
+        ) {
+            return PyMemoryError::new_err(error.to_string());
+        }
+        if matches!(
+            current.downcast_ref::<RootBoxError>(),
+            Some(RootBoxError::ResourceLimit(_))
+        ) || matches!(
+            current.downcast_ref::<BallError>(),
+            Some(BallError::ResourceLimitExceeded { .. })
+        ) {
+            return EvaluationBudgetExceeded::new_err(error.to_string());
+        }
         match current.source() {
             Some(source) => current = source,
             None => return PyValueError::new_err(error.to_string()),
@@ -214,6 +237,27 @@ where
     py.detach(move || with_evaluation_meter_attached(budget, operation))
 }
 
+/// Interval work shares a supplied ledger. Without one, retain the previous
+/// fixed 512 MiB/dimension envelope in addition to the core checker's own caps.
+/// A supplied budget never creates a replacement ledger when a trial fails.
+pub(crate) fn with_certification_meter<T, E, F>(
+    py: Python<'_>,
+    budget: Option<&PyEvaluationBudget>,
+    operation: F,
+) -> PyResult<T>
+where
+    T: Send,
+    E: Error + 'static,
+    F: FnOnce(&mut EvaluationMeter<'_>) -> Result<T, E> + Send,
+{
+    py.detach(move || {
+        let fallback = budget
+            .is_none()
+            .then(|| Budget::new(BudgetLimits::uniform(512 * 1024 * 1024, 0)));
+        with_meter_attached(budget, fallback, operation)
+    })
+}
+
 /// Trivial precharges must not release the GIL between reading a mutable
 /// Python container's length and making its bounded native snapshot.
 pub(crate) fn with_evaluation_meter_attached<T, E, F>(
@@ -224,9 +268,22 @@ where
     E: Error + 'static,
     F: FnOnce(&mut EvaluationMeter<'_>) -> Result<T, E>,
 {
+    with_meter_attached(budget, None, operation)
+}
+
+fn with_meter_attached<T, E, F>(
+    budget: Option<&PyEvaluationBudget>,
+    fallback: Option<Budget>,
+    operation: F,
+) -> PyResult<T>
+where
+    E: Error + 'static,
+    F: FnOnce(&mut EvaluationMeter<'_>) -> Result<T, E>,
+{
     let mut meter = EvaluationMeter {
         ledger: budget.map(PyEvaluationBudget::ledger).transpose()?,
         cancellation: budget.map(|budget| &budget.cancelled),
+        fallback,
     };
     meter.checkpoint().map_err(evaluation_error)?;
     let result = operation(&mut meter).map_err(evaluation_error)?;
@@ -258,6 +315,10 @@ pub(crate) fn evaluation_buffer<T>(
         .map_err(|_| EvalError::AllocationFailure)?;
     Ok(buffer)
 }
+
+#[cfg(test)]
+#[path = "numeric_budget/tests.rs"]
+mod tests;
 
 pub(crate) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyEvaluationBudget>()?;

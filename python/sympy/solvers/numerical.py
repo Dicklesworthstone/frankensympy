@@ -68,7 +68,13 @@ def _vector(value, name, maximum):
         size = len(value)
         if not 1 <= size <= maximum:
             raise ValueError(f"nsolve {name} must contain 1 through {maximum} entries")
-        return list(value)
+        try:
+            snapshot = [value[index] for index in range(size)]
+        except IndexError:
+            raise ValueError(f"nsolve {name} length changed during its snapshot") from None
+        if len(value) != size:
+            raise ValueError(f"nsolve {name} length changed during its snapshot")
+        return snapshot
     if type(value) in (Matrix, ImmutableDenseMatrix, SparseMatrix):
         rows, columns = value.rows, value.cols
         size = rows * columns
@@ -274,9 +280,10 @@ def _newton_options(tol, maxiter):
     return tolerance
 
 
-def _solve_compiled_certified(program, initial, *, tol, maxiter, precision, max_attempts):
+def _solve_compiled_certified(program, initial, *, tol, maxiter, precision, max_attempts, budget=None):
     from ..utilities._certified_numeric import prepare_root_search, search_root_box
 
+    _check_evaluation_budget(budget)
     tolerance = _newton_options(tol, maxiter)
     # Check the original immutable program, shape, assumptions and policy
     # before running any floating candidate work or user conversion hooks.
@@ -288,14 +295,21 @@ def _solve_compiled_certified(program, initial, *, tol, maxiter, precision, max_
         raise TypeError("nsolve_certified initial vector must match the number of variables")
     values = [_finite_real(value, "initial value") for value in values]
     try:
-        candidate = _iterate_system(program, values, tolerance, maxiter)
+        candidate = (_iterate_system(program, values, tolerance, maxiter)
+                     if budget is None else
+                     _iterate_system(program, values, tolerance, maxiter, budget=budget))
     except (ValueError, OverflowError, ZeroDivisionError) as error:
         raise RootSearchError("candidate", f"certified root search could not generate a candidate: {error}") from error
-    return search_root_box(program, candidate, precision, max_attempts)
+    _check_evaluation_budget(budget)
+    result = (search_root_box(program, candidate, precision, max_attempts)
+              if budget is None else
+              search_root_box(program, candidate, precision, max_attempts, budget=budget))
+    _check_evaluation_budget(budget)
+    return result
 
 
 def nsolve_certified(expr, var, initial, *, tol=1e-12, maxiter=200,
-                     precision=32, max_attempts=12):
+                     precision=32, max_attempts=12, budget=None):
     """Locate and independently certify one nonsingular real root locally.
 
     Accept a scalar equation and Symbol or equal-length equation/variable
@@ -318,9 +332,19 @@ def nsolve_certified(expr, var, initial, *, tol=1e-12, maxiter=200,
     searches; numerical convergence alone is never returned as certification.
     The bounded search may refuse even when a root exists. For a known exact
     box or roots outside binary64 range, use ``certify_root_box`` directly.
+
+    ``budget`` optionally shares one EvaluationBudget across Newton work,
+    exact witness proposals, interval evaluation and every certificate retry.
+    Consumed work stays spent on rejection. Cancellation and resource errors
+    propagate immediately without becoming failed-domain retries. Interval
+    work includes conservative 64 MiB reservations per native checker call;
+    automatic preconditioning uses a separate point-enclosure call, so callers
+    planning several trials should supply sufficient cumulative memory fuel.
+    Compilation and symbolic proof admission remain outside this ledger.
     """
     from ..utilities._certified_numeric import root_search_options
 
+    _check_evaluation_budget(budget)
     _newton_options(tol, maxiter)
     root_search_options(precision, max_attempts)
     if _is_vector(expr) or _is_vector(var):
@@ -337,6 +361,7 @@ def nsolve_certified(expr, var, initial, *, tol=1e-12, maxiter=200,
     program = compile_residual_system([_equation_residual(value) for value in residuals], variables)
     return _solve_compiled_certified(
         program, initial, tol=tol, maxiter=maxiter, precision=precision, max_attempts=max_attempts,
+        budget=budget,
     )
 
 

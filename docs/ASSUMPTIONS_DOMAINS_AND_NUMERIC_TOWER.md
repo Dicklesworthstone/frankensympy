@@ -401,7 +401,7 @@ assumptions and exhausted work cannot yield accepted receipts. Ordinary `nsolve`
 remains an approximate API. These bounded synchronous implementations do not close
 the full runtime, compatibility-profile or end-to-end campaign gates.
 
-### 15.5 Bounded approximate evaluation and cancellation
+### 15.5 Shared numerical budgets and cancellation
 
 Compiled binary64 evaluation accepts a caller-owned cumulative ledger. Native
 `CompiledExpr::try_eval_with_meter` retains ordinary IEEE evaluation;
@@ -427,10 +427,14 @@ assert_eq!(program.try_eval_finite_with_meter(&[3.0], &mut ledger).unwrap(), 10.
 The Python preview exposes `EvaluationBudget`, `EvaluationBudgetExceeded` and
 `EvaluationCancelled` from `sympy`. Pass `budget=` to a `compile_numeric` callable,
 compiled residual evaluation, checked objective evaluation or ordinary `nsolve`.
+Residual `enclose`, `certify_root_box` and `solve_certified` methods, and
+`nsolve_certified`, also accept the same budget.
 The same object covers repeated calls, batch rows, derivative stages and supported
-solver iterations, including rejected line-search trials. Consumed work remains
-spent after an exception. Omitting `budget` retains the existing bounded API
-without a cumulative caller ledger.
+solver iterations, including rejected line-search trials, exact preconditioner
+proposals and interval/root-verification retries. Precision escalation and box
+changes never reset it. Consumed work remains spent after an exception. Omitting
+`budget` retains the existing bounded API without a cumulative caller ledger;
+each native certification call retains its fixed safety envelope.
 
 ```python
 from sympy import (
@@ -454,6 +458,26 @@ remaining = budget.remaining_steps
 budget.cancel()  # Irreversible; subsequent uses raise EvaluationCancelled.
 ```
 
+The same ledger can span approximate search and independent acceptance:
+
+```python
+from sympy import EvaluationBudget, Symbol, compile_residual_system
+
+x = Symbol("x")
+system = compile_residual_system([x*x - 2], [x])
+budget = EvaluationBudget(max_steps=10_000_000, max_memory_bytes=512 * 1024 * 1024)
+receipt = system.solve_certified(1.5, budget=budget)
+assert receipt.claim == "one unique nonsingular real root in the declared closed box"
+```
+
+The interval checker currently reserves 64 MiB of cumulative memory allowance
+per call before entering its bounded ball arithmetic. Automatic preconditioning
+first requests a point-Jacobian enclosure, then invokes the root checker, so a
+trial typically includes two such reservations. These are conservative work
+allowances, not measured allocations or RSS. The default 256 MiB budget does not
+promise enough fuel for every requested retry. Callers can supply a larger
+cumulative allowance; a refused trial never creates a fresh ledger.
+
 `evaluate_batch` is available for compiled numerical callables and residual
 systems. It admits at most 4096 rows; row count times the larger flattened input
 or output width is at most 262144, counting an empty width as one. A later row
@@ -464,15 +488,27 @@ backtracking does not reinterpret them as domain errors.
 
 Fuel counts deterministic logical instruction, reduction, validation and
 publication work. Memory and allocation counters accumulate requested native
-input snapshots and scratch/output buffers. The Python bridge charges native
+input snapshots and scratch/output buffers, with conservative reservations for
+interval kernels and bounded exact-input arithmetic. The Python bridge charges native
 input snapshots while holding the GIL, before arithmetic runs without it. These
 counters do not measure RSS, allocator overhead or peak live memory, and releasing
 a temporary does not refund them. Python argument-layout handling and CPython
 object/result-container allocation are outside this evaluation ledger.
-Compilation, proof admission/replay and interval/root certification remain
-separate phases outside it, with their own existing admission or verification
-rules. A budgeted scalar `nsolve` uses the admitted native finite-real compiler
+Compilation and symbolic proof admission/replay remain separate phases outside
+it, with their own existing admission rules. Certified quadrature and other
+exact symbolic APIs retain their separate resource contracts. Exact rational
+root-witness preparation charges logical, limb-weighted work before arithmetic.
+A budgeted scalar `nsolve` uses the admitted native finite-real compiler
 and refuses functions outside that compiler's supported subset.
+
+Caller exhaustion, intrinsic interval-work limits and cancellation propagate as
+`EvaluationBudgetExceeded` or `EvaluationCancelled`, both derived from
+`RuntimeError`. They cannot be consumed by the root search's mathematical
+`ValueError` retry path. A fallible native buffer allocation that fails outside
+the ledger raises `MemoryError`, which also stops retries. Candidate generation,
+exact inversion, native checking
+and final receipt assembly all check the same cancellation state. A failed or
+cancelled operation publishes no accepted receipt.
 
 Cancellation is cooperative at numerical safe points and before publication.
 The synchronous Python bridge releases the GIL during native arithmetic, permits

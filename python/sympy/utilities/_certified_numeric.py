@@ -8,6 +8,7 @@ from fractions import Fraction
 import math
 
 from ..core import Integer, Rational, _exact_surface_types, _native, _wrap
+from .lambdify import _check_evaluation_budget
 
 __all__ = ["ResidualJacobianEnclosure", "RootBoxReceipt"]
 
@@ -20,10 +21,34 @@ _MAX_ROOT_SEARCH_ATTEMPTS = 24
 def _sequence(value, length, label):
     if type(value) not in (tuple, list) or len(value) != length:
         raise TypeError(f"{label} must be an exact list/tuple with {length} entries")
-    return value
+    # Copy only the admitted index range: Python may switch threads between
+    # the length check and construction even without an explicit GIL release.
+    try:
+        snapshot = tuple(value[index] for index in range(length))
+    except IndexError:
+        raise ValueError(f"{label} length changed during its snapshot") from None
+    if len(value) != length:
+        raise ValueError(f"{label} length changed during its snapshot")
+    return snapshot
 
 
-def _rational(value):
+def _charge_exact_work(budget, *values, bits=None, operations=1):
+    if budget is not None:
+        if bits is None:
+            bits = max((max(abs(value.numerator).bit_length(), value.denominator.bit_length())
+                        for value in values), default=1)
+        limbs = (bits + 63) // 64 + 1
+        # Logical, limb-weighted rational work. Python objects/containers are
+        # outside native-buffer accounting; the native checker charges its
+        # own arithmetic and conservative interval-work reservations as well.
+        budget._charge(64 * limbs * limbs * operations)
+
+
+def _call_budgeted(function, *args, budget):
+    return function(*args) if budget is None else function(*args, budget=budget)
+
+
+def _rational(value, budget=None):
     cls = type(value)
     if cls is int:
         p, q = value, 1
@@ -33,17 +58,20 @@ def _rational(value):
         p, q = value.p, value.q
     else:
         raise TypeError("certified inputs must be exact int, Rational or fractions.Fraction values")
-    if max(abs(p).bit_length(), q.bit_length()) > _MAX_BITS:
+    bits = max(abs(p).bit_length(), q.bit_length())
+    if bits > _MAX_BITS:
         raise ValueError("certified rational input exceeds the 4096-bit limit")
+    _charge_exact_work(budget, bits=bits)
     return Fraction(p, q)
 
 
-def _native_number(value):
+def _native_number(value, budget=None):
+    _charge_exact_work(budget, value)
     return _native.py_rational(value.numerator, value.denominator)
 
 
-def _native_box(box):
-    return [(_native_number(lo), _native_number(hi)) for lo, hi in box]
+def _native_box(box, budget=None):
+    return [(_native_number(lo, budget), _native_number(hi, budget)) for lo, hi in box]
 
 
 def _bounds(values):
@@ -196,7 +224,7 @@ def _check_assumptions(box, snapshots):
                 raise ValueError(f"box coordinate {coordinate} violates its declared {key} assumption")
 
 
-def _prepare_box(program, box, precision, *, square):
+def _prepare_box(program, box, precision, *, square, budget=None):
     columns, rows = program.native_system.variable_count, program.native_system.residual_count
     if not 1 <= columns <= _MAX_VARIABLES or not 1 <= rows <= _MAX_RESIDUALS:
         raise ValueError("certified enclosures require 1..16 variables and 1..64 residuals")
@@ -208,7 +236,8 @@ def _prepare_box(program, box, precision, *, square):
         raise ValueError("certified methods require exact source literals; replace Float with explicit Rational")
     result = []
     for pair in _sequence(box, columns, "box"):
-        lo, hi = (_rational(value) for value in _sequence(pair, 2, "coordinate bounds"))
+        lo, hi = (_rational(value, budget) for value in _sequence(pair, 2, "coordinate bounds"))
+        _charge_exact_work(budget, lo, hi)
         if lo > hi:
             raise ValueError("box lower bound exceeds upper bound")
         if square and lo == hi:
@@ -247,25 +276,31 @@ def prepare_root_search(program, precision, max_attempts):
             raise NotImplementedError("certified real boxes do not support one or more declared symbol assumptions")
 
 
-def search_root_box(program, candidate, precision, max_attempts):
+def search_root_box(program, candidate, precision, max_attempts, *, budget=None):
     """Propose bounded exact witnesses; only the native checker can accept.
 
     Floating convergence is deliberately irrelevant here. Every proposal is
     checked against the same immutable original source. The one cumulative
     trial counter includes failed box, assumption, inverse and native checks;
-    changing widths or precision never resets it. Each native call also has
-    its existing fixed arithmetic/allocation bounds. These are synchronous
-    finite work envelopes, not a supervised runtime cancellation claim.
+    changing widths or precision never resets it. A supplied caller ledger
+    also spans every rational proposal, native enclosure and verification.
+    Without one, native calls retain their fixed safety envelopes. Native
+    work releases the GIL and observes cooperative cancellation safe points.
     """
     from ..solvers.numerical import RootSearchError
 
+    _check_evaluation_budget(budget)
     prepare_root_search(program, precision, max_attempts)
     dimension = program.native_system.variable_count
-    if (type(candidate) not in (tuple, list) or len(candidate) != dimension
-            or any(type(value) is not float or not math.isfinite(value) for value in candidate)):
+    try:
+        candidate = _sequence(candidate, dimension, "root candidate")
+    except (TypeError, ValueError) as error:
+        raise RootSearchError("candidate", "certified root search received an invalid finite-real candidate") from error
+    if any(type(value) is not float or not math.isfinite(value) for value in candidate):
         raise RootSearchError("candidate", "certified root search received an invalid finite-real candidate")
     # Exact conversion does not upgrade a float's evidence: these rationals
     # are merely witness centers, checked independently against the source.
+    _charge_exact_work(budget, bits=1075, operations=2 * dimension)
     center = tuple(Fraction(*value.as_integer_ratio()) for value in candidate)
     radii = tuple((abs(value) or Fraction(1)) / (1 << 20) for value in center)
     failures = []
@@ -275,12 +310,15 @@ def search_root_box(program, candidate, precision, max_attempts):
         # include a root just outside an inaccurate binary64 proposal. Neither
         # direction grants acceptance, and no global search is implied.
         exponent = 0 if attempt == 0 else 4 * ((attempt + 1) // 2) * (-1 if attempt % 2 else 1)
+        _charge_exact_work(budget, *center, *radii, bits=None, operations=4 * dimension + 1)
         scale = Fraction(1 << exponent) if exponent >= 0 else Fraction(1, 1 << -exponent)
         box = tuple((value - radius * scale, value + radius * scale)
                     for value, radius in zip(center, radii))
         digits = min(128, precision << (attempt // 2))
         try:
-            return certify_root_box(program, box, center, None, digits)
+            result = _call_budgeted(certify_root_box, program, box, center, None, digits, budget=budget)
+            _check_evaluation_budget(budget)
+            return result
         except ValueError as error:
             # Keep the bounded diagnostic for each rejected trial. Unsupported
             # source/type errors remain explicit and never become a fallback.
@@ -292,14 +330,21 @@ def search_root_box(program, candidate, precision, max_attempts):
     )
 
 
-def enclose(program, box, precision):
-    box = _prepare_box(program, box, precision, square=False)
-    return ResidualJacobianEnclosure(program.native_system.enclose(_native_box(box), precision))
+def enclose(program, box, precision, *, budget=None):
+    _check_evaluation_budget(budget)
+    box = _prepare_box(program, box, precision, square=False, budget=budget)
+    receipt = _call_budgeted(program.native_system.enclose, _native_box(box, budget), precision,
+                            budget=budget)
+    result = ResidualJacobianEnclosure(receipt)
+    _check_evaluation_budget(budget)
+    return result
 
 
-def _bounded_inverse(matrix):
+def _bounded_inverse(matrix, budget=None):
     """Bounded exact Gaussian elimination proposing an inverse, without floats."""
     n = len(matrix)
+    if budget is not None:
+        budget._charge(2 * n * n)
     rows = [list(row) + [Fraction(int(i == j)) for j in range(n)] for i, row in enumerate(matrix)]
     operations = 0
 
@@ -309,16 +354,19 @@ def _bounded_inverse(matrix):
         # Each operand is already <=4096 bits: pre-normalization multiplication
         # and addition have at most 8193 bits. No unbounded intermediate work.
         if operations > 32768:
-            raise ValueError("preconditioner proposal exhausted its arithmetic budget")
+            raise _native.EvaluationBudgetExceeded("preconditioner proposal exhausted its arithmetic budget")
         if max(abs(left.numerator).bit_length(), left.denominator.bit_length(),
                abs(right.numerator).bit_length(), right.denominator.bit_length()) > _MAX_BITS:
-            raise ValueError("preconditioner proposal exceeds its rational bit limit")
+            raise _native.EvaluationBudgetExceeded("preconditioner proposal exceeds its rational work limit")
+        _charge_exact_work(budget, left, right)
         value = operation(left, right)
         if max(abs(value.numerator).bit_length(), value.denominator.bit_length()) > _MAX_BITS:
-            raise ValueError("preconditioner proposal exceeds its rational bit limit")
+            raise _native.EvaluationBudgetExceeded("preconditioner proposal exceeds its rational work limit")
         return value
 
     for column in range(n):
+        if budget is not None:
+            budget._charge(n - column)
         pivot = next((i for i in range(column, n) if rows[i][column]), None)
         if pivot is None:
             raise ValueError("midpoint Jacobian is singular; supply a valid exact preconditioner")
@@ -331,28 +379,44 @@ def _bounded_inverse(matrix):
             scale = rows[row][column]
             rows[row] = [op(left, op(scale, right, lambda a, b: a * b), lambda a, b: a - b)
                          for left, right in zip(rows[row], rows[column])]
-    return tuple(tuple(row[n:]) for row in rows)
+    result = tuple(tuple(row[n:]) for row in rows)
+    _check_evaluation_budget(budget)
+    return result
 
 
-def certify_root_box(program, box, center, preconditioner, precision):
-    box = _prepare_box(program, box, precision, square=True)
+def certify_root_box(program, box, center, preconditioner, precision, *, budget=None):
+    _check_evaluation_budget(budget)
+    box = _prepare_box(program, box, precision, square=True, budget=budget)
     dimension = len(box)
     if center is None:
+        _charge_exact_work(budget, *(value for pair in box for value in pair), operations=2 * dimension)
         center = tuple((lo + hi) / 2 for lo, hi in box)
     else:
-        center = tuple(_rational(value) for value in _sequence(center, dimension, "center"))
+        center = tuple(_rational(value, budget) for value in _sequence(center, dimension, "center"))
     if any(not lo <= value <= hi for (lo, hi), value in zip(box, center)):
         raise ValueError("root-box center must lie inside the declared box")
     if preconditioner is None:
-        point = program.native_system.enclose(_native_box(tuple((x, x) for x in center)), precision)
-        matrix = tuple(tuple((_rational(_wrap(lo)) + _rational(_wrap(hi))) / 2
-                             for lo, hi in row) for row in point.jacobian)
-        preconditioner = _bounded_inverse(matrix)
+        point = _call_budgeted(
+            program.native_system.enclose, _native_box(tuple((x, x) for x in center), budget), precision,
+            budget=budget,
+        )
+        matrix = []
+        for row in point.jacobian:
+            values = []
+            for lo, hi in row:
+                lo, hi = _rational(_wrap(lo), budget), _rational(_wrap(hi), budget)
+                _charge_exact_work(budget, lo, hi, operations=2)
+                values.append((lo + hi) / 2)
+            matrix.append(tuple(values))
+        preconditioner = _bounded_inverse(tuple(matrix), budget)
     else:
-        preconditioner = tuple(tuple(_rational(value) for value in _sequence(row, dimension, "preconditioner row"))
+        preconditioner = tuple(tuple(_rational(value, budget) for value in _sequence(row, dimension, "preconditioner row"))
                                for row in _sequence(preconditioner, dimension, "preconditioner"))
-    receipt = program.native_system.certify_root_box(
-        _native_box(box), [_native_number(x) for x in center],
-        [[_native_number(q) for q in row] for row in preconditioner], precision,
+    receipt = _call_budgeted(
+        program.native_system.certify_root_box,
+        _native_box(box, budget), [_native_number(x, budget) for x in center],
+        [[_native_number(q, budget) for q in row] for row in preconditioner], precision, budget=budget,
     )
-    return RootBoxReceipt(receipt)
+    result = RootBoxReceipt(receipt)
+    _check_evaluation_budget(budget)
+    return result

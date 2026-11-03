@@ -259,8 +259,9 @@ def compile_numeric(args, expression):
     ``evaluate_batch(rows, budget=...)`` accepts a list/tuple of positional
     argument lists/tuples and returns all rows together, or raises without
     publishing partial rows. Batches have at most 4096 rows and 262144 flat
-    input/output values. Compilation, certification and CPython allocation
-    overhead are outside the numerical evaluation ledger.
+    input/output values. Compilation, symbolic proof admission and CPython
+    allocation overhead are outside the numerical evaluation ledger. The same
+    budget can also meter compiled residual enclosure and root certification.
     """
     layout, variables = _argument_layout(args)
     functions, count = _functions(), [0]
@@ -348,7 +349,7 @@ class _ResidualCallable:
         inputs = _batch_arguments(self._layout, rows, size, outputs)
         return self.native_system.evaluate_batch(inputs, budget=budget)
 
-    def enclose(self, box, *, precision=32):
+    def enclose(self, box, *, precision=32, budget=None):
         """Independently enclose residuals and their Jacobian on a closed real box.
 
         Bounds are exact int, Rational or fractions.Fraction values; float
@@ -358,11 +359,13 @@ class _ResidualCallable:
         checks the original source's C1 domain independently of compiled and
         symbolic derivative instructions. Up to 16 variables, 64 residuals and
         precision 8..128 digits are supported. No root claim is made.
+        A supplied ``EvaluationBudget`` counts native interval work and exact
+        input preparation cumulatively and permits cooperative cancellation.
         """
         from ._certified_numeric import enclose
-        return enclose(self, box, precision)
+        return enclose(self, box, precision, budget=budget)
 
-    def certify_root_box(self, box, *, center=None, preconditioner=None, precision=32):
+    def certify_root_box(self, box, *, center=None, preconditioner=None, precision=32, budget=None):
         """Prove one unique nonsingular real root in this closed coordinate box.
 
         Exact input rules match ``enclose``. The system must be square with
@@ -372,12 +375,14 @@ class _ResidualCallable:
         inverse of a midpoint Jacobian enclosure. Acceptance depends only on
         independent whole-box C1 checks, strict Krawczyk inclusion and an exact
         contraction bound below one. This makes no claim about other boxes.
+        ``budget`` is shared by preconditioner preparation and independent
+        interval verification; a rejected witness does not refund work.
         """
         from ._certified_numeric import certify_root_box
-        return certify_root_box(self, box, center, preconditioner, precision)
+        return certify_root_box(self, box, center, preconditioner, precision, budget=budget)
 
     def solve_certified(self, initial, *, tol=1e-12, maxiter=200,
-                        precision=32, max_attempts=12):
+                        precision=32, max_attempts=12, budget=None):
         """Search for and independently certify one nonsingular real root.
 
         ``initial`` is a finite-real scalar for one variable or a flat vector
@@ -393,11 +398,13 @@ class _ResidualCallable:
         tries at most 1..24 boxes (default 12), increasing precision from the
         requested 8..128 digits up to 128. This is a local root claim, without
         global completeness. See ``nsolve_certified`` for the search contract.
+        A supplied ``EvaluationBudget`` spans candidate iterations, rejected
+        boxes and precision escalation without resetting its counters.
         """
         from ..solvers.numerical import _solve_compiled_certified
         return _solve_compiled_certified(
             self, initial, tol=tol, maxiter=maxiter, precision=precision,
-            max_attempts=max_attempts,
+            max_attempts=max_attempts, budget=budget,
         )
 
 
@@ -412,7 +419,9 @@ def compile_residual_system(residuals, args):
     usable for approximate evaluation but cannot enter those certified methods.
     Approximate ``evaluate``, ``residuals``, ``jacobian`` and ``evaluate_batch``
     accept the same reusable ``EvaluationBudget`` as ``compile_numeric``.
-    Compilation and separate certified methods are outside that ledger.
+    Compilation and symbolic proof admission are outside that ledger; the
+    certified enclosure and root-box methods accept the same budget. Python
+    object/result-container allocation remains outside native-buffer accounting.
     """
     layout, variables = _argument_layout(args)
     from ._certified_numeric import bound_assumptions

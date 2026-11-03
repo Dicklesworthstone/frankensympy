@@ -10,7 +10,8 @@
 use crate::binding::PySymbolBinding;
 use crate::expr::{PyExpr, PySymbol};
 use crate::numeric_budget::{
-    PyEvaluationBudget, evaluation_buffer, with_evaluation_meter, with_evaluation_meter_attached,
+    PyEvaluationBudget, evaluation_buffer, with_certification_meter, with_evaluation_meter,
+    with_evaluation_meter_attached,
 };
 use fsym_budget::{BudgetMeter, Dimension};
 use fsym_calculus::VerifiedResidualSystem;
@@ -20,7 +21,6 @@ use fsym_core::{
     BigRational, Expr, RealBall, ResidualJacobianEnclosure, RootBoxReceipt, RootBoxWitness, Symbol,
     metered_enclose_residual_jacobian, verify_root_box,
 };
-use fsym_runtime::{Budget, BudgetLimits};
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyFloat, PyInt, PyList, PyTuple};
@@ -37,7 +37,10 @@ const MAX_BATCH_VALUES: usize = 262_144;
 
 type ResidualValues = (Vec<f64>, Vec<Vec<f64>>);
 
-fn exact_rational(value: &Bound<'_, PyAny>) -> PyResult<BigRational> {
+fn exact_rational(
+    value: &Bound<'_, PyAny>,
+    budget: Option<&PyEvaluationBudget>,
+) -> PyResult<BigRational> {
     if !value.is_exact_instance(&value.py().get_type::<PyExpr>()) {
         return Err(PyTypeError::new_err(
             "exact bounds require native rational Expr objects",
@@ -46,9 +49,14 @@ fn exact_rational(value: &Bound<'_, PyAny>) -> PyResult<BigRational> {
     let value = value.extract::<PyRef<'_, PyExpr>>()?;
     match &value.inner {
         Expr::Integer(n) if n.bits() <= MAX_LITERAL_BITS => {
+            charge_exact_copy(budget, n.bits().div_ceil(64) + 1)?;
             Ok(BigRational::from_integer(n.clone()))
         }
         Expr::Rational(q) if q.numer().bits().max(q.denom().bits()) <= MAX_LITERAL_BITS => {
+            charge_exact_copy(
+                budget,
+                q.numer().bits().div_ceil(64) + q.denom().bits().div_ceil(64),
+            )?;
             Ok(q.clone())
         }
         _ => Err(PyValueError::new_err(
@@ -57,45 +65,82 @@ fn exact_rational(value: &Bound<'_, PyAny>) -> PyResult<BigRational> {
     }
 }
 
-fn exact_vector(values: &Bound<'_, PyAny>, expected: usize) -> PyResult<Vec<BigRational>> {
-    let values = items(values, MAX_CERTIFIED_VARIABLES, "exact vector")?;
-    if values.len() != expected {
+fn charge_exact_copy(budget: Option<&PyEvaluationBudget>, limbs: u64) -> PyResult<()> {
+    // The bounded limb payload and two integer slots are conservative logical
+    // copy reservations, independent of small-integer storage optimizations.
+    with_evaluation_meter_attached(budget, |meter| {
+        meter.charge_batch(&[
+            (Dimension::ComputeSteps, limbs + 1),
+            (Dimension::MemoryBytes, 8 * limbs.max(1)),
+            (Dimension::AllocationCount, 2),
+        ])
+    })
+}
+
+fn exact_buffer<T>(size: usize, budget: Option<&PyEvaluationBudget>) -> PyResult<Vec<T>> {
+    with_evaluation_meter_attached(budget, |meter| evaluation_buffer(size, meter))
+}
+
+fn exact_vector(
+    values: &Bound<'_, PyAny>,
+    expected: usize,
+    budget: Option<&PyEvaluationBudget>,
+) -> PyResult<Vec<BigRational>> {
+    if container_length(values, MAX_CERTIFIED_VARIABLES, "exact vector")? != expected {
         return Err(PyValueError::new_err(
             "exact vector has the wrong dimension",
         ));
     }
-    values.iter().map(exact_rational).collect()
+    let mut result = exact_buffer(expected, budget)?;
+    for index in 0..expected {
+        result.push(exact_rational(&values.get_item(index)?, budget)?);
+    }
+    Ok(result)
 }
 
-fn exact_box(values: &Bound<'_, PyAny>, expected: usize) -> PyResult<Vec<RealBall>> {
-    let coordinates = items(values, MAX_CERTIFIED_VARIABLES, "box")?;
-    if coordinates.len() != expected {
+fn exact_box(
+    values: &Bound<'_, PyAny>,
+    expected: usize,
+    budget: Option<&PyEvaluationBudget>,
+) -> PyResult<Vec<RealBall>> {
+    if container_length(values, MAX_CERTIFIED_VARIABLES, "box")? != expected {
         return Err(PyValueError::new_err("box has the wrong dimension"));
     }
-    coordinates
-        .iter()
-        .map(|coordinate| {
-            let endpoints = items(coordinate, 2, "coordinate bounds")?;
-            if endpoints.len() != 2 {
-                return Err(PyValueError::new_err(
-                    "coordinate bounds require two endpoints",
-                ));
-            }
-            let lo = exact_rational(&endpoints[0])?;
-            let hi = exact_rational(&endpoints[1])?;
-            if lo > hi {
-                return Err(PyValueError::new_err("box lower bound exceeds upper bound"));
-            }
-            let two = BigRational::from_integer(2.into());
-            RealBall::new((&lo + &hi) / &two, (hi - lo) / two).map_err(crate::to_value_error)
-        })
-        .collect()
-}
-
-fn certificate_budget() -> Budget {
-    // Bounded synchronous work. Core also enforces its own cumulative limits;
-    // this is not a claim of supervised runtime cancellation through Python.
-    Budget::new(BudgetLimits::uniform(512 * 1024 * 1024, 0))
+    let mut result = exact_buffer(expected, budget)?;
+    for index in 0..expected {
+        let coordinate = values.get_item(index)?;
+        if container_length(&coordinate, 2, "coordinate bounds")? != 2 {
+            return Err(PyValueError::new_err(
+                "coordinate bounds require two endpoints",
+            ));
+        }
+        let lo = exact_rational(&coordinate.get_item(0)?, budget)?;
+        let hi = exact_rational(&coordinate.get_item(1)?, budget)?;
+        let bits = lo
+            .numer()
+            .bits()
+            .max(lo.denom().bits())
+            .max(hi.numer().bits())
+            .max(hi.denom().bits());
+        let limbs = bits.div_ceil(64) + 1;
+        with_evaluation_meter_attached(budget, |meter| {
+            // Reserve comparison and midpoint/radius arithmetic before any
+            // cross-product or temporary rational is constructed.
+            meter.charge_batch(&[
+                (Dimension::ComputeSteps, 320 * limbs * limbs),
+                (Dimension::MemoryBytes, 640 * limbs),
+                (Dimension::AllocationCount, 80),
+            ])
+        })?;
+        if lo > hi {
+            return Err(PyValueError::new_err("box lower bound exceeds upper bound"));
+        }
+        let two = BigRational::from_integer(2.into());
+        result.push(
+            RealBall::new((&lo + &hi) / &two, (hi - lo) / two).map_err(crate::to_value_error)?,
+        );
+    }
+    Ok(result)
 }
 
 fn rational_expr(value: &BigRational) -> PyExpr {
@@ -647,62 +692,71 @@ impl PyVerifiedResidualSystem {
     }
 
     /// Independently enclose the original residuals and their derivatives.
-    #[pyo3(signature = (domain, precision_digits=32))]
+    #[pyo3(signature = (domain, precision_digits=32, *, budget=None))]
     fn enclose(
         &self,
         domain: &Bound<'_, PyAny>,
         precision_digits: u32,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
     ) -> PyResult<PyResidualJacobianEnclosure> {
         let source = self.system.sparse_jacobian();
-        let domain = exact_box(domain, source.vars.len())?;
-        let receipt = metered_enclose_residual_jacobian(
-            &source.residuals,
-            &source.vars,
-            &domain,
-            precision_digits,
-            &mut certificate_budget(),
-        )
-        .map_err(crate::to_value_error)?;
-        Ok(PyResidualJacobianEnclosure { receipt })
+        let py = domain.py();
+        let domain = exact_box(domain, source.vars.len(), budget.as_deref())?;
+        let receipt = with_certification_meter(py, budget.as_deref(), |meter| {
+            metered_enclose_residual_jacobian(
+                &source.residuals,
+                &source.vars,
+                &domain,
+                precision_digits,
+                meter,
+            )
+        })?;
+        let result = PyResidualJacobianEnclosure { receipt };
+        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
+        Ok(result)
     }
 
     /// Check an untrusted rational Krawczyk witness against the original source.
-    #[pyo3(signature = (domain, center, preconditioner, precision_digits=32))]
+    #[pyo3(signature = (domain, center, preconditioner, precision_digits=32, *, budget=None))]
     fn certify_root_box(
         &self,
         domain: &Bound<'_, PyAny>,
         center: &Bound<'_, PyAny>,
         preconditioner: &Bound<'_, PyAny>,
         precision_digits: u32,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
     ) -> PyResult<PyRootBoxReceipt> {
         let source = self.system.sparse_jacobian();
         let dimension = source.vars.len();
-        let domain = exact_box(domain, dimension)?;
-        let center = exact_vector(center, dimension)?;
-        let rows = items(preconditioner, MAX_CERTIFIED_VARIABLES, "preconditioner")?;
-        if rows.len() != dimension {
+        let py = domain.py();
+        let domain = exact_box(domain, dimension, budget.as_deref())?;
+        let center = exact_vector(center, dimension, budget.as_deref())?;
+        if container_length(preconditioner, MAX_CERTIFIED_VARIABLES, "preconditioner")? != dimension
+        {
             return Err(PyValueError::new_err(
                 "preconditioner has the wrong dimension",
             ));
         }
-        let preconditioner = rows
-            .iter()
-            .map(|row| exact_vector(row, dimension))
-            .collect::<PyResult<Vec<_>>>()?;
+        let mut matrix = exact_buffer(dimension, budget.as_deref())?;
+        for index in 0..dimension {
+            matrix.push(exact_vector(
+                &preconditioner.get_item(index)?,
+                dimension,
+                budget.as_deref(),
+            )?);
+        }
         let witness = RootBoxWitness {
             domain,
             center,
-            preconditioner,
+            preconditioner: matrix,
             precision_digits,
         };
-        let receipt = verify_root_box(
-            &source.residuals,
-            &source.vars,
-            &witness,
-            &mut certificate_budget(),
-        )
-        .map_err(crate::to_value_error)?;
-        Ok(PyRootBoxReceipt { receipt })
+        let receipt = with_certification_meter(py, budget.as_deref(), |meter| {
+            verify_root_box(&source.residuals, &source.vars, &witness, meter)
+        })?;
+        let result = PyRootBoxReceipt { receipt };
+        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
+        Ok(result)
     }
 
     /// Return residuals and a row-major nested Jacobian after all values pass.
