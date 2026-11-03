@@ -62,8 +62,10 @@ def test_relations_retain_exact_sides_across_same_name_registration(constructor)
     assert calls == []
     duplicate = constructor(original, 2, evaluate=False)
     assert relation == duplicate and hash(relation) == hash(duplicate)
+    with pytest.raises(NotImplementedError, match="opaque"):
+        _native_expr(original)
     other = object.__new__(second)
-    Basic.__dict__["_value"].__set__(other, _native_expr(original))
+    Basic.__dict__["_value"].__set__(other, None)
     s.Function.__dict__["_args"].__set__(other, (x,))
     assert relation != constructor(other, 2, evaluate=False)
     assert calls == []

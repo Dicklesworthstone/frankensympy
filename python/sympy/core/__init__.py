@@ -244,12 +244,34 @@ def _exact_surface_types():
     return tuple(types)
 
 
+def _contains_opaque(value: Any) -> bool:
+    # Numeric singleton construction precedes the complete class universe at
+    # module import. No custom application can exist before Function does.
+    if "Relational" not in globals():
+        return False
+    from ._opaque_arithmetic import contains_opaque
+
+    return contains_opaque(value)
+
+
+def _surface_arithmetic(operator, values, *, evaluate=True, cls=None):
+    if "Relational" not in globals():
+        return None
+    from ._opaque_arithmetic import arithmetic
+
+    return arithmetic(operator, values, evaluate=evaluate, cls=cls)
+
+
 def _native_expr(value: Any):
     if isinstance(value, Basic):
         if type(value) not in _exact_surface_types() and not isinstance(value, Function):
             raise NotImplementedError(
                 "custom symbolic subclasses require a supervised Python override lane; "
                 "the native fast path accepts exact built-in classes only"
+            )
+        if _contains_opaque(value):
+            raise NotImplementedError(
+                "opaque Python applications require a retained surface or supervised callback lane"
             )
         if type(value) not in _exact_surface_types() and isinstance(value, Function):
             known = _known_functions.get(type(value).__name__)
@@ -481,6 +503,20 @@ def _surface_symbol(native_value: Any) -> "Symbol":
 
 
 _known_functions: dict[str, type] = {}
+_closed_function_classes: tuple[type, ...] | None = None
+
+
+def _is_closed_function_class(cls) -> bool:
+    classes = (_known_functions.values() if _closed_function_classes is None
+               else _closed_function_classes)
+    return any(cls is known for known in classes)
+
+
+def _freeze_builtin_function_classes() -> None:
+    """Seal the classes imported by the package, before user extensions run."""
+    global _closed_function_classes
+    if _closed_function_classes is None:
+        _closed_function_classes = tuple(_known_functions.values())
 _user_functions: weakref.WeakValueDictionary[str, type] = weakref.WeakValueDictionary()
 
 
@@ -935,7 +971,7 @@ def _exact_rational_argument(value: Any) -> tuple[int, int]:
 class Basic:
     """Base class for all SymPy objects in the compatibility shell."""
 
-    __slots__ = ("_value", "_struct_args")
+    __slots__ = ("_value", "_struct_args", "_surface_args")
 
     def __new__(cls, *args: Any, **kwargs: Any):
         # Oracle-pinned (SymPy 1.14.0 Basic.__new__): arbitrary user
@@ -973,6 +1009,10 @@ class Basic:
 
     @property
     def args(self) -> tuple["Basic", ...]:
+        try:
+            return Basic.__dict__["_surface_args"].__get__(self, Basic)
+        except AttributeError:
+            pass
         struct_args = getattr(self, "_struct_args", None)
         if struct_args is not None:
             return struct_args
@@ -983,6 +1023,8 @@ class Basic:
 
     @property
     def func(self):
+        if _contains_opaque(self):
+            return type(self)
         if type(self) not in _exact_surface_types():
             return type(self)
         return type(_wrap(self._value))
@@ -1270,6 +1312,10 @@ class Basic:
         return self.func(*replaced)
 
     def _repr_latex_(self) -> str:
+        if _contains_opaque(self):
+            from ..printing.latex import latex
+
+            return "$" + latex(self) + "$"
         return self._value._repr_latex_()
 
     def pretty(self) -> str:
@@ -1301,6 +1347,10 @@ class Basic:
         if struct_args is not None:
             # Oracle: equal structural instances hash equal (V(x, 2)).
             return hash((type(self).__name__, struct_args))
+        if _contains_opaque(self):
+            from ._opaque_arithmetic import surface_hash
+
+            return surface_hash(self)
         if type(self) not in _exact_surface_types() and not isinstance(self, Function):
             return object.__hash__(self)
         # Held arithmetic remains a structural expression, even when its
@@ -1327,6 +1377,10 @@ class Basic:
             if type(self) is not type(other):
                 return NotImplemented
             return struct_args == getattr(other, "_struct_args", None)
+        if _contains_opaque(self) or _contains_opaque(other):
+            from ._opaque_arithmetic import surface_equal
+
+            return surface_equal(self, other)
         if type(self) not in _exact_surface_types() and not isinstance(self, Function):
             return self is other
         # Applied functions carry their defining class: two same-named custom
@@ -1415,7 +1469,7 @@ class Basic:
         if type(self) is Dummy:
             return _restore_dummy, (self.name, self._dummy_number)
         if isinstance(self, AppliedUndef):
-            return _restore_applied_undef, (self._value.func_name, self.args)
+            return _restore_applied_undef, (type(self).__name__, self.args)
         if isinstance(self, Function):
             # Custom applied Function subclasses pickle by class reference
             # plus structural args (upstream SymPy parity: the defining
@@ -2093,6 +2147,8 @@ def _str_term(expr: "Expr") -> tuple[bool, str]:
         # which diverges; print the Python-side structural form instead.
         args = expr.args
         return False, f"Derivative({', '.join(_str_expr(a) for a in args)})"
+    if isinstance(expr, Function):
+        return False, _str_expr(expr)
     return False, str(_native_expr(expr))
 
 
@@ -2139,22 +2195,24 @@ class Expr(Basic):
 
     @property
     def is_symbol(self) -> bool:
-        return self._value.is_symbol
+        return False if _contains_opaque(self) else self._value.is_symbol
 
     @property
     def is_Add(self) -> bool:
-        return self._value.is_add
+        return type(self) is Add if _contains_opaque(self) else self._value.is_add
 
     @property
     def is_Mul(self) -> bool:
-        return self._value.is_mul
+        return type(self) is Mul if _contains_opaque(self) else self._value.is_mul
 
     @property
     def is_Pow(self) -> bool:
-        return self._value.is_pow
+        return type(self) is Pow if _contains_opaque(self) else self._value.is_pow
 
     @property
     def is_number(self) -> bool:
+        if _contains_opaque(self):
+            return False
         return self._value.is_number
 
     # Tri-valued assumption family at the base: compounds infer from their
@@ -2738,17 +2796,17 @@ class Expr(Basic):
         return False
 
     def __getitem__(self, index: Any) -> Any:
-        if self._value.func_name == "Tuple":
+        if not _contains_opaque(self) and self._value.func_name == "Tuple":
             return self.args[index]
         raise TypeError(f"'{type(self).__name__}' object is not subscriptable")
 
     def __len__(self) -> int:
-        if self._value.func_name == "Tuple":
+        if not _contains_opaque(self) and self._value.func_name == "Tuple":
             return len(self.args)
         raise TypeError(f"'{type(self).__name__}' object of type '{type(self).__name__}' has no len()")
 
     def __iter__(self) -> Any:
-        if self._value.func_name == "Tuple":
+        if not _contains_opaque(self) and self._value.func_name == "Tuple":
             return iter(self.args)
         raise TypeError(f"'{type(self).__name__}' object is not iterable")
 
@@ -2790,6 +2848,9 @@ class Expr(Basic):
 
     def __add__(self, other: Any) -> "Expr":
         try:
+            surface = _surface_arithmetic("add", (self, other))
+            if surface is not None:
+                return _fold_floats(surface)
             if (_is_numeric_coeff(self, True) and type(other) is Float
                     and math.isfinite(other._as_python_float())):
                 return other.__radd__(self)
@@ -2801,6 +2862,9 @@ class Expr(Basic):
 
     def __radd__(self, other: Any) -> "Expr":
         try:
+            surface = _surface_arithmetic("add", (other, self))
+            if surface is not None:
+                return _fold_floats(surface)
             return _fold_floats(_wrap(_native_expr(other) + _native_expr(self)))
         except TypeError:
             if _is_sympy_operand(other):
@@ -2809,6 +2873,8 @@ class Expr(Basic):
 
     def __sub__(self, other: Any) -> "Expr":
         try:
+            if _contains_opaque(self) or _contains_opaque(other):
+                return Add(self, Mul(-1, other))
             if (_is_numeric_coeff(self, True) and type(other) is Float
                     and math.isfinite(other._as_python_float())):
                 return other.__rsub__(self)
@@ -2820,6 +2886,8 @@ class Expr(Basic):
 
     def __rsub__(self, other: Any) -> "Expr":
         try:
+            if _contains_opaque(self) or _contains_opaque(other):
+                return Add(other, Mul(-1, self))
             return _fold_floats(_wrap(_native_expr(other) - _native_expr(self)))
         except TypeError:
             if _is_sympy_operand(other):
@@ -2828,6 +2896,9 @@ class Expr(Basic):
 
     def __mul__(self, other: Any) -> "Expr":
         try:
+            surface = _surface_arithmetic("mul", (self, other))
+            if surface is not None:
+                return _fold_floats(surface)
             if (_is_numeric_coeff(self, True) and type(other) is Float
                     and math.isfinite(other._as_python_float())):
                 return other.__rmul__(self)
@@ -2839,6 +2910,9 @@ class Expr(Basic):
 
     def __rmul__(self, other: Any) -> "Expr":
         try:
+            surface = _surface_arithmetic("mul", (other, self))
+            if surface is not None:
+                return _fold_floats(surface)
             return _fold_floats(_wrap(_native_expr(other) * _native_expr(self)))
         except TypeError:
             if _is_sympy_operand(other):
@@ -2847,6 +2921,8 @@ class Expr(Basic):
 
     def __truediv__(self, other: Any) -> "Expr":
         try:
+            if _contains_opaque(self) or _contains_opaque(other):
+                return Mul(self, Pow(other, -1))
             if _is_numeric_coeff(self, True) and type(other) in (float, Float):
                 approximate = Float(other) if type(other) is float else other
                 if math.isfinite(approximate._as_python_float()):
@@ -2873,6 +2949,8 @@ class Expr(Basic):
 
     def __rtruediv__(self, other: Any) -> "Expr":
         try:
+            if _contains_opaque(self) or _contains_opaque(other):
+                return Mul(other, Pow(self, -1))
             if _is_numeric_coeff(self, True) and type(other) in (float, Float):
                 approximate = Float(other) if type(other) is float else other
                 if math.isfinite(approximate._as_python_float()):
@@ -2894,6 +2972,9 @@ class Expr(Basic):
     def __pow__(self, exponent: Any, modulo: Any = None) -> "Expr":
         if modulo is not None:
             raise TypeError("modular symbolic exponentiation is not implemented")
+        surface = _surface_arithmetic("pow", (self, exponent))
+        if surface is not None:
+            return _fold_floats(surface)
         # SymPy 1.14.0 power identities (bead
         # fra-shell-number-canonical-construction-qf6): the native lane keeps
         # Pow(x, 0) etc. applied, the oracle folds them at construction.
@@ -2945,9 +3026,14 @@ class Expr(Basic):
         return NotImplemented
 
     def __neg__(self) -> "Expr":
+        surface = _surface_arithmetic("mul", (-1, self))
+        if surface is not None:
+            return _fold_floats(surface)
         return _fold_floats(_wrap(-_native_expr(self)))
 
     def __abs__(self) -> "Expr":
+        if _contains_opaque(self):
+            return Abs(self)
         return _wrap(_native.py_abs(_native_expr(self)))
 
     def __and__(self, other: Any) -> "Expr":
@@ -3521,6 +3607,22 @@ def _maybe_arithmetic_float(value: Any) -> float | None:
 
 
 def _has_float(value: Any) -> bool:
+    if _contains_opaque(value):
+        from ._opaque_arithmetic import stored_args
+        pending, seen = [value], set()
+        while pending:
+            node = pending.pop()
+            if id(node) in seen:
+                continue
+            seen.add(id(node))
+            try:
+                native = Basic.__dict__["_value"].__get__(node, Basic)
+            except (AttributeError, TypeError):
+                native = None
+            if type(native) is _native.Expr and native.has_function(_FLOAT_INTERN):
+                return True
+            pending.extend(stored_args(node) or ())
+        return False
     native = getattr(value, "_value", None)
     return isinstance(native, _native.Expr) and native.has_function(_FLOAT_INTERN)
 
@@ -3538,12 +3640,18 @@ def _num_fraction(value: Any) -> Fraction | None:
 def _raw_add(args: list) -> "Expr":
     if len(args) == 1:
         return args[0]
+    surface = _surface_arithmetic("add", args)
+    if surface is not None:
+        return surface
     return _wrap(_native.Add(*[_native_expr(a) for a in args], evaluate=True).as_expr())
 
 
 def _raw_mul(args: list) -> "Expr":
     if len(args) == 1:
         return args[0]
+    surface = _surface_arithmetic("mul", args)
+    if surface is not None:
+        return surface
     return _wrap(_native.Mul(*[_native_expr(a) for a in args], evaluate=True).as_expr())
 
 
@@ -3983,7 +4091,10 @@ class Relational(Expr):
         # identity. Capture the actual sympified sides before lowering them;
         # later reads must not recover a custom function from its printed name.
         Relational.__dict__["_relational_sides"].__set__(obj, (lhs, rhs))
-        obj._value = _native.py_function(cls.__name__, _native_expr(lhs), _native_expr(rhs))
+        from ._opaque_arithmetic import contains_opaque
+
+        obj._value = (None if contains_opaque(lhs) or contains_opaque(rhs)
+                      else _native.py_function(cls.__name__, _native_expr(lhs), _native_expr(rhs)))
         return obj
 
     def __init__(self, lhs: Any, rhs: Any = 0, evaluate: bool = True, **kwargs: Any):
@@ -4278,6 +4389,9 @@ class Add(Expr, AssocOp):
             return _ZERO
         if len(args) == 1:
             return args[0] if isinstance(args[0], Basic) else _wrap(_native_expr(args[0]))
+        surface = _surface_arithmetic("add", args, evaluate=evaluate, cls=cls)
+        if surface is not None:
+            return _fold_floats(surface) if evaluate else surface
         native_args = [_native_expr(arg) for arg in args]
         val = _native.Add(*native_args, evaluate=evaluate).as_expr()
         if evaluate and val.has_function(_FLOAT_INTERN):
@@ -4320,6 +4434,9 @@ class Mul(Expr, AssocOp):
             return _ONE
         if len(args) == 1:
             return args[0] if isinstance(args[0], Basic) else _wrap(_native_expr(args[0]))
+        surface = _surface_arithmetic("mul", args, evaluate=evaluate, cls=cls)
+        if surface is not None:
+            return _fold_floats(surface) if evaluate else surface
         native_args = [_native_expr(arg) for arg in args]
         val = _native.Mul(*native_args, evaluate=evaluate).as_expr()
         if evaluate:
@@ -4376,6 +4493,9 @@ class Pow(Expr):
         return self.args[1]
 
     def __new__(cls, base: Any, exponent: Any, evaluate: bool = True):
+        surface = _surface_arithmetic("pow", (base, exponent), evaluate=evaluate, cls=cls)
+        if surface is not None:
+            return _fold_floats(surface) if evaluate else surface
         if evaluate:
             folded = _float_pow(base, exponent)
             if folded is not None:
@@ -4464,11 +4584,14 @@ class Pow(Expr):
 
 
 class Derivative(Expr):
-    __slots__ = ()
+    __slots__ = ("_derivative_args",)
 
     def __new__(cls, expression: Any, *variables: Any, evaluate: bool = False):
         if evaluate:
             return diff(expression, *variables)
+        from ._opaque_arithmetic import contains_opaque
+
+        expression = sympify(expression)
         cleaned_vars = []
         i = 0
         while i < len(variables):
@@ -4476,25 +4599,47 @@ class Derivative(Expr):
             if isinstance(v, (tuple, list)) and len(v) == 2:
                 var, count = v
                 cnt = _exact_integer_value(count)
-                if cnt is not None and cnt > 0:
-                    cleaned_vars.extend([var] * cnt)
+                if cnt is None or cnt < 0:
+                    raise ValueError("differentiation order must be a non-negative integer")
+                if len(cleaned_vars) + cnt > 4096:
+                    raise ValueError("formal derivative exceeds the order limit")
+                cleaned_vars.extend([sympify(var)] * cnt)
                 i += 1
             elif i + 1 < len(variables) and (isinstance(variables[i + 1], int) or type(variables[i + 1]) is Integer):
                 var = v
                 cnt = _exact_integer_value(variables[i + 1])
-                if cnt is not None and cnt > 0:
-                    cleaned_vars.extend([var] * cnt)
+                if cnt is None or cnt < 0:
+                    raise ValueError("differentiation order must be a non-negative integer")
+                if len(cleaned_vars) + cnt > 4096:
+                    raise ValueError("formal derivative exceeds the order limit")
+                cleaned_vars.extend([sympify(var)] * cnt)
                 i += 2
             else:
-                cleaned_vars.append(v)
+                if len(cleaned_vars) >= 4096:
+                    raise ValueError("formal derivative exceeds the order limit")
+                cleaned_vars.append(sympify(v))
                 i += 1
         if not cleaned_vars:
-            return sympify(expression)
-        native_vars = [_native_expr(var) for var in cleaned_vars]
-        val = _native.Derivative(
-            _native_expr(expression), *native_vars, evaluate=False
-        ).as_expr()
+            return expression
+        for variable in cleaned_vars:
+            if isinstance(variable, Symbol):
+                _require_symbol(variable)
+            elif not isinstance(variable, Function) and type(variable) is not Derivative:
+                raise ValueError("cannot differentiate with respect to a non-symbolic expression")
+        if type(expression) is Derivative:
+            cleaned_vars = list(expression.variables) + cleaned_vars
+            expression = expression.expr
+            if len(cleaned_vars) > 4096:
+                raise ValueError("formal derivative exceeds the order limit")
+        source_args = (expression, *cleaned_vars)
+        opaque = any(contains_opaque(arg) for arg in source_args)
+        val = (None if opaque else _native.Derivative(
+            _native_expr(expression), *(_native_expr(var) for var in cleaned_vars), evaluate=False
+        ).as_expr())
         obj = object.__new__(cls)
+        Derivative.__dict__["_derivative_args"].__set__(obj, source_args)
+        if opaque:
+            Basic.__dict__["_surface_args"].__set__(obj, source_args)
         obj._value = val
         return obj
 
@@ -4506,12 +4651,43 @@ class Derivative(Expr):
         return True
 
     @property
+    def args(self) -> tuple[Basic, ...]:
+        try:
+            return Derivative.__dict__["_derivative_args"].__get__(self, Derivative)
+        except AttributeError:
+            return Basic.__dict__["args"].__get__(self, Derivative)
+
+    @property
+    def func(self):
+        return type(self)
+
+    @property
     def expr(self) -> Any:
-        return self.args[0] if self.args else self
+        return Derivative.__dict__["args"].__get__(self, Derivative)[0]
 
     @property
     def variables(self) -> tuple[Any, ...]:
-        return self.args[1:] if len(self.args) > 1 else ()
+        return Derivative.__dict__["args"].__get__(self, Derivative)[1:]
+
+    @property
+    def variable_count(self) -> tuple[tuple[Basic, int], ...]:
+        groups = []
+        for variable in self.variables:
+            if groups and _aresame_surface(groups[-1][0], variable):
+                groups[-1] = (variable, groups[-1][1] + 1)
+            else:
+                groups.append((variable, 1))
+        return tuple(groups)
+
+    @property
+    def free_symbols(self) -> set[Symbol]:
+        return self.expr.free_symbols
+
+    def __eq__(self, other: object) -> bool:
+        return type(self) is type(other) and self.args == other.args
+
+    def __hash__(self) -> int:
+        return hash((type(self).__name__, self.args))
 
     def as_finite_difference(self, points: Any = 1, x0: Any = None, wrt: Any = None) -> Any:
         from ..calculus.finite_diff import _as_finite_diff
@@ -4540,7 +4716,7 @@ class Function(Application, metaclass=FunctionClass):
         super().__init_subclass__(**kwargs)
         if cls.__name__ != "AppliedUndef" and not cls.__name__.startswith("_"):
             mod = getattr(cls, "__module__", "") or ""
-            if mod.startswith("sympy."):
+            if mod.startswith("sympy.") and _closed_function_classes is None:
                 _known_functions[cls.__name__] = cls
             else:
                 _user_functions[cls.__name__] = cls
@@ -4580,7 +4756,8 @@ class Function(Application, metaclass=FunctionClass):
 
         # Classmethod eval hook — skipped for evaluate=False (finding 8).
         if evaluate:
-            if issubclass(cls, _NativeFunction) and not _has_user_override(cls, "eval"):
+            if (issubclass(cls, _NativeFunction) and not _has_user_override(cls, "eval")
+                    and not any(_contains_opaque(arg) for arg in sympified)):
                 evaluated = cls.eval(*sympified)
                 if evaluated is not None:
                     return _wrap(_native_expr(evaluated))
@@ -4601,6 +4778,10 @@ class Function(Application, metaclass=FunctionClass):
         obj = object.__new__(cls)
         obj._args = sympified
         name = cls.__name__
+        if (not _is_closed_function_class(cls)
+                or any(_contains_opaque(arg) for arg in sympified)):
+            obj._value = None
+            return obj
         native_args = [_native_expr(arg) for arg in sympified]
         obj._value = _native.py_function(name, *native_args)
         return obj
@@ -4655,6 +4836,8 @@ class _NativeFunction(Function):
 
     @classmethod
     def eval(cls, *args: Any) -> Any:
+        if any(_contains_opaque(arg) for arg in args):
+            return None
         native_args = [_native_expr(a) for a in args]
         value = _native.py_eval_function(cls.__name__, native_args)
         if value is not None:
@@ -5053,6 +5236,11 @@ def _diff_custom_node(node: Basic, symbol: Symbol) -> Expr:
                     input_exprs=(node,),
                 )
                 if df_i is None:
+                    if type(arg) not in (Symbol, Dummy):
+                        # No valid partial derivative coordinate was supplied.
+                        # Retain the complete source derivative; a composite
+                        # argument is not an independent symbolic variable.
+                        return Derivative(node, symbol, evaluate=False)
                     df_i = Derivative(node, arg, evaluate=False)
                 elif not isinstance(df_i, Basic):
                     df_i = sympify(df_i)
@@ -5062,6 +5250,12 @@ def _diff_custom_node(node: Basic, symbol: Symbol) -> Expr:
 
 
 def _diff_single_supervised(expr: Any, symbol: Symbol) -> Expr:
+    from ._opaque_arithmetic import contains_opaque
+
+    if contains_opaque(expr):
+        from ._surface_calculus import differentiate
+
+        return differentiate(expr, symbol)
     _check_admitted_surface_tree(expr)
     if not _tree_has_custom_diff_hook(expr):
         _charge_nested_if_active(_expr_node_count(expr))

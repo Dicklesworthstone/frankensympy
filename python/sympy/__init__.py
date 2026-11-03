@@ -2532,3 +2532,9 @@ __all__ += ["diophantine"]
 from .polys.rootoftools import CRootOf, ComplexRootOf, RootOf, all_roots, real_roots, rootof  # noqa: E402
 
 __all__ += ["CRootOf", "ComplexRootOf", "RootOf", "real_roots", "rootof"]
+
+# Package-defined classes are admitted by exact identity. A later extension's
+# chosen __module__ or printed name cannot register a native intrinsic.
+from .core import _freeze_builtin_function_classes as _freeze_functions  # noqa: E402
+
+_freeze_functions()

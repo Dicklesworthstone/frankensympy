@@ -39,6 +39,7 @@ _MAX_BATCH_ROWS = 4096
 _MAX_BATCH_VALUES = 262_144
 _MAX_VERIFIED_PROGRAM_BYTES = 16 * 1024 * 1024
 _BASIC_VALUE = Basic.__dict__["_value"]
+_SURFACE_ARGS = Basic.__dict__["_surface_args"]
 _FUNCTION_ARGS = Function.__dict__["_args"]
 # Native source tags already emitted by the admitted shell classes. These are
 # an IR vocabulary, never names used to recover a Python class. In particular,
@@ -160,21 +161,40 @@ def _call_arguments(layout, supplied, *, native):
 
 def _numeric_matrix_snapshot(value):
     """Capture exact matrix cells without entering Python class-name lifting."""
-    from ..matrices import SparseMatrix
+    from ..matrices import Matrix, SparseMatrix
 
-    matrix = object.__getattribute__(value, "_native")
-    # This borrows every native cell, bounding dimensions and source payloads
-    # before indexing can clone an expression or any Python getter can lift it.
-    _native.CompiledFunction._validate_matrix_source(matrix)
-    rows, columns = matrix.shape
     if type(value) is SparseMatrix:
+        matrix = object.__getattribute__(value, "__dict__")["_native"]
+        _native.CompiledFunction._validate_matrix_source(matrix)
+        shape = matrix.shape
         surface, generation = None, None
     else:
-        surface = object.__getattribute__(value, "_surface")
-        generation = object.__getattribute__(value, "_mutation_generation")
-        if type(generation) is not int:
+        # Read the owning slots rather than _native: shell-only matrices have
+        # real retained cells, but deliberately have no native algebra handle.
+        storage_slot = Matrix.__dict__["_native_storage"]
+        shape_slot = Matrix.__dict__["_matrix_shape"]
+        surface_slot = Matrix.__dict__["_surface"]
+        generation_slot = Matrix.__dict__["_mutation_generation"]
+        matrix = storage_slot.__get__(value, Matrix)
+        shape = shape_slot.__get__(value, Matrix)
+        surface = surface_slot.__get__(value, Matrix)
+        generation = generation_slot.__get__(value, Matrix)
+        if type(generation) is not int or generation < 0:
             raise ValueError("numeric matrix has an invalid mutation generation")
+    if (type(shape) is not tuple or len(shape) != 2
+            or any(type(dimension) is not int or dimension < 0 for dimension in shape)):
+        raise ValueError("numeric matrix has an invalid retained shape")
+    rows, columns = shape
     size = rows * columns
+    if max(rows, columns) > _MAX_OUTPUTS or size > _MAX_OUTPUTS:
+        raise ValueError("numeric matrix exceeds the output limit")
+    if matrix is not None:
+        # Borrow the complete native source before indexing can clone cells.
+        # A retained surface is not permission to skip admission of a native
+        # payload which the matrix also claims to carry.
+        _native.CompiledFunction._validate_matrix_source(matrix)
+        if matrix.shape != shape:
+            raise ValueError("numeric matrix native and retained shapes differ")
     if surface is not None:
         if (type(surface) is not list and type(surface) is not tuple) or len(surface) != size:
             raise ValueError("numeric matrix has an invalid retained source snapshot")
@@ -185,13 +205,21 @@ def _numeric_matrix_snapshot(value):
         if len(surface) != size:
             raise ValueError("numeric matrix changed during its source snapshot")
     else:
+        if matrix is None:
+            raise ValueError("numeric matrix has neither native nor retained cells")
         entries = tuple(matrix[(row, column)] for row in range(rows) for column in range(columns))
-    if (object.__getattribute__(value, "_native") is not matrix or matrix.shape != (rows, columns)
-            or (generation is not None and (
-                type(object.__getattribute__(value, "_mutation_generation")) is not int
-                or object.__getattribute__(value, "_mutation_generation") != generation
-                or object.__getattribute__(value, "_surface") is not surface
-            ))):
+    if type(value) is SparseMatrix:
+        changed = (object.__getattribute__(value, "__dict__").get("_native") is not matrix
+                   or matrix.shape != shape)
+    else:
+        current_generation = generation_slot.__get__(value, Matrix)
+        changed = (storage_slot.__get__(value, Matrix) is not matrix
+                   or shape_slot.__get__(value, Matrix) is not shape
+                   or surface_slot.__get__(value, Matrix) is not surface
+                   or type(current_generation) is not int
+                   or current_generation != generation
+                   or (matrix is not None and matrix.shape != shape))
+    if changed:
         raise ValueError("numeric matrix changed during its source snapshot")
     return rows, columns, entries
 
@@ -339,9 +367,14 @@ def _numeric_source(value, functions, count, depth=0, *, inexact=None):
     if cls is Add or cls is Mul or cls is Pow or function is not None:
         descriptor = cls.__dict__.get("_args") if function is None else _FUNCTION_ARGS
         try:
-            arguments = descriptor.__get__(value, cls) if descriptor is not None else None
+            arguments = _SURFACE_ARGS.__get__(value, Basic)
         except AttributeError:
             arguments = None
+        if arguments is None:
+            try:
+                arguments = descriptor.__get__(value, cls) if descriptor is not None else None
+            except AttributeError:
+                arguments = None
         if arguments is None:
             return _native_numeric_source(_BASIC_VALUE.__get__(value, Basic), count, depth, inexact=inexact)
         if type(arguments) is not tuple or len(arguments) > _MAX_NODES:
@@ -357,7 +390,10 @@ def _numeric_source(value, functions, count, depth=0, *, inexact=None):
         return _native.py_function(function[0], *children)
     # Exact numeric atoms and constants already carry typed native payloads.
     # Unsupported operators are refused by the native compiler.
-    return _native_numeric_source(_BASIC_VALUE.__get__(value, Basic), count, depth, inexact=inexact)
+    native = _BASIC_VALUE.__get__(value, Basic)
+    if native is None:
+        raise NotImplementedError("custom or opaque objects have no closed numerical lowering")
+    return _native_numeric_source(native, count, depth, inexact=inexact)
 
 
 def compile_numeric(args, expression):

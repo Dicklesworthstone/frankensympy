@@ -6,6 +6,25 @@ from ..core import Basic, Expr, Rational, _native, _native_expr, _wrap
 
 _NativeMatrix = _native.Matrix
 
+# Match the native matrix storage bounds, including zero-area shapes.  The
+# shell checks them before calling constructors or allocating retained cells.
+_MAX_MATRIX_ENTRIES = 262_144
+_MAX_MATRIX_MULTIPLICATION_OPS = 10_000_000
+
+
+def _matrix_dimensions(rows, cols):
+    rows, cols = int(rows), int(cols)
+    if rows < 0 or cols < 0:
+        raise OverflowError("can't convert negative int to unsigned")
+    size = rows * cols
+    if size > _MAX_MATRIX_ENTRIES:
+        raise ValueError(f"Matrix has {size} entries, exceeding the limit of {_MAX_MATRIX_ENTRIES}")
+    if rows > _MAX_MATRIX_ENTRIES or cols > _MAX_MATRIX_ENTRIES:
+        raise ValueError(
+            f"Matrix shape {rows}x{cols} has a dimension exceeding the limit of {_MAX_MATRIX_ENTRIES}"
+        )
+    return rows, cols
+
 
 class _CallableBool(int):
     """Boolean-compatible integer that is also callable as a predicate."""
@@ -43,8 +62,9 @@ def _surface_entry(elem):
 
 
 class Matrix(MatrixBase):
-    """Exact matrix with SymPy-compatible API wrapping the native linear algebra engine."""
+    """Shell-owned matrix with a native snapshot when every cell can lower."""
 
+    __slots__ = ("_native_storage", "_matrix_shape", "_surface", "_mutation_generation")
 
     def __init__(self, *args):
         self._mutation_generation = 0
@@ -55,73 +75,109 @@ class Matrix(MatrixBase):
                 self._native = arg
                 return
             if isinstance(arg, Matrix):
-                self._native = arg._native
-                self._surface = list(arg._surface) if arg._surface is not None else None
+                self._native_storage = arg._native_storage
+                self._matrix_shape = arg._matrix_shape
+                self._surface = arg._surface
                 return
             if hasattr(arg, "to_dense") and not isinstance(arg, type):
                 dense = arg.to_dense()
-                self._native = dense._native
-                self._surface = list(dense._surface) if getattr(dense, "_surface", None) is not None else None
+                self._native_storage = dense._native_storage
+                self._matrix_shape = dense._matrix_shape
+                self._surface = dense._surface
                 return
             if isinstance(arg, (list, tuple)):
                 if len(arg) == 0:
-                    self._surface = []
-                    self._native = _NativeMatrix(0, 0, [])
+                    self._install_surface(0, 0, ())
                     return
                 if isinstance(arg[0], (list, tuple)):
-                    rows = len(arg)
-                    cols = len(arg[0])
+                    rows, cols = _matrix_dimensions(len(arg), len(arg[0]))
                     surface = []
-                    flat = []
                     for row in arg:
                         if len(row) != cols:
                             raise ValueError("Row length mismatch in matrix constructor")
                         for elem in row:
-                            s_elem = _surface_entry(elem)
-                            surface.append(s_elem)
-                            flat.append(_native_expr(s_elem))
-                    self._surface = surface
-                    self._native = _NativeMatrix(rows, cols, flat)
+                            surface.append(_surface_entry(elem))
+                    self._install_surface(rows, cols, surface)
                     return
                 else:
                     # 1D sequence -> column vector
-                    rows = len(arg)
-                    cols = 1
+                    rows, cols = _matrix_dimensions(len(arg), 1)
                     surface = [_surface_entry(elem) for elem in arg]
-                    flat = [_native_expr(elem) for elem in surface]
-                    self._surface = surface
-                    self._native = _NativeMatrix(rows, cols, flat)
+                    self._install_surface(rows, cols, surface)
                     return
             raise TypeError(f"Cannot construct Matrix from {type(arg)}")
         elif len(args) == 2:
-            rows, cols = args
-            self._native = _NativeMatrix.zeros(int(rows), int(cols))
+            rows, cols = _matrix_dimensions(*args)
+            self._native = _NativeMatrix.zeros(rows, cols)
             return
         elif len(args) == 3:
             rows, cols, entries = args
-            rows = int(rows)
-            cols = int(cols)
+            rows, cols = _matrix_dimensions(rows, cols)
             if callable(entries):
                 surface = []
-                flat = []
                 for r in range(rows):
                     for c in range(cols):
-                        s_elem = _surface_entry(entries(r, c))
-                        surface.append(s_elem)
-                        flat.append(_native_expr(s_elem))
-                self._surface = surface
-                self._native = _NativeMatrix(rows, cols, flat)
+                        surface.append(_surface_entry(entries(r, c)))
+                self._install_surface(rows, cols, surface)
                 return
             elif isinstance(entries, (list, tuple)):
+                if len(entries) != rows * cols:
+                    raise ValueError(
+                        f"Matrix shape {rows}x{cols} requires {rows * cols} entries, "
+                        f"but storage contains {len(entries)}"
+                    )
                 surface = [_surface_entry(elem) for elem in entries]
-                flat = [_native_expr(elem) for elem in surface]
-                self._surface = surface
-                self._native = _NativeMatrix(rows, cols, flat)
+                self._install_surface(rows, cols, surface)
                 return
             else:
                 raise TypeError("Third argument to Matrix must be a sequence or callable")
         else:
             raise TypeError(f"Matrix constructor takes 1, 2, or 3 arguments, got {len(args)}")
+
+    @property
+    def _native(self):
+        """Admit closed cells to legacy native algorithms, never a lossy mirror."""
+        native = self._native_storage
+        if native is None:
+            raise NotImplementedError(
+                "matrix contains opaque Python expressions; this operation requires closed native cells"
+            )
+        return native
+
+    @_native.setter
+    def _native(self, value):
+        if type(value) is not _NativeMatrix:
+            raise TypeError("matrix native storage must be an exact native Matrix")
+        self._native_storage = value
+        self._matrix_shape = value.shape
+        self._surface = None
+
+    def _install_surface(self, rows, cols, entries, *, mutate=False, expected_generation=None):
+        """Prepare a complete immutable cell snapshot before publishing state."""
+        from ..core._opaque_arithmetic import contains_opaque
+
+        rows, cols = _matrix_dimensions(rows, cols)
+        if len(entries) != rows * cols:
+            raise ValueError(
+                f"Matrix shape {rows}x{cols} requires {rows * cols} entries, "
+                f"but storage contains {len(entries)}"
+            )
+        surface = tuple(entries)
+        native = None
+        opaque = False
+        for entry in surface:
+            opaque = contains_opaque(entry) or opaque
+        if not opaque:
+            native = _NativeMatrix(rows, cols, [_native_expr(entry) for entry in surface])
+        if expected_generation is not None and self._mutation_generation != expected_generation:
+            raise RuntimeError("Matrix mutated during callback traversal")
+        # Neither failed lowering nor failed construction may partially mutate
+        # the original matrix or invalidate an already captured immutable copy.
+        self._native_storage = native
+        self._matrix_shape = (rows, cols)
+        self._surface = surface
+        if mutate:
+            self._mutation_generation += 1
 
     @property
     def mutation_generation(self) -> int:
@@ -131,29 +187,37 @@ class Matrix(MatrixBase):
         """Construct a new matrix of the same class (preserving mutability/immutability)."""
         return self.__class__(*args, **kwargs)
 
+    def _finish_traversal(self, rows, cols, entries, generation):
+        result = self._new(rows, cols, entries)
+        # Result coercion can itself invoke a caller's _sympy_ converter.  Its
+        # effects must not escape the same source-generation check as f(entry).
+        if self._mutation_generation != generation:
+            raise RuntimeError("Matrix mutated during callback traversal")
+        return result
+
     def __reduce__(self) -> tuple:
         # Oracle-pinned: upstream Matrices pickle structurally. The native
         # handle is not serializable - reduce to (shape, nested entry lists)
         # and reconstruct through the list-of-lists constructor path.
-        rows, cols = self._native.shape
-        entries = [[self[r, c] for c in range(cols)] for r in range(rows)]
-        return (self.__class__, (entries,))
+        rows, cols = self.shape
+        entries = [self[r, c] for r in range(rows) for c in range(cols)]
+        return (self.__class__, (rows, cols, entries))
 
     @property
     def shape(self):
-        return self._native.shape
+        return self._matrix_shape
 
     @property
     def rows(self):
-        return self._native.rows
+        return self._matrix_shape[0]
 
     @property
     def cols(self):
-        return self._native.cols
+        return self._matrix_shape[1]
 
     @property
     def is_square(self):
-        return self._native.is_square
+        return self.rows == self.cols
 
     @property
     def is_zero_matrix(self):
@@ -184,10 +248,18 @@ class Matrix(MatrixBase):
 
     @property
     def is_symmetric(self):
+        if self._native_storage is None:
+            return _CallableBool(self.is_square and all(
+                self[r, c] == self[c, r] for r in range(self.rows) for c in range(r)
+            ))
         return _CallableBool(self._native.is_symmetric)
 
     @property
     def is_anti_symmetric(self):
+        if self._native_storage is None:
+            return _CallableBool(self.is_square and all(
+                self[r, c] == -self[c, r] for r in range(self.rows) for c in range(r + 1)
+            ))
         return _CallableBool(self._native.is_skew_symmetric)
 
     @property
@@ -196,22 +268,34 @@ class Matrix(MatrixBase):
 
     @property
     def is_diagonal(self):
+        if self._native_storage is None:
+            return _CallableBool(all(
+                self[r, c] == 0 for r in range(self.rows) for c in range(self.cols) if r != c
+            ))
         return _CallableBool(self._native.is_diagonal)
 
     @property
     def is_upper(self):
-        return self._native.is_upper_triangular
+        return bool(self.is_upper_triangular)
 
     @property
     def is_lower(self):
-        return self._native.is_lower_triangular
+        return bool(self.is_lower_triangular)
 
     @property
     def is_upper_triangular(self):
+        if self._native_storage is None:
+            return _CallableBool(all(
+                self[r, c] == 0 for r in range(self.rows) for c in range(min(r, self.cols))
+            ))
         return _CallableBool(self._native.is_upper_triangular)
 
     @property
     def is_lower_triangular(self):
+        if self._native_storage is None:
+            return _CallableBool(all(
+                self[r, c] == 0 for r in range(self.rows) for c in range(r + 1, self.cols)
+            ))
         return _CallableBool(self._native.is_lower_triangular)
 
     @property
@@ -260,6 +344,11 @@ class Matrix(MatrixBase):
         return self == -self.H
 
     def trace(self):
+        if self._native_storage is None:
+            if not self.is_square:
+                raise ValueError(f"Matrix must be square: shape is {self.rows}x{self.cols}")
+            from ..core import Add
+            return Add(*(self[i, i] for i in range(self.rows)))
         return _wrap(self._native.trace())
 
     def det(self, method=None):
@@ -298,6 +387,15 @@ class Matrix(MatrixBase):
 
     def minor_submatrix(self, i, j):
         """Return the submatrix obtained by deleting row `i` and column `j`."""
+        if self._surface is not None:
+            i, j = int(i), int(j)
+            if not (0 <= i < self.rows and 0 <= j < self.cols):
+                raise IndexError("Matrix index out of bounds")
+            return self._new(
+                self.rows - 1, self.cols - 1,
+                [self[r, c] for r in range(self.rows) if r != i
+                 for c in range(self.cols) if c != j],
+            )
         return self._new(self._native.minor_submatrix(int(i), int(j)))
 
     def minorMatrix(self, i, j):
@@ -450,6 +548,7 @@ class Matrix(MatrixBase):
 
     def col_del(self, j):
         """Delete column j in-place."""
+        start_gen = self._mutation_generation
         cols = self.cols
         if j < 0:
             j += cols
@@ -457,19 +556,16 @@ class Matrix(MatrixBase):
             raise IndexError("Column index out of range")
         rows = self.rows
         surface = []
-        flat = []
         for r in range(rows):
             for c in range(cols):
                 if c != j:
                     s_elem = _surface_entry(self[r, c])
                     surface.append(s_elem)
-                    flat.append(_native_expr(s_elem))
-        self._surface = surface
-        self._native = _NativeMatrix(rows, cols - 1, flat)
-        self._mutation_generation += 1
+        self._install_surface(rows, cols - 1, surface, mutate=True, expected_generation=start_gen)
 
     def row_del(self, i):
         """Delete row i in-place."""
+        start_gen = self._mutation_generation
         rows = self.rows
         if i < 0:
             i += rows
@@ -477,19 +573,16 @@ class Matrix(MatrixBase):
             raise IndexError("Row index out of range")
         cols = self.cols
         surface = []
-        flat = []
         for r in range(rows):
             if r != i:
                 for c in range(cols):
                     s_elem = _surface_entry(self[r, c])
                     surface.append(s_elem)
-                    flat.append(_native_expr(s_elem))
-        self._surface = surface
-        self._native = _NativeMatrix(rows - 1, cols, flat)
-        self._mutation_generation += 1
+        self._install_surface(rows - 1, cols, surface, mutate=True, expected_generation=start_gen)
 
     def row_swap(self, i, j):
         """Swap row i and row j in-place."""
+        start_gen = self._mutation_generation
         rows = self.rows
         cols = self.cols
         i = int(i) if int(i) >= 0 else int(i) + rows
@@ -501,12 +594,11 @@ class Matrix(MatrixBase):
         flat = [_surface_entry(self[r, c]) for r in range(rows) for c in range(cols)]
         for c in range(cols):
             flat[i * cols + c], flat[j * cols + c] = flat[j * cols + c], flat[i * cols + c]
-        self._surface = flat
-        self._native = _NativeMatrix(rows, cols, [_native_expr(x) for x in flat])
-        self._mutation_generation += 1
+        self._install_surface(rows, cols, flat, mutate=True, expected_generation=start_gen)
 
     def col_swap(self, i, j):
         """Swap column i and column j in-place."""
+        start_gen = self._mutation_generation
         rows = self.rows
         cols = self.cols
         i = int(i) if int(i) >= 0 else int(i) + cols
@@ -518,9 +610,7 @@ class Matrix(MatrixBase):
         flat = [_surface_entry(self[r, c]) for r in range(rows) for c in range(cols)]
         for r in range(rows):
             flat[r * cols + i], flat[r * cols + j] = flat[r * cols + j], flat[r * cols + i]
-        self._surface = flat
-        self._native = _NativeMatrix(rows, cols, [_native_expr(x) for x in flat])
-        self._mutation_generation += 1
+        self._install_surface(rows, cols, flat, mutate=True, expected_generation=start_gen)
 
     def row_op(self, i, f):
         """In-place apply function f(val, col_index) to each element of row i."""
@@ -536,9 +626,7 @@ class Matrix(MatrixBase):
             if self._mutation_generation != start_gen:
                 raise RuntimeError("Matrix mutated during callback traversal")
             flat[i * cols + c] = _surface_entry(res)
-        self._surface = flat
-        self._native = _NativeMatrix(rows, cols, [_native_expr(x) for x in flat])
-        self._mutation_generation += 1
+        self._install_surface(rows, cols, flat, mutate=True, expected_generation=start_gen)
 
     def col_op(self, j, f):
         """In-place apply function f(val, row_index) to each element of col j."""
@@ -554,9 +642,7 @@ class Matrix(MatrixBase):
             if self._mutation_generation != start_gen:
                 raise RuntimeError("Matrix mutated during callback traversal")
             flat[r * cols + j] = _surface_entry(res)
-        self._surface = flat
-        self._native = _NativeMatrix(rows, cols, [_native_expr(x) for x in flat])
-        self._mutation_generation += 1
+        self._install_surface(rows, cols, flat, mutate=True, expected_generation=start_gen)
 
     def norm(self, ord="fro"):
         """Return the matrix norm (Frobenius / Euclidean by default)."""
@@ -1250,6 +1336,13 @@ class Matrix(MatrixBase):
     def kron(self, other):
         if not isinstance(other, Matrix):
             raise TypeError(f"Cannot compute Kronecker product with {type(other)}")
+        if self._native_storage is None or other._native_storage is None:
+            rows, cols = _matrix_dimensions(self.rows * other.rows, self.cols * other.cols)
+            return self._new(rows, cols, [
+                self[r, c] * other[i, j]
+                for r in range(self.rows) for i in range(other.rows)
+                for c in range(self.cols) for j in range(other.cols)
+            ])
         return Matrix(self._native.kron(other._native))
 
     def kronecker_product(self, other):
@@ -1258,6 +1351,9 @@ class Matrix(MatrixBase):
     def hadamard(self, other):
         if not isinstance(other, Matrix):
             raise TypeError(f"Cannot compute Hadamard product with {type(other)}")
+        if self._native_storage is None or other._native_storage is None:
+            self._require_same_shape(other)
+            return self._new(self.rows, self.cols, [self[i] * other[i] for i in range(len(self))])
         return Matrix(self._native.hadamard(other._native))
 
     def LUdecomposition(self):
@@ -1460,7 +1556,7 @@ class Matrix(MatrixBase):
                 if self._mutation_generation != start_gen:
                     raise RuntimeError("Matrix mutated during callback traversal")
                 flat.append(res)
-        return self._new(rows, cols, flat)
+        return self._finish_traversal(rows, cols, flat, start_gen)
 
     def simplify(self):
         """Simplify all matrix entries."""
@@ -1475,7 +1571,7 @@ class Matrix(MatrixBase):
                 if self._mutation_generation != start_gen:
                     raise RuntimeError("Matrix mutated during callback traversal")
                 flat.append(res)
-        return self._new(rows, cols, flat)
+        return self._finish_traversal(rows, cols, flat, start_gen)
 
     def diff(self, *args):
         """Differentiate all matrix entries."""
@@ -1490,7 +1586,7 @@ class Matrix(MatrixBase):
                 if self._mutation_generation != start_gen:
                     raise RuntimeError("Matrix mutated during callback traversal")
                 flat.append(res)
-        return self._new(rows, cols, flat)
+        return self._finish_traversal(rows, cols, flat, start_gen)
 
     def integrate(self, *args):
         """Integrate all matrix entries."""
@@ -1505,7 +1601,7 @@ class Matrix(MatrixBase):
                 if self._mutation_generation != start_gen:
                     raise RuntimeError("Matrix mutated during callback traversal")
                 flat.append(res)
-        return self._new(rows, cols, flat)
+        return self._finish_traversal(rows, cols, flat, start_gen)
 
     def applyfunc(self, f):
         """Apply a function elementwise to every matrix entry."""
@@ -1519,7 +1615,7 @@ class Matrix(MatrixBase):
                 if self._mutation_generation != start_gen:
                     raise RuntimeError("Matrix mutated during callback traversal")
                 flat.append(res)
-        return self._new(rows, cols, flat)
+        return self._finish_traversal(rows, cols, flat, start_gen)
 
     def evalf(self, n=15, **options):
         """Evaluate all matrix entries numerically."""
@@ -1534,7 +1630,7 @@ class Matrix(MatrixBase):
                 if self._mutation_generation != start_gen:
                     raise RuntimeError("Matrix mutated during callback traversal")
                 flat.append(res)
-        return self._new(rows, cols, flat)
+        return self._finish_traversal(rows, cols, flat, start_gen)
 
     n = evalf
 
@@ -1558,7 +1654,7 @@ class Matrix(MatrixBase):
                 if self._mutation_generation != start_gen:
                     raise RuntimeError("Matrix mutated during callback traversal")
                 flat.append(res)
-        return self._new(rows, cols, flat)
+        return self._finish_traversal(rows, cols, flat, start_gen)
 
     def to_sparse(self):
         """Convert to a SparseMatrix."""
@@ -1566,7 +1662,7 @@ class Matrix(MatrixBase):
         return SparseMatrix(self)
 
     def __len__(self):
-        return len(self._native)
+        return self.rows * self.cols
 
     def __getitem__(self, key):
         if isinstance(key, tuple):
@@ -1600,6 +1696,7 @@ class Matrix(MatrixBase):
         raise TypeError("Matrix index must be an integer, slice, or (row, col) pair")
 
     def __setitem__(self, key, value):
+        start_gen = self._mutation_generation
         if isinstance(key, tuple):
             if len(key) != 2:
                 raise IndexError("Matrix index must be a 2-tuple (row, col)")
@@ -1607,6 +1704,10 @@ class Matrix(MatrixBase):
             if isinstance(r, slice) or isinstance(c, slice):
                 row_indices = list(range(*r.indices(self.rows))) if isinstance(r, slice) else [int(r) if int(r) >= 0 else int(r) + self.rows]
                 col_indices = list(range(*c.indices(self.cols))) if isinstance(c, slice) else [int(c) if int(c) >= 0 else int(c) + self.cols]
+                if any(not 0 <= ri < self.rows for ri in row_indices) or any(
+                    not 0 <= ci < self.cols for ci in col_indices
+                ):
+                    raise IndexError("Matrix index out of bounds")
                 target_len = len(row_indices) * len(col_indices)
                 if isinstance(value, MatrixBase):
                     vals = [value[i, j] for i in range(value.rows) for j in range(value.cols)]
@@ -1625,9 +1726,9 @@ class Matrix(MatrixBase):
                     for ci in col_indices:
                         flat[ri * self.cols + ci] = _surface_entry(vals[idx])
                         idx += 1
-                self._surface = flat
-                self._native = _NativeMatrix(self.rows, self.cols, [_native_expr(x) for x in flat])
-                self._mutation_generation += 1
+                self._install_surface(
+                    self.rows, self.cols, flat, mutate=True, expected_generation=start_gen,
+                )
                 return
             r = int(r)
             c = int(c)
@@ -1640,13 +1741,15 @@ class Matrix(MatrixBase):
             flat = [_surface_entry(self[i]) for i in range(len(self))]
             for idx, val in zip(indices, value):
                 flat[idx] = _surface_entry(val)
-            self._surface = flat
-            self._native = _NativeMatrix(self.rows, self.cols, [_native_expr(x) for x in flat])
-            self._mutation_generation += 1
+            self._install_surface(
+                self.rows, self.cols, flat, mutate=True, expected_generation=start_gen,
+            )
             return
         elif isinstance(key, int):
-            r = key // self.cols
-            c = key % self.cols
+            index = key if key >= 0 else key + len(self)
+            if not 0 <= index < len(self):
+                raise IndexError("Matrix index out of bounds")
+            r, c = divmod(index, self.cols)
         else:
             raise TypeError("Matrix index must be an integer, slice, or (row, col) pair")
         r, c = int(r), int(c)
@@ -1657,7 +1760,6 @@ class Matrix(MatrixBase):
         if not (0 <= r < self.rows and 0 <= c < self.cols):
             raise IndexError("Matrix index out of bounds")
         surface = []
-        flat = []
         for i in range(self.rows):
             for j in range(self.cols):
                 if (i, j) == (r, c):
@@ -1665,19 +1767,28 @@ class Matrix(MatrixBase):
                 else:
                     s_elem = _surface_entry(self[i, j])
                 surface.append(s_elem)
-                flat.append(_native_expr(s_elem))
-        self._surface = surface
-        self._native = _NativeMatrix(self.rows, self.cols, flat)
-        self._mutation_generation += 1
+        self._install_surface(
+            self.rows, self.cols, surface, mutate=True, expected_generation=start_gen,
+        )
+
+    def _require_same_shape(self, other):
+        if self.shape != other.shape:
+            raise ValueError(f"Shape mismatch: {self.rows}x{self.cols} vs {other.rows}x{other.cols}")
 
     def __add__(self, other):
         if not isinstance(other, Matrix):
             raise TypeError(f"Cannot add Matrix and {type(other)}")
+        if self._native_storage is None or other._native_storage is None:
+            self._require_same_shape(other)
+            return self._new(self.rows, self.cols, [self[i] + other[i] for i in range(len(self))])
         return self._new(self._native + other._native)
 
     def __sub__(self, other):
         if not isinstance(other, Matrix):
             raise TypeError(f"Cannot subtract {type(other)} from Matrix")
+        if self._native_storage is None or other._native_storage is None:
+            self._require_same_shape(other)
+            return self._new(self.rows, self.cols, [self[i] - other[i] for i in range(len(self))])
         return self._new(self._native - other._native)
 
     def __neg__(self):
@@ -1686,16 +1797,36 @@ class Matrix(MatrixBase):
     def __matmul__(self, other):
         if not isinstance(other, Matrix):
             raise TypeError(f"Cannot matmul Matrix and {type(other)}")
+        if self._native_storage is None or other._native_storage is None:
+            if self.cols != other.rows:
+                raise ValueError(f"Shape mismatch: {self.rows}x{self.cols} vs {other.rows}x{other.cols}")
+            rows, cols = _matrix_dimensions(self.rows, other.cols)
+            if rows * cols * self.cols > _MAX_MATRIX_MULTIPLICATION_OPS:
+                raise ValueError("matrix multiplication exceeds the operation limit of 10000000")
+            from ..core import Add
+            return self._new(rows, cols, [
+                Add(*(self[r, k] * other[k, c] for k in range(self.cols)))
+                for r in range(rows) for c in range(cols)
+            ])
         return self._new(self._native @ other._native)
 
     def __mul__(self, other):
         if isinstance(other, Matrix):
-            return self._new(self._native @ other._native)
+            return self.__matmul__(other)
         if isinstance(other, (Expr, Basic, int, float)):
+            from ..core._opaque_arithmetic import contains_opaque
+            scalar = _surface_entry(other)
+            if self._native_storage is None or contains_opaque(scalar):
+                return self._new(self.rows, self.cols, [self[i] * scalar for i in range(len(self))])
             return self._new(self._native * _native_expr(other))
         raise TypeError(f"Cannot multiply Matrix and {type(other)}")
 
     def __rmul__(self, other):
+        if isinstance(other, (Expr, Basic, int, float)):
+            from ..core._opaque_arithmetic import contains_opaque
+            scalar = _surface_entry(other)
+            if self._native_storage is None or contains_opaque(scalar):
+                return self._new(self.rows, self.cols, [scalar * self[i] for i in range(len(self))])
         return self.__mul__(other)
 
     def __truediv__(self, other):
@@ -1708,6 +1839,22 @@ class Matrix(MatrixBase):
     def __pow__(self, n):
         if not isinstance(n, int):
             raise TypeError("Matrix power only supports integers")
+        if self._native_storage is None and n >= 0:
+            if not self.is_square:
+                raise ValueError(f"Matrix must be square: shape is {self.rows}x{self.cols}")
+            if n.bit_length() > 64:
+                raise ValueError("shell matrix power exceeds its exponent limit")
+            products = n.bit_count() + max(0, n.bit_length() - 1)
+            if products * self.rows ** 3 > _MAX_MATRIX_MULTIPLICATION_OPS:
+                raise ValueError("shell matrix power exceeds its aggregate operation limit")
+            result, factor = self._new(eye(self.rows)), self
+            while n:
+                if n & 1:
+                    result = result @ factor
+                n >>= 1
+                if n:
+                    factor = factor @ factor
+            return result
         if n < 0:
             return self._new(self.inv()._native ** (-n))
         return self._new(self._native ** n)
@@ -1824,6 +1971,9 @@ class Matrix(MatrixBase):
         return f"Matrix({self.tolist()})"
 
     def _repr_latex_(self):
+        if self._native_storage is None:
+            from ..printing import latex
+            return latex(self)
         return self._native._repr_latex_()
 
     def __eq__(self, other):
@@ -1851,9 +2001,9 @@ class ImmutableDenseMatrix(Matrix):
     """
 
     def __hash__(self):
-        if self._surface is not None:
-            return hash((self.shape, tuple(self._surface)))
-        return hash((self.shape, tuple(self._native.flat())))
+        if self._native_storage is not None:
+            return hash((self.shape, tuple(self._native.flat())))
+        return hash((self.shape, self._surface))
 
     def __setitem__(self, key, value):
         raise TypeError("Cannot set an item on an immutable matrix")
@@ -1909,10 +2059,14 @@ def diag(*entries):
         for elem in entries:
             if isinstance(elem, (list, tuple)):
                 for sub in elem:
-                    flat.append(_native_expr(sub))
+                    flat.append(_surface_entry(sub))
             else:
-                flat.append(_native_expr(elem))
-        return Matrix(_NativeMatrix.diag(flat))
+                flat.append(_surface_entry(elem))
+        from ..core._opaque_arithmetic import contains_opaque
+        if any(contains_opaque(entry) for entry in flat):
+            size = len(flat)
+            return Matrix(size, size, lambda i, j: flat[i] if i == j else 0)
+        return Matrix(_NativeMatrix.diag([_native_expr(entry) for entry in flat]))
 
     blocks = []
     for elem in entries:

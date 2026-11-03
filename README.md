@@ -208,6 +208,51 @@ gates remain open.
 
 ---
 
+## Custom functions in residual systems (development API)
+
+Ordinary arithmetic retains the actual Python function applications, including
+distinct classes with the same printed name. Dense matrices preserve those
+objects through copies, immutable snapshots, mutation, elementary arithmetic,
+and Jacobian construction. A supervised symbolic derivative hook can supply
+the Jacobian used by an explicit numerical callback program:
+
+```python
+from sympy import Function, Matrix, Symbol, compile_hybrid_residual_system
+
+class ConstitutiveLaw(Function):
+    nargs = 1
+
+    def fdiff(self, argindex=1):
+        return 2*self.args[0]
+
+x = Symbol("x")
+residuals = Matrix([ConstitutiveLaw(x) - 4])
+snapshot = residuals.as_immutable()
+jacobian = snapshot.jacobian([x])
+program = compile_hybrid_residual_system(
+    snapshot, [x], jacobian=jacobian,
+    callbacks={ConstitutiveLaw: lambda value: value*value},
+)
+
+residuals[0] = 999                 # The compiled snapshot is unchanged.
+root = program.solve([3.0])       # Matrix([[2.0]]) to numerical tolerance.
+assert abs(float(root[0, 0]) - 2.0) < 1e-10
+```
+
+The supplied Jacobian is a user assertion. Its callback values and root remain
+approximate; this path does not issue a native derivative proof or a root-box
+certificate. Sum, product, power, and supported built-in chain rules compose
+around retained applications. An unknown custom derivative stays a formal
+`Derivative` of the original object; unresolved custom compositions do not yet
+expand into every upstream `Subs` representation.
+
+Opaque expressions have no usable native mirror. Closed numerical compilers,
+verified native algorithms, and unsupported matrix algorithms refuse them.
+Explicit custom commutativity or equality/hash protocols require their own
+supported algebra. Arithmetic graphs and formal differentiation are bounded; arbitrary non-cooperative
+Python hooks retain the existing supervised-boundary limitations. Sparse
+matrices do not yet provide the dense matrix's opaque-cell storage lane.
+
 ## Planned algorithm program
 
 The native program includes proof- or certificate-aware portfolios for:

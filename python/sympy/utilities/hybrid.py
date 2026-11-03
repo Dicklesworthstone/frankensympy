@@ -19,7 +19,8 @@ from ..core import (
 from .lambdify import (
     _MAX_LITERAL_BITS, _MAX_NODES, _MAX_OUTPUTS, _MAX_VARIABLES,
     _argument_layout, _batch_arguments, _call_arguments, _charge,
-    _check_evaluation_budget, _functions, _numeric_source, _outputs, _restore_outputs,
+    _check_evaluation_budget, _functions, _numeric_matrix_snapshot, _numeric_source,
+    _outputs, _restore_outputs,
 )
 
 __all__ = ["compile_numeric_hybrid"]
@@ -28,6 +29,7 @@ _MAX_CALLBACK_CLASSES = 128
 _MAX_GRAPH_ACTIONS = 4096
 _FUNCTION_ARGS = Function.__dict__["_args"]
 _BASIC_VALUE = Basic.__dict__["_value"]
+_SURFACE_ARGS = Basic.__dict__["_surface_args"]
 _NATIVE_FUNCTION_NAMES = ("sin", "cos", "tan", "sinh", "cosh", "tanh", "exp", "ln", "log", "sqrt", "abs")
 _request_state = threading.local()
 
@@ -74,26 +76,7 @@ def _output_snapshot(expression):
             result = tuple(visit(child, depth + 1) for child in children)
             return list(result) if cls is list else result
         if cls is Matrix or cls is ImmutableDenseMatrix or cls is SparseMatrix:
-            rows, columns = value.rows, value.cols
-            if max(rows, columns) > _MAX_OUTPUTS or rows * columns > _MAX_OUTPUTS:
-                raise ValueError("numeric matrix exceeds the output limit")
-            native = object.__getattribute__(value, "_native")
-            if cls is SparseMatrix:
-                surface, generation = None, None
-            else:
-                surface = object.__getattribute__(value, "_surface")
-                generation = object.__getattribute__(value, "_mutation_generation")
-            if surface is not None:
-                if (type(surface) is not list and type(surface) is not tuple) or len(surface) != rows * columns:
-                    raise ValueError("hybrid matrix has an invalid retained surface snapshot")
-                entries = tuple(surface[index] for index in range(rows * columns))
-            else:
-                _native.CompiledFunction._validate_matrix_source(native)
-                entries = tuple(native[(row, col)] for row in range(rows) for col in range(columns))
-            if (value.rows != rows or value.cols != columns
-                    or (generation is not None
-                        and object.__getattribute__(value, "_mutation_generation") != generation)):
-                raise ValueError("hybrid matrix changed during its snapshot")
+            rows, columns, entries = _numeric_matrix_snapshot(value)
             return [[entries[row * columns + col] for col in range(columns)] for row in range(rows)]
         return value
 
@@ -135,6 +118,11 @@ def _snapshot_source(value, bindings, functions, count, depth=0, *, native_admis
             children = descriptor.__get__(value, cls) if descriptor is not None else None
         except AttributeError:
             children = None
+        if children is None and operator is not None:
+            try:
+                children = _SURFACE_ARGS.__get__(value, Basic)
+            except AttributeError:
+                pass
         if children is None:
             # Canonical native storage may have lost opaque Python class
             # identity. Admit closed native tags only; never reconstruct a

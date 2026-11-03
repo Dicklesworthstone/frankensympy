@@ -148,8 +148,10 @@ def test_custom_function_names_cannot_capture_native_intrinsic_nodes(backend):
     assert lambdify(x, after, modules=backend)(0) == 1
     with pytest.raises(NotImplementedError):
         lambdify(x, opaque, modules=backend)
+    retained = Add(opaque, 1)
+    assert any(child is opaque for child in retained.args)
     with pytest.raises(NotImplementedError):
-        Add(opaque, 1)
+        lambdify(x, retained, modules=backend)
     assert type(opaque) is sin
     assert opaque.args == (x,)
     assert calls == []
