@@ -423,6 +423,51 @@ A certificate includes:
 
 The verifier need not repeat the generator's pair-selection strategy.
 
+#### 11.4.1 Bounded zero-dimensional radicals over `QQ`
+
+`fsym-polys::checked_zero_dimensional_radical` returns an immutable
+`VerifiedZeroDimensionalRadical` for the exact original typed ideal
+`I ⊆ QQ[x_1,...,x_n]`. The unit ideal is supported; positive-dimensional
+ideals refuse. The candidate carries independently checked source and target
+Gröbner bases plus one coordinate witness for every variable of a proper ideal.
+The composition verifier requires:
+
+- the source basis to retain every original input, with its coefficients,
+  ordering and typed generator identities;
+- the target basis to describe exactly `J = I + <h_1,...,h_n>`, without
+  dropping original generators or inserting unrelated constraints;
+- each `h_i` to be a monic nonconstant polynomial in only `x_i`;
+- an exact coefficient identity `U_i*h_i + V_i*h_i' = 1`, establishing that
+  the coordinate annihilator is square-free;
+- an exact identity `h_i^k_i = sum(q_ij*G_j)` in the original checked basis,
+  establishing nilpotent membership without trusting the generator's gcd or
+  elimination search.
+
+The target binding proves `I ⊆ J`; the power identities prove `J ⊆ radical(I)`.
+Seidenberg's lemma makes `J` radical because every coordinate has a square-free
+univariate annihilator. Consequently `J = radical(I)`, preserving the complete
+complex point set. The primary reference is Lorenzo Robbiano,
+[*Polynomial Systems and some Applications to Statistics*, Proposition 2.4
+and Corollary 2.5](https://mate.dm.uba.ar/~visita16/cimpa/notes/Robbiano.pdf).
+The implementation checks the Bézout identities directly from coefficient
+indices and reconstructs powers by a dense reference convolution, separately
+from the generator's sparse arithmetic and Euclidean search.
+
+The envelope is 1–8 variables, at most 64 original or augmented generators,
+4096 terms per polynomial and 4096 bits per coefficient component. Coordinate
+degree and nilpotence exponent are at most 64; powered witness degree is at
+most 256. Each whole phase retains the existing cumulative 20-million-compute
+and 128-MiB logical-allocation cap across nested operations. Generator and
+verifier meters remain separate. Exhaustion, cancellation and failed identities
+refuse before publication; `Unbounded` callers do not remove these internal caps.
+
+This is an in-process composition receipt over immutable accepted bases, with
+no unchecked decoder or new portable proof-kernel claim. It preserves distinct
+solution points, not the original scheme multiplicities. A solver using it must
+retain the original-ideal link and independently check its coordinate recovery,
+root coverage and requested real/complex domain. This bounded component does
+not close the broader ideal-algebra, solver or compatibility-profile gates.
+
 ### 11.5 Exact linear algebra
 
 Certificate examples:

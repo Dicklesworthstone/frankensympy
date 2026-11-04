@@ -15,6 +15,7 @@ pub mod ideal;
 pub mod identity;
 pub mod multifactor;
 pub mod multivariate;
+pub mod radical;
 pub mod rational;
 pub mod univariate;
 
@@ -28,6 +29,7 @@ pub use ideal::*;
 pub use identity::*;
 pub use multifactor::*;
 pub use multivariate::*;
+pub use radical::*;
 pub use rational::*;
 pub use univariate::*;
 
