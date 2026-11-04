@@ -15,8 +15,9 @@ use crate::numeric_budget::{
 use fsym_budget::BudgetMeter;
 use fsym_calculus::VerifiedObjective;
 use fsym_core::{
-    BigRational, ObjectiveEnclosure, RootBoxWitness, StationaryPointKind, StationaryPointReceipt,
-    metered_enclose_objective, verify_stationary_point,
+    BigRational, BoxExtremumKind, BoxExtremumReceipt, ObjectiveEnclosure, RootBoxWitness,
+    StationaryPointKind, StationaryPointReceipt, metered_enclose_objective,
+    verify_box_extremum, verify_stationary_point,
 };
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
@@ -132,6 +133,41 @@ impl PyVerifiedObjective {
             )
         })?;
         let result = PyStationaryPointReceipt { receipt };
+        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
+        Ok(result)
+    }
+
+    /// Check global convex/concave optimality of an exact point on a closed box.
+    #[pyo3(signature = (domain, point, kind="minimum", precision_digits=32, *, budget=None))]
+    fn certify_box_extremum(
+        &self,
+        domain: &Bound<'_, PyAny>,
+        point: &Bound<'_, PyAny>,
+        kind: &str,
+        precision_digits: u32,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<PyBoxExtremumReceipt> {
+        let kind = match kind {
+            "minimum" => BoxExtremumKind::Minimum,
+            "maximum" => BoxExtremumKind::Maximum,
+            _ => return Err(PyValueError::new_err("kind must be 'minimum' or 'maximum'")),
+        };
+        let dimension = self.objective.variables().len();
+        let py = domain.py();
+        let domain = exact_box(domain, dimension, budget.as_deref())?;
+        let point = exact_vector(point, dimension, budget.as_deref())?;
+        let receipt = with_certification_meter(py, budget.as_deref(), |meter| {
+            verify_box_extremum(
+                self.objective.objective(),
+                self.objective.variables(),
+                &domain,
+                &point,
+                kind,
+                precision_digits,
+                meter,
+            )
+        })?;
+        let result = PyBoxExtremumReceipt { receipt };
         with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
         Ok(result)
     }
@@ -343,5 +379,78 @@ impl PyStationaryPointReceipt {
             StationaryPointKind::Saddle => "saddle",
             StationaryPointKind::Unclassified => "unclassified",
         }
+    }
+}
+
+/// Accepted global-on-box optimality, with no public constructor.
+#[pyclass(name = "BoxExtremumReceipt", module = "fsym_python", frozen)]
+pub struct PyBoxExtremumReceipt {
+    receipt: BoxExtremumReceipt,
+}
+
+#[pymethods]
+impl PyBoxExtremumReceipt {
+    #[getter]
+    fn objective(&self) -> PyExpr {
+        PyExpr::from_expr(self.receipt.objective().clone())
+    }
+
+    #[getter]
+    fn variables(&self) -> Vec<PySymbolBinding> {
+        self.receipt
+            .variables()
+            .iter()
+            .map(PySymbolBinding::from_symbol)
+            .collect()
+    }
+
+    #[getter]
+    fn domain(&self) -> Vec<(PyExpr, PyExpr)> {
+        ball_bounds(self.receipt.domain())
+    }
+
+    #[getter]
+    fn point(&self) -> Vec<PyExpr> {
+        self.receipt.point().iter().map(rational_expr).collect()
+    }
+
+    #[getter]
+    fn precision_digits(&self) -> u32 {
+        self.receipt.precision_digits()
+    }
+
+    #[getter]
+    fn kind(&self) -> &'static str {
+        match self.receipt.kind() {
+            BoxExtremumKind::Minimum => "minimum",
+            BoxExtremumKind::Maximum => "maximum",
+        }
+    }
+
+    #[getter]
+    fn value(&self) -> (PyExpr, PyExpr) {
+        (
+            rational_expr(&self.receipt.value().lower()),
+            rational_expr(&self.receipt.value().upper()),
+        )
+    }
+
+    #[getter]
+    fn gradient(&self) -> Vec<(PyExpr, PyExpr)> {
+        ball_bounds(self.receipt.gradient())
+    }
+
+    #[getter]
+    fn hessian(&self) -> Vec<Vec<(PyExpr, PyExpr)>> {
+        self.receipt
+            .hessian()
+            .iter()
+            .map(|row| ball_bounds(row))
+            .collect()
+    }
+
+    #[getter]
+    fn uniqueness_proved(&self) -> bool {
+        self.receipt.uniqueness_proved()
     }
 }

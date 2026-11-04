@@ -100,6 +100,25 @@ class _ObjectiveCallable:
             self, box, center, preconditioner, precision, budget=budget,
         )
 
+    def certify_box_extremum(self, box, point, *, kind="minimum", precision=32,
+                             budget=None):
+        """Prove a global minimum or maximum on a declared closed real box.
+
+        The exact rational candidate may lie on a boundary face. Independent
+        native second-order evaluation checks the original source on the full
+        box, sufficient convexity/concavity, and exact first-order face signs.
+        The returned BoxExtremumReceipt encloses the optimum value; it reports
+        uniqueness only when proved. No claim extends outside the box.
+
+        Bounds and point coordinates must be exact rational inputs in flat
+        variable order. Captured assumptions and one optional cumulative
+        EvaluationBudget cover the same stages as the other certified methods.
+        """
+        from ._certified_objective import certify_box_extremum
+        return certify_box_extremum(
+            self, box, point, kind, precision, budget=budget,
+        )
+
     def solve_stationary_certified(self, initial, *, tol=1e-12, maxiter=200,
                                    precision=32, max_attempts=12, budget=None):
         """Find and independently certify one nonsingular stationary point.

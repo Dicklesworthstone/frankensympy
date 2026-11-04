@@ -1354,7 +1354,7 @@ from .utilities.hybrid import compile_numeric_hybrid
 from .utilities.hybrid_system import compile_hybrid_residual_system
 from .utilities.objective import StationarySearchError, compile_objective
 from .utilities._certified_numeric import ResidualJacobianEnclosure, RootBoxReceipt
-from .utilities._certified_objective import ObjectiveEnclosure, StationaryPointReceipt
+from .utilities._certified_objective import BoxExtremumReceipt, ObjectiveEnclosure, StationaryPointReceipt
 
 
 def sstr(expr: Any) -> str:
@@ -2425,6 +2425,7 @@ __all__ = [
     "RootBoxReceipt",
     "ObjectiveEnclosure",
     "StationaryPointReceipt",
+    "BoxExtremumReceipt",
     "count_ops",
     "real_roots",
     "factor_terms",

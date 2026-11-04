@@ -11,7 +11,7 @@ from ._certified_numeric import (
     _check_assumptions, _native_box, _native_number, _rational, _sequence,
 )
 
-__all__ = ["ObjectiveEnclosure", "StationaryPointReceipt"]
+__all__ = ["ObjectiveEnclosure", "StationaryPointReceipt", "BoxExtremumReceipt"]
 
 
 def _interval(bounds):
@@ -138,6 +138,60 @@ class StationaryPointReceipt(_ObjectiveReceipt):
                 f"kind={self.kind!r}, domain={self.domain!r}, claim={self.claim!r})")
 
 
+class BoxExtremumReceipt(_ObjectiveReceipt):
+    """A global minimum or maximum on the declared closed rational box.
+
+    The point is exact. Native original-source curvature and first-order checks
+    establish optimality throughout this box, including boundary faces.
+    A false uniqueness_proved leaves uniqueness unresolved; it does not assert
+    that multiple optimizers exist. No claim extends outside the declared box.
+    """
+    __slots__ = ()
+
+    def __init__(self, receipt):
+        if hasattr(self, "_receipt"):
+            raise AttributeError("accepted objective receipts are immutable")
+        if type(receipt) is not _native.BoxExtremumReceipt:
+            raise TypeError("an accepted native box-extremum receipt is required")
+        object.__setattr__(self, "_receipt", receipt)
+
+    @property
+    def point(self):
+        return tuple(_wrap(value) for value in self._receipt.point)
+
+    @property
+    def kind(self):
+        return self._receipt.kind
+
+    @property
+    def value(self):
+        """Enclosure of the optimum value, evaluated at the exact candidate."""
+        return _interval(self._receipt.value)
+
+    @property
+    def gradient(self):
+        """Gradient enclosure at the exact optimizer."""
+        return _bounds(self._receipt.gradient)
+
+    @property
+    def hessian(self):
+        """Hessian enclosure throughout the complete declared box."""
+        return tuple(_bounds(row) for row in self._receipt.hessian)
+
+    @property
+    def uniqueness_proved(self):
+        return self._receipt.uniqueness_proved
+
+    @property
+    def claim(self):
+        return f"global {self.kind} on the declared closed box"
+
+    def __repr__(self):
+        return (f"BoxExtremumReceipt(point={self.point!r}, kind={self.kind!r}, "
+                f"value={self.value!r}, uniqueness_proved={self.uniqueness_proved!r}, "
+                f"domain={self.domain!r})")
+
+
 def _prepare_box(program, box, precision, *, stationary, budget):
     dimension = program.native_objective.variable_count
     if not 1 <= dimension <= _MAX_VARIABLES:
@@ -216,5 +270,29 @@ def certify_stationary_point(program, box, center, preconditioner, precision, *,
         precision, budget=budget,
     )
     result = StationaryPointReceipt(receipt)
+    _check_evaluation_budget(budget)
+    return result
+
+
+def certify_box_extremum(program, box, point, kind, precision, *, budget=None):
+    """Submit an exact candidate; only the original-source checker accepts."""
+    _check_evaluation_budget(budget)
+    if type(kind) is not str:
+        raise TypeError("box-extremum kind must be an exact string")
+    if kind not in ("minimum", "maximum"):
+        raise ValueError("kind must be 'minimum' or 'maximum'")
+    box = _prepare_box(program, box, precision, stationary=False, budget=budget)
+    point = tuple(_rational(value, budget)
+                  for value in _sequence(point, len(box), "point"))
+    for (lo, hi), value in zip(box, point):
+        _charge_exact_work(budget, lo, hi, value, operations=2)
+        if not lo <= value <= hi:
+            raise ValueError("box-extremum point must lie inside the declared box")
+    receipt = _call_budgeted(
+        program.native_objective.certify_box_extremum,
+        _native_box(box, budget), [_native_number(value, budget) for value in point],
+        kind, precision, budget=budget,
+    )
+    result = BoxExtremumReceipt(receipt)
     _check_evaluation_budget(budget)
     return result

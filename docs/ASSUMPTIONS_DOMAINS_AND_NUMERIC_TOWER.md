@@ -1222,3 +1222,49 @@ backtracking, typed coordinates, deliberately inaccurate or forged candidates,
 failed retries, shared budgets and cancellation. Source and independent model
 reviews are recorded as such; actual native-extension execution remains pending
 after the local executor outage. No campaign or compatibility gate is closed.
+
+## Python box-extremum certificates
+
+Compiled objectives expose the independent box-extremum checker through
+`certify_box_extremum(box, point, kind="minimum", precision=32, budget=None)`.
+The result is an immutable `BoxExtremumReceipt`, exported from both public
+namespaces. It records the original objective, typed variables, exact point,
+closed domain, extremum kind, optimum-value bounds, point gradient,
+whole-box Hessian and `uniqueness_proved`.
+
+For example, the minimum below lies on the first coordinate's boundary, so
+its full gradient does not vanish:
+
+```python
+from sympy import compile_objective, symbols
+
+x, y = symbols("x y")
+objective = compile_objective((x + 1)**2 + 2*(y - 2)**2, (x, y))
+result = objective.certify_box_extremum([(0, 3), (0, 4)], [0, 2])
+assert result.point == (0, 2)
+assert result.value == (1, 1)
+assert result.gradient == ((2, 2), (0, 0))
+assert result.uniqueness_proved
+```
+
+All bounds and point coordinates are exact integers, rationals or
+fractions.Fraction values. Floats, custom coercion hooks and inexact source
+literals cannot become exact candidates. The entire box must obey the typed
+assumptions captured during compilation, and each candidate coordinate must
+lie in its matching box interval. Point coordinates are flat even when the
+ordinary numerical callable uses a nested argument layout.
+
+The native object is frozen, has no unchecked constructor, and accepts only
+a result returned by the independent original-source checker. The shell
+adapter likewise refuses arbitrary objects and cannot rewrite receipt
+fields. One supplied EvaluationBudget covers exact input preparation,
+native verification and publication, retaining consumed work on failure.
+Typed operational errors survive nested verification errors, and a final
+checkpoint prevents publication if cancellation arrives after acceptance.
+
+The 27 public cases in `python/tests/test_box_extremum.py` cover boundary
+and interior optima, affine corners, singular convex Hessians, false minima,
+original source holes, tiny exact curvature, typed assumptions, immutable
+receipts, direct native admission, cumulative budgets and cancellation.
+They are authored and independently source-reviewed, with actual extension
+execution pending the unavailable local executor and queued CI.
