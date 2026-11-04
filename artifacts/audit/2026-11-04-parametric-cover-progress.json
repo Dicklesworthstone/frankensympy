@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-11-04T07:09:59Z",
+  "repository": "Dicklesworthstone/frankensympy",
+  "branch": "main",
+  "source_baseline": "439fe200c0b00e6c19db64ea4f0aefdfc3765c07",
+  "source_tree": "122534b62dab8623dd6cbcc00a7c74c7a527c0c6",
+  "verified_native_commits": [
+    "825cb096a1c58af717344f8785f99f6c96b5f321",
+    "08578c0dbc1f21833e2e06be6685252511f5c1cf"
+  ],
+  "implementation_blobs": {
+    "crates/fsym-core/src/root_certificate.rs": "ac999b2355000a7154ea328a4c70c88589425060",
+    "crates/fsym-core/src/root_certificate/parametric_root.rs": "6c74e7a3d32940347e72850cd3d2c0be60fc7559",
+    "crates/fsym-core/src/root_certificate/parametric_cover.rs": "8169aaf12b1942e84e26f4620fd0338362de7b93",
+    "crates/fsym-core/tests/parametric_cover.rs": "7ddd6ca785704620b52f739d7280159de5e8d0ee",
+    "crates/fsym-calculus/src/lib.rs": "f768d51fddb6fd0f2de916b0670d4f9f63c0cf1a",
+    "crates/fsym-calculus/src/parametric_cover.rs": "65f8ba43df9e0077473135d888c9f8728d9406be",
+    "crates/fsym-calculus/tests/certified_parametric_cover.rs": "daaae8b33a2a429bff8a346da1b16e78b6fc4c6b",
+    "crates/fsym-python/src/numeric.rs": "c3b62339f08a49d0067c052e1b917983f75f77a2",
+    "crates/fsym-python/src/lib.rs": "16bd64bc231da062f3f9202f5b02df38be4d76ce",
+    "python/sympy/utilities/_parametric_root.py": "f27e5f83eb2d3d6097ec623ceb5bc00868bd226f",
+    "python/sympy/utilities/_parametric_cover.py": "62bb3d845c86001def8ab45595d8ff7e89af4fcf",
+    "python/sympy/utilities/lambdify.py": "b20fe96d7ea26318f71c5204296a67827eb1fdbd",
+    "python/sympy/utilities/__init__.py": "c5e1dd4c16710be97df63abe0e318673f58b943f",
+    "python/sympy/__init__.py": "d0ae78f70aedb9c7bd8abeeb6b37e09098b96f67",
+    "python/tests/test_parametric_root_cover.py": "315915aa70186dc854c9a11cc9c649a4efc193cc"
+  },
+  "feature": "Complete exact parameter coverage with a unique nonsingular root in one fixed unknown box",
+  "contract": {
+    "authority": "Independent original-source complete partition replay and uniform root verification",
+    "unknown_box": "Identical original X for every leaf",
+    "parameter_cover": "Both closed children of exact midpoint splits; every witness leaf used exactly once with exactly its reconstructed P cell",
+    "shared_faces": "Uniqueness in the same X identifies the same root on shared parameter faces",
+    "root_hull": "Coordinate hull of all accepted leaf root images",
+    "partial_publication": false,
+    "outside_unknown_box_claim": false,
+    "exact_solution_formula_claim": false,
+    "moving_box_continuation_claim": false
+  },
+  "bounds": {
+    "total_variables": 16,
+    "parameter_leaves": 1024,
+    "partition_depth": 64,
+    "precision_digits": [
+      8,
+      128
+    ],
+    "public_input_rational_bits": 4096
+  },
+  "native_validation": {
+    "toolchain": "nightly-2026-08-20",
+    "component_crates": 13,
+    "source_files": 182,
+    "production_package_identities_and_checksums": 87,
+    "normalized_dependency_edges_verified": 212,
+    "tests": {
+      "new_core": 16,
+      "new_generator": 18,
+      "prior_parametric_family": 15,
+      "prior_local_root": 24,
+      "distinct_passed": 73,
+      "reruns_counted_again": false
+    },
+    "strict_clippy": "core/calculus libraries and new integration targets passed with -D warnings",
+    "pinned_formatting": "passed all seven native files",
+    "no_new_oom_kills": true,
+    "evidence": "artifacts/audit/components/2026-11-04-parametric-cover/validation.json",
+    "retained_failures": [
+      "The initial calculus run passed17/18. A held p*p test incorrectly expected two leaves and tight square arithmetic; independent midpoint/radius arithmetic proves four leaves and hull[1/2,8/7]. The source and proof acceptance rules stayed unchanged.",
+      "Initial strict Clippy found collapsible_if in generator tie handling and possible_missing_comma in one singleton test source. Equivalent let-chain/local binding corrections passed final reruns."
+    ]
+  },
+  "public_validation": {
+    "test_functions": 23,
+    "parametrized_cases": 30,
+    "python_ast": "passed",
+    "independent_source_reviews": "core verifier owner and native execution owner passed adapter/bridge/test review",
+    "bridge_pinned_formatting": "passed",
+    "full_bridge_compiled": false,
+    "public_runtime_tests_executed": false
+  },
+  "full_extension_status": "No full-extension check was attempted in this continuation: required exact donor paths and substantial production registry dependencies were absent from the surviving cache; prior full-build history is not promoted to current validation.",
+  "budget_contract": "One source preflight and elementary scratch reservation per native phase; all arithmetic, allocation, evaluation and failed work remain cumulative. One caller/private ledger spans Python preparation, generation, verification and publication.",
+  "claim_statuses_changed": false,
+  "bead_statuses_changed": false,
+  "dependency_edges_changed": false
+}

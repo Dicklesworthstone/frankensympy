@@ -82,15 +82,8 @@ def _fallback_budget():
     )
 
 
-def certify_parametric_root_box(
-        program, unknown_box, parameter_box, center, preconditioner, precision, *, budget=None):
-    """Prepare a bounded proposal, then independently check the entire family."""
-    _check_evaluation_budget(budget)
-    if budget is None:
-        # Proposal and verification must not receive separate default budgets.
-        # This ledger also covers exact preparation and final publication.
-        budget = _fallback_budget()
-    _check_evaluation_budget(budget)
+def _prepare_parametric_domains(program, unknown_box, parameter_box, precision, *, budget):
+    """Capture both exact domains in the compiled unknown/parameter order."""
     dimension = program.native_system.residual_count
     total = program.native_system.variable_count
     if not 1 <= dimension < total <= 16:
@@ -106,6 +99,22 @@ def certify_parametric_root_box(
     unknown_box, parameter_box = product[:dimension], product[dimension:]
     if any(lo == hi for lo, hi in unknown_box):
         raise ValueError("parametric unknown coordinates require positive width")
+    return unknown_box, parameter_box
+
+
+def certify_parametric_root_box(
+        program, unknown_box, parameter_box, center, preconditioner, precision, *, budget=None):
+    """Prepare a bounded proposal, then independently check the entire family."""
+    _check_evaluation_budget(budget)
+    if budget is None:
+        # Proposal and verification must not receive separate default budgets.
+        # This ledger also covers exact preparation and final publication.
+        budget = _fallback_budget()
+    _check_evaluation_budget(budget)
+    unknown_box, parameter_box = _prepare_parametric_domains(
+        program, unknown_box, parameter_box, precision, budget=budget,
+    )
+    dimension = len(unknown_box)
 
     if center is None:
         _charge_exact_work(

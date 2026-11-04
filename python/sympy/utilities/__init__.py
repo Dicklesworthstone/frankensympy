@@ -15,6 +15,7 @@ from .objective import StationarySearchError, compile_objective
 from ._certified_numeric import ResidualJacobianEnclosure, RootBoxReceipt
 from ._root_isolation import RootIsolationReceipt
 from ._parametric_root import ParametricRootBoxReceipt
+from ._parametric_cover import ParametricRootCoverReceipt
 from ._certified_objective import (
     BoxExtremumReceipt, BoxOptimizationReceipt, ObjectiveEnclosure, StationaryPointReceipt,
 )
@@ -30,6 +31,7 @@ __all__ = [
     "ResidualJacobianEnclosure", "RootBoxReceipt",
     "RootIsolationReceipt",
     "ParametricRootBoxReceipt",
+    "ParametricRootCoverReceipt",
     "ObjectiveEnclosure", "StationaryPointReceipt",
     "BoxExtremumReceipt",
     "BoxOptimizationReceipt",

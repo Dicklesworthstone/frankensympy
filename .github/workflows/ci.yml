@@ -190,6 +190,7 @@ jobs:
               "python/tests/test_box_optimization.py",
               "python/tests/test_root_isolation.py",
               "python/tests/test_parametric_root_box.py",
+              "python/tests/test_parametric_root_cover.py",
               "python/tests/test_native_result_lifting.py",
               "python/tests/test_algebraic_composite_identity.py",
               "python/tests/test_algebraic_matrix_spectra.py",

@@ -699,6 +699,34 @@ class _ResidualCallable:
             self, unknown_box, parameter_box, center, preconditioner, precision, budget=budget,
         )
 
+    def cover_parametric_roots_certified(
+            self, unknown_box, parameter_box, *, precision=32, max_leaves=512, budget=None):
+        """Certify a unique root throughout a complete parameter box.
+
+        For m residuals, the first m compiled variables are unknowns and the
+        remaining variables are parameters. Exact bounds, positive-width
+        unknown coordinates, fixed parameter coordinates and captured typed
+        assumptions follow certify_parametric_root_box.
+
+        Automatic native search subdivides only the parameter box, proposing
+        exact midpoint preconditioners for each sub-box. Independent replay
+        checks the complete closed dyadic partition and every original-source
+        uniform root proof. Every leaf uses the same original unknown box;
+        uniqueness therefore agrees on shared parameter faces. No parameter
+        region may be omitted or returned as an accepted partial cover.
+
+        The immutable result contains accepted leaf receipts and a root hull
+        for the entire family. It makes no claim outside the unknown box,
+        of an exact solution formula, or of a requested coordinate accuracy.
+        Precision is 8..128 digits and max_leaves is 1..1024. One supplied
+        EvaluationBudget, or one bounded private ledger, covers preparation,
+        all search attempts, independent replay and final cancellation.
+        """
+        from ._parametric_cover import cover_parametric_roots_certified
+        return cover_parametric_roots_certified(
+            self, unknown_box, parameter_box, precision, max_leaves, budget=budget,
+        )
+
     def isolate_roots_certified(self, box, *, precision=32, max_leaves=512, budget=None):
         """Discover and certify every nonsingular real root in a finite box.
 

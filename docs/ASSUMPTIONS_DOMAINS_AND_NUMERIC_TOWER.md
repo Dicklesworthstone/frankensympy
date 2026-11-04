@@ -1836,3 +1836,34 @@ first search run exposed an overly tight test expectation for held p*p;
 independent exact ball arithmetic corrected the expected four-leaf hull
 without changing its source or the acceptance rules. Initial lint/test
 logs and final source-bound reruns are retained with the feature evidence.
+
+### Python complete-parameter interface
+
+Compiled residual systems expose cover_parametric_roots_certified(
+unknown_box, parameter_box, precision=32, max_leaves=512, budget=None).
+As in the uniform-family interface, the first residual_count compiled
+variables are unknowns and all remaining variables are parameters.
+One shared exact-domain admission helper retains strict built-in bounds,
+captured assumptions, positive-width unknown coordinates, fixed parameter
+coordinates and refusal of Float source literals for both interfaces.
+
+The public ParametricRootCoverReceipt exposes original residuals, typed
+variables and both role groups, both domains and their combined domain,
+precision_digits, leaf_count, the global root_enclosure and a tuple of
+accepted ParametricRootBoxReceipt leaves. Native receipts are frozen with
+no unchecked constructor; shell assignment, deletion and reinitialization
+are rejected. Every leaf retains the original fixed unknown domain.
+
+One caller budget, or one bounded private ledger created before exact
+preparation, covers the native search and independent replay in a single
+native call. Failed cells retain consumption. Exact native publication
+and shell wrapping both retain final cancellation checks.
+
+The 30 public regression cases parse and pass independent source review;
+they have not run against a newly built full Python extension locally.
+The two Rust bridge files pass pinned formatting and independent review,
+not a claimed full-extension compilation. Fresh-extension CI includes the
+public suite. Native source bindings, dependency identities/edges, initial
+failures and final passing logs are recorded in
+artifacts/audit/2026-11-04-parametric-cover-progress.json. The 73 passing
+native cases are component evidence; no campaign or profile gate is closed.
