@@ -110,3 +110,30 @@ def test_recovered_coordinates_use_exact_algebraic_evalf():
     for coordinate in solutions[0]:
         assert isinstance(s.N(coordinate, 50), s.Float)
         assert str(s.N(coordinate, 50)) == str(coordinate.evalf(50))
+
+
+def test_coupled_nilpotents_return_every_distinct_quintic_point():
+    x, y = s.symbols("radical_rur_x radical_rur_y")
+    q = quintic(x)
+    equations = [q*q, q*y, y*y]
+    solutions = s.solve_poly_system(equations, x, y)
+    assert len(solutions) == len(set(solutions)) == 5
+    for first, second in solutions:
+        assert second == 0
+        assert s.Eq(quintic(first), 0) is s.S.true
+    native = dispatch(equations, [x, y])
+    assert native.kind == "real_rur"
+    assert native.multiplicities == [1]*5
+    reversed_solutions = s.solve_poly_system(equations, y, x)
+    assert len(reversed_solutions) == 5
+    assert all(first == 0 for first, _ in reversed_solutions)
+    assert s.nonlinsolve(equations, (x, y)) == s.FiniteSet(*solutions)
+
+
+def test_radical_real_subset_cannot_hide_nonreal_quintic_points():
+    x, y = s.symbols("radical_complex_x radical_complex_y")
+    # Eisenstein at 5; monotonic with one real root and four nonreal roots.
+    q = x**5+5*x+5
+    equations = [q*q, q*y, y*y]
+    with pytest.raises(ValueError):
+        s.solve_poly_system(equations, x, y)

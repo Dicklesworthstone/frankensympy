@@ -18,8 +18,10 @@
 //!
 //! All attempts share separate cumulative generator/verifier caps. Exhausted
 //! work, failed verification and cancellation propagate. A recognition miss
-//! never means an empty set; nonmonogenic nonradical quotients, positive
-//! dimensional systems and forms outside this search remain unsupported.
+//! never means an empty set. If the original finite quotient is not recognized,
+//! a checked zero-dimensional radical removes nilpotents without changing any
+//! complex solution point, and the same bounded shape search is tried again.
+//! Positive-dimensional systems and forms outside this search remain unsupported.
 //! The receipt represents all real solutions. A complex-domain consumer must
 //! additionally require `all_complex_roots_real()` before publishing it as a
 //! complete complex solution set.
@@ -33,8 +35,9 @@ use fsym_budget::{Budget, BudgetError, BudgetLimits, BudgetMeter, Dimension, Met
 use fsym_core::real_roots::{MAX_REAL_ROOT_DEGREE, VerifiedRealRoots};
 use fsym_core::{BigRational, Expr, Symbol};
 use fsym_polys::{
-    MultivariatePoly, TermOrder, VerifiedGroebnerBasis, bounded_groebner_certificate,
-    bounded_polynomial_from_expr, verify_complete_groebner_certificate,
+    MultivariatePoly, TermOrder, VerifiedGroebnerBasis, VerifiedZeroDimensionalRadical,
+    bounded_groebner_certificate, bounded_polynomial_from_expr,
+    checked_zero_dimensional_radical_from_basis, verify_complete_groebner_certificate,
 };
 use num_traits::{One, Zero};
 
@@ -61,6 +64,9 @@ struct CheckedShape {
     // FGLM's input ideal is the previous reduced basis. Retain the independently
     // checked previous receipt so no original transformed equation is lost.
     intermediate: Option<VerifiedGroebnerBasis>,
+    // The optional radical receipt proves equality of complex point sets with
+    // the original ideal; it does not claim to preserve nilpotent multiplicity.
+    radical: Option<Arc<VerifiedZeroDimensionalRadical>>,
 }
 
 impl CheckedShape {
@@ -76,7 +82,9 @@ impl CheckedShape {
 /// For each distinct indexed root `t` of `eliminant`, evaluate each ascending
 /// coordinate vector at `t`. Coordinates follow the original caller order;
 /// the last coordinate need not equal `t`. Repeated roots retain the accepted
-/// quotient multiplicity without duplicating the corresponding tuple.
+/// quotient multiplicity without duplicating the corresponding tuple. When
+/// `radical()` is present this is the reduced quotient's multiplicity, not the
+/// original scheme multiplicity; the complete distinct point set is preserved.
 #[derive(Debug, Clone)]
 pub struct VerifiedRealRurSystem {
     variables: Vec<Symbol>,
@@ -130,6 +138,10 @@ impl VerifiedRealRurSystem {
 
     pub fn all_complex_roots_real(&self) -> bool {
         self.representation.shape.all_complex_roots_real()
+    }
+
+    pub fn radical(&self) -> Option<&VerifiedZeroDimensionalRadical> {
+        self.representation.radical.as_deref()
     }
 }
 
@@ -306,6 +318,23 @@ fn validate_poly(
         check_scalar(coefficient)?;
     }
     Ok(())
+}
+
+fn copy_checked_basis(
+    basis: &VerifiedGroebnerBasis,
+    variables: &[Symbol],
+    work: &mut Work<'_, impl BudgetMeter>,
+) -> Result<VerifiedGroebnerBasis> {
+    work.charge(1, std::mem::size_of::<VerifiedGroebnerBasis>())?;
+    for polynomial in basis.input_basis().iter().chain(basis.basis()) {
+        validate_poly(polynomial, variables, work)?;
+        work.charge(1, ring_bytes(variables) + polynomial.terms().len() * 128)?;
+        for (powers, coefficient) in polynomial.terms() {
+            work.charge(1, powers.len() * 4)?;
+            work.scalar(coefficient)?;
+        }
+    }
+    Ok(basis.clone())
 }
 
 fn fresh_parameter(variables: &[Symbol], work: &mut Work<'_, impl BudgetMeter>) -> Result<Symbol> {
@@ -643,6 +672,20 @@ fn verify_binding(
     work.charge(1, 1)?;
     let shape = &representation.shape;
     let binding_inputs = representation.transformed_basis().input_basis();
+    let represented_inputs = if let Some(radical) = &representation.radical {
+        for input in inputs {
+            validate_poly(input, variables, work)?;
+        }
+        if radical.generators() != variables || radical.inputs() != inputs {
+            return Err(refuse("radical receipt lost its exact original ideal"));
+        }
+        // Its immutable receipt proves that this exact augmented ideal has
+        // precisely the original complex points. The inverse transform must
+        // recover every augmented equation, not merely a compatible basis.
+        radical.basis().input_basis()
+    } else {
+        inputs
+    };
     if variables.is_empty()
         || variables.len() > MAX_VARIABLES
         || inputs.is_empty()
@@ -650,7 +693,8 @@ fn verify_binding(
         || shear.len() + 1 != variables.len()
         || coordinates.len() != variables.len()
         || shape.variables().len() != variables.len()
-        || binding_inputs.len() != inputs.len()
+        || represented_inputs.len() > MAX_EQUATIONS
+        || binding_inputs.len() != represented_inputs.len()
     {
         return Err(refuse(
             "representation dimensions differ from the original system",
@@ -682,7 +726,7 @@ fn verify_binding(
     {
         return Err(refuse("invalid or captured separating transform"));
     }
-    for (input, transformed) in inputs.iter().zip(binding_inputs) {
+    for (input, transformed) in represented_inputs.iter().zip(binding_inputs) {
         validate_poly(input, variables, work)?;
         validate_poly(transformed, shape.variables(), work)?;
         if inverse_substitution(transformed, variables, shear, work)? != *input {
@@ -790,6 +834,53 @@ fn checked_basis<G: BudgetMeter, V: BudgetMeter>(
     Ok(accepted)
 }
 
+fn try_shears<G: BudgetMeter, V: BudgetMeter>(
+    inputs: &[MultivariatePoly],
+    variables: &[Symbol],
+    parameter: &Symbol,
+    generator: &mut Capped<'_, G>,
+    verifier: &mut Capped<'_, V>,
+) -> Result<Option<(CheckedShape, Coefficients)>> {
+    for value in SHEAR_VALUES {
+        let shear = coefficients(value, variables.len(), &mut Work { meter: generator })?;
+        let transformed = transformed_inputs(
+            inputs,
+            variables,
+            parameter,
+            &shear,
+            &mut Work { meter: generator },
+        )?;
+        let intermediate = checked_basis(
+            &transformed,
+            TermOrder::DegRevLex,
+            &format!("shear {value} degree-reverse-lex"),
+            generator,
+            verifier,
+        )?;
+        let (generator_start, verifier_start) = (generator.used[0], verifier.used[0]);
+        let basis = intermediate
+            .fglm(TermOrder::Lex, generator, verifier)
+            .map_err(|error| {
+                refuse(format!(
+                    "shear {value} FGLM after {} generator / {} verifier compute units: {error}",
+                    generator.used[0] - generator_start,
+                    verifier.used[0] - verifier_start,
+                ))
+            })?;
+        if let Some(shape) = metered_real_shape_from_basis(basis, generator, verifier)? {
+            return Ok(Some((
+                CheckedShape {
+                    shape,
+                    intermediate: Some(intermediate),
+                    radical: None,
+                },
+                shear,
+            )));
+        }
+    }
+    Ok(None)
+}
+
 /// Recognize a complete real rational univariate representation using the
 /// original shape order followed by seven small deterministic shears.
 ///
@@ -842,6 +933,21 @@ pub fn metered_solve_real_rur_system(
         &mut verifier,
     )?;
     let finite = basis.is_zero_dimensional();
+    let original_basis = if finite {
+        Work {
+            meter: &mut generator,
+        }
+        .charge(1, 64)?;
+        Some(Arc::new(copy_checked_basis(
+            &basis,
+            variables,
+            &mut Work {
+                meter: &mut generator,
+            },
+        )?))
+    } else {
+        None
+    };
     if let Some(shape) = metered_real_shape_from_basis(basis, &mut generator, &mut verifier)? {
         let shear = coefficients(
             0,
@@ -862,6 +968,7 @@ pub fn metered_solve_real_rur_system(
             CheckedShape {
                 shape,
                 intermediate: None,
+                radical: None,
             },
             &mut generator,
             &mut verifier,
@@ -879,50 +986,93 @@ pub fn metered_solve_real_rur_system(
             meter: &mut generator,
         },
     )?;
-    for value in SHEAR_VALUES {
-        let shear = coefficients(
-            value,
-            variables.len(),
-            &mut Work {
-                meter: &mut generator,
-            },
-        )?;
-        let transformed = transformed_inputs(
-            &inputs,
+    if let Some((representation, shear)) = try_shears(
+        &inputs,
+        variables,
+        &parameter,
+        &mut generator,
+        &mut verifier,
+    )? {
+        return accept(
+            inputs,
             variables,
-            &parameter,
-            &shear,
-            &mut Work {
-                meter: &mut generator,
-            },
-        )?;
-        let intermediate = checked_basis(
-            &transformed,
-            TermOrder::DegRevLex,
-            &format!("shear {value} degree-reverse-lex"),
+            parameter,
+            shear,
+            representation,
             &mut generator,
             &mut verifier,
+        )
+        .map(Some);
+    }
+    // Preserve the existing quotient/multiplicity path first. Only a genuine
+    // recognition miss reaches radicalization; cancellation and exhaustion
+    // have already propagated and cannot reset either cumulative meter.
+    let radical = checked_zero_dimensional_radical_from_basis(
+        original_basis.expect("finite basis retained"),
+        variables,
+        &mut generator,
+        &mut verifier,
+    )
+    .map_err(refuse)?;
+    if radical.changed_ideal() {
+        let reduced_basis = copy_checked_basis(
+            radical.basis(),
+            variables,
+            &mut Work {
+                meter: &mut generator,
+            },
         )?;
-        let (generator_start, verifier_start) = (generator.used[0], verifier.used[0]);
-        let basis = intermediate
-            .fglm(TermOrder::Lex, &mut generator, &mut verifier)
-            .map_err(|error| {
-                refuse(format!(
-                    "shear {value} FGLM after {} generator / {} verifier compute units: {error}",
-                    generator.used[0] - generator_start,
-                    verifier.used[0] - verifier_start,
-                ))
-            })?;
-        if let Some(shape) = metered_real_shape_from_basis(basis, &mut generator, &mut verifier)? {
+        Work {
+            meter: &mut generator,
+        }
+        .charge(
+            1,
+            std::mem::size_of::<VerifiedZeroDimensionalRadical>() + 64,
+        )?;
+        let radical = Arc::new(radical);
+        if let Some(shape) =
+            metered_real_shape_from_basis(reduced_basis, &mut generator, &mut verifier)?
+        {
+            let shear = coefficients(
+                0,
+                variables.len(),
+                &mut Work {
+                    meter: &mut generator,
+                },
+            )?;
+            Work {
+                meter: &mut generator,
+            }
+            .charge(1, variables.last().unwrap().name.len() + 128)?;
+            return accept(
+                inputs,
+                variables,
+                variables.last().unwrap().clone(),
+                shear,
+                CheckedShape {
+                    shape,
+                    intermediate: None,
+                    radical: Some(radical),
+                },
+                &mut generator,
+                &mut verifier,
+            )
+            .map(Some);
+        }
+        if let Some((mut representation, shear)) = try_shears(
+            radical.basis().input_basis(),
+            variables,
+            &parameter,
+            &mut generator,
+            &mut verifier,
+        )? {
+            representation.radical = Some(radical);
             return accept(
                 inputs,
                 variables,
                 parameter,
                 shear,
-                CheckedShape {
-                    shape,
-                    intermediate: Some(intermediate),
-                },
+                representation,
                 &mut generator,
                 &mut verifier,
             )
@@ -983,6 +1133,41 @@ mod reference_checks {
                 meter: &mut Unbounded,
             },
         )
+    }
+
+    #[test]
+    fn radical_composition_cannot_lose_or_rebind_its_original_source() {
+        let result = fixture(&["x**2", "x*y", "y**2"]);
+        assert!(result.radical().is_some());
+        let mut missing = result.clone();
+        missing.representation.radical = None;
+        assert!(
+            check(
+                &missing,
+                result.equations(),
+                result.variables(),
+                result.parameter(),
+                result.shear(),
+                result.coordinates()
+            )
+            .is_err()
+        );
+        for sources in [["2*x**2", "x*y", "y**2"], ["(x-1)**2", "(x-1)*y", "y**2"]] {
+            let other = fixture(&sources);
+            let mut changed = result.clone();
+            changed.representation.radical = other.representation.radical;
+            assert!(
+                check(
+                    &changed,
+                    result.equations(),
+                    result.variables(),
+                    result.parameter(),
+                    result.shear(),
+                    result.coordinates()
+                )
+                .is_err()
+            );
+        }
     }
 
     #[test]

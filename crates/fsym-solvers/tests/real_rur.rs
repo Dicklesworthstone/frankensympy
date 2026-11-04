@@ -2,6 +2,7 @@
 
 use fsym_budget::{Budget, BudgetLimits, BudgetMeter, Dimension, MeterError, Unbounded};
 use fsym_core::{BigInt, BigRational, Expr, Symbol, SymbolIdentity, parse};
+use fsym_solvers::SolverError;
 use fsym_solvers::real_polysys::solve_real_shape_system;
 use fsym_solvers::real_rur::{
     VerifiedRealRurSystem, metered_solve_real_rur_system, solve_real_rur_system,
@@ -168,6 +169,7 @@ fn ordinary_shape_is_kept_without_a_coordinate_change() {
 #[test]
 fn monogenic_nonradical_system_keeps_exact_multiplicities() {
     let result = solve(&["x**2", "y**2-3"], &["x", "y"]);
+    assert!(result.radical().is_none());
     // With t=x+y, (t^2-3)^2=0 and x=(t^3-3t)/6.
     assert_eq!(result.eliminant(), coeffs(&[9, 0, -6, 0, 1]));
     assert_eq!(
@@ -187,6 +189,70 @@ fn monogenic_nonradical_system_keeps_exact_multiplicities() {
             .all(|root| root.multiplicity == 2)
     );
     assert!(result.all_complex_roots_real());
+}
+
+#[test]
+fn nonmonogenic_nilpotents_reduce_to_the_complete_distinct_point_set() {
+    let result = solve(&["x**2", "x*y", "y**2"], &["x", "y"]);
+    assert!(result.radical().is_some());
+    assert_eq!(result.eliminant(), coeffs(&[0, 1]));
+    assert_eq!(result.coordinates(), [coeffs(&[0]), coeffs(&[0, 1])]);
+    assert_eq!(result.roots().intervals().len(), 1);
+    assert_eq!(result.roots().count_with_multiplicity(), 1);
+    assert!(result.all_complex_roots_real());
+    assert_eq!(result.equations().len(), 3);
+}
+
+#[test]
+fn quintic_nonmonogenic_system_preserves_all_five_points_and_caller_order() {
+    let q = "x**5+x**4-4*x**3-3*x**2+3*x+1";
+    let sources = [format!("({q})**2"), format!("({q})*y"), "y**2".into()];
+    let sources: Vec<_> = sources.iter().map(String::as_str).collect();
+    // This is the exact dispatch condition used by the public typed bridge;
+    // the new fallback must be reachable, not only a native-only operation.
+    assert!(matches!(
+        fsym_solvers::polysys::solve_polynomial_system(&equations(&sources), &vars(&["x", "y"])),
+        Err(SolverError::UnsupportedDegree(_))
+    ));
+    assert!(
+        fsym_solvers::polynomial_components::metered_rational_components_system(
+            &equations(&sources),
+            &vars(&["x", "y"]),
+            &mut Unbounded,
+            &mut Unbounded,
+        )
+        .is_ok(),
+        "the nonlinsolve component probe must permit the finite fallback"
+    );
+    let result = solve(&sources, &["x", "y"]);
+    assert!(result.radical().is_some());
+    assert_eq!(result.eliminant(), coeffs(&[1, 3, -3, -4, 1, 1]));
+    assert_eq!(result.coordinates(), [coeffs(&[0, 1]), coeffs(&[0])]);
+    assert_eq!(result.roots().intervals().len(), 5);
+    assert_eq!(result.roots().count_with_multiplicity(), 5);
+    assert!(result.all_complex_roots_real());
+    assert_eq!(result.equations().len(), 3);
+    let reversed = solve(&sources, &["y", "x"]);
+    assert_eq!(reversed.variables(), vars(&["y", "x"]));
+    assert_eq!(reversed.coordinates(), [coeffs(&[0]), coeffs(&[0, 1])]);
+    assert_eq!(reversed.roots().intervals().len(), 5);
+}
+
+#[test]
+fn radicalization_does_not_turn_a_real_subset_into_complete_complex_solutions() {
+    // Eisenstein at 5 rules out a lower-degree factorization. The strictly
+    // positive derivative gives one real root and four nonreal roots, so
+    // the public complex solver must not publish only the real subset.
+    let sources = ["(x**5+5*x+5)**2", "(x**5+5*x+5)*y", "y**2"];
+    assert!(matches!(
+        fsym_solvers::polysys::solve_polynomial_system(&equations(&sources), &vars(&["x", "y"])),
+        Err(SolverError::UnsupportedDegree(_))
+    ));
+    let result = solve(&sources, &["x", "y"]);
+    assert!(result.radical().is_some());
+    assert_eq!(result.eliminant(), coeffs(&[5, 5, 0, 0, 0, 1]));
+    assert_eq!(result.roots().intervals().len(), 1);
+    assert!(!result.all_complex_roots_real());
 }
 
 #[test]
@@ -259,9 +325,6 @@ fn unit_ideal_empty_results_and_unsupported_ideals_stay_distinct() {
         equations(&["x-1"]),
         equations(&["0"]),
         vec![],
-        // The three-dimensional local quotient has two independent square
-        // zero directions, so no linear form generates the whole quotient.
-        equations(&["x**2", "x*y", "y**2"]),
     ] {
         assert!(
             solve_real_rur_system(&input, &vars(&["x", "y"]))
@@ -356,6 +419,7 @@ fn cancellation_propagates_during_search_verification_and_final_publication() {
         equations(&["x**2-x", "y**2-y"]),
         equations(&["x+y-1", "x+y-2"]),
         equations(&["x*y-1"]),
+        equations(&["x**2", "x*y", "y**2"]),
     ] {
         let (mut generator, mut verifier) = (Meter::default(), Meter::default());
         metered_solve_real_rur_system(&input, &variables, &mut generator, &mut verifier).unwrap();
