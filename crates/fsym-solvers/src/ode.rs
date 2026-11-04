@@ -9,6 +9,9 @@ use fsym_simplify::{simplify, try_expand, try_simplify};
 use num_traits::{Signed, Zero};
 use std::sync::Arc;
 
+/// Complete bounded constant-coefficient two-component systems.
+pub mod system;
+
 fn positive_rational_literal(expr: &Expr) -> bool {
     match expr {
         Expr::Integer(value) => value.is_positive(),

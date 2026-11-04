@@ -1916,6 +1916,7 @@ pub mod ntheory;
 pub mod numeric;
 mod numeric_budget;
 pub mod objective;
+mod ode_system;
 mod polynomial_laplace;
 mod polynomial_systems;
 mod quadrature;
@@ -2129,6 +2130,7 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(solve_native, m)?)?;
     m.add_function(wrap_pyfunction!(exact_ode_potential_native, m)?)?;
     m.add_function(wrap_pyfunction!(verify_exact_ode_potential_native, m)?)?;
+    m.add_function(wrap_pyfunction!(ode_system::linear_ode_system_native, m)?)?;
     m.add_function(wrap_pyfunction!(solve_polynomial_system_native, m)?)?;
     m.add_function(wrap_pyfunction!(polynomial_affine_matrix_native, m)?)?;
     m.add_class::<polynomial_systems::PyPolynomialSystemResult>()?;

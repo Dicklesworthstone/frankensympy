@@ -17,6 +17,7 @@ from ..core import (
     _wrap,
 )
 from ..core._function_capabilities import _owner_matches, _owner_record
+from ._ode_system import solve_linear_system_2 as _solve_linear_system_2
 
 
 # Reuse the closed-function implementation policy for ordinary formal ODE
@@ -1344,8 +1345,18 @@ def dsolve(eq, func=None, hint="default", ics=None, **kwargs):
     a complete rational/quadratic graph cannot be lifted safely. Exact rational
     value initial conditions bind those level sets; derivative initial data
     for an implicit solution are not currently supported.
+
+    A list or tuple of two homogeneous first-order equations may describe a
+    coupled system with exact rational constant coefficients and an invertible
+    derivative coefficient matrix. The result is a flat list of two equations,
+    in the explicit function-list order or the order inferred from the source.
+    Value initial conditions may fix either or both coordinates at one rational
+    time; otherwise the constants parameterize normalized initial coordinates.
     """
     from ..core import AppliedUndef, Eq
+
+    if type(eq) in (list, tuple):
+        return _solve_linear_system_2(eq, func, ics=ics, hint=hint, **kwargs)
 
     try:
         sol = _dsolve_general(eq, func, hint, **kwargs)
