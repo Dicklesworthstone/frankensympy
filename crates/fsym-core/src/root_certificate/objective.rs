@@ -358,6 +358,10 @@ fn evaluate_inner(
             }
         }
         Expr::Function(name, arguments) => {
+            if name == "Piecewise" {
+                let selected = work.select_stable_piecewise(arguments, variables, domain, depth)?;
+                return evaluate_inner(selected, variables, domain, depth + 2, work);
+            }
             let [argument] = arguments.as_slice() else {
                 return Err(RootBoxError::Unsupported("non-unary objective function"));
             };

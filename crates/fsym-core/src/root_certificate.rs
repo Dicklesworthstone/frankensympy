@@ -47,6 +47,8 @@ pub use parametric_cover::*;
 mod parametric_sensitivity;
 pub use parametric_sensitivity::*;
 
+mod piecewise;
+
 pub const MAX_ROOT_BOX_NODES: usize = 16_384;
 pub const MAX_ROOT_BOX_DEPTH: usize = 32;
 pub const MAX_ROOT_BOX_LIMBS: u64 = 1_024;
@@ -966,6 +968,10 @@ impl<'a, M: BudgetMeter> Work<'a, M> {
                 }
             }
             Expr::Function(name, args) => {
+                if name == "Piecewise" {
+                    let selected = self.select_stable_piecewise(args, variables, domain, depth)?;
+                    return self.eval(selected, variables, domain, depth + 2);
+                }
                 let [arg] = args.as_slice() else {
                     return Err(RootBoxError::Unsupported("non-unary function"));
                 };
