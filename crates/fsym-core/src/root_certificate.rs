@@ -44,6 +44,9 @@ pub use parametric_root::*;
 mod parametric_cover;
 pub use parametric_cover::*;
 
+mod parametric_sensitivity;
+pub use parametric_sensitivity::*;
+
 pub const MAX_ROOT_BOX_NODES: usize = 16_384;
 pub const MAX_ROOT_BOX_DEPTH: usize = 32;
 pub const MAX_ROOT_BOX_LIMBS: u64 = 1_024;

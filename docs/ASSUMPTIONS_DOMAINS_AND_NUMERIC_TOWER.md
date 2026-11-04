@@ -1867,3 +1867,49 @@ public suite. Native source bindings, dependency identities/edges, initial
 failures and final passing logs are recorded in
 artifacts/audit/2026-11-04-parametric-cover-progress.json. The 73 passing
 native cases are component evidence; no campaign or profile gate is closed.
+
+## Certified implicit sensitivities of accepted root families
+
+metered_enclose_parametric_root_sensitivity and
+metered_enclose_parametric_cover_sensitivity derive bounds on dx_i/dp_j
+from an already accepted immutable uniform-family or complete-cover receipt.
+Only those private acceptance types supply root existence, uniqueness,
+source bindings and complete parameter coverage. No user-provided derivative
+matrix, sampled slope or unchecked root list can authorize the operation.
+
+The checker independently recomputes full original-source J_x and J_p on
+every accepted product cell. With D=I-C*J_x, B=-C*J_p and q=norm_inf(D)<1,
+the actual implicit derivative S satisfies S=B+D*S. For parameter column j,
+let M_j be the maximum absolute bound of all B_ij. Each derivative is
+enclosed by B_ij plus the symmetric radius q*M_j/(1-q). Exact rational
+arithmetic retains the full geometric-series denominator, absolute row
+sums, parameter-column order and original interval variation.
+
+The accepted source is C1 on a neighborhood and the unknown Jacobian is
+nonsingular at every root, so the implicit derivatives exist locally.
+At closed parameter faces the bounds apply to the local implicit extension
+restricted to the box, including fixed parameter coordinates. A cover uses
+the same unique fixed-X family at all shared faces; the final solution
+Jacobian is the coordinate hull of every leaf's derivative enclosure.
+
+One new Work phase preflights the source and reserves elementary scratch
+once for the entire operation. Every leaf's arithmetic, allocation and
+cancellation remain cumulative. This explicit separate operation does not
+increase the work or change acceptance of an ordinary root certificate.
+Resource or precision limits may refuse sensitivity without invalidating
+the original accepted root family.
+
+ParametricSensitivityReceipt privately binds residuals, ordered unknowns
+and parameters, both domains, the accepted root enclosure, precision,
+leaf count, the maximum recomputed contraction bound and solution_jacobian.
+Rows index unknowns and columns index parameters. It has no unchecked
+constructor or deserializer. Bounds can be conservative and promise no
+requested derivative accuracy, exact symbolic formula or outside-box
+existence. Affine families with q=0 yield exact rational sensitivities.
+
+All 15 new native tests pass on pinned nightly-2026-08-20, with strict core
+Clippy and exact formatting. Analytic counterexamples exercise the full
+geometric remainder, absolute row norm, negative defects, coupled signs,
+full parameter dependence, cover seams, fixed/unused parameters, maximum
+dimensions, exact 10**400 derivatives, shared budgets and every cancellation
+checkpoint. Existing cover code is unchanged apart from module registration.
