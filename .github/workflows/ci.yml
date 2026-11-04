@@ -142,7 +142,7 @@ jobs:
           cargo test --locked -p fsym-solvers --lib --test localized_components --test algebraic_components --test polynomial_system --test polynomial_components --test rational_components --test rational_graph --test rational_systems -j1
       - name: Build the full Python extension
         run: cargo build --locked -p fsym-python --features extension-module -j1
-      - name: Exact real-analysis regressions
+      - name: Certified objectives and exact real-analysis regressions
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -170,6 +170,7 @@ jobs:
           raise SystemExit(pytest.main([
               "-q", "-p", "no:cacheprovider",
               "python/tests/test_exact_monotonicity.py",
+              "python/tests/test_certified_objective.py",
           ]))
           PY
       - name: Test the checked-out shell against the current native extension

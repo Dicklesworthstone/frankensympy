@@ -154,7 +154,7 @@ fn exact_buffer<T>(size: usize, budget: Option<&PyEvaluationBudget>) -> PyResult
     with_evaluation_meter_attached(budget, |meter| evaluation_buffer(size, meter))
 }
 
-fn exact_vector(
+pub(crate) fn exact_vector(
     values: &Bound<'_, PyAny>,
     expected: usize,
     budget: Option<&PyEvaluationBudget>,
@@ -171,7 +171,7 @@ fn exact_vector(
     Ok(result)
 }
 
-fn exact_box(
+pub(crate) fn exact_box(
     values: &Bound<'_, PyAny>,
     expected: usize,
     budget: Option<&PyEvaluationBudget>,
@@ -216,7 +216,7 @@ fn exact_box(
     Ok(result)
 }
 
-fn rational_expr(value: &BigRational) -> PyExpr {
+pub(crate) fn rational_expr(value: &BigRational) -> PyExpr {
     PyExpr::from_expr(if value.is_integer() {
         Expr::Integer(value.to_integer())
     } else {
@@ -224,7 +224,7 @@ fn rational_expr(value: &BigRational) -> PyExpr {
     })
 }
 
-fn ball_bounds(values: &[RealBall]) -> Vec<(PyExpr, PyExpr)> {
+pub(crate) fn ball_bounds(values: &[RealBall]) -> Vec<(PyExpr, PyExpr)> {
     values
         .iter()
         .map(|value| (rational_expr(&value.lower()), rational_expr(&value.upper())))

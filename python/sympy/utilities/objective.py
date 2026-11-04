@@ -1,8 +1,9 @@
 """Checked scalar objectives and sparse second derivatives for numerical use.
 
 The native checker admits both differentiation stages and their compiled
-instructions. Evaluation returns approximate finite-real binary64 values;
-these are not interval certificates or proofs of convexity.
+instructions. Evaluation returns approximate finite-real binary64 values.
+Separate enclosure and stationary-point methods independently check the
+original exact source with second-order interval arithmetic.
 """
 
 from ..core import _native, _symbol_binding
@@ -16,14 +17,16 @@ __all__ = ["compile_objective"]
 class _ObjectiveCallable:
     """Argument layout around an immutable, source-bound native objective."""
 
-    __slots__ = ("_layout", "_native_objective", "_variables")
+    __slots__ = ("_layout", "_native_objective", "_variables", "_has_inexact_source", "_assumptions")
 
-    def __init__(self, layout, native, variables):
+    def __init__(self, layout, native, variables, inexact=False, assumptions=None):
         if hasattr(self, "_native_objective"):
             raise AttributeError("compiled objectives are immutable")
         object.__setattr__(self, "_layout", layout)
         object.__setattr__(self, "_native_objective", native)
         object.__setattr__(self, "_variables", tuple(variables))
+        object.__setattr__(self, "_has_inexact_source", inexact)
+        object.__setattr__(self, "_assumptions", assumptions)
 
     def __setattr__(self, name, value):
         raise AttributeError("compiled objectives are immutable")
@@ -44,6 +47,41 @@ class _ObjectiveCallable:
     def hessian_pattern(self):
         """Immutable, ordered (row, column) coordinates of Hessian nonzeros."""
         return tuple(self.native_objective.hessian_pattern)
+
+    def enclose(self, box, *, precision=32, budget=None):
+        """Enclose value, gradient and Hessian from the original exact source.
+
+        ``box`` is a flat list/tuple of exact rational endpoint pairs in
+        ``variables`` order, with 1..16 variables and 8..128 precision digits.
+        Each original operation must be C2 on the complete real box, including
+        operations retained behind a zero multiplier or zero exponent. Source
+        assumptions are the snapshots captured during compilation. Float source
+        literals remain approximate-only. A supplied ``EvaluationBudget`` is
+        cumulative across preparation, native verification and earlier calls.
+        """
+        from ._certified_objective import enclose
+        return enclose(self, box, precision, budget=budget)
+
+    def certify_stationary_point(self, box, *, center=None, preconditioner=None,
+                                 precision=32, budget=None):
+        """Certify a unique nonsingular stationary point inside one real box.
+
+        Bounds, optional center and optional square preconditioner use exact
+        rationals. The default center is the box midpoint. When omitted, the
+        preconditioner is proposed by bounded exact midpoint-Hessian inversion.
+        Native acceptance independently recomputes both derivative orders from
+        the original objective, checks the full C2 domain, strict interior
+        inclusion and contraction. Compiled derivatives are not proof inputs.
+
+        The receipt may classify a strict local minimum, strict local maximum
+        or saddle; an inconclusive curvature test remains ``unclassified``.
+        No global optimum or coverage outside this box is asserted. The same
+        optional caller budget covers proposal and verification without reset.
+        """
+        from ._certified_objective import certify_stationary_point
+        return certify_stationary_point(
+            self, box, center, preconditioner, precision, budget=budget,
+        )
 
     def evaluate_sparse(self, *values, budget=None):
         """Return (value, gradient, sparse Hessian values) after all checks pass.
@@ -101,8 +139,11 @@ def compile_objective(objective, args):
 
     ``evaluate`` returns the value, gradient and dense Hessian. Use
     ``evaluate_sparse`` or ``hessian_vector_product`` to avoid dense output.
-    These are synchronous finite-real binary64 programs, not certified
-    numerical enclosures or positivity/convexity claims. Passing a reusable
+    Those evaluation methods are synchronous finite-real binary64 programs.
+    Separate ``enclose`` and ``certify_stationary_point`` methods independently
+    check the original exact source on complete real boxes using second-order
+    interval arithmetic, with source-bound immutable receipts and local claims.
+    Float source literals remain usable only for approximation. Passing a reusable
     ``EvaluationBudget`` to evaluation methods adds cumulative fuel and native
     buffer accounting with cooperative native safe points. Compilation and
     CPython allocation overhead are outside that ledger; no worker is spawned.
@@ -110,7 +151,10 @@ def compile_objective(objective, args):
     refuse explicitly. No upstream SymPy or Python callback executes the math.
     """
     layout, variables = _argument_layout(args)
-    source = _numeric_source(objective, _functions(), [0])
+    from ._certified_numeric import bound_assumptions
     bindings = [_symbol_binding(variable) for variable in variables]
+    assumptions = bound_assumptions(variables, bindings)
+    inexact = [False]
+    source = _numeric_source(objective, _functions(), [0], inexact=inexact)
     native = _native.VerifiedObjective(source, bindings)
-    return _ObjectiveCallable(layout, native, variables)
+    return _ObjectiveCallable(layout, native, variables, inexact[0], assumptions)

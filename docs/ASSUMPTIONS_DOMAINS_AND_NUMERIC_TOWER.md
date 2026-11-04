@@ -1048,3 +1048,55 @@ by the old fixed samples, a sign-change interval narrower than binary64
 resolution, exact algebraic endpoints, endpoint openness, original held holes
 and refusal propagation. The broad real-analysis and profile gates remain
 open; this extension does not change `function_range` or global extremum APIs.
+
+
+## Python objective certification
+
+The existing `compile_objective(objective, args)` callable now exposes
+`enclose(box, precision=32, budget=None)` and
+`certify_stationary_point(box, center=None, preconditioner=None, precision=32,
+budget=None)`. A box is an exact built-in list or tuple of exact rational
+endpoint pairs, ordered by the compiled variables. Integers, shell rationals
+and `fractions.Fraction` are admitted; floats and custom conversion hooks are
+not. Source Float literals continue to support approximate evaluation but
+refuse certification. Compilation snapshots the symbol assumptions bound to
+the native source, and certification checks the entire box against that
+snapshot.
+
+For example:
+
+```python
+from sympy import symbols, compile_objective
+
+x, y = symbols("x y")
+objective = compile_objective((x - 1)**2 + 2*(y + 2)**2, (x, y))
+bounds = objective.enclose([(0, 2), (-3, -1)])
+point = objective.certify_stationary_point([(0, 2), (-3, -1)])
+assert point.kind == "strict_minimum"
+assert point.stationary_enclosure == ((1, 1), (-2, -2))
+```
+
+`ObjectiveEnclosure` returns exact endpoint pairs for `value`, `gradient`
+and `hessian`. `StationaryPointReceipt` exposes the accepted box, center,
+preconditioner, stationary enclosure, whole-box objective/gradient/Hessian
+enclosures, contraction bound and local classification. Both bind the original
+objective and immutable native symbol handles; neither has an unchecked
+native constructor. Receipt adapters are immutable.
+
+When center and preconditioner are omitted, the shell proposes the box
+midpoint and an exact rational inverse of a midpoint Hessian enclosure.
+This bounded proposal has no acceptance authority: the core checker still
+recomputes the original source over the complete box. An unsupported or
+singular proposal, an inconclusive interval check, exhausted resources or
+cancellation returns no stationary-point receipt. A caller may supply a
+different exact center and preconditioner without changing the acceptance
+criteria.
+
+A reusable `EvaluationBudget` covers exact proposal arithmetic, native
+buffers, verification and the final publication checkpoint cumulatively.
+Compilation and CPython object allocation remain outside that ledger, as in
+the existing numerical API. The public regressions live in
+`python/tests/test_certified_objective.py`; CI loads the actual checked-out
+native extension before running them. This adds a bounded objective lane to
+the active Jacobian campaign, without claiming a global optimizer or closing
+the broad calculus, solver or compatibility workstreams.
