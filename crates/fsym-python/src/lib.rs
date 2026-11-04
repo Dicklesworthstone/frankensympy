@@ -1952,6 +1952,7 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<objective::PyObjectiveEnclosure>()?;
     m.add_class::<objective::PyStationaryPointReceipt>()?;
     m.add_class::<objective::PyBoxExtremumReceipt>()?;
+    m.add_class::<objective::PyBoxOptimizationReceipt>()?;
     m.add_class::<numeric::PyResidualJacobianEnclosure>()?;
     m.add_class::<numeric::PyRootBoxReceipt>()?;
     m.add_class::<quadrature::PyIntegralEnclosureReceipt>()?;

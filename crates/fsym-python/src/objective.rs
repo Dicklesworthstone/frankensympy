@@ -5,8 +5,8 @@
 use crate::binding::PySymbolBinding;
 use crate::expr::PyExpr;
 use crate::numeric::{
-    ball_bounds, check_source, exact_box, exact_vector, extract_variables, input_values_metered,
-    rational_expr,
+    ball_bounds, check_source, exact_box, exact_rational, exact_vector, extract_variables,
+    input_values_metered, rational_expr,
 };
 use crate::numeric_budget::{
     PyEvaluationBudget, evaluation_buffer, with_certification_meter, with_evaluation_meter,
@@ -14,10 +14,12 @@ use crate::numeric_budget::{
 };
 use fsym_budget::BudgetMeter;
 use fsym_calculus::VerifiedObjective;
+use fsym_calculus::box_optimization::{BoxOptimizationOptions, propose_box_optimization};
 use fsym_core::{
-    BigRational, BoxExtremumKind, BoxExtremumReceipt, ObjectiveEnclosure, RootBoxWitness,
-    StationaryPointKind, StationaryPointReceipt, metered_enclose_objective, verify_box_extremum,
-    verify_stationary_point,
+    BigRational, BoxExtremumKind, BoxExtremumReceipt, BoxOptimizationReceipt,
+    MAX_BOX_OPTIMIZATION_LEAVES, ObjectiveEnclosure, RootBoxWitness, StationaryPointKind,
+    StationaryPointReceipt, metered_enclose_objective, verify_box_extremum,
+    verify_box_optimization, verify_stationary_point,
 };
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
@@ -168,6 +170,62 @@ impl PyVerifiedObjective {
             )
         })?;
         let result = PyBoxExtremumReceipt { receipt };
+        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
+        Ok(result)
+    }
+
+    /// Search for a feasible point and independently certify its global
+    /// objective-value error on the complete declared box.
+    #[pyo3(signature = (domain, tolerance, kind="minimum", precision_digits=32, max_leaves=512, *, budget=None))]
+    fn optimize_box(
+        &self,
+        domain: &Bound<'_, PyAny>,
+        tolerance: &Bound<'_, PyAny>,
+        kind: &str,
+        precision_digits: u32,
+        max_leaves: usize,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<PyBoxOptimizationReceipt> {
+        let kind = match kind {
+            "minimum" => BoxExtremumKind::Minimum,
+            "maximum" => BoxExtremumKind::Maximum,
+            _ => return Err(PyValueError::new_err("kind must be 'minimum' or 'maximum'")),
+        };
+        if !(8..=128).contains(&precision_digits) {
+            return Err(PyValueError::new_err("precision must be 8 through 128"));
+        }
+        if !(1..=MAX_BOX_OPTIMIZATION_LEAVES).contains(&max_leaves) {
+            return Err(PyValueError::new_err("max_leaves must be 1 through 1024"));
+        }
+        let py = domain.py();
+        let domain = exact_box(domain, self.objective.variables().len(), budget.as_deref())?;
+        let tolerance = exact_rational(tolerance, budget.as_deref())?;
+        let receipt = with_certification_meter(py, budget.as_deref(), |meter| {
+            let proposed = propose_box_optimization(
+                self.objective.objective(),
+                self.objective.variables(),
+                &domain,
+                kind,
+                &tolerance,
+                BoxOptimizationOptions {
+                    precision_digits,
+                    max_leaves,
+                },
+                meter,
+            )?;
+            // The same caller/fallback ledger spans both phases. No candidate
+            // values or pruned-cell claims enter the independent checker.
+            verify_box_optimization(
+                self.objective.objective(),
+                self.objective.variables(),
+                &domain,
+                kind,
+                &tolerance,
+                &proposed,
+                meter,
+            )
+        })?;
+        let result = PyBoxOptimizationReceipt { receipt };
         with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
         Ok(result)
     }
@@ -452,5 +510,83 @@ impl PyBoxExtremumReceipt {
     #[getter]
     fn uniqueness_proved(&self) -> bool {
         self.receipt.uniqueness_proved()
+    }
+}
+
+/// Global value enclosure and feasible-point suboptimality, without a public
+/// constructor. This is not an exact optimizer or coordinate-distance claim.
+#[pyclass(name = "BoxOptimizationReceipt", module = "fsym_python", frozen)]
+pub struct PyBoxOptimizationReceipt {
+    receipt: BoxOptimizationReceipt,
+}
+
+#[pymethods]
+impl PyBoxOptimizationReceipt {
+    #[getter]
+    fn objective(&self) -> PyExpr {
+        PyExpr::from_expr(self.receipt.objective().clone())
+    }
+
+    #[getter]
+    fn variables(&self) -> Vec<PySymbolBinding> {
+        self.receipt
+            .variables()
+            .iter()
+            .map(PySymbolBinding::from_symbol)
+            .collect()
+    }
+
+    #[getter]
+    fn domain(&self) -> Vec<(PyExpr, PyExpr)> {
+        ball_bounds(self.receipt.domain())
+    }
+
+    #[getter]
+    fn point(&self) -> Vec<PyExpr> {
+        self.receipt.point().iter().map(rational_expr).collect()
+    }
+
+    #[getter]
+    fn precision_digits(&self) -> u32 {
+        self.receipt.precision_digits()
+    }
+
+    #[getter]
+    fn kind(&self) -> &'static str {
+        match self.receipt.kind() {
+            BoxExtremumKind::Minimum => "minimum",
+            BoxExtremumKind::Maximum => "maximum",
+        }
+    }
+
+    #[getter]
+    fn value(&self) -> (PyExpr, PyExpr) {
+        (
+            rational_expr(&self.receipt.value().lower()),
+            rational_expr(&self.receipt.value().upper()),
+        )
+    }
+
+    #[getter]
+    fn point_value(&self) -> (PyExpr, PyExpr) {
+        (
+            rational_expr(&self.receipt.point_value().lower()),
+            rational_expr(&self.receipt.point_value().upper()),
+        )
+    }
+
+    #[getter]
+    fn gap(&self) -> PyExpr {
+        rational_expr(self.receipt.gap())
+    }
+
+    #[getter]
+    fn absolute_tolerance(&self) -> PyExpr {
+        rational_expr(self.receipt.absolute_tolerance())
+    }
+
+    #[getter]
+    fn leaf_count(&self) -> usize {
+        self.receipt.leaf_count()
     }
 }

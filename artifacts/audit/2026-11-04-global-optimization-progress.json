@@ -1,0 +1,193 @@
+{
+  "schema_version": 1,
+  "recorded_at_utc": "2026-11-04T05:15:12Z",
+  "subject": "Independent tolerance-certified global optimization over finite boxes",
+  "source_base_commit": "9cb2741712aecb6255ee17bd9b29982f6182ac0f",
+  "publication_parent_commit": "ff57bee712deb27c646c15454dd56997befac784",
+  "previously_published_feature_commits": [
+    "d7b4b27e00164df071877cd208d6820afdd85cf1",
+    "4132a6b6374af5e8265bec52370309d3263ca003"
+  ],
+  "feature_source_git_blobs": {
+    "crates/fsym-calculus/src/lib.rs": "36c14c73033a2cbc98d897768ff7c47cac8ddec9",
+    "crates/fsym-calculus/src/box_optimization.rs": "98811a4bc4aecb90a8cd8667ce28fae33f618e4b",
+    "crates/fsym-calculus/tests/certified_box_optimization.rs": "39ae7603e7f5f0988f1a321072d6adc010de49d2",
+    "crates/fsym-python/src/numeric.rs": "39c790d376c9f1cf0239a6f35eecc4a4c0af03e8",
+    "crates/fsym-python/src/objective.rs": "eaf95445bfc5393ec1b910c3d13b084c3749efa4",
+    "crates/fsym-python/src/lib.rs": "6a02420f80d6ea40366072cc377a8afd2e12fb43",
+    "python/sympy/utilities/_box_optimization.py": "311b3581b82b82db3348c432eb188a5bf7835115",
+    "python/sympy/utilities/_certified_objective.py": "379b9aac79773f8bd3758486be19bd94688fb100",
+    "python/sympy/utilities/objective.py": "df7f91e21ae0405fb5b389a9f2228adc1925f871",
+    "python/sympy/utilities/__init__.py": "9dd8ddb331424da1c41a33de5401f107cb902387",
+    "python/sympy/__init__.py": "dd2a40e154348c9a6c013e10859ad5bbd42743ae",
+    "python/tests/test_box_optimization.py": "8519d81b719ac54dfe45551698316f6aabe9897f",
+    "crates/fsym-core/src/root_certificate.rs": "dd772d44fed704d1d967d759e2d9199995db8680",
+    "crates/fsym-core/src/root_certificate/box_optimization.rs": "68414da3244b2e048c74ec4f50ac7c8c592226ff",
+    "crates/fsym-core/tests/box_optimization.rs": "f00fe82609b8aa64fc763bb79977edf9e4d10610"
+  },
+  "implementation": {
+    "verifier": "Reconstruct the complete dyadic partition, evaluate every original-source leaf and the feasible point independently, and accept only the correctly oriented exact optimum-value gap.",
+    "generator": "Deterministic metered interval branch-and-bound; retain dominated leaves, prioritize unresolved domains, and return only an untrusted complete-cover witness.",
+    "public_api": "compile_objective(...).optimize_box_certified(box, kind='minimum', tolerance=Fraction(1, 10000), precision=32, max_leaves=512, budget=None)",
+    "claim": "The objective value at the returned feasible point is within the accepted gap of the global optimum value on the declared finite box.",
+    "nonclaims": [
+      "Coordinate-distance accuracy",
+      "Exact optimizer",
+      "Uniqueness",
+      "Complete optimizer set",
+      "Anything outside the declared box"
+    ],
+    "limits": {
+      "variables": [
+        1,
+        16
+      ],
+      "precision_digits": [
+        8,
+        128
+      ],
+      "max_leaves": 1024,
+      "max_depth": 64
+    },
+    "resources": "Search and verification consume one caller ledger within one detached native call; no failed phase or final publication resets resource consumption or cancellation."
+  },
+  "executed_validation": {
+    "toolchain": "nightly-2026-08-20",
+    "compiler": "rustc 1.100.0-nightly (f7d782a3b 2026-08-19)",
+    "workspace_members": [
+      "crates/fsym-core",
+      "crates/fsym-budget",
+      "crates/fsym-id",
+      "crates/fsym-outcome",
+      "crates/fsym-bigint",
+      "crates/fsym-rational",
+      "crates/fsym-modular",
+      "crates/fsym-assumptions",
+      "crates/fsym-calculus",
+      "crates/fsym-evidence",
+      "crates/fsym-polys",
+      "crates/fsym-proof-kernel",
+      "crates/fsym-simplify"
+    ],
+    "source_manifest_file_count": 165,
+    "dependency_package_identities": 87,
+    "verified_dependency_edges": 212,
+    "tests": [
+      {
+        "target": "fsym-core::box_optimization",
+        "passed": 13,
+        "failed": 0,
+        "log": "box-optimization-final-tests.log"
+      },
+      {
+        "target": "fsym-calculus::certified_box_optimization",
+        "passed": 15,
+        "failed": 0,
+        "log": "box-optimization-checked-tests.log"
+      }
+    ],
+    "distinct_optimizer_tests_passed": 28,
+    "clippy": {
+      "status": "passed",
+      "warnings_denied": true,
+      "result": "box-optimization-checked-clippy-result.json"
+    },
+    "rustfmt": {
+      "status": "passed",
+      "native_file_count": 6,
+      "result": "box-optimization-checked-rustfmt-result.json"
+    },
+    "additional_checks": {
+      "python_ast": {
+        "status": "passed",
+        "files": [
+          "python/sympy/utilities/_box_optimization.py",
+          "python/sympy/utilities/_certified_objective.py",
+          "python/sympy/utilities/objective.py",
+          "python/sympy/utilities/__init__.py",
+          "python/sympy/__init__.py",
+          "python/tests/test_box_optimization.py"
+        ],
+        "runtime_tests_executed": false
+      },
+      "rustfmt": {
+        "command": [
+          "/dev/shm/fsym-008248470ba9/rustfmt-exact",
+          "--check",
+          "--edition",
+          "2024",
+          "--config",
+          "skip_children=true",
+          "crates/fsym-calculus/src/lib.rs",
+          "crates/fsym-python/src/objective.rs",
+          "crates/fsym-python/src/numeric.rs",
+          "crates/fsym-python/src/lib.rs"
+        ],
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "full_bridge_compiled": false
+      },
+      "parent_sha": "ff57bee712deb27c646c15454dd56997befac784"
+    },
+    "source_manifest": "box-optimization-checked-inputs.json",
+    "bundle": "artifacts/audit/components/2026-11-04-global-optimization/validation.json",
+    "earlier_attempts": [
+      "Initial core execution used a stale Cargo artifact because source-copy timestamps were preserved. Refreshing target mtimes rebuilt the exact recorded source; the 13-test core rerun passed. The unchanged production wildcard re-export was retained.",
+      "Strict Clippy initially rejected seven clone-to-singleton-slice test expressions. Replacing those with std::slice::from_ref preserved all test inputs and expectations; all 15 calculus tests and strict Clippy then passed.",
+      "The earlier irrational-quartic verifier fixture used an insufficient 128-leaf cover for the unchanged 1/1000 tolerance. The final test uses 256 leaves and preserves its independently known -9/4 optimum and candidate."
+    ],
+    "final_input_change": "Only seven test singleton-slice clone expressions changed between the joint 28-test run and the final 15-test calculus rerun; final core production source and tests are identical.",
+    "limits": [
+      "Native execution is a source-bound 13-crate component workspace based on 9cb2741 plus the recorded quadrature and optimizer changes.",
+      "The source-identical component closure checks production dependency identities/checksums and normalized dependency edges; it is not a full current-main workspace gate.",
+      "Concurrent finite-field, least-squares and geometric-summation commits are preserved in publication, but are outside this recorded native component qualification.",
+      "The published calculus module declaration additionally preserves geometric_sum from the concurrent ff57bee commit. Its tested pre-rebase module blob is 14f2e55f60daebfdd3dbb5601806805ff0b6ddf9; the optimizer production implementation and tests are unchanged."
+    ]
+  },
+  "public_integration_validation": {
+    "test_functions": 22,
+    "parametrized_cases": 34,
+    "python_ast": "passed for all six changed implementation/test files",
+    "independent_source_review": "passed for generator, verifier, bridge, receipt shell, exact admission, shared ledger and publication checks",
+    "bridge_formatting": "passed with the pinned rustfmt",
+    "full_rust_python_bridge_compilation": "not executed",
+    "full_extension_public_tests": "not executed; updated native extension is not available after the prior full-extension build exhausted this environment's memory",
+    "no_unexecuted_test_claims": true
+  },
+  "related_executed_validation": [
+    {
+      "feature": "Signed C2 quadrature",
+      "core_tests": 13,
+      "calculus_tests": 9,
+      "artifact": "artifacts/audit/2026-11-04-c2-quadrature-progress.json"
+    },
+    {
+      "feature": "Recovered prior box extrema, objective enclosures, general root boxes and stationary points",
+      "tests_passed": 51,
+      "source_commit": "9cb2741712aecb6255ee17bd9b29982f6182ac0f",
+      "scope": "Source-identical seven-crate component",
+      "artifact": "artifacts/audit/2026-11-04-c2-quadrature-progress.json"
+    }
+  ],
+  "concurrent_commits_preserved": [
+    "17b2e0e815d8cfd69dd6c1bfe06cd75637aa7e36",
+    "5effbe0aa865ef22f9f705ae30cb3e4d70217567",
+    "ff57bee712deb27c646c15454dd56997befac784"
+  ],
+  "bead_note_update": {
+    "base_blob": "7cc64c89dbdda36eb42fa66fe9b629547fea34bf",
+    "records_changed": 2,
+    "statuses_priorities_dependency_edges_unchanged": true,
+    "other_records_byte_identical": true
+  },
+  "claims_promoted": false,
+  "campaign_or_workstream_status_changed": false,
+  "dependency_edges_changed": false,
+  "remaining_gates": [
+    "Full current extension runtime tests",
+    "Full workspace qualification",
+    "Campaign and workstream gates",
+    "Performance/profile gates"
+  ]
+}

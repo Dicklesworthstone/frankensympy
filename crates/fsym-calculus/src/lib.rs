@@ -2,6 +2,7 @@
 //!
 //! Symbolic differentiation, integration, limits, and series expansion.
 
+pub mod box_optimization;
 pub mod compile;
 pub mod delayed_laplace;
 pub mod elementary_rational_definite;

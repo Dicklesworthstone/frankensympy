@@ -11,7 +11,7 @@ from ._certified_numeric import (
     _check_assumptions, _native_box, _native_number, _rational, _sequence,
 )
 
-__all__ = ["ObjectiveEnclosure", "StationaryPointReceipt", "BoxExtremumReceipt"]
+__all__ = ["ObjectiveEnclosure", "StationaryPointReceipt", "BoxExtremumReceipt", "BoxOptimizationReceipt"]
 
 
 def _interval(bounds):
@@ -190,6 +190,67 @@ class BoxExtremumReceipt(_ObjectiveReceipt):
         return (f"BoxExtremumReceipt(point={self.point!r}, kind={self.kind!r}, "
                 f"value={self.value!r}, uniqueness_proved={self.uniqueness_proved!r}, "
                 f"domain={self.domain!r})")
+
+
+class BoxOptimizationReceipt(_ObjectiveReceipt):
+    """Global optimum-value bounds and a tolerance-optimal feasible point.
+
+    "value" encloses the global minimum or maximum on the full declared
+    box. The objective value at "point" differs from that optimum by at most
+    "gap <= absolute_tolerance". This is not a coordinate-distance bound,
+    an assertion of exact optimality or uniqueness, or a complete optimizer
+    set. The independent native checker reconstructs complete coverage and
+    reevaluates every cell and the feasible point from the original source.
+    """
+    __slots__ = ()
+
+    def __init__(self, receipt):
+        if hasattr(self, "_receipt"):
+            raise AttributeError("accepted objective receipts are immutable")
+        if type(receipt) is not _native.BoxOptimizationReceipt:
+            raise TypeError("an accepted native box-optimization receipt is required")
+        object.__setattr__(self, "_receipt", receipt)
+
+    @property
+    def point(self):
+        return tuple(_wrap(value) for value in self._receipt.point)
+
+    @property
+    def kind(self):
+        return self._receipt.kind
+
+    @property
+    def value(self):
+        """Enclosure of the global optimum value on the complete box."""
+        return _interval(self._receipt.value)
+
+    @property
+    def point_value(self):
+        """Original-source enclosure at the returned exact feasible point."""
+        return _interval(self._receipt.point_value)
+
+    @property
+    def gap(self):
+        """Proved upper bound on objective-value suboptimality."""
+        return _wrap(self._receipt.gap)
+
+    @property
+    def absolute_tolerance(self):
+        return _wrap(self._receipt.absolute_tolerance)
+
+    @property
+    def leaf_count(self):
+        return self._receipt.leaf_count
+
+    @property
+    def claim(self):
+        return (f"global {self.kind} value enclosed on the declared closed box; "
+                "objective value at the feasible point is within the proved gap")
+
+    def __repr__(self):
+        return (f"BoxOptimizationReceipt(point={self.point!r}, kind={self.kind!r}, "
+                f"value={self.value!r}, gap={self.gap!r}, "
+                f"leaf_count={self.leaf_count!r}, domain={self.domain!r})")
 
 
 def _prepare_box(program, box, precision, *, stationary, budget):

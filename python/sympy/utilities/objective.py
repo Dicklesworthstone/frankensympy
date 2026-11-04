@@ -6,6 +6,8 @@ Separate enclosure and stationary-point methods independently check the
 original exact source with second-order interval arithmetic.
 """
 
+from fractions import Fraction
+
 from ..core import _native, _symbol_binding
 from .lambdify import (
     _argument_layout, _call_arguments, _check_evaluation_budget, _functions, _numeric_source,
@@ -117,6 +119,30 @@ class _ObjectiveCallable:
         from ._certified_objective import certify_box_extremum
         return certify_box_extremum(
             self, box, point, kind, precision, budget=budget,
+        )
+
+    def optimize_box_certified(self, box, *, kind="minimum",
+                               tolerance=Fraction(1, 10000), precision=32,
+                               max_leaves=512, budget=None):
+        """Search a finite box and certify a global objective-value error.
+
+        This bounded branch-and-bound search admits nonconvex objectives.
+        Native acceptance reconstructs a complete dyadic partition, checks
+        original-source C2 bounds on every leaf, and reevaluates an exact
+        feasible point. Its BoxOptimizationReceipt encloses the global
+        optimum value and proves that the point's objective value is within
+        "gap <= tolerance" of it. Coordinate distance to an optimizer,
+        uniqueness and complete optimizer sets are not asserted.
+
+        Bounds and tolerance are exact rational inputs. Captured assumptions
+        apply to the entire box. Precision is 8..128 digits and max_leaves is
+        1..1024; a failed bounded search returns no partial receipt. One
+        optional EvaluationBudget covers input preparation, all candidate
+        cells, independent verification and final publication cumulatively.
+        """
+        from ._box_optimization import optimize_box_certified
+        return optimize_box_certified(
+            self, box, kind, tolerance, precision, max_leaves, budget=budget,
         )
 
     def solve_stationary_certified(self, initial, *, tol=1e-12, maxiter=200,

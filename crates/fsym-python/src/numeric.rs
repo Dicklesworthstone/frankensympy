@@ -110,7 +110,7 @@ fn donor_newton_guards(
     })
 }
 
-fn exact_rational(
+pub(crate) fn exact_rational(
     value: &Bound<'_, PyAny>,
     budget: Option<&PyEvaluationBudget>,
 ) -> PyResult<BigRational> {

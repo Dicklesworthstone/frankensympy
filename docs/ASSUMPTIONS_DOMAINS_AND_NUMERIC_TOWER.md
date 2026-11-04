@@ -1423,3 +1423,64 @@ independent analytic values, omitted-region and false-gap mutants, mixed
 curvature, exact tiny tolerances, malformed partitions, actual cumulative
 budgets and cancellation at every checkpoint. These are component results;
 broader workspace, compatibility, campaign and performance gates remain open.
+
+## Automatic tolerance-certified global box optimization
+
+Compiled objectives expose optimize_box_certified(box, kind="minimum",
+tolerance=Fraction(1, 10000), precision=32, max_leaves=512, budget=None).
+The bounded search accepts nonconvex objectives and returns a
+BoxOptimizationReceipt only after the independent complete-cover checker
+recomputes the original source on every leaf and at the feasible point.
+
+For example:
+
+```python
+from fractions import Fraction
+from sympy import compile_objective, symbols
+
+x = symbols("x")
+objective = compile_objective((x**2 - 2)**2, x)
+result = objective.optimize_box_certified(
+    [(-2, 2)], tolerance=Fraction(1, 1000), precision=16,
+)
+assert result.value[0] <= 0 <= result.value[1]
+assert result.gap <= result.absolute_tolerance
+```
+
+The exact minima in this example occur at irrational coordinates. The
+returned rational point is feasible and its objective value is within the
+proved gap of the global minimum; its coordinates are not claimed exact or
+within that numerical gap of an optimizer. Maximization uses kind="maximum".
+
+The native generator uses a deterministic, metered heap of exact interval
+bounds. Unresolved domain cells have priority and block success; a coarse
+interval that cannot establish a denominator's domain may be subdivided.
+Genuine original poles still prevent a receipt. Each admitted cell proposes
+its center and at most one gradient-directed face point. Every leaf remains
+in the partition, including regions that cannot improve the incumbent.
+The generator returns an untrusted witness, never an accepted receipt.
+
+One native call releases the GIL while search and independent verification
+share the same supplied EvaluationBudget or one bounded fallback ledger.
+Each phase reserves elementary scratch once, and arithmetic, allocations,
+failed cells and final publication remain cumulatively charged. Cancellation
+and operational errors retain their distinct public exception types.
+
+The public shell admits exact integers, rationals and Fraction values for
+bounds and tolerance, checks the captured typed assumptions over the full
+box, rejects Float source literals, and uses strict built-in controls.
+The fixed precision is 8..128 digits; max_leaves is 1..1024. Exhaustion or
+inconclusive accuracy returns no partial receipt and never weakens tolerance.
+
+The frozen native receipt and immutable shell wrapper expose objective,
+variables, domain, point, point_value, value, kind, absolute_tolerance, gap,
+precision_digits and leaf_count. There is no unchecked native constructor.
+Both public Python namespaces export BoxOptimizationReceipt.
+
+The 15 generator integration tests and 13 core verifier tests pass on
+nightly-2026-08-20 in the recorded 13-crate component workspace, with strict
+Clippy and exact formatting. The 34 public Python cases parse and have
+independent source review; actual full-extension execution remains pending.
+Source bindings, terminal logs, earlier failed attempts and scope limits are
+in artifacts/audit/2026-11-04-global-optimization-progress.json. No campaign,
+workstream, profile or performance status is promoted.

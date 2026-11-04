@@ -13,7 +13,9 @@ from .hybrid import compile_numeric_hybrid
 from .hybrid_system import compile_hybrid_residual_system
 from .objective import StationarySearchError, compile_objective
 from ._certified_numeric import ResidualJacobianEnclosure, RootBoxReceipt
-from ._certified_objective import BoxExtremumReceipt, ObjectiveEnclosure, StationaryPointReceipt
+from ._certified_objective import (
+    BoxExtremumReceipt, BoxOptimizationReceipt, ObjectiveEnclosure, StationaryPointReceipt,
+)
 
 __all__ = [
     "default_sort_key", "flatten", "has_dups", "has_variety", "numbered_symbols", "ordered",
@@ -26,4 +28,5 @@ __all__ = [
     "ResidualJacobianEnclosure", "RootBoxReceipt",
     "ObjectiveEnclosure", "StationaryPointReceipt",
     "BoxExtremumReceipt",
+    "BoxOptimizationReceipt",
 ]
