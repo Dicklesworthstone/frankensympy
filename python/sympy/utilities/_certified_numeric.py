@@ -84,6 +84,9 @@ class _Receipt:
     def __setattr__(self, name, value):
         raise AttributeError("accepted numerical receipts are immutable")
 
+    def __delattr__(self, name):
+        raise AttributeError("accepted numerical receipts are immutable")
+
     @property
     def residuals(self):
         return tuple(_wrap(value) for value in self._receipt.residuals)

@@ -1354,6 +1354,7 @@ from .utilities.hybrid import compile_numeric_hybrid
 from .utilities.hybrid_system import compile_hybrid_residual_system
 from .utilities.objective import StationarySearchError, compile_objective
 from .utilities._certified_numeric import ResidualJacobianEnclosure, RootBoxReceipt
+from .utilities._root_isolation import RootIsolationReceipt
 from .utilities._certified_objective import (
     BoxExtremumReceipt, BoxOptimizationReceipt, ObjectiveEnclosure, StationaryPointReceipt,
 )
@@ -2425,6 +2426,7 @@ __all__ = [
     "NumericRootCandidate",
     "ResidualJacobianEnclosure",
     "RootBoxReceipt",
+    "RootIsolationReceipt",
     "ObjectiveEnclosure",
     "StationaryPointReceipt",
     "BoxExtremumReceipt",

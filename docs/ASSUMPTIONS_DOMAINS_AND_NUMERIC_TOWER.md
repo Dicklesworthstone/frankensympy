@@ -1652,3 +1652,36 @@ roots, original-domain recovery/refusal, exact tiny values, malformed
 witnesses, shared caller budgets and cancellation. This is a source-bound
 native component qualification; full workspace and public-extension gates
 remain separate.
+
+### Python complete-root interface
+
+compile_residual_system(...).isolate_roots_certified(box, precision=32,
+max_leaves=512, budget=None) exposes automatic complete-cover discovery
+and independent original-source verification through one native call.
+The exact built-in bounds, captured typed assumptions and Float-source
+refusals follow the existing certified numeric interface. When supplied,
+one EvaluationBudget covers preparation, all search cells, independent
+verification and the final cancellation checkpoint.
+
+RootIsolationReceipt is exported from sympy and sympy.utilities. Its roots
+is a tuple of accepted RootBoxReceipt wrappers; root_count is exact for
+the declared closed box. It also exposes residuals, variables, domain,
+precision_digits, leaf_count, excluded_leaf_count and is_root_free.
+The native receipt is frozen and has no unchecked constructor; shell
+receipts reject attribute assignment, deletion and reinitialization.
+
+Example: compile_residual_system([x**2 - 2], [x]) followed by
+isolate_roots_certified([(-2, 2)]) certifies two distinct real roots and
+proves there are no others in that box. A complete zero-root result is
+a root-free proof, whereas unresolved search raises without a partial
+accepted collection.
+
+All 54 distinct native tests described above pass on the pinned compiler.
+The 33 public Python cases are authored, syntax-checked and independently
+source-reviewed; they have not been executed against a newly built full
+extension locally. CI runs this file against its freshly built extension.
+The bridge source passes pinned formatting and independent review, not
+a claimed full-extension compilation. Exact source bindings, terminal
+results (including the corrected initial Clippy failure), dependency
+closure and scope limits are recorded in
+artifacts/audit/2026-11-04-root-isolation-progress.json.

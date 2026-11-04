@@ -669,6 +669,32 @@ class _ResidualCallable:
         from ._certified_numeric import certify_root_box
         return certify_root_box(self, box, center, preconditioner, precision, budget=budget)
 
+    def isolate_roots_certified(self, box, *, precision=32, max_leaves=512, budget=None):
+        """Discover and certify every nonsingular real root in a finite box.
+
+        No initial guess is required. Exact bounds and captured assumptions
+        follow enclose; the system must be square with 1..16 variables and
+        every coordinate must have positive width. The immutable result
+        contains a tuple of RootBoxReceipt objects and an exact root_count.
+        Zero roots proves the entire declared domain is root-free.
+
+        Native search proposes rational root boxes and a complete partition.
+        The independent verifier checks every root against the original
+        source, proves the root boxes distinct, and checks every partition
+        leaf is either root-free or contained in an accepted root box.
+        Root boxes can cross internal subdivision faces. Singular roots,
+        roots on the outer boundary, or unresolved regions prevent a complete
+        receipt; a partial collection is never returned as complete.
+
+        Precision is fixed at 8..128 digits and max_leaves is 1..1024. Search
+        and independent verification share one supplied EvaluationBudget,
+        including failed cells and final cancellation checks. The returned
+        root enclosures carry no requested coordinate tolerance, exact
+        symbolic-coordinate claim, or assertion outside the declared box.
+        """
+        from ._root_isolation import isolate_roots_certified
+        return isolate_roots_certified(self, box, precision, max_leaves, budget=budget)
+
     def solve_certified(self, initial, *, tol=None, maxiter=None,
                         backend="python", max_step_norm=None,
                         precision=32, max_attempts=12, budget=None):

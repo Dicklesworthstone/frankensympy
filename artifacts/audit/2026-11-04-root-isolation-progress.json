@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-11-04T06:17:37Z",
+  "repository": "Dicklesworthstone/frankensympy",
+  "branch": "main",
+  "source_baseline": "2dba46b7aaaacefd9be0e8dba6d6b71676458b54",
+  "verified_feature_commits": [
+    "7885365d9be74d4b098b66d574baecb55a365442",
+    "bed44f7bac9fd83c4aedf4f782768d4218510726"
+  ],
+  "concurrent_commit_preserved": "d660b922e7b3151b012d290512bd1e0150e39080",
+  "feature": "Complete real root isolation in finite closed boxes",
+  "implementation_blobs": {
+    "crates/fsym-core/src/root_certificate.rs": "4070ebfb9e399c041a65b8ae506b605e4a6caab2",
+    "crates/fsym-core/src/root_certificate/root_isolation.rs": "c5fa7047e25b539a8701ffeff18b92a9bd964e03",
+    "crates/fsym-core/tests/root_isolation.rs": "a75dfc0b4e372f963996942c882680a2fb0a10f9",
+    "crates/fsym-calculus/src/lib.rs": "06961b614ed9ec09a001990df207e0a39ca4670c",
+    "crates/fsym-calculus/src/root_isolation.rs": "2ad5815fbb3955ab67e1da55a8ba117298d05e40",
+    "crates/fsym-calculus/tests/certified_root_isolation.rs": "b7bfd4a083255d2683ff6233de5610d94fe2aa9f",
+    "crates/fsym-python/src/numeric.rs": "d48300702f8b08e1528c67fbd5dea119e1bd0060",
+    "crates/fsym-python/src/lib.rs": "14e53444beb09b44eab7174200de61bf6eea05f2",
+    "python/sympy/utilities/_root_isolation.py": "82a99d80bc00d8da362b57d6774a504520aefaaf",
+    "python/sympy/utilities/_certified_numeric.py": "a2e89ca30909e691aceb9e74d9e9577b136c029b",
+    "python/sympy/utilities/lambdify.py": "8f81fb4b6ef155a38f5928ba06ad651112631cb2",
+    "python/sympy/utilities/__init__.py": "047c70851c049cb4375195c3e5fddb837305e899",
+    "python/sympy/__init__.py": "9c32b2a754565289955d7a1b07e1d6b5e05a540e",
+    "python/tests/test_root_isolation.py": "f5dd6248a9164c8881fe7c964d2a6b2250ef4ba7"
+  },
+  "mathematical_contract": {
+    "authority": "Independent original-source verifier; generator output remains untrusted",
+    "coverage": "Complete midpoint partition, every leaf excluded or wholly contained in an accepted local root box",
+    "roots": "Distinct, nonsingular, strictly separated local boxes within original domain; exact number of distinct roots in that domain",
+    "internal_boundaries": "Local boxes may cross internal subdivision faces",
+    "original_domains": "Every residual and its C1 obligations are checked before exclusion",
+    "outside_domain_claim": false,
+    "symbolic_coordinate_claim": false,
+    "partial_publication": false
+  },
+  "bounds": {
+    "variables": [
+      1,
+      16
+    ],
+    "roots": 128,
+    "leaves": 1024,
+    "depth": 64,
+    "precision_digits": [
+      8,
+      128
+    ]
+  },
+  "native_validation": {
+    "toolchain": "nightly-2026-08-20",
+    "scope": "source-bound 13-crate core/calculus dependency closure",
+    "source_files": 176,
+    "packages": 87,
+    "normalized_dependency_edges_verified": 212,
+    "production_dependency_declarations_preserved": true,
+    "tests": {
+      "new_core_verifier": 15,
+      "new_calculus_search": 15,
+      "existing_root_box_general": 15,
+      "existing_root_box_certificate": 9,
+      "distinct_total_passed": 54,
+      "repeated_search_run_counted_again": false
+    },
+    "strict_clippy": "passed final core/calculus libraries and new integration targets",
+    "formatting": "passed exact pinned native formatting",
+    "initial_failed_attempt": "Joint Clippy first found needless_range_loop in generator elimination; a disjoint row traversal correction preserved arithmetic and bounds. Final search tests and strict Clippy pass. Initial logs retained.",
+    "new_oom_kills_during_reported_runs": 0,
+    "evidence": "artifacts/audit/components/2026-11-04-root-isolation/validation.json"
+  },
+  "public_validation": {
+    "python_ast": {
+      "passed": true,
+      "files": [
+        "python/sympy/utilities/_root_isolation.py",
+        "python/sympy/utilities/_certified_numeric.py",
+        "python/sympy/utilities/lambdify.py",
+        "python/sympy/utilities/__init__.py",
+        "python/sympy/__init__.py",
+        "python/tests/test_root_isolation.py"
+      ],
+      "public_test_functions": 21,
+      "parametrized_public_cases": 33,
+      "runtime_tests_executed": false
+    },
+    "rust_bridge": {
+      "formatting": "passed pinned rustfmt",
+      "source_review": "passed independent core/generator owners",
+      "full_compilation": "not executed"
+    }
+  },
+  "review": {
+    "core": "independent generator owner and pinned execution owner reviewed",
+    "generator": "independent core owner reviewed",
+    "public_bridge": "independent core/generator owners reviewed",
+    "issues_resolved": [
+      "all-residual original-domain exclusion",
+      "receipt deletion/reinitialization guard",
+      "full-cover replay and shared-ledger checks"
+    ]
+  },
+  "limitations": [
+    "Full workspace and full fsym-python extension were not compiled in this component validation.",
+    "33 public Python cases are authored and wired into full-extension CI, but not executed locally.",
+    "Singular roots, roots on the requested outer boundary, unsupported sources and unresolved cells produce no complete receipt.",
+    "No campaign, workstream, runtime, performance or compatibility profile gate is closed by component evidence."
+  ],
+  "claim_statuses_changed": false,
+  "bead_statuses_changed": false,
+  "dependency_edges_changed": false
+}

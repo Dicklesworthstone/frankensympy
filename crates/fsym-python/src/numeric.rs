@@ -17,11 +17,13 @@ use crate::numeric_budget::{
 use fsym_budget::{BudgetMeter, Dimension};
 use fsym_calculus::VerifiedResidualSystem;
 use fsym_calculus::compile::{CompiledExpr, EvalError, MAX_COMPILE_DEPTH, MAX_COMPILE_NAME_BYTES};
+use fsym_calculus::root_isolation::{RootIsolationOptions, propose_root_isolation};
 use fsym_calculus::sparse_jacobian::compiled_expression_matches;
 use fsym_calculus::verified::{MAX_VERIFIED_ARTIFACT_BYTES, VerifiedArtifactError};
 use fsym_core::{
-    BigRational, Expr, RealBall, ResidualJacobianEnclosure, RootBoxReceipt, RootBoxWitness, Symbol,
-    metered_enclose_residual_jacobian, verify_root_box,
+    BigRational, Expr, RealBall, ResidualJacobianEnclosure, RootBoxReceipt, RootBoxWitness,
+    RootIsolationReceipt, Symbol, metered_enclose_residual_jacobian, verify_root_box,
+    verify_root_isolation,
 };
 use fsym_numeric_consumer::{
     MAX_CONSUMER_NEWTON_ITERATIONS, MAX_CONSUMER_VARIABLES, NewtonGuards, SystemConsumerError,
@@ -348,6 +350,74 @@ impl PyRootBoxReceipt {
     #[getter]
     fn contraction_bound(&self) -> PyExpr {
         rational_expr(self.receipt.contraction_bound())
+    }
+}
+
+/// Complete original-source root coverage on a finite box, with no public constructor.
+#[pyclass(name = "RootIsolationReceipt", module = "fsym_python", frozen)]
+pub struct PyRootIsolationReceipt {
+    receipt: RootIsolationReceipt,
+}
+
+#[pymethods]
+impl PyRootIsolationReceipt {
+    #[getter]
+    fn residuals(&self) -> Vec<PyExpr> {
+        self.receipt
+            .residuals()
+            .iter()
+            .cloned()
+            .map(PyExpr::from_expr)
+            .collect()
+    }
+
+    #[getter]
+    fn variables(&self) -> Vec<PySymbolBinding> {
+        self.receipt
+            .variables()
+            .iter()
+            .map(PySymbolBinding::from_symbol)
+            .collect()
+    }
+
+    #[getter]
+    fn domain(&self) -> Vec<(PyExpr, PyExpr)> {
+        ball_bounds(self.receipt.domain())
+    }
+
+    #[getter]
+    fn precision_digits(&self) -> u32 {
+        self.receipt.precision_digits()
+    }
+
+    #[getter]
+    fn roots(&self) -> Vec<PyRootBoxReceipt> {
+        self.receipt
+            .roots()
+            .iter()
+            .cloned()
+            .map(|receipt| PyRootBoxReceipt { receipt })
+            .collect()
+    }
+
+    #[getter]
+    fn root_count(&self) -> usize {
+        self.receipt.root_count()
+    }
+
+    #[getter]
+    fn leaf_count(&self) -> usize {
+        self.receipt.leaf_count()
+    }
+
+    #[getter]
+    fn excluded_leaf_count(&self) -> usize {
+        self.receipt.excluded_leaf_count()
+    }
+
+    #[getter]
+    fn is_root_free(&self) -> bool {
+        self.receipt.is_root_free()
     }
 }
 
@@ -1016,6 +1086,51 @@ impl PyVerifiedResidualSystem {
             verify_root_box(&source.residuals, &source.vars, &witness, meter)
         })?;
         let result = PyRootBoxReceipt { receipt };
+        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
+        Ok(result)
+    }
+
+    /// Discover every nonsingular real root in a finite box, or prove it root-free.
+    /// Search proposes a complete cover; independent original-source replay
+    /// alone grants the global receipt. Both phases spend the same ledger.
+    #[pyo3(signature = (domain, precision_digits=32, max_leaves=512, *, budget=None))]
+    fn isolate_roots(
+        &self,
+        domain: &Bound<'_, PyAny>,
+        precision_digits: u32,
+        max_leaves: usize,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<PyRootIsolationReceipt> {
+        if !(8..=128).contains(&precision_digits) {
+            return Err(PyValueError::new_err(
+                "root isolation precision must be between 8 and 128",
+            ));
+        }
+        if !(1..=1024).contains(&max_leaves) {
+            return Err(PyValueError::new_err(
+                "root isolation max_leaves must be between 1 and 1024",
+            ));
+        }
+        let source = self.system.sparse_jacobian();
+        if !(1..=MAX_CERTIFIED_VARIABLES).contains(&source.vars.len())
+            || source.residuals.len() != source.vars.len()
+        {
+            return Err(PyValueError::new_err(
+                "root isolation requires a square system with 1..16 variables",
+            ));
+        }
+        let py = domain.py();
+        let domain = exact_box(domain, source.vars.len(), budget.as_deref())?;
+        let options = RootIsolationOptions {
+            precision_digits,
+            max_leaves,
+        };
+        let receipt = with_certification_meter(py, budget.as_deref(), |meter| {
+            let witness =
+                propose_root_isolation(&source.residuals, &source.vars, &domain, options, meter)?;
+            verify_root_isolation(&source.residuals, &source.vars, &domain, &witness, meter)
+        })?;
+        let result = PyRootIsolationReceipt { receipt };
         with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
         Ok(result)
     }
