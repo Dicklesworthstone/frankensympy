@@ -210,13 +210,34 @@ def test_held_undefined_parameters_are_checked_even_when_the_projector_is_zero(p
     assert parameters[0] is invalid
 
 
-def test_held_function_poles_cannot_be_erased_by_zero_projection():
+@pytest.mark.parametrize("zero_kind", ["literal", "cancellation", "elementary"])
+@pytest.mark.parametrize("parent", ["direct", "zero_product", "zeroth_power"])
+def test_held_function_poles_cannot_be_erased_by_zero_projection(zero_kind, parent):
     x = s.Symbol("least_squares_held_log_zero")
-    for zero in (s.Integer(0), s.Add(x, -x, evaluate=False)):
-        held_log = s.log(zero, evaluate=False)
-        invalid = s.Mul(0, held_log, evaluate=False)
-        with pytest.raises(ValueError):
-            s.eye(1).pinv_solve(s.ones(1, 1), s.Matrix([invalid]))
+    zero = {
+        "literal": s.Integer(0),
+        "cancellation": s.Add(x, -x, evaluate=False),
+        "elementary": s.sin(0, evaluate=False),
+    }[zero_kind]
+    held_log = s.log(zero, evaluate=False)
+    invalid = {
+        "direct": held_log,
+        "zero_product": s.Mul(0, held_log, evaluate=False),
+        "zeroth_power": s.Pow(held_log, 0, evaluate=False),
+    }[parent]
+    parameters = s.Matrix([invalid])
+    with pytest.raises(ValueError, match="undefined held function"):
+        s.eye(1).pinv_solve(s.ones(1, 1), parameters)
+    assert parameters[0] is invalid
+
+
+def test_formal_logarithm_parameters_keep_their_original_domain():
+    x = s.Symbol("least_squares_formal_log")
+    held_log = s.log(x, evaluate=False)
+    # An unresolved symbolic argument is a formal parameter, not a known pole.
+    family = s.zeros(1, 1).pinv_solve(s.zeros(1, 1), s.Matrix([held_log]))
+    assert family[0] == held_log
+    assert s.eye(1).pinv_solve(s.ones(1, 1), s.Matrix([held_log])) == s.ones(1, 1)
 
 
 def test_dimension_height_and_nonfinite_parameter_limits_are_explicit():

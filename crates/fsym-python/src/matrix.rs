@@ -149,22 +149,34 @@ fn admit_least_squares_parameters(matrix: &Matrix) -> PyResult<()> {
             ));
         }
     }
-    // This checker preserves every raw inverse/zeroth-power child, including
-    // polynomial zero bases and children below a held annihilating factor.
-    for entry in matrix.data() {
-        validate_held_transform_domains(entry, &mut meter)?;
-    }
     // Inspect original function nodes separately, before a parent zero could
     // erase a known pole such as held log(0) or log(x-x). Unknown symbolic
     // function values remain formal parameters; this is not a domain solver.
     for function in functions.into_iter().rev() {
         let evaluated =
             fsym_simplify::simplify_with(function, &mut meter).map_err(to_value_error)?;
-        if nonfinite(&evaluated) {
+        // The algebraic simplifier deliberately retains log(0), rather than
+        // choosing an extended-real/complex infinity convention. It can still
+        // prove that a held argument such as x - x is zero. That is already
+        // enough to reject this parameter's original logarithm domain, before
+        // either a parent zero or the nullspace projector erases the node.
+        let logarithm_pole = matches!(
+            &evaluated,
+            Expr::Function(name, arguments)
+                if matches!(name.as_str(), "log" | "ln")
+                    && matches!(arguments.as_slice(), [argument] if argument.is_zero())
+        );
+        if nonfinite(&evaluated) || logarithm_pole {
             return Err(PyValueError::new_err(
                 "least-squares parameter contains an undefined held function",
             ));
         }
+    }
+    // Known function poles above are terminal even below a zeroth power whose
+    // general symbolic base this checker cannot otherwise resolve. Preserve
+    // every raw inverse/zeroth-power child and its polynomial zero obligation.
+    for entry in matrix.data() {
+        validate_held_transform_domains(entry, &mut meter)?;
     }
     meter
         .try_charge_batch(&[(Dimension::ComputeSteps, 1)])
