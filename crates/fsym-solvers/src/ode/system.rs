@@ -1,6 +1,7 @@
 //! Complete homogeneous two-component ODE systems over the rationals.
 //!
-//! The generator uses the trace/discriminant formula for exp(A*(t-t0)).
+//! The generator uses exact spectral projectors for nonnilpotent rank-one
+//! matrices and the trace/discriminant formula otherwise for exp(A*(t-t0)).
 //! Acceptance does not repeat that formula: it differentiates every proposed
 //! matrix entry, checks Phi' = A*Phi, and separately checks Phi(t0) = I.
 //! Constant rational coefficients are smooth on the real line. The checked
@@ -353,15 +354,50 @@ fn generate(
     // Prepay the fixed-width expression assembly and its typed-symbol copies.
     // Recursive radical/function normalization is prepaid separately below.
     charge(meter, 128, 65_536 + 32 * time.name.len())?;
+    let trace = scalar(matrix[0][0].metered_add(&matrix[1][1], meter)?, meter)?;
+    let diagonal = matrix[0][0].metered_mul(&matrix[1][1], meter)?;
+    let cross = matrix[0][1].metered_mul(&matrix[1][0], meter)?;
+    let determinant = scalar(diagonal.metered_sub(&cross, meter)?, meter)?;
+    let offset = scalar(BigRational::zero().metered_sub(point, meter)?, meter)?;
+    if determinant.is_zero() && !trace.is_zero() {
+        // Cayley-Hamilton gives A^2 = trace(A)*A. Thus A/trace(A) and
+        // I-A/trace(A) project onto the two distinct eigenspaces. Keeping the
+        // zero mode exact avoids exp(u/2)*(cosh(u/2)-sinh(u/2)) in the output,
+        // which otherwise obscures constant coordinates and forced IVPs.
+        // The independent checker still differentiates every entry and
+        // checks the full normalized initial matrix; this is only a proposal.
+        let scaled_offset = scalar(trace.metered_mul(&offset, meter)?, meter)?;
+        let exponential = Expr::Function(
+            "exp".into(),
+            vec![sum(vec![
+                product(vec![rational_expr(trace.clone()), Expr::Sym(time.clone())]),
+                rational_expr(scaled_offset),
+            ])],
+        );
+        let increment = sum(vec![exponential, Expr::from_i64(-1)]);
+        let mut fundamental = std::array::from_fn(|_| std::array::from_fn(|_| Expr::from_i64(0)));
+        for row in 0..2 {
+            for column in 0..2 {
+                let coefficient = scalar(matrix[row][column].metered_div(&trace, meter)?, meter)?;
+                fundamental[row][column] = normalize(
+                    sum(vec![
+                        Expr::from_i64(i64::from(row == column)),
+                        product(vec![rational_expr(coefficient), increment.clone()]),
+                    ]),
+                    &[time],
+                    meter,
+                )?;
+            }
+        }
+        meter.checkpoint()?;
+        return Ok(LinearOdeSystemCertificate { fundamental });
+    }
+    let u = sum(vec![Expr::Sym(time.clone()), rational_expr(offset)]);
     let two = BigRational::from(2);
-    let trace = matrix[0][0].metered_add(&matrix[1][1], meter)?;
     let center = scalar(trace.metered_div(&two, meter)?, meter)?;
     let difference = scalar(matrix[0][0].metered_sub(&center, meter)?, meter)?;
     let square = difference.metered_mul(&difference, meter)?;
-    let cross = matrix[0][1].metered_mul(&matrix[1][0], meter)?;
     let discriminant = scalar(square.metered_add(&cross, meter)?, meter)?;
-    let offset = scalar(BigRational::zero().metered_sub(point, meter)?, meter)?;
-    let u = sum(vec![Expr::Sym(time.clone()), rational_expr(offset)]);
     let exponential = if center.is_zero() {
         Expr::from_i64(1)
     } else {

@@ -129,6 +129,12 @@ def _validate_native_region(native):
     """Bound borrowed native input before cloning or Python class recovery."""
     from . import _FLOAT_INTERN, _lookup_known_function
 
+    if type(native) is _native.Expr and native.is_symbol:
+        # A typed symbol has no children to clone and no function class to
+        # recover. Its already-owned name is not numerical compilation work:
+        # ordinary f(symbol) arithmetic must preserve even a name which a
+        # later numerical or ODE entry point refuses under its own limits.
+        return
     _native.CompiledFunction._validate_source(native)
     pending = [native]
     while pending:

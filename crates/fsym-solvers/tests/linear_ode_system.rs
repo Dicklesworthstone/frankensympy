@@ -113,6 +113,71 @@ fn exact_initial_values_at_zero_and_nonzero_times_are_retained() {
 }
 
 #[test]
+fn rank_one_projectors_preserve_exact_zero_modes_and_shifted_exponentials() {
+    let t = Symbol::new("t");
+    let cases = [
+        (
+            matrix([[1, 1], [0, 0]]),
+            q(2, 1),
+            [[e("exp(t-2)"), e("exp(t-2)-1")], [e("0"), e("1")]],
+        ),
+        (
+            matrix([[-1, -2], [-1, -2]]),
+            q(1, 3),
+            [
+                [e("(exp(1-3*t)+2)/3"), e("2*(exp(1-3*t)-1)/3")],
+                [e("(exp(1-3*t)-1)/3"), e("(2*exp(1-3*t)+1)/3")],
+            ],
+        ),
+        (
+            [[q(1, 2), q(1, 3)], [q(3, 4), q(1, 2)]],
+            q(0, 1),
+            [
+                [e("(exp(t)+1)/2"), e("(exp(t)-1)/3")],
+                [e("3*(exp(t)-1)/4"), e("(exp(t)+1)/2")],
+            ],
+        ),
+    ];
+    for (source, point, expected) in cases {
+        let checked = linear_ode_fundamental(&source, &t, &point).unwrap();
+        for (actual, wanted) in checked
+            .fundamental()
+            .iter()
+            .flatten()
+            .zip(expected.iter().flatten())
+        {
+            let difference = actual.clone() - wanted.clone();
+            assert!(
+                fsym_simplify::try_simplify(&fsym_simplify::try_expand(&difference).unwrap())
+                    .unwrap()
+                    .is_zero(),
+                "{actual} != {wanted}"
+            );
+            let mut pending = vec![actual];
+            while let Some(node) = pending.pop() {
+                match node {
+                    Expr::Function(name, arguments) => {
+                        assert_eq!(name, "exp");
+                        pending.extend(arguments);
+                    }
+                    Expr::Add(arguments) | Expr::Mul(arguments) => pending.extend(arguments),
+                    Expr::Pow(base, exponent) => pending.extend([base.as_ref(), exponent.as_ref()]),
+                    _ => {}
+                }
+            }
+        }
+        let mut changed = LinearOdeSystemCertificate {
+            fundamental: checked.fundamental().clone(),
+        };
+        changed.fundamental[0][1] =
+            changed.fundamental[0][1].clone() + Expr::Rational(q(1, 1_000_000_007));
+        assert!(
+            verify_linear_ode_fundamental(&source, &t, &point, changed, &mut Unbounded).is_err()
+        );
+    }
+}
+
+#[test]
 fn initial_normalization_rejects_dependent_or_rescaled_solution_columns() {
     let t = Symbol::new("t");
     let source = matrix([[0, 1], [-1, 0]]);

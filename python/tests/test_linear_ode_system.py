@@ -222,12 +222,24 @@ class LinearOdeSystemTests(unittest.TestCase):
             )
 
     def test_time_text_bound_is_checked_before_typed_native_conversion(self):
-        time = Symbol("t" * 16_385)
-        equations = self.system([[0, 1], [-1, 0]], time)
-        with patch("sympy.solvers._ode_system._symbol_binding",
-                   side_effect=AssertionError("oversized time reached conversion")):
-            with self.assertRaisesRegex(ValueError, "text bound"):
-                dsolve(equations)
+        for time in (Symbol("t" * 16_385), Symbol("t" * 16_385, real=True)):
+            with self.subTest(typed=time.is_real):
+                equations = self.system([[0, 1], [-1, 0]], time)
+                self.assertIs(equations[0].lhs.args[0].args[0], time)
+                with patch("sympy.solvers._ode_system._symbol_binding",
+                           side_effect=AssertionError("oversized time reached conversion")):
+                    with self.assertRaisesRegex(ValueError, "text bound"):
+                        dsolve(equations)
+
+    def test_long_symbolic_function_arguments_do_not_bypass_numeric_compilation_limits(self):
+        time = Symbol("t" * 4097, real=True)
+        node = self.f(time)
+        self.assertIs(1*node, node)
+        self.assertIs(node + 0, node)
+        self.assertIs(node.args[0], time)
+        self.assertEqual((2*node).free_symbols, {time})
+        with self.assertRaisesRegex(ValueError, "4096-byte"):
+            _native.CompiledFunction._validate_source(_native_expr(time))
 
 
 if __name__ == "__main__":

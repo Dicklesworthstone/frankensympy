@@ -141,6 +141,22 @@ fn explicit_forced_rotation_ivp_has_the_hand_derived_unique_solution() {
 }
 
 #[test]
+fn rank_one_partial_initial_family_has_an_exact_exponential_form() {
+    let t = Symbol::new("t");
+    let coefficients = matrix([[1, 1], [0, 0]]);
+    let forcing = [vec![q(0, 1), q(1, 1)], vec![q(1, 1)]];
+    let first = Expr::from_i64(1);
+    let second = Expr::Sym(Symbol::new("C2"));
+    let result =
+        polynomial_ode_system(&coefficients, &t, &q(2, 1), &forcing, [&first, &second]).unwrap();
+    assert_residuals(result.solutions(), &coefficients, &forcing, &t);
+    assert!(simplified(&(result.solutions()[0].clone() - e("(5+C2)*exp(t-2)-2*t-C2"))).is_zero());
+    assert!(simplified(&(result.solutions()[1].clone() - e("C2+t-2"))).is_zero());
+    assert_eq!(initial(&result.solutions()[0], &t, &q(2, 1)), first);
+    assert_eq!(initial(&result.solutions()[1], &t, &q(2, 1)), second);
+}
+
+#[test]
 fn every_matrix_regime_has_complete_forced_families_and_shifted_ivps() {
     let t = Symbol::new("t");
     let constants = [Expr::Sym(Symbol::new("C1")), Expr::Sym(Symbol::new("C2"))];
