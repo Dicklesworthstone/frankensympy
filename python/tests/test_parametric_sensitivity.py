@@ -20,7 +20,11 @@ def rational(value):
 
 
 def identities(variables):
-    return tuple(variable.identity_hex for variable in variables)
+    # The digest describes assumptions, not the whole coordinate. Plain
+    # bindings have no semantic digest; Dummy identity lives in its native name.
+    return tuple((variable.name, variable.plain,
+                  None if variable.plain else variable.identity_hex)
+                 for variable in variables)
 
 
 def affine_family(kind="box"):
@@ -70,8 +74,8 @@ def test_coupled_affine_sensitivities_are_exact_and_keep_both_coordinate_orders(
     # x=p-2q and y=q, so this checks signs as well as matrix orientation.
     assert result.solution_jacobian == (((1, 1), (-2, -2)), ((0, 0), (1, 1)))
     assert result.contraction_bound == 0
-    assert identities(result.unknown_variables) == tuple(_symbol_binding(v).identity_hex for v in (x, y))
-    assert identities(result.parameters) == tuple(_symbol_binding(v).identity_hex for v in (p, q))
+    assert identities(result.unknown_variables) == identities(_symbol_binding(v) for v in (x, y))
+    assert identities(result.parameters) == identities(_symbol_binding(v) for v in (p, q))
 
 
 def test_square_root_family_encloses_both_analytic_derivative_extremes():
@@ -165,7 +169,10 @@ def test_typed_same_name_coordinates_and_captured_assumptions_do_not_rebind():
     result = family.enclose_sensitivity()
     assert_binding(result, family)
     assert result.solution_jacobian == (((3, 3),),)
-    assert result.unknown_variables[0].identity_hex != result.parameters[0].identity_hex
+    assert identities(result.unknown_variables) == identities((_symbol_binding(x),))
+    assert identities(result.parameters) == identities((_symbol_binding(p),))
+    assert identities(result.unknown_variables) != identities(result.parameters)
+    assert result.unknown_variables[0].name != result.parameters[0].name
 
     x = s.Symbol("sensitivity_positive_x", positive=True)
     p = s.Symbol("sensitivity_positive_p", positive=True)
@@ -211,6 +218,8 @@ def test_maximum_coordinate_envelope_preserves_every_row_and_column(unknown_coun
     assert_binding(result, family)
     row = tuple((j+1, j+1) for j in range(len(parameters)))
     assert result.solution_jacobian == (row,)*len(unknowns)
+    assert identities(result.unknown_variables) == identities(_symbol_binding(v) for v in unknowns)
+    assert identities(result.parameters) == identities(_symbol_binding(v) for v in parameters)
 
 
 @pytest.mark.parametrize("kind", ["box", "cover"])

@@ -19,6 +19,14 @@ def rational(value):
     return Fraction(value.p, value.q)
 
 
+def identities(variables):
+    # The digest describes assumptions, not the whole coordinate. Plain
+    # bindings have no semantic digest; Dummy identity lives in its native name.
+    return tuple((variable.name, variable.plain,
+                  None if variable.plain else variable.identity_hex)
+                 for variable in variables)
+
+
 def assert_uniform(receipt, unknown_count, parameter_count):
     assert type(receipt) is s.ParametricRootBoxReceipt
     assert len(receipt.residuals) == unknown_count
@@ -28,9 +36,7 @@ def assert_uniform(receipt, unknown_count, parameter_count):
     assert len(receipt.preconditioner) == unknown_count
     assert all(len(row) == unknown_count for row in receipt.preconditioner)
     assert receipt.domain == receipt.unknown_domain + receipt.parameter_domain
-    assert tuple(v.identity_hex for v in receipt.variables) == tuple(
-        v.identity_hex for v in receipt.unknown_variables + receipt.parameters
-    )
+    assert identities(receipt.variables) == identities(receipt.unknown_variables + receipt.parameters)
     assert 0 <= receipt.contraction_bound < 1
     for (lo, hi), center, (root_lo, root_hi) in zip(
             receipt.unknown_domain, receipt.center, receipt.root_enclosure):
@@ -50,8 +56,8 @@ def test_nonlinear_square_root_family_is_certified_for_the_entire_parameter_inte
     assert result.unknown_domain == ((1, 2),)
     assert result.parameter_domain == ((2, 3),)
     assert result.precision_digits == 16
-    assert result.unknown_variables[0].identity_hex == _symbol_binding(x).identity_hex
-    assert result.parameters[0].identity_hex == _symbol_binding(p).identity_hex
+    assert identities(result.unknown_variables) == identities((_symbol_binding(x),))
+    assert identities(result.parameters) == identities((_symbol_binding(p),))
     lo, hi = map(rational, result.root_enclosure[0])
     # The family's exact extreme roots are sqrt(2) and sqrt(3), not merely
     # the root at the parameter midpoint 5/2.
@@ -73,12 +79,8 @@ def test_coupled_affine_family_preserves_explicit_roles_and_nested_layout():
         (s.Rational(1, 2), s.Rational(1, 2)),
         (s.Rational(1, 2), s.Rational(-1, 2)),
     )
-    assert tuple(v.identity_hex for v in result.unknown_variables) == tuple(
-        _symbol_binding(v).identity_hex for v in (x, y)
-    )
-    assert tuple(v.identity_hex for v in result.parameters) == tuple(
-        _symbol_binding(v).identity_hex for v in (a, b)
-    )
+    assert identities(result.unknown_variables) == identities(_symbol_binding(v) for v in (x, y))
+    assert identities(result.parameters) == identities(_symbol_binding(v) for v in (a, b))
 
 
 @pytest.mark.parametrize("manual_preconditioner", [False, True])
@@ -156,7 +158,7 @@ def test_exact_tiny_parameter_family_never_collapses_through_binary64():
 def test_captured_unknown_and_parameter_assumptions_cannot_be_relabelled():
     x = s.Symbol("parametric_positive_x", positive=True)
     p = s.Symbol("parametric_positive_p", positive=True)
-    bindings = tuple(_symbol_binding(v).identity_hex for v in (x, p))
+    bindings = identities(_symbol_binding(v) for v in (x, p))
     facts = [dict(v._assumptions) for v in (x, p)]
     program = s.compile_residual_system([x-p], (x, p))
     try:
@@ -164,7 +166,7 @@ def test_captured_unknown_and_parameter_assumptions_cannot_be_relabelled():
             variable._assumptions.clear()
             variable._assumptions["negative"] = True
         result = program.certify_parametric_root_box([(Fraction(1, 2), 3)], [(1, 2)])
-        assert tuple(v.identity_hex for v in result.variables) == bindings
+        assert identities(result.variables) == bindings
         assert result.root_enclosure == ((1, 2),)
         with pytest.raises(ValueError, match="positive"):
             program.certify_parametric_root_box([(-1, 3)], [(1, 2)])
@@ -182,9 +184,10 @@ def test_equal_display_names_do_not_merge_unknown_and_parameter_identities():
         [(-2, 2)], [(-1, 1)],
     )
     assert_uniform(result, 1, 1)
-    assert result.unknown_variables[0].identity_hex == _symbol_binding(x).identity_hex
-    assert result.parameters[0].identity_hex == _symbol_binding(p).identity_hex
-    assert result.unknown_variables[0].identity_hex != result.parameters[0].identity_hex
+    assert identities(result.unknown_variables) == identities((_symbol_binding(x),))
+    assert identities(result.parameters) == identities((_symbol_binding(p),))
+    assert identities(result.unknown_variables) != identities(result.parameters)
+    assert result.unknown_variables[0].name != result.parameters[0].name
     assert result.root_enclosure == ((-1, 1),)
 
 

@@ -21,7 +21,11 @@ def rational(value):
 
 
 def identities(variables):
-    return tuple(variable.identity_hex for variable in variables)
+    # The digest describes assumptions, not the whole coordinate. Plain
+    # bindings have no semantic digest; Dummy identity lives in its native name.
+    return tuple((variable.name, variable.plain,
+                  None if variable.plain else variable.identity_hex)
+                 for variable in variables)
 
 
 def assert_cover(receipt, unknown_count, parameter_count):
@@ -80,8 +84,8 @@ def test_adaptive_cover_succeeds_where_one_uniform_box_refuses_without_numerical
     assert result.unknown_domain == ((0, 2),)
     assert result.parameter_domain == ((0, 2),)
     assert result.precision_digits == 16
-    assert identities(result.unknown_variables) == (_symbol_binding(x).identity_hex,)
-    assert identities(result.parameters) == (_symbol_binding(p).identity_hex,)
+    assert identities(result.unknown_variables) == identities((_symbol_binding(x),))
+    assert identities(result.parameters) == identities((_symbol_binding(p),))
     for leaf in result.leaves:
         lo, hi = map(rational, leaf.root_enclosure[0])
         for parameter in map(rational, leaf.parameter_domain[0]):
@@ -122,8 +126,8 @@ def test_nested_argument_order_and_matrix_snapshot_preserve_unknown_and_paramete
     assert result.root_enclosure == ((-3, 3), (-1, 1))
     assert result.leaf_count == 1
     assert result.leaves[0].preconditioner == ((1, -2), (0, 1))
-    assert identities(result.unknown_variables) == tuple(_symbol_binding(v).identity_hex for v in (x, y))
-    assert identities(result.parameters) == tuple(_symbol_binding(v).identity_hex for v in (p, q))
+    assert identities(result.unknown_variables) == identities(_symbol_binding(v) for v in (x, y))
+    assert identities(result.parameters) == identities(_symbol_binding(v) for v in (p, q))
 
 
 def test_multiple_varying_parameter_axes_and_fixed_coordinates_are_all_covered():
@@ -257,7 +261,7 @@ def test_captured_assumptions_and_same_name_typed_roles_survive_later_mutation()
     x = s.Symbol("parameter_cover_positive_x", positive=True)
     p = s.Symbol("parameter_cover_positive_p", positive=True)
     original = [dict(v._assumptions) for v in (x, p)]
-    expected = tuple(_symbol_binding(v).identity_hex for v in (x, p))
+    expected = identities(_symbol_binding(v) for v in (x, p))
     program = s.compile_residual_system([x-p], (x, p))
     try:
         for variable in (x, p):
@@ -277,7 +281,10 @@ def test_captured_assumptions_and_same_name_typed_roles_survive_later_mutation()
     result = s.compile_residual_system([x-p], (x, p)).cover_parametric_roots_certified(
         [(-2, 2)], [(-1, 1)],
     )
-    assert result.unknown_variables[0].identity_hex != result.parameters[0].identity_hex
+    assert identities(result.unknown_variables) == identities((_symbol_binding(x),))
+    assert identities(result.parameters) == identities((_symbol_binding(p),))
+    assert identities(result.unknown_variables) != identities(result.parameters)
+    assert result.unknown_variables[0].name != result.parameters[0].name
     assert result.root_enclosure == ((-1, 1),)
 
 

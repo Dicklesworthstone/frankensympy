@@ -64,6 +64,50 @@ def test_stationary_search_retains_local_curvature_scope(kind):
     assert receipt.contraction_bound == 0
 
 
+@pytest.mark.parametrize("sign", [-1, 1])
+def test_near_zero_candidates_require_strict_zero_containment_within_the_attempt_cap(monkeypatch, sign):
+    x, y = s.symbols("stationary_near_zero_x stationary_near_zero_y")
+    program = s.compile_objective(x*y, (x, y))
+    candidate = [sign*math.ldexp(1.0, -51), -sign*math.ldexp(1.0, -52)]
+    # Reproduce the numerical solver's nonzero roundoff deterministically;
+    # the real original-source checker still owns every acceptance decision.
+    monkeypatch.setattr(search_module(), "_iterate_stationary", lambda *args, **kwargs: candidate)
+    budget = ample_budget()
+    with pytest.raises(s.StationarySearchError) as failed:
+        program.solve_stationary_certified([3, -2], max_attempts=10, budget=budget)
+    assert failed.value.stage == "certification"
+    assert failed.value.attempts == 10
+    remaining = budget.remaining_steps
+
+    receipt = program.solve_stationary_certified([3, -2], budget=budget)
+    assert receipt.center == tuple(s.Rational(*value.as_integer_ratio()) for value in candidate)
+    assert receipt.stationary_enclosure == ((0, 0), (0, 0))
+    assert all(lo < 0 < hi for lo, hi in receipt.domain)
+    assert receipt.kind == "unclassified"
+    assert receipt.contraction_bound == 0
+    assert budget.remaining_steps < remaining
+
+
+@pytest.mark.parametrize("domain", ["positive_assumption", "logarithm"])
+def test_tiny_positive_stationary_roots_keep_their_relative_first_box(domain):
+    x = (s.Symbol("stationary_tiny_positive_" + domain, positive=True)
+         if domain == "positive_assumption" else
+         s.Symbol("stationary_tiny_positive_" + domain))
+    exponent = 100 if domain == "positive_assumption" else 20
+    target = s.Rational(1, 10**exponent)
+    source = (x-target)**2
+    if domain == "logarithm":
+        # The held term contributes zero but retains the original log domain.
+        source = s.Add(source, s.Mul(0, s.log(x), evaluate=False), evaluate=False)
+    receipt = s.compile_objective(source, x).solve_stationary_certified(
+        10.0**-exponent, max_attempts=1,
+    )
+    lo, hi = receipt.domain[0]
+    assert 0 < lo < target < hi
+    assert receipt.stationary_enclosure == ((target, target),)
+    assert receipt.kind == "strict_minimum"
+
+
 def test_coupled_nonlinear_minimum_is_checked_against_the_exact_source():
     x, y = s.symbols("stationary_nonlinear_x stationary_nonlinear_y")
     source = (x*x-2)**2 + (y-x)**2

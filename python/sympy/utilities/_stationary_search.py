@@ -146,6 +146,14 @@ def _search_stationary_box(program, candidate, precision, max_attempts, *, budge
         # One total attempt count covers both directions and precision changes.
         exponent = (0 if attempt == 0 else
                     4 * ((attempt + 1) // 2) * (-1 if attempt % 2 else 1))
+        if exponent > 0:
+            # The default schedule's widest trial used to reach exactly
+            # abs(center), leaving an exact zero on the box boundary when
+            # floating Newton returned a small nonzero residual coordinate.
+            # Widen by one extra bit for strict interior containment. Initial
+            # and narrowing trials stay relative, preserving tiny roots near
+            # positive-domain boundaries without an absolute radius floor.
+            exponent += 1
         _charge_exact_work(budget, *center, *radii, operations=4 * dimension + 1)
         scale = Fraction(1 << exponent) if exponent >= 0 else Fraction(1, 1 << -exponent)
         box = tuple((value - radius * scale, value + radius * scale)

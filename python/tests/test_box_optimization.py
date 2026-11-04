@@ -19,6 +19,14 @@ def rational(value):
     return Fraction(value.p, value.q)
 
 
+def identities(variables):
+    # The digest describes assumptions, not the whole coordinate. Plain
+    # bindings have no semantic digest; Dummy identity lives in its native name.
+    return tuple((variable.name, variable.plain,
+                  None if variable.plain else variable.identity_hex)
+                 for variable in variables)
+
+
 def assert_gap(receipt, tolerance, known_value):
     lower, upper = map(rational, receipt.value)
     point_lower, point_upper = map(rational, receipt.point_value)
@@ -43,7 +51,7 @@ def test_automatic_nonconvex_irrational_minimum_has_a_proved_global_value_gap():
     result = program.optimize_box_certified([(-2, 2)], tolerance=tolerance, precision=16)
     assert type(result) is s.BoxOptimizationReceipt
     assert result.objective == source
-    assert result.variables[0].identity_hex == _symbol_binding(x).identity_hex
+    assert identities(result.variables) == identities((_symbol_binding(x),))
     assert result.domain == ((-2, 2),)
     assert result.kind == "minimum"
     assert result.precision_digits == 16
@@ -198,7 +206,7 @@ def test_captured_assumptions_and_typed_variable_identity_remain_bound_to_the_bo
         x._assumptions.clear()
         x._assumptions["negative"] = True
         result = program.optimize_box_certified([(Fraction(1, 2), 2)])
-        assert result.variables[0].identity_hex == binding.identity_hex
+        assert identities(result.variables) == identities((binding,))
         assert_gap(result, Fraction(1, 10000), Fraction(0))
         with pytest.raises(ValueError, match="positive"):
             program.optimize_box_certified([(-1, 2)])

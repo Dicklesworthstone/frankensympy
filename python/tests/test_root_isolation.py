@@ -19,6 +19,14 @@ def rational(value):
     return Fraction(value.p, value.q)
 
 
+def identities(variables):
+    # The digest describes assumptions, not the whole coordinate. Plain
+    # bindings have no semantic digest; Dummy identity lives in its native name.
+    return tuple((variable.name, variable.plain,
+                  None if variable.plain else variable.identity_hex)
+                 for variable in variables)
+
+
 def assert_complete(receipt, count, domain):
     assert type(receipt) is s.RootIsolationReceipt
     assert receipt.root_count == count == len(receipt.roots)
@@ -32,9 +40,7 @@ def assert_complete(receipt, count, domain):
     for root in receipt.roots:
         assert type(root) is s.RootBoxReceipt
         assert root.residuals == receipt.residuals
-        assert tuple(v.identity_hex for v in root.variables) == tuple(
-            v.identity_hex for v in receipt.variables
-        )
+        assert identities(root.variables) == identities(receipt.variables)
         assert 0 <= root.contraction_bound < 1
         for (outer_lo, outer_hi), (lo, hi), (root_lo, root_hi) in zip(
                 receipt.domain, root.domain, root.root_enclosure):
@@ -59,7 +65,7 @@ def test_all_irrational_roots_are_discovered_without_a_numerical_initial_guess(m
     )
     assert_complete(result, 2, [(-2, 2)])
     assert result.residuals == (source,)
-    assert result.variables[0].identity_hex == _symbol_binding(x).identity_hex
+    assert identities(result.variables) == identities((_symbol_binding(x),))
     assert result.precision_digits == 16
     negative, positive = result.roots
     lo, hi = map(rational, negative.root_enclosure[0])
@@ -78,7 +84,7 @@ def test_coupled_two_dimensional_cover_contains_all_four_distinct_solutions():
     assert_complete(result, 4, [(-2, 2), (-2, 2)])
     for a in (-1, 1):
         for b in (-1, 1):
-            assert sum(lo_x <= a <= hi_x and lo_y <= b <= hi_y
+            assert sum(bool(lo_x <= a <= hi_x and lo_y <= b <= hi_y)
                        for root in result.roots
                        for (lo_x, hi_x), (lo_y, hi_y) in [root.root_enclosure]) == 1
 
@@ -103,7 +109,7 @@ def test_roots_on_internal_dyadic_faces_are_not_omitted_or_duplicated():
     )
     assert_complete(result, 3, [(-2, 2)])
     for expected in (-1, 0, 1):
-        assert sum(root.root_enclosure[0][0] <= expected <= root.root_enclosure[0][1]
+        assert sum(bool(root.root_enclosure[0][0] <= expected <= root.root_enclosure[0][1])
                    for root in result.roots) == 1
     zero = next(root for root in result.roots
                 if root.root_enclosure[0][0] <= 0 <= root.root_enclosure[0][1])
@@ -201,7 +207,7 @@ def test_captured_assumptions_and_typed_symbol_identity_survive_later_mutation()
         x._assumptions.clear()
         x._assumptions["negative"] = True
         result = program.isolate_roots_certified([(Fraction(1, 2), 2)])
-        assert result.variables[0].identity_hex == binding.identity_hex
+        assert identities(result.variables) == identities((binding,))
         assert result.roots[0].root_enclosure == ((1, 1),)
         with pytest.raises(ValueError, match="positive"):
             program.isolate_roots_certified([(-1, 2)])
