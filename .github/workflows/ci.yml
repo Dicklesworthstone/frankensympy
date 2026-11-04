@@ -172,6 +172,7 @@ jobs:
               "-q", "-p", "no:cacheprovider",
               "python/tests/test_exact_monotonicity.py",
               "python/tests/test_certified_objective.py",
+              "python/tests/test_stationary_search.py",
               "python/tests/test_native_result_lifting.py",
               "python/tests/test_algebraic_composite_identity.py",
               "python/tests/test_algebraic_matrix_spectra.py",

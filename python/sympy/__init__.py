@@ -1352,7 +1352,7 @@ from .utilities.lambdify import (
 )
 from .utilities.hybrid import compile_numeric_hybrid
 from .utilities.hybrid_system import compile_hybrid_residual_system
-from .utilities.objective import compile_objective
+from .utilities.objective import StationarySearchError, compile_objective
 from .utilities._certified_numeric import ResidualJacobianEnclosure, RootBoxReceipt
 from .utilities._certified_objective import ObjectiveEnclosure, StationaryPointReceipt
 
@@ -2416,6 +2416,7 @@ __all__ = [
     "compile_residual_system",
     "load_residual_system",
     "compile_objective",
+    "StationarySearchError",
     "EvaluationBudget",
     "EvaluationBudgetExceeded",
     "EvaluationCancelled",

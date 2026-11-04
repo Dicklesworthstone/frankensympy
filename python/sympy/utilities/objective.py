@@ -11,7 +11,24 @@ from .lambdify import (
     _argument_layout, _call_arguments, _check_evaluation_budget, _functions, _numeric_source,
 )
 
-__all__ = ["compile_objective"]
+__all__ = ["StationarySearchError", "compile_objective"]
+
+
+class StationarySearchError(ValueError):
+    """A bounded search did not obtain a local stationary-point certificate.
+
+    "stage" is "candidate" or "certification". "failures" records rejected
+    certificate trials and "attempts" gives their number. An unsuccessful
+    search makes no assertion that a stationary point is absent. Cancellation
+    and exhausted evaluation budgets retain their own exception types instead
+    of becoming this mathematical-search outcome.
+    """
+
+    def __init__(self, stage, message, *, failures=()):
+        self.stage = stage
+        self.failures = tuple(failures)
+        self.attempts = len(self.failures)
+        super().__init__(message)
 
 
 class _ObjectiveCallable:
@@ -83,6 +100,37 @@ class _ObjectiveCallable:
             self, box, center, preconditioner, precision, budget=budget,
         )
 
+    def solve_stationary_certified(self, initial, *, tol=1e-12, maxiter=200,
+                                   precision=32, max_attempts=12, budget=None):
+        """Find and independently certify one nonsingular stationary point.
+
+        "initial" is a finite real scalar for one variable, or a flat
+        list/tuple in "variables" order, including when ordinary evaluation
+        arguments are nested. The captured native gradient and Hessian drive
+        bounded, damped Newton iteration with a scaled QR linear solve. Every
+        trial evaluates the original objective and both derivative orders.
+
+        The binary64 candidate only proposes exact rational boxes. Acceptance
+        uses the independent original-source C2, strict inclusion and
+        contraction checks of "certify_stationary_point". The returned
+        StationaryPointReceipt may classify a strict local minimum, strict
+        local maximum or saddle, or retain an unclassified stationary point.
+        This is a local search, with no global optimum or completeness claim.
+
+        Exact source literals and 1..16 variables are required. Certification
+        tries 1..24 boxes (default 12), varying width and increasing precision
+        from the requested 8..128 digits up to 128. Newton uses a positive
+        finite tolerance and 1..10,000 iterations, with additional fixed work
+        caps. StationarySearchError distinguishes candidate failure from
+        exhausted certificate trials; no floating candidate is returned.
+        One optional EvaluationBudget spans all evaluations, exact witness
+        proposals, rejected trials and final publication without reset.
+        """
+        from ._stationary_search import solve_stationary_certified
+        return solve_stationary_certified(
+            self, initial, tol, maxiter, precision, max_attempts, budget=budget,
+        )
+
     def evaluate_sparse(self, *values, budget=None):
         """Return (value, gradient, sparse Hessian values) after all checks pass.
 
@@ -143,6 +191,8 @@ def compile_objective(objective, args):
     Separate ``enclose`` and ``certify_stationary_point`` methods independently
     check the original exact source on complete real boxes using second-order
     interval arithmetic, with source-bound immutable receipts and local claims.
+    ``solve_stationary_certified`` connects a bounded numerical search to that
+    original-source checker, without granting proof authority to convergence.
     Float source literals remain usable only for approximation. Passing a reusable
     ``EvaluationBudget`` to evaluation methods adds cumulative fuel and native
     buffer accounting with cooperative native safe points. Compilation and

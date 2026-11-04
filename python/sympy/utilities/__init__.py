@@ -11,7 +11,7 @@ from .lambdify import (
 )
 from .hybrid import compile_numeric_hybrid
 from .hybrid_system import compile_hybrid_residual_system
-from .objective import compile_objective
+from .objective import StationarySearchError, compile_objective
 from ._certified_numeric import ResidualJacobianEnclosure, RootBoxReceipt
 from ._certified_objective import ObjectiveEnclosure, StationaryPointReceipt
 
@@ -22,6 +22,7 @@ __all__ = [
     "compile_hybrid_residual_system",
     "EvaluationBudget", "EvaluationBudgetExceeded", "EvaluationCancelled",
     "NumericRootCandidate",
+    "StationarySearchError",
     "ResidualJacobianEnclosure", "RootBoxReceipt",
     "ObjectiveEnclosure", "StationaryPointReceipt",
 ]

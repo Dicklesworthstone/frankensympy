@@ -1176,3 +1176,49 @@ These new tests are authored but not yet executed: the full pinned-toolchain
 extension build was killed by the shared memory limit and the executor became
 unavailable before the focused native run. CI includes the new target; no
 executed-test or gate-completion claim is made here.
+
+## Automatic certified stationary-point search
+
+A compiled objective now offers
+`solve_stationary_certified(initial, tol=1e-12, maxiter=200, precision=32,
+max_attempts=12, budget=None)`. The initial guess is a flat vector in the
+compiled variable order, or a scalar for one variable. The existing bounded
+QR/Newton kernel solves the gradient residual using the same immutable
+native objective's checked gradient and Hessian, with original-value and
+derivative domain checks on every accepted or rejected trial. It does not
+differentiate or compile a second objective during the search.
+
+Floating convergence proposes a point only. The shell converts that candidate
+to exact rational witness coordinates, varies bounded box widths and working
+precision, and submits each proposal to the original-source stationary-point
+checker. Only its immutable accepted receipt can escape. A small floating
+residual, a claimed numerical root, or an apparent positive Hessian never
+substitutes for the exact inclusion, contraction and curvature obligations.
+
+The returned kind retains the local distinction among a strict minimum,
+strict maximum, saddle and unclassified stationary point. This method is not
+a global minimizer and does not prove that other stationary points are absent.
+Flat/singular points, unsupported source rules, failed numerical iteration,
+and unsuccessful witness trials may refuse even when stationary points exist.
+
+`StationarySearchError`, exported from both public namespaces, records
+`stage="candidate"` or `stage="certification"`, rejected-trial messages and
+their count. Operational exhaustion and cancellation retain their distinct
+exception types, with cumulative work preserved. A native unsupported
+interval operation currently reported as ValueError may consume a bounded
+certificate trial; it cannot produce accepted evidence or unbounded retries.
+
+Static admission checks exact source literals, 1..16 dimensions, the captured
+typed assumption snapshot, 8..128 starting precision digits, 1..24 total
+certificate attempts and 1..10,000 Newton iterations before candidate work.
+One optional EvaluationBudget spans input preparation, numerical evaluations,
+dense linear algebra, exact witness/inverse proposals and native verification.
+Final cancellation checks also prevent publication after candidate generation
+or after native acceptance. Ordinary approximate evaluation remains separate.
+
+`python/tests/test_stationary_search.py` adds 53 public regression cases for
+coupled and nonlinear objectives, dynamic positive-real powers, boundary-domain
+backtracking, typed coordinates, deliberately inaccurate or forged candidates,
+failed retries, shared budgets and cancellation. Source and independent model
+reviews are recorded as such; actual native-extension execution remains pending
+after the local executor outage. No campaign or compatibility gate is closed.
