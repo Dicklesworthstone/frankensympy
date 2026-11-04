@@ -971,3 +971,53 @@ Examples:
 9. broader domains, branch-aware analytic reasoning, and plugin registry.
 
 Every stage must integrate with the shell, proof/evidence layer, budgets, replay, and differential conformance rather than landing as an isolated math crate.
+
+
+## Original-source objective and stationary-point certificates
+
+The bounded native `fsym_core::enclose_objective` and
+`metered_enclose_objective` APIs evaluate one original typed expression over a
+closed real coordinate box. Their private-field `ObjectiveEnclosure` binds the
+source, ordered symbol identities, box and precision to objective, gradient
+and dense Hessian enclosures. Second-order interval automatic differentiation
+uses no symbolic differentiation generator, compiled derivative or sampled
+derivative. The product and composition rules retain both mixed terms and the
+inner Hessian. This establishes C2 bounds on the admitted original expression;
+it does not establish stationarity, convexity or a global optimum.
+
+`certify_stationary_point` and the caller-metered `verify_stationary_point`
+accept a `RootBoxWitness` as an untrusted proposed box, center and rational
+preconditioner. They independently evaluate the original objective twice,
+then apply strict Krawczyk interior inclusion and an exact contraction bound
+to its gradient and Hessian. An accepted `StationaryPointReceipt` establishes
+one unique nonsingular stationary point in the specified box. Its stationary
+enclosure is strictly inside that box. Its objective-value enclosure covers
+the entire supplied box and therefore the stationary value; tightness is not
+claimed.
+
+Interval LDL checks the Hessian inertia over the whole box. It can classify a
+strict local minimum, strict local maximum or saddle. A pivot interval
+containing zero produces `Unclassified`, preserving the independently proved
+stationary-point statement without asserting any extremum. No-pivot LDL is
+incomplete, including for some nonsingular indefinite matrices. A failed
+Krawczyk check produces no stationary-point receipt at all. These APIs do not
+search for a point and do not claim global optimality outside the box.
+
+The lane supports 1..16 variables, 8..128 decimal digits and the existing
+root-box depth, node, coefficient-height, arithmetic and cumulative-allocation
+caps. Arithmetic, integer powers from -64 through 64, positive-real dynamic
+powers, sin, cos, exp, log/ln, sqrt, atan, tan and hyperbolic functions have
+explicit C2 interval rules. Logarithms, square roots and noninteger powers
+require strictly positive arguments throughout the complete box. Poles and
+all original children remain visible even behind zero factors or held zero
+powers. Unsupported functions, unbound typed symbols, invalid inputs,
+resource exhaustion and cancellation refuse explicitly.
+
+A single caller-owned `BudgetMeter` covers both derivative orders, all
+stationary-point phases and receipt publication. Charges remain consumed on
+failure; these APIs do not charge a protected verifier pool through a plain
+`Budget`. This is synchronous cooperative execution, not a claim of runtime
+supervision or forced cancellation inside arbitrary foreign calls. The new
+regressions are `objective_enclosure`, `stationary_certificate` and the
+existing `root_box_general` suite. Their execution status is reported by CI;
+the campaign, full compatibility profile and workstream gates remain open.
