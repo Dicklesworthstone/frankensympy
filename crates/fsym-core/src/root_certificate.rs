@@ -35,6 +35,9 @@ pub use extremum::*;
 mod box_optimization;
 pub use box_optimization::*;
 
+mod root_isolation;
+pub use root_isolation::*;
+
 pub const MAX_ROOT_BOX_NODES: usize = 16_384;
 pub const MAX_ROOT_BOX_DEPTH: usize = 32;
 pub const MAX_ROOT_BOX_LIMBS: u64 = 1_024;
@@ -520,13 +523,40 @@ fn verify_root_box_impl(
 ) -> Result<RootBoxReceipt, RootBoxError> {
     let mut work = Work::new(meter, witness.precision_digits)?;
     validate_inputs(residuals, variables, &witness.domain, &mut work)?;
+    verify_root_box_preflighted(
+        residuals,
+        variables,
+        witness,
+        &mut work,
+        legacy_determinant,
+        false,
+    )
+}
+
+/// The source forest has already passed `validate_inputs`. Reusing this
+/// checker in one bounded phase avoids restarting scratch reservations,
+/// source accounting and arithmetic budgets for every local proposal.
+/// Standalone checking retains its existing traversal accounting; reusable
+/// phases restart only the node counter for each complete source traversal.
+fn verify_root_box_preflighted(
+    residuals: &[Expr],
+    variables: &[Symbol],
+    witness: &RootBoxWitness,
+    work: &mut Work<'_, impl BudgetMeter>,
+    legacy_determinant: bool,
+    reset_traversals: bool,
+) -> Result<RootBoxReceipt, RootBoxError> {
     let n = variables.len();
     if residuals.len() != n
+        || witness.domain.len() != n
         || witness.center.len() != n
         || witness.preconditioner.len() != n
         || witness.preconditioner.iter().any(|row| row.len() != n)
     {
         return Err(RootBoxError::DimensionMismatch);
+    }
+    if witness.precision_digits != work.precision {
+        return Err(RootBoxError::InvalidPrecision);
     }
     for q in witness
         .center
@@ -552,6 +582,9 @@ fn verify_root_box_impl(
         }
     }
     let mut jets = Vec::with_capacity(n);
+    if reset_traversals {
+        work.nodes = 0;
+    }
     for residual in residuals {
         jets.push(work.eval(residual, variables, &witness.domain, 0)?);
     }
@@ -563,6 +596,9 @@ fn verify_root_box_impl(
         .map(RealBall::exact)
         .collect();
     let mut values = Vec::with_capacity(n);
+    if reset_traversals {
+        work.nodes = 0;
+    }
     for residual in residuals {
         values.push(work.eval(residual, variables, &point, 0)?.value);
     }

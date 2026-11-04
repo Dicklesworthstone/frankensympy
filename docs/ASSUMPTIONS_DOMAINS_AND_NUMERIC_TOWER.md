@@ -1582,3 +1582,43 @@ public runtime execution remains blocked by the recorded pinned asupersync
 build SIGKILL. Isolated SymPy oracle probes and bridge source review are
 reported separately from actual project execution. Workstream, profile and
 whole-workspace gates remain open.
+
+## Complete real root isolation in a finite box
+
+The native verify_root_isolation checker establishes the exact number of
+distinct nonsingular real roots in a declared finite closed box. Its
+untrusted witness contains local RootBoxWitness proposals and a complete
+preorder dyadic cover. A leaf is either independently excluded or wholly
+contained in one independently accepted local root box.
+
+Every local box is inside the requested domain, passes the existing
+original-source C1, strict Krawczyk inclusion and contraction checks, and is
+strictly separated from every other reported box in at least one coordinate.
+A root box can cross internal subdivision faces. This permits roots exactly
+on dyadic split planes while retaining distinctness and complete coverage.
+
+Exclusion evaluates every original residual and its domain obligations
+before checking whether at least one residual interval excludes zero. A
+nonzero first equation cannot hide a pole in another equation. The verifier
+reconstructs both closed children of every split and rejects missing or
+trailing regions, invalid references, false exclusions and overlapping roots.
+A zero-root receipt therefore proves the entire requested box root-free.
+
+This bounded lane requires a square system with 1..16 variables and
+positive-width exact rational coordinates. It allows at most 1024 cover
+leaves, depth 64, 128 root boxes and 8..128 precision digits. Singular roots,
+roots on the outer requested boundary, unsupported sources and unresolved
+regions cannot yield a complete receipt. There is no assertion outside the
+declared box or of exact symbolic root coordinates.
+
+RootIsolationWorkspace preflights the original source once and shares one
+elementary scratch reservation across all cells and local proposals in a
+phase. Only per-traversal node counts restart; arithmetic, allocations,
+evaluation limits, failures and caller cancellation remain cumulative.
+The existing standalone local-root checker retains its original behavior.
+
+The accepted RootIsolationReceipt has no unchecked constructor or
+deserializer. It binds the original residuals, typed variables, domain,
+precision, accepted local root receipts and complete witness, with an exact
+root count and leaf/exclusion counts. Root discovery and public integration
+are separate consumers of this lower-layer verifier.
