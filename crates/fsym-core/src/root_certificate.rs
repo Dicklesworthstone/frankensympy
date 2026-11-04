@@ -29,6 +29,9 @@ pub use objective::*;
 mod stationary;
 pub use stationary::*;
 
+mod extremum;
+pub use extremum::*;
+
 pub const MAX_ROOT_BOX_NODES: usize = 16_384;
 pub const MAX_ROOT_BOX_DEPTH: usize = 32;
 pub const MAX_ROOT_BOX_LIMBS: u64 = 1_024;

@@ -1128,3 +1128,51 @@ inequality or an inconsistent hash. The regression source is
 `python/tests/test_algebraic_composite_identity.py`; current execution scope
 and open gates are recorded in
 `artifacts/audit/2026-11-04-objectives-and-public-math-progress.json`.
+
+
+## Original-source global extrema on a finite box
+
+The native `certify_box_extremum` and metered `verify_box_extremum` APIs check
+an exact rational candidate point against a declared closed rational box.
+Unlike the local stationary-point checker, this claim permits an optimizer
+on a boundary face and can admit singular Hessians. It proves a global
+minimum or maximum **on that box**, with no assertion outside it.
+
+The independent core evaluator first establishes the original objective's
+C2 domain and encloses its Hessian on the complete box. A sufficient interval
+LDL test establishes positive semidefiniteness for a minimum or negative
+semidefiniteness for a maximum. A pivot that reaches zero is accepted only
+when its entire remaining Schur column is exactly zero. A zero diagonal with
+a nonzero coupling never becomes evidence of convexity.
+
+The checker recomputes the original gradient at the exact candidate point.
+For a minimum, each interior gradient must be exactly zero; lower-face
+gradients must be nonnegative and upper-face gradients nonpositive. The
+signs reverse for a maximum. Fixed coordinates impose no directional
+condition. Convexity/concavity and these first-order inequalities establish
+the global box claim. Candidate derivatives and numerical samples are never
+proof inputs.
+
+The immutable receipt binds the source, typed coordinate order, complete
+box, exact point, precision, optimum-value enclosure, point gradient and
+whole-box Hessian. `uniqueness_proved` is true only when a definite Hessian or
+a strictly supporting gradient on every movable coordinate proves it.
+False means uniqueness is unproved, rather than asserting multiple extrema.
+Flat convex objectives and zero-reaching diagonal curvature can therefore
+receive an extremum receipt without an invented uniqueness claim.
+
+The same intrinsic 1..16-dimensional, 8..128-digit, source-depth and rational
+size limits apply. One caller-owned ledger covers source admission, both
+interval evaluations, curvature checks and publication. Errors retain consumed
+work; cancellation returns no receipt. This is a sufficient bounded checker,
+so an inconclusive curvature or first-order test refuses even when a true
+optimum may exist. It is not a general nonconvex optimizer or a profile gate.
+
+`crates/fsym-core/tests/box_extremum.rs` contains thirteen regression tests,
+including a 125-case independent two-dimensional principal-minor criterion,
+boundary direction mutations, degenerate curvature, hidden source holes,
+exact tiny coefficients, cumulative budgets and every cancellation checkpoint.
+These new tests are authored but not yet executed: the full pinned-toolchain
+extension build was killed by the shared memory limit and the executor became
+unavailable before the focused native run. CI includes the new target; no
+executed-test or gate-completion claim is made here.
