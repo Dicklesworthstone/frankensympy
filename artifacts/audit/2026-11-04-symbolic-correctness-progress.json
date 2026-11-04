@@ -1,0 +1,389 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-11-04T03:57:40Z",
+  "repository": "Dicklesworthstone/frankensympy",
+  "kind": "Source-bound implementation progress; not workstream, campaign, or profile certification",
+  "baseline_source": "4bcfdd1953caf06c7b1d4b865369afa71ad4f71e",
+  "source_snapshot_commit": "b90e19504542c89038711078bdb65f5e43fe60e0",
+  "verified_main_commits": [
+    {
+      "sha": "be30c0ee2c9ad5144c93a25201be49ea43af7c52",
+      "change": "Exact logarithmic-affinity recognition and Laurent-power truncation"
+    },
+    {
+      "sha": "317c6695babdda5577ab94ee15ae87dece0de392",
+      "change": "Typed modular irreducibility claims, exact witness binding, and publication restrictions"
+    },
+    {
+      "sha": "4d403d590a2da5fe10e92fe00538ae1bb95a66f2",
+      "change": "Series and limit temporary-symbol hygiene, including ambient assumptions"
+    },
+    {
+      "sha": "5247d79eeee20306c1048ed4dafa8e8a5134a266",
+      "change": "Complex Frobenius magnitudes and distinct public spectral matrix norms"
+    },
+    {
+      "sha": "1c58deb6a522f260079889668325a1f344386f59",
+      "change": "Disjoint Pythagorean cancellation accounting"
+    },
+    {
+      "sha": "b90e19504542c89038711078bdb65f5e43fe60e0",
+      "change": "Raw source-domain preservation in Pythagorean proof verification"
+    }
+  ],
+  "preserved_concurrent_main_commit": "9dc54c72b7baaede7e853d816324a29638a5e248",
+  "planning_sources": [
+    "COMPREHENSIVE_PLAN_FOR_FRANKENSYMPY.md",
+    "AGENTS.md",
+    "docs/CONSTITUTION.md",
+    "docs/WORKSTREAM_GRAPH.md",
+    "registries/workstreams.toml",
+    "registries/claims.toml",
+    ".beads/issues.jsonl",
+    "docs/SOURCE_PROJECT_AUDIT.md",
+    "docs/EVIDENCE_PROOFS_AND_REWRITES.md",
+    "docs/ASSUMPTIONS_DOMAINS_AND_NUMERIC_TOWER.md"
+  ],
+  "features": [
+    {
+      "area": "Generalized series",
+      "implemented": "Structural affine-log recognition replaces three-point sampling; staged Laurent multiplication retains coefficients that later poles bring below the requested order. Fresh temporary names avoid source expressions, centers, variables, and active assumption names. Raw input is bounded before recursive work.",
+      "regressions": [
+        "A nonzero cubic in log(t) vanishes at all three old sample points but its exponential is not 1",
+        "(1/x + sin(x))**2 retains x**-2 + 2 through order 1",
+        "(1/x + x**2)**4 retains x**-4 + 4/x through order 2",
+        "User symbols and unrelated ambient integer assumptions cannot capture internal coordinates"
+      ]
+    },
+    {
+      "area": "Modular irreducibility evidence",
+      "implemented": "Claim::IrreducibleModPrime binds the exact canonical coefficient vector and prime to an independently checked bounded Rabin certificate. Generic predicates/nonzero claims and expression-result publication cannot borrow this authority.",
+      "regressions": [
+        "A genuine polynomial certificate previously proved NonZero(0); this was observed failing before the fix",
+        "Direct construction, independent replay, decoding bounds, import/promotion, and identity mutations are checked",
+        "An independent trial-divisor oracle covers all 930 monic polynomials of degrees 1..4 over F2, F3, and F5"
+      ],
+      "artifact_compatibility": "Old Rabin artifacts carrying generic claims may decode, but replay and verified import/promotion reject them. Regenerate with the exact typed modular claim. Existing other claim encodings and digests are retained."
+    },
+    {
+      "area": "Matrix norms",
+      "implemented": "Native Frobenius squared norms sum squared absolute values. Public norm(None)/norm(\"fro\") remain Frobenius, vector norm(2) is Euclidean, and genuine matrix norm(2) uses the existing singular-value lane plus exact Max selection. Opaque Python entries are refused before native lowering.",
+      "regressions": [
+        "The squared Frobenius norm of [I] is 1",
+        "Complex phases preserve magnitudes",
+        "diag(3,4) has Frobenius norm 5 and spectral norm 4",
+        "Exact near-tied rational singular values do not rely on binary64 sorting",
+        "Pinned empty shapes and original Symbol/custom-class identity are covered by authored public tests"
+      ]
+    },
+    {
+      "area": "Trigonometric proof verification",
+      "implemented": "Each monomial can be consumed by only one cancellation pair. A bounded raw traversal preserves exact partial-expression domain obligations, visits every function/power child, rejects nonfinite values, and discharges only narrow independently known finite cases.",
+      "regressions": [
+        "Overlapping pairs previously certified an equality evaluating to 1=2 at x=y=0; observed before the fix",
+        "0*log(0)=0 was accepted through the Pythagorean rule; observed before the domain fix",
+        "Nested partial powers/functions, malformed function arities, erased poles, and nonfinite arguments are refused in both direct verification and replay",
+        "Retained-domain identities and exact ground sec(0)/tan(0) cases still verify"
+      ],
+      "scope": "The earlier unconditional symbolic sec/tan proof fixture is corrected to require refusal because its poles disappear. Plain unverified simplification is unchanged. This is not a general definedness solver or complete trigonometric normal form."
+    }
+  ],
+  "environment": {
+    "toolchain": "nightly-2026-08-20",
+    "rustc": "rustc 1.100.0-nightly (f7d782a3b 2026-08-19)",
+    "cargo": "cargo 1.100.0-nightly (514c56dd7 2026-08-19)",
+    "cargo_build_jobs": 1,
+    "dev_and_test_debug_info": 0,
+    "source_or_dependency_feature_changes_for_validation": false,
+    "donors": {
+      "asupersync": "b3e08ac0bd773a5bbdd4f3c2f4624d550352ec0f",
+      "franken_numpy-pin": "d5d29c9da36141f611d1414b4c6ef434ab31ea24",
+      "frankenscipy-pin": "213a417c739025ed865a3875c89a7d86726ecb5a"
+    },
+    "oracle": "Isolated SymPy 1.14.0 with mpmath 1.3.0; separate clean shell interpreter has no upstream SymPy installed",
+    "shared_memory_limit_bytes": 8589934592
+  },
+  "executed_validation": [
+    {
+      "command": "cargo test -p fsym-proof-kernel -p fsym-evidence -p fsym-simplify --locked",
+      "exit_code": 0,
+      "passed": 182,
+      "failed": 0,
+      "ignored": 0,
+      "suites": {
+        "proof_kernel": 123,
+        "evidence": 25,
+        "simplify": 34
+      },
+      "scope": "Final mathematical source in b90e195; includes all 11 Rabin and all 9 Pythagorean integration tests, plus existing verified_simplify consumers. Doc tests: 0."
+    },
+    {
+      "command": "cargo test -p fsym-calculus --test generalized_series --test rational_series --test gruntz_constant_certification --locked",
+      "exit_code": 0,
+      "passed": 31,
+      "failed": 0,
+      "suites": {
+        "generalized_series": 10,
+        "rational_series": 8,
+        "gruntz_constant_certification": 13
+      },
+      "scope": "Final calculus source from 4d403d5; run after its symbol-assumption fix and consistent Cargo artifact rebuild, before the later Pythagorean kernel changes."
+    },
+    {
+      "command": "cargo test -p fsym-calculus --locked",
+      "exit_code": 0,
+      "passed": 286,
+      "failed": 0,
+      "suites": {
+        "unit": 75,
+        "integration": 211
+      },
+      "scope": "Earlier session execution of the existing calculus targets. Target discovery preceded creation of generalized_series.rs. This is not a final whole-calculus rerun; 21 tests overlap the later focused command."
+    },
+    {
+      "command": "cargo test --locked -p fsym-matrices --test matrix_norms",
+      "exit_code": 0,
+      "passed": 5,
+      "failed": 0,
+      "scope": "Final matrix native source from 5247d79."
+    },
+    {
+      "command": "cargo clippy -p fsym-proof-kernel -p fsym-evidence -p fsym-simplify --all-targets --locked -- -D warnings",
+      "exit_code": 0,
+      "scope": "Final proof/evidence/simplify source"
+    },
+    {
+      "command": "cargo clippy -p fsym-calculus --all-targets --locked -- -D warnings",
+      "exit_code": 0,
+      "scope": "Unchanged final calculus source; final proof-domain library edits were present"
+    },
+    {
+      "command": "cargo clippy --locked -p fsym-matrices --all-targets -- -D warnings",
+      "exit_code": 0,
+      "scope": "Final native matrix source"
+    },
+    {
+      "command": "cargo fmt --check",
+      "exit_code": 0,
+      "scope": "Complete workspace at b90e195"
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0
+    }
+  ],
+  "counting_note": "Do not sum the command counts as unique tests. The focused calculus suites overlap the earlier full calculus invocation, and focused Pythagorean/Rabin runs are included in the 182-test owning suite.",
+  "python_execution": {
+    "actual_complete_extension": "not_completed",
+    "new_public_cases": {
+      "python/tests/test_generalized_series.py": 7,
+      "python/tests/test_matrix_norms.py": 23
+    },
+    "actual_extension_cases_executed": 0,
+    "expected_value_checks": "Seven generalized-series methods passed with isolated upstream SymPy 1.14.0; selected matrix expectations, including empty shapes, were independently checked against that oracle. These observations do not execute the FrankenSymPy shell.",
+    "ci_registration": "Both new files are included in the existing checked-out-shell/current-native-extension CI test step."
+  },
+  "full_gate_outcomes": [
+    {
+      "command": "cargo check --workspace --all-targets --locked",
+      "exit_code": 101,
+      "result": "Pinned asupersync rustc received SIGKILL during observed shared cgroup OOM pressure; no Rust source diagnostic preceded termination."
+    },
+    {
+      "command": "cargo build -p fsym-python --lib --locked",
+      "exit_code": 130,
+      "result": "Intentionally paused to release the shared target for critical narrow checks; no complete current extension produced."
+    },
+    {
+      "command": "CARGO_INCREMENTAL=0 cargo build -p fsym-python --lib --locked",
+      "result": "Planned resource-tuned retry was never started: the temporary memory-capacity window closed before launch. This is not a second failed attempt."
+    },
+    {
+      "command": "cargo clippy --workspace --all-targets --locked -- -D warnings",
+      "result": "Not run after the full dependency graph was resource blocked."
+    },
+    {
+      "command": "cargo test --workspace --locked",
+      "result": "Not run after the full dependency graph was resource blocked."
+    }
+  ],
+  "runtime_regressions": "The two new expression-publication regressions in fsym-runtime are authored but unexecuted because that owning crate requires the blocked complete asupersync dependency.",
+  "environment_recovery": "The exact inconsistent fsym-calculus-e53d56ee0418cb32 artifact/fingerprint directories were preserved by relocation before Cargo rebuilt them. Nothing was deleted; the later 31-test calculus command passed after the repair.",
+  "source_snapshot": [
+    {
+      "path": ".github/workflows/ci.yml",
+      "bytes": 11926,
+      "sha256": "ccef1a098c69aa9fb531157fb38f68a765d7a1e36d20b66471903e6de838c2d2",
+      "git_blob": "adbbda189608552af8d17a497ae4d963b2f81fcc"
+    },
+    {
+      "path": "crates/fsym-calculus/src/gruntz.rs",
+      "bytes": 40096,
+      "sha256": "e677875ada87e7b2c4a2a180840b79f29b6600d35da112ae09174b6612c2be9e",
+      "git_blob": "ea61e57517b4d3fb4cba5b17210f56f98bddbf77"
+    },
+    {
+      "path": "crates/fsym-calculus/src/lib.rs",
+      "bytes": 99043,
+      "sha256": "9e7f335533c25f8e90ca724ed981930a219637ccd4e26eaa96bea26a2312f174",
+      "git_blob": "8e8952354a597ce95eb5c75eb6647f8ba26e08d1"
+    },
+    {
+      "path": "crates/fsym-calculus/src/series.rs",
+      "bytes": 29645,
+      "sha256": "7dcc5ff78a1c560d63fc017b2c99b1ee4a648a8d4fb3ff6e6a9f8520e7052ed8",
+      "git_blob": "d4787c6d994a6542f85cc6650218523da5c54576"
+    },
+    {
+      "path": "crates/fsym-calculus/src/verified.rs",
+      "bytes": 24439,
+      "sha256": "8527d2378e6b9cfff96a3b4dc6dda32ef9d7dd3f287b0e56fa5d6cf4fb5371de",
+      "git_blob": "00806ceb88bc51eb501cc95c5a6cd688c64adfb1"
+    },
+    {
+      "path": "crates/fsym-calculus/tests/generalized_series.rs",
+      "bytes": 7544,
+      "sha256": "429c8decf86abe236d9b9e0138156a4002bff587ff6cd3b5b3985efe4e4e9afd",
+      "git_blob": "899dce878a9b26a6b3c031583d78f18ab9e81849"
+    },
+    {
+      "path": "crates/fsym-evidence/src/namespace.rs",
+      "bytes": 26620,
+      "sha256": "415707714795d3fd25bf418404f90ad0841d519d9b281aaf2481462bcf8dfb2a",
+      "git_blob": "0d57649e2ad3806de868cf83cc6c0716eb7fe081"
+    },
+    {
+      "path": "crates/fsym-matrices/src/lib.rs",
+      "bytes": 167080,
+      "sha256": "4d4491112297b9701e6a075593f1ea053f398a6301e5e5970de94585ca3f395a",
+      "git_blob": "fe1c99c1c7e7bc3242f30a38a7e74003f8b8b862"
+    },
+    {
+      "path": "crates/fsym-matrices/tests/matrix_norms.rs",
+      "bytes": 2079,
+      "sha256": "975080cd82002eb24a73a07e53bc84e564da12bc5c7c83795f10f8d9c76cb529",
+      "git_blob": "9aa6345a3c21a65a69cb882ed33d7cd80f96e946"
+    },
+    {
+      "path": "crates/fsym-proof-kernel/src/claim.rs",
+      "bytes": 7154,
+      "sha256": "914df528e14bab9bc70fd0fa95287b808e7630b9110c3fd32ef66c9678968980",
+      "git_blob": "59e6e522f9f4cc4ebffc01e87e3a7311b0066fb1"
+    },
+    {
+      "path": "crates/fsym-proof-kernel/src/kernel.rs",
+      "bytes": 107374,
+      "sha256": "9b48ed0c72e50b744722b41f59e9f831c8d7728281aa91cbdc408dea3f6e1082",
+      "git_blob": "536fedb48deb1675fcd366924c7f81cde9bc9973"
+    },
+    {
+      "path": "crates/fsym-proof-kernel/src/mutation.rs",
+      "bytes": 35916,
+      "sha256": "90d708137592bee51ccb1bd236183934c025616b4b0336fa82c5e9eb40c0b025",
+      "git_blob": "ec19e1fa887580372731082d8e962f50eece1e14"
+    },
+    {
+      "path": "crates/fsym-proof-kernel/src/rule.rs",
+      "bytes": 3087,
+      "sha256": "91c605b3906ed2d81e1f351b38535212561affe2706dae1e8f33d1dc6287792f",
+      "git_blob": "42cbbf6866aac69bf11d903eb73cd2b1189006a4"
+    },
+    {
+      "path": "crates/fsym-proof-kernel/tests/pythagorean_identity.rs",
+      "bytes": 10295,
+      "sha256": "fbebccc41f993d7fdf2ffad1fbcad780181dc24e20778818a90c3722bb8534b2",
+      "git_blob": "c89c09f7065359ff103dde50922d16ee15870eb1"
+    },
+    {
+      "path": "crates/fsym-proof-kernel/tests/rabin_irreducibility.rs",
+      "bytes": 12202,
+      "sha256": "cc322186516d4ae99912a05aaa6149049cafaf76f20d22c580a9761877c5775d",
+      "git_blob": "a6399a0881f41a0b1e77a76e8ef7b661b75308f3"
+    },
+    {
+      "path": "crates/fsym-runtime/src/graph_index.rs",
+      "bytes": 40442,
+      "sha256": "8853e15732a652192a2823d97e3256045f0a2ec31ff9f003de21c0a6dcd24d36",
+      "git_blob": "acdb26e48f1f7bc532f031cd58a27adcf906a9c1"
+    },
+    {
+      "path": "crates/fsym-runtime/src/portfolio.rs",
+      "bytes": 106416,
+      "sha256": "cee83d5d3eed12c79ae2f2281184e7fc7bdf54f6e881e356211729b116568099",
+      "git_blob": "bb3b6e7f9718ba2870dc0e8620b4ab7d7c153f01"
+    },
+    {
+      "path": "crates/fsym-runtime/src/remote_worker.rs",
+      "bytes": 22100,
+      "sha256": "3d3283052b9b3a24225f3f6a16cb42ab903363477abb755bc70b0595c8063c7d",
+      "git_blob": "a4322fc1f89b03762dbf72a82abafc4c7854e4e4"
+    },
+    {
+      "path": "docs/EVIDENCE_PROOFS_AND_REWRITES.md",
+      "bytes": 27529,
+      "sha256": "806e807520c730f1679c93a1e56e80ca6f5cee31b1e5cee5cf3cc9a1c876b757",
+      "git_blob": "739cffe8f607c6c953f49698b1d1135108018a78"
+    },
+    {
+      "path": "python/sympy/matrices/dense.py",
+      "bytes": 87908,
+      "sha256": "5a4a1d8e7aaeb423c778a1bf64ebff1130cf48e49d0640656c29c36a403f82d7",
+      "git_blob": "25c64dcf78906dc3e85c67f1347e23977da8abd4"
+    },
+    {
+      "path": "python/tests/test_generalized_series.py",
+      "bytes": 2098,
+      "sha256": "28e40072e86deb09f83433459cfd97678f014595e38e7aabd086295e6b4eae19",
+      "git_blob": "ede6a7f5ad3bff41251fb7413795fc7029bf6665"
+    },
+    {
+      "path": "python/tests/test_matrix_norms.py",
+      "bytes": 3765,
+      "sha256": "6f210f88a74b8f45e31c89ab1f041aa7d644a21acb604ef05fdae4e1e7693830",
+      "git_blob": "c5334fd6ded07f85d71a52aea80c58d438aab8fc"
+    }
+  ],
+  "governance": {
+    "bead_notes_updated": [
+      "fra-a5x",
+      "fra-kfo",
+      "fra-ws06-proof-kernel-9j1"
+    ],
+    "bead_statuses_and_dependency_edges_changed": false,
+    "claims_registry_changed_by_this_session": false,
+    "profile_campaign_or_workstream_gate_closed": false,
+    "dependencies_or_toolchain_pins_changed": false
+  },
+  "record_integrity": {
+    "planning_command": "python tools/validate_planning.py",
+    "planning_exit_code": 0,
+    "source_sha256_matches": 22,
+    "bead_change_scope": "Only notes and updated_at changed on the three named records; all fields on the other 121 records are unchanged.",
+    "python_syntax": "AST parsing passed for dense.py and both new public regression files."
+  },
+  "ci_observation": {
+    "source": "b90e19504542c89038711078bdb65f5e43fe60e0",
+    "runs": [
+      {
+        "id": 41769955245,
+        "name": "CI Gate Topology",
+        "status": "queued",
+        "conclusion": null
+      },
+      {
+        "id": 41769955221,
+        "name": "Verify Remote Main (Read Only)",
+        "status": "queued",
+        "conclusion": null
+      }
+    ],
+    "scope": "Observed through GitHub before this evidence-record commit; no current CI pass is claimed."
+  },
+  "limits": [
+    "No full-workspace, actual-extension, public-profile, campaign, or whole-workstream completion is claimed.",
+    "Rabin certificates establish only bounded exact irreducibility in the claimed finite field, not unrestricted expression nonvanishing, rational irreducibility, or complete factorization.",
+    "Generalized series retain their bounded supported families; nonlinear logarithmic exponential cases may refuse and are not silently approximated as affine.",
+    "Matrix spectral norms use the existing bounded singular-value implementation; unresolved symbolic spectra and opaque Python entries may refuse.",
+    "Pythagorean domain preservation is conservative and exact-structural. Broader guarded meromorphic rewrites and general domain reasoning remain outside this checker."
+  ]
+}
