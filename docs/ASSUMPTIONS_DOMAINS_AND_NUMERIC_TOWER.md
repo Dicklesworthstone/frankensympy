@@ -636,6 +636,60 @@ bytecode's canonical positive zero. Evaluation remains approximate binary64
 arithmetic: budgeting and checked symbolic derivatives do not certify numerical
 enclosures, roots or convexity, or close the end-to-end campaign/profile gates.
 
+#### Lazy Piecewise scalar evaluation
+
+`compile_numeric` and the explicit `lambdify(..., modules="frankensympy")`
+backend accept ordered `Piecewise` branches. Conditions support exact built-in
+Boolean atoms, `Eq`, `Ne`, `Lt`, `Le`, `Gt`, `Ge`, and bounded `And`/`Or`/`Not`
+trees. Branch values can contain the existing supported scalar arithmetic and
+functions, including further Piecewise expressions.
+
+```python
+from sympy import Ne, Piecewise, Symbol, compile_numeric, lambdify
+
+x = Symbol("x")
+reciprocal = Piecewise((1/x, Ne(x, 0)), (0, True))
+f = compile_numeric(x, reciprocal)
+assert f(0) == 0.0       # The inactive reciprocal is never evaluated.
+assert f(2) == 0.5
+
+partial = Piecewise((x, x > 0))
+assert lambdify(x, partial, modules="math")(-1) is None
+# compile_numeric(x, partial)(-1) instead raises ValueError: no branch matches.
+```
+
+The native bytecode uses forward conditional jumps. Boolean operands and
+branches short-circuit in retained source order; inactive numerical expressions
+do not spend evaluation fuel or trigger log, square-root or division domain
+failures. Every source branch still passes admission and independent source
+checking, even after a constant True guard. Jump targets, stack joins,
+comparisons and branch order are checked before a callable is published.
+Native condition comparisons use rounded binary64 operands: they are
+approximate branch decisions, not exact-real proofs.
+
+The math backend preserves Python scalar arithmetic and returns `None` when no
+branch matches, as the pinned SymPy 1.14.0 printer does. Its typed interpreter
+currently keeps retained `And`/`Or` operand order; SymPy's generated Python may
+sort these operands differently. Compound predicates containing domain-restricted
+operands can consequently encounter different math exceptions. Ordered
+Piecewise branches provide an explicit order for such guards.
+
+Compilation captures the source and supported implementations. Later condition
+class changes do not alter an already compiled callable and revoke new closed
+compilation. Symbol/Dummy conditions remain valid symbolic Piecewise inputs,
+including symbols named True or False, but are outside the numerical condition
+grammar. They cannot impersonate Boolean atoms through arithmetic, substitution
+or serialization. Opaque/custom conditions and unsupported operators refuse
+without callbacks; the feature adds no callback execution lane.
+
+This is scalar evaluation support. `compile_residual_system` and
+`compile_objective` still refuse Piecewise differentiation without an independent
+proof rule; no derivative or smoothness certificate is granted at branch seams.
+Native regression coverage is `crates/fsym-calculus/tests/piecewise_programs.rs`;
+public source, identity and execution coverage is
+`python/tests/test_piecewise_numeric_compilation.py`. G3 runs both against the
+actual extension.
+
 ### 15.7 Explicit numerical callbacks in native expressions
 
 `compile_numeric_hybrid(args, expression, *, callbacks)` connects bounded native

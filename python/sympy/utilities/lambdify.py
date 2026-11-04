@@ -4,7 +4,9 @@
 ``compile_numeric`` and ``modules="frankensympy"`` select the bounded native
 finite-real binary64 engine; matrix outputs in that preview API are nested
 lists. ``compile_residual_system`` additionally checks symbolic Jacobian proofs.
-Binary64 results are approximate, not certified interval enclosures.
+Piecewise expressions evaluate only their selected branch; comparisons in the
+native engine use approximate binary64 values. Binary64 results are approximate,
+not certified interval enclosures or exact-real branch decisions.
 """
 
 from __future__ import annotations
@@ -19,6 +21,11 @@ from ..core import (
     _native, _native_expr, _require_closed_function_class,
     _require_closed_native_function_tag, _require_closed_native_functions,
     _require_symbol, _symbol_binding, _wrap,
+)
+
+from ._piecewise_numeric import (
+    Piecewise as _Piecewise, branches as _piecewise_branches,
+    condition as _piecewise_condition,
 )
 
 __all__ = [
@@ -323,6 +330,17 @@ def _native_numeric_source(source, count, depth, *, inexact=None):
         raise TypeError("native numerical source must be an exact native expression")
     _native.CompiledFunction._validate_source(source)
 
+    def visit_condition(node, level):
+        _charge(count, level)
+        tag, operands = _piecewise_condition(node, _MAX_NODES)
+        if tag in ("True", "False"):
+            return _native.Expr(tag)
+        if tag in ("And", "Or", "Not"):
+            children = [visit_condition(child, level + 1) for child in operands]
+        else:
+            children = [visit(child, level + 1) for child in operands]
+        return _native.py_function(tag, *children)
+
     def visit(node, level, *, counted=False):
         if not counted:
             _charge(count, level)
@@ -336,6 +354,14 @@ def _native_numeric_source(source, count, depth, *, inexact=None):
             kind, name = "pow", None
         else:
             tag = node.func_name
+            if tag == "Piecewise":
+                lowered = []
+                for value, condition in _piecewise_branches(node, _MAX_NODES):
+                    _charge(count, level + 1)
+                    lowered.append(_native.py_function(
+                        "Tuple", visit(value, level + 2), visit_condition(condition, level + 2),
+                    ))
+                return _native.py_function("Piecewise", *lowered)
             if tag == _FLOAT_INTERN:
                 children = node.args
                 if len(children) != 1 or not children[0].is_integer:
@@ -370,6 +396,20 @@ def _native_numeric_source(source, count, depth, *, inexact=None):
     return visit(source, depth, counted=True)
 
 
+def _numeric_condition_source(value, functions, count, depth, *, inexact=None):
+    _charge(count, depth)
+    tag, operands = _piecewise_condition(value, _MAX_NODES)
+    if tag in ("True", "False"):
+        return _native.Expr(tag)
+    if tag in ("And", "Or", "Not"):
+        children = [_numeric_condition_source(child, functions, count, depth + 1, inexact=inexact)
+                    for child in operands]
+    else:
+        children = [_numeric_source(child, functions, count, depth + 1, inexact=inexact)
+                    for child in operands]
+    return _native.py_function(tag, *children)
+
+
 def _numeric_source(value, functions, count, depth=0, *, inexact=None):
     _charge(count, depth)
     cls = type(value)
@@ -388,6 +428,15 @@ def _numeric_source(value, functions, count, depth=0, *, inexact=None):
         return _native.py_rational(p, q)
     if cls is _native.Expr:
         return _native_numeric_source(value, count, depth, inexact=inexact)
+    if cls is _Piecewise:
+        lowered = []
+        for branch_value, condition in _piecewise_branches(value, _MAX_NODES):
+            _charge(count, depth + 1)
+            lowered.append(_native.py_function(
+                "Tuple", _numeric_source(branch_value, functions, count, depth + 2, inexact=inexact),
+                _numeric_condition_source(condition, functions, count, depth + 2, inexact=inexact),
+            ))
+        return _native.py_function("Piecewise", *lowered)
     function = next((spec for builtin, spec in functions.items() if cls is builtin), None)
     if function is not None:
         _require_closed_function_class(cls)
@@ -865,13 +914,141 @@ def load_residual_system(data, *, residuals, args):
     return _ResidualCallable(layout, native, variables, inexact, assumptions)
 
 
+_MATH_COMPARISONS = {
+    "Equality": operator.eq, "Unequality": operator.ne,
+    "StrictLessThan": operator.lt, "LessThan": operator.le,
+    "StrictGreaterThan": operator.gt, "GreaterThan": operator.ge,
+}
+
+
+def _math_condition(value, positions, functions, count, program, depth):
+    _charge(count, depth)
+    tag, operands = _piecewise_condition(value, _MAX_NODES)
+    if tag in ("True", "False"):
+        program.append(("constant", tag == "True"))
+    elif tag == "Not":
+        _math_condition(operands[0], positions, functions, count, program, depth + 1)
+        program.append(("not",))
+    elif tag in ("And", "Or"):
+        is_and = tag == "And"
+        if not operands:
+            program.append(("constant", is_and))
+            return
+        shortcuts = []
+        for child in operands[:-1]:
+            _math_condition(child, positions, functions, count, program, depth + 1)
+            if not is_and:
+                program.append(("not",))
+            shortcuts.append(len(program))
+            program.append(("jump_if_false", None))
+        _math_condition(operands[-1], positions, functions, count, program, depth + 1)
+        if shortcuts:
+            end = len(program)
+            program.append(("jump", None))
+            shortcut = len(program)
+            program.append(("constant", not is_and))
+            for index in shortcuts:
+                program[index] = ("jump_if_false", shortcut)
+            program[end] = ("jump", len(program))
+    else:
+        for operand in operands:
+            _math_program(operand, positions, functions, count, program, depth + 1)
+        program.append(("function", _MATH_COMPARISONS[tag], 2))
+
+
+def _math_piecewise(value, positions, functions, count, program, depth):
+    ends = []
+    for branch_value, condition in _piecewise_branches(value, _MAX_NODES):
+        _charge(count, depth + 1)
+        _math_condition(condition, positions, functions, count, program, depth + 2)
+        next_branch = len(program)
+        program.append(("jump_if_false", None))
+        _math_program(branch_value, positions, functions, count, program, depth + 2)
+        ends.append(len(program))
+        program.append(("jump", None))
+        program[next_branch] = ("jump_if_false", len(program))
+    # SymPy 1.14.0's math printer returns None when no branch matches.
+    program.append(("constant", None))
+    for end in ends:
+        program[end] = ("jump", len(program))
+
+
+def _math_native_program(source, positions, functions, count, program, depth):
+    """Interpret admitted native syntax without reconstructing Python classes.
+
+    In particular, even a registered Function such as gamma can own a held
+    Piecewise. Lifting that Function would recursively call the Piecewise and
+    relational constructors before their condition capabilities were checked.
+    """
+    _native.CompiledFunction._validate_source(source)
+    _require_closed_native_functions(source)
+
+    def visit(node, level, *, counted=False):
+        if not counted:
+            _charge(count, level)
+        if node.is_symbol:
+            if node not in positions:
+                raise ValueError("numerical expression contains an unbound typed symbol")
+            program.append(("variable", positions[node]))
+            return
+        if node.is_integer or node.is_rational:
+            numerator = node.exact_numerator()
+            denominator = node.exact_denominator()
+            if max(abs(numerator).bit_length(), denominator.bit_length()) > _MAX_LITERAL_BITS:
+                raise ValueError("numeric literal exceeds the bit limit")
+            literal = numerator if denominator == 1 else numerator / denominator
+            program.append(("constant", literal))
+            return
+        if node.is_add:
+            kind, function = "add", None
+        elif node.is_mul:
+            kind, function = "multiply", None
+        elif node.is_pow:
+            kind, function = "power", None
+        else:
+            tag = node.func_name
+            if tag == "Piecewise":
+                _math_piecewise(node, positions, functions, count, program, level)
+                return
+            if tag == "Constant":
+                program.append(("constant", _constant(node)))
+                return
+            if tag == _FLOAT_INTERN:
+                children = node.args
+                if len(children) != 1 or not children[0].is_integer:
+                    raise ValueError("malformed floating literal in numerical source")
+                _charge(count, level + 1)
+                bits = children[0].exact_numerator()
+                if type(bits) is not int or bits < 0 or bits.bit_length() > 64:
+                    raise ValueError("malformed floating literal in numerical source")
+                program.append(("constant", _bits_to_float(bits)))
+                return
+            native_name = _CLOSED_NATIVE_FUNCTIONS.get(tag)
+            if native_name is None:
+                raise NotImplementedError("custom or opaque objects have no closed numerical lowering")
+            _require_closed_native_function_tag(tag)
+            function = next(spec[1] for _, spec in functions.items() if spec[0] == native_name)
+            kind = "function"
+        children = node.args
+        for child in children:
+            visit(child, level + 1)
+        if kind == "function":
+            program.append((kind, function, len(children)))
+        else:
+            program.append((kind, len(children)))
+
+    visit(source, depth, counted=True)
+
+
 def _math_program(value, positions, functions, count, program, depth=0):
     _charge(count, depth)
     cls = type(value)
+    if cls is _Piecewise:
+        _math_piecewise(value, positions, functions, count, program, depth)
+        return
     if cls is _native.Expr:
-        _require_closed_native_functions(value)
-        value = _wrap(value)
-        cls = type(value)
+        _math_native_program(value, positions, functions, count, program, depth)
+        return
     if cls in functions:
         _require_closed_function_class(cls)
     if any(cls is builtin for builtin in _exact_surface_types()) or cls in functions:
@@ -881,6 +1058,9 @@ def _math_program(value, positions, functions, count, program, depth=0):
             native = None
         if native is not None:
             _require_closed_native_functions(native)
+            if cls is Expr:
+                _math_native_program(native, positions, functions, count, program, depth)
+                return
     literal = _literal(value)
     if literal is not None:
         if type(literal) is int and literal.bit_length() > _MAX_LITERAL_BITS:
@@ -890,35 +1070,61 @@ def _math_program(value, positions, functions, count, program, depth=0):
     if cls not in _exact_surface_types() and cls not in functions:
         raise NotImplementedError("custom or opaque objects require an explicit numerical callback contract")
     if cls in (Symbol, Dummy):
-        if value not in positions:
+        binding = _BASIC_VALUE.__get__(value, Basic)
+        if binding not in positions:
             raise ValueError("numerical expression contains an unbound typed symbol")
-        program.append(("variable", positions[value]))
-        return
-    if cls is Expr and not value.args:
-        program.append(("constant", _constant(value)))
+        program.append(("variable", positions[binding]))
         return
     if cls not in (Add, Mul, Pow) and cls not in functions:
         raise NotImplementedError("unsupported typed expression for the math numerical backend")
-    for child in value.args:
+    # Stored source avoids reconstructing Piecewise conditions through public
+    # relational constructors when it is nested inside arithmetic or functions.
+    try:
+        arguments = _SURFACE_ARGS.__get__(value, Basic)
+    except AttributeError:
+        arguments = None
+    if arguments is None:
+        descriptor = _FUNCTION_ARGS if cls in functions else cls.__dict__.get("_args")
+        try:
+            arguments = descriptor.__get__(value, cls) if descriptor is not None else None
+        except AttributeError:
+            arguments = None
+    if arguments is None:
+        native = _BASIC_VALUE.__get__(value, Basic)
+        _native.CompiledFunction._validate_source(native)
+        arguments = native.args
+    if type(arguments) is not tuple or len(arguments) > _MAX_NODES:
+        raise ValueError("numeric source requires bounded exact stored arguments")
+    for child in arguments:
         _math_program(child, positions, functions, count, program, depth + 1)
     if cls is Add:
-        program.append(("add", len(value.args)))
+        program.append(("add", len(arguments)))
     elif cls is Mul:
-        program.append(("multiply", len(value.args)))
+        program.append(("multiply", len(arguments)))
     elif cls is Pow:
         program.append(("power", 2))
     else:
-        program.append(("function", functions[cls][1], len(value.args)))
+        program.append(("function", functions[cls][1], len(arguments)))
 
 
 def _evaluate_math(program, inputs):
     stack = []
-    for instruction in program:
+    position = 0
+    while position < len(program):
+        instruction = program[position]
+        position += 1
         kind = instruction[0]
         if kind == "constant":
             stack.append(instruction[1])
         elif kind == "variable":
             stack.append(inputs[instruction[1]])
+        elif kind == "jump":
+            position = instruction[1]
+        elif kind == "jump_if_false":
+            if not stack.pop():
+                position = instruction[1]
+        elif kind == "not":
+            stack.append(not stack.pop())
         else:
             arity = instruction[-1]
             values = stack[-arity:] if arity else []
@@ -954,7 +1160,9 @@ def lambdify(args, expression, modules="math"):
     """Build a typed callable for ``math`` or the explicit native preview backend.
 
     The math backend preserves Python scalar arithmetic, including integer
-    results and the usual math exceptions. It supports scalar/list/tuple output.
+    results and the usual math exceptions. It supports scalar/list/tuple output
+    and lazy Piecewise branches with comparisons and And/Or/Not conditions. A
+    math Piecewise with no matching branch returns None, matching SymPy 1.14.0.
     The ``frankensympy`` backend is :func:`compile_numeric` and always uses
     finite real binary64 arithmetic. Module dictionaries, arbitrary callbacks,
     and other numerical backends require separate contracts and are refused.
@@ -972,7 +1180,9 @@ def lambdify(args, expression, modules="math"):
     if modules == "frankensympy":
         return compile_numeric(args, expression)
     layout, variables = _argument_layout(args)
-    positions = {symbol: index for index, symbol in enumerate(variables)}
+    # Exact native symbol keys carry the complete typed identity. Raw native
+    # source can then resolve declared coordinates without constructing Symbols.
+    positions = {_BASIC_VALUE.__get__(symbol, Basic): index for index, symbol in enumerate(variables)}
     functions, count = _functions(), [0]
 
     def compile_one(value):

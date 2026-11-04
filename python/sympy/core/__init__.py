@@ -1235,7 +1235,16 @@ class Basic:
             old_s = Symbol(old) if isinstance(old, str) else (old if isinstance(old, Basic) else sympify(old))
             new_s = new if isinstance(new, Basic) else sympify(new)
             retained = tuple(_contains_opaque(value) for value in (self, old_s, new_s))
-            if any(retained):
+            # A Boolean replacement has a Python identity even though the
+            # native condition protocol uses plain True/False symbol atoms.
+            # Preserve that distinction when a nested Piecewise owns the guard.
+            from ..logic.boolalg import BooleanFalse, BooleanTrue
+            boolean_replacement = type(new_s) is BooleanTrue or type(new_s) is BooleanFalse
+            if (boolean_replacement and not retained[0] and not retained[1]
+                    and Basic.__dict__["_value"].__get__(self, Basic).has_function("Piecewise")):
+                _charge_nested_if_active(_expr_node_count(self))
+                res = _subs_supervised(self, old_s, new_s)
+            elif any(retained):
                 from ._surface_transforms import substitute
 
                 res = substitute(self, old_s, new_s)
@@ -5027,6 +5036,11 @@ def _node_has_custom_subs_or_eval(node: Any) -> bool:
     if not isinstance(node, Basic):
         return False
     cls = type(node)
+    # Piecewise.subs owns condition identity. Generic native substitution
+    # would also replace the legacy BooleanTrue atom when the caller replaces
+    # a numeric Symbol("True"), or erase a symbolic guard's wrapper provenance.
+    if cls is _known_functions.get("Piecewise"):
+        return True
     if _has_user_override(cls, "_eval_subs") or _has_user_override(cls, "eval"):
         return True
     if (
@@ -5056,7 +5070,11 @@ def _tree_requires_supervised_subs(node: Any) -> bool:
 
 
 def _subs_supervised(node: Any, old_s: Basic, new_s: Basic) -> Basic:
-    if any(_contains_opaque(value) for value in (node, old_s, new_s)):
+    from ..logic.boolalg import BooleanFalse, BooleanTrue
+
+    retained = tuple(_contains_opaque(value) for value in (node, old_s, new_s))
+    boolean_replacement = type(new_s) is BooleanTrue or type(new_s) is BooleanFalse
+    if retained[0] or retained[1] or (retained[2] and not boolean_replacement):
         from ._surface_transforms import substitute
 
         return substitute(node, old_s, new_s)

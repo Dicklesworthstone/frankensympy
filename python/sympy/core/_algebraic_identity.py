@@ -134,6 +134,22 @@ def _key(value):
         # These tags belong only to the native Piecewise condition protocol.
         # Preserve their exact tag and order; never resolve a user class by it.
         tag = native.func_name
+        if tag == "_FsymBooleanSymbol":
+            _limit(work, depth)
+            children = native.args
+            if len(children) != 1:
+                raise ValueError("invalid symbolic Piecewise condition")
+            if children[0].is_symbol:
+                return intern(("condition-symbol", native_key(children[0], depth + 1, checked=True)))
+            # A native substitution may replace the guarded symbol with a
+            # typed relational/Boolean condition; the wrapper then disappears
+            # when lifted through Piecewise._from_native.
+            if children[0].func_name in (
+                    "Equality", "Unequality", "StrictLessThan", "LessThan",
+                    "StrictGreaterThan", "GreaterThan", "And", "Or", "Not",
+                    "Xor", "Implies", "Equivalent"):
+                return condition_key(children[0], depth + 1)
+            raise ValueError("invalid substituted Piecewise condition")
         relationals = ("Eq", "Ne", "Lt", "Le", "Gt", "Ge",
                        "Equality", "Unequality", "StrictLessThan", "LessThan",
                        "StrictGreaterThan", "GreaterThan")
