@@ -438,9 +438,13 @@ impl Gruntz {
         }
     }
 
-    fn fresh_symbol(&mut self, stem: &str) -> Symbol {
+    fn fresh_symbol(&mut self, stem: &str, source: &Expr) -> LResult<Symbol> {
         self.fresh += 1;
-        Symbol::new(format!("_fsym_{stem}{}", self.fresh))
+        Ok(crate::series::fresh_symbol(
+            &format!("_fsym_{stem}{}", self.fresh),
+            &[source],
+            &[&self.x],
+        )?)
     }
 
     // -----------------------------------------------------------------------
@@ -733,7 +737,7 @@ impl Gruntz {
             let down = self.subs_x(&c0, &func("log", x));
             return Ok((down, e0));
         }
-        let w = self.fresh_symbol("w");
+        let w = self.fresh_symbol("w", e)?;
         let (f, logw) = self.rewrite(e, &omega, &w)?;
         if std::env::var("FSYM_TRACE").is_ok() {
             eprintln!(

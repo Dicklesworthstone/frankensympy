@@ -1,8 +1,8 @@
 //! Exact coefficients and refusal boundaries for the generalized series lane.
 
 use fsym_calculus::series::{SeriesError, series_in};
-use fsym_core::{BigRational, Expr, Symbol};
-use std::collections::BTreeMap;
+use fsym_core::{BigRational, Constant, Expr, Symbol};
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 fn q(n: i64, d: i64) -> BigRational {
@@ -96,4 +96,113 @@ fn analytic_laurent_powers_have_the_correct_constant_term() {
         BTreeMap::from([(q(-2, 1), Expr::from_i64(1)), (q(0, 1), Expr::from_i64(2))])
     );
     assert_eq!(expanded.order, Some(q(1, 1)));
+}
+
+#[test]
+fn logarithm_temporaries_do_not_replace_user_parameters() {
+    let t = Symbol::new("t");
+    let te = Expr::Sym(t.clone());
+    let logarithm = function("log", te.clone());
+    let parameter = Expr::symbol("_fsym_log_t");
+    let second = Expr::symbol("_fsym_log_t_1");
+    let source = parameter.clone() + second.clone() + function("exp", te);
+    let expanded = series_in(&source, &t, &q(3, 1), &logarithm).unwrap();
+    assert_eq!(
+        expanded.terms.get(&q(0, 1)),
+        Some(&(parameter + second + Expr::from_i64(1)))
+    );
+    assert_eq!(expanded.terms.get(&q(1, 1)), Some(&Expr::from_i64(1)));
+    assert_eq!(expanded.terms.get(&q(2, 1)), Some(&Expr::Rational(q(1, 2))));
+}
+
+#[test]
+fn logarithms_and_same_named_parameters_remain_distinct() {
+    let t = Symbol::new("_fsym_log_t");
+    let te = Expr::Sym(t.clone());
+    let logarithm = function("log", te.clone());
+    let source = logarithm.clone() + te;
+    let expanded = series_in(&source, &t, &q(2, 1), &logarithm).unwrap();
+    assert_eq!(expanded.terms.get(&q(0, 1)), Some(&logarithm));
+    assert_eq!(expanded.terms.get(&q(1, 1)), Some(&Expr::from_i64(1)));
+    assert_eq!(expanded.order, None);
+}
+
+#[test]
+fn public_series_local_coordinate_cannot_capture_parameters_or_centers() {
+    let x = Symbol::new("x");
+    let parameter = Expr::symbol("_fsym_series_t");
+    let sine = function("sin", Expr::Sym(x.clone()));
+    let (terms, order) = fsym_calculus::series_expansion(
+        &(sine.clone() + parameter.clone()),
+        &x,
+        &Expr::from_i64(0),
+        3,
+    )
+    .unwrap();
+    assert_eq!(
+        terms,
+        vec![(parameter.clone(), q(0, 1)), (Expr::from_i64(1), q(1, 1))]
+    );
+    assert_eq!(order, Some(q(3, 1)));
+
+    let (terms, order) = fsym_calculus::series_expansion(&sine, &x, &parameter, 2).unwrap();
+    assert_eq!(
+        terms,
+        vec![
+            (function("sin", parameter.clone()), q(0, 1)),
+            (function("cos", parameter), q(1, 1)),
+        ]
+    );
+    assert_eq!(order, Some(q(2, 1)));
+}
+
+#[test]
+fn generalized_series_preflights_depth_before_recursive_symbol_queries() {
+    let t = Symbol::new("t");
+    let mut source = Expr::Sym(t.clone());
+    for _ in 0..80 {
+        source = function("sin", source);
+    }
+    assert!(matches!(
+        series_in(&source, &t, &q(2, 1), &Expr::from_i64(0)),
+        Err(SeriesError::Unsupported(_))
+    ));
+}
+
+#[test]
+fn limit_scales_cannot_capture_declared_user_parameters() {
+    use fsym_core::assume::{Facts, with_symbol_facts};
+
+    let x = Symbol::new("x");
+    for name in ["_fsym_w1", "_fsym_w1_1", "_fsym_log_t"] {
+        let parameter = Symbol::new(name);
+        let value = Expr::Sym(parameter.clone());
+        let source = value.clone() + function("exp", -Expr::Sym(x.clone()));
+        let actual = with_symbol_facts(
+            HashMap::from([(parameter, Facts::from_names(&["positive"]))]),
+            || fsym_calculus::limit(&source, &x, &Expr::Const(Constant::Infinity)),
+        )
+        .unwrap();
+        assert_eq!(actual, value, "parameter {name}");
+    }
+}
+
+#[test]
+fn internal_coordinates_do_not_inherit_unrelated_ambient_assumptions() {
+    use fsym_core::assume::{Facts, with_symbol_facts};
+
+    let x = Symbol::new("x");
+    let source = function("sin", Expr::Const(Constant::Pi) * Expr::Sym(x.clone()));
+    // Neither reserved name occurs in the source. Reusing one of them
+    // would let the substitution fold sin(pi*t) to zero for an integer t.
+    let facts = ["_fsym_series_t", "_fsym_series_t_1"]
+        .into_iter()
+        .map(|name| (Symbol::new(name), Facts::from_names(&["integer"])))
+        .collect();
+    let (terms, order) = with_symbol_facts(facts, || {
+        fsym_calculus::series_expansion(&source, &x, &Expr::from_i64(0), 3)
+    })
+    .unwrap();
+    assert_eq!(terms, vec![(Expr::Const(Constant::Pi), q(1, 1))]);
+    assert_eq!(order, Some(q(3, 1)));
 }

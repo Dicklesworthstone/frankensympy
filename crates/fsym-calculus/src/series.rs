@@ -4,8 +4,9 @@
 //! (Laurent and Puiseux terms) plus an optional order term `O(t^order)`; the
 //! coefficients are expressions free of `t`. `log(t)` never becomes a power
 //! of `t`: it is carried inside coefficients as the placeholder symbol
-//! [`LOG_T`], which callers replace with the meaning of `log(t)` in their
-//! context (for Gruntz limits, an expression in the limit variable).
+//! with a fresh name based on [`LOG_T`], which callers replace with the
+//! meaning of `log(t)` in their context (for Gruntz limits, an expression
+//! in the limit variable). User symbols never serve as placeholders.
 //!
 //! Expansion is computed to a requested absolute order. Operations that
 //! need more precision from their operands (products with negative
@@ -23,15 +24,16 @@
 use fsym_core::elementary::{eval_function, eval_pow, rational_expr};
 use fsym_core::{BigInt, BigRational, Constant, Expr, Symbol};
 use num_traits::{Signed, Zero};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use thiserror::Error;
 
-/// Name of the placeholder symbol standing for `log(t)` in coefficients.
+/// Preferred name of the fresh placeholder for `log(t)` in coefficients.
 pub const LOG_T: &str = "_fsym_log_t";
 
 /// Hard limits on expansion work.
 const MAX_TERMS: usize = 64;
 const MAX_DEPTH: usize = 64;
+const MAX_NODES: usize = 8_192;
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum SeriesError {
@@ -260,8 +262,63 @@ impl Series {
 /// Expansion context.
 struct Ctx<'a> {
     t: &'a Symbol,
+    log_symbol: Symbol,
     log_t: Expr,
     depth: usize,
+}
+
+/// Deterministic temporary that cannot capture any source symbol. Reserve
+/// printed names as well as typed identities because assumption lookup has
+/// a plain-name fallback. This also preflights the source before recursive
+/// symbol collection, substitution, or expansion.
+pub(crate) fn fresh_symbol(
+    stem: &str,
+    expressions: &[&Expr],
+    symbols: &[&Symbol],
+) -> SResult<Symbol> {
+    let mut names: HashSet<&str> = symbols.iter().map(|s| s.name.as_str()).collect();
+    let mut pending: Vec<_> = expressions.iter().map(|e| (*e, 0usize)).collect();
+    let mut visited = 0usize;
+    while let Some((e, depth)) = pending.pop() {
+        visited += 1;
+        if depth > MAX_DEPTH || visited > MAX_NODES {
+            return Err(SeriesError::Unsupported(
+                "expression exceeds series traversal limits".into(),
+            ));
+        }
+        match e {
+            Expr::Sym(s) => {
+                names.insert(s.name.as_str());
+            }
+            Expr::Add(args) | Expr::Mul(args) | Expr::Function(_, args) => {
+                if args.len() > MAX_NODES.saturating_sub(visited + pending.len()) {
+                    return Err(SeriesError::Unsupported(
+                        "expression exceeds series traversal limits".into(),
+                    ));
+                }
+                pending.extend(args.iter().map(|arg| (arg, depth + 1)));
+            }
+            Expr::Pow(base, exponent) => {
+                if visited + pending.len() + 2 > MAX_NODES {
+                    return Err(SeriesError::Unsupported(
+                        "expression exceeds series traversal limits".into(),
+                    ));
+                }
+                pending.push((base, depth + 1));
+                pending.push((exponent, depth + 1));
+            }
+            _ => {}
+        }
+    }
+    let mut candidate = stem.to_string();
+    let mut suffix = 0usize;
+    // A name absent from the expression may still have caller-supplied
+    // assumptions. Internal coordinates must not inherit those facts.
+    while names.contains(candidate.as_str()) || fsym_core::assume::facts_of(&candidate).is_some() {
+        suffix += 1;
+        candidate = format!("{stem}_{suffix}");
+    }
+    Ok(Symbol::new(candidate))
 }
 
 fn is_free_of(e: &Expr, t: &Symbol) -> bool {
@@ -313,7 +370,7 @@ fn has_undefined(e: &Expr) -> bool {
 
 /// Taylor coefficient `f^(k)(a0) / k!` for a named analytic function.
 fn taylor_coefficients(name: &str, a0: &Expr, n: usize) -> SResult<Vec<Expr>> {
-    let z = Symbol::new("_fsym_series_z");
+    let z = fresh_symbol("_fsym_series_z", &[a0], &[])?;
     let mut f = Expr::Function(name.to_string(), vec![Expr::Sym(z.clone())]);
     let mut out = Vec::with_capacity(n + 1);
     let map = |e: &Expr| e.subs(&HashMap::from([(z.clone(), a0.clone())]));
@@ -505,8 +562,7 @@ fn retry_until_term(e: &Expr, target: &BigRational, ctx: &mut Ctx) -> SResult<Se
 }
 
 /// Splits `a0 = alpha*LOG_T + beta` when linear in the placeholder.
-fn split_log_linear(a0: &Expr) -> Option<(BigRational, Expr)> {
-    let lt = Symbol::new(LOG_T);
+fn split_log_linear(a0: &Expr, lt: &Symbol) -> Option<(BigRational, Expr)> {
     // Affinity is a structural algebraic fact. Values at finitely many
     // points cannot establish it: L*(L-1)*(L-2) agrees with zero at all
     // three points used by the former recognizer.
@@ -550,7 +606,7 @@ fn split_log_linear(a0: &Expr) -> Option<(BigRational, Expr)> {
             _ => None,
         }
     }
-    let (alpha, beta) = affine(a0, &lt, 0)?;
+    let (alpha, beta) = affine(a0, lt, 0)?;
     number(&alpha).map(|a| (a, beta))
 }
 
@@ -568,7 +624,7 @@ fn expand_function(name: &str, arg: &Expr, target: &BigRational, ctx: &mut Ctx) 
                 .unwrap_or(Expr::from_i64(0));
             let mut u = a.clone();
             u.terms.remove(&BigRational::zero());
-            let (alpha, beta) = split_log_linear(&a0)
+            let (alpha, beta) = split_log_linear(&a0, &ctx.log_symbol)
                 .ok_or_else(|| SeriesError::Unsupported(format!("exp of log term in {arg}")))?;
             let rel = target.clone() - alpha.clone();
             let u = if rel > *target && a.order.is_some() {
@@ -641,7 +697,7 @@ fn expand_function(name: &str, arg: &Expr, target: &BigRational, ctx: &mut Ctx) 
                 }
                 .truncate(target));
             }
-            analytic(name, arg, a, target)
+            analytic(name, arg, a, target, &ctx.log_symbol)
         }
         "sin" | "cos" | "tan" | "cot" | "sec" | "csc" | "sinh" | "cosh" | "tanh" | "coth"
         | "sech" | "csch" | "asin" | "acos" | "asinh" | "acosh" | "atanh" | "acoth" | "erf"
@@ -650,19 +706,25 @@ fn expand_function(name: &str, arg: &Expr, target: &BigRational, ctx: &mut Ctx) 
             if a.valuation().is_some_and(|v| v.is_negative()) {
                 return Err(SeriesError::Essential(format!("{name}({arg})")));
             }
-            analytic(name, arg, a, target)
+            analytic(name, arg, a, target, &ctx.log_symbol)
         }
         _ => Err(SeriesError::Unsupported(format!("{name}({arg})"))),
     }
 }
 
-fn analytic(name: &str, arg: &Expr, a: Series, target: &BigRational) -> SResult<Series> {
+fn analytic(
+    name: &str,
+    arg: &Expr,
+    a: Series,
+    target: &BigRational,
+    log_symbol: &Symbol,
+) -> SResult<Series> {
     let a0 = a
         .terms
         .get(&BigRational::zero())
         .cloned()
         .unwrap_or(Expr::from_i64(0));
-    if !is_free_of(&a0, &Symbol::new(LOG_T)) {
+    if !is_free_of(&a0, log_symbol) {
         return Err(SeriesError::Unsupported(format!(
             "{name} of log term in {arg}"
         )));
@@ -696,18 +758,19 @@ pub fn series_in(
     target: &BigRational,
     log_t: &Expr,
 ) -> Result<Series, SeriesError> {
+    let log_symbol = fresh_symbol(LOG_T, &[e, log_t], &[t])?;
     let mut ctx = Ctx {
         t,
-        log_t: Expr::Sym(Symbol::new(LOG_T)),
+        log_symbol: log_symbol.clone(),
+        log_t: Expr::Sym(log_symbol.clone()),
         depth: 0,
     };
     let s = expand_at(e, target, &mut ctx)?;
-    Ok(substitute_log(s, log_t))
+    Ok(substitute_log(s, &log_symbol, log_t))
 }
 
-fn substitute_log(s: Series, log_t: &Expr) -> Series {
-    let lt = Symbol::new(LOG_T);
-    let map = HashMap::from([(lt, log_t.clone())]);
+fn substitute_log(s: Series, log_symbol: &Symbol, log_t: &Expr) -> Series {
+    let map = HashMap::from([(log_symbol.clone(), log_t.clone())]);
     let mut terms = BTreeMap::new();
     for (k, c) in s.terms {
         let v = normalize(&c.subs(&map));
@@ -728,11 +791,12 @@ pub fn leading_term(
     t: &Symbol,
     log_t: &Expr,
 ) -> Result<(Expr, BigRational), SeriesError> {
-    let lt = Symbol::new(LOG_T);
+    let lt = fresh_symbol(LOG_T, &[e, log_t], &[t])?;
     let mut target = q(1);
     for _ in 0..8 {
         let mut ctx = Ctx {
             t,
+            log_symbol: lt.clone(),
             log_t: Expr::Sym(lt.clone()),
             depth: 0,
         };

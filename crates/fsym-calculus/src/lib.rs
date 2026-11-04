@@ -1342,7 +1342,8 @@ pub fn series_expansion(
     if let Some(result) = rational_limits::try_series(expr, var, x0, n) {
         return result.map_err(|error| CalculusError::NonDifferentiable(error.to_string()));
     }
-    let t = Symbol::new("_fsym_series_t");
+    let t = series::fresh_symbol("_fsym_series_t", &[expr, x0], &[var])
+        .map_err(|error| CalculusError::NonDifferentiable(error.to_string()))?;
     let te = Expr::Sym(t.clone());
     let xe = Expr::Sym(var.clone());
     let recip = |e: Expr| fsym_core::elementary::eval_pow(e, Expr::from_i64(-1));
