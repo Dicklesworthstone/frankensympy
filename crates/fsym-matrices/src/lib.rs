@@ -15,6 +15,10 @@ pub mod structured;
 pub use structured::*;
 mod pseudoinverse;
 pub use pseudoinverse::{PseudoinverseCertificate, verify_pseudoinverse_certificate};
+mod least_squares;
+pub use least_squares::{
+    LeastSquaresCandidate, VerifiedLeastSquaresFamily, verify_least_squares_candidate,
+};
 
 use fsym_core::algebraic::{AlgebraicNumber, count_real_roots_in_interval, sturm_sequence};
 use fsym_core::ball::RealBall;
