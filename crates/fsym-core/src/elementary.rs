@@ -1686,8 +1686,8 @@ fn truth(value: bool) -> Expr {
 
 fn truth_of(e: &Expr) -> Option<bool> {
     match e {
-        Expr::Sym(s) if s.name == "True" => Some(true),
-        Expr::Sym(s) if s.name == "False" => Some(false),
+        Expr::Sym(s) if s.is_plain() && s.name == "True" => Some(true),
+        Expr::Sym(s) if s.is_plain() && s.name == "False" => Some(false),
         _ => None,
     }
 }
@@ -1774,6 +1774,28 @@ fn eval_and_or(name: &str, args: &[Expr]) -> Option<Expr> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn boolean_reduction_preserves_typed_same_name_symbol_conditions() {
+        for name in ["True", "False"] {
+            let symbol = Expr::Sym(crate::Symbol::with_identity(
+                name,
+                crate::SymbolIdentity::from_assumptions_digest([7; 32]),
+            ));
+            assert_eq!(truth_of(&symbol), None);
+            let branches = [
+                Expr::Function("Tuple".into(), vec![Expr::from_i64(1), symbol.clone()]),
+                Expr::Function("Tuple".into(), vec![Expr::from_i64(2), truth(true)]),
+            ];
+            // Neither dropping the first branch nor choosing it is justified
+            // merely by the symbol's spelling.
+            assert_eq!(eval_piecewise(&branches), None);
+            let wrapped = Expr::Function("_FsymBooleanSymbol".into(), vec![Expr::symbol(name)]);
+            assert_eq!(truth_of(&wrapped), None);
+        }
+        assert_eq!(truth_of(&truth(true)), Some(true));
+        assert_eq!(truth_of(&truth(false)), Some(false));
+    }
 
     fn x() -> Expr {
         Expr::symbol("x")

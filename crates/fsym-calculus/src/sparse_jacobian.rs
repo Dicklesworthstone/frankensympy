@@ -789,6 +789,154 @@ pub fn compiled_expression_matches_with_meter<M: BudgetMeter + ?Sized>(
             Ok(matches)
         }
 
+        // Read control-flow operands independently of the generator. Their
+        // values are accepted only after the corresponding source boundary
+        // has been traversed, so changing a branch target cannot preserve the
+        // source/bytecode binding merely by leaving the arithmetic unchanged.
+        fn jump(&mut self, conditional: bool) -> Result<Option<usize>, CompileError> {
+            charge_compilation_work(self.meter, 1, 0, 0)?;
+            let target = match self.operations.get(self.position) {
+                Some(CompiledOp::JumpIfFalse(target)) if conditional => Some(*target),
+                Some(CompiledOp::Jump(target)) if !conditional => Some(*target),
+                _ => None,
+            };
+            if target.is_some() {
+                self.position += 1;
+            }
+            Ok(target)
+        }
+
+        fn piecewise(&mut self, branches: &[Expr], depth: usize) -> Result<bool, CompileError> {
+            if branches.is_empty() {
+                return Err(CompileError::UnsupportedFunction(compilation_diagnostic(
+                    "Piecewise requires at least one (value, condition) branch",
+                    self.meter,
+                )?));
+            }
+            let mut common_end = None;
+            for branch in branches {
+                charge_compilation_work(self.meter, 1, 0, 0)?;
+                let Expr::Function(tag, pair) = branch else {
+                    return Err(CompileError::UnsupportedFunction(compilation_diagnostic(
+                        "Piecewise requires Tuple(value, condition) branches",
+                        self.meter,
+                    )?));
+                };
+                admit_compilation_name(tag, self.meter)?;
+                if tag != "Tuple" || pair.len() != 2 {
+                    return Err(CompileError::UnsupportedFunction(compilation_diagnostic(
+                        "Piecewise requires Tuple(value, condition) branches",
+                        self.meter,
+                    )?));
+                }
+                if !self.condition(&pair[1], depth + 2)? {
+                    return Ok(false);
+                }
+                let Some(next_branch) = self.jump(true)? else {
+                    return Ok(false);
+                };
+                if !self.visit(&pair[0], depth + 2)? {
+                    return Ok(false);
+                }
+                let Some(end) = self.jump(false)? else {
+                    return Ok(false);
+                };
+                if next_branch != self.position || common_end.is_some_and(|target| target != end) {
+                    return Ok(false);
+                }
+                common_end = Some(end);
+            }
+            if !self.take(CompiledOp::NoMatchingPiecewiseBranch)? {
+                return Ok(false);
+            }
+            Ok(common_end == Some(self.position))
+        }
+
+        fn condition(&mut self, expr: &Expr, depth: usize) -> Result<bool, CompileError> {
+            charge_compilation_work(self.meter, 1, 0, 0)?;
+            if depth > MAX_COMPILE_DEPTH {
+                return Err(CompileError::DepthLimitExceeded {
+                    depth,
+                    max: MAX_COMPILE_DEPTH,
+                });
+            }
+            if let Expr::Sym(symbol) = expr {
+                admit_compilation_name(&symbol.name, self.meter)?;
+                if symbol.is_plain() && matches!(symbol.name.as_str(), "True" | "False") {
+                    return self.take(CompiledOp::LoadConst(if symbol.name == "True" {
+                        1.0
+                    } else {
+                        0.0
+                    }));
+                }
+            }
+            if let Expr::Function(name, arguments) = expr {
+                admit_compilation_name(name, self.meter)?;
+                charge_compilation_work(self.meter, name.len() + 1, 0, 0)?;
+                if name == "Not" && arguments.len() == 1 {
+                    return Ok(
+                        self.condition(&arguments[0], depth + 1)? && self.take(CompiledOp::Not)?
+                    );
+                }
+                if name == "And" || name == "Or" {
+                    let is_and = name == "And";
+                    let Some((last, prefix)) = arguments.split_last() else {
+                        return self.take(CompiledOp::LoadConst(if is_and { 1.0 } else { 0.0 }));
+                    };
+                    if prefix.is_empty() {
+                        return self.condition(last, depth + 1);
+                    }
+                    let mut common_shortcut = None;
+                    for argument in prefix {
+                        if !self.condition(argument, depth + 1)?
+                            || (!is_and && !self.take(CompiledOp::Not)?)
+                        {
+                            return Ok(false);
+                        }
+                        let Some(shortcut) = self.jump(true)? else {
+                            return Ok(false);
+                        };
+                        if common_shortcut.is_some_and(|target| target != shortcut) {
+                            return Ok(false);
+                        }
+                        common_shortcut = Some(shortcut);
+                    }
+                    if !self.condition(last, depth + 1)? {
+                        return Ok(false);
+                    }
+                    let Some(end) = self.jump(false)? else {
+                        return Ok(false);
+                    };
+                    if common_shortcut != Some(self.position)
+                        || !self.take(CompiledOp::LoadConst(if is_and { 0.0 } else { 1.0 }))?
+                    {
+                        return Ok(false);
+                    }
+                    return Ok(end == self.position);
+                }
+                if arguments.len() == 2 {
+                    let operation = match name.as_str() {
+                        "Equality" => Some(CompiledOp::Equal),
+                        "Unequality" => Some(CompiledOp::NotEqual),
+                        "StrictLessThan" => Some(CompiledOp::Less),
+                        "LessThan" => Some(CompiledOp::LessEqual),
+                        "StrictGreaterThan" => Some(CompiledOp::Greater),
+                        "GreaterThan" => Some(CompiledOp::GreaterEqual),
+                        _ => None,
+                    };
+                    if let Some(operation) = operation {
+                        return Ok(self.visit(&arguments[0], depth + 1)?
+                            && self.visit(&arguments[1], depth + 1)?
+                            && self.take(operation)?);
+                    }
+                }
+            }
+            Err(CompileError::UnsupportedFunction(compilation_diagnostic(
+                "Piecewise condition requires a boolean, comparison, And, Or or Not",
+                self.meter,
+            )?))
+        }
+
         fn number(&mut self, value: &BigInt) -> Result<f64, CompileError> {
             charge_compilation_work(self.meter, 1, 0, 0)?;
             let bits = value.bits();
@@ -942,6 +1090,9 @@ pub fn compiled_expression_matches_with_meter<M: BudgetMeter + ?Sized>(
                 }
                 Expr::Function(name, arguments) => {
                     admit_compilation_name(name, self.meter)?;
+                    if name == "Piecewise" {
+                        return self.piecewise(arguments, depth);
+                    }
                     if arguments.len() != 1 {
                         return Err(CompileError::UnsupportedFunction(compilation_diagnostic(
                             name, self.meter,

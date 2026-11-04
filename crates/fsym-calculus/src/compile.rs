@@ -234,6 +234,18 @@ pub enum EvalError {
     NonCanonicalConstant,
     #[error("Compiled numerical evaluation encountered a non-finite input or intermediate value")]
     NonFiniteValue,
+    #[error(
+        "Bytecode jump from instruction {instruction} to {target} is not a bounded forward jump"
+    )]
+    InvalidJump { instruction: usize, target: usize },
+    #[error("Bytecode paths join at instruction {instruction} with different stack depths")]
+    InconsistentBranchStack { instruction: usize },
+    #[error("Bytecode instruction {instruction} is unreachable")]
+    UnreachableInstruction { instruction: usize },
+    #[error("A compiled condition must evaluate to a canonical boolean (zero or one)")]
+    InvalidConditionValue,
+    #[error("No Piecewise condition is true at the supplied point")]
+    NoMatchingPiecewiseBranch,
 }
 
 /// Charge deterministic logical work before executing it, including a safe
@@ -296,9 +308,26 @@ pub enum CompiledOp {
     Ln,
     Sqrt,
     Abs,
+    /// Binary comparisons of the evaluated binary64 operands, producing 0 or 1.
+    /// These do not claim exact-real comparison at rounded boundaries.
+    Equal,
+    NotEqual,
+    Less,
+    LessEqual,
+    Greater,
+    GreaterEqual,
+    /// Boolean negation. Inputs other than canonical 0 or 1 are refused.
+    Not,
+    /// Pop a boolean and skip to the absolute target when false. Targets must
+    /// be strictly forward and at most the operation count, so loops cannot be
+    /// admitted through either construction or deserialization.
+    JumpIfFalse(usize),
+    Jump(usize),
+    /// An explicit undefined branch, never a numeric zero or accepted NaN.
+    NoMatchingPiecewiseBranch,
 }
 
-/// Linear sequence of operations evaluating an expression to an f64 value.
+/// Bounded forward-only stack program evaluating an expression to an f64 value.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct CompiledExpr {
     ops: Vec<CompiledOp>,
@@ -458,64 +487,152 @@ impl CompiledExpr {
         let mut stack_depth = 0usize;
         for op in ops {
             charge_evaluation_steps(meter, 1)?;
-            match op {
-                CompiledOp::LoadConst(value) => {
-                    if value.is_nan() || (*value == 0.0 && value.is_sign_negative()) {
-                        return Err(EvalError::NonCanonicalConstant);
-                    }
-                    stack_depth += 1;
-                }
-                CompiledOp::LoadVar(_) => stack_depth += 1,
-                CompiledOp::Add(count) | CompiledOp::Mul(count) => {
-                    let operation = if matches!(op, CompiledOp::Add(_)) {
-                        "Add"
-                    } else {
-                        "Mul"
-                    };
-                    if *count == 0 {
-                        return Err(EvalError::InvalidReductionArity { operation });
-                    }
-                    if stack_depth < *count {
-                        return Err(EvalError::StackUnderflow);
-                    }
-                    stack_depth = stack_depth - *count + 1;
-                }
-                CompiledOp::Pow(exponent) => {
-                    if !exponent.is_finite() {
-                        return Err(EvalError::NonFinitePowerExponent);
-                    }
-                    if stack_depth == 0 {
-                        return Err(EvalError::StackUnderflow);
-                    }
-                }
-                CompiledOp::PowPositive => {
-                    if stack_depth < 2 {
-                        return Err(EvalError::StackUnderflow);
-                    }
-                    stack_depth -= 1;
-                }
-                CompiledOp::Neg
-                | CompiledOp::Sin
-                | CompiledOp::Cos
-                | CompiledOp::Tan
-                | CompiledOp::Sinh
-                | CompiledOp::Cosh
-                | CompiledOp::Tanh
-                | CompiledOp::Exp
-                | CompiledOp::Ln
-                | CompiledOp::Sqrt
-                | CompiledOp::Abs => {
-                    if stack_depth == 0 {
-                        return Err(EvalError::StackUnderflow);
-                    }
-                }
+            if matches!(
+                op,
+                CompiledOp::JumpIfFalse(_)
+                    | CompiledOp::Jump(_)
+                    | CompiledOp::NoMatchingPiecewiseBranch
+            ) {
+                // Straight-line programs retain their allocation-free check.
+                // A branching program needs one depth per instruction, not a
+                // recursive traversal or exponentially many path executions.
+                return Self::validate_control_flow_with_meter(ops, meter);
             }
+            stack_depth = Self::stack_depth_after(op, stack_depth)?;
         }
 
         if stack_depth != 1 {
             return Err(EvalError::StackRemaining(stack_depth));
         }
         meter.checkpoint()?;
+        Ok(())
+    }
+
+    fn stack_depth_after(op: &CompiledOp, depth: usize) -> Result<usize, EvalError> {
+        match op {
+            CompiledOp::LoadConst(value) => {
+                if value.is_nan() || (*value == 0.0 && value.is_sign_negative()) {
+                    return Err(EvalError::NonCanonicalConstant);
+                }
+                Ok(depth + 1)
+            }
+            CompiledOp::LoadVar(_) => Ok(depth + 1),
+            CompiledOp::Add(count) | CompiledOp::Mul(count) => {
+                if *count == 0 {
+                    return Err(EvalError::InvalidReductionArity {
+                        operation: if matches!(op, CompiledOp::Add(_)) {
+                            "Add"
+                        } else {
+                            "Mul"
+                        },
+                    });
+                }
+                if depth < *count {
+                    return Err(EvalError::StackUnderflow);
+                }
+                Ok(depth - *count + 1)
+            }
+            CompiledOp::Pow(exponent) => {
+                if !exponent.is_finite() {
+                    return Err(EvalError::NonFinitePowerExponent);
+                }
+                if depth == 0 {
+                    return Err(EvalError::StackUnderflow);
+                }
+                Ok(depth)
+            }
+            CompiledOp::PowPositive
+            | CompiledOp::Equal
+            | CompiledOp::NotEqual
+            | CompiledOp::Less
+            | CompiledOp::LessEqual
+            | CompiledOp::Greater
+            | CompiledOp::GreaterEqual => {
+                if depth < 2 {
+                    return Err(EvalError::StackUnderflow);
+                }
+                Ok(depth - 1)
+            }
+            CompiledOp::JumpIfFalse(_) => depth.checked_sub(1).ok_or(EvalError::StackUnderflow),
+            CompiledOp::Jump(_) | CompiledOp::NoMatchingPiecewiseBranch => Ok(depth),
+            CompiledOp::Neg
+            | CompiledOp::Sin
+            | CompiledOp::Cos
+            | CompiledOp::Tan
+            | CompiledOp::Sinh
+            | CompiledOp::Cosh
+            | CompiledOp::Tanh
+            | CompiledOp::Exp
+            | CompiledOp::Ln
+            | CompiledOp::Sqrt
+            | CompiledOp::Abs
+            | CompiledOp::Not => {
+                if depth == 0 {
+                    return Err(EvalError::StackUnderflow);
+                }
+                Ok(depth)
+            }
+        }
+    }
+
+    fn validate_control_flow_with_meter<M: BudgetMeter + ?Sized>(
+        ops: &[CompiledOp],
+        meter: &mut M,
+    ) -> Result<(), EvalError> {
+        let length = ops.len() + 1; // ops is already bounded by MAX_COMPILE_OPS.
+        charge_evaluation_steps(meter, length)?;
+        meter.charge_batch(&[
+            (
+                Dimension::MemoryBytes,
+                (length * std::mem::size_of::<Option<usize>>()) as u64,
+            ),
+            (Dimension::AllocationCount, 1),
+        ])?;
+        let mut depths = Vec::new();
+        depths
+            .try_reserve_exact(length)
+            .map_err(|_| EvalError::AllocationFailure)?;
+        depths.resize(length, None);
+        depths[0] = Some(0);
+        for (instruction, op) in ops.iter().enumerate() {
+            charge_evaluation_steps(meter, 4)?;
+            let depth =
+                depths[instruction].ok_or(EvalError::UnreachableInstruction { instruction })?;
+            let next = Self::stack_depth_after(op, depth)?;
+            if let CompiledOp::JumpIfFalse(target) | CompiledOp::Jump(target) = op {
+                if *target <= instruction || *target > ops.len() {
+                    return Err(EvalError::InvalidJump {
+                        instruction,
+                        target: *target,
+                    });
+                }
+                Self::join_stack_depth(&mut depths, *target, next)?;
+            }
+            if !matches!(
+                op,
+                CompiledOp::Jump(_) | CompiledOp::NoMatchingPiecewiseBranch
+            ) {
+                Self::join_stack_depth(&mut depths, instruction + 1, next)?;
+            }
+        }
+        if depths[ops.len()] != Some(1) {
+            return Err(EvalError::StackRemaining(depths[ops.len()].unwrap_or(0)));
+        }
+        meter.checkpoint()?;
+        Ok(())
+    }
+
+    fn join_stack_depth(
+        depths: &mut [Option<usize>],
+        instruction: usize,
+        depth: usize,
+    ) -> Result<(), EvalError> {
+        if let Some(previous) = depths[instruction]
+            && previous != depth
+        {
+            return Err(EvalError::InconsistentBranchStack { instruction });
+        }
+        depths[instruction] = Some(depth);
         Ok(())
     }
 
@@ -737,6 +854,9 @@ impl CompiledExpr {
             }
             Expr::Function(name, args) => {
                 admit_compilation_name(name, meter)?;
+                if name == "Piecewise" {
+                    return Self::compile_piecewise(args, var_map, ops, depth, meter);
+                }
                 if args.len() != 1 {
                     return Err(CompileError::UnsupportedFunction(compilation_diagnostic(
                         name, meter,
@@ -764,6 +884,170 @@ impl CompiledExpr {
             }
         }
         Ok(())
+    }
+
+    fn patch_slots<M: BudgetMeter + ?Sized>(
+        count: usize,
+        meter: &mut M,
+    ) -> Result<Vec<usize>, CompileError> {
+        if count > MAX_COMPILE_OPS {
+            return Err(CompileError::OpLimitExceeded {
+                ops: count,
+                max: MAX_COMPILE_OPS,
+            });
+        }
+        charge_compilation_work(
+            meter,
+            count,
+            count * std::mem::size_of::<usize>(),
+            usize::from(count != 0),
+        )?;
+        let mut slots = Vec::new();
+        slots
+            .try_reserve_exact(count)
+            .map_err(|_| CompileError::AllocationFailure)?;
+        Ok(slots)
+    }
+
+    fn compile_piecewise<M: BudgetMeter + ?Sized>(
+        branches: &[Expr],
+        var_map: &HashMap<Symbol, usize>,
+        ops: &mut Vec<CompiledOp>,
+        depth: usize,
+        meter: &mut M,
+    ) -> Result<(), CompileError> {
+        if branches.is_empty() {
+            return Err(CompileError::UnsupportedFunction(compilation_diagnostic(
+                "Piecewise requires at least one (value, condition) branch",
+                meter,
+            )?));
+        }
+        let mut ends = Self::patch_slots(branches.len(), meter)?;
+        for branch in branches {
+            charge_compilation_work(meter, 1, 0, 0)?;
+            let Expr::Function(tag, pair) = branch else {
+                return Err(CompileError::UnsupportedFunction(compilation_diagnostic(
+                    "Piecewise requires Tuple(value, condition) branches",
+                    meter,
+                )?));
+            };
+            if tag != "Tuple" || pair.len() != 2 {
+                return Err(CompileError::UnsupportedFunction(compilation_diagnostic(
+                    "Piecewise requires Tuple(value, condition) branches",
+                    meter,
+                )?));
+            }
+            // Retain source order, including constant conditions. Every source
+            // branch must be admitted; evaluation alone skips inactive work.
+            Self::compile_condition(&pair[1], var_map, ops, depth + 2, meter)?;
+            let condition_jump = ops.len();
+            Self::push_op(ops, CompiledOp::JumpIfFalse(0), meter)?;
+            Self::compile_recursive(&pair[0], var_map, ops, depth + 2, meter)?;
+            ends.push(ops.len());
+            Self::push_op(ops, CompiledOp::Jump(0), meter)?;
+            charge_compilation_work(meter, 1, 0, 0)?;
+            ops[condition_jump] = CompiledOp::JumpIfFalse(ops.len());
+        }
+        Self::push_op(ops, CompiledOp::NoMatchingPiecewiseBranch, meter)?;
+        for jump in ends {
+            charge_compilation_work(meter, 1, 0, 0)?;
+            ops[jump] = CompiledOp::Jump(ops.len());
+        }
+        Ok(())
+    }
+
+    fn compile_condition<M: BudgetMeter + ?Sized>(
+        condition: &Expr,
+        var_map: &HashMap<Symbol, usize>,
+        ops: &mut Vec<CompiledOp>,
+        depth: usize,
+        meter: &mut M,
+    ) -> Result<(), CompileError> {
+        charge_compilation_work(meter, 1, 0, 0)?;
+        if depth > MAX_COMPILE_DEPTH {
+            return Err(CompileError::DepthLimitExceeded {
+                depth,
+                max: MAX_COMPILE_DEPTH,
+            });
+        }
+        if let Expr::Sym(symbol) = condition {
+            admit_compilation_name(&symbol.name, meter)?;
+            // True/False are the legacy Piecewise condition protocol, only
+            // within a condition. Identity-bearing names are never booleans.
+            if symbol.is_plain() && matches!(symbol.name.as_str(), "True" | "False") {
+                return Self::push_op(
+                    ops,
+                    CompiledOp::LoadConst(if symbol.name == "True" { 1.0 } else { 0.0 }),
+                    meter,
+                );
+            }
+        }
+        if let Expr::Function(name, args) = condition {
+            admit_compilation_name(name, meter)?;
+            charge_compilation_work(meter, name.len() + 1, 0, 0)?;
+            if name == "Not" && args.len() == 1 {
+                Self::compile_condition(&args[0], var_map, ops, depth + 1, meter)?;
+                return Self::push_op(ops, CompiledOp::Not, meter);
+            }
+            if name == "And" || name == "Or" {
+                let is_and = name == "And";
+                let Some((last, prefix)) = args.split_last() else {
+                    return Self::push_op(
+                        ops,
+                        CompiledOp::LoadConst(if is_and { 1.0 } else { 0.0 }),
+                        meter,
+                    );
+                };
+                if prefix.is_empty() {
+                    return Self::compile_condition(last, var_map, ops, depth + 1, meter);
+                }
+                let mut shortcuts = Self::patch_slots(prefix.len(), meter)?;
+                for argument in prefix {
+                    Self::compile_condition(argument, var_map, ops, depth + 1, meter)?;
+                    if !is_and {
+                        Self::push_op(ops, CompiledOp::Not, meter)?;
+                    }
+                    shortcuts.push(ops.len());
+                    Self::push_op(ops, CompiledOp::JumpIfFalse(0), meter)?;
+                }
+                Self::compile_condition(last, var_map, ops, depth + 1, meter)?;
+                let end_jump = ops.len();
+                Self::push_op(ops, CompiledOp::Jump(0), meter)?;
+                let shortcut = ops.len();
+                Self::push_op(
+                    ops,
+                    CompiledOp::LoadConst(if is_and { 0.0 } else { 1.0 }),
+                    meter,
+                )?;
+                for jump in shortcuts {
+                    charge_compilation_work(meter, 1, 0, 0)?;
+                    ops[jump] = CompiledOp::JumpIfFalse(shortcut);
+                }
+                charge_compilation_work(meter, 1, 0, 0)?;
+                ops[end_jump] = CompiledOp::Jump(ops.len());
+                return Ok(());
+            }
+            if args.len() == 2 {
+                let comparison = match name.as_str() {
+                    "Equality" => Some(CompiledOp::Equal),
+                    "Unequality" => Some(CompiledOp::NotEqual),
+                    "StrictLessThan" => Some(CompiledOp::Less),
+                    "LessThan" => Some(CompiledOp::LessEqual),
+                    "StrictGreaterThan" => Some(CompiledOp::Greater),
+                    "GreaterThan" => Some(CompiledOp::GreaterEqual),
+                    _ => None,
+                };
+                if let Some(comparison) = comparison {
+                    Self::compile_recursive(&args[0], var_map, ops, depth + 1, meter)?;
+                    Self::compile_recursive(&args[1], var_map, ops, depth + 1, meter)?;
+                    return Self::push_op(ops, comparison, meter);
+                }
+            }
+        }
+        Err(CompileError::UnsupportedFunction(compilation_diagnostic(
+            "Piecewise condition requires a boolean, comparison, And, Or or Not",
+            meter,
+        )?))
     }
 
     fn push_op<M: BudgetMeter + ?Sized>(
@@ -862,7 +1146,9 @@ impl CompiledExpr {
         stack
             .try_reserve_exact(self.ops.len())
             .map_err(|_| EvalError::AllocationFailure)?;
-        for op in &self.ops {
+        let mut instruction = 0;
+        while instruction < self.ops.len() {
+            let op = &self.ops[instruction];
             charge_evaluation_steps(meter, 1)?;
             match op {
                 CompiledOp::LoadConst(c) => stack.push(*c),
@@ -951,16 +1237,70 @@ impl CompiledExpr {
                     let v = stack.pop().ok_or(EvalError::StackUnderflow)?;
                     stack.push(v.abs());
                 }
+                CompiledOp::Equal
+                | CompiledOp::NotEqual
+                | CompiledOp::Less
+                | CompiledOp::LessEqual
+                | CompiledOp::Greater
+                | CompiledOp::GreaterEqual => {
+                    let right = stack.pop().ok_or(EvalError::StackUnderflow)?;
+                    let left = stack.pop().ok_or(EvalError::StackUnderflow)?;
+                    // NaN is never allowed to turn an undecidable/domain-error
+                    // condition into false (or an inequality into true).
+                    if left.is_nan() || right.is_nan() {
+                        return Err(EvalError::NonFiniteValue);
+                    }
+                    let truth = match op {
+                        CompiledOp::Equal => left == right,
+                        CompiledOp::NotEqual => left != right,
+                        CompiledOp::Less => left < right,
+                        CompiledOp::LessEqual => left <= right,
+                        CompiledOp::Greater => left > right,
+                        CompiledOp::GreaterEqual => left >= right,
+                        _ => unreachable!("comparison dispatch is exhaustive"),
+                    };
+                    stack.push(if truth { 1.0 } else { 0.0 });
+                }
+                CompiledOp::Not => {
+                    let value = stack.pop().ok_or(EvalError::StackUnderflow)?;
+                    let truth = Self::condition_value(value)?;
+                    stack.push(if truth { 0.0 } else { 1.0 });
+                }
+                CompiledOp::JumpIfFalse(target) => {
+                    let value = stack.pop().ok_or(EvalError::StackUnderflow)?;
+                    if !Self::condition_value(value)? {
+                        instruction = *target;
+                        continue;
+                    }
+                }
+                CompiledOp::Jump(target) => {
+                    instruction = *target;
+                    continue;
+                }
+                CompiledOp::NoMatchingPiecewiseBranch => {
+                    return Err(EvalError::NoMatchingPiecewiseBranch);
+                }
             }
             if finite_only && stack.last().is_some_and(|value| !value.is_finite()) {
                 return Err(EvalError::NonFiniteValue);
             }
+            instruction += 1;
         }
         if stack.len() != 1 {
             return Err(EvalError::StackRemaining(stack.len()));
         }
         meter.checkpoint()?;
         stack.pop().ok_or(EvalError::StackUnderflow)
+    }
+
+    fn condition_value(value: f64) -> Result<bool, EvalError> {
+        if value == 1.0 {
+            Ok(true)
+        } else if value == 0.0 && value.is_sign_positive() {
+            Ok(false)
+        } else {
+            Err(EvalError::InvalidConditionValue)
+        }
     }
 
     /// Evaluates the compiled expression, returning `f64::NAN` on failure.
