@@ -172,6 +172,8 @@ jobs:
               "python/tests/test_exact_monotonicity.py",
               "python/tests/test_certified_objective.py",
               "python/tests/test_native_result_lifting.py",
+              "python/tests/test_exact_dsolve.py",
+              "python/tests/test_surface.py::SurfaceTests::test_ode_checkodesol_and_verifiers",
           ]))
           PY
       - name: Test the checked-out shell against the current native extension

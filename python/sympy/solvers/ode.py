@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 from ..core import (
+    AppliedUndef as _OdeAppliedUndef,
+    Basic as _OdeBasic,
+    Derivative as _OdeDerivative,
     Symbol,
+    UndefinedFunction as _OdeUndefinedFunction,
     _native,
     _native_expr,
     _native_symbol_key,
@@ -12,6 +16,54 @@ from ..core import (
     _require_symbol,
     _wrap,
 )
+from ..core._function_capabilities import _owner_matches, _owner_record
+
+
+# Reuse the closed-function implementation policy for ordinary formal ODE
+# functions too. A plain leaf class does not authorize changes to its inherited
+# argument getters, constructors, identity, or _eval_* hooks. Capture owners
+# during package import, before any caller can supply an ODE.
+_ODE_MRO = type.__dict__["__mro__"]
+_ODE_FUNCTION_MROS = tuple(
+    (root, _ODE_MRO.__get__(root)) for root in (_OdeAppliedUndef, _OdeUndefinedFunction)
+)
+_ODE_FUNCTION_OWNERS = tuple(
+    (owner, _owner_record(owner)) for _, mro in _ODE_FUNCTION_MROS for owner in mro
+)
+_ODE_VALUE_SLOT = _OdeBasic.__dict__["_value"]
+_ODE_DERIVATIVE_ARGS = _OdeDerivative.__dict__["_derivative_args"]
+
+
+def _checkodesol_function_protocol():
+    for root, expected in _ODE_FUNCTION_MROS:
+        current = _ODE_MRO.__get__(root)
+        if len(current) != len(expected) or any(a is not b for a, b in zip(current, expected)):
+            raise NotImplementedError("checkodesol requires the original undefined-function implementation")
+    if any(not _owner_matches(owner, record) for owner, record in _ODE_FUNCTION_OWNERS):
+        raise NotImplementedError("checkodesol requires the original undefined-function implementation")
+
+
+def _checkodesol_children(node):
+    """Read owning slots; preflight native regions before recovering classes."""
+    from ..core._opaque_arithmetic import stored_args, _validate_native_region
+
+    if type(node) is _OdeDerivative:
+        try:
+            return _ODE_DERIVATIVE_ARGS.__get__(node, _OdeDerivative)
+        except AttributeError:
+            pass
+    children = stored_args(node)
+    if children is not None:
+        return children
+    native = _ODE_VALUE_SLOT.__get__(node, _OdeBasic)
+    if type(native) is not _native.Expr:
+        raise NotImplementedError("checkodesol requires retained arguments or an exact native source")
+    if native.is_integer or native.is_rational or native.is_symbol:
+        # No descendants are cloned here. The exact ODE lane retains ownership
+        # of its coefficient-growth and typed-coordinate admission checks.
+        return ()
+    _validate_native_region(native)
+    return tuple(_wrap(child) for child in native.args)
 
 
 def dsolve_linear_first_order(P: Any, Q: Any, x: Any) -> Any:
@@ -62,6 +114,117 @@ def dsolve_separable_linear(f: Any, x: Any) -> Any:
     return _parse_result(res)
 
 
+def _plain_ode_function_class(cls):
+    """An ordinary undefined function, with no user-defined behavior."""
+    from ..core import AppliedUndef, UndefinedFunction
+
+    return (type(cls) is UndefinedFunction and cls.__bases__ == (AppliedUndef,)
+            and not (set(cls.__dict__)
+                     - {"__module__", "__dict__", "__weakref__", "__doc__"}))
+
+
+def _checkodesol_function(function):
+    from ..core import Dummy, Symbol, _require_default_function_identity
+
+    _checkodesol_function_protocol()
+    _require_default_function_identity()
+    if not _plain_ode_function_class(type(function)):
+        raise NotImplementedError("checkodesol requires an ordinary undefined function")
+    arguments = _checkodesol_children(function)
+    if type(arguments) is not tuple or len(arguments) != 1 or type(arguments[0]) not in (Symbol, Dummy):
+        raise NotImplementedError("checkodesol requires a function of one symbol")
+    return function
+
+
+def _checkodesol_surface(expression):
+    """Admit a retained source without invoking custom getters or hooks.
+
+    Normal rational expressions use the legacy common-smooth-domain check.
+    Held arithmetic containing a reciprocal of a nonconstant expression is
+    conservatively left unverified: reconstruction could cancel its original
+    domain. Zero products, zeroth powers, and matching partial summands on
+    opposite equality sides must not erase such obligations either.
+    """
+    from ..core import (
+        Add, Eq, Integer, Mul, Pow, Rational, S, _exact_surface_types,
+        _is_closed_function_class, _require_default_function_identity,
+    )
+
+    _checkodesol_function_protocol()
+    _require_default_function_identity()
+    exact_types = _exact_surface_types()
+    exact_atoms = (Integer, Rational, type(S.Zero), type(S.One),
+                   type(S.NegativeOne), type(S.Half))
+    pending = [(expression, 0, False, False, None)]
+    partial = {}
+    admitted_children = {}
+    safe = True
+    work = 0
+    while pending:
+        node, depth, held, erased, children = pending.pop()
+        work += 1
+        if work > 8192 or depth > 128:
+            raise ValueError("checkodesol: original source exceeds the bounded traversal envelope")
+        kind = type(node)
+        if children is not None:
+            partial[id(node)] = partial[id(node)] or any(partial[id(child)] for child in children)
+            if kind is Eq:
+                left, right = children
+                lhs = admitted_children[id(left)] if type(left) is Add else (left,)
+                rhs = admitted_children[id(right)] if type(right) is Add else (right,)
+                for term in lhs:
+                    if partial[id(term)]:
+                        for other in rhs:
+                            work += 1
+                            if work > 8192:
+                                raise ValueError("checkodesol: original source exceeds the bounded traversal envelope")
+                            if term == other:
+                                safe = False
+            continue
+        ordinary_function = _plain_ode_function_class(kind)
+        if (not any(kind is builtin for builtin in exact_types)
+                and not ordinary_function and not _is_closed_function_class(kind)):
+            raise NotImplementedError(
+                "checkodesol requires exact built-in classes or ordinary undefined functions"
+            )
+        # Only admitted classes reach args; an arbitrary Python property is
+        # never a substitute for an original symbolic source.
+        children = _checkodesol_children(node)
+        if type(children) is not tuple:
+            raise NotImplementedError("checkodesol requires immutable original source arguments")
+        admitted_children[id(node)] = children
+        if work + len(pending) + len(children) > 8192:
+            raise ValueError("checkodesol: original source exceeds the bounded traversal envelope")
+        if kind in (Add, Mul, Pow):
+            try:
+                kind.__dict__["_args"].__get__(node, kind)
+            except AttributeError:
+                pass
+            else:
+                held = True
+        partial_power = False
+        if kind is Pow:
+            base, exponent = children
+            exact_exponent = type(exponent) in exact_atoms
+            nonzero_constant = type(base) in exact_atoms and base.p != 0
+            partial_power = (not nonzero_constant and not (
+                exact_exponent and exponent.q == 1 and exponent.p >= 0
+            ))
+            if partial_power and (erased or held and (
+                not exact_exponent or exponent.p < 0
+            )):
+                safe = False
+            if exact_exponent and exponent.p == 0:
+                erased = True
+        elif kind is Mul and any(type(child) in exact_atoms and child.p == 0
+                                 for child in children):
+            erased = True
+        partial[id(node)] = partial_power
+        pending.append((node, depth, held, erased, children))
+        pending.extend((child, depth + 1, held, erased, None) for child in reversed(children))
+    return safe
+
+
 def checkodesol(
     ode: Any,
     sol: Any,
@@ -79,8 +242,10 @@ def checkodesol(
     Bounded exact polynomial equations also admit one principal-square-root
     graph through a checked first-integral identity. That check applies on the
     graph's common smooth domain and does not certify extension through branch
-    singularities or uniqueness of the solution.
+    singularities or uniqueness of the solution. Held inputs whose original
+    reciprocal domains could disappear return (False, original_ode).
     """
+    _checkodesol_function_protocol()
     if isinstance(sol, (list, tuple)):
         return [
             checkodesol(ode, s, func=func, order=order, solve_for_func=solve_for_func)
@@ -88,6 +253,18 @@ def checkodesol(
         ]
 
     from ..core import AppliedUndef, Basic, Equality, Integer
+
+    # Formal f(x) and Derivative(f(x), x) belong to the retained shell. They
+    # must survive until substitution or the checked fresh-coordinate adapter;
+    # the native opaque-object refusal remains the correct kernel boundary.
+    ode = ode if isinstance(ode, Basic) else _wrap(_native_expr(ode))
+    sol = sol if isinstance(sol, Basic) else _wrap(_native_expr(sol))
+    if func is not None:
+        func = _checkodesol_function(func)
+    source_safe = _checkodesol_surface(ode)
+    candidate_safe = _checkodesol_surface(sol)
+    if not source_safe or not candidate_safe:
+        return (False, ode)
 
     if isinstance(sol, Equality):
         target = func
@@ -98,6 +275,7 @@ def checkodesol(
                 target = sol.rhs
             else:
                 target = _find_function(ode)
+        func = _checkodesol_function(target)
         if sol.lhs != target and sol.rhs != target:
             # Admit both original sides before subtraction can evaluate a
             # held power or erase an excluded point. Keep a refused input
@@ -105,64 +283,19 @@ def checkodesol(
             if _check_exact_ode_relation(ode, sol, target):
                 return (True, 0)
             return (False, ode)
-
-    # Keep original Eq sides intact until the bounded graph checker has had
-    # the opportunity to admit them. Subtraction can evaluate held powers.
-    ode_expr = None
-
-    if isinstance(sol, Equality):
-        if func is None:
-            func = target
-            rhs = sol.rhs if sol.lhs == target else sol.lhs
-        else:
-            func = _wrap(_native_expr(func))
-            if sol.lhs == func:
-                rhs = sol.rhs
-            elif sol.rhs == func:
-                rhs = sol.lhs
-            else:
-                rhs = sol.rhs
+        rhs = sol.rhs if sol.lhs == target else sol.lhs
     else:
         if func is None:
-            inference_sources = ((ode.lhs, ode.rhs) if isinstance(ode, Equality)
-                                 else (_wrap(_native_expr(ode)),))
-            known_atom_names = {
-                "Add", "Mul", "Pow", "Symbol", "Integer", "Rational", "Float",
-                "exp", "sin", "cos", "tan", "sinh", "cosh", "tanh",
-                "cot", "sec", "csc", "coth", "sech", "csch",
-                "asin", "acos", "atan", "acot", "asec", "acsc",
-                "asinh", "acosh", "atanh", "acoth", "asech", "acsch",
-                "sinc", "erf", "erfc", "sign", "gamma", "zeta",
-                "factorial", "binomial", "fibonacci", "lucas", "harmonic",
-                "catalan", "bernoulli", "bell", "subfactorial", "floor", "ceiling",
-                "log", "ln", "sqrt", "diff", "Derivative", "Abs",
-            }
-            candidates = []
-            for source in inference_sources:
-                for atom in source.atoms():
-                    fname = getattr(atom, "func", None)
-                    fname_str = getattr(fname, "__name__", None) or str(fname)
-                    if fname_str not in known_atom_names and hasattr(atom, "args") and atom.args:
-                        candidates.append(atom)
-            if candidates:
-                func = candidates[0]
-            else:
-                # Ordinary atoms() contains leaf atoms, so an applied unknown
-                # function may only be visible to the bounded original-tree
-                # traversal. Infer it without subtracting held Eq sides.
-                func = _find_function(ode)
-        else:
-            func = _wrap(_native_expr(func))
-        native_rhs = _native_expr(sol)
-        rhs = sol if isinstance(sol, Basic) else _wrap(native_rhs)
+            func = _checkodesol_function(_find_function(ode))
+        rhs = sol
 
     graph_verdict = _check_quadratic_exact_ode_graph(ode, rhs, func)
     if graph_verdict is not None:
         return (True, 0) if graph_verdict else (False, ode)
 
-    if ode_expr is None:
-        ode_expr = (ode.lhs - ode.rhs if isinstance(ode, Equality)
-                    else _wrap(_native_expr(ode)))
+    # The checked graph lane must inspect original Eq sides before subtraction
+    # can evaluate held powers. Only then use the retained substitution lane.
+    ode_expr = ode.lhs - ode.rhs if isinstance(ode, Equality) else ode
     subbed = ode_expr.subs(func, rhs)
     evaluated = subbed.doit()
     residual = evaluated.simplify()

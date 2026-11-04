@@ -293,6 +293,208 @@ class ExactDsolveTests(unittest.TestCase):
                     self.assertEqual(branch.lhs, y)
                     self.assertEqual(checkodesol(equation, branch, y), (True, 0))
 
+    def test_checkodesol_retains_formal_targets_until_substitution(self):
+        from sympy import Basic, exp
+        from sympy.core import _contains_opaque, _native_expr
+
+        equation = self.derivative - self.y
+        candidate = exp(self.x)
+
+        def closed_only(value):
+            if isinstance(value, Basic) and _contains_opaque(value):
+                raise AssertionError("a retained ODE or formal target reached native lowering")
+            return _native_expr(value)
+
+        for source in (equation, Eq(equation, 0, evaluate=False)):
+            for solution in (candidate, Eq(self.y, candidate, evaluate=False),
+                             Eq(candidate, self.y, evaluate=False)):
+                for explicit in (False, True):
+                    with self.subTest(source=source, solution=solution, explicit=explicit), patch(
+                        "sympy.solvers.ode._native_expr", side_effect=closed_only,
+                    ):
+                        args = (self.y,) if explicit else ()
+                        self.assertEqual(checkodesol(source, solution, *args), (True, 0))
+
+    def test_checkodesol_lists_keep_true_and_false_residuals(self):
+        from sympy import exp
+
+        equation = self.derivative - self.y
+        good, bad = exp(self.x), exp(2*self.x)
+        solutions = (Eq(self.y, good, evaluate=False),
+                     Eq(bad, self.y, evaluate=False), good)
+        expected = [(True, 0), (False, bad), (True, 0)]
+        self.assertEqual(checkodesol(equation, solutions, self.y), expected)
+        self.assertEqual(checkodesol(Eq(equation, 0, evaluate=False), list(solutions)), expected)
+
+    def test_checkodesol_infers_bare_rhs_from_derivative_sources(self):
+        for source in (self.derivative - 1, Eq(self.derivative, 1, evaluate=False)):
+            self.assertEqual(checkodesol(source, self.x), (True, 0))
+        self.assertEqual(checkodesol(self.derivative, 0), (True, 0))
+        other = Function("another_ode_target")(self.x)
+        with self.assertRaises(ValueError):
+            checkodesol(self.derivative + other, self.x)
+
+    def test_checkodesol_retains_holes_before_legacy_substitution(self):
+        from sympy import exp
+
+        equation = self.derivative - self.y
+        reciprocal = Pow(self.x, -1, evaluate=False)
+        hidden = Mul(0, reciprocal, evaluate=False)
+        zeroth = Pow(reciprocal, 0, evaluate=False)
+        sources = (
+            Add(equation, hidden, evaluate=False),
+            Eq(Add(equation, hidden, evaluate=False), hidden, evaluate=False),
+            Eq(Add(equation, zeroth, evaluate=False), 1, evaluate=False),
+            Eq(Add(equation, Pow(reciprocal, -1, evaluate=False), evaluate=False),
+               self.x, evaluate=False),
+            Eq(Add(equation, Mul(self.x, reciprocal, evaluate=False), evaluate=False),
+               1, evaluate=False),
+        )
+        candidate = Eq(self.y, exp(self.x), evaluate=False)
+        for source in sources:
+            with self.subTest(source=source), patch(
+                "sympy.core.Basic.subs",
+                side_effect=AssertionError("source domain must survive before substitution"),
+            ):
+                result = checkodesol(source, candidate, self.y)
+                self.assertFalse(result[0])
+                self.assertIs(result[1], source)
+        for rhs in (Add(exp(self.x), hidden, evaluate=False),
+                    Add(exp(self.x), zeroth, -1, evaluate=False)):
+            with self.subTest(candidate=rhs), patch(
+                "sympy.core.Basic.subs",
+                side_effect=AssertionError("candidate domain must survive before substitution"),
+            ):
+                self.assertEqual(checkodesol(equation, rhs, self.y), (False, equation))
+
+    def test_checkodesol_common_reciprocals_cannot_cancel_between_eq_sides(self):
+        from sympy import exp
+
+        equation = self.derivative - self.y
+        reciprocal = 1/self.x
+        source = Eq(equation + reciprocal, reciprocal, evaluate=False)
+        with patch(
+            "sympy.core.Basic.subs",
+            side_effect=AssertionError("original Eq sides must retain common domain exclusions"),
+        ):
+            result = checkodesol(source, Eq(self.y, exp(self.x), evaluate=False))
+        self.assertFalse(result[0])
+        self.assertIs(result[1], source)
+
+    def test_checkodesol_normal_rational_and_second_order_residuals_remain_usable(self):
+        from sympy import sin
+
+        rational = self.derivative + self.y/self.x
+        self.assertEqual(checkodesol(rational, 1/self.x, self.y), (True, 0))
+        second_order = Derivative(self.y, self.x, self.x) + self.y
+        for source in (second_order, Eq(second_order, 0, evaluate=False)):
+            self.assertEqual(checkodesol(source, sin(self.x), self.y), (True, 0))
+
+    def test_checkodesol_rejects_custom_classes_before_getters_or_hooks(self):
+        from sympy import exp
+
+        class CustomFlow(Function):
+            @property
+            def args(self):
+                raise AssertionError("custom argument getter must not run in ODE admission")
+
+            def _eval_subs(self, old, new):
+                raise AssertionError("custom substitution hook must not run in ODE admission")
+
+            def _eval_derivative(self, variable):
+                raise AssertionError("custom derivative hook must not run in ODE admission")
+
+        opaque = CustomFlow(self.x, evaluate=False)
+        equation = self.derivative - self.y
+        good = Eq(self.y, exp(self.x), evaluate=False)
+        for source, solution, target in (
+            (equation, good, opaque),
+            (opaque, good, self.y),
+            (equation, opaque, self.y),
+            (equation, Eq(self.y, opaque, evaluate=False), self.y),
+        ):
+            with self.assertRaisesRegex(NotImplementedError, "ordinary undefined function"):
+                checkodesol(source, solution, target)
+
+    def test_checkodesol_rejects_modified_undefined_function_classes(self):
+        from sympy import exp
+
+        function = Function("modified_ode_target")
+        target = function(self.x)
+        equation = Derivative(target, self.x) - target
+        solution = Eq(target, exp(self.x), evaluate=False)
+        with patch.object(
+            function, "_eval_subs", create=True,
+            side_effect=AssertionError("a modified function class must not enter the checker"),
+        ):
+            with self.assertRaisesRegex(NotImplementedError, "ordinary undefined function"):
+                checkodesol(equation, solution, target)
+
+    def test_checkodesol_refuses_inherited_argument_and_hook_mutations(self):
+        from sympy import exp
+        from sympy.core import AppliedUndef
+
+        equation = self.derivative - self.y
+        solution = Eq(self.y, exp(self.x), evaluate=False)
+        calls = []
+
+        def changed(*args):
+            calls.append(True)
+            raise AssertionError("an inherited implementation changed before ODE admission")
+
+        mutations = (
+            (Function, "args", property(changed)),
+            (AppliedUndef, "args", property(changed)),
+            (Function, "__getattribute__", changed),
+            (AppliedUndef, "_eval_subs", changed),
+            (Function, "_eval_derivative", changed),
+        )
+        for owner, attribute, replacement in mutations:
+            with self.subTest(owner=owner.__name__, attribute=attribute), patch.object(
+                owner, attribute, replacement, create=True,
+            ):
+                for target in (self.y, None):
+                    with self.assertRaisesRegex(NotImplementedError, "original undefined-function"):
+                        checkodesol(equation, solution, target)
+        self.assertEqual(calls, [])
+
+    def test_checkodesol_refuses_unknown_native_regions_before_class_recovery(self):
+        from sympy import Expr, exp
+        from sympy.core import _native, _native_expr
+
+        equation = self.derivative - self.y
+        good = Eq(self.y, exp(self.x), evaluate=False)
+        unknown = _native.py_function("UnknownNativeOdeLaw", _native_expr(self.x))
+        regions = (
+            Expr(unknown),
+            Expr(_native.Add(unknown, _native_expr(self.x), evaluate=False).as_expr()),
+            Expr(_native.py_function("UnknownNativeOdeConstant")),
+        )
+        for region in regions:
+            for source, solution in ((region, good), (equation, region)):
+                with patch(
+                    "sympy.core.Basic.subs",
+                    side_effect=AssertionError("an unknown native region reached substitution"),
+                ):
+                    with self.assertRaisesRegex(NotImplementedError, "native-only"):
+                        checkodesol(source, solution, self.y)
+        # An actual closed intrinsic inside a generic wrapper still has a
+        # legitimate native region; the rejection is semantic, not by spelling.
+        known = Expr(_native_expr(exp(self.x)))
+        self.assertEqual(checkodesol(equation, known, self.y), (True, 0))
+
+    def test_checkodesol_legacy_substitution_preserves_typed_coordinate_identity(self):
+        from sympy import exp
+
+        for variable in (Dummy("x"), Symbol("x", positive=True)):
+            with self.subTest(variable=variable):
+                target = self.f(variable)
+                equation = Derivative(target, variable) - target
+                self.assertEqual(checkodesol(equation, exp(variable), target), (True, 0))
+                self.assertEqual(
+                    checkodesol(equation, exp(self.x), target), (False, -exp(self.x))
+                )
+
     def test_exact_source_growth_refuses_before_symbol_substitution(self):
         equation, potential = self.quadratic()
         x, y = self.x, self.y
