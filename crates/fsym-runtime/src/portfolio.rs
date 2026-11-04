@@ -180,7 +180,7 @@ fn verify_and_publish_candidate<Caps>(
             winner.strategy_name
         )));
     }
-    if portfolio_claimed_result(&verified_claim) != &winner.result {
+    if portfolio_claimed_result(&verified_claim) != Some(&winner.result) {
         return Err(PortfolioError::WinnerVerificationFailed(format!(
             "{name}: verified claim does not bind the result returned by `{}`",
             winner.strategy_name
@@ -1012,12 +1012,14 @@ fn remaining_generator_limits<Caps>(cx: &FsymCx<'_, Caps>) -> BudgetLimits {
     }
 }
 
-fn portfolio_claimed_result(claim: &Claim) -> &fsym_core::Expr {
+fn portfolio_claimed_result(claim: &Claim) -> Option<&fsym_core::Expr> {
     match claim {
-        Claim::Equality { rhs, .. } | Claim::AlgebraicIdentity { rhs, .. } => rhs,
+        Claim::Equality { rhs, .. } | Claim::AlgebraicIdentity { rhs, .. } => Some(rhs),
         Claim::PredicateHold { expr, .. }
         | Claim::DomainMembership { expr, .. }
-        | Claim::NonZero(expr) => expr,
+        | Claim::NonZero(expr) => Some(expr),
+        // A polynomial-domain proposition does not certify an Expr result.
+        Claim::IrreducibleModPrime { .. } => None,
     }
 }
 
@@ -1029,6 +1031,55 @@ mod tests {
     use fsym_core::Expr;
     use fsym_proof_kernel::ProofKernel;
     use std::sync::atomic::{AtomicBool, Ordering};
+
+    #[test]
+    fn modular_irreducibility_cannot_publish_an_expression_result() {
+        use fsym_core::BigInt;
+        use fsym_proof_kernel::{CertificatePayload, ProofRule};
+
+        let context = ImmutableAssumptionsSnapshot::empty();
+        let coefficients = vec![BigInt::from(1); 3];
+        let claim = Claim::IrreducibleModPrime {
+            coeffs: coefficients.clone(),
+            prime: BigInt::from(2),
+        };
+        let mut kernel = ProofKernel::new((*context).clone());
+        let root = kernel
+            .add_step(
+                ProofRule::CertificateLemma {
+                    family: "RabinIrreducibilityModPrime".into(),
+                    claim: claim.clone(),
+                    certificate: CertificatePayload::RabinIrreducibilityModPrime {
+                        coeffs: coefficients,
+                        prime: BigInt::from(2),
+                    },
+                },
+                &mut Unbounded,
+            )
+            .unwrap();
+        let raw = Cx::detached_cancel_context();
+        let limits = BudgetLimits::uniform(100, 100);
+        let mut cx = FsymCx::new(&raw, Budget::new(limits), limits);
+        let error = verify_and_publish_candidate(
+            &mut cx,
+            &context,
+            &claim,
+            "rabin",
+            PortfolioCandidate {
+                strategy_name: "rabin".into(),
+                result: Expr::from_i64(0),
+                claim: claim.clone(),
+                derivation: kernel.export_derivation(root).unwrap(),
+            },
+            100,
+        )
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            PortfolioError::WinnerVerificationFailed(message)
+                if message.contains("does not bind the result")
+        ));
+    }
 
     /// Normalizes a factorization into the canonical product expression the
     /// tests fix as the requested claim: scale term (only when nonunit),

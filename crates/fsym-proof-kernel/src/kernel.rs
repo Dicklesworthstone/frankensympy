@@ -6,7 +6,7 @@
 
 #![forbid(unsafe_code)]
 
-use crate::claim::Claim;
+use crate::claim::{Claim, MAX_MODULAR_IRREDUCIBILITY_DEGREE};
 use crate::rule::{CertificatePayload, ProofRule, StepId};
 use fsym_assumptions::{
     Domain, ImmutableAssumptionsSnapshot, Predicate, TruthValue, capture_avoiding_subs,
@@ -704,7 +704,33 @@ impl DerivationPreflight {
                 self.visit_expr(expr)?;
                 self.visit_domain(domain)
             }
+            Claim::IrreducibleModPrime { coeffs, prime } => {
+                self.visit_modular_polynomial(coeffs, prime)
+            }
         }
+    }
+
+    fn visit_modular_polynomial(
+        &mut self,
+        coefficients: &[BigInt],
+        prime: &BigInt,
+    ) -> Result<(), KernelError> {
+        if coefficients.len() > MAX_MODULAR_IRREDUCIBILITY_DEGREE + 1 {
+            return Err(KernelError::DerivationLimitExceeded {
+                resource: "modular irreducibility degree",
+                limit: MAX_MODULAR_IRREDUCIBILITY_DEGREE as u64,
+            });
+        }
+        for integer in coefficients.iter().chain(std::iter::once(prime)) {
+            if integer.bits() > 32 {
+                return Err(KernelError::DerivationLimitExceeded {
+                    resource: "modular irreducibility integer bits",
+                    limit: 32,
+                });
+            }
+            self.add_numeric_limbs(integer.limb_count())?;
+        }
+        self.add_work(coefficients.len() as u64)
     }
 
     fn visit_certificate(&mut self, certificate: &CertificatePayload) -> Result<(), KernelError> {
@@ -717,12 +743,12 @@ impl DerivationPreflight {
             }
             CertificatePayload::PolynomialNormalForm => self.add_work(1),
             CertificatePayload::RabinIrreducibilityModPrime { coeffs, prime } => {
-                self.add_work(coeffs.len() as u64)?;
-                self.add_numeric_limbs(prime.limb_count())?;
-                for coeff in coeffs {
-                    self.add_numeric_limbs(coeff.limb_count())?;
-                }
-                Ok(())
+                self.visit_modular_polynomial(coeffs, prime)?;
+                // Conservative field-operation allowance for the bounded
+                // degree-many Frobenius powers, GCDs and 32-bit prime trial.
+                let degree = coeffs.len().saturating_sub(1) as u64;
+                let trial_bound = 1_u64 << prime.bits().div_ceil(2);
+                self.add_work(8 * degree.pow(3) * prime.bits().max(1) + trial_bound)
             }
             CertificatePayload::Opaque { .. } => self.add_work(1),
         }
@@ -1326,6 +1352,17 @@ fn check_rabin_irreducibility_certificate(
     claim: &Claim,
     certificate: &CertificatePayload,
 ) -> Result<Claim, KernelError> {
+    let Claim::IrreducibleModPrime {
+        coeffs: claimed_coeffs,
+        prime: claimed_prime,
+    } = claim
+    else {
+        return Err(KernelError::InvalidCertificateLemma {
+            family: "RabinIrreducibilityModPrime".to_string(),
+            reason: "Rabin evidence only establishes the matching IrreducibleModPrime claim"
+                .to_string(),
+        });
+    };
     let CertificatePayload::RabinIrreducibilityModPrime { coeffs, prime } = certificate else {
         return Err(KernelError::InvalidCertificateLemma {
             family: "RabinIrreducibilityModPrime".to_string(),
@@ -1334,6 +1371,25 @@ fn check_rabin_irreducibility_certificate(
                     .to_string(),
         });
     };
+    if coeffs != claimed_coeffs || prime != claimed_prime {
+        return Err(KernelError::InvalidCertificateLemma {
+            family: "RabinIrreducibilityModPrime".to_string(),
+            reason: "certificate polynomial or modulus differs from the exact claim".to_string(),
+        });
+    }
+    if prime < &BigInt::from(2)
+        || coeffs.len() < 2
+        || coeffs.last().is_none_or(BigInt::is_zero)
+        || coeffs
+            .iter()
+            .any(|coefficient| coefficient.is_negative() || coefficient >= prime)
+    {
+        return Err(KernelError::InvalidCertificateLemma {
+            family: "RabinIrreducibilityModPrime".to_string(),
+            reason: "polynomial must have positive degree and canonical residues modulo its prime"
+                .to_string(),
+        });
+    }
     if !kernel_verify_rabin_irreducible_mod_prime(coeffs, prime) {
         return Err(KernelError::InvalidCertificateLemma {
             family: "RabinIrreducibilityModPrime".to_string(),
@@ -1342,16 +1398,7 @@ fn check_rabin_irreducibility_certificate(
             ),
         });
     }
-    match claim {
-        Claim::NonZero(_) | Claim::PredicateHold { .. } => Ok(claim.clone()),
-        Claim::Equality { lhs, rhs } | Claim::AlgebraicIdentity { lhs, rhs } if lhs == rhs => {
-            Ok(claim.clone())
-        }
-        other => Err(KernelError::InvalidCertificateLemma {
-            family: "RabinIrreducibilityModPrime".to_string(),
-            reason: format!("unsupported claim shape for RabinIrreducibilityModPrime: `{other:?}`"),
-        }),
-    }
+    Ok(claim.clone())
 }
 
 fn kernel_verify_rabin_irreducible_mod_prime(coeffs: &[BigInt], prime: &BigInt) -> bool {
@@ -1683,6 +1730,11 @@ fn check_real_ball_certificate(
         Claim::AlgebraicIdentity { .. } => Err(KernelError::InvalidCertificateLemma {
             family: "RealBall".to_string(),
             reason: "RealBall certificates apply to evaluated ground terms, not universal algebraic identities"
+                .to_string(),
+        }),
+        Claim::IrreducibleModPrime { .. } => Err(KernelError::InvalidCertificateLemma {
+            family: "RealBall".to_string(),
+            reason: "a real enclosure cannot establish modular polynomial irreducibility"
                 .to_string(),
         }),
     }

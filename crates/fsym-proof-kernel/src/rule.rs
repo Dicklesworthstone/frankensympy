@@ -62,10 +62,13 @@ pub enum CertificatePayload {
     RealBall(fsym_core::RealBall),
     /// Exact polynomial ring normal-form equivalence certificate over $\mathbb{Q}[x_1,\dots,x_n]$.
     PolynomialNormalForm,
-    /// Rabin modular irreducibility witness certifying that the integer polynomial
-    /// with ascending coefficients `coeffs` is irreducible modulo `prime`.
+    /// Rabin witness for the exact matching [`Claim::IrreducibleModPrime`].
+    /// Ascending coefficients are canonical residues modulo `prime`; this payload
+    /// cannot justify expression non-zeroness or any unrelated predicate.
     RabinIrreducibilityModPrime {
+        #[serde(deserialize_with = "crate::claim::bounded_modular_coefficients")]
         coeffs: Vec<fsym_core::BigInt>,
+        #[serde(deserialize_with = "crate::claim::bounded_modular_integer")]
         prime: fsym_core::BigInt,
     },
     /// Unverified or opaque receipt digest for external/unimplemented families.

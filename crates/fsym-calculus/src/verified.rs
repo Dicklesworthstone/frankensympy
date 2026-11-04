@@ -342,6 +342,9 @@ impl VerifiedResidualSystem {
             Claim::PredicateHold { expr, .. }
             | Claim::DomainMembership { expr, .. }
             | Claim::NonZero(expr) => Self::check_proof_expression(expr),
+            Claim::IrreducibleModPrime { .. } => Err(VerifiedCompilationError::ProofEnvelope(
+                "modular irreducibility does not certify a residual-system expression".into(),
+            )),
         }
     }
 

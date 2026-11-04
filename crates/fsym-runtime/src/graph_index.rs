@@ -837,6 +837,9 @@ impl FrankenGraphDbProjectionAdapter {
                 fsym_proof_kernel::Claim::PredicateHold { expr, .. }
                 | fsym_proof_kernel::Claim::DomainMembership { expr, .. }
                 | fsym_proof_kernel::Claim::NonZero(expr) => expr.free_symbols(),
+                // The polynomial indeterminate is bound by its field claim;
+                // there are no expression-level free symbols to project.
+                fsym_proof_kernel::Claim::IrreducibleModPrime { .. } => Default::default(),
             };
             for sym in claim_syms {
                 let sym_node = format!("sym:{}", sym.name);

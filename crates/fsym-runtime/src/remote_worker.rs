@@ -243,7 +243,7 @@ impl CoordinatorVerifier {
         if candidate.task_id != self.task_id || candidate.claim != self.expected_claim {
             return Err(RemoteWorkerError::TaskMismatch);
         }
-        if claimed_result(&candidate.claim) != &candidate.result {
+        if claimed_result(&candidate.claim) != Some(&candidate.result) {
             return Err(RemoteWorkerError::ClaimForgery);
         }
 
@@ -254,7 +254,8 @@ impl CoordinatorVerifier {
 
         // 3. Bind both the worker's claim and returned value to the exact verified root.
         // Derivation export order is not itself a statement about which step is the root.
-        if verified_claim != candidate.claim || claimed_result(&verified_claim) != &candidate.result
+        if verified_claim != candidate.claim
+            || claimed_result(&verified_claim) != Some(&candidate.result)
         {
             return Err(RemoteWorkerError::ClaimForgery);
         }
@@ -333,12 +334,13 @@ impl CoordinatorSession {
     }
 }
 
-fn claimed_result(claim: &Claim) -> &Expr {
+fn claimed_result(claim: &Claim) -> Option<&Expr> {
     match claim {
-        Claim::Equality { rhs, .. } | Claim::AlgebraicIdentity { rhs, .. } => rhs,
+        Claim::Equality { rhs, .. } | Claim::AlgebraicIdentity { rhs, .. } => Some(rhs),
         Claim::PredicateHold { expr, .. }
         | Claim::DomainMembership { expr, .. }
-        | Claim::NonZero(expr) => expr,
+        | Claim::NonZero(expr) => Some(expr),
+        Claim::IrreducibleModPrime { .. } => None,
     }
 }
 
@@ -347,6 +349,46 @@ mod tests {
     use super::*;
     use fsym_budget::Unbounded;
     use fsym_proof_kernel::ProofKernel;
+
+    #[test]
+    fn rejects_modular_irreducibility_as_an_expression_result() {
+        use fsym_core::BigInt;
+        use fsym_proof_kernel::{CertificatePayload, ProofRule};
+
+        let context = ImmutableAssumptionsSnapshot::empty();
+        let coefficients = vec![BigInt::from(1); 3];
+        let claim = Claim::IrreducibleModPrime {
+            coeffs: coefficients.clone(),
+            prime: BigInt::from(2),
+        };
+        let mut kernel = ProofKernel::new((*context).clone());
+        let root = kernel
+            .add_step(
+                ProofRule::CertificateLemma {
+                    family: "RabinIrreducibilityModPrime".into(),
+                    claim: claim.clone(),
+                    certificate: CertificatePayload::RabinIrreducibilityModPrime {
+                        coeffs: coefficients,
+                        prime: BigInt::from(2),
+                    },
+                },
+                &mut Unbounded,
+            )
+            .unwrap();
+        let coordinator = CoordinatorVerifier::new(7, claim.clone(), context);
+        let candidate = RemoteCandidate {
+            worker_id: "rabin-worker".into(),
+            task_id: 7,
+            result: Expr::from_i64(0),
+            claim,
+            derivation: kernel.export_derivation(root).unwrap(),
+            worker_signature: Vec::new(),
+        };
+        assert_eq!(
+            coordinator.verify_remote_candidate(&candidate),
+            Err(RemoteWorkerError::ClaimForgery)
+        );
+    }
 
     #[test]
     fn rejects_result_not_bound_to_verified_claim() {

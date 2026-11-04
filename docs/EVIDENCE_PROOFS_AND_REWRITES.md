@@ -359,6 +359,26 @@ A factorization certificate contains:
 
 “Product matches” certifies a decomposition, not irreducibility or completeness unless those additional obligations are checked.
 
+The implemented `RabinIrreducibilityModPrime` kernel family accepts only a
+`Claim::IrreducibleModPrime` carrying the exact same ascending coefficient list
+and prime as its certificate. Coefficients are canonical residues in `[0, p)`,
+the leading coefficient is nonzero, and the synchronous reference lane admits
+degrees 1 through 64 with a prime of at most 32 bits. It checks primality and
+Rabin's criterion independently of polynomial generators. The resulting claim
+is irreducibility of that polynomial in `F_p[x]`; it does not establish that an
+expression is nonzero at an arbitrary argument, or any real/complex predicate.
+
+The claim uses a new tagged wire variant; existing claim digests are unchanged.
+Previously stored Rabin derivations using `NonZero`, `PredicateHold`, or equality
+claims are rejected on replay even when their receipt digests match. Such
+artifacts must be regenerated with the exact modular proposition; they are not
+automatically upgraded. Claim and certificate decoders cap coefficient counts
+and reject an oversized scalar before retaining another coefficient. Individual
+integer decoding retains the foundational bounded BigInt decoder. Expression
+result publication and residual compilation refuse this non-expression claim.
+The focused regression corpus is `crates/fsym-proof-kernel/tests/rabin_irreducibility.rs`,
+with trusted-namespace import/promotion adversaries in `fsym-evidence`.
+
 ### 11.3 GCD
 
 Certificates include Bézout cofactors or divisibility plus degree/primitive conditions sufficient for the domain. Multivariate and non-field domains name their exact criterion.

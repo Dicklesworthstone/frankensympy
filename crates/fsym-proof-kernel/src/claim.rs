@@ -7,9 +7,13 @@
 #![forbid(unsafe_code)]
 
 use fsym_assumptions::{Domain, Predicate};
-use fsym_core::Expr;
-use serde::{Deserialize, Serialize};
+use fsym_core::{BigInt, Expr};
+use serde::de::{IgnoredAny, SeqAccess, Visitor};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt;
+
+/// Bound for the synchronous reference modular irreducibility checker.
+pub const MAX_MODULAR_IRREDUCIBILITY_DEGREE: usize = 64;
 
 /// Distinct mathematical claim categories.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -19,6 +23,7 @@ pub enum ClaimKind {
     DomainMembership,
     NonZero,
     AlgebraicIdentity,
+    IrreducibleModPrime,
 }
 
 /// A typed, checkable mathematical proposition.
@@ -34,6 +39,18 @@ pub enum Claim {
     NonZero(Expr),
     /// Universal algebraic identity across all valid bindings: $\forall \bar{x}, L(\bar{x}) = R(\bar{x})$.
     AlgebraicIdentity { lhs: Expr, rhs: Expr },
+    /// The exact polynomial with ascending coefficients is irreducible in F_p[x].
+    ///
+    /// Coefficients must be canonical residues `0 <= c < prime`, with a nonzero
+    /// leading coefficient, and `prime` must be a prime of at most 32 bits.
+    /// This claim says nothing about non-zeroness at a symbolic argument, real
+    /// or complex roots, or irreducibility over a different field.
+    IrreducibleModPrime {
+        #[serde(deserialize_with = "bounded_modular_coefficients")]
+        coeffs: Vec<BigInt>,
+        #[serde(deserialize_with = "bounded_modular_integer")]
+        prime: BigInt,
+    },
 }
 
 impl Claim {
@@ -65,6 +82,7 @@ impl Claim {
             Claim::DomainMembership { .. } => ClaimKind::DomainMembership,
             Claim::NonZero(_) => ClaimKind::NonZero,
             Claim::AlgebraicIdentity { .. } => ClaimKind::AlgebraicIdentity,
+            Claim::IrreducibleModPrime { .. } => ClaimKind::IrreducibleModPrime,
         }
     }
 
@@ -102,6 +120,68 @@ impl fmt::Display for Claim {
             Claim::DomainMembership { expr, domain } => write!(f, "{expr} in {domain}"),
             Claim::NonZero(expr) => write!(f, "{expr} != 0"),
             Claim::AlgebraicIdentity { lhs, rhs } => write!(f, "Identity: {lhs} === {rhs}"),
+            Claim::IrreducibleModPrime { coeffs, prime } => {
+                write!(f, "Irreducible over F_{prime}: coefficients {coeffs:?}")
+            }
         }
     }
+}
+
+// The claim and its certificate use the same bounded wire representation.
+// Reject each oversize scalar before retaining the next sequence element.
+pub(crate) fn bounded_modular_integer<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<BigInt, D::Error> {
+    let integer = BigInt::deserialize(deserializer)?;
+    if integer.bits() > 32 {
+        return Err(serde::de::Error::custom(
+            "modular irreducibility integer exceeds 32 bits",
+        ));
+    }
+    Ok(integer)
+}
+
+#[derive(Deserialize)]
+struct ModularInteger(#[serde(deserialize_with = "bounded_modular_integer")] BigInt);
+
+pub(crate) fn bounded_modular_coefficients<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Vec<BigInt>, D::Error> {
+    struct Coefficients;
+    impl<'de> Visitor<'de> for Coefficients {
+        type Value = Vec<BigInt>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(
+                formatter,
+                "at most {} modular polynomial coefficients",
+                MAX_MODULAR_IRREDUCIBILITY_DEGREE + 1
+            )
+        }
+
+        fn visit_seq<A: SeqAccess<'de>>(self, mut sequence: A) -> Result<Self::Value, A::Error> {
+            const MAX: usize = MAX_MODULAR_IRREDUCIBILITY_DEGREE + 1;
+            if sequence.size_hint().is_some_and(|size| size > MAX) {
+                return Err(serde::de::Error::custom(
+                    "modular irreducibility degree limit exceeded",
+                ));
+            }
+            let mut coefficients = Vec::new();
+            loop {
+                if coefficients.len() == MAX {
+                    if sequence.next_element::<IgnoredAny>()?.is_some() {
+                        return Err(serde::de::Error::custom(
+                            "modular irreducibility degree limit exceeded",
+                        ));
+                    }
+                    return Ok(coefficients);
+                }
+                match sequence.next_element::<ModularInteger>()? {
+                    Some(coefficient) => coefficients.push(coefficient.0),
+                    None => return Ok(coefficients),
+                }
+            }
+        }
+    }
+    deserializer.deserialize_seq(Coefficients)
 }

@@ -564,14 +564,11 @@ mod tests {
 
         let mut verified = VerifiedNamespace::new();
         let ctx = ImmutableAssumptionsSnapshot::empty();
-        let x = Expr::symbol("x");
         // x^2 + x + 1 is irreducible mod 2.
-        let poly_expr = Expr::Add(vec![
-            Expr::pow(x, Expr::from_i64(2)),
-            Expr::symbol("x"),
-            Expr::from_i64(1),
-        ]);
-        let claim = Claim::NonZero(poly_expr);
+        let claim = Claim::IrreducibleModPrime {
+            coeffs: vec![BigInt::from(1), BigInt::from(1), BigInt::from(1)],
+            prime: BigInt::from(2),
+        };
         let derivation = DerivationTree {
             steps: vec![DerivationStep {
                 id: StepId(0),
@@ -609,24 +606,28 @@ mod tests {
         assert_eq!(verified.count(), 1);
 
         // Forged composite prime (p = 4) is rejected on replay.
+        let bad_claim = Claim::IrreducibleModPrime {
+            coeffs: vec![BigInt::from(1), BigInt::from(1), BigInt::from(1)],
+            prime: BigInt::from(4),
+        };
         let bad_derivation = DerivationTree {
             steps: vec![DerivationStep {
                 id: StepId(0),
                 rule: ProofRule::CertificateLemma {
                     family: "RabinIrreducibilityModPrime".to_string(),
-                    claim: claim.clone(),
+                    claim: bad_claim.clone(),
                     certificate: CertificatePayload::RabinIrreducibilityModPrime {
                         coeffs: vec![BigInt::from(1), BigInt::from(1), BigInt::from(1)],
                         prime: BigInt::from(4),
                     },
                 },
-                claim: claim.clone(),
+                claim: bad_claim.clone(),
             }],
             root: StepId(0),
         };
         let bad_receipt = VerificationReceipt::issue(
             ReceiptId::new(8).unwrap(),
-            &claim,
+            &bad_claim,
             EvidenceClass::CertificateVerified,
             "rabin-verifier",
             107,
@@ -635,7 +636,7 @@ mod tests {
         let err = verified
             .insert_verified(
                 EvidenceEnvelope::new(
-                    claim,
+                    bad_claim,
                     EvidenceClass::CertificateVerified,
                     bad_receipt,
                     Some(bad_derivation),
@@ -647,5 +648,85 @@ mod tests {
             err,
             NamespaceError::IndependentVerificationFailed(_)
         ));
+        assert_eq!(verified.count(), 1);
+    }
+
+    #[test]
+    fn legacy_rabin_false_claims_cannot_enter_or_be_promoted_into_verified_state() {
+        use fsym_assumptions::Predicate;
+        use fsym_core::BigInt;
+        use fsym_proof_kernel::CertificatePayload;
+
+        let context = ImmutableAssumptionsSnapshot::empty();
+        for claim in [
+            Claim::NonZero(Expr::from_i64(0)),
+            Claim::predicate(Expr::from_i64(-1), Predicate::Positive),
+            Claim::IrreducibleModPrime {
+                coeffs: vec![BigInt::from(1), BigInt::from(0), BigInt::from(1)],
+                prime: BigInt::from(2),
+            },
+        ] {
+            for evidence_class in [
+                EvidenceClass::CertificateVerified,
+                EvidenceClass::KernelProved,
+            ] {
+                let derivation = DerivationTree {
+                    steps: vec![DerivationStep {
+                        id: StepId(0),
+                        rule: ProofRule::CertificateLemma {
+                            family: "RabinIrreducibilityModPrime".into(),
+                            claim: claim.clone(),
+                            certificate: CertificatePayload::RabinIrreducibilityModPrime {
+                                coeffs: vec![BigInt::from(1), BigInt::from(1), BigInt::from(1)],
+                                prime: BigInt::from(2),
+                            },
+                        },
+                        claim: claim.clone(),
+                    }],
+                    root: StepId(0),
+                };
+                let receipt = VerificationReceipt::issue(
+                    ReceiptId::new(9).unwrap(),
+                    &claim,
+                    evidence_class,
+                    "rabin-verifier",
+                    108,
+                    Some(derivation.digest()),
+                );
+                let envelope = EvidenceEnvelope::new(
+                    claim.clone(),
+                    evidence_class,
+                    receipt.clone(),
+                    Some(derivation.clone()),
+                );
+                // Old artifacts still decode, but a matching stored receipt or
+                // the caller's evidence label cannot bypass independent replay.
+                let encoded = serde_json::to_vec(&envelope).unwrap();
+                let imported: EvidenceEnvelope = serde_json::from_slice(&encoded).unwrap();
+                assert!(imported.verify_integrity());
+                let mut verified = VerifiedNamespace::new();
+                assert!(matches!(
+                    verified.insert_verified(imported, &context),
+                    Err(NamespaceError::IndependentVerificationFailed(_))
+                ));
+                assert_eq!(verified.count(), 0);
+
+                let mut candidates = CandidateNamespace::new();
+                let digest = candidates.register_candidate(claim.clone()).unwrap();
+                assert!(matches!(
+                    verified.promote_candidate(
+                        &digest,
+                        &mut candidates,
+                        receipt,
+                        Some(derivation),
+                        &context,
+                    ),
+                    Err(NamespaceError::IndependentVerificationFailed(_))
+                ));
+                assert_eq!(verified.count(), 0);
+                assert_eq!(candidates.count(), 1);
+                assert!(candidates.get_candidate(&digest).is_some());
+            }
+        }
     }
 }
