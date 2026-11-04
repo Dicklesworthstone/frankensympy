@@ -1,0 +1,40 @@
+{
+  "execution": "Saved standalone JavaScript sources evaluated in the functions.exec V8 isolate, capturing console.log. No Rust or Python native test execution is implied.",
+  "models": [
+    {
+      "name": "hessian_model_check.mjs",
+      "model_blob": "dfbb16097133b20fc9c84a3ad5368e505abe7499",
+      "reviewed_source_blob": "bc28651454cf85ec82a01caf3c639991d6f29012",
+      "result": {
+        "scope": "Independent exact-BigInt rational model compared to principal minors; not Rust execution",
+        "exact2": 1331,
+        "psd2": 158,
+        "exact3": 15625,
+        "psd3": 241,
+        "interval2": 3375,
+        "intervalAccepted": 80,
+        "conservativeRefusals": 10,
+        "unsound_acceptances": 0
+      }
+    },
+    {
+      "name": "range_topology_model_check.mjs",
+      "model_blob": "0edd78a0043b3190eb53e472442db62954800cc9",
+      "reviewed_source_blob": "a13335f95dc271776ecb8aa53034ff561e5eedf6",
+      "result": {
+        "scope": "Independent interval-cell and union model checked against direct membership; not Python/native execution",
+        "chartMasks": 682,
+        "clippedDomains": 302464,
+        "domainMemberships": 9101568,
+        "pairUnions": 7921,
+        "mergeMemberships": 213867,
+        "mismatches": 0
+      }
+    }
+  ],
+  "limitations": [
+    "Independent mathematical models do not exercise the production parser, expression admission, interval AD, native bindings, cancellation or budget implementations.",
+    "Native Rust tests, Python public suites and final formatter/Clippy checks require the unavailable execution environment.",
+    "No compatibility profile, campaign gate or full-workspace validation is established."
+  ]
+}

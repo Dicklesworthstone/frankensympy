@@ -6,6 +6,7 @@ from typing import Any
 from ..core import Basic, Expr, Integer, Symbol, _native_expr, _require_symbol, _wrap
 from ..sets import Complement, EmptySet, FiniteSet, Interval, Reals, Set
 from .singularities import singularities
+from ._rational_range import rational_analysis as _rational_analysis
 
 pi = Expr("pi")
 
@@ -89,13 +90,13 @@ AccumulationBounds = AccumBounds
 
 
 def continuous_domain(expression: Any, symbol: Any = None, domain: Any = None) -> Set:
-    """Return the domain on which expression is continuous."""
-    if domain is None:
-        domain = Reals
-    sings = singularities(expression, symbol)
-    if getattr(sings, "is_empty", None) is True or len(getattr(sings, "args", ())) == 0:
-        return domain
-    return Complement(domain, sings)
+    """Return the exact real domain of an admitted rational function.
+
+    This bounded lane admits rational coefficients and connected real
+    intervals with rational or real CRootOf endpoints. It preserves every
+    original held denominator exclusion. Unsupported syntax refuses.
+    """
+    return _rational_analysis(expression, symbol, domain, "domain")
 
 
 def stationary_points(expression: Any, symbol: Any = None, domain: Any = None) -> Set:
@@ -156,61 +157,34 @@ def periodicity(f: Any, symbol: Any = None, check: bool = False) -> Any:
     return None
 
 
-def _critical_and_boundary_values(f: Any, symbol: Any = None, domain: Any = None) -> list[Any]:
-    expr = _wrap(_native_expr(f))
-    if symbol is None:
-        syms = expr.free_symbols
-        if len(syms) == 1:
-            symbol = next(iter(syms))
-        elif len(syms) == 0:
-            return [expr]
-        else:
-            raise ValueError("symbol must be specified when multiple free symbols exist")
-    else:
-        symbol = _require_symbol(symbol)
-
-    pts = stationary_points(expr, symbol, domain)
-    cand_x = list(getattr(pts, "args", ()))
-    if domain is not None and hasattr(domain, "start") and hasattr(domain, "end"):
-        s_str = str(domain.start)
-        e_str = str(domain.end)
-        if s_str not in ("-oo", "-Infinity", "oo", "Infinity"):
-            cand_x.append(domain.start)
-        if e_str not in ("-oo", "-Infinity", "oo", "Infinity"):
-            cand_x.append(domain.end)
-
-    vals = []
-    for cx in cand_x:
-        try:
-            val = expr.subs(symbol, cx)
-            vals.append(val)
-        except Exception:
-            pass
-    return vals
-
-
 def function_range(f: Any, symbol: Any, domain: Any) -> Set:
-    """Return the range of f over the given domain."""
-    vals = _critical_and_boundary_values(f, symbol, domain)
-    if vals:
-        return Interval(min(vals), max(vals))
-    return domain
+    """Return the exact image of an admitted rational function.
+
+    Original domain holes split the input interval before complete critical
+    point and one-sided endpoint analysis. Open endpoints, algebraic bounds
+    and unbounded images are retained; no sampled value establishes a range.
+    """
+    return _rational_analysis(f, symbol, domain, "range")
 
 
 def maximum(f: Any, symbol: Any = None, domain: Any = None) -> Any:
-    """Return the maximum of f over domain."""
-    vals = _critical_and_boundary_values(f, symbol, domain)
-    if vals:
-        return max(vals)
-    raise ValueError("maximum could not be determined")
+    """Return the exact supremum on the admitted real domain.
+
+    As in SymPy, an open endpoint may supply the supremum without attaining
+    it. An unbounded image returns oo. An empty admitted domain raises
+    ValueError; unsupported or exhausted exact decisions refuse explicitly.
+    """
+    return _rational_analysis(f, symbol, domain, "maximum")
 
 
 def minimum(f: Any, symbol: Any = None, domain: Any = None) -> Any:
-    """Return the minimum of f over domain."""
-    vals = _critical_and_boundary_values(f, symbol, domain)
-    if vals:
-        return min(vals)
-    raise ValueError("minimum could not be determined")
+    """Return the exact infimum on the admitted real domain.
+
+    The infimum need not be attained, and an image unbounded below returns
+    -oo. This uses the same original-domain and complete range analysis as
+    function_range.
+    """
+    return _rational_analysis(f, symbol, domain, "minimum")
 
 
 __all__ = [

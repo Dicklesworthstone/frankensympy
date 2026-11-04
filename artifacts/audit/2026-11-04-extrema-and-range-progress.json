@@ -1,0 +1,183 @@
+{
+  "schema_version": 1,
+  "recorded_at_utc": "2026-11-04T04:36:37Z",
+  "repository": "Dicklesworthstone/frankensympy",
+  "kind": "Bounded feature implementation and source/model review; not executed production-test or gate-completion evidence",
+  "baseline_source": "9340dec23df0109dd1e5ae6725c91e997aa0be07",
+  "integration_parent": "d51145b38bd289d00d6eaf2cec65fd9c1946c5db",
+  "verified_direct_main_commits": [
+    {
+      "sha": "cf306903fc957fb035858e18d63d8e600552731a",
+      "change": "Original-source exact finite-box global extremum checker and immutable native receipt"
+    },
+    {
+      "sha": "aa76104ebd78c067851815fa95755c185f7f4643",
+      "change": "Automatic candidate search followed by independent stationary-point certification"
+    },
+    {
+      "sha": "f7255732ea488b93579d12e49145a5b7b2fd55d1",
+      "change": "Exact Python box-extremum interface, frozen receipts and shared budget integration"
+    }
+  ],
+  "accompanying_change": "Exact rational continuous_domain, function_range, minimum and maximum with original holes, complete critical roots, exact limits and algebraic ordering",
+  "features": [
+    {
+      "area": "Compiled objectives / Jacobian campaign",
+      "scope": "Stationary search is local and incomplete. A supplied exact point may be certified globally on its finite box through sufficient convexity/concavity and boundary first-order conditions. No global claim outside the box or general nonconvex optimizer is supplied."
+    },
+    {
+      "area": "WS18 rational real analysis",
+      "scope": "Bounded QQ(x) sources over connected real intervals with rational or real indexed-root bounds; complete original-domain and derivative charts feed exact continuous-image analysis. Unsupported and exhausted decisions refuse. This compatibility helper issues no new native range receipt and has no shared caller EvaluationBudget claim."
+    }
+  ],
+  "final_source_blobs": {
+    "crates/fsym-core/src/root_certificate.rs": "1c50f2801cd94c38a1b023ff7702b1f66288c7c4",
+    "crates/fsym-core/src/root_certificate/extremum.rs": "bc28651454cf85ec82a01caf3c639991d6f29012",
+    "crates/fsym-core/tests/box_extremum.rs": "959974e3a5ed06c6f7482f3f14756853a90e5985",
+    "crates/fsym-python/src/objective.rs": "bc8379f33aad13e8c4e9b3d241137ad3486ea3bf",
+    "crates/fsym-python/src/lib.rs": "fdd2570db4451c5a80b63066782728ef6a72b2b9",
+    "python/sympy/utilities/_certified_objective.py": "ac677e80eded59998fb7224f816932617e562839",
+    "python/sympy/utilities/_stationary_search.py": "0e4a2351ef9b4b3cfcc6b8c0220e31765faf8cf3",
+    "python/sympy/utilities/objective.py": "27347b71fb1ac56af285b5046c834eab3b08d18e",
+    "python/sympy/utilities/__init__.py": "b376a4a6d6fc3f9b8f315ce6f6d27271dfa9d2a5",
+    "python/sympy/__init__.py": "ca608318afc4d78c8f742e0e461a58c3b31921cf",
+    "python/tests/test_stationary_search.py": "4ef98f279441576a4386cc6a99ec9184f074ace8",
+    "python/tests/test_box_extremum.py": "096c59aca6d010358e66fb8a4b6dfb2bbe688058",
+    "python/sympy/calculus/_rational_range.py": "8172fb68493e2940741372e9ef4aad822f3bd17f",
+    "python/sympy/calculus/util.py": "3c68c2a7775d6a3f318b8a08ca76690981128da7",
+    "python/tests/test_exact_function_range.py": "c440f0ba05be11d33194e7390ee8f54cde50cd79",
+    ".github/workflows/ci.yml": "44c872b794f4c8e2706d2f11a0e24e8d26b3dfd5",
+    "docs/ASSUMPTIONS_DOMAINS_AND_NUMERIC_TOWER.md": "76d18805889923cbd75ab842b1d730ba1ebda9b1",
+    ".beads/issues.jsonl": "7cc64c89dbdda36eb42fa66fe9b629547fea34bf"
+  },
+  "regressions_authored_not_executed": {
+    "native_box_extremum_tests": 13,
+    "stationary_search_public_functions": 28,
+    "stationary_search_public_parametrized_cases": 53,
+    "box_extremum_public_parametrized_cases": 27,
+    "exact_function_range_public_unittest_methods": 40,
+    "total_new_public_cases_excluding_unittest_subcases": 120,
+    "existing_public_selector_added": "python/tests/test_surface.py::SurfaceTests::test_calculus_and_series_advanced",
+    "execution_status": "No new native or public suite, Python AST check, or final local formatter/Clippy pass was executed for these features after the executor outage."
+  },
+  "source_reviews": {
+    "native_box_checker": "Independent review of source bc28651454cf85ec82a01caf3c639991d6f29012 and test expectations found no blocking issue.",
+    "stationary_search": "Independent review of bounded numerical proposals, exact verification, cumulative budgets and operational failures; final authored tests include x**x and a held 16-dimensional objective.",
+    "python_box_interface": "Independent review of native binding, immutable adapters and 27 public cases found no blocking issue.",
+    "exact_rational_ranges": {
+      "reviewer": "independent native_build agent",
+      "source_blob": "8172fb68493e2940741372e9ef4aad822f3bd17f",
+      "tests_blob": "c440f0ba05be11d33194e7390ee8f54cde50cd79",
+      "conclusion": "No blocking source issue found",
+      "scope": "Source review only; no Python AST, runtime, formatter or full-suite success"
+    },
+    "preserved_formatting_only_followup": "Concurrent commit d51145b38bd289d00d6eaf2cec65fd9c1946c5db formatted the box-extremum test and objective import list. Its inspected diff changes no mathematical logic or expected result; final_source_blobs records those formatted files."
+  },
+  "executable_independent_models": {
+    "hessian": {
+      "artifact": "artifacts/audit/components/2026-11-04-extrema-and-ranges/hessian_model_check.mjs",
+      "blob": "dfbb16097133b20fc9c84a3ad5368e505abe7499",
+      "exact_two_by_two_matrices": 1331,
+      "exact_three_by_three_matrices": 15625,
+      "interval_two_by_two_boxes": 3375,
+      "unsound_acceptances": 0
+    },
+    "topology": {
+      "artifact": "artifacts/audit/components/2026-11-04-extrema-and-ranges/range_topology_model_check.mjs",
+      "blob": "0edd78a0043b3190eb53e472442db62954800cc9",
+      "chart_masks": 682,
+      "clipped_domains": 302464,
+      "domain_memberships": 9101568,
+      "interval_union_pairs": 7921,
+      "merge_memberships": 213867,
+      "mismatches": 0
+    },
+    "full_result_artifact": "artifacts/audit/components/2026-11-04-extrema-and-ranges/model_review_results.json",
+    "limitation": "Standalone JavaScript mathematical models, not execution of production Rust/Python. They do not validate source admission, interval AD, PyO3, cancellation, caller budgets or complete integration. The archived topology result retains the historical reviewed source a13335f95dc271776ecb8aa53034ff561e5eedf6; final guards/output changes do not alter the modeled topology helpers."
+  },
+  "build_attempt": {
+    "source_snapshot": "9340dec23df0109dd1e5ae6725c91e997aa0be07",
+    "toolchain": "nightly-2026-08-20",
+    "command": "cargo build --locked -p fsym-python --features extension-module -j1",
+    "terminal_exit": 137,
+    "failing_stage": "fsym-solvers compilation",
+    "observed_environment": "8 GiB shared memory cgroup reached its limit, with recorded OOM kills; executor subsequently unavailable. Pinned donor/toolchain artifacts were recovered before this attempt.",
+    "result": "No completed native extension and no public execution evidence from this attempt."
+  },
+  "ci_observed": [
+    {
+      "sha": "cf306903fc957fb035858e18d63d8e600552731a",
+      "runs": [
+        {
+          "id": 41772186712,
+          "name": "CI Gate Topology",
+          "status": "queued",
+          "conclusion": null,
+          "html_url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/41772186712"
+        },
+        {
+          "id": 41772186720,
+          "name": "Verify Remote Main (Read Only)",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "html_url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/41772186720"
+        }
+      ]
+    },
+    {
+      "sha": "aa76104ebd78c067851815fa95755c185f7f4643",
+      "runs": [
+        {
+          "id": 41773018676,
+          "name": "CI Gate Topology",
+          "status": "queued",
+          "conclusion": null,
+          "html_url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/41773018676"
+        },
+        {
+          "id": 41773018752,
+          "name": "Verify Remote Main (Read Only)",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "html_url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/41773018752"
+        }
+      ]
+    },
+    {
+      "sha": "f7255732ea488b93579d12e49145a5b7b2fd55d1",
+      "runs": [
+        {
+          "id": 41773517136,
+          "name": "CI Gate Topology",
+          "status": "queued",
+          "conclusion": null,
+          "html_url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/41773517136"
+        },
+        {
+          "id": 41773517190,
+          "name": "Verify Remote Main (Read Only)",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "html_url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/41773517190"
+        }
+      ]
+    }
+  ],
+  "preserved_concurrent_main_commits": [
+    "a50b6a2519004094e032b246cad1d982122a49c6",
+    "4a42de7ebdba0271a8e1c3098693500f0e137b2d",
+    "9c36fbaba4debfa5857f3087e4fb6ab55f6e6f3f",
+    "1d352a26d12087c66a7a31b37c5e9aeb34e9960e",
+    "d7fed8e0873c83fd9fe0d92cbfe38c2246b1862c",
+    "d51145b38bd289d00d6eaf2cec65fd9c1946c5db"
+  ],
+  "planning_invariants": {
+    "base_blob": "208cdba0309de6ccdf613308b9020c545d671c79",
+    "records_changed": 2,
+    "statuses_unchanged": true,
+    "dependency_edges_unchanged": true,
+    "all_other_records_byte_identical": true,
+    "updated_at": "2026-11-04T04:36:37Z"
+  },
+  "claim_limits": "No Beads status or dependency changes, no claim-level promotion, no campaign/workstream/profile/performance closure. Earlier executed component evidence is historical and is not counted as execution of the new features."
+}

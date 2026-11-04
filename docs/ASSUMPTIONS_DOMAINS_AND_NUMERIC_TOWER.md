@@ -1268,3 +1268,80 @@ original source holes, tiny exact curvature, typed assumptions, immutable
 receipts, direct native admission, cumulative budgets and cancellation.
 They are authored and independently source-reviewed, with actual extension
 execution pending the unavailable local executor and queued CI.
+
+## Exact rational domains, ranges and extrema
+
+The public `continuous_domain`, `function_range`, `minimum` and `maximum`
+utilities now share a bounded exact rational-function analysis. This extends
+the earlier complete monotonicity lane to images and extrema. The input is a
+rational expression over QQ in one typed real coordinate, restricted to a
+connected real interval with exact rational or real indexed-root endpoints.
+Empty and singleton domains are admitted too. Other source or domain forms
+refuse explicitly.
+
+The complete checked original-source sign chart determines the admitted
+domain before any numerator/denominator arithmetic. Held zero products,
+zeroth powers and removable denominator factors cannot restore excluded
+points. Each remaining continuous component is analyzed using the checked
+derivative's complete root chart, exact one-sided endpoint limits and every
+interior critical value. Finite algebraic values and all endpoint comparisons
+use the existing exact native algebraic evaluator. No floating approximation,
+string reconstruction or sampled value can establish an image boundary.
+
+The returned set preserves open and closed image endpoints, singleton images,
+infinities and disconnected unions. Equal limiting values become closed when
+another included endpoint or critical point actually attains them; a constant
+on a nonempty open component still has a singleton image. Rational poles are
+handled by exact orders of vanishing and side-dependent signs. Images of
+different components merge only when their exact values and endpoint topology
+allow it.
+
+For example:
+
+```python
+from sympy import Interval, Rational, S, Union, function_range, minimum, oo, symbols
+
+x = symbols("x")
+assert function_range(x**2, x, S.Reals) == Interval(0, oo)
+assert function_range(1/x, x, S.Reals) == Union(
+    Interval.open(-oo, 0), Interval.open(0, oo)
+)
+assert function_range((x**2 - 1)/(x**2 - 4), x, S.Reals) == Union(
+    Interval(-oo, Rational(1, 4)), Interval.open(1, oo)
+)
+assert minimum(x**4 - 3*x**2, x) == Rational(-9, 4)
+```
+
+As in the pinned upstream convention, `minimum` and `maximum` return the
+infimum and supremum, including an unattained finite endpoint or infinity.
+An empty admitted image raises ValueError for these extrema APIs. The
+separate compiled-objective box receipt proves attainment at an explicitly
+supplied point; these compatibility helpers do not issue that receipt.
+
+Admission checks the original built-in arithmetic, numeric-atom and symbol
+implementations before reading source or endpoint properties. Indexed roots
+retain the existing closed-class check. Generated set endpoints are lowered
+as typed native values, bypassing the public Interval constructor's textual
+infinity compatibility. Changed accessors, identity methods or conversion
+hooks cannot silently bind the analysis to different coefficients or bounds.
+
+The Python analysis has intrinsic shared bounds: degree/exponent 128,
+32,768-bit intermediate coefficients, four million weighted arithmetic
+operations and 16,384 comparisons, alongside the existing source-node/depth
+limits. Native chart, differentiation and algebraic checks retain their own
+bounded generator/verifier meters; this helper does not claim one shared
+caller EvaluationBudget. Exhausted or unsupported exact decisions return
+NotImplementedError, with no approximate fallback.
+
+Forty new public regression methods in
+`python/tests/test_exact_function_range.py` cover exact topology, algebraic
+critical points, original held holes, narrow rational features, source-binding
+mutants and explicit refusals. CI includes these and the existing advanced
+calculus/series surface regression against the full native extension. These
+new Python tests have not executed locally after the pinned full-extension
+build was killed and the executor became unavailable. Independent source
+review and an executable interval-topology model are separate evidence,
+recorded in
+`artifacts/audit/2026-11-04-extrema-and-range-progress.json`.
+The bounded rational lane does not claim general transcendental range
+analysis, a new independently checked range receipt, or WS18/profile closure.
