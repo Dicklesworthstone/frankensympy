@@ -1346,9 +1346,10 @@ def dsolve(eq, func=None, hint="default", ics=None, **kwargs):
     value initial conditions bind those level sets; derivative initial data
     for an implicit solution are not currently supported.
 
-    A list or tuple of two homogeneous first-order equations may describe a
+    A list or tuple of two first-order equations may describe a
     coupled system with exact rational constant coefficients and an invertible
-    derivative coefficient matrix. The result is a flat list of two equations,
+    derivative coefficient matrix. Polynomial forcing of degree at most 16 is
+    supported, including resonant singular coefficient matrices. The result is a flat list of two equations,
     in the explicit function-list order or the order inferred from the source.
     Value initial conditions may fix either or both coordinates at one rational
     time; otherwise the constants parameterize normalized initial coordinates.

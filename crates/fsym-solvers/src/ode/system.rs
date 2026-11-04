@@ -25,6 +25,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use thiserror::Error;
 
+/// Independently checked polynomial forcing on the complete system family.
+pub mod polynomial;
+
 pub type RationalMatrix2 = [[BigRational; 2]; 2];
 pub type ExpressionMatrix2 = [[Expr; 2]; 2];
 

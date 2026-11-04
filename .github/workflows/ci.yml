@@ -141,7 +141,7 @@ jobs:
           cargo test --locked -p fsym-matrices --test affine_system --test rectangular_solve --test least_squares -j1
           cargo test --locked -p fsym-calculus --test rational_laplace --test delayed_laplace --test distributional_laplace --test delayed_distributional_laplace -j1
           cargo test --locked -p fsym-calculus --test geometric_summation --test rational_summation -j1
-          cargo test --locked -p fsym-solvers --test linear_ode_system --test exact_ode --test ode_radicals -j1
+          cargo test --locked -p fsym-solvers --test linear_ode_system --test polynomial_ode_system --test exact_ode --test ode_radicals -j1
           cargo test --locked -p fsym-calculus --test general_power_programs -j1
           cargo test --locked -p fsym-calculus --test sparse_hessian -j1
           cargo test --locked -p fsym-proof-kernel --test elementary_rational_definite -j1
@@ -259,6 +259,7 @@ jobs:
               "python/tests/test_exact_dsolve.py",
               "python/tests/test_exact_ode.py",
               "python/tests/test_linear_ode_system.py",
+              "python/tests/test_polynomial_ode_system.py",
               "python/tests/test_compiled_powers.py",
               "python/tests/test_compiled_objective.py",
               "python/tests/test_numeric_evaluation_budget.py",

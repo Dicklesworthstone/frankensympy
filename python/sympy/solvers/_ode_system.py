@@ -1,9 +1,10 @@
-"""Bounded exact source lowering for homogeneous two-component ODE systems.
+"""Bounded exact source lowering for rational two-component ODE systems.
 
 The shell retains the original undefined-function owners. Only exact rational
 linear forms cross the native boundary, where a complete normalized fundamental
 matrix is independently checked. The integration constants are the two initial
 coordinates at the chosen common time, rather than a chosen eigenvector basis.
+Polynomial forcing has degree at most 16 and a separate coefficient checker.
 """
 
 from fractions import Fraction
@@ -142,10 +143,51 @@ class _LinearSource:
         self.functions = functions
         self.time = time
         self.nodes = 0
+        self.operations = 0
+
+    def step(self, amount=1):
+        self.operations += amount
+        if self.operations > 200_000:
+            raise ValueError("dsolve: polynomial system source exceeds its arithmetic bound")
+
+    @staticmethod
+    def trim(poly):
+        while len(poly) > 1 and poly[-1] == 0:
+            poly.pop()
+        return poly
+
+    def poly_scale(self, poly, value):
+        self.step(len(poly))
+        return self.trim([_bounded(entry*value) for entry in poly])
+
+    def poly_add(self, left, right):
+        size = max(len(left), len(right))
+        self.step(size)
+        return self.trim([_bounded((left[i] if i < len(left) else 0)
+                                   + (right[i] if i < len(right) else 0))
+                          for i in range(size)])
+
+    def poly_mul(self, left, right):
+        size = len(left) + len(right) - 1
+        if size > 17:
+            raise NotImplementedError("dsolve: polynomial system forcing exceeds degree 16")
+        self.step(len(left)*len(right))
+        result = [Fraction(0)]*size
+        for i, first in enumerate(left):
+            for j, second in enumerate(right):
+                result[i+j] = _bounded(result[i+j] + _bounded(first*second))
+        return self.trim(result)
+
+    @staticmethod
+    def scalar(poly):
+        if len(poly) != 1:
+            raise NotImplementedError("dsolve: system derivative and function coefficients must be rational constants")
+        return poly[0]
 
     @staticmethod
     def constant(value):
-        return [value, Fraction(0), Fraction(0), Fraction(0), Fraction(0)]
+        polynomial = value if type(value) is list else [value]
+        return [polynomial, Fraction(0), Fraction(0), Fraction(0), Fraction(0)]
 
     @staticmethod
     def basis(index):
@@ -157,11 +199,14 @@ class _LinearSource:
         from .ode import _checkodesol_children
 
         self.nodes += 1
+        self.step()
         if self.nodes > _MAX_NODES or depth > _MAX_DEPTH:
             raise ValueError("dsolve: system source exceeds its bounded expression envelope")
         kind = type(node)
         if kind in _NUMBERS or kind is int:
             return self.constant(_rational(node))
+        if kind in (Symbol, Dummy) and node == self.time:
+            return self.constant([Fraction(0), Fraction(1)])
         for index, function in enumerate(self.functions):
             if kind is type(function):
                 if _checkodesol_children(node) != (self.time,):
@@ -186,7 +231,8 @@ class _LinearSource:
             result = self.constant(Fraction(0))
             for index, value in enumerate(values):
                 sign = -1 if kind is Eq and index == 1 else 1
-                result = [_bounded(a + sign*b) for a, b in zip(result, value)]
+                result = [self.poly_add(result[0], self.poly_scale(value[0], Fraction(sign))),
+                          *(_bounded(a + sign*b) for a, b in zip(result[1:], value[1:]))]
             return result
         if kind is Mul:
             result = self.constant(Fraction(1))
@@ -194,13 +240,19 @@ class _LinearSource:
                 left_linear, right_linear = any(result[1:]), any(value[1:])
                 if left_linear and right_linear:
                     raise NotImplementedError("dsolve: nonlinear coupled systems are outside this lane")
-                result = ([_bounded(result[0]*entry) for entry in value] if right_linear
-                          else [_bounded(value[0]*entry) for entry in result])
+                if right_linear:
+                    factor = self.scalar(result[0])
+                    result = [self.poly_scale(value[0], factor), *(_bounded(factor*entry) for entry in value[1:])]
+                elif left_linear:
+                    factor = self.scalar(value[0])
+                    result = [self.poly_scale(result[0], factor), *(_bounded(factor*entry) for entry in result[1:])]
+                else:
+                    result = self.constant(self.poly_mul(result[0], value[0]))
             return result
         if len(values) != 2 or any(values[1][1:]):
             raise NotImplementedError("dsolve: unsupported system power")
         base, exponent = values
-        power = exponent[0]
+        power = self.scalar(exponent[0])
         if power.denominator != 1 or abs(power.numerator) > 32:
             raise NotImplementedError("dsolve: system powers require small literal integers")
         power = power.numerator
@@ -208,11 +260,26 @@ class _LinearSource:
             if power == 1:
                 return base
             raise NotImplementedError("dsolve: nonconstant system powers are outside this lane")
-        if base[0] == 0 and power <= 0:
+        polynomial = base[0]
+        if len(polynomial) > 1:
+            if power <= 0:
+                raise NotImplementedError("dsolve: original nonpositive polynomial powers require a separate domain proof")
+            if (len(polynomial) - 1)*power > 16:
+                raise NotImplementedError("dsolve: polynomial system forcing exceeds degree 16")
+            result = [Fraction(1)]
+            while power:
+                if power & 1:
+                    result = self.poly_mul(result, polynomial)
+                power >>= 1
+                if power:
+                    polynomial = self.poly_mul(polynomial, polynomial)
+            return self.constant(result)
+        value = polynomial[0]
+        if value == 0 and power <= 0:
             raise ValueError("dsolve: original system contains an undefined nonpositive power of zero")
-        if max(abs(base[0].numerator).bit_length(), base[0].denominator.bit_length()) * abs(power) > _MAX_BITS:
+        if max(abs(value.numerator).bit_length(), value.denominator.bit_length()) * abs(power) > _MAX_BITS:
             raise ValueError("dsolve: system power coefficient growth exceeds 1024 bits")
-        return self.constant(_bounded(base[0]**power))
+        return self.constant(_bounded(value**power))
 
 
 def _initial_values(functions, time, conditions):
@@ -252,8 +319,9 @@ def _initial_values(functions, time, conditions):
 def solve_linear_system_2(equations, functions=None, *, ics=None, hint="default", **kwargs):
     """Return a flat list of two Eq objects, following the supplied function order.
 
-    Exact rational constant homogeneous systems with an invertible derivative
-    coefficient matrix are admitted. Value initial conditions may fix either
+    Exact rational constant systems with an invertible derivative coefficient
+    matrix and polynomial forcing of degree at most 16 are admitted.
+    Value initial conditions may fix either
     or both coordinates at one exact rational time. Other system classes and
     boundary data explicitly refuse instead of publishing a partial solution.
     """
@@ -265,8 +333,6 @@ def solve_linear_system_2(equations, functions=None, *, ics=None, hint="default"
     functions, time = _functions(equations, functions)
     parser = _LinearSource(functions, time)
     rows = [parser.visit(equation) for equation in equations]
-    if any(row[0] for row in rows):
-        raise NotImplementedError("dsolve: nonhomogeneous coupled systems are outside this lane")
     m00, m01 = rows[0][3:]
     m10, m11 = rows[1][3:]
     determinant = _bounded(m00*m11 - m01*m10)
@@ -277,12 +343,23 @@ def solve_linear_system_2(equations, functions=None, *, ics=None, hint="default"
         coefficients.append(_bounded((-m11*rows[0][index] + m01*rows[1][index])/determinant))
     for index in (1, 2):
         coefficients.append(_bounded((m10*rows[0][index] - m00*rows[1][index])/determinant))
+    forcing = [
+        parser.poly_add(parser.poly_scale(rows[0][0], _bounded(-m11/determinant)),
+                        parser.poly_scale(rows[1][0], _bounded(m01/determinant))),
+        parser.poly_add(parser.poly_scale(rows[0][0], _bounded(m10/determinant)),
+                        parser.poly_scale(rows[1][0], _bounded(-m00/determinant))),
+    ]
     point, values = _initial_values(functions, time, ics)
-    native = _native.linear_ode_system_native(
-        *(_native_expr(_surface(value)) for value in coefficients),
-        _symbol_binding(time), _native_expr(point),
-        _native_expr(values[0]), _native_expr(values[1]),
-    )
+    arguments = (*(_native_expr(_surface(value)) for value in coefficients),
+                 _symbol_binding(time), _native_expr(point),
+                 _native_expr(values[0]), _native_expr(values[1]))
+    if all(poly == [0] for poly in forcing):
+        native = _native.linear_ode_system_native(*arguments)
+    else:
+        native = _native.polynomial_ode_system_native(
+            *arguments,
+            *[[_native_expr(_surface(value)) for value in poly] for poly in forcing],
+        )
     if len(native) != 2:
         raise ValueError("dsolve: checked system returned the wrong coordinate count")
     return [Eq(function, _lift_native_result(value, time, *values))
