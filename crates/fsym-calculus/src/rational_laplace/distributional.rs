@@ -230,6 +230,31 @@ pub fn inverse_distributional_laplace(
     )
 }
 
+/// Internal untrusted candidate entry for compositional delayed generators.
+/// Acceptance still requires the complete independent transform verifier.
+pub(crate) fn generate_distributional_laplace_certificate(
+    source: &Expr,
+    transform_variable: &Symbol,
+    time_variable: &Symbol,
+    generator: &mut impl BudgetMeter,
+) -> Result<DistributionalLaplaceCertificate> {
+    let mut meter = Capped {
+        inner: generator,
+        used: [0; 3],
+        stopped: None,
+    };
+    let result = generate_distributional(
+        source,
+        transform_variable,
+        time_variable,
+        &mut Work { meter: &mut meter },
+    );
+    if let Some(error) = meter.stopped {
+        return Err(RationalLaplaceError::Meter(error));
+    }
+    result
+}
+
 pub fn metered_inverse_distributional_laplace(
     source: &Expr,
     transform_variable: &Symbol,

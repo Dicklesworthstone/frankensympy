@@ -10,6 +10,9 @@
 
 #![forbid(unsafe_code)]
 
+/// Complete delayed inverses with separately retained impulse distributions.
+pub mod distributional;
+
 use crate::rational_laplace::{
     RationalLaplaceCertificate, RationalLaplaceError, admit_rational_laplace_source,
     generate_rational_laplace_certificate, verify_rational_laplace_certificate,

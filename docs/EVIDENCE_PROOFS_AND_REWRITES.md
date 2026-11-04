@@ -548,11 +548,24 @@ polynomial part was found. Input degree is at most 32, source coefficients
 at most 4096 bits, and both generation and verification retain independent
 cumulative resource limits and final cancellation checks.
 
-This is a bounded in-process composition receipt, not a portable kernel claim
-or a general distribution calculus. Delayed proper rational inverses continue
-to use their existing separate certificate; delayed improper transforms are
-outside this distributional slice. No compatibility profile is promoted by
-these focused checks.
+`fsym_calculus::delayed_laplace::distributional` composes this identity with
+exact nonnegative rational time shifts. The generator groups finite sums and
+products by delay; a separate explicit-frontier reference expansion checks the
+complete original expression and every exact delay before accepting the
+corresponding rational certificate. Equal-delay polynomial terms may cancel,
+but no unsupported regular group or invalid original child may be dropped.
+Typed substitution sends `DiracDelta(t, k)` to `DiracDelta(t-a, k)` as well as
+shifting the regular function. Only that regular function receives
+`Heaviside(t-a)`. Both components of every group share one cumulative output
+bound, and all nested generation and verification consume their respective
+whole-request meters.
+
+These are bounded in-process composition receipts, not portable kernel claims
+or a general distribution calculus. The existing ordinary-only rational and
+delayed APIs retain their separate certificate types and refusal contracts.
+Symbolic or negative delays and expressions outside the bounded delayed grammar
+are not established by the new receipt. No compatibility profile is promoted
+by these focused checks.
 
 ## 12. Modular and probabilistic techniques
 

@@ -4,7 +4,7 @@
 use crate::binding::PySymbolBinding;
 use crate::expr::PyExpr;
 use crate::to_value_error;
-use fsym_calculus::delayed_laplace::metered_inverse_delayed_laplace;
+use fsym_calculus::delayed_laplace::distributional::metered_inverse_delayed_distributional_laplace;
 use fsym_calculus::rational_laplace::RationalLaplaceError;
 use fsym_calculus::rational_laplace::distributional::metered_inverse_distributional_laplace;
 use fsym_core::elementary::rational_expr;
@@ -411,7 +411,7 @@ pub fn inverse_rational_laplace_native(
     } else {
         // The complete original shape was inspected before this dispatch.
         // Both lanes retain the same budgets, including fallback admission.
-        let Some(checked) = metered_inverse_delayed_laplace(
+        let Some(checked) = metered_inverse_delayed_distributional_laplace(
             &source.inner,
             &transform_variable,
             &time_variable,
@@ -438,11 +438,11 @@ pub fn inverse_rational_laplace_native(
             .into_parts()
             .into_iter()
             .map(|part| {
-                let (delay, function) = part.into_parts();
+                let (delay, function, impulses) = part.into_parts();
                 (
                     PyExpr::from_expr(rational_expr(delay)),
                     PyExpr::from_expr(function),
-                    PyExpr::from_expr(Expr::from_i64(0)),
+                    PyExpr::from_expr(impulses),
                 )
             })
             .collect()

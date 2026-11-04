@@ -415,9 +415,9 @@ def inverse_laplace_transform(F: Any, s: Any, t: Any, plane: Any = None, noconds
     """Return a causal inverse with exact rational poles, impulses and time delays.
 
     Rational functions include polynomial parts as Dirac delta derivatives,
-    using the unilateral lower-limit convention 0-. Their regular parts and
-    finite sums of proper transforms with exact nonnegative
-    rational delays use independently checked native transform identities,
+    using the unilateral lower-limit convention 0-. Finite sums of rational
+    transforms with exact nonnegative rational delays shift both regular
+    functions and impulse derivatives through checked native identities,
     including repeated linear and quadratic poles. Equal delays are combined
     before inversion. Original held sources and typed variables are preserved.
     Unsupported ordinary-function inverses remain unevaluated; operational
