@@ -1,0 +1,170 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-11-04T03:42:00Z",
+  "repository": "Dicklesworthstone/frankensympy",
+  "baseline_source": "0342d7f23ae349830872bb14b24b1dea6e9771e5",
+  "verified_main_commits": [
+    {
+      "sha": "17dba930af97b912018009bc7a1d085359cf7f99",
+      "change": "Original-source objective, gradient and Hessian enclosures; local stationary-point certificates"
+    },
+    {
+      "sha": "3c83b6e068b5f0fcefa2bd5bedfb090687ecd8fc",
+      "change": "Complete exact rational monotonicity and original-domain coverage"
+    },
+    {
+      "sha": "1c8647dab36fc7418deb479478763e7354ff6898",
+      "change": "Public Python objective certificates and cumulative budgets"
+    },
+    {
+      "sha": "c80807755849349ed15d2280a71c32eec8d3939d",
+      "change": "Native application arguments, exact relational tags and built-in Piecewise lifting"
+    },
+    {
+      "sha": "4bcfdd1953caf06c7b1d4b865369afa71ad4f71e",
+      "change": "Retained-source ODE solution checking with original-domain and implementation admission"
+    }
+  ],
+  "accompanying_change": "Ordered algebraic-root composite equality/hash, included in the commit carrying this record.",
+  "governance": {
+    "claim_statuses_unchanged": [
+      "MATH-003",
+      "MATH-004"
+    ],
+    "bead_statuses_and_dependency_edges_unchanged": [
+      "fra-campaign-jacobian-bundle-ukp",
+      "fra-a5x",
+      "fra-7kf",
+      "fra-kfo"
+    ],
+    "full_campaign_profile_or_workstream_gate_closed": false,
+    "production_toolchain_and_dependency_pins_changed": false
+  },
+  "native_execution": {
+    "status": "passed",
+    "source_commit": "17dba930af97b912018009bc7a1d085359cf7f99",
+    "command": "cargo test --locked --offline -p fsym-core --test objective_enclosure --test stationary_certificate --test root_box_general",
+    "exit_code": 0,
+    "passed": 38,
+    "failed": 0,
+    "suites": {
+      "objective_enclosure": 13,
+      "stationary_certificate": 10,
+      "root_box_general": 15
+    },
+    "compiler": "rustc 1.100.0-nightly (908501772 2026-08-30)",
+    "cargo": "cargo 1.100.0-nightly (e8cb624d5 2026-08-22)",
+    "toolchain_scope": "Supplementary nightly-2026-08-31; source-identical isolated seven-crate workspace; not the governed August20 full-workspace gate.",
+    "source_and_manifest_files_git_blob_verified": 52,
+    "retained_dependency_identities_and_edges_verified": 81,
+    "production_lock_sha256": "b00fd0998bde7ab027341982ded46dca974303109dcc1fe2d0b2a10852fdcfb2",
+    "temporary_lock_sha256": "693196e6d6340330aa6b8c9914e56a8403cb1de7b0358958a6e80b7ebcab2f9a",
+    "log_sha256": "e22bf84852872e14cebcca99514ac69cb226b61d30c3d292bfb44d7989a74619",
+    "evidence_directory": "artifacts/audit/components/2026-11-04-objective-certification"
+  },
+  "python_execution": {
+    "status": "not_executed_locally",
+    "reason": "The actual fsym-python extension was unavailable; full storage and exec-server resets prevented a local full-extension build. Focused checked-out-native-extension CI targets were added without changing existing expected results.",
+    "new_cases": {
+      "python/tests/test_certified_objective.py": 34,
+      "python/tests/test_exact_monotonicity.py": 20,
+      "python/tests/test_native_result_lifting.py": 12,
+      "python/tests/test_exact_dsolve.py": 11,
+      "python/tests/test_algebraic_composite_identity.py": 24
+    },
+    "existing_exact_dsolve_methods_retained": 27,
+    "case_count_note": "The c808077 commit message stated13 lifting cases; AST count confirms12. Counts here are authoritative and exclude unittest subtests.",
+    "source_checks": [
+      "Python AST parsing",
+      "Changed-line whitespace checks",
+      "Independent source review"
+    ],
+    "native_bridge_compilation": "not_executed_locally"
+  },
+  "monotonicity_helper_execution": {
+    "status": "passed",
+    "author_cases": 19328,
+    "independent_review_cases": 96256,
+    "scope": "The actual extracted _monotonicity_cell/_monotonicity_covered helpers were compared against independent exact Fraction interval-cell intersection oracles. This does not execute native sign-chart production, public imports or the full Python pipeline."
+  },
+  "formatting": {
+    "status": "passed_for_changed_rust_sources",
+    "formatter": "rustfmt 1.10.0-nightly (f7d782a3be 2026-08-19)",
+    "toolchain": "nightly-2026-08-20",
+    "scope": "Changed core and Python-bridge Rust sources, including the preserved formatted objective bridge blob; no whole-workspace build claim.",
+    "command": "env LD_LIBRARY_PATH=/dev/shm/fsym-008248470ba9/rustfmt-libs /dev/shm/fsym-008248470ba9/rustfmt-exact --check --edition 2024 crates/fsym-core/src/root_certificate.rs crates/fsym-core/src/root_certificate/objective.rs crates/fsym-core/src/root_certificate/stationary.rs crates/fsym-core/tests/objective_enclosure.rs crates/fsym-core/tests/stationary_certificate.rs crates/fsym-python/src/objective.rs crates/fsym-python/src/numeric.rs crates/fsym-python/src/lib.rs",
+    "exit_code": 0
+  },
+  "baseline_ci": {
+    "run": 41600280639,
+    "source": "0342d7f23ae349830872bb14b24b1dea6e9771e5",
+    "g0": "passed",
+    "g1": "passed",
+    "g2": "passed",
+    "g3": {
+      "native_extension_build": "passed",
+      "public_tests_passed": 729,
+      "public_tests_failed": 16,
+      "failure_groups": {
+        "ode_premature_native_lowering": 11,
+        "lost_fourier_arguments": 2,
+        "piecewise_condition_lifting": 1,
+        "algebraic_composite_identity": 2
+      }
+    },
+    "note": "Baseline results describe the pre-change source only. Repairs address these causes in code; they have not been declared resolved by a current public-suite execution."
+  },
+  "current_ci": {
+    "observed_head": "4bcfdd1953caf06c7b1d4b865369afa71ad4f71e",
+    "runs": [
+      {
+        "id": 41766293088,
+        "name": "CI Gate Topology",
+        "status": "queued",
+        "conclusion": null,
+        "html_url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/41766293088"
+      },
+      {
+        "id": 41766293000,
+        "name": "Verify Remote Main (Read Only)",
+        "status": "completed",
+        "conclusion": "cancelled",
+        "html_url": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/41766293000"
+      }
+    ],
+    "earliest_new_core_ci_run": 41762365079,
+    "earliest_new_core_job_status": "queued",
+    "conclusion": "No current pinned-workspace or actual-extension gate result was available when this record was prepared."
+  },
+  "planning_integrity": {
+    "status": "passed",
+    "command": "env PYTHONDONTWRITEBYTECODE=1 python3 tools/validate_planning.py",
+    "exit_code": 0,
+    "scope": "Planning validator passed on our feature/metadata working tree before the final publication rebase. Claim statuses/evidence thresholds and every Beads status/dependency field were independently confirmed unchanged. Four incoming commits and their additive CI entries were preserved; the combined remote workflow remains pending."
+  },
+  "limits": [
+    "Objective certification admits bounded exact C2 sources on boxes of1..16 variables and8..128 digits; certificates concern one unique nonsingular local stationary point, not global optimization.",
+    "Compiled symbolic derivatives and proposed preconditioners are not proof inputs to original-source acceptance. An inconclusive curvature check remains unclassified.",
+    "Monotonicity admits exact rational sources and connected exact real intervals. Strict predicates retain the pinned pointwise derivative convention; function_range and global extrema are unchanged.",
+    "ODE checking retains individual-candidate/common-smooth-domain scope. Held domains that might be erased remain unverified; general ODE completeness and uniqueness are not asserted.",
+    "Algebraic identity preserves ordered enclosing structure, exact typed free symbols, true function classes, and owned Piecewise branch/condition representations. It does not introduce commutative reordering, held-expression simplification or general algebraic-number equivalence.",
+    "New public Python behavior and the fsym-python bridge still require execution against the actual extension; the independent source review is not a substitute for that gate."
+  ],
+  "accompanying_source_blobs": {
+    "python/sympy/core/_algebraic_identity.py": "2acef8c5101406edd699c661596c889aba48d33c",
+    "python/tests/test_algebraic_composite_identity.py": "10545f4e09bc145834ff823abf1aea84988e372f"
+  },
+  "preserved_concurrent_commits": [
+    "be30c0ee2c9ad5144c93a25201be49ea43af7c52",
+    "317c6695babdda5577ab94ee15ae87dece0de392",
+    "4d403d590a2da5fe10e92fe00538ae1bb95a66f2",
+    "5247d79eeee20306c1048ed4dafa8e8a5134a266"
+  ],
+  "publication_rebase": {
+    "base": "5247d79eeee20306c1048ed4dafa8e8a5134a266",
+    "overlap": [
+      ".github/workflows/ci.yml"
+    ],
+    "resolution": "Preserve all incoming files and both sets of additive CI test entries. The source-identical native core validation inputs were not changed by these incoming commits."
+  }
+}

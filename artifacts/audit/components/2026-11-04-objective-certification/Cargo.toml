@@ -1,0 +1,72 @@
+[workspace]
+members = ["crates/fsym-core", "crates/fsym-budget", "crates/fsym-id", "crates/fsym-outcome", "crates/fsym-bigint", "crates/fsym-rational", "crates/fsym-modular"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license-file = "LICENSE"
+repository = "https://github.com/Dicklesworthstone/frankensympy"
+homepage = "https://github.com/Dicklesworthstone/frankensympy"
+readme = "README.md"
+keywords = ["sympy", "cas", "symbolic", "mathematics", "computer-algebra"]
+categories = ["science", "mathematics", "data-structures", "algorithms"]
+
+[workspace.dependencies]
+fsym-id = { path = "crates/fsym-id" }
+fsym-budget = { path = "crates/fsym-budget" }
+fsym-outcome = { path = "crates/fsym-outcome" }
+fsym-bigint = { path = "crates/fsym-bigint" }
+fsym-rational = { path = "crates/fsym-rational" }
+fsym-modular = { path = "crates/fsym-modular" }
+fsym-core = { path = "crates/fsym-core" }
+fsym-polys = { path = "crates/fsym-polys" }
+fsym-simplify = { path = "crates/fsym-simplify" }
+fsym-calculus = { path = "crates/fsym-calculus" }
+fsym-numeric-consumer = { path = "crates/fsym-numeric-consumer" }
+fsym-solvers = { path = "crates/fsym-solvers" }
+fsym-matrices = { path = "crates/fsym-matrices" }
+fsym-functions = { path = "crates/fsym-functions" }
+fsym-logic = { path = "crates/fsym-logic" }
+fsym-ntheory = { path = "crates/fsym-ntheory" }
+fsym-sets = { path = "crates/fsym-sets" }
+fsym-geometry = { path = "crates/fsym-geometry" }
+fsym-tensor = { path = "crates/fsym-tensor" }
+fsym-assumptions = { path = "crates/fsym-assumptions" }
+fsym-printing = { path = "crates/fsym-printing" }
+fsym-runtime = { path = "crates/fsym-runtime" }
+fsym-conformance = { path = "crates/fsym-conformance" }
+fsym-proof-kernel = { path = "crates/fsym-proof-kernel" }
+fsym-formal = { path = "crates/fsym-formal" }
+fnp-linalg = { path = "../franken_numpy-pin/crates/fnp-linalg" }
+fsci-opt = { path = "../frankenscipy-pin/crates/fsci-opt" }
+fsym-evidence = { path = "crates/fsym-evidence" }
+asupersync = { path = "../asupersync" }
+num-bigint = { version = "0.4", features = ["serde"] }
+num-rational = { version = "0.4", default-features = false, features = ["serde", "std"] }
+num-traits = "0.2"
+num-complex = "0.4"
+num-integer = "0.1"
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
+thiserror = "2"
+blake3 = "1"
+pyo3 = "0.27"
+
+[workspace.dependencies.proptest]
+version = "1"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+
+[profile.release-perf]
+# Keep-gate build profile for WS22 live-incumbent benchmarks (bead
+# fra-fra-ws22-paired-incumbent-adoption-lfx): speed-optimized, framed for
+# profiler attribution. NOT a workspace-wide default.
+inherits = "release"
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+debug = "line-tables-only"
+strip = false

@@ -1370,6 +1370,12 @@ class Basic:
         if struct_args is not None:
             # Oracle: equal structural instances hash equal (V(x, 2)).
             return hash((type(self).__name__, struct_args))
+        if _bound_algebraic_root_type is not None:
+            from ._algebraic_identity import hash_override
+
+            root_hash = hash_override(self)
+            if root_hash is not None:
+                return root_hash
         if _contains_opaque(self):
             from ._opaque_arithmetic import surface_hash
 
@@ -1400,6 +1406,12 @@ class Basic:
             if type(self) is not type(other):
                 return NotImplemented
             return struct_args == getattr(other, "_struct_args", None)
+        if _bound_algebraic_root_type is not None:
+            from ._algebraic_identity import equality_override
+
+            root_equality = equality_override(self, other)
+            if root_equality is not None:
+                return root_equality
         if _contains_opaque(self) or _contains_opaque(other):
             from ._opaque_arithmetic import surface_equal
 

@@ -1100,3 +1100,31 @@ the existing numerical API. The public regressions live in
 native extension before running them. This adds a bounded objective lane to
 the active Jacobian campaign, without claiming a global optimizer or closing
 the broad calculus, solver or compatibility workstreams.
+
+
+## Bound-root identities inside expressions
+
+An exact `CRootOf` binds its polynomial generator. Renaming that generator
+does not change the full rational coefficient vector or the selected root
+index. Parent expressions now retain this identity for equality and hashing,
+including square roots, quotients, held arithmetic and admitted function
+applications. This repairs the singular-value comparison failures caused by
+internal eigenvalue generator names and makes equal composites usable as
+dictionary/set keys and whole-expression substitution targets.
+
+The bounded key preserves the ordered enclosing expression shape, every
+typed free-symbol payload and the actual Python function class. It does not
+sort held operands, simplify zero/unit factors, or establish general algebraic
+equivalence between different defining polynomials. Genuine native arithmetic
+variants cannot be impersonated by functions with matching names. Piecewise
+branch tuples and relational/logical conditions are interpreted only through
+their exact built-in owner; same-named user classes cannot capture them.
+
+The implementation reads retained slots without executing user getters,
+printers, numerical root evaluation or identity hooks. Shared expression
+graphs have compact bounded keys. Cycles, work limits and unadmitted
+representations refuse explicitly rather than falling through to a false
+inequality or an inconsistent hash. The regression source is
+`python/tests/test_algebraic_composite_identity.py`; current execution scope
+and open gates are recorded in
+`artifacts/audit/2026-11-04-objectives-and-public-math-progress.json`.

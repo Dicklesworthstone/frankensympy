@@ -1,0 +1,115 @@
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.24
+   Compiling syn v3.0.3
+   Compiling serde_core v1.0.229
+   Compiling autocfg v1.5.1
+   Compiling num-traits v0.2.19
+   Compiling cfg-if v1.0.4
+   Compiling libc v0.2.189
+   Compiling serde v1.0.229
+   Compiling serde_derive v1.0.229
+   Compiling num-integer v0.1.47
+   Compiling getrandom v0.3.4
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.11
+   Compiling cc v1.4.4
+   Compiling num-bigint v0.4.8
+   Compiling fsym-budget v0.1.0 (/dev/shm/fsym-008248470ba9/core-qualification/crates/fsym-budget)
+   Compiling zmij v1.0.23
+   Compiling rustix v1.1.4
+   Compiling zerocopy v0.8.56
+   Compiling getrandom v0.4.3
+   Compiling fsym-bigint v0.1.0 (/dev/shm/fsym-008248470ba9/core-qualification/crates/fsym-bigint)
+   Compiling rand_core v0.9.5
+   Compiling blake3 v1.8.7
+   Compiling linux-raw-sys v0.12.1
+   Compiling bitflags v2.13.1
+   Compiling thiserror v2.0.20
+   Compiling serde_json v1.0.151
+   Compiling fsym-modular v0.1.0 (/dev/shm/fsym-008248470ba9/core-qualification/crates/fsym-modular)
+   Compiling num-rational v0.4.2
+   Compiling thiserror-impl v2.0.20
+   Compiling arrayvec v0.7.8
+   Compiling memchr v2.8.3
+   Compiling once_cell v1.21.4
+   Compiling constant_time_eq v0.4.2
+   Compiling cpufeatures v0.3.0
+   Compiling fastrand v2.5.0
+   Compiling itoa v1.0.18
+   Compiling tempfile v3.27.0
+   Compiling fsym-rational v0.1.0 (/dev/shm/fsym-008248470ba9/core-qualification/crates/fsym-rational)
+   Compiling ppv-lite86 v0.2.21
+   Compiling fsym-id v0.1.0 (/dev/shm/fsym-008248470ba9/core-qualification/crates/fsym-id)
+   Compiling wait-timeout v0.2.1
+   Compiling num-complex v0.4.6
+   Compiling fsym-outcome v0.1.0 (/dev/shm/fsym-008248470ba9/core-qualification/crates/fsym-outcome)
+   Compiling fnv v1.0.7
+   Compiling quick-error v1.2.3
+   Compiling bit-vec v0.8.0
+   Compiling bit-set v0.8.0
+   Compiling rusty-fork v0.3.1
+   Compiling fsym-core v0.1.0 (/dev/shm/fsym-008248470ba9/core-qualification/crates/fsym-core)
+   Compiling rand_chacha v0.9.0
+   Compiling rand v0.9.5
+   Compiling rand_xorshift v0.4.0
+   Compiling regex-syntax v0.8.11
+   Compiling unarray v0.1.4
+   Compiling proptest v1.11.0
+    Finished `test` profile [unoptimized] target(s) in 1m 16s
+     Running tests/objective_enclosure.rs (target/debug/build/fsym-core/7dacbc5c7a636cfc/out/objective_enclosure-7dacbc5c7a636cfc)
+
+running 13 tests
+test nested_quartic_keeps_inner_hessian_and_outer_gradient_terms ... ok
+test reciprocal_curvature_and_affine_cross_terms_are_exact ... ok
+test constant_and_identity_powers_do_not_invent_zero_denominators ... ok
+test cancellation_at_every_checkpoint_publishes_no_partial_objective_receipt ... ok
+test one_real_budget_is_cumulative_and_failed_reservations_are_atomic ... ok
+test tiny_exact_curvature_and_huge_coordinates_are_not_rounded_to_binary64 ... ok
+test exact_dense_quadratic_retains_both_mixed_product_terms ... ok
+test whole_box_polynomial_bounds_cover_fixed_analytic_values ... ok
+test typed_binding_identity_is_used_even_when_names_match ... ok
+test unsupported_shapes_precision_and_intrinsic_source_limits_fail_closed ... ok
+test all_admitted_elementary_rules_contain_known_derivatives ... ok
+test original_domain_checks_survive_zero_products_and_held_zero_powers ... ok
+test positive_dynamic_power_keeps_exponent_and_mixed_derivatives ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+     Running tests/root_box_general.rs (target/debug/build/fsym-core/4c67d9e155c61f13/out/root_box_general-4c67d9e155c61f13)
+
+running 15 tests
+test bounded_transport_rejects_excess_rows_limbs_and_noncanonical_scalars ... ok
+test contraction_and_strict_interior_refuse_false_or_singular_root_claims ... ok
+test real_budget_accepts_rectangular_enclosures_and_preserves_atomic_refusal ... ok
+test real_budget_accepts_a_nonlinear_root_certificate ... ok
+test cancellation_at_every_checkpoint_publishes_no_generic_receipt ... ok
+test coupled_three_dimensional_nonlinear_system_is_certified ... ok
+test scalar_irrational_root_gets_exact_strict_bounds ... ok
+test whole_box_domains_survive_held_zeros_powers_and_singularities ... ok
+test typed_variable_identity_and_witness_mutations_are_never_trusted ... ok
+test shape_precision_and_source_bounds_refuse_before_numeric_work ... ok
+test nonsymmetric_preconditioner_orientation_is_checked ... ok
+test point_and_large_exact_coordinates_do_not_go_through_binary64 ... ok
+test maximum_dimension_coupled_triangular_system_fits_the_fixed_budget ... ok
+test rectangular_enclosures_bind_exact_source_and_all_partial_derivatives ... ok
+test intrinsic_arithmetic_budget_applies_even_without_a_caller_meter ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.58s
+
+     Running tests/stationary_certificate.rs (target/debug/build/fsym-core/5cc805084652973d/out/stationary_certificate-5cc805084652973d)
+
+running 10 tests
+test inconclusive_curvature_is_explicit_even_when_stationarity_is_proved ... ok
+test real_budgets_remain_cumulative_and_protect_the_verifier_pool ... ok
+test maximum_and_saddle_are_never_promoted_to_minima ... ok
+test no_stationary_point_flat_points_and_multiple_points_refuse ... ok
+test original_domain_obligations_survive_zero_factors_and_zero_powers ... ok
+test coupled_nondiagonally_dominant_quadratic_has_checked_minimum ... ok
+test nonlinear_rosenbrock_basin_is_certified_from_original_source ... ok
+test source_and_witness_mutations_cannot_reuse_an_extremum_claim ... ok
+test cancellation_at_every_stage_returns_no_stationary_receipt ... ok
+test transcendental_stationary_point_uses_independent_interval_rules ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
