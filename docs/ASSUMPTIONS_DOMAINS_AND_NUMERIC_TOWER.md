@@ -1622,3 +1622,33 @@ deserializer. It binds the original residuals, typed variables, domain,
 precision, accepted local root receipts and complete witness, with an exact
 root count and leaf/exclusion counts. Root discovery and public integration
 are separate consumers of this lower-layer verifier.
+
+### Automatic complete-cover root search
+
+The calculus propose_root_isolation generator searches exact finite boxes
+without an initial numerical guess. It traverses a deterministic binary
+partition, retains every excluded or covered leaf, and returns only an
+untrusted RootIsolationWitness. Acceptance remains a separate call to
+verify_root_isolation, which recomputes the original-source evidence.
+
+At an unresolved cell the generator proposes an exact inverse of the
+midpoint Jacobian enclosure using bounded rational elimination. It tries
+the cell and a modestly expanded neighborhood clipped to the original box.
+An accepted local neighborhood may cross an internal dyadic face, but must
+remain strictly separated from all previously proposed root boxes. Neither
+a midpoint inverse nor a local search success grants global completeness.
+
+Whole-source interval domain excess may trigger subdivision. Unsupported
+sources, operational failures and cancellation remain distinct; failed
+cells never reset the caller ledger. Exhausted subdivision returns no
+partial witness or successful-root list.
+
+The pinned nightly-2026-08-20 component run passes all 15 verifier cases,
+15 automatic-search integration cases and 24 existing local-root regression
+cases. Strict component Clippy and exact formatting pass. Executed cases
+include both irrational roots of x**2-2, four roots of a coupled nonlinear
+system, three sine roots on [-4,4], root-free domains, internal split-face
+roots, original-domain recovery/refusal, exact tiny values, malformed
+witnesses, shared caller budgets and cancellation. This is a source-bound
+native component qualification; full workspace and public-extension gates
+remain separate.

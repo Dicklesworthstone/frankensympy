@@ -16,6 +16,7 @@ pub mod rational_definite;
 pub mod rational_laplace;
 pub mod rational_limits;
 pub mod rational_sum;
+pub mod root_isolation;
 pub mod series;
 pub mod summation;
 
