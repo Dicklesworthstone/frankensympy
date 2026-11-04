@@ -16,8 +16,8 @@ use fsym_budget::BudgetMeter;
 use fsym_calculus::VerifiedObjective;
 use fsym_core::{
     BigRational, BoxExtremumKind, BoxExtremumReceipt, ObjectiveEnclosure, RootBoxWitness,
-    StationaryPointKind, StationaryPointReceipt, metered_enclose_objective,
-    verify_box_extremum, verify_stationary_point,
+    StationaryPointKind, StationaryPointReceipt, metered_enclose_objective, verify_box_extremum,
+    verify_stationary_point,
 };
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;

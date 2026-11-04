@@ -3,8 +3,8 @@
 
 use fsym_budget::{Budget, BudgetLimits, BudgetMeter, Dimension, MeterError};
 use fsym_core::{
-    BigInt, BigRational, BoxExtremumError, BoxExtremumKind, BoxExtremumReceipt, Expr,
-    RealBall, RootBoxError, Symbol, certify_box_extremum, verify_box_extremum,
+    BigInt, BigRational, BoxExtremumError, BoxExtremumKind, BoxExtremumReceipt, Expr, RealBall,
+    RootBoxError, Symbol, certify_box_extremum, verify_box_extremum,
 };
 use std::sync::Arc;
 
@@ -68,11 +68,7 @@ fn boundary_first_order_signs_handle_both_box_faces_and_extremum_directions() {
     .unwrap();
     assert_eq!(max.value(), &RealBall::from_i64(10));
     assert!(max.uniqueness_proved());
-    for point in [
-        [q(2, 1), q(3, 1)],
-        [q(-1, 1), q(-2, 1)],
-        [q(0, 1), q(0, 1)],
-    ] {
+    for point in [[q(2, 1), q(3, 1)], [q(-1, 1), q(-2, 1)], [q(0, 1), q(0, 1)]] {
         assert!(matches!(
             minimum(&source, &vars, &domain, &point),
             Err(BoxExtremumError::FirstOrderNotProved { .. })
@@ -146,10 +142,7 @@ fn exact_hessian_grid_matches_independent_two_by_two_principal_minor_criterion()
                 let psd = a >= 0 && c >= 0 && 4 * a * c - b * b >= 0;
                 assert_eq!(result.is_ok(), psd, "a={a}, b={b}, c={c}");
                 if let Ok(receipt) = result {
-                    assert_eq!(
-                        receipt.uniqueness_proved(),
-                        a > 0 && 4 * a * c - b * b > 0
-                    );
+                    assert_eq!(receipt.uniqueness_proved(), a > 0 && 4 * a * c - b * b > 0);
                 }
             }
         }
@@ -181,8 +174,7 @@ fn negative_curvature_saddles_and_deceptive_stationary_candidates_refuse() {
 #[test]
 fn concavity_certifies_a_maximum_and_rejects_the_reversed_claim() {
     let vars = [Symbol::new("x")];
-    let source =
-        Expr::from_i64(5) - power(Expr::Sym(vars[0].clone()) - Expr::from_i64(1), 2);
+    let source = Expr::from_i64(5) - power(Expr::Sym(vars[0].clone()) - Expr::from_i64(1), 2);
     let receipt = certify_box_extremum(
         &source,
         &vars,
@@ -228,10 +220,7 @@ fn original_holes_cannot_be_erased_by_candidate_or_zero_factors() {
             Expr::Mul(vec![Expr::from_i64(0), child.clone()]),
             power(child, 0),
         ] {
-            let source = Expr::Add(vec![
-                power(x.clone() - Expr::from_i64(1), 2),
-                hidden,
-            ]);
+            let source = Expr::Add(vec![power(x.clone() - Expr::from_i64(1), 2), hidden]);
             assert!(minimum(&source, &vars, &[bounds(-1, 2)], &[q(1, 1)]).is_err());
         }
     }
@@ -246,15 +235,7 @@ fn exact_point_box_dimensions_and_typed_source_binding_are_checked() {
     assert_eq!(fixed.value(), &RealBall::from_i64(2));
     assert!(minimum(&source, &vars, &[bounds(0, 1)], &[]).is_err());
     assert!(minimum(&source, &vars, &[bounds(0, 1)], &[q(2, 1)]).is_err());
-    assert!(
-        minimum(
-            &source,
-            &[Symbol::new("y")],
-            &[bounds(0, 1)],
-            &[q(0, 1)]
-        )
-        .is_err()
-    );
+    assert!(minimum(&source, &[Symbol::new("y")], &[bounds(0, 1)], &[q(0, 1)]).is_err());
     for precision in [7, 129] {
         assert!(
             certify_box_extremum(

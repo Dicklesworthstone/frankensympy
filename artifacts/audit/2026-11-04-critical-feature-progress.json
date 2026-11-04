@@ -1,0 +1,273 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-11-04T04:34:27Z",
+  "repository": "Dicklesworthstone/frankensympy",
+  "kind": "Source-bound implementation progress, not profile, campaign or workstream certification",
+  "baseline_source": "9340dec23df0109dd1e5ae6725c91e997aa0be07",
+  "feature_source_snapshot_commit": "d7fed8e0873c83fd9fe0d92cbfe38c2246b1862c",
+  "verified_main_commits": [
+    {
+      "sha": "a50b6a2519004094e032b246cad1d982122a49c6",
+      "change": "Exact rectangular multi-RHS matrix solves"
+    },
+    {
+      "sha": "4a42de7ebdba0271a8e1c3098693500f0e137b2d",
+      "change": "Complete rational distributional inverse Laplace transforms"
+    },
+    {
+      "sha": "9c36fbaba4debfa5857f3087e4fb6ab55f6e6f3f",
+      "change": "Independently checked zero-dimensional radicals"
+    },
+    {
+      "sha": "1d352a26d12087c66a7a31b37c5e9aeb34e9960e",
+      "change": "Complete finite solution recovery through checked radicals"
+    },
+    {
+      "sha": "d7fed8e0873c83fd9fe0d92cbfe38c2246b1862c",
+      "change": "Complete delayed rational impulse distributions"
+    }
+  ],
+  "preserved_concurrent_main_commits": [
+    "cf306903fc957fb035858e18d63d8e600552731a",
+    "aa76104ebd78c067851815fa95755c185f7f4643",
+    "f7255732ea488b93579d12e49145a5b7b2fd55d1"
+  ],
+  "features": [
+    {
+      "area": "WS10 rectangular exact linear algebra",
+      "implemented": "Matrix.solve and LUsolve admit bounded nonsquare exact-rational systems with multiple RHS columns, then require independently checked unique affine solutions for every column. Inconsistency and nonuniqueness remain explicit; all columns share cumulative budgets and no partial solution is published. Existing square behavior is retained.",
+      "scope": "Dimensions and RHS columns at most 128, 4096-bit input coefficients and aggregate work bound. Native symbolic/opaque rectangular coefficients remain unsupported. Public empty-shape and mutable/immutable/sparse RHS class conventions follow pinned upstream probes.",
+      "regressions": [
+        "81 small exact rank classifications",
+        "1e-80 pivot and inconsistent residual",
+        "Late RHS inconsistency cannot publish earlier columns",
+        "Zero dimensions, coefficient/aggregate bounds, square-path regression"
+      ]
+    },
+    {
+      "area": "WS17 zero-dimensional ideal radicals",
+      "implemented": "Checked coordinate elimination proposes square-free annihilators. An independent composition checker proves both ideal inclusions using exact original/augmented-input binding, coefficient Bezout identities, dense reference powers and independently checked original-basis membership. The resulting radical preserves every complex point.",
+      "scope": "QQ, 1..8 typed variables, at most 64 generators, degree/term/coefficient caps and independent cumulative phase budgets. Immutable in-process receipts only; no new portable kernel claim. Positive-dimensional input refuses.",
+      "regressions": [
+        "Coupled nilpotents and a 15-dimensional quintic quotient",
+        "Exact ring/source binding and missing original equations",
+        "Separate square-free and nilpotent-membership attacks",
+        "Cancellation/exhaustion in both phases and before publication"
+      ]
+    },
+    {
+      "area": "WS19 finite polynomial solution sets",
+      "implemented": "After existing original-shape and seven separating-form attempts genuinely miss, checked radicalization enables another bounded RUR search. Exact augmented-to-original binding and recovered original residuals are checked independently. The coupled quintic system q(x)^2=q(x)*y=y^2=0 now returns all five distinct real points through the existing native/public dispatcher.",
+      "scope": "Existing successful paths keep original multiplicities. Radical fallback exposes reduced-quotient multiplicities and preserves distinct points. Nonreal roots remain visible to the complex-completeness guard. Unsupported, exhausted and cancelled cases do not become empty sets.",
+      "regressions": [
+        "All five quintic points in either caller variable order",
+        "Legacy UnsupportedDegree and nonlinsolve component-probe reachability",
+        "Original/source/radical composition mutations",
+        "Irreducible x^5+5*x+5 reaches the intended one-real/four-nonreal guard"
+      ]
+    },
+    {
+      "area": "WS18 rational and delayed distributional transforms",
+      "implemented": "Polynomial parts of rational transforms produce Dirac delta derivatives under the unilateral 0-minus convention. The reference checker reconstructs the strictly proper regular transform and checks P*B+R=A. Delayed certificates independently reconstruct every original delay group, check each complete identity, and shift both regular and impulse components using exact typed substitution. Only regular functions receive Heaviside multipliers.",
+      "scope": "Degree at most 32, exact rational coefficients and nonnegative rational delays, bounded finite sums/products, repeated supported linear/quadratic poles. Original exclusions, combined output limits and independent cumulative phase budgets are retained. Existing ordinary-only Rust APIs remain separate. Unsupported regular tails refuse the whole source; no partial impulses are published.",
+      "regressions": [
+        "Every admitted derivative order 0..32, with and without delay",
+        "Independently supplied mixed impulse/regular certificates",
+        "Missing/duplicated/reordered delay groups and tiny coefficient mutations",
+        "Held original domains, same-named typed symbols and exact cancellation",
+        "Budget exhaustion and cancellation through final publication"
+      ]
+    }
+  ],
+  "environment": {
+    "toolchain": "nightly-2026-08-20",
+    "rustc": "1.100.0-nightly (f7d782a3b 2026-08-19)",
+    "cargo_build_jobs": 1,
+    "dev_and_test_debug_info": 0,
+    "donor_heads": {
+      "asupersync": "b3e08ac0bd773a5bbdd4f3c2f4624d550352ec0f",
+      "franken_numpy-pin": "d5d29c9da36141f611d1414b4c6ef434ab31ea24",
+      "frankenscipy-pin": "213a417c739025ed865a3875c89a7d86726ecb5a"
+    },
+    "donor_worktrees_clean_at_final_check": true,
+    "dependency_or_feature_changes_to_bypass_validation": false,
+    "oracle": "Isolated SymPy 1.14.0; actual checked-out shell interpreter has no upstream SymPy",
+    "shared_memory_limit_bytes": 8589934592
+  },
+  "executed_native_validation": [
+    {
+      "gate": "fsym-matrices library + affine_system + rectangular_solve",
+      "passed": 73,
+      "failed": 0,
+      "suites": {
+        "library": 56,
+        "affine_system": 9,
+        "rectangular_solve": 8
+      }
+    },
+    {
+      "gate": "fsym-polys radical",
+      "passed": 8,
+      "failed": 0
+    },
+    {
+      "gate": "fsym-solvers real_rur integration and private composition/reference checks",
+      "passed": 22,
+      "failed": 0,
+      "suites": {
+        "integration": 18,
+        "private_reference": 4
+      },
+      "execution_detail": "Full 18-case integration suite passed; after correcting the initially reducible nonreal test fixture, its replacement case and all four private checks passed again. Production source was unchanged. Reruns are not added to the distinct-test count."
+    },
+    {
+      "gate": "Final fsym-calculus rational/delayed/distributional suites",
+      "passed": 56,
+      "failed": 0,
+      "suites": {
+        "rational_laplace": 24,
+        "delayed_laplace": 13,
+        "distributional_laplace": 8,
+        "delayed_distributional_laplace": 11
+      },
+      "execution_detail": "New delayed11 + existing delayed13 + undelayed8 passed together; existing rational24 passed next. Earlier undelayed commit passed the overlapping 45-case set, which is not added again."
+    }
+  ],
+  "distinct_native_tests_passed": 159,
+  "strict_all_target_clippy_passed": [
+    "fsym-matrices",
+    "fsym-polys",
+    "fsym-solvers",
+    "fsym-calculus"
+  ],
+  "other_checks": [
+    "11 compatible undelayed distributional Python test cases passed against isolated SymPy 1.14.0; two project-specific refusal cases were intentionally excluded from oracle-only execution.",
+    "Pinned upstream probes checked rectangular result classes/empty shapes and representative delayed polynomial/improper/mixed transform expectations; these are not execution of FrankenSymPy.",
+    "Final AST syntax checks passed for seven changed Python shell/test files.",
+    "cargo fmt --check passed after formatting only the imported box-extremum test and native objective import list; their mathematical behavior was unchanged.",
+    "git diff --check and tools/validate_planning.py passed.",
+    "The extra cargo fmt --all -- --check traversal also included pinned external donor workspaces and reported pre-existing donor formatting differences; those donors were not modified."
+  ],
+  "validation_limits": [
+    "Actual full extension retry: CARGO_INCREMENTAL=0 cargo build -p fsym-python --lib --locked, one job and debug information disabled, exited 101 when the pinned asupersync rustc received SIGKILL under shared memory pressure. There was no source diagnostic. This was a real second-round attempt, distinct from the earlier unstarted retry proposal.",
+    "No complete current Python extension was produced. The checked-out Python regressions are authored, source-reviewed, syntax checked and registered in CI, but not executed locally. No substitute or mock extension was counted as execution.",
+    "Full-workspace check previously failed at the same pinned dependency. Final full-workspace tests/Clippy and final complete bridge compilation remain pending; subsystem gates are not presented as whole-workspace gates.",
+    "At the final feature commit, GitHub CI Gate Topology run 41773711153 and Verify Remote Main run 41773711283 were queued, with no conclusion.",
+    "Broader workstream, compatibility-profile, performance and certification gates remain open. Bead status, priority and dependency edges are unchanged."
+  ],
+  "independent_review": "Root and separate agents reviewed generator/verifier composition, exact source and typed-variable binding, public dispatch, multiplicity/complex-domain semantics, output causality and resource accounting. Concrete documentation and public-fixture findings were corrected before landing.",
+  "format_only_followup_paths": [
+    "crates/fsym-core/tests/box_extremum.rs",
+    "crates/fsym-python/src/objective.rs"
+  ],
+  "source_files": {
+    ".github/workflows/ci.yml": {
+      "sha256": "f8296c9c0a160bdfeaf6e36151a8afafc2d4115202f4ab7d6c37d2c8d6215452",
+      "bytes": 12442
+    },
+    "crates/fsym-matrices/src/affine.rs": {
+      "sha256": "00c9fb3830e3723ab27a4c1e8fe591c62aa123e848aacd63088142474e6237b2",
+      "bytes": 21467
+    },
+    "crates/fsym-matrices/src/lib.rs": {
+      "sha256": "3df76dbd5a7803127ae1f0d4a30630a6dd0004ea81c0812fbe7fd3d4141f8726",
+      "bytes": 167451
+    },
+    "crates/fsym-matrices/tests/affine_system.rs": {
+      "sha256": "26f60924012ee5ef8accfad01e9574d774a1ca9411468a48ad2c710bd57622cb",
+      "bytes": 11800
+    },
+    "crates/fsym-matrices/tests/rectangular_solve.rs": {
+      "sha256": "d6d921ee3fa762a9d6608cf8989595999fa29d075ce3184b591f4b487c0d7eef",
+      "bytes": 6622
+    },
+    "crates/fsym-polys/src/lib.rs": {
+      "sha256": "ca2a4a562df4d4f10ee9453e94ed2e46caf4285955f71dcaa67f2581a06b1a6f",
+      "bytes": 63115
+    },
+    "crates/fsym-polys/src/radical.rs": {
+      "sha256": "84431d538d2822ae5f5393f9972dbfc9c86291da247fde689bd04431548a860d",
+      "bytes": 22200
+    },
+    "crates/fsym-polys/tests/radical.rs": {
+      "sha256": "ddd70bda42ff040f5fafdb85ed5d29862504b3dd28f1891d9bbdba193d003059",
+      "bytes": 11452
+    },
+    "crates/fsym-solvers/src/real_rur.rs": {
+      "sha256": "0dd84672b916ed46b6db6d887cb6ebaecd3da1f0e85c0291dcafd5b0e7b90fa2",
+      "bytes": 47598
+    },
+    "crates/fsym-solvers/tests/real_rur.rs": {
+      "sha256": "8273c6102e42e3c564dfc96a36b760591fc3e73b9fcca7f72a038b86d716309d",
+      "bytes": 17625
+    },
+    "crates/fsym-calculus/src/rational_laplace.rs": {
+      "sha256": "34dfff8bd597cd12de5ac6d461b4171d51d95fe73a08f11078767c439747dee2",
+      "bytes": 79297
+    },
+    "crates/fsym-calculus/src/rational_laplace/distributional.rs": {
+      "sha256": "84a3bfa6283922805cfaca67b14a653c7202d1999e59e3746bf3b0e26dc64dfb",
+      "bytes": 10234
+    },
+    "crates/fsym-calculus/src/delayed_laplace.rs": {
+      "sha256": "5c405b27629152b7755476a54576f9eb1a4561d687e70b7b2b7a7e63619b880f",
+      "bytes": 38452
+    },
+    "crates/fsym-calculus/src/delayed_laplace/distributional.rs": {
+      "sha256": "ae95d504a16629e0fcac4dc3e7df8fb06569dbb6294059723ffab1a58d0cc8eb",
+      "bytes": 11383
+    },
+    "crates/fsym-calculus/tests/rational_laplace.rs": {
+      "sha256": "be5eda187adf6af8f0ff8ad54be73cebc255aec7dbd078e5ccb9e5dc8aef2b74",
+      "bytes": 36588
+    },
+    "crates/fsym-calculus/tests/distributional_laplace.rs": {
+      "sha256": "14ae98809dd320056de737cc0d8a52f7ed46a3ecc2bc1949a32f77624e7e0500",
+      "bytes": 14466
+    },
+    "crates/fsym-calculus/tests/delayed_laplace.rs": {
+      "sha256": "ea7fd89734a9a40eab4fca9fa9dda93ff4e97b0bde3d2b69f233f7dffc328065",
+      "bytes": 20128
+    },
+    "crates/fsym-calculus/tests/delayed_distributional_laplace.rs": {
+      "sha256": "5c5e04c990718a381ca9da2015a2ebc0acc7574d3a8dda630bd9337b8de3e4c5",
+      "bytes": 24384
+    },
+    "crates/fsym-python/src/rational_laplace.rs": {
+      "sha256": "564ddda91b45c3937c6e4afcf221ef6a80d42144ae5980a41cf8f8ee79c93fe9",
+      "bytes": 18102
+    },
+    "python/sympy/matrices/dense.py": {
+      "sha256": "2c65442c79ed8d6043c444d137f6fd43b03237a80af08299be7982ac0f7d34ea",
+      "bytes": 89572
+    },
+    "python/sympy/integrals/transforms.py": {
+      "sha256": "ee1a79c4ead721b40613c84e03eeaca813265a62cebdce8409020ac72dc77d70",
+      "bytes": 24433
+    },
+    "python/tests/test_rectangular_matrix_solve.py": {
+      "sha256": "100122317225d20cab890d0dea19d80930e9458290b8e4db8ee73c379ceb8ffc",
+      "bytes": 5145
+    },
+    "python/tests/test_polynomial_rur.py": {
+      "sha256": "a2109439f085b41d663465ee38c2beca2b4a9fa308f2427d42850ce02898b08b",
+      "bytes": 5537
+    },
+    "python/tests/test_rational_laplace.py": {
+      "sha256": "66f014afcf317a2c58593835dd1d92adbe5381d0fb2706e46fc25b32bacf43ec",
+      "bytes": 10351
+    },
+    "python/tests/test_distributional_laplace.py": {
+      "sha256": "7bc592911c229dbf28022af90c24e2e4f36c0335355498ac0e2b17fae8be99ed",
+      "bytes": 3270
+    },
+    "python/tests/test_delayed_distributional_laplace.py": {
+      "sha256": "ca3b9d77bb0d8549e71d92e531661eea6f6fa3ee31cf3b5ee4e1a84782e9b285",
+      "bytes": 6727
+    },
+    "docs/EVIDENCE_PROOFS_AND_REWRITES.md": {
+      "sha256": "b0f7c0ddda2601ed871667325ce491063deadc46e9886c9310f0ea4963394b49",
+      "bytes": 33093
+    }
+  }
+}
