@@ -644,11 +644,32 @@ class Matrix(MatrixBase):
             flat[r * cols + j] = _surface_entry(res)
         self._install_surface(rows, cols, flat, mutate=True, expected_generation=start_gen)
 
-    def norm(self, ord="fro"):
-        """Return the matrix norm (Frobenius / Euclidean by default)."""
+    def norm(self, ord=None):
+        """Return a Frobenius norm, or a vector Euclidean/matrix spectral 2-norm.
+
+        Matrix order 2 is the largest singular value. Unsupported exact
+        spectra retain the singular-value lane's explicit refusal; a
+        Frobenius norm is never substituted for a spectral norm.
+        """
         from ..core import sqrt
-        if ord in ("fro", 2, None):
+        if ord in ("fro", None) or (ord == 2 and (self.rows == 1 or self.cols == 1)):
             return sqrt(self.frobenius_norm_squared())
+        if ord == 2:
+            from ..core import Integer, oo
+            from ..functions.elementary.miscellaneous import Max
+
+            if self.rows == 0 or self.cols == 0:
+                # The pinned public matrix contract takes Max over one
+                # singular value per column, including zero-area shapes.
+                return Integer(0) if self.cols else -oo
+            # Spectral algorithms currently require closed native cells.
+            # Reject opaque Python entries before constructing a Gram matrix,
+            # rather than losing custom class identities through conjugation.
+            _ = self._native
+            # singular_values() may order numerical approximations for
+            # display. Max retains an unevaluated maximum for an undecided
+            # scalar comparison; list order alone is not sufficient.
+            return Max(*self.singular_values())
         raise NotImplementedError(f"Matrix norm with ord={ord} is not implemented")
 
     @staticmethod

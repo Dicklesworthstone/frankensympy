@@ -27,7 +27,6 @@ use num_traits::{One, Signed, Zero};
 use serde::de::{IgnoredAny, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
-use std::sync::Arc;
 use thiserror::Error;
 
 const MATRIX_SCHEMA_VERSION: u32 = 1;
@@ -1231,9 +1230,15 @@ impl Matrix {
         self.validate_shape()?;
         let mut sq_terms = Vec::with_capacity(self.data.len());
         for entry in &self.data {
-            sq_terms.push(Expr::Pow(
-                Arc::new(entry.clone()),
-                Arc::new(Expr::from_i64(2)),
+            // Matrix entries need not be real. Squaring the entry itself
+            // gives -1 for I and can cancel positive contributions. Preserve
+            // an unevaluated modulus when its exact value is not known.
+            let magnitude =
+                fsym_core::elementary::eval_function("Abs", std::slice::from_ref(entry))
+                    .unwrap_or_else(|| Expr::Function("Abs".to_string(), vec![entry.clone()]));
+            sq_terms.push(fsym_core::elementary::eval_pow(
+                magnitude,
+                Expr::from_i64(2),
             ));
         }
         Ok(simplify(&Expr::Add(sq_terms)))
