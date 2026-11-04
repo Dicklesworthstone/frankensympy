@@ -257,6 +257,7 @@ fn exact_fold(expr: &Expr) -> Expr {
                 if rest.len() == 1 {
                     rest.pop().unwrap()
                 } else {
+                    fsym_core::canonicalize_add_args(&mut rest);
                     Expr::Add(rest)
                 }
             }
@@ -1498,7 +1499,7 @@ impl Matrix {
 
     /// Eigenvalues as exact expressions when decidable.
     ///
-    /// The degree-one/two lane preserves its established expression forms.
+    /// The degree-one/two lane normalizes exact rational and radical forms.
     /// Larger rational matrices use a reference-checked characteristic
     /// polynomial and complete factorization over Q, retaining algebraic
     /// multiplicities. If any factor's roots cannot all be expressed by the
@@ -1575,11 +1576,14 @@ impl Matrix {
                     other => MatrixError::Solver(other.to_string()),
                 })?;
                 let mut folded: Vec<Expr> = roots.iter().map(exact_fold).collect();
-                // Deterministic profile ordering: the pinned oracle emits the
-                // quadratic minus-branch first; descending rendered form
-                // reproduces that order for +- root pairs
-                // (bead fra-fra-shell-printer-parity-pack-qxr, divergence vi).
-                folded.sort_by(|a, b| format!("{a}").cmp(&format!("{b}")));
+                // Rational roots already arrive in exact ascending order.
+                // For this monic characteristic polynomial, the remaining
+                // quadratic pair arrives as plus/minus; expose minus/plus.
+                // The generator's exact branch contract is independent of
+                // expression printing and binary64 approximations.
+                if roots.len() == 2 && roots.iter().all(|root| numeric_value(root).is_none()) {
+                    folded.reverse();
+                }
                 Ok(folded)
             }
         }

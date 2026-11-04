@@ -75,6 +75,55 @@ fn repeated_irrational_factors_retain_each_multiplicity() {
 }
 
 #[test]
+fn quadratic_gram_spectra_normalize_square_factors_and_rational_scaling() {
+    let sqrt_221 = Expr::Pow(
+        Arc::new(integer(221)),
+        Arc::new(Expr::rational(1, 2).unwrap()),
+    );
+    for scale in [
+        BigRational::from_integer(1.into()),
+        BigRational::from_integer(4.into()),
+        BigRational::new(1.into(), 9.into()),
+    ] {
+        let matrix = Matrix::new(
+            2,
+            2,
+            [10, 14, 14, 20]
+                .into_iter()
+                .map(|value| {
+                    fsym_core::elementary::rational_expr(
+                        BigRational::from_integer(value.into()) * &scale,
+                    )
+                })
+                .collect(),
+        )
+        .unwrap();
+        let center =
+            fsym_core::elementary::rational_expr(BigRational::from_integer(15.into()) * &scale);
+        let offset = fsym_core::elementary::rational_expr(scale) * sqrt_221.clone();
+        assert_eq!(
+            matrix.eigenvalues().unwrap(),
+            vec![center.clone() - offset.clone(), center + offset]
+        );
+    }
+}
+
+#[test]
+fn quadratic_rational_order_does_not_depend_on_rendering_or_binary64_ties() {
+    let decimal_order = Matrix::diag(vec![integer(10), integer(2)]).unwrap();
+    assert_eq!(
+        decimal_order.eigenvalues().unwrap(),
+        vec![integer(2), integer(10)]
+    );
+    let larger = Expr::Rational(
+        BigRational::from_integer(1.into())
+            + BigRational::new(BigInt::from(1), BigInt::from(1) << 80u32),
+    );
+    let close = Matrix::diag(vec![larger.clone(), integer(1)]).unwrap();
+    assert_eq!(close.eigenvalues().unwrap(), vec![integer(1), larger]);
+}
+
+#[test]
 fn cubic_characteristic_roots_satisfy_the_original_polynomial() {
     // (x+1)^3 + 2, the pure-depressed-cubic branch that previously
     // produced an incorrect repeated shift in Cardano's formula.

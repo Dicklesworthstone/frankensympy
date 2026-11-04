@@ -182,6 +182,9 @@ pub fn solve_poly(poly: &UnivariatePoly) -> Result<Vec<Expr>, SolverError> {
                 }
                 return Ok(vec![e2, e1]);
             }
+            if disc > BigRational::zero() {
+                return Ok(normalized_real_quadratic_pair(-c1, &two_a_rat, &disc));
+            }
             let neg_b = Expr::Rational(-c1.clone());
             let two_a = Expr::Rational(two_a_rat);
             let disc_expr = Expr::Rational(disc);
@@ -229,6 +232,23 @@ pub fn solve_poly(poly: &UnivariatePoly) -> Result<Vec<Expr>, SolverError> {
             Err(SolverError::UnsupportedDegree(d))
         }
     }
+}
+
+/// Fold the rational center and the bounded square-factor normalization before
+/// publishing an irrational quadratic pair. Leaving `(30 + sqrt(884))/2`
+/// unevaluated here leaks an avoidable nested radical into Gram spectra.
+/// Callers establish a positive discriminant and a nonzero denominator. The
+/// existing small-divisor bound in `sqrt_rational` limits factor extraction;
+/// an unfactored remainder remains an exact radical.
+fn normalized_real_quadratic_pair(
+    neg_b: BigRational,
+    two_a: &BigRational,
+    discriminant: &BigRational,
+) -> Vec<Expr> {
+    let center = fsym_core::elementary::rational_expr(neg_b / two_a);
+    let offset = fsym_core::elementary::rational_expr(two_a.recip())
+        * fsym_core::elementary::sqrt_rational(discriminant);
+    vec![center.clone() + offset.clone(), center - offset]
 }
 
 /// Interpret `expr` as a polynomial of degree <= 1 in `var`, returning `(a, b)`
@@ -541,6 +561,9 @@ pub fn solve_quadratic(expr: &Expr, var: &Symbol) -> Result<Vec<Expr>, SolverErr
                 return Ok(vec![e1, e2]);
             }
             return Ok(vec![e2, e1]);
+        }
+        if disc > BigRational::zero() {
+            return Ok(normalized_real_quadratic_pair(-rb, &two_a, &disc));
         }
         let neg_b = Expr::Rational(-rb);
         let disc_expr = Expr::Rational(disc);
@@ -1372,9 +1395,11 @@ mod tests {
             ],
         );
         let roots4 = solve_poly(&p4).unwrap();
-        assert_eq!(roots4.len(), 2);
-        assert!(matches!(roots4[0], Expr::Mul(_)));
-        assert!(matches!(roots4[1], Expr::Mul(_)));
+        let sqrt_two = Expr::Pow(
+            Arc::new(Expr::from_i64(2)),
+            Arc::new(Expr::rational(1, 2).unwrap()),
+        );
+        assert_eq!(roots4, vec![sqrt_two.clone(), -sqrt_two]);
     }
 
     #[test]

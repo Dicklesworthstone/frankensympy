@@ -58,6 +58,17 @@ def test_nondiagonal_spectral_norm_uses_the_exact_gram_spectrum():
     assert simplify(complex_matrix.norm(2) - sqrt((3 + sqrt(5))/2)) == 0
 
 
+@pytest.mark.parametrize("scale", [2, -2, Rational(1, 3)])
+def test_scaled_gram_spectra_fold_exact_discriminant_square_factors(scale):
+    matrix = scale * Matrix([[1, 2], [3, 4]])
+    lower = scale**2 * (15 - sqrt(221))
+    upper = scale**2 * (15 + sqrt(221))
+    spectrum = (matrix.H * matrix).eigenvalues()
+    assert len(spectrum) == 2
+    assert spectrum == [lower, upper]
+    assert matrix.norm(2) == sqrt(upper)
+
+
 def test_rectangular_spectral_norm_and_transpose_agree():
     matrix = Matrix([[1, 2, 2], [0, 0, 0]])
     assert matrix.norm(2) == 3
