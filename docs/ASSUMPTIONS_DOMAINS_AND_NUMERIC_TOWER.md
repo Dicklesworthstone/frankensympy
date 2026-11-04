@@ -1685,3 +1685,45 @@ a claimed full-extension compilation. Exact source bindings, terminal
 results (including the corrected initial Clippy failure), dependency
 closure and scope limits are recorded in
 artifacts/audit/2026-11-04-root-isolation-progress.json.
+
+## Uniform root families over exact parameter boxes
+
+verify_parametric_root_box checks an untrusted rational center and inverse
+preconditioner for F(x,p)=0 on a closed product X times P. For every fixed
+p in P, acceptance proves exactly one nonsingular unknown root x in X.
+The returned root enclosure contains the union of those roots. There must
+be one residual per unknown, at least one unknown and parameter, and at
+most 16 total typed variables. Unknown coordinates have positive width;
+parameter coordinates may have zero width. Precision is 8..128 digits.
+
+The checker evaluates original-source C1 obligations on the whole product.
+It retains the FULL parameter intervals in F(c,P) and in the unknown
+Jacobian block J_x(X times P). The same rational C and c must establish
+strict inclusion of c-C*F(c,P)+(I-C*J_x(X times P))*(X-c) in X and an exact
+infinity-norm contraction bound below one. A parameter-midpoint solution
+or Jacobian is insufficient for acceptance. Derivatives with respect to
+parameters do not become unknown coordinates or square-map columns.
+
+Typed unknown/parameter roles are disjoint and source-bound. Metadata,
+coordinate shapes and scalar heights are bounded before concatenation or
+cloning; one Work phase accounts for original-source evaluation, exact
+arithmetic, allocations and final cancellation. Only traversal node counts
+restart between complete source passes. Undefined held children cannot
+be erased by zero products, zero powers, or another residual.
+
+ParametricRootBoxReceipt has private fields and no unchecked constructor
+or deserializer. It binds the original residuals, ordered unknowns and
+parameters, both boxes, center, preconditioner, precision, accepted root
+enclosure and contraction bound. This is a uniform local family claim;
+it does not provide an exact symbolic function, roots outside X, a global
+continuation path, or a portable proof-kernel claim.
+
+All 15 new native cases and 24 existing local-root regressions pass on
+pinned nightly-2026-08-20 in the recorded component workspace. Adversarial
+tests cover midpoint-only centered residuals and Jacobians, incorrect
+matrix orientation, changed typed/order bindings, held parameter poles,
+boundary and singular roots, malformed shapes, budgets and cancellation.
+Positive cases include nonlinear square-root families, coupled affine
+systems, sine, point parameters and exact 10**-400 bounds. Strict core
+Clippy and exact formatting pass after correcting three test-only style
+diagnostics; no production expression or test assertion was weakened.
