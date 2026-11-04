@@ -9,6 +9,8 @@
 //!   (Faulhaber), so `sum k**2` is `n**3/3 + n**2/2 + n/6`;
 //! * geometric terms `c*q**(u*k+v)` with an exact rational ratio (`|q| < 1` for
 //!   infinite sums);
+//! * independently checked polynomial weights `p(k)*q**(u*k+v)`, including
+//!   formal symbolic integer bounds and convergent infinite geometric moments;
 //! * independently checked rational telescoping, including repeated poles
 //!   and fractional offsets, at exact integer bounds, e.g.
 //!   `sum_{k=1}^{10000} 1/(k*(k+1)) = 10000/10001`;
@@ -335,6 +337,27 @@ fn sum_exp_series(e: &Expr, k: &Symbol, a: &Expr) -> Option<Expr> {
 
 /// Closed form of `sum_{k=a}^{b} f`, or `None`.
 pub fn summation(f: &Expr, k: &Symbol, a: &Expr, b: &Expr) -> Option<Expr> {
+    checked_summation(f, k, a, b).ok().flatten()
+}
+
+/// Preserve operational failures from the independently checked weighted
+/// geometric lane. Unsupported families retain the established exact rules;
+/// exhausted or invalid work is never retried with a fresh budget.
+pub fn checked_summation(
+    f: &Expr,
+    k: &Symbol,
+    a: &Expr,
+    b: &Expr,
+) -> Result<Option<Expr>, crate::geometric_sum::GeometricSummationError> {
+    use crate::geometric_sum::{GeometricSummationError, polynomial_geometric_sum};
+    match polynomial_geometric_sum(f, k, a, b) {
+        Ok(Some(checked)) => Ok(Some(checked.into_value())),
+        Ok(None) | Err(GeometricSummationError::Unsupported(_)) => Ok(summation_rules(f, k, a, b)),
+        Err(error) => Err(error),
+    }
+}
+
+fn summation_rules(f: &Expr, k: &Symbol, a: &Expr, b: &Expr) -> Option<Expr> {
     // Try the whole rational expression before linearity: separate terms
     // can diverge while their rational combination telescopes. Retaining
     // the unsimplified denominator also prevents canceled input poles from

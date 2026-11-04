@@ -133,7 +133,9 @@ fn summation_expr(src: &str, var: &str, a: &str, b: &str) -> PyResult<Option<Str
     let e = parse_expr(src)?;
     let lo = parse_expr(a)?;
     let hi = parse_expr(b)?;
-    Ok(fsym_calculus::summation::summation(&e, &Symbol::new(var), &lo, &hi).map(|v| v.to_string()))
+    fsym_calculus::summation::checked_summation(&e, &Symbol::new(var), &lo, &hi)
+        .map(|value| value.map(|value| value.to_string()))
+        .map_err(to_value_error)
 }
 
 /// Floating complex value `(re, im)` of a symbol-free expression; a probe
@@ -1099,10 +1101,9 @@ fn summation_native(
     b: &PyExpr,
 ) -> PyResult<Option<PyExpr>> {
     let sym = extract_symbol_arg(var)?;
-    Ok(
-        fsym_calculus::summation::summation(&expr.inner, &sym, &a.inner, &b.inner)
-            .map(PyExpr::from_expr),
-    )
+    fsym_calculus::summation::checked_summation(&expr.inner, &sym, &a.inner, &b.inner)
+        .map(|value| value.map(PyExpr::from_expr))
+        .map_err(to_value_error)
 }
 
 /// Structured closed-form product `prod_{var=a}^{b} expr`.
