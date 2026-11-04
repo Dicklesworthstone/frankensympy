@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-11-04T06:25:07Z",
+  "repository": "Dicklesworthstone/frankensympy",
+  "branch": "main",
+  "source_baseline": "2dba46b7aaaacefd9be0e8dba6d6b71676458b54",
+  "verified_core_commit": "ec4da410a91b15dd138049cb8f6f914b715e3c6c",
+  "preserved_root_isolation_commits": [
+    "7885365d9be74d4b098b66d574baecb55a365442",
+    "bed44f7bac9fd83c4aedf4f782768d4218510726",
+    "34b62941f3fb2fbbdbb2a1641b8656b960e63e36"
+  ],
+  "implementation_blobs": {
+    "crates/fsym-core/src/root_certificate.rs": "cc446d3a8938db0ce7078ebd7a845e4cc46fa789",
+    "crates/fsym-core/src/root_certificate/parametric_root.rs": "659894aac1f84ce0d074f81ccf08d47428cf1a2e",
+    "crates/fsym-core/tests/parametric_root.rs": "baf9bdf433b0b625cd3d4a3e30a1203195fd32f5",
+    "crates/fsym-python/src/numeric.rs": "a68b4d8556dd27c74f106904d7dfaf786d999ec1",
+    "crates/fsym-python/src/lib.rs": "6a07b9ba5f17e2c3945354d3b37fd1c00e9b0172",
+    "python/sympy/utilities/_parametric_root.py": "c10a1661b200b970f52b37d4e6ef696d62944b5a",
+    "python/sympy/utilities/lambdify.py": "ee3084ddfac7102d2fad6a1d1502170deacf45c2",
+    "python/sympy/utilities/__init__.py": "ff60bc5a27d97c5c0859066c5293b8e7f7794c1c",
+    "python/sympy/__init__.py": "fa58522ca9d168eeda644213f2accef3d889bdf4",
+    "python/tests/test_parametric_root_box.py": "44c8b0247fa520ccd496455ca863c2303e4e81fc"
+  },
+  "feature": "Uniform unique nonsingular root families over exact parameter boxes",
+  "contract": {
+    "roles": "One residual per unknown; first residual_count compiled variables are unknowns, remaining variables are parameters",
+    "acceptance": "Original-source C1 on X times P, full F(c,P), full unknown Jacobian block, strict Krawczyk inclusion, exact infinity-norm contraction below one",
+    "claim": "For every fixed p in P exactly one nonsingular x in X, with a common root enclosure containing all family roots",
+    "outside_unknown_box_claim": false,
+    "exact_symbolic_function_claim": false,
+    "global_continuation_claim": false,
+    "portable_proof_kernel_claim": false
+  },
+  "bounds": {
+    "total_variables": [
+      2,
+      16
+    ],
+    "unknowns": "1..15 with one residual each",
+    "parameters": "at least one",
+    "unknown_coordinates": "positive width",
+    "parameter_coordinates": "nonnegative width including point parameters",
+    "precision_digits": [
+      8,
+      128
+    ],
+    "public_input_rational_bits": 4096,
+    "core_rational_limit": "Existing MAX_ROOT_BOX_LIMBS bound; not widened"
+  },
+  "native_validation": {
+    "toolchain": "nightly-2026-08-20",
+    "component_workspace_members": 13,
+    "source_files": 178,
+    "packages": 87,
+    "normalized_dependency_edges_verified": 212,
+    "new_tests_passed": 15,
+    "existing_local_root_regressions_passed": 24,
+    "distinct_total_with_root_isolation": 69,
+    "repeated_cases_counted_again": false,
+    "final_strict_clippy": "passed core library and parametric_root target with -D warnings",
+    "final_formatting": "passed exact three native files",
+    "initial_lint_failure": "Three test-only style diagnostics; factoring two singleton-array expressions and avoiding one singleton clone preserved production source and every input/assertion. Initial failures and final passing rerun retained.",
+    "shared_root_helper_change": "module declaration/export only; prior helper body unchanged",
+    "new_oom_kills": 0,
+    "evidence": "artifacts/audit/components/2026-11-04-parametric-roots/validation.json"
+  },
+  "public_validation": {
+    "syntax": [
+      {
+        "path": "python/sympy/utilities/_parametric_root.py",
+        "git_blob": "c10a1661b200b970f52b37d4e6ef696d62944b5a",
+        "syntax": "passed"
+      },
+      {
+        "path": "python/sympy/utilities/lambdify.py",
+        "git_blob": "ee3084ddfac7102d2fad6a1d1502170deacf45c2",
+        "syntax": "passed"
+      },
+      {
+        "path": "python/sympy/utilities/__init__.py",
+        "git_blob": "ff60bc5a27d97c5c0859066c5293b8e7f7794c1c",
+        "syntax": "passed"
+      },
+      {
+        "path": "python/sympy/__init__.py",
+        "git_blob": "fa58522ca9d168eeda644213f2accef3d889bdf4",
+        "syntax": "passed"
+      },
+      {
+        "path": "python/tests/test_parametric_root_box.py",
+        "git_blob": "44c8b0247fa520ccd496455ca863c2303e4e81fc",
+        "syntax": "passed",
+        "test_functions": 20,
+        "parametrized_cases": 25,
+        "runtime_executed": false
+      }
+    ],
+    "test_functions": 20,
+    "parametrized_cases": 25,
+    "runtime_tests_executed": false,
+    "bridge_full_compilation": false,
+    "bridge_pinned_rustfmt": "passed",
+    "independent_source_reviews": "core verifier owner, public test/reviewer, and native execution owner passed"
+  },
+  "budget_contract": {
+    "provided_ledger": "one object spans exact preparation, proposal, inversion, full-family verification and final publication",
+    "omitted_ledger": "one private 512 MiB/dimension budget created before preparation; never reset between native calls",
+    "manual_preconditioner": "skips proposal enclosure but retains independent verifier and ledger",
+    "operational_failure": "propagates; no partial receipt or mathematical retry"
+  },
+  "limitations": [
+    "Component validation is not a full workspace or full fsym-python extension run.",
+    "25 public tests are authored and wired into fresh-extension CI, but unexecuted locally.",
+    "Uniform sufficient conditions can be inconclusive; singular/boundary cases and original-domain violations produce no receipt.",
+    "Campaign, profile, workstream, runtime and performance gates remain open."
+  ],
+  "bead_statuses_changed": false,
+  "claim_statuses_changed": false,
+  "dependency_edges_changed": false
+}

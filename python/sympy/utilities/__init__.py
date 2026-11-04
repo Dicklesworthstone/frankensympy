@@ -14,6 +14,7 @@ from .hybrid_system import compile_hybrid_residual_system
 from .objective import StationarySearchError, compile_objective
 from ._certified_numeric import ResidualJacobianEnclosure, RootBoxReceipt
 from ._root_isolation import RootIsolationReceipt
+from ._parametric_root import ParametricRootBoxReceipt
 from ._certified_objective import (
     BoxExtremumReceipt, BoxOptimizationReceipt, ObjectiveEnclosure, StationaryPointReceipt,
 )
@@ -28,6 +29,7 @@ __all__ = [
     "StationarySearchError",
     "ResidualJacobianEnclosure", "RootBoxReceipt",
     "RootIsolationReceipt",
+    "ParametricRootBoxReceipt",
     "ObjectiveEnclosure", "StationaryPointReceipt",
     "BoxExtremumReceipt",
     "BoxOptimizationReceipt",

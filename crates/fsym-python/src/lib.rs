@@ -1958,6 +1958,7 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<numeric::PyResidualJacobianEnclosure>()?;
     m.add_class::<numeric::PyRootBoxReceipt>()?;
     m.add_class::<numeric::PyRootIsolationReceipt>()?;
+    m.add_class::<numeric::PyParametricRootBoxReceipt>()?;
     m.add_class::<quadrature::PyIntegralEnclosureReceipt>()?;
     m.add_class::<exact_integral::PyExactRationalIntegralReceipt>()?;
     m.add_class::<callbacks::PySupervisedCallbackSession>()?;

@@ -669,6 +669,36 @@ class _ResidualCallable:
         from ._certified_numeric import certify_root_box
         return certify_root_box(self, box, center, preconditioner, precision, budget=budget)
 
+    def certify_parametric_root_box(
+            self, unknown_box, parameter_box, *, center=None, preconditioner=None,
+            precision=32, budget=None):
+        """Certify a unique root for every value in an exact parameter box.
+
+        For m residuals, the first m compiled variables are the unknowns;
+        all remaining variables are parameters. At least one of each and at
+        most 16 total variables are required. Unknown coordinates have
+        positive width; parameter coordinates may be fixed point intervals.
+        Both boxes use exact rational bounds and captured typed assumptions.
+
+        An omitted center uses the unknown-box midpoint. An omitted inverse
+        preconditioner is proposed by exact rational elimination of the
+        unknown Jacobian at that center and the parameter midpoint. The
+        independent original-source verifier retains the full parameter box
+        in its residuals and derivatives and requires uniform strict
+        Krawczyk inclusion and contraction. The returned immutable receipt
+        encloses every parameter-dependent root inside unknown_box; it makes
+        no claim outside that box or of an exact symbolic solution function.
+
+        One supplied EvaluationBudget, or one bounded private ledger when
+        omitted, covers preparation, the inverse proposal, full-family
+        verification and final cancellation. Inconclusive verification,
+        unsupported domains and operational failures return no receipt.
+        """
+        from ._parametric_root import certify_parametric_root_box
+        return certify_parametric_root_box(
+            self, unknown_box, parameter_box, center, preconditioner, precision, budget=budget,
+        )
+
     def isolate_roots_certified(self, box, *, precision=32, max_leaves=512, budget=None):
         """Discover and certify every nonsingular real root in a finite box.
 

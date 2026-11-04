@@ -21,8 +21,9 @@ use fsym_calculus::root_isolation::{RootIsolationOptions, propose_root_isolation
 use fsym_calculus::sparse_jacobian::compiled_expression_matches;
 use fsym_calculus::verified::{MAX_VERIFIED_ARTIFACT_BYTES, VerifiedArtifactError};
 use fsym_core::{
-    BigRational, Expr, RealBall, ResidualJacobianEnclosure, RootBoxReceipt, RootBoxWitness,
-    RootIsolationReceipt, Symbol, metered_enclose_residual_jacobian, verify_root_box,
+    BigRational, Expr, ParametricRootBoxReceipt, ParametricRootBoxWitness, RealBall,
+    ResidualJacobianEnclosure, RootBoxReceipt, RootBoxWitness, RootIsolationReceipt, Symbol,
+    metered_enclose_residual_jacobian, verify_parametric_root_box, verify_root_box,
     verify_root_isolation,
 };
 use fsym_numeric_consumer::{
@@ -418,6 +419,105 @@ impl PyRootIsolationReceipt {
     #[getter]
     fn is_root_free(&self) -> bool {
         self.receipt.is_root_free()
+    }
+}
+
+/// One unique unknown root for every parameter value, with no public constructor.
+#[pyclass(name = "ParametricRootBoxReceipt", module = "fsym_python", frozen)]
+pub struct PyParametricRootBoxReceipt {
+    receipt: ParametricRootBoxReceipt,
+}
+
+#[pymethods]
+impl PyParametricRootBoxReceipt {
+    #[getter]
+    fn residuals(&self) -> Vec<PyExpr> {
+        self.receipt
+            .residuals()
+            .iter()
+            .cloned()
+            .map(PyExpr::from_expr)
+            .collect()
+    }
+
+    #[getter]
+    fn variables(&self) -> Vec<PySymbolBinding> {
+        self.receipt
+            .unknowns()
+            .iter()
+            .chain(self.receipt.parameters())
+            .map(PySymbolBinding::from_symbol)
+            .collect()
+    }
+
+    #[getter]
+    fn unknown_variables(&self) -> Vec<PySymbolBinding> {
+        self.receipt
+            .unknowns()
+            .iter()
+            .map(PySymbolBinding::from_symbol)
+            .collect()
+    }
+
+    #[getter]
+    fn parameters(&self) -> Vec<PySymbolBinding> {
+        self.receipt
+            .parameters()
+            .iter()
+            .map(PySymbolBinding::from_symbol)
+            .collect()
+    }
+
+    #[getter]
+    fn domain(&self) -> Vec<(PyExpr, PyExpr)> {
+        let mut domain = ball_bounds(&self.receipt.witness().unknown_domain);
+        domain.extend(ball_bounds(&self.receipt.witness().parameter_domain));
+        domain
+    }
+
+    #[getter]
+    fn unknown_domain(&self) -> Vec<(PyExpr, PyExpr)> {
+        ball_bounds(&self.receipt.witness().unknown_domain)
+    }
+
+    #[getter]
+    fn parameter_domain(&self) -> Vec<(PyExpr, PyExpr)> {
+        ball_bounds(&self.receipt.witness().parameter_domain)
+    }
+
+    #[getter]
+    fn center(&self) -> Vec<PyExpr> {
+        self.receipt
+            .witness()
+            .center
+            .iter()
+            .map(rational_expr)
+            .collect()
+    }
+
+    #[getter]
+    fn preconditioner(&self) -> Vec<Vec<PyExpr>> {
+        self.receipt
+            .witness()
+            .preconditioner
+            .iter()
+            .map(|row| row.iter().map(rational_expr).collect())
+            .collect()
+    }
+
+    #[getter]
+    fn precision_digits(&self) -> u32 {
+        self.receipt.witness().precision_digits
+    }
+
+    #[getter]
+    fn root_enclosure(&self) -> Vec<(PyExpr, PyExpr)> {
+        ball_bounds(self.receipt.root_enclosure())
+    }
+
+    #[getter]
+    fn contraction_bound(&self) -> PyExpr {
+        rational_expr(self.receipt.contraction_bound())
     }
 }
 
@@ -1131,6 +1231,65 @@ impl PyVerifiedResidualSystem {
             verify_root_isolation(&source.residuals, &source.vars, &domain, &witness, meter)
         })?;
         let result = PyRootIsolationReceipt { receipt };
+        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
+        Ok(result)
+    }
+
+    /// Prove a unique unknown root for every value in the full parameter box.
+    /// The first residual_count variables are unknowns; all others are parameters.
+    #[pyo3(signature = (unknown_domain, parameter_domain, center, preconditioner, precision_digits=32, *, budget=None))]
+    fn certify_parametric_root_box(
+        &self,
+        unknown_domain: &Bound<'_, PyAny>,
+        parameter_domain: &Bound<'_, PyAny>,
+        center: &Bound<'_, PyAny>,
+        preconditioner: &Bound<'_, PyAny>,
+        precision_digits: u32,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<PyParametricRootBoxReceipt> {
+        if !(8..=128).contains(&precision_digits) {
+            return Err(PyValueError::new_err(
+                "parametric root precision must be between 8 and 128",
+            ));
+        }
+        let source = self.system.sparse_jacobian();
+        let dimension = source.residuals.len();
+        let total = source.vars.len();
+        if dimension == 0 || dimension >= total || total > MAX_CERTIFIED_VARIABLES {
+            return Err(PyValueError::new_err(
+                "parametric roots require one unknown per residual, at least one parameter, and at most 16 total variables",
+            ));
+        }
+        let py = unknown_domain.py();
+        let unknown_domain = exact_box(unknown_domain, dimension, budget.as_deref())?;
+        let parameter_domain = exact_box(parameter_domain, total - dimension, budget.as_deref())?;
+        let center = exact_vector(center, dimension, budget.as_deref())?;
+        if container_length(preconditioner, MAX_CERTIFIED_VARIABLES, "preconditioner")? != dimension
+        {
+            return Err(PyValueError::new_err(
+                "preconditioner has the wrong dimension",
+            ));
+        }
+        let mut matrix = exact_buffer(dimension, budget.as_deref())?;
+        for index in 0..dimension {
+            matrix.push(exact_vector(
+                &preconditioner.get_item(index)?,
+                dimension,
+                budget.as_deref(),
+            )?);
+        }
+        let witness = ParametricRootBoxWitness {
+            unknown_domain,
+            parameter_domain,
+            center,
+            preconditioner: matrix,
+            precision_digits,
+        };
+        let (unknowns, parameters) = source.vars.split_at(dimension);
+        let receipt = with_certification_meter(py, budget.as_deref(), |meter| {
+            verify_parametric_root_box(&source.residuals, unknowns, parameters, &witness, meter)
+        })?;
+        let result = PyParametricRootBoxReceipt { receipt };
         with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
         Ok(result)
     }

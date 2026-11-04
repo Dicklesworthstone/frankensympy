@@ -1727,3 +1727,43 @@ Positive cases include nonlinear square-root families, coupled affine
 systems, sine, point parameters and exact 10**-400 bounds. Strict core
 Clippy and exact formatting pass after correcting three test-only style
 diagnostics; no production expression or test assertion was weakened.
+
+### Python parameter-family interface
+
+compile_residual_system(residuals, args).certify_parametric_root_box(
+unknown_box, parameter_box, center=None, preconditioner=None, precision=32,
+budget=None) exposes the uniform verifier. For m residuals, the first m
+variables in the captured flattened argument order are unknowns; the
+remaining variables are parameters. Exact input and captured-assumption
+admission cover both boxes, including fixed parameter intervals.
+
+The optional center defaults to the unknown-box midpoint. If no exact
+preconditioner is supplied, a point enclosure at that center and the
+parameter midpoint provides a bounded rational inverse proposal using
+only the unknown Jacobian columns. The final native checker always receives
+the full original parameter intervals. One caller EvaluationBudget, or one
+private 512-MiB-per-dimension ledger created before preparation, spans exact
+input work, the proposal enclosure, inverse construction, uniform checking
+and the final cancellation checkpoint. An explicit inverse skips only the
+proposal phase; it receives the same independent full-family verification.
+
+The exported ParametricRootBoxReceipt has source residuals, typed variables,
+unknown_variables and parameters, unknown_domain and parameter_domain,
+their combined domain, center, preconditioner, precision_digits,
+root_enclosure and contraction_bound. The native receipt is frozen without
+an unchecked constructor; shell mutation and reinitialization are rejected.
+
+For example, compile_residual_system([x**2-p], [x, p]) followed by
+certify_parametric_root_box([(1, 2)], [(2, 3)]) proves a unique positive
+root in [1,2] for every p in [2,3]. It does not identify every (x,p) pair
+as one root or certify the negative branch outside the unknown box.
+
+The 25 public Python cases parse and have independent source review but
+have not been executed against a newly built full extension locally.
+The two bridge files pass pinned formatting and independent source review;
+full bridge compilation remains unverified. CI includes the public file
+against its freshly built extension. The native component results, exact
+source/dependency bindings and all retained test/lint logs are in
+artifacts/audit/2026-11-04-parametric-roots-progress.json.
+Together with complete root isolation there are 69 distinct passing native
+cases; repeated local-root regressions and reruns are counted only once.
