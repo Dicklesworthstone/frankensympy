@@ -23,10 +23,11 @@ use fsym_calculus::sparse_jacobian::compiled_expression_matches;
 use fsym_calculus::verified::{MAX_VERIFIED_ARTIFACT_BYTES, VerifiedArtifactError};
 use fsym_core::{
     BigRational, Expr, ParametricRootBoxReceipt, ParametricRootBoxWitness,
-    ParametricRootCoverReceipt, RealBall, ResidualJacobianEnclosure, RootBoxReceipt,
-    RootBoxWitness, RootIsolationReceipt, Symbol, metered_enclose_residual_jacobian,
-    verify_parametric_root_box, verify_parametric_root_cover, verify_root_box,
-    verify_root_isolation,
+    ParametricRootCoverReceipt, ParametricSensitivityReceipt, RealBall, ResidualJacobianEnclosure,
+    RootBoxReceipt, RootBoxWitness, RootIsolationReceipt, Symbol,
+    metered_enclose_parametric_cover_sensitivity, metered_enclose_parametric_root_sensitivity,
+    metered_enclose_residual_jacobian, verify_parametric_root_box, verify_parametric_root_cover,
+    verify_root_box, verify_root_isolation,
 };
 use fsym_numeric_consumer::{
     MAX_CONSUMER_NEWTON_ITERATIONS, MAX_CONSUMER_VARIABLES, NewtonGuards, SystemConsumerError,
@@ -432,6 +433,23 @@ pub struct PyParametricRootBoxReceipt {
 
 #[pymethods]
 impl PyParametricRootBoxReceipt {
+    /// Independently bound the implicit solution Jacobian on this entire family.
+    /// The accepted root claim supplies existence; no new root proposal or
+    /// numerical derivative is used. All source work shares the caller ledger.
+    #[pyo3(signature = (*, budget=None))]
+    fn enclose_sensitivity(
+        &self,
+        py: Python<'_>,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<PyParametricSensitivityReceipt> {
+        let receipt = with_certification_meter(py, budget.as_deref(), |meter| {
+            metered_enclose_parametric_root_sensitivity(&self.receipt, meter)
+        })?;
+        let result = PyParametricSensitivityReceipt { receipt };
+        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
+        Ok(result)
+    }
+
     #[getter]
     fn residuals(&self) -> Vec<PyExpr> {
         self.receipt
@@ -531,6 +549,23 @@ pub struct PyParametricRootCoverReceipt {
 
 #[pymethods]
 impl PyParametricRootCoverReceipt {
+    /// Independently bound every cell and take the complete-cover derivative hull.
+    /// An operational refusal returns no partial sensitivity receipt and does
+    /// not invalidate the already accepted root cover.
+    #[pyo3(signature = (*, budget=None))]
+    fn enclose_sensitivity(
+        &self,
+        py: Python<'_>,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<PyParametricSensitivityReceipt> {
+        let receipt = with_certification_meter(py, budget.as_deref(), |meter| {
+            metered_enclose_parametric_cover_sensitivity(&self.receipt, meter)
+        })?;
+        let result = PyParametricSensitivityReceipt { receipt };
+        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
+        Ok(result)
+    }
+
     #[getter]
     fn residuals(&self) -> Vec<PyExpr> {
         self.receipt
@@ -609,6 +644,101 @@ impl PyParametricRootCoverReceipt {
     #[getter]
     fn root_enclosure(&self) -> Vec<(PyExpr, PyExpr)> {
         ball_bounds(self.receipt.root_enclosure())
+    }
+}
+
+/// Source-bound implicit derivative enclosures, with no unchecked constructor.
+/// Rows follow unknown_variables; columns follow parameters. The private core
+/// receipt binds the whole accepted parameter domain, including cover faces.
+#[pyclass(name = "ParametricSensitivityReceipt", module = "fsym_python", frozen)]
+pub struct PyParametricSensitivityReceipt {
+    receipt: ParametricSensitivityReceipt,
+}
+
+#[pymethods]
+impl PyParametricSensitivityReceipt {
+    #[getter]
+    fn residuals(&self) -> Vec<PyExpr> {
+        self.receipt
+            .residuals()
+            .iter()
+            .cloned()
+            .map(PyExpr::from_expr)
+            .collect()
+    }
+
+    #[getter]
+    fn variables(&self) -> Vec<PySymbolBinding> {
+        self.receipt
+            .unknowns()
+            .iter()
+            .chain(self.receipt.parameters())
+            .map(PySymbolBinding::from_symbol)
+            .collect()
+    }
+
+    #[getter]
+    fn unknown_variables(&self) -> Vec<PySymbolBinding> {
+        self.receipt
+            .unknowns()
+            .iter()
+            .map(PySymbolBinding::from_symbol)
+            .collect()
+    }
+
+    #[getter]
+    fn parameters(&self) -> Vec<PySymbolBinding> {
+        self.receipt
+            .parameters()
+            .iter()
+            .map(PySymbolBinding::from_symbol)
+            .collect()
+    }
+
+    #[getter]
+    fn domain(&self) -> Vec<(PyExpr, PyExpr)> {
+        let mut domain = ball_bounds(self.receipt.unknown_domain());
+        domain.extend(ball_bounds(self.receipt.parameter_domain()));
+        domain
+    }
+
+    #[getter]
+    fn unknown_domain(&self) -> Vec<(PyExpr, PyExpr)> {
+        ball_bounds(self.receipt.unknown_domain())
+    }
+
+    #[getter]
+    fn parameter_domain(&self) -> Vec<(PyExpr, PyExpr)> {
+        ball_bounds(self.receipt.parameter_domain())
+    }
+
+    #[getter]
+    fn precision_digits(&self) -> u32 {
+        self.receipt.precision_digits()
+    }
+
+    #[getter]
+    fn root_enclosure(&self) -> Vec<(PyExpr, PyExpr)> {
+        ball_bounds(self.receipt.root_enclosure())
+    }
+
+    #[getter]
+    fn solution_jacobian(&self) -> Vec<Vec<(PyExpr, PyExpr)>> {
+        self.receipt
+            .solution_jacobian()
+            .iter()
+            .map(|row| ball_bounds(row))
+            .collect()
+    }
+
+    #[getter]
+    fn contraction_bound(&self) -> PyExpr {
+        rational_expr(self.receipt.contraction_bound())
+    }
+
+    #[getter]
+    fn leaf_count(&self) -> usize {
+        self.receipt.leaf_count()
     }
 }
 

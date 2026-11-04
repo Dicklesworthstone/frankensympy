@@ -1913,3 +1913,53 @@ geometric remainder, absolute row norm, negative defects, coupled signs,
 full parameter dependence, cover seams, fixed/unused parameters, maximum
 dimensions, exact 10**400 derivatives, shared budgets and every cancellation
 checkpoint. Existing cover code is unchanged apart from module registration.
+
+### Python implicit-sensitivity interface
+
+Both `ParametricRootBoxReceipt` and `ParametricRootCoverReceipt` expose
+`enclose_sensitivity(*, budget=None)`. The method works from the immutable
+accepted family and its original residuals; it does not repeat numerical
+root search, reconstruct expressions from printing, or accept a supplied
+derivative matrix. For a cover, the native checker visits every accepted
+leaf and returns the hull over the complete parameter box.
+
+```python
+from sympy import symbols, compile_residual_system
+
+x, p = symbols("x p")
+system = compile_residual_system([x**2 - p], (x, p))
+family = system.certify_parametric_root_box([(1, 2)], [(2, 3)])
+sensitivity = family.enclose_sensitivity()
+dx_dp_lower, dx_dp_upper = sensitivity.solution_jacobian[0][0]
+```
+
+`ParametricSensitivityReceipt` is exported from `sympy` and
+`sympy.utilities`. It exposes the original `residuals`, typed `variables`,
+`unknown_variables` and `parameters`, both domains and their combined
+`domain`, `root_enclosure`, `precision_digits`, `leaf_count`, the maximum
+recomputed `contraction_bound`, and exact rational interval pairs in
+`solution_jacobian`. Rows follow unknowns and columns follow parameters.
+Fixed and unused parameters retain their columns; same-name symbols retain
+their distinct typed identities. Bounds on closed faces describe the local
+implicit extension, restricted to the accepted domain.
+
+The native receipt is frozen and has no unchecked constructor. The shell
+accepts only that exact native acceptance type and rejects assignment,
+deletion and reinitialization. Getter collections are independent snapshots;
+changing a projected list cannot modify the accepted native state.
+
+One supplied `EvaluationBudget`, or one private ledger with the existing
+512-MiB-per-dimension certification limits, covers the complete native
+operation. It can be shared with the preceding root search and later calls.
+The native checker charges source snapshots, interval arithmetic and result
+construction; CPython wrapper/collection overhead retains the existing
+exclusion from native-buffer accounting. Cancellation is checked before work,
+through native arithmetic, at native acceptance and after shell wrapping.
+An operational refusal preserves consumption and publishes no partial
+sensitivity receipt; the earlier accepted root family remains valid.
+
+The result provides derivative enclosures, not an exact solution formula or
+a requested-accuracy promise. It makes no assertion about roots or solution
+branches outside the original unknown and parameter domains. The public
+regression suite is `python/tests/test_parametric_sensitivity.py` and is
+registered in the checked-out-shell/full-extension CI lane.

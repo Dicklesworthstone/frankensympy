@@ -1357,6 +1357,7 @@ from .utilities._certified_numeric import ResidualJacobianEnclosure, RootBoxRece
 from .utilities._root_isolation import RootIsolationReceipt
 from .utilities._parametric_root import ParametricRootBoxReceipt
 from .utilities._parametric_cover import ParametricRootCoverReceipt
+from .utilities._parametric_sensitivity import ParametricSensitivityReceipt
 from .utilities._certified_objective import (
     BoxExtremumReceipt, BoxOptimizationReceipt, ObjectiveEnclosure, StationaryPointReceipt,
 )
@@ -2431,6 +2432,7 @@ __all__ = [
     "RootIsolationReceipt",
     "ParametricRootBoxReceipt",
     "ParametricRootCoverReceipt",
+    "ParametricSensitivityReceipt",
     "ObjectiveEnclosure",
     "StationaryPointReceipt",
     "BoxExtremumReceipt",

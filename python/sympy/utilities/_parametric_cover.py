@@ -56,6 +56,15 @@ class ParametricRootCoverReceipt(_Receipt):
     def root_enclosure(self):
         return _bounds(self._receipt.root_enclosure)
 
+    def enclose_sensitivity(self, *, budget=None):
+        """Bound dx_i/dp_j over every leaf of the complete parameter cover.
+
+        The returned hull includes shared closed faces. Failed work retains
+        budget consumption and cannot publish a partial sensitivity result.
+        """
+        from ._parametric_sensitivity import enclose_sensitivity
+        return enclose_sensitivity(self._receipt, budget=budget)
+
     @property
     def claim(self):
         return ("for every parameter value in the complete declared parameter box, "

@@ -63,6 +63,16 @@ class ParametricRootBoxReceipt(_Receipt):
     def contraction_bound(self):
         return _wrap(self._receipt.contraction_bound)
 
+    def enclose_sensitivity(self, *, budget=None):
+        """Bound dx_i/dp_j throughout this accepted parameter box.
+
+        Rows follow unknown_variables and columns follow parameters. The
+        checker differentiates the original source on the complete domain;
+        the result is an enclosure, with no requested-accuracy promise.
+        """
+        from ._parametric_sensitivity import enclose_sensitivity
+        return enclose_sensitivity(self._receipt, budget=budget)
+
     @property
     def claim(self):
         return ("for every parameter value in the declared parameter box, "
