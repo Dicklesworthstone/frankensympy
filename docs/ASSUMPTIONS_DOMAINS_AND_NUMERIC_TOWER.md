@@ -1805,3 +1805,34 @@ accepted leaf receipts and the global root hull. It has no unchecked
 constructor or deserializer. This proves a unique family within fixed X;
 moving unknown boxes require a separate branch-stitching argument, and
 there is no claim about roots outside X or a global continuation path.
+
+### Automatic parameter subdivision
+
+The calculus propose_parametric_root_cover generator adaptively searches
+the parameter box while retaining the original unknown box X. It uses
+exact parameter midpoints and the unknown Jacobian block to propose
+bounded rational preconditioners, then tries a full-cell uniform root
+witness. A failed cell is split deterministically on its widest varying
+parameter coordinate. Both closed children remain in the traversal.
+
+Search returns only an untrusted complete witness. The independent core
+verifier reconstructs the whole cover and rechecks every original-source
+leaf. Domain over-enclosure may motivate subdivision; unsupported sources,
+resource exhaustion and cancellation propagate with their operational
+meaning. A leaf/depth limit or unresolved point cell yields no partial
+complete-family result and never silently weakens the requested domain.
+
+For example, F=(1+p**2)*x-1 on X=[0,2], P=[0,2] cannot pass the single
+full-box midpoint-preconditioner contraction, but exact subdivision yields
+a complete collection of independently accepted leaves. Held p*p retains
+its original interval dependency: the rigorous midpoint/radius substrate
+can require four cells to satisfy strict inclusion.
+Source identity and strict inclusion are preserved rather than erased.
+
+All 16 new core verifier cases, 18 new native search cases and 39 existing
+uniform/local-root regression cases pass on pinned nightly-2026-08-20.
+Strict scoped core/calculus Clippy and exact formatting pass. The retained
+first search run exposed an overly tight test expectation for held p*p;
+independent exact ball arithmetic corrected the expected four-leaf hull
+without changing its source or the acceptance rules. Initial lint/test
+logs and final source-bound reruns are retained with the feature evidence.
