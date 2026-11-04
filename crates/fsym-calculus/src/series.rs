@@ -473,8 +473,12 @@ fn expand_pow(base: &Expr, exp: &Expr, target: &BigRational, ctx: &mut Ctx) -> S
     {
         let k = a.to_integer().to_i64().unwrap_or(1);
         let mut acc = Series::constant(Expr::from_i64(1));
-        for _ in 0..k {
-            acc = acc.mul(&b).truncate(target);
+        for step in 1..=k {
+            // A later factor with negative valuation can bring a discarded
+            // term back below the final target. Retain the precision needed
+            // after multiplying all remaining factors, not just this one.
+            let stage_target = target.clone() - q(k - step) * v.clone();
+            acc = acc.mul(&b).truncate(&stage_target);
         }
         let _ = (v, c0, u, rel_target);
         return Ok(acc);
@@ -503,19 +507,51 @@ fn retry_until_term(e: &Expr, target: &BigRational, ctx: &mut Ctx) -> SResult<Se
 /// Splits `a0 = alpha*LOG_T + beta` when linear in the placeholder.
 fn split_log_linear(a0: &Expr) -> Option<(BigRational, Expr)> {
     let lt = Symbol::new(LOG_T);
-    if is_free_of(a0, &lt) {
-        return Some((BigRational::zero(), a0.clone()));
+    // Affinity is a structural algebraic fact. Values at finitely many
+    // points cannot establish it: L*(L-1)*(L-2) agrees with zero at all
+    // three points used by the former recognizer.
+    fn affine(e: &Expr, lt: &Symbol, depth: usize) -> Option<(Expr, Expr)> {
+        if depth > MAX_DEPTH {
+            return None;
+        }
+        if is_free_of(e, lt) {
+            return Some((Expr::from_i64(0), e.clone()));
+        }
+        match e {
+            Expr::Sym(s) if s == lt => Some((Expr::from_i64(1), Expr::from_i64(0))),
+            Expr::Add(terms) => {
+                let mut alpha = Expr::from_i64(0);
+                let mut beta = Expr::from_i64(0);
+                for term in terms {
+                    let (a, b) = affine(term, lt, depth + 1)?;
+                    alpha = normalize(&(alpha + a));
+                    beta = normalize(&(beta + b));
+                }
+                Some((alpha, beta))
+            }
+            Expr::Mul(factors) => {
+                let mut alpha = Expr::from_i64(0);
+                let mut beta = Expr::from_i64(1);
+                for factor in factors {
+                    let (a, b) = affine(factor, lt, depth + 1)?;
+                    // Do not discard a quadratic (or higher) coefficient.
+                    // Unsupported cancellations remain a typed refusal.
+                    if !alpha.is_zero() && !a.is_zero() {
+                        return None;
+                    }
+                    alpha = normalize(&(alpha * b.clone() + a * beta.clone()));
+                    beta = normalize(&(beta * b));
+                }
+                Some((alpha, beta))
+            }
+            Expr::Pow(base, exponent) if exponent.as_ref() == &Expr::from_i64(1) => {
+                affine(base, lt, depth + 1)
+            }
+            _ => None,
+        }
     }
-    let at = |v: i64| normalize(&a0.subs(&HashMap::from([(lt.clone(), Expr::from_i64(v))])));
-    let b0 = at(0);
-    let b1 = at(1);
-    let b2 = at(2);
-    let alpha = normalize(&(b1.clone() - b0.clone()));
-    let check = normalize(&(b2 - b0.clone() - alpha.clone() * Expr::from_i64(2)));
-    if !check.is_zero() {
-        return None;
-    }
-    number(&alpha).map(|a| (a, b0))
+    let (alpha, beta) = affine(a0, &lt, 0)?;
+    number(&alpha).map(|a| (a, beta))
 }
 
 fn expand_function(name: &str, arg: &Expr, target: &BigRational, ctx: &mut Ctx) -> SResult<Series> {
