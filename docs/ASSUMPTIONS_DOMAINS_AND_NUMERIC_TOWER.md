@@ -1380,3 +1380,46 @@ identities and edges; it is not a full-workspace or Python-extension gate.
 The updated public regressions parse successfully and are wired into actual
 extension CI, but public runtime execution is still pending. Broader WS18,
 numeric-profile and campaign gates remain open.
+
+## Independent global box-optimization verification
+
+The native verify_box_optimization checker accepts an untrusted exact
+feasible point and a complete binary partition of the original finite box.
+Its preorder tokens either retain a leaf or split one coordinate at its exact
+midpoint, preserving both closed children. The checker reconstructs every
+cell and rejects missing children, trailing tokens, invalid coordinates,
+fixed-coordinate splits and excessive depth or node counts. Every leaf is
+checked, including regions a candidate generator considered unpromising.
+
+For a minimum, the least independently computed leaf lower bound and the
+candidate point's independently computed upper bound enclose the global
+optimum value. For a maximum, the point's lower bound and greatest leaf upper
+bound serve the corresponding roles. Acceptance requires their exact
+difference to be at most the requested positive rational tolerance. The
+objective value at the returned feasible point is therefore within that gap
+of the global optimum. This is not a coordinate-distance bound, an exact
+optimizer assertion, a uniqueness claim or a complete optimizer set.
+
+Each local enclosure intersects the natural original-source C2 interval
+range with a centered second-order Taylor enclosure. Diagonal displacements
+use even powers, and the full Hessian sum retains both mixed terms before
+the one-half factor. No sampled derivative, generated value or reported
+pruning bound is a proof input. Original domain holes cannot disappear
+behind zero factors or powers.
+
+BoxOptimizationWorkspace shares one elementary scratch reservation across
+all cell evaluations in a phase. Only per-traversal node counts restart;
+arithmetic, allocations, evaluation limits and caller cancellation remain
+cumulative. The bounded lane admits 1..16 variables, 8..128 precision digits,
+at most 1024 leaves and depth 64. A frozen BoxOptimizationReceipt binds the
+source, typed coordinates, domain, complete witness, point, point-value
+bounds, optimum-value enclosure, tolerance, gap and leaf count. No unchecked
+constructor or deserializer exists.
+
+All 13 new core regression tests pass with the pinned nightly-2026-08-20
+compiler in the source-bound component workspace, together with strict
+Clippy and formatting. They include an irrational nonconvex optimum,
+independent analytic values, omitted-region and false-gap mutants, mixed
+curvature, exact tiny tolerances, malformed partitions, actual cumulative
+budgets and cancellation at every checkpoint. These are component results;
+broader workspace, compatibility, campaign and performance gates remain open.

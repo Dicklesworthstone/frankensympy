@@ -131,7 +131,7 @@ jobs:
       - run: python -m pip install --disable-pip-version-check pytest==8.4.2
       - name: Native feature regressions
         run: |
-          cargo test --locked -p fsym-core --test objective_enclosure --test stationary_certificate --test box_extremum --test root_box_general -j1
+          cargo test --locked -p fsym-core --test objective_enclosure --test stationary_certificate --test box_extremum --test box_optimization --test root_box_general -j1
           cargo test --locked -p fsym-core --test quadrature_certificate -j1
           cargo test --locked -p fsym-calculus --test certified_quadrature -j1
           cargo test --locked -p fsym-bigint --lib floor_square_root_pins_exact_square_boundaries_and_governed_lane -j1
