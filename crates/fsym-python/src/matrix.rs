@@ -2,14 +2,17 @@
 
 #![forbid(unsafe_code)]
 
-use fsym_core::{BigInt, BigRational, Expr};
+use fsym_core::{BigInt, BigRational, Constant, Expr};
 use fsym_matrices::{Matrix, MatrixError, RationalLinearSolution, SparseMatrix};
+use fsym_runtime::{Budget, BudgetLimits, Dimension};
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::{PyIndexError, PyTypeError, PyValueError, PyZeroDivisionError};
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
 
 use crate::expr::{PyExpr, exact_python_integer};
+use crate::rational_laplace::validate_held_transform_domains;
+use crate::to_value_error;
 
 /// Particular solution, one nullspace vector per free column, and free columns.
 /// These values are exposed only after the independent exact checker succeeds.
@@ -38,6 +41,135 @@ fn matrix_err(err: MatrixError) -> PyErr {
         MatrixError::DivisionByZero => PyValueError::new_err("Exact matrix division by zero"),
         other => PyValueError::new_err(other.to_string()),
     }
+}
+
+fn nonfinite(expression: &Expr) -> bool {
+    matches!(
+        expression,
+        Expr::Const(
+            Constant::Infinity
+                | Constant::NegativeInfinity
+                | Constant::ComplexInfinity
+                | Constant::NaN
+        )
+    )
+}
+
+/// Inspect the complete borrowed parameter forest before normalization. This
+/// guard runs even when the accepted kernel projector will annihilate W.
+fn admit_least_squares_parameters(matrix: &Matrix) -> PyResult<()> {
+    const MAX_NODES: usize = 4096;
+    if matrix.rows() > 32 || matrix.cols() > 32 {
+        return Err(PyValueError::new_err(
+            "least-squares parameter dimensions exceed 32",
+        ));
+    }
+    let mut limits = BudgetLimits::uniform(512 * 1024 * 1024, 0);
+    limits.dimensions[Dimension::ComputeSteps.index()] = 200_000_000;
+    let mut meter = Budget::new(limits);
+    meter
+        .try_charge_batch(&[
+            (
+                Dimension::MemoryBytes,
+                (MAX_NODES * (std::mem::size_of::<(&Expr, usize)>() + std::mem::size_of::<&Expr>()))
+                    as u64,
+            ),
+            (Dimension::AllocationCount, 2),
+        ])
+        .map_err(to_value_error)?;
+    let mut pending = Vec::with_capacity(MAX_NODES);
+    let mut functions = Vec::with_capacity(MAX_NODES);
+    pending.extend(matrix.data().iter().map(|entry| (entry, 0usize)));
+    let mut visited = 0usize;
+    let mut text_bytes = 0usize;
+    while let Some((node, depth)) = pending.pop() {
+        visited += 1;
+        if visited > MAX_NODES || depth > 64 {
+            return Err(PyValueError::new_err(
+                "least-squares parameters exceed their bounded expression envelope",
+            ));
+        }
+        meter
+            .try_charge_batch(&[(Dimension::ComputeSteps, 1)])
+            .map_err(to_value_error)?;
+        if nonfinite(node) {
+            return Err(PyValueError::new_err(
+                "least-squares parameters must be finite scalar expressions",
+            ));
+        }
+        match node {
+            Expr::Integer(value) if value.bits() > 4096 => {
+                return Err(PyValueError::new_err(
+                    "least-squares parameter coefficient exceeds 4096 bits",
+                ));
+            }
+            Expr::Rational(value) if value.numer().bits().max(value.denom().bits()) > 4096 => {
+                return Err(PyValueError::new_err(
+                    "least-squares parameter coefficient exceeds 4096 bits",
+                ));
+            }
+            Expr::Sym(symbol) => text_bytes = text_bytes.saturating_add(symbol.name.len()),
+            Expr::Add(children) | Expr::Mul(children) | Expr::Function(_, children) => {
+                if let Expr::Function(name, _) = node {
+                    text_bytes = text_bytes.saturating_add(name.len());
+                    if name == "__fsymFloat" {
+                        let bits = match children.as_slice() {
+                            [Expr::Integer(value)] => value.to_u64(),
+                            _ => None,
+                        };
+                        if !bits.is_some_and(|bits| f64::from_bits(bits).is_finite()) {
+                            return Err(PyValueError::new_err(
+                                "least-squares parameters must be finite scalar expressions",
+                            ));
+                        }
+                    }
+                    functions.push(node);
+                }
+                if children.len() > MAX_NODES.saturating_sub(visited + pending.len()) {
+                    return Err(PyValueError::new_err(
+                        "least-squares parameters exceed their bounded expression envelope",
+                    ));
+                }
+                pending.extend(children.iter().map(|child| (child, depth + 1)));
+            }
+            Expr::Pow(base, exponent) => {
+                if 2 > MAX_NODES.saturating_sub(visited + pending.len()) {
+                    return Err(PyValueError::new_err(
+                        "least-squares parameters exceed their bounded expression envelope",
+                    ));
+                }
+                pending.push((base.as_ref(), depth + 1));
+                pending.push((exponent.as_ref(), depth + 1));
+            }
+            _ => {}
+        }
+        if text_bytes > 65_536 {
+            return Err(PyValueError::new_err(
+                "least-squares parameter names exceed their bounded envelope",
+            ));
+        }
+    }
+    // This checker preserves every raw inverse/zeroth-power child, including
+    // polynomial zero bases and children below a held annihilating factor.
+    for entry in matrix.data() {
+        validate_held_transform_domains(entry, &mut meter)?;
+    }
+    // Inspect original function nodes separately, before a parent zero could
+    // erase a known pole such as held log(0) or log(x-x). Unknown symbolic
+    // function values remain formal parameters; this is not a domain solver.
+    for function in functions.into_iter().rev() {
+        let evaluated =
+            fsym_simplify::simplify_with(function, &mut meter).map_err(to_value_error)?;
+        if nonfinite(&evaluated) {
+            return Err(PyValueError::new_err(
+                "least-squares parameter contains an undefined held function",
+            ));
+        }
+    }
+    meter
+        .try_charge_batch(&[(Dimension::ComputeSteps, 1)])
+        .map_err(to_value_error)?;
+    Ok(())
 }
 
 /// Native matrix type exposing exact algebraic matrix operations.
@@ -387,6 +519,27 @@ impl PyMatrix {
             .solve_least_squares(&b.inner)
             .map_err(matrix_err)?;
         Ok(Self { inner: res })
+    }
+
+    /// Checked minimum-norm particular and complete orthogonal kernel projector.
+    /// All least-squares solutions are `particular + projector * arbitrary`.
+    pub fn least_squares_family(&self, b: &Self) -> PyResult<(Self, Self)> {
+        let checked = self
+            .inner
+            .least_squares_family(&b.inner)
+            .map_err(matrix_err)?;
+        let (minimum_norm, projector) = checked.into_parts();
+        Ok((
+            Self {
+                inner: minimum_norm,
+            },
+            Self { inner: projector },
+        ))
+    }
+
+    /// Bound and inspect original supplied parameters before any projection.
+    pub fn validate_least_squares_parameters(&self) -> PyResult<()> {
+        admit_least_squares_parameters(&self.inner)
     }
 
     pub fn __richcmp__(&self, other: &Bound<'_, PyAny>, op: CompareOp) -> PyResult<bool> {

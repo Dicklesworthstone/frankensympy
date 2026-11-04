@@ -136,9 +136,11 @@ jobs:
           cargo test --locked -p fsym-calculus --test certified_quadrature -j1
           cargo test --locked -p fsym-calculus --test certified_box_optimization -j1
           cargo test --locked -p fsym-bigint --lib floor_square_root_pins_exact_square_boundaries_and_governed_lane -j1
-          cargo test --locked -p fsym-polys --test rational_localization --test radical -j1
-          cargo test --locked -p fsym-matrices --test affine_system --test rectangular_solve -j1
+          cargo test --locked -p fsym-polys --test rational_localization --test radical --test finite_field -j1
+          cargo test --locked -p fsym-matrices --test affine_system --test rectangular_solve --test least_squares -j1
           cargo test --locked -p fsym-calculus --test rational_laplace --test delayed_laplace --test distributional_laplace --test delayed_distributional_laplace -j1
+          cargo test --locked -p fsym-calculus --test geometric_summation --test rational_summation -j1
+          cargo test --locked -p fsym-solvers --test linear_ode_system --test exact_ode --test ode_radicals -j1
           cargo test --locked -p fsym-calculus --test general_power_programs -j1
           cargo test --locked -p fsym-calculus --test sparse_hessian -j1
           cargo test --locked -p fsym-proof-kernel --test elementary_rational_definite -j1
@@ -247,11 +249,14 @@ jobs:
               "python/tests/test_rational_definite.py",
               "python/tests/test_exact_rational_integral.py",
               "python/tests/test_generalized_series.py",
+              "python/tests/test_polynomial_geometric_summation.py",
               "python/tests/test_algebraic_matrix_spectra.py",
               "python/tests/test_matrix_norms.py",
               "python/tests/test_rectangular_matrix_solve.py",
+              "python/tests/test_matrix_least_squares.py",
               "python/tests/test_exact_dsolve.py",
               "python/tests/test_exact_ode.py",
+              "python/tests/test_linear_ode_system.py",
               "python/tests/test_compiled_powers.py",
               "python/tests/test_compiled_objective.py",
               "python/tests/test_numeric_evaluation_budget.py",
