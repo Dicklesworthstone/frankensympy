@@ -257,6 +257,35 @@ A rule application may require obligations such as:
 
 The rule engine asks the assumptions/proof subsystem. `Unknown` prevents unconditional application. Native mode may return a conditional result carrying the obligation; strict compatibility follows the profile's behavior.
 
+### 8.3 Bounded Pythagorean verification
+
+The kernel's `pythagorean_identity` reduction independently normalizes the
+claimed expressions and consumes each input monomial at most once. Overlapping
+candidate pairs cannot reuse a term, including across different arguments or
+trigonometric and hyperbolic families. A valid single cancellation may leave
+other terms intact; this bounded checker does not promise a complete
+trigonometric normal form.
+
+Before normalization, a bounded traversal records partial-expression domain
+obligations from every raw function argument and power child. The two sides
+must retain exactly the same undischarged obligations. Unary `sin`, `cos`,
+`sinh`, `cosh`, and `exp` are total over finite complex arguments, but do not
+erase their arguments' own obligations. Only direct finite nonzero literals
+and the kernel's existing exact zero/one elementary evaluations discharge
+additional cases. Nonfinite constants are refused at every depth.
+
+Consequently, `log(x) + sin(x)**2 + cos(x)**2 = log(x) + 1` can be checked
+while `0*log(0) = 0` and `sin(log(x))**2 + cos(log(x))**2 = 1` cannot discard
+their source domains. Likewise, symbolic `sec(x)**2 - tan(x)**2 = 1` and
+`csc(x)**2 - cot(x)**2 = 1` require pole conditions that this unconditional
+rule does not discharge. The exact ground case `sec(0)**2 - tan(0)**2 = 1`
+remains supported. Unverified simplification is a separate interface and does
+not gain proof authority from proposing any of these expressions.
+
+Direct-construction and independent-replay regressions are in
+`crates/fsym-proof-kernel/tests/pythagorean_identity.rs`. This scope is not a
+general definedness solver or a certification of every rewrite family.
+
 ## 9. Rewriting engine
 
 ### 9.1 Deterministic local rewriting

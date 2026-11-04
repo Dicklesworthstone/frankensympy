@@ -844,11 +844,6 @@ mod tests {
                 Expr::Add(vec![sq("cosh", &x), coeff(-1, sq("sinh", &x))]),
                 Expr::from_i64(1),
             ),
-            // sec/tan opposite-sign pair
-            (
-                Expr::Add(vec![sq("sec", &x), coeff(-1, sq("tan", &x))]),
-                Expr::from_i64(1),
-            ),
         ];
         for (lhs, rhs) in accepted {
             let mut kernel = ProofKernel::new(ctx.clone());
@@ -869,6 +864,12 @@ mod tests {
 
         // Weakening mutants must be killed.
         let rejected = [
+            // The meromorphic identity has poles where cos(x)=0. An
+            // unconditional equality to 1 would erase that source domain.
+            (
+                Expr::Add(vec![sq("sec", &x), coeff(-1, sq("tan", &x))]),
+                Expr::from_i64(1),
+            ),
             // unequal coefficients do not satisfy the family condition
             (
                 Expr::Add(vec![coeff(3, sq("sin", &x)), coeff(2, sq("cos", &x))]),

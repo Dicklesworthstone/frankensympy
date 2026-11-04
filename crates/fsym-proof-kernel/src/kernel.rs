@@ -2420,6 +2420,28 @@ fn check_polynomial_normal_form(
 /// lhs/rhs pair, mirroring the bounded reference-lane pattern used by the
 /// characteristic-polynomial validator.
 fn check_pythagorean_identity(lhs: &Expr, rhs: &Expr, rule_name: &str) -> Result<(), KernelError> {
+    // Inspect the raw expressions before ring normalization can erase a factor
+    // or cancel a term. An opaque atom is not evidence that it is defined.
+    let lhs_obligations = partial_domain_obligations(lhs).map_err(|reason| {
+        KernelError::InvalidDefinitionalReduction {
+            rule_name: rule_name.to_string(),
+            reason: format!("LHS domain check refused: {reason}"),
+        }
+    })?;
+    let rhs_obligations = partial_domain_obligations(rhs).map_err(|reason| {
+        KernelError::InvalidDefinitionalReduction {
+            rule_name: rule_name.to_string(),
+            reason: format!("RHS domain check refused: {reason}"),
+        }
+    })?;
+    if lhs_obligations != rhs_obligations {
+        return Err(KernelError::InvalidDefinitionalReduction {
+            rule_name: rule_name.to_string(),
+            reason: "Pythagorean reduction must preserve undischarged partial-expression domains"
+                .to_string(),
+        });
+    }
+
     let mut lhs_normal = normalize_function_polynomial(lhs).map_err(|reason| {
         KernelError::InvalidDefinitionalReduction {
             rule_name: rule_name.to_string(),
@@ -2441,6 +2463,98 @@ fn check_pythagorean_identity(lhs: &Expr, rhs: &Expr, rule_name: &str) -> Result
             reason: "pythagorean cancellation does not establish equality".to_string(),
         })
     }
+}
+
+/// Conservatively records definedness obligations by complete raw term identity.
+/// Matching sets preserve the domain of partial expressions on both sides; an
+/// obligation's multiplicity is irrelevant. References avoid copying nested
+/// subtrees. The bounded walk includes every function argument and power child,
+/// even when a surrounding zero would erase them during polynomial arithmetic.
+fn partial_domain_obligations(expr: &Expr) -> Result<BTreeSet<&Expr>, String> {
+    let mut obligations = BTreeSet::new();
+    collect_partial_domain_obligations(expr, 0, &mut NormalizationBudget::new(), &mut obligations)?;
+    Ok(obligations)
+}
+
+fn collect_partial_domain_obligations<'a>(
+    expr: &'a Expr,
+    depth: usize,
+    budget: &mut NormalizationBudget,
+    obligations: &mut BTreeSet<&'a Expr>,
+) -> Result<(), String> {
+    budget.visit(depth)?;
+    match expr {
+        Expr::Integer(_) | Expr::Rational(_) | Expr::Sym(_) => {}
+        Expr::Const(Constant::Pi | Constant::E | Constant::I) => {}
+        Expr::Const(_) => {
+            return Err(
+                "non-finite or indeterminate constants are outside the finite-complex fragment"
+                    .to_string(),
+            );
+        }
+        Expr::Add(children) | Expr::Mul(children) => {
+            for child in children {
+                collect_partial_domain_obligations(child, depth + 1, budget, obligations)?;
+            }
+        }
+        Expr::Pow(base, exponent) => {
+            collect_partial_domain_obligations(base, depth + 1, budget, obligations)?;
+            collect_partial_domain_obligations(exponent, depth + 1, budget, obligations)?;
+            let defined_integer_power = matches!(
+                exponent.as_ref(),
+                Expr::Integer(n)
+                    if (!n.is_negative() && !n.is_zero()) || directly_nonzero_finite(base)
+            );
+            if !defined_integer_power {
+                obligations.insert(expr);
+            }
+        }
+        Expr::Function(name, arguments) => {
+            for argument in arguments {
+                collect_partial_domain_obligations(argument, depth + 1, budget, obligations)?;
+            }
+            if !directly_defined_function(name, arguments) {
+                obligations.insert(expr);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn directly_nonzero_finite(expr: &Expr) -> bool {
+    match expr {
+        Expr::Integer(value) => !value.is_zero(),
+        Expr::Rational(value) => value != &rational_zero(),
+        Expr::Const(Constant::Pi | Constant::E | Constant::I) => true,
+        _ => false,
+    }
+}
+
+/// A deliberately small independent definedness whitelist. The entire unary
+/// functions are total on finite complex arguments, whose own obligations are
+/// checked separately. The remaining literal cases are already established by
+/// the kernel's elementary_zero_eval / elementary_one_eval rules.
+fn directly_defined_function(name: &str, arguments: &[Expr]) -> bool {
+    let [argument] = arguments else {
+        return false;
+    };
+    matches!(name, "sin" | "cos" | "sinh" | "cosh" | "exp")
+        || (argument.is_zero()
+            && matches!(
+                name,
+                "tan"
+                    | "tanh"
+                    | "asin"
+                    | "atan"
+                    | "asinh"
+                    | "atanh"
+                    | "erf"
+                    | "sec"
+                    | "sech"
+                    | "sinc"
+                    | "erfc"
+            ))
+        || (argument.is_one() && matches!(name, "acos" | "acosh" | "asec" | "asech" | "ln" | "log"))
 }
 
 /// Kernel-local Pythagorean family table (independent of fsym-simplify).

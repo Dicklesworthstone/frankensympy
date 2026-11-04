@@ -2,7 +2,7 @@
 
 use fsym_assumptions::ImmutableAssumptionsSnapshot;
 use fsym_budget::Unbounded;
-use fsym_core::Expr;
+use fsym_core::{BigRational, Constant, Expr};
 use fsym_proof_kernel::{
     Claim, DerivationStep, DerivationTree, ProofKernel, ProofRule, StepId,
     verify_derivation_independent,
@@ -18,6 +18,14 @@ fn square(name: &str, argument: &Expr) -> Expr {
 
 fn product(factors: &[Expr]) -> Expr {
     Expr::Mul(factors.to_vec())
+}
+
+fn sin_cos_pair(argument: &Expr) -> Expr {
+    Expr::Add(vec![square("sin", argument), square("cos", argument)])
+}
+
+fn raw_power(base: Expr, exponent: Expr) -> Expr {
+    Expr::Pow(Arc::new(base), Arc::new(exponent))
 }
 
 fn rule(lhs: Expr, rhs: Expr) -> ProofRule {
@@ -145,4 +153,149 @@ fn valid_disjoint_pairs_and_residual_factors_still_verify() {
         ]),
         Expr::Add(vec![cy, product(&[cx, sy])]),
     );
+}
+
+#[test]
+fn partial_functions_cannot_be_erased_or_hidden_inside_entire_functions() {
+    let x = Expr::symbol("x");
+    let log_zero = Expr::Function("log".into(), vec![Expr::from_i64(0)]);
+    let log_x = Expr::Function("log".into(), vec![x.clone()]);
+    for partial in [
+        log_zero.clone(),
+        log_x.clone(),
+        Expr::Function("unknown".into(), vec![x.clone()]),
+        Expr::Function("sin".into(), vec![]),
+        Expr::Function("cos".into(), vec![x.clone(), x.clone()]),
+    ] {
+        reject_direct_and_replay(
+            product(&[Expr::from_i64(0), partial.clone()]),
+            Expr::from_i64(0),
+        );
+        reject_direct_and_replay(sin_cos_pair(&partial), Expr::from_i64(1));
+    }
+    // Finding an actual Pythagorean pair must not hide an unrelated domain loss.
+    reject_direct_and_replay(
+        Expr::Add(vec![
+            product(&[Expr::from_i64(0), log_zero.clone()]),
+            square("sin", &x),
+            square("cos", &x),
+        ]),
+        Expr::from_i64(1),
+    );
+    reject_direct_and_replay(
+        product(&[
+            Expr::from_i64(0),
+            Expr::Function("exp".into(), vec![log_zero]),
+        ]),
+        Expr::from_i64(0),
+    );
+    // Domain obligations bind the complete expression, including its argument.
+    reject_direct_and_replay(
+        product(&[Expr::from_i64(0), log_x]),
+        product(&[
+            Expr::from_i64(0),
+            Expr::Function("log".into(), vec![Expr::symbol("y")]),
+        ]),
+    );
+}
+
+#[test]
+fn meromorphic_pairs_cannot_erase_their_poles() {
+    for (positive, negative) in [("sec", "tan"), ("csc", "cot")] {
+        reject_direct_and_replay(
+            Expr::Add(vec![
+                square(positive, &Expr::symbol("x")),
+                product(&[Expr::from_i64(-1), square(negative, &Expr::symbol("x"))]),
+            ]),
+            Expr::from_i64(1),
+        );
+    }
+    // csc(0) and cot(0) are undefined: a ground counterexample, not merely
+    // an unavailable symbolic assumption.
+    reject_direct_and_replay(
+        Expr::Add(vec![
+            square("csc", &Expr::from_i64(0)),
+            product(&[Expr::from_i64(-1), square("cot", &Expr::from_i64(0))]),
+        ]),
+        Expr::from_i64(1),
+    );
+}
+
+#[test]
+fn partial_powers_in_function_arguments_keep_their_obligations() {
+    let x = Expr::symbol("x");
+    for partial in [
+        raw_power(Expr::from_i64(0), Expr::from_i64(0)),
+        raw_power(Expr::from_i64(0), Expr::from_i64(-1)),
+        raw_power(x.clone(), Expr::from_i64(0)),
+        raw_power(x.clone(), Expr::from_i64(-1)),
+        raw_power(x, Expr::Rational(BigRational::new(1.into(), 2.into()))),
+        // Even a positive power cannot hide a partial exponent or base.
+        raw_power(
+            Expr::Function("log".into(), vec![Expr::from_i64(0)]),
+            Expr::from_i64(2),
+        ),
+        raw_power(
+            Expr::from_i64(2),
+            Expr::Function("log".into(), vec![Expr::from_i64(0)]),
+        ),
+    ] {
+        reject_direct_and_replay(sin_cos_pair(&partial), Expr::from_i64(1));
+    }
+}
+
+#[test]
+fn nonfinite_values_are_rejected_inside_function_atoms() {
+    for value in [
+        Constant::Infinity,
+        Constant::NegativeInfinity,
+        Constant::ComplexInfinity,
+        Constant::NaN,
+    ] {
+        let nonfinite = Expr::Const(value);
+        reject_direct_and_replay(sin_cos_pair(&nonfinite), Expr::from_i64(1));
+        let hidden = Expr::Function("unknown".into(), vec![nonfinite]);
+        reject_direct_and_replay(
+            Expr::Add(vec![hidden.clone(), sin_cos_pair(&Expr::symbol("x"))]),
+            Expr::Add(vec![hidden, Expr::from_i64(1)]),
+        );
+    }
+}
+
+#[test]
+fn preserved_partial_domains_and_exact_ground_discharges_still_verify() {
+    let log_x = Expr::Function("log".into(), vec![Expr::symbol("x")]);
+    accept_direct_and_replay(
+        Expr::Add(vec![log_x.clone(), sin_cos_pair(&log_x)]),
+        Expr::Add(vec![log_x, Expr::from_i64(1)]),
+    );
+    let reciprocal = raw_power(Expr::symbol("x"), Expr::from_i64(-1));
+    let residual = Expr::Function("unknown".into(), vec![reciprocal.clone()]);
+    accept_direct_and_replay(
+        Expr::Add(vec![residual.clone(), sin_cos_pair(&reciprocal)]),
+        Expr::Add(vec![residual, Expr::from_i64(1)]),
+    );
+    for total in [
+        raw_power(Expr::symbol("x"), Expr::from_i64(2)),
+        raw_power(Expr::from_i64(2), Expr::from_i64(-1)),
+        raw_power(Expr::Const(Constant::I), Expr::from_i64(0)),
+        Expr::Function("log".into(), vec![Expr::from_i64(1)]),
+    ] {
+        accept_direct_and_replay(sin_cos_pair(&total), Expr::from_i64(1));
+    }
+    // The existing exact ground reductions sec(0)=1 and tan(0)=0 discharge
+    // these particular pole obligations without trusting an optimizing simplifier.
+    accept_direct_and_replay(
+        Expr::Add(vec![
+            square("sec", &Expr::from_i64(0)),
+            product(&[Expr::from_i64(-1), square("tan", &Expr::from_i64(0))]),
+        ]),
+        Expr::from_i64(1),
+    );
+}
+
+#[test]
+fn raw_function_arguments_are_bounded_before_normalization() {
+    let argument = Expr::Add(vec![Expr::from_i64(0); 16_384]);
+    reject_direct_and_replay(sin_cos_pair(&argument), Expr::from_i64(1));
 }
