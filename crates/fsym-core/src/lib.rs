@@ -1256,8 +1256,11 @@ fn collect_like_terms(terms: &mut Vec<Expr>) {
                     continue;
                 }
                 let (coefficient, base) = split_term_coefficient(other);
-                if matches!(base, Expr::Integer(_) | Expr::Rational(_)) {
-                    constant += coefficient;
+                if let Some(value) = rational_of(&base) {
+                    // Raw products can retain a numeric base after extracting
+                    // their leading coefficient (for example -1 * 334/495).
+                    // Its value is part of the term, not an implicit unit.
+                    constant += coefficient * value;
                     saw_constant = true;
                     continue;
                 }
@@ -1881,14 +1884,15 @@ impl Expr {
             Expr::Rational(r) => write!(f, "{}", -r),
             Expr::Mul(factors) => {
                 let mut flipped: Vec<Expr> = Vec::with_capacity(factors.len());
-                for factor in factors {
-                    if let Expr::Integer(n) = factor {
-                        flipped.push(Expr::Integer(-n));
-                    } else if let Expr::Rational(r) = factor {
-                        flipped.push(Expr::Rational(-r));
-                    } else {
-                        flipped.push(factor.clone());
-                    }
+                for (index, factor) in factors.iter().enumerate() {
+                    // The Add renderer already emits one leading minus.
+                    // Negating every numeric factor would change the value
+                    // of raw products with an even number of numeric factors.
+                    flipped.push(match (index, factor) {
+                        (0, Expr::Integer(n)) => Expr::Integer(-n),
+                        (0, Expr::Rational(r)) => Expr::Rational(-r),
+                        _ => factor.clone(),
+                    });
                 }
                 fmt::Display::fmt(&Expr::Mul(flipped), f)
             }
