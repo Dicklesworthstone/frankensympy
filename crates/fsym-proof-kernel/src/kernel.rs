@@ -14,7 +14,7 @@ use fsym_assumptions::{
 use fsym_budget::{BudgetMeter, Dimension, MeterError};
 use fsym_core::{BigInt, BigRational, Constant, Expr, RealBall, Symbol};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -2490,8 +2490,10 @@ type PythagoreanSlots =
 /// empty). A monomial that presents conflicting duplicate slots for one
 /// `(family, argument, rest)` key invalidates that key instead of folding.
 ///
-/// Single pass by design: cancellation results are never re-cascaded, so
-/// exotic multi-family interleavings fail closed rather than fold.
+/// Each input monomial may be consumed by only one pair, including across
+/// different arguments and identity families. Candidate pairs are visited in
+/// deterministic key order; overlapping later pairs retain their other term.
+/// Cancellation results are never re-cascaded in this single pass.
 fn cancel_pythagorean_pairs(poly: &mut Polynomial) {
     use std::collections::btree_map::Entry;
 
@@ -2533,8 +2535,7 @@ fn cancel_pythagorean_pairs(poly: &mut Polynomial) {
         }
     }
 
-    let mut folded = false;
-    let mut removals: Vec<Monomial> = Vec::new();
+    let mut removals = BTreeSet::new();
     let mut additions: Vec<(Monomial, BigRational)> = Vec::new();
     for ((family, _argument, rest), pair) in &slots {
         let Some(pair) = pair else { continue };
@@ -2542,14 +2543,16 @@ fn cancel_pythagorean_pairs(poly: &mut Polynomial) {
         else {
             continue;
         };
-        if pythagorean_coefficients_cancel(*family, a_coeff, b_coeff) {
-            removals.push(a_monomial.clone());
-            removals.push(b_monomial.clone());
+        if pythagorean_coefficients_cancel(*family, a_coeff, b_coeff)
+            && !removals.contains(a_monomial)
+            && !removals.contains(b_monomial)
+        {
+            removals.insert(a_monomial.clone());
+            removals.insert(b_monomial.clone());
             additions.push((rest.clone(), a_coeff.clone()));
-            folded = true;
         }
     }
-    if !folded {
+    if removals.is_empty() {
         return;
     }
     for monomial in removals {
