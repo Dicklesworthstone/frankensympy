@@ -80,6 +80,22 @@ pub fn verify_parametric_root_box(
     meter: &mut impl BudgetMeter,
 ) -> Result<ParametricRootBoxReceipt, RootBoxError> {
     let mut work = Work::new(meter, witness.precision_digits)?;
+    verify_parametric_root_box_with_work(residuals, unknowns, parameters, witness, &mut work, false)
+}
+
+/// The complete parameter-cover checker reuses one source-bound Work phase.
+/// Its constructor preflights the same original source and typed coordinate
+/// groups once. Local attempts retain every charge, including failures, and
+/// restart only the per-traversal node count. The standalone entry point
+/// follows its original validation and accounting path through this helper.
+pub(super) fn verify_parametric_root_box_with_work(
+    residuals: &[Expr],
+    unknowns: &[Symbol],
+    parameters: &[Symbol],
+    witness: &ParametricRootBoxWitness,
+    work: &mut Work<'_, impl BudgetMeter>,
+    source_preflighted: bool,
+) -> Result<ParametricRootBoxReceipt, RootBoxError> {
     let n = unknowns.len();
     let p = parameters.len();
     let total = n.checked_add(p).ok_or(RootBoxError::DimensionMismatch)?;
@@ -159,7 +175,11 @@ pub fn verify_parametric_root_box(
         .map_err(|_| RootBoxError::ResourceLimit("parametric domain allocation"))?;
     product_domain.extend_from_slice(&witness.unknown_domain);
     product_domain.extend_from_slice(&witness.parameter_domain);
-    validate_inputs(residuals, &variables, &product_domain, &mut work)?;
+    if source_preflighted {
+        work.nodes = 0;
+    } else {
+        validate_inputs(residuals, &variables, &product_domain, work)?;
+    }
 
     work.charge(
         1,

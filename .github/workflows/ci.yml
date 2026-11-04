@@ -135,6 +135,7 @@ jobs:
           cargo test --locked -p fsym-core --test objective_enclosure --test stationary_certificate --test box_extremum --test box_optimization --test root_box_general -j1
           cargo test --locked -p fsym-core --test root_isolation --test root_box_general --test root_box_certificate -j1
           cargo test --locked -p fsym-core --test parametric_root -j1
+          cargo test --locked -p fsym-core --test parametric_cover -j1
           cargo test --locked -p fsym-core --test quadrature_certificate -j1
           cargo test --locked -p fsym-calculus --test certified_quadrature -j1
           cargo test --locked -p fsym-calculus --test certified_box_optimization -j1

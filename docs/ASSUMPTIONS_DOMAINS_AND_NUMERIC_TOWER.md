@@ -1767,3 +1767,41 @@ source/dependency bindings and all retained test/lint logs are in
 artifacts/audit/2026-11-04-parametric-roots-progress.json.
 Together with complete root isolation there are 69 distinct passing native
 cases; repeated local-root regressions and reruns are counted only once.
+
+## Complete parameter coverage in one unknown box
+
+verify_parametric_root_cover independently checks a complete finite closed
+parameter partition for F(x,p)=0. Every accepted leaf proves exactly one
+nonsingular unknown root in the SAME original unknown box X for every p
+in that leaf's parameter cell. The complete receipt therefore covers every
+parameter in the original P. Shared closed split faces are included; their
+root branches agree by uniqueness in the same X.
+
+The untrusted witness contains uniform ParametricRootBoxWitness leaves and
+a canonical preorder of exact midpoint splits. Independent replay reconstructs
+both closed children, binds every leaf to its exact reconstructed P cell,
+requires the original fixed X and precision, and uses every leaf exactly
+once. Missing, trailing, unused, repeated or mismatched regions reject.
+Point parameter coordinates are allowed but cannot be split. There are at
+most 1024 leaves, depth 64, 16 total typed variables and 8..128 digits.
+
+Each leaf's original source and full parameter intervals are independently
+checked for C1, strict Krawczyk inclusion and contraction below one. A
+center, inverse proposal, local proof or visited subset cannot establish
+complete coverage. Any unresolved parameter region prevents a receipt.
+The final root_enclosure is a metered coordinate hull of every accepted
+leaf's image; no requested coordinate accuracy or exact formula is asserted.
+
+ParametricRootCoverWorkspace preflights source once and reserves interval
+scratch once per phase. Parameter subdivision, point enclosures, failed
+proposals and accepted leaf verification share cumulative arithmetic,
+allocation, evaluation limits and the caller ledger. Only per-forest node
+counts restart. The standalone uniform checker retains its original path
+through the narrowly extracted shared-Work helper.
+
+The private immutable ParametricRootCoverReceipt binds original residuals,
+ordered unknowns and parameters, X and P, precision, complete witness,
+accepted leaf receipts and the global root hull. It has no unchecked
+constructor or deserializer. This proves a unique family within fixed X;
+moving unknown boxes require a separate branch-stitching argument, and
+there is no claim about roots outside X or a global continuation path.
