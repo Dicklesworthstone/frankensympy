@@ -1353,6 +1353,10 @@ from .utilities.lambdify import (
 from .utilities.hybrid import compile_numeric_hybrid
 from .utilities.hybrid_system import compile_hybrid_residual_system
 from .utilities.objective import StationarySearchError, compile_objective
+from .utilities.source_certification import (
+    certify_box_extremum, certify_root_box, certify_stationary_point,
+    enclose_objective, enclose_residual_system, optimize_box_certified,
+)
 from .utilities._certified_numeric import ResidualJacobianEnclosure, RootBoxReceipt
 from .utilities._root_isolation import RootIsolationReceipt
 from .utilities._parametric_root import ParametricRootBoxReceipt
@@ -2422,6 +2426,12 @@ __all__ = [
     "compile_residual_system",
     "load_residual_system",
     "compile_objective",
+    "enclose_residual_system",
+    "certify_root_box",
+    "enclose_objective",
+    "certify_stationary_point",
+    "certify_box_extremum",
+    "optimize_box_certified",
     "StationarySearchError",
     "EvaluationBudget",
     "EvaluationBudgetExceeded",

@@ -5,8 +5,8 @@
 use crate::binding::PySymbolBinding;
 use crate::expr::PyExpr;
 use crate::numeric::{
-    ball_bounds, check_source, exact_box, exact_rational, exact_vector, extract_variables,
-    input_values_metered, rational_expr,
+    ball_bounds, check_certified_sources, check_source, exact_box, exact_rational, exact_vector,
+    extract_variables, input_values_metered, rational_expr,
 };
 use crate::numeric_budget::{
     PyEvaluationBudget, evaluation_buffer, with_certification_meter, with_evaluation_meter,
@@ -16,9 +16,9 @@ use fsym_budget::BudgetMeter;
 use fsym_calculus::VerifiedObjective;
 use fsym_calculus::box_optimization::{BoxOptimizationOptions, propose_box_optimization};
 use fsym_core::{
-    BigRational, BoxExtremumKind, BoxExtremumReceipt, BoxOptimizationReceipt,
+    BigRational, BoxExtremumKind, BoxExtremumReceipt, BoxOptimizationReceipt, Expr,
     MAX_BOX_OPTIMIZATION_LEAVES, ObjectiveEnclosure, RootBoxWitness, StationaryPointKind,
-    StationaryPointReceipt, metered_enclose_objective, verify_box_extremum,
+    StationaryPointReceipt, Symbol, metered_enclose_objective, verify_box_extremum,
     verify_box_optimization, verify_stationary_point,
 };
 use pyo3::exceptions::{PyTypeError, PyValueError};
@@ -49,6 +49,215 @@ fn exact_preconditioner(
         matrix.push(exact_vector(&values.get_item(index)?, dimension, budget)?);
     }
     Ok(matrix)
+}
+
+fn box_extremum_kind(kind: &str) -> PyResult<BoxExtremumKind> {
+    match kind {
+        "minimum" => Ok(BoxExtremumKind::Minimum),
+        "maximum" => Ok(BoxExtremumKind::Maximum),
+        _ => Err(PyValueError::new_err("kind must be 'minimum' or 'maximum'")),
+    }
+}
+
+/// Both source snapshots and compiled objectives use the same witness parsing,
+/// original-source verification and final budget checkpoint.
+fn certify_source_box_extremum(
+    source: &Expr,
+    variables: &[Symbol],
+    domain: &Bound<'_, PyAny>,
+    point: &Bound<'_, PyAny>,
+    kind: &str,
+    precision_digits: u32,
+    budget: Option<&PyEvaluationBudget>,
+) -> PyResult<PyBoxExtremumReceipt> {
+    let kind = box_extremum_kind(kind)?;
+    let py = domain.py();
+    let domain = exact_box(domain, variables.len(), budget)?;
+    let point = exact_vector(point, variables.len(), budget)?;
+    let receipt = with_certification_meter(py, budget, |meter| {
+        verify_box_extremum(
+            source,
+            variables,
+            &domain,
+            &point,
+            kind,
+            precision_digits,
+            meter,
+        )
+    })?;
+    let result = PyBoxExtremumReceipt { receipt };
+    with_evaluation_meter_attached(budget, |meter| meter.checkpoint())?;
+    Ok(result)
+}
+
+fn optimize_source_box(
+    source: &Expr,
+    variables: &[Symbol],
+    domain: &Bound<'_, PyAny>,
+    tolerance: &Bound<'_, PyAny>,
+    kind: &str,
+    options: BoxOptimizationOptions,
+    budget: Option<&PyEvaluationBudget>,
+) -> PyResult<PyBoxOptimizationReceipt> {
+    let kind = box_extremum_kind(kind)?;
+    if !(8..=128).contains(&options.precision_digits) {
+        return Err(PyValueError::new_err("precision must be 8 through 128"));
+    }
+    if !(1..=MAX_BOX_OPTIMIZATION_LEAVES).contains(&options.max_leaves) {
+        return Err(PyValueError::new_err("max_leaves must be 1 through 1024"));
+    }
+    let py = domain.py();
+    let domain = exact_box(domain, variables.len(), budget)?;
+    let tolerance = exact_rational(tolerance, budget)?;
+    let receipt = with_certification_meter(py, budget, |meter| {
+        let proposed =
+            propose_box_optimization(source, variables, &domain, kind, &tolerance, options, meter)?;
+        // One ledger spans search and independent complete-cover replay. The
+        // candidate supplies no trusted values, derivatives or pruning claims.
+        verify_box_optimization(
+            source, variables, &domain, kind, &tolerance, &proposed, meter,
+        )
+    })?;
+    let result = PyBoxOptimizationReceipt { receipt };
+    with_evaluation_meter_attached(budget, |meter| meter.checkpoint())?;
+    Ok(result)
+}
+
+/// An exact source snapshot for independent second-order interval checks.
+/// Capturing a source is not a derivative or smoothness certificate.
+#[pyclass(name = "SourceObjective", module = "fsym_python", frozen)]
+pub struct PySourceObjective {
+    source: Expr,
+    variables: Vec<Symbol>,
+}
+
+#[pymethods]
+impl PySourceObjective {
+    #[new]
+    fn new(source: &Bound<'_, PyAny>, variables: &Bound<'_, PyAny>) -> PyResult<Self> {
+        if !source.is_exact_instance(&source.py().get_type::<PyExpr>()) {
+            return Err(PyTypeError::new_err(
+                "objective must be an exact native Expr object",
+            ));
+        }
+        let source = source.extract::<PyRef<'_, PyExpr>>()?;
+        let variables = extract_variables(variables)?;
+        check_certified_sources(std::slice::from_ref(&source.inner), &variables)?;
+        Ok(Self {
+            source: source.inner.clone(),
+            variables,
+        })
+    }
+
+    #[getter]
+    fn source(&self) -> PyExpr {
+        PyExpr::from_expr(self.source.clone())
+    }
+
+    #[getter]
+    fn variable_count(&self) -> usize {
+        self.variables.len()
+    }
+
+    #[getter]
+    fn variables(&self) -> Vec<PySymbolBinding> {
+        self.variables
+            .iter()
+            .map(PySymbolBinding::from_symbol)
+            .collect()
+    }
+
+    #[pyo3(signature = (domain, precision_digits=32, *, budget=None))]
+    fn enclose(
+        &self,
+        domain: &Bound<'_, PyAny>,
+        precision_digits: u32,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<PyObjectiveEnclosure> {
+        let py = domain.py();
+        let domain = exact_box(domain, self.variables.len(), budget.as_deref())?;
+        let receipt = with_certification_meter(py, budget.as_deref(), |meter| {
+            metered_enclose_objective(
+                &self.source,
+                &self.variables,
+                &domain,
+                precision_digits,
+                meter,
+            )
+        })?;
+        let result = PyObjectiveEnclosure { receipt };
+        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
+        Ok(result)
+    }
+
+    #[pyo3(signature = (domain, center, preconditioner, precision_digits=32, *, budget=None))]
+    fn certify_stationary_point(
+        &self,
+        domain: &Bound<'_, PyAny>,
+        center: &Bound<'_, PyAny>,
+        preconditioner: &Bound<'_, PyAny>,
+        precision_digits: u32,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<PyStationaryPointReceipt> {
+        let dimension = self.variables.len();
+        let py = domain.py();
+        let witness = RootBoxWitness {
+            domain: exact_box(domain, dimension, budget.as_deref())?,
+            center: exact_vector(center, dimension, budget.as_deref())?,
+            preconditioner: exact_preconditioner(preconditioner, dimension, budget.as_deref())?,
+            precision_digits,
+        };
+        let receipt = with_certification_meter(py, budget.as_deref(), |meter| {
+            verify_stationary_point(&self.source, &self.variables, &witness, meter)
+        })?;
+        let result = PyStationaryPointReceipt { receipt };
+        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
+        Ok(result)
+    }
+
+    #[pyo3(signature = (domain, point, kind="minimum", precision_digits=32, *, budget=None))]
+    fn certify_box_extremum(
+        &self,
+        domain: &Bound<'_, PyAny>,
+        point: &Bound<'_, PyAny>,
+        kind: &str,
+        precision_digits: u32,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<PyBoxExtremumReceipt> {
+        certify_source_box_extremum(
+            &self.source,
+            &self.variables,
+            domain,
+            point,
+            kind,
+            precision_digits,
+            budget.as_deref(),
+        )
+    }
+
+    #[pyo3(signature = (domain, tolerance, kind="minimum", precision_digits=32, max_leaves=512, *, budget=None))]
+    fn optimize_box(
+        &self,
+        domain: &Bound<'_, PyAny>,
+        tolerance: &Bound<'_, PyAny>,
+        kind: &str,
+        precision_digits: u32,
+        max_leaves: usize,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<PyBoxOptimizationReceipt> {
+        optimize_source_box(
+            &self.source,
+            &self.variables,
+            domain,
+            tolerance,
+            kind,
+            BoxOptimizationOptions {
+                precision_digits,
+                max_leaves,
+            },
+            budget.as_deref(),
+        )
+    }
 }
 
 /// Checked symbolic gradient and Hessian with finite binary64 evaluation.
@@ -149,29 +358,15 @@ impl PyVerifiedObjective {
         precision_digits: u32,
         budget: Option<PyRef<'_, PyEvaluationBudget>>,
     ) -> PyResult<PyBoxExtremumReceipt> {
-        let kind = match kind {
-            "minimum" => BoxExtremumKind::Minimum,
-            "maximum" => BoxExtremumKind::Maximum,
-            _ => return Err(PyValueError::new_err("kind must be 'minimum' or 'maximum'")),
-        };
-        let dimension = self.objective.variables().len();
-        let py = domain.py();
-        let domain = exact_box(domain, dimension, budget.as_deref())?;
-        let point = exact_vector(point, dimension, budget.as_deref())?;
-        let receipt = with_certification_meter(py, budget.as_deref(), |meter| {
-            verify_box_extremum(
-                self.objective.objective(),
-                self.objective.variables(),
-                &domain,
-                &point,
-                kind,
-                precision_digits,
-                meter,
-            )
-        })?;
-        let result = PyBoxExtremumReceipt { receipt };
-        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
-        Ok(result)
+        certify_source_box_extremum(
+            self.objective.objective(),
+            self.objective.variables(),
+            domain,
+            point,
+            kind,
+            precision_digits,
+            budget.as_deref(),
+        )
     }
 
     /// Search for a feasible point and independently certify its global
@@ -186,48 +381,18 @@ impl PyVerifiedObjective {
         max_leaves: usize,
         budget: Option<PyRef<'_, PyEvaluationBudget>>,
     ) -> PyResult<PyBoxOptimizationReceipt> {
-        let kind = match kind {
-            "minimum" => BoxExtremumKind::Minimum,
-            "maximum" => BoxExtremumKind::Maximum,
-            _ => return Err(PyValueError::new_err("kind must be 'minimum' or 'maximum'")),
-        };
-        if !(8..=128).contains(&precision_digits) {
-            return Err(PyValueError::new_err("precision must be 8 through 128"));
-        }
-        if !(1..=MAX_BOX_OPTIMIZATION_LEAVES).contains(&max_leaves) {
-            return Err(PyValueError::new_err("max_leaves must be 1 through 1024"));
-        }
-        let py = domain.py();
-        let domain = exact_box(domain, self.objective.variables().len(), budget.as_deref())?;
-        let tolerance = exact_rational(tolerance, budget.as_deref())?;
-        let receipt = with_certification_meter(py, budget.as_deref(), |meter| {
-            let proposed = propose_box_optimization(
-                self.objective.objective(),
-                self.objective.variables(),
-                &domain,
-                kind,
-                &tolerance,
-                BoxOptimizationOptions {
-                    precision_digits,
-                    max_leaves,
-                },
-                meter,
-            )?;
-            // The same caller/fallback ledger spans both phases. No candidate
-            // values or pruned-cell claims enter the independent checker.
-            verify_box_optimization(
-                self.objective.objective(),
-                self.objective.variables(),
-                &domain,
-                kind,
-                &tolerance,
-                &proposed,
-                meter,
-            )
-        })?;
-        let result = PyBoxOptimizationReceipt { receipt };
-        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
-        Ok(result)
+        optimize_source_box(
+            self.objective.objective(),
+            self.objective.variables(),
+            domain,
+            tolerance,
+            kind,
+            BoxOptimizationOptions {
+                precision_digits,
+                max_leaves,
+            },
+            budget.as_deref(),
+        )
     }
 
     /// Return value, gradient and ordered sparse Hessian values atomically.

@@ -690,6 +690,112 @@ public source, identity and execution coverage is
 `python/tests/test_piecewise_numeric_compilation.py`. G3 runs both against the
 actual extension.
 
+#### Direct exact-source enclosures and box certificates
+
+Six public functions reach the original-source interval checker without first
+generating symbolic derivatives or compiling binary64 programs:
+
+| Function | Returned claim |
+|---|---|
+| `enclose_residual_system(residuals, args, box, precision=32, budget=None)` | Whole-box residual and Jacobian bounds |
+| `certify_root_box(residuals, args, box, center=None, preconditioner=None, precision=32, budget=None)` | One unique nonsingular root in the declared box |
+| `enclose_objective(objective, args, box, precision=32, budget=None)` | Whole-box value, gradient and Hessian bounds |
+| `certify_stationary_point(objective, args, box, center=None, preconditioner=None, precision=32, budget=None)` | One unique nonsingular stationary point in the declared box, with a sufficient curvature classification when available |
+| `certify_box_extremum(objective, args, box, point, kind="minimum", precision=32, budget=None)` | An exact supplied point is a global minimum or maximum on the declared box |
+| `optimize_box_certified(objective, args, box, kind="minimum", tolerance=Fraction(1, 10000), precision=32, max_leaves=512, budget=None)` | A searched feasible point has a proved absolute global objective-value gap at most `tolerance` |
+
+Optional parameters are keyword-only; `certify_box_extremum` additionally
+requires a positional `point` after `box`. These functions return the existing
+immutable `ResidualJacobianEnclosure`, `RootBoxReceipt`, `ObjectiveEnclosure`
+and `StationaryPointReceipt` types, or `BoxExtremumReceipt` and
+`BoxOptimizationReceipt` for the global box workflows. Each receipt retains the
+original expression, typed variable order and exact domain, including the
+original Piecewise source.
+
+```python
+from sympy import (
+    Piecewise, Rational, Symbol, certify_box_extremum, certify_root_box,
+    certify_stationary_point, enclose_objective, log, optimize_box_certified,
+)
+
+x = Symbol("x")
+residual = Piecewise((x - 2, x > 0), (log(-x), True))
+root = certify_root_box(residual, x, [(1, 3)])
+assert root.root_enclosure == ((2, 2),)
+
+objective = Piecewise(((x - 2)**2, x > 0), (log(-x), True))
+bounds = enclose_objective(objective, x, [(1, 3)])
+point = certify_stationary_point(objective, x, [(1, 3)])
+assert bounds.hessian == (((2, 2),),)
+assert point.stationary_enclosure == ((2, 2),)
+assert point.kind == "strict_minimum"
+
+minimum = certify_box_extremum(objective, x, [(1, 3)], [2])
+assert minimum.value == (0, 0)
+assert minimum.uniqueness_proved
+
+well = Piecewise(((x**2 - 2)**2, x > 0), (log(-x), True))
+approximation = optimize_box_certified(well, x, [(1, 2)], tolerance=Rational(1, 1000))
+assert approximation.value[0] <= 0 <= approximation.value[1]
+assert approximation.gap <= Rational(1, 1000)
+```
+
+The exact checker proves that each visited condition has constant truth on an
+open neighborhood of the complete closed box. Comparisons require strict
+interval separation or structurally identical, defined operands. Equal point
+enclosures of different expressions do not prove guard stability: `Eq(x, 0)`
+on `[(0, 0)]` refuses. Non-strict comparisons touching their threshold also
+refuse unless structural identity proves their constant truth. A box that
+crosses an unresolved seam, or has no selected branch, produces no receipt.
+The checker does not attempt to prove matching one-sided derivatives at seams.
+
+Branches and `And`/`Or` conditions are visited in retained source order. Every
+branch passes complete typed grammar and coordinate admission, but an inactive
+value or short-circuited condition is not evaluated. Thus inactive logarithms,
+square roots and reciprocal poles cannot invalidate a valid selected branch.
+All operations that are evaluated retain the existing C1/C2 domain rules,
+including held operations behind zero factors or exponents. Guard operands
+must themselves be C1; equality of identical operands cannot hide a pole.
+
+Arguments are typed Symbols/Dummies, optionally nested in lists and tuples.
+Boxes use flat exact endpoint pairs in that coordinate order. The bounds are
+1..16 variables, 1..64 residuals and 8..128 precision digits; root systems must
+be square. Enclosures admit point coordinates, while root and stationary-point
+certificates require positive-width coordinates. Integers, exact rationals and
+`Fraction` are accepted; Float literals, Float bounds, unsupported assumptions,
+opaque classes, modified built-in hooks and unbound source symbols refuse.
+The scalar grammar contains arithmetic and powers, Pi/E, sin/cos/tan,
+exp/log/sqrt/atan, sinh/cosh/tanh and nested Piecewise with the documented
+relational and Boolean condition grammar. Source literals outside binary64's
+range are usable, within the existing exact arithmetic and source limits.
+
+`certify_box_extremum` applies the existing sufficient convexity/concavity and
+exact first-order face checks to an exact point. Boundary extrema and fixed
+coordinates are supported; a stationary point alone does not establish a global
+extremum, and uniqueness is reported only when proved. The automatic
+`optimize_box_certified` workflow supports nonconvex objectives. It searches a
+bounded dyadic cover and independently rechecks every leaf and the final exact
+feasible point. Its global claim concerns objective values: it does not assert
+an exact optimizer, coordinate error, uniqueness or all optimizer locations.
+The positive exact `tolerance` and 1..1024 `max_leaves` options match the compiled
+objective API. An unresolved seam cannot be excluded from a supposedly complete
+cover; a failed search returns no partial or local result as global evidence.
+
+Default preconditioners come from bounded exact inversion of an independently
+enclosed midpoint Jacobian or Hessian. This is only a witness proposal: final
+verification recomputes the original source over the whole box. One reusable
+`EvaluationBudget` spans exact-box preparation, midpoint work, final checking
+and publication; global search and independent cover replay share it as well.
+With no supplied budget, the entire operation shares one
+private ledger with 512 MiB of memory allowance and 512*1024*1024 units each of
+fuel and allocation allowance. Failed phases retain consumed work. Bounded
+source capture and Python object allocation remain outside this ledger.
+
+The public regressions are `python/tests/test_source_certification.py`.
+These direct APIs do not expand the unconditional differentiation proof rules
+used by `compile_residual_system` or `compile_objective`, certify a global
+Piecewise derivative, or assert roots or optima outside the supplied box.
+
 ### 15.7 Explicit numerical callbacks in native expressions
 
 `compile_numeric_hybrid(args, expression, *, callbacks)` connects bounded native

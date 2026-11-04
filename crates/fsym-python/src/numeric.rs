@@ -861,6 +861,110 @@ fn extract_expressions(values: &Bound<'_, PyAny>) -> PyResult<Vec<Expr>> {
         .collect()
 }
 
+/// Validate the complete exact source without generating floating-point code.
+/// This is ingress validation only: the original-source interval checker still
+/// establishes every domain, derivative and certificate claim on the given box.
+pub(crate) fn check_certified_sources(sources: &[Expr], variables: &[Symbol]) -> PyResult<()> {
+    if !(1..=MAX_CERTIFIED_VARIABLES).contains(&variables.len()) {
+        return Err(PyValueError::new_err(
+            "certified sources require 1..16 variables",
+        ));
+    }
+    let bindings = variable_map(variables)?;
+    let mut nodes = 0;
+    for source in sources {
+        check_source(source, &mut nodes)?;
+    }
+    let mut pending: Vec<(&Expr, bool)> = sources.iter().map(|source| (source, false)).collect();
+    while let Some((source, condition)) = pending.pop() {
+        if condition {
+            match source {
+                Expr::Sym(symbol)
+                    if symbol.is_plain() && matches!(symbol.name.as_str(), "True" | "False") => {}
+                Expr::Function(name, arguments)
+                    if matches!(
+                        name.as_str(),
+                        "Equality"
+                            | "Unequality"
+                            | "StrictLessThan"
+                            | "LessThan"
+                            | "StrictGreaterThan"
+                            | "GreaterThan"
+                    ) && arguments.len() == 2 =>
+                {
+                    pending.extend(arguments.iter().map(|argument| (argument, false)));
+                }
+                Expr::Function(name, arguments) if matches!(name.as_str(), "And" | "Or") => {
+                    pending.extend(arguments.iter().map(|argument| (argument, true)));
+                }
+                Expr::Function(name, arguments) if name == "Not" && arguments.len() == 1 => {
+                    pending.push((&arguments[0], true));
+                }
+                _ => {
+                    return Err(PyValueError::new_err(
+                        "unsupported certified Piecewise condition",
+                    ));
+                }
+            }
+            continue;
+        }
+        match source {
+            Expr::Integer(_)
+            | Expr::Rational(_)
+            | Expr::Const(fsym_core::Constant::Pi | fsym_core::Constant::E) => {}
+            Expr::Sym(symbol) if bindings.contains_key(symbol) => {}
+            Expr::Sym(_) => {
+                return Err(PyValueError::new_err(
+                    "unbound certified source symbol identity",
+                ));
+            }
+            Expr::Add(children) | Expr::Mul(children) => {
+                pending.extend(children.iter().map(|child| (child, false)));
+            }
+            Expr::Pow(base, exponent) => {
+                pending.push((base, false));
+                pending.push((exponent, false));
+            }
+            Expr::Function(name, branches) if name == "Piecewise" && !branches.is_empty() => {
+                for branch in branches {
+                    let Expr::Function(tag, pair) = branch else {
+                        return Err(PyValueError::new_err(
+                            "malformed certified Piecewise branch",
+                        ));
+                    };
+                    if tag != "Tuple" || pair.len() != 2 {
+                        return Err(PyValueError::new_err(
+                            "malformed certified Piecewise branch",
+                        ));
+                    }
+                    pending.push((&pair[0], false));
+                    pending.push((&pair[1], true));
+                }
+            }
+            Expr::Function(name, arguments)
+                if matches!(
+                    name.as_str(),
+                    "sin"
+                        | "cos"
+                        | "tan"
+                        | "exp"
+                        | "log"
+                        | "ln"
+                        | "sqrt"
+                        | "atan"
+                        | "sinh"
+                        | "cosh"
+                        | "tanh"
+                ) && arguments.len() == 1 =>
+            {
+                pending.push((&arguments[0], false));
+            }
+            _ => return Err(PyValueError::new_err("unsupported certified scalar source")),
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn input_values(values: &Bound<'_, PyAny>, expected: usize) -> PyResult<Vec<f64>> {
     let py = values.py();
     let actual = container_length(values, MAX_VARIABLES, "numeric inputs")?;
@@ -1163,6 +1267,125 @@ impl PyCompiledFunction {
     #[getter]
     fn operation_count(&self) -> usize {
         self.operation_count
+    }
+}
+
+/// Immutable exact sources for independent interval checks. Construction makes
+/// no mathematical claim and does not compile approximate values or derivatives.
+#[pyclass(name = "SourceResidualSystem", module = "fsym_python", frozen)]
+pub struct PySourceResidualSystem {
+    residuals: Vec<Expr>,
+    variables: Vec<Symbol>,
+}
+
+#[pymethods]
+impl PySourceResidualSystem {
+    #[new]
+    fn new(residuals: &Bound<'_, PyAny>, variables: &Bound<'_, PyAny>) -> PyResult<Self> {
+        let count = container_length(residuals, 64, "certified residuals")?;
+        if count == 0 {
+            return Err(PyValueError::new_err(
+                "certified sources require 1..64 residuals",
+            ));
+        }
+        let residuals = extract_expressions(residuals)?;
+        let variables = extract_variables(variables)?;
+        check_certified_sources(&residuals, &variables)?;
+        Ok(Self {
+            residuals,
+            variables,
+        })
+    }
+
+    #[getter]
+    fn residual_count(&self) -> usize {
+        self.residuals.len()
+    }
+
+    #[getter]
+    fn variable_count(&self) -> usize {
+        self.variables.len()
+    }
+
+    #[getter]
+    fn residuals(&self) -> Vec<PyExpr> {
+        self.residuals
+            .iter()
+            .cloned()
+            .map(PyExpr::from_expr)
+            .collect()
+    }
+
+    #[getter]
+    fn variables(&self) -> Vec<PySymbolBinding> {
+        self.variables
+            .iter()
+            .map(PySymbolBinding::from_symbol)
+            .collect()
+    }
+
+    #[pyo3(signature = (domain, precision_digits=32, *, budget=None))]
+    fn enclose(
+        &self,
+        domain: &Bound<'_, PyAny>,
+        precision_digits: u32,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<PyResidualJacobianEnclosure> {
+        let py = domain.py();
+        let domain = exact_box(domain, self.variables.len(), budget.as_deref())?;
+        let receipt = with_certification_meter(py, budget.as_deref(), |meter| {
+            metered_enclose_residual_jacobian(
+                &self.residuals,
+                &self.variables,
+                &domain,
+                precision_digits,
+                meter,
+            )
+        })?;
+        let result = PyResidualJacobianEnclosure { receipt };
+        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
+        Ok(result)
+    }
+
+    #[pyo3(signature = (domain, center, preconditioner, precision_digits=32, *, budget=None))]
+    fn certify_root_box(
+        &self,
+        domain: &Bound<'_, PyAny>,
+        center: &Bound<'_, PyAny>,
+        preconditioner: &Bound<'_, PyAny>,
+        precision_digits: u32,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<PyRootBoxReceipt> {
+        let dimension = self.variables.len();
+        let py = domain.py();
+        let domain = exact_box(domain, dimension, budget.as_deref())?;
+        let center = exact_vector(center, dimension, budget.as_deref())?;
+        if container_length(preconditioner, MAX_CERTIFIED_VARIABLES, "preconditioner")? != dimension
+        {
+            return Err(PyValueError::new_err(
+                "preconditioner has the wrong dimension",
+            ));
+        }
+        let mut matrix = exact_buffer(dimension, budget.as_deref())?;
+        for index in 0..dimension {
+            matrix.push(exact_vector(
+                &preconditioner.get_item(index)?,
+                dimension,
+                budget.as_deref(),
+            )?);
+        }
+        let witness = RootBoxWitness {
+            domain,
+            center,
+            preconditioner: matrix,
+            precision_digits,
+        };
+        let receipt = with_certification_meter(py, budget.as_deref(), |meter| {
+            verify_root_box(&self.residuals, &self.variables, &witness, meter)
+        })?;
+        let result = PyRootBoxReceipt { receipt };
+        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
+        Ok(result)
     }
 }
 

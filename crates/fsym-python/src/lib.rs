@@ -1949,7 +1949,9 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<binding::PySymbolBinding>()?;
     numeric_budget::register(m)?;
     m.add_class::<numeric::PyCompiledFunction>()?;
+    m.add_class::<numeric::PySourceResidualSystem>()?;
     m.add_class::<numeric::PyVerifiedResidualSystem>()?;
+    m.add_class::<objective::PySourceObjective>()?;
     m.add_class::<objective::PyVerifiedObjective>()?;
     m.add_class::<objective::PyObjectiveEnclosure>()?;
     m.add_class::<objective::PyStationaryPointReceipt>()?;
