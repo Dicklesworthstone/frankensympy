@@ -1021,3 +1021,30 @@ supervision or forced cancellation inside arbitrary foreign calls. The new
 regressions are `objective_enclosure`, `stationary_certificate` and the
 existing `root_box_general` suite. Their execution status is reported by CI;
 the campaign, full compatibility profile and workstream gates remain open.
+
+
+## Exact rational monotonicity
+
+The public increasing/decreasing predicates admit bounded univariate rational
+expressions with exact coefficients on a connected real interval. They check
+all original source-domain exclusions before differentiating, replay the
+derivative evidence and cover the requested interval with the existing
+independently checked complete rational sign chart. Endpoint comparisons are
+exact for rational and real `CRootOf` values; no sampled or binary64 sign
+decision can establish a positive result. Open and closed endpoints retain
+isolated derivative zeros and original holes correctly.
+
+Strict directional predicates use the pinned SymPy 1.14 pointwise derivative
+condition: an included derivative zero prevents a strict result. The shell's
+existing `is_monotonic` convention remains weak increasing OR decreasing;
+this is an existing profile discrepancy, not a newly asserted upstream
+compatibility theorem. A source undefined at any requested point returns
+false. Unsupported functions, custom classes, inexact literals, symbolic or
+unsupported algebraic endpoints, disconnected domains and exhausted exact
+checks refuse explicitly rather than treating failed evaluation as evidence.
+
+`python/tests/test_exact_monotonicity.py` exercises a decreasing region missed
+by the old fixed samples, a sign-change interval narrower than binary64
+resolution, exact algebraic endpoints, endpoint openness, original held holes
+and refusal propagation. The broad real-analysis and profile gates remain
+open; this extension does not change `function_range` or global extremum APIs.

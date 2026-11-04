@@ -142,6 +142,36 @@ jobs:
           cargo test --locked -p fsym-solvers --lib --test localized_components --test algebraic_components --test polynomial_system --test polynomial_components --test rational_components --test rational_graph --test rational_systems -j1
       - name: Build the full Python extension
         run: cargo build --locked -p fsym-python --features extension-module -j1
+      - name: Exact real-analysis regressions
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import importlib.util
+          import os
+          import sys
+
+          root = Path.cwd().resolve()
+          target = Path(os.environ.get("CARGO_TARGET_DIR", "target"))
+          if not target.is_absolute():
+              target = root / target
+          binary = (target / "debug/libfsym_python.so").resolve()
+          assert binary.is_file(), binary
+          spec = importlib.util.spec_from_file_location("fsym_python", binary)
+          assert spec is not None and spec.loader is not None
+          native = importlib.util.module_from_spec(spec)
+          sys.modules["fsym_python"] = native
+          spec.loader.exec_module(native)
+          sys.path.insert(0, str(root / "python"))
+          import sympy
+          from sympy.core import _native
+          assert Path(sympy.__file__).resolve() == root / "python/sympy/__init__.py"
+          assert _native is native
+          import pytest
+          raise SystemExit(pytest.main([
+              "-q", "-p", "no:cacheprovider",
+              "python/tests/test_exact_monotonicity.py",
+          ]))
+          PY
       - name: Test the checked-out shell against the current native extension
         run: |
           python - <<'PY'
