@@ -608,20 +608,31 @@ def _wrap(value: Any) -> "Basic":
         "Le": Le,
         "Gt": Gt,
         "Ge": Ge,
+        "Equality": Eq,
+        "Unequality": Ne,
+        "StrictLessThan": Lt,
+        "LessThan": Le,
+        "StrictGreaterThan": Gt,
+        "GreaterThan": Ge,
         "Constant": Expr,
     }.get(value.func_name)
     if cls is None:
+        if value.func_name == "Piecewise":
+            from ..functions.elementary.piecewise import Piecewise
+
+            # Native branch tuples belong to this built-in surface, never a
+            # user class which happens to reuse its spelling.
+            return Piecewise._from_native(value)
         func_cls = _lookup_known_function(value.func_name)
         if func_cls is None:
             func_cls = Function(value.func_name)
-        if value.func_name == "Piecewise" and hasattr(func_cls, "_from_native"):
-            # Built-in: re-evaluate branches (false conditions drop) after
-            # native work such as subs.
-            return func_cls._from_native(value)
         obj = object.__new__(func_cls)
-        obj._value = value
-        if not issubclass(func_cls, (_NativeFunction, AppliedUndef)):
-            obj._args = tuple(_wrap(a) for a in value.args)
+        Basic.__dict__["_value"].__set__(obj, value)
+        if not issubclass(func_cls, _NativeFunction):
+            # Opaque applications own their surface arguments: Basic.args
+            # deliberately cannot recover them through native admission.
+            # Write the actual slots without constructors or user setters.
+            Function.__dict__["_args"].__set__(obj, tuple(_wrap(a) for a in value.args))
         return obj
     obj = object.__new__(cls)
     obj._value = value
@@ -653,6 +664,11 @@ def _lift_builtin_result(value: Any) -> "Basic":
     contract. Reconstruct only known arithmetic nodes; never invoke an
     arbitrary Function subclass constructor or hook during lifting.
     """
+    if value.func_name == "Piecewise":
+        # Rehydrate native Tuple(expr, condition) branches together. A generic
+        # function lift would create an opaque Tuple application and then try
+        # to lower it again, crossing the closed-source boundary needlessly.
+        return _wrap(value)
     constructor = {"Add": Add, "Mul": Mul, "Pow": Pow}.get(value.func_name)
     if constructor is not None:
         return constructor(*(_lift_builtin_result(arg) for arg in value.args))
