@@ -1,0 +1,384 @@
+{
+  "source_commit": "2dba46b7aaaacefd9be0e8dba6d6b71676458b54",
+  "started_at": "2026-11-04T05:43:00.269755+00:00",
+  "rustc": "rustc 1.100.0-nightly (f7d782a3b 2026-08-19)",
+  "cargo": "cargo 1.100.0-nightly (514c56dd7 2026-08-19)",
+  "public_shell_execution": false
+}
+
+COMMAND cargo test --locked -p fsym-core --lib --test raw_product_value -j1
+    Finished `test` profile [unoptimized] target(s) in 0.27s
+     Running unittests src/lib.rs (target/debug/build/fsym-core/f0f2fb5092c284a4/out/fsym_core-f0f2fb5092c284a4)
+
+running 124 tests
+test algebraic::tests::degree_reports_correct_value_for_exact_rationals ... ok
+test algebraic::tests::from_i64_constructs_degree_one_algebraic_with_exact_ball ... ok
+test algebraic::tests::from_rational_constructs_degree_one_algebraic_for_non_integer ... ok
+test algebraic::tests::sturm_sequence_for_x_squared_minus_2_starts_with_polynomial_then_derivative ... ok
+test algebraic::tests::sturm_sequence_constant_polynomial_is_empty ... ok
+test assume::tests::scoped_facts_decide_signs_and_vanish_after_scope ... ok
+test assume::tests::nested_scopes_prefer_innermost ... ok
+test ball::tests::contains_and_contains_ball_and_contains_zero ... ok
+test ball::tests::digest_is_deterministic_and_distinct ... ok
+test assume::tests::unknown_facts_stay_unknown ... ok
+test ball::tests::add_sub_neg_preserve_radius_rules ... ok
+test ball::tests::exact_and_from_i64_construct_point_balls ... ok
+test ball::tests::intersect_returns_tightest_common_enclosure ... ok
+test ball::tests::intersect_returns_none_for_disjoint ... ok
+test ball::tests::inv_is_consistent_for_positive_balls ... ok
+test ball::tests::inv_rejects_balls_containing_zero ... ok
+test ball::tests::is_positive_and_is_negative_use_strict_inequalities ... ok
+test ball::tests::mul_uses_abs_midpoint_radius_formula ... ok
+test ball::tests::new_rejects_negative_radius ... ok
+test ball::tests::digest_refuses_oversized_canonical_numeric_payload ... ok
+test ball::tests::envelope_and_precision_refusals_are_typed ... ok
+test ball::tests::square_root_refuses_extreme_precision_before_shifting ... ok
+test ball::tests::square_root_requires_complete_nonnegative_domain ... ok
+test ball::tests::test_complex_ball_division_by_zero_refusal ... ok
+test ball::tests::power_handles_extreme_signed_exponents_without_recursion ... ok
+test ball::tests::test_complex_ball_field_and_abs ... ok
+test ball::tests::test_real_ball_abs_pow_sqrt ... ok
+test ball::tests::pi_ball_is_sound_across_precision_requests ... ok
+test ball::tests::zero_exponent_requires_ball_to_exclude_zero ... ok
+test canonical::tests::admitted_wire_materializes_only_after_preflight ... ok
+test ball::tests::refinement_monotonically_narrows_the_enclosure ... ok
+test ball::tests::large_arguments_reduce_and_stay_certified ... ok
+test canonical::tests::complete_wire_preflight_precedes_integer_materialization ... ok
+test canonical::tests::hostile_lengths_fail_before_allocation ... ok
+test canonical::tests::integer_round_trip_and_sign_preservation ... ok
+test canonical::tests::malformed_rationals_are_rejected ... ok
+test canonical::tests::non_canonical_integer_encodings_fail_closed ... ok
+test canonical::tests::non_numeric_leaves_are_rejected ... ok
+test canonical::tests::rational_round_trip_requires_reduced_form ... ok
+test ball::tests::deterministic_precision_schedule_is_reproducible ... ok
+test canonical::tests::trailing_bytes_fail_closed_for_every_numeric_tag ... ok
+test algebraic::tests::test_algebraic_number_field_arithmetic_and_real_ball_refinement ... ok
+test dag::tests::aggregate_payload_limit_bounds_arena_growth_and_shared_tree_lifting ... ok
+test dag::tests::aggregate_payload_limit_is_transactional_and_counts_numeric_storage ... ok
+test dag::tests::alpha_equivalent_lambdas_share_intern_identity ... ok
+test dag::tests::canonical_preimage_frames_variable_length_fields ... ok
+test dag::tests::complex_zero_power_requires_a_proven_positive_real_exponent ... ok
+test dag::tests::dangling_child_is_rejected_at_insertion ... ok
+test dag::tests::declared_domain_is_intern_identity_and_not_sort ... ok
+test dag::tests::deduplication_and_round_trip ... ok
+test dag::tests::deterministic_storage_charges_cover_current_native_layouts ... ok
+test dag::tests::duplicate_lambda_parameter_names_are_refused ... ok
+test dag::tests::failed_recursive_insert_publishes_no_partial_nodes ... ok
+test dag::tests::integer_domain_refuses_function_and_binder_exponents ... ok
+test dag::tests::concurrent_interning_yields_identical_content_ids ... ok
+test dag::tests::integer_domain_refuses_non_integer_atoms ... ok
+test dag::tests::integer_domain_refuses_negative_integer_power_instead_of_widening ... ok
+test dag::tests::integer_domain_refuses_zero_to_the_power_of_zero ... ok
+test dag::tests::interned_term_id_is_confirmed_by_full_preimage_digest ... ok
+test dag::tests::integer_power_requires_a_nonnegative_exponent_or_unit_base ... ok
+test dag::tests::malformed_lambda_surface_is_refused_instead_of_interned_as_function ... ok
+test dag::tests::memoized_depth_still_enforces_the_deeper_parent_path ... ok
+test dag::tests::node_and_arity_limits_fail_closed ... ok
+test dag::tests::memoized_sort_inference_still_enforces_the_deeper_parent_path ... ok
+test dag::tests::numeric_operator_domains_admit_same_and_narrower_operands ... ok
+test dag::tests::numeric_operator_domains_reject_wider_or_expression_operands ... ok
+test dag::tests::power_sort_inference_respects_exact_sign_and_branch_uncertainty ... ok
+test dag::tests::rational_domain_refuses_function_exponents ... ok
+test dag::tests::rational_domain_refuses_non_rational_payloads_and_powers ... ok
+test dag::tests::rational_domain_refuses_zero_to_a_negative_integer_power ... ok
+test dag::tests::real_domain_admits_proven_real_powers ... ok
+test dag::tests::rational_power_requires_integrality_and_defined_zero_base ... ok
+test dag::tests::real_domain_refuses_complex_constants ... ok
+test dag::tests::real_domain_refuses_branch_unsafe_powers ... ok
+test dag::tests::real_domain_refuses_lambda_binders ... ok
+test dag::tests::sort_inference_covers_numeric_tower_and_integer_powers ... ok
+test dag::tests::sort_inference_enforces_local_and_aggregate_limits ... ok
+test dag::tests::sort_inference_preserves_scalar_and_rejects_nonnumeric_operands ... ok
+test dag::tests::term_id_is_stable_and_order_independent ... ok
+test dag::tests::tuple_parameter_lambda_interns_as_the_same_binder_as_multi_arg ... ok
+test dag::tests::undefined_exact_zero_powers_do_not_receive_numeric_sorts ... ok
+test dag::tests::well_formed_symbol_lambda_lowers_to_binder_node ... ok
+test domain::tests::domain_tags_are_stable_and_distinct ... ok
+test elementary::tests::abs_gaussian_and_sqrt ... ok
+test elementary::tests::parity_and_inverse ... ok
+test elementary::tests::trig_special_values ... ok
+test parser::tests::displayed_powers_round_trip_through_the_parser ... ok
+test parser::tests::parser_preflights_input_size_and_recursive_nesting ... ok
+test parser::tests::test_decimal_literals_are_exact ... ok
+test parser::tests::test_evalf_through_parser ... ok
+test parser::tests::test_exact_division_folds_to_rational ... ok
+test parser::tests::test_function_calls ... ok
+test parser::tests::test_parse_errors ... ok
+test parser::tests::test_precedence_and_associativity ... ok
+test parser::tests::test_unary_minus_and_constants ... ok
+test sort::tests::test_sort_display ... ok
+test canonical::tests::every_accepted_short_payload_has_a_unique_encoding ... ok
+test sort::tests::test_sort_hierarchy_and_subsorts ... ok
+test tests::algebraic_number_rejects_repeated_root_before_refinement ... ok
+test tests::algebraic_polynomial_size_is_bounded_before_root_work ... ok
+test tests::certified_numeric_wire_decode_replays_constructor_invariants ... ok
+test tests::dag_lambda_rebind_respects_symbol_identity ... ok
+test tests::elementary_integer_nthroot_handles_arbitrary_precision_above_f64 ... ok
+test tests::evalf_ball_rejects_precision_outside_the_declared_envelope ... ok
+test tests::evalf_ball_composition_meets_requested_absolute_radius ... ok
+test tests::free_symbols_excludes_bound_variables_across_binders ... ok
+test tests::mul_canonical_order_respects_symbol_identity_across_insertion_order ... ok
+test ball::tests::transcendentals_enclose_oracle_references_at_requested_precision ... ok
+test tests::nesting_depth_measures_shallow_trees ... ok
+test tests::rational_evalf_uses_balanced_owner_conversion ... ok
+test canonical::tests::serialized_size_limit_is_an_exact_boundary ... ok
+test tests::subs_avoids_variable_capture_under_lambda_and_integral_binders ... ok
+test tests::test_addition_and_multiplication ... ok
+test tests::test_algebraic_number_rejects_non_isolating_intervals ... ok
+test tests::test_certified_real_ball_arithmetic ... ok
+test tests::test_substitution ... ok
+test tests::test_symbol_creation ... ok
+test tests::test_algebraic_number_root_refinement ... ok
+test ball::tests::test_complex_ball_euler_identity_and_transcendentals ... ok
+test tests::expr_eval_real_and_complex_ball_enclosures ... ok
+test dag::tests::shared_diamond_depth_is_memoized_but_tree_expansion_is_bounded ... ok
+test canonical::tests::arbitrary_big_integers_round_trip ... ok
+test ball::tests::identity_oracles_hold_across_random_rationals ... ok
+test tests::nesting_depth_is_iterative_on_deep_chains ... ok
+
+test result: ok. 124 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.01s
+
+     Running tests/raw_product_value.rs (target/debug/build/fsym-core/5594cc962bf82a60/out/raw_product_value-5594cc962bf82a60)
+
+running 6 tests
+test additive_collection_preserves_the_shifted_ode_correction ... ok
+test all_scalar_factors_survive_addition_in_either_order ... ok
+test numeric_factor_permutations_and_nested_products_preserve_additive_value ... ok
+test sign_aware_add_rendering_negates_only_one_raw_numeric_factor ... ok
+test normalization_comparison_cannot_turn_a_nonunit_scalar_into_one ... ok
+test raw_product_display_roundtrips_factor_orders_nesting_and_tiny_rationals ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+EXIT 0
+
+COMMAND cargo test --locked -p fsym-polys --test finite_field --test finite_field_source -j1
+   Compiling fsym-assumptions v0.1.0 (/workspace/scratch/ef1133665a06/frankensympy/crates/fsym-assumptions)
+   Compiling fsym-proof-kernel v0.1.0 (/workspace/scratch/ef1133665a06/frankensympy/crates/fsym-proof-kernel)
+   Compiling fsym-evidence v0.1.0 (/workspace/scratch/ef1133665a06/frankensympy/crates/fsym-evidence)
+   Compiling fsym-polys v0.1.0 (/workspace/scratch/ef1133665a06/frankensympy/crates/fsym-polys)
+    Finished `test` profile [unoptimized] target(s) in 2.54s
+     Running tests/finite_field.rs (target/debug/build/fsym-polys/ffc3ba8816d9f411/out/finite_field-ffc3ba8816d9f411)
+
+running 8 tests
+test an_exact_product_of_reducible_factors_is_not_a_complete_factorization ... ok
+test composite_moduli_out_of_range_coefficients_and_oversize_inputs_refuse ... ok
+test source_field_typed_generator_unit_factor_and_multiplicity_mutations_refuse ... ok
+test zero_constants_and_canonical_input_normalization_remain_distinct ... ok
+test generation_and_independent_verification_cancel_or_exhaust_without_publication ... ok
+test characteristic_two_and_odd_prime_factors_match_independent_known_results ... ok
+test inseparable_powers_and_mixed_multiplicities_are_complete ... ok
+test exhaustive_small_fields_agree_with_trial_division_irreducibility ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/finite_field_source.rs (target/debug/build/fsym-polys/19fcef9cac5dd414/out/finite_field_source-19fcef9cac5dd414)
+
+running 8 tests
+test characteristic_divisible_literal_exterior_content_explicitly_refuses ... ok
+test held_undefined_children_and_foreign_typed_symbols_refuse_before_zero_shortcuts ... ok
+test coordinated_content_and_component_mutations_cannot_change_characteristic_meaning ... ok
+test zero_modular_components_require_canonical_zero_without_discarding_receipts ... ok
+test rational_prefactors_and_symmetric_modular_units_remain_distinct ... ok
+test inseparable_multiplicities_merge_across_all_original_components ... ok
+test source_composition_has_cumulative_cancellation_and_resource_refusal ... ok
+test content_source_component_and_output_mutations_cannot_rebind_a_receipt ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+EXIT 0
+
+COMMAND cargo test --locked -p fsym-matrices --test least_squares --test affine_system --test pseudoinverse --test rectangular_solve -j1
+   Compiling fsym-matrices v0.1.0 (/workspace/scratch/ef1133665a06/frankensympy/crates/fsym-matrices)
+    Finished `test` profile [unoptimized] target(s) in 4.78s
+     Running tests/affine_system.rs (target/debug/build/fsym-matrices/74760ea79d5da0cf/out/affine_system-74760ea79d5da0cf)
+
+running 9 tests
+test all_inputs_and_shapes_are_checked_before_elimination ... ok
+test empty_dimensions_and_zero_rows_have_mathematical_solution_spaces ... ok
+test free_columns_before_and_after_pivots_preserve_every_parameter ... ok
+test mutated_candidate_is_not_publishable_as_a_verified_solution ... ok
+test rectangular_affine_solve_returns_all_and_only_free_directions ... ok
+test overdetermined_and_singular_systems_are_classified_exactly ... ok
+test arbitrary_rationals_are_exact_and_no_small_value_is_treated_as_zero ... ok
+test cancellation_in_either_phase_and_exhausted_verifier_prevent_publication ... ok
+test all_small_two_by_two_systems_match_determinants_and_consistency_minors ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+
+     Running tests/least_squares.rs (target/debug/build/fsym-matrices/7a307c6f90a1f4ba/out/least_squares-7a307c6f90a1f4ba)
+
+running 11 tests
+test kernel_proof_original_inputs_and_later_rhs_columns_are_bound_exactly ... ok
+test every_verifier_identity_is_necessary ... ok
+test whole_original_admission_precedes_zeros_and_resource_amplification ... ok
+test full_rank_least_squares_and_existing_default_behavior_are_preserved ... ok
+test rank_deficient_tall_system_has_a_complete_minimum_norm_family ... ok
+test zero_rank_zero_area_and_empty_rhs_have_complete_shapes ... ok
+test wide_exact_solutions_retain_every_free_direction ... ok
+test tiny_exact_pivots_and_mutations_never_use_a_tolerance ... ok
+test both_phases_cancel_before_work_during_solves_and_at_final_publication ... ok
+test budgets_are_cumulative_across_gram_solves_all_rhs_and_reference_checks ... ok
+test exhaustive_two_by_two_inputs_match_closed_form_rank_cases ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.39s
+
+     Running tests/pseudoinverse.rs (target/debug/build/fsym-matrices/442bcd88de5a27df/out/pseudoinverse-442bcd88de5a27df)
+
+running 13 tests
+test malformed_shape_symbolic_domain_and_zero_mutants_are_rejected ... ok
+test every_penrose_identity_is_required ... ok
+test pseudoinverse_gives_the_minimum_norm_least_squares_solution ... ok
+test full_rank_rectangular_behavior_is_preserved ... ok
+test rank_two_singular_matrix_matches_exact_fixture ... ok
+test exact_scaling_and_involution_hold_for_rational_entries ... ok
+test tiny_exact_perturbations_are_rejected_without_tolerances ... ok
+test rectangular_rank_one_and_transpose_match_closed_form ... ok
+test zero_rank_and_zero_area_shapes_are_preserved ... ok
+test singular_square_has_an_exact_pseudoinverse ... ok
+test exhaustive_small_matrices_match_an_independent_closed_form ... ok
+test singular_diagonal_beyond_old_determinant_limit ... ok
+test reference_verifier_refuses_work_beyond_its_bound ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+
+     Running tests/rectangular_solve.rs (target/debug/build/fsym-matrices/c77b4c0a750ebd90/out/rectangular_solve-c77b4c0a750ebd90)
+
+running 8 tests
+test original_domains_shapes_and_aggregate_bounds_are_checked ... ok
+test inconsistent_and_parametric_outcomes_are_distinct_refusals ... ok
+test a_later_inconsistent_rhs_cannot_publish_a_partial_result ... ok
+test tall_systems_with_row_pivoting_and_multiple_rhs_have_exact_solutions ... ok
+test zero_area_systems_preserve_unique_empty_vectors_and_rank_checks ... ok
+test tiny_exact_pivots_and_inconsistencies_are_not_rounded_away ... ok
+test small_tall_systems_agree_with_independent_two_by_two_determinants ... ok
+test established_square_solver_does_not_inherit_rectangular_dimension_caps ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+EXIT 0
+
+COMMAND cargo test --locked -p fsym-calculus --test geometric_summation --test rational_summation -j1
+   Compiling fsym-calculus v0.1.0 (/workspace/scratch/ef1133665a06/frankensympy/crates/fsym-calculus)
+    Finished `test` profile [unoptimized] target(s) in 1.80s
+     Running tests/geometric_summation.rs (target/debug/build/fsym-calculus/1dadf71dfefe6087/out/geometric_summation-1dadf71dfefe6087)
+
+running 12 tests
+test cancellation_during_verification_prevents_generator_publication ... ok
+test held_undefined_children_limits_and_divergence_refuse_without_partial_results ... ok
+test both_phases_observe_cancellation_at_entry_and_during_arithmetic ... ok
+test coefficient_mutations_and_same_spelling_typed_rebindings_do_not_verify ... ok
+test zero_series_cannot_borrow_a_nonzero_constant_at_infinity ... ok
+test negative_slopes_offsets_and_multiple_geometric_factors_are_exact ... ok
+test both_phase_budgets_refuse_without_retrying_with_unbounded_work ... ok
+test original_probe_counts_empty_product_nodes_before_normalization ... ok
+test large_ranges_and_symbolic_integer_bounds_use_a_checked_closed_form ... ok
+test ratios_arbitrarily_close_to_one_are_not_rounded_to_the_polynomial_case ... ok
+test convergent_moments_and_alternating_series_have_exact_values ... ok
+test finite_sums_match_direct_rational_evaluation_for_signed_ranges_and_ratios ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.43s
+
+     Running tests/rational_summation.rs (target/debug/build/fsym-calculus/81b22bd0c07b6b1f/out/rational_summation-81b22bd0c07b6b1f)
+
+running 8 tests
+test geometric_convergence_is_exact_on_both_sides_of_one ... ok
+test original_poles_survive_cancellation_and_nested_reciprocals ... ok
+test generator_and_verifier_cancellation_do_not_publish_results ... ok
+test unsupported_residues_and_shift_spans_refuse_without_partial_answers ... ok
+test arbitrary_precision_integer_endpoints_are_not_converted_to_f64 ... ok
+test public_whole_expression_telescopes_before_linearity ... ok
+test handles_polynomial_quotients_and_multiple_shift_orbits ... ok
+test repeated_fractional_poles_support_finite_and_infinite_sums ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.71s
+
+EXIT 0
+
+COMMAND cargo test --locked -p fsym-solvers --test linear_ode_system --test polynomial_ode_system --test exact_ode --test ode_radicals -j1
+   Compiling fsym-solvers v0.1.0 (/workspace/scratch/ef1133665a06/frankensympy/crates/fsym-solvers)
+    Finished `test` profile [unoptimized] target(s) in 1.38s
+     Running tests/exact_ode.rs (target/debug/build/fsym-solvers/97f9b75d6188a3d2/out/exact_ode-97f9b75d6188a3d2)
+
+running 8 tests
+test original_nonpolynomial_and_malformed_subterms_cannot_hide_behind_zero ... ok
+test constant_and_single_axis_forms_are_level_sets_and_zero_form_refuses ... ok
+test nonclosed_forms_and_aliased_variables_refuse ... ok
+test nonlinear_mixed_form_has_the_hand_derived_implicit_potential ... ok
+test mixed_rational_coefficients_integrate_without_approximations ... ok
+test gradient_checker_accepts_only_an_additive_constant_not_a_tiny_wrong_gradient ... ok
+test potential_degree_has_room_for_the_last_supported_input_power ... ok
+test preflight_rejects_nested_power_growth_depth_and_expanded_term_exhaustion ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/linear_ode_system.rs (target/debug/build/fsym-solvers/6707d3e0c1693997/out/linear_ode_system-6707d3e0c1693997)
+
+running 9 tests
+test coefficient_and_candidate_bounds_apply_even_with_unbounded_outer_meters ... ok
+test original_undefined_children_and_opaque_functions_refuse_before_cancellation ... ok
+test coefficient_time_point_and_tiny_candidate_mutations_cannot_rebind_the_claim ... ok
+test independent_rotation_and_jordan_matrices_are_accepted ... ok
+test initial_normalization_rejects_dependent_or_rescaled_solution_columns ... ok
+test exact_initial_values_at_zero_and_nonzero_times_are_retained ... ok
+test typed_time_and_constants_are_preserved_without_ambient_assumption_capture ... ok
+test separate_cumulative_budgets_and_final_cancellation_are_terminal ... ok
+test all_discriminant_regimes_and_nondiagonal_rational_matrices_have_complete_families ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/ode_radicals.rs (target/debug/build/fsym-solvers/f2dc97903a9c6676/out/ode_radicals-f2dc97903a9c6676)
+
+running 4 tests
+test domain_checks_precede_cancellation_even_for_zero_equations ... ok
+test hand_constructed_irrational_solutions_have_exact_residuals ... ok
+test generated_irrational_families_are_independent_and_support_forcing ... ok
+test cauchy_euler_irrational_families_are_independent_on_positive_axis ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running tests/polynomial_ode_system.rs (target/debug/build/fsym-solvers/7b75b512d6bc3a40/out/polynomial_ode_system-7b75b512d6bc3a40)
+
+running 8 tests
+test hand_supplied_polynomial_particular_is_checked_without_generation ... ok
+test independent_coefficient_source_and_matrix_mutations_refuse ... ok
+test source_and_candidate_bounds_hold_with_unbounded_outer_meters ... ok
+test explicit_forced_rotation_ivp_has_the_hand_derived_unique_solution ... ok
+test partial_data_and_typed_time_do_not_capture_constants_or_ambient_facts ... ok
+test nilpotent_resonance_retains_the_degree_eighteen_particular ... ok
+test combined_phase_budgets_and_final_cancellation_are_terminal ... ok
+test every_matrix_regime_has_complete_forced_families_and_shifted_ivps ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.58s
+
+EXIT 0
+
+COMMAND cargo clippy --locked -p fsym-core -p fsym-polys -p fsym-matrices -p fsym-calculus -p fsym-solvers --all-targets -- -D warnings
+    Checking fsym-matrices v0.1.0 (/workspace/scratch/ef1133665a06/frankensympy/crates/fsym-matrices)
+    Checking fsym-calculus v0.1.0 (/workspace/scratch/ef1133665a06/frankensympy/crates/fsym-calculus)
+    Checking fsym-polys v0.1.0 (/workspace/scratch/ef1133665a06/frankensympy/crates/fsym-polys)
+    Checking fsym-core v0.1.0 (/workspace/scratch/ef1133665a06/frankensympy/crates/fsym-core)
+    Finished `dev` profile [unoptimized] target(s) in 19.85s
+EXIT 0
+
+COMMAND cargo fmt --check
+Diff in /workspace/scratch/ef1133665a06/frankensympy/crates/fsym-python/src/lib.rs:2144:
+     m.add_function(wrap_pyfunction!(exact_ode_potential_native, m)?)?;
+     m.add_function(wrap_pyfunction!(verify_exact_ode_potential_native, m)?)?;
+     m.add_function(wrap_pyfunction!(ode_system::linear_ode_system_native, m)?)?;
+-    m.add_function(wrap_pyfunction!(ode_system::polynomial_ode_system_native, m)?)?;
++    m.add_function(wrap_pyfunction!(
++        ode_system::polynomial_ode_system_native,
++        m
++    )?)?;
+     m.add_function(wrap_pyfunction!(solve_polynomial_system_native, m)?)?;
+     m.add_function(wrap_pyfunction!(polynomial_affine_matrix_native, m)?)?;
+     m.add_class::<polynomial_systems::PyPolynomialSystemResult>()?;
+EXIT 1
+
+FORMAT-ONLY FOLLOWUP: wrap new PyO3 registration as requested by rustfmt; no native implementation changed.
+COMMAND cargo fmt --check
+EXIT 0
+COMMAND git diff --check
+EXIT 0
+Python AST checks: ["python/sympy/__init__.py", "python/sympy/integrals/certified.py", "python/sympy/matrices/dense.py", "python/sympy/polys/polytools.py", "python/sympy/solvers/_ode_system.py", "python/sympy/solvers/ode.py", "python/sympy/utilities/__init__.py", "python/sympy/utilities/_box_optimization.py", "python/sympy/utilities/_certified_objective.py", "python/sympy/utilities/objective.py", "python/tests/test_box_optimization.py", "python/tests/test_certified_quadrature.py", "python/tests/test_linear_ode_system.py", "python/tests/test_matrix_least_squares.py", "python/tests/test_polynomial_geometric_summation.py", "python/tests/test_polynomial_ode_system.py", "python/tests/test_prime_field_factorization.py"]

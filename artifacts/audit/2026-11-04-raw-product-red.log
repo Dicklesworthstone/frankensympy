@@ -1,0 +1,69 @@
+   Compiling fsym-core v0.1.0 (/workspace/scratch/ef1133665a06/frankensympy/crates/fsym-core)
+    Finished `test` profile [unoptimized] target(s) in 1.55s
+     Running tests/raw_product_value.rs (target/debug/build/fsym-core/5594cc962bf82a60/out/raw_product_value-5594cc962bf82a60)
+
+running 6 tests
+test normalization_comparison_cannot_turn_a_nonunit_scalar_into_one ... FAILED
+test additive_collection_preserves_the_shifted_ode_correction ... FAILED
+test all_scalar_factors_survive_addition_in_either_order ... FAILED
+test numeric_factor_permutations_and_nested_products_preserve_additive_value ... FAILED
+test sign_aware_add_rendering_negates_only_one_raw_numeric_factor ... FAILED
+test raw_product_display_roundtrips_factor_orders_nesting_and_tiny_rationals ... FAILED
+
+failures:
+
+---- normalization_comparison_cannot_turn_a_nonunit_scalar_into_one stdout ----
+
+thread 'normalization_comparison_cannot_turn_a_nonunit_scalar_into_one' (144) panicked at crates/fsym-core/tests/raw_product_value.rs:113:9:
+assertion `left == right` failed
+  left: Integer(BigInt(0))
+ right: Rational(Ratio { numer: BigInt(-161), denom: BigInt(495) })
+
+---- additive_collection_preserves_the_shifted_ode_correction stdout ----
+
+thread 'additive_collection_preserves_the_shifted_ode_correction' (142) panicked at crates/fsym-core/tests/raw_product_value.rs:52:5:
+assertion `left == right` failed
+  left: Add([Integer(BigInt(-1)), Sym(Symbol { name: "x", identity: None })])
+ right: Add([Rational(Ratio { numer: BigInt(-334), denom: BigInt(495) }), Sym(Symbol { name: "x", identity: None })])
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- all_scalar_factors_survive_addition_in_either_order stdout ----
+
+thread 'all_scalar_factors_survive_addition_in_either_order' (143) panicked at crates/fsym-core/tests/raw_product_value.rs:70:17:
+assertion `left == right` failed
+  left: Ratio { numer: BigInt(2), denom: BigInt(1) }
+ right: Ratio { numer: BigInt(6), denom: BigInt(1) }
+
+---- numeric_factor_permutations_and_nested_products_preserve_additive_value stdout ----
+
+thread 'numeric_factor_permutations_and_nested_products_preserve_additive_value' (145) panicked at crates/fsym-core/tests/raw_product_value.rs:102:13:
+assertion `left == right` failed
+  left: Ratio { numer: BigInt(-5), denom: BigInt(6) }
+ right: Ratio { numer: BigInt(-31), denom: BigInt(21) }
+
+---- sign_aware_add_rendering_negates_only_one_raw_numeric_factor stdout ----
+
+thread 'sign_aware_add_rendering_negates_only_one_raw_numeric_factor' (147) panicked at crates/fsym-core/tests/raw_product_value.rs:123:9:
+assertion `left == right` failed: rendering changed the exact value: (x - 1*-334/495)
+  left: Ratio { numer: BigInt(334), denom: BigInt(495) }
+ right: Ratio { numer: BigInt(-334), denom: BigInt(495) }
+
+---- raw_product_display_roundtrips_factor_orders_nesting_and_tiny_rationals stdout ----
+
+thread 'raw_product_display_roundtrips_factor_orders_nesting_and_tiny_rationals' (146) panicked at crates/fsym-core/tests/raw_product_value.rs:123:9:
+assertion `left == right` failed: rendering changed the exact value: (x - 2*-1/10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000*x)
+  left: Ratio { numer: BigInt(-15000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003), denom: BigInt(10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000) }
+ right: Ratio { numer: BigInt(-14999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999997), denom: BigInt(10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000) }
+
+
+failures:
+    additive_collection_preserves_the_shifted_ode_correction
+    all_scalar_factors_survive_addition_in_either_order
+    normalization_comparison_cannot_turn_a_nonunit_scalar_into_one
+    numeric_factor_permutations_and_nested_products_preserve_additive_value
+    raw_product_display_roundtrips_factor_orders_nesting_and_tiny_rationals
+    sign_aware_add_rendering_negates_only_one_raw_numeric_factor
+
+test result: FAILED. 0 passed; 6 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p fsym-core --test raw_product_value`

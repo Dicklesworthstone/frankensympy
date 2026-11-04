@@ -1484,3 +1484,101 @@ independent source review; actual full-extension execution remains pending.
 Source bindings, terminal logs, earlier failed attempts and scope limits are
 in artifacts/audit/2026-11-04-global-optimization-progress.json. No campaign,
 workstream, profile or performance status is promoted.
+
+## Complete bounded prime-field factorizations
+
+The native polynomial lane factors univariate polynomials over F_p through
+degree 64 for primes at most 65521, including characteristic two and repeated
+pth powers. Positive-characteristic square-free decomposition and Berlekamp
+splitting propose the factors. Acceptance independently reconstructs the
+original modular product and requires the proof kernel's typed Rabin
+irreducibility check for every distinct monic factor. Exhaustion returns no
+partial factorization. The composition receipt is immutable and in-process.
+
+The expression-facing factor and factor_list modulus paths independently
+reconstruct the original QQ source before accepting the modular result. Their
+different pinned exterior-content conventions are preserved. The exterior
+denominator must equal the least common denominator of all canonical rational
+coefficients, and
+every nonzero exterior numerator must be coprime to p. This permits the
+documented exterior-rational convention without asserting an embedding of QQ
+in F_p or allowing normalization to manufacture a characteristic denominator.
+An admitted zero modular component gives the complete zero result only after
+all source components have been checked. Multivariate input, GF Poly objects,
+out-of-envelope primes/degrees and nonzero p-divisible exterior content explicitly
+refuse in this lane. All original children are admitted before zero shortcuts.
+
+## Complete exact-rational least-squares families
+
+For A and B with exact rational entries, the native least-squares result
+contains the minimum-norm particular X and the orthogonal projector P onto
+ker(A). Every minimizer is X + P*W. Acceptance checks a complete homogeneous
+affine witness for the original A, AP=0, P=P^T, P*k=k for each complete kernel
+basis vector, A^T*(A*X-B)=0, and k^T*X=0. Generated inverses and normal-equation
+solutions are not trusted as proof inputs.
+
+The envelope is 32 rows, unknowns and RHS columns, 4096-bit input rationals
+and 8192-bit intermediate components, with independent cumulative generation
+and verification budgets. Python Matrix.pinv_solve and
+solve_least_squares(method="PINV") are wired to this result. Fresh Dummy
+parameters, supplied-parameter identities, zero-area shapes and pinned class
+promotion are retained. The whole original parameter forest is admitted
+before projection, so a zero projector cannot hide an undefined child.
+This is an in-process composition of checked native results.
+
+## Checked polynomial-geometric summation
+
+For p in QQ[k] and exact rational q != 0, the generator proposes P satisfying
+q*P(k+1)-P(k)=p(k). A separate checker expands the shift and checks every
+coefficient against the original summand before evaluating finite endpoints.
+Positive-infinite nonzero sums additionally require abs(q)<1. Finite symbolic
+integer bounds, reversed and negative bounds, multiple geometric factors and
+affine integer exponents are supported within the bounded source grammar.
+
+The polynomial degree is at most 32, original source nodes at most 4096 and
+depth at most 64; input rationals have at most 4096 bits. Each phase retains
+its own cumulative 20-million-compute/128-MiB-logical-allocation envelope.
+Original zero-product and zero-power children remain subject to admission.
+Recognized resource/domain failures propagate through native and Python
+summation dispatch; they cannot silently become an accepted partial result.
+The receipt is in-process, not a new portable proof-kernel claim.
+
+## Complete rational two-component ODE systems
+
+The native system lane independently checks a normalized fundamental matrix
+Phi through Phi'=A*Phi and Phi(t0)=I for exact rational constant 2-by-2 A.
+This covers real/complex eigenvalue pairs, repeated eigenvalues, Jordan blocks
+and zero matrices on the real time axis. General integration constants are
+the normalized initial coordinates; complete or partial rational value data
+at one rational time fix those coordinates.
+
+Polynomial forcing of degree at most 16 is supported even when A is singular.
+The proposed particular solution can have degree 18. A separate checker
+verifies every coefficient of p'-A*p=b against the original forcing. The
+complete family is assembled as h+p-Phi*p(t0) from accepted components, so
+the original initial values and every homogeneous direction are retained.
+There is no unchecked final simplification. Rational input components have
+at most 1024 bits, and generation/verification keep independent cumulative
+200-million-compute/512-MiB-logical-allocation caps through composition.
+
+The Python dsolve list/tuple dispatcher admits an invertible constant rational
+derivative-coefficient matrix, retains the supplied function order and typed
+time identity, and checks every original source child. Nonlinear systems,
+variable matrix coefficients, nonpolynomial forcing and unsupported boundary
+data refuse explicitly. These are bounded in-process completeness receipts,
+not a general ODE solver or portable proof-kernel claim family.
+
+The forced-system regressions exposed and now cover a shared core arithmetic
+defect: additive collection must multiply an extracted coefficient by a
+remaining numeric base, and sign-aware rendering must negate only the one
+leading numeric factor accounted for by its enclosing minus. Independent
+exact scalar and display/parse tests prevent false-zero residuals and changed
+rendered values for raw rational products.
+
+Execution evidence for these additions is recorded in
+artifacts/audit/2026-11-04-algebra-ode-sums-progress.json. Public Python routes
+and regression suites are authored and wired into full-extension CI; local
+public runtime execution remains blocked by the recorded pinned asupersync
+build SIGKILL. Isolated SymPy oracle probes and bridge source review are
+reported separately from actual project execution. Workstream, profile and
+whole-workspace gates remain open.

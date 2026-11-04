@@ -1,0 +1,1016 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-11-04T05:46:06Z",
+  "repository": "Dicklesworthstone/frankensympy",
+  "kind": "Source-bound implementation progress; no workstream, campaign, performance or compatibility-profile promotion",
+  "baseline_source": "9cb2741712aecb6255ee17bd9b29982f6182ac0f",
+  "feature_source_snapshot_commit": "2dba46b7aaaacefd9be0e8dba6d6b71676458b54",
+  "verified_main_commits": [
+    {
+      "sha": "17b2e0e815d8cfd69dd6c1bfe06cd75637aa7e36",
+      "message": "feat(polys): factor prime-field polynomials with checked completeness",
+      "independently_verified": true
+    },
+    {
+      "sha": "5effbe0aa865ef22f9f705ae30cb3e4d70217567",
+      "message": "feat(matrices): return complete checked least-squares families",
+      "independently_verified": true
+    },
+    {
+      "sha": "ff57bee712deb27c646c15454dd56997befac784",
+      "message": "feat(calculus): evaluate checked polynomial-geometric sums",
+      "independently_verified": true
+    },
+    {
+      "sha": "804c4eabb20b1cb2865bb02c05523af345c1a695",
+      "message": "feat(solvers): solve complete rational two-component ODE systems",
+      "independently_verified": true
+    },
+    {
+      "sha": "ecae0bb454ad63e39fff8008f780506d66bb2732",
+      "message": "feat(python): expose complete exact least-squares solution families",
+      "independently_verified": true
+    },
+    {
+      "sha": "f1f7af61721f6807a708544c6a3cfada37252719",
+      "message": "feat(python): expose source-checked prime-field factorization",
+      "independently_verified": true
+    },
+    {
+      "sha": "178ee4ef9e42f1e2a4e054e67016b20461cd6aec",
+      "message": "fix(core): preserve exact values of raw numeric products",
+      "independently_verified": true
+    },
+    {
+      "sha": "2dba46b7aaaacefd9be0e8dba6d6b71676458b54",
+      "message": "feat(solvers): solve checked polynomial-forced two-component ODE systems",
+      "independently_verified": true
+    }
+  ],
+  "preserved_concurrent_main_commits": [
+    "d7b4b27e00164df071877cd208d6820afdd85cf1",
+    "4132a6b6374af5e8265bec52370309d3263ca003",
+    "ff79771877c06bd14c6750dcde3738e6344eb8b9"
+  ],
+  "features": [
+    {
+      "area": "WS08 prime-field polynomial factorization",
+      "implemented": "Complete bounded Berlekamp and positive-characteristic square-free factorization, including characteristic two and inseparable powers. Independent modular product reconstruction and typed proof-kernel Rabin irreducibility establish all factors and multiplicities.",
+      "scope": "Univariate, degree <=64, prime <=65521, independent cumulative phase caps. Public factor/factor_list source composition independently reconstructs the original QQ expression before accepting modular results, binds every integer-component reduction, enforces the original canonical coefficient LCD and characteristic-coprime nonzero exterior content, and preserves the distinct pinned exterior conventions. Multivariate input, GF Poly objects, nonzero characteristic-divisible exterior content and exhausted work refuse. This does not embed QQ into F_p.",
+      "regressions": "16 native tests include an exhaustive401-polynomial trial-division corpus, omitted/false factors, multiplicities, field/source/typed-coordinate mutations, coordinated exterior-content attacks and separate budget/cancellation failures."
+    },
+    {
+      "area": "WS10 complete exact least-squares families",
+      "implemented": "Minimum-norm X and complete orthogonal kernel projector P give all minimizers X+P*W for singular, rectangular and multi-RHS rational systems. Independent acceptance binds a complete original homogeneous affine witness and checks AP=0, symmetry, coverage of every kernel basis vector, all normal residuals and orthogonality of X.",
+      "scope": "At most32 rows, unknowns and RHS columns,4096-bit input and8192-bit intermediate components; separate cumulative phase caps. Public pinv_solve and solve_least_squares(method=PINV) preserve fresh Dummy ownership, multi-RHS ordering, result classes and zero-area shapes. Original arbitrary-parameter forests are admitted before projection; held invalid children and changed accessors cannot hide behind zero projectors. In-process composite receipt."
+    },
+    {
+      "area": "WS18 weighted geometric summation",
+      "implemented": "Generate and independently coefficient-check q*P(k+1)-P(k)=p(k), then evaluate exact finite or convergent positive-infinite endpoints. Supports rational polynomial weights, signed/nonunit rational ratios, multiple geometric factors, affine integer exponents, symbolic integer endpoints and negative/reversed finite ranges.",
+      "scope": "Degree <=32,4096 original nodes,depth64,4096-bit input rationals,20-million compute and128-MiB logical allocation per phase. Whole original syntax is admitted before zero shortcuts; operational/domain failures propagate. Positive-infinite nonzero sums require abs(q)<1. In-process receipt, not a new portable proof-kernel claim."
+    },
+    {
+      "area": "WS19 complete rational coupled ODE systems",
+      "implemented": "Independently verify Phi'=A*Phi and Phi(t0)=I for rational constant2x2 systems, covering all discriminant/Jordan/zero regimes. Exact general, partial and full rational initial coordinates are retained. Polynomial forcing uses an independently checked coefficient identity p'-A*p=b and constructs the complete family h+p-Phi*p(t0) without unchecked final simplification.",
+      "scope": "Forcing degree <=16, particular degree <=18,1024-bit rational input components, independent cumulative200-million compute/512-MiB logical allocation phases. Python dsolve lowers the original two-equation source with an invertible rational derivative matrix, transforms the entire forcing vector and retains supplied function order and typed time. Nonlinear/variable-coefficient/nonpolynomial and unsupported boundary data refuse. In-process completeness receipts, not general ODE closure."
+    },
+    {
+      "area": "Core exact arithmetic correctness",
+      "implemented": "Retain coefficient times numeric remaining base when raw products enter additive collection. Sign-aware rendering flips only the first numeric factor accounted for by its enclosing minus.",
+      "counterexample": "Before the fix, Mul[1,334/495]-1 incorrectly became0, x+Mul[-1,334/495] became x-1, and raw2*3 could contribute2. The shifted forced-ODE residual was the erroneous161/495.",
+      "red_green_evidence": "All6 independent scalar/display regressions failed against unchanged production and pass after the two localized fixes. The original forced-ODE residual assertions were retained and now pass. Coverage includes all factor permutations, nested products,zero and exact1e-400 coefficients."
+    }
+  ],
+  "environment": {
+    "toolchain": "nightly-2026-08-20",
+    "rustc": "rustc 1.100.0-nightly (f7d782a3b 2026-08-19)",
+    "cargo": "cargo 1.100.0-nightly (514c56dd7 2026-08-19)",
+    "cargo_build_jobs": 1,
+    "dev_and_test_debug_info": 0,
+    "donor_heads": {
+      "asupersync": {
+        "sha": "b3e08ac0bd773a5bbdd4f3c2f4624d550352ec0f",
+        "clean": true
+      },
+      "franken_numpy-pin": {
+        "sha": "d5d29c9da36141f611d1414b4c6ef434ab31ea24",
+        "clean": true
+      },
+      "frankenscipy-pin": {
+        "sha": "213a417c739025ed865a3875c89a7d86726ecb5a",
+        "clean": true
+      }
+    },
+    "dependency_or_feature_changes_to_bypass_validation": false,
+    "shared_memory_limit_bytes": 8589934592
+  },
+  "executed_native_validation": [
+    {
+      "package": "fsym-core",
+      "suites": {
+        "library": 124,
+        "raw_product_value": 6
+      },
+      "passed": 130,
+      "failed": 0
+    },
+    {
+      "package": "fsym-polys",
+      "suites": {
+        "finite_field": 8,
+        "finite_field_source": 8
+      },
+      "passed": 16,
+      "failed": 0
+    },
+    {
+      "package": "fsym-matrices",
+      "suites": {
+        "affine_system": 9,
+        "least_squares": 11,
+        "pseudoinverse": 13,
+        "rectangular_solve": 8
+      },
+      "passed": 41,
+      "failed": 0
+    },
+    {
+      "package": "fsym-calculus",
+      "suites": {
+        "geometric_summation": 12,
+        "rational_summation": 8
+      },
+      "passed": 20,
+      "failed": 0
+    },
+    {
+      "package": "fsym-solvers",
+      "suites": {
+        "exact_ode": 8,
+        "linear_ode_system": 9,
+        "ode_radicals": 4,
+        "polynomial_ode_system": 8
+      },
+      "passed": 29,
+      "failed": 0
+    }
+  ],
+  "distinct_native_tests_passed": 236,
+  "new_native_test_cases_in_this_round": 62,
+  "ignored_or_filtered_in_final_native_run": 0,
+  "strict_all_target_clippy_passed": [
+    "fsym-core",
+    "fsym-polys",
+    "fsym-matrices",
+    "fsym-calculus",
+    "fsym-solvers"
+  ],
+  "final_native_execution": {
+    "source_commit": "2dba46b7aaaacefd9be0e8dba6d6b71676458b54",
+    "started_at": "2026-11-04T05:43:00.269755+00:00",
+    "rustc": "rustc 1.100.0-nightly (f7d782a3b 2026-08-19)",
+    "cargo": "cargo 1.100.0-nightly (514c56dd7 2026-08-19)",
+    "commands": [
+      {
+        "argv": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "fsym-core",
+          "--lib",
+          "--test",
+          "raw_product_value",
+          "-j1"
+        ],
+        "exit_code": 0,
+        "test_results": [
+          {
+            "passed": 124,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered_out": 0
+          },
+          {
+            "passed": 6,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered_out": 0
+          }
+        ]
+      },
+      {
+        "argv": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "fsym-polys",
+          "--test",
+          "finite_field",
+          "--test",
+          "finite_field_source",
+          "-j1"
+        ],
+        "exit_code": 0,
+        "test_results": [
+          {
+            "passed": 8,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered_out": 0
+          },
+          {
+            "passed": 8,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered_out": 0
+          }
+        ]
+      },
+      {
+        "argv": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "fsym-matrices",
+          "--test",
+          "least_squares",
+          "--test",
+          "affine_system",
+          "--test",
+          "pseudoinverse",
+          "--test",
+          "rectangular_solve",
+          "-j1"
+        ],
+        "exit_code": 0,
+        "test_results": [
+          {
+            "passed": 9,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered_out": 0
+          },
+          {
+            "passed": 11,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered_out": 0
+          },
+          {
+            "passed": 13,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered_out": 0
+          },
+          {
+            "passed": 8,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered_out": 0
+          }
+        ]
+      },
+      {
+        "argv": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "fsym-calculus",
+          "--test",
+          "geometric_summation",
+          "--test",
+          "rational_summation",
+          "-j1"
+        ],
+        "exit_code": 0,
+        "test_results": [
+          {
+            "passed": 12,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered_out": 0
+          },
+          {
+            "passed": 8,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered_out": 0
+          }
+        ]
+      },
+      {
+        "argv": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "fsym-solvers",
+          "--test",
+          "linear_ode_system",
+          "--test",
+          "polynomial_ode_system",
+          "--test",
+          "exact_ode",
+          "--test",
+          "ode_radicals",
+          "-j1"
+        ],
+        "exit_code": 0,
+        "test_results": [
+          {
+            "passed": 8,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered_out": 0
+          },
+          {
+            "passed": 9,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered_out": 0
+          },
+          {
+            "passed": 4,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered_out": 0
+          },
+          {
+            "passed": 8,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered_out": 0
+          }
+        ]
+      },
+      {
+        "argv": [
+          "cargo",
+          "clippy",
+          "--locked",
+          "-p",
+          "fsym-core",
+          "-p",
+          "fsym-polys",
+          "-p",
+          "fsym-matrices",
+          "-p",
+          "fsym-calculus",
+          "-p",
+          "fsym-solvers",
+          "--all-targets",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "test_results": []
+      },
+      {
+        "argv": [
+          "cargo",
+          "fmt",
+          "--check"
+        ],
+        "exit_code": 1,
+        "test_results": []
+      },
+      {
+        "argv": [
+          "cargo",
+          "fmt",
+          "--check"
+        ],
+        "exit_code": 0,
+        "test_results": [],
+        "scope": "format-only followup"
+      },
+      {
+        "argv": [
+          "git",
+          "diff",
+          "--check"
+        ],
+        "exit_code": 0,
+        "test_results": [],
+        "scope": "format-only followup"
+      }
+    ],
+    "public_shell_execution": false,
+    "python_ast_files": [
+      "python/sympy/__init__.py",
+      "python/sympy/integrals/certified.py",
+      "python/sympy/matrices/dense.py",
+      "python/sympy/polys/polytools.py",
+      "python/sympy/solvers/_ode_system.py",
+      "python/sympy/solvers/ode.py",
+      "python/sympy/utilities/__init__.py",
+      "python/sympy/utilities/_box_optimization.py",
+      "python/sympy/utilities/_certified_objective.py",
+      "python/sympy/utilities/objective.py",
+      "python/tests/test_box_optimization.py",
+      "python/tests/test_certified_quadrature.py",
+      "python/tests/test_linear_ode_system.py",
+      "python/tests/test_matrix_least_squares.py",
+      "python/tests/test_polynomial_geometric_summation.py",
+      "python/tests/test_polynomial_ode_system.py",
+      "python/tests/test_prime_field_factorization.py"
+    ],
+    "format_only_followup_paths": [
+      "crates/fsym-python/src/lib.rs"
+    ],
+    "source_commit_after": "2dba46b7aaaacefd9be0e8dba6d6b71676458b54",
+    "finished_at": "2026-11-04T05:44:19.987918+00:00",
+    "distinct_tests_passed": 236,
+    "log_sha256": "0203905c849b1c3bb8eb0fc4cc35bf1575e89e32869261a7891bbc33667d7144"
+  },
+  "oracle_only_evidence": {
+    "scope": "Isolated upstream SymPy1.14.0 reference fixtures only; no checked-out FrankenSymPy Python or extension execution. These are not substituted for native/public project tests.",
+    "prime_field": {
+      "fixtures": 18,
+      "exact_comparisons": 36,
+      "failed_comparisons": 0,
+      "details": {
+        "scope": "ORACLE ONLY: upstream SymPy1.14.0; no project imports or execution",
+        "timestamp_utc": "2026-11-04T05:24:07.682785+00:00",
+        "python_executable": "/workspace/scratch/ef1133665a06/test-env/bin/python",
+        "python_version": "3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]",
+        "sympy_version": "1.14.0",
+        "sympy_module": "/workspace/scratch/ef1133665a06/test-env/lib/python3.12/site-packages/sympy/__init__.py",
+        "upstream_polytools_sha256": "054c0af30240a5acd678a437b76ef283e1d3327c22bfd49c3e26af9369f4d919",
+        "probe_sha256": "95d2d9b8530d2ea697693c311e181abd2409ffaaf50b4de657e2bd972986ae84",
+        "comparator": "Exact expression equality and exact ordered factor-list equality; no simplify or numeric comparison",
+        "fixtures": [
+          {
+            "fixture": "characteristic_two",
+            "source": "Add(Pow(Symbol('x'), Integer(2)), Integer(1))",
+            "prime": 2,
+            "factor": "(x + 1)**2",
+            "factor_srepr": "Pow(Add(Symbol('x'), Integer(1)), Integer(2))",
+            "factor_list": "(1, [(x + 1, 2)])",
+            "factor_list_srepr": "(Integer(1), [(Add(Symbol('x'), Integer(1)), 2)])",
+            "expected_factor_srepr": "Pow(Add(Symbol('x'), Integer(1)), Integer(2))",
+            "expected_factor_list_srepr": "(1, [(Add(Symbol('x'), Integer(1)), 2)])",
+            "factor_matches_expected": true,
+            "factor_list_matches_expected": true,
+            "project_factor_intended_supported": true,
+            "project_factor_list_intended_supported": true,
+            "warnings": []
+          },
+          {
+            "fixture": "quadratic_factor_order",
+            "source": "Add(Pow(Symbol('x'), Integer(4)), Integer(1))",
+            "prime": 3,
+            "factor": "(x**2 - x - 1)*(x**2 + x - 1)",
+            "factor_srepr": "Mul(Add(Pow(Symbol('x'), Integer(2)), Mul(Integer(-1), Symbol('x')), Integer(-1)), Add(Pow(Symbol('x'), Integer(2)), Symbol('x'), Integer(-1)))",
+            "factor_list": "(1, [(x**2 + x - 1, 1), (x**2 - x - 1, 1)])",
+            "factor_list_srepr": "(Integer(1), [(Add(Pow(Symbol('x'), Integer(2)), Symbol('x'), Integer(-1)), 1), (Add(Pow(Symbol('x'), Integer(2)), Mul(Integer(-1), Symbol('x')), Integer(-1)), 1)])",
+            "expected_factor_srepr": "Mul(Add(Pow(Symbol('x'), Integer(2)), Mul(Integer(-1), Symbol('x')), Integer(-1)), Add(Pow(Symbol('x'), Integer(2)), Symbol('x'), Integer(-1)))",
+            "expected_factor_list_srepr": "(1, [(Add(Pow(Symbol('x'), Integer(2)), Symbol('x'), Integer(-1)), 1), (Add(Pow(Symbol('x'), Integer(2)), Mul(Integer(-1), Symbol('x')), Integer(-1)), 1)])",
+            "factor_matches_expected": true,
+            "factor_list_matches_expected": true,
+            "project_factor_intended_supported": true,
+            "project_factor_list_intended_supported": true,
+            "warnings": [
+              {
+                "category": "SymPyDeprecationWarning",
+                "message": "\n\nOrdered comparisons with modular integers are deprecated.\n\n            Use e.g. int(a) < int(b) instead of a < b.\n\nSee https://docs.sympy.org/latest/explanation/active-deprecations.html#modularinteger-compare\nfor details.\n\nThis has been deprecated since SymPy version 1.13. It\nwill be removed in a future version of SymPy.\n"
+              }
+            ]
+          },
+          {
+            "fixture": "linear_factor_order",
+            "source": "Add(Pow(Symbol('x'), Integer(4)), Mul(Integer(2), Pow(Symbol('x'), Integer(2))), Integer(1))",
+            "prime": 5,
+            "factor": "(x - 2)**2*(x + 2)**2",
+            "factor_srepr": "Mul(Pow(Add(Symbol('x'), Integer(-2)), Integer(2)), Pow(Add(Symbol('x'), Integer(2)), Integer(2)))",
+            "factor_list": "(1, [(x + 2, 2), (x - 2, 2)])",
+            "factor_list_srepr": "(Integer(1), [(Add(Symbol('x'), Integer(2)), 2), (Add(Symbol('x'), Integer(-2)), 2)])",
+            "expected_factor_srepr": "Mul(Pow(Add(Symbol('x'), Integer(-2)), Integer(2)), Pow(Add(Symbol('x'), Integer(2)), Integer(2)))",
+            "expected_factor_list_srepr": "(1, [(Add(Symbol('x'), Integer(2)), 2), (Add(Symbol('x'), Integer(-2)), 2)])",
+            "factor_matches_expected": true,
+            "factor_list_matches_expected": true,
+            "project_factor_intended_supported": true,
+            "project_factor_list_intended_supported": true,
+            "warnings": [
+              {
+                "category": "SymPyDeprecationWarning",
+                "message": "\n\nOrdered comparisons with modular integers are deprecated.\n\n            Use e.g. int(a) < int(b) instead of a < b.\n\nSee https://docs.sympy.org/latest/explanation/active-deprecations.html#modularinteger-compare\nfor details.\n\nThis has been deprecated since SymPy version 1.13. It\nwill be removed in a future version of SymPy.\n"
+              }
+            ]
+          },
+          {
+            "fixture": "inseparable_cubic",
+            "source": "Add(Pow(Symbol('x'), Integer(6)), Pow(Symbol('x'), Integer(3)), Integer(1))",
+            "prime": 3,
+            "factor": "(x - 1)**6",
+            "factor_srepr": "Pow(Add(Symbol('x'), Integer(-1)), Integer(6))",
+            "factor_list": "(1, [(x - 1, 6)])",
+            "factor_list_srepr": "(Integer(1), [(Add(Symbol('x'), Integer(-1)), 6)])",
+            "expected_factor_srepr": "Pow(Add(Symbol('x'), Integer(-1)), Integer(6))",
+            "expected_factor_list_srepr": "(1, [(Add(Symbol('x'), Integer(-1)), 6)])",
+            "factor_matches_expected": true,
+            "factor_list_matches_expected": true,
+            "project_factor_intended_supported": true,
+            "project_factor_list_intended_supported": true,
+            "warnings": []
+          },
+          {
+            "fixture": "component_multiplicity",
+            "source": "Mul(Pow(Add(Symbol('x'), Integer(1)), Integer(2)), Pow(Add(Pow(Symbol('x'), Integer(2)), Integer(1)), Integer(3)))",
+            "prime": 2,
+            "factor": "(x + 1)**8",
+            "factor_srepr": "Pow(Add(Symbol('x'), Integer(1)), Integer(8))",
+            "factor_list": "(1, [(x + 1, 8)])",
+            "factor_list_srepr": "(Integer(1), [(Add(Symbol('x'), Integer(1)), Integer(8))])",
+            "expected_factor_srepr": "Pow(Add(Symbol('x'), Integer(1)), Integer(8))",
+            "expected_factor_list_srepr": "(1, [(Add(Symbol('x'), Integer(1)), 8)])",
+            "factor_matches_expected": true,
+            "factor_list_matches_expected": true,
+            "project_factor_intended_supported": true,
+            "project_factor_list_intended_supported": true,
+            "warnings": []
+          },
+          {
+            "fixture": "degree_64_inseparable",
+            "source": "Add(Pow(Symbol('x'), Integer(64)), Integer(1))",
+            "prime": 2,
+            "factor": "(x + 1)**64",
+            "factor_srepr": "Pow(Add(Symbol('x'), Integer(1)), Integer(64))",
+            "factor_list": "(1, [(x + 1, 64)])",
+            "factor_list_srepr": "(Integer(1), [(Add(Symbol('x'), Integer(1)), 64)])",
+            "expected_factor_srepr": "Pow(Add(Symbol('x'), Integer(1)), Integer(64))",
+            "expected_factor_list_srepr": "(1, [(Add(Symbol('x'), Integer(1)), 64)])",
+            "factor_matches_expected": true,
+            "factor_list_matches_expected": true,
+            "project_factor_intended_supported": true,
+            "project_factor_list_intended_supported": true,
+            "warnings": []
+          },
+          {
+            "fixture": "rational_exterior",
+            "source": "Add(Mul(Rational(1, 2), Symbol('x')), Integer(1))",
+            "prime": 3,
+            "factor": "(x - 1)/2",
+            "factor_srepr": "Mul(Rational(1, 2), Add(Symbol('x'), Integer(-1)))",
+            "factor_list": "(1/2, [(x - 1, 1)])",
+            "factor_list_srepr": "(Rational(1, 2), [(Add(Symbol('x'), Integer(-1)), 1)])",
+            "expected_factor_srepr": "Mul(Rational(1, 2), Add(Symbol('x'), Integer(-1)))",
+            "expected_factor_list_srepr": "(Rational(1, 2), [(Add(Symbol('x'), Integer(-1)), 1)])",
+            "factor_matches_expected": true,
+            "factor_list_matches_expected": true,
+            "project_factor_intended_supported": true,
+            "project_factor_list_intended_supported": true,
+            "warnings": []
+          },
+          {
+            "fixture": "negative_rational_exterior",
+            "source": "Add(Mul(Integer(-1), Rational(1, 2), Symbol('x')), Integer(-1))",
+            "prime": 3,
+            "factor": "-(x - 1)/2",
+            "factor_srepr": "Mul(Integer(-1), Rational(1, 2), Add(Symbol('x'), Integer(-1)))",
+            "factor_list": "(-1/2, [(x - 1, 1)])",
+            "factor_list_srepr": "(Rational(-1, 2), [(Add(Symbol('x'), Integer(-1)), 1)])",
+            "expected_factor_srepr": "Mul(Integer(-1), Rational(1, 2), Add(Symbol('x'), Integer(-1)))",
+            "expected_factor_list_srepr": "(Rational(-1, 2), [(Add(Symbol('x'), Integer(-1)), 1)])",
+            "factor_matches_expected": true,
+            "factor_list_matches_expected": true,
+            "project_factor_intended_supported": true,
+            "project_factor_list_intended_supported": true,
+            "warnings": []
+          },
+          {
+            "fixture": "true_denominator_divisible_by_prime",
+            "source": "Add(Mul(Rational(1, 3), Symbol('x')), Integer(1))",
+            "prime": 3,
+            "factor": "x/3",
+            "factor_srepr": "Mul(Rational(1, 3), Symbol('x'))",
+            "factor_list": "(1/3, [(x, 1)])",
+            "factor_list_srepr": "(Rational(1, 3), [(Symbol('x'), 1)])",
+            "expected_factor_srepr": "Mul(Rational(1, 3), Symbol('x'))",
+            "expected_factor_list_srepr": "(Rational(1, 3), [(Symbol('x'), 1)])",
+            "factor_matches_expected": true,
+            "factor_list_matches_expected": true,
+            "project_factor_intended_supported": true,
+            "project_factor_list_intended_supported": true,
+            "warnings": []
+          },
+          {
+            "fixture": "mixed_original_denominators",
+            "source": "Add(Mul(Rational(1, 2), Pow(Symbol('x'), Integer(2))), Mul(Rational(1, 2), Symbol('x')), Rational(1, 3))",
+            "prime": 3,
+            "factor": "-1/6",
+            "factor_srepr": "Rational(-1, 6)",
+            "factor_list": "(-1/6, [])",
+            "factor_list_srepr": "(Rational(-1, 6), [])",
+            "expected_factor_srepr": "Rational(-1, 6)",
+            "expected_factor_list_srepr": "(Rational(-1, 6), [])",
+            "factor_matches_expected": true,
+            "factor_list_matches_expected": true,
+            "project_factor_intended_supported": true,
+            "project_factor_list_intended_supported": true,
+            "warnings": []
+          },
+          {
+            "fixture": "exterior_content_components",
+            "source": "Add(Mul(Integer(2), Pow(Symbol('x'), Integer(3))), Mul(Integer(2), Symbol('x')))",
+            "prime": 3,
+            "factor": "2*x*(x**2 + 1)",
+            "factor_srepr": "Mul(Integer(2), Symbol('x'), Add(Pow(Symbol('x'), Integer(2)), Integer(1)))",
+            "factor_list": "(2, [(x, 1), (x**2 + 1, 1)])",
+            "factor_list_srepr": "(Integer(2), [(Symbol('x'), 1), (Add(Pow(Symbol('x'), Integer(2)), Integer(1)), 1)])",
+            "expected_factor_srepr": "Mul(Integer(2), Symbol('x'), Add(Pow(Symbol('x'), Integer(2)), Integer(1)))",
+            "expected_factor_list_srepr": "(2, [(Symbol('x'), 1), (Add(Pow(Symbol('x'), Integer(2)), Integer(1)), 1)])",
+            "factor_matches_expected": true,
+            "factor_list_matches_expected": true,
+            "project_factor_intended_supported": true,
+            "project_factor_list_intended_supported": true,
+            "warnings": []
+          },
+          {
+            "fixture": "positive_content_distinct_modes",
+            "source": "Add(Mul(Integer(2), Symbol('x')), Integer(2))",
+            "prime": 3,
+            "factor": "2*(x + 1)",
+            "factor_srepr": "Mul(Integer(2), Add(Symbol('x'), Integer(1)))",
+            "factor_list": "(-1, [(x + 1, 1)])",
+            "factor_list_srepr": "(Integer(-1), [(Add(Symbol('x'), Integer(1)), 1)])",
+            "expected_factor_srepr": "Mul(Integer(2), Add(Symbol('x'), Integer(1)))",
+            "expected_factor_list_srepr": "(-1, [(Add(Symbol('x'), Integer(1)), 1)])",
+            "factor_matches_expected": true,
+            "factor_list_matches_expected": true,
+            "project_factor_intended_supported": true,
+            "project_factor_list_intended_supported": true,
+            "warnings": []
+          },
+          {
+            "fixture": "negative_content_distinct_modes",
+            "source": "Add(Mul(Integer(-1), Integer(2), Symbol('x')), Integer(-2))",
+            "prime": 3,
+            "factor": "-2*(x + 1)",
+            "factor_srepr": "Mul(Integer(-1), Integer(2), Add(Symbol('x'), Integer(1)))",
+            "factor_list": "(1, [(x + 1, 1)])",
+            "factor_list_srepr": "(Integer(1), [(Add(Symbol('x'), Integer(1)), 1)])",
+            "expected_factor_srepr": "Mul(Integer(-1), Integer(2), Add(Symbol('x'), Integer(1)))",
+            "expected_factor_list_srepr": "(1, [(Add(Symbol('x'), Integer(1)), 1)])",
+            "factor_matches_expected": true,
+            "factor_list_matches_expected": true,
+            "project_factor_intended_supported": true,
+            "project_factor_list_intended_supported": true,
+            "warnings": []
+          },
+          {
+            "fixture": "repeated_content_distinct_modes",
+            "source": "Add(Mul(Integer(4), Pow(Symbol('x'), Integer(2))), Mul(Integer(8), Symbol('x')), Integer(4))",
+            "prime": 5,
+            "factor": "4*(x + 1)**2",
+            "factor_srepr": "Mul(Integer(4), Pow(Add(Symbol('x'), Integer(1)), Integer(2)))",
+            "factor_list": "(-1, [(x + 1, 2)])",
+            "factor_list_srepr": "(Integer(-1), [(Add(Symbol('x'), Integer(1)), 2)])",
+            "expected_factor_srepr": "Mul(Integer(4), Pow(Add(Symbol('x'), Integer(1)), Integer(2)))",
+            "expected_factor_list_srepr": "(-1, [(Add(Symbol('x'), Integer(1)), 2)])",
+            "factor_matches_expected": true,
+            "factor_list_matches_expected": true,
+            "project_factor_intended_supported": true,
+            "project_factor_list_intended_supported": true,
+            "warnings": []
+          },
+          {
+            "fixture": "modular_degree_drop",
+            "source": "Add(Mul(Integer(3), Pow(Symbol('x'), Integer(2))), Symbol('x'), Integer(1))",
+            "prime": 3,
+            "factor": "x + 1",
+            "factor_srepr": "Add(Symbol('x'), Integer(1))",
+            "factor_list": "(1, [(x + 1, 1)])",
+            "factor_list_srepr": "(Integer(1), [(Add(Symbol('x'), Integer(1)), 1)])",
+            "expected_factor_srepr": "Add(Symbol('x'), Integer(1))",
+            "expected_factor_list_srepr": "(1, [(Add(Symbol('x'), Integer(1)), 1)])",
+            "factor_matches_expected": true,
+            "factor_list_matches_expected": true,
+            "project_factor_intended_supported": true,
+            "project_factor_list_intended_supported": true,
+            "warnings": []
+          },
+          {
+            "fixture": "modular_zero_listing_only",
+            "source": "Add(Mul(Integer(3), Symbol('x')), Integer(3))",
+            "prime": 3,
+            "factor": "3*(x + 1)",
+            "factor_srepr": "Mul(Integer(3), Add(Symbol('x'), Integer(1)))",
+            "factor_list": "(0, [])",
+            "factor_list_srepr": "(Integer(0), [])",
+            "expected_factor_srepr": "Mul(Integer(3), Add(Symbol('x'), Integer(1)))",
+            "expected_factor_list_srepr": "(0, [])",
+            "factor_matches_expected": true,
+            "factor_list_matches_expected": true,
+            "project_factor_intended_supported": false,
+            "project_factor_list_intended_supported": true,
+            "warnings": [],
+            "project_scope_note": "Project factor explicitly refuses characteristic-divisible exterior content; factor_list remains admitted. This oracle output is not a project pass."
+          },
+          {
+            "fixture": "nonzero_literal",
+            "source": "Integer(7)",
+            "prime": 5,
+            "factor": "7",
+            "factor_srepr": "Integer(7)",
+            "factor_list": "(7, [])",
+            "factor_list_srepr": "(Integer(7), [])",
+            "expected_factor_srepr": "Integer(7)",
+            "expected_factor_list_srepr": "(7, [])",
+            "factor_matches_expected": true,
+            "factor_list_matches_expected": true,
+            "project_factor_intended_supported": true,
+            "project_factor_list_intended_supported": true,
+            "warnings": []
+          },
+          {
+            "fixture": "exact_zero",
+            "source": "Integer(0)",
+            "prime": 3,
+            "factor": "0",
+            "factor_srepr": "Integer(0)",
+            "factor_list": "(0, [])",
+            "factor_list_srepr": "(Integer(0), [])",
+            "expected_factor_srepr": "Integer(0)",
+            "expected_factor_list_srepr": "(0, [])",
+            "factor_matches_expected": true,
+            "factor_list_matches_expected": true,
+            "project_factor_intended_supported": true,
+            "project_factor_list_intended_supported": true,
+            "warnings": []
+          }
+        ],
+        "fixture_count": 18,
+        "comparison_count": 36,
+        "failed_comparisons": 0
+      },
+      "qualification": "Includes upstream content conventions that the bounded project lane explicitly refuses."
+    },
+    "least_squares": {
+      "passed": 31,
+      "project_specific_cases_deselected": 13,
+      "raw_log": "Oracle only: SymPy 1.14.0\nImport origin: /workspace/scratch/ef1133665a06/test-env/lib/python3.12/site-packages/sympy/__init__.py\nNo FrankenSymPy shell/native-extension execution is claimed.\n...............................                                          [100%]\n31 passed, 13 deselected in 0.33s\n"
+    },
+    "weighted_summation": {
+      "passed": 12,
+      "project_specific_cases_excluded": 2,
+      "evidence_kind": "Observed terminal result from the oracle-only run; no separate raw log was retained."
+    },
+    "homogeneous_ode": {
+      "scope": "isolated upstream reference only; FrankenSymPy shell was not executed",
+      "version": "1.14.0",
+      "module": "/workspace/scratch/ef1133665a06/test-env/lib/python3.12/site-packages/sympy/__init__.py",
+      "dsolve_signature": "(eq, func=None, hint='default', simplify=True, ics=None, xi=None, eta=None, x0=0, n=6, **kwargs)",
+      "dsolve_system_signature": "(eqs, funcs=None, t=None, ics=None, doit=False, simplify=True)",
+      "explicit_tuple_function_refusal": "\nInput to the funcs should be a list of functions.",
+      "passed_cases": [
+        "rotation IVP at 0",
+        "rotation IVP at 2",
+        "rotation IVP at -3/2",
+        "rotation IVP at 1/3",
+        "Jordan IVP",
+        "zero-matrix IVP",
+        "distinct irrational-real IVP",
+        "inferred reversed order",
+        "explicit reversed order",
+        "partial rational initial data",
+        "invertible derivative matrix"
+      ],
+      "count": 11
+    },
+    "polynomial_forcing": {
+      "scope": "isolated upstream reference only; project public shell was not executed",
+      "version": "1.14.0",
+      "module": "/workspace/scratch/ef1133665a06/test-env/lib/python3.12/site-packages/sympy/__init__.py",
+      "count": 12,
+      "passed_cases": [
+        "constant-forced rotation",
+        "polynomial-forced rotation",
+        "degree18 nilpotent resonance",
+        "shifted rank-one IVP",
+        "zero matrix at rational time",
+        "shifted nilpotent rational correction",
+        "forced repeated Jordan",
+        "forced irrational real modes",
+        "complete partial initial family",
+        "full polynomial transformation by derivative matrix inverse",
+        "explicit reversed forcing order",
+        "inferred reversed forcing order"
+      ]
+    }
+  },
+  "public_python": {
+    "actual_execution": false,
+    "full_current_bridge_compilation": false,
+    "new_regression_suites": [
+      "python/tests/test_prime_field_factorization.py",
+      "python/tests/test_matrix_least_squares.py",
+      "python/tests/test_polynomial_geometric_summation.py",
+      "python/tests/test_linear_ode_system.py",
+      "python/tests/test_polynomial_ode_system.py"
+    ],
+    "python_ast_files_checked": [
+      "python/sympy/__init__.py",
+      "python/sympy/integrals/certified.py",
+      "python/sympy/matrices/dense.py",
+      "python/sympy/polys/polytools.py",
+      "python/sympy/solvers/_ode_system.py",
+      "python/sympy/solvers/ode.py",
+      "python/sympy/utilities/__init__.py",
+      "python/sympy/utilities/_box_optimization.py",
+      "python/sympy/utilities/_certified_objective.py",
+      "python/sympy/utilities/objective.py",
+      "python/tests/test_box_optimization.py",
+      "python/tests/test_certified_quadrature.py",
+      "python/tests/test_linear_ode_system.py",
+      "python/tests/test_matrix_least_squares.py",
+      "python/tests/test_polynomial_geometric_summation.py",
+      "python/tests/test_polynomial_ode_system.py",
+      "python/tests/test_prime_field_factorization.py"
+    ],
+    "actual_extension_ci_wired": true,
+    "bridge_review": "Independent source/API review against actual pinned PyO3 0.27.2 definitions; not compiler or runtime evidence."
+  },
+  "validation_limits": [
+    "The recorded real full-extension retry in the preceding continuation used CARGO_INCREMENTAL=0 cargo build -p fsym-python --lib --locked, one job and debug info disabled. It exited101 when pinned asupersync rustc received SIGKILL under shared8GiB memory pressure; no source diagnostic or complete extension was produced. It was not retried with a modified dependency graph in this round.",
+    "The native test/Clippy results cover the actual five native packages and dependencies, not the whole workspace or complete Python extension. No mock, subset extension or upstream production fallback was counted.",
+    "The final rustfmt gate first requested only a line wrap for the new PyO3 function registration; that correction is included with this record. Native tests and Clippy ran on2dba46b; the final bridge followup is formatting only and public execution is still unclaimed.",
+    "No compatibility profile, workstream, campaign, performance or general mathematical support gate is closed. Bead status, priority and dependency edges are unchanged."
+  ],
+  "independent_review": "Separate reviewers checked core arithmetic/display contracts, native generator/verifier separation and mutations, original source and typed binding, least-squares completeness, field content/denominator attacks, ODE forcing signs/initial normalization, budget composition and actual PyO3 API signatures. A documentation sequencing claim was corrected to distinguish generation from final acceptance.",
+  "logs": {
+    "artifacts/audit/2026-11-04-algebra-ode-sums-native.log": {
+      "sha256": "0203905c849b1c3bb8eb0fc4cc35bf1575e89e32869261a7891bbc33667d7144",
+      "kind": "Raw final native tests, Clippy, initial formatting finding and successful formatting/AST followup"
+    },
+    "artifacts/audit/2026-11-04-raw-product-red.log": {
+      "sha256": "96454064b78c4d0a259e93bd27d9bc9569fe71df81d5efe8fc60c54ebb7349c3",
+      "kind": "Raw red run of six new core regressions before production correction"
+    }
+  },
+  "source_files": {
+    ".github/workflows/ci.yml": {
+      "sha256": "8f65877f1142d3df7cc326b8ed0bf80d698c6b75576aa80bf3016f939cfa24c7",
+      "bytes": 13668
+    },
+    "crates/fsym-calculus/src/geometric_sum.rs": {
+      "sha256": "f5a3cb5635e9574cceefe5dbe2655e07309b22441b8d1ac14f7bbb8edf672d28",
+      "bytes": 26904
+    },
+    "crates/fsym-calculus/src/lib.rs": {
+      "sha256": "20dda5114c8bfd9b6f3de33b91a50f10e964141ad886b700450769af2de93866",
+      "bytes": 99092
+    },
+    "crates/fsym-calculus/src/summation.rs": {
+      "sha256": "76bcfabd1e3d894ef074dff85031e1d4379335fdcd0194bf4ebe659536a432c7",
+      "bytes": 17251
+    },
+    "crates/fsym-calculus/tests/geometric_summation.rs": {
+      "sha256": "e707d1b83c79ddb57ddc841b4c7bbf0bc517e6bd99cee398b73c120fa4b3dd3a",
+      "bytes": 13852
+    },
+    "crates/fsym-core/src/lib.rs": {
+      "sha256": "5a79ac0c76d83754aea46888d1ed94d116b4daa075cba00467edad979bf8627d",
+      "bytes": 97228
+    },
+    "crates/fsym-core/tests/raw_product_value.rs": {
+      "sha256": "9fa996a5eedb31c8ce01b7ae1b262e667d4ccb7a0e60e90c77059da6d11d50c1",
+      "bytes": 6683
+    },
+    "crates/fsym-matrices/src/least_squares.rs": {
+      "sha256": "83b5d6a73b7a60768a637523ea94570e65a0d0a532c78a0644e6545dcf20f37b",
+      "bytes": 23293
+    },
+    "crates/fsym-matrices/src/lib.rs": {
+      "sha256": "62de1e61486991fd74ae2831c4d6e6d4bb57c71de00599164ef4a7ba6b5cb4a5",
+      "bytes": 167585
+    },
+    "crates/fsym-matrices/tests/least_squares.rs": {
+      "sha256": "99c093144aef8689967566bb59beb40774a04ede12db985c238805227755808b",
+      "bytes": 16130
+    },
+    "crates/fsym-polys/src/finite_field.rs": {
+      "sha256": "74e7dfb6eb99bbb2d9df4c0bc9e28f33a383ff0043f587d08c767129bc168826",
+      "bytes": 25055
+    },
+    "crates/fsym-polys/src/finite_field_source.rs": {
+      "sha256": "c8c969cd18366675f75d8ebdd4447c1d5f642ea509314633987276e4af66f4ee",
+      "bytes": 20055
+    },
+    "crates/fsym-polys/src/lib.rs": {
+      "sha256": "062a520802f79ea5dbaa80c324c766c410f9473f6dfdd93b42a8b07e1a154ff6",
+      "bytes": 63223
+    },
+    "crates/fsym-polys/tests/finite_field.rs": {
+      "sha256": "6992ad791257bb7ca4fc1bf809706f6331166d215af1e06d6ed54df200b27a3b",
+      "bytes": 10845
+    },
+    "crates/fsym-polys/tests/finite_field_source.rs": {
+      "sha256": "02b638c7bbcf46d8ab915329d3be461f183971e30733bfc4aa50a6ac54edff91",
+      "bytes": 14226
+    },
+    "crates/fsym-python/src/finite_field.rs": {
+      "sha256": "303200cb450e39ee17090bd53d431e19722405286b10c2c5a1e76b84b4cb8f6c",
+      "bytes": 6369
+    },
+    "crates/fsym-python/src/lib.rs": {
+      "sha256": "8a6e06f7d693953c89f7ca39159170b4529af97998c294d1c1394606621bb8c1",
+      "bytes": 111225
+    },
+    "crates/fsym-python/src/matrix.rs": {
+      "sha256": "bd3d7a1458d86e14b799cf8d150171f3c4046ff85509d7ca7722e76982431e9b",
+      "bytes": 34906
+    },
+    "crates/fsym-python/src/ode_system.rs": {
+      "sha256": "9d8a9ac528ee210a4695e0a5f51d637f6e2ad8bea70adbdc13d5dbc2e1bf3b57",
+      "bytes": 5118
+    },
+    "crates/fsym-solvers/src/ode.rs": {
+      "sha256": "4264c55f55c51bade4004236a9847e879dd5bd1dbda3c1fb59b535b9ca84d5aa",
+      "bytes": 28603
+    },
+    "crates/fsym-solvers/src/ode/system.rs": {
+      "sha256": "625ab1dbd4d3df46a33621363420b2101316aa97cc5998ca577af41a90109f79",
+      "bytes": 22856
+    },
+    "crates/fsym-solvers/src/ode/system/polynomial.rs": {
+      "sha256": "769bbcb7138c351cf05d079bc0b36b8ad00e8534c6f5075128e511bd613dc652",
+      "bytes": 18897
+    },
+    "crates/fsym-solvers/tests/linear_ode_system.rs": {
+      "sha256": "c96fbab32b02f6f0e290d53479105a9667075909e181c915380505730bcde0ff",
+      "bytes": 12944
+    },
+    "crates/fsym-solvers/tests/polynomial_ode_system.rs": {
+      "sha256": "d11f87eef4e1ab3ea136b30f8fa48c7e435ae4356586b70bacad97af03241648",
+      "bytes": 14042
+    },
+    "python/sympy/matrices/dense.py": {
+      "sha256": "9f4bdafc586b79416348311ffb31726de1f526fa4c21310017bda6fb388f3f89",
+      "bytes": 96862
+    },
+    "python/sympy/polys/polytools.py": {
+      "sha256": "12292e3b2e16a9a0fd773b083a0e9a468464df1592936f015143101c6a454ac7",
+      "bytes": 104888
+    },
+    "python/sympy/solvers/_ode_system.py": {
+      "sha256": "659a05b2049af4972394ce81183285f508437c39f59e5ab8b6e37f97c3972f3f",
+      "bytes": 16944
+    },
+    "python/sympy/solvers/ode.py": {
+      "sha256": "c78039993451b3dbfc7684dc94522e48ae9e8d0f2688de6f51f954dc54528629",
+      "bytes": 62604
+    },
+    "python/tests/test_linear_ode_system.py": {
+      "sha256": "5fae39de568393d93ce963157da949aedc462871f2f6ef9aef894300b391d4d2",
+      "bytes": 12028
+    },
+    "python/tests/test_matrix_least_squares.py": {
+      "sha256": "6841c262ef155c4129d7a91fb6bfe40f33e9b113180fcc72bea2abe00efac451",
+      "bytes": 10251
+    },
+    "python/tests/test_polynomial_geometric_summation.py": {
+      "sha256": "6ac4016e9ef679f17b4470e04e1cb606636849243d9d5bbb4fa51a43652b37fd",
+      "bytes": 2606
+    },
+    "python/tests/test_polynomial_ode_system.py": {
+      "sha256": "9ca9c0246e9f263a1c11da89865bcab2028dd769564256aa36eaf46610323a89",
+      "bytes": 9803
+    },
+    "python/tests/test_prime_field_factorization.py": {
+      "sha256": "e0acddbac1ff63c257ce2983eece254d7263ff7b6dba570ddb67299bfedf4ac5",
+      "bytes": 6533
+    },
+    "Cargo.toml": {
+      "sha256": "2a3e571cc40b1e8b3ff35f9dfcea3b1599cd9080b229d6be888f0c349352cdd5",
+      "bytes": 5021
+    },
+    "Cargo.lock": {
+      "sha256": "b00fd0998bde7ab027341982ded46dca974303109dcc1fe2d0b2a10852fdcfb2",
+      "bytes": 60873
+    },
+    "rust-toolchain.toml": {
+      "sha256": "cdaedf5d65db22fa32d18beadab465c1b7653285dfb2e14d23f7dfd9677f9848",
+      "bytes": 156
+    }
+  }
+}
