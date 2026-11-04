@@ -134,6 +134,7 @@ jobs:
           cargo test --locked -p fsym-core --test objective_enclosure --test stationary_certificate --test box_extremum --test root_box_general -j1
           cargo test --locked -p fsym-bigint --lib floor_square_root_pins_exact_square_boundaries_and_governed_lane -j1
           cargo test --locked -p fsym-polys --test rational_localization -j1
+          cargo test --locked -p fsym-matrices --test affine_system --test rectangular_solve -j1
           cargo test --locked -p fsym-calculus --test rational_laplace --test delayed_laplace -j1
           cargo test --locked -p fsym-calculus --test general_power_programs -j1
           cargo test --locked -p fsym-calculus --test sparse_hessian -j1
@@ -237,6 +238,7 @@ jobs:
               "python/tests/test_generalized_series.py",
               "python/tests/test_algebraic_matrix_spectra.py",
               "python/tests/test_matrix_norms.py",
+              "python/tests/test_rectangular_matrix_solve.py",
               "python/tests/test_exact_dsolve.py",
               "python/tests/test_exact_ode.py",
               "python/tests/test_compiled_powers.py",

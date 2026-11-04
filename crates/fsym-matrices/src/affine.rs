@@ -5,10 +5,10 @@
 //! entire solution family, including inconsistency and uniqueness. Generation
 //! and verification use distinct caller meters; neither retries with a reset.
 
-use crate::{Matrix, MatrixError, numeric_value};
+use crate::{Matrix, MatrixError, from_rational, numeric_value};
 use fsym_budget::{BudgetError, BudgetMeter, Dimension, MeterError, Unbounded};
-use fsym_core::BigRational;
 use fsym_core::arith::RationalArithmeticError;
+use fsym_core::{BigRational, Expr};
 use fsym_proof_kernel::linear_system::{
     LINEAR_SYSTEM_SCHEMA_VERSION, LinearRowOperation, LinearSystemVerificationError,
     LinearSystemVerificationReceipt, LinearSystemWitness, MAX_LINEAR_SYSTEM_COEFFICIENT_BITS,
@@ -89,6 +89,19 @@ fn check_value(value: &BigRational) -> Result<(), MatrixError> {
         ));
     }
     Ok(())
+}
+
+fn check_input(entry: &Expr) -> Result<(), MatrixError> {
+    match entry {
+        Expr::Integer(value) => {
+            if value.bits() > MAX_LINEAR_SYSTEM_COEFFICIENT_BITS {
+                return Err(limit("integer input exceeds coefficient bound"));
+            }
+            Ok(())
+        }
+        Expr::Rational(value) => check_value(value),
+        _ => Err(MatrixError::UnsupportedCertificateDomain),
+    }
 }
 
 struct Generate<'a, M> {
@@ -211,6 +224,96 @@ impl<M: BudgetMeter> Generate<'_, M> {
 }
 
 impl Matrix {
+    /// The nonsquare branch of `Matrix::solve`. Every column must have a
+    /// verified unique solution; no partial answer is published if a later
+    /// column is inconsistent or exhausts the shared budget.
+    pub(super) fn solve_rectangular_unique(&self, rhs: &Matrix) -> Result<Matrix, MatrixError> {
+        self.validate_shape()?;
+        rhs.validate_shape()?;
+        let (rows, columns, rhs_columns) = (self.rows, self.cols, rhs.cols);
+        if rhs.rows != rows {
+            return Err(MatrixError::ShapeMismatch(
+                rows,
+                columns,
+                rhs.rows,
+                rhs_columns,
+            ));
+        }
+        if rows > MAX_LINEAR_SYSTEM_DIMENSION
+            || columns > MAX_LINEAR_SYSTEM_DIMENSION
+            || rhs_columns > MAX_LINEAR_SYSTEM_DIMENSION
+        {
+            return Err(limit(
+                "at most 128 equations, unknowns, and right-hand sides are supported",
+            ));
+        }
+        // Admit every original coefficient before any row reduction or copy,
+        // including entries in later right-hand sides and zero-column systems.
+        for entry in self.data.iter().chain(&rhs.data) {
+            check_input(entry)?;
+        }
+        let work_bound = rows * columns * rows.min(columns).max(1) * rhs_columns.max(1);
+        if work_bound > 4_194_304 {
+            return Err(limit("aggregate right-hand-side work limit exceeded"));
+        }
+
+        // Repeated solves must not reset the generator or independent
+        // verifier's allowance. Each inner lane also retains its own caps.
+        let mut generator = Generate {
+            meter: &mut Unbounded,
+            steps: 0,
+            bytes: 0,
+        };
+        let mut verifier = Generate {
+            meter: &mut Unbounded,
+            steps: 0,
+            bytes: 0,
+        };
+        let mut entries = generator.vector(columns * rhs_columns)?;
+        entries.resize_with(columns * rhs_columns, || Expr::from_i64(0));
+
+        // With no RHS columns, check full column rank using the homogeneous
+        // system. This matches LUsolve's empty-result convention without
+        // silently accepting a rank-deficient coefficient matrix.
+        for column in 0..rhs_columns.max(1) {
+            let mut data = generator.vector(rows)?;
+            for row in 0..rows {
+                if rhs_columns == 0 {
+                    data.push(Expr::from_i64(0));
+                } else {
+                    let entry = &rhs.data[row * rhs_columns + column];
+                    let limbs = match entry {
+                        Expr::Integer(value) => value.limb_count() + 1,
+                        Expr::Rational(value) => {
+                            value.numer().limb_count() + value.denom().limb_count()
+                        }
+                        _ => return Err(MatrixError::UnsupportedCertificateDomain),
+                    };
+                    generator.storage(limbs.max(1) as usize * 8)?;
+                    data.push(entry.clone());
+                }
+            }
+            let column_rhs = Matrix::new(rows, 1, data)?;
+            let checked =
+                self.solve_affine_with_meters(&column_rhs, &mut generator, &mut verifier)?;
+            match checked.solution() {
+                RationalLinearSolution::Unique { values } => {
+                    if rhs_columns != 0 {
+                        for (row, value) in values.iter().enumerate() {
+                            entries[row * rhs_columns + column] =
+                                from_rational(generator.clone_value(value)?);
+                        }
+                    }
+                }
+                RationalLinearSolution::Affine { .. } => return Err(MatrixError::SingularMatrix),
+                RationalLinearSolution::Inconsistent { .. } => {
+                    return Err(MatrixError::InconsistentLinearSystem);
+                }
+            }
+        }
+        Matrix::new(columns, rhs_columns, entries)
+    }
+
     /// Complete exact-rational solution set of `A x = b`, including rectangular
     /// and singular systems. The right-hand side must be a single column.
     ///
@@ -263,15 +366,7 @@ impl Matrix {
         // copy, including zero rows and entries irrelevant to pivot discovery.
         for value in self.data.iter().chain(&rhs.data) {
             work.tick(1)?;
-            match value {
-                fsym_core::Expr::Integer(value) => {
-                    if value.bits() > MAX_LINEAR_SYSTEM_COEFFICIENT_BITS {
-                        return Err(limit("integer input exceeds coefficient bound"));
-                    }
-                }
-                fsym_core::Expr::Rational(value) => check_value(value)?,
-                _ => return Err(MatrixError::UnsupportedCertificateDomain),
-            }
+            check_input(value)?;
         }
         let mut coefficients = work.vector(self.data.len())?;
         let mut rhs_values = work.vector(rows)?;

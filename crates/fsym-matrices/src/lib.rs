@@ -53,6 +53,8 @@ pub enum MatrixError {
     NotSquare(usize, usize),
     #[error("Singular matrix cannot be inverted")]
     SingularMatrix,
+    #[error("The linear system is inconsistent")]
+    InconsistentLinearSystem,
     #[error("Index out of bounds ({0}, {1}) for shape {2}x{3}")]
     OutOfBounds(usize, usize, usize, usize),
     #[error(
@@ -1833,12 +1835,17 @@ impl Matrix {
         Ok(cert)
     }
 
-    /// Solves an exact-rational linear system $A \cdot X = B$ for square $A$ and right-hand side $B$.
+    /// Solves an exact-rational linear system $A \cdot X = B$ with a unique solution.
+    ///
+    /// Rectangular systems use independently checked complete affine outcomes
+    /// for every right-hand side. That lane admits at most 128 equations,
+    /// unknowns, and right-hand sides, with shared aggregate work/storage caps.
+    /// Square systems retain the established row-reduction lane and its bounds.
     pub fn solve(&self, b: &Matrix) -> Result<Matrix, MatrixError> {
         self.validate_shape()?;
         b.validate_shape()?;
         if self.rows != self.cols {
-            return Err(MatrixError::NotSquare(self.rows, self.cols));
+            return self.solve_rectangular_unique(b);
         }
         if self.rows != b.rows {
             return Err(MatrixError::ShapeMismatch(
