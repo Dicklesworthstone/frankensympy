@@ -81,14 +81,19 @@ def test_supported_time_shift_and_symbolic_table_paths_remain_available():
 
 
 @pytest.mark.parametrize("source_kind", ["constant", "improper", "irreducible_cubic"])
-def test_unsupported_distributions_or_poles_remain_unevaluated_not_zero(source_kind):
+def test_distributional_parts_are_complete_and_unsupported_poles_remain_unevaluated(source_kind):
     z, t = s.symbols("laplace_unsupported_s laplace_unsupported_t")
     sources = {"constant": s.Integer(1), "improper": z/(z+1), "irreducible_cubic": 1/(z**3-z+1)}
     source = sources[source_kind]
     result = s.inverse_laplace_transform(source, z, t)
-    assert isinstance(result, s.InverseLaplaceTransform)
-    assert result.args == (source, z, t)
-    assert result != 0
+    if source_kind == "irreducible_cubic":
+        assert isinstance(result, s.InverseLaplaceTransform)
+        assert result.args == (source, z, t)
+        assert result != 0
+    elif source_kind == "constant":
+        assert result == s.DiracDelta(t)
+    else:
+        equal(result, s.DiracDelta(t) - s.exp(-t)*s.Heaviside(t))
 
 
 def test_zero_transform_is_exactly_zero():

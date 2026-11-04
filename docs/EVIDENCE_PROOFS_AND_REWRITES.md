@@ -478,6 +478,37 @@ Each family declares verification obligations separately:
 - completeness/general-solution claims distinguished from one verified solution;
 - singular solutions and excluded parameter cases.
 
+#### Bounded rational distributional inverse Laplace transforms
+
+`fsym_calculus::rational_laplace::distributional` accepts an exact rational
+source `A(s)/B(s)` in one typed transform variable and a distinct typed time
+variable. Its convention is the unilateral transform with lower limit `0-`,
+under which `Laplace(DiracDelta(t, k)) = s**k`. This agrees with the
+[SymPy distributional Laplace convention](https://docs.sympy.org/latest/modules/integrals/integrals.html#sympy.integrals.laplace.laplace_transform).
+
+The proposal contains a polynomial `P(s)` and the existing proper rational
+inverse certificate for a regular part `R(s)/B(s)`. The reference checker
+reconstructs `R` from the closed transforms of exponential, sine and cosine
+blocks and checks the exact coefficient identity `P*B + R = A`. It never
+uses the generator's division of the source numerator or its residue solver
+to accept a result. Exact denominator quotients remain part of regular
+transform reconstruction. Source exclusions are admitted before cancellation
+and retained in the sufficient right half-plane bound.
+
+The immutable receipt exposes two separate expressions: the regular function
+and `sum(P[k]*DiracDelta(t, k))`. The Python surface attaches `Heaviside(t)`
+only to the regular function; impulses must not acquire that multiplier.
+Failure to invert any regular tail refuses the entire source, even if its
+polynomial part was found. Input degree is at most 32, source coefficients
+at most 4096 bits, and both generation and verification retain independent
+cumulative resource limits and final cancellation checks.
+
+This is a bounded in-process composition receipt, not a portable kernel claim
+or a general distribution calculus. Delayed proper rational inverses continue
+to use their existing separate certificate; delayed improper transforms are
+outside this distributional slice. No compatibility profile is promoted by
+these focused checks.
+
 ## 12. Modular and probabilistic techniques
 
 Randomized or modular algorithms can be extraordinarily fast, but evidence must match the claim.

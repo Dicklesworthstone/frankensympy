@@ -23,6 +23,8 @@ use num_traits::{One, Signed, Zero};
 use std::sync::Arc;
 use thiserror::Error;
 
+pub mod distributional;
+
 const MAX_DEGREE: usize = 32;
 const MAX_INTERNAL_DEGREE: usize = 96;
 const MAX_INPUT_BITS: u64 = 4096;
@@ -356,7 +358,11 @@ impl<M: BudgetMeter> Work<'_, M> {
         Ok(out)
     }
 
-    fn quotient(&mut self, top: &[BigRational], bottom: &[BigRational]) -> Result<Coefficients> {
+    fn div_rem(
+        &mut self,
+        top: &[BigRational],
+        bottom: &[BigRational],
+    ) -> Result<(Coefficients, Coefficients)> {
         if is_zero(bottom) {
             return Err(RationalLaplaceError::Verification(
                 "zero polynomial divisor",
@@ -378,12 +384,17 @@ impl<M: BudgetMeter> Work<'_, M> {
             }
             trim(&mut remainder);
         }
+        trim(&mut quotient);
+        Ok((quotient, remainder))
+    }
+
+    fn quotient(&mut self, top: &[BigRational], bottom: &[BigRational]) -> Result<Coefficients> {
+        let (quotient, remainder) = self.div_rem(top, bottom)?;
         if !is_zero(&remainder) {
             return Err(RationalLaplaceError::Verification(
                 "transform denominator does not divide original denominator",
             ));
         }
-        trim(&mut quotient);
         Ok(quotient)
     }
 }
@@ -681,6 +692,14 @@ fn generate(
 ) -> Result<RationalLaplaceCertificate> {
     admit(source, variable, time, work)?;
     let original = parse_source(source, work)?;
+    generate_regular_fraction(&original, variable, work)
+}
+
+fn generate_regular_fraction(
+    original: &Fraction,
+    variable: &Symbol,
+    work: &mut Work<'_, impl BudgetMeter>,
+) -> Result<RationalLaplaceCertificate> {
     if is_zero(&original.numerator) {
         return Ok(RationalLaplaceCertificate { blocks: Vec::new() });
     }
@@ -1198,27 +1217,20 @@ fn lifted_function(
     Ok(sum_expression(terms))
 }
 
-fn verify_inner(
-    source: &Expr,
-    variable: &Symbol,
-    time: &Symbol,
+/// Reconstruct the regular component independently of residue generation.
+/// Keeping the original denominator binds every pole and every coefficient.
+fn reconstruct_regular_numerator(
     certificate: &RationalLaplaceCertificate,
+    denominator: &[BigRational],
     work: &mut Work<'_, impl BudgetMeter>,
-) -> Result<VerifiedRationalLaplace> {
-    let nodes = admit(source, variable, time, work)?;
-    let original = parse_source(source, work)?;
-    if !is_zero(&original.numerator) && original.numerator.len() >= original.denominator.len() {
-        return Err(RationalLaplaceError::Unsupported(
-            "improper transforms require distributional terms",
-        ));
-    }
+) -> Result<(Coefficients, usize)> {
     let cells = validate_certificate(certificate, work)?;
     let mut reconstructed = work.copy(&[BigRational::zero()])?;
     for block in &certificate.blocks {
         match block {
             LaplaceBlock::Exponential { rate, coefficients } => check_component(
                 &mut reconstructed,
-                &original.denominator,
+                denominator,
                 rate,
                 None,
                 coefficients,
@@ -1233,7 +1245,7 @@ fn verify_inner(
             } => {
                 check_component(
                     &mut reconstructed,
-                    &original.denominator,
+                    denominator,
                     rate,
                     Some(squared_frequency),
                     cosine,
@@ -1242,7 +1254,7 @@ fn verify_inner(
                 )?;
                 check_component(
                     &mut reconstructed,
-                    &original.denominator,
+                    denominator,
                     rate,
                     Some(squared_frequency),
                     sine,
@@ -1252,6 +1264,25 @@ fn verify_inner(
             }
         }
     }
+    Ok((reconstructed, cells))
+}
+
+fn verify_inner(
+    source: &Expr,
+    variable: &Symbol,
+    time: &Symbol,
+    certificate: &RationalLaplaceCertificate,
+    work: &mut Work<'_, impl BudgetMeter>,
+) -> Result<VerifiedRationalLaplace> {
+    let nodes = admit(source, variable, time, work)?;
+    let original = parse_source(source, work)?;
+    if !is_zero(&original.numerator) && original.numerator.len() >= original.denominator.len() {
+        return Err(RationalLaplaceError::Unsupported(
+            "improper transforms require distributional terms",
+        ));
+    }
+    let (reconstructed, cells) =
+        reconstruct_regular_numerator(certificate, &original.denominator, work)?;
     if reconstructed != original.numerator {
         return Err(RationalLaplaceError::Verification(
             "complete rational transform identity",

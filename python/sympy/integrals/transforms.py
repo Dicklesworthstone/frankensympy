@@ -412,9 +412,11 @@ def _original_transform_source(expression: Any) -> Any:
 
 
 def inverse_laplace_transform(F: Any, s: Any, t: Any, plane: Any = None, noconds: bool = True, **kwargs: Any) -> Any:
-    """Return a causal inverse with exact rational poles and time delays.
+    """Return a causal inverse with exact rational poles, impulses and time delays.
 
-    Proper rational functions and finite sums of their exact nonnegative
+    Rational functions include polynomial parts as Dirac delta derivatives,
+    using the unilateral lower-limit convention 0-. Their regular parts and
+    finite sums of proper transforms with exact nonnegative
     rational delays use independently checked native transform identities,
     including repeated linear and quadratic poles. Equal delays are combined
     before inversion. Original held sources and typed variables are preserved.
@@ -434,13 +436,16 @@ def inverse_laplace_transform(F: Any, s: Any, t: Any, plane: Any = None, noconds
         return result if noconds else (result, True)
     if raw is not None:
         result = Integer(0)
-        for raw_delay, raw_function in raw:
+        for raw_delay, raw_function, raw_impulses in raw:
             delay = _lift_native_result(raw_delay, F, s, t)
             function = _lift_native_result(raw_function, F, s, t)
+            impulses = _lift_native_result(raw_impulses, F, s, t)
             causal = function * Heaviside(t - delay)
             # Preserve the existing pure rational surface. Shifted polynomial
             # powers stay compact after their checked native construction.
-            result = result + (expand(causal) if delay == 0 else causal)
+            # An impulse already has causal support. Multiplying it by the
+            # discontinuous step at its support is not this distribution.
+            result = result + impulses + (expand(causal) if delay == 0 else causal)
         return result if noconds else (result, True)
     return _inverse_laplace_table(F, s, t, plane, noconds, **kwargs)
 

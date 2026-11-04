@@ -1,10 +1,12 @@
-//! Typed bounded bridge for checked proper rational and delayed inverse Laplace transforms.
+//! Typed bounded bridge for checked rational and delayed inverse Laplace transforms.
+//! Regular functions and impulse distributions have distinct output components.
 
 use crate::binding::PySymbolBinding;
 use crate::expr::PyExpr;
 use crate::to_value_error;
 use fsym_calculus::delayed_laplace::metered_inverse_delayed_laplace;
-use fsym_calculus::rational_laplace::{RationalLaplaceError, metered_inverse_rational_laplace};
+use fsym_calculus::rational_laplace::RationalLaplaceError;
+use fsym_calculus::rational_laplace::distributional::metered_inverse_distributional_laplace;
 use fsym_core::elementary::rational_expr;
 use fsym_core::{BigRational, Expr, Symbol};
 use fsym_polys::{PolyError, bounded_polynomial_from_expr};
@@ -351,7 +353,9 @@ fn admit_inverse_table_fallback(source: &Expr, meter: &mut Budget) -> PyResult<(
 
 // Every ordinary part already has its typed time displacement. The public
 // surface attaches exactly one Heaviside(t-delay), including delay zero.
-type InverseParts = Vec<(PyExpr, PyExpr)>;
+// (delay, shifted regular function, impulse distribution). Only the regular
+// function receives a Heaviside multiplier on the public causal surface.
+type InverseParts = Vec<(PyExpr, PyExpr, PyExpr)>;
 
 fn inverse_error(error: RationalLaplaceError) -> PyErr {
     match error {
@@ -385,7 +389,7 @@ pub fn inverse_rational_laplace_native(
         ));
     }
     let parts = if rational_shape(&source.inner, &transform_variable, &mut generator)? {
-        let checked = metered_inverse_rational_laplace(
+        let checked = metered_inverse_distributional_laplace(
             &source.inner,
             &transform_variable,
             &time_variable,
@@ -393,10 +397,16 @@ pub fn inverse_rational_laplace_native(
             &mut verifier,
         )
         .map_err(inverse_error)?;
-        charge(&mut verifier, 2, size_of::<(PyExpr, PyExpr)>() + 256)?;
+        charge(
+            &mut verifier,
+            3,
+            size_of::<(PyExpr, PyExpr, PyExpr)>() + 384,
+        )?;
+        let (regular, impulses) = checked.into_parts();
         vec![(
             PyExpr::from_expr(Expr::from_i64(0)),
-            PyExpr::from_expr(checked.into_function()),
+            PyExpr::from_expr(regular),
+            PyExpr::from_expr(impulses),
         )]
     } else {
         // The complete original shape was inspected before this dispatch.
@@ -415,7 +425,7 @@ pub fn inverse_rational_laplace_native(
         };
         let count = checked.parts().len();
         let bytes = checked.parts().iter().fold(
-            count * (size_of::<(PyExpr, PyExpr)>() + 256),
+            count * (size_of::<(PyExpr, PyExpr, PyExpr)>() + 384),
             |bytes, part| {
                 let delay = part.delay();
                 bytes.saturating_add(
@@ -423,7 +433,7 @@ pub fn inverse_rational_laplace_native(
                 )
             },
         );
-        charge(&mut verifier, count * 2, bytes)?;
+        charge(&mut verifier, count * 3, bytes)?;
         checked
             .into_parts()
             .into_iter()
@@ -432,6 +442,7 @@ pub fn inverse_rational_laplace_native(
                 (
                     PyExpr::from_expr(rational_expr(delay)),
                     PyExpr::from_expr(function),
+                    PyExpr::from_expr(Expr::from_i64(0)),
                 )
             })
             .collect()
