@@ -34,6 +34,20 @@ def test_symbolic_bound_result_reconstructs_each_finite_sum():
         assert s.simplify(result.subs(n, end)) == sum(i * 2**i for i in range(end + 1))
 
 
+def test_assumed_dummy_bound_and_index_keep_separate_identities_in_the_result():
+    k = s.Dummy("geometric_bound_dummy", integer=True)
+    n = s.Dummy("geometric_bound_dummy", integer=True, nonnegative=True)
+    result = s.summation(k * 2**k, (k, 0, n))
+    assert not isinstance(result, s.Sum)
+    assert result.free_symbols == {n}
+    recovered = next(iter(result.free_symbols))
+    assert recovered is n
+    assert recovered.is_integer is True
+    assert recovered.is_nonnegative is True
+    for end in (0, 2, 9):
+        assert s.simplify(result.subs(n, end)) == sum(i * 2**i for i in range(end + 1))
+
+
 @pytest.mark.parametrize("lower,upper", [(-3, 5), (8, 1), (3, 2)])
 def test_negative_and_reversed_integer_ranges(lower, upper):
     k = s.Symbol("geometric_range_k", integer=True)

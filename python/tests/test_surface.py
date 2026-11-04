@@ -1076,6 +1076,253 @@ class SurfaceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             sympy.Symbol("__fsymDummy_1_x")
 
+    def test_dummy_assumptions_keep_unique_typed_identity_and_native_lifting(self):
+        from sympy.core import _native_expr, _symbol_binding, _wrap
+
+        first = sympy.Dummy("assumed_dummy_same", integer=True, positive=True)
+        second = sympy.Dummy("assumed_dummy_same", integer=True, positive=True)
+        ordinary = sympy.Symbol("assumed_dummy_same", integer=True, positive=True)
+        self.assertEqual(len({first, second, ordinary}), 3)
+        self.assertIs(first.is_integer, True)
+        self.assertIs(first.is_positive, True)
+        self.assertIs(first.is_real, True)
+        self.assertFalse(_symbol_binding(first).plain)
+        self.assertNotEqual(_symbol_binding(first).name, _symbol_binding(second).name)
+        self.assertIs(_wrap(_native_expr(first)), first)
+
+        result = sympy.diff(first**2 + first*second + ordinary, first)
+        self.assertEqual(result, 2*first + second)
+        self.assertEqual(result.free_symbols, {first, second})
+        for atom in result.free_symbols:
+            self.assertTrue(atom is first or atom is second)
+        self.assertEqual(sympy.diff(first**2, second), 0)
+        self.assertEqual(sympy.diff(first**2, ordinary), 0)
+
+    def test_dummy_assumptions_canonicalize_and_reconstruct_without_name_aliasing(self):
+        first = sympy.Dummy("declared_dummy", integer=1, positive=None)
+        equivalent = sympy.Dummy(
+            first.name, dummy_index=first.dummy_index, integer=True,
+        )
+        incompatible = sympy.Dummy(
+            first.name, dummy_index=first.dummy_index, integer=False,
+        )
+        plain = sympy.Dummy(first.name, dummy_index=first.dummy_index)
+        self.assertIs(first.is_integer, True)
+        self.assertEqual(first._assumptions, {"integer": True})
+        self.assertEqual(first, equivalent)
+        self.assertEqual(hash(first), hash(equivalent))
+        self.assertIsNot(first, equivalent)
+        self.assertNotEqual(first, incompatible)
+        self.assertNotEqual(first, plain)
+        self.assertIs(incompatible.is_integer, False)
+        self.assertEqual(sympy.diff(first*incompatible, first), incompatible)
+
+        rendered = sympy.srepr(first)
+        self.assertEqual(
+            rendered,
+            f"Dummy('declared_dummy', integer=True, dummy_index={first.dummy_index})",
+        )
+        rebuilt = eval(rendered, {"Dummy": sympy.Dummy})  # trusted generated fixture
+        self.assertIs(type(rebuilt), sympy.Dummy)
+        self.assertEqual(rebuilt, first)
+        self.assertIs(rebuilt.is_integer, True)
+
+    def test_dummy_srepr_preserves_declared_assumption_order_through_reconstruction(self):
+        from sympy.core import _native_expr
+
+        first = sympy.Dummy("ordered_dummy", positive=True, integer=True)
+        reversed_facts = sympy.Dummy(
+            first.name, dummy_index=first.dummy_index, integer=True, positive=True,
+        )
+        self.assertEqual(first, reversed_facts)
+        self.assertEqual(_native_expr(first), _native_expr(reversed_facts))
+        for original, facts in (
+            (first, "positive=True, integer=True"),
+            (reversed_facts, "integer=True, positive=True"),
+        ):
+            expected = f"Dummy('ordered_dummy', {facts}, dummy_index={first.dummy_index})"
+            self.assertEqual(sympy.srepr(original), expected)
+            restored = [
+                copy.copy(original), copy.deepcopy(original),
+                pickle.loads(pickle.dumps(original)),  # ubs:ignore — trusted fixture
+                eval(expected, {"Dummy": sympy.Dummy}),  # trusted generated fixture
+            ]
+            for value in restored:
+                self.assertIsNot(value, original)
+                self.assertEqual(value, original)
+                self.assertEqual(sympy.srepr(value), expected)
+                self.assertIs(value.is_integer, True)
+                self.assertIs(value.is_positive, True)
+
+    def test_dummy_pickle_and_copies_preserve_facts_and_the_original_lift_owner(self):
+        from sympy.core import _native_expr, _wrap
+
+        original = sympy.Dummy("copied_assumed_dummy", integer=True, positive=True)
+        restored = [copy.copy(original), copy.deepcopy(original)]
+        # SymPy's supported pickle protocols begin at protocol 2.
+        for protocol in range(2, pickle.HIGHEST_PROTOCOL + 1):
+            restored.append(pickle.loads(pickle.dumps(original, protocol)))  # ubs:ignore — trusted fixture
+        for value in restored:
+            with self.subTest(kind=type(value), index=value.dummy_index):
+                self.assertIs(type(value), sympy.Dummy)
+                self.assertIsNot(value, original)
+                self.assertEqual(value, original)
+                self.assertEqual(hash(value), hash(original))
+                self.assertEqual(value.dummy_index, original.dummy_index)
+                self.assertIs(value.is_positive, True)
+                self.assertIs(value.is_integer, True)
+                self.assertIs(value.is_real, True)
+        self.assertIs(_wrap(_native_expr(original)), original)
+        self.assertNotEqual(
+            sympy.Dummy(original.name, integer=True, positive=True), original,
+        )
+
+    def test_dummy_builtin_integer_index_types_share_the_same_native_identity(self):
+        from sympy.core import _native_expr
+
+        for index in (1, True, -3, 0, False):
+            with self.subTest(index=index, kind=type(index)):
+                value = sympy.Dummy("integer_index_dummy", dummy_index=index, positive=True)
+                canonical = sympy.Dummy(
+                    "integer_index_dummy", dummy_index=int(index), positive=True,
+                )
+                self.assertIs(type(value.dummy_index), type(index))
+                self.assertEqual(value, canonical)
+                self.assertEqual(hash(value), hash(canonical))
+                self.assertEqual(_native_expr(value), _native_expr(canonical))
+                restored = pickle.loads(pickle.dumps(value))  # ubs:ignore — trusted fixture
+                self.assertIs(type(restored.dummy_index), type(index))
+                self.assertEqual(restored, value)
+                self.assertIs(restored.is_positive, True)
+
+    def test_dummy_assumptions_survive_pickle_into_a_fresh_interpreter(self):
+        import base64
+        import json
+
+        original = sympy.Dummy("cross_process_dummy", integer=True, positive=True)
+        payload = base64.b64encode(pickle.dumps(original)).decode("ascii")  # ubs:ignore — trusted fixture
+        code = """
+import base64, json, pickle, sys
+import sympy as s
+from sympy.core import _native_expr, _symbol_binding, _wrap
+dummy = pickle.loads(base64.b64decode(sys.argv[1]))
+derivative = s.diff(dummy**2, dummy)
+print(json.dumps({
+    "type": type(dummy).__name__, "name": dummy.name, "index": dummy.dummy_index,
+    "integer": dummy.is_integer, "positive": dummy.is_positive, "real": dummy.is_real,
+    "plain": _symbol_binding(dummy).plain,
+    "lift_identity": _wrap(_native_expr(dummy)) is dummy,
+    "derivative": derivative == 2*dummy,
+    "derivative_identity": next(iter(derivative.free_symbols)) is dummy,
+    "fresh_identity": s.Dummy(dummy.name, integer=True, positive=True) != dummy,
+}))
+"""
+        package_root = Path(sympy.__file__).resolve().parents[1]
+        environment = dict(os.environ)
+        environment["PYTHONPATH"] = str(package_root) + os.pathsep + environment.get("PYTHONPATH", "")
+        completed = subprocess.run(
+            [sys.executable, "-c", code, payload], cwd=package_root, env=environment,
+            text=True, capture_output=True, check=False, timeout=30,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(json.loads(completed.stdout), {
+            "type": "Dummy", "name": original.name, "index": original.dummy_index,
+            "integer": True, "positive": True, "real": True, "plain": False,
+            "lift_identity": True, "derivative": True, "derivative_identity": True,
+            "fresh_identity": True,
+        })
+
+    def test_assumed_dummy_without_surface_metadata_refuses_lifting(self):
+        import sympy.core as core
+
+        dummy = sympy.Dummy("unregistered_assumed_dummy", positive=True)
+        key = core._surface_binding_key(core._symbol_binding(dummy))
+        owner = core._surface_symbols.pop(key)
+        try:
+            with self.assertRaisesRegex(NotImplementedError, "no registered surface object"):
+                core._wrap(core._native_expr(dummy))
+        finally:
+            core._surface_symbols[key] = owner
+
+    def test_anonymous_assumed_dummies_and_custom_classes_keep_their_identity_rules(self):
+        from sympy.core import _native_expr, _restore_dummy
+
+        first, second = sympy.Dummy(integer=True), sympy.Dummy(integer=True)
+        self.assertNotEqual(first, second)
+        self.assertNotEqual(first.name, second.name)
+        self.assertTrue(first.name.startswith("Dummy_"))
+        self.assertIs(first.is_integer, True)
+
+        # Native products are commutative, so declared noncommutativity cannot
+        # be admitted as a typed fact on either construction or pickle restore.
+        for fact in (False, 0):
+            with self.subTest(commutative=fact, kind=type(fact)):
+                with self.assertRaisesRegex(NotImplementedError, "noncommutative"):
+                    sympy.Dummy("noncommutative_dummy", commutative=fact)
+                with self.assertRaisesRegex(NotImplementedError, "noncommutative"):
+                    _restore_dummy(
+                        "noncommutative_dummy", first.dummy_index,
+                        (("commutative", fact),),
+                    )
+        commutative = sympy.Dummy("commutative_dummy", commutative=True)
+        self.assertEqual(commutative._assumptions, {"commutative": True})
+        self.assertEqual(sympy.diff(commutative**2, commutative), 2*commutative)
+        restored = _restore_dummy(
+            commutative.name, commutative.dummy_index, (("commutative", 1),),
+        )
+        self.assertEqual(restored, commutative)
+        self.assertEqual(restored._assumptions, {"commutative": True})
+
+        # Infinite scalars need different zero-product semantics, which the
+        # current native arithmetic cannot represent for a symbolic Dummy.
+        for facts in ({"infinite": True}, {"infinite": 1}, {"finite": False}, {"finite": 0}):
+            with self.subTest(assumptions=facts):
+                with self.assertRaisesRegex(NotImplementedError, "infinite"):
+                    sympy.Dummy("infinite_dummy", **facts)
+                with self.assertRaisesRegex(NotImplementedError, "infinite"):
+                    _restore_dummy("infinite_dummy", first.dummy_index, tuple(facts.items()))
+        finite = sympy.Dummy("finite_dummy", finite=True, infinite=False)
+        self.assertEqual(finite._assumptions, {"finite": True, "infinite": False})
+        self.assertEqual(0*finite, 0)
+        restored_finite = _restore_dummy(
+            finite.name, finite.dummy_index, (("finite", 1), ("infinite", 0)),
+        )
+        self.assertEqual(restored_finite, finite)
+        self.assertEqual(restored_finite._assumptions, {"finite": True, "infinite": False})
+
+        # Extended-domain and unimplemented predicates stay outside this
+        # admission boundary, including combinations that would imply infinity.
+        for facts in (
+            {"extended_real": True, "real": False},
+            {"extended_positive": True, "positive": False},
+            {"extended_negative": True, "negative": False},
+            {"extended_nonzero": True, "nonzero": False},
+            {"extended_real": False}, {"noninteger": True},
+            {"polar": True}, {"hermitian": True}, {"custom_fact": False},
+        ):
+            with self.subTest(unsupported=facts):
+                with self.assertRaisesRegex(NotImplementedError, "unsupported Dummy assumptions"):
+                    sympy.Dummy("unsupported_dummy", **facts)
+                with self.assertRaisesRegex(NotImplementedError, "unsupported Dummy assumptions"):
+                    _restore_dummy("unsupported_dummy", first.dummy_index, tuple(facts.items()))
+        unspecified = sympy.Dummy("unspecified_dummy", extended_real=None, custom_fact=None)
+        self.assertEqual(unspecified._assumptions, {})
+        self.assertEqual(
+            _restore_dummy(
+                unspecified.name, unspecified.dummy_index,
+                (("extended_real", None), ("custom_fact", None)),
+            ),
+            unspecified,
+        )
+
+        class CustomDummy(sympy.Dummy):
+            pass
+
+        custom = CustomDummy("opaque_assumed_dummy", positive=True)
+        self.assertIs(custom.is_positive, True)
+        with self.assertRaises(NotImplementedError):
+            _native_expr(custom)
+
     def test_undefined_function_application_round_trips(self):
         x = sympy.Symbol("x")
         f = sympy.Function("f")

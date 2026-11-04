@@ -292,5 +292,13 @@ jobs:
               "python/tests/test_surface.py::SurfaceTests::test_extended_solvers_transforms_functions_and_submodules",
               "python/tests/test_surface.py::SurfaceTests::test_piecewise_power_integrals_and_laplace",
               "python/tests/test_surface.py::SurfaceTests::test_integral_transforms_suite",
+              "python/tests/test_surface.py::SurfaceTests::test_dummy_assumptions_keep_unique_typed_identity_and_native_lifting",
+              "python/tests/test_surface.py::SurfaceTests::test_dummy_assumptions_canonicalize_and_reconstruct_without_name_aliasing",
+              "python/tests/test_surface.py::SurfaceTests::test_dummy_srepr_preserves_declared_assumption_order_through_reconstruction",
+              "python/tests/test_surface.py::SurfaceTests::test_dummy_pickle_and_copies_preserve_facts_and_the_original_lift_owner",
+              "python/tests/test_surface.py::SurfaceTests::test_dummy_builtin_integer_index_types_share_the_same_native_identity",
+              "python/tests/test_surface.py::SurfaceTests::test_dummy_assumptions_survive_pickle_into_a_fresh_interpreter",
+              "python/tests/test_surface.py::SurfaceTests::test_assumed_dummy_without_surface_metadata_refuses_lifting",
+              "python/tests/test_surface.py::SurfaceTests::test_anonymous_assumed_dummies_and_custom_classes_keep_their_identity_rules",
           ]))
           PY

@@ -327,6 +327,16 @@ def _allocate_dummy_number() -> int:
     return number
 
 
+def _dummy_integer_index(value: Any) -> int:
+    """Admit built-in integer identity indices without consulting user code."""
+    if type(value) in (int, bool):
+        return int(value)
+    # Symbolic Integer indices have a different equality identity from Python
+    # ints in the pinned oracle; treating them as the same native index would
+    # alias distinct Dummies. Their separate identity lane remains unsupported.
+    raise TypeError("Dummy dummy_index must be a built-in integer")
+
+
 def _symbol_from_intern_name(name: str) -> "Symbol":
     parsed = _parse_dummy_intern_name(name)
     if parsed is None:
@@ -346,6 +356,26 @@ def _canonical_assumption_value(value: Any) -> bool:
     distinct atoms (gate finding fra-j3y, fra-rc-lowering-gate-ba5).
     """
     return bool(value)
+
+
+_DUMMY_SUPPORTED_ASSUMPTIONS = frozenset({
+    "integer", "rational", "real", "complex", "positive", "negative",
+    "zero", "nonzero", "nonnegative", "nonpositive", "even", "odd",
+    "prime", "finite", "infinite", "commutative",
+})
+
+
+def _require_supported_dummy_assumptions(assumptions: dict[str, bool]) -> None:
+    """Keep new Dummy declarations within the native arithmetic capabilities."""
+    unsupported = assumptions.keys() - _DUMMY_SUPPORTED_ASSUMPTIONS
+    if unsupported:
+        raise NotImplementedError(
+            f"unsupported Dummy assumptions: {', '.join(sorted(unsupported))}"
+        )
+    if assumptions.get("commutative") is False:
+        raise NotImplementedError("noncommutative Dummy symbols are not supported")
+    if assumptions.get("infinite") is True or assumptions.get("finite") is False:
+        raise NotImplementedError("infinite Dummy symbols are not supported")
 
 
 def _assumption_fact_value(value: Any) -> str:
@@ -438,7 +468,7 @@ def _surface_binding_key(binding: Any) -> tuple[str, str | None]:
     return binding.name, None if binding.plain else binding.identity_hex
 
 
-def _register_surface_symbol(symbol: "Symbol") -> None:
+def _register_surface_symbol(symbol: "Symbol", *, preserve_existing: bool = False) -> None:
     """Remember which Python object owns a typed symbol identity.
 
     Lifting returns this object rather than a fresh look-alike, so surface
@@ -461,7 +491,12 @@ def _register_surface_symbol(symbol: "Symbol") -> None:
     """
     binding = _symbol_binding(symbol)
     key = _surface_binding_key(binding)
-    _surface_symbols[key] = symbol
+    if preserve_existing:
+        # A copied or reconstructed Dummy has the same semantic identity,
+        # but must not replace the owner of an already lowered occurrence.
+        _surface_symbols.setdefault(key, symbol)
+    else:
+        _surface_symbols[key] = symbol
 
 
 def _symbol_from_binding(binding: Any) -> "Symbol":
@@ -1490,18 +1525,27 @@ class Basic:
         )
 
     def __copy__(self) -> "Basic":
-        # Oracle-pinned (SymPy 1.14.0): copy.copy of an atom returns the
-        # same object; of a composite returns a NEW equal object. Copies
+        # Oracle-pinned (SymPy 1.14.0): most atoms copy to themselves;
+        # Dummies and composites return NEW equal objects. Copies
         # go through construction, so held (evaluate=False) composites
         # re-canonicalize exactly as the oracle's reduce-based copy does.
+        if type(self) is Dummy:
+            return _restore_dummy(
+                self.name, self._dummy_number, tuple(self._assumptions.items())
+            )
         if not self.args:
             return self
         return type(self)(*self.args)
 
     def __deepcopy__(self, memo) -> "Basic":
-        # Oracle: deepcopy(symbol) is symbol; deepcopy(composite) is a new
-        # equal object (held Add re-evaluates: args (x, 2, 3) -> (5, x)).
+        # Oracle: ordinary Symbols deepcopy to themselves, while Dummies
+        # retain their index in a new object. Composite reconstruction can
+        # re-evaluate held forms (held Add args (x, 2, 3) become (5, x)).
         del memo
+        if type(self) is Dummy:
+            return _restore_dummy(
+                self.name, self._dummy_number, tuple(self._assumptions.items())
+            )
         if not self.args:
             return self
         return type(self)(*self.args)
@@ -1513,7 +1557,9 @@ class Basic:
             # stored construction args - never the printed string.
             return type(self), struct_args
         if type(self) is Dummy:
-            return _restore_dummy, (self.name, self._dummy_number)
+            return _restore_dummy, (
+                self.name, self._dummy_number, tuple(self._assumptions.items())
+            )
         if isinstance(self, AppliedUndef):
             return _restore_applied_undef, (type(self).__name__, self.args)
         if isinstance(self, Function):
@@ -3271,70 +3317,91 @@ class Symbol(AtomicExpr):
 
 
 class Dummy(Symbol):
-    """Dummy symbol whose identity is distinct across constructor calls."""
+    """Fresh symbolic atom with a unique integer identity and declared facts."""
 
     __slots__ = ("_dummy_name", "_dummy_number")
 
     is_Dummy = True
     is_Symbol = True
 
+    def __new__(cls, name: str | None = None, dummy_index: Any = None,
+                **assumptions: Any):
+        # Unlike exact Symbol construction, fresh Dummies are never interned
+        # by their spelling or assumptions. An explicit index reconstructs an
+        # existing identity without reusing its Python object.
+        return object.__new__(cls)
+
     def __str__(self) -> str:
         # Oracle-pinned (SymPy 1.14.0): str(Dummy('d')) == '_d'; the
         # intern encoding stays internal.
         return f"_{self._dummy_name}"
 
-    def __init__(self, name: str = "Dummy", **assumptions: Any):
-        if assumptions:
-            raise NotImplementedError("symbol assumptions are not implemented in this profile")
+    def __init__(self, name: str | None = None, dummy_index: Any = None,
+                 **assumptions: Any):
+        if name is None:
+            if dummy_index is not None:
+                raise AssertionError("If you specify a dummy_index, you must also provide a name")
+            name = f"Dummy_{_dummy_next}"
         if not isinstance(name, str):
             raise TypeError("Dummy name must be a string")
-        number = _allocate_dummy_number()
+        number = (_allocate_dummy_number() if dummy_index is None
+                  else _dummy_integer_index(dummy_index))
         self._dummy_name = name
-        self._dummy_number = number
-        self._assumptions = {}
-        self._value = _native.py_symbol(_dummy_intern_name(name, number))
-        if type(self) is Dummy:
-            _register_surface_symbol(self)
-
-    @classmethod
-    def _from_intern(cls, name: str, number: int, value: Any = None) -> "Dummy":
-        dummy = object.__new__(cls)
-        dummy._dummy_name = name
-        dummy._dummy_number = number
-        dummy._assumptions = {}
-        dummy._value = (
-            value if value is not None else _native.py_symbol(_dummy_intern_name(name, number))
+        self._dummy_number = number if dummy_index is None else dummy_index
+        self._assumptions = {
+            key: _canonical_assumption_value(value)
+            for key, value in assumptions.items()
+            if value is not None
+        }
+        _require_supported_dummy_assumptions(self._assumptions)
+        self._value = _native.py_symbol(
+            _dummy_intern_name(name, number), list(_assumption_facts(self))
         )
         _note_dummy_number(number)
-        return dummy
+        if type(self) is Dummy:
+            _register_surface_symbol(self, preserve_existing=True)
 
     @property
     def name(self) -> str:
         return self._dummy_name
 
     @property
-    def dummy_index(self) -> int:
+    def dummy_index(self) -> Any:
         return self._dummy_number
 
     def _srepr(self) -> str:
-        # SymPy 1.14.0 prints the dummy identity, never a plain Symbol.
-        return f"Dummy({self._dummy_name!r}, dummy_index={self._dummy_number})"
+        # SymPy 1.14.0 preserves declared fact order and appends the identity.
+        # Native binding facts remain independently sorted for canonical identity.
+        facts = [f"{key}={value!r}" for key, value in self._assumptions.items()]
+        arguments = [repr(self._dummy_name), *facts, f"dummy_index={self._dummy_number}"]
+        return f"Dummy({', '.join(arguments)})"
 
     @classmethod
-    def _from_intern(cls, name: str, number: int, value: Any = None) -> "Dummy":
+    def _from_intern(cls, name: str, number: Any, value: Any = None,
+                     assumptions: tuple = ()) -> "Dummy":
         dummy = object.__new__(cls)
         dummy._dummy_name = name
         dummy._dummy_number = number
-        dummy._assumptions = {}
+        dummy._assumptions = {
+            key: _canonical_assumption_value(fact)
+            for key, fact in assumptions
+            if fact is not None
+        }
+        _require_supported_dummy_assumptions(dummy._assumptions)
+        native_number = _dummy_integer_index(number)
         dummy._value = (
-            value if value is not None else _native.py_symbol(_dummy_intern_name(name, number))
+            value if value is not None else _native.py_symbol(
+                _dummy_intern_name(name, native_number), list(_assumption_facts(dummy))
+            )
         )
-        _note_dummy_number(number)
+        _note_dummy_number(native_number)
+        if type(dummy) is Dummy:
+            _register_surface_symbol(dummy, preserve_existing=True)
         return dummy
 
 
-def _restore_dummy(name: str, number: int) -> Dummy:
-    return Dummy._from_intern(name, number)
+def _restore_dummy(name: str, number: Any, assumptions: tuple = ()) -> Dummy:
+    return Dummy._from_intern(name, number, assumptions=assumptions)
 
 
 def _restore_symbol(cls: type, name: str, assumptions: tuple) -> "Symbol":
