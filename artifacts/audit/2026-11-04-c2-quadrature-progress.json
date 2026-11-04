@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "repository": "Dicklesworthstone/frankensympy",
+  "baseline": "9cb2741712aecb6255ee17bd9b29982f6182ac0f",
+  "scope": "Signed second-order proper real quadrature; source-bound component validation, not a whole-workspace/public-extension gate",
+  "source_blobs": {
+    "crates/fsym-core/src/root_certificate/quadrature.rs": "59e5912e174482e57d5b19b053ee2955262614bd",
+    "crates/fsym-core/tests/quadrature_certificate.rs": "a8cfc5cf3c4d178af23b47f3f07083655067fb77",
+    "crates/fsym-calculus/src/quadrature.rs": "6040fd4412c9dbf63398703a4b3ff4aeec118f7c",
+    "crates/fsym-calculus/tests/certified_quadrature.rs": "6556616d92292276cf03e65f56a6649571b7951f",
+    "python/sympy/integrals/certified.py": "3a04f8f877012fb651e42f44591f16760de04e96",
+    "python/tests/test_certified_quadrature.py": "940c8bb227b0a6666ad2ce856b7285fa5ee86bb5"
+  },
+  "mathematical_change": "Intersect h*f(cell), centered C1 bounds, and h*f(midpoint)+(h^3/24)*f''(cell), with independent original-source C2 evaluation and full signed interval remainder.",
+  "execution": {
+    "toolchain": "nightly-2026-08-20",
+    "core_quadrature_tests": 13,
+    "calculus_quadrature_tests": 9,
+    "strict_component_clippy": "passed",
+    "changed_rustfmt": "passed",
+    "python_syntax": "passed",
+    "actual_public_python_execution": "not executed; no current full native extension available",
+    "component_scope": "13 production crates; 161 source/manifest files; 87 production-matching dependency identities/checksums; 212 normalized dependency edges"
+  },
+  "recovered_previous_feature_validation": {
+    "source": "9cb2741712aecb6255ee17bd9b29982f6182ac0f",
+    "toolchain": "nightly-2026-08-20",
+    "tests": {
+      "box_extremum": 13,
+      "objective_enclosure": 13,
+      "root_box_general": 15,
+      "stationary_certificate": 10
+    },
+    "strict_component_clippy": "passed",
+    "scope": "source-identical seven-crate component workspace; 54 copied files; 81 production dependency identities and 145 normalized edges"
+  },
+  "independent_review": "critical_gaps reviewed the signed Taylor theorem, whole-source C2 domain, cumulative work and preserved false-accuracy tests; no blocking issue.",
+  "public_coverage": "Quadratic receipts now assert exact zero-width one-cell bounds; false-accuracy refusal uses varying quartic curvature; four new parametrized cases cover signed curvature, tiny exact coefficients and sixteen-cell adaptive quartics.",
+  "evidence_artifact": "artifacts/audit/components/2026-11-04-c2-quadrature/validation.json",
+  "limitations": [
+    "No workspace, runtime, public-extension, campaign, performance or profile gate is closed.",
+    "The full-extension memory failure from the preceding continuation is not relabeled as a passing build.",
+    "No Beads status or dependency edge is changed; the separate recovered checks do not establish the remaining Python features."
+  ]
+}

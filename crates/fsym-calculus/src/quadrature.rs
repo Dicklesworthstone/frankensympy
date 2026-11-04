@@ -34,7 +34,7 @@ impl Default for QuadratureOptions {
 
 /// Certified enclosure of a proper integral on finite exact real bounds.
 /// Reversed endpoints negate the accepted enclosure. At equal endpoints
-/// the original expression must still be admitted and C1 at that point.
+/// the original expression must still be admitted and C2 at that point.
 pub fn certified_integral(
     expression: &Expr,
     variable: &Symbol,
@@ -67,11 +67,12 @@ fn subdivision_can_resolve(error: &QuadratureError) -> bool {
     )
 }
 
-/// Deterministic adaptive partitioning with C1 local-width bounds. A cell
-/// receives tolerance proportional to its length; all accepted cells
-/// therefore fit within the total tolerance. Domain overestimation can
-/// trigger subdivision, but unsupported syntax, cancellation and resource
-/// failures never restart with a fresh or unbounded meter.
+/// Deterministic adaptive partitioning with intersected C1/C2 local bounds.
+/// A cell receives tolerance proportional to its length; all accepted cells
+/// therefore fit within the total tolerance. Exact quadratic curvature can
+/// meet any admitted tolerance in one cell. Domain overestimation can trigger
+/// subdivision, but unsupported syntax, cancellation and resource failures
+/// never restart with a fresh or unbounded meter.
 #[allow(clippy::too_many_arguments)]
 pub fn metered_certified_integral(
     expression: &Expr,

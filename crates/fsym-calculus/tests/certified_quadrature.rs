@@ -21,18 +21,82 @@ fn options() -> QuadratureOptions {
 #[test]
 fn adaptive_quadratic_and_shifted_cubic_integrals_contain_independent_exact_values() {
     let x = Symbol::new("x");
-    for (source, lower, upper, expected) in [
-        (power(Expr::Sym(x.clone()), 2), q(0, 1), q(1, 1), q(1, 3)),
-        (power(Expr::Sym(x.clone()), 3), q(1, 2), q(3, 2), q(5, 4)),
+    for (source, lower, upper, expected, needs_subdivision) in [
+        (
+            power(Expr::Sym(x.clone()), 2),
+            q(0, 1),
+            q(1, 1),
+            q(1, 3),
+            false,
+        ),
+        (
+            power(Expr::Sym(x.clone()), 3),
+            q(1, 2),
+            q(3, 2),
+            q(5, 4),
+            true,
+        ),
     ] {
         let result =
             certified_integral(&source, &x, &lower, &upper, &q(1, 1000), options()).unwrap();
         assert!(result.enclosure().contains(&expected));
         assert!(result.enclosure().width() <= q(1, 1000));
-        assert!(result.interval_count() > 1);
+        assert_eq!(result.interval_count() > 1, needs_subdivision);
         assert_eq!(result.witness().partition.first(), Some(&lower));
         assert_eq!(result.witness().partition.last(), Some(&upper));
     }
+}
+
+#[test]
+fn exact_quadratic_curvature_meets_sub_binary64_tolerance_with_one_cell() {
+    let x = Symbol::new("quadratic_x");
+    let sx = Expr::Sym(x.clone());
+    let tolerance = BigRational::new(1.into(), BigInt::from(10).pow(400));
+    for coefficient in [-3, 2] {
+        let source = Expr::from_i64(coefficient) * power(sx.clone(), 2)
+            + Expr::from_i64(5) * sx.clone()
+            - Expr::from_i64(7);
+        let result = certified_integral(
+            &source,
+            &x,
+            &q(-2, 1),
+            &q(3, 1),
+            &tolerance,
+            QuadratureOptions {
+                precision_digits: 8,
+                max_intervals: 1,
+            },
+        )
+        .unwrap();
+        // Integrating a*x^2 + 5*x - 7 from -2 to 3 gives 35*a/3 - 45/2.
+        let expected = q(35 * coefficient, 3) - q(45, 2);
+        assert_eq!(result.enclosure().lower(), expected);
+        assert_eq!(result.enclosure().upper(), expected);
+        assert_eq!(result.interval_count(), 1);
+        assert_eq!(result.absolute_tolerance(), &tolerance);
+    }
+}
+
+#[test]
+fn nonconstant_curvature_refinement_reaches_accuracy_with_sixteen_cells() {
+    let x = Symbol::new("quartic_x");
+    let source = power(Expr::Sym(x.clone()), 4);
+    let result = certified_integral(
+        &source,
+        &x,
+        &q(0, 1),
+        &q(1, 1),
+        &q(1, 1000),
+        QuadratureOptions {
+            max_intervals: 16,
+            ..options()
+        },
+    )
+    .unwrap();
+    assert!(result.enclosure().contains(&q(1, 5)));
+    assert!(result.enclosure().width() <= q(1, 1000));
+    assert!(result.interval_count() > 1);
+    assert!(result.interval_count() <= 16);
 }
 
 fn gaussian_partial_sum(last: i64) -> BigRational {
@@ -134,7 +198,9 @@ fn subdivision_resolves_range_dependency_without_cancelling_original_denominator
 #[test]
 fn subdivision_accuracy_and_input_limits_refuse_without_partial_receipts() {
     let x = Symbol::new("x");
-    let source = power(Expr::Sym(x.clone()), 2);
+    // Varying curvature leaves a genuine enclosure width on one cell.
+    // A quadratic is now exact and would no longer test false accuracy.
+    let source = power(Expr::Sym(x.clone()), 4);
     assert!(matches!(
         certified_integral(
             &source,

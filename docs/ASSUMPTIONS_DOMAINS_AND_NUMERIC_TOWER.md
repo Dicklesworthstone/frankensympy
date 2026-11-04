@@ -1345,3 +1345,38 @@ recorded in
 `artifacts/audit/2026-11-04-extrema-and-range-progress.json`.
 The bounded rational lane does not claim general transcendental range
 analysis, a new independently checked range receipt, or WS18/profile closure.
+
+## Signed second-order certified quadrature
+
+The proper-real integral lane now intersects three independently recomputed
+whole-cell bounds: the function range rectangle, the centered first-derivative
+bound, and a signed second-order midpoint remainder. For cell width h and
+midpoint c, if the original-source interval evaluator establishes
+f''(cell) in H, the integral lies in h*f(c) + (h^3/24)*H. The entire Hessian
+interval supplies the remainder; substituting a midpoint curvature sample is
+not valid.
+
+This makes exact rational quadratic integrals exact in a single cell,
+including negative curvature, held products and coefficients below binary64
+resolution. The bound retains the sign of curvature instead of adding an
+unnecessary symmetric error. Nonconstant curvature still carries its full
+interval uncertainty and can trigger adaptive subdivision. Original domain
+holes, endpoint obligations, reversed limits and outward rounding remain
+checked. The admitted source must satisfy the native C2 rules on every
+closed cell.
+
+The same workspace covers function, gradient and Hessian traversal. Only
+the per-traversal source-node counter restarts; cumulative work, allocation,
+evaluation counts and cancellation do not. A failed phase retains its
+consumption. The generator proposes a complete rational partition and the
+lower-layer verifier independently recomputes the final bounds.
+
+At the source hashes recorded in
+artifacts/audit/2026-11-04-c2-quadrature-progress.json, the pinned
+nightly-2026-08-20 compiler passes 13 core quadrature tests and 9 adaptive
+calculus tests, with strict Clippy and formatting checks. Execution uses a
+source-bound 13-crate component workspace with production-matching dependency
+identities and edges; it is not a full-workspace or Python-extension gate.
+The updated public regressions parse successfully and are wired into actual
+extension CI, but public runtime execution is still pending. Broader WS18,
+numeric-profile and campaign gates remain open.

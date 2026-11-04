@@ -132,6 +132,8 @@ jobs:
       - name: Native feature regressions
         run: |
           cargo test --locked -p fsym-core --test objective_enclosure --test stationary_certificate --test box_extremum --test root_box_general -j1
+          cargo test --locked -p fsym-core --test quadrature_certificate -j1
+          cargo test --locked -p fsym-calculus --test certified_quadrature -j1
           cargo test --locked -p fsym-bigint --lib floor_square_root_pins_exact_square_boundaries_and_governed_lane -j1
           cargo test --locked -p fsym-polys --test rational_localization --test radical -j1
           cargo test --locked -p fsym-matrices --test affine_system --test rectangular_solve -j1
@@ -172,6 +174,7 @@ jobs:
               "-q", "-p", "no:cacheprovider",
               "python/tests/test_exact_monotonicity.py",
               "python/tests/test_exact_function_range.py",
+              "python/tests/test_certified_quadrature.py",
               "python/tests/test_certified_objective.py",
               "python/tests/test_stationary_search.py",
               "python/tests/test_box_extremum.py",

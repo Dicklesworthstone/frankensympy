@@ -34,20 +34,58 @@ def test_public_exports_and_exact_affine_integral_receipt():
     assert "proper real integral" in result.claim
 
 
-def test_adaptive_quadratic_has_exact_checked_width_and_error():
+def test_quadratic_curvature_gives_an_exact_single_cell_receipt():
     x = Symbol("quadratic_integral_x")
     result = certified_integral(x*x, (x, Fraction(1, 2), Rational(3, 2)),
                                 tolerance=Fraction(1, 1000), precision=16)
     lower, upper = result.bounds
-    assert lower <= Rational(13, 12) <= upper
-    assert upper-lower <= Rational(1, 1000)
+    assert lower == upper == Rational(13, 12)
+    assert result.error_bound == 0
     assert result.midpoint-result.error_bound == lower
     assert result.midpoint+result.error_bound == upper
-    assert result.interval_count > 1
+    assert result.interval_count == 1
     assert result.absolute_tolerance == Rational(1, 1000)
     assert result.partition[0] == Rational(1, 2)
     assert result.partition[-1] == Rational(3, 2)
     assert all(a < b for a, b in zip(result.partition, result.partition[1:]))
+
+
+@pytest.mark.parametrize("coefficient", [-3, 2])
+def test_signed_quadratic_curvature_meets_tiny_tolerance_without_refinement(coefficient):
+    x = Symbol("signed_quadratic_integral_x")
+    source = coefficient*x**2 + 5*x - 7
+    result = certified_integral(
+        source, (x, -2, 3), tolerance=Fraction(1, 10**400),
+        precision=8, max_intervals=1,
+    )
+    expected = Rational(35*coefficient, 3) - Rational(45, 2)
+    assert result.bounds == (expected, expected)
+    assert result.interval_count == 1
+    assert result.error_bound == 0
+
+
+def test_tiny_exact_curvature_is_not_rounded_away():
+    x = Symbol("tiny_curvature_integral_x")
+    coefficient = Rational(1, 10**400)
+    result = certified_integral(
+        coefficient*x**2, (x, 2, 3), tolerance=Fraction(1, 10**600),
+        precision=8, max_intervals=1,
+    )
+    expected = Rational(19, 3)*coefficient
+    assert result.bounds == (expected, expected)
+    assert result.error_bound == 0
+
+
+def test_complete_cell_curvature_bounds_a_quartic_with_sixteen_cells():
+    x = Symbol("quartic_curvature_integral_x")
+    result = certified_integral(
+        x**4, (x, 0, 1), tolerance=Fraction(1, 1000),
+        precision=16, max_intervals=16,
+    )
+    lower, upper = result.bounds
+    assert lower <= Rational(1, 5) <= upper
+    assert upper-lower <= Rational(1, 1000)
+    assert 1 < result.interval_count <= 16
 
 
 def test_gaussian_without_elementary_primitive_matches_independent_series_enclosure():
@@ -103,7 +141,9 @@ def test_interior_pole_accuracy_and_resource_failures_publish_no_receipt():
     with pytest.raises(ValueError):
         certified_integral(1/(x-Rational(1, 3)), (x, 0, 1), max_intervals=16)
     with pytest.raises(ValueError, match="width"):
-        certified_integral(x*x, (x, 0, 1), tolerance=Fraction(1, 10**20), max_intervals=1)
+        # A quadratic is now exact in one cell; varying curvature preserves
+        # this test's false-accuracy obligation.
+        certified_integral(x**4, (x, 0, 1), tolerance=Fraction(1, 10**20), max_intervals=1)
     for count in (0, 1025, True, 512.0):
         with pytest.raises(ValueError, match="max_intervals"):
             certified_integral(x, (x, 0, 1), max_intervals=count)

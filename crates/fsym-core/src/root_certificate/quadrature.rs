@@ -5,12 +5,15 @@
 //! The fundamental theorem of calculus gives
 //! |f(x)-f(c)-d(x-c)| <= r|x-c|. Integrating, the linear term vanishes and
 //! the error is at most r*h^2/4. Point-evaluation rounding is retained.
-//! The checker intersects that bound with h*f([a,b]), checks a complete
-//! partition, and adds all bounds exactly. A partition proposal never
-//! supplies trusted function values, derivatives, error estimates or totals.
+//! Independently evaluated second derivatives give the Taylor bound
+//! integral(f) in h*f(c) + (h^3/24)*f''([a,b]). Its signed curvature retains
+//! exact quadratic integrals, including concave quadratics. The checker
+//! intersects both bounds with h*f([a,b]), checks a complete partition,
+//! and adds all bounds exactly. A partition proposal never supplies trusted
+//! function values, derivatives, error estimates or totals.
 
 use super::{
-    Bounded, BoundedRational, RootBoxError, Work, check_ball, check_rational, checked,
+    Bounded, BoundedRational, RootBoxError, Work, check_ball, check_rational, checked, objective,
     validate_inputs,
 };
 use crate::{BigInt, BigRational, Expr, RealBall, Symbol};
@@ -83,7 +86,7 @@ impl<'de> Deserialize<'de> for QuadratureWitness {
 }
 
 /// Accepted proper real integral with an absolute enclosure-width bound.
-/// C1 domain checks include every original source child on every closed
+/// C2 domain checks include every original source child on every closed
 /// cell, including endpoints. Improper integrals, principal values and
 /// complex contours are outside this claim. No unchecked constructor or
 /// Deserialize implementation exists.
@@ -187,7 +190,7 @@ impl<'a, M: BudgetMeter> IntegralEnclosureWorkspace<'a, M> {
         })
     }
 
-    fn evaluate(&mut self, domain: &RealBall) -> Result<super::Jet> {
+    fn evaluate(&mut self, domain: &RealBall) -> Result<objective::ObjectiveJet> {
         if self.evaluations >= MAX_QUADRATURE_EVALUATIONS {
             return Err(QuadratureError::ResourceLimit("interval evaluation count"));
         }
@@ -195,11 +198,11 @@ impl<'a, M: BudgetMeter> IntegralEnclosureWorkspace<'a, M> {
         // Each evaluation retains the ordinary source node/depth limits.
         // Only this per-traversal count restarts; work/bytes never reset.
         self.work.nodes = 0;
-        Ok(self.work.eval(
+        Ok(objective::evaluate_objective(
             self.source,
             std::slice::from_ref(self.variable),
             std::slice::from_ref(domain),
-            0,
+            &mut self.work,
         )?)
     }
 
@@ -230,7 +233,7 @@ impl<'a, M: BudgetMeter> IntegralEnclosureWorkspace<'a, M> {
         Ok(width)
     }
 
-    /// Compute both whole-cell range and centered C1 integral bounds.
+    /// Intersect whole-cell range, centered C1 and signed C2 integral bounds.
     /// A point cell still checks the original integrand before returning zero.
     pub fn enclose_cell(&mut self, lower: &BigRational, upper: &BigRational) -> Result<RealBall> {
         validate_number(lower)?;
@@ -263,9 +266,23 @@ impl<'a, M: BudgetMeter> IntegralEnclosureWorkspace<'a, M> {
         let error = RealBall::new(BigRational::zero(), remainder.midpoint().clone())
             .map_err(RootBoxError::from)?;
         let centered = self.work.add(&center, &error)?;
+        // Taylor's integral remainder has a nonnegative kernel on either
+        // side of the midpoint. Its total mass is h^3/24, so the complete
+        // cell's signed Hessian interval bounds the integrated remainder.
+        // A midpoint-only curvature sample would be unsound here.
+        let cube = self.work.mul(&square, &width_ball)?;
+        let curvature = self.work.mul(&range.hessian[0][0], &cube)?;
+        let curvature = self
+            .work
+            .scale(&curvature, &BigRational::new(1.into(), 24.into()))?;
+        let second_order = self.work.add(&center, &curvature)?;
         self.work.arithmetic(&[&rectangle, &centered], &[])?;
         let intersection = rectangle
             .intersect(&centered)
+            .ok_or(QuadratureError::InconsistentEnclosure)?;
+        self.work.arithmetic(&[&intersection, &second_order], &[])?;
+        let intersection = intersection
+            .intersect(&second_order)
             .ok_or(QuadratureError::InconsistentEnclosure)?;
         self.round_outward(intersection)
     }
