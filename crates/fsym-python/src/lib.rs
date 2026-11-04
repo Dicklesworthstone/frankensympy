@@ -1908,6 +1908,7 @@ pub mod binding;
 pub mod callbacks;
 mod exact_integral;
 pub mod expr;
+mod finite_field;
 pub mod geometry;
 mod ideal_operations;
 pub mod logic;
@@ -2112,6 +2113,18 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(poly_shift_expr, m)?)?;
     m.add_function(wrap_pyfunction!(poly_sqf_list_expr, m)?)?;
     m.add_function(wrap_pyfunction!(poly_factor_list_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        finite_field::prime_field_source_preflight_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        finite_field::prime_field_source_admit_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        finite_field::prime_field_factor_source_native,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(poly_factor_multivariate_expr, m)?)?;
     m.add_function(wrap_pyfunction!(poly_roots_expr, m)?)?;
     m.add_function(wrap_pyfunction!(groebner_basis_expr, m)?)?;

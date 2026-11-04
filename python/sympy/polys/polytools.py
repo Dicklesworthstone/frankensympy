@@ -53,6 +53,10 @@ class Poly(Basic):
         pass
 
     def __new__(cls, expr: Any, *gens: Any, **kwargs: Any) -> "Poly":
+        if kwargs.get("modulus") is not None:
+            raise NotImplementedError(
+                "Poly with a modulus is not supported; use factor or factor_list with modulus"
+            )
         if isinstance(expr, Poly):
             if not gens and "gens" not in kwargs:
                 return expr
@@ -1715,8 +1719,78 @@ def _multivariate_gens(p: Any, gens: tuple) -> list | None:
     return out if len(out) > 1 else None
 
 
-def factor_list(p: Any, *gens: Any) -> Tuple[Any, List[Tuple[Any, int]]]:
+def _prime_field_factor_list(
+    p: Any, gens: tuple, modulus: Any, *, for_factor: bool = False
+) -> Tuple[Any, List[Tuple[Any, int]]]:
+    """Checked univariate modular factorization with exact exterior content.
+
+    The native checker replays the original source and every proposed integer
+    component. The numerator/denominator transformation is a compatibility
+    choice, not a trusted proof of the modular result.
+
+    This bounded lane refuses nonzero exterior numerators divisible by the
+    characteristic, including literal constants, and requires the exterior
+    denominator to be the original canonical coefficient denominator. It does
+    not provide general Poly objects over finite fields.
+    """
+    if isinstance(modulus, bool) or not isinstance(modulus, (int, Integer)):
+        raise ValueError("modulus must be an exact prime integer")
+    prime = int(modulus)
+    if not 2 <= prime <= 65521:
+        raise ValueError("modular factorization requires a prime in 2..65521")
+    if isinstance(p, Poly):
+        raise NotImplementedError("modular factorization of Poly objects is not supported")
+    raw = _native_expr(p)
+    _native.prime_field_source_preflight_native(raw)
+    expr = _wrap(raw)
+    if gens:
+        if len(gens) != 1:
+            raise NotImplementedError("modular factorization currently supports one generator")
+        variable = _require_symbol(gens[0])
+    else:
+        symbols = _sort_gens(expr.free_symbols)
+        if len(symbols) > 1:
+            raise NotImplementedError("modular factorization currently supports one generator")
+        variable = symbols[0] if symbols else Symbol("_modular_constant")
+    binding = _symbol_binding(variable)
+    # This full native admission precedes shell normalization, including held
+    # zero products and powers whose invalid children could otherwise vanish.
+    _native.prime_field_source_admit_native(raw, binding, prime)
+    normalized = together(expr)
+    if for_factor:
+        # Pinned factor extracts content from together(expr) itself, whereas
+        # factor_list first takes its numerator and denominator. The latter
+        # can redistribute integer content into an Add: over F_3, factor
+        # preserves 2*(x+1), while factor_list(2*x+2) has modular unit -1.
+        numerator, content = normalized, Integer(1)
+    else:
+        numerator, denominator = normalized.as_numer_denom()
+        if not isinstance(denominator, Integer) or denominator == 0:
+            raise ValueError("modular factorization requires a polynomial with exact rational coefficients")
+        content = Rational(1, int(denominator))
+    components = []
+    for piece in Mul.make_args(numerator):
+        if isinstance(piece, Rational):
+            content *= piece
+            continue
+        base, exponent = piece.as_base_exp()
+        if not isinstance(exponent, Integer) or not 1 <= int(exponent) <= 64:
+            raise ValueError("modular component powers must be integers in 1..64")
+        components.append((_native_expr(base), int(exponent)))
+    scale_raw, factors_raw = _native.prime_field_factor_source_native(
+        raw, binding, prime, _native_expr(content), components
+    )
+    return (
+        _lift_native_result(scale_raw, expr, variable),
+        [(_lift_native_result(value, expr, variable), multiplicity)
+         for value, multiplicity in factors_raw],
+    )
+
+
+def factor_list(p: Any, *gens: Any, modulus: Any = None) -> Tuple[Any, List[Tuple[Any, int]]]:
     """Compute polynomial factor list returning (scale, [(factor, multiplicity), ...])."""
+    if modulus is not None:
+        return _prime_field_factor_list(p, gens, modulus)
     from . import _opaque
     if _opaque.applies(p):
         return _opaque.factor(p, gens, listing=True)
@@ -1774,7 +1848,13 @@ def _factor_rational(p: Any) -> Any:
     return _keep_coeff(coeff, num / den)
 
 
-def factor(p: Any, *gens: Any) -> Any:
+def factor(p: Any, *gens: Any, modulus: Any = None) -> Any:
+    if modulus is not None:
+        from ..core import _keep_coeff
+
+        scale, factors = _prime_field_factor_list(p, gens, modulus, for_factor=True)
+        return _keep_coeff(scale, Mul(*[value if multiplicity == 1 else value**multiplicity
+                                        for value, multiplicity in factors]))
     from . import _opaque
     if _opaque.applies(p):
         return _opaque.factor(p, gens)

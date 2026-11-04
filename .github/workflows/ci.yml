@@ -136,7 +136,7 @@ jobs:
           cargo test --locked -p fsym-calculus --test certified_quadrature -j1
           cargo test --locked -p fsym-calculus --test certified_box_optimization -j1
           cargo test --locked -p fsym-bigint --lib floor_square_root_pins_exact_square_boundaries_and_governed_lane -j1
-          cargo test --locked -p fsym-polys --test rational_localization --test radical --test finite_field -j1
+          cargo test --locked -p fsym-polys --test rational_localization --test radical --test finite_field --test finite_field_source -j1
           cargo test --locked -p fsym-matrices --test affine_system --test rectangular_solve --test least_squares -j1
           cargo test --locked -p fsym-calculus --test rational_laplace --test delayed_laplace --test distributional_laplace --test delayed_distributional_laplace -j1
           cargo test --locked -p fsym-calculus --test geometric_summation --test rational_summation -j1
@@ -233,6 +233,7 @@ jobs:
           raise SystemExit(pytest.main([
               "-q", "-p", "no:cacheprovider",
               "python/tests/test_polynomial_system_checked.py",
+              "python/tests/test_prime_field_factorization.py",
               "python/tests/test_polynomial_system_extensions.py",
               "python/tests/test_polynomial_rur.py",
               "python/tests/test_polynomial_components.py",
