@@ -6,7 +6,7 @@ import pytest
 import sympy as s
 
 from sympy.core import (
-    Basic, FunctionClass, _NativeFunction, _function_capabilities,
+    Basic, FunctionClass, _NativeFunction, _function_capability_roster,
     _is_closed_function_class, _native, _native_expr, diff_with_receipt,
     replay_diff_receipt,
 )
@@ -242,9 +242,9 @@ def test_capability_roster_is_immutable_and_does_not_trust_name_registry_replace
     x = s.Symbol("capability_registry_x")
     source = s.sin(x, evaluate=False)
     with pytest.raises(AttributeError, match="immutable"):
-        _function_capabilities._rows = ()
+        _function_capability_roster._rows = ()
     with pytest.raises(AttributeError, match="immutable"):
-        del _function_capabilities._rows
+        del _function_capability_roster._rows
     impostor = type("sin", (s.Function,), {"__module__": "sympy.fake"})
     monkeypatch.setitem(_known_functions, "sin", impostor)
     assert _is_closed_function_class(s.sin)

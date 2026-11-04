@@ -278,8 +278,8 @@ def _native_expr(value: Any):
             )
         if not exact_surface and function:
             _require_closed_function_class(cls)
-        native = (_function_capabilities.native_value(value)
-                  if _function_capabilities is not None else value._value)
+        native = (_function_capability_roster.native_value(value)
+                  if _function_capability_roster is not None else value._value)
         return _require_closed_native_functions(native)
     if isinstance(value, _native.Expr):
         return _require_closed_native_functions(value)
@@ -498,7 +498,9 @@ def _surface_symbol(native_value: Any) -> "Symbol":
 
 _known_functions: dict[str, type] = {}
 _closed_function_classes: tuple[type, ...] | None = None
-_function_capabilities = None
+# Keep admission state distinct from the _function_capabilities submodule.
+# Importing that module assigns a module attribute on this package.
+_function_capability_roster = None
 
 
 def _is_registered_function_class(cls) -> bool:
@@ -508,40 +510,40 @@ def _is_registered_function_class(cls) -> bool:
 
 
 def _is_closed_function_class(cls) -> bool:
-    if _function_capabilities is None:
+    if _function_capability_roster is None:
         return _is_registered_function_class(cls)
-    return _function_capabilities.is_current(cls)
+    return _function_capability_roster.is_current(cls)
 
 
 def _require_closed_function_class(cls) -> None:
-    if _function_capabilities is not None:
-        _function_capabilities.require_class(cls)
+    if _function_capability_roster is not None:
+        _function_capability_roster.require_class(cls)
 
 
 def _require_default_function_identity() -> None:
-    if _function_capabilities is not None:
-        _function_capabilities.require_default_identity()
+    if _function_capability_roster is not None:
+        _function_capability_roster.require_default_identity()
 
 
 def _require_closed_native_function_tag(name) -> None:
-    if _function_capabilities is not None:
-        _function_capabilities.require_native_tag(name)
+    if _function_capability_roster is not None:
+        _function_capability_roster.require_native_tag(name)
 
 
 def _require_closed_native_functions(value):
-    if _function_capabilities is not None:
-        _function_capabilities.require_native(value)
+    if _function_capability_roster is not None:
+        _function_capability_roster.require_native(value)
     return value
 
 
 def _freeze_builtin_function_classes() -> None:
     """Seal the classes imported by the package, before user extensions run."""
-    global _closed_function_classes, _function_capabilities
+    global _closed_function_classes, _function_capability_roster
     if _closed_function_classes is None:
         from ._function_capabilities import FunctionCapabilities
 
         _closed_function_classes = tuple(_known_functions.values())
-        _function_capabilities = FunctionCapabilities(
+        _function_capability_roster = FunctionCapabilities(
             _closed_function_classes, _native.Expr, Basic.__dict__["_value"], Function
         )
 _user_functions: weakref.WeakValueDictionary[str, type] = weakref.WeakValueDictionary()
