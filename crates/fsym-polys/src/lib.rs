@@ -21,6 +21,7 @@ pub mod multifactor;
 pub mod multivariate;
 pub mod radical;
 pub mod rational;
+pub mod syzygy;
 pub mod univariate;
 
 pub use checked_groebner::*;
@@ -39,6 +40,7 @@ pub use multifactor::*;
 pub use multivariate::*;
 pub use radical::*;
 pub use rational::*;
+pub use syzygy::*;
 pub use univariate::*;
 
 use thiserror::Error;
