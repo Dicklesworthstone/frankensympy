@@ -135,13 +135,13 @@ class LinearOdeSystemTests(unittest.TestCase):
                 for answer in answers:
                     self.assertIs(answer.lhs.args[0], time)
 
-    def test_nonlinear_nonpolynomial_variable_and_singular_systems_refuse(self):
+    def test_nonlinear_unsupported_forcing_variable_and_singular_systems_refuse(self):
         t = self.t
         f, g = self.functions
         df, dg = Derivative(f, t), Derivative(g, t)
         cases = (
             [df - f*g, dg + f],
-            [df - g - exp(t), dg + f],
+            [df - g - exp(t**2), dg + f],
             [df - t*g, dg + f],
             [df - Float(1.0)*g, dg + f],
             [Derivative(f, t, 2) - g, dg + f],

@@ -143,7 +143,7 @@ class PolynomialOdeSystemTests(unittest.TestCase):
         t, f, g = self.t, self.f(self.t), self.g(self.t)
         df, dg = Derivative(f, t), Derivative(g, t)
         for first in (df-g-t**17, df-g-Symbol("a")*t,
-                      df-g-Symbol("t", real=True), df-g-exp(t),
+                      df-g-Symbol("t", real=True), df-g-exp(t**2),
                       df-t*g-t, t*df-g-t, df-f*g-t, df-g-Float(1.0)):
             with self.subTest(source=first), patch.object(
                 _native, "polynomial_ode_system_native", side_effect=AssertionError("unsupported forcing was lowered"),

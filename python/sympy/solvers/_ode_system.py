@@ -5,16 +5,24 @@ linear forms cross the native boundary, where a complete normalized fundamental
 matrix is independently checked. The integration constants are the initial
 coordinates at the chosen common time, rather than a chosen eigenvector basis.
 Systems have one through eight coordinates. Polynomial forcing has degree at
-most 16 and a separate coefficient checker.
+most 16 and a separate coefficient checker. Rational exponential and sine/cosine
+forcing uses a checked finite realization with at most eight total physical and
+forcing coordinates.
 """
 
 from fractions import Fraction
 
 from ..core import (
     Add, Derivative, Dummy, Eq, Integer, Mul, Pow, Rational, S, Symbol,
-    _lift_native_result, _native, _native_expr, _symbol_binding,
+    _is_closed_function_class, _lift_native_result, _native, _native_expr, _symbol_binding,
 )
 from ..core._function_capabilities import _implementation, _owner_matches, _owner_record
+from ..functions.elementary.exponential import exp as _ForcingExp
+from ..functions.elementary.trigonometric import cos as _ForcingCos, sin as _ForcingSin
+
+# Capture the defining classes before user code can replace public bindings.
+# The registered capability check also validates their current implementations.
+_ELEMENTARY = (_ForcingExp, _ForcingSin, _ForcingCos)
 
 _NUMBERS = (Integer, Rational, type(S.Zero), type(S.One),
             type(S.NegativeOne), type(S.Half))
@@ -88,6 +96,7 @@ def _functions(equations, functions):
     _checkodesol_function_protocol()
     _require_default_function_identity()
     found = []
+    elementary = False
     pending = [(equation, 0) for equation in reversed(equations)]
     nodes = 0
     while pending:
@@ -99,7 +108,14 @@ def _functions(equations, functions):
         if kind in _NUMBERS or kind is int:
             _rational(node)
             continue
-        if _plain_ode_function_class(kind):
+        elementary_kind = any(kind is owner for owner in _ELEMENTARY)
+        if elementary_kind:
+            if not _is_closed_function_class(kind):
+                raise NotImplementedError(
+                    "dsolve: elementary forcing requires original built-in implementations"
+                )
+            elementary = True
+        elif _plain_ode_function_class(kind):
             if len(kind.__name__) > _MAX_TEXT:
                 raise ValueError("dsolve: system function name exceeds its text bound")
             _checkodesol_function(node)
@@ -110,7 +126,7 @@ def _functions(equations, functions):
             continue
         if kind in (Symbol, Dummy):
             continue
-        if kind not in (Eq, Add, Mul, Pow, Derivative):
+        if not elementary_kind and kind not in (Eq, Add, Mul, Pow, Derivative):
             raise NotImplementedError("dsolve: system sources require exact rational linear forms")
         if kind is Eq and depth:
             raise NotImplementedError("dsolve: a system equation cannot be an arithmetic subexpression")
@@ -140,7 +156,7 @@ def _functions(equations, functions):
         raise ValueError("dsolve: system functions require the same typed time variable")
     if len(found) != len(functions) or any(not any(function == item for item in functions) for function in found):
         raise ValueError("dsolve: supplied functions do not match the original system")
-    return functions, time
+    return functions, time, elementary
 
 
 class _LinearSource:
@@ -365,13 +381,13 @@ def _reduce_general_system(rows, parser):
                 ))
             if residual:
                 raise ValueError("dsolve: derivative matrix reduction failed its source identity")
-        residual = list(original[0])
+        residual = original[0].copy()
         for index in range(dimension):
             residual = parser.poly_add(
                 residual,
                 parser.poly_scale(forcing[index], original[dimension + 1 + index]),
             )
-        if residual != [0]:
+        if residual != parser.constant(Fraction(0))[0]:
             raise ValueError("dsolve: derivative matrix reduction failed its forcing identity")
     return coefficients, forcing
 
@@ -380,9 +396,12 @@ def solve_linear_system(equations, functions=None, *, ics=None, hint="default", 
     """Return a flat equation list in the supplied or inferred function order.
 
     Admit one through eight rational constant-coefficient first-order equations
-    with an invertible derivative matrix and polynomial forcing of degree at
-    most 16. Larger systems use the checked rational-resolvent lane, whose
-    spectral factors must be rational linear or quadratic polynomials.
+    with an invertible derivative matrix. Forcing can combine degree-at-most-16
+    polynomials with exp(a*t), sin(b*t) and cos(b*t) for rational a and b, including
+    polynomial factors and products within an eight-coordinate realization.
+    Elementary forcing arguments must be rational multiples of the original
+    typed time. The rational-resolvent lane requires rational linear or
+    quadratic spectral factors.
     Rational value initial conditions share one time; unspecified coordinates
     remain independent initial-value constants. Unsupported classes refuse.
     """
@@ -391,11 +410,35 @@ def solve_linear_system(equations, functions=None, *, ics=None, hint="default", 
         raise NotImplementedError("dsolve: this system lane supports one through eight equations")
     if hint != "default":
         raise NotImplementedError("dsolve: this system lane supports the default hint")
-    functions, time = _functions(equations, functions)
+    functions, time, elementary = _functions(equations, functions)
     dimension = len(functions)
-    parser = _LinearSource(functions, time)
+    if elementary:
+        from ._ode_forcing import _ElementarySource
+        parser = _ElementarySource(functions, time)
+    else:
+        parser = _LinearSource(functions, time)
     rows = [parser.visit(equation) for equation in equations]
-    if dimension == 2:
+    if elementary:
+        coefficients, forcing = _reduce_general_system(rows, parser)
+        polynomial, modes = parser.native_forcing(forcing)
+        point, values = _initial_values(functions, time, ics)
+        native = _native.forced_ode_system_native(
+            [[_native_expr(_surface(value)) for value in row] for row in coefficients],
+            _symbol_binding(time), _native_expr(point),
+            [[_native_expr(_surface(value)) for value in poly] for poly in polynomial],
+            [_native_expr(value) for value in values],
+            [
+                [
+                    _native_expr(_surface(Fraction(power))),
+                    _native_expr(_surface(rate)),
+                    _native_expr(_surface(frequency)),
+                    [_native_expr(_surface(value)) for value in cosine],
+                    [_native_expr(_surface(value)) for value in sine],
+                ]
+                for power, rate, frequency, cosine, sine in modes
+            ],
+        )
+    elif dimension == 2:
         # Preserve the established two-coordinate generators and failure paths.
         m00, m01 = rows[0][3:]
         m10, m11 = rows[1][3:]

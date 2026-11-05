@@ -6,6 +6,7 @@ use crate::to_value_error;
 use fsym_budget::{BudgetMeter, Dimension};
 use fsym_core::{BigRational, Expr};
 use fsym_runtime::{Budget, BudgetLimits};
+use fsym_solvers::ode::system::general::forcing::{ElementaryForcing, metered_forced_ode_system};
 use fsym_solvers::ode::system::general::metered_general_ode_system;
 use fsym_solvers::ode::system::metered_linear_ode_system;
 use fsym_solvers::ode::system::polynomial::metered_polynomial_ode_system;
@@ -245,6 +246,175 @@ pub fn general_ode_system_native(
         &time.to_symbol(),
         &point,
         &loads,
+        &initial,
+        &mut generator,
+        &mut verifier,
+    )
+    .map_err(|error| {
+        if error.is_unsupported() {
+            PyNotImplementedError::new_err(error.to_string())
+        } else {
+            to_value_error(error)
+        }
+    })?;
+    generator.checkpoint().map_err(to_value_error)?;
+    verifier.checkpoint().map_err(to_value_error)?;
+    Ok(checked
+        .into_solutions()
+        .into_iter()
+        .map(PyExpr::from_expr)
+        .collect())
+}
+
+/// Borrowed source vectors for rational exponential/trigonometric forcing.
+///
+/// Each mode is [power, rate, frequency, cosine_coefficients, sine_coefficients].
+/// Scalar slots are native exact rational atoms, never Python coercion hooks.
+#[pyfunction]
+pub fn forced_ode_system_native(
+    matrix: &Bound<'_, PyList>,
+    time: &PySymbolBinding,
+    initial_point: &PyExpr,
+    polynomial: &Bound<'_, PyList>,
+    initial_values: &Bound<'_, PyList>,
+    modes: &Bound<'_, PyList>,
+) -> PyResult<Vec<PyExpr>> {
+    let dimension = matrix.len();
+    if !(1..=8).contains(&dimension)
+        || polynomial.len() != dimension
+        || initial_values.len() != dimension
+        || modes.len() > 8
+    {
+        return Err(PyValueError::new_err(
+            "forced ODE system requires one through eight coordinates and at most eight modes",
+        ));
+    }
+    for item in matrix.iter() {
+        if item.cast::<PyList>()?.len() != dimension {
+            return Err(PyValueError::new_err(
+                "ODE coefficient matrix must be square",
+            ));
+        }
+    }
+    for item in polynomial.iter() {
+        let row = item.cast::<PyList>()?;
+        if row.is_empty() || row.len() > 17 {
+            return Err(PyValueError::new_err(
+                "ODE polynomial forcing requires one to seventeen coefficients",
+            ));
+        }
+    }
+    for item in modes.iter() {
+        let row = item.cast::<PyList>()?;
+        if row.len() != 5 {
+            return Err(PyValueError::new_err(
+                "ODE forcing mode requires power, rate, frequency, cosine and sine",
+            ));
+        }
+        for column in [3, 4] {
+            if row.get_item(column)?.cast::<PyList>()?.len() != dimension {
+                return Err(PyValueError::new_err(
+                    "ODE forcing mode vectors must match the physical dimension",
+                ));
+            }
+        }
+    }
+    if time.name.len() > 16_384 {
+        return Err(PyValueError::new_err(
+            "ODE time symbol exceeds its text bound",
+        ));
+    }
+
+    let mut generator = Budget::new(BudgetLimits::uniform(512 * 1024 * 1024, 0));
+    let mut verifier = Budget::new(BudgetLimits::uniform(512 * 1024 * 1024, 0));
+    generator
+        .charge_batch(&[
+            (Dimension::ComputeSteps, 1024),
+            (Dimension::MemoryBytes, 1024 * 1024),
+            (Dimension::AllocationCount, 1024),
+        ])
+        .map_err(to_value_error)?;
+    let point = rational(&initial_point.inner)?;
+    let mut coefficients = Vec::with_capacity(dimension);
+    for item in matrix.iter() {
+        let row = item.cast::<PyList>()?;
+        let mut values = Vec::with_capacity(dimension);
+        for item in row.iter() {
+            let value = item.extract::<PyRef<'_, PyExpr>>()?;
+            values.push(rational(&value.inner)?);
+        }
+        coefficients.push(values);
+    }
+    let mut loads = Vec::with_capacity(dimension);
+    for item in polynomial.iter() {
+        let row = item.cast::<PyList>()?;
+        let mut values = Vec::with_capacity(row.len());
+        for item in row.iter() {
+            let value = item.extract::<PyRef<'_, PyExpr>>()?;
+            values.push(rational(&value.inner)?);
+        }
+        loads.push(values);
+    }
+    let mut initial = Vec::with_capacity(dimension);
+    for item in initial_values.iter() {
+        let value = item.extract::<PyRef<'_, PyExpr>>()?;
+        let admitted = match &value.inner {
+            Expr::Integer(number) => number.bits() <= 1024,
+            Expr::Rational(number) => {
+                number.numer().bits() <= 1024 && number.denom().bits() <= 1024
+            }
+            Expr::Sym(symbol) => symbol.name.len() <= 16_384,
+            _ => false,
+        };
+        if !admitted {
+            return Err(PyValueError::new_err(
+                "ODE initial values require bounded exact rational or symbol atoms",
+            ));
+        }
+        initial.push(value.inner.clone());
+    }
+    let mut forcing = Vec::with_capacity(modes.len());
+    for item in modes.iter() {
+        let row = item.cast::<PyList>()?;
+        let power = row.get_item(0)?.extract::<PyRef<'_, PyExpr>>()?;
+        let power = rational(&power.inner)?;
+        let power = power
+            .is_integer()
+            .then(|| power.to_integer().to_i64())
+            .flatten()
+            .filter(|power| (0..=16).contains(power))
+            .ok_or_else(|| {
+                PyValueError::new_err(
+                    "ODE forcing power must be an exact integer from zero to sixteen",
+                )
+            })?;
+        let rate = row.get_item(1)?.extract::<PyRef<'_, PyExpr>>()?;
+        let rate = rational(&rate.inner)?;
+        let frequency = row.get_item(2)?.extract::<PyRef<'_, PyExpr>>()?;
+        let frequency = rational(&frequency.inner)?;
+        let mut amplitudes = [Vec::with_capacity(dimension), Vec::with_capacity(dimension)];
+        for (index, values) in amplitudes.iter_mut().enumerate() {
+            let item = row.get_item(index + 3)?;
+            for item in item.cast::<PyList>()?.iter() {
+                let value = item.extract::<PyRef<'_, PyExpr>>()?;
+                values.push(rational(&value.inner)?);
+            }
+        }
+        let [cosine, sine] = amplitudes;
+        forcing.push(ElementaryForcing {
+            power: power as usize,
+            rate,
+            frequency,
+            cosine,
+            sine,
+        });
+    }
+    let checked = metered_forced_ode_system(
+        &coefficients,
+        &time.to_symbol(),
+        &point,
+        &loads,
+        &forcing,
         &initial,
         &mut generator,
         &mut verifier,

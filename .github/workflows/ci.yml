@@ -290,6 +290,7 @@ jobs:
               "python/tests/test_linear_ode_system.py",
               "python/tests/test_polynomial_ode_system.py",
               "python/tests/test_general_ode_system.py",
+              "python/tests/test_elementary_forced_ode_system.py",
               "python/tests/test_compiled_powers.py",
               "python/tests/test_compiled_objective.py",
               "python/tests/test_numeric_evaluation_budget.py",
