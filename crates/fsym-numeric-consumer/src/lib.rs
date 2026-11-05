@@ -136,8 +136,7 @@ pub fn newton_refine_2x2(
     let mut last_norm = f64::INFINITY;
     for iteration in 0..=guards.max_iterations {
         let residuals = finite_program_values::<2>(&system.compiled_residuals, &x, "residual")?;
-        let jacobian_flat =
-            finite_program_values::<4>(&system.compiled_jacobian, &x, "Jacobian")?;
+        let jacobian_flat = finite_program_values::<4>(&system.compiled_jacobian, &x, "Jacobian")?;
         last_norm = residuals
             .iter()
             .fold(0.0_f64, |acc, value| acc.max(value.abs()));

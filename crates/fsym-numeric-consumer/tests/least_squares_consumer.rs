@@ -29,12 +29,19 @@ fn all_three_residuals_determine_the_inconsistent_hero_fit() {
     near(result.point[0], 5.0 / 3.0, 1e-12);
     near(result.point[1], 5.0 / 3.0, 1e-12);
     assert_eq!(result.residuals.len(), 3);
-    for (actual, expected) in result.residuals.iter().zip([2.0 / 3.0, 2.0 / 3.0, -2.0 / 3.0]) {
+    for (actual, expected) in result
+        .residuals
+        .iter()
+        .zip([2.0 / 3.0, 2.0 / 3.0, -2.0 / 3.0])
+    {
         near(*actual, expected, 1e-12);
     }
     near(result.cost, 2.0 / 3.0, 1e-12);
     assert!(result.gradient_norm <= 1e-10);
-    assert_eq!(result.termination, LeastSquaresTermination::GradientTolerance);
+    assert_eq!(
+        result.termination,
+        LeastSquaresTermination::GradientTolerance
+    );
     assert!(result.iterations > 0);
     assert!(result.evaluations >= result.iterations + 2);
 }
@@ -50,7 +57,12 @@ fn consistent_tall_systems_support_one_three_and_sixteen_coordinates() {
                 Expr::Sym(variable.clone()) - Expr::from_i64((index + 1) as i64)
             })
             .collect();
-        sources.push(sources.iter().cloned().fold(Expr::from_i64(0), |a, b| a + b));
+        sources.push(
+            sources
+                .iter()
+                .cloned()
+                .fold(Expr::from_i64(0), |a, b| a + b),
+        );
         let source = VerifiedResidualSystem::try_compile(&sources, &variables).unwrap();
         let result =
             least_squares(&source, &vec![0.0; n], &LeastSquaresOptions::default()).unwrap();
@@ -71,7 +83,11 @@ fn nonlinear_inconsistent_fit_reaches_the_known_stationary_point() {
     near(result.point[0], (1.0 + 3.0_f64.sqrt()) / 2.0, 1e-8);
     assert!(result.cost > 0.0);
     assert!(result.gradient_norm <= 1e-10);
-    near(result.residuals[0], result.point[0] * result.point[0] - 2.0, 1e-14);
+    near(
+        result.residuals[0],
+        result.point[0] * result.point[0] - 2.0,
+        1e-14,
+    );
     near(result.residuals[1], result.point[0] - 1.0, 1e-14);
 }
 

@@ -36,6 +36,9 @@ const MAX_DERIVED_BITS: u64 = 16_384;
 const MAX_TRANSFORM_BITS: u64 = 4096;
 const MAX_TEXT: usize = 16_384;
 
+/// Independently checked rational exponential and trigonometric forcing.
+pub mod forcing;
+
 pub type RationalMatrix = Vec<Vec<BigRational>>;
 pub type PolynomialVector = Vec<Vec<BigRational>>;
 pub type ExpressionMatrix = Vec<Vec<Expr>>;

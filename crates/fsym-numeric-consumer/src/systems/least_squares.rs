@@ -351,10 +351,7 @@ fn qr_direction<M: BudgetMeter>(
         step[column] = checked_finite(value, "least-squares scaled direction")?;
     }
     for (value, scale) in step.iter_mut().zip(scales) {
-        *value = checked_finite(
-            (*value * residual_scale) / scale,
-            "least-squares direction",
-        )?;
+        *value = checked_finite((*value * residual_scale) / scale, "least-squares direction")?;
     }
     Ok(step)
 }
