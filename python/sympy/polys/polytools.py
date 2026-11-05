@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from fractions import Fraction
 from typing import Any, List, Optional, Sequence, Tuple, Union
-from .polyerrors import PolynomialError
+from .polyerrors import NotInvertible, PolynomialError
 from ..core import (
     Basic,
     Mul,
@@ -1502,6 +1502,62 @@ class GroebnerBasis:
         snapshot.unchanged()
         return GroebnerBasis(values, gens, "QQ", "lex")
 
+    def syzygies(self) -> list:
+        """Return generators of all polynomial relations on the current exprs.
+
+        This FrankenSymPy extension returns a list of tuples over QQ. A tuple
+        ``(a_1, ..., a_m)`` means ``sum(a_i*exprs[i]) == 0`` for this basis's
+        current ordered expression list, retaining duplicate and zero entries.
+        The tuples generate the complete relation module; they are not promised
+        to form a minimal or reduced module basis. ZZ coefficients extend to QQ.
+
+        Generation and independent verification use the declared lex, grlex or
+        grevlex order. The bounded lane supports eight variables, 64 input
+        polynomials and 16384 output polynomial cells. Unsupported sources or
+        exhausted work raise without publishing a partial relation module.
+        """
+        snapshot = _IdealQuotientSnapshot(self)
+        (source_data,) = snapshot.inputs()
+        sources, gens, equations, bindings = source_data
+        order = snapshot.bases[0][2][3]
+        raw = _native.polynomial_syzygies_native(equations, bindings, order)
+        snapshot.unchanged()
+        relations = [tuple(_lift_native_result(value, *sources, *gens) for value in row)
+                     for row in raw]
+        snapshot.unchanged()
+        return relations
+
+    def invert(self, polynomial: Any) -> Any:
+        """Return the reduced multiplicative inverse modulo this ideal over QQ.
+
+        This FrankenSymPy extension supports multivariate and positive-
+        dimensional quotient rings. A complete checked augmented ideal proves
+        whether an inverse exists; accepted inverses are independently checked
+        and reduced in this basis's declared monomial order. Current exprs need
+        not already form a Groebner basis. ZZ coefficients extend to QQ.
+
+        ``NotInvertible`` means the element is proved to be a nonunit. Resource,
+        admission and verification failures remain distinct exceptions. In the
+        zero quotient ring (the unit ideal), the inverse representative is zero,
+        including for the zero element. There are at most eight variables and
+        63 ideal generators in the bounded lane.
+        """
+        # A second retained source container includes the element in the same
+        # immutable snapshot without invoking its public Poly.as_expr protocol.
+        element_basis = GroebnerBasis([polynomial], (), "QQ", "lex")
+        snapshot = _IdealQuotientSnapshot(self, element_basis)
+        source_data, element_data = snapshot.inputs()
+        sources, gens, equations, bindings = source_data
+        element_sources, _, element_equations, _ = element_data
+        order = snapshot.bases[0][2][3]
+        raw = _native.ideal_inverse_native(equations, element_equations[0], bindings, order)
+        snapshot.unchanged()
+        if raw is None:
+            raise NotInvertible("polynomial is not invertible modulo the ideal over QQ")
+        inverse = _lift_native_result(raw, *sources, *element_sources, *gens)
+        snapshot.unchanged()
+        return inverse
+
     def saturate(self, polynomial: Any) -> GroebnerBasis:
         """Return the ideal saturation I:polynomial**infinity over QQ.
 
@@ -1558,7 +1614,7 @@ _IDEAL_ABSENT = object()
 
 
 class _IdealQuotientSnapshot:
-    """Retain bounded source storage while a checked quotient is evaluated.
+    """Retain bounded source storage for checked polynomial operations.
 
     Native inputs are immutable. The mutable public basis lists and retained
     Python children must still describe those inputs when a result is lifted.

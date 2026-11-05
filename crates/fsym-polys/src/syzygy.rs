@@ -525,7 +525,7 @@ fn verify_compositions(
     let mut next = 0;
     for (index, coefficients) in groebner.input_basis_witnesses.iter().enumerate() {
         let mut expected = reserve(inputs.len(), work)?;
-        for coordinate in 0..inputs.len() {
+        for (coordinate, _) in inputs.iter().enumerate() {
             let mut value = Terms::new();
             if coordinate == index {
                 work.allocate(generators.len() * 4)?;
@@ -568,7 +568,7 @@ fn verify_compositions(
             right_shift.push(a.saturating_sub(b));
         }
         let mut expected = reserve(inputs.len(), work)?;
-        for coordinate in 0..inputs.len() {
+        for (coordinate, _) in inputs.iter().enumerate() {
             let mut value = Terms::new();
             reference_shift(
                 &mut value,

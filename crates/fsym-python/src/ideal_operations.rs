@@ -13,13 +13,13 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyList, PyString};
 
-fn budget() -> Budget {
+pub(crate) fn budget() -> Budget {
     let mut limits = BudgetLimits::uniform(128 * 1024 * 1024, 0);
     limits.dimensions[Dimension::ComputeSteps.index()] = 20_000_000;
     Budget::new(limits)
 }
 
-fn charge(meter: &mut Budget, steps: usize, bytes: usize) -> PyResult<()> {
+pub(crate) fn charge(meter: &mut Budget, steps: usize, bytes: usize) -> PyResult<()> {
     meter
         .try_charge_batch(&[
             (Dimension::ComputeSteps, steps.max(1) as u64),
@@ -62,7 +62,7 @@ fn symbol_name_bytes(value: &Bound<'_, PyAny>) -> PyResult<usize> {
     ))
 }
 
-fn symbols(values: &Bound<'_, PyList>, meter: &mut Budget) -> PyResult<Vec<Symbol>> {
+pub(crate) fn symbols(values: &Bound<'_, PyList>, meter: &mut Budget) -> PyResult<Vec<Symbol>> {
     if values.len() > 8 {
         return Err(PyValueError::new_err(
             "checked ideals support at most eight generators",
@@ -189,7 +189,7 @@ pub fn ideal_source_arguments_native(
     Ok(())
 }
 
-fn polynomials(
+pub(crate) fn polynomials(
     values: &Bound<'_, PyList>,
     variables: &[Symbol],
     meter: &mut Budget,
@@ -223,7 +223,7 @@ fn lift(
     lift_basis(result.into_basis(), ring_bytes, generator, verifier)
 }
 
-fn lift_basis(
+pub(crate) fn lift_basis(
     basis: Vec<MultivariatePoly>,
     ring_bytes: usize,
     generator: &mut Budget,

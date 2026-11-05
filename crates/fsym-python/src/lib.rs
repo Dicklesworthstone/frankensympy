@@ -1927,6 +1927,7 @@ mod numeric_budget;
 pub mod objective;
 mod ode_system;
 mod polynomial_laplace;
+mod polynomial_relations;
 mod polynomial_systems;
 mod quadrature;
 mod rational_laplace;
@@ -2262,6 +2263,14 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     )?)?;
     m.add_function(wrap_pyfunction!(
         ideal_operations::ideal_saturation_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        polynomial_relations::polynomial_syzygies_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        polynomial_relations::ideal_inverse_native,
         m
     )?)?;
     m.add_function(wrap_pyfunction!(poly_multivariate_gcd_native, m)?)?;

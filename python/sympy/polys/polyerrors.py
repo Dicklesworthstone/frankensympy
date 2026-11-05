@@ -14,3 +14,7 @@ class GeneratorsError(BasePolynomialError):
 
 class PolynomialError(BasePolynomialError):
     """An expression is not a valid polynomial in the given generators."""
+
+
+class NotInvertible(PolynomialError):
+    """An element has no multiplicative inverse in the specified quotient."""
