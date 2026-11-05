@@ -276,6 +276,62 @@ fn irrational_root_positions_use_exact_squared_comparisons() {
 }
 
 #[test]
+fn high_height_canceled_quadratic_guards_keep_exact_strip_boundaries() {
+    let s = Symbol::new("s");
+    let x = Symbol::new("x");
+    let scale = BigInt::from(10).pow(200);
+    let r = BigRational::new(1.into(), scale);
+    let square = &r * &r;
+    let narrow = strip(
+        MellinStripBound::Finite(-r.clone()),
+        MellinStripBound::Finite(r.clone()),
+    );
+    let wide = strip(
+        MellinStripBound::Finite(q(-2, 1) * &r),
+        MellinStripBound::Finite(q(2, 1) * &r),
+    );
+    // The leading coefficient is negative. Zero multiplication cancels the
+    // value but cannot remove either original root +/-sqrt(2)*r.
+    let guard =
+        UnivariatePoly::new(s.clone(), vec![q(6, 1) * &square, q(0, 1), q(-3, 1)]).to_expr();
+    let source = Expr::Mul(vec![Expr::from_i64(0), power(guard, -1)]);
+    let result = inverse_rational_mellin(&source, &s, &x, &narrow).unwrap();
+    assert!(result.function().is_zero());
+    assert!(result.certificate().sides.is_empty());
+    assert_eq!(result.original_guard_count(), 1);
+    for verify in [false, true] {
+        let result = if verify {
+            verify_rational_mellin_certificate(
+                &source,
+                &s,
+                &x,
+                &wide,
+                result.certificate(),
+                &mut Unbounded,
+            )
+        } else {
+            inverse_rational_mellin(&source, &s, &x, &wide)
+        };
+        assert!(matches!(result, Err(RationalMellinError::InvalidStrip(_))));
+    }
+    // A repeated original guard at r is allowed on the open-strip boundary,
+    // but is still refused when the same root lies strictly inside it.
+    let guard =
+        UnivariatePoly::new(s.clone(), vec![q(-3, 1) * square, q(6, 1) * &r, q(-3, 1)]).to_expr();
+    let source = Expr::Mul(vec![Expr::from_i64(0), power(guard, -1)]);
+    let outside = strip(
+        MellinStripBound::Finite(r.clone()),
+        MellinStripBound::PositiveInfinity,
+    );
+    inverse_rational_mellin(&source, &s, &x, &outside).unwrap();
+    let inside = strip(finite(0), MellinStripBound::Finite(q(2, 1) * r));
+    assert!(matches!(
+        inverse_rational_mellin(&source, &s, &x, &inside),
+        Err(RationalMellinError::InvalidStrip(_))
+    ));
+}
+
+#[test]
 fn poles_inside_the_strip_and_empty_or_reversed_strips_refuse() {
     let s = Symbol::new("s");
     let x = Symbol::new("x");

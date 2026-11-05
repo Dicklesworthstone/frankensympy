@@ -264,6 +264,7 @@ jobs:
               "python/tests/test_solveset_piecewise_real.py",
               "python/tests/test_rational_laplace.py",
               "python/tests/test_rational_mellin.py",
+              "python/tests/test_heaviside_assumptions.py",
               "python/tests/test_delayed_laplace.py",
               "python/tests/test_distributional_laplace.py",
               "python/tests/test_delayed_distributional_laplace.py",

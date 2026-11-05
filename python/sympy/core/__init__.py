@@ -706,6 +706,16 @@ def _lift_builtin_result(value: Any) -> "Basic":
         # function lift would create an opaque Tuple application and then try
         # to lower it again, crossing the closed-source boundary needlessly.
         return _wrap(value)
+    if value.func_name == "Heaviside":
+        from ..functions.special.delta_functions import Heaviside
+
+        # Native output must use the actual registered built-in constructor,
+        # including its proved shell sign facts. Never invoke a replacement
+        # class or a modified implementation merely because its name matches.
+        if _known_functions.get("Heaviside") is not Heaviside:
+            raise NotImplementedError("Heaviside lifting requires its registered built-in class")
+        _require_closed_function_class(Heaviside)
+        return Heaviside(*(_lift_builtin_result(arg) for arg in value.args))
     constructor = {"Add": Add, "Mul": Mul, "Pow": Pow}.get(value.func_name)
     if constructor is not None:
         return constructor(*(_lift_builtin_result(arg) for arg in value.args))
@@ -4962,6 +4972,12 @@ class _NativeFunction(Function):
         if any(_contains_opaque(arg) for arg in args):
             return None
         native_args = [_native_expr(a) for a in args]
+        if cls is _known_functions.get("Heaviside"):
+            _require_closed_function_class(cls)
+            if len(native_args) in (1, 2):
+                value = cls._eval_known_sign(*(_wrap(arg) for arg in native_args))
+                if value is not None:
+                    return value
         value = _native.py_eval_function(cls.__name__, native_args)
         if value is not None:
             return _wrap(value)

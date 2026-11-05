@@ -1,8 +1,9 @@
 //! Checked causal inverse Laplace transforms of proper rational functions.
 //!
-//! A generator factors the original denominator and solves for polynomial
-//! exponential, trigonometric and hyperbolic blocks. A separate reference
-//! lane computes each block's transform from closed binomial coefficients,
+//! A generator constructs exact linear/quadratic modes directly or factors
+//! larger denominators and solves for polynomial exponential, trigonometric
+//! and hyperbolic blocks. A separate reference lane computes each block's
+//! transform from closed binomial coefficients,
 //! then checks the complete numerator identity against the original source.
 //! It never searches for residues and cannot accept an omitted pole.
 //!
@@ -709,6 +710,9 @@ fn generate_regular_fraction(
         ));
     }
     let n = original.denominator.len() - 1;
+    if n <= 2 {
+        return generate_small_denominator(original, work);
+    }
     work.charge(n * n, n * n * 32 + 128 + variable.name.len())?;
     let denominator = UnivariatePoly::new(variable.clone(), work.copy(&original.denominator)?);
     let factorization = metered_complete_factorization(&denominator, work.meter)?;
@@ -845,6 +849,84 @@ fn generate_regular_fraction(
         }
     }
     Ok(RationalLaplaceCertificate { blocks })
+}
+
+/// A complete mode basis for a proper linear or quadratic denominator needs
+/// only rational arithmetic and exact square-root tests. Avoiding generic
+/// integer factorization handles high-height low-degree sources without
+/// increasing the fixed budget. Acceptance uses the independent source checker.
+fn generate_small_denominator(
+    original: &Fraction,
+    work: &mut Work<'_, impl BudgetMeter>,
+) -> Result<RationalLaplaceCertificate> {
+    let degree = original.denominator.len() - 1;
+    let leading = &original.denominator[degree];
+    let negative_b = work.sub_number(&BigRational::zero(), &original.denominator[degree - 1])?;
+    work.charge(2, 2 * 128 + 4 * 96)?;
+    if degree == 1 {
+        let rate = work.div_number(&negative_b, leading)?;
+        let coefficient = work.div_number(&original.numerator[0], leading)?;
+        return Ok(RationalLaplaceCertificate {
+            blocks: vec![LaplaceBlock::Exponential {
+                rate,
+                coefficients: vec![coefficient],
+            }],
+        });
+    }
+
+    // D(s) = leading * ((s-rate)^2+d),
+    // N(s)/leading = cosine*(s-rate)+sine.
+    let twice_leading = work.mul_number(&q(2), leading)?;
+    let rate = work.div_number(&negative_b, &twice_leading)?;
+    let constant = work.div_number(&original.denominator[0], leading)?;
+    let square = work.mul_number(&rate, &rate)?;
+    let d = work.sub_number(&constant, &square)?;
+    let zero = BigRational::zero();
+    let cosine = work.div_number(original.numerator.get(1).unwrap_or(&zero), leading)?;
+    let shifted = work.mul_number(&cosine, &rate)?;
+    let constant = work.div_number(&original.numerator[0], leading)?;
+    let sine = work.add_number(&constant, &shifted)?;
+    if d.is_zero() {
+        let mut coefficients = vec![cosine, sine];
+        trim(&mut coefficients);
+        return Ok(RationalLaplaceCertificate {
+            blocks: vec![LaplaceBlock::Exponential { rate, coefficients }],
+        });
+    }
+    if d.is_negative() {
+        let magnitude = work.sub_number(&zero, &d)?;
+        if let Some(frequency) = rational_square_root(&magnitude, work)? {
+            // Preserve the established exponential form for rational poles.
+            // The zero residue of a canceled pole must not become a block.
+            let half_cosine = work.div_number(&cosine, &q(2))?;
+            let twice_frequency = work.mul_number(&q(2), &frequency)?;
+            let half_sine = work.div_number(&sine, &twice_frequency)?;
+            let larger_coefficient = work.add_number(&half_cosine, &half_sine)?;
+            let smaller_coefficient = work.sub_number(&half_cosine, &half_sine)?;
+            let mut blocks = Vec::with_capacity(2);
+            if !larger_coefficient.is_zero() {
+                blocks.push(LaplaceBlock::Exponential {
+                    rate: work.add_number(&rate, &frequency)?,
+                    coefficients: vec![larger_coefficient],
+                });
+            }
+            if !smaller_coefficient.is_zero() {
+                blocks.push(LaplaceBlock::Exponential {
+                    rate: work.sub_number(&rate, &frequency)?,
+                    coefficients: vec![smaller_coefficient],
+                });
+            }
+            return Ok(RationalLaplaceCertificate { blocks });
+        }
+    }
+    Ok(RationalLaplaceCertificate {
+        blocks: vec![LaplaceBlock::Quadratic {
+            rate,
+            squared_frequency: d,
+            cosine: vec![cosine],
+            sine: vec![sine],
+        }],
+    })
 }
 
 fn canonical_coefficients(values: &[BigRational]) -> Result<()> {
@@ -1078,12 +1160,12 @@ fn time_polynomial(coefficients: &[BigRational], time: &Symbol) -> Expr {
     sum_expression(terms)
 }
 
-/// Exact rational square roots use governed integer arithmetic. A nonsquare
-/// stays a held radical; presentation never starts an unmetered factor search.
-fn lifted_frequency(
+/// Exact perfect-square admission uses governed integer arithmetic rather
+/// than generic factorization, for both candidate modes and presentation.
+fn rational_square_root(
     magnitude: &BigRational,
     work: &mut Work<'_, impl BudgetMeter>,
-) -> Result<(Expr, Expr)> {
+) -> Result<Option<BigRational>> {
     if !magnitude.is_positive() {
         return Err(RationalLaplaceError::Verification(
             "nonpositive frequency magnitude",
@@ -1100,6 +1182,19 @@ fn lifted_frequency(
     work.charge(8, 512 + 8 * bit_size(magnitude).div_ceil(8) as usize)?;
     if numerator_square == *magnitude.numer() && denominator_square == *magnitude.denom() {
         let frequency = BigRational::metered_new(&numerator, &denominator, work.meter)?;
+        scalar_ok(&frequency, MAX_BITS)?;
+        return Ok(Some(frequency));
+    }
+    Ok(None)
+}
+
+/// A nonsquare stays a held radical; presentation never starts an unmetered
+/// factor search.
+fn lifted_frequency(
+    magnitude: &BigRational,
+    work: &mut Work<'_, impl BudgetMeter>,
+) -> Result<(Expr, Expr)> {
+    if let Some(frequency) = rational_square_root(magnitude, work)? {
         let inverse = work.div_number(&BigRational::one(), &frequency)?;
         return Ok((rational_expr(frequency), rational_expr(inverse)));
     }

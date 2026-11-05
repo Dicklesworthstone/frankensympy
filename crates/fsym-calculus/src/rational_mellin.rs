@@ -24,7 +24,7 @@ use fsym_budget::{BudgetError, BudgetMeter, Dimension, MeterError, Unbounded};
 use fsym_core::arith::{RationalArithmeticError, metered_mul, metered_sqrt_floor};
 use fsym_core::elementary::rational_expr;
 use fsym_core::{BigRational, Expr, Symbol};
-use fsym_polys::{PolyError, metered_complete_factorization};
+use fsym_polys::{PolyError, UnivariatePoly, metered_complete_factorization};
 use num_traits::{One, Signed, Zero};
 use std::cmp::Ordering;
 use std::sync::Arc;
@@ -401,27 +401,52 @@ fn check_original_guards(
 ) -> Result<usize> {
     let guards = original_rational_guard_polynomials(source, variable, argument, work.meter)?;
     for guard in &guards {
+        if guard.degree().is_some_and(|degree| degree <= 2) {
+            check_small_guard(guard, strip, work)?;
+            continue;
+        }
         let complete = metered_complete_factorization(guard, work.meter)?;
         for factor in &complete.factors {
-            let degree = factor.poly.degree().unwrap_or(0);
-            if degree == 0 || degree > 2 {
-                return Err(RationalMellinError::Unsupported(
-                    "original guard has a factor of degree greater than two",
-                ));
-            }
-            let negative_b = work.sub(&BigRational::zero(), &factor.poly.coeffs[degree - 1])?;
-            if degree == 1 {
-                spectral_side(&negative_b, None, strip, work)?;
-            } else {
-                let rate = work.div(&negative_b, &BigRational::from(2i64))?;
-                let square = work.mul(&rate, &rate)?;
-                let d = work.sub(&factor.poly.coeffs[0], &square)?;
-                spectral_side(&rate, Some(&d), strip, work)?;
-            }
+            check_small_guard(&factor.poly, strip, work)?;
         }
     }
     work.meter.checkpoint()?;
     Ok(guards.len())
+}
+
+/// Classify the complete root set of an original linear/quadratic guard
+/// directly. This includes reducible and repeated quadratics and never drops
+/// a root hidden by cancellation in the generated transform.
+fn check_small_guard(
+    guard: &UnivariatePoly,
+    strip: &MellinStrip,
+    work: &mut Work<'_, impl BudgetMeter>,
+) -> Result<()> {
+    let degree = guard.degree().unwrap_or(0);
+    if degree == 0 || degree > 2 {
+        return Err(RationalMellinError::Unsupported(
+            "original guard has a factor of degree greater than two",
+        ));
+    }
+    let leading = &guard.coeffs[degree];
+    let negative_b = work.sub(&BigRational::zero(), &guard.coeffs[degree - 1])?;
+    if degree == 1 {
+        let rate = work.div(&negative_b, leading)?;
+        spectral_side(&rate, None, strip, work)?;
+    } else {
+        let twice_leading = work.mul(&BigRational::from(2i64), leading)?;
+        let rate = work.div(&negative_b, &twice_leading)?;
+        // d=(4ac-b^2)/(4c^2), calculated directly from the original guard;
+        // exact squared comparisons place both real roots when d<0.
+        let ac = work.mul(&guard.coeffs[0], leading)?;
+        let four_ac = work.mul(&BigRational::from(4i64), &ac)?;
+        let b_square = work.mul(&guard.coeffs[1], &guard.coeffs[1])?;
+        let numerator = work.sub(&four_ac, &b_square)?;
+        let denominator = work.mul(&twice_leading, &twice_leading)?;
+        let d = work.div(&numerator, &denominator)?;
+        spectral_side(&rate, Some(&d), strip, work)?;
+    }
+    Ok(())
 }
 
 fn sum(terms: Vec<Expr>) -> Expr {
@@ -514,7 +539,7 @@ fn attach_support(value: Expr, argument: &Expr, side: MellinSupport) -> Result<E
                 product(vec![Expr::from_i64(-1), argument.clone()]),
             ]),
         ),
-        MellinSupport::Right => (-1, sum(vec![argument.clone(), Expr::from_i64(-1)])),
+        MellinSupport::Right => (-1, sum(vec![Expr::from_i64(-1), argument.clone()])),
         MellinSupport::Split => {
             return Err(RationalMellinError::Verification("unsplit real quadratic"));
         }

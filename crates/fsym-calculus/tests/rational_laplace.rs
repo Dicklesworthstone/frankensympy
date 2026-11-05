@@ -139,6 +139,113 @@ fn shifted_irreducible_poles_and_rational_linear_scales_are_exact() {
 }
 
 #[test]
+fn direct_low_degree_modes_preserve_scales_repetitions_and_rational_poles() {
+    let s = Symbol::new("s");
+    verify_expected(
+        &fraction(Expr::from_i64(7), poly(&[3, 2], &s)),
+        vec![LaplaceBlock::Exponential {
+            rate: q(-3, 2),
+            coefficients: vec![q(7, 2)],
+        }],
+    );
+    // (3s+7)/(2(s-3)^2) = (3/2)/(s-3) + 8/(s-3)^2.
+    verify_expected(
+        &fraction(poly(&[7, 3], &s), poly(&[18, -12, 2], &s)),
+        vec![LaplaceBlock::Exponential {
+            rate: q(3, 1),
+            coefficients: vec![q(3, 2), q(8, 1)],
+        }],
+    );
+    // Independent partial fractions at roots 3 and -2.
+    verify_expected(
+        &fraction(poly(&[7, 3], &s), poly(&[-12, -2, 2], &s)),
+        vec![
+            LaplaceBlock::Exponential {
+                rate: q(3, 1),
+                coefficients: vec![q(8, 5)],
+            },
+            LaplaceBlock::Exponential {
+                rate: q(-2, 1),
+                coefficients: vec![q(-1, 10)],
+            },
+        ],
+    );
+    // Set z=s-2: (3s+7)/[2(z^2+6)] = [(3/2)z+13/2]/(z^2+6).
+    verify_expected(
+        &fraction(poly(&[7, 3], &s), poly(&[20, -8, 2], &s)),
+        vec![quadratic(q(2, 1), q(6, 1), vec![q(3, 2)], vec![q(13, 2)])],
+    );
+    verify_expected(
+        &fraction(poly(&[7, 3], &s), poly(&[4, 0, -2], &s)),
+        vec![quadratic(q(0, 1), q(-2, 1), vec![q(-3, 2)], vec![q(-7, 2)])],
+    );
+}
+
+#[test]
+fn high_height_linear_and_quadratic_modes_keep_exact_certificates() {
+    let s = Symbol::new("s");
+    let t = Symbol::new("t");
+    let scale = BigInt::from(10).pow(200);
+    let r = BigRational::new(1.into(), scale.clone());
+    let square = &r * &r;
+    let half_scale = BigRational::new(scale, 2.into());
+    let cases = [
+        (
+            vec![-r.clone(), q(1, 1)],
+            vec![LaplaceBlock::Exponential {
+                rate: r.clone(),
+                coefficients: qv(&[1]),
+            }],
+        ),
+        (
+            vec![square.clone(), q(-2, 1) * &r, q(1, 1)],
+            vec![LaplaceBlock::Exponential {
+                rate: r.clone(),
+                coefficients: qv(&[0, 1]),
+            }],
+        ),
+        (
+            vec![-square.clone(), q(0, 1), q(1, 1)],
+            vec![
+                LaplaceBlock::Exponential {
+                    rate: r.clone(),
+                    coefficients: vec![half_scale.clone()],
+                },
+                LaplaceBlock::Exponential {
+                    rate: -r,
+                    coefficients: vec![-half_scale],
+                },
+            ],
+        ),
+        (
+            vec![q(-2, 1) * &square, q(0, 1), q(1, 1)],
+            vec![quadratic(q(0, 1), q(-2, 1) * &square, qv(&[0]), qv(&[1]))],
+        ),
+        (
+            vec![q(2, 1) * &square, q(0, 1), q(1, 1)],
+            vec![quadratic(q(0, 1), q(2, 1) * square, qv(&[0]), qv(&[1]))],
+        ),
+    ];
+    for (denominator, blocks) in cases {
+        let source = power(UnivariatePoly::new(s.clone(), denominator).to_expr(), -1);
+        let result = inverse_rational_laplace(&source, &s, &t).unwrap();
+        assert_eq!(result.blocks().len(), blocks.len());
+        assert!(blocks.iter().all(|block| result.blocks().contains(block)));
+        let expected = RationalLaplaceCertificate { blocks };
+        verify_rational_laplace_certificate(&source, &s, &t, &expected, &mut Unbounded).unwrap();
+        let mut corrupted = expected;
+        match &mut corrupted.blocks[0] {
+            LaplaceBlock::Exponential { coefficients, .. } => coefficients[0] += q(1, 1),
+            LaplaceBlock::Quadratic { cosine, .. } => cosine[0] += q(1, 1),
+        }
+        assert!(matches!(
+            verify_rational_laplace_certificate(&source, &s, &t, &corrupted, &mut Unbounded),
+            Err(RationalLaplaceError::Verification(_))
+        ));
+    }
+}
+
+#[test]
 fn real_irrational_poles_use_the_same_exact_hyperbolic_basis() {
     let s = Symbol::new("s");
     let t = Symbol::new("t");
