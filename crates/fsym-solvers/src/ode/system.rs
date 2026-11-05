@@ -29,6 +29,9 @@ use thiserror::Error;
 /// Independently checked polynomial forcing on the complete system family.
 pub mod polynomial;
 
+/// Bounded higher-dimensional systems with checked transform and ODE identities.
+pub mod general;
+
 pub type RationalMatrix2 = [[BigRational; 2]; 2];
 pub type ExpressionMatrix2 = [[Expr; 2]; 2];
 
