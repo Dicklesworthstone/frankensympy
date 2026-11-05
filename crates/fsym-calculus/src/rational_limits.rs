@@ -756,6 +756,7 @@ pub(crate) fn try_series(
     variable: &Symbol,
     at: &Expr,
     absolute_order: i64,
+    from_left: bool,
 ) -> Option<Result<crate::SeriesTerms>> {
     let point = match at {
         Expr::Integer(value) => {
@@ -773,7 +774,8 @@ pub(crate) fn try_series(
         Err(error) => return Some(Err(error)),
     };
     let receipt = analysis.verification();
-    let negative_infinity = matches!(at, Expr::Const(Constant::NegativeInfinity));
+    let reflected = matches!(at, Expr::Const(Constant::NegativeInfinity))
+        || (from_left && matches!(point, RationalLimitPoint::Finite(_)));
     let terms = receipt
         .coefficients()
         .iter()
@@ -781,9 +783,10 @@ pub(crate) fn try_series(
         .filter(|(_, coefficient)| !coefficient.is_zero())
         .map(|(index, coefficient)| {
             let exponent = receipt.start_order() + index as i64;
-            // Public series at -infinity uses -1/x, whereas the certificate
-            // uniformly uses 1/x. Substitute t=-u with exact integer parity.
-            let coefficient = if negative_infinity && exponent % 2 != 0 {
+            // The checked recurrence uses x-x0 at finite points and 1/x at
+            // infinity. Reflect to x0-x or -1/x with exact integer parity;
+            // the original source and independently checked receipt stay bound.
+            let coefficient = if reflected && exponent % 2 != 0 {
                 -coefficient.clone()
             } else {
                 coefficient.clone()

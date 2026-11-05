@@ -25,9 +25,7 @@ fn zeros(n: usize) -> Vec<Vec<BigRational>> {
     vec![vec![q(0, 1)]; n]
 }
 fn zero() -> RationalLaplaceCertificate {
-    RationalLaplaceCertificate {
-        blocks: Vec::new(),
-    }
+    RationalLaplaceCertificate { blocks: Vec::new() }
 }
 fn polynomial(coefficients: &[BigRational]) -> RationalLaplaceCertificate {
     RationalLaplaceCertificate {
@@ -169,9 +167,7 @@ fn normalized_sine_identity_is_checked_for_both_frequency_signs() {
             assert_eq!(at(actual, &t, &q(0, 1)), *expected);
         }
         let mut changed = candidate.clone();
-        let LaplaceBlock::Quadratic { sine, .. } =
-            &mut changed.fundamental[1][0].blocks[0]
-        else {
+        let LaplaceBlock::Quadratic { sine, .. } = &mut changed.fundamental[1][0].blocks[0] else {
             panic!("quadratic fixture")
         };
         sine[0] += q(1, 7);
@@ -185,7 +181,9 @@ fn normalized_sine_identity_is_checked_for_both_frequency_signs() {
                 &changed,
                 &mut Unbounded,
             ),
-            Err(GeneralOdeSystemError::Verification("fundamental differential identity"))
+            Err(GeneralOdeSystemError::Verification(
+                "fundamental differential identity"
+            ))
         ));
     }
 }
@@ -212,12 +210,7 @@ fn generated_dense_similarity_preserves_coordinate_order() {
 #[test]
 fn repeated_eigenvalue_jordan_chain_generates_every_independent_constant() {
     let t = Symbol::new("t");
-    let coefficients = matrix(&[
-        &[2, 1, 0, 0],
-        &[0, 2, 1, 0],
-        &[0, 0, 2, 1],
-        &[0, 0, 0, 2],
-    ]);
+    let coefficients = matrix(&[&[2, 1, 0, 0], &[0, 2, 1, 0], &[0, 0, 2, 1], &[0, 0, 0, 2]]);
     let initial = [e("C1"), e("C2"), e("C3"), e("C4")];
     let receipt = general_ode_system(&coefficients, &t, &q(0, 1), &zeros(4), &initial).unwrap();
     assert_equal(
@@ -243,14 +236,7 @@ fn original_forcing_and_nonzero_initial_time_are_checked_independently() {
     // Exact zero-initial particular in tau=t-2; the forcing is original t^2.
     let mut candidate = chain_certificate();
     candidate.particular = vec![
-        polynomial(&[
-            q(0, 1),
-            q(0, 1),
-            q(0, 1),
-            q(2, 3),
-            q(1, 6),
-            q(1, 60),
-        ]),
+        polynomial(&[q(0, 1), q(0, 1), q(0, 1), q(2, 3), q(1, 6), q(1, 60)]),
         polynomial(&[q(0, 1), q(0, 1), q(2, 1), q(2, 3), q(1, 12)]),
         polynomial(&[q(0, 1), q(4, 1), q(2, 1), q(1, 3)]),
     ];
@@ -282,7 +268,9 @@ fn original_forcing_and_nonzero_initial_time_are_checked_independently() {
             &candidate,
             &mut Unbounded,
         ),
-        Err(GeneralOdeSystemError::Verification("particular differential identity"))
+        Err(GeneralOdeSystemError::Verification(
+            "particular differential identity"
+        ))
     ));
 }
 
@@ -314,14 +302,8 @@ fn singleton_and_typed_time_do_not_capture_internal_or_initial_names() {
     );
     let parameter = Symbol::new("_fsym_ode_local_0");
     let initial = [Expr::Sym(parameter.clone())];
-    let receipt = general_ode_system(
-        &[vec![q(0, 1)]],
-        &t,
-        &q(3, 2),
-        &[vec![q(1, 1)]],
-        &initial,
-    )
-    .unwrap();
+    let receipt =
+        general_ode_system(&[vec![q(0, 1)]], &t, &q(3, 2), &[vec![q(1, 1)]], &initial).unwrap();
     assert_equal(
         &receipt.solutions()[0],
         &(Expr::Sym(parameter.clone()) + Expr::Sym(t.clone()) - rational_expr(q(3, 2))),
@@ -350,7 +332,10 @@ fn parameter_slots_are_distinct_and_cannot_rebind_the_time_coordinate() {
     let same_name = Symbol::with_identity("t", SymbolIdentity::from_assumptions_digest([8; 32]));
     let initial = [Expr::Sym(same_name.clone()), e("2"), e("3")];
     let receipt = general_ode_system(&coefficients, &t, &q(0, 1), &zeros(3), &initial).unwrap();
-    assert_eq!(at(&receipt.solutions()[0], &t, &q(0, 1)), Expr::Sym(same_name));
+    assert_eq!(
+        at(&receipt.solutions()[0], &t, &q(0, 1)),
+        Expr::Sym(same_name)
+    );
 }
 
 #[test]
@@ -385,7 +370,9 @@ fn omitted_modes_changed_matrix_and_particular_constants_are_rejected() {
             &changed,
             &mut Unbounded,
         ),
-        Err(GeneralOdeSystemError::Verification("fundamental differential identity"))
+        Err(GeneralOdeSystemError::Verification(
+            "fundamental differential identity"
+        ))
     ));
     let mut changed_matrix = coefficients.clone();
     changed_matrix[1][2] += q(1, 1_000_000_007);
@@ -413,7 +400,9 @@ fn omitted_modes_changed_matrix_and_particular_constants_are_rejected() {
             &changed,
             &mut Unbounded,
         ),
-        Err(GeneralOdeSystemError::Verification("particular initial vector"))
+        Err(GeneralOdeSystemError::Verification(
+            "particular initial vector"
+        ))
     ));
     let mut changed = candidate.clone();
     changed.fundamental[0][0] = polynomial(&[q(2, 1)]);
@@ -427,7 +416,9 @@ fn omitted_modes_changed_matrix_and_particular_constants_are_rejected() {
             &changed,
             &mut Unbounded,
         ),
-        Err(GeneralOdeSystemError::Verification("fundamental initial matrix"))
+        Err(GeneralOdeSystemError::Verification(
+            "fundamental initial matrix"
+        ))
     ));
 }
 
@@ -478,7 +469,13 @@ fn all_input_bounds_apply_before_transform_search() {
     let mut coefficients = chain(3);
     coefficients[0][0] = BigRational::from_integer(BigInt::from(1) << 1024usize);
     assert!(matches!(
-        general_ode_system(&coefficients, &t, &q(0, 1), &zeros(3), &[e("0"), e("0"), e("0")]),
+        general_ode_system(
+            &coefficients,
+            &t,
+            &q(0, 1),
+            &zeros(3),
+            &[e("0"), e("0"), e("0")]
+        ),
         Err(GeneralOdeSystemError::ResourceLimit(_))
     ));
     let mut forcing = zeros(3);

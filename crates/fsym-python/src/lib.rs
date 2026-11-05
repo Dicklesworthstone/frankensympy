@@ -1072,17 +1072,25 @@ fn limit_native(
     res.map(PyExpr::from_expr).map_err(to_value_error)
 }
 
-/// Structured generalized series expansion about `x0` to absolute order `n`.
+/// Structured one-sided series about `x0` to absolute order `n`.
 #[pyfunction]
+#[pyo3(signature = (expr, var, x0, n, dir="+"))]
 fn series_expansion_native(
     expr: &PyExpr,
     var: &Bound<'_, PyAny>,
     x0: &PyExpr,
     n: i64,
+    dir: &str,
 ) -> PyResult<PySeriesResult> {
     let sym = extract_symbol_arg(var)?;
+    let direction = match dir {
+        "+" => fsym_calculus::gruntz::Direction::Plus,
+        "-" => fsym_calculus::gruntz::Direction::Minus,
+        _ => return Err(PyValueError::new_err("series direction must be '+' or '-'")),
+    };
     let (terms, order) =
-        fsym_calculus::series_expansion(&expr.inner, &sym, &x0.inner, n).map_err(to_value_error)?;
+        fsym_calculus::series_expansion_dir(&expr.inner, &sym, &x0.inner, n, direction)
+            .map_err(to_value_error)?;
     Ok((
         terms
             .into_iter()

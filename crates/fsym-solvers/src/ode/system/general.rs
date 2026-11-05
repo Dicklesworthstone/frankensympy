@@ -274,11 +274,9 @@ fn admit_source(
             Expr::Sym(symbol)
                 if symbol != time
                     && symbol.name.len() <= MAX_TEXT
-                    && !initial[..index]
-                        .iter()
-                        .any(|previous| matches!(previous, Expr::Sym(other) if other == symbol)) =>
-            {
-            }
+                    && !initial[..index].iter().any(
+                        |previous| matches!(previous, Expr::Sym(other) if other == symbol),
+                    ) => {}
             _ => {
                 return Err(GeneralOdeSystemError::InvalidSource(
                     "initial values require rationals or distinct fresh constant symbols",
@@ -303,12 +301,16 @@ fn internal_symbol(
         work.charge(1, 128)?;
         let name = format!("{prefix}_{suffix}");
         if name != time.name
-            && !initial.iter().any(|value| matches!(value, Expr::Sym(s) if s.name == name))
+            && !initial
+                .iter()
+                .any(|value| matches!(value, Expr::Sym(s) if s.name == name))
         {
             return Ok(Symbol::new(name));
         }
     }
-    Err(GeneralOdeSystemError::ResourceLimit("fresh internal symbol"))
+    Err(GeneralOdeSystemError::ResourceLimit(
+        "fresh internal symbol",
+    ))
 }
 
 fn multiply(
@@ -479,24 +481,22 @@ fn transform_polynomial(
     }
     let nodes = 1 + 6 * coefficients.len();
     work.charge(nodes * nodes, nodes * (1536 + variable.name.len()))?;
-    Ok(sum(
-        coefficients
-            .iter()
-            .enumerate()
-            .filter(|(_, value)| !value.is_zero())
-            .map(|(degree, value)| {
-                let power = match degree {
-                    0 => Expr::from_i64(1),
-                    1 => Expr::Sym(variable.clone()),
-                    _ => Expr::Pow(
-                        Arc::new(Expr::Sym(variable.clone())),
-                        Arc::new(Expr::from_i64(degree as i64)),
-                    ),
-                };
-                product(vec![rational_expr(value.clone()), power])
-            })
-            .collect(),
-    ))
+    Ok(sum(coefficients
+        .iter()
+        .enumerate()
+        .filter(|(_, value)| !value.is_zero())
+        .map(|(degree, value)| {
+            let power = match degree {
+                0 => Expr::from_i64(1),
+                1 => Expr::Sym(variable.clone()),
+                _ => Expr::Pow(
+                    Arc::new(Expr::Sym(variable.clone())),
+                    Arc::new(Expr::from_i64(degree as i64)),
+                ),
+            };
+            product(vec![rational_expr(value.clone()), power])
+        })
+        .collect()))
 }
 
 fn transform_entry(
@@ -636,7 +636,9 @@ fn admit_blocks(
     work: &mut Work<'_, impl BudgetMeter>,
 ) -> Result<usize> {
     if certificate.blocks.len() > MAX_BLOCK_CELLS {
-        return Err(GeneralOdeSystemError::ResourceLimit("too many solution blocks"));
+        return Err(GeneralOdeSystemError::ResourceLimit(
+            "too many solution blocks",
+        ));
     }
     let mut cells = 0;
     for block in &certificate.blocks {
@@ -677,7 +679,10 @@ fn admit_blocks(
             ));
         }
     }
-    work.charge(cells + 1, 256 + (cells + 2 * certificate.blocks.len()) * 4224)?;
+    work.charge(
+        cells + 1,
+        256 + (cells + 2 * certificate.blocks.len()) * 4224,
+    )?;
     Ok(cells)
 }
 
@@ -688,7 +693,10 @@ fn admit_certificate(
 ) -> Result<()> {
     work.meter.checkpoint()?;
     if candidate.fundamental.len() != dimension
-        || candidate.fundamental.iter().any(|row| row.len() != dimension)
+        || candidate
+            .fundamental
+            .iter()
+            .any(|row| row.len() != dimension)
         || candidate.particular.len() != dimension
     {
         return Err(GeneralOdeSystemError::Verification(
@@ -905,12 +913,7 @@ fn check_identities(
         add_derivative(&mut residual, &candidate.particular[row], work)?;
         for (index, coefficient) in matrix_row.iter().enumerate() {
             let negative = work.sub(&BigRational::zero(), coefficient)?;
-            add_blocks(
-                &mut residual,
-                &candidate.particular[index],
-                &negative,
-                work,
-            )?;
+            add_blocks(&mut residual, &candidate.particular[index], &negative, work)?;
         }
         accumulate(
             &mut residual,
@@ -960,24 +963,22 @@ fn frequency(
 }
 
 fn time_polynomial(coefficients: &[BigRational], local: &Expr) -> Expr {
-    sum(
-        coefficients
-            .iter()
-            .enumerate()
-            .filter(|(_, value)| !value.is_zero())
-            .map(|(degree, value)| {
-                let power = match degree {
-                    0 => Expr::from_i64(1),
-                    1 => local.clone(),
-                    _ => Expr::Pow(
-                        Arc::new(local.clone()),
-                        Arc::new(Expr::from_i64(degree as i64)),
-                    ),
-                };
-                product(vec![rational_expr(value.clone()), power])
-            })
-            .collect(),
-    )
+    sum(coefficients
+        .iter()
+        .enumerate()
+        .filter(|(_, value)| !value.is_zero())
+        .map(|(degree, value)| {
+            let power = match degree {
+                0 => Expr::from_i64(1),
+                1 => local.clone(),
+                _ => Expr::Pow(
+                    Arc::new(local.clone()),
+                    Arc::new(Expr::from_i64(degree as i64)),
+                ),
+            };
+            product(vec![rational_expr(value.clone()), power])
+        })
+        .collect())
 }
 
 /// Rendering uses exactly the basis already checked: s_d' = c_d and
@@ -1016,10 +1017,8 @@ fn render(
                     if positive { "cos" } else { "cosh" }.into(),
                     vec![argument.clone()],
                 );
-                let s = Expr::Function(
-                    if positive { "sin" } else { "sinh" }.into(),
-                    vec![argument],
-                );
+                let s =
+                    Expr::Function(if positive { "sin" } else { "sinh" }.into(), vec![argument]);
                 (
                     rate,
                     sum(vec![
@@ -1086,7 +1085,9 @@ fn verify(
         let (part, size) = render(&candidate.particular[row], &local, time.name.len(), work)?;
         let nodes = size + 1 + sizes.iter().map(|size| size + 3).sum::<usize>();
         if nodes > 16_384 {
-            return Err(GeneralOdeSystemError::ResourceLimit("assembled solution nodes"));
+            return Err(GeneralOdeSystemError::ResourceLimit(
+                "assembled solution nodes",
+            ));
         }
         work.charge(nodes, nodes * node_bytes)?;
         let mut terms = Vec::with_capacity(n + 1);

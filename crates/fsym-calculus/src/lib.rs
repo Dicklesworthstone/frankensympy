@@ -1338,12 +1338,37 @@ pub fn series_expansion(
     x0: &Expr,
     n: i64,
 ) -> Result<SeriesTerms, CalculusError> {
+    series_expansion_dir(expr, var, x0, n, gruntz::Direction::Plus)
+}
+
+/// One-sided generalized series, with the finite local coordinate selected by
+/// `direction`: x-x0 from the right, x0-x from the left. At either infinity
+/// the inward coordinates 1/x or -1/x apply independently of the supplied side.
+/// Logarithmic coefficients use that same positive local coordinate; fractional
+/// powers retain their principal branch factors. Two-sided series are refused.
+pub fn series_expansion_dir(
+    expr: &Expr,
+    var: &Symbol,
+    x0: &Expr,
+    n: i64,
+    direction: gruntz::Direction,
+) -> Result<SeriesTerms, CalculusError> {
+    if matches!(direction, gruntz::Direction::Both) {
+        return Err(CalculusError::NonDifferentiable(
+            "series direction must be one-sided".to_string(),
+        ));
+    }
+    let from_left = matches!(direction, gruntz::Direction::Minus)
+        && !matches!(
+            x0,
+            Expr::Const(Constant::Infinity | Constant::NegativeInfinity)
+        );
     if unsafe_direct_substitution(expr) || unsafe_direct_substitution(x0) {
         return Err(CalculusError::NonDifferentiable(
             UNSAFE_DIRECT_SUBSTITUTION.to_string(),
         ));
     }
-    if let Some(result) = rational_limits::try_series(expr, var, x0, n) {
+    if let Some(result) = rational_limits::try_series(expr, var, x0, n, from_left) {
         return result.map_err(|error| CalculusError::NonDifferentiable(error.to_string()));
     }
     let t = series::fresh_symbol("_fsym_series_t", &[expr, x0], &[var])
@@ -1359,6 +1384,10 @@ pub fn series_expansion(
         Expr::Const(Constant::NegativeInfinity) => (
             -recip(te.clone()),
             -Expr::Function("log".into(), vec![-xe.clone()]),
+        ),
+        _ if from_left => (
+            x0.clone() - te.clone(),
+            Expr::Function("log".into(), vec![x0.clone() - xe.clone()]),
         ),
         _ if x0.is_zero() => (te.clone(), Expr::Function("log".into(), vec![xe.clone()])),
         _ => (

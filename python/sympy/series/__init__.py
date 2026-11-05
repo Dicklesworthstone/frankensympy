@@ -22,7 +22,10 @@ def series(expression, x=None, x0=0, n=6, dir="+", **kwargs):
 
     Laurent and Puiseux terms, ``log`` terms and expansions at ``oo`` are
     computed natively; the remainder is an ``Order`` term (omitted when the
-    expansion is exact, as for polynomials).
+    expansion is exact, as for polynomials). At finite points, ``dir="+"``
+    approaches from the right and ``dir="-"`` from the left, retaining the
+    selected logarithmic and fractional-power branches. At infinities the
+    approach is inward, independently of ``dir``.
     """
     from ..core import sympify
 
@@ -43,6 +46,8 @@ def series(expression, x=None, x0=0, n=6, dir="+", **kwargs):
     else:
         symbol = _require_symbol(x)
     x0 = sympify(x0)
+    if type(dir) is not str or dir not in ("+", "-"):
+        raise ValueError("series direction must be '+' or '-'")
     if n is None:
         raise NotImplementedError("lazy series (n=None) is not supported")
     terms, order = _native.series_expansion_native(
@@ -50,22 +55,26 @@ def series(expression, x=None, x0=0, n=6, dir="+", **kwargs):
         _symbol_binding(symbol),
         _native_expr(x0),
         int(n),
+        dir,
     )
-    from ..core import oo, Rational, Integer
+    from ..core import oo, Integer
 
-    if x0 == 0:
-        local = symbol
-    elif x0 == oo:
+    if x0 == oo:
         local = 1 / symbol
     elif x0 == -oo:
         local = -1 / symbol
+    elif dir == "-":
+        local = x0 - symbol
+    elif x0 == 0:
+        local = symbol
     else:
         local = symbol - x0
+    remainder_local = symbol - x0 if dir == "-" and x0 not in (oo, -oo) else local
     total = Integer(0)
     for coeff, exponent in terms:
         total = total + _lift_native_result(coeff, expr, symbol, x0) * local ** _lift_native_result(exponent, expr, symbol, x0)
     if order is not None:
-        total = total + Order(local ** _lift_native_result(order, expr, symbol, x0), symbol, x0)
+        total = total + Order(remainder_local ** _lift_native_result(order, expr, symbol, x0), symbol, x0)
     return total
 
 
