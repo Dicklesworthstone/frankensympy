@@ -26,7 +26,8 @@
 mod systems;
 pub use systems::*;
 
-use fsym_calculus::{CompiledResidualSystem, VerifiedResidualSystem};
+use fsym_calculus::compile::EvalError;
+use fsym_calculus::{CompiledExpr, CompiledResidualSystem, VerifiedResidualSystem};
 use fsym_core::{BigInt, BigRational, Expr, RealBall, Symbol};
 use std::collections::HashMap;
 
@@ -132,15 +133,11 @@ pub fn newton_refine_2x2(
         ));
     }
     let mut x = initial;
-    let mut residuals = [0.0_f64; 2];
-    let mut jacobian_flat = [0.0_f64; 4];
     let mut last_norm = f64::INFINITY;
     for iteration in 0..=guards.max_iterations {
-        system
-            .try_eval_system(&x, &mut residuals, &mut jacobian_flat)
-            .map_err(|error| ConsumerError::Evaluation(error.to_string()))?;
-        require_finite(&residuals, "residual")?;
-        require_finite(&jacobian_flat, "Jacobian")?;
+        let residuals = finite_program_values::<2>(&system.compiled_residuals, &x, "residual")?;
+        let jacobian_flat =
+            finite_program_values::<4>(&system.compiled_jacobian, &x, "Jacobian")?;
         last_norm = residuals
             .iter()
             .fold(0.0_f64, |acc, value| acc.max(value.abs()));
@@ -218,6 +215,34 @@ fn check_system_shape(system: &CompiledResidualSystem) -> Result<(), ConsumerErr
     Ok(())
 }
 
+/// Evaluate every original program in the finite-real lane. A final finite
+/// value alone cannot expose a pole or invalid function argument concealed by
+/// a later reciprocal or zeroth power. Keep count checks for this public raw
+/// compiled-system API, whose buffers can be modified by its caller.
+fn finite_program_values<const N: usize>(
+    programs: &[CompiledExpr],
+    point: &[f64],
+    lane: &'static str,
+) -> Result<[f64; N], ConsumerError> {
+    if programs.len() != N {
+        return Err(ConsumerError::Evaluation(
+            EvalError::CompiledExpressionCountMismatch {
+                lane,
+                expected: N,
+                actual: programs.len(),
+            }
+            .to_string(),
+        ));
+    }
+    let mut values = [0.0; N];
+    for (value, program) in values.iter_mut().zip(programs) {
+        *value = program
+            .try_eval_finite(point)
+            .map_err(|error| ConsumerError::Evaluation(error.to_string()))?;
+    }
+    Ok(values)
+}
+
 fn require_finite(values: &[f64], lane: &str) -> Result<(), ConsumerError> {
     if values.iter().any(|value| !value.is_finite()) {
         return Err(ConsumerError::Evaluation(format!(
@@ -244,22 +269,21 @@ pub fn frankenscipy_fsolve(
         let evaluated = if point.len() != 2 {
             Err(ConsumerError::UnsupportedShape)
         } else {
-            require_finite(point, "consumer iterate")
-                .and_then(|()| {
-                    system
-                        .try_eval_residuals(point, &mut out)
-                        .map_err(|error| ConsumerError::Evaluation(error.to_string()))
-                })
-                .and_then(|()| require_finite(&out, "consumer residual"))
+            require_finite(point, "consumer iterate").and_then(|()| {
+                finite_program_values::<2>(&system.compiled_residuals, point, "residual")
+            })
         };
-        if let Err(error) = evaluated {
-            let mut slot = evaluation_error
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if slot.is_none() {
-                *slot = Some(error.to_string());
+        match evaluated {
+            Ok(values) => out.copy_from_slice(&values),
+            Err(error) => {
+                let mut slot = evaluation_error
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                if slot.is_none() {
+                    *slot = Some(error.to_string());
+                }
+                out.fill(f64::NAN);
             }
-            out.fill(f64::NAN);
         }
         out
     };
@@ -280,11 +304,8 @@ pub fn frankenscipy_fsolve(
     require_finite(&result.fun, "consumer reported residual")?;
     // Re-evaluate at the returned point rather than trusting the consumer's
     // cached residual vector. This is still an approximate diagnostic.
-    let mut final_residual = [0.0_f64; 2];
-    system
-        .try_eval_residuals(&result.x, &mut final_residual)
-        .map_err(|error| ConsumerError::Evaluation(error.to_string()))?;
-    require_finite(&final_residual, "final residual")?;
+    let final_residual =
+        finite_program_values::<2>(&system.compiled_residuals, &result.x, "residual")?;
     if !result.converged {
         return Err(ConsumerError::NoConvergence {
             max_iterations: 200,

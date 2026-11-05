@@ -304,3 +304,138 @@ fn certification_preserves_original_domain_checks_during_substitution() {
     }
     assert!(certified_residual_bound(&[deep], &[x, y], &[0.0, 0.0], 12).is_err());
 }
+
+fn held_power(base: Expr, exponent: i64) -> Expr {
+    Expr::Pow(
+        std::sync::Arc::new(base),
+        std::sync::Arc::new(Expr::from_i64(exponent)),
+    )
+}
+
+#[test]
+fn raw_consumers_reject_logarithm_failures_hidden_by_zero_powers() {
+    let x = Symbol::new("x");
+    let y = Symbol::new("y");
+    let log_x = Expr::Function("log".into(), vec![Expr::Sym(x.clone())]);
+    let masked = Expr::Add(vec![held_power(log_x, 0), Expr::from_i64(-1)]);
+    let system = fsym_calculus::CompiledResidualSystem::try_compile(
+        &[masked, Expr::Sym(y.clone())],
+        &[x, y],
+    )
+    .unwrap();
+    for value in [-1.0, 0.0] {
+        assert!(matches!(
+            newton_refine_2x2(&system, [value, 0.0], &NewtonGuards::default()),
+            Err(ConsumerError::Evaluation(_)),
+        ));
+        assert!(matches!(
+            fsym_numeric_consumer::frankenscipy_fsolve(&system, &[value, 0.0]),
+            Err(ConsumerError::Evaluation(_)),
+        ));
+    }
+    // The held source still evaluates normally inside its original domain.
+    let initial = [2.0, 0.0];
+    let outcome = newton_refine_2x2(&system, initial, &NewtonGuards::default()).unwrap();
+    assert_eq!(outcome.root, initial);
+    assert_eq!(
+        fsym_numeric_consumer::frankenscipy_fsolve(&system, &initial).unwrap(),
+        initial,
+    );
+}
+
+#[test]
+fn raw_consumers_recheck_original_domains_after_the_initial_iterate() {
+    let x = Symbol::new("x");
+    let y = Symbol::new("y");
+    let log_x = Expr::Function("log".into(), vec![Expr::Sym(x.clone())]);
+    // On x > 0 this is x + 1. An unguarded Newton step reaches x = -1,
+    // where pow(NaN, 0) would conceal the undefined logarithm and fake a root.
+    let residual = Expr::Add(vec![Expr::Sym(x.clone()), held_power(log_x, 0)]);
+    let system = fsym_calculus::CompiledResidualSystem::try_compile(
+        &[residual, Expr::Sym(y.clone())],
+        &[x, y],
+    )
+    .unwrap();
+    assert!(matches!(
+        newton_refine_2x2(&system, [2.0, 0.0], &NewtonGuards::default()),
+        Err(ConsumerError::Evaluation(_)),
+    ));
+    assert!(matches!(
+        fsym_numeric_consumer::frankenscipy_fsolve(&system, &[2.0, 0.0]),
+        Err(ConsumerError::Evaluation(_)),
+    ));
+}
+
+#[test]
+fn raw_consumers_reject_original_poles_hidden_by_reciprocals() {
+    let x = Symbol::new("x");
+    let y = Symbol::new("y");
+    let reciprocal = held_power(held_power(Expr::Sym(x.clone()), -1), -1);
+    let system = fsym_calculus::CompiledResidualSystem::try_compile(
+        &[reciprocal, Expr::Sym(y.clone())],
+        &[x, y],
+    )
+    .unwrap();
+    assert!(matches!(
+        newton_refine_2x2(&system, [0.0, 0.0], &NewtonGuards::default()),
+        Err(ConsumerError::Evaluation(_)),
+    ));
+    assert!(matches!(
+        fsym_numeric_consumer::frankenscipy_fsolve(&system, &[0.0, 0.0]),
+        Err(ConsumerError::Evaluation(_)),
+    ));
+}
+
+#[test]
+fn raw_newton_rejects_hidden_domain_failures_in_the_final_jacobian() {
+    use fsym_calculus::CompiledOp::{LoadConst, Pow, Sqrt};
+
+    for operations in [
+        vec![LoadConst(-1.0), Sqrt, Pow(0.0)],
+        vec![LoadConst(0.0), Pow(-1.0), Pow(-1.0)],
+    ] {
+        let mut system = identity_system();
+        let masked = fsym_calculus::CompiledExpr::try_from_ops(operations).unwrap();
+        assert!(masked.try_eval(&[0.0, 0.0]).unwrap().is_finite());
+        system.compiled_jacobian[1] = masked;
+        assert!(matches!(
+            newton_refine_2x2(&system, [0.0, 0.0], &NewtonGuards::default()),
+            Err(ConsumerError::Evaluation(_)),
+        ));
+    }
+}
+
+#[test]
+fn raw_consumers_retain_compiled_program_count_checks() {
+    for missing in [true, false] {
+        let mut system = identity_system();
+        if missing {
+            system.compiled_residuals.truncate(1);
+        } else {
+            system
+                .compiled_residuals
+                .push(system.compiled_residuals[0].clone());
+        }
+        assert!(matches!(
+            newton_refine_2x2(&system, [0.0, 0.0], &NewtonGuards::default()),
+            Err(ConsumerError::Evaluation(_)),
+        ));
+        assert!(matches!(
+            fsym_numeric_consumer::frankenscipy_fsolve(&system, &[0.0, 0.0]),
+            Err(ConsumerError::Evaluation(_)),
+        ));
+
+        let mut system = identity_system();
+        if missing {
+            system.compiled_jacobian.truncate(3);
+        } else {
+            system
+                .compiled_jacobian
+                .push(system.compiled_jacobian[0].clone());
+        }
+        assert!(matches!(
+            newton_refine_2x2(&system, [0.0, 0.0], &NewtonGuards::default()),
+            Err(ConsumerError::Evaluation(_)),
+        ));
+    }
+}
