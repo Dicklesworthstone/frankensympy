@@ -1930,6 +1930,7 @@ mod polynomial_laplace;
 mod polynomial_systems;
 mod quadrature;
 mod rational_laplace;
+mod rational_mellin;
 mod real_inequality;
 pub mod sets;
 pub mod tensor;
@@ -2080,6 +2081,10 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     )?)?;
     m.add_function(wrap_pyfunction!(
         rational_laplace::inverse_rational_laplace_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        rational_mellin::inverse_rational_mellin_native,
         m
     )?)?;
     m.add_function(wrap_pyfunction!(fourier_expr, m)?)?;

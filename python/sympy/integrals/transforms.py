@@ -9,6 +9,7 @@ from typing import Any
 
 from ..core import (
     Basic,
+    Dummy,
     Expr,
     Function,
     I,
@@ -190,14 +191,43 @@ class MellinTransform(Transform):
 
 
 class InverseMellinTransform(Transform):
-    """Unevaluated inverse Mellin transform."""
+    """Unevaluated inverse Mellin transform with its defining open strip."""
 
-    def __new__(cls, F: Any, s: Any, x: Any, strip: Any = None, **kwargs: Any) -> Any:
-        return super().__new__(cls, F, s, x)
+    _none_sentinel = Dummy("None")
+
+    def __new__(cls, F: Any, s: Any, x: Any, a: Any = None,
+                b: Any = None, **kwargs: Any) -> Any:
+        # Keep the earlier tuple/keyword constructor while representing the
+        # two endpoints in args, as required to reconstruct the transform.
+        if "strip" in kwargs:
+            if a is not None or b is not None:
+                raise TypeError("Mellin strip was supplied more than once")
+            a, b = _mellin_strip(kwargs["strip"])
+        elif type(a) is tuple or type(a) is list:
+            if b is not None:
+                raise TypeError("Mellin strip was supplied more than once")
+            a, b = _mellin_strip(a)
+        return super().__new__(
+            cls, F, s, x,
+            cls._none_sentinel if a is None else a,
+            cls._none_sentinel if b is None else b,
+        )
+
+    @property
+    def fundamental_strip(self) -> tuple[Any, Any]:
+        return tuple(
+            None if bound is self._none_sentinel else bound
+            for bound in self.args[3:5]
+        )
+
+    @property
+    def free_symbols(self) -> set[Symbol]:
+        F, s, x = self.args[:3]
+        return (F.free_symbols - {s}) | x.free_symbols
 
     def doit(self, **hints: Any) -> Any:
         F, s, x = self.args[:3]
-        return inverse_mellin_transform(F, s, x, **hints)
+        return inverse_mellin_transform(F, s, x, self.fundamental_strip, **hints)
 
 
 
@@ -388,10 +418,10 @@ def _split_exp_shift(F: Any, s: Any) -> tuple:
     return c, _mul(rest)
 
 
-def _original_transform_source(expression: Any) -> Any:
+def _original_transform_source(expression: Any, *, name: str = "Laplace") -> Any:
     """Check retained surface owners without cloning native expression children."""
     if type(expression) is int and expression.bit_length() > 4096:
-        raise ValueError("Laplace coefficient exceeds 4096 bits")
+        raise ValueError(f"{name} coefficient exceeds 4096 bits")
     expression = sympify(expression)
     pending = [(expression, 0)]
     visited = 0
@@ -399,14 +429,14 @@ def _original_transform_source(expression: Any) -> Any:
         node, depth = pending.pop()
         visited += 1
         if visited > 4096 or depth > 64:
-            raise ValueError("Laplace source exceeds its bounded envelope")
+            raise ValueError(f"{name} source exceeds its bounded envelope")
         _native_expr(node)  # Exact-class/override admission; borrows Basic._value.
         children = getattr(node, "_struct_args", None)
         if children is None:
             children = getattr(node, "_args", ())
         if children:
             if len(children) > 4096 - visited - len(pending):
-                raise ValueError("Laplace source exceeds its bounded envelope")
+                raise ValueError(f"{name} source exceeds its bounded envelope")
             pending.extend((child, depth + 1) for child in children)
     return expression
 
@@ -652,30 +682,71 @@ def mellin_transform(f: Any, x: Any, s: Any, noconds: bool = True, **kwargs: Any
     return MellinTransform(f, x, s) if noconds else (MellinTransform(f, x, s), True)
 
 
-def inverse_mellin_transform(F: Any, s: Any, x: Any, strip: Any = None, noconds: bool = True, **kwargs: Any) -> Any:
-    """Compute the inverse Mellin transform: 1/(2*pi*I) * int_c-I*oo^c+I*oo F(s) x^(-s) ds."""
-    from ..solvers import solve
-    from ..simplify import simplify
+def _mellin_strip(strip: Any) -> tuple[Any, Any]:
+    if strip is None:
+        return None, None
+    if not (type(strip) is tuple or type(strip) is list) or len(strip) != 2:
+        raise TypeError("Mellin strip must contain exactly two endpoints")
+    return strip[0], strip[1]
 
-    F = sympify(F)
-    s = Symbol(str(s)) if not isinstance(s, Symbol) else s
-    x = Symbol(str(x)) if not isinstance(x, Symbol) else x
 
-    # Residue theorem: sum of residues of F(s) * x**(-s) at poles
-    num, den = F.as_numer_denom()
-    try:
-        roots = solve(den, s)
-        if roots:
-            integrand = F * (x ** (-s))
-            res_sum = Integer(0)
-            for r in roots:
-                res_sum = res_sum + residue(integrand, s, r)
-            simplified = simplify(res_sum)
-            return simplified if noconds else (simplified, True)
-    except Exception:
+def _original_mellin_source(expression: Any) -> Any:
+    """Admit retained built-ins without invoking arbitrary conversion hooks."""
+    kind = type(expression)
+    if kind is str:
+        if len(expression) > 65_536:
+            raise ValueError("Mellin source text exceeds its bounded envelope")
+    elif kind is int:
+        if expression.bit_length() > 4096:
+            raise ValueError("Mellin coefficient exceeds 4096 bits")
+    elif kind is bool or kind is float or kind is _native.Expr:
         pass
+    elif any(base is Basic for base in type.__dict__["__mro__"].__get__(kind)):
+        _native_expr(expression)  # Exact owner checks precede surface access.
+    else:
+        raise TypeError("Mellin transforms require a built-in symbolic source")
+    return _original_transform_source(expression, name="Mellin")
 
-    return InverseMellinTransform(F, s, x) if noconds else (InverseMellinTransform(F, s, x), True)
+
+def _mellin_symbol(value: Any) -> Symbol:
+    kind = type(value)
+    if kind is Symbol or kind is Dummy:
+        return value
+    if any(base is Symbol for base in type.__dict__["__mro__"].__get__(kind)):
+        raise NotImplementedError("Mellin variables require built-in Symbol or Dummy owners")
+    raise TypeError("Mellin transform variables must be Symbols")
+
+
+def inverse_mellin_transform(F: Any, s: Any, x: Any, strip: Any = None,
+                            noconds: bool = True, **kwargs: Any) -> Any:
+    """Invert a proper rational transform on the specified open strip.
+
+    The result is defined for positive real x, independently of x's declared
+    assumptions. Exact rational and infinite strip endpoints select the
+    bilateral support of each checked linear or quadratic pole family.
+    Repeated poles retain their complete logarithmic polynomial. A pole in
+    the open strip, including an original canceled denominator, is invalid.
+
+    Unsupported expressions and unspecified endpoints remain unevaluated
+    with their strip intact. Resource, domain and verification failures are
+    terminal; they do not trigger a residue guess or a second algorithm.
+    """
+    F = _original_mellin_source(F)
+    s, x = _mellin_symbol(s), _mellin_symbol(x)
+    lower, upper = _mellin_strip(strip)
+    lower = None if lower is None else _original_mellin_source(lower)
+    upper = None if upper is None else _original_mellin_source(upper)
+    if lower is None or upper is None:
+        return InverseMellinTransform(F, s, x, lower, upper)
+    try:
+        raw = _native.inverse_rational_mellin_native(
+            _native_expr(F), _symbol_binding(s), _symbol_binding(x),
+            _native_expr(lower), _native_expr(upper),
+        )
+    except NotImplementedError:
+        return InverseMellinTransform(F, s, x, lower, upper)
+    result = _lift_native_result(raw, F, s, x)
+    return result if noconds else (result, True)
 
 
 __all__ = [
