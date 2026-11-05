@@ -413,10 +413,18 @@ def _ode_to_symbols(eq, f, x):
     return out, ys, n_order
 
 
-def _constants(start, count):
+def _constants(start, count, exclude=()):
     from ..core import Symbol as _S
 
-    return [_S(f"C{i}") for i in range(start, start + count)]
+    reserved = {symbol.name for symbol in exclude}
+    constants = []
+    index = start
+    while len(constants) < count:
+        name = f"C{index}"
+        if name not in reserved:
+            constants.append(_S(name))
+        index += 1
+    return constants
 
 
 def _homogeneous_basis(coeffs, x):
@@ -790,10 +798,10 @@ def _monomial_numerator(expr, cs):
     return Integer(1) / new
 
 
-def _constant_renumber(expr, cs):
+def _constant_renumber(expr, cs, exclude=()):
     """Upstream ``constant_renumber``: constants numbered C1, C2, ... in
     the canonical (default_sort_key) traversal order."""
-    from ..core import Add, Mul, Symbol as _S
+    from ..core import Add, Dummy, Mul
     from ..printing.str import sort_key
 
     ones = {c: 1 for c in cs}
@@ -813,15 +821,15 @@ def _constant_renumber(expr, cs):
             walk(a)
 
     walk(expr)
-    mapping = {old: _S(f"C{i + 1}") for i, old in enumerate(found)}
+    mapping = dict(zip(found, _constants(1, len(found), exclude)))
     if all(k == v for k, v in mapping.items()):
         return expr
-    tmp = {old: _S(f"_fsym_k{i}") for i, old in enumerate(found)}
+    tmp = {old: Dummy(f"_fsym_k{i}") for i, old in enumerate(found)}
     out = expr.subs(tmp)
     return out.subs({tmp[old]: mapping[old] for old in found})
 
 
-def _odesimp(rhs, cs):
+def _odesimp(rhs, cs, exclude=()):
     from ..polys.polytools import terms_gcd
 
     for _ in range(4):
@@ -832,7 +840,7 @@ def _odesimp(rhs, cs):
         rhs = new
         cs = cs & rhs.free_symbols | {c for c in cs if c in rhs.free_symbols}
     rhs = terms_gcd(rhs, clear=False, deep=True)
-    return _constant_renumber(rhs, cs & rhs.free_symbols)
+    return _constant_renumber(rhs, cs & rhs.free_symbols, exclude)
 
 
 def _particular_vop(basis, g, lead, x):
@@ -1335,6 +1343,58 @@ def _explicit_exact_ode_solution(relation, ics):
     return answers[0] if len(answers) == 1 else answers
 
 
+def _initial_condition_data(function, ics):
+    """Bind each value/derivative observation to this exact ODE coordinate."""
+    from ..core import Dummy, sympify
+    from ..core.lambdify_subs import Subs
+
+    function = _checkodesol_function(function)
+    x = function.args[0]
+    if not isinstance(ics, dict):
+        raise TypeError("dsolve: initial conditions must be a dictionary")
+    observations = []
+    for key, raw_value in dict.items(ics):
+        if type(key) is Subs:
+            derivative = key.expr
+            if (type(derivative) is not _OdeDerivative
+                    or key.variables != (x,) or len(key.point) != 1):
+                raise ValueError("Invalid boundary conditions for Derivatives")
+            arguments = _checkodesol_children(derivative)
+            if (len(arguments) < 2 or arguments[0] != function
+                    or any(variable != x for variable in arguments[1:])):
+                raise ValueError("Invalid boundary conditions for Derivatives")
+            order, point = len(arguments) - 1, key.point[0]
+        elif type(key) is _OdeDerivative:
+            # Substitution of a symbol for x can retain a Derivative instead
+            # of a Subs. It must still be the same function, differentiated
+            # only with respect to its one, independent evaluation point.
+            arguments = _checkodesol_children(key)
+            target = arguments[0]
+            if (len(arguments) < 2 or type(target) is not type(function)
+                    or len(target.args) != 1):
+                raise ValueError("Invalid boundary conditions for Derivatives")
+            point = target.args[0]
+            if (type(point) not in (Symbol, Dummy)
+                    or any(variable != point for variable in arguments[1:])):
+                raise ValueError("Invalid boundary conditions for Derivatives")
+            order = len(arguments) - 1
+        elif type(key) is type(function) and len(key.args) == 1:
+            order, point = 0, key.args[0]
+        else:
+            # Do not classify an arbitrary object by its Python class name or
+            # invoke its getters while formatting an unsupported observation.
+            raise ValueError("Invalid boundary conditions for Function")
+        value = sympify(raw_value)
+        if x in point.free_symbols or x in value.free_symbols:
+            raise ValueError("Initial condition points and values must be independent of the ODE variable")
+        observations.append((order, point, value))
+    return tuple(observations)
+
+
+class _InitialConditionMismatch(ValueError):
+    """A proved residual mismatch, as distinct from an operational refusal."""
+
+
 def dsolve(eq, func=None, hint="default", ics=None, **kwargs):
     """Solve an ordinary differential equation for ``func`` (upstream
     ``dsolve``); ``ics`` fixes the integration constants from initial
@@ -1362,8 +1422,18 @@ def dsolve(eq, func=None, hint="default", ics=None, **kwargs):
     if type(eq) in (list, tuple):
         return _solve_linear_system(eq, func, ics=ics, hint=hint, **kwargs)
 
+    # Reserve original parameters before creating or simplifying constants.
+    # Validate observations before doing any solving work. The pinned profile
+    # refuses ambiguous initial-data parameters that collide with a generated
+    # constant; _apply_ics keeps that refusal explicit.
+    constant_exclude = set(getattr(eq, "free_symbols", ()))
+    if ics:
+        inference_source = eq.lhs - eq.rhs if type(eq) is Eq and hint != "1st_exact" else eq
+        function = func if func is not None else _find_function(inference_source)
+        _initial_condition_data(function, ics)
+
     try:
-        sol = _dsolve_general(eq, func, hint, **kwargs)
+        sol = _dsolve_general(eq, func, hint, _constant_exclude=constant_exclude, **kwargs)
     except NotImplementedError as error:
         # Preserve the established linear/separable default forms. Only these
         # explicit structural non-matches may try the checked exact fallback.
@@ -1386,48 +1456,81 @@ def dsolve(eq, func=None, hint="default", ics=None, **kwargs):
             raise
     implicit = type(sol) is Eq and not isinstance(sol.lhs, AppliedUndef)
     if ics:
-        sol = _apply_exact_ode_ics(sol, ics) if implicit else _apply_ics(sol, ics)
+        sol = (_apply_exact_ode_ics(sol, ics) if implicit
+               else _apply_ics(sol, ics, constant_exclude))
     if implicit and kwargs.get("simplify", True):
         sol = _explicit_exact_ode_solution(sol, ics)
     return sol
 
 
-def _apply_ics(sol, ics):
-    """Solve for the constants C1, C2, ... from initial conditions."""
+def _apply_ics(sol, ics, exclude=()):
+    """Fit generated constants and check every original observation exactly."""
     import re as _re
-    from ..core import Eq as _Eq, diff, Symbol as _Sym
+    from ..core import Eq as _Eq, diff
     from .. import solve as _solve
+    from ..simplify import simplify
 
     if isinstance(sol, list):
-        return [_apply_ics(s, ics) for s in sol]
+        accepted = []
+        for branch in sol:
+            try:
+                result = _apply_ics(branch, ics, exclude)
+            except _InitialConditionMismatch:
+                continue
+            if result not in accepted:
+                accepted.append(result)
+        if not accepted:
+            raise ValueError("Couldn't solve for initial conditions")
+        return accepted[0] if len(accepted) == 1 else accepted
     lhs, rhs = sol.lhs, sol.rhs
     x = lhs.args[0]
-    consts = sorted((s for s in rhs.free_symbols if _re.fullmatch(r"C\d+", s.name)),
+    observations = _initial_condition_data(lhs, ics)
+    protected = set(exclude) | {x}
+    generated = {s for s in rhs.free_symbols - protected
+                 if _re.fullmatch(r"C\d+", s.name)}
+    for _, point, value in observations:
+        if generated & (point.free_symbols | value.free_symbols):
+            raise ValueError("Couldn't solve for initial conditions: ambiguous integration constant")
+        protected.update(point.free_symbols)
+        protected.update(value.free_symbols)
+    consts = sorted((s for s in rhs.free_symbols - protected
+                     if _re.fullmatch(r"C\d+", s.name)),
                     key=lambda s: int(s.name[1:]))
-    equations = []
-    for key, value in ics.items():
-        name = type(key).__name__
-        if name == "Subs":
-            inner = key.expr
-            if type(inner).__name__ != "Derivative" or len(key.variables) != 1:
-                raise NotImplementedError("unsupported initial condition %s" % key)
-            order = sum(1 for v in inner.args[1:] if v == key.variables[0])
-            point = key.point[0]
-            equations.append(diff(rhs, x, order).subs(x, point) - value)
-        elif type(key) is type(lhs) and len(key.args) == 1:
-            equations.append(rhs.subs(x, key.args[0]) - value)
-        else:
-            raise NotImplementedError("unsupported initial condition %s" % key)
-    if not consts:
+    equations = [simplify(diff(rhs, x, order).subs(x, point) - value)
+                 for order, point, value in observations]
+    if all(equation == 0 for equation in equations):
         return sol
+    if not consts:
+        if any(equation.is_zero is False for equation in equations):
+            raise _InitialConditionMismatch("Couldn't solve for initial conditions")
+        raise NotImplementedError("Couldn't verify the initial conditions exactly")
     found = _solve(equations, consts, dict=True)
     if not found:
         raise ValueError("Couldn't solve for initial conditions")
-    choice = found[0] if isinstance(found, list) else found
-    return _Eq(lhs, rhs.subs(choice))
+    choices = found if isinstance(found, list) else [found]
+    accepted = []
+    for choice in choices:
+        if type(choice) is not dict or any(symbol not in consts for symbol in choice):
+            raise ValueError("Initial-condition solver returned an unrelated parameter binding")
+        if any(x in getattr(value, "free_symbols", ()) for value in choice.values()):
+            raise ValueError("An integration constant cannot depend on the ODE variable")
+        candidate = rhs.subs(choice)
+        residuals = [simplify(diff(candidate, x, order).subs(x, point) - value)
+                     for order, point, value in observations]
+        if any(residual.is_zero is False for residual in residuals):
+            continue
+        if any(residual != 0 for residual in residuals):
+            raise NotImplementedError("Couldn't verify the initial conditions exactly")
+        if candidate not in accepted:
+            accepted.append(candidate)
+    if not accepted:
+        raise _InitialConditionMismatch("Couldn't solve for initial conditions")
+    if len(accepted) != 1:
+        raise NotImplementedError("Initial conditions produced too many solutions for constants")
+    return _Eq(lhs, accepted[0])
 
 
-def _dsolve_general(eq, func=None, hint="default", **kwargs):
+def _dsolve_general(eq, func=None, hint="default", _constant_exclude=(), **kwargs):
     """Solve an ordinary differential equation for ``func`` (upstream ``dsolve``).
 
     Supported classes: linear equations with constant coefficients of any
@@ -1443,6 +1546,7 @@ def _dsolve_general(eq, func=None, hint="default", **kwargs):
     from ..functions import exp
 
     source = eq
+    constant_exclude = set(getattr(source, "free_symbols", ())) | set(_constant_exclude)
     if hint != "1st_exact" and type(eq) is _Eq:
         # Preserve the established default inference after normalization;
         # the explicit exact hint must admit both original sides first.
@@ -1475,7 +1579,7 @@ def _dsolve_general(eq, func=None, hint="default", **kwargs):
         g = -rest
         if all(x not in c.free_symbols for c in coeffs) and (n > 1 or g == 0 or _uc_test(g, x)):
             gensols, collectterms = _char_solutions(coeffs, x)
-            consts = _constants(1, len(gensols))
+            consts = _constants(1, len(gensols), constant_exclude)
             hom = sum((c * b for c, b in zip(consts, gensols)), Integer(0))
             sol = hom
             if g != 0:
@@ -1485,16 +1589,16 @@ def _dsolve_general(eq, func=None, hint="default", **kwargs):
                 else:
                     sol = hom + _particular_vop(gensols, g, coeffs[-1], x)
             sol = _simplified_linear(sol, x, collectterms)
-            return _Eq(f, _odesimp(sol, set(consts)))
+            return _Eq(f, _odesimp(sol, set(consts), constant_exclude))
         euler = _euler_coefficients(coeffs, x)
         if euler is not None:
             gensols = _euler_solutions(euler, x)
-            consts = _constants(1, len(gensols))
+            consts = _constants(1, len(gensols), constant_exclude)
             sol = sum((c * b for c, b in zip(consts, gensols)), Integer(0))
             if g != 0:
                 sol = sol + _particular_vop(gensols, g, coeffs[-1], x)
                 sol = simplify(sol)
-            return _Eq(f, _odesimp(sol, set(consts)))
+            return _Eq(f, _odesimp(sol, set(consts), constant_exclude))
         if n == 1:
             p = simplify(coeffs[0] / coeffs[1])
             q = simplify(g / coeffs[1])
@@ -1505,8 +1609,8 @@ def _dsolve_general(eq, func=None, hint="default", **kwargs):
             iq = _integrate(simplify(q * mu), x)
             if isinstance(iq, Integral):
                 raise NotImplementedError("dsolve: integral of the forcing term not found")
-            (c1,) = _constants(1, 1)
-            return _Eq(f, _odesimp(simplify((c1 + iq) / mu), {c1}))
+            (c1,) = _constants(1, 1, constant_exclude)
+            return _Eq(f, _odesimp(simplify((c1 + iq) / mu), {c1}, constant_exclude))
         raise NotImplementedError("dsolve: linear equations with variable coefficients of order > 1")
 
     if n == 1:
@@ -1532,10 +1636,10 @@ def _dsolve_general(eq, func=None, hint="default", **kwargs):
             right = _integrate(gx, x)
             if isinstance(left, Integral) or isinstance(right, Integral):
                 raise NotImplementedError("dsolve: separable integrals not found")
-            (c1,) = _constants(1, 1)
+            (c1,) = _constants(1, 1, constant_exclude)
             solved = _solve_separable(left, right + c1, ys[0])
             if not solved:
                 raise NotImplementedError("dsolve: implicit solution only")
-            out = [_Eq(f, _odesimp(simplify(s), {c1})) for s in solved]
+            out = [_Eq(f, _odesimp(simplify(s), {c1}, constant_exclude)) for s in solved]
             return out[0] if len(out) == 1 else out
     raise NotImplementedError("dsolve: equation class not supported")

@@ -563,5 +563,187 @@ class ExactDsolveTests(unittest.TestCase):
         self.assertEqual(checkodesol(equation, solution), (True, 0))
 
 
+class ExplicitInitialConditionTests(unittest.TestCase):
+    def setUp(self):
+        self.x = Symbol("x")
+        self.f = Function("initial_condition_flow")
+        self.y = self.f(self.x)
+        self.first_order = Derivative(self.y, self.x) - self.y
+
+    def test_derivative_conditions_must_name_the_solved_function(self):
+        other = Function("unrelated_initial_flow")
+        for order in (1, 2):
+            key = Subs(Derivative(other(self.x), (self.x, order)), self.x, 0)
+            with self.subTest(order=order):
+                with self.assertRaisesRegex(ValueError, "boundary conditions"):
+                    dsolve(self.first_order, self.y, ics={key: 2})
+        with self.assertRaisesRegex(ValueError, "boundary conditions"):
+            dsolve(self.first_order, self.y, ics={other(0): 2})
+
+    def test_mixed_or_different_derivative_coordinates_are_rejected(self):
+        other = Symbol("z")
+        assumed = Symbol("x", positive=True)
+        keys = (
+            Subs(Derivative(self.y, self.x, other), self.x, 0),
+            Subs(Derivative(self.f(assumed), assumed), assumed, 0),
+            Derivative(self.f(other), self.x),
+        )
+        for key in keys:
+            with self.subTest(key=key):
+                with self.assertRaisesRegex(ValueError, "boundary conditions"):
+                    dsolve(self.first_order, self.y, ics={key: 2})
+
+    def test_points_and_values_must_be_independent_of_the_coordinate(self):
+        conditions = (
+            {self.f(self.x + 1): 2},
+            {self.f(0): self.x},
+            {Subs(Derivative(self.y, self.x), self.x, self.x + 1): 2},
+            {Subs(Derivative(self.y, self.x), self.x, 0): self.x},
+        )
+        for data in conditions:
+            with self.subTest(data=data):
+                with self.assertRaisesRegex(ValueError, "independent"):
+                    dsolve(self.first_order, self.y, ics=data)
+
+    def test_class_name_spoofs_cannot_supply_derivative_observations(self):
+        class Subs:
+            @property
+            def expr(self):
+                raise AssertionError("an arbitrary initial-condition getter ran")
+
+        with self.assertRaisesRegex(ValueError, "boundary conditions"):
+            dsolve(self.first_order, self.y, ics={Subs(): 1})
+
+    def test_value_and_higher_derivative_conditions_are_both_enforced(self):
+        from sympy import exp
+
+        equation = Derivative(self.y, self.x, self.x) - self.y
+        data = {self.f(0): 1, Subs(Derivative(self.y, self.x), self.x, 0): 1}
+        solution = dsolve(equation, self.y, ics=data)
+        self.assertEqual((solution.rhs - exp(self.x)).simplify(), 0)
+        self.assertEqual(checkodesol(equation, solution, self.y), (True, 0))
+        third = Derivative(self.y, self.x, self.x, self.x)
+        solution = dsolve(third, self.y, ics={
+            self.f(0): 3,
+            Subs(Derivative(self.y, self.x), self.x, 0): 2,
+            Subs(Derivative(self.y, self.x, self.x), self.x, 0): 4,
+        })
+        self.assertEqual(expand(solution.rhs - (3 + 2*self.x + 2*self.x**2)), 0)
+
+    def test_direct_symbolic_point_derivative_and_dummy_coordinate(self):
+        from sympy import exp
+
+        point = Symbol("t")
+        solution = dsolve(self.first_order, self.y, ics={
+            Derivative(self.f(point), point): 1,
+        })
+        self.assertEqual(
+            (solution.rhs.diff(self.x).subs(self.x, point) - 1).simplify(), 0
+        )
+        x = Dummy("x")
+        target = self.f(x)
+        equation = Derivative(target, x) - target
+        solution = dsolve(equation, target, ics={
+            Subs(Derivative(target, x), x, 0): 2,
+        })
+        self.assertEqual((solution.rhs - 2*exp(x)).simplify(), 0)
+        self.assertEqual(solution.rhs.free_symbols, {x})
+
+    def test_partial_and_redundant_conditions_preserve_free_constants(self):
+        parameter = Symbol("a")
+        equation = Derivative(self.y, self.x, self.x)
+        solution = dsolve(equation, self.y, ics={self.f(0): parameter})
+        self.assertEqual(solution.rhs.subs(self.x, 0), parameter)
+        self.assertEqual(len(solution.rhs.free_symbols - {self.x, parameter}), 1)
+        redundant = dsolve(equation, self.y, ics={
+            self.f(0): parameter,
+            Subs(Derivative(self.y, self.x, self.x), self.x, 0): 0,
+        })
+        self.assertEqual(redundant, solution)
+
+    def test_generated_constants_do_not_absorb_source_parameters(self):
+        parameter = Symbol("C1")
+        equation = Derivative(self.y, self.x) - parameter
+        general = dsolve(equation, self.y)
+        self.assertEqual(general.rhs.free_symbols, {self.x, parameter, Symbol("C2")})
+        self.assertEqual(expand(general.rhs - (parameter*self.x + Symbol("C2"))), 0)
+        solution = dsolve(equation, self.y, ics={self.f(0): 3})
+        self.assertEqual(expand(solution.rhs - (parameter*self.x + 3)), 0)
+        self.assertEqual(checkodesol(equation, solution, self.y), (True, 0))
+
+    def test_initial_data_parameters_and_C_named_coordinates_are_preserved(self):
+        parameter = Symbol("a")
+        equation = Derivative(self.y, self.x)
+        solution = dsolve(equation, self.y, ics={self.f(0): parameter})
+        self.assertEqual(solution.rhs, parameter)
+        # SymPy 1.14 refuses a data parameter indistinguishable from its
+        # generated C1. Preserve that observed refusal instead of silently
+        # treating an integration constant as supplied data.
+        with self.assertRaises(ValueError):
+            dsolve(equation, self.y, ics={self.f(0): Symbol("C1")})
+        x = Symbol("C1")
+        target = self.f(x)
+        equation = Derivative(target, x) - 1
+        solution = dsolve(equation, target, ics={self.f(0): 2})
+        self.assertEqual(expand(solution.rhs - (x + 2)), 0)
+
+    def test_renumbering_cannot_capture_an_internal_looking_parameter(self):
+        from sympy.solvers.ode import _constant_renumber
+
+        parameter, constant = Symbol("_fsym_k0"), Symbol("C4")
+        result = _constant_renumber(parameter + constant, {constant}, {parameter})
+        self.assertEqual(result, parameter + Symbol("C1"))
+
+    def test_fully_specified_solutions_still_check_every_condition(self):
+        from sympy.solvers.ode import _apply_ics
+
+        solution = Eq(self.y, self.x, evaluate=False)
+        self.assertEqual(_apply_ics(solution, {self.f(0): 0}), solution)
+        self.assertEqual(_apply_ics(solution, {
+            Subs(Derivative(self.y, self.x), self.x, 0): 1,
+        }), solution)
+        with self.assertRaises(ValueError):
+            _apply_ics(solution, {self.f(0): 1})
+        with self.assertRaises(NotImplementedError):
+            _apply_ics(solution, {self.f(0): Symbol("a")})
+
+    def test_solver_candidates_are_rechecked_without_selecting_the_first(self):
+        from sympy.solvers.ode import _apply_ics
+
+        constant = Symbol("C1")
+        solution = Eq(self.y, constant, evaluate=False)
+        with patch("sympy.solve", return_value=[{constant: Integer(7)}]):
+            with self.assertRaises(ValueError):
+                _apply_ics(solution, {self.f(0): 1})
+        with patch("sympy.solve", return_value=[{constant: self.x}]):
+            with self.assertRaisesRegex(ValueError, "cannot depend"):
+                _apply_ics(solution, {self.f(0): 1})
+        with patch("sympy.solve", return_value=[{Symbol("a"): Integer(1)}]):
+            with self.assertRaisesRegex(ValueError, "unrelated parameter"):
+                _apply_ics(solution, {self.f(0): 1})
+        family = Eq(self.y, constant*self.x, evaluate=False)
+        key = self.f(1)
+        with patch("sympy.solve", return_value=[{constant: Integer(1)}, {constant: Integer(2)}]):
+            self.assertEqual(_apply_ics(family, {key: 2}).rhs, 2*self.x)
+
+    def test_ambiguous_constant_fits_are_explicitly_refused(self):
+        from sympy.solvers.ode import _apply_ics
+
+        constant = Symbol("C1")
+        family = Eq(self.y, constant**2 + constant*self.x, evaluate=False)
+        with patch("sympy.solve", return_value=[{constant: Integer(-1)}, {constant: Integer(1)}]):
+            with self.assertRaisesRegex(NotImplementedError, "too many solutions"):
+                _apply_ics(family, {self.f(0): 1})
+
+    def test_proved_incompatible_explicit_branches_do_not_hide_valid_ones(self):
+        from sympy.solvers.ode import _apply_ics
+
+        branches = [Eq(self.y, -self.x, evaluate=False),
+                    Eq(self.y, self.x, evaluate=False)]
+        self.assertEqual(_apply_ics(branches, {self.f(1): 1}), branches[1])
+        with self.assertRaises(ValueError):
+            _apply_ics(branches, {self.f(1): 2})
+
+
 if __name__ == "__main__":
     unittest.main()
