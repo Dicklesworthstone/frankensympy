@@ -14,6 +14,9 @@
 //! use their existing metered evaluators. Counts describe logical work and
 //! cumulative requested buffer storage, not RSS or allocator overhead.
 
+mod least_squares;
+pub use least_squares::*;
+
 use crate::{NewtonGuards, exact_binary64_rational};
 use fsym_budget::{BudgetMeter, Dimension, MeterError, Unbounded};
 use fsym_calculus::VerifiedResidualSystem;
