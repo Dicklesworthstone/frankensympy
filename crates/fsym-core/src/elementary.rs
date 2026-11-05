@@ -643,6 +643,12 @@ fn exp_is_integer(e: &Expr) -> bool {
 }
 
 fn eval_exp(arg: &Expr) -> Option<Expr> {
+    // Consumers such as formal-series composition call this evaluator
+    // directly, before the expression constructor's later normalization.
+    // Their coefficient zero tests must see exp(0) = 1 immediately.
+    if arg.is_zero() {
+        return Some(Expr::from_i64(1));
+    }
     match arg {
         Expr::Const(Constant::Infinity) => return Some(Expr::Const(Constant::Infinity)),
         Expr::Const(Constant::NegativeInfinity) => return Some(Expr::from_i64(0)),
@@ -1825,6 +1831,10 @@ mod tests {
 
     #[test]
     fn parity_and_inverse() {
+        assert_eq!(
+            eval_function("exp", &[Expr::from_i64(0)]),
+            Some(Expr::from_i64(1))
+        );
         assert_eq!(
             func("cos", negate(&x())),
             Expr::Function("cos".into(), vec![x()])

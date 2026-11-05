@@ -99,6 +99,82 @@ fn analytic_laurent_powers_have_the_correct_constant_term() {
 }
 
 #[test]
+fn exponential_cancellation_is_resolved_before_inverting_a_local_series() {
+    let t = Symbol::new("t");
+    let te = Expr::Sym(t.clone());
+    let logarithm = function("log", te.clone());
+    let base = function("exp", te.clone()) - Expr::from_i64(1);
+    let inverse = power(base.clone(), -1);
+    let expanded = series_in(&inverse, &t, &q(5, 1), &logarithm).unwrap();
+    // Bernoulli coefficients: 1/(exp(t)-1) = 1/t - 1/2 + t/12 - t^3/720 + O(t^5).
+    assert_eq!(
+        expanded.terms,
+        BTreeMap::from([
+            (q(-1, 1), Expr::from_i64(1)),
+            (q(0, 1), Expr::Rational(q(-1, 2))),
+            (q(1, 1), Expr::Rational(q(1, 12))),
+            (q(3, 1), Expr::Rational(q(-1, 720))),
+        ])
+    );
+    assert_eq!(expanded.order, Some(q(5, 1)));
+
+    // Removing the linear term changes the pole order. The identity
+    // (t^2/2 + t^3/6 + ...)*(2/t^2 - 2/(3t) + ...) = 1 fixes both coefficients.
+    let twice_canceled = power(base - te.clone(), -1);
+    let expanded = series_in(&twice_canceled, &t, &q(0, 1), &logarithm).unwrap();
+    assert_eq!(
+        expanded.terms,
+        BTreeMap::from([
+            (q(-2, 1), Expr::from_i64(2)),
+            (q(-1, 1), Expr::Rational(q(-2, 3))),
+        ])
+    );
+    assert_eq!(expanded.order, Some(q(0, 1)));
+
+    // An even germ has no residue; cancellation must still reveal its double pole.
+    let even = power(function("exp", power(te, 2)) - Expr::from_i64(1), -1);
+    let expanded = series_in(&even, &t, &q(0, 1), &logarithm).unwrap();
+    assert_eq!(
+        expanded.terms,
+        BTreeMap::from([(q(-2, 1), Expr::from_i64(1))])
+    );
+    assert_eq!(expanded.order, Some(q(0, 1)));
+}
+
+#[test]
+fn exponential_reciprocal_powers_keep_residues_at_shifted_scaled_centers() {
+    let x = Symbol::new("x");
+    for center in [Expr::from_i64(0), Expr::Rational(q(3, 2))] {
+        for scale in [q(1, 1), q(-2, 3)] {
+            let local = Expr::Rational(scale.clone()) * (Expr::Sym(x.clone()) - center.clone());
+            let base = function("exp", local) - Expr::from_i64(1);
+            for multiplicity in [1, 2, 3, 8] {
+                let source = power(base.clone(), -multiplicity);
+                let (terms, order) =
+                    fsym_calculus::series_expansion(&source, &x, &center, 0).unwrap();
+                // z=exp(scale*(x-center))-1 gives dx=dz/[scale*(1+z)],
+                // so the residue of z^-m is (-1)^(m-1)/scale exactly.
+                let sign = if multiplicity % 2 == 1 { 1 } else { -1 };
+                let expected = fsym_core::elementary::rational_expr(q(sign, 1) / scale.clone());
+                assert_eq!(
+                    terms.first().map(|(_, exponent)| exponent),
+                    Some(&q(-multiplicity, 1))
+                );
+                assert_eq!(
+                    terms
+                        .iter()
+                        .find(|(_, exponent)| exponent == &q(-1, 1))
+                        .map(|(value, _)| value),
+                    Some(&expected),
+                    "center {center}, scale {scale}, multiplicity {multiplicity}"
+                );
+                assert_eq!(order, Some(q(0, 1)));
+            }
+        }
+    }
+}
+
+#[test]
 fn logarithm_temporaries_do_not_replace_user_parameters() {
     let t = Symbol::new("t");
     let te = Expr::Sym(t.clone());
