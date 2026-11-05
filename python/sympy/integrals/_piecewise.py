@@ -1,9 +1,12 @@
-"""Exact finite real integrals of bounded rational Piecewise expressions.
+"""Exact ordinary and convergent improper rational Piecewise integrals.
 
 Checked rational sign charts determine the original first-match domains. The
 set trees then give complete open interval components, without numerical
 sampling. Each component uses the existing source-bound rational integral
 checker, including its original-pole and separate endpoint obligations.
+Finite bounds and partition points are rational; exact real infinities may
+bound the request. Every selected tail must converge independently, so this
+does not compute a Cauchy principal value by canceling divergent tails.
 
 Finite isolated values and missing singleton points have zero integral, as in
 the pinned public convention. An uncovered open interval is undefined and
@@ -14,14 +17,15 @@ unevaluated; admitted operational failures propagate without another lane.
 from fractions import Fraction
 
 from ..core import (
-    Integer, Rational, _native_expr, _require_closed_function_class, nan,
+    Basic, Expr, Integer, Rational, _native, _native_expr,
+    _require_closed_function_class, nan, oo,
 )
 from ..functions.elementary.piecewise import Piecewise
 from ..sets import Interval
 from ..solvers._piecewise_real import (
-    _Capture, _checked_domain, _guard, _restrict,
+    _ABSENT, _Capture, _checked_domain, _guard, _restrict,
 )
-from ..solvers._real_domain import _ATOMS, _is_exact
+from ..solvers._real_domain import _ATOMS, _NEG_INF, _POS_INF, _is_exact
 from .exact import _rational_literal, exact_rational_integral
 
 
@@ -31,6 +35,10 @@ _MAX_CUTS = 256
 
 def _rational_components(tree, lower, upper):
     """Complete positive-length components of a checked rational set tree.
+
+    Bounds are exact ordered pairs: (-1, 0) and (1, 0) denote the real
+    infinities, and (0, Fraction(...)) denotes a finite rational. Sorting and
+    comparison never involve binary floats or symbolic truth coercion.
 
     Every atomic interval boundary and finite point becomes a cut. Membership
     of an entire open cell follows from endpoint comparisons in the Boolean
@@ -59,15 +67,17 @@ def _rational_components(tree, lower, upper):
         for endpoint in endpoints:
             if endpoint is None or endpoint[0] not in ("rational", "infinity"):
                 return None
-            if endpoint[0] == "rational" and lower < endpoint[1] < upper:
-                cuts.add(endpoint[1])
+            key = ((0, endpoint[1]) if endpoint[0] == "rational"
+                   else (endpoint[1], Fraction(0)))
+            if lower < key < upper:
+                cuts.add(key)
                 if len(cuts) > _MAX_CUTS:
                     raise ValueError("Piecewise integration has too many rational partition cuts")
 
     def compare(bound, value):
-        if bound[0] == "infinity":
-            return bound[1]
-        return (bound[1] > value) - (bound[1] < value)
+        key = ((0, bound[1]) if bound[0] == "rational"
+               else (bound[1], Fraction(0)))
+        return (key > value) - (key < value)
 
     def contains(node, left, right):
         kind = node[0]
@@ -118,11 +128,39 @@ def _fraction(source):
 
 
 def _scalar(value):
-    return Rational(value.numerator, value.denominator)
+    if value[0] < 0:
+        return -oo
+    if value[0] > 0:
+        return oo
+    return Rational(value[1].numerator, value[1].denominator)
+
+
+def _capture_endpoint(value, capture):
+    """Retain a rational source or an exact literal real infinity.
+
+    Infinities are captured separately from rational scalar leaves: they are
+    interval bounds, never polynomial coefficients or integrand values.
+    """
+    if _is_exact(value, _ATOMS):
+        return ("finite", capture.scalar(value, 0))
+    if type(value) is not Expr:
+        return None
+    native = capture.retain(value, Basic, "_value")
+    for name in ("_struct_args", "_surface_args"):
+        children = capture.retain(value, Basic, name)
+        if (children is not _ABSENT and children is not None
+                and (type(children) is not tuple or len(children) != 0)):
+            return None
+    if type(native) is _native.Expr:
+        if native == _NEG_INF:
+            return ("infinity", -1)
+        if native == _POS_INF:
+            return ("infinity", 1)
+    return None
 
 
 def integrate_piecewise_rational(expression, variable, lower, upper):
-    """Return the complete finite-interval value, or None for unsupported input.
+    """Return a complete ordinary/improper value, or None for unsupported input.
 
     This composes existing checked operations; it does not issue a new
     portable proof or claim a general symbolic Piecewise integration method.
@@ -132,17 +170,16 @@ def integrate_piecewise_rational(expression, variable, lower, upper):
     if type(expression) is not Piecewise:
         return None
     lower, upper = _rational_literal(lower), _rational_literal(upper)
-    if not (_is_exact(lower, _ATOMS) and _is_exact(upper, _ATOMS)):
-        return None
-
     _require_closed_function_class(Piecewise)
     capture = _Capture()
+    bounds = (_capture_endpoint(lower, capture), _capture_endpoint(upper, capture))
+    if any(bound is None for bound in bounds):
+        return None
     capture.basic(expression)
     branches = capture.retain(expression, Piecewise, "_piecewise_branches")
     if type(branches) is not tuple or not 1 <= len(branches) <= 16:
         raise ValueError("rational Piecewise integration requires one to sixteen retained branches")
     capture.scalar(variable, 0)
-    lower_index, upper_index = capture.scalar(lower, 0), capture.scalar(upper, 0)
     prepared = []
     for pair in branches:
         if type(pair) is not tuple or len(pair) != 2:
@@ -153,8 +190,11 @@ def integrate_piecewise_rational(expression, variable, lower, upper):
     if not eligible:
         return None
 
-    left, right = _fraction(sources[lower_index]), _fraction(sources[upper_index])
+    left, right = ((0, _fraction(sources[value])) if kind == "finite"
+                   else (value, Fraction(0)) for kind, value in bounds)
     if left == right:
+        if left[0] != 0:
+            return None  # Equal infinite bounds do not define a finite point.
         # A zero-width interval has no active neighborhood. The bounded
         # original source and guard grammar still precedes this convention.
         capture.unchanged()

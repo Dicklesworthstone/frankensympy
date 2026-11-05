@@ -16,6 +16,10 @@ def _forbid_fallback(*args, **kwargs):
     raise AssertionError("admitted Piecewise integration must not use another integral lane")
 
 
+def _bound(value):
+    return (0, Fraction(value))
+
+
 @pytest.mark.parametrize("reverse", [False, True])
 def test_polynomial_branches_and_reversed_limits(reverse):
     x = s.Symbol("piecewise_integral_polynomial", real=True)
@@ -49,6 +53,135 @@ def test_rational_endpoints_and_intervals_inside_one_branch():
     source = s.Piecewise((2*x, x < 0), (3*x*x, True))
     assert s.integrate(source, (x, Fraction(-1, 2), Fraction(1, 2))) == -s.Rational(1, 8)
     assert s.integrate(source, (x, 1, 2)) == 7
+
+
+@pytest.mark.parametrize("bounds, expected", [
+    ((-s.oo, s.oo), 1), ((0, s.oo), 1), ((-s.oo, 0), 0),
+    ((1, s.oo), s.Rational(1, 2)), ((s.oo, 1), -s.Rational(1, 2)),
+    ((s.oo, -s.oo), -1),
+])
+def test_half_line_density_with_exact_infinite_and_reversed_bounds(bounds, expected):
+    x = s.Symbol("piecewise_integral_density", real=True)
+    source = s.Piecewise((0, x < 0), (1/(x + 1)**2, True))
+    assert s.integrate(source, (x, *bounds)) == expected
+    assert s.Integral(source, (x, *bounds)).doit() == expected
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_two_tails_are_integrated_with_independent_convergence(reverse):
+    x = s.Symbol("piecewise_integral_two_tails")
+    source = s.Piecewise((1/(1 - x)**2, x < 0), (1/(x + 1)**2, True))
+    bounds, expected = ((s.oo, -s.oo), -2) if reverse else ((-s.oo, s.oo), 2)
+    assert s.integrate(source, (x, *bounds)) == expected
+    assert s.integrate(source, (x, -s.oo, -1)) == s.Rational(1, 2)
+    assert s.integrate(source, (x, -1, s.oo)) == s.Rational(3, 2)
+
+
+def test_improper_components_use_coupled_logs_and_quadratic_primitives():
+    x = s.Symbol("piecewise_integral_improper_primitives")
+    logarithmic = s.Piecewise((0, x < 0), (1/((x + 1)*(x + 2)), True))
+    _equal(s.integrate(logarithmic, (x, -s.oo, s.oo)), s.log(2))
+    quadratic = s.Piecewise((1/(x*x + 1), x < 0), (2/(x*x + 4), True))
+    _equal(s.integrate(quadratic, (x, -s.oo, s.oo)), s.pi)
+
+
+def test_nonlinear_rational_cuts_partition_both_infinite_tails(monkeypatch):
+    x = s.Symbol("piecewise_integral_infinite_nonlinear")
+    monkeypatch.setattr(s, "_numeric_poly_roots", _forbid_fallback)
+    source = s.Piecewise((1, x*x < 1), (1/x**2, True))
+    assert s.integrate(source, (x, -s.oo, s.oo)) == 4
+
+
+def test_isolated_values_and_singleton_gaps_keep_the_infinite_integral():
+    x = s.Symbol("piecewise_integral_infinite_point")
+    density = 1/(1 + x*x)
+    isolated = s.Piecewise((s.Pow(x, -1, evaluate=False), s.Eq(x, 0, evaluate=False)),
+                           (density, True), evaluate=False)
+    _equal(s.integrate(isolated, (x, -s.oo, s.oo)), s.pi)
+    gap = s.Piecewise((density, x < 0), (density, x > 0), evaluate=False)
+    _equal(s.integrate(gap, (x, -s.oo, s.oo)), s.pi)
+
+
+@pytest.mark.parametrize("missing", ["left", "right", "both"])
+def test_uncovered_infinite_tails_are_undefined_before_any_integral(missing, monkeypatch):
+    x = s.Symbol("piecewise_integral_uncovered_tail_" + missing)
+    condition = {"left": x > 0, "right": x < 0,
+                 "both": s.And(x > -1, x < 1)}[missing]
+    source = s.Piecewise((1/(1 + x*x), condition), evaluate=False)
+    monkeypatch.setattr(_native, "exact_rational_integral_native", _forbid_fallback)
+    assert s.integrate(source, (x, -s.oo, s.oo)) is s.nan
+    assert s.integrate(source, (x, s.oo, -s.oo)) is s.nan
+
+
+@pytest.mark.parametrize("kind", ["positive", "negative", "principal_value", "distant_pole"])
+def test_divergent_or_singular_tails_cannot_publish_a_finite_value(kind, monkeypatch):
+    x = s.Symbol("piecewise_integral_divergent_tail_" + kind)
+    source = {
+        "positive": lambda: s.Piecewise((0, x < 0), (1/(x + 1), True)),
+        "negative": lambda: s.Piecewise((1/(1 - x), x < 0), (0, True)),
+        "principal_value": lambda: s.Piecewise((1/x, x < -1), (0, x < 1), (1/x, True)),
+        "distant_pole": lambda: s.Piecewise((0, x < 0), (1/(x - 10**20)**2, True)),
+    }[kind]()
+    monkeypatch.setattr(_native, "integrate_definite_native", _forbid_fallback)
+    with pytest.raises(ValueError):
+        s.integrate(source, (x, -s.oo, s.oo))
+
+
+@pytest.mark.parametrize("bound", [-s.oo, s.oo])
+def test_equal_infinite_bounds_remain_unevaluated(bound, monkeypatch):
+    x = s.Symbol("piecewise_integral_equal_infinity")
+    source = s.Piecewise((0, x < 0), (1/(x + 1)**2, True))
+    monkeypatch.setattr(_native, "exact_rational_integral_native", _forbid_fallback)
+    result = s.integrate(source, (x, bound, bound))
+    assert isinstance(result, s.Integral)
+    assert result.function == source
+    assert result.limits == ((x, bound, bound),)
+
+
+def test_algebraic_partition_cut_on_infinite_interval_stays_unevaluated(monkeypatch):
+    x = s.Symbol("piecewise_integral_infinite_algebraic")
+    source = s.Piecewise((1, x*x < 2), (1/x**2, True))
+    monkeypatch.setattr(_native, "exact_rational_integral_native", _forbid_fallback)
+    result = s.integrate(source, (x, -s.oo, s.oo))
+    assert isinstance(result, s.Integral)
+    assert result.function == source
+
+
+@pytest.mark.parametrize("failure", [ValueError("tail budget exhausted"), NotImplementedError("tail refusal")])
+def test_later_tail_failure_does_not_return_a_partial_sum(failure, monkeypatch):
+    x = s.Symbol("piecewise_integral_later_tail_failure")
+    source = s.Piecewise((1/(1 - x)**2, x < 0), (1/(x + 1)**2, True))
+    native = _native.exact_rational_integral_native
+    calls = []
+
+    def fail_second(*args):
+        calls.append(args)
+        if len(calls) == 2:
+            raise failure
+        return native(*args)
+
+    monkeypatch.setattr(_native, "exact_rational_integral_native", fail_second)
+    monkeypatch.setattr(_native, "integrate_definite_native", _forbid_fallback)
+    with pytest.raises(type(failure)) as error:
+        s.integrate(source, (x, -s.oo, s.oo))
+    assert error.value is failure
+    assert len(calls) == 2
+
+
+def test_infinity_bound_mutation_during_integration_prevents_publication(monkeypatch):
+    x = s.Symbol("piecewise_integral_infinity_mutation")
+    source = s.Piecewise((0, x < 0), (1/(x + 1)**2, True))
+    upper = s.Expr("oo")
+    native = _native.exact_rational_integral_native
+
+    def mutate(*args):
+        result = native(*args)
+        Basic.__dict__["_value"].__set__(upper, _native.Expr("1"))
+        return result
+
+    monkeypatch.setattr(_native, "exact_rational_integral_native", mutate)
+    with pytest.raises(RuntimeError, match="source mutated"):
+        s.integrate(source, (x, 0, upper))
 
 
 def test_nonlinear_rational_guard_has_complete_rational_cuts(monkeypatch):
@@ -174,10 +307,10 @@ def test_unsupported_piecewise_families_stay_unevaluated(kind, monkeypatch):
     assert result.function == source
 
 
-@pytest.mark.parametrize("bound", ["symbolic", "algebraic", "float", "infinite"])
-def test_nonrational_or_infinite_bounds_remain_unevaluated(bound):
+@pytest.mark.parametrize("bound", ["symbolic", "algebraic", "float", "complex"])
+def test_unsupported_bounds_remain_unevaluated(bound):
     x, parameter = s.symbols("piecewise_integral_endpoint parameter")
-    upper = {"symbolic": parameter, "algebraic": s.sqrt(2), "float": 0.5, "infinite": s.oo}[bound]
+    upper = {"symbolic": parameter, "algebraic": s.sqrt(2), "float": 0.5, "complex": s.I}[bound]
     source = s.Piecewise((x, x < 0), (x*x, True), evaluate=False)
     assert isinstance(s.integrate(source, (x, -1, upper)), s.Integral)
 
@@ -324,15 +457,15 @@ def test_exact_rational_set_components_keep_punctures_and_merge_covered_boundari
     whole = ("Interval", q(-2), q(2), False, False)
     point = ("FiniteSet", (q(0),))
     punctured = ("Intersection", (whole, ("Complement", (point,))))
-    assert _rational_components(punctured, Fraction(-2), Fraction(2)) == [
-        (Fraction(-2), Fraction(0)), (Fraction(0), Fraction(2)),
+    assert _rational_components(punctured, _bound(-2), _bound(2)) == [
+        (_bound(-2), _bound(0)), (_bound(0), _bound(2)),
     ]
     filled = ("Union", (punctured, point))
-    assert _rational_components(filled, Fraction(-2), Fraction(2)) == [(Fraction(-2), Fraction(2))]
+    assert _rational_components(filled, _bound(-2), _bound(2)) == [(_bound(-2), _bound(2))]
     removed = ("Interval", q(-1), q(1), False, False)
     outside = ("Intersection", (whole, ("Complement", (removed,))))
-    assert _rational_components(outside, Fraction(-2), Fraction(2)) == [
-        (Fraction(-2), Fraction(-1)), (Fraction(1), Fraction(2)),
+    assert _rational_components(outside, _bound(-2), _bound(2)) == [
+        (_bound(-2), _bound(-1)), (_bound(1), _bound(2)),
     ]
 
 
@@ -345,7 +478,35 @@ def test_exact_rational_set_components_clip_unions_and_ignore_isolated_points():
         ("Interval", q(0), ("infinity", 1), True, True),
         ("FiniteSet", (q(-1), q(4))),
     ))
-    assert _rational_components(overlapping, Fraction(-2), Fraction(2)) == [(Fraction(-2), Fraction(2))]
-    assert _rational_components(("FiniteSet", (q(0),)), Fraction(-1), Fraction(1)) == []
+    assert _rational_components(overlapping, _bound(-2), _bound(2)) == [(_bound(-2), _bound(2))]
+    assert _rational_components(("FiniteSet", (q(0),)), _bound(-1), _bound(1)) == []
     algebraic = ("Interval", q(-2), ("root", (), 0, 1), False, False)
-    assert _rational_components(algebraic, Fraction(-2), Fraction(2)) is None
+    assert _rational_components(algebraic, _bound(-2), _bound(2)) is None
+
+
+def test_exact_infinite_components_keep_each_punctured_tail_separate():
+    negative, positive = (-1, Fraction(0)), (1, Fraction(0))
+    whole = ("Interval", ("infinity", -1), ("infinity", 1), True, True)
+    point = ("FiniteSet", (("rational", Fraction(0)),))
+    punctured = ("Intersection", (whole, ("Complement", (point,))))
+    assert _rational_components(whole, negative, positive) == [(negative, positive)]
+    assert _rational_components(punctured, negative, positive) == [
+        (negative, _bound(0)), (_bound(0), positive),
+    ]
+    filled = ("Union", (punctured, point))
+    assert _rational_components(filled, negative, positive) == [(negative, positive)]
+    assert _rational_components(("FiniteSet", (("rational", Fraction(0)),)), negative, positive) == []
+
+
+def test_exact_infinite_components_clip_half_lines_and_preserve_missing_intervals():
+    negative, positive = (-1, Fraction(0)), (1, Fraction(0))
+    outside = ("Union", (
+        ("Interval", ("infinity", -1), ("rational", Fraction(-1)), True, False),
+        ("Interval", ("rational", Fraction(1)), ("infinity", 1), False, True),
+    ))
+    assert _rational_components(outside, negative, positive) == [
+        (negative, _bound(-1)), (_bound(1), positive),
+    ]
+    assert _rational_components(outside, negative, _bound(0)) == [(negative, _bound(-1))]
+    assert _rational_components(outside, _bound(0), positive) == [(_bound(1), positive)]
+    assert _rational_components(outside, _bound(-1), _bound(1)) == []
