@@ -7,9 +7,165 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
+use fsym_core::Expr;
 use fsym_sets::SymSet as NativeSet;
 
 use crate::expr::PyExpr;
+
+const MAX_REAL_DOMAIN_SET_NODES: usize = 128;
+const MAX_REAL_DOMAIN_SET_DEPTH: usize = 16;
+const MAX_REAL_DOMAIN_FINITE_POINTS: usize = 128;
+const MAX_REAL_DOMAIN_SCALAR_NODES: usize = 16_384;
+const MAX_REAL_DOMAIN_SCALAR_DEPTH: usize = 64;
+const MAX_REAL_DOMAIN_OPERANDS: usize = 256;
+const MAX_REAL_DOMAIN_COEFFICIENT_BITS: u64 = 4096;
+const MAX_REAL_DOMAIN_TEXT: usize = 65_536;
+
+struct RealDomainPreflight {
+    scalar_nodes: usize,
+    text_bytes: usize,
+}
+
+impl RealDomainPreflight {
+    fn name(&mut self, name: &str) -> PyResult<()> {
+        self.text_bytes = self
+            .text_bytes
+            .checked_add(name.len())
+            .filter(|&length| length <= MAX_REAL_DOMAIN_TEXT)
+            .ok_or_else(|| {
+                PyValueError::new_err("exact real solveset domain exceeds its name limit")
+            })?;
+        Ok(())
+    }
+
+    /// Borrow each original scalar node before any Python getter copies a
+    /// subtree. This is shape admission only, not a reality/domain decision.
+    fn scalar<'a>(
+        &mut self,
+        source: &'a Expr,
+        pending: &mut Vec<(&'a Expr, usize)>,
+    ) -> PyResult<()> {
+        pending.push((source, 0));
+        while let Some((node, depth)) = pending.pop() {
+            self.scalar_nodes += 1;
+            if self.scalar_nodes > MAX_REAL_DOMAIN_SCALAR_NODES
+                || depth > MAX_REAL_DOMAIN_SCALAR_DEPTH
+            {
+                return Err(PyValueError::new_err(
+                    "exact real solveset domain exceeds its scalar source envelope",
+                ));
+            }
+            match node {
+                Expr::Integer(value) => {
+                    if value.bits() > MAX_REAL_DOMAIN_COEFFICIENT_BITS {
+                        return Err(PyValueError::new_err(
+                            "exact real solveset endpoint exceeds the coefficient limit",
+                        ));
+                    }
+                }
+                Expr::Rational(value) => {
+                    if value.numer().bits().max(value.denom().bits())
+                        > MAX_REAL_DOMAIN_COEFFICIENT_BITS
+                    {
+                        return Err(PyValueError::new_err(
+                            "exact real solveset endpoint exceeds the coefficient limit",
+                        ));
+                    }
+                }
+                Expr::Sym(symbol) => self.name(&symbol.name)?,
+                Expr::Add(children) | Expr::Mul(children) | Expr::Function(_, children) => {
+                    if let Expr::Function(name, _) = node {
+                        self.name(name)?;
+                    }
+                    if children.len() > MAX_REAL_DOMAIN_OPERANDS {
+                        return Err(PyValueError::new_err(
+                            "exact real solveset endpoint has too many operands",
+                        ));
+                    }
+                    if children.len()
+                        > MAX_REAL_DOMAIN_SCALAR_NODES
+                            .saturating_sub(self.scalar_nodes + pending.len())
+                    {
+                        return Err(PyValueError::new_err(
+                            "exact real solveset domain exceeds its scalar source envelope",
+                        ));
+                    }
+                    pending.extend(children.iter().map(|child| (child, depth + 1)));
+                }
+                Expr::Pow(base, exponent) => {
+                    if 2 > MAX_REAL_DOMAIN_SCALAR_NODES
+                        .saturating_sub(self.scalar_nodes + pending.len())
+                    {
+                        return Err(PyValueError::new_err(
+                            "exact real solveset domain exceeds its scalar source envelope",
+                        ));
+                    }
+                    pending.push((base, depth + 1));
+                    pending.push((exponent, depth + 1));
+                }
+                Expr::Const(_) => {}
+            }
+        }
+        Ok(())
+    }
+}
+
+fn preflight_real_domain(source: &NativeSet) -> PyResult<()> {
+    // Working storage is bounded independently of the supplied tree. No set,
+    // expression, coefficient or symbol payload is cloned during this walk.
+    let mut pending = Vec::with_capacity(MAX_REAL_DOMAIN_SET_NODES);
+    let mut scalar_pending = Vec::with_capacity(MAX_REAL_DOMAIN_OPERANDS);
+    let mut state = RealDomainPreflight {
+        scalar_nodes: 0,
+        text_bytes: 0,
+    };
+    pending.push((source, 0usize));
+    let mut set_nodes = 0usize;
+    while let Some((node, depth)) = pending.pop() {
+        set_nodes += 1;
+        if set_nodes > MAX_REAL_DOMAIN_SET_NODES || depth > MAX_REAL_DOMAIN_SET_DEPTH {
+            return Err(PyValueError::new_err(
+                "exact real solveset domain exceeds its bounded set envelope",
+            ));
+        }
+        match node {
+            NativeSet::EmptySet | NativeSet::UniversalSet => {}
+            NativeSet::Interval { start, end, .. } => {
+                state.scalar(start, &mut scalar_pending)?;
+                state.scalar(end, &mut scalar_pending)?;
+            }
+            NativeSet::FiniteSet(values) => {
+                if values.len() > MAX_REAL_DOMAIN_FINITE_POINTS {
+                    return Err(PyValueError::new_err(
+                        "exact real solveset domain has too many finite points",
+                    ));
+                }
+                for value in values {
+                    state.scalar(value, &mut scalar_pending)?;
+                }
+            }
+            NativeSet::Union(children) | NativeSet::Intersection(children) => {
+                if children.len()
+                    > MAX_REAL_DOMAIN_SET_NODES.saturating_sub(set_nodes + pending.len())
+                {
+                    return Err(PyValueError::new_err(
+                        "exact real solveset domain exceeds its bounded set envelope",
+                    ));
+                }
+                pending.extend(children.iter().map(|child| (child, depth + 1)));
+            }
+            NativeSet::Complement(child) => {
+                if set_nodes + pending.len() == MAX_REAL_DOMAIN_SET_NODES {
+                    return Err(PyValueError::new_err(
+                        "exact real solveset domain exceeds its bounded set envelope",
+                    ));
+                }
+                pending.push((child, depth + 1));
+            }
+        }
+    }
+    Ok(())
+}
 
 /// Python binding for symbolic sets.
 #[pyclass(name = "SymSet", module = "fsym_python")]
@@ -26,6 +182,13 @@ impl std::fmt::Display for PySymSet {
 
 #[pymethods]
 impl PySymSet {
+    /// Bound the borrowed original real-domain tree before cloned getters.
+    /// Unknown scalar syntax remains available for conditional membership;
+    /// this method establishes structural bounds, never mathematical validity.
+    pub fn real_domain_preflight(&self) -> PyResult<()> {
+        preflight_real_domain(&self.inner)
+    }
+
     /// The empty set singleton: ∅.
     #[staticmethod]
     pub fn empty() -> Self {

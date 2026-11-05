@@ -562,6 +562,13 @@ def solveset(expression, variable=None, domain=None):
             domain = domain()
         if not isinstance(domain, Set):
             raise ValueError(f"{domain} is not a valid domain")
+    # Restricted real domains use the same complete rational root engine as
+    # Reals, retaining original equation holes before ordinary subtraction.
+    # Domain filtering uses checked algebraic order, never floating roots.
+    from .solvers._real_domain import solve_in_real_domain
+    restricted = solve_in_real_domain(expression, variable, domain)
+    if restricted is not None:
+        return restricted
     if _is_inequality(expression):
         if variable is None:
             variable = _inequality_symbol([expression], ())

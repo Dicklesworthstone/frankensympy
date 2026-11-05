@@ -8,7 +8,6 @@ use fsym_calculus::rational_mellin::{
 };
 use fsym_core::{BigInt, BigRational, Expr, Symbol, SymbolIdentity};
 use fsym_polys::UnivariatePoly;
-use num_traits::One;
 use std::sync::Arc;
 
 fn q(numerator: i64, denominator: i64) -> BigRational {
