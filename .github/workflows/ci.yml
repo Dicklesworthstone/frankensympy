@@ -261,6 +261,7 @@ jobs:
               "python/tests/test_rational_system_sources.py",
               "python/tests/test_localized_components.py",
               "python/tests/test_solveset_real_domains.py",
+              "python/tests/test_solveset_piecewise_real.py",
               "python/tests/test_rational_laplace.py",
               "python/tests/test_rational_mellin.py",
               "python/tests/test_delayed_laplace.py",

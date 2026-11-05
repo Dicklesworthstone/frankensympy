@@ -562,6 +562,10 @@ def solveset(expression, variable=None, domain=None):
             domain = domain()
         if not isinstance(domain, Set):
             raise ValueError(f"{domain} is not a valid domain")
+    from .solvers._piecewise_real import solve_piecewise_real
+    piecewise = solve_piecewise_real(expression, variable, domain)
+    if piecewise is not None:
+        return piecewise
     # Restricted real domains use the same complete rational root engine as
     # Reals, retaining original equation holes before ordinary subtraction.
     # Domain filtering uses checked algebraic order, never floating roots.
