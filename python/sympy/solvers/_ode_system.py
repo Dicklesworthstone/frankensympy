@@ -1,10 +1,11 @@
-"""Bounded exact source lowering for rational two-component ODE systems.
+"""Bounded exact source lowering for rational constant-coefficient ODE systems.
 
 The shell retains the original undefined-function owners. Only exact rational
 linear forms cross the native boundary, where a complete normalized fundamental
-matrix is independently checked. The integration constants are the two initial
+matrix is independently checked. The integration constants are the initial
 coordinates at the chosen common time, rather than a chosen eigenvector basis.
-Polynomial forcing has degree at most 16 and a separate coefficient checker.
+Systems have one through eight coordinates. Polynomial forcing has degree at
+most 16 and a separate coefficient checker.
 """
 
 from fractions import Fraction
@@ -18,6 +19,7 @@ from ..core._function_capabilities import _implementation, _owner_matches, _owne
 _NUMBERS = (Integer, Rational, type(S.Zero), type(S.One),
             type(S.NegativeOne), type(S.Half))
 _MAX_BITS = 1024
+_MAX_DIMENSION = 8
 _MAX_NODES = 1024
 _MAX_DEPTH = 32
 _MAX_TEXT = 16_384
@@ -103,8 +105,8 @@ def _functions(equations, functions):
             _checkodesol_function(node)
             if not any(node == other for other in found):
                 found.append(node)
-            if len(found) > 2:
-                raise NotImplementedError("dsolve: this system lane supports exactly two functions")
+            if len(found) > _MAX_DIMENSION:
+                raise NotImplementedError("dsolve: this system lane supports at most eight functions")
             continue
         if kind in (Symbol, Dummy):
             continue
@@ -123,17 +125,20 @@ def _functions(equations, functions):
     elif type(functions) is not list:
         # Pinned SymPy 1.14 system dispatch requires a list for explicit funcs.
         raise ValueError("Input to the funcs should be a list of functions.")
-    if len(functions) != 2:
-        raise NotImplementedError("dsolve: this system lane supports exactly two functions")
+    if not 1 <= len(functions) <= _MAX_DIMENSION:
+        raise NotImplementedError("dsolve: this system lane supports one through eight functions")
+    if len(functions) != len(equations):
+        raise ValueError("dsolve: system requires one equation per function")
     functions = [_checkodesol_function(function) for function in functions]
-    if type(functions[0]) is type(functions[1]):
+    if any(type(function) is type(previous)
+           for index, function in enumerate(functions) for previous in functions[:index]):
         raise ValueError("dsolve: system functions must be distinct")
     time = _checkodesol_children(functions[0])[0]
     if len(time.name) > _MAX_TEXT:
         raise ValueError("dsolve: system time symbol exceeds its text bound")
-    if _checkodesol_children(functions[1])[0] != time:
+    if any(_checkodesol_children(function)[0] != time for function in functions[1:]):
         raise ValueError("dsolve: system functions require the same typed time variable")
-    if len(found) != 2 or any(not any(function == item for item in functions) for function in found):
+    if len(found) != len(functions) or any(not any(function == item for item in functions) for function in found):
         raise ValueError("dsolve: supplied functions do not match the original system")
     return functions, time
 
@@ -184,14 +189,12 @@ class _LinearSource:
             raise NotImplementedError("dsolve: system derivative and function coefficients must be rational constants")
         return poly[0]
 
-    @staticmethod
-    def constant(value):
+    def constant(self, value):
         polynomial = value if type(value) is list else [value]
-        return [polynomial, Fraction(0), Fraction(0), Fraction(0), Fraction(0)]
+        return [polynomial, *([Fraction(0)] * (2 * len(self.functions)))]
 
-    @staticmethod
-    def basis(index):
-        result = _LinearSource.constant(Fraction(0))
+    def basis(self, index):
+        result = self.constant(Fraction(0))
         result[index] = Fraction(1)
         return result
 
@@ -218,7 +221,7 @@ class _LinearSource:
                 raise NotImplementedError("dsolve: this system lane supports first derivatives only")
             for index, function in enumerate(self.functions):
                 if type(arguments[0]) is type(function) and _checkodesol_children(arguments[0]) == (self.time,):
-                    return self.basis(index + 3)
+                    return self.basis(index + len(self.functions) + 1)
             raise NotImplementedError("dsolve: derivative of an unrelated function")
         if kind not in (Add, Mul, Pow, Eq):
             raise NotImplementedError("dsolve: system coefficients must be rational constants")
@@ -288,7 +291,7 @@ def _initial_values(functions, time, conditions):
     used_names = {time.name, *(type(function).__name__ for function in functions)}
     constants = []
     index = 1
-    while len(constants) < 2:
+    while len(constants) < len(functions):
         name = f"C{index}"
         index += 1
         if name not in used_names:
@@ -297,8 +300,8 @@ def _initial_values(functions, time, conditions):
     values = list(constants)
     point = None
     if conditions is not None:
-        if type(conditions) is not dict or len(conditions) > 2:
-            raise ValueError("dsolve: this system requires at most two value initial conditions")
+        if type(conditions) is not dict or len(conditions) > len(functions):
+            raise ValueError("dsolve: system requires at most one value initial condition per function")
         assigned = set()
         for key, value in conditions.items():
             owners = [index for index, function in enumerate(functions) if type(key) is type(function)]
@@ -316,51 +319,121 @@ def _initial_values(functions, time, conditions):
     return _surface(Fraction(0) if point is None else point), values
 
 
-def solve_linear_system_2(equations, functions=None, *, ics=None, hint="default", **kwargs):
-    """Return a flat list of two Eq objects, following the supplied function order.
+def _reduce_general_system(rows, parser):
+    """Reduce M*y' + B*y + p = 0 and recheck against every original row."""
+    dimension = len(rows)
+    mass = [list(row[dimension + 1:]) for row in rows]
+    coefficients = [[-value for value in row[1:dimension + 1]] for row in rows]
+    forcing = [parser.poly_scale(row[0], Fraction(-1)) for row in rows]
 
-    Exact rational constant systems with an invertible derivative coefficient
-    matrix and polynomial forcing of degree at most 16 are admitted.
-    Value initial conditions may fix either
-    or both coordinates at one exact rational time. Other system classes and
-    boundary data explicitly refuse instead of publishing a partial solution.
+    for column in range(dimension):
+        pivot = next((row for row in range(column, dimension) if mass[row][column]), None)
+        if pivot is None:
+            raise NotImplementedError("dsolve: singular derivative systems are outside this lane")
+        if pivot != column:
+            mass[column], mass[pivot] = mass[pivot], mass[column]
+            coefficients[column], coefficients[pivot] = coefficients[pivot], coefficients[column]
+            forcing[column], forcing[pivot] = forcing[pivot], forcing[column]
+        scale = _bounded(1 / mass[column][column])
+        parser.step(2 * dimension)
+        mass[column] = [_bounded(value * scale) for value in mass[column]]
+        coefficients[column] = [_bounded(value * scale) for value in coefficients[column]]
+        forcing[column] = parser.poly_scale(forcing[column], scale)
+        for row in range(dimension):
+            if row == column or not mass[row][column]:
+                continue
+            factor = mass[row][column]
+            parser.step(4 * dimension)
+            mass[row] = [_bounded(value - _bounded(factor * pivot_value))
+                         for value, pivot_value in zip(mass[row], mass[column])]
+            coefficients[row] = [_bounded(value - _bounded(factor * pivot_value))
+                                 for value, pivot_value in zip(coefficients[row], coefficients[column])]
+            forcing[row] = parser.poly_add(
+                forcing[row], parser.poly_scale(forcing[column], -factor),
+            )
+
+    # Check the reduced source independently by multiplication through the
+    # original derivative matrix. The native receipt then binds this complete
+    # constant-coefficient system, including every original forcing term.
+    for original in rows:
+        for column in range(dimension):
+            residual = original[column + 1]
+            for index in range(dimension):
+                parser.step(2)
+                residual = _bounded(residual + _bounded(
+                    original[dimension + 1 + index] * coefficients[index][column],
+                ))
+            if residual:
+                raise ValueError("dsolve: derivative matrix reduction failed its source identity")
+        residual = list(original[0])
+        for index in range(dimension):
+            residual = parser.poly_add(
+                residual,
+                parser.poly_scale(forcing[index], original[dimension + 1 + index]),
+            )
+        if residual != [0]:
+            raise ValueError("dsolve: derivative matrix reduction failed its forcing identity")
+    return coefficients, forcing
+
+
+def solve_linear_system(equations, functions=None, *, ics=None, hint="default", **kwargs):
+    """Return a flat equation list in the supplied or inferred function order.
+
+    Admit one through eight rational constant-coefficient first-order equations
+    with an invertible derivative matrix and polynomial forcing of degree at
+    most 16. Larger systems use the checked rational-resolvent lane, whose
+    spectral factors must be rational linear or quadratic polynomials.
+    Rational value initial conditions share one time; unspecified coordinates
+    remain independent initial-value constants. Unsupported classes refuse.
     """
     _require_original_surface()
-    if len(equations) != 2:
-        raise NotImplementedError("dsolve: this system lane supports exactly two equations")
+    if not 1 <= len(equations) <= _MAX_DIMENSION:
+        raise NotImplementedError("dsolve: this system lane supports one through eight equations")
     if hint != "default":
         raise NotImplementedError("dsolve: this system lane supports the default hint")
     functions, time = _functions(equations, functions)
+    dimension = len(functions)
     parser = _LinearSource(functions, time)
     rows = [parser.visit(equation) for equation in equations]
-    m00, m01 = rows[0][3:]
-    m10, m11 = rows[1][3:]
-    determinant = _bounded(m00*m11 - m01*m10)
-    if determinant == 0:
-        raise NotImplementedError("dsolve: singular derivative systems are outside this lane")
-    coefficients = []
-    for index in (1, 2):
-        coefficients.append(_bounded((-m11*rows[0][index] + m01*rows[1][index])/determinant))
-    for index in (1, 2):
-        coefficients.append(_bounded((m10*rows[0][index] - m00*rows[1][index])/determinant))
-    forcing = [
-        parser.poly_add(parser.poly_scale(rows[0][0], _bounded(-m11/determinant)),
-                        parser.poly_scale(rows[1][0], _bounded(m01/determinant))),
-        parser.poly_add(parser.poly_scale(rows[0][0], _bounded(m10/determinant)),
-                        parser.poly_scale(rows[1][0], _bounded(-m00/determinant))),
-    ]
-    point, values = _initial_values(functions, time, ics)
-    arguments = (*(_native_expr(_surface(value)) for value in coefficients),
-                 _symbol_binding(time), _native_expr(point),
-                 _native_expr(values[0]), _native_expr(values[1]))
-    if all(poly == [0] for poly in forcing):
-        native = _native.linear_ode_system_native(*arguments)
+    if dimension == 2:
+        # Preserve the established two-coordinate generators and failure paths.
+        m00, m01 = rows[0][3:]
+        m10, m11 = rows[1][3:]
+        determinant = _bounded(m00*m11 - m01*m10)
+        if determinant == 0:
+            raise NotImplementedError("dsolve: singular derivative systems are outside this lane")
+        coefficients = []
+        for index in (1, 2):
+            coefficients.append(_bounded((-m11*rows[0][index] + m01*rows[1][index])/determinant))
+        for index in (1, 2):
+            coefficients.append(_bounded((m10*rows[0][index] - m00*rows[1][index])/determinant))
+        forcing = [
+            parser.poly_add(parser.poly_scale(rows[0][0], _bounded(-m11/determinant)),
+                            parser.poly_scale(rows[1][0], _bounded(m01/determinant))),
+            parser.poly_add(parser.poly_scale(rows[0][0], _bounded(m10/determinant)),
+                            parser.poly_scale(rows[1][0], _bounded(-m00/determinant))),
+        ]
+        point, values = _initial_values(functions, time, ics)
+        arguments = (*(_native_expr(_surface(value)) for value in coefficients),
+                     _symbol_binding(time), _native_expr(point),
+                     _native_expr(values[0]), _native_expr(values[1]))
+        if all(poly == [0] for poly in forcing):
+            native = _native.linear_ode_system_native(*arguments)
+        else:
+            native = _native.polynomial_ode_system_native(
+                *arguments,
+                *[[_native_expr(_surface(value)) for value in poly] for poly in forcing],
+            )
     else:
-        native = _native.polynomial_ode_system_native(
-            *arguments,
-            *[[_native_expr(_surface(value)) for value in poly] for poly in forcing],
+        coefficients, forcing = _reduce_general_system(rows, parser)
+        point, values = _initial_values(functions, time, ics)
+        native = _native.general_ode_system_native(
+            [[_native_expr(_surface(value)) for value in row] for row in coefficients],
+            _symbol_binding(time), _native_expr(point),
+            [[_native_expr(_surface(value)) for value in poly] for poly in forcing],
+            [_native_expr(value) for value in values],
         )
-    if len(native) != 2:
+    if len(native) != dimension:
         raise ValueError("dsolve: checked system returned the wrong coordinate count")
     return [Eq(function, _lift_native_result(value, time, *values))
             for function, value in zip(functions, native)]

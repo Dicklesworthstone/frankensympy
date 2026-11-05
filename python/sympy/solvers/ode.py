@@ -17,7 +17,7 @@ from ..core import (
     _wrap,
 )
 from ..core._function_capabilities import _owner_matches, _owner_record
-from ._ode_system import solve_linear_system_2 as _solve_linear_system_2
+from ._ode_system import solve_linear_system as _solve_linear_system
 
 
 # Reuse the closed-function implementation policy for ordinary formal ODE
@@ -1346,18 +1346,21 @@ def dsolve(eq, func=None, hint="default", ics=None, **kwargs):
     value initial conditions bind those level sets; derivative initial data
     for an implicit solution are not currently supported.
 
-    A list or tuple of two first-order equations may describe a
+    A list or tuple of one through eight first-order equations may describe a
     coupled system with exact rational constant coefficients and an invertible
     derivative coefficient matrix. Polynomial forcing of degree at most 16 is
-    supported, including resonant singular coefficient matrices. The result is a flat list of two equations,
-    in the explicit function-list order or the order inferred from the source.
-    Value initial conditions may fix either or both coordinates at one rational
-    time; otherwise the constants parameterize normalized initial coordinates.
+    supported, including resonant singular coefficient matrices. For systems
+    with more than two functions, the characteristic polynomial must factor
+    into rational linear or quadratic factors within the bounded native lane.
+    The result is a flat list of equations in the explicit function-list order
+    or the order inferred from the source. Value initial conditions may fix any
+    subset of coordinates at one rational time; otherwise the constants
+    parameterize normalized initial coordinates.
     """
     from ..core import AppliedUndef, Eq
 
     if type(eq) in (list, tuple):
-        return _solve_linear_system_2(eq, func, ics=ics, hint=hint, **kwargs)
+        return _solve_linear_system(eq, func, ics=ics, hint=hint, **kwargs)
 
     try:
         sol = _dsolve_general(eq, func, hint, **kwargs)
