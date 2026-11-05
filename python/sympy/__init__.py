@@ -137,6 +137,12 @@ def integrate(expression, *variables):
             raise ValueError("integration tuple must be (variable, lower, upper)")
         variable, lower, upper = spec
         symbol = _require_symbol(variable)
+        from .functions.elementary.piecewise import Piecewise
+        if type(expression) is Piecewise:
+            from .integrals._piecewise import integrate_piecewise_rational
+
+            result = integrate_piecewise_rational(expression, symbol, lower, upper)
+            return Integral(expression, (variable, lower, upper)) if result is None else result
         try:
             result = _native.integrate_definite_native(
                 _native_expr(expression),

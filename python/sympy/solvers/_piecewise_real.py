@@ -40,6 +40,7 @@ class _Capture:
         self.symbols = []
         self.leaves = []
         self.stamps = []
+        self.dictionaries = []
 
     def touch(self, depth):
         self.nodes += 1
@@ -56,10 +57,26 @@ class _Capture:
         return stored
 
     def basic(self, value):
+        arguments = []
         for name in ("_value", "_struct_args", "_surface_args"):
-            self.retain(value, Basic, name)
+            stored = self.retain(value, Basic, name)
+            if name != "_value":
+                arguments.append(stored)
+        return arguments
 
     def symbol(self, value):
+        if type(value) is not Symbol and type(value) is not Dummy:
+            raise TypeError("rational Piecewise requires exact symbol owners")
+        self.basic(value)
+        assumptions = self.retain(value, Symbol, "_assumptions")
+        if (type(assumptions) is not dict or len(assumptions) > 128
+                or any(type(key) is not str or len(key) > 4096
+                       or type(fact) is not bool for key, fact in assumptions.items())):
+            raise ValueError("rational Piecewise requires bounded exact symbol assumptions")
+        self.dictionaries.append((assumptions, tuple(assumptions.items())))
+        if type(value) is Dummy:
+            self.retain(value, Dummy, "_dummy_name")
+            self.retain(value, Dummy, "_dummy_number")
         if value not in self.symbols:
             self.symbols.append(value)
 
@@ -70,18 +87,32 @@ class _Capture:
             self.touch(level)
             kind = type(node)
             if kind is Symbol or kind is Dummy:
-                self.basic(node)
                 self.symbol(node)
                 continue
             if _is_exact(node, _ATOMS):
                 self.basic(node)
                 continue
             if _is_exact(node, (Add, Mul, Pow)):
-                self.basic(node)
-                children = node.args
-                if len(children) > 256 or len(pending) + len(children) > 4096:
-                    raise ValueError("rational Piecewise source exceeds its bounded envelope")
-                pending.extend((child, level + 1) for child in children)
+                retained = self.basic(node)
+                original = self.retain(node, kind, "_args")
+                if original is not _ABSENT:
+                    if type(original) is not tuple:
+                        raise ValueError("rational Piecewise requires original argument tuples")
+                    retained.append(original)
+                groups = []
+                for children in retained:
+                    if children is _ABSENT or children is None:
+                        continue
+                    if type(children) is not tuple:
+                        raise ValueError("rational Piecewise requires original argument tuples")
+                    if not any(children is previous for previous in groups):
+                        groups.append(children)
+                if not groups:
+                    groups.append(node.args)
+                for children in groups:
+                    if len(children) > 256 or len(pending) + len(children) > 4096:
+                        raise ValueError("rational Piecewise source exceeds its bounded envelope")
+                    pending.extend((child, level + 1) for child in children)
                 continue
             mro = type.__dict__["__mro__"].__get__(kind)
             if any(base is Basic for base in mro):
@@ -149,6 +180,7 @@ class _Capture:
         return ("unknown",)
 
     def freeze(self, variable):
+        self.unchanged()
         if variable is None:
             if len(self.symbols) > 1:
                 raise ValueError("at least one solve variable is required")
@@ -156,21 +188,44 @@ class _Capture:
         else:
             # The real-domain gate checks exact type/MRO before _require_symbol.
             variable = _rational_source(0, variable)[1]
-        sources = []
+        admitted_sources = []
         eligible = self.supported
         for source in self.leaves:
             admitted = _rational_source(source, variable)
             if admitted is None:
                 eligible = False
-                sources.append(None)
-            else:
-                # All scalar payloads are captured before the first solver or
-                # sign-chart call. Later work never rereads the mutable surface.
-                sources.append(_wrap(_native_expr(admitted[0])))
+            admitted_sources.append(admitted)
+        if eligible:
+            # A retained held tuple may already disagree with its native
+            # value when capture begins. Check every arithmetic spelling
+            # structurally before freezing handles or invoking a solver.
+            for value, slot, children in self.stamps:
+                if (slot.__name__ not in ("_args", "_struct_args", "_surface_args")
+                        or type(children) is not tuple):
+                    continue
+                operator = next((op for cls, op in ((Add, "add"), (Mul, "mul"), (Pow, "pow"))
+                                if type(value) is cls), None)
+                if operator is not None:
+                    _native.ideal_source_arguments_native(
+                        _native_expr(value), operator, [_native_expr(child) for child in children],
+                    )
+        self.unchanged()
+        # All scalar payloads are captured before the first solver or
+        # sign-chart call. Later work never rereads the mutable surface.
+        sources = [None if admitted is None else _wrap(_native_expr(admitted[0]))
+                   for admitted in admitted_sources]
+        self.unchanged()
         return variable, sources, eligible
 
     def unchanged(self):
         _require_closed_function_class(Piecewise)
+        for mapping, previous in self.dictionaries:
+            if len(mapping) != len(previous):
+                raise RuntimeError("Piecewise source mutated during exact solving")
+            current = tuple(mapping.items())
+            if any(key is not old_key or fact is not old_fact
+                   for (key, fact), (old_key, old_fact) in zip(current, previous)):
+                raise RuntimeError("Piecewise source mutated during exact solving")
         for value, slot, previous in self.stamps:
             if _slot(slot.__objclass__, slot.__name__) is not slot:
                 raise RuntimeError("Piecewise source storage changed during exact solving")

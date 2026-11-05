@@ -1,0 +1,156 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-11-05T22:36:29.314262+00:00",
+  "repository": "Dicklesworthstone/frankensympy",
+  "kind": "bounded feature implementation and observed validation; not workstream closure",
+  "baseline_source": "ede68d88a16652fc68fcdf4b29e5270a0ed3e1ee",
+  "verified_main_commits": [
+    "1cd801763d28a94de93d4c74c485f8905f9ce4a8",
+    "f2168e5f8ab0dc57cc080fc1e6a1acfd7e773fe8",
+    "445dd2bf2c92019d51c97a3927a85b4c9eda627c"
+  ],
+  "features": [
+    {
+      "bead": "fra-546",
+      "feature": "complete polynomial relation generators over QQ",
+      "public_api": "GroebnerBasis.syzygies()",
+      "behavior": "Preserve original ordered, zero and repeated input coordinates; construct all nonzero rows of I-BA and strict Schreyer S-pair relations transformed by A. Independently recheck the complete Groebner certificate, every prescribed row, complete coverage and each row identity using separate reference arithmetic.",
+      "limits": "Eight variables, 64 inputs, 16384 output polynomial cells; lex/grlex/grevlex; not a minimal or reduced module Groebner basis and not a new portable kernel claim."
+    },
+    {
+      "bead": "fra-546",
+      "feature": "inversion modulo multivariate ideals over QQ",
+      "public_api": "GroebnerBasis.invert(polynomial)",
+      "behavior": "Find a reduced inverse using a complete checked augmented ideal and independently replayed Bezout and reduction identities. A proper augmented ideal certifies a nonunit; operational refusal never becomes noninvertibility. Include positive-dimensional, nonradical, empty, zero, unit and constant rings.",
+      "limits": "Eight variables and 63 ideal generators; QQ coefficients with explicit ZZ-to-QQ extension. Zero quotient ring inverse representative is zero. Immutable accepted lower receipts are bound to exact ordered inputs, typed ring and order."
+    },
+    {
+      "bead": "fra-a5x",
+      "feature": "exact finite-interval Piecewise rational integration",
+      "public_api": "integrate(Piecewise(...), (x,a,b)) and Integral(...).doit()",
+      "behavior": "Use checked first-match guards, exact rational set components and an independent complete-partition check before summing existing checked rational integral receipts. Preserve rational breakpoints, reversed and zero bounds, finite-point conventions, original active holes and separate improper endpoints. Uncovered open intervals yield nan; unsupported or unknown input remains an Integral; admitted failures propagate.",
+      "limits": "Finite rational bounds and rational partition endpoints, at most 16 branches, 64 integral components and 256 cuts. No general Piecewise antiderivative, parameterized/algebraic partition, infinite-bound integration or new portable calculus certificate."
+    }
+  ],
+  "toolchain": {
+    "name": "nightly-2026-08-20",
+    "rustc": "1.100.0-nightly (f7d782a3b 2026-08-19)",
+    "cargo": "1.100.0-nightly (514c56dd7 2026-08-19)",
+    "dependencies": "unchanged pinned donor commits and lockfile"
+  },
+  "executed_validation": [
+    {
+      "command": "cargo test --locked --offline -p fsym-polys --test ideal_inverse -j1",
+      "exit_code": 0,
+      "passed": 14,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "command": "cargo test --locked --offline -p fsym-polys -j1",
+      "exit_code": 0,
+      "passed": 229,
+      "failed": 0,
+      "ignored": 0,
+      "scope": "199 existing plus 14 inverse and 16 syzygy tests. This run preceded two semantics-preserving iterator changes required by Clippy; the final syzygy source was then replayed separately."
+    },
+    {
+      "command": "cargo test --locked --offline -p fsym-polys --test syzygy -j1",
+      "exit_code": 0,
+      "passed": 16,
+      "failed": 0,
+      "ignored": 0,
+      "scope": "Final corrected syzygy source."
+    },
+    {
+      "command": "cargo clippy --locked --offline -p fsym-polys --all-targets -j1 -- -D warnings",
+      "exit_code": 0
+    },
+    {
+      "kind": "actual pure Python interval partition helper",
+      "exact_set_algebra_comparisons": 868,
+      "direct_regression_tests": 2,
+      "result": "passed",
+      "scope": "Production helper source executed independently of the extension; not complete public integration execution."
+    },
+    {
+      "kind": "isolated SymPy 1.14.0 reference expectations",
+      "piecewise_cases": 18,
+      "independent_reviewer_cases": 15,
+      "result": "passed",
+      "scope": "Oracle-only evidence. Reviewer cases include three complete relation modules, five reduced inverses and seven overlapping Piecewise examples; counts are not distinct candidate tests."
+    },
+    {
+      "command": "cargo fmt --check",
+      "exit_code": 0,
+      "scope": "Entire owned repository workspace under pinned nightly; excludes formatting unchanged path dependencies."
+    },
+    {
+      "kind": "Python AST parsing and git diff --check",
+      "result": "passed",
+      "scope": "Final new/changed public source and regression files"
+    },
+    {
+      "command": "python tools/validate_planning.py",
+      "exit_code": 0,
+      "scope": "Final evidence paths and unchanged broad claim/workstream statuses"
+    }
+  ],
+  "actual_python_execution": {
+    "status": "unexecuted",
+    "build_command": "cargo build --locked --offline -p fsym-python --lib -j1",
+    "exit_code": 101,
+    "reason": "The fresh one-job strict pinned build was killed by SIGKILL while compiling the unchanged pinned asupersync dependency at the shared 8GiB memory cap. No extension binary was produced; changed bridge compilation and actual public execution remain uncompleted."
+  },
+  "independent_review": "Native inverse and syzygy mathematics and certificates, public polynomial source binding, and Piecewise partition/error semantics reviewed by a non-author. The reported held-arithmetic snapshot gap was corrected, covered by preexisting-mismatch and in-flight mutation regressions, and independently rereviewed without a remaining blocker.",
+  "ci": {
+    "native_targets": [
+      "ideal_inverse",
+      "syzygy"
+    ],
+    "python_targets": [
+      "python/tests/test_polynomial_relations.py",
+      "python/tests/test_piecewise_integrals.py"
+    ]
+  },
+  "full_workspace_gates": {
+    "check_all_targets": "not completed",
+    "clippy_all_targets": "not completed",
+    "test_workspace": "not completed",
+    "profile_certification": "open",
+    "cargo_fmt_all_dependencies": "Expanded --all check encountered pre-existing pinned asupersync donor formatting differences and was interrupted with exit130. Donor sources were not edited. The required repository workspace cargo fmt --check passed separately."
+  },
+  "governance": {
+    "bead_status_priority_dependencies": "unchanged",
+    "MATH-001_status": "implemented_uncertified",
+    "MATH-001_present_tense_allowed": false,
+    "WS17_gate": "open",
+    "WS18_gate": "open"
+  },
+  "authored_regressions": {
+    "native_inverse_tests": 14,
+    "native_syzygy_tests": 16,
+    "public_polynomial_relation_and_inverse_cases": 32,
+    "public_piecewise_test_functions": 26,
+    "public_piecewise_cases": 59,
+    "public_runtime_status": "unexecuted against current extension"
+  },
+  "source_snapshot": {
+    "crates/fsym-polys/src/ideal_inverse.rs": "ebb204a6edad7e57091e9a7de1386a7a34cf137f132f67fb840ea85f0c78a1c9",
+    "crates/fsym-polys/tests/ideal_inverse.rs": "955b60b0fa0a0bcedddeb71334360e3921a03839e6f2c13d8d0ebed8ec359e38",
+    "crates/fsym-polys/src/syzygy.rs": "4fa3f7062d6bc7b32853b84e817826a50d6a57075df5e8212d02018dc17ff352",
+    "crates/fsym-polys/tests/syzygy.rs": "b746e2977a7465dcf80045adf5b0d8edb43e2fa95fc6c826eeff6f22ba240ba6",
+    "crates/fsym-polys/src/lib.rs": "d76e9ba18f701f059d8eb17eebc5bbec8349425d37062f0108aaa96cde267627",
+    "crates/fsym-python/src/ideal_operations.rs": "0a365158d0d2fcccc1d4c45b23e7a2081268599b38b1e6e431d6f820fb91462a",
+    "crates/fsym-python/src/lib.rs": "99939b15e590112081427b9e82576e8214719accfc1c66a139e0571259f93f1e",
+    "crates/fsym-python/src/polynomial_relations.rs": "0a9e23582470a735180d8e35c26edb7d1c5cd0e7306d6b7aac92ab53a0a18ccb",
+    "python/sympy/polys/polytools.py": "7148e8083e0ce445dc77328deb922cc82b4900663627965e1c73cdb2c222066e",
+    "python/sympy/polys/polyerrors.py": "01a6986e339d5da456f0d7f9bf05a0a9fe0e78f0cd75c378dc0e00ee7757a99a",
+    "python/tests/test_polynomial_relations.py": "6ae4138cf7f317d5803e36dad3453877564c9461f44a60f6c979f14cfbaf679e",
+    "python/sympy/__init__.py": "486150e3cdd06d510d6ab6609b04ac5a9005d9ed4dc8bc927567c7160553017f",
+    "python/sympy/integrals/_piecewise.py": "b8e2f6148068c79dd8f313180a214944e61c938fefa17787b81b4d4f89ba359a",
+    "python/sympy/solvers/_piecewise_real.py": "d1298c2e9c0dacf97378b07245f8d25892a9cf381fbf4ae13d0c05be1a4f1fc2",
+    "python/tests/test_piecewise_integrals.py": "3cf58913108a306dd043267749ec277657fae00dd38402d60d95c7ae55339bd8",
+    ".github/workflows/ci.yml": "ef352a0b59844cb1bb19c82a7f0e9a48c014a9a26e32fb14075820a080e2b39b"
+  }
+}
