@@ -18,7 +18,7 @@ use super::{Capped, product, sum};
 use fsym_budget::{BudgetMeter, Dimension, MeterError, Unbounded};
 use fsym_calculus::rational_laplace::{
     LaplaceBlock, RationalLaplaceCertificate, RationalLaplaceError,
-    metered_inverse_rational_laplace,
+    metered_inverse_rational_laplace, verify_rational_laplace_certificate,
 };
 use fsym_core::arith::{RationalArithmeticError, metered_mul, metered_sqrt_floor};
 use fsym_core::elementary::rational_expr;
@@ -564,18 +564,82 @@ fn transform_entry(
         top,
         Expr::Pow(Arc::new(bottom), Arc::new(Expr::from_i64(-1))),
     ]);
-    let checked = metered_inverse_rational_laplace(
-        &source,
-        variable,
-        local_time,
-        &mut *generator.meter,
-        &mut *verifier.meter,
-    )?;
+    // A monomial denominator has a complete polynomial inverse table. Avoid
+    // factoring the same high power of s and solving a dense partial-fraction
+    // system for every nilpotent entry. The independent checker still sees
+    // the entire original internal fraction, including uncancelled powers.
+    let checked = if let Some(candidate) = monomial_inverse(numerator, denominator, generator)? {
+        verify_rational_laplace_certificate(
+            &source,
+            variable,
+            local_time,
+            &candidate,
+            &mut *verifier.meter,
+        )?
+    } else {
+        metered_inverse_rational_laplace(
+            &source,
+            variable,
+            local_time,
+            &mut *generator.meter,
+            &mut *verifier.meter,
+        )?
+    };
     // The transform's own bounded block envelope is at most 32 rational
     // coordinates, each no wider than 65,536 bits. Our verifier applies its
     // stricter coefficient bound before using or publishing this copy.
     generator.charge(64, 64 * 16_512)?;
     Ok(checked.certificate().clone())
+}
+
+/// Untrusted inverse of N(s)/(c*s^m), checked by the separate complete
+/// rational transform verifier before use. Each a_j*s^j contributes
+/// a_j*t^(m-j-1)/(c*(m-j-1)!). This is a class-wide exact table, independent
+/// of matrix dimension, triangular structure, forcing sparsity or fixtures.
+fn monomial_inverse(
+    numerator: &[BigRational],
+    denominator: &[BigRational],
+    work: &mut Work<'_, impl BudgetMeter>,
+) -> Result<Option<RationalLaplaceCertificate>> {
+    work.charge(numerator.len() + denominator.len(), 1)?;
+    let Some(degree) = denominator.iter().rposition(|value| !value.is_zero()) else {
+        return Err(GeneralOdeSystemError::Verification(
+            "zero internal transform denominator",
+        ));
+    };
+    if degree == 0
+        || degree > MAX_BLOCK_CELLS
+        || denominator[..degree].iter().any(|value| !value.is_zero())
+        || numerator.iter().skip(degree).any(|value| !value.is_zero())
+    {
+        return Ok(None);
+    }
+    let mut factorials = work.zeros(degree)?;
+    factorials[0] = work.copy(&denominator[degree])?;
+    for index in 1..degree {
+        factorials[index] = work.mul(&factorials[index - 1], &q(index))?;
+    }
+    let mut coefficients = work.zeros(degree)?;
+    for (index, value) in numerator.iter().enumerate().take(degree) {
+        if !value.is_zero() {
+            let power = degree - index - 1;
+            coefficients[power] = work.div(value, &factorials[power])?;
+        }
+    }
+    while coefficients.len() > 1 && coefficients.last().is_some_and(Zero::is_zero) {
+        coefficients.pop();
+    }
+    work.charge(1, 128)?;
+    let blocks = if coefficients.iter().all(Zero::is_zero) {
+        Vec::new()
+    } else {
+        vec![LaplaceBlock::Exponential {
+            rate: BigRational::zero(),
+            coefficients,
+        }]
+    };
+    work.meter.checkpoint()?;
+    Ok(Some(RationalLaplaceCertificate { blocks }))
 }
 
 fn generate(

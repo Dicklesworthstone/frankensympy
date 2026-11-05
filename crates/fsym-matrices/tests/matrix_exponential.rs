@@ -27,8 +27,13 @@ fn assert_equal(actual: &Expr, expected: &Expr) {
     let difference = actual.clone() - expected.clone();
     let expanded = fsym_simplify::try_expand(&difference).unwrap();
     let residual = fsym_simplify::try_simplify(&expanded).unwrap();
+    // Multiplication by the known nonzero sqrt(2) clears the only radical
+    // denominator in these fixtures. This is an exact zero-equivalence,
+    // retaining the independently derived expected matrix entries.
+    let cleared = fsym_simplify::try_expand(&(residual.clone() * e("sqrt(2)"))).unwrap();
+    let cleared = fsym_simplify::try_simplify(&cleared).unwrap();
     assert!(
-        residual.is_zero(),
+        cleared.is_zero(),
         "{actual} != {expected}; residual {residual}"
     );
 }
@@ -144,7 +149,7 @@ fn accepted_receipt_evaluation_uses_absolute_time_and_original_normalization() {
     assert_eq!(at_initial, vec![vec![e("1"), e("0")], vec![e("0"), e("1")]]);
     let at_three = source.fundamental_at(&q(3, 1), &mut Unbounded).unwrap();
     assert_eq!(at_three, vec![vec![e("E"), e("0")], vec![e("0"), e("1")]]);
-    let huge = BigRational::from_integer(BigInt::from(1) << 1024usize);
+    let huge = BigRational::from_integer(BigInt::from(1) << 1024u32);
     assert!(matches!(
         source.fundamental_at(&huge, &mut Unbounded),
         Err(GeneralOdeSystemError::ResourceLimit(_))
@@ -166,7 +171,7 @@ fn nonliteral_and_original_undefined_cells_cannot_enter_the_checked_lane() {
             Err(MatrixExponentialError::UnsupportedDomain)
         ));
     }
-    let oversized = rational_expr(BigRational::from_integer(BigInt::from(1) << 1024usize));
+    let oversized = rational_expr(BigRational::from_integer(BigInt::from(1) << 1024u32));
     let source = Matrix::new(1, 1, vec![oversized]).unwrap();
     assert!(matches!(
         source.exp(),
