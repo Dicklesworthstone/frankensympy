@@ -165,6 +165,45 @@ See [`docs/EVIDENCE_PROOFS_AND_REWRITES.md`](docs/EVIDENCE_PROOFS_AND_REWRITES.m
 
 ---
 
+## Compiled sparse residuals (development API)
+
+`compile_residual_system` exposes the checked sparse Jacobian and products with
+it or its transpose, alongside the existing dense evaluation methods:
+
+```python
+from sympy import compile_residual_system, symbols
+
+x, y, z = symbols("x y z")
+system = compile_residual_system([x**2 + y, y*z, z**3 - 1], (x, y, z))
+
+assert system.jacobian_pattern == ((0, 0), (0, 1), (1, 1), (1, 2), (2, 2))
+residuals, entries = system.evaluate_sparse(2, 3, 4)
+# residuals: [7.0, 12.0, 63.0]; entries: [4.0, 1.0, 4.0, 3.0, 48.0]
+
+product = system.jacobian_vector_product([1, -2, 0.5], 2, 3, 4)
+# [2.0, -6.5, 24.0], with one output per residual.
+transposed = system.jacobian_transpose_vector_product([2, 3, -1], 2, 3, 4)
+# [8.0, 14.0, -39.0], with one output per variable.
+```
+
+The pattern is immutable and remains stable when a structural derivative is
+numerically zero. Directions follow the flat `system.variables` order, even
+when ordinary arguments are nested; transpose weights follow captured residual
+order. These methods avoid dense Jacobian output and retain every original
+residual and stored-derivative domain check, including for zero directions or
+weights. Rectangular and empty-axis systems preserve their declared shapes.
+
+An optional reusable `EvaluationBudget` accounts for native input snapshots,
+expression evaluation, sparse multiply/add work, and output storage. Failures
+and cooperative cancellation publish no partial result and do not refund work.
+Python objects and compilation remain outside that ledger. Compilation retains
+its existing source, variable and dense-admission limits. Numerical outputs
+are approximate binary64 values; checked symbolic derivatives do not certify
+rounding error or a root. Saved residual programs retain these operations after
+the existing independent proof and source-binding replay on load.
+
+---
+
 ## Compiled scalar objectives (development API)
 
 The checked-out Python shell and native extension expose `compile_objective`

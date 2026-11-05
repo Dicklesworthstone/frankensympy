@@ -616,6 +616,15 @@ class _ResidualCallable:
         """Original argument objects, in the flat order used by box coordinates."""
         return self._variables
 
+    @property
+    def jacobian_pattern(self):
+        """Immutable row-major (residual, variable) structural nonzero coordinates.
+
+        A stored derivative can evaluate to zero at a particular point. Its
+        coordinate stays present, so the layout is stable between evaluations.
+        """
+        return tuple(self.native_system.jacobian_pattern)
+
     def to_bytes(self):
         """Return a bounded, versioned bundle for :func:`load_residual_system`.
 
@@ -646,6 +655,57 @@ class _ResidualCallable:
         return self.native_system.jacobian(
             _call_arguments(self._layout, values, native=True), budget=budget,
         )
+
+    def evaluate_sparse(self, *values, budget=None):
+        """Return (residual values, sparse Jacobian values), all approximate.
+
+        Derivative values follow ``jacobian_pattern`` without allocating dense
+        rows. Every original residual and stored derivative is evaluated before
+        publication, preserving their domains even when an entry is zero.
+        A supplied ``EvaluationBudget`` covers native input snapshots, both
+        evaluation stages and output storage cumulatively. Consumed work is
+        retained on failure or cancellation. Python objects and compilation
+        remain outside that ledger; existing compilation limits still apply.
+        """
+        _check_evaluation_budget(budget)
+        inputs = _call_arguments(self._layout, values, native=True)
+        return self.native_system.evaluate_sparse(inputs, budget=budget)
+
+    def jacobian_vector_product(self, direction, *values, budget=None):
+        """Return J(x) times a flat direction without forming dense Jacobian rows.
+
+        ``direction`` is an exact list/tuple with one finite real entry per
+        variable in ``variables`` order, including for nested arguments.
+        The result has one value per residual. Original residuals and all
+        stored derivatives are checked even for an all-zero direction.
+        Native snapshots, evaluation and multiplication share one supplied
+        budget. Invalid inputs, nonfinite arithmetic and domain failures
+        raise without publishing partial values. Results remain approximate.
+        """
+        _check_evaluation_budget(budget)
+        size = self.native_system.variable_count
+        if type(direction) not in (list, tuple) or len(direction) != size:
+            raise TypeError("Jacobian direction must be a list/tuple with one entry per variable")
+        vector = _call_arguments((None,) * size, direction, native=True)
+        inputs = _call_arguments(self._layout, values, native=True)
+        return self.native_system.jacobian_vector_product(inputs, vector, budget=budget)
+
+    def jacobian_transpose_vector_product(self, weights, *values, budget=None):
+        """Return J(x) transposed times flat residual weights without dense rows.
+
+        ``weights`` is an exact list/tuple with one finite real entry per
+        residual in the captured source order. The result follows ``variables``
+        order. Every residual and stored derivative is checked, including
+        when all weights are zero. Native work and storage share one supplied
+        budget, failures publish no partial values, and outputs are approximate.
+        """
+        _check_evaluation_budget(budget)
+        size = self.native_system.residual_count
+        if type(weights) not in (list, tuple) or len(weights) != size:
+            raise TypeError("Jacobian weights must be a list/tuple with one entry per residual")
+        vector = _call_arguments((None,) * size, weights, native=True)
+        inputs = _call_arguments(self._layout, values, native=True)
+        return self.native_system.jacobian_transpose_vector_product(inputs, vector, budget=budget)
 
     def evaluate_batch(self, rows, *, budget=None):
         """Return complete residual/Jacobian pairs for a bounded batch atomically.
@@ -862,8 +922,14 @@ def compile_residual_system(residuals, args):
     Separate ``enclose`` and ``certify_root_box`` methods use the original exact
     source and independent interval arithmetic. Floating source literals remain
     usable for approximate evaluation but cannot enter those certified methods.
-    Approximate ``evaluate``, ``residuals``, ``jacobian`` and ``evaluate_batch``
-    accept the same reusable ``EvaluationBudget`` as ``compile_numeric``.
+    ``evaluate_sparse`` returns residuals and structural derivative values in
+    ``jacobian_pattern`` order. ``jacobian_vector_product`` and
+    ``jacobian_transpose_vector_product`` apply the checked Jacobian without
+    dense output. These paths retain every original-source and stored-derivative
+    domain check, including for zero directions or weights. Compilation retains
+    its existing source and dense-admission bounds.
+    Approximate evaluation methods and products accept the same reusable
+    ``EvaluationBudget`` as ``compile_numeric``.
     Compilation and symbolic proof admission are outside that ledger; the
     certified enclosure and root-box methods accept the same budget. Python
     object/result-container allocation remains outside native-buffer accounting.

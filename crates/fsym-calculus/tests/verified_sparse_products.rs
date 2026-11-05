@@ -166,7 +166,8 @@ fn typed_same_named_variables_keep_independent_product_coordinates() {
 #[test]
 fn sparse_products_use_only_the_admitted_bytecode_and_survive_transport() {
     let program = rectangular();
-    let restored = VerifiedResidualSystem::from_json_bytes(&program.to_json_bytes().unwrap()).unwrap();
+    let restored =
+        VerifiedResidualSystem::from_json_bytes(&program.to_json_bytes().unwrap()).unwrap();
     assert_eq!(restored.jacobian_pattern(), program.jacobian_pattern());
     assert_eq!(
         restored.evaluate_sparse(&[2.0, 4.0, 3.0]).unwrap(),
@@ -217,7 +218,9 @@ fn held_zero_sources_keep_their_original_domain_even_without_nonzeros() {
             };
             assert!(matches!(
                 result,
-                Err(ResidualEvaluationError::Evaluation(EvalError::NonFiniteValue))
+                Err(ResidualEvaluationError::Evaluation(
+                    EvalError::NonFiniteValue
+                ))
             ));
             assert_eq!(output, [902.0]);
         }
@@ -527,12 +530,9 @@ fn empty_and_zero_variable_systems_remain_cancellable_and_shape_correct() {
             Operation::Sparse => {
                 empty.try_eval_sparse_into_with_meter(&[], &mut [], &mut [], &mut cancelled)
             }
-            Operation::Forward => empty.try_jacobian_vector_product_into_with_meter(
-                &[],
-                &[],
-                &mut [],
-                &mut cancelled,
-            ),
+            Operation::Forward => {
+                empty.try_jacobian_vector_product_into_with_meter(&[], &[], &mut [], &mut cancelled)
+            }
             Operation::Transpose => empty.try_jacobian_transpose_vector_product_into_with_meter(
                 &[],
                 &[],
@@ -563,8 +563,7 @@ fn empty_and_zero_variable_systems_remain_cancellable_and_shape_correct() {
             .unwrap()
             .is_empty()
     );
-    let no_residuals =
-        VerifiedResidualSystem::try_compile(&[], &[Symbol::new("unused")]).unwrap();
+    let no_residuals = VerifiedResidualSystem::try_compile(&[], &[Symbol::new("unused")]).unwrap();
     assert!(
         no_residuals
             .jacobian_vector_product(&[2.0], &[3.0])

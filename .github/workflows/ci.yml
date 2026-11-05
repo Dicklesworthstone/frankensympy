@@ -283,6 +283,7 @@ jobs:
               "python/tests/test_compiled_powers.py",
               "python/tests/test_compiled_objective.py",
               "python/tests/test_numeric_evaluation_budget.py",
+              "python/tests/test_sparse_residual_products.py",
               "python/tests/test_certified_numeric_budget.py",
               "python/tests/test_verified_program_transport.py",
               "python/tests/test_callback_effects_and_ownership.py",

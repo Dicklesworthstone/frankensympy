@@ -966,8 +966,16 @@ pub(crate) fn check_certified_sources(sources: &[Expr], variables: &[Symbol]) ->
 }
 
 pub(crate) fn input_values(values: &Bound<'_, PyAny>, expected: usize) -> PyResult<Vec<f64>> {
+    input_values_bounded(values, expected, MAX_VARIABLES)
+}
+
+fn input_values_bounded(
+    values: &Bound<'_, PyAny>,
+    expected: usize,
+    maximum: usize,
+) -> PyResult<Vec<f64>> {
     let py = values.py();
-    let actual = container_length(values, MAX_VARIABLES, "numeric inputs")?;
+    let actual = container_length(values, maximum, "numeric inputs")?;
     if actual != expected {
         return Err(PyTypeError::new_err(format!(
             "expected {expected} numeric inputs, got {actual}"
@@ -1031,14 +1039,23 @@ pub(crate) fn input_values_metered(
     expected: usize,
     budget: Option<&PyEvaluationBudget>,
 ) -> PyResult<Vec<f64>> {
-    let actual = container_length(values, MAX_VARIABLES, "numeric inputs")?;
+    input_values_metered_bounded(values, expected, MAX_VARIABLES, budget)
+}
+
+fn input_values_metered_bounded(
+    values: &Bound<'_, PyAny>,
+    expected: usize,
+    maximum: usize,
+    budget: Option<&PyEvaluationBudget>,
+) -> PyResult<Vec<f64>> {
+    let actual = container_length(values, maximum, "numeric inputs")?;
     if actual != expected {
         return Err(PyTypeError::new_err(format!(
             "expected {expected} numeric inputs, got {actual}"
         )));
     }
     charge_input_storage(budget, expected, 1, false)?;
-    input_values(values, expected)
+    input_values_bounded(values, expected, maximum)
 }
 
 fn evaluate_programs(
@@ -1813,6 +1830,71 @@ impl PyVerifiedResidualSystem {
         })
     }
 
+    /// Evaluate every original residual and structural derivative without dense output.
+    #[pyo3(signature = (values, *, budget=None))]
+    fn evaluate_sparse<'py>(
+        &self,
+        values: &Bound<'py, PyAny>,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<Bound<'py, PyTuple>> {
+        let py = values.py();
+        let inputs = input_values_metered(values, self.system.vars().len(), budget.as_deref())?;
+        let result = with_evaluation_meter(py, budget.as_deref(), |meter| {
+            self.system.evaluate_sparse_with_meter(&inputs, meter)
+        })?;
+        let result = (result.residuals, result.jacobian).into_pyobject(py)?;
+        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
+        Ok(result)
+    }
+
+    /// Evaluate J(x) times a direction, retaining source and derivative domain checks.
+    #[pyo3(signature = (values, direction, *, budget=None))]
+    fn jacobian_vector_product<'py>(
+        &self,
+        values: &Bound<'py, PyAny>,
+        direction: &Bound<'py, PyAny>,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<Bound<'py, PyList>> {
+        let py = values.py();
+        let size = self.system.vars().len();
+        let inputs = input_values_metered(values, size, budget.as_deref())?;
+        let direction = input_values_metered(direction, size, budget.as_deref())?;
+        let result = with_evaluation_meter(py, budget.as_deref(), |meter| {
+            self.system
+                .jacobian_vector_product_with_meter(&inputs, &direction, meter)
+        })?;
+        let result = PyList::new(py, result)?;
+        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
+        Ok(result)
+    }
+
+    /// Evaluate J(x) transposed times residual weights without allocating dense rows.
+    #[pyo3(signature = (values, weights, *, budget=None))]
+    fn jacobian_transpose_vector_product<'py>(
+        &self,
+        values: &Bound<'py, PyAny>,
+        weights: &Bound<'py, PyAny>,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<Bound<'py, PyList>> {
+        let py = values.py();
+        let inputs = input_values_metered(values, self.system.vars().len(), budget.as_deref())?;
+        // A rectangular residual system may have more rows than variables.
+        // Weight admission follows the residual bound, not the variable bound.
+        let weights = input_values_metered_bounded(
+            weights,
+            self.system.residuals().len(),
+            MAX_OUTPUTS,
+            budget.as_deref(),
+        )?;
+        let result = with_evaluation_meter(py, budget.as_deref(), |meter| {
+            self.system
+                .jacobian_transpose_vector_product_with_meter(&inputs, &weights, meter)
+        })?;
+        let result = PyList::new(py, result)?;
+        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
+        Ok(result)
+    }
+
     /// Evaluate every residual/Jacobian pair before publishing a batch.
     #[pyo3(signature = (rows, *, budget=None))]
     fn evaluate_batch(
@@ -1873,6 +1955,12 @@ impl PyVerifiedResidualSystem {
     #[getter]
     fn residual_count(&self) -> usize {
         self.system.compiled().num_residuals
+    }
+
+    /// Canonical structural nonzeros in residual-row and variable-column order.
+    #[getter]
+    fn jacobian_pattern(&self) -> Vec<(usize, usize)> {
+        self.system.jacobian_pattern().to_vec()
     }
 
     /// Counts symbolic derivative proofs; numerical rounding is not certified.
