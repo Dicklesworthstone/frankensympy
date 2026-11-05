@@ -332,12 +332,12 @@ def _candidate_options(backend, tol, maxiter, max_step_norm, *, allow_python):
     """Admit backend-specific controls before any donor or conversion work."""
     if type(backend) is not str:
         raise TypeError("numerical backend must be an exact built-in string")
-    allowed = ("python", "frankennumpy", "frankenscipy") if allow_python else (
-        "frankennumpy", "frankenscipy",
-    )
+    allowed = ("frankennumpy", "frankenscipy", "frankenscipy_analytic")
+    if allow_python:
+        allowed = ("python",) + allowed
     if backend not in allowed:
         raise ValueError("unsupported numerical backend")
-    if backend == "frankenscipy":
+    if backend in ("frankenscipy", "frankenscipy_analytic"):
         if tol is not None or maxiter is not None or max_step_norm is not None:
             raise ValueError(
                 "FrankenSciPy has fixed solver controls; omit tol, maxiter and max_step_norm"
@@ -435,11 +435,14 @@ def nsolve_certified(expr, var, initial, *, tol=None, maxiter=None,
     the pinned dense linear solver and checked symbolic Jacobian, defaulting
     to ``tol=1e-12``, ``maxiter=64`` (0..1024), and ``max_step_norm=1e6``.
     ``frankenscipy`` selects the pinned fsolve with its finite-difference
-    Jacobian, at most 200 iterations and a residual tolerance of 1e-10. None
-    selects backend defaults. SciPy refuses every non-None solver-control
-    override, and Python refuses ``max_step_norm``. No backend silently falls
-    back to another. Static certification eligibility is checked before any
-    donor executes; all three proposals go through the same independent
+    Jacobian. ``frankenscipy_analytic`` selects the pinned nonlinear driver
+    with the independently checked sparse Jacobian and NumPy linear solves.
+    Both SciPy adapters have fixed controls: at most 200 iterations and a
+    final residual tolerance of 1e-10. None selects backend defaults; these
+    adapters refuse every non-None solver-control override, and Python
+    refuses ``max_step_norm``. No backend silently falls back to another.
+    Static certification eligibility is checked before any donor executes;
+    all proposals go through the same independent
     original-source and captured-assumption box checks.
 
     ``tol`` controls only candidate generation, never mathematical acceptance.

@@ -733,9 +733,17 @@ class _ResidualCallable:
         ``max_step_norm=1e6``; the iteration limit may be 0..1024. A zero limit
         only checks the initial point. ``frankenscipy`` runs the pinned fsolve
         with its finite-difference Jacobian, at most 200 iterations and a
-        residual tolerance of 1e-10. It refuses every explicit non-None tol,
-        maxiter or max_step_norm override, because that donor API has no such
-        controls. Neither backend silently falls back to another algorithm.
+        residual tolerance of 1e-10. ``frankenscipy_analytic`` uses the pinned
+        nonlinear driver with the independently checked sparse Jacobian and
+        NumPy linear solves. Its fixed adapter controls also permit at most
+        200 iterations and require a final residual norm at most 1e-10.
+        Both SciPy adapters refuse explicit non-None tol, maxiter or
+        max_step_norm overrides. The analytic route checks derivative domains
+        during initialization and accepted updates. Its Armijo merit requires
+        a finite sum of squared residuals; each admitted linear solve is dense
+        with at most 16 variables. It does not substitute finite differences
+        when a derivative or linear solve refuses.
+        No backend silently falls back to another algorithm.
 
         The immutable ``NumericRootCandidate`` remains approximate. Use
         ``solve_certified`` for an independently checked local-root claim.
@@ -890,8 +898,9 @@ class _ResidualCallable:
         ``RootSearchError`` and never return an uncertified candidate.
 
         ``backend="python"`` preserves the scaled QR/Newton search with
-        default ``tol=1e-12`` and ``maxiter=200``. ``frankennumpy`` and
-        ``frankenscipy`` select the real pinned consumers with the controls
+        default ``tol=1e-12`` and ``maxiter=200``. ``frankennumpy``,
+        ``frankenscipy`` and ``frankenscipy_analytic`` select the real pinned
+        consumers with the controls
         documented by ``solve_candidate``. None selects each backend's
         defaults; the Python backend rejects ``max_step_norm`` and SciPy
         rejects all non-None solver-control overrides. No backend fallback

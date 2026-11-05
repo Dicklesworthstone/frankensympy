@@ -202,6 +202,34 @@ are approximate binary64 values; checked symbolic derivatives do not certify
 rounding error or a root. Saved residual programs retain these operations after
 the existing independent proof and source-binding replay on load.
 
+For square systems, the analytic FrankenSciPy backend connects those checked
+derivatives to the pinned nonlinear solver and NumPy linear solves:
+
+```python
+root_system = compile_residual_system([x**2 + y**2 - 5, x - y - 1], (x, y))
+candidate = root_system.solve_candidate(
+    [1.8, 0.8], backend="frankenscipy_analytic",
+)
+# candidate.root is approximately (2.0, 1.0); candidate.evidence is "approximate".
+
+receipt = root_system.solve_certified(
+    [1.8, 0.8], backend="frankenscipy_analytic",
+)
+# RootBoxReceipt from the independent original-source interval checker.
+```
+
+This bounded adapter admits 1 through 16 variables, uses at most 200 iterations,
+and requires a final residual infinity norm at most `1e-10`. Its solver controls
+are fixed; explicit `tol`, `maxiter` or `max_step_norm` overrides refuse. It checks
+original residual and analytic derivative domains during initialization and
+accepted updates. Armijo search requires a finite sum of squared residuals;
+the bounded linear solve uses a dense matrix assembled from sparse entries.
+Domain, linear-solver, budget and cancellation failures retain
+their causes. Candidate generation and optional certification share a supplied
+`EvaluationBudget`. The existing `frankenscipy` backend selects finite-difference
+`fsolve`; `frankenscipy_analytic` selects the analytic nonlinear driver. A floating
+candidate alone carries no root-existence, uniqueness or rounding guarantee.
+
 ---
 
 ## Compiled scalar objectives (development API)

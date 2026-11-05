@@ -10,7 +10,7 @@ import sympy as s
 from sympy.core import _native, _symbol_binding
 
 
-BACKENDS = ("frankennumpy", "frankenscipy")
+BACKENDS = ("frankennumpy", "frankenscipy", "frankenscipy_analytic")
 
 
 @pytest.mark.parametrize("backend", BACKENDS)

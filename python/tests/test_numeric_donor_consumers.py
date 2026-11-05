@@ -9,7 +9,7 @@ import sympy as s
 from sympy.utilities.lambdify import NumericRootCandidate
 
 
-BACKENDS = ("frankennumpy", "frankenscipy")
+BACKENDS = ("frankennumpy", "frankenscipy", "frankenscipy_analytic")
 
 
 def linear_program(dimension):

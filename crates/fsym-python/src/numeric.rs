@@ -31,7 +31,8 @@ use fsym_core::{
 };
 use fsym_numeric_consumer::{
     MAX_CONSUMER_NEWTON_ITERATIONS, MAX_CONSUMER_VARIABLES, NewtonGuards, SystemConsumerError,
-    frankenscipy_fsolve_system_with_meter, newton_refine_with_meter,
+    frankenscipy_analytic_system_with_meter, frankenscipy_fsolve_system_with_meter,
+    newton_refine_with_meter,
 };
 use pyo3::exceptions::{PyMemoryError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
@@ -1490,7 +1491,7 @@ impl PyVerifiedResidualSystem {
     ) -> PyResult<Bound<'py, PyTuple>> {
         let guards = match backend {
             "frankennumpy" => Some(donor_newton_guards(tol, maxiter, max_step_norm)?),
-            "frankenscipy" => {
+            "frankenscipy" | "frankenscipy_analytic" => {
                 if tol.is_some() || maxiter.is_some() || max_step_norm.is_some() {
                     return Err(PyValueError::new_err(
                         "FrankenSciPy has fixed solver controls; omit tol, maxiter and max_step_norm",
@@ -1500,7 +1501,7 @@ impl PyVerifiedResidualSystem {
             }
             _ => {
                 return Err(PyValueError::new_err(
-                    "candidate backend must be frankennumpy or frankenscipy",
+                    "candidate backend must be frankennumpy, frankenscipy or frankenscipy_analytic",
                 ));
             }
         };
@@ -1518,6 +1519,9 @@ impl PyVerifiedResidualSystem {
         let py = initial.py();
         let proposal = with_evaluation_meter(py, budget.as_deref(), |meter| match &guards {
             Some(guards) => newton_refine_with_meter(&self.system, &inputs, guards, meter),
+            None if backend == "frankenscipy_analytic" => {
+                frankenscipy_analytic_system_with_meter(&self.system, &inputs, meter)
+            }
             None => frankenscipy_fsolve_system_with_meter(&self.system, &inputs, meter),
         })?;
         // Convert the complete result privately. A cancellation while waiting
