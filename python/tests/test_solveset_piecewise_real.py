@@ -3,7 +3,7 @@
 import pytest
 
 import sympy as s
-from sympy.core import _native, _symbol_binding
+from sympy.core import Basic, _native, _surface_symbol, _symbol_binding
 from sympy.functions.elementary.piecewise import Piecewise
 from sympy.polys import rootoftools
 
@@ -233,6 +233,51 @@ def test_retained_piecewise_mutation_during_native_work_is_not_published(monkeyp
     monkeypatch.setattr(_native, "solve_real_rational_native", mutate)
     with pytest.raises(RuntimeError, match="source mutated"):
         s.solveset(source, x, s.S.Reals)
+
+
+def test_plain_symbol_native_handle_refresh_preserves_the_captured_source(monkeypatch):
+    name = "piecewise_plain_refresh"
+    x = s.Symbol(name)
+    source = s.Piecewise((x-1, x >= 0), (x+1, True), evaluate=False)
+    native = _native.solve_real_rational_native
+    slot = Basic.__dict__["_value"]
+    refreshed = []
+
+    def refresh(*args):
+        result = native(*args)
+        old = slot.__get__(x, Basic)
+        new = _native.py_symbol(name)
+        assert new is not old and new == old
+        assert _surface_symbol(new) is x
+        assert slot.__get__(x, Basic) is new
+        refreshed.append(new)
+        return result
+
+    monkeypatch.setattr(_native, "solve_real_rational_native", refresh)
+    assert s.solveset(source, x, s.S.Reals) == s.FiniteSet(-1, 1)
+    assert refreshed
+
+
+def test_same_named_symbol_binding_mutation_is_still_rejected(monkeypatch):
+    name = "piecewise_changed_binding"
+    x = s.Symbol(name)
+    replacement = s.Symbol(name, positive=True)
+    source = s.Piecewise((0, True), (x, False), evaluate=False)
+    native = _native.solve_real_rational_native
+    slot = Basic.__dict__["_value"]
+    previous = slot.__get__(x, Basic)
+
+    def mutate(*args):
+        result = native(*args)
+        slot.__set__(x, slot.__get__(replacement, Basic))
+        return result
+
+    monkeypatch.setattr(_native, "solve_real_rational_native", mutate)
+    try:
+        with pytest.raises(RuntimeError, match="source mutated"):
+            s.solveset(source, x, s.S.Reals)
+    finally:
+        slot.__set__(x, previous)
 
 
 def test_foreign_and_custom_retained_sources_do_not_execute_hooks():

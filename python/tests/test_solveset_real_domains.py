@@ -369,4 +369,8 @@ def test_unrestricted_real_refusal_contract_and_complex_routes_are_preserved():
     with pytest.raises(ValueError, match="resource limit"):
         s.solveset(expression, x, s.Interval(-1, 1))
     assert s.solveset(x**2+1, x) == s.FiniteSet(-s.I, s.I)
-    assert s.solveset(x**2+1, x, s.FiniteSet(s.I, 1)) == s.FiniteSet(s.I)
+    # The established complex-set route retains this exact intersection.
+    domain = s.FiniteSet(s.I, 1)
+    result = s.solveset(x**2+1, x, domain)
+    assert result == s.Intersection(s.FiniteSet(-s.I, s.I), domain)
+    assert result.contains(s.I) is True

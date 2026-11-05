@@ -179,6 +179,15 @@ class _Capture:
             except AttributeError:
                 current = _ABSENT
             if current is not previous:
+                # Native lifting refreshes the cached handle on an interned
+                # plain Symbol. Its complete typed atom must remain equal;
+                # every retained structural slot still requires identity.
+                if (type(value) is Symbol and slot.__objclass__ is Basic
+                        and slot.__name__ == "_value"
+                        and type(current) is _native.Expr and type(previous) is _native.Expr
+                        and current.is_symbol and previous.is_symbol
+                        and current == previous):
+                    continue
                 raise RuntimeError("Piecewise source mutated during exact solving")
 
 
@@ -215,6 +224,15 @@ def _restrict(domain, selected, exclude=False):
         # Reuse the original endpoint/member spellings as exclusions as well
         # as the canonical roots, including differently named bound symbols.
         return source.exclude(list(zip(target.tree[1], target.native.elements)))
+    if target.tree[0] == "FiniteSet":
+        known, unknown = [], []
+        for native, descriptor in zip(target.native.elements, target.tree[1]):
+            inside = source.contains(descriptor)
+            if inside is not False:
+                (known if inside is True else unknown).append(_wrap(native))
+        result = FiniteSet(*known)
+        return (Union(result, Intersection(domain, FiniteSet(*unknown)))
+                if unknown else result)
     return Complement(domain, selected) if exclude else Intersection(domain, selected)
 
 
@@ -359,4 +377,14 @@ def solve_piecewise_real(expression, variable, domain):
         _checked_domain(remaining)
     capture.unchanged()
     original_domain.unchanged()
+    if all(_is_exact(result, (EmptySet, FiniteSet)) for result in solutions):
+        # Generic set union deliberately leaves some algebraic finite sets
+        # structural. These checked branch sets are already complete, so join
+        # their explicit members directly without requesting another solver.
+        values = []
+        for result in solutions:
+            if type(result) is FiniteSet:
+                native = _slot(Set, "_native_set").__get__(result, Set)
+                values.extend(_wrap(value) for value in native.elements)
+        return FiniteSet(*values)
     return Union(*solutions)
