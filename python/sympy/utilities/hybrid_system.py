@@ -138,15 +138,25 @@ def _initial_point(initial, columns):
 def _canonical_zero(value, snapshot):
     """Omit only already-admitted, originally exact integer-zero atoms."""
     cls = type(value)
-    if not (cls is int or cls is bool or cls is Zero
-            or (cls is _native.Expr and value.is_integer)):
+    if cls is int or cls is bool:
+        original_zero = value == 0
+    elif cls is Zero:
+        original_zero = True
+    elif cls is _native.Expr and value.is_integer:
+        original_zero = value.exact_numerator() == 0
+    else:
         return False
-    # Float literals can lower to exact native zero. Their original type is
-    # deliberately excluded above, as are held arithmetic and custom objects.
-    # No mathematical zero test, Python equality or printer runs here.
+    if not original_zero:
+        return False
+    # Admission lowers built-in ints and bools through py_rational, retaining
+    # native Rational(0, 1) rather than Integer(0). Check the original exact
+    # atom above, then accept either exact native representation of its zero.
+    # Float literals, held arithmetic and custom objects remain excluded by
+    # their original type; no custom equality, printer or zero hook runs here.
     closed = snapshot[3]
     return (snapshot[0] == "closed" and type(closed) is _native.Expr
-            and closed.is_integer and closed.exact_numerator() == 0)
+            and (closed.is_integer or closed.is_rational)
+            and closed.exact_numerator() == 0)
 
 
 def _system_work(budget, session, count):

@@ -606,3 +606,47 @@ def test_legacy_dense_batch_caps_and_all_row_finiteness_precede_every_callback()
             program.evaluate_batch([point, invalid_last_row], session=active)
     assert events == [] and active.invocations == 0
     assert not active.unknown_effect_tainted
+
+
+@pytest.mark.parametrize("origin,stored,coefficient", [
+    ("int_zero", False, 0),
+    ("bool_false", False, 0),
+    ("canonical_zero", False, 0),
+    ("native_integer_zero", False, 0),
+    ("native_rational_zero", True, 0),
+    ("float_zero", True, 0),
+    ("surface_float_zero", True, 0),
+    ("native_float_zero", True, 0),
+    ("bool_true", True, 1),
+    ("int_nonzero", True, 2),
+])
+def test_exact_atom_provenance_survives_native_numeric_lowering(origin, stored, coefficient):
+    from sympy.core import _native
+
+    x = s.Symbol("hybrid_sparse_zero_origin")
+    effects = []
+
+    class Law(s.Function):
+        pass
+
+    atoms = {
+        "int_zero": lambda: 0,
+        "bool_false": lambda: False,
+        "canonical_zero": lambda: s.S.Zero,
+        "native_integer_zero": lambda: _native_expr(s.Integer(0)),
+        "native_rational_zero": lambda: _native.py_rational(0, 1),
+        "float_zero": lambda: 0.0,
+        "surface_float_zero": lambda: s.Float(0),
+        "native_float_zero": lambda: _native_expr(s.Float(0)),
+        "bool_true": lambda: True,
+        "int_nonzero": lambda: 2,
+    }
+    program = compile_hybrid_residual_system(
+        [Law(x, evaluate=False)], x, jacobian=[[atoms[origin]()]],
+        callbacks={Law: lambda value: effects.append(value) or value},
+    )
+    assert program.jacobian_pattern == (((0, 0),) if stored else ())
+    assert program.evaluate_sparse(2) == ([2], [coefficient] if stored else [])
+    assert program.jacobian_vector_product([3], 2) == [3*coefficient]
+    assert program.jacobian_transpose_vector_product([5], 2) == [5*coefficient]
+    assert effects == [2.0, 2.0, 2.0]

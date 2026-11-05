@@ -198,7 +198,7 @@ fn held_zero_sources_keep_their_original_domain_under_zero_weight_products() {
         Expr::from_i64(0),
         Expr::Function("log".into(), vec![Expr::Sym(x.clone())]),
     ]);
-    let program = VerifiedResidualSystem::try_compile(&[source], &[x.clone()]).unwrap();
+    let program = VerifiedResidualSystem::try_compile(&[source], std::slice::from_ref(&x)).unwrap();
     // Held derivative expressions are structural entries even when their
     // valid-point value is zero; sparsity never proves algebraic cancellation.
     assert_eq!(program.jacobian_pattern(), &[(0, 0)]);
