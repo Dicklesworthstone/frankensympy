@@ -1405,6 +1405,144 @@ class Matrix(MatrixBase):
 
         return PurePoly(Add(*terms), x)
 
+    def minimal_polynomial(self, x=None):
+        """Return the complete monic minimal polynomial over QQ as a PurePoly.
+
+        This FrankenSymPy extension supports built-in dense and immutable
+        matrices with literal exact rational entries and dimension at most 16.
+        The native checker verifies annihilation and independence of all lower
+        matrix powers, retaining Jordan multiplicities without eigenvalue
+        approximations. Empty matrices have minimal polynomial 1.
+
+        ``x`` must be an exact Symbol or Dummy; the default is a fresh Dummy.
+        Admission, resource and verification errors are terminal. The source
+        matrix and output symbol must remain unchanged through publication.
+        """
+        from types import MemberDescriptorType
+        from ..core import (
+            Dummy, Half, Integer, NegativeOne, One, Symbol, Zero,
+            _lift_native_result, _surface_binding_key,
+        )
+        from ..polys.polytools import GroebnerBasis, PurePoly, _IdealQuotientSnapshot
+
+        if type(self) is not Matrix and type(self) is not ImmutableDenseMatrix:
+            raise NotImplementedError("matrix minimal polynomial requires a built-in dense matrix")
+        names = ("_native_storage", "_matrix_shape", "_surface", "_mutation_generation")
+        namespace = type.__dict__["__dict__"].__get__(Matrix)
+        slots = tuple(namespace.get(name) for name in names)
+        if any(type(slot) is not MemberDescriptorType
+               or slot.__objclass__ is not Matrix or slot.__name__ != name
+               for name, slot in zip(names, slots)):
+            raise NotImplementedError("matrix minimal polynomial requires original storage descriptors")
+        original = tuple(slot.__get__(self, Matrix) for slot in slots)
+        native, shape, surface, generation = original
+        if (type(shape) is not tuple or len(shape) != 2
+                or any(type(size) is not int or size < 0 for size in shape)
+                or type(generation) is not int or generation < 0):
+            raise ValueError("matrix minimal polynomial has an invalid source snapshot")
+        rows, columns = shape
+        if rows != columns:
+            raise ValueError("matrix minimal polynomial requires a square matrix")
+        if rows > 16:
+            raise ValueError("matrix minimal polynomial supports dimension at most 16")
+        if type(native) is not _NativeMatrix:
+            raise NotImplementedError("matrix minimal polynomial requires exact rational native storage")
+        if native.shape != shape:
+            raise ValueError("matrix minimal polynomial native and retained shapes differ")
+
+        absent = object()
+        atom_names = ("_value", "_struct_args", "_surface_args")
+        atom_namespace = type.__dict__["__dict__"].__get__(Basic)
+        atom_slots = tuple(atom_namespace.get(name) for name in atom_names)
+        if any(type(slot) is not MemberDescriptorType
+               or slot.__objclass__ is not Basic or slot.__name__ != name
+               for name, slot in zip(atom_names, atom_slots)):
+            raise NotImplementedError("matrix minimal polynomial requires original scalar storage")
+
+        def stored(entry):
+            values = []
+            for slot in atom_slots:
+                try:
+                    values.append(slot.__get__(entry, Basic))
+                except AttributeError:
+                    values.append(absent)
+            return tuple(values)
+
+        cells = []
+        if surface is not None:
+            if type(surface) is not tuple or len(surface) != rows * columns:
+                raise ValueError("matrix minimal polynomial has an invalid retained-cell snapshot")
+            atoms = (Integer, Rational, Zero, One, NegativeOne, Half)
+            for entry in surface:
+                if not any(type(entry) is atom for atom in atoms):
+                    raise NotImplementedError("matrix minimal polynomial requires literal exact rational entries")
+                values = stored(entry)
+                raw = values[0]
+                if type(raw) is not _native.Expr or not (raw.is_integer or raw.is_rational):
+                    raise ValueError("matrix minimal polynomial has a nonrational retained atom")
+                if any(value is not absent and value is not None
+                       and (type(value) is not tuple or len(value) != 0)
+                       for value in values[1:]):
+                    raise ValueError("matrix minimal polynomial requires literal retained atoms")
+                # Borrowed inspection bounds coefficients before any native
+                # cell is exported or its arbitrary-precision value copied.
+                _native.ideal_source_preflight_native(raw)
+                cells.append((entry, values))
+
+        if x is None:
+            x = Dummy("x")
+        if type(x) is not Symbol and type(x) is not Dummy:
+            raise TypeError("matrix minimal polynomial generator must be an exact Symbol or Dummy")
+        parameter = _IdealQuotientSnapshot(GroebnerBasis([], (x,), "QQ", "lex"))
+        (parameter_data,) = parameter.inputs()
+        raw_x = atom_slots[0].__get__(x, Basic)
+        if type(raw_x) is not _native.Expr or not raw_x.is_symbol:
+            raise ValueError("matrix minimal polynomial has an invalid output symbol")
+        if (_surface_binding_key(raw_x.symbol_binding)
+                != _surface_binding_key(parameter_data[3][0])):
+            raise ValueError("matrix minimal polynomial output symbol has inconsistent typed assumptions")
+
+        def unchanged():
+            current_namespace = type.__dict__["__dict__"].__get__(Matrix)
+            current_atoms = type.__dict__["__dict__"].__get__(Basic)
+            if (any(current_namespace.get(name) is not slot for name, slot in zip(names, slots))
+                    or any(current_atoms.get(name) is not slot
+                           for name, slot in zip(atom_names, atom_slots))):
+                raise RuntimeError("matrix minimal polynomial source storage changed during evaluation")
+            current = tuple(slot.__get__(self, Matrix) for slot in slots)
+            if any(value is not previous for value, previous in zip(current, original)):
+                raise RuntimeError("Matrix mutated during minimal polynomial evaluation")
+            for entry, previous in cells:
+                if any(value is not old for value, old in zip(stored(entry), previous)):
+                    raise RuntimeError("matrix minimal polynomial cell mutated during evaluation")
+            parameter.unchanged()
+
+        unchanged()
+        coefficients = native.minimal_polynomial()
+        unchanged()
+        # Native admission has now bounded every immutable matrix entry.
+        # Compare the retained values with that exact source before lifting;
+        # neither stale cells nor a replaced native mirror may be published.
+        for index, (_, values) in enumerate(cells):
+            if native[index] != values[0]:
+                raise ValueError("matrix minimal polynomial retained and native entries differ")
+        if (type(coefficients) is not list or not 1 <= len(coefficients) <= rows + 1
+                or any(type(value) is not _native.Expr
+                       or not (value.is_integer or value.is_rational) for value in coefficients)
+                or coefficients[-1] != _native.py_integer(1)):
+            raise ValueError("matrix minimal polynomial has an invalid checked coefficient list")
+        # Work only with admitted native scalars while constructing the
+        # bounded polynomial; do not dispatch arithmetic to public cells.
+        expression = _native.py_integer(0)
+        for degree, coefficient in enumerate(coefficients):
+            expression = expression + coefficient * (raw_x ** _native.py_integer(degree))
+        lifted = _lift_native_result(expression, x)
+        result = PurePoly(lifted, x, domain="QQ")
+        unchanged()
+        return result
+
+    minpoly = minimal_polynomial
+
     def kron(self, other):
         if not isinstance(other, Matrix):
             raise TypeError(f"Cannot compute Kronecker product with {type(other)}")

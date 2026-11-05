@@ -1930,6 +1930,7 @@ mod polynomial_laplace;
 mod polynomial_relations;
 mod polynomial_systems;
 mod quadrature;
+mod quotient_algebra;
 mod rational_laplace;
 mod rational_mellin;
 mod real_inequality;
@@ -2271,6 +2272,14 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     )?)?;
     m.add_function(wrap_pyfunction!(
         polynomial_relations::ideal_inverse_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        quotient_algebra::quotient_multiplication_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        quotient_algebra::quotient_minimal_polynomial_native,
         m
     )?)?;
     m.add_function(wrap_pyfunction!(poly_multivariate_gcd_native, m)?)?;

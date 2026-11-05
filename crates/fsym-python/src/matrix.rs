@@ -354,6 +354,42 @@ impl PyMatrix {
         Ok(PyExpr::from_expr(d))
     }
 
+    /// Ascending coefficients of the checked monic minimal polynomial over QQ.
+    /// The complete call shares two budgets through bounded result publication.
+    pub fn minimal_polynomial(&self) -> PyResult<Vec<PyExpr>> {
+        let phase_budget = || {
+            let mut limits = BudgetLimits::uniform(512 * 1024 * 1024, 0);
+            limits.dimensions[Dimension::ComputeSteps.index()] = 200_000_000;
+            Budget::new(limits)
+        };
+        let mut generator = phase_budget();
+        let mut verifier = phase_budget();
+        let coefficients = self
+            .inner
+            .minimal_polynomial_with_meters(&mut generator, &mut verifier)
+            .map_err(matrix_err)?
+            .into_coefficients();
+        if coefficients.is_empty() || coefficients.len() > 17 {
+            return Err(PyValueError::new_err(
+                "checked matrix minimal polynomial has an invalid degree",
+            ));
+        }
+        // Native verification bounds both numerator and denominator by 8192
+        // bits. This covers all wrappers and integer canonicalization copies.
+        crate::ideal_operations::charge(
+            &mut generator,
+            coefficients.len(),
+            coefficients.len() * 8192,
+        )?;
+        let values = coefficients
+            .into_iter()
+            .map(|value| PyExpr::from_expr(crate::rational_to_expr(value)))
+            .collect();
+        crate::ideal_operations::charge(&mut generator, 1, 1)?;
+        crate::ideal_operations::charge(&mut verifier, 1, 1)?;
+        Ok(values)
+    }
+
     /// Independently checked bounded exact rational matrix exponential.
     pub fn exp(&self) -> PyResult<Self> {
         Ok(Self {

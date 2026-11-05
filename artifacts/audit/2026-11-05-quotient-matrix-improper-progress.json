@@ -1,0 +1,1046 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-11-05T23:21:19Z",
+  "repository": "Dicklesworthstone/frankensympy",
+  "kind": "bounded implementation and execution evidence; not profile certification",
+  "baseline_source": "45c4bdd34dba326769736ec04d96cbd9422f49c7",
+  "verified_main_commits": {
+    "improper_piecewise": "6afb3898887a8e00ab734e84338ebbf9e283910e",
+    "quotient_algebra_and_minpoly": "1baec6221d62315b29f4808d69b944707a55ec5f",
+    "matrix_minpoly": "e854cf4f96e5be1862481aea3a31df90f14bfd41"
+  },
+  "public_integration": "The source snapshot below is included in this record's containing commit; it has not been run against a rebuilt extension.",
+  "features": {
+    "quotient_multiplication": {
+      "domain": "finite QQ polynomial quotient, all3 declared monomial orders",
+      "limits": "8variables,64inputs,64monomials,4096-bit coefficients,256degree; cumulative20Msteps/128MiB per native phase",
+      "checks": "complete standard staircase and source-bound coefficient-convolution identity for every matrix column",
+      "public": [
+        "GroebnerBasis.quotient_basis",
+        "GroebnerBasis.multiplication_matrix"
+      ]
+    },
+    "quotient_minimal_polynomial": {
+      "domain": "arbitrary QQ polynomial quotient; all algebraic components and nonradical multiplicities",
+      "limits": "7original variables,63ideal inputs,degree256; cumulative20Msteps/128MiB per phase",
+      "checks": "complete accepted elimination <I,t-f> intersect QQ[t], independently bound original coefficients/parameter/relation/full projected output",
+      "result": "monic minimal polynomial,1 for zero ring,or None only for proved transcendence",
+      "public": [
+        "GroebnerBasis.minimal_polynomial",
+        "GroebnerBasis.minpoly"
+      ]
+    },
+    "matrix_minimal_polynomial": {
+      "domain": "literal QQ square matrices; dense and bounded sparse native sources",
+      "limits": "dimension16,4096-bit input and8192-bit intermediate coefficients,cumulative200Msteps/512MiB per phase",
+      "checks": "independence of lower powers using exact coordinate-minor left inverse; separate full-matrix Horner annihilation",
+      "public": [
+        "Matrix.minimal_polynomial -> PurePoly",
+        "Matrix.minpoly -> PurePoly"
+      ],
+      "public_storage": "built-in dense/immutable or native-only dense; exact source and output-parameter snapshots"
+    },
+    "improper_piecewise": {
+      "domain": "first-match rational branches; rational finite cuts and literal real infinity bounds",
+      "limits": "16branches,64integral components,256cuts; each component retains rational-integral native phase limits",
+      "checks": "complete exact open-cell partition; separately checked ordinary/improper components; no cancellation of divergent tails",
+      "unsupported": "algebraic cuts,unknown guards,general indefinite Piecewise integration"
+    }
+  },
+  "toolchain": {
+    "name": "nightly-2026-08-20",
+    "rustc": "1.100.0-nightly (f7d782a3b 2026-08-19)",
+    "flags": [
+      "-D",
+      "warnings"
+    ],
+    "donors": "unchanged pinned source revisions and lockfile"
+  },
+  "executed_validation": {
+    "native_tests": {
+      "quotient_operator": 17,
+      "quotient_minpoly": 12,
+      "matrix_minpoly": 15,
+      "total": 44,
+      "matrix_exhaustive_2x2_subcases": 81
+    },
+    "native_lint": "pinned scoped library and all three focused-test Clippy invocations exit0",
+    "formatting": "pinned rustfmt checks on all changed Rust source/tests; Python AST and whitespace checks",
+    "piecewise_actual_helper_tests": 4,
+    "piecewise_actual_exact_helper_vs_independent_sets": 5032,
+    "oracle_only": {
+      "piecewise_result_and_convention_properties": 21,
+      "quotient_operator_fixtures": 13,
+      "quotient_elimination_fixtures": 21,
+      "matrix_smith_normal_form_fixtures": 9,
+      "matrix_PurePoly_identity_fixtures": 2
+    },
+    "scope": "Native tests compile the changed source with fingerprint-matched cached dependencies. They are not a full Cargo/workspace gate. Oracle-only results never substitute for public candidate execution."
+  },
+  "authored_regressions": {
+    "piecewise_public_cases": 85,
+    "piecewise_new_cases": 26,
+    "quotient_public_cases": 45,
+    "quotient_matrix_cross_checks": 4,
+    "matrix_public_cases": 22,
+    "total_selected_public_cases": 152,
+    "new_public_cases": 93,
+    "candidate_public_execution": "unexecuted"
+  },
+  "actual_python_execution": {
+    "status": "unexecuted for current source snapshot",
+    "prior_build_command": "cargo build --locked --offline -p fsym-python --lib -j1",
+    "prior_build_exit": 101,
+    "prior_build_reason": "unchanged pinned asupersync was killed by SIGKILL at the shared memory cap before bridge compilation",
+    "current_environment": "overlay disk0bytes available; editing and scoped native verification continued in executable writable RAM without deleting files",
+    "current_bridge_compilation": "not completed; actual-extension CI required"
+  },
+  "independent_review": {
+    "quotient_minpoly": "repository_access reviewed full elimination/minimality binding",
+    "matrix_native": "root reviewed independent power/minor and Horner obligations",
+    "quotient_bridge": "build_environment reviewed source admission, phase budgets, output bounds",
+    "matrix_public": "build_environment and repository_access independently identified and resolved stale output-assumption/native-symbol mismatch",
+    "quotient_public": "same typed output-parameter consistency fix included; original sources retained"
+  },
+  "ci": {
+    "workflow": ".github/workflows/ci.yml",
+    "added_native_targets": [
+      "fsym-polys/quotient_algebra",
+      "fsym-polys/quotient_minpoly",
+      "fsym-matrices/minimal_polynomial"
+    ],
+    "added_public_files": [
+      "python/tests/test_quotient_algebra.py",
+      "python/tests/test_matrix_minimal_polynomial.py"
+    ],
+    "observed_commit": "e854cf4f96e5be1862481aea3a31df90f14bfd41",
+    "observed_status": "queued; no CI pass claimed"
+  },
+  "full_workspace_gates": {
+    "check_all_targets": "uncompleted",
+    "clippy_all_targets": "uncompleted",
+    "test_workspace": "uncompleted",
+    "profile_certification": "open"
+  },
+  "governance": {
+    "beads_notes_updated": [
+      "fra-546",
+      "fra-a5x",
+      "fra-kfo"
+    ],
+    "bead_status_priority_dependencies": "unchanged",
+    "claims_registry": "unchanged",
+    "WS10_WS17_WS18_gates": "open",
+    "publication": "direct main only; expected-parent leases and exact commit/message/path verification"
+  },
+  "scoped_dependency_cohorts": {
+    "polys": {
+      "source_fingerprint": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-polys/12b640e6243fcabb/fingerprint/lib-fsym_polys.json",
+      "compiler_fingerprint": 17804545925361750984,
+      "rustflags": [
+        "-D",
+        "warnings"
+      ],
+      "externs": {
+        "fsym_modular": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-modular/7135c4f3cfd4065c/out/libfsym_modular-7135c4f3cfd4065c.rmeta",
+        "thiserror": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/thiserror/87d3de369bb173a5/out/libthiserror-87d3de369bb173a5.rmeta",
+        "num_traits": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-traits/4ab33040de290ae7/out/libnum_traits-4ab33040de290ae7.rmeta",
+        "serde": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/serde/2af72f407b98a5f5/out/libserde-2af72f407b98a5f5.rmeta",
+        "fsym_outcome": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-outcome/449c29da623082ad/out/libfsym_outcome-449c29da623082ad.rmeta",
+        "fsym_assumptions": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-assumptions/a58c37654c8e9e53/out/libfsym_assumptions-a58c37654c8e9e53.rmeta",
+        "fsym_evidence": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-evidence/94f2d14efe6174f8/out/libfsym_evidence-94f2d14efe6174f8.rmeta",
+        "fsym_budget": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-budget/ea09a4c8806f3db2/out/libfsym_budget-ea09a4c8806f3db2.rmeta",
+        "fsym_proof_kernel": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-proof-kernel/cacaee62800a40df/out/libfsym_proof_kernel-cacaee62800a40df.rmeta",
+        "fsym_core": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-core/110547b53bc1f242/out/libfsym_core-110547b53bc1f242.rmeta",
+        "fsym_id": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-id/2070ffee54918e44/out/libfsym_id-2070ffee54918e44.rmeta",
+        "fsym_bigint": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-bigint/38afb9c534552488/out/libfsym_bigint-38afb9c534552488.rmeta"
+      },
+      "search": [
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/arrayvec/9e30c33b77ec7cc7/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/blake3/82a53c4ea789f987/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/cfg-if/8686beddc862cdbf/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/constant_time_eq/103d870448b288f0/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/cpufeatures/1155c2223e703d41/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-assumptions/a58c37654c8e9e53/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-bigint/38afb9c534552488/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-budget/ea09a4c8806f3db2/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-core/110547b53bc1f242/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-evidence/94f2d14efe6174f8/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-id/2070ffee54918e44/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-modular/7135c4f3cfd4065c/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-outcome/449c29da623082ad/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-proof-kernel/cacaee62800a40df/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-rational/ceffc8a54aecf5bf/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/itoa/21525cc5481cb013/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/memchr/2a132d9b6ea2afc6/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-bigint/64d0fa5df489003f/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-complex/dddc4a34f518331f/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-integer/dbeb381751baa1ec/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-rational/af348f21d9fe362f/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-traits/4ab33040de290ae7/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/proc-macro2/50b581dd537bc537/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/quote/469abe5ebc95a3e2/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/serde/2af72f407b98a5f5/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/serde_core/9eb734ef4c6799f0/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/serde_derive/2887e19891be2884/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/serde_json/5c2475fd9f06fb61/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/syn/932bfa65c522b645/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/thiserror-impl/a4e04602239eecf5/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/thiserror/87d3de369bb173a5/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/unicode-ident/82c87474b9ca9654/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/zmij/13c9df435aa397e0/out"
+      ],
+      "dependency_fingerprints": [
+        {
+          "name": "fsym_modular",
+          "fingerprint": 13666325519741358811,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-modular/7135c4f3cfd4065c/fingerprint/lib-fsym_modular"
+        },
+        {
+          "name": "fsym_budget",
+          "fingerprint": 2864742714010839513,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-budget/ea09a4c8806f3db2/fingerprint/lib-fsym_budget"
+        },
+        {
+          "name": "serde",
+          "fingerprint": 16690860729884715181,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/serde/2af72f407b98a5f5/fingerprint/lib-serde"
+        },
+        {
+          "name": "serde_core",
+          "fingerprint": 3286780979666429548,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/serde_core/9eb734ef4c6799f0/fingerprint/lib-serde_core"
+        },
+        {
+          "name": "serde_derive",
+          "fingerprint": 14408466606030743515,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/serde_derive/2887e19891be2884/fingerprint/lib-serde_derive"
+        },
+        {
+          "name": "syn",
+          "fingerprint": 661854762458492289,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/syn/932bfa65c522b645/fingerprint/lib-syn"
+        },
+        {
+          "name": "unicode_ident",
+          "fingerprint": 6510515730725844386,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/unicode-ident/82c87474b9ca9654/fingerprint/lib-unicode_ident"
+        },
+        {
+          "name": "quote",
+          "fingerprint": 3616022485226024990,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/quote/469abe5ebc95a3e2/fingerprint/lib-quote"
+        },
+        {
+          "name": "proc_macro2",
+          "fingerprint": 16553209650412645138,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/proc-macro2/50b581dd537bc537/fingerprint/lib-proc_macro2"
+        },
+        {
+          "name": "fsym_bigint",
+          "fingerprint": 13685048154588798274,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-bigint/38afb9c534552488/fingerprint/lib-fsym_bigint"
+        },
+        {
+          "name": "num_traits",
+          "fingerprint": 10124860580004340785,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-traits/4ab33040de290ae7/fingerprint/lib-num_traits"
+        },
+        {
+          "name": "num_integer",
+          "fingerprint": 15295960900384987619,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-integer/dbeb381751baa1ec/fingerprint/lib-num_integer"
+        },
+        {
+          "name": "num_bigint",
+          "fingerprint": 6521368185230670571,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-bigint/64d0fa5df489003f/fingerprint/lib-num_bigint"
+        },
+        {
+          "name": "thiserror",
+          "fingerprint": 9430312170682262577,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/thiserror/87d3de369bb173a5/fingerprint/lib-thiserror"
+        },
+        {
+          "name": "thiserror_impl",
+          "fingerprint": 4544145184832567756,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/thiserror-impl/a4e04602239eecf5/fingerprint/lib-thiserror_impl"
+        },
+        {
+          "name": "fsym_outcome",
+          "fingerprint": 7116815404273991570,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-outcome/449c29da623082ad/fingerprint/lib-fsym_outcome"
+        },
+        {
+          "name": "fsym_assumptions",
+          "fingerprint": 18260470068042761994,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-assumptions/a58c37654c8e9e53/fingerprint/lib-fsym_assumptions"
+        },
+        {
+          "name": "blake3",
+          "fingerprint": 14993060306502311531,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/blake3/82a53c4ea789f987/fingerprint/lib-blake3"
+        },
+        {
+          "name": "cfg_if",
+          "fingerprint": 2863274772716662965,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/cfg-if/8686beddc862cdbf/fingerprint/lib-cfg_if"
+        },
+        {
+          "name": "arrayvec",
+          "fingerprint": 16228330283972506874,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/arrayvec/9e30c33b77ec7cc7/fingerprint/lib-arrayvec"
+        },
+        {
+          "name": "constant_time_eq",
+          "fingerprint": 8900930355328719902,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/constant_time_eq/103d870448b288f0/fingerprint/lib-constant_time_eq"
+        },
+        {
+          "name": "cpufeatures",
+          "fingerprint": 12257977119820914574,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/cpufeatures/1155c2223e703d41/fingerprint/lib-cpufeatures"
+        },
+        {
+          "name": "fsym_core",
+          "fingerprint": 1887069949009230040,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-core/110547b53bc1f242/fingerprint/lib-fsym_core"
+        },
+        {
+          "name": "serde_json",
+          "fingerprint": 16765514139609413787,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/serde_json/5c2475fd9f06fb61/fingerprint/lib-serde_json"
+        },
+        {
+          "name": "itoa",
+          "fingerprint": 8105938873766397844,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/itoa/21525cc5481cb013/fingerprint/lib-itoa"
+        },
+        {
+          "name": "memchr",
+          "fingerprint": 6669960166176420511,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/memchr/2a132d9b6ea2afc6/fingerprint/lib-memchr"
+        },
+        {
+          "name": "zmij",
+          "fingerprint": 4285323943823616633,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/zmij/13c9df435aa397e0/fingerprint/lib-zmij"
+        },
+        {
+          "name": "num_complex",
+          "fingerprint": 9835324977818066179,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-complex/dddc4a34f518331f/fingerprint/lib-num_complex"
+        },
+        {
+          "name": "fsym_rational",
+          "fingerprint": 3206548660232448319,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-rational/ceffc8a54aecf5bf/fingerprint/lib-fsym_rational"
+        },
+        {
+          "name": "num_rational",
+          "fingerprint": 13572659348590825623,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-rational/af348f21d9fe362f/fingerprint/lib-num_rational"
+        },
+        {
+          "name": "fsym_id",
+          "fingerprint": 7219357879061275368,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-id/2070ffee54918e44/fingerprint/lib-fsym_id"
+        },
+        {
+          "name": "fsym_evidence",
+          "fingerprint": 6804739637316130494,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-evidence/94f2d14efe6174f8/fingerprint/lib-fsym_evidence"
+        },
+        {
+          "name": "fsym_proof_kernel",
+          "fingerprint": 16621065578453330400,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-proof-kernel/cacaee62800a40df/fingerprint/lib-fsym_proof_kernel"
+        }
+      ],
+      "direct_artifact_sha256": {
+        "fsym_modular": {
+          "metadata": "a356611e66ad1290fd4e006211106614903e50bf21fd902e8db8614fa91cd516",
+          "code": "42132ead60dd6775f27f8dbd133643a184e21f829cf2bd9da5b6ac8577d1d44f"
+        },
+        "thiserror": {
+          "metadata": "db5e212c529752eddbd317edfd08f9599121a3c47e1b66f324f41ae3a06b846d",
+          "code": "7092440b9a588221150859c7db7a5d21b546523d36e6ca81b47e050dce6b96f7"
+        },
+        "num_traits": {
+          "metadata": "1620bd71226d27e0e89294a17bb0deb0468c696db1403ba4537f420cab2e17dc",
+          "code": "32230040f331e05106da87b807ca47a2a05494d45388997fd9a7a82973a2fc23"
+        },
+        "serde": {
+          "metadata": "5528eeea6a39e85963ab182b3ab93e18277e0ff63e1836cee3ba05acdca84b55",
+          "code": "d52b74edc46046ba0c11b7c2e3cb2c6ba0544b2aa6391ae039acbd3c44281ed1"
+        },
+        "fsym_outcome": {
+          "metadata": "8081fff634816f04573206852f8f6989fb66c34c9694be4f676bd4088df55b3a",
+          "code": "e57ab38193d92872b2937802cb0ed59ba9524966595a7dce2812b5b538859429"
+        },
+        "fsym_assumptions": {
+          "metadata": "21530075c7996444ff99a2490a632f6813942dac1b9e55c03c07800912443b41",
+          "code": "4da80dcb8cbf22d5a4efff65e65ffa65c7a700d39a02bd9699ec49b11d53631d"
+        },
+        "fsym_evidence": {
+          "metadata": "aa2d49ef5eb55e32fb3f6d6962b19aa5ea5a21c643d4475fbb73e09f4b4b2bb1",
+          "code": "c563c5265ecd0b7564d05af940ae9e32033cec4d8356dc60c75430ccce8d4967"
+        },
+        "fsym_budget": {
+          "metadata": "9c27f2f932ca6e65d8b80309ef00808de10b0af89bb898bdf3769a13f15fc8ea",
+          "code": "62072d5a8daab833093862c2efbaefeb5c1ef4d2dee77ebcc78e0840a87e1561"
+        },
+        "fsym_proof_kernel": {
+          "metadata": "e7a12011e924d2f646bb134e04b3c38075b96714f0d2649e54926083efce11c6",
+          "code": "2600b069bd5456fee2e81afa4de5a3703745c31ea8479b2f83d0348714614638"
+        },
+        "fsym_core": {
+          "metadata": "c6f24f2f5bbd7d988bcf358b074f653562c911ad45a0609932c3e6d0eb42ec7f",
+          "code": "1bd7c1ffaba9174bec678d661d9512199a04a3610e732896d542836cde1dad1b"
+        },
+        "fsym_id": {
+          "metadata": "f2923f8854fba1860ab26f8b9022754b3c46096e7efd429fc873c681f7cef48f",
+          "code": "b6f92434c5a287e50fac90f0946585b88118ac24378ee0512bfc3d9de776ceef"
+        },
+        "fsym_bigint": {
+          "metadata": "5a087b77f9e321bfc95075eab234f92bd835243600ea8a6f4ac43219273f2920",
+          "code": "344c85155c66b801ceae92cf0426f014558dea5927545a5d800f3e5606aaea5e"
+        }
+      }
+    },
+    "matrices": {
+      "source_fingerprint": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-solvers/bd0df63b5f65bd43/fingerprint/lib-fsym_solvers.json",
+      "externs": {
+        "fsym_core": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-core/941e6a89f98c778b/out/libfsym_core-941e6a89f98c778b.rmeta",
+        "fsym_budget": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-budget/ace3eb16b0fe3ba3/out/libfsym_budget-ace3eb16b0fe3ba3.rmeta",
+        "fsym_proof_kernel": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-proof-kernel/22c02a68939a0615/out/libfsym_proof_kernel-22c02a68939a0615.rmeta",
+        "fsym_calculus": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-calculus/0ddfdcf055a954c8/out/libfsym_calculus-0ddfdcf055a954c8.rmeta",
+        "fsym_simplify": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-simplify/3fcac402e4f0bf29/out/libfsym_simplify-3fcac402e4f0bf29.rmeta",
+        "fsym_polys": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-polys/0b7d95e872c253df/out/libfsym_polys-0b7d95e872c253df.rmeta",
+        "fsym_solvers": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-solvers/bd0df63b5f65bd43/out/libfsym_solvers-bd0df63b5f65bd43.rmeta",
+        "num_traits": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-traits/4ab33040de290ae7/out/libnum_traits-4ab33040de290ae7.rmeta",
+        "serde": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/serde/59eb722ca52f1a7c/out/libserde-59eb722ca52f1a7c.rmeta",
+        "thiserror": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/thiserror/b1cea08a4f9e3de9/out/libthiserror-b1cea08a4f9e3de9.rmeta"
+      },
+      "search": [
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/allocator-api2/766484c6384fd3df/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/arrayvec/9e30c33b77ec7cc7/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/blake3/82a53c4ea789f987/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/cfg-if/8686beddc862cdbf/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/constant_time_eq/103d870448b288f0/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/cpufeatures/1155c2223e703d41/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/equivalent/abac1841359fe206/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/foldhash/b786539b9bc0f793/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-assumptions/deb176ca40757702/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-bigint/1222d226fdabafd3/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-budget/ace3eb16b0fe3ba3/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-calculus/0ddfdcf055a954c8/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-core/941e6a89f98c778b/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-evidence/6a6315171f46e7a2/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-id/714f44626c925272/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-modular/239271b9a74afe0a/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-outcome/449c29da623082ad/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-polys/0b7d95e872c253df/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-proof-kernel/22c02a68939a0615/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-rational/1e343b985164ee17/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-sets/ed352c6d6c4620b6/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-simplify/3fcac402e4f0bf29/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-solvers/bd0df63b5f65bd43/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/hashbrown/3bab9c82111c1e86/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/indexmap/37d0087ad8c37aba/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/itoa/21525cc5481cb013/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/memchr/09b694f77992dfcd/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-bigint/ec86dfc12d661e14/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-complex/dddc4a34f518331f/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-integer/dbeb381751baa1ec/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-rational/e0951e0bd09e4ce5/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-traits/4ab33040de290ae7/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/proc-macro2/50b581dd537bc537/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/quote/469abe5ebc95a3e2/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/serde/59eb722ca52f1a7c/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/serde_core/71f56a49be42d131/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/serde_derive/986566b62408af80/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/serde_json/adb66f56fdfed966/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/syn/75c78aa41886a684/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/thiserror-impl/7a68cc32ffa615bb/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/thiserror/b1cea08a4f9e3de9/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/unicode-ident/82c87474b9ca9654/out",
+        "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/zmij/13c9df435aa397e0/out"
+      ],
+      "dependency_fingerprints": [
+        {
+          "name": "fsym_solvers",
+          "fingerprint": 14257600274606815530,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-solvers/bd0df63b5f65bd43/fingerprint/lib-fsym_solvers.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-solvers/bd0df63b5f65bd43/out/libfsym_solvers-bd0df63b5f65bd43.rmeta"
+        },
+        {
+          "name": "fsym_polys",
+          "fingerprint": 2743248649163450782,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-polys/0b7d95e872c253df/fingerprint/lib-fsym_polys.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-polys/0b7d95e872c253df/out/libfsym_polys-0b7d95e872c253df.rmeta"
+        },
+        {
+          "name": "fsym_modular",
+          "fingerprint": 14665798096649092570,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-modular/239271b9a74afe0a/fingerprint/lib-fsym_modular.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-modular/239271b9a74afe0a/out/libfsym_modular-239271b9a74afe0a.rmeta"
+        },
+        {
+          "name": "fsym_budget",
+          "fingerprint": 2387406298194747235,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-budget/ace3eb16b0fe3ba3/fingerprint/lib-fsym_budget.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-budget/ace3eb16b0fe3ba3/out/libfsym_budget-ace3eb16b0fe3ba3.rmeta"
+        },
+        {
+          "name": "serde",
+          "fingerprint": 1390028221078116214,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/serde/59eb722ca52f1a7c/fingerprint/lib-serde.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/serde/59eb722ca52f1a7c/out/libserde-59eb722ca52f1a7c.rmeta"
+        },
+        {
+          "name": "serde_core",
+          "fingerprint": 11446443005224118024,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/serde_core/71f56a49be42d131/fingerprint/lib-serde_core.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/serde_core/71f56a49be42d131/out/libserde_core-71f56a49be42d131.rmeta"
+        },
+        {
+          "name": "serde_derive",
+          "fingerprint": 5155344959679126711,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/serde_derive/986566b62408af80/fingerprint/lib-serde_derive.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/serde_derive/986566b62408af80/out/libserde_derive-986566b62408af80.so"
+        },
+        {
+          "name": "syn",
+          "fingerprint": 3193604624931980343,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/syn/75c78aa41886a684/fingerprint/lib-syn.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/syn/75c78aa41886a684/out/libsyn-75c78aa41886a684.rmeta"
+        },
+        {
+          "name": "unicode_ident",
+          "fingerprint": 6510515730725844386,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/unicode-ident/82c87474b9ca9654/fingerprint/lib-unicode_ident.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/unicode-ident/82c87474b9ca9654/out/libunicode_ident-82c87474b9ca9654.rmeta"
+        },
+        {
+          "name": "quote",
+          "fingerprint": 3616022485226024990,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/quote/469abe5ebc95a3e2/fingerprint/lib-quote.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/quote/469abe5ebc95a3e2/out/libquote-469abe5ebc95a3e2.rmeta"
+        },
+        {
+          "name": "proc_macro2",
+          "fingerprint": 16553209650412645138,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/proc-macro2/50b581dd537bc537/fingerprint/lib-proc_macro2.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/proc-macro2/50b581dd537bc537/out/libproc_macro2-50b581dd537bc537.rmeta"
+        },
+        {
+          "name": "fsym_bigint",
+          "fingerprint": 3773764523377448665,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-bigint/1222d226fdabafd3/fingerprint/lib-fsym_bigint.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-bigint/1222d226fdabafd3/out/libfsym_bigint-1222d226fdabafd3.rmeta"
+        },
+        {
+          "name": "num_traits",
+          "fingerprint": 10124860580004340785,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-traits/4ab33040de290ae7/fingerprint/lib-num_traits.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-traits/4ab33040de290ae7/out/libnum_traits-4ab33040de290ae7.rmeta"
+        },
+        {
+          "name": "num_integer",
+          "fingerprint": 15295960900384987619,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-integer/dbeb381751baa1ec/fingerprint/lib-num_integer.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-integer/dbeb381751baa1ec/out/libnum_integer-dbeb381751baa1ec.rmeta"
+        },
+        {
+          "name": "num_bigint",
+          "fingerprint": 13822038551826730044,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-bigint/ec86dfc12d661e14/fingerprint/lib-num_bigint.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-bigint/ec86dfc12d661e14/out/libnum_bigint-ec86dfc12d661e14.rmeta"
+        },
+        {
+          "name": "thiserror",
+          "fingerprint": 15292705255074055645,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/thiserror/b1cea08a4f9e3de9/fingerprint/lib-thiserror.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/thiserror/b1cea08a4f9e3de9/out/libthiserror-b1cea08a4f9e3de9.rmeta"
+        },
+        {
+          "name": "thiserror_impl",
+          "fingerprint": 3614635311852029363,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/thiserror-impl/7a68cc32ffa615bb/fingerprint/lib-thiserror_impl.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/thiserror-impl/7a68cc32ffa615bb/out/libthiserror_impl-7a68cc32ffa615bb.so"
+        },
+        {
+          "name": "fsym_outcome",
+          "fingerprint": 7116815404273991570,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-outcome/449c29da623082ad/fingerprint/lib-fsym_outcome.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-outcome/449c29da623082ad/out/libfsym_outcome-449c29da623082ad.rmeta"
+        },
+        {
+          "name": "fsym_assumptions",
+          "fingerprint": 10384941159145817189,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-assumptions/deb176ca40757702/fingerprint/lib-fsym_assumptions.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-assumptions/deb176ca40757702/out/libfsym_assumptions-deb176ca40757702.rmeta"
+        },
+        {
+          "name": "blake3",
+          "fingerprint": 14993060306502311531,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/blake3/82a53c4ea789f987/fingerprint/lib-blake3.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/blake3/82a53c4ea789f987/out/libblake3-82a53c4ea789f987.rmeta"
+        },
+        {
+          "name": "cfg_if",
+          "fingerprint": 2863274772716662965,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/cfg-if/8686beddc862cdbf/fingerprint/lib-cfg_if.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/cfg-if/8686beddc862cdbf/out/libcfg_if-8686beddc862cdbf.rmeta"
+        },
+        {
+          "name": "arrayvec",
+          "fingerprint": 16228330283972506874,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/arrayvec/9e30c33b77ec7cc7/fingerprint/lib-arrayvec.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/arrayvec/9e30c33b77ec7cc7/out/libarrayvec-9e30c33b77ec7cc7.rmeta"
+        },
+        {
+          "name": "constant_time_eq",
+          "fingerprint": 8900930355328719902,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/constant_time_eq/103d870448b288f0/fingerprint/lib-constant_time_eq.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/constant_time_eq/103d870448b288f0/out/libconstant_time_eq-103d870448b288f0.rmeta"
+        },
+        {
+          "name": "cpufeatures",
+          "fingerprint": 12257977119820914574,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/cpufeatures/1155c2223e703d41/fingerprint/lib-cpufeatures.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/cpufeatures/1155c2223e703d41/out/libcpufeatures-1155c2223e703d41.rmeta"
+        },
+        {
+          "name": "fsym_core",
+          "fingerprint": 1030460947117256229,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-core/941e6a89f98c778b/fingerprint/lib-fsym_core.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-core/941e6a89f98c778b/out/libfsym_core-941e6a89f98c778b.rmeta"
+        },
+        {
+          "name": "serde_json",
+          "fingerprint": 856486467791040245,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/serde_json/adb66f56fdfed966/fingerprint/lib-serde_json.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/serde_json/adb66f56fdfed966/out/libserde_json-adb66f56fdfed966.rmeta"
+        },
+        {
+          "name": "itoa",
+          "fingerprint": 8105938873766397844,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/itoa/21525cc5481cb013/fingerprint/lib-itoa.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/itoa/21525cc5481cb013/out/libitoa-21525cc5481cb013.rmeta"
+        },
+        {
+          "name": "indexmap",
+          "fingerprint": 8103494703140340778,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/indexmap/37d0087ad8c37aba/fingerprint/lib-indexmap.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/indexmap/37d0087ad8c37aba/out/libindexmap-37d0087ad8c37aba.rmeta"
+        },
+        {
+          "name": "hashbrown",
+          "fingerprint": 4619220675293871843,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/hashbrown/3bab9c82111c1e86/fingerprint/lib-hashbrown.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/hashbrown/3bab9c82111c1e86/out/libhashbrown-3bab9c82111c1e86.rmeta"
+        },
+        {
+          "name": "foldhash",
+          "fingerprint": 6138554286148850521,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/foldhash/b786539b9bc0f793/fingerprint/lib-foldhash.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/foldhash/b786539b9bc0f793/out/libfoldhash-b786539b9bc0f793.rmeta"
+        },
+        {
+          "name": "equivalent",
+          "fingerprint": 14203297719397517307,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/equivalent/abac1841359fe206/fingerprint/lib-equivalent.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/equivalent/abac1841359fe206/out/libequivalent-abac1841359fe206.rmeta"
+        },
+        {
+          "name": "allocator_api2",
+          "fingerprint": 5201120425892367096,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/allocator-api2/766484c6384fd3df/fingerprint/lib-allocator_api2.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/allocator-api2/766484c6384fd3df/out/liballocator_api2-766484c6384fd3df.rmeta"
+        },
+        {
+          "name": "memchr",
+          "fingerprint": 7343438648188095905,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/memchr/09b694f77992dfcd/fingerprint/lib-memchr.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/memchr/09b694f77992dfcd/out/libmemchr-09b694f77992dfcd.rmeta"
+        },
+        {
+          "name": "zmij",
+          "fingerprint": 4285323943823616633,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/zmij/13c9df435aa397e0/fingerprint/lib-zmij.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/zmij/13c9df435aa397e0/out/libzmij-13c9df435aa397e0.rmeta"
+        },
+        {
+          "name": "num_complex",
+          "fingerprint": 9835324977818066179,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-complex/dddc4a34f518331f/fingerprint/lib-num_complex.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-complex/dddc4a34f518331f/out/libnum_complex-dddc4a34f518331f.rmeta"
+        },
+        {
+          "name": "fsym_rational",
+          "fingerprint": 2754670852657102025,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-rational/1e343b985164ee17/fingerprint/lib-fsym_rational.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-rational/1e343b985164ee17/out/libfsym_rational-1e343b985164ee17.rmeta"
+        },
+        {
+          "name": "num_rational",
+          "fingerprint": 3234268178840872398,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-rational/e0951e0bd09e4ce5/fingerprint/lib-num_rational.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-rational/e0951e0bd09e4ce5/out/libnum_rational-e0951e0bd09e4ce5.rmeta"
+        },
+        {
+          "name": "fsym_id",
+          "fingerprint": 11553259153625870471,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-id/714f44626c925272/fingerprint/lib-fsym_id.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-id/714f44626c925272/out/libfsym_id-714f44626c925272.rmeta"
+        },
+        {
+          "name": "fsym_evidence",
+          "fingerprint": 14192486313416750085,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-evidence/6a6315171f46e7a2/fingerprint/lib-fsym_evidence.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-evidence/6a6315171f46e7a2/out/libfsym_evidence-6a6315171f46e7a2.rmeta"
+        },
+        {
+          "name": "fsym_proof_kernel",
+          "fingerprint": 16140710712364540855,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-proof-kernel/22c02a68939a0615/fingerprint/lib-fsym_proof_kernel.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-proof-kernel/22c02a68939a0615/out/libfsym_proof_kernel-22c02a68939a0615.rmeta"
+        },
+        {
+          "name": "fsym_calculus",
+          "fingerprint": 8179800080774465645,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-calculus/0ddfdcf055a954c8/fingerprint/lib-fsym_calculus.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-calculus/0ddfdcf055a954c8/out/libfsym_calculus-0ddfdcf055a954c8.rmeta"
+        },
+        {
+          "name": "fsym_simplify",
+          "fingerprint": 10396928045731428862,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-simplify/3fcac402e4f0bf29/fingerprint/lib-fsym_simplify.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-simplify/3fcac402e4f0bf29/out/libfsym_simplify-3fcac402e4f0bf29.rmeta"
+        },
+        {
+          "name": "fsym_sets",
+          "fingerprint": 9552180968825831241,
+          "path": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-sets/ed352c6d6c4620b6/fingerprint/lib-fsym_sets.json",
+          "artifact": "/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-sets/ed352c6d6c4620b6/out/libfsym_sets-ed352c6d6c4620b6.rmeta"
+        }
+      ],
+      "direct_artifact_sha256": {
+        "fsym_core": {
+          "metadata": "cef389041d8ecdbba5725a55f9d6530ac860aeb2f64f95096c55951e5e9766ac",
+          "code": "5679ea5ec513e63bca1b6ea8042d383613417ad350eef73cfad06a026c41ec00"
+        },
+        "fsym_budget": {
+          "metadata": "ecfe2947c2f20d2cbcfb211f2801f1dc6594d7c9f7a798078dccc4588d82c3fd",
+          "code": "46a4c4bb59e09946a7b6aeae8096a764b97de53c0bc120502afec7e77c67146a"
+        },
+        "fsym_proof_kernel": {
+          "metadata": "aa5b2b8af50205e1e4e7d5d6263962999bc5cb8bdc662ee407e461272a657fa5",
+          "code": "bb18917db12ccd381c3eea6cff1601713d4296a5d9ad4302debf42e74057073e"
+        },
+        "fsym_calculus": {
+          "metadata": "a0c78b6a83cd37a266f19d4bb54c87d483f4da12d43b02f3c2ce60f82d274229",
+          "code": "60a5d77ed0c3443924b81adf96412410c7997f069a76cb8f8729279bed92ec4e"
+        },
+        "fsym_simplify": {
+          "metadata": "b891dbb826ccc0784e3944ef98e76fe2aecbbc3adaa1e6e1dbe651fd869216d4",
+          "code": "973e5e8fd01609c611c021613db07341d72f81f2af1cd1c786f31955a1746cc3"
+        },
+        "fsym_polys": {
+          "metadata": "3f6b199d25ef5c9085a13b4e5d48b9a44db7a5c859d1a06dc40fe4015d61cd76",
+          "code": "390d285e57018c9790eae707ea25e17e00e84f4da9a4836d685ee3384afdaafb"
+        },
+        "fsym_solvers": {
+          "metadata": "1b4790f3ea71482c2bbc89d33e16d8a5cce582a0d7fc3d74d9d08d342c5255a6",
+          "code": "41cb45b52381fa4a62edbd1a83a2b74c7e56bbaf91bec67a9dbee4eae04167b6"
+        },
+        "num_traits": {
+          "metadata": "1620bd71226d27e0e89294a17bb0deb0468c696db1403ba4537f420cab2e17dc",
+          "code": "32230040f331e05106da87b807ca47a2a05494d45388997fd9a7a82973a2fc23"
+        },
+        "serde": {
+          "metadata": "0178f1105e2d7f1c1ba935f501448a5104d3f7f24f8713b804aefefbab01cf82",
+          "code": "e2b3e4bfbf4b5c9ba75c75a0c3ea5bc178fcbc8b06b451ee3a305dad47f4266d"
+        },
+        "thiserror": {
+          "metadata": "b7f28c17603116207d960a8afccf8ae82853e1273a6f17305eabeec3c93f50a1",
+          "code": "9c89ad2c46f7d35c97bb96ca639ae7ec32976b6e0f12a7f4fd8b6689eee0034b"
+        }
+      }
+    }
+  },
+  "compile_commands": {
+    "polys": [
+      "/workspace/scratch/108d8cc9f562/rust-nightly-2026-08-20/bin/rustc",
+      "--crate-name",
+      "fsym_polys",
+      "--edition=2024",
+      "crates/fsym-polys/src/lib.rs",
+      "--crate-type",
+      "rlib",
+      "--emit=metadata,link",
+      "-Z",
+      "embed-metadata=no",
+      "-C",
+      "embed-bitcode=no",
+      "-C",
+      "debuginfo=0",
+      "-D",
+      "warnings",
+      "--out-dir",
+      "/dev/shm/frankensympy-108d8cc9f562-continuation/native-build",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/arrayvec/9e30c33b77ec7cc7/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/blake3/82a53c4ea789f987/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/cfg-if/8686beddc862cdbf/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/constant_time_eq/103d870448b288f0/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/cpufeatures/1155c2223e703d41/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-assumptions/a58c37654c8e9e53/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-bigint/38afb9c534552488/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-budget/ea09a4c8806f3db2/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-core/110547b53bc1f242/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-evidence/94f2d14efe6174f8/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-id/2070ffee54918e44/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-modular/7135c4f3cfd4065c/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-outcome/449c29da623082ad/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-proof-kernel/cacaee62800a40df/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-rational/ceffc8a54aecf5bf/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/itoa/21525cc5481cb013/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/memchr/2a132d9b6ea2afc6/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-bigint/64d0fa5df489003f/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-complex/dddc4a34f518331f/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-integer/dbeb381751baa1ec/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-rational/af348f21d9fe362f/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-traits/4ab33040de290ae7/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/proc-macro2/50b581dd537bc537/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/quote/469abe5ebc95a3e2/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/serde/2af72f407b98a5f5/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/serde_core/9eb734ef4c6799f0/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/serde_derive/2887e19891be2884/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/serde_json/5c2475fd9f06fb61/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/syn/932bfa65c522b645/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/thiserror-impl/a4e04602239eecf5/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/thiserror/87d3de369bb173a5/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/unicode-ident/82c87474b9ca9654/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/zmij/13c9df435aa397e0/out",
+      "--extern",
+      "fsym_modular=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-modular/7135c4f3cfd4065c/out/libfsym_modular-7135c4f3cfd4065c.rmeta",
+      "--extern",
+      "thiserror=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/thiserror/87d3de369bb173a5/out/libthiserror-87d3de369bb173a5.rmeta",
+      "--extern",
+      "num_traits=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-traits/4ab33040de290ae7/out/libnum_traits-4ab33040de290ae7.rmeta",
+      "--extern",
+      "serde=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/serde/2af72f407b98a5f5/out/libserde-2af72f407b98a5f5.rmeta",
+      "--extern",
+      "fsym_outcome=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-outcome/449c29da623082ad/out/libfsym_outcome-449c29da623082ad.rmeta",
+      "--extern",
+      "fsym_assumptions=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-assumptions/a58c37654c8e9e53/out/libfsym_assumptions-a58c37654c8e9e53.rmeta",
+      "--extern",
+      "fsym_evidence=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-evidence/94f2d14efe6174f8/out/libfsym_evidence-94f2d14efe6174f8.rmeta",
+      "--extern",
+      "fsym_budget=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-budget/ea09a4c8806f3db2/out/libfsym_budget-ea09a4c8806f3db2.rmeta",
+      "--extern",
+      "fsym_proof_kernel=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-proof-kernel/cacaee62800a40df/out/libfsym_proof_kernel-cacaee62800a40df.rmeta",
+      "--extern",
+      "fsym_core=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-core/110547b53bc1f242/out/libfsym_core-110547b53bc1f242.rmeta",
+      "--extern",
+      "fsym_id=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-id/2070ffee54918e44/out/libfsym_id-2070ffee54918e44.rmeta",
+      "--extern",
+      "fsym_bigint=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-bigint/38afb9c534552488/out/libfsym_bigint-38afb9c534552488.rmeta"
+    ],
+    "matrices": [
+      "/workspace/scratch/108d8cc9f562/rust-nightly-2026-08-20/bin/rustc",
+      "--crate-name",
+      "fsym_matrices",
+      "--edition=2024",
+      "crates/fsym-matrices/src/lib.rs",
+      "--crate-type",
+      "rlib",
+      "--emit=metadata,link",
+      "-Z",
+      "embed-metadata=no",
+      "-C",
+      "embed-bitcode=no",
+      "-C",
+      "debuginfo=0",
+      "-D",
+      "warnings",
+      "--out-dir",
+      "/dev/shm/frankensympy-108d8cc9f562-continuation/native-build",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/allocator-api2/766484c6384fd3df/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/arrayvec/9e30c33b77ec7cc7/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/blake3/82a53c4ea789f987/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/cfg-if/8686beddc862cdbf/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/constant_time_eq/103d870448b288f0/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/cpufeatures/1155c2223e703d41/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/equivalent/abac1841359fe206/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/foldhash/b786539b9bc0f793/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-assumptions/deb176ca40757702/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-bigint/1222d226fdabafd3/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-budget/ace3eb16b0fe3ba3/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-calculus/0ddfdcf055a954c8/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-core/941e6a89f98c778b/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-evidence/6a6315171f46e7a2/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-id/714f44626c925272/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-modular/239271b9a74afe0a/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-outcome/449c29da623082ad/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-polys/0b7d95e872c253df/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-proof-kernel/22c02a68939a0615/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-rational/1e343b985164ee17/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-sets/ed352c6d6c4620b6/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-simplify/3fcac402e4f0bf29/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-solvers/bd0df63b5f65bd43/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/hashbrown/3bab9c82111c1e86/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/indexmap/37d0087ad8c37aba/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/itoa/21525cc5481cb013/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/memchr/09b694f77992dfcd/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-bigint/ec86dfc12d661e14/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-complex/dddc4a34f518331f/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-integer/dbeb381751baa1ec/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-rational/e0951e0bd09e4ce5/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-traits/4ab33040de290ae7/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/proc-macro2/50b581dd537bc537/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/quote/469abe5ebc95a3e2/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/serde/59eb722ca52f1a7c/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/serde_core/71f56a49be42d131/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/serde_derive/986566b62408af80/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/serde_json/adb66f56fdfed966/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/syn/75c78aa41886a684/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/thiserror-impl/7a68cc32ffa615bb/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/thiserror/b1cea08a4f9e3de9/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/unicode-ident/82c87474b9ca9654/out",
+      "-L",
+      "dependency=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/zmij/13c9df435aa397e0/out",
+      "--extern",
+      "fsym_core=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-core/941e6a89f98c778b/out/libfsym_core-941e6a89f98c778b.rmeta",
+      "--extern",
+      "fsym_budget=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-budget/ace3eb16b0fe3ba3/out/libfsym_budget-ace3eb16b0fe3ba3.rmeta",
+      "--extern",
+      "fsym_proof_kernel=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-proof-kernel/22c02a68939a0615/out/libfsym_proof_kernel-22c02a68939a0615.rmeta",
+      "--extern",
+      "fsym_calculus=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-calculus/0ddfdcf055a954c8/out/libfsym_calculus-0ddfdcf055a954c8.rmeta",
+      "--extern",
+      "fsym_simplify=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-simplify/3fcac402e4f0bf29/out/libfsym_simplify-3fcac402e4f0bf29.rmeta",
+      "--extern",
+      "fsym_polys=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-polys/0b7d95e872c253df/out/libfsym_polys-0b7d95e872c253df.rmeta",
+      "--extern",
+      "fsym_solvers=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/fsym-solvers/bd0df63b5f65bd43/out/libfsym_solvers-bd0df63b5f65bd43.rmeta",
+      "--extern",
+      "num_traits=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/num-traits/4ab33040de290ae7/out/libnum_traits-4ab33040de290ae7.rmeta",
+      "--extern",
+      "serde=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/serde/59eb722ca52f1a7c/out/libserde-59eb722ca52f1a7c.rmeta",
+      "--extern",
+      "thiserror=/workspace/scratch/108d8cc9f562/frankensympy/target/debug/build/thiserror/b1cea08a4f9e3de9/out/libthiserror-b1cea08a4f9e3de9.rmeta"
+    ]
+  },
+  "evidence_logs": {
+    "quotient_algebra_tests.log": "\nrunning 17 tests\ntest accepted_basis_receipts_bind_original_order_coefficients_and_term_order ... ok\ntest arbitrary_multivariate_elements_and_rational_coefficients_are_exact ... ok\ntest cancellation_in_each_phase_including_final_publication_yields_no_operator ... ok\ntest dimension_64_is_complete_and_dimension_65_is_not_truncated ... ok\ntest every_exact_matrix_entry_and_every_column_witness_is_checked ... ok\ntest independent_handwritten_column_evidence_is_accepted ... ok\ntest individually_valid_zero_columns_cannot_hide_an_incomplete_staircase ... ok\ntest malformed_certificate_coefficients_shapes_and_degrees_are_refused ... ok\ntest malformed_sources_cannot_hide_behind_unit_or_zero_shortcuts ... ok\ntest nonbasis_inputs_are_completed_in_each_order_without_changing_sources ... ok\ntest nonradical_quotient_keeps_nilpotent_multiplicity ... ok\ntest quadratic_field_matrix_has_column_action_and_exact_request_accessors ... ok\ntest reordered_repeated_nonstandard_and_empty_staircases_are_rejected ... ok\ntest resource_budgets_include_basis_generation_every_column_and_publication ... ok\ntest same_print_symbols_retain_distinct_typed_coordinates ... ok\ntest zero_ring_and_constant_field_are_explicit_and_positive_dimension_refuses ... ok\ntest zero_scalars_and_congruent_elements_have_the_correct_operators ... ok\n\ntest result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s\n\n",
+    "quotient_minpoly_tests.log": "\nrunning 12 tests\ntest accepted_elimination_receipts_cannot_be_rebound_to_another_element_or_ideal ... ok\ntest cancellation_in_both_phases_and_final_publication_cannot_become_transcendence ... ok\ntest false_annihilators_valid_nonminimal_multiples_and_changed_normalization_are_rejected ... ok\ntest nonradical_multiplicity_and_constant_shifts_are_preserved ... ok\ntest original_order_zero_scaling_and_redundancy_remain_bound ... ok\ntest original_shape_and_resource_limits_precede_unit_shortcuts ... ok\ntest positive_dimensional_quotients_separate_algebraic_and_transcendental_elements ... ok\ntest quotient_algebra_is_not_a_selected_real_embedding ... ok\ntest reduced_field_elements_have_their_minimal_not_characteristic_polynomial ... ok\ntest same_printed_parameter_keeps_a_distinct_typed_identity ... ok\ntest unit_zero_empty_and_constant_rings_have_explicit_generators ... ok\ntest whole_operation_budgets_do_not_restart_at_nested_elimination_boundaries ... ok\n\ntest result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.86s\n\n",
+    "matrices_minpoly_tests.log": "\nrunning 15 tests\ntest actual_budgets_span_generation_verification_sparse_admission_and_publication ... ok\ntest an_annihilating_characteristic_polynomial_is_not_enough_for_minimality ... ok\ntest both_phases_honor_cancellation_including_the_final_safe_point ... ok\ntest complete_literal_input_admission_precedes_scalar_shortcuts_and_large_copies ... ok\ntest empty_zero_identity_and_rational_scalar_matrices_have_their_least_degree ... ok\ntest exact_rational_nonsymmetric_entries_do_not_require_eigenvectors ... ok\ntest exhaustive_small_two_by_two_matrices_match_closed_form_minimal_polynomials ... ok\ntest independent_checker_accepts_a_valid_alternate_coordinate_minor ... ok\ntest malformed_nonmonic_and_rebound_claims_never_become_accepted_results ... ok\ntest maximum_dimension_supports_full_degree_without_expanding_the_bound ... ok\ntest multiple_jordan_eigenvalues_retain_maximal_block_multiplicities ... ok\ntest nilpotency_index_uses_every_block_not_a_single_starting_vector ... ok\ntest repeated_irreducible_quintics_distinguish_semisimple_and_defective_matrices ... ok\ntest sparse_inputs_are_bound_before_bounded_fill_and_share_the_exact_polynomial ... ok\ntest tiny_coefficient_and_minor_inverse_mutations_are_rejected_exactly ... ok\n\ntest result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.88s\n\n",
+    "piecewise_improper_checks.log": "Improper Piecewise integration validation, source-only stage based on 45c4bdd\n\nChanged owned files:\n  frankensympy/python/sympy/integrals/_piecewise.py\n  frankensympy/python/tests/test_piecewise_integrals.py\n\nSHA256:\n  eec703b7d012dfeb53e203617090b0923764dd8fd1bac81325cc96e5779ec0ab  python/sympy/integrals/_piecewise.py\n  74a7f346080d8ffe5e4d7346004c7b2fc4470dfcede5de44b4623cbc21f2c4db  python/tests/test_piecewise_integrals.py\n\nAST syntax check: both files passed.\nExact-source _rational_components plus four authored pure test functions:\n  4 passed, using AST extraction with Fraction and _MAX_CUTS=256.\nStatic authored test inventory: 39 functions / 85 parametrized cases.\n  This inventory is not a public pytest execution claim.\ngit diff --no-index --check, supplied original 45c4bdd file bytes through\n/dev/stdin and compared each staged file: no whitespace errors for either.\n  no-index exit 1 records differing files; stdout/stderr were empty.\n\nReference command:\n  /workspace/scratch/108d8cc9f562/oracle/bin/python -I /dev/shm/frankensympy-108d8cc9f562-continuation/piecewise_improper_oracle_checks.py\n\nObserved successful output:\n  Nonfinite reference result: divergent_positive oo\n  Nonfinite reference result: divergent_negative oo - I*pi\n  Pinned SymPy 1.14.0 improper Piecewise reference fixtures passed: 21\n  Exact-source helper file SHA256: eec703b7d012dfeb53e203617090b0923764dd8fd1bac81325cc96e5779ec0ab\n  Exact-source set checks passed for bounds: -2 2\n  Exact-source set checks passed for bounds: -oo 2\n  Exact-source set checks passed for bounds: -2 oo\n  Exact-source set checks passed for bounds: -oo oo\n  Exact-source finite/infinite component comparisons against independent set algebra passed: 5032\n\nThe 21 reference checks comprise 15 finite-result fixtures, 4 undefined/nan\nfixtures, and 2 nonfinite-result properties. The negative divergent reference\nhas a residual complex term; only nonfiniteness is compared for divergent\ncases. Production uses explicit divergence refusal, not that printed value.\n\nThese checks executed the exact pure interval helper and independent SymPy\nreference operations. No current public FrankenSymPy extension tests and no\nRust builds were executed for this change.\n",
+    "quotient_algebra_checks.log": "Public quotient algebra integration, source-only stage based on 45c4bdd\n\nOwned files and final SHA256:\n  2936db06426acb5be88c439d1aa6a767df42c89cecd84e5795d2dd738d23bbaf  frankensympy/python/sympy/polys/polytools.py\n  c9a64093b4de42013d5401c91dbb7361736b14293df746f2717e5bac81e0d104  frankensympy/python/tests/test_quotient_algebra.py\n\nFinal AST syntax checks passed for both files.\nNo-index whitespace checks passed against 45c4bdd polytools.py and empty\nbaseline for the new test file. Exit 1 records differing files; neither\ncomparison emitted whitespace errors.\n\nAuthored public regression inventory: 25 test functions / 45 parametrized\ncases. This inventory is not a public pytest execution claim.\n\nThe final added parameterized regression compares the quotient element's\nminimal polynomial with the multiplication matrix's minimal polynomial via\nboth public APIs: quadratic field, multivariate nilpotents, constant QQ and\nunit ideal. Final syntax and whitespace checks passed after this addition;\nthe four cross-feature runtime cases remain pending CI execution.\n\nA further reviewed admission guard compares the retained native output\nsymbol binding with the binding derived from its current exact assumptions,\nusing _surface_binding_key to normalize plain identity placeholders. A new\nregression changes an assumption before entry and forbids native generation;\nit remains pending public runtime execution. The guard prevents stale native\nand surface identities from reaching the quotient minimal-polynomial engine.\n\nIndependent reference command:\n  /workspace/scratch/108d8cc9f562/oracle/bin/python -I /dev/shm/frankensympy-108d8cc9f562-continuation/quotient_algebra_oracle_checks.py\n\nObserved successful output:\n  Pinned SymPy 1.14.0 quotient basis/operator fixtures passed: 13\n  Pinned SymPy 1.14.0 full-ideal minimal-polynomial fixtures passed: 21\n  Reference fixture checks only; no current FrankenSymPy public extension executed.\n\nOperator reference fixtures check the complete standard-monomial staircase,\nevery normal-form column, and orientation. Minimal-polynomial fixtures use\ncomplete upstream QQ elimination, including nilpotent multiplicities,\npositive-dimensional quotients and proved empty elimination ideals.\n\nNo Rust builds, public FrankenSymPy extension tests, commits or remote writes\nwere performed by this integration agent for this change. The parent owns\nthe native bridge, CI wiring, integration review and direct-main publication.\n",
+    "matrix_minpoly_smith_oracle_recorded_output.txt": "RECORDED PRIOR OUTCOME — ORACLE-ONLY, NOT A NEW RUN\n\nThis file preserves the stdout and tool-reported outcome of the previously\nexecuted runner now saved as matrix_minpoly_smith_oracle.py. Saving this\nrecord did not execute the runner again.\n\nScope: upstream pinned SymPy 1.14.0 only. This checked expected mathematical\ncoefficient lists independently using Smith normal form of t*I-A and checked\ntwo upstream PurePoly generator cases. It did NOT import or execute the\nmodified FrankenSymPy Python package, native extension, or public tests.\n\nOriginal execution:\n  Working directory: /dev/shm\n  Environment: PYTHONDONTWRITEBYTECODE=1\n  Interpreter: /workspace/scratch/108d8cc9f562/oracle/bin/python\n  Invocation: interpreter read the exact saved runner source from standard input\n  Tool: exec_command\n  Tool output chunk: 087a51\n  Reported exit code: 0\n  Reported wall time: 0.370898458 seconds\n\nRecorded stdout:\nidentity8 ['1', '-1']\nnilpotent_blocks ['1', '0', '0', '0']\nshifted_jordan_distinct ['1', '-5', '6', '4', '-8']\nirreducible_companion ['1', '0', '0', '-2']\nrational_jordan ['1', '-1', '1/4']\nsimilarity ['1', '-4', '4']\nzero4 ['1', '0']\nscalar ['1', '2/3']\nchanged_matrix ['1', '-2', '0']\nSymPy 1.14.0 Smith-form oracle: 9 exact matrix minimal-polynomial expectations and 2 PurePoly typed-generator cases passed\n"
+  },
+  "oracle_runners": {
+    "piecewise_improper_oracle_checks.py": "519e1d4e3e285cc41fbbd080ebdfa9528a3fbc7376275b09e6252755f1dce425",
+    "quotient_algebra_oracle_checks.py": "150d7bedb10b686ec59d548b224bd68bbaddb9fefa4e113cc19a2b41238e2ac6",
+    "matrix_minpoly_smith_oracle.py": "fde782100c5faf0921db05d02d47989c19ef4a7821060b53b3fcd3244d2f865b"
+  },
+  "source_snapshot": {
+    "crates/fsym-polys/src/lib.rs": "45bf1d31514ecbc5641abc486ed2866678cc33749ffc82b32a0513911f7ac9de",
+    "crates/fsym-polys/src/quotient_algebra.rs": "a472d86353139d8f450ac227b9a828de7ce06011c0d43038bd114dc0a18f4852",
+    "crates/fsym-polys/src/quotient_minpoly.rs": "be01cfcd1168918f257e41aeafbfcb367837ec00c844f9c3d1b78815e772fecd",
+    "crates/fsym-polys/tests/quotient_algebra.rs": "70aee9aaa977c9db5223ae0adf46c7129b320491f7d26354ea4fcc9d94bcfa57",
+    "crates/fsym-polys/tests/quotient_minpoly.rs": "6966e643e4144815550aecb8b83445d77b7e97d1b6ede3fc18fbaad2c10216fd",
+    "crates/fsym-matrices/src/lib.rs": "c0c28a35e48db20511a82de42b5800168166fff4c900cc3b33a2fa80b4191137",
+    "crates/fsym-matrices/src/minimal_polynomial.rs": "9333afa467d83accd78dc5725e6f7edb65b0d4980c85c0d305d02ce02e73da07",
+    "crates/fsym-matrices/tests/minimal_polynomial.rs": "28efc4f92719b86373c26f9b76ebb80b18e534fb139be5f597c5fa70849bcff8",
+    "crates/fsym-python/src/lib.rs": "a5d433f0cbe51b20a3c540a62d5647c86e8a5eddc22d84d9ec108726fc2987e9",
+    "crates/fsym-python/src/quotient_algebra.rs": "8f08f97411f431c2e1607deeee4dcb7d0d0ee94fb3f779a78946449811862719",
+    "crates/fsym-python/src/matrix.rs": "2ac5c10ec2fc873c0e16b7abf6e939754673e0fee1210da100c41cb837d07b5b",
+    "python/sympy/polys/polytools.py": "2936db06426acb5be88c439d1aa6a767df42c89cecd84e5795d2dd738d23bbaf",
+    "python/tests/test_quotient_algebra.py": "c9a64093b4de42013d5401c91dbb7361736b14293df746f2717e5bac81e0d104",
+    "python/sympy/matrices/dense.py": "a77b8304b0504e86c31d77d35f9fd42dedd896729357ddc188aceb3504fdef3c",
+    "python/tests/test_matrix_minimal_polynomial.py": "c58acde47f505897b70d352e59defdbf7b99c1ba6b7efd0fe0a47366cb8daf35",
+    "python/sympy/integrals/_piecewise.py": "eec703b7d012dfeb53e203617090b0923764dd8fd1bac81325cc96e5779ec0ab",
+    "python/tests/test_piecewise_integrals.py": "74a7f346080d8ffe5e4d7346004c7b2fc4470dfcede5de44b4623cbc21f2c4db",
+    ".github/workflows/ci.yml": "335d0b40a1b3327b19771f4882cfb8fd9bf7259b569973a4408e35e1f0948740",
+    ".beads/issues.jsonl": "8f4c79f05ce0473a0358ef97c2cfe8679978a2cdb3a4842a1415e2259c5b1484"
+  }
+}
