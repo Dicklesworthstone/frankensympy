@@ -18,6 +18,7 @@ use crate::{NewtonGuards, exact_binary64_rational};
 use fsym_budget::{BudgetMeter, Dimension, MeterError, Unbounded};
 use fsym_calculus::VerifiedResidualSystem;
 use fsym_calculus::compile::EvalError;
+use fsym_calculus::verified::ResidualEvaluationError;
 use fsym_core::{BigRational, RealBall, RootBoxError, RootBoxReceipt, RootBoxWitness};
 use std::cell::RefCell;
 use std::mem::size_of;
@@ -28,6 +29,10 @@ pub const MAX_CONSUMER_VARIABLES: usize = fsym_core::MAX_ROOT_BOX_VARIABLES;
 pub const MAX_CONSUMER_NEWTON_ITERATIONS: usize = 1024;
 const FSCIPY_ITERATIONS: usize = 200;
 const FSCIPY_TOLERANCE: f64 = 1e-10;
+// The pinned Armijo driver starts at one and halves an unsuccessful bounded
+// interpolation step until 0.01. Sixteen calls per outer iteration include
+// its initial, quadratic, cubic and possible final residual evaluations.
+const FSCIPY_ANALYTIC_CALLS_PER_ITERATION: usize = 16;
 
 /// An approximate numerical proposal, without a root-existence claim.
 #[derive(Debug, Clone, PartialEq)]
@@ -84,6 +89,8 @@ pub enum SystemConsumerError {
     },
     #[error("compiled evaluation refused: {0}")]
     Evaluation(#[from] EvalError),
+    #[error("checked sparse evaluation refused: {0}")]
+    SparseEvaluation(#[from] ResidualEvaluationError),
     #[error("consumer work stopped: {0}")]
     Meter(#[from] MeterError),
     #[error("original-source root verification refused: {0}")]
@@ -243,6 +250,284 @@ pub fn frankenscipy_fsolve_system_with_meter<M: BudgetMeter>(
     })
 }
 
+/// Run the pinned FrankenSciPy nonlinear driver with the checked Jacobian.
+///
+/// Unlike the separate finite-difference fsolve route, this adapter consumes
+/// the admitted sparse derivative values. The donor owns its Armijo search;
+/// the pinned NumPy linear solver computes each analytic Newton direction.
+/// The fixed controls are 200 iterations and a 1e-10 residual tolerance.
+/// A finite checked Jacobian is required even at an exact initial root.
+/// Returned coordinates remain an approximate proposal.
+pub fn frankenscipy_analytic_system(
+    system: &VerifiedResidualSystem,
+    initial: &[f64],
+) -> Result<RootProposal, SystemConsumerError> {
+    frankenscipy_analytic_system_with_meter(system, initial, &mut Unbounded)
+}
+
+pub fn frankenscipy_analytic_system_with_meter<M: BudgetMeter>(
+    system: &VerifiedResidualSystem,
+    initial: &[f64],
+    meter: &mut M,
+) -> Result<RootProposal, SystemConsumerError> {
+    let n = admit_point(system, initial, meter)?;
+    // Initialization and terminal/failure draining are prepaid independently
+    // of callback intervals. The donor has no fallible Jacobian trait: after
+    // a latched error an empty direction/residual may finish one driver step.
+    // Its bounded vector copies and status string still belong to this call.
+    charge(
+        meter,
+        (128 * n + 512) as u64,
+        (32 * n * size_of::<f64>() + 2048) as u64,
+        32,
+    )?;
+    let jacobian = zeros(n * n, meter)?;
+    let maximum_calls = 1 + FSCIPY_ITERATIONS * FSCIPY_ANALYTIC_CALLS_PER_ITERATION;
+    let (result, failure, calls, updates, directions) = {
+        let state = RefCell::new(CallbackState {
+            meter: &mut *meter,
+            error: None,
+            calls: 0,
+        });
+        let mut analytic = AnalyticJacobian {
+            system,
+            state: &state,
+            dimension: n,
+            values: jacobian,
+            updates: 0,
+            directions: 0,
+        };
+        let options = fsci_opt::NonlinOptions {
+            f_tol: FSCIPY_TOLERANCE,
+            maxiter: Some(FSCIPY_ITERATIONS),
+            line_search: fsci_opt::LineSearch::Armijo,
+            ..fsci_opt::NonlinOptions::default()
+        };
+        let result = fsci_opt::nonlin_solve(
+            |point| {
+                let mut state = state.borrow_mut();
+                if state.error.is_some() {
+                    return Vec::new();
+                }
+                state.calls += 1;
+                let evaluated = if state.calls > maximum_calls {
+                    Err(SystemConsumerError::ConsumerContract(
+                        "analytic residual callback count",
+                    ))
+                } else {
+                    analytic_interval(n, state.meter)
+                        .and_then(|()| evaluate_residuals(system, point, n, state.meter))
+                        .and_then(|values| {
+                            analytic_cost(&values, state.meter)?;
+                            Ok(values)
+                        })
+                };
+                match evaluated {
+                    Ok(values) => values,
+                    Err(error) => {
+                        state.error = Some(error);
+                        Vec::new()
+                    }
+                }
+            },
+            initial,
+            &mut analytic,
+            options,
+        );
+        let updates = analytic.updates;
+        let directions = analytic.directions;
+        drop(analytic);
+        let state = state.into_inner();
+        (result, state.error, state.calls, updates, directions)
+    };
+    // An empty sentinel can look like zero residual to this donor. Never
+    // inspect its success flag before restoring the first original failure.
+    if let Some(error) = failure {
+        return Err(error);
+    }
+    meter.checkpoint()?;
+    if result.x.len() != n || result.fun.len() != n {
+        return Err(SystemConsumerError::ConsumerContract(
+            "analytic result dimensions",
+        ));
+    }
+    if result.iterations > FSCIPY_ITERATIONS
+        || result.function_calls != calls
+        || updates != result.iterations + 1
+        || directions != result.iterations
+    {
+        return Err(SystemConsumerError::ConsumerContract(
+            "analytic iteration accounting",
+        ));
+    }
+    finite(&result.x, "analytic consumer root", meter)?;
+    finite(&result.fun, "analytic consumer reported residual", meter)?;
+    analytic_cost(&result.fun, meter)?;
+    let residuals = evaluate_residuals(system, &result.x, n, meter)?;
+    analytic_cost(&residuals, meter)?;
+    let residual_norm = infinity_norm(&residuals, meter)?;
+    if !result.success || residual_norm > FSCIPY_TOLERANCE {
+        return Err(SystemConsumerError::NoConvergence {
+            iterations: result.iterations,
+            residual_norm,
+        });
+    }
+    publication_checkpoint(n, meter)?;
+    Ok(RootProposal {
+        root: result.x,
+        residual_norm,
+        iterations: result.iterations,
+    })
+}
+
+struct AnalyticJacobian<'system, 'state, 'meter, M> {
+    system: &'system VerifiedResidualSystem,
+    state: &'state RefCell<CallbackState<'meter, M>>,
+    dimension: usize,
+    values: Vec<f64>,
+    updates: usize,
+    directions: usize,
+}
+
+impl<M: BudgetMeter> AnalyticJacobian<'_, '_, '_, M> {
+    fn capture(&mut self, point: &[f64], residuals: &[f64]) {
+        let mut state = self.state.borrow_mut();
+        if state.error.is_some() {
+            return;
+        }
+        self.updates += 1;
+        let result = if self.updates > FSCIPY_ITERATIONS + 1 {
+            Err(SystemConsumerError::ConsumerContract(
+                "analytic Jacobian update count",
+            ))
+        } else {
+            capture_analytic_jacobian(
+                self.system,
+                point,
+                residuals,
+                self.dimension,
+                &mut self.values,
+                state.meter,
+            )
+        };
+        if let Err(error) = result {
+            state.error = Some(error);
+        }
+    }
+}
+
+impl<M: BudgetMeter> fsci_opt::NonlinJacobian for AnalyticJacobian<'_, '_, '_, M> {
+    fn setup_at(&mut self, point: &[f64], residuals: &[f64]) {
+        self.capture(point, residuals);
+    }
+
+    fn absorb(&mut self, point: &[f64], residuals: &[f64]) {
+        self.capture(point, residuals);
+    }
+
+    fn newton_direction(&mut self, rhs: &[f64], tolerance: f64) -> Vec<f64> {
+        let mut state = self.state.borrow_mut();
+        if state.error.is_some() {
+            return Vec::new();
+        }
+        self.directions += 1;
+        let result = if self.directions > FSCIPY_ITERATIONS {
+            Err(SystemConsumerError::ConsumerContract(
+                "analytic Newton direction count",
+            ))
+        } else if !tolerance.is_finite() || tolerance < 0.0 {
+            Err(SystemConsumerError::ConsumerContract(
+                "analytic inner tolerance",
+            ))
+        } else {
+            point_dimension(rhs, self.dimension, "analytic linear right-hand side")
+                .and_then(|()| finite(rhs, "analytic linear right-hand side", state.meter))
+                .and_then(|()| linear_solve(&self.values, rhs, self.dimension, state.meter))
+        };
+        match result {
+            Ok(direction) => direction,
+            Err(error) => {
+                state.error = Some(error);
+                Vec::new()
+            }
+        }
+    }
+}
+
+fn capture_analytic_jacobian<M: BudgetMeter>(
+    system: &VerifiedResidualSystem,
+    point: &[f64],
+    supplied_residuals: &[f64],
+    n: usize,
+    values: &mut [f64],
+    meter: &mut M,
+) -> Result<(), SystemConsumerError> {
+    point_dimension(point, n, "analytic Jacobian point")?;
+    point_dimension(supplied_residuals, n, "analytic Jacobian residual")?;
+    finite(point, "analytic Jacobian point", meter)?;
+    finite(supplied_residuals, "analytic Jacobian residual", meter)?;
+    analytic_cost(supplied_residuals, meter)?;
+    let evaluated = system.evaluate_sparse_with_meter(point, meter)?;
+    let pattern = system.jacobian_pattern();
+    if evaluated.residuals.len() != n
+        || evaluated.jacobian.len() != pattern.len()
+        || values.len() != n * n
+    {
+        return Err(SystemConsumerError::ConsumerContract(
+            "analytic sparse Jacobian dimensions",
+        ));
+    }
+    charge(meter, (n * n + pattern.len() + n + 1) as u64, 0, 0)?;
+    if evaluated.residuals.as_slice() != supplied_residuals {
+        return Err(SystemConsumerError::ConsumerContract(
+            "analytic source residual agreement",
+        ));
+    }
+    values.fill(0.0);
+    for (&(row, column), value) in pattern.iter().zip(evaluated.jacobian) {
+        if row >= n || column >= n {
+            return Err(SystemConsumerError::ConsumerContract(
+                "analytic sparse Jacobian coordinate",
+            ));
+        }
+        values[row * n + column] = value;
+    }
+    finite(values, "analytic Jacobian", meter)
+}
+
+/// Prepay the pinned driver's vector algebra and interpolation work until
+/// its next residual callback, including a possible terminal driver step.
+fn analytic_interval<M: BudgetMeter>(n: usize, meter: &mut M) -> Result<(), SystemConsumerError> {
+    charge(
+        meter,
+        (128 * n + 512) as u64,
+        (64 * n * size_of::<f64>() + 1024) as u64,
+        32,
+    )
+}
+
+/// The donor's Armijo merit is the sum of squared residuals. Finite scalar
+/// components alone cannot authorize an overflowing contribution or sum.
+fn analytic_cost<M: BudgetMeter>(values: &[f64], meter: &mut M) -> Result<(), SystemConsumerError> {
+    charge(meter, (2 * values.len() + 1) as u64, 0, 0)?;
+    let mut total = 0.0_f64;
+    for value in values {
+        let contribution = value * value;
+        if !contribution.is_finite() {
+            return Err(SystemConsumerError::NonFinite(
+                "analytic residual squared cost",
+            ));
+        }
+        total += contribution;
+        if !total.is_finite() {
+            return Err(SystemConsumerError::NonFinite(
+                "analytic residual squared cost",
+            ));
+        }
+    }
+    Ok(())
+}
+
 struct CallbackState<'a, M> {
     meter: &'a mut M,
     error: Option<SystemConsumerError>,
@@ -377,6 +662,35 @@ pub fn frankenscipy_fsolve_system_root_box_with_meter<M: BudgetMeter>(
 ) -> Result<CertifiedRootOutcome, SystemConsumerError> {
     admit_root_request(system, initial, radii, precision_digits, meter)?;
     let proposal = frankenscipy_fsolve_system_with_meter(system, initial, meter)?;
+    certify_root_with_meter(system, &proposal.root, radii, precision_digits, meter)
+}
+
+/// Generate a proposal with the analytic FrankenSciPy driver and check it
+/// with the same original-source root-box verifier used by the other donors.
+pub fn frankenscipy_analytic_system_root_box(
+    system: &VerifiedResidualSystem,
+    initial: &[f64],
+    radii: &[f64],
+    precision_digits: u32,
+) -> Result<CertifiedRootOutcome, SystemConsumerError> {
+    frankenscipy_analytic_system_root_box_with_meter(
+        system,
+        initial,
+        radii,
+        precision_digits,
+        &mut Unbounded,
+    )
+}
+
+pub fn frankenscipy_analytic_system_root_box_with_meter<M: BudgetMeter>(
+    system: &VerifiedResidualSystem,
+    initial: &[f64],
+    radii: &[f64],
+    precision_digits: u32,
+    meter: &mut M,
+) -> Result<CertifiedRootOutcome, SystemConsumerError> {
+    admit_root_request(system, initial, radii, precision_digits, meter)?;
+    let proposal = frankenscipy_analytic_system_with_meter(system, initial, meter)?;
     certify_root_with_meter(system, &proposal.root, radii, precision_digits, meter)
 }
 

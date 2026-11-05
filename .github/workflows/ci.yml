@@ -152,6 +152,7 @@ jobs:
           cargo test --locked -p fsym-calculus --test piecewise_programs -j1
           cargo test --locked -p fsym-calculus --test sparse_hessian -j1
           cargo test --locked -p fsym-calculus --test verified_sparse_products -j1
+          cargo test --locked -p fsym-numeric-consumer --test analytic_system_consumers -j1
           cargo test --locked -p fsym-proof-kernel --test elementary_rational_definite -j1
           cargo test --locked -p fsym-calculus --test elementary_rational_definite --test rational_definite --test definite_integration_domains -j1
           cargo test --locked -p fsym-solvers --lib --test real_rur --test localized_components --test algebraic_components --test polynomial_system --test polynomial_components --test rational_components --test rational_graph --test rational_systems -j1
