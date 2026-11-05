@@ -31,6 +31,7 @@ from ._piecewise_numeric import (
 
 __all__ = [
     "EvaluationBudget", "EvaluationBudgetExceeded", "EvaluationCancelled", "NumericRootCandidate",
+    "NumericLeastSquaresCandidate",
     "compile_numeric", "compile_residual_system", "load_residual_system", "lambdify",
 ]
 
@@ -590,6 +591,89 @@ class NumericRootCandidate:
                 f"iterations={self.iterations!r}, backend={self.backend!r})")
 
 
+class NumericLeastSquaresCandidate:
+    """Immutable approximate stationary point of half the squared residual norm.
+
+    The full residual vector and freshly evaluated gradient are diagnostics.
+    A stationary point can be a saddle or local maximum, and a nonzero
+    residual is not a root. This object supplies no minimum, uniqueness,
+    root-existence, rounding-error or declared-assumption certificate.
+    """
+
+    __slots__ = (
+        "_point", "_variables", "_residuals", "_cost", "_gradient_norm",
+        "_iterations", "_evaluations", "_termination",
+    )
+
+    def __init__(self, point, variables, residuals, cost, gradient_norm,
+                 iterations, evaluations, termination):
+        if hasattr(self, "_point"):
+            raise AttributeError("least-squares candidates are immutable")
+        object.__setattr__(self, "_point", tuple(point))
+        object.__setattr__(self, "_variables", tuple(variables))
+        object.__setattr__(self, "_residuals", tuple(residuals))
+        object.__setattr__(self, "_cost", cost)
+        object.__setattr__(self, "_gradient_norm", gradient_norm)
+        object.__setattr__(self, "_iterations", iterations)
+        object.__setattr__(self, "_evaluations", evaluations)
+        object.__setattr__(self, "_termination", termination)
+
+    def __setattr__(self, name, value):
+        raise AttributeError("least-squares candidates are immutable")
+
+    def __delattr__(self, name):
+        raise AttributeError("least-squares candidates are immutable")
+
+    @property
+    def point(self):
+        return self._point
+
+    @property
+    def variables(self):
+        """The caller's captured Symbol/Dummy objects in coordinate order."""
+        return self._variables
+
+    @property
+    def residuals(self):
+        """Every original residual in source order, including nonzero rows."""
+        return self._residuals
+
+    @property
+    def cost(self):
+        """One half the sum of squared binary64 residuals."""
+        return self._cost
+
+    @property
+    def gradient_norm(self):
+        """Infinity norm of the binary64 J-transpose-r at point."""
+        return self._gradient_norm
+
+    @property
+    def iterations(self):
+        return self._iterations
+
+    @property
+    def evaluations(self):
+        """Source/Jacobian evaluations, including rejected and final checks."""
+        return self._evaluations
+
+    @property
+    def termination(self):
+        return self._termination
+
+    @property
+    def backend(self):
+        return "frankennumpy_qr"
+
+    @property
+    def evidence(self):
+        return "approximate"
+
+    def __repr__(self):
+        return (f"NumericLeastSquaresCandidate(point={self.point!r}, cost={self.cost!r}, "
+                f"gradient_norm={self.gradient_norm!r}, iterations={self.iterations!r})")
+
+
 class _ResidualCallable:
     """Python argument layout around an immutable checked native system."""
 
@@ -764,6 +848,67 @@ class _ResidualCallable:
             max_step_norm=max_step_norm, budget=budget,
         )
         result = NumericRootCandidate(root, self.variables, norm, iterations, backend)
+        _check_evaluation_budget(budget)
+        return result
+
+    def solve_least_squares(self, initial, *, gtol=None, maxiter=None,
+                           max_step_norm=None, budget=None):
+        """Find an approximate stationary point of the full least-squares cost.
+
+        Admit 1..16 variables and between variable_count and 64 residuals.
+        initial is a scalar for one variable or a flat built-in list/tuple
+        in variables order, independently of the evaluation argument layout.
+        Every residual has unit weight; no row rescaling changes the objective.
+
+        The checked symbolic Jacobian supplies a column-equilibrated
+        Gauss-Newton step through pinned FrankenNumPy Householder QR, followed
+        by bounded Armijo backtracking. A numerically rank-deficient Jacobian
+        refuses unless the point already meets the stationarity criterion.
+        Controls default to gtol=1e-10, maxiter=64 and max_step_norm=1e6.
+        The iteration limit is 0..1024; the step limit clips the infinity norm
+        before at most 32 line-search trials. At the objective's rounding
+        scale, a slight cost increase is allowed only while the fresh gradient
+        strictly improves.
+
+        Success requires a freshly evaluated infinity norm of J-transpose-r
+        at most gtol. A small step or unchanged cost alone cannot succeed.
+        The immutable NumericLeastSquaresCandidate reports all residuals,
+        half their squared norm, gradient norm and evaluation counts. It can
+        represent a nonzero-residual stationary point, including a saddle or
+        maximum; it carries no root or minimum certificate.
+
+        Initial, trial and final evaluations retain every original source
+        and derivative domain. Nonfinite arithmetic and domain errors are
+        terminal. Native buffers, rejected trials, donor work and publication
+        share one supplied EvaluationBudget. Cancellation is cooperative
+        around synchronous donor work. Python objects and compilation are
+        outside that ledger, and no fallback resets consumed work.
+        """
+        from ..solvers.numerical import _candidate_options
+
+        _check_evaluation_budget(budget)
+        columns = self.native_system.variable_count
+        rows = self.native_system.residual_count
+        if not 1 <= columns <= 16 or not columns <= rows <= 64:
+            raise ValueError(
+                "least squares requires 1..16 variables and variable_count..64 residuals"
+            )
+        gtol, maxiter, max_step_norm = _candidate_options(
+            "frankennumpy", 1e-10 if gtol is None else gtol, maxiter,
+            max_step_norm, allow_python=False,
+        )
+        values = initial if type(initial) in (list, tuple) else (initial,)
+        inputs = _call_arguments((None,) * columns, values, native=True)
+        point, residuals, cost, gradient, iterations, evaluations, termination = (
+            self.native_system.solve_least_squares(
+                inputs, gtol=gtol, maxiter=maxiter,
+                max_step_norm=max_step_norm, budget=budget,
+            )
+        )
+        result = NumericLeastSquaresCandidate(
+            point, self.variables, residuals, cost, gradient,
+            iterations, evaluations, termination,
+        )
         _check_evaluation_budget(budget)
         return result
 

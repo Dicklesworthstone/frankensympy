@@ -30,9 +30,10 @@ use fsym_core::{
     verify_root_box, verify_root_isolation,
 };
 use fsym_numeric_consumer::{
-    MAX_CONSUMER_NEWTON_ITERATIONS, MAX_CONSUMER_VARIABLES, NewtonGuards, SystemConsumerError,
+    LeastSquaresOptions, LeastSquaresTermination, MAX_CONSUMER_NEWTON_ITERATIONS,
+    MAX_CONSUMER_VARIABLES, MAX_LEAST_SQUARES_RESIDUALS, NewtonGuards, SystemConsumerError,
     frankenscipy_analytic_system_with_meter, frankenscipy_fsolve_system_with_meter,
-    newton_refine_with_meter,
+    least_squares_with_meter, newton_refine_with_meter,
 };
 use pyo3::exceptions::{PyMemoryError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
@@ -1528,6 +1529,57 @@ impl PyVerifiedResidualSystem {
         // to reattach the interpreter cannot publish a successful proposal.
         let result =
             (proposal.root, proposal.residual_norm, proposal.iterations).into_pyobject(py)?;
+        with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
+        Ok(result)
+    }
+
+    /// Generate an approximate least-squares stationary point, not a root.
+    /// All residual rows and derivative domains share the same native ledger.
+    #[pyo3(signature = (initial, *, gtol=None, maxiter=None, max_step_norm=None, budget=None))]
+    fn solve_least_squares<'py>(
+        &self,
+        initial: &Bound<'py, PyAny>,
+        gtol: Option<&Bound<'_, PyAny>>,
+        maxiter: Option<&Bound<'_, PyAny>>,
+        max_step_norm: Option<&Bound<'_, PyAny>>,
+        budget: Option<PyRef<'_, PyEvaluationBudget>>,
+    ) -> PyResult<Bound<'py, PyTuple>> {
+        let defaults = LeastSquaresOptions::default();
+        let shared_guards = donor_newton_guards(None, maxiter, max_step_norm)?;
+        let gradient_tolerance =
+            donor_float_option(gtol, defaults.gradient_tolerance, "gtol", true)?;
+        let options = LeastSquaresOptions {
+            max_iterations: shared_guards.max_iterations,
+            gradient_tolerance,
+            max_step_norm: shared_guards.max_step_norm,
+        };
+        let variables = self.system.vars().len();
+        let residuals = self.system.residuals().len();
+        if !(1..=MAX_CONSUMER_VARIABLES).contains(&variables)
+            || !(variables..=MAX_LEAST_SQUARES_RESIDUALS).contains(&residuals)
+        {
+            return Err(PyValueError::new_err(
+                "least squares requires 1..=16 variables and variable_count..=64 residuals",
+            ));
+        }
+        let inputs = input_values_metered(initial, variables, budget.as_deref())?;
+        let py = initial.py();
+        let proposal = with_evaluation_meter(py, budget.as_deref(), |meter| {
+            least_squares_with_meter(&self.system, &inputs, &options, meter)
+        })?;
+        let termination = match proposal.termination {
+            LeastSquaresTermination::GradientTolerance => "gradient_tolerance",
+        };
+        let values = (
+            proposal.point,
+            proposal.residuals,
+            proposal.cost,
+            proposal.gradient_norm,
+            proposal.iterations,
+            proposal.evaluations,
+            termination,
+        );
+        let result = values.into_pyobject(py)?;
         with_evaluation_meter_attached(budget.as_deref(), |meter| meter.checkpoint())?;
         Ok(result)
     }
