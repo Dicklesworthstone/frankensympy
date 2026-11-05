@@ -131,9 +131,7 @@ fn admit<'a>(
             Expr::Integer(value) if value.bits() <= MAX_INPUT_BITS => {}
             Expr::Rational(value)
                 if value.denom().is_positive()
-                    && value.numer().bits().max(value.denom().bits()) <= MAX_INPUT_BITS =>
-            {
-            }
+                    && value.numer().bits().max(value.denom().bits()) <= MAX_INPUT_BITS => {}
             Expr::Integer(_) | Expr::Rational(_) => {
                 return Err(MatrixExponentialError::ResourceLimit(
                     "input rational coefficient exceeds 1024 bits",
@@ -202,7 +200,12 @@ impl Matrix {
             inner: verifier,
             used: [0; 3],
         };
-        let n = admit(self.rows(), self.cols(), self.data().iter(), &mut generation)?;
+        let n = admit(
+            self.rows(),
+            self.cols(),
+            self.data().iter(),
+            &mut generation,
+        )?;
         let coefficients: Vec<Vec<_>> = self
             .data()
             .chunks(n.max(1))

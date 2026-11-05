@@ -111,12 +111,8 @@ fn hyperbolic_normalization_and_shifted_jordan_families_are_exact() {
 
 #[test]
 fn sparse_exponential_handles_fill_and_omits_exact_zero_entries() {
-    let source = SparseMatrix::new(
-        3,
-        3,
-        BTreeMap::from([((0, 1), e("1")), ((1, 2), e("1"))]),
-    )
-    .unwrap();
+    let source =
+        SparseMatrix::new(3, 3, BTreeMap::from([((0, 1), e("1")), ((1, 2), e("1"))])).unwrap();
     let actual = source.exp().unwrap();
     assert_eq!(source.nnz(), 2);
     assert_eq!(actual.nnz(), 6);
@@ -145,15 +141,9 @@ fn accepted_receipt_evaluation_uses_absolute_time_and_original_normalization() {
     )
     .unwrap();
     let at_initial = source.fundamental_at(&q(2, 1), &mut Unbounded).unwrap();
-    assert_eq!(
-        at_initial,
-        vec![vec![e("1"), e("0")], vec![e("0"), e("1")]]
-    );
+    assert_eq!(at_initial, vec![vec![e("1"), e("0")], vec![e("0"), e("1")]]);
     let at_three = source.fundamental_at(&q(3, 1), &mut Unbounded).unwrap();
-    assert_eq!(
-        at_three,
-        vec![vec![e("E"), e("0")], vec![e("0"), e("1")]]
-    );
+    assert_eq!(at_three, vec![vec![e("E"), e("0")], vec![e("0"), e("1")]]);
     let huge = BigRational::from_integer(BigInt::from(1) << 1024usize);
     assert!(matches!(
         source.fundamental_at(&huge, &mut Unbounded),

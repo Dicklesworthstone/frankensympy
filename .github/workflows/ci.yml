@@ -144,11 +144,11 @@ jobs:
           cargo test --locked -p fsym-calculus --test certified_parametric_cover -j1
           cargo test --locked -p fsym-bigint --lib floor_square_root_pins_exact_square_boundaries_and_governed_lane -j1
           cargo test --locked -p fsym-polys --test rational_localization --test radical --test finite_field --test finite_field_source -j1
-          cargo test --locked -p fsym-matrices --test affine_system --test rectangular_solve --test least_squares -j1
+          cargo test --locked -p fsym-matrices --test affine_system --test rectangular_solve --test least_squares --test matrix_exponential -j1
           cargo test --locked -p fsym-calculus --test rational_laplace --test delayed_laplace --test distributional_laplace --test delayed_distributional_laplace -j1
           cargo test --locked -p fsym-calculus --test geometric_summation --test rational_summation -j1
-          cargo test --locked -p fsym-solvers --test linear_ode_system --test polynomial_ode_system --test exact_ode --test ode_radicals -j1
-          cargo test --locked -p fsym-calculus --test general_power_programs -j1
+          cargo test --locked -p fsym-solvers --test linear_ode_system --test polynomial_ode_system --test general_ode_system --test exact_ode --test ode_radicals -j1
+          cargo test --locked -p fsym-calculus --test general_power_programs --test directional_series -j1
           cargo test --locked -p fsym-calculus --test piecewise_programs -j1
           cargo test --locked -p fsym-calculus --test sparse_hessian -j1
           cargo test --locked -p fsym-calculus --test verified_sparse_products -j1
@@ -268,9 +268,12 @@ jobs:
               "python/tests/test_rational_definite.py",
               "python/tests/test_exact_rational_integral.py",
               "python/tests/test_generalized_series.py",
+              "python/tests/test_directional_series.py",
+              "python/tests/test_residue_meromorphic.py",
               "python/tests/test_polynomial_geometric_summation.py",
               "python/tests/test_algebraic_matrix_spectra.py",
               "python/tests/test_matrix_norms.py",
+              "python/tests/test_matrix_exponential.py",
               "python/tests/test_rectangular_matrix_solve.py",
               "python/tests/test_matrix_least_squares.py",
               "python/tests/test_sparse_surface_storage.py",
@@ -281,6 +284,7 @@ jobs:
               "python/tests/test_exact_ode.py",
               "python/tests/test_linear_ode_system.py",
               "python/tests/test_polynomial_ode_system.py",
+              "python/tests/test_general_ode_system.py",
               "python/tests/test_compiled_powers.py",
               "python/tests/test_compiled_objective.py",
               "python/tests/test_numeric_evaluation_budget.py",
