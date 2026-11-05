@@ -2195,9 +2195,23 @@ class ImmutableDenseMatrix(Matrix):
     """
 
     def __hash__(self):
+        # Dense and sparse immutable matrices compare by their cells.  A
+        # shared coordinate hash keeps that contract without forcing a huge
+        # sparse snapshot to materialize every implicit zero.
         if self._native_storage is not None:
-            return hash((self.shape, tuple(self._native.flat())))
-        return hash((self.shape, self._surface))
+            zero = _native.py_integer(0)
+            entries = tuple(
+                (index // self.cols, index % self.cols, entry)
+                for index, entry in enumerate(self._native.flat()) if entry != zero
+            )
+        else:
+            from .sparse import _is_exact_zero
+
+            entries = tuple(
+                (index // self.cols, index % self.cols, entry)
+                for index, entry in enumerate(self._surface) if not _is_exact_zero(entry)
+            )
+        return hash((self.shape, entries))
 
     def __setitem__(self, key, value):
         raise TypeError("Cannot set an item on an immutable matrix")

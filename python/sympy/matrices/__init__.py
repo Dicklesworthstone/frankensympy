@@ -31,6 +31,7 @@ from .dense import (
     zeros,
 )
 from .sparse import (
+    ImmutableSparseMatrix,
     MutableSparseMatrix,
     SparseMatrix,
 )
@@ -40,6 +41,7 @@ __all__ = [
     "GramSchmidt",
     "ImmutableDenseMatrix",
     "ImmutableMatrix",
+    "ImmutableSparseMatrix",
     "Matrix",
     "MatrixBase",
     "MutableDenseMatrix",

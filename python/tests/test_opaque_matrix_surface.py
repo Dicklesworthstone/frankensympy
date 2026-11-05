@@ -148,13 +148,23 @@ def test_elementary_matrix_algebra_preserves_distinct_function_classes():
 
 
 @pytest.mark.parametrize("method", ["det", "inv", "rank", "rref", "nullspace", "charpoly",
-                                   "QRdecomposition", "pinv", "to_sparse"])
+                                   "QRdecomposition", "pinv"])
 def test_unimplemented_native_matrix_algorithms_refuse_opaque_cells(method):
     _, _, _, a, _ = same_name_values()
     matrix = s.Matrix([[a]])
     with pytest.raises(NotImplementedError, match="opaque Python"):
         getattr(matrix, method)()
     assert matrix[0, 0] is a and matrix.mutation_generation == 0
+
+
+def test_sparse_conversion_retains_opaque_cells_and_roundtrips_their_identity():
+    _, _, _, a, b = same_name_values()
+    matrix = s.Matrix([[a, 0], [0, b]])
+    sparse = matrix.to_sparse()
+    assert sparse[0, 0] is a and sparse[1, 1] is b
+    assert sparse.to_dense()[0, 0] is a and sparse.to_dense()[1, 1] is b
+    assert sparse._native_storage is None
+    assert matrix.mutation_generation == 0
 
 
 def test_matrix_capture_never_uses_custom_argument_or_value_getters():

@@ -78,7 +78,7 @@ def test_unknown_metaclass_hash_equality_and_conversion_never_run_during_source_
     assert effects == []
 
 
-@pytest.mark.parametrize("kind", ["dense", "immutable", "sparse", "retained"])
+@pytest.mark.parametrize("kind", ["dense", "immutable", "sparse", "immutable_sparse", "retained"])
 @pytest.mark.parametrize("compiler", ["scalar", "residual", "load"])
 def test_matrix_sources_never_lift_unknown_functions_before_refusing(kind, compiler):
     x = s.Symbol("closed_matrix_x")
@@ -92,8 +92,9 @@ def test_matrix_sources_never_lift_unknown_functions_before_refusing(kind, compi
         "__module__": __name__, "__setattr__": setter,
     })
     raw = _native.py_function("ClosedMatrixOpaque", _native_expr(x))
-    if kind == "sparse":
-        source = s.SparseMatrix(_native.SparseMatrix(1, 1, {(0, 0): raw}))
+    if kind in ("sparse", "immutable_sparse"):
+        cls = s.SparseMatrix if kind == "sparse" else s.ImmutableSparseMatrix
+        source = cls(_native.SparseMatrix(1, 1, {(0, 0): raw}))
     elif kind == "retained":
         source = s.Matrix([[custom(x, evaluate=False)]])
     else:
@@ -102,6 +103,43 @@ def test_matrix_sources_never_lift_unknown_functions_before_refusing(kind, compi
     effects.clear()
     with pytest.raises(NotImplementedError, match="custom or opaque"):
         compile_source(compiler, source, x)
+    assert effects == []
+
+
+@pytest.mark.parametrize("slot,value,match", [
+    ("_surface", {(0, 2): s.Integer(1)}, "coordinate"),
+    ("_surface", {(True, 0): s.Integer(1)}, "coordinate"),
+    ("_surface", {"0,0": s.Integer(1)}, "coordinate"),
+    ("_surface", [s.Integer(1)], "snapshot"),
+    ("_mutation_generation", -1, "generation"),
+    ("_mutation_generation", False, "generation"),
+    ("_matrix_shape", (2, 1), "shapes differ"),
+])
+def test_sparse_numeric_snapshot_rejects_invalid_retained_state(slot, value, match):
+    matrix = s.SparseMatrix([[1]])
+    object.__setattr__(matrix, slot, value)
+    with pytest.raises(ValueError, match=match):
+        s.compile_numeric((), matrix)
+    with pytest.raises(ValueError, match=match):
+        s.compile_numeric_hybrid((), matrix, callbacks={})
+
+
+def test_sparse_snapshot_refuses_custom_storage_without_executing_its_protocol():
+    effects = []
+
+    class ForeignCells(dict):
+        def __len__(self):
+            effects.append("len")
+            raise AssertionError("foreign storage cannot participate in native admission")
+
+        def items(self):
+            effects.append("items")
+            raise AssertionError("foreign storage cannot participate in native admission")
+
+    matrix = s.SparseMatrix([[1]])
+    object.__setattr__(matrix, "_surface", ForeignCells({(0, 0): s.Integer(1)}))
+    with pytest.raises(ValueError, match="snapshot"):
+        s.compile_numeric((), matrix)
     assert effects == []
 
 

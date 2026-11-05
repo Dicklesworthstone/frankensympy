@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import math
 import operator
+from itertools import islice
 
 from ..core import (
     Abs, Add, Basic, Dummy, Expr, Float, Function, Integer, Mul, Pow, Rational, Symbol,
@@ -194,26 +195,22 @@ def _call_arguments(layout, supplied, *, native):
 
 def _numeric_matrix_snapshot(value):
     """Capture exact matrix cells without entering Python class-name lifting."""
-    from ..matrices import Matrix, SparseMatrix
+    from ..matrices import ImmutableSparseMatrix, Matrix, SparseMatrix
 
-    if type(value) is SparseMatrix:
-        matrix = object.__getattribute__(value, "__dict__")["_native"]
-        _native.CompiledFunction._validate_matrix_source(matrix)
-        shape = matrix.shape
-        surface, generation = None, None
-    else:
-        # Read the owning slots rather than _native: shell-only matrices have
-        # real retained cells, but deliberately have no native algebra handle.
-        storage_slot = Matrix.__dict__["_native_storage"]
-        shape_slot = Matrix.__dict__["_matrix_shape"]
-        surface_slot = Matrix.__dict__["_surface"]
-        generation_slot = Matrix.__dict__["_mutation_generation"]
-        matrix = storage_slot.__get__(value, Matrix)
-        shape = shape_slot.__get__(value, Matrix)
-        surface = surface_slot.__get__(value, Matrix)
-        generation = generation_slot.__get__(value, Matrix)
-        if type(generation) is not int or generation < 0:
-            raise ValueError("numeric matrix has an invalid mutation generation")
+    sparse = type(value) is SparseMatrix or type(value) is ImmutableSparseMatrix
+    owner = SparseMatrix if sparse else Matrix
+    # Read the owning slots rather than _native: shell-only matrices have
+    # real retained cells, but deliberately have no native algebra handle.
+    storage_slot = owner.__dict__["_native_storage"]
+    shape_slot = owner.__dict__["_matrix_shape"]
+    surface_slot = owner.__dict__["_surface"]
+    generation_slot = owner.__dict__["_mutation_generation"]
+    matrix = storage_slot.__get__(value, owner)
+    shape = shape_slot.__get__(value, owner)
+    surface = surface_slot.__get__(value, owner)
+    generation = generation_slot.__get__(value, owner)
+    if type(generation) is not int or generation < 0:
+        raise ValueError("numeric matrix has an invalid mutation generation")
     if (type(shape) is not tuple or len(shape) != 2
             or any(type(dimension) is not int or dimension < 0 for dimension in shape)):
         raise ValueError("numeric matrix has an invalid retained shape")
@@ -228,7 +225,27 @@ def _numeric_matrix_snapshot(value):
         _native.CompiledFunction._validate_matrix_source(matrix)
         if matrix.shape != shape:
             raise ValueError("numeric matrix native and retained shapes differ")
-    if surface is not None:
+    if sparse and surface is not None:
+        if type(surface) is not dict or len(surface) > size:
+            raise ValueError("numeric sparse matrix has an invalid retained source snapshot")
+        count = len(surface)
+        # A bounded coordinate copy preserves the original Python objects.
+        # Reading through native getters would lose custom class identity.
+        try:
+            coordinates = tuple(islice(dict.items(surface), size + 1))
+        except RuntimeError:
+            raise ValueError("numeric matrix changed during its source snapshot") from None
+        if len(coordinates) != count or len(surface) != count:
+            raise ValueError("numeric matrix changed during its source snapshot")
+        cells = [0] * size
+        for key, entry in coordinates:
+            if (type(key) is not tuple or len(key) != 2
+                    or any(type(index) is not int for index in key)
+                    or not (0 <= key[0] < rows and 0 <= key[1] < columns)):
+                raise ValueError("numeric sparse matrix has an invalid retained coordinate")
+            cells[key[0] * columns + key[1]] = entry
+        entries = tuple(cells)
+    elif surface is not None:
         if (type(surface) is not list and type(surface) is not tuple) or len(surface) != size:
             raise ValueError("numeric matrix has an invalid retained source snapshot")
         try:
@@ -241,24 +258,20 @@ def _numeric_matrix_snapshot(value):
         if matrix is None:
             raise ValueError("numeric matrix has neither native nor retained cells")
         entries = tuple(matrix[(row, column)] for row in range(rows) for column in range(columns))
-    if type(value) is SparseMatrix:
-        changed = (object.__getattribute__(value, "__dict__").get("_native") is not matrix
-                   or matrix.shape != shape)
-    else:
-        current_generation = generation_slot.__get__(value, Matrix)
-        changed = (storage_slot.__get__(value, Matrix) is not matrix
-                   or shape_slot.__get__(value, Matrix) is not shape
-                   or surface_slot.__get__(value, Matrix) is not surface
-                   or type(current_generation) is not int
-                   or current_generation != generation
-                   or (matrix is not None and matrix.shape != shape))
+    current_generation = generation_slot.__get__(value, owner)
+    changed = (storage_slot.__get__(value, owner) is not matrix
+               or shape_slot.__get__(value, owner) is not shape
+               or surface_slot.__get__(value, owner) is not surface
+               or type(current_generation) is not int
+               or current_generation != generation
+               or (matrix is not None and matrix.shape != shape))
     if changed:
         raise ValueError("numeric matrix changed during its source snapshot")
     return rows, columns, entries
 
 
 def _outputs(expression, convert, *, native):
-    from ..matrices import Matrix, ImmutableDenseMatrix, SparseMatrix
+    from ..matrices import Matrix, ImmutableDenseMatrix, ImmutableSparseMatrix, SparseMatrix
 
     leaves, count = [], [0]
 
@@ -269,7 +282,7 @@ def _outputs(expression, convert, *, native):
             if len(value) > _MAX_OUTPUTS:
                 raise ValueError("numeric output container exceeds the output limit")
             return (type(value), tuple(visit(child, depth + 1) for child in value))
-        if cls is Matrix or cls is ImmutableDenseMatrix or cls is SparseMatrix:
+        if any(cls is kind for kind in (Matrix, ImmutableDenseMatrix, SparseMatrix, ImmutableSparseMatrix)):
             if not native:
                 raise NotImplementedError("matrix numerical outputs require modules='frankensympy'")
             rows, columns, entries = _numeric_matrix_snapshot(value)

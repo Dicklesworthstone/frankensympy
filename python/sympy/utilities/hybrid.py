@@ -60,7 +60,7 @@ def _callback_bindings(callbacks, functions):
 
 def _output_snapshot(expression):
     """Freeze containers without lifting native-only cells into custom classes."""
-    from ..matrices import ImmutableDenseMatrix, Matrix, SparseMatrix
+    from ..matrices import ImmutableDenseMatrix, ImmutableSparseMatrix, Matrix, SparseMatrix
 
     count = [0]
 
@@ -76,7 +76,7 @@ def _output_snapshot(expression):
                 raise ValueError("hybrid output container changed during its snapshot")
             result = tuple(visit(child, depth + 1) for child in children)
             return list(result) if cls is list else result
-        if cls is Matrix or cls is ImmutableDenseMatrix or cls is SparseMatrix:
+        if any(cls is kind for kind in (Matrix, ImmutableDenseMatrix, SparseMatrix, ImmutableSparseMatrix)):
             rows, columns, entries = _numeric_matrix_snapshot(value)
             return [[entries[row * columns + col] for col in range(columns)] for row in range(rows)]
         return value

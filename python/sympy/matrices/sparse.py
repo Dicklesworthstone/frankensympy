@@ -2,111 +2,183 @@
 
 from __future__ import annotations
 
+import sys
 from typing import Any, Dict, Tuple
-from ..core import Basic, Expr, _native, _native_expr, _wrap
-from .dense import Matrix, MatrixBase
+from ..core import Basic, Expr, Integer, _native, _native_expr, _wrap
+from .dense import Matrix, MatrixBase, ImmutableDenseMatrix, _matrix_dimensions, _surface_entry
 
 _NativeSparseMatrix = _native.SparseMatrix
 
 
+# Sparse dimensions do not impose a dense-area bound. Only explicit cells and
+# operations which actually enumerate that area carry storage/work limits.
+_MAX_SPARSE_ENTRIES = 262_144
+_MAX_SPARSE_PRODUCTS = 1_000_000
+_ZERO = Integer(0)
+
+
+def _sparse_dimensions(rows, cols):
+    rows, cols = int(rows), int(cols)
+    if rows < 0 or cols < 0:
+        raise OverflowError("can't convert negative int to unsigned")
+    if rows > 2*sys.maxsize + 1 or cols > 2*sys.maxsize + 1:
+        raise OverflowError("sparse matrix dimension does not fit the native size type")
+    return rows, cols
+
+
+def _is_exact_zero(value):
+    """Recognize the exact zero singleton without consulting expression hooks."""
+    return value is _ZERO
+
+
+def _stored_entries(entries):
+    if len(entries) > _MAX_SPARSE_ENTRIES:
+        raise ValueError("sparse matrix exceeds the stored-entry limit")
+    return entries
+
+
 class SparseMatrix(MatrixBase):
-    """Exact sparse matrix wrapping the native compressed coordinate matrix engine."""
+    """Shell-owned sparse cells with a native snapshot for closed expressions."""
+
+    __slots__ = ("_native_storage", "_matrix_shape", "_surface", "_mutation_generation")
 
     def __init__(self, *args: Any):
+        self._mutation_generation = 0
         if len(args) == 1:
             arg = args[0]
-            if isinstance(arg, _NativeSparseMatrix):
+            if type(arg) is _NativeSparseMatrix:
                 self._native = arg
                 return
             if isinstance(arg, SparseMatrix):
-                self._native = arg._native
+                self._native_storage = arg._native_storage
+                self._matrix_shape = arg._matrix_shape
+                self._surface = None if arg._surface is None else dict(arg._surface)
                 return
             if isinstance(arg, Matrix):
-                self._native = arg._native.to_sparse()
+                if arg._surface is None and arg._native_storage is not None:
+                    self._native = arg._native_storage.to_sparse()
+                    return
+                self._install_surface(arg.rows, arg.cols, {
+                    (r, c): arg[r, c] for r in range(arg.rows) for c in range(arg.cols)
+                })
                 return
             if isinstance(arg, (list, tuple)):
-                if len(arg) == 0:
-                    self._native = _NativeSparseMatrix.zeros(0, 0)
+                if not arg:
+                    self._install_surface(0, 0, {})
                     return
                 if isinstance(arg[0], (list, tuple)):
-                    rows = len(arg)
-                    cols = len(arg[0])
-                    entries: Dict[Tuple[int, int], Any] = {}
-                    for r, row in enumerate(arg):
-                        if len(row) != cols:
-                            raise ValueError("Row length mismatch in sparse matrix constructor")
-                        for c, elem in enumerate(row):
-                            val = _native_expr(elem)
-                            if str(val) != "0":
-                                entries[(r, c)] = val
-                    self._native = _NativeSparseMatrix(rows, cols, entries)
-                    return
+                    rows, cols = len(arg), len(arg[0])
+                    _matrix_dimensions(rows, cols)
+                    if any(len(row) != cols for row in arg):
+                        raise ValueError("Row length mismatch in sparse matrix constructor")
+                    self._install_surface(rows, cols, {
+                        (r, c): value for r, row in enumerate(arg) for c, value in enumerate(row)
+                    })
                 else:
-                    # 1D column vector
-                    rows = len(arg)
-                    cols = 1
-                    entries = {}
-                    for r, elem in enumerate(arg):
-                        val = _native_expr(elem)
-                        if str(val) != "0":
-                            entries[(r, 0)] = val
-                    self._native = _NativeSparseMatrix(rows, cols, entries)
-                    return
+                    _stored_entries(arg)
+                    self._install_surface(len(arg), 1, {(r, 0): value for r, value in enumerate(arg)})
+                return
             raise TypeError(f"Cannot construct SparseMatrix from {type(arg)}")
-        elif len(args) == 2:
-            rows, cols = args
-            self._native = _NativeSparseMatrix.zeros(int(rows), int(cols))
+        if len(args) == 2:
+            rows, cols = _sparse_dimensions(*args)
+            self._install_surface(rows, cols, {})
             return
-        elif len(args) == 3:
-            rows, cols, entries_in = args
-            rows = int(rows)
-            cols = int(cols)
-            if isinstance(entries_in, dict):
-                entries = {}
-                for k, v in entries_in.items():
-                    r, c = k
-                    entries[(int(r), int(c))] = _native_expr(v)
-                self._native = _NativeSparseMatrix(rows, cols, entries)
-                return
-            elif isinstance(entries_in, (list, tuple)):
-                entries = {}
-                for idx, elem in enumerate(entries_in):
-                    val = _native_expr(elem)
-                    if str(val) != "0":
-                        r = idx // cols
-                        c = idx % cols
-                        entries[(r, c)] = val
-                self._native = _NativeSparseMatrix(rows, cols, entries)
-                return
-            elif callable(entries_in):
-                entries = {}
-                for r in range(rows):
-                    for c in range(cols):
-                        val = _native_expr(entries_in(r, c))
-                        if str(val) != "0":
-                            entries[(r, c)] = val
-                self._native = _NativeSparseMatrix(rows, cols, entries)
-                return
-            else:
-                raise TypeError("Third argument to SparseMatrix must be a dict, sequence, or callable")
-        else:
+        if len(args) != 3:
             raise TypeError(f"SparseMatrix constructor takes 1, 2, or 3 arguments, got {len(args)}")
+        rows, cols = _sparse_dimensions(*args[:2])
+        source = args[2]
+        if isinstance(source, dict):
+            _stored_entries(source)
+            self._install_surface(rows, cols, source)
+        elif isinstance(source, (list, tuple)):
+            if len(source) != rows*cols:
+                raise ValueError("sparse matrix shape does not match its flat storage")
+            _stored_entries(source)
+            self._install_surface(rows, cols, {
+                divmod(index, cols): value for index, value in enumerate(source)
+            })
+        elif callable(source):
+            # A callback is invoked for every cell, so this constructor really
+            # does have dense work even when its eventual result has few cells.
+            _matrix_dimensions(rows, cols)
+            self._install_surface(rows, cols, {
+                (r, c): source(r, c) for r in range(rows) for c in range(cols)
+            })
+        else:
+            raise TypeError("Third argument to SparseMatrix must be a dict, sequence, or callable")
+
+    @property
+    def _native(self):
+        if self._native_storage is None:
+            raise NotImplementedError(
+                "sparse matrix contains opaque Python expressions; this operation requires closed native cells"
+            )
+        return self._native_storage
+
+    @_native.setter
+    def _native(self, value):
+        if type(value) is not _NativeSparseMatrix:
+            raise TypeError("sparse native storage must be an exact native SparseMatrix")
+        self._native_storage = value
+        self._matrix_shape = value.shape
+        self._surface = None
+
+    def _install_surface(self, rows, cols, entries, *, mutate=False, expected_generation=None):
+        """Prepare every retained cell and native admission before publication."""
+        from ..core._opaque_arithmetic import contains_opaque
+
+        rows, cols = _sparse_dimensions(rows, cols)
+        _stored_entries(entries)
+        retained = {}
+        opaque = False
+        for coordinate, value in entries.items():
+            if not isinstance(coordinate, tuple) or len(coordinate) != 2:
+                raise TypeError("sparse coordinates must be (row, col) pairs")
+            row, col = map(int, coordinate)
+            if not (0 <= row < rows and 0 <= col < cols):
+                raise IndexError("Matrix index out of bounds")
+            value = _surface_entry(value)
+            # Never ask a custom expression's equality/printing/assumptions
+            # hooks whether it is zero. A held or unknown zero stays retained.
+            if _is_exact_zero(value):
+                continue
+            opaque = contains_opaque(value) or opaque
+            retained[(row, col)] = value
+        native = None
+        if not opaque:
+            native = _NativeSparseMatrix(rows, cols, {
+                coordinate: _native_expr(value) for coordinate, value in retained.items()
+            })
+        if expected_generation is not None and self._mutation_generation != expected_generation:
+            raise RuntimeError("SparseMatrix mutated during callback traversal")
+        self._native_storage = native
+        self._matrix_shape = (rows, cols)
+        self._surface = retained
+        if mutate:
+            self._mutation_generation += 1
+
+    def _new(self, *args):
+        return type(self)(*args)
+
+    @property
+    def mutation_generation(self):
+        return self._mutation_generation
 
     @property
     def shape(self) -> Tuple[int, int]:
-        return self._native.shape
+        return self._matrix_shape
 
     @property
     def rows(self) -> int:
-        return self._native.rows
+        return self._matrix_shape[0]
 
     @property
     def cols(self) -> int:
-        return self._native.cols
+        return self._matrix_shape[1]
 
     @property
     def nnz(self) -> int:
-        return self._native.nnz
+        return len(self._surface) if self._surface is not None else self._native_storage.nnz
 
     @property
     def is_square(self) -> bool:
@@ -144,19 +216,28 @@ class SparseMatrix(MatrixBase):
         return self.transpose()
 
     def transpose(self) -> "SparseMatrix":
-        return SparseMatrix(self._native.transpose())
+        if self._surface is None:
+            return self._new(self._native_storage.transpose())
+        return self._new(self.cols, self.rows, {(c, r): value for (r, c), value in self.todok().items()})
 
     def trace(self) -> Any:
         return _wrap(self._native.trace())
 
     def to_dense(self) -> Matrix:
-        return Matrix(self._native.to_dense())
+        _matrix_dimensions(self.rows, self.cols)
+        cls = ImmutableDenseMatrix if isinstance(self, ImmutableSparseMatrix) else Matrix
+        if self._surface is None:
+            return cls(self._native_storage.to_dense())
+        entries = self.todok()
+        return cls(self.rows, self.cols, [
+            entries.get((r, c), _ZERO) for r in range(self.rows) for c in range(self.cols)
+        ])
 
     def as_mutable(self) -> "SparseMatrix":
-        return self
+        return SparseMatrix(self)
 
-    def as_immutable(self) -> "SparseMatrix":
-        return self
+    def as_immutable(self) -> "ImmutableSparseMatrix":
+        return ImmutableSparseMatrix(self)
 
     def det(self, method: Any = None) -> Any:
         if self._native.is_exact_rational:
@@ -209,7 +290,18 @@ class SparseMatrix(MatrixBase):
         return self.to_dense().extract(rowsList, colsList).to_sparse()
 
     def copy(self) -> "SparseMatrix":
-        return SparseMatrix(self)
+        return self._new(self)
+
+    def __copy__(self):
+        return self.copy()
+
+    def __deepcopy__(self, memo):
+        result = self.copy()
+        memo[id(self)] = result
+        return result
+
+    def __reduce__(self):
+        return type(self), (self.rows, self.cols, self.todok())
 
     def evalf(self, n: int = 15, **options: Any) -> "SparseMatrix":
         return self.to_dense().evalf(n, **options).to_sparse()
@@ -236,47 +328,48 @@ class SparseMatrix(MatrixBase):
         return self.to_dense().integrate(*args).to_sparse()
 
     def todok(self) -> Dict[Tuple[int, int], Any]:
-        """Return a dictionary of non-zero entries keyed by (row, col)."""
-        return {coordinate: _wrap(value) for coordinate, value in self._native.todok().items()}
+        """Copy stored coordinates only, preserving each actual surface object."""
+        if self._surface is not None:
+            return dict(self._surface)
+        return {coordinate: _wrap(value) for coordinate, value in self._native_storage.todok().items()}
 
     def __len__(self) -> int:
-        return len(self._native)
+        return self.rows*self.cols
 
-    def __getitem__(self, key: Any) -> Any:
+    def _coordinate(self, key):
         if isinstance(key, tuple):
             if len(key) != 2:
                 raise IndexError("Matrix index must be a 2-tuple (row, col)")
-            r, c = key
-            return _wrap(self._native[(int(r), int(c))])
-        if isinstance(key, int):
-            return _wrap(self._native[key])
-        raise TypeError("SparseMatrix index must be an integer or (row, col) integer pair")
-
-    def __setitem__(self, key: Any, value: Any) -> None:
-        if isinstance(key, tuple):
-            if len(key) != 2:
-                raise IndexError("Matrix index must be a 2-tuple (row, col)")
-            r, c = key
+            row, col = map(int, key)
+            if row < 0:
+                row += self.rows
+            if col < 0:
+                col += self.cols
         elif isinstance(key, int):
-            r = key // self.cols
-            c = key % self.cols
+            size = self.rows*self.cols
+            if key < 0:
+                key += size
+            if not 0 <= key < size:
+                raise IndexError("Matrix index out of bounds")
+            row, col = divmod(key, self.cols)
         else:
             raise TypeError("SparseMatrix index must be an integer or (row, col) integer pair")
-        r, c = int(r), int(c)
-        if r < 0:
-            r += self.rows
-        if c < 0:
-            c += self.cols
-        if not (0 <= r < self.rows and 0 <= c < self.cols):
+        if not (0 <= row < self.rows and 0 <= col < self.cols):
             raise IndexError("Matrix index out of bounds")
-        entries = {}
-        for (i, j), v in self.todok().items():
-            if (i, j) != (r, c):
-                entries[(i, j)] = _native_expr(v)
-        val = _native_expr(value)
-        if str(val) != "0":
-            entries[(r, c)] = val
-        self._native = _NativeSparseMatrix(self.rows, self.cols, entries)
+        return row, col
+
+    def __getitem__(self, key: Any) -> Any:
+        coordinate = self._coordinate(key)
+        if self._surface is not None:
+            return self._surface.get(coordinate, _ZERO)
+        return _wrap(self._native_storage[coordinate])
+
+    def __setitem__(self, key: Any, value: Any) -> None:
+        generation = self._mutation_generation
+        coordinate = self._coordinate(key)
+        entries = self.todok()
+        entries[coordinate] = value
+        self._install_surface(*self.shape, entries, mutate=True, expected_generation=generation)
 
     def __add__(self, other: Any) -> "SparseMatrix":
         if isinstance(other, SparseMatrix):
@@ -314,23 +407,25 @@ class SparseMatrix(MatrixBase):
     def __rmul__(self, other: Any) -> Any:
         return self.__mul__(other)
 
-    @staticmethod
-    def eye(n: int) -> "SparseMatrix":
-        return SparseMatrix(_NativeSparseMatrix.eye(int(n)))
+    @classmethod
+    def eye(cls, n: int) -> "SparseMatrix":
+        return cls(_NativeSparseMatrix.eye(int(n)))
 
-    @staticmethod
-    def zeros(r: int, c: Any = None) -> "SparseMatrix":
+    @classmethod
+    def zeros(cls, r: int, c: Any = None) -> "SparseMatrix":
         if c is None:
             c = r
-        return SparseMatrix(_NativeSparseMatrix.zeros(int(r), int(c)))
+        rows, cols = _sparse_dimensions(r, c)
+        return cls(_NativeSparseMatrix.zeros(rows, cols))
 
-    @staticmethod
-    def ones(r: int, c: Any = None) -> "SparseMatrix":
+    @classmethod
+    def ones(cls, r: int, c: Any = None) -> "SparseMatrix":
         if c is None:
             c = r
-        r = int(r)
-        c = int(c)
-        return SparseMatrix(r, c, [1] * (r * c))
+        rows, cols = _sparse_dimensions(r, c)
+        if rows*cols > _MAX_SPARSE_ENTRIES:
+            raise ValueError("sparse matrix exceeds the stored-entry limit")
+        return cls(rows, cols, [1] * (rows*cols))
 
     def __repr__(self) -> str:
         return f"SparseMatrix({self.rows}, {self.cols}, {self.todok()})"
@@ -340,7 +435,10 @@ class SparseMatrix(MatrixBase):
 
     def __eq__(self, other: Any) -> bool:
         if isinstance(other, SparseMatrix):
-            return self._native == other._native
+            if self.shape != other.shape:
+                return False
+            left, right = self.todok(), other.todok()
+            return all(left.get(key, _ZERO) == right.get(key, _ZERO) for key in left.keys() | right.keys())
         if isinstance(other, MatrixBase):
             if hasattr(other, "to_dense"):
                 return self.to_dense() == other.to_dense()
@@ -348,9 +446,31 @@ class SparseMatrix(MatrixBase):
         return False
 
 
+class ImmutableSparseMatrix(SparseMatrix):
+    """Immutable sparse snapshot retaining the original symbolic objects."""
+
+    def __init__(self, *args):
+        if hasattr(self, "_matrix_shape"):
+            raise TypeError("Cannot reinitialize an immutable matrix")
+        super().__init__(*args)
+
+    def __setitem__(self, key, value):
+        raise TypeError("Cannot set an item on an immutable matrix")
+
+    def __hash__(self):
+        entries = self._native_storage.todok() if self._native_storage is not None else self._surface
+        return hash((self.shape, tuple((r, c, value) for (r, c), value in sorted(entries.items()))))
+
+    def copy(self):
+        return self
+
+    def __deepcopy__(self, memo):
+        return self
+
+    def as_immutable(self):
+        return self
+
+
 MutableSparseMatrix = SparseMatrix
 
-__all__ = [
-    "MutableSparseMatrix",
-    "SparseMatrix",
-]
+__all__ = ["MutableSparseMatrix", "SparseMatrix", "ImmutableSparseMatrix"]

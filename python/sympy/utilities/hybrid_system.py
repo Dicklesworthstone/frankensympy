@@ -78,11 +78,13 @@ def _snapshot_equation(value, bindings, functions, count):
 
 def _source_vectors(residuals, jacobian, columns):
     """Snapshot both inputs before inspecting their admitted vector shapes."""
-    from ..matrices import ImmutableDenseMatrix, Matrix, SparseMatrix
+    from ..matrices import ImmutableDenseMatrix, ImmutableSparseMatrix, Matrix, SparseMatrix
     from ..solvers.numerical import _MAX_JACOBIAN_ENTRIES, _MAX_SYSTEM_RESIDUALS
 
     cls = type(residuals)
-    residual_is_matrix = cls is Matrix or cls is ImmutableDenseMatrix or cls is SparseMatrix
+    residual_is_matrix = any(cls is kind for kind in (
+        Matrix, ImmutableDenseMatrix, SparseMatrix, ImmutableSparseMatrix,
+    ))
     captured_residuals, captured_jacobian = _output_snapshot((residuals, jacobian))
     if residual_is_matrix:
         if len(captured_residuals) == 1:

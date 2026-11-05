@@ -69,14 +69,16 @@ def _equation_residual(value):
 
 
 def _is_vector(value):
-    from ..matrices import Matrix, ImmutableDenseMatrix, SparseMatrix
+    from ..matrices import Matrix, ImmutableDenseMatrix, ImmutableSparseMatrix, SparseMatrix
 
-    return type(value) in (list, tuple, Matrix, ImmutableDenseMatrix, SparseMatrix)
+    return any(type(value) is kind for kind in (
+        list, tuple, Matrix, ImmutableDenseMatrix, SparseMatrix, ImmutableSparseMatrix,
+    ))
 
 
 def _vector(value, name, maximum):
     """Snapshot only admitted built-in containers, after checking their size."""
-    from ..matrices import Matrix, ImmutableDenseMatrix, SparseMatrix
+    from ..matrices import Matrix, ImmutableDenseMatrix, ImmutableSparseMatrix, SparseMatrix
 
     if type(value) in (list, tuple):
         size = len(value)
@@ -89,7 +91,9 @@ def _vector(value, name, maximum):
         if len(value) != size:
             raise ValueError(f"nsolve {name} length changed during its snapshot")
         return snapshot
-    if type(value) in (Matrix, ImmutableDenseMatrix, SparseMatrix):
+    if any(type(value) is kind for kind in (
+        Matrix, ImmutableDenseMatrix, SparseMatrix, ImmutableSparseMatrix,
+    )):
         rows, columns = value.rows, value.cols
         size = rows * columns
         if not 1 <= size <= maximum:
