@@ -2244,11 +2244,19 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m
     )?)?;
     m.add_function(wrap_pyfunction!(
+        ideal_operations::ideal_source_arguments_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
         ideal_operations::ideal_eliminate_native,
         m
     )?)?;
     m.add_function(wrap_pyfunction!(
         ideal_operations::ideal_intersection_native,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        ideal_operations::ideal_quotient_native,
         m
     )?)?;
     m.add_function(wrap_pyfunction!(

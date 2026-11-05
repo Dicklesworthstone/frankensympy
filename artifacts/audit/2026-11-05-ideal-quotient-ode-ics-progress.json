@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-11-05T21:37:53Z",
+  "repository": "Dicklesworthstone/frankensympy",
+  "kind": "bounded feature implementation and observed validation; not workstream closure",
+  "baseline_source": "fab23e12087c2e8abe9ef3ef15b518dd39d40100",
+  "verified_main_commits": [
+    "6b88dd6eebaf34b26a0512ab87d188f558117196",
+    "d304712a15f4757c176f8a449e7a2e8959a99067"
+  ],
+  "preserved_concurrent_main_commit": "01b2a8c907d2ef923757d996f6cedbe629fcd496",
+  "features": [
+    {
+      "bead": "fra-546",
+      "feature": "complete finite polynomial ideal quotient I:J over QQ",
+      "behavior": "Intersect independently checked principal quotients derived by exact cancellation from I intersect <f>; preserve multiplicity and require every divisor-generator product to lie in I. Handle zero, unit and constant rings.",
+      "public_api": "GroebnerBasis.quotient(other), a FrankenSymPy extension; ZZ operands explicitly extend to QQ, result uses reduced lex order and the left typed generator order.",
+      "verification": "Immutable accepted intersection/Groebner receipts are bound to exact original inputs and typed ring. An independent coefficient-convolution checker verifies every cancellation identity and the complete final basis. Separate cumulative generation/verification budgets remain terminal on exhaustion or cancellation.",
+      "limits": "Bounded in-process composition certificate, not a new portable proof-kernel claim. General integer-ring quotients and full WS17/profile gates remain open."
+    },
+    {
+      "bead": "fra-7kf",
+      "feature": "explicit ODE initial-condition correctness",
+      "behavior": "Bind derivative observations to the exact function and complete coordinate list; preserve source C-named parameters; use fresh renumbering temporaries; validate every fitted observation and already determined solution; preserve partial families and redundant conditions.",
+      "branch_behavior": "Discard only independently proved incompatible branches, including constant-independent nonzero residuals in still-parametric branches. Unsupported or unknown solver failures remain terminal.",
+      "limits": "General nonpolynomial/radical constant fitting is not added. Ambiguous IC-only C1 data keeps the observed pinned-oracle refusal. No whole-ODE or WS19 closure."
+    }
+  ],
+  "toolchain": {
+    "name": "nightly-2026-08-20",
+    "rustc": "1.100.0-nightly (f7d782a3b 2026-08-19)",
+    "cargo": "1.100.0-nightly (514c56dd7 2026-08-19)",
+    "dependencies": "unchanged registry-pinned donor commits fetched with scripts/fetch_workspace_donors.py"
+  },
+  "executed_validation": [
+    {
+      "command": "cargo test --locked -p fsym-polys --test ideal_quotient -j1",
+      "exit_code": 0,
+      "passed": 17,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "command": "cargo test --locked -p fsym-polys -j1",
+      "exit_code": 0,
+      "passed": 199,
+      "failed": 0,
+      "ignored": 0,
+      "counting_note": "199 distinct tests including the 17 new quotient tests; do not add these counts together."
+    },
+    {
+      "command": "cargo clippy --locked -p fsym-polys --all-targets -j1 -- -D warnings",
+      "exit_code": 0
+    },
+    {
+      "command": "cargo fmt --check",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 tools/validate_planning.py",
+      "exit_code": 0,
+      "scope": "Final code, evidence paths and unchanged claim statuses."
+    },
+    {
+      "kind": "isolated pinned SymPy 1.14.0 oracle expectation checks",
+      "ideal_quotient_examples": 8,
+      "ode_public_test_methods": 6,
+      "result": "passed",
+      "scope": "Oracle-only evidence; no changed FrankenSymPy implementation was executed in these checks."
+    },
+    {
+      "kind": "Python AST/compilation and git diff --check",
+      "result": "passed on final source files"
+    }
+  ],
+  "actual_python_execution": {
+    "status": "pending",
+    "reason": "Full extension build was intentionally interrupted with exit130 at the shared 8GiB memory cap; shared OOM kills continued while our build was paused. No new extension binary was produced."
+  },
+  "full_workspace_gates": {
+    "check_all_targets": "not completed",
+    "clippy_all_targets": "not completed",
+    "test_workspace": "not completed",
+    "profile_certification": "open"
+  },
+  "ci": {
+    "native_target": "ideal_quotient",
+    "python_target": "python/tests/test_checked_ideal_operations.py",
+    "existing_ode_target": "python/tests/test_exact_dsolve.py",
+    "observed_run": "https://github.com/Dicklesworthstone/frankensympy/actions/runs/42113153145",
+    "observed_status": "queued"
+  },
+  "source_snapshot": {
+    "crates/fsym-polys/src/ideal_quotient.rs": "055a1a8689d4545ca77b2cb1d3030a36bc930139d63d4527ed07eaaa43e517e0",
+    "crates/fsym-polys/tests/ideal_quotient.rs": "f51badc9f06cd1be39fc82db0faeb8a34151fcb3f1bbed35dd039144d03b13fe",
+    "crates/fsym-polys/src/lib.rs": "c3ada7eb3ba80d63ec8debb17416cd73d5bbcfc905b322e4b4a97f29ff968dda",
+    "crates/fsym-python/src/ideal_operations.rs": "8a6405c9969a730ee266e1efd3c5d42ed884ba00123721664d8b7989b7097389",
+    "crates/fsym-python/src/lib.rs": "995cc425497ed37cd4ca116b941cca20618e4a956614f36a11e22593b16c0275",
+    "python/sympy/polys/polytools.py": "412d9a5cccd0cdbbd407cb6906ab820865205148ea350f8a8f8cbe7bde5e062b",
+    "python/tests/test_checked_ideal_operations.py": "f87655efdf84c35f4695f453506376bb2e39cc504b43f1e37b169a3cf1d84472",
+    "python/sympy/solvers/ode.py": "d104651bc110491edc3f06a8648258ab861855e3b345497eef7246a0a74ab3da",
+    "python/tests/test_exact_dsolve.py": "459f8bce64feadf95ac55d37e37d316a2b9e3593790479d1b18fed20dc0dc211",
+    ".github/workflows/ci.yml": "476f9546ac6d83f148407601234a00bd678f2266964880019f055f9891862f44"
+  },
+  "governance": {
+    "bead_status_priority_dependencies": "unchanged",
+    "MATH-001_status": "implemented_uncertified",
+    "MATH-001_present_tense_allowed": false,
+    "WS17_gate": "open",
+    "WS19_gate": "open"
+  },
+  "bridge_typecheck": {
+    "command": "cargo check --locked --offline -p fsym-python -j1",
+    "status": "running at this source snapshot",
+    "scope": "One-job metadata/typecheck only; not a full extension build or runtime execution."
+  },
+  "authored_regressions": {
+    "native_ideal_quotient_tests": 17,
+    "public_ideal_test_functions": 12,
+    "explicit_ode_initial_condition_test_methods": 15,
+    "borrowed_source_helper_unit_tests": 2,
+    "execution_note": "Only the 17 native quotient tests are covered by the completed 199-test native suite. Public tests and the two Python-crate helper tests are not counted as executed here."
+  },
+  "independent_review": "Native quotient, PyO3/public source binding, held arithmetic consistency and ODE behavior were reviewed by a non-author; reported defects were corrected before this source snapshot."
+}

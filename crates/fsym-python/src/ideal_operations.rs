@@ -141,6 +141,54 @@ pub fn ideal_source_preflight_native(source: &PyExpr) -> PyResult<()> {
     Ok(())
 }
 
+fn retained_source_matches<'a>(
+    source: &Expr,
+    operator: &str,
+    mut children: impl ExactSizeIterator<Item = &'a Expr>,
+) -> bool {
+    match (source, operator) {
+        (Expr::Add(expected), "add") | (Expr::Mul(expected), "mul") => {
+            expected.len() == children.len() && expected.iter().zip(children).all(|(a, b)| a == b)
+        }
+        (Expr::Pow(base, exponent), "pow") => {
+            children.len() == 2
+                && children.next() == Some(base.as_ref())
+                && children.next() == Some(exponent.as_ref())
+        }
+        _ => false,
+    }
+}
+
+/// Check retained arithmetic arguments against their immutable native source.
+/// PyRefs borrow the children; no expression tree is cloned or normalized.
+#[pyfunction]
+pub fn ideal_source_arguments_native(
+    source: &PyExpr,
+    operator: &str,
+    children: &Bound<'_, PyList>,
+) -> PyResult<()> {
+    if children.len() > 4096 {
+        return Err(PyValueError::new_err(
+            "ideal source exceeds its bounded expression envelope",
+        ));
+    }
+    ideal_source_preflight_native(source)?;
+    let children = children
+        .iter()
+        .map(|value| value.extract::<PyRef<'_, PyExpr>>())
+        .collect::<PyResult<Vec<_>>>()?;
+    if !retained_source_matches(
+        &source.inner,
+        operator,
+        children.iter().map(|item| &item.inner),
+    ) {
+        return Err(PyValueError::new_err(
+            "ideal source does not match its retained surface arguments",
+        ));
+    }
+    Ok(())
+}
+
 fn polynomials(
     values: &Bound<'_, PyList>,
     variables: &[Symbol],
@@ -172,8 +220,17 @@ fn lift(
         .iter()
         .map(|symbol| symbol.name.len() + 128)
         .sum();
+    lift_basis(result.into_basis(), ring_bytes, generator, verifier)
+}
+
+fn lift_basis(
+    basis: Vec<MultivariatePoly>,
+    ring_bytes: usize,
+    generator: &mut Budget,
+    verifier: &mut Budget,
+) -> PyResult<Vec<PyExpr>> {
     let mut total = 0usize;
-    for polynomial in result.basis() {
+    for polynomial in &basis {
         let nodes = 1 + polynomial
             .terms()
             .keys()
@@ -192,8 +249,7 @@ fn lift(
         .checked_mul(2048 + ring_bytes)
         .ok_or_else(|| PyValueError::new_err("ideal output allocation overflow"))?;
     charge(generator, total, bytes)?;
-    let values = result
-        .into_basis()
+    let values = basis
         .into_iter()
         .map(|polynomial| {
             polynomial
@@ -253,6 +309,40 @@ pub fn ideal_intersection_native(
     lift(result, &mut generator, &mut verifier)
 }
 
+/// Finite ideal quotient I:J, requiring every divisor product to belong to I.
+#[pyfunction]
+pub fn ideal_quotient_native(
+    equations: &Bound<'_, PyList>,
+    divisors: &Bound<'_, PyList>,
+    variables: &Bound<'_, PyList>,
+) -> PyResult<Vec<PyExpr>> {
+    let mut generator = budget();
+    let mut verifier = budget();
+    let variables = symbols(variables, &mut generator)?;
+    // Admit both original lists before zero/unit shortcuts or generation.
+    let inputs = polynomials(equations, &variables, &mut generator)?;
+    let divisors = polynomials(divisors, &variables, &mut generator)?;
+    let result = fsym_polys::checked_ideal_quotient(
+        &inputs,
+        &divisors,
+        &variables,
+        &mut generator,
+        &mut verifier,
+    )
+    .map_err(to_value_error)?;
+    let ring_bytes = result
+        .generators()
+        .iter()
+        .map(|symbol| symbol.name.len() + 128)
+        .sum();
+    lift_basis(
+        result.into_basis(),
+        ring_bytes,
+        &mut generator,
+        &mut verifier,
+    )
+}
+
 /// Ideal saturation I:f^infinity, retaining full original source admission.
 #[pyfunction]
 pub fn ideal_saturation_native(
@@ -275,4 +365,66 @@ pub fn ideal_saturation_native(
     )
     .map_err(to_value_error)?;
     lift(result, &mut generator, &mut verifier)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::retained_source_matches;
+    use fsym_core::{Expr, Symbol};
+    use std::sync::Arc;
+
+    #[test]
+    fn held_identity_and_duplicate_children_remain_accepted() {
+        let x = Expr::Sym(Symbol::new("x"));
+        for children in [
+            vec![x.clone(), Expr::from_i64(0)],
+            vec![x.clone(), x.clone()],
+        ] {
+            assert!(retained_source_matches(
+                &Expr::Add(children.clone()),
+                "add",
+                children.iter(),
+            ));
+        }
+        let children = [Expr::from_i64(1), x.clone()];
+        assert!(retained_source_matches(
+            &Expr::Mul(children.to_vec()),
+            "mul",
+            children.iter(),
+        ));
+        for exponent in [0, 1] {
+            let children = [x.clone(), Expr::from_i64(exponent)];
+            assert!(retained_source_matches(
+                &Expr::Pow(Arc::new(children[0].clone()), Arc::new(children[1].clone())),
+                "pow",
+                children.iter(),
+            ));
+        }
+    }
+
+    #[test]
+    fn altered_native_operator_arity_and_nested_arguments_are_rejected() {
+        let x = Expr::Sym(Symbol::new("x"));
+        let y = Expr::Sym(Symbol::new("y"));
+        let held = Expr::Add(vec![x.clone(), y.clone()]);
+        let children = [x.clone(), y.clone()];
+        assert!(!retained_source_matches(&held, "mul", children.iter()));
+        assert!(!retained_source_matches(&held, "add", children[..1].iter()));
+        assert!(!retained_source_matches(
+            &held,
+            "add",
+            [x.clone(), x.clone()].iter(),
+        ));
+        let nested = Expr::Mul(vec![held.clone(), Expr::from_i64(1)]);
+        assert!(retained_source_matches(
+            &nested,
+            "mul",
+            [held, Expr::from_i64(1)].iter(),
+        ));
+        assert!(!retained_source_matches(
+            &nested,
+            "mul",
+            [Expr::Add(vec![x, Expr::from_i64(0)]), Expr::from_i64(1)].iter(),
+        ));
+    }
 }

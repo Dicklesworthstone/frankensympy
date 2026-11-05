@@ -744,6 +744,20 @@ class ExplicitInitialConditionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             _apply_ics(branches, {self.f(1): 2})
 
+    def test_constant_independent_mismatch_prunes_a_still_parametric_branch(self):
+        from sympy.solvers.ode import _apply_ics
+
+        constant = Symbol("C1")
+        branches = [Eq(self.y, constant*self.x, evaluate=False),
+                    Eq(self.y, constant + self.x, evaluate=False)]
+        expected = Eq(self.y, self.x + 1, evaluate=False)
+        self.assertEqual(_apply_ics(branches, {self.f(0): 1}), expected)
+        # A solver refusal carries no proof that its branch is incompatible.
+        # It must remain terminal even when a later branch is already fitted.
+        with patch("sympy.solve", side_effect=NotImplementedError("unresolved fit")):
+            with self.assertRaisesRegex(NotImplementedError, "unresolved fit"):
+                _apply_ics([branches[1], expected], {self.f(0): 1})
+
 
 if __name__ == "__main__":
     unittest.main()

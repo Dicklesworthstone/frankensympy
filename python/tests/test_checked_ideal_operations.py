@@ -77,6 +77,213 @@ def test_zero_and_unit_intersection_laws_use_explicit_ambient_rings():
     assert ideal.intersection(unit).exprs == ideal.exprs
 
 
+def test_finite_quotient_preserves_multiplicity_instead_of_saturating():
+    x, y = s.symbols("quotient_multiplicity_x quotient_multiplicity_y")
+    ideal = s.groebner([x**3*y], x, y, domain="QQ")
+    divisor = s.groebner([x], x, y, domain="QQ")
+    result = ideal.quotient(divisor)
+    assert result.exprs == [x*x*y]
+    assert result.domain == "QQ" and result.order == "lex"
+    assert ideal.saturate(x).exprs == [y]
+    assert not result.contains(y)
+    assert ideal.exprs == [x**3*y] and divisor.exprs == [x]
+
+
+def test_nonmonomial_principal_quotient_returns_every_generator():
+    x, y, z = s.symbols("quotient_linear_x quotient_linear_y quotient_linear_z")
+    ideal = s.groebner([(x+y)**2, (x+y)*z], x, y, z, domain="QQ", order="grevlex")
+    divisor = s.groebner([x+y], z, y, x, domain="QQ")
+    result = ideal.quotient(divisor)
+    assert result.gens == (x, y, z)
+    assert result.exprs == [x+y, z]
+    assert all(ideal.contains(expression*(x+y)) for expression in result)
+    assert not result.contains(1)
+
+
+def test_multi_generator_quotient_requires_all_products_not_any_one():
+    x, y = s.symbols("quotient_all_x quotient_all_y")
+    ideal = s.groebner([x*x, y*y], x, y, domain="QQ")
+    divisor = s.groebner([y, x], y, x, domain="QQ", order="grlex")
+    result = ideal.quotient(divisor)
+    assert set(result.exprs) == {x*x, x*y, y*y}
+    assert result.contains(x*y)
+    assert not result.contains(x) and not result.contains(y)
+    assert s.groebner([x*y], x, y, domain="QQ").quotient(divisor).exprs == [x*y]
+    for expression in result:
+        assert ideal.contains(expression*x) and ideal.contains(expression*y)
+
+
+def test_quotient_zero_unit_and_constant_ring_laws_are_complete():
+    x, y = s.symbols("quotient_edge_x quotient_edge_y")
+    zero = s.groebner([], x, y, domain="QQ")
+    unit = s.groebner([1], x, y, domain="QQ")
+    ideal = s.groebner([x*y-1], x, y, domain="QQ")
+    assert ideal.quotient(zero).exprs == [1]
+    assert zero.quotient(zero).exprs == [1]
+    assert zero.quotient(ideal).exprs == []
+    assert ideal.quotient(unit).exprs == ideal.exprs
+    assert unit.quotient(ideal).exprs == [1]
+    assert ideal.quotient(ideal).exprs == [1]
+    constant_zero = GroebnerBasis([], (), "QQ", "lex")
+    constant_unit = GroebnerBasis([s.Rational(2, 3)], (), "QQ", "lex")
+    assert constant_zero.quotient(constant_zero).exprs == [1]
+    assert constant_zero.quotient(constant_unit).exprs == []
+    assert constant_unit.quotient(constant_unit).exprs == [1]
+
+
+def test_quotient_admits_current_generators_and_explicit_QQ_extension():
+    x, y = s.symbols("quotient_current_x quotient_current_y")
+    ideal = s.groebner([x*x], x, y, domain="QQ")
+    ideal.exprs[:] = [3*x*y, 0, 6*x*y]
+    divisor = GroebnerBasis([0, 2*x, x], (y, x), "ZZ", "grevlex")
+    assert ideal.quotient(divisor).exprs == [y]
+    integer_ideal = s.groebner([2*x+1], x, domain="ZZ")
+    integer_unit = GroebnerBasis([2], (x,), "ZZ", "lex")
+    result = integer_ideal.quotient(integer_unit)
+    assert result.exprs == [x+s.Rational(1, 2)] and result.domain == "QQ"
+    assert integer_ideal.domain == integer_unit.domain == "ZZ"
+
+
+def test_quotient_preserves_typed_symbol_and_dummy_owners():
+    plain = s.Symbol("quotient_identity")
+    assumed = s.Symbol("quotient_identity", real=True)
+    dummy = s.Dummy("quotient_identity")
+    generators = (dummy, assumed, plain)
+    ideal = s.groebner([plain*plain*assumed*dummy], *generators, domain="QQ")
+    divisor = s.groebner([plain], *reversed(generators), domain="QQ")
+    result = ideal.quotient(divisor)
+    assert all(a is b for a, b in zip(result.gens, generators))
+    assert result.exprs == [plain*assumed*dummy]
+    assert all(any(owner is symbol for owner in result.exprs[0].free_symbols)
+               for symbol in generators)
+    with pytest.raises(ValueError, match="same typed polynomial ring"):
+        s.groebner([plain], plain, domain="QQ").quotient(s.groebner([assumed], assumed, domain="QQ"))
+
+
+@pytest.mark.parametrize("change", ["left_list", "right_list", "generators", "domain",
+                                    "held_children", "native_value", "assumptions"])
+def test_quotient_rejects_source_mutation_before_result_publication(monkeypatch, change):
+    x, y = s.symbols("quotient_mutation_" + change + "_x quotient_mutation_" + change + "_y")
+    held = s.Add(x, y, evaluate=False)
+    ideal = GroebnerBasis([held], (x, y), "QQ", "lex")
+    divisor = GroebnerBasis([1], (x, y), "QQ", "lex")
+    native = _native.ideal_quotient_native
+
+    def mutate(*args):
+        result = native(*args)
+        if change == "left_list":
+            ideal.exprs.append(x)
+        elif change == "right_list":
+            divisor.exprs.append(x)
+        elif change == "generators":
+            ideal.gens = (y, x)
+        elif change == "domain":
+            divisor.domain = "ZZ"
+        elif change == "held_children":
+            held._args = (x, x)
+        elif change == "native_value":
+            held._value = _native_expr(x)
+        else:
+            monkeypatch.setitem(x._assumptions, "real", True)
+        return result
+
+    monkeypatch.setattr(_native, "ideal_quotient_native", mutate)
+    with pytest.raises(RuntimeError, match="source mutated"):
+        ideal.quotient(divisor)
+
+
+def test_quotient_checks_sources_again_after_lifting(monkeypatch):
+    import sympy.polys.polytools as polytools
+
+    x = s.Symbol("quotient_lift_mutation")
+    ideal = GroebnerBasis([x*x], (x,), "QQ", "lex")
+    divisor = GroebnerBasis([x], (x,), "QQ", "lex")
+    lift = polytools._lift_native_result
+
+    def mutate(*args):
+        result = lift(*args)
+        divisor.exprs[:] = [s.Integer(0)]
+        return result
+
+    monkeypatch.setattr(polytools, "_lift_native_result", mutate)
+    with pytest.raises(RuntimeError, match="source mutated"):
+        ideal.quotient(divisor)
+
+
+def test_quotient_rejects_foreign_protocols_before_invoking_them():
+    class EffectfulMeta(type):
+        def __eq__(cls, other):
+            raise AssertionError("foreign class equality must not run")
+
+    class Foreign(metaclass=EffectfulMeta):
+        pass
+
+    class CustomBasis(GroebnerBasis):
+        def __getattribute__(self, name):
+            raise AssertionError("custom basis attributes must not run")
+
+    x = s.Symbol("quotient_closed_source")
+    ideal = GroebnerBasis([x], (x,), "QQ", "lex")
+    with pytest.raises(ValueError, match="exact rational polynomial expressions"):
+        ideal.quotient(GroebnerBasis([Foreign()], (x,), "QQ", "lex"))
+    with pytest.raises(TypeError, match="exact GroebnerBasis"):
+        ideal.quotient(object.__new__(CustomBasis))
+
+
+def test_quotient_poly_sources_use_captured_storage_without_callbacks(monkeypatch):
+    x, y = s.symbols("quotient_poly_source_x quotient_poly_source_y")
+    polynomial = s.Poly(x*y, x, y)
+    ideal = GroebnerBasis([polynomial], (x, y), "QQ", "lex")
+    divisor = GroebnerBasis([x], (x, y), "QQ", "lex")
+    assert ideal.quotient(divisor).exprs == [y]
+    calls = []
+
+    def foreign():
+        calls.append("as_expr")
+        return x
+
+    monkeypatch.setattr(polynomial, "as_expr", foreign)
+    with pytest.raises(TypeError, match="overridden Poly.as_expr"):
+        ideal.quotient(divisor)
+    assert calls == []
+
+
+@pytest.mark.parametrize("change", ["children", "native_children", "native_operator"])
+def test_quotient_rejects_inconsistent_sources_that_predate_the_call(monkeypatch, change):
+    x, y, z = s.symbols("quotient_old_mutation_x quotient_old_mutation_y quotient_old_mutation_z")
+    source = s.Add(x, y, evaluate=False)
+    if change == "children":
+        source._args = (x, z)
+    elif change == "native_children":
+        source._value = _native_expr(s.Add(x, z, evaluate=False))
+    else:
+        source._value = _native_expr(s.Mul(x, y, evaluate=False))
+    ideal = GroebnerBasis([source], (x, y, z), "QQ", "lex")
+    divisor = GroebnerBasis([1], (x, y, z), "QQ", "lex")
+
+    def generated_too_early(*args):
+        raise AssertionError("inconsistent source reached quotient generation")
+
+    monkeypatch.setattr(_native, "ideal_quotient_native", generated_too_early)
+    with pytest.raises(ValueError, match="retained surface arguments"):
+        ideal.quotient(divisor)
+
+
+def test_quotient_accepts_unchanged_held_identity_and_nested_sources():
+    x = s.Symbol("quotient_held_identity")
+    unit = GroebnerBasis([1], (x,), "QQ", "lex")
+    cases = [
+        (s.Add(x, 0, evaluate=False), x),
+        (s.Add(x, x, evaluate=False), x),
+        (s.Mul(1, x, evaluate=False), x),
+        (s.Pow(x, 1, evaluate=False), x),
+        (s.Pow(x, 0, evaluate=False), s.Integer(1)),
+        (s.Mul(s.Add(x, 0, evaluate=False), s.Pow(x, 1, evaluate=False), evaluate=False), x*x),
+    ]
+    for source, expected in cases:
+        assert GroebnerBasis([source], (x,), "QQ", "lex").quotient(unit).exprs == [expected]
+
+
 def test_saturation_removes_a_whole_component_and_preserves_multiplicity():
     x, y = s.symbols("saturation_x saturation_y")
     assert s.groebner([x*x*y], x, y, domain="QQ").saturate(x).exprs == [y]
@@ -131,7 +338,9 @@ def test_undefined_original_children_are_admitted_before_unit_or_empty_shortcuts
     undefined = s.Mul(0, s.Pow(0, exponent, evaluate=False), evaluate=False)
     malformed = GroebnerBasis([1, undefined], (x,), "QQ", "lex")
     zero = s.groebner([], x, domain="QQ")
-    for operation in [lambda: malformed.eliminate(x), lambda: malformed.intersection(zero), lambda: malformed.saturate(0)]:
+    for operation in [lambda: malformed.eliminate(x), lambda: malformed.intersection(zero),
+                      lambda: malformed.saturate(0), lambda: malformed.quotient(zero),
+                      lambda: zero.quotient(malformed)]:
         with pytest.raises(ValueError):
             operation()
     with pytest.raises(ValueError):
@@ -147,6 +356,8 @@ def test_approximate_custom_and_foreign_sources_refuse_the_exact_lane():
     for source in [s.Float("1.25"), s.sin(x), y, s.Pow(x, -1, evaluate=False)]:
         with pytest.raises(ValueError):
             ideal.saturate(source)
+        with pytest.raises(ValueError):
+            ideal.quotient(GroebnerBasis([source], (x,), "QQ", "lex"))
     with pytest.raises(NotImplementedError):
         ideal.eliminate(CustomSymbol("ideal_bad_x"))
     with pytest.raises(ValueError):
@@ -163,6 +374,9 @@ def test_native_failure_does_not_fall_back_to_unchecked_ideal_operations(monkeyp
     monkeypatch.setattr(_native, "ideal_saturation_native", exhausted)
     with pytest.raises(ValueError, match="budget exhausted"):
         ideal.saturate(x)
+    monkeypatch.setattr(_native, "ideal_quotient_native", exhausted)
+    with pytest.raises(ValueError, match="budget exhausted"):
+        ideal.quotient(GroebnerBasis([x], (x, y), "QQ", "lex"))
 
 
 def test_native_ideal_boundary_checks_lengths_and_typed_elimination():
@@ -172,6 +386,11 @@ def test_native_ideal_boundary_checks_lengths_and_typed_elimination():
         _native.ideal_eliminate_native(source, [_symbol_binding(x), _symbol_binding(y)], [_symbol_binding(x), _symbol_binding(x)])
     with pytest.raises(ValueError):
         _native.ideal_intersection_native(source*65, [], [_symbol_binding(x), _symbol_binding(y)])
+    for left, right in [(source*65, []), ([], source*65)]:
+        with pytest.raises(ValueError):
+            _native.ideal_quotient_native(left, right, [_symbol_binding(x), _symbol_binding(y)])
+    with pytest.raises(ValueError):
+        _native.ideal_quotient_native([], [], [_symbol_binding(x), _symbol_binding(x)])
 
 
 def test_raw_integer_bounds_precede_native_integer_conversion(monkeypatch):

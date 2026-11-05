@@ -1473,6 +1473,35 @@ class GroebnerBasis:
         values = [_lift_native_result(value, *sources, *other_sources, *gens) for value in raw]
         return GroebnerBasis(values, gens, "QQ", "lex")
 
+    def quotient(self, other: GroebnerBasis) -> GroebnerBasis:
+        """Return the complete finite ideal quotient I:J over QQ.
+
+        This FrankenSymPy extension returns all polynomials whose product with
+        every member of J belongs to I. Multiplicity is retained: <x**3*y>:<x>
+        is <x**2*y>, whereas saturation by x yields <y>. Both operands must
+        declare the same typed polynomial ring; their variable and monomial
+        orders may differ. The result uses this operand's variable order, QQ
+        coefficients, and lex order. ZZ coefficients are extended to QQ.
+
+        Each principal quotient uses a complete checked intersection and
+        independently checked exact division; intersections combine all
+        divisor constraints. Nonzero divisors support at most seven variables
+        and 63 numerator generators, with at most 64 divisor generators.
+        Unsupported inputs, mutation, resource exhaustion and verifier failure
+        raise rather than returning a partial ideal.
+        """
+        snapshot = _IdealQuotientSnapshot(self, other)
+        left, right = snapshot.inputs()
+        sources, gens, equations, bindings = left
+        other_sources, other_gens, other_equations, _ = right
+        if set(gens) != set(other_gens):
+            raise ValueError("ideal quotient requires the same typed polynomial ring")
+        raw = _native.ideal_quotient_native(equations, other_equations, bindings)
+        snapshot.unchanged()
+        values = [_lift_native_result(value, *sources, *other_sources, *gens) for value in raw]
+        snapshot.unchanged()
+        return GroebnerBasis(values, gens, "QQ", "lex")
+
     def saturate(self, polynomial: Any) -> GroebnerBasis:
         """Return the ideal saturation I:polynomial**infinity over QQ.
 
@@ -1523,6 +1552,186 @@ class GroebnerBasis:
         return "GroebnerBasis(%s)" % ", ".join(args)
 
     __str__ = __repr__
+
+
+_IDEAL_ABSENT = object()
+
+
+class _IdealQuotientSnapshot:
+    """Retain bounded source storage while a checked quotient is evaluated.
+
+    Native inputs are immutable. The mutable public basis lists and retained
+    Python children must still describe those inputs when a result is lifted.
+    Native-owned children remain borrowed; this never calls Python ``args``.
+    """
+
+    def __init__(self, *bases):
+        from ..core import Add, Dummy, Half, NegativeOne, One, Zero
+
+        self.bases = []
+        self.slots = []
+        self.dictionaries = []
+        self.fields = []
+        pending = []
+        for basis in bases:
+            if type(basis) is not GroebnerBasis:
+                raise TypeError("ideal quotient requires exact GroebnerBasis operands")
+            namespace = object.__getattribute__(basis, "__dict__")
+            if type(namespace) is not dict:
+                raise TypeError("ideal quotient requires built-in source dictionaries")
+            values = tuple(namespace.get(name, _IDEAL_ABSENT)
+                           for name in ("exprs", "gens", "domain", "order"))
+            expressions, generators, domain, order = values
+            if ((type(expressions) is not list and type(expressions) is not tuple)
+                    or (type(generators) is not list and type(generators) is not tuple)):
+                raise TypeError("ideal quotient requires built-in expression and generator containers")
+            if len(expressions) > 64 or len(generators) > 8:
+                raise ValueError("ideal quotient exceeds its input count limits")
+            if type(domain) is not str or domain not in ("QQ", "ZZ"):
+                raise NotImplementedError("checked ideal operations support rational coefficients")
+            if type(order) is not str or order not in ("lex", "grlex", "grevlex"):
+                raise ValueError("unknown ideal monomial order")
+            expressions, generators = tuple(expressions), tuple(generators)
+            self.bases.append((basis, namespace, values, expressions, generators))
+            pending.extend((node, 0) for node in (*expressions, *generators))
+
+        atoms = (Integer, Rational, Zero, One, NegativeOne, Half, Symbol, Dummy)
+        seen = set()
+        count = 0
+        while pending:
+            node, depth = pending.pop()
+            count += 1
+            if count > 65_536 or depth > 64:
+                raise ValueError("ideal quotient source exceeds its bounded expression envelope")
+            if id(node) in seen:
+                continue
+            seen.add(id(node))
+            kind = type(node)
+            if kind is int:
+                if node.bit_length() > 4096:
+                    raise ValueError("ideal coefficient exceeds 4096 bits")
+                continue
+            if kind is Poly:
+                namespace = object.__getattribute__(node, "__dict__")
+                if type(namespace) is not dict:
+                    raise TypeError("ideal quotient requires built-in source dictionaries")
+                if "as_expr" in namespace:
+                    raise TypeError("ideal quotient does not invoke overridden Poly.as_expr")
+                expression = namespace.get("_expr", _IDEAL_ABSENT)
+                self.fields.append((node, namespace, "_expr", expression))
+                pending.append((expression, depth + 1))
+                continue
+            arithmetic = any(kind is cls for cls in (Add, Mul, Pow))
+            if not any(kind is cls for cls in atoms) and not arithmetic:
+                raise ValueError("ideal operations require exact rational polynomial expressions")
+            for name in ("_value", "_struct_args", "_surface_args"):
+                value = self.retain(node, Basic, name)
+                if name != "_value" and value is not _IDEAL_ABSENT and value is not None:
+                    if type(value) is not tuple:
+                        raise ValueError("ideal source requires exact original argument tuples")
+                    if len(value) > 65_536 - count - len(pending):
+                        raise ValueError("ideal quotient source exceeds its bounded expression envelope")
+                    pending.extend((child, depth + 1) for child in value)
+            if arithmetic:
+                children = self.retain(node, kind, "_args")
+                if children is not _IDEAL_ABSENT:
+                    if type(children) is not tuple:
+                        raise ValueError("ideal source requires exact original argument tuples")
+                    if len(children) > 65_536 - count - len(pending):
+                        raise ValueError("ideal quotient source exceeds its bounded expression envelope")
+                    pending.extend((child, depth + 1) for child in children)
+            if kind is Symbol or kind is Dummy:
+                assumptions = self.retain(node, Symbol, "_assumptions")
+                if (type(assumptions) is not dict or len(assumptions) > 128
+                        or any(type(key) is not str or len(key) > 4096
+                               or type(value) is not bool for key, value in assumptions.items())):
+                    raise ValueError("ideal quotient requires bounded exact symbol assumptions")
+                self.dictionaries.append((assumptions, tuple(assumptions.items())))
+                if kind is Dummy:
+                    self.retain(node, Dummy, "_dummy_name")
+                    self.retain(node, Dummy, "_dummy_number")
+            if len(pending) > 65_536 - count:
+                raise ValueError("ideal quotient source exceeds its bounded expression envelope")
+
+    @staticmethod
+    def slot(owner, name):
+        from types import MemberDescriptorType
+
+        descriptor = type.__dict__["__dict__"].__get__(owner).get(name)
+        if (type(descriptor) is not MemberDescriptorType or descriptor.__objclass__ is not owner
+                or descriptor.__name__ != name):
+            raise TypeError("ideal quotient requires original source storage descriptors")
+        return descriptor
+
+    def retain(self, node, owner, name):
+        slot = self.slot(owner, name)
+        try:
+            value = slot.__get__(node, owner)
+        except AttributeError:
+            value = _IDEAL_ABSENT
+        self.slots.append((node, owner, name, slot, value))
+        return value
+
+    def inputs(self):
+        from ..core import Add
+
+        # Copy only the bounded containers, preserving each original typed
+        # scalar object for source admission and result identity restoration.
+        # Poly has an instance dictionary: invoking its public as_expr could
+        # execute an override unrelated to the retained exact source. Unwrap
+        # the captured _expr directly, without calling any Poly protocol.
+        polynomials = {id(node): expression for node, _, _, expression in self.fields}
+        values = [GroebnerBasis([polynomials.get(id(node), node) for node in expressions],
+                               generators, original[2], original[3])._ideal_inputs()
+                  for _, _, original, expressions, generators in self.bases]
+        self.unchanged()
+        for node, _, name, _, children in self.slots:
+            if name not in ("_args", "_struct_args", "_surface_args") or type(children) is not tuple:
+                continue
+            operator = next((op for cls, op in ((Add, "add"), (Mul, "mul"), (Pow, "pow"))
+                             if type(node) is cls), None)
+            if operator is not None:
+                _native.ideal_source_arguments_native(
+                    _native_expr(node), operator, [_native_expr(child) for child in children]
+                )
+        self.unchanged()
+        return values
+
+    def unchanged(self):
+        for basis, namespace, original, expressions, generators in self.bases:
+            if (object.__getattribute__(basis, "__dict__") is not namespace
+                    or any(namespace.get(name, _IDEAL_ABSENT) is not previous
+                           for name, previous in zip(("exprs", "gens", "domain", "order"), original))
+                    or len(original[0]) != len(expressions) or len(original[1]) != len(generators)
+                    or any(a is not b for a, b in zip(original[0], expressions))
+                    or any(a is not b for a, b in zip(original[1], generators))):
+                raise RuntimeError("ideal quotient source mutated during exact evaluation")
+        for node, namespace, name, previous in self.fields:
+            if (object.__getattribute__(node, "__dict__") is not namespace
+                    or namespace.get(name, _IDEAL_ABSENT) is not previous):
+                raise RuntimeError("ideal quotient source mutated during exact evaluation")
+        for mapping, previous in self.dictionaries:
+            if len(mapping) != len(previous):
+                raise RuntimeError("ideal quotient source mutated during exact evaluation")
+            current = tuple(mapping.items())
+            if any(a is not c or b is not d for (a, b), (c, d) in zip(current, previous)):
+                raise RuntimeError("ideal quotient source mutated during exact evaluation")
+        for node, owner, name, slot, previous in self.slots:
+            if self.slot(owner, name) is not slot:
+                raise RuntimeError("ideal quotient source storage changed during exact evaluation")
+            try:
+                current = slot.__get__(node, owner)
+            except AttributeError:
+                current = _IDEAL_ABSENT
+            if current is previous:
+                continue
+            # Lifting may refresh the native handle of an interned Symbol;
+            # equality here compares the complete immutable typed atom.
+            if (type(node) is Symbol and owner is Basic and name == "_value"
+                    and type(current) is _native.Expr and type(previous) is _native.Expr
+                    and current.is_symbol and previous.is_symbol and current == previous):
+                continue
+            raise RuntimeError("ideal quotient source mutated during exact evaluation")
 
 
 def _ideal_polynomial_source(expression: Any) -> Any:

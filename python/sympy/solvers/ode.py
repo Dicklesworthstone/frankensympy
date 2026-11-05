@@ -1500,9 +1500,14 @@ def _apply_ics(sol, ics, exclude=()):
                  for order, point, value in observations]
     if all(equation == 0 for equation in equations):
         return sol
+    # A boundary residual that contains no fitted constant cannot be fixed by
+    # solving for the other constants. This is a proved branch mismatch even
+    # when the family still contains a free constant elsewhere.
+    fitted = set(consts)
+    if any(not (equation.free_symbols & fitted) and equation.is_zero is False
+           for equation in equations):
+        raise _InitialConditionMismatch("Couldn't solve for initial conditions")
     if not consts:
-        if any(equation.is_zero is False for equation in equations):
-            raise _InitialConditionMismatch("Couldn't solve for initial conditions")
         raise NotImplementedError("Couldn't verify the initial conditions exactly")
     found = _solve(equations, consts, dict=True)
     if not found:
