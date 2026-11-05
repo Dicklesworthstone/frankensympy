@@ -211,13 +211,13 @@ gates remain open.
 ## Custom functions in residual systems (development API)
 
 Ordinary arithmetic retains the actual Python function applications, including
-distinct classes with the same printed name. Dense matrices preserve those
-objects through copies, immutable snapshots, mutation, elementary arithmetic,
-and Jacobian construction. A supervised symbolic derivative hook can supply
+distinct classes with the same printed name. Dense and sparse matrices preserve
+those objects through copies, immutable snapshots, mutation, elementary
+arithmetic, and Jacobian construction. A supervised symbolic derivative hook can supply
 the Jacobian used by an explicit numerical callback program:
 
 ```python
-from sympy import Function, Matrix, Symbol, compile_hybrid_residual_system
+from sympy import Function, SparseMatrix, Symbol, compile_hybrid_residual_system
 
 class ConstitutiveLaw(Function):
     nargs = 1
@@ -226,7 +226,7 @@ class ConstitutiveLaw(Function):
         return 2*self.args[0]
 
 x = Symbol("x")
-residuals = Matrix([ConstitutiveLaw(x) - 4])
+residuals = SparseMatrix([ConstitutiveLaw(x) - 4])
 snapshot = residuals.as_immutable()
 jacobian = snapshot.jacobian([x])
 program = compile_hybrid_residual_system(
@@ -245,6 +245,14 @@ certificate. Sum, product, power, and supported built-in chain rules compose
 around retained applications. An unknown custom derivative stays a formal
 `Derivative` of the original object; unresolved custom compositions do not yet
 expand into every upstream `Subs` representation.
+
+Sparse snapshots use `ImmutableSparseMatrix`; subsequent changes to the source
+or a mutable copy do not change the captured cells. Stored-coordinate algebra,
+transpose, and Jacobian construction preserve sparse storage. Numerical APIs
+still apply their bounded output limits before materializing result arrays.
+Closed native matrix algorithms continue to refuse opaque cells. Immutable
+dense and sparse snapshots use a common coordinate hash for equal values; this
+is an internal consistency contract, not a claim of exact upstream hash parity.
 
 Retained applications also participate in exact replacement, bounded algebraic
 substitution, arithmetic expansion, and conservative simplification. Polynomial
@@ -287,8 +295,7 @@ Opaque expressions have no usable native mirror. Closed numerical compilers,
 verified native algorithms, and unsupported matrix algorithms refuse them.
 Explicit custom commutativity or equality/hash protocols require their own
 supported algebra. Arithmetic graphs and formal differentiation are bounded; arbitrary non-cooperative
-Python hooks retain the existing supervised-boundary limitations. Sparse
-matrices do not yet provide the dense matrix's opaque-cell storage lane.
+Python hooks retain the existing supervised-boundary limitations.
 
 ## Planned algorithm program
 

@@ -753,7 +753,17 @@ def _is_sympy_operand(value: Any) -> bool:
     """True for objects that are themselves SymPy-surface values (shell
     expressions, matrices, ...) — their reflected operators deserve a
     NotImplemented round-trip instead of a hard TypeError (finding 4)."""
-    return isinstance(value, Basic) or hasattr(value, "_value") or hasattr(value, "_native")
+    if isinstance(value, Basic):
+        return True
+    # A retained matrix deliberately raises on _native when its cells cannot
+    # lower. Recognize its base class without probing that guarded property,
+    # so a scalar can defer to the matrix's reflected operator.
+    package = __package__.rsplit(".", 1)[0]
+    matrix_module = sys.modules.get(f"{package}.matrices.dense")
+    matrix_base = vars(matrix_module).get("MatrixBase") if matrix_module is not None else None
+    if matrix_base is not None and isinstance(value, matrix_base):
+        return True
+    return hasattr(value, "_value") or hasattr(value, "_native")
 
 
 def _admitted_exact_int(value: Any) -> int | None:
