@@ -264,71 +264,287 @@ class Order(Function):
 O = Order
 
 
-def residue(expr: Any, x: Any, x0: Any) -> Any:
-    """Compute the residue of expr with respect to x at point x0.
+class _ResidueAnalysis:
+    """Bounded original-source and local meromorphic admission.
 
-    The residue is the coefficient of 1/(x - x0) in the Laurent series of expr around x0.
+    The native Laurent algorithm supplies coefficients. This separate source
+    walk establishes that they belong to a single-valued meromorphic germ,
+    rather than interpreting an arbitrary one-sided real expansion as one.
     """
-    from ..core import sympify, Integer, diff, oo, zoo
-    from ..functions.combinatorial.factorials import factorial
-    from ..polys.polytools import Poly
 
-    expr = sympify(expr)
-    x = Symbol(str(x)) if not isinstance(x, Symbol) else x
-    x0 = sympify(x0)
+    _ENTIRE = ("exp", "sin", "cos", "sinh", "cosh")
 
-    # Check if expr is rational in x
-    num, den = expr.as_numer_denom()
-    try:
-        p_den = Poly(den, x)
-        p_factor = Poly(x - x0, x)
-        k = 0
-        cur_den = p_den
-        while True:
-            q, r = cur_den.div(p_factor)
-            if r.is_zero and not q.is_zero:
-                cur_den = q
-                k += 1
-            else:
-                break
-        if k > 0:
-            rem_den = cur_den.as_expr()
-            G = num / rem_den
-            for _ in range(k - 1):
-                G = diff(G, x)
-            val = G.subs(x, x0)
-            return val / factorial(k - 1)
-        elif den.subs(x, x0) != 0:
-            return Integer(0)
-    except Exception:
-        pass
+    def __init__(self, variable, point):
+        from fractions import Fraction
+        from ..core import I, E, pi, EulerGamma, Catalan, GoldenRatio
 
-    try:
-        if den.subs(x, x0) == 0:
-            d_den = diff(den, x)
-            d_val = d_den.subs(x, x0)
-            if d_val != 0:
-                n_val = num.subs(x, x0)
-                from ..simplify import simplify
-                return simplify(n_val / d_val)
-    except Exception:
-        pass
+        self.Fraction = Fraction
+        self.zero = (Fraction(0), Fraction(0))
+        self.one = (Fraction(1), Fraction(0))
+        self.variable = _native_expr(variable)
+        self.binding = _symbol_binding(variable)
+        self.point = point
+        self.imaginary = _native_expr(I)
+        self.constants = tuple(_native_expr(value) for value in (I, E, pi, EulerGamma, Catalan, GoldenRatio))
+        self.nodes = 0
+        self.work = 0
+        self.calls = 0
+        self.center = None
 
-    # General limit-based method using variable shift t = x - x0
-    t = Symbol("_t")
-    shifted = expr.subs(x, t + x0)
-    for k in range(1, 6):
-        cand = (t**k) * shifted
-        try:
-            lim = limit(cand, t, 0)
-            if lim not in (oo, -oo, zoo) and "oo" not in str(lim):
-                deriv = cand
-                for _ in range(k - 1):
-                    deriv = diff(deriv, t)
-                lim_deriv = limit(deriv, t, 0)
-                return lim_deriv / factorial(k - 1)
-        except Exception:
-            continue
+    def step(self, amount=1):
+        self.work += amount
+        if self.work > 100_000:
+            raise ValueError("residue: exact local arithmetic exceeds its work bound")
+
+    def rational(self, value):
+        if not (value.is_integer or value.is_rational):
+            raise NotImplementedError("residue requires exact integer Laurent exponents")
+        numerator, denominator = value.exact_numerator(), value.exact_denominator()
+        if max(abs(numerator).bit_length(), denominator.bit_length()) > 4096:
+            raise ValueError("residue: rational coefficient exceeds 4096 bits")
+        return self.Fraction(numerator, denominator)
+
+    def read(self, native, depth=0):
+        """Read the complete closed original tree before algebra or expansion."""
+        self.nodes += 1
+        self.step()
+        if self.nodes > 4096 or depth > 32:
+            raise ValueError("residue: original source exceeds its traversal bound")
+        if type(native) is not _native.Expr:
+            raise TypeError("residue requires exact native source expressions")
+        kind = native.func_name
+        if native.is_integer or native.is_rational:
+            return (native, kind, (), self.rational(native))
+        if native.is_symbol:
+            if len(native.symbol_binding.name) > 16_384:
+                raise ValueError("residue: symbol name exceeds its text bound")
+            return (native, kind, (), None)
+        if kind == "Constant":
+            if not any(native == value for value in self.constants):
+                raise NotImplementedError("residue requires finite exact constants")
+            value = (self.Fraction(0), self.Fraction(1)) if native == self.imaginary else None
+            return (native, kind, (), value)
+        if kind not in ("Add", "Mul", "Pow", *self._ENTIRE):
+            raise NotImplementedError(
+                "residue requires meromorphic integer-power arithmetic and admitted entire functions"
+            )
+        arguments = native.args
+        if len(arguments) > 128 or self.nodes + len(arguments) > 4096:
+            raise ValueError("residue: original source exceeds its fanout bound")
+        children = tuple(self.read(child, depth + 1) for child in arguments)
+        exponent = None
+        if kind == "Pow":
+            if len(children) != 2:
+                raise ValueError("residue: malformed original power")
+            exponent = self.rational(arguments[1])
+            if exponent.denominator != 1:
+                raise NotImplementedError("residue does not admit branch-producing fractional powers")
+            exponent = exponent.numerator
+            if abs(exponent) > 128:
+                raise ValueError("residue: original integer power exceeds 128")
+        elif kind in self._ENTIRE and len(children) != 1:
+            raise NotImplementedError("residue requires unary entire functions")
+        return (native, kind, children, exponent)
+
+    def checked(self, value):
+        self.step()
+        if any(max(abs(part.numerator).bit_length(), part.denominator.bit_length()) > 4096
+               for part in value):
+            raise ValueError("residue: exact center arithmetic exceeds 4096 bits")
+        return value
+
+    def add(self, first, second):
+        return self.checked((first[0] + second[0], first[1] + second[1]))
+
+    def multiply(self, first, second):
+        return self.checked((
+            first[0]*second[0] - first[1]*second[1],
+            first[0]*second[1] + first[1]*second[0],
+        ))
+
+    def power(self, value, exponent):
+        if exponent <= 0 and value == self.zero:
+            raise ValueError("residue: original source has a zero base of a nonpositive power")
+        if exponent < 0:
+            norm = value[0]*value[0] + value[1]*value[1]
+            value = self.checked((value[0]/norm, -value[1]/norm))
+            exponent = -exponent
+        result = self.one
+        while exponent:
+            if exponent & 1:
+                result = self.multiply(result, value)
+            exponent >>= 1
+            if exponent:
+                value = self.multiply(value, value)
+        return result
+
+    def combine(self, kind, values, exponent=None):
+        if any(value is None for value in values):
+            return None
+        if kind == "Pow":
+            return self.power(values[0], exponent)
+        result = self.zero if kind == "Add" else self.one
+        operation = self.add if kind == "Add" else self.multiply
+        for value in values:
+            result = operation(result, value)
+        return result
+
+    def gaussian(self, node):
+        """Exact Q(i) value, without numerical probes or assumed nonzero atoms."""
+        self.step()
+        _, kind, children, data = node
+        if kind in ("Integer", "Rational"):
+            return (data, self.Fraction(0))
+        if kind == "Constant":
+            return data
+        if kind not in ("Add", "Mul", "Pow"):
+            return None
+        values = [self.gaussian(child) for child in children]
+        return self.combine(kind, values, data)
+
+    def known_nonzero(self, node):
+        value = self.gaussian(node)
+        if value is not None:
+            return value != self.zero
+        _, kind, children, _ = node
+        if kind in ("Constant", "exp"):
+            return True
+        if kind == "Mul":
+            return all(self.known_nonzero(child) for child in children)
+        if kind == "Pow":
+            return self.known_nonzero(children[0])
+        return False
+
+    def expand(self, native, order):
+        self.calls += 1
+        if self.calls > 64:
+            raise ValueError("residue: local expansion call bound exhausted")
+        terms, remainder = _native.series_expansion_native(
+            native, self.binding, self.point, order,
+        )
+        if len(terms) > 256:
+            raise ValueError("residue: Laurent coefficient count exceeds its bound")
+        if remainder is not None:
+            remainder = self.rational(remainder)
+            if remainder.denominator != 1:
+                raise NotImplementedError("residue requires an integer-order meromorphic remainder")
+            remainder = remainder.numerator
+        result = []
+        previous = None
+        for coefficient, exponent in terms:
+            exponent = self.rational(exponent)
+            if exponent.denominator != 1:
+                raise NotImplementedError("residue requires integer Laurent powers")
+            exponent = exponent.numerator
+            if previous is not None and exponent <= previous:
+                raise ValueError("residue: malformed Laurent exponent order")
+            previous = exponent
+            if remainder is not None and exponent >= remainder:
+                raise ValueError("residue: Laurent coefficient exceeds the reported precision")
+            node = self.read(coefficient)
+            if coefficient.has(self.variable):
+                raise ValueError("residue: Laurent coefficient retains the expansion variable")
+            if self.gaussian(node) != self.zero:
+                result.append((exponent, coefficient, node))
+        return result, remainder
+
+    def leading(self, node):
+        for order in (1, 2, 4, 8, 16, 32, 64, 128, 256):
+            terms, remainder = self.expand(node[0], order)
+            if terms:
+                exponent, _, coefficient = terms[0]
+                if not self.known_nonzero(coefficient):
+                    raise NotImplementedError(
+                        "residue cannot prove the original denominator's leading coefficient nonzero"
+                    )
+                return exponent, self.gaussian(coefficient)
+            if remainder is None:
+                raise ValueError("residue: original nonpositive power has an identically zero base")
+        raise ValueError("residue: insufficient precision to establish an original denominator")
+
+    def admit(self, node):
+        """Return (holomorphic at center, exact center value, nonzero there)."""
+        self.step()
+        native, kind, children, data = node
+        if kind in ("Integer", "Rational"):
+            value = (data, self.Fraction(0))
+            return True, value, value != self.zero
+        if kind == "Symbol":
+            value = self.center if native == self.variable else None
+            return True, value, value is not None and value != self.zero
+        if kind == "Constant":
+            return True, data, True
+        states = [self.admit(child) for child in children]
+        if kind in self._ENTIRE:
+            if not states[0][0]:
+                raise NotImplementedError(
+                    "residue requires holomorphic original arguments of entire functions"
+                )
+            value = None
+            if states[0][1] == self.zero:
+                value = self.one if kind in ("exp", "cos", "cosh") else self.zero
+            return True, value, kind == "exp" or (value is not None and value != self.zero)
+        if kind in ("Add", "Mul"):
+            holomorphic = all(state[0] for state in states)
+            value = self.combine(kind, [state[1] for state in states]) if holomorphic else None
+            nonzero = (value is not None and value != self.zero) or (
+                kind == "Mul" and holomorphic and all(state[2] for state in states)
+            )
+            return holomorphic, value, nonzero
+        base = states[0]
+        if data > 0:
+            value = self.power(base[1], data) if base[1] is not None else None
+            return base[0], value, base[2]
+        if base[1] == self.zero and not children[0][0].has(self.variable):
+            raise ValueError("residue: original source has a zero base of a nonpositive power")
+        if base[0] and base[2]:
+            value = self.power(base[1], data) if base[1] is not None else None
+            return True, self.one if data == 0 else value, True
+        exponent, coefficient = self.leading(children[0])
+        if data == 0:
+            return True, self.one, True
+        valuation = exponent * data
+        if valuation > 0:
+            return True, self.zero, False
+        if valuation == 0:
+            value = self.power(coefficient, data) if coefficient is not None else None
+            return True, value, True
+        return False, None, False
+
+
+def residue(expr: Any, x: Any, x0: Any) -> Any:
+    """Return the coefficient of (x - x0)**-1 in an admitted Laurent germ.
+
+    Exact rational and Gaussian-rational centers are supported. Sources use
+    bounded exact integer-power arithmetic and exp, sin, cos, sinh or cosh
+    with original arguments proved holomorphic at the center. Inverses
+    require a provably nonzero local leading coefficient. Essential,
+    branch-dependent and non-holomorphic sources explicitly refuse.
+
+    Rational sources at rational centers use the native independently checked
+    rational Laurent algorithm. The analytic lane uses the native generalized
+    series after the separate meromorphic-source check; it does not issue a
+    complex-analytic proof certificate. Insufficient precision and operational
+    failures propagate, rather than being interpreted as zero residues.
+    """
+    from ..core import Integer, sympify
+
+    symbol = _require_symbol(x)
+    expression, point = sympify(expr), sympify(x0)
+    native, native_point = _native_expr(expression), _native_expr(point)
+    analysis = _ResidueAnalysis(symbol, native_point)
+    original = analysis.read(native)
+    center_source = analysis.read(native_point)
+    analysis.center = analysis.gaussian(center_source)
+    if analysis.center is None:
+        raise NotImplementedError("residue requires an exact rational or Gaussian-rational center")
+    analysis.admit(original)
+    terms, remainder = analysis.expand(native, 0)
+    if remainder is not None and remainder < 0:
+        raise ValueError("residue: insufficient Laurent precision to determine the residue")
+    for exponent, coefficient, _ in terms:
+        if exponent == -1:
+            return _lift_native_result(coefficient, expression, symbol, point)
     return Integer(0)
 
 
