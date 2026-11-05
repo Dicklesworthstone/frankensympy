@@ -19,6 +19,8 @@ mod least_squares;
 pub use least_squares::{
     LeastSquaresCandidate, VerifiedLeastSquaresFamily, verify_least_squares_candidate,
 };
+mod exponential;
+pub use exponential::MatrixExponentialError;
 
 use fsym_core::algebraic::{AlgebraicNumber, count_real_roots_in_interval, sturm_sequence};
 use fsym_core::ball::RealBall;

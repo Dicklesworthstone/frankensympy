@@ -322,6 +322,18 @@ class SparseMatrix(MatrixBase):
     def as_immutable(self) -> "ImmutableSparseMatrix":
         return ImmutableSparseMatrix(self)
 
+    def exp(self) -> "SparseMatrix":
+        """Return a checked exact rational exponential through dimension eight.
+
+        The result preserves this matrix class. Rational linear/quadratic
+        spectral factors supply a complete normalized fundamental matrix;
+        bounded result fill needs no dense source conversion. Unsupported
+        spectra and exhausted work refuse explicitly.
+        """
+        from ._exponential import _checked_exponential
+
+        return self._new(_checked_exponential(self, sparse=True))
+
     def det(self, method: Any = None) -> Any:
         if self._native.is_exact_rational:
             return _wrap(self._native.det())

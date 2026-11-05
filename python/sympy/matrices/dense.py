@@ -1099,7 +1099,18 @@ class Matrix(MatrixBase):
             return False
 
     def exp(self):
-        """Return the matrix exponential exp(M)."""
+        """Return the matrix exponential exp(M).
+
+        Literal rational matrices through dimension eight use an independently
+        checked fundamental matrix for rational linear/quadratic spectral
+        factors; unsupported spectra refuse explicitly. Other supported
+        symbolic inputs retain the established Jordan and nilpotent routes.
+        """
+        from ._exponential import _checked_exponential
+
+        checked = _checked_exponential(self, sparse=False)
+        if checked is not None:
+            return self._new(checked)
         if not self.is_square:
             raise ValueError("Matrix exponential only defined for square matrices")
         n = self.rows

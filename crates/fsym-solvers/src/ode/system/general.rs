@@ -22,7 +22,7 @@ use fsym_calculus::rational_laplace::{
 };
 use fsym_core::arith::{RationalArithmeticError, metered_mul, metered_sqrt_floor};
 use fsym_core::elementary::rational_expr;
-use fsym_core::{BigRational, Expr, Symbol};
+use fsym_core::{BigRational, Constant, Expr, Symbol};
 use num_traits::{One, Signed, Zero};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -136,6 +136,51 @@ impl VerifiedGeneralOdeSystem {
     }
     pub fn into_solutions(self) -> Vec<Expr> {
         self.solutions
+    }
+
+    /// Evaluate the accepted fundamental matrix at an exact absolute time.
+    ///
+    /// Only the checked block coefficients are rendered. Rational Horner
+    /// evaluation and governed radicals avoid generic expression substitution.
+    /// A caller may pass its existing verifier meter to charge this consumer
+    /// to the same cumulative ledger as generation and verification.
+    pub fn fundamental_at(
+        &self,
+        point: &BigRational,
+        meter: &mut impl BudgetMeter,
+    ) -> Result<ExpressionMatrix> {
+        let mut capped = Capped {
+            inner: meter,
+            used: [0; 3],
+        };
+        let mut work = Work { meter: &mut capped };
+        work.meter.checkpoint()?;
+        validate_number(point, MAX_INPUT_BITS)?;
+        let local = work.sub(point, &self.initial_point)?;
+        let n = self.coefficients.len();
+        work.charge(n * n + n, 256 * (n * n + n))?;
+        let mut result = Vec::with_capacity(n);
+        if local.is_zero() {
+            // The complete initial matrix was checked independently.
+            for row in 0..n {
+                result.push(
+                    (0..n)
+                        .map(|column| Expr::from_i64(i64::from(row == column)))
+                        .collect(),
+                );
+            }
+        } else {
+            let coordinate = rational_expr(local);
+            for row in &self.certificate.fundamental {
+                let mut values = Vec::with_capacity(n);
+                for entry in row {
+                    values.push(render(entry, &coordinate, 0, &mut work)?.0);
+                }
+                result.push(values);
+            }
+        }
+        work.meter.checkpoint()?;
+        Ok(result)
     }
 }
 
@@ -962,8 +1007,28 @@ fn frequency(
     Ok((value, inverse))
 }
 
-fn time_polynomial(coefficients: &[BigRational], local: &Expr) -> Expr {
-    sum(coefficients
+fn time_polynomial(
+    coefficients: &[BigRational],
+    local: &Expr,
+    work: &mut Work<'_, impl BudgetMeter>,
+) -> Result<Expr> {
+    let point = match local {
+        Expr::Integer(value) => {
+            work.charge(1, 128 + 2 * value.bits().div_ceil(8) as usize)?;
+            Some(BigRational::from_integer(value.clone()))
+        }
+        Expr::Rational(value) => Some(work.copy(value)?),
+        _ => None,
+    };
+    if let Some(point) = point {
+        let mut value = BigRational::zero();
+        for coefficient in coefficients.iter().rev() {
+            let product = work.mul(&value, &point)?;
+            value = work.add(&product, coefficient)?;
+        }
+        return Ok(rational_expr(value));
+    }
+    Ok(sum(coefficients
         .iter()
         .enumerate()
         .filter(|(_, value)| !value.is_zero())
@@ -978,7 +1043,22 @@ fn time_polynomial(coefficients: &[BigRational], local: &Expr) -> Expr {
             };
             product(vec![rational_expr(value.clone()), power])
         })
-        .collect())
+        .collect()))
+}
+
+/// Literal identities need no transcendental approximation or factor search.
+fn basis_function(name: &str, argument: Expr) -> Expr {
+    if argument.is_zero() {
+        return Expr::from_i64(if name == "sin" || name == "sinh" {
+            0
+        } else {
+            1
+        });
+    }
+    if name == "exp" && argument.is_one() {
+        return Expr::Const(Constant::E);
+    }
+    Expr::Function(name.into(), vec![argument])
 }
 
 /// Rendering uses exactly the basis already checked: s_d' = c_d and
@@ -997,7 +1077,7 @@ fn render(
     for block in &certificate.blocks {
         let (rate, inner) = match block {
             LaplaceBlock::Exponential { rate, coefficients } => {
-                (rate, time_polynomial(coefficients, local))
+                (rate, time_polynomial(coefficients, local, work)?)
             }
             LaplaceBlock::Quadratic {
                 rate,
@@ -1013,17 +1093,13 @@ fn render(
                 let (frequency, inverse) = frequency(&magnitude, work)?;
                 let argument = product(vec![frequency, local.clone()]);
                 let positive = squared_frequency.is_positive();
-                let c = Expr::Function(
-                    if positive { "cos" } else { "cosh" }.into(),
-                    vec![argument.clone()],
-                );
-                let s =
-                    Expr::Function(if positive { "sin" } else { "sinh" }.into(), vec![argument]);
+                let c = basis_function(if positive { "cos" } else { "cosh" }, argument.clone());
+                let s = basis_function(if positive { "sin" } else { "sinh" }, argument);
                 (
                     rate,
                     sum(vec![
-                        product(vec![time_polynomial(cosine, local), c]),
-                        product(vec![time_polynomial(sine, local), inverse, s]),
+                        product(vec![time_polynomial(cosine, local, work)?, c]),
+                        product(vec![time_polynomial(sine, local, work)?, inverse, s]),
                     ]),
                 )
             }
@@ -1032,7 +1108,7 @@ fn render(
             inner
         } else {
             let argument = product(vec![rational_expr(rate.clone()), local.clone()]);
-            product(vec![Expr::Function("exp".into(), vec![argument]), inner])
+            product(vec![basis_function("exp", argument), inner])
         };
         terms.push(term);
     }

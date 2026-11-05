@@ -3,10 +3,14 @@
 #![forbid(unsafe_code)]
 
 use fsym_core::{BigInt, BigRational, Constant, Expr};
-use fsym_matrices::{Matrix, MatrixError, RationalLinearSolution, SparseMatrix};
+use fsym_matrices::{
+    Matrix, MatrixError, MatrixExponentialError, RationalLinearSolution, SparseMatrix,
+};
 use fsym_runtime::{Budget, BudgetLimits, Dimension};
 use pyo3::basic::CompareOp;
-use pyo3::exceptions::{PyIndexError, PyTypeError, PyValueError, PyZeroDivisionError};
+use pyo3::exceptions::{
+    PyIndexError, PyNotImplementedError, PyTypeError, PyValueError, PyZeroDivisionError,
+};
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
 
@@ -40,6 +44,14 @@ fn matrix_err(err: MatrixError) -> PyErr {
         MatrixError::SingularMatrix => PyValueError::new_err("Matrix is singular"),
         MatrixError::DivisionByZero => PyValueError::new_err("Exact matrix division by zero"),
         other => PyValueError::new_err(other.to_string()),
+    }
+}
+
+fn matrix_exponential_err(error: MatrixExponentialError) -> PyErr {
+    if error.is_unsupported() {
+        PyNotImplementedError::new_err(error.to_string())
+    } else {
+        to_value_error(error)
     }
 }
 
@@ -340,6 +352,13 @@ impl PyMatrix {
     pub fn det(&self) -> PyResult<PyExpr> {
         let d = self.inner.det().map_err(matrix_err)?;
         Ok(PyExpr::from_expr(d))
+    }
+
+    /// Independently checked bounded exact rational matrix exponential.
+    pub fn exp(&self) -> PyResult<Self> {
+        Ok(Self {
+            inner: self.inner.exp().map_err(matrix_exponential_err)?,
+        })
     }
 
     /// Matrix inverse: A^-1.
@@ -884,6 +903,13 @@ impl PySparseMatrix {
     pub fn trace(&self) -> PyResult<PyExpr> {
         let tr = self.inner.trace().map_err(matrix_err)?;
         Ok(PyExpr::from_expr(tr))
+    }
+
+    /// Checked rational exponential with bounded sparse result fill.
+    pub fn exp(&self) -> PyResult<Self> {
+        Ok(Self {
+            inner: self.inner.exp().map_err(matrix_exponential_err)?,
+        })
     }
 
     /// Exact rational determinant without allocating the dense matrix.
