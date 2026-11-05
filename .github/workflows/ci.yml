@@ -289,6 +289,7 @@ jobs:
               "python/tests/test_callback_effects_and_ownership.py",
               "python/tests/test_numeric_hybrid_callbacks.py",
               "python/tests/test_hybrid_residual_solver.py",
+              "python/tests/test_hybrid_sparse_products.py",
               "python/tests/test_relational_source_identity.py",
               "python/tests/test_closed_numeric_source_admission.py",
               "python/tests/test_numeric_donor_consumers.py",

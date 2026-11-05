@@ -192,23 +192,30 @@ fn sparse_products_use_only_the_admitted_bytecode_and_survive_transport() {
 }
 
 #[test]
-fn held_zero_sources_keep_their_original_domain_even_without_nonzeros() {
+fn held_zero_sources_keep_their_original_domain_under_zero_weight_products() {
     let x = Symbol::new("x");
     let source = Expr::Mul(vec![
         Expr::from_i64(0),
         Expr::Function("log".into(), vec![Expr::Sym(x.clone())]),
     ]);
-    let program = VerifiedResidualSystem::try_compile(&[source], &[x]).unwrap();
-    assert!(program.jacobian_pattern().is_empty());
-    assert_eq!(program.evaluate_sparse(&[1.0]).unwrap().residuals, [0.0]);
+    let program = VerifiedResidualSystem::try_compile(&[source], &[x.clone()]).unwrap();
+    // Held derivative expressions are structural entries even when their
+    // valid-point value is zero; sparsity never proves algebraic cancellation.
+    assert_eq!(program.jacobian_pattern(), &[(0, 0)]);
+    let evaluated = program.evaluate_sparse(&[1.0]).unwrap();
+    assert_eq!(evaluated.residuals, [0.0]);
+    assert_eq!(evaluated.jacobian, [0.0]);
     for point in [-1.0, 0.0] {
         let mut residual = [901.0];
-        assert!(
-            program
-                .try_eval_sparse_into(&[point], &mut residual, &mut [])
-                .is_err()
-        );
+        let mut jacobian = [903.0];
+        assert!(matches!(
+            program.try_eval_sparse_into(&[point], &mut residual, &mut jacobian),
+            Err(ResidualEvaluationError::Evaluation(
+                EvalError::NonFiniteValue
+            ))
+        ));
         assert_eq!(residual, [901.0]);
+        assert_eq!(jacobian, [903.0]);
         for transpose in [false, true] {
             let mut output = [902.0];
             let result = if transpose {
@@ -224,6 +231,36 @@ fn held_zero_sources_keep_their_original_domain_even_without_nonzeros() {
             ));
             assert_eq!(output, [902.0]);
         }
+    }
+
+    // An invalid constant source has no derivative coordinates at all. Its
+    // original domain must still run before publishing any sparse or product
+    // result, despite the unused finite point and zero direction/weight.
+    let constant_hole = Expr::Function("log".into(), vec![Expr::from_i64(-1)]);
+    let no_derivatives = VerifiedResidualSystem::try_compile(&[constant_hole], &[x]).unwrap();
+    assert!(no_derivatives.jacobian_pattern().is_empty());
+    let mut residual = [904.0];
+    assert!(matches!(
+        no_derivatives.try_eval_sparse_into(&[1.0], &mut residual, &mut []),
+        Err(ResidualEvaluationError::Evaluation(
+            EvalError::NonFiniteValue
+        ))
+    ));
+    assert_eq!(residual, [904.0]);
+    for transpose in [false, true] {
+        let mut output = [905.0];
+        let result = if transpose {
+            no_derivatives.try_jacobian_transpose_vector_product_into(&[1.0], &[0.0], &mut output)
+        } else {
+            no_derivatives.try_jacobian_vector_product_into(&[1.0], &[0.0], &mut output)
+        };
+        assert!(matches!(
+            result,
+            Err(ResidualEvaluationError::Evaluation(
+                EvalError::NonFiniteValue
+            ))
+        ));
+        assert_eq!(output, [905.0]);
     }
 }
 

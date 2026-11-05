@@ -4,14 +4,17 @@ These programs retain caller-supplied derivatives as approximate numerical
 inputs. They do not create symbolic derivative proofs or root certificates.
 """
 
-from ..core import Basic, Eq, Relational, _native
+import math
+
+from ..core import Basic, Eq, Relational, Zero, _native
 from .hybrid import (
     _BASIC_VALUE, _HybridCallable, _callback_bindings, _compile_graph, _evaluation_budget,
     _evaluation_session, _native_operator, _output_snapshot, _session_ready, _snapshot_source,
+    _steps,
 )
 from .lambdify import (
-    _MAX_OUTPUTS, _argument_layout, _call_arguments, _charge, _check_evaluation_budget,
-    _functions, _outputs,
+    _MAX_OUTPUTS, _argument_layout, _batch_arguments, _call_arguments, _charge,
+    _check_evaluation_budget, _functions, _outputs,
 )
 
 __all__ = ["compile_hybrid_residual_system"]
@@ -132,18 +135,59 @@ def _initial_point(initial, columns):
     return [_finite_real(value, "initial value") for value in captured]
 
 
+def _canonical_zero(value, snapshot):
+    """Omit only already-admitted, originally exact integer-zero atoms."""
+    cls = type(value)
+    if not (cls is int or cls is bool or cls is Zero
+            or (cls is _native.Expr and value.is_integer)):
+        return False
+    # Float literals can lower to exact native zero. Their original type is
+    # deliberately excluded above, as are held arithmetic and custom objects.
+    # No mathematical zero test, Python equality or printer runs here.
+    closed = snapshot[3]
+    return (snapshot[0] == "closed" and type(closed) is _native.Expr
+            and closed.is_integer and closed.exact_numerator() == 0)
+
+
+def _system_work(budget, session, count):
+    """Charge bounded shell work to the request's existing owning ledgers."""
+    _session_ready(session)
+    _check_evaluation_budget(budget)
+    session.charge_nested_steps(count)
+    _steps(budget, count)
+
+
+def _product_vector(vector, expected, lane, budget, session):
+    if not _is_sequence(vector) or len(vector) != expected:
+        raise TypeError(f"hybrid {lane} must be an exact list or tuple of length {expected}")
+    _system_work(budget, session, expected + 1)
+    try:
+        captured = tuple(vector[index] for index in range(expected))
+    except IndexError:
+        raise ValueError(f"hybrid {lane} changed during its snapshot") from None
+    if len(vector) != expected:
+        raise ValueError(f"hybrid {lane} changed during its snapshot")
+    values = _call_arguments((None,) * expected, captured, native=True)
+    if any(not math.isfinite(value) for value in values):
+        raise ValueError(f"hybrid {lane} values must be finite")
+    _session_ready(session)
+    _check_evaluation_budget(budget)
+    return values
+
+
 class _HybridResidualSystem:
     """One immutable residual/Jacobian graph with explicit user provenance."""
 
-    __slots__ = ("_program", "_residual_program", "_rows", "_columns")
+    __slots__ = ("_program", "_residual_program", "_rows", "_columns", "_jacobian_pattern")
 
-    def __init__(self, program, residual_program, rows, columns):
+    def __init__(self, program, residual_program, rows, columns, pattern=()):
         if hasattr(self, "_program"):
             raise AttributeError("hybrid residual systems are immutable")
         object.__setattr__(self, "_program", program)
         object.__setattr__(self, "_residual_program", residual_program)
         object.__setattr__(self, "_rows", rows)
         object.__setattr__(self, "_columns", columns)
+        object.__setattr__(self, "_jacobian_pattern", tuple(pattern))
 
     def __setattr__(self, name, value):
         raise AttributeError("hybrid residual systems are immutable")
@@ -168,6 +212,11 @@ class _HybridResidualSystem:
         return self._rows
 
     @property
+    def jacobian_pattern(self):
+        """Immutable row-major coordinates of captured derivative expressions."""
+        return self._jacobian_pattern
+
+    @property
     def callback_slots(self):
         return self._program.callback_slots
 
@@ -183,11 +232,42 @@ class _HybridResidualSystem:
     def jacobian_evidence(self):
         return "user_supplied"
 
+    def _dense_jacobian(self, entries, budget, session):
+        _system_work(budget, session, self._rows * self._columns + len(entries) + 1)
+        result = [[0.0] * self._columns for _ in range(self._rows)]
+        for (row, column), value in zip(self._jacobian_pattern, entries):
+            result[row][column] = value
+        _session_ready(session)
+        _check_evaluation_budget(budget)
+        return result
+
+    def _evaluate_dense(self, inputs, budget, session):
+        residuals, entries = self._program._evaluate(inputs, budget, session)
+        result = (residuals, self._dense_jacobian(entries, budget, session))
+        _session_ready(session)
+        _check_evaluation_budget(budget)
+        return result
+
     def evaluate(self, *values, budget=None, session=None):
-        """Return ``(residual_values, Jacobian_rows)`` in captured source order."""
-        return self._program(*values, budget=budget, session=session)
+        """Return residual values and dense Jacobian rows in source order."""
+        _check_evaluation_budget(budget)
+        with _evaluation_session(session) as active, _evaluation_budget(budget) as budget:
+            inputs = _call_arguments(self._program._layout, values, native=True)
+            result = self._evaluate_dense(inputs, budget, active)
+            _session_ready(active)
+            _check_evaluation_budget(budget)
+            return result
 
     __call__ = evaluate
+
+    def evaluate_sparse(self, *values, budget=None, session=None):
+        """Return residuals and derivative values aligned with jacobian_pattern.
+
+        Every residual occurrence precedes every stored derivative occurrence.
+        Numerical zeros remain stored, including callback returns and held
+        expressions. Only originally exact canonical zero atoms are omitted.
+        """
+        return self._program(*values, budget=budget, session=session)
 
     def residuals(self, *values, budget=None, session=None):
         """Evaluate the residual prefix without invoking derivative callbacks."""
@@ -202,18 +282,78 @@ class _HybridResidualSystem:
         _check_evaluation_budget(budget)
         with _evaluation_session(session) as active, _evaluation_budget(budget) as budget:
             inputs = _call_arguments(self._program._layout, values, native=True)
-            result = self._program._evaluate(inputs, budget, active)[1]
+            result = self._evaluate_dense(inputs, budget, active)[1]
             _session_ready(active)
             _check_evaluation_budget(budget)
             return result
 
+    def _product(self, vector, values, transpose, budget, session):
+        _check_evaluation_budget(budget)
+        with _evaluation_session(session) as active, _evaluation_budget(budget) as budget:
+            expected = self._rows if transpose else self._columns
+            lane = "weights" if transpose else "direction"
+            vector = _product_vector(vector, expected, lane, budget, active)
+            inputs = _call_arguments(self._program._layout, values, native=True)
+            # Evaluate the complete captured occurrence graph exactly once,
+            # even for a zero vector. Reductions cannot skip an earlier domain
+            # check or an asserted derivative's observable Python effect.
+            entries = self._program._evaluate(inputs, budget, active)[1]
+            size = self._columns if transpose else self._rows
+            _system_work(budget, active, size + 1)
+            result = [0.0] * size
+            for (row, column), derivative in zip(self._jacobian_pattern, entries):
+                _system_work(budget, active, 2)
+                target, coordinate = (column, row) if transpose else (row, column)
+                contribution = derivative * vector[coordinate]
+                if not math.isfinite(contribution):
+                    raise ValueError("hybrid Jacobian product contribution must remain finite")
+                total = result[target] + contribution
+                if not math.isfinite(total):
+                    raise ValueError("hybrid Jacobian product partial sum must remain finite")
+                result[target] = total
+            _system_work(budget, active, 1)
+            _session_ready(active)
+            _check_evaluation_budget(budget)
+            return result
+
+    def jacobian_vector_product(self, direction, *values, budget=None, session=None):
+        """Return J times a finite flat direction in captured variable order.
+
+        All source and stored derivative callbacks run once, including with a
+        zero direction. The approximate result uses the asserted Jacobian;
+        it supplies no independently checked derivative evidence.
+        """
+        return self._product(direction, values, False, budget, session)
+
+    def jacobian_transpose_vector_product(self, weights, *values, budget=None, session=None):
+        """Return transposed J times finite weights in residual order.
+
+        Every residual and stored derivative is evaluated before reduction,
+        including rows with zero weight. Products and partial sums must remain
+        finite. Completed Python effects survive failure; no partial values
+        are returned.
+        """
+        return self._product(weights, values, True, budget, session)
+
     def evaluate_batch(self, rows, *, budget=None, session=None):
-        """Evaluate complete residual/Jacobian pairs under one ledger/session.
+        """Evaluate complete dense residual/Jacobian pairs under one request.
 
         Every row is admitted before effects start. A later failure publishes
         no partial result list; already completed Python effects remain visible.
         """
-        return self._program.evaluate_batch(rows, budget=budget, session=session)
+        _check_evaluation_budget(budget)
+        with _evaluation_session(session) as active, _evaluation_budget(budget) as budget:
+            # The public batch still returns dense rows, so its original
+            # dense input/output admission bound must not become sparse.
+            outputs = self._rows * (self._columns + 1)
+            inputs = _batch_arguments(self._program._layout, rows, self._columns, outputs)
+            if any(not math.isfinite(value) for row in inputs for value in row):
+                raise ValueError("hybrid numerical inputs must be finite")
+            _system_work(budget, active, len(inputs) + 1)
+            result = [self._evaluate_dense(point, budget, active) for point in inputs]
+            _session_ready(active)
+            _check_evaluation_budget(budget)
+            return result
 
     def solve(self, initial, *, tol=1e-12, maxiter=200, budget=None, session=None):
         """Return an approximate column Matrix using bounded pivoted-QR Newton.
@@ -249,7 +389,7 @@ class _HybridResidualSystem:
                 return self._residual_program._evaluate(point, budget, active)
 
             def jacobian(point, *, budget=None):
-                return self._program._evaluate(point, budget, active)[1]
+                return self._evaluate_dense(point, budget, active)[1]
 
             def trial_residuals(point, *, budget=None):
                 return self._residual_program._evaluate(
@@ -295,10 +435,21 @@ def compile_hybrid_residual_system(residuals, args, *, jacobian, callbacks):
     are never deduplicated. Use held forms to retain custom surface identity.
 
     The immutable result exposes ``evaluate``, ``residuals``, ``jacobian``,
-    ``evaluate_batch`` and ``solve``. Numerical calls accept ``budget`` and
-    ``session``. Batches and solves retain one owning session and cumulative
-    ledger, including nested hybrid requests. Arbitrary Python callback work,
-    CPython object allocation and compilation remain outside native accounting;
+    ``evaluate_batch`` and ``solve``. ``jacobian_pattern`` is a row-major tuple
+    of stored derivative coordinates, and ``evaluate_sparse`` returns residuals
+    plus values aligned with that pattern. Only originally exact canonical
+    zero atoms are omitted: float zeros, held zero expressions and callback
+    occurrences remain. ``jacobian_vector_product(direction, *values)`` and
+    ``jacobian_transpose_vector_product(weights, *values)`` evaluate every
+    residual and stored derivative once, even with zero direction or weights,
+    then reduce without allocating dense Jacobian rows. Direction and weights
+    are finite flat exact lists/tuples in variable and residual order.
+    Products and partial sums must remain finite.
+
+    Numerical calls accept ``budget`` and ``session``. Dense reconstruction,
+    product reductions, batches and solves retain one owning session and
+    cumulative ledger, including nested hybrid requests. Arbitrary Python
+    callback work, CPython object allocation and compilation remain outside native accounting;
     callbacks have no forced cancellation guarantee.
 
     Up to 64 variables, 256 residuals and 4096 dense Jacobian entries are
@@ -319,6 +470,7 @@ def compile_hybrid_residual_system(residuals, args, *, jacobian, callbacks):
     rows = len(residuals)
     count = [0]
     leaf_index = 0
+    stored_derivatives = []
 
     def snapshot(value):
         nonlocal leaf_index
@@ -326,11 +478,26 @@ def compile_hybrid_residual_system(residuals, args, *, jacobian, callbacks):
         leaf_index += 1
         if is_residual and type(value) is Eq:
             return _snapshot_equation(value, bindings, functions, count)
-        return _snapshot_source(value, bindings, functions, count)
+        node = _snapshot_source(value, bindings, functions, count)
+        if not is_residual:
+            stored_derivatives.append(not _canonical_zero(value, node))
+        return node
 
     shape, roots = _outputs(
         (residuals, jacobian), snapshot, native=True,
     )
+    # Every original cell passes source admission before any omission. Keep
+    # float zeros, held expressions and opaque nodes even when their admitted
+    # numerical value is zero. No new derivative or purity claim is inferred.
+    pattern = tuple(
+        (index // columns, index % columns)
+        for index, stored in enumerate(stored_derivatives) if stored
+    )
+    roots = roots[:rows] + [
+        node for node, stored in zip(roots[rows:], stored_derivatives) if stored
+    ]
+    residual_shape = shape[1][0]
+    shape = (tuple, (residual_shape, (list, tuple(range(rows, len(roots))))))
     actions, outputs, slots, operations = _compile_graph(roots, variables)
     program = _HybridCallable(layout, shape, variables, actions, outputs, slots, operations)
     # Emission is postorder with every residual root before every Jacobian
@@ -341,7 +508,7 @@ def compile_hybrid_residual_system(residuals, args, *, jacobian, callbacks):
     residual_operations = sum(payload.operation_count for kind, payload, _ in prefix
                               if kind != "callback")
     residual_program = _HybridCallable(
-        layout, shape[1][0], variables, prefix, outputs[:rows],
+        layout, residual_shape, variables, prefix, outputs[:rows],
         slots[:callback_count], residual_operations,
     )
-    return _HybridResidualSystem(program, residual_program, rows, columns)
+    return _HybridResidualSystem(program, residual_program, rows, columns, pattern)

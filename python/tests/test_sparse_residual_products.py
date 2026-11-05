@@ -138,11 +138,11 @@ def test_transpose_weights_follow_residual_count_beyond_the_variable_limit():
 
 
 @pytest.mark.parametrize("operation", ["sparse", "forward", "transpose"])
-def test_original_domains_are_checked_even_with_zero_derivatives_and_zero_weights(operation):
+def test_held_zero_derivatives_retain_their_source_domains_at_zero_weights(operation):
     x = s.Symbol("sparse_held_domain")
     source = s.Mul(0, s.log(x), evaluate=False)
     program = s.compile_residual_system([source], x)
-    assert program.jacobian_pattern == ()
+    assert program.jacobian_pattern == ((0, 0),)
     calls = {
         "sparse": lambda value: program.evaluate_sparse(value),
         "forward": lambda value: program.jacobian_vector_product([0], value),
@@ -151,7 +151,22 @@ def test_original_domains_are_checked_even_with_zero_derivatives_and_zero_weight
     for point in (0, -1):
         with pytest.raises(ValueError):
             calls[operation](point)
-    assert calls[operation](1) == (([0], []) if operation == "sparse" else [0])
+    assert calls[operation](1) == (([0], [0]) if operation == "sparse" else [0])
+
+
+@pytest.mark.parametrize("operation", ["sparse", "forward", "transpose"])
+def test_empty_pattern_still_checks_a_variable_independent_source_domain(operation):
+    x = s.Symbol("sparse_constant_domain")
+    source = s.log(-1, evaluate=False)
+    program = s.compile_residual_system([source], x)
+    assert program.jacobian_pattern == ()
+    calls = {
+        "sparse": lambda: program.evaluate_sparse(2),
+        "forward": lambda: program.jacobian_vector_product([0], 2),
+        "transpose": lambda: program.jacobian_transpose_vector_product([0], 2),
+    }
+    with pytest.raises(ValueError):
+        calls[operation]()
 
 
 @pytest.mark.parametrize("operation", ["sparse", "forward", "transpose"])

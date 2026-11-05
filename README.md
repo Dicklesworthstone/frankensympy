@@ -273,6 +273,11 @@ program = compile_hybrid_residual_system(
     callbacks={ConstitutiveLaw: lambda value: value*value},
 )
 
+assert program.jacobian_pattern == ((0, 0),)
+assert program.evaluate_sparse(3.0) == ([5.0], [6.0])
+assert program.jacobian_vector_product([2.0], 3.0) == [12.0]
+assert program.jacobian_transpose_vector_product([0.5], 3.0) == [3.0]
+
 residuals[0] = 999                 # The compiled snapshot is unchanged.
 root = program.solve([3.0])       # Matrix([[2.0]]) to numerical tolerance.
 assert abs(float(root[0, 0]) - 2.0) < 1e-10
@@ -280,7 +285,17 @@ assert abs(float(root[0, 0]) - 2.0) < 1e-10
 
 The supplied Jacobian is a user assertion. Its callback values and root remain
 approximate; this path does not issue a native derivative proof or a root-box
-certificate. Sum, product, power, and supported built-in chain rules compose
+certificate. Sparse evaluation returns derivative values in the immutable
+`jacobian_pattern` order; products avoid dense numerical Jacobian output.
+Only original canonical integer-zero derivative atoms are omitted. Float zeros,
+held expressions and callbacks remain stored, even when they evaluate to zero.
+Every residual and stored derivative runs in captured occurrence order before
+a product is reduced, including with zero direction or weights. A shared
+`EvaluationBudget` and `SupervisedCallbackSession` cover the full request;
+completed callback effects remain observable if a later operation fails.
+Compilation and existing dense APIs retain their original admission limits.
+
+Sum, product, power, and supported built-in chain rules compose
 around retained applications. An unknown custom derivative stays a formal
 `Derivative` of the original object; unresolved custom compositions do not yet
 expand into every upstream `Subs` representation.
