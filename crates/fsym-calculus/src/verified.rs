@@ -8,12 +8,14 @@
 #![forbid(unsafe_code)]
 
 use crate::compile::{
-    CompileError, CompiledExpr, CompiledOp, CompiledResidualSystem, MAX_COMPILE_OPS,
+    CompileError, CompiledExpr, CompiledOp, CompiledResidualSystem, EvalError, MAX_COMPILE_OPS,
+    charge_evaluation_allocation, charge_evaluation_steps,
 };
 use crate::sparse_jacobian::{
     JacobianVerificationError, SparseJacobian, SparseJacobianReceipt, compiled_expression_matches,
     verify_sparse_jacobian_certificate,
 };
+use fsym_budget::{BudgetMeter, Unbounded};
 use fsym_core::{Expr, Symbol};
 use fsym_proof_kernel::{Claim, ProofRule, derivation_verification_units};
 use serde::{Deserialize, Serialize};
@@ -55,6 +57,28 @@ pub enum VerifiedCompilationError {
     SourceDepthLimit { depth: usize, max: usize },
     #[error("Proof payload exceeds its admission envelope: {0}")]
     ProofEnvelope(String),
+}
+
+/// Finite binary64 values from one admitted residual/Jacobian program.
+/// Derivative values follow [`VerifiedResidualSystem::jacobian_pattern`].
+/// These approximate values do not certify numerical rounding or a root.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SparseResidualEvaluation {
+    pub residuals: Vec<f64>,
+    pub jacobian: Vec<f64>,
+}
+
+/// Evaluation failures preserve the underlying budget/cancellation error chain.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum ResidualEvaluationError {
+    #[error("residual evaluation failed: {0}")]
+    Evaluation(#[from] EvalError),
+    #[error("residual {lane} length must be {expected}, got {actual}")]
+    Dimension {
+        lane: &'static str,
+        expected: usize,
+        actual: usize,
+    },
 }
 
 /// A transport failure never publishes a partially decoded verified system.
@@ -522,6 +546,310 @@ impl VerifiedResidualSystem {
     /// Editing a clone cannot change the already admitted system.
     pub fn sparse_jacobian(&self) -> &SparseJacobian {
         &self.sparse_jacobian
+    }
+
+    /// Borrowed row-major coordinates of the independently checked nonzeros.
+    /// Numerical zero values remain present at their structural coordinates.
+    pub fn jacobian_pattern(&self) -> &[(usize, usize)] {
+        &self.sparse_jacobian.pattern.nonzeros
+    }
+
+    fn input_with_meter<M: BudgetMeter + ?Sized>(
+        values: &[f64],
+        expected: usize,
+        lane: &'static str,
+        meter: &mut M,
+    ) -> Result<(), ResidualEvaluationError> {
+        charge_evaluation_steps(meter, 1)?;
+        if values.len() != expected {
+            return Err(ResidualEvaluationError::Dimension {
+                lane,
+                expected,
+                actual: values.len(),
+            });
+        }
+        for value in values {
+            charge_evaluation_steps(meter, 1)?;
+            if !value.is_finite() {
+                return Err(EvalError::NonFiniteValue.into());
+            }
+        }
+        Ok(())
+    }
+
+    fn evaluation_buffer<M: BudgetMeter + ?Sized>(
+        length: usize,
+        meter: &mut M,
+    ) -> Result<Vec<f64>, ResidualEvaluationError> {
+        charge_evaluation_allocation(meter, length)?;
+        let mut result = Vec::new();
+        result
+            .try_reserve_exact(length)
+            .map_err(|_| EvalError::AllocationFailure)?;
+        Ok(result)
+    }
+
+    /// Evaluate the original residuals and only stored Jacobian entries.
+    pub fn evaluate_sparse(
+        &self,
+        point: &[f64],
+    ) -> Result<SparseResidualEvaluation, ResidualEvaluationError> {
+        self.evaluate_sparse_with_meter(point, &mut Unbounded)
+    }
+
+    /// Finite-real sparse evaluation under one cumulative caller ledger.
+    ///
+    /// Every original source is checked before derivative values, including
+    /// domains hidden behind an identically zero derivative. Storage is
+    /// proportional to residuals and structural nonzeros, without allocating
+    /// dense Jacobian values. All scratch buffers and bytecode work are charged;
+    /// failure or cancellation publishes no partial result.
+    pub fn evaluate_sparse_with_meter<M: BudgetMeter + ?Sized>(
+        &self,
+        point: &[f64],
+        meter: &mut M,
+    ) -> Result<SparseResidualEvaluation, ResidualEvaluationError> {
+        Self::input_with_meter(point, self.compiled.num_vars, "point", meter)?;
+        let mut residuals = Self::evaluation_buffer(self.compiled.num_residuals, meter)?;
+        for program in &self.compiled.compiled_residuals {
+            charge_evaluation_steps(meter, 1)?;
+            residuals.push(program.try_eval_finite_with_meter(point, meter)?);
+        }
+        let mut jacobian = Self::evaluation_buffer(self.sparse_jacobian.entries.len(), meter)?;
+        for entry in &self.sparse_jacobian.entries {
+            charge_evaluation_steps(meter, 1)?;
+            jacobian.push(
+                entry
+                    .compiled_deriv
+                    .try_eval_finite_with_meter(point, meter)?,
+            );
+        }
+        charge_evaluation_steps(meter, 1)?;
+        Ok(SparseResidualEvaluation {
+            residuals,
+            jacobian,
+        })
+    }
+
+    /// Sparse evaluation into caller-owned buffers, unchanged on every refusal.
+    pub fn try_eval_sparse_into(
+        &self,
+        point: &[f64],
+        residuals: &mut [f64],
+        jacobian: &mut [f64],
+    ) -> Result<(), ResidualEvaluationError> {
+        self.try_eval_sparse_into_with_meter(point, residuals, jacobian, &mut Unbounded)
+    }
+
+    /// Both result buffers are published together after all charges and checks.
+    pub fn try_eval_sparse_into_with_meter<M: BudgetMeter + ?Sized>(
+        &self,
+        point: &[f64],
+        residuals: &mut [f64],
+        jacobian: &mut [f64],
+        meter: &mut M,
+    ) -> Result<(), ResidualEvaluationError> {
+        charge_evaluation_steps(meter, 1)?;
+        for (lane, expected, actual) in [
+            (
+                "residual output",
+                self.compiled.num_residuals,
+                residuals.len(),
+            ),
+            (
+                "sparse Jacobian output",
+                self.sparse_jacobian.entries.len(),
+                jacobian.len(),
+            ),
+        ] {
+            if actual != expected {
+                return Err(ResidualEvaluationError::Dimension {
+                    lane,
+                    expected,
+                    actual,
+                });
+            }
+        }
+        let result = self.evaluate_sparse_with_meter(point, meter)?;
+        let published = residuals
+            .len()
+            .checked_add(jacobian.len())
+            .ok_or(EvalError::DimensionOverflow)?;
+        charge_evaluation_steps(meter, published)?;
+        charge_evaluation_steps(meter, 0)?;
+        residuals.copy_from_slice(&result.residuals);
+        jacobian.copy_from_slice(&result.jacobian);
+        Ok(())
+    }
+
+    /// Evaluate J(point) times a direction without dense Jacobian values.
+    pub fn jacobian_vector_product(
+        &self,
+        point: &[f64],
+        direction: &[f64],
+    ) -> Result<Vec<f64>, ResidualEvaluationError> {
+        self.jacobian_vector_product_with_meter(point, direction, &mut Unbounded)
+    }
+
+    /// The original residuals and every derivative are checked even for a zero
+    /// direction. Each multiplication and accumulated sum must remain finite.
+    pub fn jacobian_vector_product_with_meter<M: BudgetMeter + ?Sized>(
+        &self,
+        point: &[f64],
+        direction: &[f64],
+        meter: &mut M,
+    ) -> Result<Vec<f64>, ResidualEvaluationError> {
+        self.product_with_meter(point, direction, false, meter)
+    }
+
+    /// Evaluate J(point)^T times residual weights without a dense transpose.
+    pub fn jacobian_transpose_vector_product(
+        &self,
+        point: &[f64],
+        weights: &[f64],
+    ) -> Result<Vec<f64>, ResidualEvaluationError> {
+        self.jacobian_transpose_vector_product_with_meter(point, weights, &mut Unbounded)
+    }
+
+    /// All source and derivative domain checks remain active for zero weights.
+    /// Work, output storage and publication share the supplied cumulative meter.
+    pub fn jacobian_transpose_vector_product_with_meter<M: BudgetMeter + ?Sized>(
+        &self,
+        point: &[f64],
+        weights: &[f64],
+        meter: &mut M,
+    ) -> Result<Vec<f64>, ResidualEvaluationError> {
+        self.product_with_meter(point, weights, true, meter)
+    }
+
+    fn product_with_meter<M: BudgetMeter + ?Sized>(
+        &self,
+        point: &[f64],
+        vector: &[f64],
+        transpose: bool,
+        meter: &mut M,
+    ) -> Result<Vec<f64>, ResidualEvaluationError> {
+        let (input_length, output_length, lane) = if transpose {
+            (
+                self.compiled.num_residuals,
+                self.compiled.num_vars,
+                "weights",
+            )
+        } else {
+            (
+                self.compiled.num_vars,
+                self.compiled.num_residuals,
+                "direction",
+            )
+        };
+        Self::input_with_meter(vector, input_length, lane, meter)?;
+        Self::input_with_meter(point, self.compiled.num_vars, "point", meter)?;
+        // A derivative can erase an original source domain. Do not infer
+        // eligibility from a zero vector or from the sparsity pattern alone.
+        for program in &self.compiled.compiled_residuals {
+            charge_evaluation_steps(meter, 1)?;
+            program.try_eval_finite_with_meter(point, meter)?;
+        }
+
+        let mut result = Self::evaluation_buffer(output_length, meter)?;
+        charge_evaluation_steps(meter, output_length)?;
+        result.resize(output_length, 0.0);
+        for entry in &self.sparse_jacobian.entries {
+            let derivative = entry
+                .compiled_deriv
+                .try_eval_finite_with_meter(point, meter)?;
+            let (output_index, input_index) = if transpose {
+                (entry.col, entry.row)
+            } else {
+                (entry.row, entry.col)
+            };
+            charge_evaluation_steps(meter, 2)?;
+            let contribution = derivative * vector[input_index];
+            let sum = result[output_index] + contribution;
+            if !contribution.is_finite() || !sum.is_finite() {
+                return Err(EvalError::NonFiniteValue.into());
+            }
+            result[output_index] = sum;
+        }
+        charge_evaluation_steps(meter, 1)?;
+        Ok(result)
+    }
+
+    /// Publish a complete Jacobian-vector product or leave output unchanged.
+    pub fn try_jacobian_vector_product_into(
+        &self,
+        point: &[f64],
+        direction: &[f64],
+        output: &mut [f64],
+    ) -> Result<(), ResidualEvaluationError> {
+        self.try_jacobian_vector_product_into_with_meter(point, direction, output, &mut Unbounded)
+    }
+
+    pub fn try_jacobian_vector_product_into_with_meter<M: BudgetMeter + ?Sized>(
+        &self,
+        point: &[f64],
+        direction: &[f64],
+        output: &mut [f64],
+        meter: &mut M,
+    ) -> Result<(), ResidualEvaluationError> {
+        self.product_into_with_meter(point, direction, output, false, meter)
+    }
+
+    /// Publish a complete transposed product or leave output unchanged.
+    pub fn try_jacobian_transpose_vector_product_into(
+        &self,
+        point: &[f64],
+        weights: &[f64],
+        output: &mut [f64],
+    ) -> Result<(), ResidualEvaluationError> {
+        self.try_jacobian_transpose_vector_product_into_with_meter(
+            point,
+            weights,
+            output,
+            &mut Unbounded,
+        )
+    }
+
+    pub fn try_jacobian_transpose_vector_product_into_with_meter<M: BudgetMeter + ?Sized>(
+        &self,
+        point: &[f64],
+        weights: &[f64],
+        output: &mut [f64],
+        meter: &mut M,
+    ) -> Result<(), ResidualEvaluationError> {
+        self.product_into_with_meter(point, weights, output, true, meter)
+    }
+
+    fn product_into_with_meter<M: BudgetMeter + ?Sized>(
+        &self,
+        point: &[f64],
+        vector: &[f64],
+        output: &mut [f64],
+        transpose: bool,
+        meter: &mut M,
+    ) -> Result<(), ResidualEvaluationError> {
+        charge_evaluation_steps(meter, 1)?;
+        let expected = if transpose {
+            self.compiled.num_vars
+        } else {
+            self.compiled.num_residuals
+        };
+        if output.len() != expected {
+            return Err(ResidualEvaluationError::Dimension {
+                lane: if transpose {
+                    "transposed Jacobian product output"
+                } else {
+                    "Jacobian product output"
+                },
+                expected,
+                actual: output.len(),
+            });
+        }
+        let result = self.product_with_meter(point, vector, transpose, meter)?;
+        charge_evaluation_steps(meter, output.len())?;
+        charge_evaluation_steps(meter, 0)?;
+        output.copy_from_slice(&result);
+        Ok(())
     }
 
     pub fn residuals(&self) -> &[Expr] {
