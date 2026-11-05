@@ -1370,6 +1370,64 @@ pub(crate) fn admit_rational_laplace_source(
     result
 }
 
+/// Original rational zero guards, including guards hidden by cancellation,
+/// reciprocal inversion, zero products and zeroth powers. A bilateral
+/// transform consumer must check these on its whole strip rather than reuse
+/// the causal consumer's sufficient right-half-plane bound.
+pub(crate) fn original_rational_guard_polynomials(
+    source: &Expr,
+    transform_variable: &Symbol,
+    output_variable: &Symbol,
+    meter: &mut impl BudgetMeter,
+) -> Result<Vec<UnivariatePoly>> {
+    let mut capped = Capped {
+        inner: meter,
+        used: [0; 3],
+        stopped: None,
+    };
+    let result = (|| {
+        let mut work = Work { meter: &mut capped };
+        let nodes = admit(source, transform_variable, output_variable, &mut work)?;
+        // Validate every original rational child before searching for roots.
+        parse_source(source, &mut work)?;
+        work.charge(nodes, nodes * 96)?;
+        let mut pending = vec![source];
+        let mut guards = Vec::new();
+        while let Some(node) = pending.pop() {
+            work.meter.checkpoint()?;
+            match node {
+                Expr::Add(children) | Expr::Mul(children) => pending.extend(children),
+                Expr::Pow(base, exponent) => {
+                    if integer_power(exponent).is_some_and(|power| power <= 0) {
+                        let fraction = parse_source(base, &mut work)?;
+                        if is_zero(&fraction.numerator) {
+                            return Err(RationalLaplaceError::InvalidSource(
+                                "zero original nonpositive-power base",
+                            ));
+                        }
+                        if fraction.numerator.len() > 1 {
+                            work.charge(1, 128 + transform_variable.name.len())?;
+                            guards.push(UnivariatePoly::new(
+                                transform_variable.clone(),
+                                fraction.numerator,
+                            ));
+                        }
+                    }
+                    pending.push(base);
+                    pending.push(exponent);
+                }
+                _ => {}
+            }
+        }
+        work.meter.checkpoint()?;
+        Ok(guards)
+    })();
+    if let Some(error) = capped.stopped {
+        return Err(RationalLaplaceError::Meter(error));
+    }
+    result
+}
+
 /// Internal untrusted candidate entry for compositional transform generators.
 /// Acceptance still requires the separate complete reference verifier.
 pub(crate) fn generate_rational_laplace_certificate(

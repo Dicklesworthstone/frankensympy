@@ -12,7 +12,7 @@ use crate::{Matrix, MatrixError, SparseMatrix};
 use fsym_budget::{BudgetError, BudgetMeter, Dimension, MeterError, Unbounded};
 use fsym_core::{BigRational, Expr, Symbol};
 use fsym_solvers::ode::system::general::{GeneralOdeSystemError, metered_general_ode_system};
-use num_traits::{One, Signed, Zero};
+use num_traits::{One, Zero};
 use std::collections::BTreeMap;
 use thiserror::Error;
 
