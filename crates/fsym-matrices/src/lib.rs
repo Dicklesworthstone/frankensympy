@@ -21,6 +21,11 @@ pub use least_squares::{
 };
 mod exponential;
 pub use exponential::MatrixExponentialError;
+mod minimal_polynomial;
+pub use minimal_polynomial::{
+    MAX_MINIMAL_POLYNOMIAL_DIMENSION, MinimalPolynomialCandidate, VerifiedMinimalPolynomial,
+    verify_minimal_polynomial_candidate,
+};
 
 use fsym_core::algebraic::{AlgebraicNumber, count_real_roots_in_interval, sturm_sequence};
 use fsym_core::ball::RealBall;
