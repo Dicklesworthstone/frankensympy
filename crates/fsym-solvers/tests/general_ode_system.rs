@@ -285,7 +285,7 @@ fn eight_component_degree_sixteen_forcing_reaches_degree_twenty_four() {
     let receipt = general_ode_system(&coefficients, &t, &q(0, 1), &forcing, &initial).unwrap();
     let mut denominator = BigInt::from(1);
     for (row, solution) in receipt.solutions().iter().enumerate().rev() {
-        denominator *= BigInt::from(24 - row);
+        denominator *= BigInt::from((24 - row) as u64);
         let power = Expr::Sym(t.clone()).pow(Expr::from_i64((24 - row) as i64));
         let expected = power * rational_expr(BigRational::new(1.into(), denominator.clone()));
         assert_equal(solution, &expected);

@@ -185,7 +185,8 @@ impl VerifiedGeneralOdeSystem {
 }
 
 fn q(value: usize) -> BigRational {
-    BigRational::from_integer(value.into())
+    // Callers use admitted dimensions or polynomial degrees, all bounded by 32.
+    BigRational::from_integer((value as u64).into())
 }
 
 fn bits(value: &BigRational) -> u64 {
