@@ -5,7 +5,9 @@
 
 #![forbid(unsafe_code)]
 
+use crate::arith::RationalArithmeticError;
 use crate::{BigInt, BigRational};
+use fsym_budget::BudgetMeter;
 use num_traits::{One, Signed, Zero};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt;
@@ -98,6 +100,40 @@ impl RealBall {
     /// Upper bound $m + r$.
     pub fn upper(&self) -> BigRational {
         &self.midpoint + &self.radius
+    }
+
+    /// Converts the complete rational ball to outward-rounded binary64 endpoints.
+    ///
+    /// The lower endpoint is rounded toward negative infinity and the upper endpoint toward
+    /// positive infinity. Endpoints may be infinite when the exact finite ball exceeds binary64's
+    /// range. Exact zero is positive zero; a negative nonzero endpoint that rounds upward to zero
+    /// retains negative zero. A point ball may therefore export a nonzero-width float interval.
+    ///
+    /// Exact endpoint formation and both directed conversions share the caller's cumulative
+    /// meter. Midpoint and radius are never independently approximated. Cancellation, exhausted
+    /// resources and arithmetic failures propagate without publishing either endpoint; `None`
+    /// preserves a rational conversion's internal representation refusal. Interval and
+    /// representation-refusal returns pass a final cancellation checkpoint.
+    ///
+    /// This is an enclosure of the ball's values only. It does not expand a certified input
+    /// domain or a root-uniqueness region, nor does it establish how this ball was obtained.
+    pub fn metered_to_f64_bounds<M: BudgetMeter>(
+        &self,
+        meter: &mut M,
+    ) -> Result<Option<(f64, f64)>, RationalArithmeticError> {
+        meter.checkpoint()?;
+        let lower = self.midpoint.metered_sub(&self.radius, meter)?;
+        let upper = self.midpoint.metered_add(&self.radius, meter)?;
+        let Some((lower, _)) = lower.metered_to_f64_bounds(meter)? else {
+            meter.checkpoint()?;
+            return Ok(None);
+        };
+        let Some((_, upper)) = upper.metered_to_f64_bounds(meter)? else {
+            meter.checkpoint()?;
+            return Ok(None);
+        };
+        meter.checkpoint()?;
+        Ok(Some((lower, upper)))
     }
 
     /// Midpoint $m$.
