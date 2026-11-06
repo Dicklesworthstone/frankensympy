@@ -110,6 +110,31 @@ class AssumptionsSoundnessTests(unittest.TestCase):
         self.assertIsNone(s.ask(s.Q.positive(value)))
         self.assertEqual(calls, [])
 
+    def test_effectful_metaclass_cannot_impersonate_an_admitted_formula_or_symbol(self):
+        calls = []
+
+        class EqualitySpoof(type):
+            def __eq__(cls, other):
+                calls.append("class equality")
+                return True
+
+            __hash__ = type.__hash__
+
+        class UnsupportedFormula(metaclass=EqualitySpoof):
+            def __iter__(self):
+                calls.append("iteration")
+                raise AssertionError("unsupported formula iterator ran")
+
+        source = UnsupportedFormula()
+        self.assertIsNone(s.ask(s.Q.positive(self.x), source))
+        context = AssumptionsContext()
+        with self.assertRaises(TypeError):
+            context.assume(source, s.Q.positive)
+        with self.assertRaises(TypeError):
+            context.assume_domain(source, "ZZ")
+        self.assertEqual(calls, [])
+        self.assertEqual(set(context), set())
+
     def test_held_and_evaluated_predicate_sources_remain_distinct(self):
         held = s.Add(1, 2, evaluate=False)
         self.assertIsNone(s.ask(s.Q.special(s.Integer(3)), s.Q.special(held)))
@@ -129,6 +154,31 @@ class AssumptionsSoundnessTests(unittest.TestCase):
         self.assertIs(s.ask(s.Q.positive(positive), facts), False)
         self.assertIs(s.ask(s.Q.real(positive), facts), False)
         self.assertIsNone(s.ask(s.Q.positive(positive**2), facts))
+
+    def test_shell_only_declarations_do_not_reach_native_predicate_parsing(self):
+        for constructor in (s.Symbol, s.Dummy):
+            with self.subTest(constructor=constructor):
+                plain = constructor("declared_commutative", commutative=True)
+                positive = constructor("declared_positive_commutative", positive=True, commutative=True)
+                self.assertIs(s.ask(s.Q.commutative(plain)), True)
+                self.assertIsNone(s.ask(s.Q.real(plain)))
+                self.assertIsNone(s.ask(s.Q.integer(plain + 1)))
+                self.assertIsNone(s.ask(s.Q.integer(positive)))
+                self.assertIs(s.ask(s.Q.positive(positive + 1)), True)
+
+    def test_compatible_context_facts_augment_constructor_assumptions(self):
+        for constructor in (s.Symbol, s.Dummy):
+            with self.subTest(constructor=constructor):
+                positive = constructor("positive_with_integer_context", positive=True)
+                integer = constructor("integer_with_positive_context", integer=True)
+                self.assertIs(s.ask(s.Q.positive(positive), s.Q.integer(positive)), True)
+                self.assertIs(s.ask(s.Q.positive(positive + 1), s.Q.integer(positive)), True)
+                self.assertIs(s.ask(s.Q.integer(integer), s.Q.positive(integer)), True)
+                self.assertIs(s.ask(s.Q.integer(integer + 1), s.Q.positive(integer)), True)
+                context = AssumptionsContext()
+                context.assume_domain(positive, "ZZ")
+                self.assertIs(context.is_true(positive, s.Q.positive), True)
+                self.assertIs(context.is_true(positive + 1, s.Q.integer), True)
 
     def test_failed_bulk_update_is_atomic(self):
         context = AssumptionsContext([s.Q.positive(self.x)])

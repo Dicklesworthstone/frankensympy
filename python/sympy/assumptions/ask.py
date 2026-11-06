@@ -152,7 +152,7 @@ class AssumptionsContext(set):
 def _context_symbol(symbol):
     if type(symbol) is str:
         return Symbol(symbol)
-    if type(symbol) not in (Symbol, Dummy):
+    if type(symbol) is not Symbol and type(symbol) is not Dummy:
         raise TypeError("assumptions require an exact Symbol, Dummy, or symbol name")
     return symbol
 

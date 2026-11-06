@@ -196,9 +196,9 @@ class QueryProblem:
             if type(name) is not str:
                 raise UnsupportedAssumptions
             return [self.literal(expr, name, not negated)]
-        if cls in (list, tuple, set, frozenset):
+        if any(cls is kind for kind in (list, tuple, set, frozenset)):
             args, operation = tuple(formula), And
-        elif cls in (And, Or, Not, Implies, Equivalent, Xor, Nand, Nor, Xnor, ITE):
+        elif any(cls is kind for kind in (And, Or, Not, Implies, Equivalent, Xor, Nand, Nor, Xnor, ITE)):
             args = BooleanFunction.__dict__["_args"].__get__(formula)
             if type(args) is not tuple:
                 raise ValueError("assumptions Boolean children must be a tuple")
@@ -304,7 +304,7 @@ class QueryProblem:
         except (NotImplementedError, TypeError):
             return None
         symbols = tuple(expr.free_symbols)
-        if any(type(symbol) not in (Symbol, Dummy) for symbol in symbols):
+        if any(type(symbol) is not Symbol and type(symbol) is not Dummy for symbol in symbols):
             return None
         bindings = {}
         declarations = {}
@@ -321,23 +321,37 @@ class QueryProblem:
             # Python Q.infinite excludes every finite numeric-tower predicate.
             return name == "infinite"
         context = _native.AssumptionsContext()
+        effective_branch = branch.copy()
         safe_properties = not constrained and self.property_source_admitted(expr)
         for key, binding in bindings.items():
-            stated = [(predicate, truth) for (target, predicate), truth in branch.items() if target == key]
-            if not stated:
-                declared_facts = {}
-                for predicate, truth in declarations[key].items():
-                    declared_facts = self.merge(
-                        declared_facts,
-                        self.literal(self.expressions[key], predicate, truth),
-                    )
-                    if declared_facts is None:
-                        raise ValueError("inconsistent symbol assumptions")
-                stated = [(predicate, truth) for (_, predicate), truth in declared_facts.items()]
-                if self.expression_key(expr) == key:
-                    declared_answer = self.logical_value(expr, name, declared_facts)
-                    if declared_answer is not None:
-                        return declared_answer
+            supplied = {literal: truth for literal, truth in branch.items() if literal[0] == key}
+            declared_facts = {}
+            for predicate, truth in declarations[key].items():
+                declared_facts = self.merge(
+                    declared_facts,
+                    self.literal(self.expressions[key], predicate, truth),
+                )
+                if declared_facts is None:
+                    raise ValueError("inconsistent symbol assumptions")
+            combined = self.merge(supplied, declared_facts)
+            if combined is None:
+                # Explicit premises retain their established precedence over
+                # conflicting constructor facts. Compatible premises augment
+                # the declaration instead of erasing it (positive x remains
+                # positive when the caller additionally states integer(x)).
+                combined = supplied
+            effective_branch.update(combined)
+            stated = [(predicate, truth) for (_, predicate), truth in combined.items()]
+            if self.expression_key(expr) == key:
+                declared_answer = self.logical_value(expr, name, combined)
+                if declared_answer is not None:
+                    return declared_answer
+            if any(predicate not in NATIVE_PREDICATES for predicate in declarations[key]):
+                # Legacy Symbol properties forward every positive declaration
+                # to the native predicate parser. Shell-only facts such as
+                # commutative must stay in this signed, typed query boundary,
+                # including when a compound property visits that symbol.
+                safe_properties = False
             complex_value = ("complex", True) in stated
             if (("infinite", True) in stated
                     or ("finite", True) in stated and not complex_value):
@@ -361,7 +375,7 @@ class QueryProblem:
                 return value
         if not admitted or name not in NATIVE_PREDICATES:
             return None
-        realness = self.known_realness(native, context, branch)
+        realness = self.known_realness(native, context, effective_branch)
         if realness is False and name in {
             "real", "rational", "integer", "positive", "negative", "nonnegative",
             "nonpositive", "zero", "nonzero", "even", "odd", "prime",
@@ -378,7 +392,7 @@ class QueryProblem:
         """Canonical-only heuristics must not classify deliberately held forms."""
         self.charge(depth=depth)
         cls = type(expr)
-        if cls in (Add, Mul, Pow):
+        if cls is Add or cls is Mul or cls is Pow:
             try:
                 cls.__dict__["_args"].__get__(expr)
             except AttributeError:
@@ -456,7 +470,7 @@ class QueryProblem:
 
 def typed_symbol(symbol):
     """Read the immutable native identity and reject mutated declaration state."""
-    if type(symbol) not in (Symbol, Dummy):
+    if type(symbol) is not Symbol and type(symbol) is not Dummy:
         raise TypeError("assumptions require an exact Symbol or Dummy")
     native = _native_expr(symbol)
     binding = native.symbol_binding
@@ -496,7 +510,7 @@ def prepare_problem(items, domains=(), *, allow_unsupported=False):
         nonlocal branches, unsupported
         problem.charge(depth=depth)
         cls = type(item)
-        if cls in (list, tuple, set, frozenset):
+        if any(cls is kind for kind in (list, tuple, set, frozenset)):
             children = tuple(item)
         elif cls is And:
             children = BooleanFunction.__dict__["_args"].__get__(item)
