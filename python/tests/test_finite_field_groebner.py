@@ -14,6 +14,108 @@ from sympy.polys.polyerrors import (
 )
 
 
+@pytest.mark.parametrize("polys", [False, True])
+def test_prime_field_bases_have_the_exact_public_class_and_coherent_hashes(polys):
+    from sympy.polys.polytools import GroebnerBasis
+
+    x, y = sp.symbols("x y")
+    basis = sp.groebner([x, y], x, y, modulus=5, polys=polys)
+    equivalent = sp.groebner([2*x, 3*y], x, y, modulus=5, polys=polys)
+    assert type(basis) is GroebnerBasis
+    assert type(equivalent) is GroebnerBasis
+    assert basis == equivalent and equivalent == basis
+    original_hash = hash(basis)
+    assert hash(equivalent) == original_hash
+    assert {basis: "the same checked ideal"}[equivalent] == "the same checked ideal"
+    assert len({basis, equivalent}) == 1
+    assert basis.contains(x + y)
+    assert hash(basis) == original_hash
+
+
+def test_basis_equality_distinguishes_coefficient_fields_and_monomial_orders():
+    x, y = sp.symbols("x y")
+    finite = sp.groebner([x, y], x, y, modulus=5, order="lex")
+    different_prime = sp.groebner([x, y], x, y, modulus=7, order="lex")
+    rational = sp.groebner([x, y], x, y, domain="QQ", order="lex")
+    different_order = sp.groebner([x, y], x, y, modulus=5, order="grlex")
+    # The printed lists coincide; their typed polynomial-ring requests do not.
+    for other in (different_prime, rational, different_order):
+        assert finite.exprs == other.exprs
+        assert finite != other and other != finite
+    assert len({finite, different_prime, rational, different_order}) == 4
+
+
+def test_field_basis_equality_retains_output_and_coefficient_lift_policies():
+    x, y = sp.symbols("x y")
+    expressions = sp.groebner([x, y], x, y, modulus=5, polys=False)
+    polynomials = sp.groebner([x, y], x, y, modulus=5, polys=True)
+    signed = sp.groebner([x, y], x, y, modulus=5, symmetric=True)
+    unsigned = sp.groebner([x, y], x, y, modulus=5, symmetric=False)
+    assert expressions.exprs == polynomials.exprs == signed.exprs == unsigned.exprs
+    assert expressions != polynomials and polynomials != expressions
+    assert signed != unsigned and unsigned != signed
+
+
+def test_shallow_copy_preserves_the_public_basis_and_its_field_metadata():
+    from copy import copy
+    from sympy.polys.polytools import GroebnerBasis
+
+    x, y = sp.symbols("x y")
+    basis = sp.groebner([x + y, y**2 + 1], x, y, modulus=5,
+                        order="grevlex", symmetric=False, polys=True)
+    copied = copy(basis)
+    # This is the shell's ordinary public-instance copy contract. It does not
+    # claim that upstream's generic Basic pickle protocol preserves options.
+    assert copied is not basis
+    assert type(copied) is GroebnerBasis
+    assert copied == basis and hash(copied) == hash(basis)
+    assert str(copied.domain) == "GF(5)" and str(copied.order) == "grevlex"
+    assert all(a is b for a, b in zip(copied.gens, basis.gens))
+    assert all(type(polynomial) is sp.Poly and polynomial.get_modulus() == 5
+               for polynomial in copied)
+    assert copied.exprs == basis.exprs
+    assert copied.contains(x + y)
+    assert copied.reduce(x)[1] == sp.Poly(4*y, x, y, modulus=5, symmetric=False)
+    assert copied.is_zero_dimensional
+
+
+def test_retained_field_markers_prevent_domain_mutation_from_entering_rational_operations(monkeypatch):
+    from sympy.core import _native
+    from sympy.polys import polytools
+
+    x, y = sp.symbols("x y")
+    basis = sp.groebner([x, y], x, y, modulus=5)
+    rational = sp.groebner([x, y], x, y, domain="QQ")
+    basis.domain = "QQ"
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("inconsistent field metadata reached native mathematics")
+
+    for name in (
+        "groebner_reduce_native", "groebner_is_zero_dimensional_native",
+        "groebner_fglm_native", "ideal_eliminate_native",
+        "ideal_intersection_native", "ideal_quotient_native",
+        "quotient_multiplication_native", "prime_field_groebner_native",
+        "prime_field_groebner_zero_dimensional_native",
+    ):
+        monkeypatch.setattr(_native, name, forbidden)
+    for operation in (
+        lambda: basis.reduce(x),
+        lambda: basis.contains(x),
+        lambda: basis.is_zero_dimensional,
+        lambda: basis.fglm("lex"),
+        lambda: basis.eliminate(x),
+        lambda: basis.multiplication_matrix(x),
+        lambda: basis._native_basis(),
+        lambda: basis._ideal_inputs(),
+        lambda: polytools._IdealQuotientSnapshot(basis),
+        lambda: rational.intersection(basis),
+        lambda: rational.quotient(basis),
+    ):
+        with pytest.raises((DomainError, ValueError, NotImplementedError)):
+            operation()
+
+
 def test_characteristic_two_computes_a_proper_ideal_instead_of_the_rational_unit_ideal():
     x = sp.Symbol("field_groebner_counterexample")
     sources = [x**2 + 1, x + 1]

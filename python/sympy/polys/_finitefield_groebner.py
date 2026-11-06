@@ -179,26 +179,47 @@ def construct(sources, gens, order, options):
         values.append(_lift_native_result(value, *request.context))
         request.unchanged()
         retained.unchanged()
-    result = _PrimeFieldGroebnerBasis(
-        values, generators, prime, order, symmetric,
-        bool(states) if polynomial_output is None else polynomial_output,
-    )
+    result = GroebnerBasis(values, generators, "GF(%d)" % prime, order)
+    result._modulus = prime
+    result._symmetric = symmetric
+    result._polys = bool(states) if polynomial_output is None else polynomial_output
     request.unchanged()
     retained.unchanged()
     return result
+
+
+def _basis_namespace(basis):
+    """Read bounded original storage without a subclass's attribute protocol."""
+    from types import GetSetDescriptorType
+
+    descriptor = type.__dict__["__dict__"].__get__(GroebnerBasis).get("__dict__")
+    if (type(descriptor) is not GetSetDescriptorType
+            or descriptor.__objclass__ is not GroebnerBasis
+            or descriptor.__name__ != "__dict__"):
+        raise TypeError("Groebner operations require original basis storage")
+    namespace = descriptor.__get__(basis, GroebnerBasis)
+    if (type(namespace) is not dict or len(namespace) > 16
+            or any(type(key) is not str or len(key) > 128 for key in namespace)):
+        raise TypeError("Groebner operations require bounded built-in basis storage")
+    return namespace
+
+
+def has_field_marker(basis):
+    """Retained field metadata cannot be erased by changing the domain label."""
+    namespace = _basis_namespace(basis)
+    domain = namespace.get("domain", field._ABSENT)
+    return (any(key in namespace for key in ("_modulus", "_symmetric", "_polys"))
+            or (type(domain) is str and domain.startswith("GF(")))
 
 
 class _BasisState:
     """Retain every public basis field before a native call or result lift."""
 
     def __init__(self, basis):
-        if type(basis) is not _PrimeFieldGroebnerBasis:
+        if type(basis) is not GroebnerBasis:
             raise TypeError("prime-field operations require an exact native-backed GroebnerBasis")
         self.basis = basis
-        self.namespace = object.__getattribute__(basis, "__dict__")
-        if (type(self.namespace) is not dict or len(self.namespace) > 16
-                or any(type(key) is not str or len(key) > 128 for key in self.namespace)):
-            raise TypeError("prime-field basis requires bounded built-in source storage")
+        self.namespace = _basis_namespace(basis)
         self.items = tuple(self.namespace.items())
         self.expressions = self.namespace.get("exprs", field._ABSENT)
         self.gens = self.namespace.get("gens", field._ABSENT)
@@ -219,7 +240,7 @@ class _BasisState:
             raise ValueError("unknown prime-field monomial order")
 
     def unchanged(self):
-        current = object.__getattribute__(self.basis, "__dict__")
+        current = _basis_namespace(self.basis)
         if (current is not self.namespace or len(current) != len(self.items)
                 or any(current.get(key, field._ABSENT) is not value for key, value in self.items)):
             raise RuntimeError("prime-field Groebner basis mutated during exact evaluation")
@@ -235,98 +256,117 @@ class _BasisState:
         return request, retained
 
 
-class _PrimeFieldGroebnerBasis(GroebnerBasis):
-    """A complete reduced basis over GF(p), checked anew after public mutation."""
-
-    def __init__(self, expressions, generators, prime, order, symmetric, polynomial_output):
-        super().__init__(expressions, generators, "GF(%d)" % prime, order)
-        self._modulus = prime
-        self._symmetric = symmetric
-        self._polys = polynomial_output
-
-    @property
-    def polys(self):
-        state = _BasisState(self)
-        request, retained = state.request()
-        raw = _call(request, state.prime, "polynomials", state.order, state.symmetric)
+def polys(basis):
+    state = _BasisState(basis)
+    request, retained = state.request()
+    raw = _call(request, state.prime, "polynomials", state.order, state.symmetric)
+    state.unchanged()
+    retained.unchanged()
+    values = []
+    for value in raw:
+        values.append(field._publish(Poly, value, request, state.prime, state.symmetric))
         state.unchanged()
         retained.unchanged()
-        values = []
-        for value in raw:
-            values.append(field._publish(Poly, value, request, state.prime, state.symmetric))
-            state.unchanged()
-            retained.unchanged()
-        return values
+    return values
 
-    def __iter__(self):
-        return iter(self.polys if self._polys else self.exprs)
 
-    def __getitem__(self, index):
-        return (self.polys if self._polys else self.exprs)[index]
+def iterate(basis):
+    state = _BasisState(basis)
+    values = polys(basis) if state.polynomial_output else state.expressions
+    state.unchanged()
+    return iter(values)
 
-    def __eq__(self, other):
-        if type(other) is _PrimeFieldGroebnerBasis:
-            return (self.exprs == other.exprs and self.gens == other.gens
-                    and self.domain == other.domain and self.order == other.order)
-        if isinstance(other, GroebnerBasis):
+
+def length(basis):
+    state = _BasisState(basis)
+    return len(state.expressions)
+
+
+def getitem(basis, index):
+    state = _BasisState(basis)
+    values = polys(basis) if state.polynomial_output else state.expressions
+    state.unchanged()
+    return values[index]
+
+
+def equals(basis, other):
+    state = _BasisState(basis)
+    if type(other) is GroebnerBasis:
+        if not has_field_marker(other):
             return False
-        if field._exact(other, (list, tuple)):
-            return list(self) == list(other)
-        return NotImplemented
+        other_state = _BasisState(other)
+        result = (state.expressions == other_state.expressions
+                  and state.gens == other_state.gens and state.prime == other_state.prime
+                  and state.order == other_state.order
+                  and state.polynomial_output == other_state.polynomial_output
+                  and state.symmetric == other_state.symmetric)
+        state.unchanged()
+        other_state.unchanged()
+        return result
+    if isinstance(other, GroebnerBasis):
+        return False
+    if field._exact(other, (list, tuple)):
+        result = list(iterate(basis)) == list(other)
+        state.unchanged()
+        return result
+    return NotImplemented
 
-    def __hash__(self):
-        return hash((tuple(self.exprs), self.gens, self.domain, self.order))
 
-    @property
-    def is_zero_dimensional(self):
-        state = _BasisState(self)
-        request, retained = state.request()
-        try:
-            result = _native.prime_field_groebner_zero_dimensional_native(
-                request.raw, request.bindings, state.prime, state.order,
-                request.source_bindings)
-        except _native.PrimeFieldCoefficientError as error:
-            from .polyerrors import CoercionFailed
-            raise CoercionFailed("prime-field Groebner coefficients must be integers") from error
+def basis_hash(basis):
+    state = _BasisState(basis)
+    result = hash((tuple(state.expressions), state.gens, "GF(%d)" % state.prime,
+                   state.order, state.polynomial_output, state.symmetric))
+    state.unchanged()
+    return result
+
+
+def is_zero_dimensional(basis):
+    state = _BasisState(basis)
+    request, retained = state.request()
+    try:
+        result = _native.prime_field_groebner_zero_dimensional_native(
+            request.raw, request.bindings, state.prime, state.order,
+            request.source_bindings)
+    except _native.PrimeFieldCoefficientError as error:
+        from .polyerrors import CoercionFailed
+        raise CoercionFailed("prime-field Groebner coefficients must be integers") from error
+    request.unchanged()
+    retained.unchanged()
+    state.unchanged()
+    return result
+
+
+def _reduction(basis, expression, polynomial_output):
+    state = _BasisState(basis)
+    request, retained = state.request((expression,))
+    raw = _call(request, state.prime, "reduce", state.order, state.symmetric)
+    state.unchanged()
+    retained.unchanged()
+    if len(raw) != len(state.expressions) + 1:
+        raise ValueError("prime-field normal form returned an invalid quotient count")
+    result = []
+    for value in raw:
+        if polynomial_output and state.polynomial_output:
+            result.append(field._publish(Poly, value, request, state.prime, state.symmetric))
+        else:
+            result.append(_lift_native_result(value, *request.context))
         request.unchanged()
         retained.unchanged()
         state.unchanged()
-        return result
+    return result[:-1], result[-1]
 
-    def _reduction(self, expression, polynomial_output):
-        state = _BasisState(self)
-        request, retained = state.request((expression,))
-        raw = _call(request, state.prime, "reduce", state.order, state.symmetric)
-        state.unchanged()
-        retained.unchanged()
-        if len(raw) != len(state.expressions) + 1:
-            raise ValueError("prime-field normal form returned an invalid quotient count")
-        result = []
-        for value in raw:
-            if polynomial_output and state.polynomial_output:
-                result.append(field._publish(Poly, value, request, state.prime, state.symmetric))
-            else:
-                result.append(_lift_native_result(value, *request.context))
-            request.unchanged()
-            retained.unchanged()
-            state.unchanged()
-        return result[:-1], result[-1]
 
-    def reduce(self, expression, auto=True):
-        if type(auto) is not bool:
-            raise TypeError("auto must be a bool")
-        return self._reduction(expression, True)
+def reduce(basis, expression, auto=True):
+    if type(auto) is not bool:
+        raise TypeError("auto must be a bool")
+    return _reduction(basis, expression, True)
 
-    def contains(self, expression):
-        return self._reduction(expression, False)[1] == Integer(0)
 
-    def _unsupported(self, *args, **kwargs):
-        raise NotImplementedError(
-            "this ideal operation is not implemented over prime fields; "
-            "supported operations are construction, reduction and membership")
+def contains(basis, expression):
+    return _reduction(basis, expression, False)[1] == Integer(0)
 
-    # Advanced rational algorithms must never reinterpret a finite-field basis.
-    _native_basis = _ideal_inputs = _unsupported
-    fglm = eliminate = intersection = quotient = syzygies = _unsupported
-    invert = quotient_basis = multiplication_matrix = _unsupported
-    minimal_polynomial = minpoly = saturate = _unsupported
+
+def unsupported(basis, *args, **kwargs):
+    raise NotImplementedError(
+        "this ideal operation is not implemented over prime fields; "
+        "supported operations are construction, reduction and membership")

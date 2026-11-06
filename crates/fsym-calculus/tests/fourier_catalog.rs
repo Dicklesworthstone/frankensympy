@@ -227,7 +227,7 @@ fn typed_symbols_can_print_identically_without_becoming_the_same_variable() {
 fn original_size_and_scalar_limits_are_terminal() {
     let x = Symbol::new("x");
     let k = Symbol::new("k");
-    let large = Expr::Integer(BigInt::from(1) << 4097usize);
+    let large = Expr::Integer(BigInt::from(1) << 4097u32);
     let deep = (0..66).fold(Expr::Sym(x.clone()), |node, _| {
         Expr::Function("exp".into(), vec![node])
     });
@@ -295,7 +295,7 @@ fn caller_exhaustion_and_cancellation_never_become_unsupported_results() {
 fn exact_small_rates_do_not_get_rounded_to_nondecay() {
     let x = Symbol::new("x");
     let k = Symbol::new("k");
-    let denominator = BigInt::from(1) << 200usize;
+    let denominator = BigInt::from(1) << 200u32;
     let rate = BigRational::new(1.into(), denominator.clone());
     let source = Expr::Function(
         "exp".into(),

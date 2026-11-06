@@ -406,8 +406,33 @@ assert quotients[0]*g + quotients[1]*Poly(y, x, y, modulus=5) + remainder == f
 checks reconstruction and complete remainder reduction. Ordered division by
 an arbitrary list does not claim a unique normal form or a Gröbner basis.
 
+`groebner` also constructs a complete reduced basis over the requested prime
+field. It supports all three monomial orders, checked `reduce` and `contains`,
+`is_zero_dimensional`, and expression or `Poly` output. The coefficient field
+is part of the mathematical request: the same generators can define a proper
+ideal in one characteristic and the unit ideal over the rationals.
+
+```python
+from sympy import groebner
+
+basis = groebner([x**2 + 1, x + 1], x, modulus=2)
+assert basis.exprs == [x + 1]
+assert basis.contains(x**2 + 1)
+assert not basis.contains(1)
+assert basis.reduce(x**3) == ([x**2 + x + 1], 1)
+assert groebner([x**2 + 1, x + 1], x, domain="QQ").exprs == [1]
+```
+
+The native checker establishes both ideal inclusions, monic reducedness, and
+every S-pair's required leading-product bound. It validates the current basis
+before a reduction or membership answer. Retained `Poly` inputs are checked
+in their own declared typed rings before promotion to the common ring, and
+original sources are admitted before zero or unit ideal shortcuts. Advanced
+prime-field ideal operations, including FGLM, elimination and syzygies, remain
+unsupported.
+
 The lane admits primes through 65521, total degree at most 64, up to 4096 sparse
-terms, and at most 32 ordered divisors. Original source expressions and
+terms, and at most 32 basis polynomials or ordered divisors. Original source expressions and
 coefficient growth have additional bounds. Source admission, generation,
 verification, and lifting use cumulative budgets; an exhausted or rejected
 request cannot restart over the rationals. Multivariate factorization, GCD,

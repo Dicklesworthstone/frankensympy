@@ -1592,26 +1592,61 @@ class GroebnerBasis:
     def args(self) -> tuple:
         return (tuple(self.exprs), self.gens)
 
+    @property
+    def polys(self) -> list:
+        from . import _finitefield_groebner as finite
+
+        if finite.has_field_marker(self):
+            return finite.polys(self)
+        return [Poly(expression, *self.gens, domain=self.domain) for expression in self.exprs]
+
     def __iter__(self):
+        from . import _finitefield_groebner as finite
+
+        if finite.has_field_marker(self):
+            return finite.iterate(self)
         return iter(self.exprs)
 
     def __len__(self) -> int:
+        from . import _finitefield_groebner as finite
+
+        if finite.has_field_marker(self):
+            return finite.length(self)
         return len(self.exprs)
 
     def __getitem__(self, i: Any) -> Any:
+        from . import _finitefield_groebner as finite
+
+        if finite.has_field_marker(self):
+            return finite.getitem(self, i)
         return self.exprs[i]
 
     def __eq__(self, other: Any) -> bool:
+        from . import _finitefield_groebner as finite
+
+        if finite.has_field_marker(self):
+            return finite.equals(self, other)
         if isinstance(other, GroebnerBasis):
-            return self.exprs == other.exprs and self.gens == other.gens
+            if finite.has_field_marker(other):
+                return False
+            return (self.exprs == other.exprs and self.gens == other.gens
+                    and self.domain == other.domain and self.order == other.order)
         if isinstance(other, (list, tuple)):
             return self.exprs == list(other)
         return NotImplemented
 
     def __hash__(self) -> int:
-        return hash((tuple(self.exprs), self.gens, self.order))
+        from . import _finitefield_groebner as finite
+
+        if finite.has_field_marker(self):
+            return finite.basis_hash(self)
+        return hash((tuple(self.exprs), self.gens, self.domain, self.order))
 
     def _native_basis(self) -> tuple:
+        from . import _finitefield_groebner as finite
+
+        if finite.has_field_marker(self):
+            finite.unsupported(self)
         if str(self.domain) not in ("ZZ", "QQ"):
             raise NotImplementedError("checked Groebner operations currently support ZZ and QQ")
         return ([_native_expr(_rational_ideal_source(e)) for e in self.exprs],
@@ -1624,6 +1659,10 @@ class GroebnerBasis:
         The current basis is independently checked before this criterion is
         applied, including when its public expression list has been modified.
         """
+        from . import _finitefield_groebner as finite
+
+        if finite.has_field_marker(self):
+            return finite.is_zero_dimensional(self)
         return _native.groebner_is_zero_dimensional_native(*self._native_basis())
 
     def reduce(self, expr: Any, auto: bool = True) -> tuple:
@@ -1633,6 +1672,10 @@ class GroebnerBasis:
         checker verifies both the coefficient identity and complete reduction.
         Integer-ring division with ``auto=False`` is not implemented.
         """
+        from . import _finitefield_groebner as finite
+
+        if finite.has_field_marker(self):
+            return finite.reduce(self, expr, auto)
         if not auto and str(self.domain) == "ZZ":
             raise NotImplementedError("Groebner reduction over ZZ with auto=False is not implemented")
         if isinstance(expr, Poly):
@@ -1649,6 +1692,10 @@ class GroebnerBasis:
 
     def contains(self, expr: Any) -> bool:
         """Test ideal membership using a checked complete basis and normal form."""
+        from . import _finitefield_groebner as finite
+
+        if finite.has_field_marker(self):
+            return finite.contains(self, expr)
         return self.reduce(expr)[1] == 0
 
     def fglm(self, order: str) -> GroebnerBasis:
@@ -1658,6 +1705,10 @@ class GroebnerBasis:
         Conversion uses exact quotient-space dependencies and independently
         checks both ideal inclusions and the target basis S-pairs.
         """
+        from . import _finitefield_groebner as finite
+
+        if finite.has_field_marker(self):
+            finite.unsupported(self)
         if order not in ("lex", "grlex", "grevlex"):
             raise ValueError("unknown monomial order %r" % order)
         if order == self.order:
@@ -1672,6 +1723,10 @@ class GroebnerBasis:
 
     def _ideal_inputs(self) -> tuple:
         """Admit current expressions as generators of an ideal over QQ."""
+        from . import _finitefield_groebner as finite
+
+        if finite.has_field_marker(self):
+            finite.unsupported(self)
         if str(self.domain) not in ("ZZ", "QQ"):
             raise NotImplementedError("checked ideal operations support rational coefficients")
         if len(self.gens) > 8:
@@ -1971,6 +2026,7 @@ class _IdealQuotientSnapshot:
 
     def __init__(self, *bases):
         from ..core import Add, Dummy, Half, NegativeOne, One, Zero
+        from . import _finitefield_groebner as finite
 
         self.bases = []
         self.slots = []
@@ -1980,6 +2036,8 @@ class _IdealQuotientSnapshot:
         for basis in bases:
             if type(basis) is not GroebnerBasis:
                 raise TypeError("ideal quotient requires exact GroebnerBasis operands")
+            if finite.has_field_marker(basis):
+                finite.unsupported(basis)
             namespace = object.__getattribute__(basis, "__dict__")
             if type(namespace) is not dict:
                 raise TypeError("ideal quotient requires built-in source dictionaries")
