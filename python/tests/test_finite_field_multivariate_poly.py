@@ -84,6 +84,80 @@ def test_multivariate_operations_match_pinned_coefficient_fixtures(case, operati
         assert result[0] * right + result[1] == left
 
 
+@pytest.mark.parametrize("case", [
+    "GF7_xy", "GF7_yx", "GF5_blocked", "GF5_three_blocked",
+    "GF5_three_exact", "GF5_immediate",
+])
+def test_recursive_poly_division_and_sparse_reduction_have_distinct_pinned_semantics(case):
+    x, y, z = sp.symbols("x y z")
+    original = 3*x**2*y + 2*x*y**2 + 4*y + 5
+    original_divisor = 2*x*y + 3*y**2 + 1
+    three_divisor = (y*z + 1)*x + 1
+    source, divisor, gens, prime, expected_q, expected_r, sparse_q, sparse_r = {
+        "GF7_xy": (original, original_divisor, (x, y), 7,
+                   -2*x, x*y**2 + 2*x - 3*y - 2,
+                   -2*x - 3*y, 2*x + 2*y**3 - 2),
+        "GF7_yx": (original, original_divisor, (y, x), 7,
+                   3*x, -3*x**2*y - 3*x - 3*y - 2,
+                   3*x, -3*x**2*y - 3*x - 3*y - 2),
+        "GF5_blocked": (y*x**2 + (y + 2)*x + 1, y*x + 1, (x, y), 5,
+                        x, x*y + x + 1, x + 1, x),
+        "GF5_three_blocked": ((y*z + 1)*x**2 + (y*z**2 + 1)*x + z,
+                              three_divisor, (x, y, z), 5,
+                              x, x*y*z**2 + z, x + z, -x*z),
+        "GF5_three_exact": ((x + z + 2)*three_divisor + y,
+                            three_divisor, (x, y, z), 5,
+                            x + z + 2, y, x + z + 2, y),
+        "GF5_immediate": (sp.S.One, y, (x, y), 5,
+                          sp.S.Zero, sp.S.One, sp.S.Zero, sp.S.One),
+    }[case]
+    left = sp.Poly(source, *gens, modulus=prime)
+    right = sp.Poly(divisor, *gens, modulus=prime)
+    quotient, remainder = left.div(right)
+    assert quotient.as_expr() == expected_q and remainder.as_expr() == expected_r
+    assert quotient * right + remainder == left
+    assert all(a is b for a, b in zip(quotient.gens, gens))
+    assert all(a is b for a, b in zip(remainder.gens, gens))
+    sparse_quotients, sparse_remainder = sp.reduced(left, [right], order="lex")
+    assert [q.as_expr() for q in sparse_quotients] == [sparse_q]
+    assert sparse_remainder.as_expr() == sparse_r
+    assert sparse_quotients[0] * right + sparse_remainder == left
+
+
+def test_recursive_division_helpers_preserve_blocked_and_exact_coefficients():
+    x, y = sp.symbols("x y")
+    source = y*x**2 + (y + 2)*x + 1
+    divisor = y*x + 1
+    left = sp.Poly(source, x, y, modulus=5)
+    right = sp.Poly(divisor, x, y, modulus=5)
+    expected_q = sp.Poly(x, x, y, modulus=5)
+    expected_r = sp.Poly(x*y + x + 1, x, y, modulus=5)
+    assert left.quo(right) == expected_q
+    assert left.rem(right) == expected_r
+    assert sp.div(source, divisor, x, y, modulus=5) == (x, x*y + x + 1)
+    assert sp.quo(source, divisor, x, y, modulus=5) == x
+    assert sp.rem(source, divisor, x, y, modulus=5) == x*y + x + 1
+    with pytest.raises(ExactQuotientFailed):
+        left.exquo(right)
+    exact_quotient = sp.Poly(x + y + 1, x, y, modulus=5)
+    assert (exact_quotient * right).exquo(right) == exact_quotient
+
+
+def test_recursive_division_zero_and_constant_boundaries_keep_the_declared_ring():
+    x, y, z = sp.symbols("x y z")
+    for gens in ((x, y), (y, x), (x, y, z)):
+        zero = sp.Poly(0, *gens, modulus=5)
+        source = sp.Poly(x + y + 1, *gens, modulus=5)
+        assert zero.div(source) == (zero, zero)
+        quotient, remainder = source.div(sp.Poly(2, *gens, modulus=5))
+        assert quotient == sp.Poly(3*x + 3*y + 3, *gens, modulus=5)
+        assert remainder == zero and quotient.gens == gens
+        with pytest.raises(ZeroDivisionError):
+            source.div(zero)
+        with pytest.raises(ZeroDivisionError):
+            zero.div(zero)
+
+
 def test_constructor_inference_conversion_and_zero_coefficient_identity():
     x = sp.Symbol("x", positive=True)
     y = sp.Dummy("y")
@@ -546,6 +620,7 @@ def test_budget_and_verifier_failures_do_not_restart_in_another_domain(monkeypat
     ("reduced", 34, None, "lex"), ("gcd", 2, None, "lex"),
     ("diff", 1, [], "lex"), ("normalize", 1, [0, 0], "lex"),
     ("normalize", 1, None, "unknown"),
+    ("divrem", 2, None, "grlex"), ("divrem", 2, None, "grevlex"),
 ])
 def test_native_entry_rejects_malformed_operation_shapes(operation, count, orders, order):
     x, y = sp.symbols("x y")

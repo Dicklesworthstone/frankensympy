@@ -16,6 +16,7 @@ use fsym_polys::{
     PrimeFieldMultivariateOperation as Op, PrimeFieldMultivariatePolynomial as Polynomial,
     TermOrder, checked_prime_field_multivariate_arithmetic,
     checked_prime_field_multivariate_division, checked_prime_field_multivariate_source,
+    checked_prime_field_recursive_division,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -149,6 +150,11 @@ pub fn prime_field_multivariate_native(
             "unsupported multivariate prime-field operation or operand count",
         ));
     }
+    if operation == "divrem" && term_order != TermOrder::Lex {
+        return Err(PyValueError::new_err(
+            "recursive polynomial division uses the declared generator order",
+        ));
+    }
     let (mut generator, mut verifier) = (budget(), budget());
     let variables = symbols(variables, &mut generator)?;
     let arithmetic = match operation {
@@ -224,6 +230,19 @@ pub fn prime_field_multivariate_native(
         )
         .map_err(polynomial_error)?;
         output.push(lift(accepted.result(), symmetric, &mut generator)?);
+    } else if operation == "divrem" {
+        // Poly.div recursively divides in the first declared variable over
+        // the polynomial ring in the rest. A coefficient obstruction stops
+        // it before the complete sparse normal form used by reduced().
+        let accepted = checked_prime_field_recursive_division(
+            &polynomials[0],
+            &polynomials[1],
+            &mut generator,
+            &mut verifier,
+        )
+        .map_err(polynomial_error)?;
+        output.push(lift(accepted.quotient(), symmetric, &mut generator)?);
+        output.push(lift(accepted.remainder(), symmetric, &mut generator)?);
     } else {
         let accepted = checked_prime_field_multivariate_division(
             &polynomials[0],

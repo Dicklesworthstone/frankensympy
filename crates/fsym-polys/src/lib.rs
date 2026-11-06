@@ -15,6 +15,7 @@ pub mod finite_field_element_source;
 pub mod finite_field_groebner;
 pub mod finite_field_multivariate;
 pub mod finite_field_multivariate_source;
+pub mod finite_field_recursive_division;
 mod finite_field_resultant;
 pub mod finite_field_source;
 pub mod gcd;
@@ -52,6 +53,11 @@ pub use finite_field_multivariate::*;
 pub use finite_field_multivariate_source::{
     VerifiedPrimeFieldMultivariateSource, checked_prime_field_multivariate_source,
     verify_prime_field_multivariate_source,
+};
+pub use finite_field_recursive_division::{
+    PrimeFieldRecursiveDivisionCertificate, VerifiedPrimeFieldRecursiveDivision,
+    bounded_prime_field_recursive_division_certificate, checked_prime_field_recursive_division,
+    verify_prime_field_recursive_division,
 };
 pub use finite_field_source::*;
 pub use gcd::*;
