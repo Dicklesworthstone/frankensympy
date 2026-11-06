@@ -75,14 +75,52 @@ fn gaussian_mass_is_invariant_under_exact_translations() {
 
 #[test]
 fn translated_gaussians_and_decays_have_the_negative_fourier_phase() {
-    for (source, unshifted) in [
-        ("exp(-(x-2)^2)", "exp(-x^2)"),
-        ("exp(-3*abs(x-2))", "exp(-3*abs(x))"),
+    for (source, unshifted, phase, positive_phase, negative_phase) in [
+        (
+            "exp(-(x-2)^2)",
+            "exp(-x^2)",
+            "exp(-4*pi*I*k)",
+            "exp(-2*I)",
+            "exp(2*I)",
+        ),
+        (
+            "exp(-3*abs(x-2))",
+            "exp(-3*abs(x))",
+            "exp(-4*pi*I*k)",
+            "exp(-2*I)",
+            "exp(2*I)",
+        ),
+        (
+            "exp(-(x+2/3)^2)",
+            "exp(-x^2)",
+            "exp(4*pi*I*k/3)",
+            "exp(2*I/3)",
+            "exp(-2*I/3)",
+        ),
+        (
+            "exp(-3*abs(x+2/3))",
+            "exp(-3*abs(x))",
+            "exp(4*pi*I*k/3)",
+            "exp(2*I/3)",
+            "exp(-2*I/3)",
+        ),
     ] {
-        let shifted = at_frequency(&transform(source), "1/(2*pi)");
-        let expected =
-            parse("exp(-2*I)").unwrap() * at_frequency(&transform(unshifted), "1/(2*pi)");
-        equal(shifted, expected);
+        let shifted = transform(source);
+        let unshifted = transform(unshifted);
+        equal(shifted.clone(), parse(phase).unwrap() * unshifted.clone());
+        // These are exactly the original angular-frequency points +/-1.
+        // Factoring 1/(2*pi) as pi^(-1)/2 lets the arithmetic simplifier
+        // cancel pi without requiring it to distribute a product inverse
+        // inside an exponential. The expected phase remains unchanged.
+        for (frequency, phase) in [
+            ("pi^(-1)/2", positive_phase),
+            ("-pi^(-1)/2", negative_phase),
+        ] {
+            equal(
+                at_frequency(&shifted, frequency),
+                parse(phase).unwrap() * at_frequency(&unshifted, frequency),
+            );
+        }
     }
 }
 
