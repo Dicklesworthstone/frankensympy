@@ -3,6 +3,7 @@
 import pytest
 
 from sympy import Poly, Pow, PurePoly, Rational, Symbol, expand, groebner
+from sympy.polys.polyerrors import DomainError
 
 
 def test_fglm_all_order_pairs_agree_with_independent_basis_generation():
@@ -231,7 +232,9 @@ def test_domain_inference_cannot_hide_missing_metadata_or_a_finite_field(
         raise AssertionError("unadmitted Poly metadata reached the rational engine")
 
     monkeypatch.setattr(polytools._native, "groebner_basis_native", forbidden)
-    with pytest.raises(NotImplementedError, match="ZZ and QQ Poly"):
+    error, message = ((DomainError, "domain metadata is inconsistent") if retained_modulus else
+                      (NotImplementedError, "ZZ and QQ Poly"))
+    with pytest.raises(error, match=message):
         groebner([polynomial], x)
 
 

@@ -2232,7 +2232,13 @@ def _ideal_polynomial_source(expression: Any) -> Any:
             raise ValueError("ideal operations require exact rational polynomial expressions")
         # Basic lowering borrows the existing native value. Inspect its whole
         # tree without exporting coefficients or lifting native children.
-        _native.ideal_source_preflight_native(_native_expr(node))
+        try:
+            native_node = _native_expr(node)
+        except NotImplementedError as error:
+            # An exact held container can retain an opaque custom child.
+            # Preserve this polynomial boundary's source-admission error.
+            raise ValueError("ideal operations require exact rational polynomial expressions") from error
+        _native.ideal_source_preflight_native(native_node)
         if kind in atoms:
             continue
         # Native-owned subtrees contain no Python subclasses and were already

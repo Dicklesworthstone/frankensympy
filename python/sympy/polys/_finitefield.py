@@ -455,7 +455,7 @@ def total_degree(polynomial):
     if len(state.gens) == 1:
         result = degree(polynomial)
         from ..core import S
-        return 0 if result is S.NegativeInfinity else result
+        return 0 if result == S.NegativeInfinity else result
     return max(sum(powers) for powers, _ in terms(polynomial))
 
 

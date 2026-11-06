@@ -138,7 +138,7 @@ def test_only_bounded_exact_prime_moduli_are_admitted(modulus):
         s.factor_list(x**2 + 1, x, modulus=modulus)
 
 
-def test_unsupported_domains_and_poly_modulus_do_not_fall_back_to_rational_arithmetic():
+def test_explicit_field_poly_construction_preserves_remaining_factorization_limits():
     x, y = s.symbols("modular_limit_x modular_limit_y")
     with pytest.raises(NotImplementedError):
         s.factor_list(x + y, modulus=2)
@@ -146,10 +146,11 @@ def test_unsupported_domains_and_poly_modulus_do_not_fall_back_to_rational_arith
         s.factor_list(x**65 + 1, x, modulus=2)
     with pytest.raises(ValueError):
         s.factor_list(1/x + 1, x, modulus=2)
-    with pytest.raises(NotImplementedError):
-        s.Poly(x**2 + 1, x, modulus=2)
+    finite = s.Poly(x**2 + 1, x, modulus=2)
+    assert finite.get_modulus() == 2
+    assert finite.as_expr() == x**2 + 1 and finite.gens == (x,)
     ordinary = s.Poly(x**2 + 1, x)
-    with pytest.raises(NotImplementedError):
-        s.Poly(ordinary, modulus=2)
+    converted = s.Poly(ordinary, modulus=2)
+    assert converted.get_modulus() == 2 and converted == finite
     with pytest.raises(NotImplementedError):
         s.factor_list(ordinary, modulus=2)
