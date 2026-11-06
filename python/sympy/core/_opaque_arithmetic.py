@@ -12,7 +12,7 @@ from fractions import Fraction
 from functools import cmp_to_key
 
 from . import (
-    Add, Basic, Derivative, Float, Function, Mul, Pow, Rational, Relational,
+    Add, Basic, Derivative, Dummy, Float, Function, Mul, Pow, Rational, Relational,
     Symbol, _exact_surface_types, _is_closed_function_class, _known_functions,
     _native, _wrap, sympify,
 )
@@ -22,11 +22,121 @@ _SURFACE = Basic.__dict__["_surface_args"]
 _STRUCT = Basic.__dict__["_struct_args"]
 _FUNCTION_ARGS = Function.__dict__["_args"]
 _RELATIONAL_SIDES = Relational.__dict__["_relational_sides"]
+_SYMBOL_ASSUMPTIONS = Symbol.__dict__["_assumptions"]
 _MRO = type.__dict__["__mro__"]
 _DICT = type.__dict__["__dict__"]
 _NAME = type.__dict__["__name__"]
 _MAX_NODES = 16384
 _MAX_DEPTH = 128
+_HELD_FOURIER = None
+
+
+def _register_held_fourier(cls, instance_dict):
+    """Capture the one built-in held transform admitted by surface arithmetic.
+
+    This record never grants a native capability. Integral-transform imports
+    install it after the class exists, avoiding a core/import cycle and any
+    later recovery of a class from its spelling or module namespace.
+    """
+    from ._function_capabilities import _owner_record
+
+    global _HELD_FOURIER
+    if _HELD_FOURIER is not None:
+        raise RuntimeError("the held FourierTransform class is already registered")
+    owners = _MRO.__get__(cls)
+    _HELD_FOURIER = (
+        cls, owners, instance_dict,
+        tuple((owner, _owner_record(owner)) for owner in owners),
+    )
+
+
+def _admit_held_fourier(value):
+    """Check exact ownership and retained state without invoking public hooks."""
+    record = _HELD_FOURIER
+    if record is None or type(value) is not record[0]:
+        return False
+    from ._function_capabilities import _owner_matches
+
+    cls, owners, instance_dict, definitions = record
+    current = _MRO.__get__(cls)
+    if (len(current) != len(owners)
+            or any(left is not right for left, right in zip(current, owners))
+            or any(not _owner_matches(owner, definition) for owner, definition in definitions)):
+        raise NotImplementedError("modified held FourierTransform implementations require a surface algebra")
+    children = _slot(_STRUCT, value)
+    namespace = instance_dict.__get__(value, cls)
+    if (type(children) is not tuple or len(children) != 3
+            or type(namespace) is not dict or len(namespace) > _MAX_NODES
+            or any(type(key) is not str for key in namespace)
+            or dict.get(namespace, "_args") is not children
+            or _slot(_SURFACE, value) is not None
+            or _slot(_VALUE, value) is not None):
+        raise ValueError("held FourierTransform has inconsistent retained arguments")
+    return True
+
+
+def _require_commuting_fourier(children):
+    """Reject noncommutative or stale typed children before scalar slotting."""
+    from . import _symbol_from_binding
+
+    pending = [(child, 0) for child in children]
+    seen, symbols = set(), set()
+    work = 0
+
+    def check_symbol(symbol, source_binding=None):
+        if type(symbol) is not Symbol and type(symbol) is not Dummy:
+            raise NotImplementedError("held FourierTransform requires exact typed symbol owners")
+        native = _slot(_VALUE, symbol)
+        facts = _slot(_SYMBOL_ASSUMPTIONS, symbol)
+        if (type(native) is not _native.Expr or not native.is_symbol
+                or type(facts) is not dict or len(facts) > 64
+                or any(type(name) is not str or type(truth) is not bool
+                       for name, truth in facts.items())):
+            raise ValueError("held FourierTransform requires canonical symbol declarations")
+        binding = native.symbol_binding
+        if source_binding is not None and (
+            binding.name != source_binding.name or binding.plain != source_binding.plain
+            or not binding.plain and binding.identity_hex != source_binding.identity_hex
+        ):
+            raise ValueError("held FourierTransform lost a typed symbol owner")
+        if id(symbol) in symbols:
+            return
+        symbols.add(id(symbol))
+        expected = _native.SymbolBinding(binding.name, [
+            (name, "True" if truth else "False") for name, truth in facts.items()
+        ])
+        if (expected.plain != binding.plain
+                or not expected.plain and expected.identity_hex != binding.identity_hex):
+            raise ValueError("held FourierTransform symbol has inconsistent typed assumptions")
+        if facts.get("commutative") is False:
+            raise NotImplementedError("held FourierTransform arithmetic requires commuting scalar symbols")
+
+    while pending:
+        node, depth = pending.pop()
+        work += 1
+        if work > _MAX_NODES or depth > _MAX_DEPTH:
+            raise ValueError("held FourierTransform source exceeds the arithmetic limit")
+        if id(node) in seen:
+            continue
+        seen.add(id(node))
+        if not _subclass(type(node), Basic):
+            raise NotImplementedError("held FourierTransform requires symbolic surface children")
+        if type(node) is Symbol or type(node) is Dummy:
+            check_symbol(node)
+        native = _slot(_VALUE, node)
+        if type(native) is _native.Expr:
+            _validate_native_region(native)
+            bindings = native.free_symbol_bindings
+            work += len(bindings)
+            if work > _MAX_NODES:
+                raise ValueError("held FourierTransform source exceeds the arithmetic limit")
+            for binding in bindings:
+                check_symbol(_symbol_from_binding(binding), binding)
+        retained = stored_args(node)
+        if retained is not None:
+            if len(retained) > _MAX_NODES - work - len(pending):
+                raise ValueError("held FourierTransform source exceeds the arithmetic limit")
+            pending.extend((child, depth + 1) for child in retained)
 
 
 def _subclass(cls, base):
@@ -356,7 +466,9 @@ def _admit_application(value):
 
 
 def _admit_source(values, *, check_identity):
+    values = tuple(values)
     pending, seen = list(values), set()
+    held_fourier = False
     while pending:
         node = pending.pop()
         if id(node) in seen:
@@ -368,12 +480,19 @@ def _admit_source(values, *, check_identity):
         if _subclass(cls, Function):
             if check_identity:
                 _admit_application(node)
+        elif _admit_held_fourier(node):
+            held_fourier = True
         elif not any(cls is builtin for builtin in _exact_surface_types()):
             raise NotImplementedError(
                 "custom symbolic subclasses require a supervised Python override lane; "
                 "the native fast path accepts exact built-in classes only"
             )
         pending.extend(stored_args(node) or ())
+    if held_fourier and check_identity:
+        # Slotting a scalar transform also normalizes its sibling operands.
+        # Admit the entire operation before a noncommutative factor can lose
+        # its order, even when the transform itself has commuting children.
+        _require_commuting_fourier(values)
 
 
 def arithmetic(operator, values, *, evaluate=True, cls=None):
@@ -491,7 +610,12 @@ def native_transform(values, operation, *, multiple=False, atomize_functions=Fal
             return result
         if contains_opaque(value) or atomize_functions and _subclass(kind, Function):
             if not _subclass(kind, Function) and kind is not Derivative:
-                raise NotImplementedError("opaque arithmetic supports retained Function applications and derivatives")
+                if not _admit_held_fourier(value):
+                    raise NotImplementedError(
+                        "opaque arithmetic supports retained Function applications, "
+                        "derivatives and built-in FourierTransform nodes"
+                    )
+                _require_commuting_fourier(stored_args(value))
             if _subclass(kind, Function):
                 _admit_application(value)
             key = _key(value)

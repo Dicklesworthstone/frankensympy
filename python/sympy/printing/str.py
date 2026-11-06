@@ -504,6 +504,13 @@ class StrPrinter:
             return self._print_Derivative(e)
         if k == "Function":
             return self._print_Function(e)
+        from ..core._opaque_arithmetic import _admit_held_fourier, stored_args
+        if _admit_held_fourier(e):
+            # A held ordinary transform has no native value, including when
+            # it occurs as a factor of an otherwise normalized expression.
+            return "FourierTransform(%s)" % ", ".join(
+                self._print(child) for child in stored_args(e)
+            )
         return self._fallback(e)
 
     def _print_Function(self, e: Any) -> str:

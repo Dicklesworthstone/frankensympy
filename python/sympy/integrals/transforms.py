@@ -111,6 +111,13 @@ class FourierTransform(Transform):
         return fourier_transform(f, x, k, **hints)
 
 
+# Surface arithmetic may retain this exact class as an opaque operand. It is
+# deliberately absent from the native expression and function capabilities.
+from ..core._opaque_arithmetic import _register_held_fourier
+
+_register_held_fourier(FourierTransform, Transform.__dict__["__dict__"])
+
+
 class InverseFourierTransform(Transform):
     """Unevaluated inverse Fourier transform: F^-1{F(k)}(x)."""
 
@@ -733,16 +740,25 @@ def fourier_transform(expression: Any, x: Any, k: Any, noconds: bool = True, **k
         snapshot.unchanged()
         return unevaluated()
     snapshot.unchanged()
-    if bilateral and k_sym.is_real is False:
-        # This identity is on the real frequency axis. Nonreal frequencies
-        # require their separate convergence strip, which is outside this lane.
-        return unevaluated()
+    if bilateral:
+        from ..assumptions import Q, ask
+
+        # Query retained declarations through the signed, typed boundary.
+        # Legacy Symbol getters forward shell-only facts such as imaginary
+        # or commutative to the narrower native predicate parser.
+        declared_context = frozenset()
+        if (ask(Q.real(k_sym), context=declared_context) is False
+                or ask(Q.imaginary(k_sym), context=declared_context) is True):
+            # This identity is on the real frequency axis. Nonreal frequencies
+            # require a separate convergence strip, outside this bounded lane.
+            return unevaluated()
     condition = True
     if bilateral and not noconds:
         # Executed SymPy 1.14 oracle: unspecified/real k gives k > 0, while
         # positive and negative k both give True. Do not promote that observed
         # subset to untested combinations of frequency assumptions.
-        if k_sym.is_positive is True or k_sym.is_negative is True:
+        if (ask(Q.positive(k_sym), context=declared_context) is True
+                or ask(Q.negative(k_sym), context=declared_context) is True):
             condition = True
         else:
             facts = _FourierSource.slot(Symbol, "_assumptions").__get__(k_sym, Symbol)

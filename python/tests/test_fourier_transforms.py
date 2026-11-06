@@ -64,7 +64,10 @@ def test_rational_quadratic_completion_and_finite_linearity():
     equal(grouped.subs(k, 0), 2*s.sqrt(s.pi)+4)
 
 
-@pytest.mark.parametrize("facts", [{}, {"real": True}, {"positive": True}, {"negative": True}])
+@pytest.mark.parametrize("facts", [
+    {}, {"real": True}, {"positive": True}, {"negative": True},
+    {"real": True, "commutative": True},
+])
 def test_pinned_bilateral_sufficient_conditions_are_preserved(facts):
     x = s.Symbol("fourier_condition_x")
     k = s.Symbol("fourier_condition_k", **facts)
@@ -94,6 +97,219 @@ def test_nonzero_constants_remain_ordinary_unevaluated_transforms(value):
     assert "dirac" not in str(result).lower()
     assert result.free_symbols == {k}
     assert s.FourierTransform(1, x, k).doit() == s.FourierTransform(1, x, k)
+
+
+def test_held_fourier_arithmetic_preserves_the_original_opaque_owner():
+    x, k = s.symbols("fourier_held_x fourier_held_k")
+    held = s.FourierTransform(1, x, k)
+    same = s.FourierTransform(1, x, k)
+    collected = 2*held + 3*same
+    assert collected == 5*held
+    assert collected.args[1] is held
+    squared = held*same
+    assert type(squared) is s.Pow
+    assert squared.args[0] is held
+    assert squared.args[1] == 2
+    assert held + 0 is held
+    assert held*1 is held
+    assert held**1 is held
+    assert str(collected) == "5*FourierTransform(1, fourier_held_x, fourier_held_k)"
+    assert str(squared) == "FourierTransform(1, fourier_held_x, fourier_held_k)**2"
+    for source in (held, collected, squared, s.Add(1, held, evaluate=False)):
+        assert source.free_symbols == {k}
+        with pytest.raises(NotImplementedError):
+            _native_expr(source)
+        with pytest.raises((NotImplementedError, TypeError, ValueError)):
+            s.compile_numeric(k, source)
+        with pytest.raises(NotImplementedError):
+            s.fourier_transform(source, x, k)
+
+
+@pytest.mark.parametrize("dummy", [False, True])
+def test_held_fourier_coordinates_preserve_same_name_typed_bindings(dummy):
+    if dummy:
+        x, k = s.Dummy("fourier_held_same"), s.Dummy("fourier_held_same")
+    else:
+        x = s.Symbol("fourier_held_same")
+        k = s.Symbol("fourier_held_same", real=True)
+    result = s.fourier_transform(5, x, k)
+    held = result.args[1]
+    assert held.args[1] is x and held.args[2] is k
+    assert result.free_symbols == {k}
+    assert next(iter(result.free_symbols)) is k
+
+
+def test_held_fourier_slots_cannot_capture_real_source_symbols():
+    x = s.Symbol("__fsym_operation_slot_00000000")
+    k = s.Symbol("__fsym_operation_slot_00000001")
+    held = s.FourierTransform(1, x, k)
+    result = x + k + 2*held
+    assert result.free_symbols == {x, k}
+    assert next(iter(result.atoms(s.FourierTransform))) is held
+    assert result - x - k == 2*held
+
+
+@pytest.mark.parametrize("position", [
+    "integrand", "nested", "native_only", "held_zero", "variable", "frequency",
+])
+def test_noncommutative_held_sources_refuse_before_scalar_normalization(position, monkeypatch):
+    x, k = s.symbols("fourier_scalar_x fourier_scalar_k")
+    noncommuting = s.Symbol("fourier_noncommuting_operand", commutative=False)
+    integrand = {
+        "integrand": lambda: noncommuting,
+        "nested": lambda: noncommuting + 1,
+        "native_only": lambda: s.Expr(_native_expr(noncommuting + 1)),
+        "held_zero": lambda: s.Mul(0, noncommuting, evaluate=False),
+        "variable": lambda: s.Integer(1),
+        "frequency": lambda: s.Integer(1),
+    }[position]()
+    held = s.FourierTransform(
+        integrand, noncommuting if position == "variable" else x,
+        noncommuting if position == "frequency" else k,
+    )
+    calls = []
+
+    def forbidden(*args):
+        calls.append("native normalization or assumption hook")
+        raise AssertionError("noncommutative held source entered scalar normalization")
+
+    monkeypatch.setattr(s.Symbol, "is_commutative", property(forbidden), raising=False)
+    for constructor in ("Add", "Mul", "Pow"):
+        monkeypatch.setattr(_native, constructor, forbidden)
+    for operation in (lambda: s.Add(held, noncommuting),
+                      lambda: s.Mul(held, noncommuting),
+                      lambda: s.Pow(held, 2)):
+        with pytest.raises(NotImplementedError, match="commuting scalar symbols"):
+            operation()
+    assert calls == []
+
+
+def test_noncommutative_held_transforms_remain_printable_without_normalization(monkeypatch):
+    from sympy.printing.str import sstr
+
+    x, k = s.symbols("fourier_print_x fourier_print_k")
+    noncommuting = s.Symbol("fourier_print_a", commutative=False)
+    held = s.FourierTransform(noncommuting, x, k)
+    source = s.Mul(held, noncommuting, evaluate=False)
+
+    def forbidden(*args):
+        raise AssertionError("printing a held node consulted scalar assumptions")
+
+    monkeypatch.setattr(s.Symbol, "is_commutative", property(forbidden), raising=False)
+    expected = "FourierTransform(fourier_print_a, fourier_print_x, fourier_print_k)"
+    assert str(held) == sstr(held) == expected
+    assert str(source) == expected + "*fourier_print_a"
+    assert source.args[0] is held and source.args[1] is noncommuting
+    with pytest.raises(NotImplementedError):
+        _native_expr(source)
+
+
+def test_commuting_held_transform_does_not_reorder_noncommutative_siblings(monkeypatch):
+    x, k = s.symbols("fourier_siblings_x fourier_siblings_k")
+    a = s.Symbol("fourier_siblings_a", commutative=False)
+    b = s.Symbol("fourier_siblings_b", commutative=False)
+    held = s.FourierTransform(1, x, k)
+    nested = s.Mul(a, b, evaluate=False)
+    native_only = s.Expr(_native_expr(nested))
+    source = s.Mul(held, a, b, evaluate=False)
+    assert source.args == (held, a, b)
+    calls = []
+
+    def forbidden(*args):
+        calls.append(args)
+        raise AssertionError("noncommutative siblings reached a commutative constructor")
+
+    monkeypatch.setattr(_native, "Mul", forbidden)
+    for factors in ((held, a, b), (held, b, a), (held, nested), (held, native_only)):
+        with pytest.raises(NotImplementedError, match="commuting scalar symbols"):
+            s.Mul(*factors)
+    assert calls == []
+
+
+@pytest.mark.parametrize("dummy", [False, True])
+def test_held_fourier_rejects_stale_typed_symbol_declarations(dummy):
+    x, k = s.symbols("fourier_stale_x fourier_stale_k")
+    symbol = s.Dummy("fourier_stale_owner") if dummy else s.Symbol("fourier_stale_owner")
+    held = s.FourierTransform(symbol, x, k)
+    declarations = s.Symbol.__dict__["_assumptions"].__get__(symbol)
+    previous = declarations.copy()
+    declarations["commutative"] = False
+    try:
+        with pytest.raises(ValueError, match="inconsistent typed assumptions"):
+            s.Add(held, 1)
+    finally:
+        declarations.clear()
+        declarations.update(previous)
+
+
+def test_only_the_captured_builtin_fourier_class_is_admitted(monkeypatch):
+    from sympy.integrals import transforms
+
+    x, k = s.symbols("fourier_class_x fourier_class_k")
+    held = s.FourierTransform(1, x, k)
+    calls = []
+
+    class CustomFourier(s.FourierTransform):
+        @property
+        def args(self):
+            calls.append("args")
+            raise AssertionError("custom transform children were read")
+
+        def __eq__(self, other):
+            calls.append("equality")
+            raise AssertionError("custom transform equality was invoked")
+
+        def __hash__(self):
+            calls.append("hash")
+            raise AssertionError("custom transform hash was invoked")
+
+    class FourierTransform(s.Expr):
+        pass
+
+    impostor = object.__new__(FourierTransform)
+    Basic.__dict__["_struct_args"].__set__(impostor, held.args)
+    unrelated = s.LaplaceTransform(1, x, k)
+    custom = CustomFourier(1, x, k)
+    monkeypatch.setattr(transforms, "FourierTransform", FourierTransform)
+    # Replacing a public module name cannot capture an already-owned class.
+    assert (5*held).args[1] is held
+    for source in (impostor, unrelated, custom):
+        with pytest.raises(NotImplementedError, match="exact built-in"):
+            s.Add(source, 1)
+        with pytest.raises(NotImplementedError, match="exact built-in"):
+            s.Mul(source, held)
+    assert calls == []
+
+
+@pytest.mark.parametrize("owner, attribute", [
+    (s.FourierTransform, "args"), (s.FourierTransform, "__eq__"),
+    (s.FourierTransform, "__hash__"), (s.FourierTransform, "is_commutative"),
+    (s.Expr, "_eval_is_commutative"),
+])
+def test_modified_held_transform_implementations_refuse_without_hooks(monkeypatch, owner, attribute):
+    x, k = s.symbols("fourier_override_x fourier_override_k")
+    held = s.FourierTransform(1, x, k)
+    calls = []
+
+    def forbidden(*args):
+        calls.append(attribute)
+        raise AssertionError("unadmitted transform hook was invoked")
+
+    replacement = property(forbidden) if attribute in ("args", "is_commutative") else forbidden
+    monkeypatch.setattr(owner, attribute, replacement, raising=False)
+    with pytest.raises(NotImplementedError, match="modified held FourierTransform"):
+        s.Add(held, 1)
+    assert calls == []
+
+
+@pytest.mark.parametrize("attribute", ["_args", "_struct_args", "_surface_args", "_value"])
+def test_held_transform_retained_state_must_match_before_arithmetic(attribute):
+    x, k = s.symbols("fourier_state_x fourier_state_k")
+    held = s.FourierTransform(1, x, k)
+    value = _native_expr(s.Integer(1)) if attribute == "_value" else (s.Integer(2), x, k)
+    setattr(held, attribute, value)
+    with pytest.raises(ValueError, match="inconsistent retained arguments"):
+        s.Add(held, 1)
 
 
 def test_unsupported_assumed_frequency_conditions_stay_unevaluated():

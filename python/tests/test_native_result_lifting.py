@@ -102,13 +102,20 @@ def test_native_piecewise_tag_cannot_be_captured_by_same_named_user_class(monkey
     assert type(result.args[0].cond) is s.Gt
 
 
-def test_fourier_constant_retains_distribution_coordinate():
+def test_fourier_constant_retains_the_ordinary_unevaluated_transform():
     t, w = s.symbols("native_fourier_t native_fourier_w")
     result = s.fourier_transform(5, t, w)
-    applications = result.atoms(AppliedUndef)
-    assert len(applications) == 1
-    distribution = next(iter(applications))
-    assert distribution.func.__name__ == "dirac"
-    assert distribution.args == (w,)
+    # Pinned SymPy 1.14.0 does not substitute a distribution for this ordinary
+    # transform. The unsupported unit integral retains both original owners.
+    assert type(result) is s.Mul
+    coefficient, transform = result.args
+    assert coefficient == 5
+    assert type(transform) is s.FourierTransform
+    assert transform.args == (1, t, w)
+    assert transform.args[1] is t
+    assert transform.args[2] is w
     assert result.free_symbols == {w}
-    assert str(result) == "10*pi*dirac(native_fourier_w)"
+    assert not result.atoms(AppliedUndef)
+    assert str(result) == "5*FourierTransform(1, native_fourier_t, native_fourier_w)"
+    with pytest.raises(NotImplementedError, match="opaque"):
+        _native_expr(result)
