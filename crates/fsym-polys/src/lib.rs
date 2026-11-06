@@ -12,6 +12,7 @@ pub mod fglm;
 pub mod finite_field;
 pub mod finite_field_arithmetic;
 pub mod finite_field_element_source;
+mod finite_field_resultant;
 pub mod finite_field_source;
 pub mod gcd;
 pub mod groebner;

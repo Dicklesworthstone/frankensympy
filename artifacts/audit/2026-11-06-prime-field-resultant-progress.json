@@ -1,0 +1,47 @@
+{
+  "schema": "frankensympy.bounded-feature-progress.v1",
+  "recorded_at_utc": "2026-11-06T00:26:12.031113+00:00",
+  "base_main": "511de1857bc6f545178d71e999d159dae0a76660",
+  "objective": "Checked resultants and universal discriminants in bounded prime polynomial fields",
+  "scope": {
+    "maximum_input_degree": 64,
+    "maximum_characteristic": 65521,
+    "maximum_resultant_matrix_dimension": 128,
+    "maximum_discriminant_matrix_dimension": 127,
+    "cumulative_phase_compute_steps": 20000000,
+    "cumulative_phase_memory_bytes": 134217728
+  },
+  "algorithms": {
+    "generator": "Euclidean polynomial remainder resultant with positive-characteristic leading-coefficient correction for discriminants",
+    "verifier": "Independent complete modular Sylvester determinant; signed integer row updates and integer extended-Euclid pivot inverses; formal derivative degree n-1 retained"
+  },
+  "validation": {
+    "native_compilation": "PASS: pinned nightly-2026-08-20 scoped fsym-polys -D warnings",
+    "library_and_focused_clippy": "PASS: pinned -D warnings",
+    "new_tests_passed": 8,
+    "prior_arithmetic_tests_relinked_and_passed": 20,
+    "independently_enumerated_resultant_pairs": 1610,
+    "independently_enumerated_discriminants": 68,
+    "enumeration_reference": "Exact integer permutation determinants, distinct from both production algorithms",
+    "unchanged_source_lowering_tests_prior_passed": 13,
+    "session_native_tests_total": 41,
+    "public_extension": "Not built or run; full-extension CI remains required"
+  },
+  "known_oracle_difference": "artifacts/discrepancies/2026-11-06-prime-field-discriminant.json",
+  "source_sha256": {
+    "crates/fsym-polys/src/finite_field_arithmetic.rs": "bbc0e1720b38887398dee9e4cb9ac19cba25d08b4e902a3c4d3aa889ea9a2517",
+    "crates/fsym-polys/src/finite_field_resultant.rs": "1967b91a1fb4bb52bdb186a43411c07aaecd7827c36803708683d78cf8c54771",
+    "crates/fsym-polys/src/lib.rs": "0fc335c84b3ddfb4f733d88d97d792c9c4c29a0adf2178364c1d75ae9d01bb70",
+    "crates/fsym-polys/tests/finite_field_resultant.rs": "7f987c8921d526646b63d6b8ef88e76444891c5899476d1e59a97efb58162391",
+    "artifacts/discrepancies/2026-11-06-prime-field-discriminant.json": "1d53d4f9359a75e59cee7ded4cd73c5e3e0adff9619df32c0f1e6272c8b44630"
+  },
+  "logs": {
+    "finite_field_resultant_polys_compile.log": "",
+    "finite_field_resultant_polys_clippy.log": "",
+    "finite_field_resultant_test_link.log": "",
+    "finite_field_resultant_test_clippy.log": "",
+    "finite_field_resultant_test_run.log": "\nrunning 8 tests\ntest characteristic_degree_drops_preserve_the_universal_discriminant ... ok\ntest complete_euclid_and_determinant_phases_observe_exact_resource_and_cancel_boundaries ... ok\ntest discriminants_have_the_universal_zero_linear_and_repeated_root_conventions ... ok\ntest exhaustive_small_fields_agree_with_integer_permutation_determinants ... ok\ntest maximum_degree_and_characteristic_exercise_the_full_sylvester_bound ... ok\ntest resultant_signs_constant_powers_and_zero_conventions_are_exact ... ok\ntest scalar_receipts_reject_wrong_values_nonconstant_results_and_changed_sources ... ok\ntest typed_ring_and_operation_arity_are_admitted_before_zero_results ... ok\n\ntest result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s\n\n",
+    "finite_field_resultant_arithmetic_regression_link.log": "",
+    "finite_field_resultant_arithmetic_regression_run.log": "\nrunning 20 tests\ntest accepted_receipt_retains_the_complete_request_and_replays ... ok\ntest arithmetic_preserves_characteristic_and_canonical_coefficients ... ok\ntest bezout_without_common_divisibility_does_not_certify_a_gcd ... ok\ntest both_phases_cancel_before_during_and_at_final_publication ... ok\ntest common_divisibility_without_bezout_does_not_certify_a_greatest_divisor ... ok\ntest cumulative_budgets_cover_euclid_verification_copies_and_publication ... ok\ntest derivatives_include_frobenius_zero_and_whole_call_high_order ... ok\ntest different_typed_fields_variables_and_wrong_arities_refuse_before_shortcuts ... ok\ntest division_uses_field_units_and_preserves_remainder_degree ... ok\ntest every_operation_rejects_changed_output_coefficients_or_a_changed_source ... ok\ntest exhaustive_small_fields_agree_with_complete_common_divisor_enumeration ... ok\ntest gcd_extended_gcd_and_lcm_retain_characteristic_multiplicities ... ok\ntest independent_handwritten_gcd_evidence_and_alternate_bezout_are_accepted ... ok\ntest inverse_requires_reducedness_unit_status_and_the_exact_product_witness ... ok\ntest inverses_and_proved_nonunits_have_distinct_complete_results ... ok\ntest malformed_result_counts_residues_degrees_and_irrelevant_witnesses_are_rejected ... ok\ntest maximum_characteristic_and_degree_use_wide_exact_column_sums ... ok\ntest powers_and_composition_are_polynomial_identities_not_point_samples ... ok\ntest remainder_identity_without_reducedness_is_rejected ... ok\ntest zero_and_constant_operations_follow_field_and_zero_ring_conventions ... ok\n\ntest result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s\n\n"
+  }
+}

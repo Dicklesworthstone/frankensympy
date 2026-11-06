@@ -6,6 +6,9 @@
 //! GCD evidence proves common divisibility and a Bezout identity; neither
 //! condition alone establishes greatestness. The same evidence supports LCM,
 //! extended GCD, and a reduced inverse or a proved nonunit.
+//! Resultants and discriminants use a separate Sylvester determinant verifier;
+//! formal derivative degree is preserved when the characteristic cancels its
+//! leading terms, so the discriminant remains the universal coefficient invariant.
 //!
 //! Sources are immutable canonical `PrimeFieldPolynomial` values, whose
 //! constructor verifies primality, typed variable, and coefficient bounds.
@@ -19,6 +22,9 @@
 
 use crate::division::{PolynomialWork, refused};
 use crate::finite_field::{copy, derivative, divide, multiply, scalar_power, trim, zeros};
+use crate::finite_field_resultant::{
+    generated_discriminant, generated_resultant, verify_discriminant, verify_resultant,
+};
 use crate::{MAX_PRIME_FIELD_DEGREE, PolyError, PrimeFieldPolynomial};
 use fsym_budget::BudgetMeter;
 use fsym_core::Symbol;
@@ -41,6 +47,8 @@ pub enum PrimeFieldArithmeticOperation {
     Derivative(u32),
     Power(u64),
     Compose,
+    Resultant,
+    Discriminant,
 }
 
 impl PrimeFieldArithmeticOperation {
@@ -56,6 +64,7 @@ impl PrimeFieldArithmeticOperation {
                 | Self::Lcm
                 | Self::Invert
                 | Self::Compose
+                | Self::Resultant
         )
     }
 
@@ -385,6 +394,8 @@ fn generate(
             }
             vec![result]
         }
+        Op::Resultant => vec![generated_resultant(left, right, prime, work)?],
+        Op::Discriminant => vec![generated_discriminant(left, prime, work)?],
         _ => unreachable!(),
     };
     Ok(certificate)
@@ -698,6 +709,8 @@ fn verify_outputs(
             let expected = reference_compose(left, right, prime, work)?;
             equal(output, &expected, work)
         }
+        Op::Resultant => verify_resultant(left, right, output, prime, work),
+        Op::Discriminant => verify_discriminant(left, output, prime, work),
         _ => unreachable!(),
     }
 }
