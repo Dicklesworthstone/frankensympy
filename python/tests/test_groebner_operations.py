@@ -2,7 +2,7 @@
 
 import pytest
 
-from sympy import Poly, Pow, Rational, Symbol, expand, groebner
+from sympy import Poly, Pow, PurePoly, Rational, Symbol, expand, groebner
 
 
 def test_fglm_all_order_pairs_agree_with_independent_basis_generation():
@@ -106,3 +106,81 @@ def test_poly_input_and_original_expression_bounds():
     for held in (Pow(2, 10**9, evaluate=False), Pow(x, 10**9, evaluate=False)):
         with pytest.raises(ValueError):
             basis.reduce(held)
+
+
+@pytest.mark.parametrize("options", [
+    {"modulus": 2}, {"modulus": 5}, {"modulus": 0},
+    {"domain": "GF(2)"}, {"domain": "RR"}, {"domain": "QQ", "modulus": 2},
+    {"extension": True}, {"field": True}, {"polys": True}, {"method": "f5b"},
+])
+def test_unsupported_ring_and_output_options_are_refused_before_native_work(monkeypatch, options):
+    from sympy.polys import polytools
+
+    x = Symbol("domain_guard_x")
+    sources = [x**2 + 1, x + 1]
+
+    def forbidden(*args):
+        raise AssertionError("unsupported Groebner request reached the rational engine")
+
+    monkeypatch.setattr(polytools._native, "groebner_basis_native", forbidden)
+    with pytest.raises(NotImplementedError):
+        groebner(sources, x, **options)
+
+
+def test_characteristic_two_counterexample_cannot_return_the_rational_unit_ideal():
+    x = Symbol("characteristic_two_x")
+    # In QQ, (x**2+1) - (x-1)*(x+1) = 2, so the ideal is the whole ring.
+    # In GF(2), x**2+1 = (x+1)**2 and the ideal is the proper ideal <x+1>.
+    # A QQ result is therefore a mathematically false answer to this request.
+    assert groebner([x**2 + 1, x + 1], x, domain="QQ").exprs == [1]
+    with pytest.raises(NotImplementedError, match="finite-field"):
+        groebner([x**2 + 1, x + 1], x, modulus=2)
+
+
+@pytest.mark.parametrize("poly_type", [Poly, PurePoly])
+def test_finite_poly_domains_cannot_be_erased_by_basis_and_ideal_operations(poly_type):
+    x = Symbol("retained_field_x")
+    finite = poly_type(x**2 + 1, x, modulus=2)
+    basis = groebner([x + 1], x, domain="QQ")
+    for operation in (
+        lambda: groebner([finite, x + 1], x),
+        lambda: groebner([finite], x, domain="QQ"),
+        lambda: basis.reduce(finite),
+        lambda: basis.contains(finite),
+        lambda: basis.invert(finite),
+        lambda: basis.multiplication_matrix(finite),
+    ):
+        with pytest.raises(NotImplementedError, match="ZZ and QQ Poly"):
+            operation()
+    # Directly replacing the public basis list must not bypass domain admission.
+    basis.exprs[:] = [finite]
+    with pytest.raises(NotImplementedError):
+        _ = basis.is_zero_dimensional
+    with pytest.raises(NotImplementedError):
+        basis.eliminate(x)
+
+
+@pytest.mark.parametrize("poly_type", [Poly, PurePoly])
+def test_rational_poly_inputs_preserve_explicit_domain_without_public_unwrapping(poly_type):
+    x = Symbol("rational_poly_input_x")
+    polynomial = poly_type(2*x + 1, x, domain="QQ")
+    basis = groebner([polynomial], x, domain="QQ")
+    assert basis.domain == "QQ"
+    assert basis.exprs == [x + Rational(1, 2)]
+    assert groebner([polynomial], x).domain == "ZZ"
+    assert basis.reduce(poly_type(x**2, x, domain="QQ"))[1] == Rational(1, 4)
+    assert groebner([x - 1], x, modulus=None, domain=None).exprs == [x - 1]
+
+    def forbidden():
+        raise AssertionError("an instance override was invoked during exact source admission")
+
+    polynomial.as_expr = forbidden
+    with pytest.raises(TypeError, match="overridden Poly.as_expr"):
+        groebner([polynomial], x)
+
+
+def test_nonrational_poly_domain_is_refused_even_when_coefficients_look_exact():
+    x = Symbol("real_poly_input_x")
+    polynomial = Poly(x + 1, x, domain="RR")
+    with pytest.raises(NotImplementedError, match="ZZ and QQ Poly"):
+        groebner([polynomial], x)

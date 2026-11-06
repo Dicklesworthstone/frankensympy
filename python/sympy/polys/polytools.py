@@ -1554,6 +1554,27 @@ def sqf(p: Any, x: Any = None) -> Any:
     return prod
 
 
+def _rational_ideal_source(value: Any) -> Any:
+    """Unwrap a Poly only after admitting its retained coefficient domain.
+
+    An expression lifted from GF(p) is an integer representative, not the
+    original polynomial over QQ. Losing that distinction changes ideals.
+    Read exact built-in storage without invoking an overridable as_expr.
+    """
+    if not isinstance(value, Poly):
+        return value
+    if type(value) is not Poly and type(value) is not PurePoly:
+        raise TypeError("checked ideal operations require exact Poly operands")
+    namespace = object.__getattribute__(value, "__dict__")
+    domain = namespace.get("_domain")
+    if ("_modulus" in namespace or type(domain) is not str
+            or domain not in ("ZZ", "QQ")):
+        raise NotImplementedError("checked ideal operations support only ZZ and QQ Poly inputs")
+    if "as_expr" in namespace:
+        raise TypeError("checked ideal operations do not invoke overridden Poly.as_expr")
+    return namespace["_expr"]
+
+
 class GroebnerBasis:
     """Reduced Groebner basis (upstream ``GroebnerBasis`` surface): a
     sequence of polynomial expressions with generators, domain and order."""
@@ -1590,7 +1611,7 @@ class GroebnerBasis:
     def _native_basis(self) -> tuple:
         if str(self.domain) not in ("ZZ", "QQ"):
             raise NotImplementedError("checked Groebner operations currently support ZZ and QQ")
-        return ([_native_expr(e) for e in self.exprs],
+        return ([_native_expr(_rational_ideal_source(e)) for e in self.exprs],
                 [_symbol_binding(g) for g in self.gens], self.order)
 
     @property
@@ -1612,9 +1633,10 @@ class GroebnerBasis:
         if not auto and str(self.domain) == "ZZ":
             raise NotImplementedError("Groebner reduction over ZZ with auto=False is not implemented")
         if isinstance(expr, Poly):
+            expression = _rational_ideal_source(expr)
             if expr.gens != self.gens:
                 raise ValueError("polynomial generators do not match the Groebner basis")
-            expr = expr.as_expr()
+            expr = expression
         raw_quotients, raw_remainder = _native.groebner_reduce_native(
             *self._native_basis(), _native_expr(expr), str(self.domain) == "ZZ"
         )
@@ -1990,13 +2012,12 @@ class _IdealQuotientSnapshot:
                 if node.bit_length() > 4096:
                     raise ValueError("ideal coefficient exceeds 4096 bits")
                 continue
-            if kind is Poly:
+            if kind is Poly or kind is PurePoly:
                 namespace = object.__getattribute__(node, "__dict__")
                 if type(namespace) is not dict:
                     raise TypeError("ideal quotient requires built-in source dictionaries")
-                if "as_expr" in namespace:
-                    raise TypeError("ideal quotient does not invoke overridden Poly.as_expr")
-                expression = namespace.get("_expr", _IDEAL_ABSENT)
+                expression = _rational_ideal_source(node)
+                self.dictionaries.append((namespace, tuple(namespace.items())))
                 self.fields.append((node, namespace, "_expr", expression))
                 pending.append((expression, depth + 1))
                 continue
@@ -2132,9 +2153,8 @@ def _ideal_polynomial_source(expression: Any) -> Any:
     """Keep exact held polynomial sources intact until native admission."""
     from ..core import Add, Dummy, Half, NegativeOne, One, Zero
 
-    if type(expression) is Poly:
-        expression = expression.as_expr()
-    elif type(expression) is int:
+    expression = _rational_ideal_source(expression)
+    if type(expression) is int:
         if expression.bit_length() > 4096:
             raise ValueError("ideal coefficient exceeds 4096 bits")
         expression = Integer(expression)
@@ -2203,12 +2223,27 @@ def _primitive_integer(e: Any, gens: tuple, order: str = "lex") -> Any:
 
 
 def groebner(F: Sequence[Any], *gens: Any, order: str = "lex", **args: Any) -> Any:
-    """Reduced Groebner basis of ``F`` (orders lex, grlex, grevlex)."""
+    """Checked reduced Groebner basis over ZZ/QQ (lex, grlex, grevlex).
+
+    Finite-field and other coefficient domains are not supported by this
+    basis engine. Unsupported options raise before mathematical work instead
+    of silently changing the requested ring or output contract.
+    """
+    if args.get("modulus") is not None:
+        raise NotImplementedError("finite-field Groebner bases are not implemented")
+    for name in args:
+        if name not in ("domain", "modulus"):
+            raise NotImplementedError("checked Groebner construction does not support option %r" % name)
+    requested_domain = args.get("domain")
+    if (requested_domain is not None and
+            (type(requested_domain) is not str or requested_domain not in ("ZZ", "QQ"))):
+        raise NotImplementedError("native Groebner bases currently support ZZ and QQ")
     sources = []
     for expression in F:
         if len(sources) == 64:
             raise ValueError("checked Groebner construction supports at most 64 polynomials")
-        sources.append(expression)
+        source = _rational_ideal_source(expression)
+        sources.append(source)
     F = sources
     if len(gens) == 1 and isinstance(gens[0], (list, tuple)):
         var_list = list(gens[0])
@@ -2238,9 +2273,7 @@ def groebner(F: Sequence[Any], *gens: Any, order: str = "lex", **args: Any) -> A
     # published only after complete independent ideal/basis verification.
     raw = _native.groebner_basis_native(eq_natives, var_bindings, order)
     inferred = "ZZ" if all(Poly(e, *gens_t)._infer_domain() == "ZZ" for e in F) else "QQ"
-    domain = str(args.get("domain", inferred))
-    if domain not in ("ZZ", "QQ"):
-        raise NotImplementedError("native Groebner bases currently support ZZ and QQ")
+    domain = requested_domain or inferred
     if domain == "ZZ" and inferred != "ZZ":
         raise ValueError("noninteger coefficients cannot be represented in ZZ")
     exprs = [_lift_native_result(r, *F, *gens_t) for r in raw]
