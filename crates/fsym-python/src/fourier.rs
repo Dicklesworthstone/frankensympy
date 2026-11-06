@@ -70,7 +70,8 @@ fn retained_equal(left: &Expr, right: &Expr, budget: &mut Budget) -> PyResult<bo
             (Expr::Add(a), Expr::Add(b))
             | (Expr::Mul(a), Expr::Mul(b))
             | (Expr::Function(_, a), Expr::Function(_, b)) => {
-                if let (Expr::Function(left_name, _), Expr::Function(right_name, _)) = (left, right) {
+                if let (Expr::Function(left_name, _), Expr::Function(right_name, _)) = (left, right)
+                {
                     if left_name.len() > 65_536 || right_name.len() > 65_536 {
                         return Err(PyValueError::new_err(
                             "Fourier retained function name exceeds its bound",
@@ -214,7 +215,9 @@ pub fn fourier_l1_native(
 ) -> PyResult<(PyExpr, bool)> {
     let names = variable.name.len().saturating_add(frequency.name.len());
     if names > 65_536 {
-        return Err(PyValueError::new_err("Fourier variable names exceed their bound"));
+        return Err(PyValueError::new_err(
+            "Fourier variable names exceed their bound",
+        ));
     }
     let mut limits = BudgetLimits::uniform(128 * 1024 * 1024, 0);
     limits.dimensions[Dimension::ComputeSteps.index()] = 20_000_000;

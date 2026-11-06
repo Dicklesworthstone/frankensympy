@@ -104,9 +104,7 @@ fn preflight(
                 return Err(refused("prime-field source symbol exceeds 65536 bytes"));
             }
             work.tick(
-                symbol.name.len()
-                    + generators.iter().map(|g| g.name.len() + 1).sum::<usize>()
-                    + 1,
+                symbol.name.len() + generators.iter().map(|g| g.name.len() + 1).sum::<usize>() + 1,
             )?;
             if !generators.contains(symbol) {
                 return Err(refused(
@@ -357,7 +355,10 @@ fn reference_coefficients(
                         "prime-field polynomial source contains a nonconstant reciprocal",
                     ));
                 }
-                let value = factor.values_mut().next().ok_or(PolyError::DivisionByZero)?;
+                let value = factor
+                    .values_mut()
+                    .next()
+                    .ok_or(PolyError::DivisionByZero)?;
                 *value = work.divide(&BigRational::one(), value)?;
             }
             let mut coefficients = scalar(&BigRational::one(), generators.len(), work)?;
@@ -441,10 +442,7 @@ pub fn verify_prime_field_multivariate_source(
     let result = VerifiedPrimeFieldMultivariateSource {
         source: source.clone(),
         polynomial: PrimeFieldMultivariatePolynomial::metered_new(
-            generators,
-            prime,
-            &residues,
-            &mut work,
+            generators, prime, &residues, &mut work,
         )?,
     };
     work.tick(1)?;

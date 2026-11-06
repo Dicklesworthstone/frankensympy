@@ -54,7 +54,8 @@ fn refused(source: &Expr, generators: &[Symbol]) {
     );
     let zero = candidate(generators, 5, &PrimeFieldMultivariateTerms::new());
     assert!(
-        verify_prime_field_multivariate_source(source, generators, 5, &zero, &mut Unbounded).is_err()
+        verify_prime_field_multivariate_source(source, generators, 5, &zero, &mut Unbounded)
+            .is_err()
     );
 }
 
@@ -65,11 +66,7 @@ fn multivariate_integer_images_keep_cross_terms_signs_and_characteristic() {
         (
             "7*x**2*y+5*y**2-11*x+14",
             5,
-            PrimeFieldMultivariateTerms::from([
-                (vec![2, 1], 2),
-                (vec![1, 0], 4),
-                (vec![0, 0], 4),
-            ]),
+            PrimeFieldMultivariateTerms::from([(vec![2, 1], 2), (vec![1, 0], 4), (vec![0, 0], 4)]),
         ),
         (
             "(x+y)**2",
@@ -79,11 +76,7 @@ fn multivariate_integer_images_keep_cross_terms_signs_and_characteristic() {
         (
             "(x+y)**2",
             5,
-            PrimeFieldMultivariateTerms::from([
-                (vec![2, 0], 1),
-                (vec![1, 1], 2),
-                (vec![0, 2], 1),
-            ]),
+            PrimeFieldMultivariateTerms::from([(vec![2, 0], 1), (vec![1, 1], 2), (vec![0, 2], 1)]),
         ),
         ("10*x*y+15", 5, PrimeFieldMultivariateTerms::new()),
         (
@@ -94,7 +87,10 @@ fn multivariate_integer_images_keep_cross_terms_signs_and_characteristic() {
         ("0", 3, PrimeFieldMultivariateTerms::new()),
     ];
     for (source, prime, expected) in cases {
-        assert_eq!(reduce(&parse(source).unwrap(), &generators, prime), expected);
+        assert_eq!(
+            reduce(&parse(source).unwrap(), &generators, prime),
+            expected
+        );
     }
 }
 
@@ -143,14 +139,8 @@ fn rational_intermediates_require_integral_final_coefficients() {
         assert_eq!(error, PrimeFieldElementSourceError::NonIntegralCoefficient);
         let zero = candidate(&generators, 5, &PrimeFieldMultivariateTerms::new());
         assert_eq!(
-            verify_prime_field_multivariate_source(
-                &source,
-                &generators,
-                5,
-                &zero,
-                &mut Unbounded,
-            )
-            .unwrap_err(),
+            verify_prime_field_multivariate_source(&source, &generators, 5, &zero, &mut Unbounded,)
+                .unwrap_err(),
             PrimeFieldElementSourceError::NonIntegralCoefficient
         );
     }
@@ -294,11 +284,7 @@ fn identical_printed_names_with_distinct_identities_are_distinct_coordinates() {
     ]);
     assert_eq!(
         reduce(&source, &[a.clone(), b], 5),
-        PrimeFieldMultivariateTerms::from([
-            (vec![2, 0], 1),
-            (vec![1, 1], 3),
-            (vec![0, 1], 1),
-        ])
+        PrimeFieldMultivariateTerms::from([(vec![2, 0], 1), (vec![1, 1], 3), (vec![0, 1], 1),])
     );
     refused(&source, &[a]);
     refused(&source, &[Symbol::new("x")]);
@@ -580,7 +566,11 @@ fn phase_ledgers_cover_original_conversion_reference_work_and_source_cloning() {
     )
     .unwrap();
     for (dimension, g, v) in [
-        (Dimension::ComputeSteps, generation.steps, verification.steps),
+        (
+            Dimension::ComputeSteps,
+            generation.steps,
+            verification.steps,
+        ),
         (Dimension::MemoryBytes, generation.bytes, verification.bytes),
     ] {
         checked_prime_field_multivariate_source(

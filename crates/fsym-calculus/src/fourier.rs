@@ -207,7 +207,10 @@ impl<M: BudgetMeter> BudgetMeter for Work<'_, M> {
         self.charge_batch(&[(dimension, amount)])
     }
 
-    fn charge_batch(&mut self, charges: &[(Dimension, u64)]) -> std::result::Result<(), MeterError> {
+    fn charge_batch(
+        &mut self,
+        charges: &[(Dimension, u64)],
+    ) -> std::result::Result<(), MeterError> {
         let (mut compute, mut memory) = (self.compute, self.memory);
         for &(dimension, amount) in charges {
             let (used, limit) = match dimension {
@@ -277,7 +280,9 @@ fn preflight<M: BudgetMeter>(
                     symbol.name.len().div_ceil(64).max(1) as u64,
                 )?;
                 if symbol == frequency {
-                    return Err(FourierError::Refused("source depends on the frequency variable"));
+                    return Err(FourierError::Refused(
+                        "source depends on the frequency variable",
+                    ));
                 }
             }
             Expr::Add(children) | Expr::Mul(children) | Expr::Function(_, children) => {
@@ -294,7 +299,10 @@ fn preflight<M: BudgetMeter>(
             }
             Expr::Pow(base, exponent) => {
                 if let Expr::Integer(power) = exponent.as_ref() {
-                    if power.to_i64().is_none_or(|power| power.unsigned_abs() > MAX_POWER) {
+                    if power
+                        .to_i64()
+                        .is_none_or(|power| power.unsigned_abs() > MAX_POWER)
+                    {
                         return Err(FourierError::Refused("original integer power bound"));
                     }
                     if base.is_zero() && !power.is_positive() {
@@ -331,7 +339,11 @@ fn number<M: BudgetMeter>(source: &Expr, work: &mut Work<'_, M>) -> Result<Optio
         Expr::Rational(value) => Ok(Some(work.copy(value)?)),
         Expr::Add(children) | Expr::Mul(children) => {
             let addition = matches!(source, Expr::Add(_));
-            let mut value = if addition { BigRational::zero() } else { BigRational::one() };
+            let mut value = if addition {
+                BigRational::zero()
+            } else {
+                BigRational::one()
+            };
             let mut supported = true;
             for child in children {
                 match number(child, work)? {
@@ -352,7 +364,9 @@ fn number<M: BudgetMeter>(source: &Expr, work: &mut Work<'_, M>) -> Result<Optio
             let Expr::Integer(power) = exponent.as_ref() else {
                 return Ok(None);
             };
-            let power = power.to_i64().ok_or(FourierError::Refused("integer power bound"))?;
+            let power = power
+                .to_i64()
+                .ok_or(FourierError::Refused("integer power bound"))?;
             match value {
                 Some(value) => Ok(Some(work.pow(&value, power as i32)?)),
                 None => Ok(None),
@@ -430,9 +444,13 @@ fn polynomial<M: BudgetMeter>(
             let Expr::Integer(power) = exponent.as_ref() else {
                 return Err(FourierError::Unsupported("noninteger polynomial powers"));
             };
-            let power = power.to_i64().ok_or(FourierError::Refused("integer power bound"))?;
+            let power = power
+                .to_i64()
+                .ok_or(FourierError::Refused("integer power bound"))?;
             if power < 0 {
-                return Err(FourierError::Unsupported("nonconstant reciprocal exponents"));
+                return Err(FourierError::Unsupported(
+                    "nonconstant reciprocal exponents",
+                ));
             }
             let mut result = vec![BigRational::one()];
             for _ in 0..power {
@@ -457,7 +475,10 @@ fn absolute_exponent<M: BudgetMeter>(
 ) -> Result<AbsoluteExponent> {
     work.charge(Dimension::ComputeSteps, 1)?;
     if let Some(constant) = number(source, work)? {
-        return Ok(AbsoluteExponent { constant, term: None });
+        return Ok(AbsoluteExponent {
+            constant,
+            term: None,
+        });
     }
     match source {
         Expr::Function(name, arguments)
@@ -465,10 +486,15 @@ fn absolute_exponent<M: BudgetMeter>(
         {
             let affine = polynomial(&arguments[0], variable, work)?;
             if affine.len() == 1 {
-                return Ok(AbsoluteExponent { constant: affine[0].abs(), term: None });
+                return Ok(AbsoluteExponent {
+                    constant: affine[0].abs(),
+                    term: None,
+                });
             }
             if affine.len() != 2 {
-                return Err(FourierError::Unsupported("absolute value of a nonlinear argument"));
+                return Err(FourierError::Unsupported(
+                    "absolute value of a nonlinear argument",
+                ));
             }
             let center = work.div(&(-&affine[0]), &affine[1])?;
             Ok(AbsoluteExponent {
@@ -477,7 +503,10 @@ fn absolute_exponent<M: BudgetMeter>(
             })
         }
         Expr::Add(children) => {
-            let mut result = AbsoluteExponent { constant: BigRational::zero(), term: None };
+            let mut result = AbsoluteExponent {
+                constant: BigRational::zero(),
+                term: None,
+            };
             for child in children {
                 let child = absolute_exponent(child, variable, work)?;
                 result.constant = work.add(&result.constant, &child.constant)?;
@@ -486,7 +515,9 @@ fn absolute_exponent<M: BudgetMeter>(
                         None => result.term = Some((coefficient, center)),
                         Some((old_coefficient, old_center)) => {
                             if old_center.metered_cmp(&center, work)?.is_ne() {
-                                return Err(FourierError::Unsupported("multiple absolute-value centers"));
+                                return Err(FourierError::Unsupported(
+                                    "multiple absolute-value centers",
+                                ));
                             }
                             *old_coefficient = work.add(old_coefficient, &coefficient)?;
                         }
@@ -505,7 +536,9 @@ fn absolute_exponent<M: BudgetMeter>(
                 } else if dependent.is_none() {
                     dependent = Some(child);
                 } else {
-                    return Err(FourierError::Unsupported("products of absolute-value factors"));
+                    return Err(FourierError::Unsupported(
+                        "products of absolute-value factors",
+                    ));
                 }
             }
             if let Some(mut dependent) = dependent {
@@ -515,10 +548,15 @@ fn absolute_exponent<M: BudgetMeter>(
                 }
                 Ok(dependent)
             } else {
-                Ok(AbsoluteExponent { constant, term: None })
+                Ok(AbsoluteExponent {
+                    constant,
+                    term: None,
+                })
             }
         }
-        _ => Err(FourierError::Unsupported("nonaffine absolute-value exponent")),
+        _ => Err(FourierError::Unsupported(
+            "nonaffine absolute-value exponent",
+        )),
     }
 }
 
@@ -643,8 +681,8 @@ fn transform<M: BudgetMeter>(
                     ));
                 }
             }
-            let dependent = dependent
-                .ok_or(FourierError::Unsupported("a nonzero constant integrand"))?;
+            let dependent =
+                dependent.ok_or(FourierError::Unsupported("a nonzero constant integrand"))?;
             // Do not erase an unsupported or undefined factor through zero.
             let value = transform(dependent, variable, frequency, work)?;
             let coefficient = work.scalar(&coefficient)?;
@@ -704,10 +742,6 @@ pub fn metered_fourier_transform_l1<M: BudgetMeter>(
     })
 }
 
-pub fn fourier_transform_l1(
-    source: &Expr,
-    variable: &Symbol,
-    frequency: &Symbol,
-) -> Result<Expr> {
+pub fn fourier_transform_l1(source: &Expr, variable: &Symbol, frequency: &Symbol) -> Result<Expr> {
     Ok(metered_fourier_transform_l1(source, variable, frequency, &mut Unbounded)?.value)
 }

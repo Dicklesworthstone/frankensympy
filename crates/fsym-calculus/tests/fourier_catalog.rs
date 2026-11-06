@@ -1,9 +1,7 @@
 //! Exact convention, convergence, source-domain, identity and budget checks.
 
 use fsym_budget::{Budget, BudgetLimits, BudgetMeter, Dimension, MeterError, Unbounded};
-use fsym_calculus::fourier::{
-    FourierError, fourier_transform_l1, metered_fourier_transform_l1,
-};
+use fsym_calculus::fourier::{FourierError, fourier_transform_l1, metered_fourier_transform_l1};
 use fsym_core::{BigInt, BigRational, Constant, Expr, Symbol, SymbolIdentity, parse};
 use fsym_simplify::simplify;
 use std::collections::HashMap;
@@ -18,13 +16,15 @@ fn transform(source: &str) -> Expr {
         &parse(source).unwrap(),
         &Symbol::new("x"),
         &Symbol::new("k"),
-    ).unwrap()
+    )
+    .unwrap()
 }
 
 fn at_frequency(value: &Expr, frequency: &str) -> Expr {
-    simplify(&value.subs(&HashMap::from([
-        (Symbol::new("k"), parse(frequency).unwrap()),
-    ])))
+    simplify(&value.subs(&HashMap::from([(
+        Symbol::new("k"),
+        parse(frequency).unwrap(),
+    )])))
 }
 
 fn equal(left: Expr, right: Expr) {
@@ -44,18 +44,20 @@ fn bilateral_decay_uses_cycles_per_unit_and_exact_rational_rates() {
     ] {
         let result = transform(source);
         equal(at_frequency(&result, "0"), parse(mass).unwrap());
-        equal(at_frequency(&result, "1/(2*pi)"), parse(unit_frequency).unwrap());
-        equal(at_frequency(&result, "-1/(2*pi)"), parse(unit_frequency).unwrap());
+        equal(
+            at_frequency(&result, "1/(2*pi)"),
+            parse(unit_frequency).unwrap(),
+        );
+        equal(
+            at_frequency(&result, "-1/(2*pi)"),
+            parse(unit_frequency).unwrap(),
+        );
     }
 }
 
 #[test]
 fn gaussian_mass_is_invariant_under_exact_translations() {
-    for source in [
-        "exp(-x^2)",
-        "exp(-(x-3)^2)",
-        "exp(-(x+2/3)^2)",
-    ] {
+    for source in ["exp(-x^2)", "exp(-(x-3)^2)", "exp(-(x+2/3)^2)"] {
         equal(
             at_frequency(&transform(source), "0"),
             parse("pi^(1/2)").unwrap(),
@@ -78,8 +80,8 @@ fn translated_gaussians_and_decays_have_the_negative_fourier_phase() {
         ("exp(-3*abs(x-2))", "exp(-3*abs(x))"),
     ] {
         let shifted = at_frequency(&transform(source), "1/(2*pi)");
-        let expected = parse("exp(-2*I)").unwrap()
-            * at_frequency(&transform(unshifted), "1/(2*pi)");
+        let expected =
+            parse("exp(-2*I)").unwrap() * at_frequency(&transform(unshifted), "1/(2*pi)");
         equal(shifted, expected);
     }
 }
@@ -87,13 +89,9 @@ fn translated_gaussians_and_decays_have_the_negative_fourier_phase() {
 #[test]
 fn gaussian_frequency_decay_satisfies_its_differential_identity() {
     let frequency = Symbol::new("k");
-    for (source, slope) in [
-        ("exp(-x^2)", "2*pi^2*k"),
-        ("exp(-2*x^2)", "pi^2*k"),
-    ] {
+    for (source, slope) in [("exp(-x^2)", "2*pi^2*k"), ("exp(-2*x^2)", "pi^2*k")] {
         let value = transform(source);
-        let residual = fsym_calculus::diff(&value, &frequency)
-            + parse(slope).unwrap() * value;
+        let residual = fsym_calculus::diff(&value, &frequency) + parse(slope).unwrap() * value;
         equal(residual, Expr::from_i64(0));
     }
 }
@@ -125,7 +123,9 @@ fn constants_do_not_invent_an_ordinary_integral_or_a_distribution() {
     // The explicitly angular native catalog is a separate unchanged API.
     assert!(
         fsym_calculus::fourier_transform(&Expr::from_i64(5), &x, &k)
-            .unwrap().to_string().contains("dirac"),
+            .unwrap()
+            .to_string()
+            .contains("dirac"),
     );
 }
 
@@ -161,10 +161,7 @@ fn original_zero_products_and_powers_do_not_hide_invalid_children() {
     let x = Symbol::new("x");
     let k = Symbol::new("k");
     for power in [-1, 0] {
-        let invalid = Expr::Mul(vec![
-            Expr::from_i64(0),
-            raw_power(Expr::from_i64(0), power),
-        ]);
+        let invalid = Expr::Mul(vec![Expr::from_i64(0), raw_power(Expr::from_i64(0), power)]);
         assert!(matches!(
             fourier_transform_l1(&invalid, &x, &k),
             Err(FourierError::Refused(_)),
@@ -181,13 +178,16 @@ fn original_zero_products_and_powers_do_not_hide_invalid_children() {
             Err(FourierError::Unsupported(_)),
         ));
     }
-    let held = Expr::Function("exp".into(), vec![Expr::Add(vec![
-        parse("-x^2").unwrap(),
-        Expr::Mul(vec![
-            Expr::from_i64(0),
-            raw_power(raw_power(Expr::from_i64(0), -1), 0),
-        ]),
-    ])]);
+    let held = Expr::Function(
+        "exp".into(),
+        vec![Expr::Add(vec![
+            parse("-x^2").unwrap(),
+            Expr::Mul(vec![
+                Expr::from_i64(0),
+                raw_power(raw_power(Expr::from_i64(0), -1), 0),
+            ]),
+        ])],
+    );
     assert!(matches!(
         fourier_transform_l1(&held, &x, &k),
         Err(FourierError::Refused(_)),
@@ -196,15 +196,15 @@ fn original_zero_products_and_powers_do_not_hide_invalid_children() {
 
 #[test]
 fn typed_symbols_can_print_identically_without_becoming_the_same_variable() {
-    let x = Symbol::with_identity(
-        "same", SymbolIdentity::from_assumptions_digest([1; 32]),
+    let x = Symbol::with_identity("same", SymbolIdentity::from_assumptions_digest([1; 32]));
+    let k = Symbol::with_identity("same", SymbolIdentity::from_assumptions_digest([2; 32]));
+    let source = Expr::Function(
+        "exp".into(),
+        vec![Expr::Mul(vec![
+            Expr::from_i64(-1),
+            raw_power(Expr::Sym(x.clone()), 2),
+        ])],
     );
-    let k = Symbol::with_identity(
-        "same", SymbolIdentity::from_assumptions_digest([2; 32]),
-    );
-    let source = Expr::Function("exp".into(), vec![Expr::Mul(vec![
-        Expr::from_i64(-1), raw_power(Expr::Sym(x.clone()), 2),
-    ])]);
     let value = fourier_transform_l1(&source, &x, &k).unwrap();
     let symbols = value.free_symbols();
     assert_eq!(symbols.len(), 1);
@@ -214,7 +214,8 @@ fn typed_symbols_can_print_identically_without_becoming_the_same_variable() {
         Err(FourierError::Refused(_)),
     ));
     let contaminated = Expr::Add(vec![
-        source, Expr::Mul(vec![Expr::from_i64(0), Expr::Sym(k.clone())]),
+        source,
+        Expr::Mul(vec![Expr::from_i64(0), Expr::Sym(k.clone())]),
     ]);
     assert!(matches!(
         fourier_transform_l1(&contaminated, &x, &k),
@@ -284,9 +285,9 @@ fn caller_exhaustion_and_cancellation_never_become_unsupported_results() {
     let result = metered_fourier_transform_l1(&source, &x, &k, &mut Unbounded).unwrap();
     assert!(result.used_bilateral_identity);
     assert!(
-        !metered_fourier_transform_l1(
-            &parse("exp(-x^2)").unwrap(), &x, &k, &mut Unbounded,
-        ).unwrap().used_bilateral_identity,
+        !metered_fourier_transform_l1(&parse("exp(-x^2)").unwrap(), &x, &k, &mut Unbounded,)
+            .unwrap()
+            .used_bilateral_identity,
     );
 }
 
@@ -296,9 +297,13 @@ fn exact_small_rates_do_not_get_rounded_to_nondecay() {
     let k = Symbol::new("k");
     let denominator = BigInt::from(1) << 200usize;
     let rate = BigRational::new(1.into(), denominator.clone());
-    let source = Expr::Function("exp".into(), vec![Expr::Mul(vec![
-        Expr::Rational(-rate), raw_power(Expr::Sym(x.clone()), 2),
-    ])]);
+    let source = Expr::Function(
+        "exp".into(),
+        vec![Expr::Mul(vec![
+            Expr::Rational(-rate),
+            raw_power(Expr::Sym(x.clone()), 2),
+        ])],
+    );
     let value = fourier_transform_l1(&source, &x, &k).unwrap();
     let mass = at_frequency(&value, "0");
     let expected_squared = Expr::Integer(denominator) * Expr::Const(Constant::Pi);
