@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterable, Sequence
+from contextlib import contextmanager
+from typing import Any
 
-from ..core import Basic, Expr, Symbol, _native, _native_expr, _wrap
+from ..core import Dummy, Symbol, sympify
 from .assume import AppliedPredicate, Predicate
 
 
@@ -47,187 +48,149 @@ Q = _PredicateRegistry()
 
 
 class AssumptionsContext(set):
-    """A context of mathematical assumptions for symbols, backed by the native assumptions engine."""
+    """Mutable shell facts with fresh native snapshots for each query.
+
+    The visible set is authoritative. Even an explicit ``set.remove(ctx, fact)``
+    cannot leave a second native fact store stale. Normal insertions validate a
+    candidate before publication; domains are a separate, typed declaration
+    list and ``clear()`` clears both.
+    """
 
     def __init__(self, *args: Any) -> None:
         super().__init__()
-        if _native is not None and hasattr(_native, "AssumptionsContext"):
-            self._native_ctx = _native.AssumptionsContext()
-        else:
-            self._native_ctx = None
+        self._domains = ()
+        proposed = set()
+        domains = []
         for arg in args:
             if isinstance(arg, (list, tuple, set, frozenset)):
-                for item in arg:
-                    self.add(item)
+                proposed.update(arg)
+                if isinstance(arg, AssumptionsContext):
+                    domains.extend(arg._domains)
             else:
-                self.add(arg)
+                proposed.add(arg)
+        self._publish(proposed, tuple(domains))
+
+    @staticmethod
+    def _validate(items, domains):
+        from ._query import prepare_problem
+
+        # Unsupported formulas may be stored but cannot grant an answer. An
+        # unsupported conjunct cannot hide contradictory supported conjuncts
+        # or an invalid typed domain during an otherwise atomic insertion.
+        prepare_problem(items, domains, allow_unsupported=True)
+
+    def _publish(self, items, domains):
+        self._validate(items, domains)
+        set.clear(self)
+        set.update(self, items)
+        self._domains = domains
 
     def add(self, item: Any) -> None:
-        super().add(item)
-        if self._native_ctx is not None:
-            for sym, pred in _extract_facts(item):
-                self._native_ctx.assume(sym, pred)
+        proposed = set(self)
+        proposed.add(item)
+        self._publish(proposed, self._domains)
 
     def update(self, *others: Any) -> None:
+        proposed = set(self)
         for other in others:
-            for item in other:
-                self.add(item)
+            proposed.update(other)
+        self._publish(proposed, self._domains)
+
+    def symmetric_difference_update(self, other: Any) -> None:
+        proposed = set(self)
+        proposed.symmetric_difference_update(other)
+        self._publish(proposed, self._domains)
+
+    def __ior__(self, other):
+        self.update(other)
+        return self
+
+    def __ixor__(self, other):
+        self.symmetric_difference_update(other)
+        return self
 
     def clear(self) -> None:
-        super().clear()
-        if _native is not None and hasattr(_native, "AssumptionsContext"):
-            self._native_ctx = _native.AssumptionsContext()
+        set.clear(self)
+        self._domains = ()
+
+    def copy(self):
+        return AssumptionsContext(self)
 
     def assume(self, symbol: Symbol | str, predicate: Predicate | str) -> None:
-        sym_name = symbol.name if isinstance(symbol, Symbol) else str(symbol)
-        pred_name = predicate.name if isinstance(predicate, Predicate) else str(predicate)
-        super().add(Predicate(pred_name)(Symbol(sym_name)))
-        if self._native_ctx is not None:
-            self._native_ctx.assume(sym_name, pred_name)
+        symbol = _context_symbol(symbol)
+        self.add(Predicate(_predicate_name(predicate))(symbol))
 
     def assume_domain(self, symbol: Symbol | str, domain: str) -> None:
-        sym_name = symbol.name if isinstance(symbol, Symbol) else str(symbol)
-        if self._native_ctx is not None:
-            self._native_ctx.assume_domain(sym_name, domain)
+        symbol = _context_symbol(symbol)
+        if type(domain) is not str:
+            raise TypeError("assumptions domain must be a string")
+        if len(self._domains) >= 128:
+            raise ValueError("assumptions context exceeds its domain declaration limit")
+        self._publish(set(self), self._domains + ((symbol, domain),))
 
     def deductions(self, symbol: Symbol | str) -> list[str]:
-        sym_name = symbol.name if isinstance(symbol, Symbol) else str(symbol)
-        if self._native_ctx is not None:
-            return self._native_ctx.deductions(sym_name)
-        return []
+        from ._query import NATIVE_PREDICATES, UnsupportedAssumptions, prepare_problem
+
+        symbol = _context_symbol(symbol)
+        try:
+            problem, branches = prepare_problem(tuple(self), self._domains)
+            return sorted(
+                name for name in NATIVE_PREDICATES
+                if problem.answer(symbol, name, branches) is True
+            )
+        except UnsupportedAssumptions:
+            return []
 
     def is_true(self, expr: Any, predicate: Predicate | str) -> bool | None:
-        pred_name = predicate.name if isinstance(predicate, Predicate) else str(predicate)
-        native_e = _native_expr(expr)
-        if self._native_ctx is not None:
-            return self._native_ctx.is_true(native_e, pred_name)
-        return None
+        return ask(Predicate(_predicate_name(predicate))(sympify(expr)), context=self)
 
     def query(self, expr: Any, predicate: Predicate | str) -> str:
-        pred_name = predicate.name if isinstance(predicate, Predicate) else str(predicate)
-        native_e = _native_expr(expr)
-        if self._native_ctx is not None:
-            return self._native_ctx.query(native_e, pred_name)
-        return "unknown"
+        result = self.is_true(expr, predicate)
+        return "Unknown" if result is None else "True" if result else "False"
+
+
+def _context_symbol(symbol):
+    if type(symbol) is str:
+        return Symbol(symbol)
+    if type(symbol) not in (Symbol, Dummy):
+        raise TypeError("assumptions require an exact Symbol, Dummy, or symbol name")
+    return symbol
+
+
+def _predicate_name(predicate):
+    if type(predicate) is str:
+        return predicate
+    if type(predicate) is Predicate:
+        return Predicate.__dict__["_name"].__get__(predicate)
+    raise TypeError("assumptions require a Predicate or predicate name")
 
 
 global_assumptions = AssumptionsContext()
 
 
-from contextlib import contextmanager
-
-
 @contextmanager
 def assuming(*assumptions: Any):
     """Context manager for temporarily adding assumptions to global_assumptions."""
-    old_assumptions = list(global_assumptions)
-    for a in assumptions:
-        if isinstance(a, (list, tuple, set, frozenset)):
-            for item in a:
-                global_assumptions.add(item)
-        else:
-            global_assumptions.add(a)
+    old_assumptions = set(global_assumptions)
+    old_domains = global_assumptions._domains
     try:
+        # Entry is inside the restoration boundary too: a bad second fact
+        # cannot leak the first fact when __enter__ raises.
+        additions = []
+        for assumption in assumptions:
+            if isinstance(assumption, (list, tuple, set, frozenset)):
+                additions.extend(assumption)
+            else:
+                additions.append(assumption)
+        global_assumptions.update(additions)
         yield
     finally:
-        global_assumptions.clear()
-        for item in old_assumptions:
-            global_assumptions.add(item)
+        set.clear(global_assumptions)
+        set.update(global_assumptions, old_assumptions)
+        global_assumptions._domains = old_domains
 
 
-def _extract_facts(assumptions: Any) -> list[tuple[str, str]]:
-    """Extract (symbol_name, predicate_name) facts from assumptions argument."""
-    if assumptions is None or assumptions is True or assumptions is False:
-        return []
-    if isinstance(assumptions, AppliedPredicate):
-        sym_name = assumptions.expr.name if isinstance(assumptions.expr, Symbol) else str(assumptions.expr)
-        return [(sym_name, assumptions.predicate.name)]
-    if isinstance(assumptions, (list, tuple, set, frozenset)):
-        facts = []
-        for item in assumptions:
-            facts.extend(_extract_facts(item))
-        return facts
-    # Check if it has .args (e.g. And(Q.positive(x), Q.integer(x)))
-    if hasattr(assumptions, "args"):
-        facts = []
-        for arg in assumptions.args:
-            facts.extend(_extract_facts(arg))
-        return facts
-    return []
-
-
-_SYMBOL_FACTS = (
-    "positive", "negative", "nonnegative", "nonpositive", "zero", "nonzero",
-    "real", "integer", "rational", "even", "odd", "prime", "finite", "infinite",
-    "complex", "imaginary", "irrational", "composite", "extended_real",
-)
-
-
-def _fact_pairs(assumptions: Any) -> list | None:
-    """(expr, predicate name) pairs of a conjunction of applied predicates;
-    None when the assumptions are not a plain conjunction."""
-    from ..logic.boolalg import And
-
-    if assumptions is None or assumptions is True:
-        return []
-    if isinstance(assumptions, AppliedPredicate):
-        return [(assumptions.expr, assumptions.predicate.name)]
-    if isinstance(assumptions, (list, tuple, set, frozenset, AssumptionsContext)):
-        out: list = []
-        for item in assumptions:
-            sub = _fact_pairs(item)
-            if sub is None:
-                return None
-            out.extend(sub)
-        return out
-    if isinstance(assumptions, And):
-        out = []
-        for item in assumptions.args:
-            sub = _fact_pairs(item)
-            if sub is None:
-                return None
-            out.extend(sub)
-        return out
-    return None
-
-
-def _ask_via_properties(expr: Any, pred: str, pairs: list) -> bool | None:
-    """Answer through the shell's exact assumption properties, with each
-    symbol that carries given facts replaced by a fresh symbol declaring
-    them together with its own assumptions."""
-    from ..core import Dummy, sympify
-
-    expr = sympify(expr)
-    attr = "is_" + pred
-    by_symbol: dict = {}
-    for target, name in pairs:
-        if isinstance(target, Symbol) and name in _SYMBOL_FACTS:
-            by_symbol.setdefault(target, []).append(name)
-    if by_symbol:
-        mapping = {}
-        for sym, names in by_symbol.items():
-            declared = {k: v for k, v in getattr(sym, "_assumptions", {}).items()}
-            for n in names:
-                if declared.get(n) is False:
-                    raise ValueError("inconsistent assumptions %s" % pairs)
-                declared[n] = True
-            try:
-                # Dummy carries no assumptions in this profile; a private
-                # symbol name keeps the replacement distinct from user atoms.
-                mapping[sym] = Symbol("_fsym_ask_" + sym.name, **declared)
-            except Exception:
-                return None
-        try:
-            expr = expr.subs(mapping)
-        except Exception:
-            return None
-    value = getattr(expr, attr, None)
-    if value is None or callable(value):
-        return None
-    return bool(value) if isinstance(value, bool) else None
-
-
-def ask(query: Any, assumptions: Any = None) -> bool | None:
+def ask(query: Any, assumptions: Any = None, context: Any = None) -> bool | None:
     """Evaluate an assumption query in multi-valued logic.
 
     Parameters
@@ -261,38 +224,21 @@ def ask(query: Any, assumptions: Any = None) -> bool | None:
     >>> ask(Q.odd(4))
     False
     """
-    if isinstance(query, AppliedPredicate):
-        expr = query.expr
-        pred_name = query.predicate.name
-    else:
+    if type(query) is not AppliedPredicate:
         raise TypeError(f"query must be an AppliedPredicate (e.g. Q.positive(x)), got {type(query)}")
+    from ._query import UnsupportedAssumptions, prepare_problem
 
     if isinstance(assumptions, AssumptionsContext):
-        return assumptions.is_true(expr, pred_name)
-
-    pairs = _fact_pairs(assumptions)
-    global_pairs = _fact_pairs(global_assumptions) or []
-    if pairs is not None:
-        # A fact about the queried expression itself decides directly.
-        for target, name in pairs + global_pairs:
-            if target == expr and name == pred_name:
-                return True
-        answer = _ask_via_properties(expr, pred_name, pairs + global_pairs)
-        if answer is not None:
-            return answer
-
-    facts = _extract_facts(global_assumptions)
-    if assumptions is not None and assumptions is not True:
-        facts.extend(_extract_facts(assumptions))
-
-    # Also include the symbol's own internal assumptions if any and no conflicting facts given
-    if isinstance(expr, Symbol) and hasattr(expr, "_assumptions") and expr._assumptions:
-        for k, v in expr._assumptions.items():
-            if v is True and not any(f[0] == expr.name for f in facts):
-                facts.append((expr.name, k))
-
-    if _native is not None and hasattr(_native, "ask_expr"):
-        native_e = _native_expr(expr)
-        return _native.ask_expr(native_e, pred_name, facts if facts else None)
-
-    return None
+        if context is not None:
+            raise TypeError("specify an assumptions context only once")
+        context, assumptions = assumptions, None
+    if context is None:
+        context = global_assumptions
+    if not isinstance(context, (set, frozenset)):
+        raise TypeError("context must be an assumptions set")
+    domains = context._domains if isinstance(context, AssumptionsContext) else ()
+    try:
+        problem, branches = prepare_problem((*context, assumptions), domains)
+        return problem.answer(query.expr, _predicate_name(query.predicate), branches)
+    except UnsupportedAssumptions:
+        return None

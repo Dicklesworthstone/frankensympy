@@ -6,6 +6,7 @@ use pyo3::prelude::*;
 use fsym_assumptions::{AssumptionsContext, Domain, Predicate, TruthValue, inherent_facts};
 use fsym_core::Symbol;
 
+use crate::binding::PySymbolBinding;
 use crate::expr::PyExpr;
 
 pub fn parse_predicate(name: &str) -> PyResult<Predicate> {
@@ -78,6 +79,29 @@ impl PyAssumptionsContext {
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
+    /// Assert a predicate about the exact typed shell symbol. The legacy
+    /// string-taking method remains a deliberately plain-symbol API.
+    pub fn assume_binding(&mut self, binding: &PySymbolBinding, pred_name: &str) -> PyResult<()> {
+        let pred = parse_predicate(pred_name)?;
+        let symbol = binding.to_symbol();
+        let mut candidate = self.inner.clone();
+        candidate
+            .assume(symbol.clone(), pred)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        // Some legacy lattice exclusions are stated in one direction only.
+        // Checking the complete candidate in both directions makes insertion
+        // order irrelevant without publishing a contradictory intermediate.
+        let facts = candidate.deductions(&symbol);
+        if facts
+            .iter()
+            .any(|a| facts.iter().any(|b| Predicate::contradicts(*a, *b)))
+        {
+            return Err(PyValueError::new_err("Contradictory assumptions inferred"));
+        }
+        self.inner = candidate;
+        Ok(())
+    }
+
     pub fn assume_domain(&mut self, sym_name: &str, domain_name: &str) -> PyResult<()> {
         let dom = match domain_name.to_ascii_uppercase().as_str() {
             "ZZ" | "Z" | "INTEGER" => Domain::ZZ,
@@ -104,6 +128,53 @@ impl PyAssumptionsContext {
             .map(predicate_name)
             .map(String::from)
             .collect()
+    }
+
+    /// Query consequences without collapsing same-named typed symbols.
+    pub fn deductions_binding(&self, binding: &PySymbolBinding) -> Vec<String> {
+        self.inner
+            .deductions(&binding.to_symbol())
+            .into_iter()
+            .map(predicate_name)
+            .map(String::from)
+            .collect()
+    }
+
+    /// Keep domain assertions in the same typed identity universe as facts.
+    pub fn assume_domain_binding(
+        &mut self,
+        binding: &PySymbolBinding,
+        domain_name: &str,
+    ) -> PyResult<()> {
+        let dom = match domain_name.to_ascii_uppercase().as_str() {
+            "ZZ" | "Z" | "INTEGER" => Domain::ZZ,
+            "QQ" | "Q" | "RATIONAL" => Domain::QQ,
+            "RR" | "R" | "REAL" => Domain::RR,
+            "CC" | "C" | "COMPLEX" => Domain::CC,
+            "EX" | "EXPR" => Domain::ExpressionDomain,
+            _ => {
+                return Err(PyValueError::new_err(format!(
+                    "Unknown domain: {}",
+                    domain_name
+                )));
+            }
+        };
+        // A domain can contradict existing facts (e.g. ZZ and Infinite).
+        // Validate a candidate first so a failed insertion changes nothing.
+        let symbol = binding.to_symbol();
+        let mut candidate = self.inner.clone();
+        candidate
+            .assume_domain(symbol.clone(), dom)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let facts = candidate.deductions(&symbol);
+        if facts
+            .iter()
+            .any(|a| facts.iter().any(|b| Predicate::contradicts(*a, *b)))
+        {
+            return Err(PyValueError::new_err("Contradictory assumptions inferred"));
+        }
+        self.inner = candidate;
+        Ok(())
     }
 
     pub fn is_true(&self, expr: &PyExpr, pred_name: &str) -> PyResult<Option<bool>> {
@@ -197,4 +268,110 @@ pub fn predicate_contradictions(pred_name: &str) -> PyResult<Vec<String>> {
         }
     }
     Ok(contradicted)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fsym_core::Expr;
+
+    fn binding(name: &str, facts: &[(&str, &str)]) -> PySymbolBinding {
+        PySymbolBinding::new(
+            name.to_string(),
+            Some(
+                facts
+                    .iter()
+                    .map(|(key, value)| (key.to_string(), value.to_string()))
+                    .collect(),
+            ),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn typed_predicate_facts_do_not_leak_to_same_name_symbols() {
+        let plain = binding("same", &[]);
+        let typed = binding("same", &[("integer", "True")]);
+        let other = binding("same", &[("real", "True")]);
+        let mut context = PyAssumptionsContext::new();
+        context.assume_binding(&typed, "positive").unwrap();
+        for (symbol, expected) in [(&typed, Some(true)), (&plain, None), (&other, None)] {
+            let value = PyExpr::from_expr(Expr::Sym(symbol.to_symbol()));
+            assert_eq!(context.is_true(&value, "positive").unwrap(), expected);
+        }
+        assert!(context.deductions("same").is_empty());
+        assert!(
+            context
+                .deductions_binding(&typed)
+                .contains(&"real".to_string())
+        );
+    }
+
+    #[test]
+    fn rejected_typed_predicate_keeps_the_previous_context() {
+        let typed = binding("x", &[("real", "True")]);
+        for (first, second) in [
+            ("positive", "negative"),
+            ("nonnegative", "negative"),
+            ("negative", "nonnegative"),
+            ("nonpositive", "positive"),
+            ("positive", "nonpositive"),
+        ] {
+            let mut context = PyAssumptionsContext::new();
+            context.assume_binding(&typed, first).unwrap();
+            let before = context.inner.clone();
+            assert!(context.assume_binding(&typed, second).is_err());
+            assert_eq!(context.inner, before);
+        }
+    }
+
+    #[test]
+    fn typed_domains_preserve_identity_and_reject_conflicting_facts_atomically() {
+        let plain = binding("x", &[]);
+        let typed = binding("x", &[("real", "True")]);
+        let mut context = PyAssumptionsContext::new();
+        context.assume_domain_binding(&typed, "ZZ").unwrap();
+        assert!(
+            context
+                .deductions_binding(&typed)
+                .contains(&"integer".to_string())
+        );
+        assert!(context.deductions_binding(&plain).is_empty());
+        let before = context.inner.clone();
+        assert!(context.assume_binding(&typed, "infinite").is_err());
+        assert_eq!(context.inner, before);
+
+        let mut reverse = PyAssumptionsContext::new();
+        reverse.assume_binding(&typed, "infinite").unwrap();
+        let before = reverse.inner.clone();
+        assert!(reverse.assume_domain_binding(&typed, "ZZ").is_err());
+        assert_eq!(reverse.inner, before);
+        assert!(
+            reverse
+                .assume_domain_binding(&typed, "not-a-domain")
+                .is_err()
+        );
+        assert_eq!(reverse.inner, before);
+    }
+
+    #[test]
+    fn named_facts_remain_plain_without_modifying_typed_facts() {
+        let plain = binding("x", &[]);
+        let typed = binding("x", &[("real", "True")]);
+        let mut context = PyAssumptionsContext::new();
+        context.assume_binding(&typed, "negative").unwrap();
+        context.assume("x", "positive").unwrap();
+        assert_eq!(
+            context
+                .is_true(&PyExpr::from_expr(Expr::Sym(plain.to_symbol())), "positive")
+                .unwrap(),
+            Some(true)
+        );
+        assert_eq!(
+            context
+                .is_true(&PyExpr::from_expr(Expr::Sym(typed.to_symbol())), "negative")
+                .unwrap(),
+            Some(true)
+        );
+    }
 }
