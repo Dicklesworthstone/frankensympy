@@ -1,0 +1,46 @@
+{
+  "schema": "frankensympy.bounded-feature-progress.v1",
+  "recorded_at_utc": "2026-11-06T00:16:41.616060+00:00",
+  "base_main": "0f753a2357fb61dc5d33b6a5edf43ea6553252a9",
+  "objective": "Continuous exact polynomial Piecewise antiderivatives",
+  "implemented": [
+    "Complete rational-cut first-match partition of the real line",
+    "Independent checked differentiation and complete source-bound rational identities",
+    "Exact candidate endpoint evaluation verifies continuity and initial constant",
+    "Strict/non-strict endpoint ownership and isolated gaps",
+    "Original typed source snapshots and terminal operational failures"
+  ],
+  "scope": {
+    "input_degree_maximum": 64,
+    "output_degree_maximum": 65,
+    "branches_maximum": 16,
+    "components_maximum": 64,
+    "coefficient_bits_maximum": 4096,
+    "semantics": "Continuous primitive with leftmost polynomial constant zero; no differentiability claim at jumps or exceptional isolated integrand values",
+    "outside_scope": "Nonpolynomial selected branches, algebraic cuts, uncovered open intervals, unsupported guards remain unevaluated"
+  },
+  "validation": {
+    "public_cases_authored": 47,
+    "public_test_functions": 26,
+    "public_runtime": "NOT EXECUTED: actual extension unavailable; tests added to the full-extension CI job",
+    "syntax": "PASS: helper, public tests and integration dispatch",
+    "exact_source_pure_helper_execution": {
+      "polynomial_oracle_comparisons": 37,
+      "exact_rational_evaluations": 148,
+      "four_branch_campaigns": 24,
+      "exact_continuity_joins": 72,
+      "rational_set_tree_fixtures": 10,
+      "negative_cases": "algebraic-cut refusal, height overflow, cumulative rational work exhaustion"
+    },
+    "oracle": "Isolated SymPy 1.14.0; fixture evidence only, not candidate public-runtime evidence",
+    "independent_source_review": "Native algebra agent reviewed derivative completeness, exact continuity, first-match partition and endpoint publication; no blocker found"
+  },
+  "source_sha256": {
+    "python/sympy/integrals/_piecewise_primitive.py": "1aa9ffd8397c0dc768ce2eb0d454950cf80bbcc3c00ac1599d63ed2c8f86d31d",
+    "python/tests/test_piecewise_primitives.py": "be148e9f9adb95d6165697a84124ebd5106805582f7d85fa37852122ada19c3e",
+    "python/sympy/__init__.py": "fa829bfca59356087e4ad6da21a694fec7fc69966a0bc3fd510ada004bde5777",
+    ".github/workflows/ci.yml": "8e1b3bce05fe5b80c4cf4105f1a0e4f58fbf0debf50f01b6012cb346a03c00ae"
+  },
+  "helper_runner_sha256": "8bc128acf6ece98742b661182cf7e8aec3c569e0b5f4ec94ce605a432856bc7e",
+  "helper_validation_log": "_piecewise_primitive.py sha256 1aa9ffd8397c0dc768ce2eb0d454950cf80bbcc3c00ac1599d63ed2c8f86d31d\n_piecewise.py sha256 eec703b7d012dfeb53e203617090b0923764dd8fd1bac81325cc96e5779ec0ab\nEVIDENCE: pure AST-extracted helper arithmetic and partition checks only;\nno FrankenSymPy extension import, native verifier call, or public facade execution.\nIndependent oracle: 1.14.0\nPASS: 37 primitive/differentiation/normalization oracle comparisons, 148 exact rational evaluations; includes input degrees 63 and 64.\nPASS: 24 four-branch exact continuity/first-match oracle campaigns, 72 independently evaluated joins, including negative and fractional cuts.\nPASS: 10 exact rational set-tree component fixtures and one algebraic-endpoint refusal.\nPASS: exact arithmetic height and work exhaustion refuse terminally.\nACTUAL EXTENSION STATUS: NOT EXECUTED in this runner.\n"
+}

@@ -156,6 +156,12 @@ def integrate(expression, *variables):
             return Integral(expression, (variable, lower, upper))
 
     symbol = _require_symbol(spec)
+    from .functions.elementary.piecewise import Piecewise
+    if type(expression) is Piecewise:
+        from .integrals._piecewise_primitive import integrate_piecewise_polynomial
+
+        result = integrate_piecewise_polynomial(expression, symbol)
+        return Integral(expression, symbol) if result is None else result
     special = _integrate_symbolic_power(expression, symbol)
     if special is not None:
         return special
