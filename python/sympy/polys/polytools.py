@@ -1560,6 +1560,8 @@ def _rational_ideal_source(value: Any) -> Any:
     An expression lifted from GF(p) is an integer representative, not the
     original polynomial over QQ. Losing that distinction changes ideals.
     Read exact built-in storage without invoking an overridable as_expr.
+    An explicit None domain requests inference; native source admission still
+    requires exact rational coefficients in the declared generators.
     """
     if not isinstance(value, Poly):
         return value
@@ -1567,8 +1569,9 @@ def _rational_ideal_source(value: Any) -> Any:
         raise TypeError("checked ideal operations require exact Poly operands")
     namespace = object.__getattribute__(value, "__dict__")
     domain = namespace.get("_domain")
-    if ("_modulus" in namespace or type(domain) is not str
-            or domain not in ("ZZ", "QQ")):
+    if ("_modulus" in namespace or "_domain" not in namespace
+            or (domain is not None
+                and (type(domain) is not str or domain not in ("ZZ", "QQ")))):
         raise NotImplementedError("checked ideal operations support only ZZ and QQ Poly inputs")
     if "as_expr" in namespace:
         raise TypeError("checked ideal operations do not invoke overridden Poly.as_expr")
@@ -2227,13 +2230,21 @@ def groebner(F: Sequence[Any], *gens: Any, order: str = "lex", **args: Any) -> A
 
     Finite-field and other coefficient domains are not supported by this
     basis engine. Unsupported options raise before mathematical work instead
-    of silently changing the requested ring or output contract.
+    of silently changing the requested ring or output contract. Expression
+    output (polys=False) and the implemented Buchberger method are supported;
+    method=None selects the same default method.
     """
     if args.get("modulus") is not None:
         raise NotImplementedError("finite-field Groebner bases are not implemented")
     for name in args:
-        if name not in ("domain", "modulus"):
+        if name not in ("domain", "modulus", "polys", "method"):
             raise NotImplementedError("checked Groebner construction does not support option %r" % name)
+    if "polys" in args and args["polys"] is not False:
+        raise NotImplementedError("checked Groebner construction supports only polys=False")
+    method = args.get("method")
+    if (method is not None
+            and (type(method) is not str or method != "buchberger")):
+        raise NotImplementedError("checked Groebner construction supports only the Buchberger method")
     requested_domain = args.get("domain")
     if (requested_domain is not None and
             (type(requested_domain) is not str or requested_domain not in ("ZZ", "QQ"))):

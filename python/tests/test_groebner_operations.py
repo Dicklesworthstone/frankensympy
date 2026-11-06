@@ -184,3 +184,107 @@ def test_nonrational_poly_domain_is_refused_even_when_coefficients_look_exact():
     polynomial = Poly(x + 1, x, domain="RR")
     with pytest.raises(NotImplementedError, match="ZZ and QQ Poly"):
         groebner([polynomial], x)
+
+
+@pytest.mark.parametrize("poly_type", [Poly, PurePoly])
+def test_explicit_none_poly_domain_keeps_inference_and_checked_ideal_operations(poly_type):
+    x = Symbol("inferred_poly_domain_x")
+    integer = groebner([poly_type(2*x + 1, x, domain=None)], x)
+    assert integer.domain == "ZZ"
+    assert integer.exprs == [2*x + 1]
+    rational = groebner([poly_type(Rational(1, 2)*x + 1, x, domain=None)], x)
+    assert rational.domain == "QQ"
+    assert rational.exprs == [x + 2]
+
+    basis = groebner([poly_type(x**2 - 1, x, domain=None)], x, domain="QQ")
+    assert basis.reduce(poly_type(x**3, x, domain=None)) == ([x], x)
+    assert basis.contains(poly_type(x**4 - 1, x, domain=None))
+    assert basis.invert(poly_type(x, x, domain=None)) == x
+
+    # The quotient snapshot must retain an inferred-domain Poly in its source.
+    divisor = groebner([x - 1], x, domain="QQ")
+    divisor.exprs[:] = [poly_type(x - 1, x, domain=None)]
+    assert basis.quotient(divisor).exprs == [x + 1]
+
+
+@pytest.mark.parametrize("poly_type", [Poly, PurePoly])
+@pytest.mark.parametrize("retained_modulus", [False, True])
+def test_domain_inference_cannot_hide_missing_metadata_or_a_finite_field(
+        monkeypatch, poly_type, retained_modulus):
+    from sympy.polys import polytools
+
+    x = Symbol("inferred_domain_guard_x")
+    if retained_modulus:
+        polynomial = poly_type(x + 1, x, modulus=2)
+        polynomial._domain = None
+    else:
+        polynomial = poly_type(x + 1, x, domain=None)
+        del polynomial._domain
+
+    def forbidden(*args):
+        raise AssertionError("unadmitted Poly metadata reached the rational engine")
+
+    monkeypatch.setattr(polytools._native, "groebner_basis_native", forbidden)
+    with pytest.raises(NotImplementedError, match="ZZ and QQ Poly"):
+        groebner([polynomial], x)
+
+
+@pytest.mark.parametrize("options", [
+    {"polys": False},
+    {"method": None},
+    {"method": "buchberger"},
+    {"polys": False, "method": None, "domain": None, "modulus": None},
+    {"polys": False, "method": "buchberger"},
+])
+@pytest.mark.parametrize("order", ["lex", "grlex", "grevlex"])
+def test_supported_explicit_defaults_preserve_basis_and_expression_output(options, order):
+    x, y = Symbol("default_option_x"), Symbol("default_option_y")
+    sources = [x*y - 1, y**2 - x]
+    expected = groebner(sources, x, y, order=order)
+    actual = groebner(sources, x, y, order=order, **options)
+    assert actual.exprs == expected.exprs
+    assert actual.domain == expected.domain
+    assert actual.gens == expected.gens
+    assert actual.order == expected.order
+    assert all(not isinstance(expression, Poly) for expression in actual)
+
+
+@pytest.mark.parametrize("options", [
+    {"polys": None}, {"polys": 0}, {"polys": 1}, {"polys": "False"},
+    {"method": False}, {"method": 1}, {"method": "unknown"},
+])
+def test_other_control_values_are_refused_before_native_work(monkeypatch, options):
+    from sympy.polys import polytools
+
+    x = Symbol("unsupported_default_option_x")
+
+    def forbidden(*args):
+        raise AssertionError("unsupported control reached the rational engine")
+
+    monkeypatch.setattr(polytools._native, "groebner_basis_native", forbidden)
+    with pytest.raises(NotImplementedError):
+        groebner([x - 1], x, **options)
+
+
+@pytest.mark.parametrize("option", ["polys", "method"])
+def test_control_admission_never_invokes_arbitrary_value_hooks(monkeypatch, option):
+    from sympy.polys import polytools
+
+    class EffectfulValue:
+        def __eq__(self, other):
+            raise AssertionError("option equality hook was invoked")
+
+        def __bool__(self):
+            raise AssertionError("option truth hook was invoked")
+
+        def __str__(self):
+            raise AssertionError("option string hook was invoked")
+
+    x = Symbol("effectful_default_option_x")
+
+    def forbidden(*args):
+        raise AssertionError("effectful control reached the rational engine")
+
+    monkeypatch.setattr(polytools._native, "groebner_basis_native", forbidden)
+    with pytest.raises(NotImplementedError):
+        groebner([x - 1], x, **{option: EffectfulValue()})
