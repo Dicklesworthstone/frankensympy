@@ -37,6 +37,9 @@ def is_finite(value):
     if not _exact(value, _poly_types()):
         return False
     namespace = object.__getattribute__(value, "__dict__")
+    if (type(namespace) is not dict or len(namespace) > 32
+            or any(type(key) is not str or len(key) > 128 for key in namespace)):
+        raise TypeError("prime-field Poly requires bounded built-in source storage")
     domain = namespace.get("_domain")
     return ("_modulus" in namespace or
             (type(domain) is str and domain.startswith("GF(")))

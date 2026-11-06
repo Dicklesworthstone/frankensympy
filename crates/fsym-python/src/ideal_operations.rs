@@ -175,7 +175,7 @@ pub fn ideal_source_arguments_native(
     ideal_source_preflight_native(source)?;
     let children = children
         .iter()
-        .map(|value| value.extract::<PyRef<'_, PyExpr>>())
+        .map(|value| value.extract::<PyRef<'_, PyExpr>>().map_err(PyErr::from))
         .collect::<PyResult<Vec<_>>>()?;
     if !retained_source_matches(
         &source.inner,

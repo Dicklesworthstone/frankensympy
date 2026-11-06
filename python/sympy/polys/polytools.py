@@ -2226,16 +2226,16 @@ def _primitive_integer(e: Any, gens: tuple, order: str = "lex") -> Any:
 
 
 def groebner(F: Sequence[Any], *gens: Any, order: str = "lex", **args: Any) -> Any:
-    """Checked reduced Groebner basis over ZZ/QQ (lex, grlex, grevlex).
+    """Checked reduced Groebner basis over ZZ/QQ or a bounded prime field.
 
-    Finite-field and other coefficient domains are not supported by this
-    basis engine. Unsupported options raise before mathematical work instead
-    of silently changing the requested ring or output contract. Expression
-    output (polys=False) and the implemented Buchberger method are supported;
-    method=None selects the same default method.
+    Supports lex, grlex and grevlex. Prime fields use a separate checked
+    Buchberger engine with original-source admission, both ideal inclusions
+    and complete S-pair verification. Unsupported coefficient domains and
+    controls raise before mathematical work. method=None selects Buchberger.
     """
-    if args.get("modulus") is not None:
-        raise NotImplementedError("finite-field Groebner bases are not implemented")
+    from . import _finitefield_groebner
+    if _finitefield_groebner.requested(F, args):
+        return _finitefield_groebner.construct(F, gens, order, args)
     for name in args:
         if name not in ("domain", "modulus", "polys", "method"):
             raise NotImplementedError("checked Groebner construction does not support option %r" % name)

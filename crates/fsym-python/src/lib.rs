@@ -1917,6 +1917,7 @@ pub mod callbacks;
 mod exact_integral;
 pub mod expr;
 mod finite_field;
+mod finite_field_groebner;
 mod finite_field_multivariate;
 mod finite_field_polynomial;
 mod fourier;
@@ -1964,6 +1965,7 @@ fn fsym_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     numeric_budget::register(m)?;
     finite_field_polynomial::register(m)?;
     finite_field_multivariate::register(m)?;
+    finite_field_groebner::register(m)?;
     m.add_function(wrap_pyfunction!(fourier::fourier_l1_native, m)?)?;
     m.add_class::<numeric::PyCompiledFunction>()?;
     m.add_class::<numeric::PySourceResidualSystem>()?;

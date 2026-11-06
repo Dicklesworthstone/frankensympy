@@ -26,7 +26,7 @@ use std::sync::Arc;
 
 type TermParts = Vec<(Vec<u32>, PyExpr)>;
 
-fn order(value: &str) -> PyResult<TermOrder> {
+pub(crate) fn order(value: &str) -> PyResult<TermOrder> {
     match value {
         "lex" => Ok(TermOrder::Lex),
         "grlex" => Ok(TermOrder::DegLex),
@@ -37,7 +37,7 @@ fn order(value: &str) -> PyResult<TermOrder> {
     }
 }
 
-fn symbols(values: &Bound<'_, PyList>, meter: &mut Budget) -> PyResult<Vec<Symbol>> {
+pub(crate) fn symbols(values: &Bound<'_, PyList>, meter: &mut Budget) -> PyResult<Vec<Symbol>> {
     if !(1..=8).contains(&values.len()) {
         return Err(PyValueError::new_err(
             "prime-field polynomial requires 1..8 typed generators",
@@ -73,7 +73,11 @@ fn coefficient(value: u64, prime: u64, symmetric: bool) -> i64 {
     }
 }
 
-fn lift(polynomial: &Polynomial, symmetric: bool, meter: &mut Budget) -> PyResult<PyExpr> {
+pub(crate) fn lift(
+    polynomial: &Polynomial,
+    symmetric: bool,
+    meter: &mut Budget,
+) -> PyResult<PyExpr> {
     charge(
         meter,
         polynomial.terms().len() + 1,
@@ -239,7 +243,7 @@ pub fn prime_field_multivariate_native(
     Ok(output)
 }
 
-fn monomial_cmp(left: &[u32], right: &[u32], order: TermOrder) -> Ordering {
+pub(crate) fn monomial_cmp(left: &[u32], right: &[u32], order: TermOrder) -> Ordering {
     let degree = || left.iter().sum::<u32>().cmp(&right.iter().sum::<u32>());
     match order {
         TermOrder::Lex => left.cmp(right),
@@ -405,14 +409,8 @@ mod tests {
     #[test]
     fn signed_and_unsigned_lifts_retain_every_typed_coordinate() {
         let variables = [
-            Symbol::with_identity(
-                "x",
-                SymbolIdentity::from_assumptions_digest([1; 32]),
-            ),
-            Symbol::with_identity(
-                "x",
-                SymbolIdentity::from_assumptions_digest([2; 32]),
-            ),
+            Symbol::with_identity("x", SymbolIdentity::from_assumptions_digest([1; 32])),
+            Symbol::with_identity("x", SymbolIdentity::from_assumptions_digest([2; 32])),
         ];
         let terms = BTreeMap::from([
             (vec![2, 1], 4),

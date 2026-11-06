@@ -109,8 +109,7 @@ def test_poly_input_and_original_expression_bounds():
 
 
 @pytest.mark.parametrize("options", [
-    {"modulus": 2}, {"modulus": 5}, {"modulus": 0},
-    {"domain": "GF(2)"}, {"domain": "RR"}, {"domain": "QQ", "modulus": 2},
+    {"domain": "RR"},
     {"extension": True}, {"field": True}, {"polys": True}, {"method": "f5b"},
 ])
 def test_unsupported_ring_and_output_options_are_refused_before_native_work(monkeypatch, options):
@@ -133,8 +132,11 @@ def test_characteristic_two_counterexample_cannot_return_the_rational_unit_ideal
     # In GF(2), x**2+1 = (x+1)**2 and the ideal is the proper ideal <x+1>.
     # A QQ result is therefore a mathematically false answer to this request.
     assert groebner([x**2 + 1, x + 1], x, domain="QQ").exprs == [1]
-    with pytest.raises(NotImplementedError, match="finite-field"):
-        groebner([x**2 + 1, x + 1], x, modulus=2)
+    finite = groebner([x**2 + 1, x + 1], x, modulus=2)
+    assert finite.domain == "GF(2)"
+    assert finite.exprs == [x + 1]
+    assert finite.contains(x**2 + 1)
+    assert not finite.contains(1)
 
 
 @pytest.mark.parametrize("poly_type", [Poly, PurePoly])
@@ -142,9 +144,13 @@ def test_finite_poly_domains_cannot_be_erased_by_basis_and_ideal_operations(poly
     x = Symbol("retained_field_x")
     finite = poly_type(x**2 + 1, x, modulus=2)
     basis = groebner([x + 1], x, domain="QQ")
+    retained = groebner([finite, x + 1], x)
+    assert retained.domain == "GF(2)"
+    assert retained.exprs == [x + 1]
+    from sympy.polys.polyerrors import DomainError
+    with pytest.raises(DomainError):
+        groebner([finite], x, domain="QQ")
     for operation in (
-        lambda: groebner([finite, x + 1], x),
-        lambda: groebner([finite], x, domain="QQ"),
         lambda: basis.reduce(finite),
         lambda: basis.contains(finite),
         lambda: basis.invert(finite),
