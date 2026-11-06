@@ -25,7 +25,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from ..core import Basic, Function, Integer, NegativeOne, One, Rational, Symbol, Zero, sympify
+from ..core import Basic, Function, Integer, NegativeOne, One, Rational, Symbol, Zero, _wrap, sympify
 
 
 def _poly_of(f: Any, x: Any = None) -> tuple:
@@ -175,7 +175,9 @@ def _real_radical(fac: Any, index: int) -> Any:
     from fractions import Fraction
     from ..core import _exact_ratio
 
-    cs = fac.all_coeffs()
+    # Keep construction on the bounded exact converter used to admit the
+    # source and its factors. The general Poly coefficient API is unmetered.
+    cs = [_wrap(value) for value in reversed(_native_coefficients(fac))]
     exact = [Fraction(*_exact_ratio(c)) for c in cs]
     if len(cs) == 3:
         discriminant = exact[1]**2 - 4 * exact[0] * exact[2]
@@ -212,7 +214,7 @@ def _real_radical(fac: Any, index: int) -> Any:
 
 
 def _make_root(cls: type, fac: Any, gen: Any, local: int, radicals: bool, real: bool) -> Any:
-    coefficients = fac.all_coeffs()
+    coefficients = [_wrap(value) for value in reversed(_native_coefficients(fac))]
     if len(coefficients) == 2:
         return -coefficients[1] / coefficients[0]
     if radicals:

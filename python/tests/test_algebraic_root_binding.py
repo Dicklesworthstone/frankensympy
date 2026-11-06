@@ -160,10 +160,20 @@ def test_same_name_user_function_cannot_capture_root_lifting_or_become_constant(
     replaced = custom.subs(x, z)
     assert type(replaced) is custom_class
     assert replaced.free_symbols == {y, z}
-    with pytest.raises(NotImplementedError, match="same-name native intrinsic"):
+    refusal = "^opaque Python applications require a retained surface or supervised callback lane$"
+    with pytest.raises(NotImplementedError, match=refusal):
         _core._native_expr(custom)
-    with pytest.raises(NotImplementedError, match="same-name native intrinsic"):
-        s.Add(custom, root, evaluate=False)
+    # Pinned SymPy 1.14 retains both original owners in an unevaluated sum;
+    # that surface composition does not authorize native lowering.
+    held = s.Add(custom, root, evaluate=False)
+    assert type(held) is s.Add
+    assert len(held.args) == 2
+    assert held.args[0] is custom and held.args[1] is root
+    assert held.free_symbols == {x, y}
+    assert held.atoms(s.CRootOf) == {root}
+    assert held.atoms(custom_class) == {custom}
+    with pytest.raises(NotImplementedError, match=refusal):
+        _core._native_expr(held)
     genuine_composite = 1 + root**2
     assert genuine_composite.free_symbols == set()
     assert genuine_composite.atoms(s.CRootOf) == {root}

@@ -206,8 +206,19 @@ class _Capture:
                 operator = next((op for cls, op in ((Add, "add"), (Mul, "mul"), (Pow, "pow"))
                                 if type(value) is cls), None)
                 if operator is not None:
+                    try:
+                        native_source = _native_expr(value)
+                    except NotImplementedError as exc:
+                        # A stale held tuple can make an otherwise rational
+                        # container fail the closed surface lowering gate.
+                        # Its children have already been captured/admitted;
+                        # report the same source mismatch as the structural
+                        # checker, before any solver or candidate generation.
+                        raise ValueError(
+                            "rational Piecewise source does not match its retained surface arguments"
+                        ) from exc
                     _native.ideal_source_arguments_native(
-                        _native_expr(value), operator, [_native_expr(child) for child in children],
+                        native_source, operator, [_native_expr(child) for child in children],
                     )
         self.unchanged()
         # All scalar payloads are captured before the first solver or

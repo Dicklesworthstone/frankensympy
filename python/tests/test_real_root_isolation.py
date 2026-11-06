@@ -81,6 +81,25 @@ def test_real_radicals_use_exact_signs_for_order_and_odd_negative_roots():
     assert real_roots(x**4 - 16) == [Integer(-2), Integer(2)]
 
 
+def test_exact_root_construction_stays_on_bounded_coefficient_conversion(monkeypatch):
+    x = Symbol("bounded_root_lifting", real=True)
+    cases = [
+        (2*x - 3, [Rational(3, 2)]),
+        (-x**2 + 2, [-sqrt(2), sqrt(2)]),
+        (x**3 + 2, [-Integer(2)**Rational(1, 3)]),
+        ((x - 1)**2*(x**2 - 2), [-sqrt(2), Integer(1), Integer(1), sqrt(2)]),
+    ]
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("checked root construction must retain bounded coefficient admission")
+
+    monkeypatch.setattr(_native, "poly_coeffs_native", forbidden)
+    for polynomial, expected in cases:
+        assert real_roots(polynomial) == expected
+    assert CRootOf(2*x - 3, 0) == Rational(3, 2)
+    assert CRootOf(x**3 + 2, 0, radicals=True) == -Integer(2)**Rational(1, 3)
+
+
 def test_bound_generator_follows_pinned_alpha_equivalence():
     x = Symbol("x", real=True)
     other = Symbol("t", positive=True)

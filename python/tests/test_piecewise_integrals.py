@@ -373,7 +373,8 @@ def test_mutation_during_a_checked_component_prevents_publication(monkeypatch):
 
 @pytest.mark.parametrize("slot_name", ["_args", "_struct_args", "_surface_args"])
 @pytest.mark.parametrize("position", ["branch", "guard"])
-def test_preexisting_held_argument_mismatch_refuses_before_generation(slot_name, position, monkeypatch):
+@pytest.mark.parametrize("definite", [False, True])
+def test_preexisting_held_argument_mismatch_refuses_before_generation(slot_name, position, definite, monkeypatch):
     x = s.Symbol("piecewise_integral_stale_" + position + slot_name)
     held = s.Add(x, 1, evaluate=False)
     source = (s.Piecewise((held, x < 0), (0, True), evaluate=False) if position == "branch"
@@ -381,10 +382,11 @@ def test_preexisting_held_argument_mismatch_refuses_before_generation(slot_name,
     owner = s.Add if slot_name == "_args" else Basic
     owner.__dict__[slot_name].__set__(held, (x, s.Integer(2)))
     for name in ("solve_real_rational_native", "solve_real_rational_inequality_native",
-                 "exact_rational_integral_native", "integrate_definite_native"):
+                 "exact_rational_integral_native", "integrate_definite_native",
+                 "poly_coeffs_native", "integrate_native"):
         monkeypatch.setattr(_native, name, _forbid_fallback)
     with pytest.raises(ValueError, match="retained surface arguments"):
-        s.integrate(source, (x, -1, 1))
+        s.integrate(source, (x, -1, 1) if definite else x)
 
 
 @pytest.mark.parametrize("kind", ["add", "mul", "pow"])
