@@ -174,7 +174,7 @@ fn copied_powers(
     work: &mut PolynomialWork<'_, impl BudgetMeter>,
 ) -> Result<Vec<u32>, PolyError> {
     work.tick(powers.len())?;
-    work.allocate(powers.len() * std::mem::size_of::<u32>())?;
+    work.allocate(std::mem::size_of_val(powers))?;
     Ok(powers.to_vec())
 }
 

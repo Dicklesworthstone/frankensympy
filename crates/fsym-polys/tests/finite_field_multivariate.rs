@@ -360,7 +360,7 @@ fn division_handles_nonmonic_inputs_empty_lists_and_all_orders() {
         );
         assert_eq!(got.remainder().terms(), &terms(&[(&[0, 0], 3)]));
         assert_eq!(got.dividend(), &f);
-        assert_eq!(got.divisors(), [d.clone()]);
+        assert_eq!(got.divisors(), std::slice::from_ref(&d));
         assert_eq!(got.order(), order);
         assert_eq!(
             verify_division(

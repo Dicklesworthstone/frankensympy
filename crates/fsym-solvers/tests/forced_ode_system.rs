@@ -334,6 +334,37 @@ fn original_modes_and_augmented_size_are_admitted_before_search() {
 }
 
 #[test]
+fn shared_forcing_reaches_dimension_eight_without_factoring_canceled_poles() {
+    let t = Symbol::new("t");
+    for (diagonal, rate, expected) in [(0, 1, "exp(t)-1"), (2, 2, "t*exp(2*t)")] {
+        let mut matrix = vec![vec![q(0); 7]; 7];
+        for (index, row) in matrix.iter_mut().enumerate() {
+            row[index] = q(diagonal);
+        }
+        let forcing = mode(0, rate, 0, &[1; 7], &[0; 7]);
+        let result = forced_ode_system(
+            &matrix,
+            &t,
+            &q(0),
+            &vec![vec![q(0)]; 7],
+            &[forcing],
+            &vec![e("0"); 7],
+        )
+        .unwrap();
+        assert_eq!(result.certificate().realization.basis.len(), 1);
+        assert_eq!(result.certificate().realization.coefficients.len(), 8);
+        for value in result.solutions() {
+            equal(value, &e(expected));
+            equal(
+                &fsym_calculus::diff(value, &t),
+                &(Expr::from_i64(diagonal) * value.clone() + e(&format!("exp({rate}*t)"))),
+            );
+            assert_eq!(at(value, &t, 0), e("0"));
+        }
+    }
+}
+
+#[test]
 fn malformed_realization_is_rejected_without_panics() {
     let t = Symbol::new("t");
     for mutation in 0..5 {

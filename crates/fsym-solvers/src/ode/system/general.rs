@@ -43,6 +43,7 @@ pub type RationalMatrix = Vec<Vec<BigRational>>;
 pub type PolynomialVector = Vec<Vec<BigRational>>;
 pub type ExpressionMatrix = Vec<Vec<Expr>>;
 type PolynomialMatrix = Vec<Vec<Vec<BigRational>>>;
+type PolynomialFraction = (Vec<BigRational>, Vec<BigRational>);
 type Result<T> = std::result::Result<T, GeneralOdeSystemError>;
 
 #[derive(Debug, Error)]
@@ -579,6 +580,35 @@ fn transform_entry(
             &candidate,
             &mut *verifier.meter,
         )?
+    } else if let Some((top, bottom)) =
+        cancelled_transform_fraction(numerator, denominator, generator)?
+    {
+        // A matrix entry can have a much smaller denominator than the full
+        // characteristic polynomial. Search on that exact reduced fraction,
+        // but accept only against the entire original source above. In
+        // particular, its original excluded points are not replaced by the
+        // reduced fraction's domain or convergence bound.
+        let reduced_top = transform_polynomial(&top, variable, generator)?;
+        let reduced_bottom = transform_polynomial(&bottom, variable, generator)?;
+        generator.charge(4, 512)?;
+        let reduced_source = product(vec![
+            reduced_top,
+            Expr::Pow(Arc::new(reduced_bottom), Arc::new(Expr::from_i64(-1))),
+        ]);
+        let proposed = metered_inverse_rational_laplace(
+            &reduced_source,
+            variable,
+            local_time,
+            &mut *generator.meter,
+            &mut *verifier.meter,
+        )?;
+        verify_rational_laplace_certificate(
+            &source,
+            variable,
+            local_time,
+            proposed.certificate(),
+            &mut *verifier.meter,
+        )?
     } else {
         metered_inverse_rational_laplace(
             &source,
@@ -593,6 +623,108 @@ fn transform_entry(
     // stricter coefficient bound before using or publishing this copy.
     generator.charge(64, 64 * 16_512)?;
     Ok(checked.certificate().clone())
+}
+
+fn trim_transform_polynomial(values: &mut Vec<BigRational>) {
+    while values.len() > 1 && values.last().is_some_and(Zero::is_zero) {
+        values.pop();
+    }
+}
+
+fn copy_transform_polynomial(
+    values: &[BigRational],
+    work: &mut Work<'_, impl BudgetMeter>,
+) -> Result<Vec<BigRational>> {
+    let mut copy = work.zeros(values.len())?;
+    for (target, source) in copy.iter_mut().zip(values) {
+        *target = work.copy(source)?;
+    }
+    trim_transform_polynomial(&mut copy);
+    Ok(copy)
+}
+
+/// Exact dense Euclidean division for the generator's bounded resolvent data.
+/// Every rational operation and transient coefficient vector uses the caller's
+/// existing ledger. The independent transform verifier does not use this code.
+fn divide_transform_polynomials(
+    numerator: &[BigRational],
+    denominator: &[BigRational],
+    work: &mut Work<'_, impl BudgetMeter>,
+) -> Result<PolynomialFraction> {
+    let mut remainder = copy_transform_polynomial(numerator, work)?;
+    if denominator.is_empty() || denominator.last().is_some_and(Zero::is_zero) {
+        return Err(GeneralOdeSystemError::Verification(
+            "noncanonical internal transform divisor",
+        ));
+    }
+    let mut quotient = work.zeros(remainder.len().saturating_sub(denominator.len()) + 1)?;
+    while remainder.len() >= denominator.len() && !remainder.iter().all(Zero::is_zero) {
+        let previous = remainder.len();
+        let shift = previous - denominator.len();
+        let coefficient = work.div(
+            remainder.last().expect("nonempty internal polynomial"),
+            denominator.last().expect("admitted nonzero divisor"),
+        )?;
+        quotient[shift] = work.copy(&coefficient)?;
+        for (index, value) in denominator.iter().enumerate() {
+            let multiple = work.mul(&coefficient, value)?;
+            remainder[shift + index] = work.sub(&remainder[shift + index], &multiple)?;
+        }
+        trim_transform_polynomial(&mut remainder);
+        if !remainder.iter().all(Zero::is_zero) && remainder.len() >= previous {
+            return Err(GeneralOdeSystemError::Verification(
+                "internal transform division did not decrease degree",
+            ));
+        }
+    }
+    trim_transform_polynomial(&mut quotient);
+    work.meter.checkpoint()?;
+    Ok((quotient, remainder))
+}
+
+/// Cancel exact common factors before searching for inverse-transform modes.
+/// This is an optimization of candidate generation only: the original fraction
+/// is retained by transform_entry and independently checked after generation.
+fn cancelled_transform_fraction(
+    numerator: &[BigRational],
+    denominator: &[BigRational],
+    work: &mut Work<'_, impl BudgetMeter>,
+) -> Result<Option<PolynomialFraction>> {
+    work.charge(numerator.len() + denominator.len(), 1)?;
+    // Linear/quadratic denominators already use a direct exact table. A
+    // nonzero constant numerator cannot have a nonconstant common factor.
+    if denominator
+        .iter()
+        .rposition(|value| !value.is_zero())
+        .unwrap_or(0)
+        <= 2
+        || numerator
+            .iter()
+            .rposition(|value| !value.is_zero())
+            .unwrap_or(0)
+            == 0
+    {
+        return Ok(None);
+    }
+    let mut left = copy_transform_polynomial(numerator, work)?;
+    let mut right = copy_transform_polynomial(denominator, work)?;
+    while !right.iter().all(Zero::is_zero) {
+        let (_, remainder) = divide_transform_polynomials(&left, &right, work)?;
+        left = right;
+        right = remainder;
+    }
+    if left.len() == 1 {
+        return Ok(None);
+    }
+    let (top, top_remainder) = divide_transform_polynomials(numerator, &left, work)?;
+    let (bottom, bottom_remainder) = divide_transform_polynomials(denominator, &left, work)?;
+    if !top_remainder.iter().all(Zero::is_zero) || !bottom_remainder.iter().all(Zero::is_zero) {
+        return Err(GeneralOdeSystemError::Verification(
+            "inexact internal transform cancellation",
+        ));
+    }
+    work.meter.checkpoint()?;
+    Ok(Some((top, bottom)))
 }
 
 /// Untrusted inverse of N(s)/(c*s^m), checked by the separate complete

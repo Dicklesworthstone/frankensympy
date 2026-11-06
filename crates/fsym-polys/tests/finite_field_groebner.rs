@@ -237,7 +237,7 @@ fn zero_unit_and_nonradical_ideals_retain_their_distinct_meanings() {
             &mut Unbounded,
         )
         .unwrap();
-        assert_eq!(unit.basis(), [one.clone()]);
+        assert_eq!(unit.basis(), std::slice::from_ref(&one));
         assert!(
             reduce(&x, unit.basis(), order, &mut Unbounded, &mut Unbounded)
                 .unwrap()

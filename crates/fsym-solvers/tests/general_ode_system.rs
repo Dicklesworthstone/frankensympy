@@ -300,6 +300,48 @@ fn eight_component_degree_sixteen_forcing_reaches_degree_twenty_four() {
 }
 
 #[test]
+fn eight_distinct_diagonal_modes_cancel_unused_characteristic_factors() {
+    let t = Symbol::new("t");
+    let mut coefficients = vec![vec![q(0, 1); 8]; 8];
+    for (index, row) in coefficients.iter_mut().enumerate() {
+        row[index] = q(index as i64 + 1, 1);
+    }
+    let forcing = zeros(8);
+    let initial = vec![e("1"); 8];
+    let receipt = general_ode_system(&coefficients, &t, &q(0, 1), &forcing, &initial).unwrap();
+    for (index, value) in receipt.solutions().iter().enumerate() {
+        assert_equal(value, &e(&format!("exp({}*t)", index + 1)));
+        assert_eq!(at(value, &t, &q(0, 1)), initial[index]);
+    }
+    assert_equations(receipt.solutions(), &coefficients, &forcing, &t);
+}
+
+#[test]
+fn dense_shifted_rank_one_system_cancels_nonmonomial_repeated_factors() {
+    let t = Symbol::new("t");
+    // A = 2*I + J has eigenvalues 2 (multiplicity seven) and 10. Every
+    // nonzero resolvent entry cancels a power of s-2, not just a power of s.
+    let mut coefficients = vec![vec![q(1, 1); 8]; 8];
+    for (index, row) in coefficients.iter_mut().enumerate() {
+        row[index] = q(3, 1);
+    }
+    let forcing = zeros(8);
+    let mut initial = vec![e("0"); 8];
+    initial[0] = e("1");
+    let receipt = general_ode_system(&coefficients, &t, &q(0, 1), &forcing, &initial).unwrap();
+    for (index, value) in receipt.solutions().iter().enumerate() {
+        let expected = if index == 0 {
+            e("(7*exp(2*t)+exp(10*t))/8")
+        } else {
+            e("(exp(10*t)-exp(2*t))/8")
+        };
+        assert_equal(value, &expected);
+        assert_eq!(at(value, &t, &q(0, 1)), initial[index]);
+    }
+    assert_equations(receipt.solutions(), &coefficients, &forcing, &t);
+}
+
+#[test]
 fn singleton_and_typed_time_do_not_capture_internal_or_initial_names() {
     let t = Symbol::with_identity(
         "_fsym_ode_transform_0",
@@ -526,6 +568,96 @@ impl BudgetMeter for Meter {
             Err(MeterError::Cancelled)
         } else {
             Ok(())
+        }
+    }
+}
+
+#[test]
+fn cancelled_resolvent_search_keeps_cumulative_limits_and_terminal_cancellation() {
+    let t = Symbol::new("t");
+    let coefficients = matrix(&[&[1, 0, 0], &[0, 2, 0], &[0, 0, 3]]);
+    let forcing = zeros(3);
+    let initial = [e("1"), e("1"), e("1")];
+    let (mut generation, mut verification) = (Meter::default(), Meter::default());
+    metered_general_ode_system(
+        &coefficients,
+        &t,
+        &q(0, 1),
+        &forcing,
+        &initial,
+        &mut generation,
+        &mut verification,
+    )
+    .unwrap();
+    for (generating, measured) in [(true, &generation), (false, &verification)] {
+        for (index, dimension) in [
+            Dimension::ComputeSteps,
+            Dimension::MemoryBytes,
+            Dimension::AllocationCount,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut limits = BudgetLimits::uniform(u64::MAX, 0);
+            limits.dimensions[dimension.index()] = measured.charges[index] - 1;
+            let mut meter = Budget::new(limits);
+            let result = if generating {
+                metered_general_ode_system(
+                    &coefficients,
+                    &t,
+                    &q(0, 1),
+                    &forcing,
+                    &initial,
+                    &mut meter,
+                    &mut Unbounded,
+                )
+            } else {
+                metered_general_ode_system(
+                    &coefficients,
+                    &t,
+                    &q(0, 1),
+                    &forcing,
+                    &initial,
+                    &mut Unbounded,
+                    &mut meter,
+                )
+            };
+            assert!(matches!(
+                result,
+                Err(GeneralOdeSystemError::Meter(MeterError::Budget(_)))
+            ));
+        }
+        for stop in [measured.checkpoints / 2, measured.checkpoints] {
+            let mut meter = Meter {
+                cancel_at: Some(stop),
+                ..Meter::default()
+            };
+            let result = if generating {
+                metered_general_ode_system(
+                    &coefficients,
+                    &t,
+                    &q(0, 1),
+                    &forcing,
+                    &initial,
+                    &mut meter,
+                    &mut Unbounded,
+                )
+            } else {
+                metered_general_ode_system(
+                    &coefficients,
+                    &t,
+                    &q(0, 1),
+                    &forcing,
+                    &initial,
+                    &mut Unbounded,
+                    &mut meter,
+                )
+            };
+            assert!(matches!(
+                result,
+                Err(GeneralOdeSystemError::Meter(MeterError::Cancelled))
+            ));
+            assert_eq!(meter.checkpoints, stop);
         }
     }
 }

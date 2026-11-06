@@ -231,6 +231,21 @@ class ElementaryForcedOdeSystemTests(unittest.TestCase):
         for value in values:
             self.assert_zero(value - exp(t) + 1)
 
+    def test_shared_resonant_forcing_preserves_all_seven_physical_coordinates(self):
+        t, count = self.t, 7
+        matrix = [[2 if row == column else 0 for column in range(count)]
+                  for row in range(count)]
+        forcing = [exp(2*t)]*count
+        equations, functions = self.equations(matrix, forcing)
+        initial = {owner(0): 0 for owner in self.owners[:count]}
+        values = self.assert_system(
+            dsolve(equations, functions, ics=initial), matrix, forcing, functions,
+        )
+        for value in values:
+            self.assert_zero(value - t*exp(2*t))
+            self.assertEqual(simplify(value.subs(t, 0)), 0)
+            self.assertEqual(value.free_symbols, {t})
+
     def test_original_held_partial_sources_refuse_before_zero_or_cancellation(self):
         t = self.t
         function = self.owners[0](t)
