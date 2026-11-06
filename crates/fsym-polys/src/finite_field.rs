@@ -178,7 +178,7 @@ fn admit_coefficients(
     Ok(())
 }
 
-fn zeros(
+pub(super) fn zeros(
     length: usize,
     work: &mut PolynomialWork<'_, impl BudgetMeter>,
 ) -> Result<Coefficients, PolyError> {
@@ -186,7 +186,7 @@ fn zeros(
     Ok(vec![0; length])
 }
 
-fn copy(
+pub(super) fn copy(
     values: &[u64],
     work: &mut PolynomialWork<'_, impl BudgetMeter>,
 ) -> Result<Coefficients, PolyError> {
@@ -195,13 +195,13 @@ fn copy(
     Ok(values.to_vec())
 }
 
-fn trim(values: &mut Coefficients) {
+pub(super) fn trim(values: &mut Coefficients) {
     while values.last() == Some(&0) {
         values.pop();
     }
 }
 
-fn scalar_power(
+pub(super) fn scalar_power(
     mut base: u64,
     mut exponent: u64,
     prime: u64,
@@ -236,7 +236,7 @@ fn monic(
     Ok(result)
 }
 
-fn multiply(
+pub(super) fn multiply(
     left: &[u64],
     right: &[u64],
     prime: u64,
@@ -257,7 +257,7 @@ fn multiply(
     Ok(result)
 }
 
-fn divide(
+pub(super) fn divide(
     dividend: &[u64],
     divisor: &[u64],
     prime: u64,
@@ -343,7 +343,7 @@ fn power_mod(
     Ok(result)
 }
 
-fn derivative(
+pub(super) fn derivative(
     values: &[u64],
     prime: u64,
     work: &mut PolynomialWork<'_, impl BudgetMeter>,

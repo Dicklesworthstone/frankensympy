@@ -10,6 +10,8 @@ pub mod division;
 pub mod factorization;
 pub mod fglm;
 pub mod finite_field;
+pub mod finite_field_arithmetic;
+pub mod finite_field_element_source;
 pub mod finite_field_source;
 pub mod gcd;
 pub mod groebner;
@@ -31,6 +33,11 @@ pub use division::*;
 pub use factorization::*;
 pub use fglm::*;
 pub use finite_field::*;
+pub use finite_field_arithmetic::*;
+pub use finite_field_element_source::{
+    PrimeFieldElementSourceError, VerifiedPrimeFieldElementSource, checked_prime_field_element_source,
+    verify_prime_field_element_source,
+};
 pub use finite_field_source::*;
 pub use gcd::*;
 pub use groebner::*;

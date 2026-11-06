@@ -1,0 +1,57 @@
+{
+  "schema": "frankensympy.bounded-feature-progress.v1",
+  "recorded_at_utc": "2026-11-06T00:10:58.178640+00:00",
+  "base_main": "7a105e289802b70e47ecf7530716b9242539334e",
+  "objective": "Checked univariate prime-field polynomial arithmetic and complete original integer-source reduction",
+  "scope": {
+    "field": "GF(p), prime 2..65521",
+    "maximum_result_degree": 64,
+    "original_source_nodes": 4096,
+    "original_source_depth": 64,
+    "original_integer_bits": 4096,
+    "source_intermediate_degree": 256,
+    "cumulative_phase_compute_steps": 20000000,
+    "cumulative_phase_memory_bytes": 134217728,
+    "receipts": "Immutable in-process values; no portable-proof or compatibility-profile claim"
+  },
+  "implemented": [
+    "independent exact original-source coefficient reduction into F_p[x]",
+    "addition, subtraction, multiplication, division, monic normalization",
+    "GCD, extended GCD, LCM and modular inverse with proved nonunit outcome",
+    "arbitrary-order derivatives, bounded powers and composition",
+    "independent full-vector coefficient identities, divisibility and Bezout witnesses"
+  ],
+  "validation": {
+    "toolchain": "nightly-2026-08-20",
+    "native_compilation": "PASS: scoped fsym-polys, using coherent cached Cargo-resolved dependencies and -D warnings",
+    "library_clippy": "PASS: scoped fsym-polys with -D warnings",
+    "focused_test_clippy": "PASS: both new integration test crates with -D warnings",
+    "native_tests": {
+      "finite_field_arithmetic": 20,
+      "finite_field_element_source": 13,
+      "total_passed": 33,
+      "failed": 0,
+      "enumerated_small_field_operand_pairs": 770
+    },
+    "full_workspace": "Not rerun: filesystem full; scoped native build used executable RAM staging",
+    "python_extension": "Not built or executed by this commit; public integration is separate"
+  },
+  "source_sha256": {
+    "crates/fsym-polys/src/finite_field.rs": "24df70d171f09619c8d05b8cd19d32e675cc26246cd212d2d7f5c97773081386",
+    "crates/fsym-polys/src/finite_field_arithmetic.rs": "25f32e05d1afcf96573fe6bacf70997fe3d3dce827d6fbf436acfcbf248cb97c",
+    "crates/fsym-polys/src/finite_field_element_source.rs": "e275469b55ed009277641bd13d1bfdd2b28c8961918bd38d6510e19ce53720e7",
+    "crates/fsym-polys/src/lib.rs": "f04bc21c8febda84d60db8a1d028f2643b80a54ebf7132ffeab4149be51ea284",
+    "crates/fsym-polys/tests/finite_field_arithmetic.rs": "a164c2d82992db9432cbe51e1710f8ebd7a284e988a6b9427f5fbc854ef391ed",
+    "crates/fsym-polys/tests/finite_field_element_source.rs": "e3393b52102fff9e195ce231c789b29acb96d8c72f70ca53ae266d33ece05280"
+  },
+  "logs": {
+    "finite_field_polys_compile.log": "",
+    "finite_field_polys_clippy.log": "",
+    "finite_field_arithmetic_test_link.log": "",
+    "finite_field_arithmetic_test_clippy.log": "",
+    "finite_field_arithmetic_test_run.log": "\nrunning 20 tests\ntest accepted_receipt_retains_the_complete_request_and_replays ... ok\ntest arithmetic_preserves_characteristic_and_canonical_coefficients ... ok\ntest bezout_without_common_divisibility_does_not_certify_a_gcd ... ok\ntest both_phases_cancel_before_during_and_at_final_publication ... ok\ntest common_divisibility_without_bezout_does_not_certify_a_greatest_divisor ... ok\ntest cumulative_budgets_cover_euclid_verification_copies_and_publication ... ok\ntest derivatives_include_frobenius_zero_and_whole_call_high_order ... ok\ntest different_typed_fields_variables_and_wrong_arities_refuse_before_shortcuts ... ok\ntest division_uses_field_units_and_preserves_remainder_degree ... ok\ntest every_operation_rejects_changed_output_coefficients_or_a_changed_source ... ok\ntest exhaustive_small_fields_agree_with_complete_common_divisor_enumeration ... ok\ntest gcd_extended_gcd_and_lcm_retain_characteristic_multiplicities ... ok\ntest independent_handwritten_gcd_evidence_and_alternate_bezout_are_accepted ... ok\ntest inverse_requires_reducedness_unit_status_and_the_exact_product_witness ... ok\ntest inverses_and_proved_nonunits_have_distinct_complete_results ... ok\ntest malformed_result_counts_residues_degrees_and_irrelevant_witnesses_are_rejected ... ok\ntest maximum_characteristic_and_degree_use_wide_exact_column_sums ... ok\ntest powers_and_composition_are_polynomial_identities_not_point_samples ... ok\ntest remainder_identity_without_reducedness_is_rejected ... ok\ntest zero_and_constant_operations_follow_field_and_zero_ring_conventions ... ok\n\ntest result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s\n\n",
+    "finite_field_element_source_test_link.log": "",
+    "finite_field_element_source_test_clippy.log": "",
+    "finite_field_element_source_test_run.log": "\nrunning 13 tests\ntest accepted_source_is_original_owned_syntax_and_replays_independently ... ok\ntest all_original_children_are_admitted_before_zero_shortcuts ... ok\ntest arbitrarily_large_admitted_integers_have_independent_bytewise_images ... ok\ntest cancellation_in_either_phase_including_publication_is_terminal ... ok\ntest exact_cancellation_may_reduce_the_final_integer_polynomial_degree ... ok\ntest final_degree_bound_is_checked_before_modular_annihilation ... ok\ntest full_original_node_depth_and_symbol_limits_are_enforced ... ok\ntest integer_images_preserve_negative_coefficients_and_degree_drop ... ok\ntest invalid_characteristics_refuse_before_constant_shortcuts ... ok\ntest rational_intermediates_must_finish_as_integer_coefficients ... ok\ntest shared_ledgers_cover_conversion_reduction_and_accepted_source_cloning ... ok\ntest typed_generator_identity_is_retained_without_printed_name_matching ... ok\ntest verifier_checks_every_coefficient_and_exact_typed_field ... ok\n\ntest result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.09s\n\n"
+  }
+}
