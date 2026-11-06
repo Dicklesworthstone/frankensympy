@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-06",
+  "repository": "Dicklesworthstone/frankensympy",
+  "base_commit": "755cbe7f3f351b188323ebba8fe048fd1a9ca860",
+  "workstreams": [
+    "WS08"
+  ],
+  "beads": [
+    "fra-o4g"
+  ],
+  "status": "implementation_awaiting_execution",
+  "implemented": [
+    "Immutable sparse polynomials over validated prime fields with ordered typed generators.",
+    "Checked normalization, negation, addition, subtraction, multiplication, monic normalization, powers and mixed partial derivatives.",
+    "Ordered multivariate division with exact quotient coordinates, independent coefficient reconstruction and complete remainder irreducibility checks.",
+    "In-place sparse subtraction in the division hot loop, without rebuilding the complete current polynomial at each reduction.",
+    "Original integer-polynomial source lowering with a separate rational sparse evaluator and byte-wise modular residue verification."
+  ],
+  "bounds": {
+    "variables": [
+      1,
+      8
+    ],
+    "prime": [
+      2,
+      65521
+    ],
+    "total_degree": 64,
+    "terms": 4096,
+    "divisors": 32,
+    "source_nodes": 4096,
+    "source_depth": 64,
+    "source_coefficient_bits": 4096,
+    "source_intermediate_degree": 256,
+    "compute_units_per_phase": 20000000,
+    "logical_allocation_bytes_per_phase": 134217728
+  },
+  "verification": {
+    "source_review": "Native arithmetic and source admission reviewed independently against the mathematical identities, typed-ring contracts and Python bridge.",
+    "authored_native_tests": {
+      "finite_field_multivariate": 18,
+      "finite_field_multivariate_source": 17,
+      "total": 35
+    },
+    "executed_native_tests": 0,
+    "authored_campaigns": [
+      "38 small-field polynomial pairs, with addition and multiplication evaluated at every point in their two-dimensional prime field.",
+      "105 integer bilinear expansions compared with direct coefficient formulas."
+    ],
+    "unexecuted_checks": [
+      "cargo fmt --check",
+      "cargo check --workspace --all-targets",
+      "cargo clippy --workspace --all-targets -- -D warnings",
+      "cargo test --workspace",
+      "new focused native test binaries"
+    ],
+    "execution_blocker": "The local overlay and shared-memory working volume filled, then the execution environment became unavailable. GitHub remained usable. The final sources and tests were reconstructed and reviewed through GitHub; no current-source native or Python execution is claimed.",
+    "ci": "The existing G3 native feature regression job selects both new native test targets; completion remains pending."
+  },
+  "source_blobs": [
+    {
+      "path": "crates/fsym-polys/src/finite_field_multivariate.rs",
+      "git_blob_sha": "503da9a72c25056125d6839ce2369294c33b2f62"
+    },
+    {
+      "path": "crates/fsym-polys/src/finite_field_multivariate_source.rs",
+      "git_blob_sha": "32e66017ef589373934c3bb1b43a26816494c325"
+    },
+    {
+      "path": "crates/fsym-polys/tests/finite_field_multivariate.rs",
+      "git_blob_sha": "1a41a7d285b627e75cea493e85e94dcbec9b888b"
+    },
+    {
+      "path": "crates/fsym-polys/tests/finite_field_multivariate_source.rs",
+      "git_blob_sha": "62733b03924e98fd5d0dc10b11bd662661d3de86"
+    }
+  ],
+  "claims": {
+    "portable_proof_kernel": false,
+    "compatibility_profile_certified": false,
+    "measured_performance_win": false,
+    "workstream_closed": false
+  }
+}
