@@ -17,7 +17,7 @@ use fsym_bigint::{
     metered_cmp as metered_bigint_cmp, metered_div_rem_nonzero, metered_gcd, metered_multiply,
     metered_pow as metered_bigint_pow, metered_subtract as metered_bigint_subtract,
 };
-use fsym_budget::{BudgetMeter, Dimension, MeterError};
+use fsym_budget::{BudgetMeter, Dimension, MeterError, Unbounded};
 use num_traits::{Num, One, Signed, ToPrimitive, Zero};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::cmp::Ordering;
@@ -313,6 +313,38 @@ impl BigRational {
         meter: &mut M,
     ) -> Result<Option<f64>, MeterError> {
         metered_rational_to_f64(self, &mut FloatConversionMeter(meter))
+    }
+
+    /// Returns the tightest pair of binary64 endpoints enclosing this exact rational.
+    ///
+    /// This explicitly unbounded convenience lane uses [`Self::metered_to_f64_bounds`]. Callers
+    /// with an owning request budget should use that method directly. The endpoints describe
+    /// arithmetic conversion only; they are not a certificate for an enclosing expression.
+    pub fn to_f64_bounds(&self) -> Option<(f64, f64)> {
+        self.metered_to_f64_bounds(&mut Unbounded)
+            .expect("an unbounded meter cannot refuse or cancel")
+    }
+
+    /// Converts to directed binary64 bounds under the caller's cumulative budget.
+    ///
+    /// For a representable rational both endpoints are equal. Otherwise they are adjacent in
+    /// the extended binary64 order and strictly enclose the exact value. Overflow returns
+    /// `(f64::MAX, f64::INFINITY)` or `(f64::NEG_INFINITY, -f64::MAX)`. Underflow preserves the
+    /// source sign: a positive value below the smallest subnormal has lower endpoint `+0.0`,
+    /// and its negative has upper endpoint `-0.0`. Exact rational zero gives `(+0.0, +0.0)`.
+    ///
+    /// The nearest conversion is compared with the original rational using exact, governed
+    /// integer arithmetic before choosing its neighbor. No guessed epsilon or independently
+    /// rounded coefficients enter the enclosure. All work shares `meter`, including a final
+    /// cancellation checkpoint before publication; failure never returns a partial interval or
+    /// retries with a fresh allowance. `None` preserves the nearest lane's internal
+    /// representation-refusal outcome. The result describes this rational's arithmetic enclosure
+    /// only, not any expression, domain, or branch from which it was obtained.
+    pub fn metered_to_f64_bounds<M: BudgetMeter + ?Sized>(
+        &self,
+        meter: &mut M,
+    ) -> Result<Option<(f64, f64)>, MeterError> {
+        metered_rational_to_f64_bounds(self, &mut FloatConversionMeter(meter))
     }
 
     /// Converts this rational to binary32 with round-to-nearest, ties-to-even.
@@ -1472,6 +1504,86 @@ fn metered_rational_to_f64<M: BudgetMeter>(
         }
     };
     float_conversion_finish(Some(f64::from_bits(magnitude_bits | sign)), meter)
+}
+
+fn metered_rational_to_f64_bounds<M: BudgetMeter>(
+    value: &BigRational,
+    meter: &mut M,
+) -> Result<Option<(f64, f64)>, MeterError> {
+    let Some(nearest) = metered_rational_to_f64(value, meter)? else {
+        return float_conversion_finish(None, meter);
+    };
+    meter.checkpoint()?;
+    meter.charge(Dimension::ComputeSteps, 1)?;
+
+    let bounds = if nearest.is_nan() {
+        // Canonical rational conversion cannot produce NaN. Retain a fail-closed boundary if
+        // that invariant is ever broken instead of publishing an unordered interval.
+        return float_conversion_finish(None, meter);
+    } else if nearest.is_infinite() {
+        if nearest.is_sign_negative() {
+            (f64::NEG_INFINITY, -f64::MAX)
+        } else {
+            (f64::MAX, f64::INFINITY)
+        }
+    } else if nearest == 0.0 {
+        // These height-classified terminal cases need no coefficient copy or dyadic expansion.
+        // A rational has no signed zero, but a nonzero underflow retains the input sign.
+        if value.numer().is_zero() {
+            (0.0, 0.0)
+        } else if value.numer().is_negative() {
+            (-f64::from_bits(1), -0.0)
+        } else {
+            (0.0, f64::from_bits(1))
+        }
+    } else {
+        match metered_compare_rational_to_finite_float(value, nearest, meter)? {
+            Ordering::Less => (nearest.next_down(), nearest),
+            Ordering::Equal => (nearest, nearest),
+            Ordering::Greater => (nearest, nearest.next_up()),
+        }
+    };
+    float_conversion_finish(Some(bounds), meter)
+}
+
+/// Compares n/d with the exact dyadic significand * 2^exponent of a finite, nonzero float.
+/// The caller has already excluded zeros and infinities; both integer coefficients retain
+/// their signs, so the same cross-product comparison handles positive and negative values.
+fn metered_compare_rational_to_finite_float<M: BudgetMeter>(
+    value: &BigRational,
+    float: f64,
+    meter: &mut M,
+) -> Result<Ordering, MeterError> {
+    meter.checkpoint()?;
+    meter.charge_batch(&[
+        (Dimension::ComputeSteps, 3),
+        (Dimension::MemoryBytes, 8),
+        (Dimension::AllocationCount, 1),
+    ])?;
+    let bits = float.to_bits();
+    let fraction = bits & ((1u64 << 52) - 1);
+    let biased_exponent = ((bits >> 52) & 0x7ff) as i32;
+    let (significand, exponent) = if biased_exponent == 0 {
+        (fraction, -1074)
+    } else {
+        (fraction | (1u64 << 52), biased_exponent - 1075)
+    };
+    // A binary64 significand has at most 53 bits and therefore fits a signed i64 exactly.
+    let signed_significand = if float.is_sign_negative() {
+        -(significand as i64)
+    } else {
+        significand as i64
+    };
+    let significand = BigInt::from(signed_significand);
+    let product = metered_multiply(value.denom(), &significand, meter)?;
+    let ordering = if exponent >= 0 {
+        let scaled = metered_binary_scale(&product, exponent as u32, meter)?;
+        metered_bigint_cmp(value.numer(), &scaled, meter)?
+    } else {
+        let scaled = metered_binary_scale(value.numer(), exponent.unsigned_abs(), meter)?;
+        metered_bigint_cmp(&scaled, &product, meter)?
+    };
+    float_conversion_finish(ordering, meter)
 }
 
 fn rounded_binary_quotient(

@@ -229,6 +229,18 @@ caller to admit or refuse. Height-only terminal cases avoid coefficient copies,
 and all terminal cases check cancellation before returning. The ordinary
 `to_f64` conversion keeps its existing arithmetic path and rounding contract.
 
+`BigRational::metered_to_f64_bounds` exports the tight enclosing binary64
+endpoints of an exact rational on that same cumulative meter. It compares the
+nearest float's exact dyadic value to the original rational, then chooses an
+adjacent endpoint when necessary. Exact representable values keep equal
+endpoints; overflow uses the largest finite value and the appropriate infinity,
+and underflow preserves the sign of a nonzero source at its zero endpoint.
+Metadata-only terminal cases allocate no coefficient storage. Every return
+checks cancellation, and an operational or representation refusal publishes no
+interval. `to_f64_bounds` is the explicitly unbounded convenience form. These
+APIs describe arithmetic conversion of one rational; they do not independently
+verify the expression, domain, branch, or certificate that produced it.
+
 ### 9.3 Floating requirements
 
 Compatibility floats reproduce the selected SymPy/mpmath-facing profile. Native certified floats use explicit precision and rounding mode. The types must be distinct so an uncertified approximation cannot inhabit a certified-ball payload.
