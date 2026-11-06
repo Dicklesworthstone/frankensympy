@@ -416,6 +416,38 @@ univariate prime-field operations remain available. These are bounded
 in-process checked operations, not a certified compatibility profile or
 portable proof-kernel certificates.
 
+## Ordinary Fourier transforms (development API)
+
+`fourier_transform(f, x, k)` uses the documented cycles-per-unit kernel
+`exp(-2*pi*I*k*x)`. Its bounded native catalog admits exact rational quadratic
+Gaussians `exp(-a*x**2 + b*x + c)` with `a > 0`, and affine absolute-value
+exponentials `exp(c - a*Abs(b*x + d))` with `a > 0` and `b != 0`, together
+with finite sums and rational amplitudes. For example:
+
+```python
+from sympy import Abs, exp, fourier_transform, symbols
+
+x, k = symbols("x k", real=True)
+gaussian = fourier_transform(exp(-x**2), x, k)
+# Mathematically: sqrt(pi) * exp(-pi**2 * k**2)
+bilateral = fourier_transform(exp(-Abs(x)), x, k)
+# Mathematically: 2 / (1 + 4*pi**2 * k**2)
+```
+
+Translations retain the exact phase `exp(-2*pi*I*center*k)`. The bridge
+preserves typed symbols and original source arguments, checks convergence
+premises with rational arithmetic, and keeps resource failures terminal.
+The bilateral identity is scoped to real frequency; explicitly nonreal
+frequencies remain unevaluated. The supported `noconds=False` profiles
+retain the pinned oracle's sufficient conditions.
+
+Nonzero constants and unsupported transform families remain unevaluated.
+The separate angular-frequency native catalog retains its own convention.
+Requests have fixed source, coefficient-growth, output and cumulative
+resource limits, including at most 64 catalog terms. These direct integral
+identities do not constitute a general transform algorithm, certified
+compatibility profile, or portable proof-kernel certificate.
+
 ## Planned algorithm program
 
 The native program includes proof- or certificate-aware portfolios for:

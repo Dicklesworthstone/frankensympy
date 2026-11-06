@@ -1825,7 +1825,8 @@ print(json.dumps({
         # Oracle: (F, convergence abscissa, condition).
         self.assertEqual(str(laplace_res), "(1/(s - 1), 1, True)")
         fourier_res = sympy.fourier_transform(sympy.Integer(5), t, w)
-        self.assertEqual(str(fourier_res), "10*pi*dirac(w)")
+        # Executed SymPy 1.14: the ordinary transform keeps this constant unevaluated.
+        self.assertEqual(str(fourier_res), "5*FourierTransform(1, t, w)")
 
         # 4. Number theory functions
         self.assertEqual(sympy.mobius(1), 1)
@@ -5483,7 +5484,8 @@ print(json.dumps({
         # Fourier and Inverse Fourier
         ft = sympy.FourierTransform(sympy.Integer(5), t, x)
         self.assertEqual(str(ft), "FourierTransform(5, t, x)")
-        self.assertEqual(str(ft.doit()), "10*pi*dirac(x)")
+        # Same executed SymPy 1.14 ordinary-transform convention through doit().
+        self.assertEqual(str(ft.doit()), "5*FourierTransform(1, t, x)")
 
         ift = sympy.InverseFourierTransform(ft.doit(), x, t)
         self.assertIsInstance(ift.doit(), sympy.InverseFourierTransform)

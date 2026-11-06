@@ -145,7 +145,7 @@ jobs:
           cargo test --locked -p fsym-bigint --lib floor_square_root_pins_exact_square_boundaries_and_governed_lane -j1
           cargo test --locked -p fsym-polys --test rational_localization --test ideal_quotient --test ideal_inverse --test syzygy --test quotient_algebra --test quotient_minpoly --test radical --test finite_field --test finite_field_source --test finite_field_arithmetic --test finite_field_element_source --test finite_field_resultant --test finite_field_multivariate --test finite_field_multivariate_source -j1
           cargo test --locked -p fsym-matrices --test affine_system --test rectangular_solve --test least_squares --test matrix_exponential --test minimal_polynomial -j1
-          cargo test --locked -p fsym-calculus --test rational_laplace --test delayed_laplace --test distributional_laplace --test delayed_distributional_laplace --test rational_mellin -j1
+          cargo test --locked -p fsym-calculus --test rational_laplace --test delayed_laplace --test distributional_laplace --test delayed_distributional_laplace --test rational_mellin --test fourier_catalog -j1
           cargo test --locked -p fsym-calculus --test geometric_summation --test rational_summation -j1
           cargo test --locked -p fsym-solvers --test linear_ode_system --test polynomial_ode_system --test general_ode_system --test forced_ode_system --test exact_ode --test ode_radicals -j1
           cargo test --locked -p fsym-calculus --test general_power_programs --test directional_series --test generalized_series -j1
@@ -319,6 +319,7 @@ jobs:
               "python/tests/test_surface.py::SurfaceTests::test_extended_solvers_transforms_functions_and_submodules",
               "python/tests/test_surface.py::SurfaceTests::test_piecewise_power_integrals_and_laplace",
               "python/tests/test_surface.py::SurfaceTests::test_integral_transforms_suite",
+              "python/tests/test_fourier_transforms.py",
               "python/tests/test_surface.py::SurfaceTests::test_dummy_assumptions_keep_unique_typed_identity_and_native_lifting",
               "python/tests/test_surface.py::SurfaceTests::test_dummy_assumptions_canonicalize_and_reconstruct_without_name_aliasing",
               "python/tests/test_surface.py::SurfaceTests::test_dummy_srepr_preserves_declared_assumption_order_through_reconstruction",

@@ -95,7 +95,16 @@ class FourierTransform(Transform):
     """Unevaluated Fourier transform: F{f(x)}(k)."""
 
     def __new__(cls, f: Any, x: Any, k: Any, **kwargs: Any) -> Any:
-        return super().__new__(cls, f, x, k)
+        result = super().__new__(cls, f, x, k)
+        # Unevaluated transforms remain structural expressions, preserving
+        # exact scalar multiples without inventing native distribution nodes.
+        result._struct_args = result._args
+        return result
+
+    @property
+    def free_symbols(self):
+        function, variable, frequency = self.args
+        return (function.free_symbols - {variable}) | frequency.free_symbols
 
     def doit(self, **hints: Any) -> Any:
         f, x, k = self.args
@@ -517,19 +526,233 @@ def _inverse_laplace_table(F: Any, s: Any, t: Any, plane: Any = None, noconds: b
     return result if noconds else (result, True)
 
 
+_FOURIER_ABSENT = object()
+
+
+class _FourierSource:
+    """Snapshot retained source slots without calling user argument hooks.
+
+    Native-only regions remain borrowed. Retained Python argument tuples and
+    exact numeric/function owners are compared against their native payload
+    by the bridge before any catalog result is published.
+    """
+
+    def __init__(self, *sources):
+        from ..core import (
+            Add, Mul, _exact_surface_types, _require_closed_function_class,
+            _surface_binding_key,
+        )
+
+        self.slots = []
+        self.dictionaries = []
+        self.functions = []
+        self.arguments = []
+        pending = [(source, 0) for source in sources]
+        seen = set()
+        count = 0
+        while pending:
+            node, depth = pending.pop()
+            count += 1
+            if count > 4096 or depth > 64:
+                raise ValueError("Fourier source exceeds its bounded envelope")
+            if id(node) in seen:
+                continue
+            seen.add(id(node))
+            kind = type(node)
+            mro = type.__dict__["__mro__"].__get__(kind)
+            function = any(base is Function for base in mro)
+            if function:
+                _require_closed_function_class(kind)
+                if not any(kind is previous for previous in self.functions):
+                    self.functions.append(kind)
+            elif not any(kind is builtin for builtin in _exact_surface_types()):
+                raise NotImplementedError("Fourier transforms require exact built-in source owners")
+            native = _native_expr(node)
+            retained = []
+            for name in ("_value", "_struct_args", "_surface_args"):
+                value = self.retain(node, Basic, name)
+                if name != "_value":
+                    retained.append(value)
+            arithmetic = any(kind is builtin for builtin in (Add, Mul, Pow))
+            if arithmetic or function:
+                retained.append(self.retain(node, Function if function else kind, "_args"))
+                operator = type.__dict__["__name__"].__get__(kind)
+                # A class-only record also protects a native-only built-in
+                # node whose Python argument tuple has never been materialized.
+                self.arguments.append((native, operator, None))
+            elif any(base is Integer for base in mro):
+                self.arguments.append((native, "Integer", None))
+            elif any(base is Rational for base in mro):
+                self.arguments.append((native, "Rational", None))
+            groups = []
+            for children in retained:
+                if children is _FOURIER_ABSENT or children is None:
+                    continue
+                if type(children) is not tuple:
+                    raise ValueError("Fourier source requires original argument tuples")
+                if any(children is previous for previous in groups):
+                    continue
+                groups.append(children)
+                if len(children) > 4096 - count - len(pending):
+                    raise ValueError("Fourier retained source exceeds its node bound")
+                pending.extend((child, depth + 1) for child in children)
+                if arithmetic or function:
+                    self.arguments.append((native, operator, children))
+            if len(self.arguments) > 4096:
+                raise ValueError("Fourier retained source exceeds its record bound")
+            if kind is Symbol or kind is Dummy:
+                facts = self.retain(node, Symbol, "_assumptions")
+                if (type(facts) is not dict or len(facts) > 128
+                        or any(type(key) is not str or len(key) > 256
+                               or type(value) is not bool for key, value in facts.items())):
+                    raise ValueError("Fourier source requires bounded exact symbol assumptions")
+                self.dictionaries.append((facts, tuple(facts.items())))
+                if facts.get("commutative") is False:
+                    raise NotImplementedError("Fourier transforms require commuting scalar symbols")
+                if kind is Dummy:
+                    self.retain(node, Dummy, "_dummy_name")
+                    self.retain(node, Dummy, "_dummy_number")
+                if (not native.is_symbol
+                        or _surface_binding_key(native.symbol_binding)
+                        != _surface_binding_key(_symbol_binding(node))):
+                    raise ValueError("Fourier symbol has inconsistent typed assumptions")
+        self.unchanged()
+
+    @staticmethod
+    def slot(owner, name):
+        from types import MemberDescriptorType
+
+        descriptor = type.__dict__["__dict__"].__get__(owner).get(name)
+        if (type(descriptor) is not MemberDescriptorType
+                or descriptor.__objclass__ is not owner or descriptor.__name__ != name):
+            raise TypeError("Fourier transforms require original source storage descriptors")
+        return descriptor
+
+    def retain(self, node, owner, name):
+        slot = self.slot(owner, name)
+        try:
+            value = slot.__get__(node, owner)
+        except AttributeError:
+            value = _FOURIER_ABSENT
+        self.slots.append((node, owner, name, slot, value))
+        return value
+
+    def records(self):
+        values = [
+            (native, operator, None if children is None
+             else tuple(_native_expr(child) for child in children))
+            for native, operator, children in self.arguments
+        ]
+        self.unchanged()
+        return values
+
+    def unchanged(self):
+        from ..core import _require_closed_function_class
+
+        for function in self.functions:
+            _require_closed_function_class(function)
+        for mapping, previous in self.dictionaries:
+            if (len(mapping) != len(previous)
+                    or any(key is not old_key or value is not old_value
+                           for (key, value), (old_key, old_value)
+                           in zip(mapping.items(), previous))):
+                raise RuntimeError("Fourier source mutated during evaluation")
+        for node, owner, name, slot, previous in self.slots:
+            if self.slot(owner, name) is not slot:
+                raise RuntimeError("Fourier source storage changed during evaluation")
+            try:
+                current = slot.__get__(node, owner)
+            except AttributeError:
+                current = _FOURIER_ABSENT
+            if current is previous:
+                continue
+            # Lifting may refresh an interned Symbol's native handle, but its
+            # complete immutable typed atom must remain equal.
+            if (type(node) is Symbol and owner is Basic and name == "_value"
+                    and type(current) is _native.Expr and type(previous) is _native.Expr
+                    and current.is_symbol and previous.is_symbol and current == previous):
+                continue
+            raise RuntimeError("Fourier source mutated during evaluation")
+
+
 def fourier_transform(expression: Any, x: Any, k: Any, noconds: bool = True, **kwargs: Any) -> Any:
-    """Compute the Fourier transform of expression: F{f(x)}(k) = int_-oo^oo f(x) e^(-2*pi*I*x*k) dx."""
-    x_sym = _require_symbol(x)
-    k_sym = _require_symbol(k)
-    result = _native.fourier_expr(
-        str(_wrap(_native_expr(expression))),
-        _native_symbol_key(x_sym),
-        _native_symbol_key(k_sym),
-    )
-    res = _parse_result(result)
-    if noconds:
-        return res
-    return (res, True)
+    """Ordinary Fourier transform with kernel exp(-2*pi*I*x*k).
+
+    A bounded exact native catalog supports rational quadratic Gaussians with
+    negative leading coefficient and affine absolute-value exponentials with
+    strictly positive rational decay, including translations, finite sums and
+    rational amplitudes. Typed symbols and retained original sources cross a
+    structured bridge. Unsupported inputs, including nonzero constants, stay
+    unevaluated; no distributional answer is substituted for an ordinary
+    integral. Resource failures remain terminal.
+
+    With noconds=False, the supported bilateral-exponential frequency profiles
+    retain the pinned oracle's sufficient condition. Other assumed-frequency
+    condition profiles remain unevaluated. This is a bounded catalog, not a
+    general compatibility or portable mathematical-certification claim.
+    """
+    from fractions import Fraction
+
+    from ..core import Float
+
+    if type(noconds) is not bool:
+        raise TypeError("Fourier noconds must be an exact bool")
+    if kwargs:
+        raise TypeError("unsupported Fourier transform options")
+    # Do not invoke an arbitrary _sympy_ converter before source admission.
+    if type(expression) is int:
+        if expression.bit_length() > 4096:
+            raise ValueError("Fourier coefficient exceeds 4096 bits")
+        expression = Integer(expression)
+    elif type(expression) is Fraction:
+        if max(abs(expression.numerator).bit_length(), expression.denominator.bit_length()) > 4096:
+            raise ValueError("Fourier coefficient exceeds 4096 bits")
+        expression = Rational(expression.numerator, expression.denominator)
+    elif type(expression) is float:
+        expression = Float(expression)
+    elif not any(base is Basic for base in type.__dict__["__mro__"].__get__(type(expression))):
+        raise TypeError("Fourier transforms require exact built-in symbolic sources")
+    x_sym, k_sym = _require_symbol(x), _require_symbol(k)
+    snapshot = _FourierSource(expression, x_sym, k_sym)
+
+    def unevaluated():
+        original = _native_expr(expression)
+        if original.is_integer or original.is_rational:
+            result = expression * FourierTransform(Integer(1), x_sym, k_sym)
+        else:
+            result = FourierTransform(expression, x_sym, k_sym)
+        snapshot.unchanged()
+        return result
+
+    try:
+        native, bilateral = _native.fourier_l1_native(
+            _native_expr(expression), _symbol_binding(x_sym), _symbol_binding(k_sym),
+            snapshot.records(),
+        )
+    except NotImplementedError:
+        snapshot.unchanged()
+        return unevaluated()
+    snapshot.unchanged()
+    if bilateral and k_sym.is_real is False:
+        # This identity is on the real frequency axis. Nonreal frequencies
+        # require their separate convergence strip, which is outside this lane.
+        return unevaluated()
+    condition = True
+    if bilateral and not noconds:
+        # Executed SymPy 1.14 oracle: unspecified/real k gives k > 0, while
+        # positive and negative k both give True. Do not promote that observed
+        # subset to untested combinations of frequency assumptions.
+        if k_sym.is_positive is True or k_sym.is_negative is True:
+            condition = True
+        else:
+            facts = _FourierSource.slot(Symbol, "_assumptions").__get__(k_sym, Symbol)
+            if any(key not in ("real", "commutative") or value is not True
+                   for key, value in facts.items()):
+                return unevaluated()
+            condition = k_sym > 0
+    result = _lift_native_result(native, expression, x_sym, k_sym)
+    snapshot.unchanged()
+    return result if noconds else (result, condition)
 
 
 def inverse_fourier_transform(F: Any, k: Any, x: Any, noconds: bool = True, **kwargs: Any) -> Any:
